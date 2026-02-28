@@ -22,14 +22,14 @@
 #include <memory>
 #include <span>
 
-namespace Common {
+namespace common {
     class BinaryWriter;
 }
 
 namespace mdx {
 
 // Use BinaryWriter from Common namespace
-using Common::BinaryWriter;
+using common::BinaryWriter;
 
 // ============================================================================
 // MDX Writer

@@ -1,0 +1,18 @@
+# Build directories
+build/
+scripts/
+docs/
+
+# IDE
+.vscode/
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+
+# Dependencies
+vcpkg_installed/
+
+# OS
+.DS_Store
+Thumbs.db

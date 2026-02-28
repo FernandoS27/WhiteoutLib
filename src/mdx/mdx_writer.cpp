@@ -17,10 +17,10 @@ struct SizeEnclosure {
     SizeEnclosure(BinaryWriter& writer, u32 tag = 0) : writer(writer) {
         
         if (tag != 0) {
-            writer.writeUInt32(tag);
+            writer.write(tag);
         }
         startPos = writer.getPosition();
-        writer.writeUInt32(0); // Placeholder for size
+        writer.write<u32>(0); // Placeholder for size
         if (tag == 0) {
             sizePos = startPos; // this is inclusive
             return;
@@ -32,7 +32,7 @@ struct SizeEnclosure {
         u32 endPos = writer.getPosition();
         u32 actualSize = endPos - sizePos;
         writer.setPosition(startPos); // Move back to size field
-        writer.writeUInt32(actualSize);
+        writer.write(actualSize);
         writer.setPosition(endPos); // Move back to end
     }
 };
@@ -44,13 +44,13 @@ static void writeTrackChunk(BinaryWriter& writer, u32 tag, const Track<T>& track
     if (!track.isUsed) return; // Skip unused tracks
     
     // Write track header
-    writer.writeUInt32(tag);
-    writer.writeUInt32(track.keyCount);
-    writer.writeUInt32(static_cast<u32>(track.interpolationType));
-    writer.writeUInt32(track.globalSequenceId);
+    writer.write(tag);
+    writer.write(track.keyCount);
+    writer.write(static_cast<u32>(track.interpolationType));
+    writer.write(track.globalSequenceId);
     
     // Write track data
-    writer.writeUInt8Array(track.keys_data);
+    writer.write(track.keys_data);
 }
 
 void MDXWriter::write(const std::string& filePath, const MDXFile& mdx) {
@@ -66,7 +66,7 @@ void MDXWriter::write(const std::string& filePath, const MDXFile& mdx) {
 
 void MDXWriter::write(BinaryWriter& writer, const MDXFile& mdx) {
     // Write magic number
-    writer.writeUInt32(MDLX_TAG);
+    writer.write(MDLX_TAG);
     
     // Write chunks
     writeVERS(writer, mdx);
@@ -97,21 +97,21 @@ void MDXWriter::write(BinaryWriter& writer, const MDXFile& mdx) {
 }
 
 void MDXWriter::writeChunkHeader(BinaryWriter& writer, u32 tag, u32 size) {
-    writer.writeUInt32(tag);
-    writer.writeUInt32(size);
+    writer.write(tag);
+    writer.write(size);
 }
 
 void MDXWriter::writeVERS(BinaryWriter& writer, const MDXFile& mdx) {
     writeChunkHeader(writer, VERS_TAG, 4);
-    writer.writeUInt32(mdx.version);
+    writer.write(mdx.version);
 }
 
 void MDXWriter::writeMODL(BinaryWriter& writer, const MDXFile& mdx) {
     writeChunkHeader(writer, MODL_TAG, 372);
     writer.writeString(mdx.modelName, 80);
     writer.writeString(mdx.animationFileName, 260);
-    writer.writeExtent(mdx.modelExtent);
-    writer.writeUInt32(mdx.blendTime);
+    writer.write(mdx.modelExtent);
+    writer.write(mdx.blendTime);
 }
 
 void MDXWriter::writeSEQS(BinaryWriter& writer, const MDXFile& mdx) {
@@ -120,20 +120,20 @@ void MDXWriter::writeSEQS(BinaryWriter& writer, const MDXFile& mdx) {
     
     for (const auto& seq : mdx.sequences) {
         writer.writeString(seq.name, 80);
-        writer.writeUInt32(seq.intervalStart);
-        writer.writeUInt32(seq.intervalEnd);
-        writer.writeFloat32(seq.moveSpeed);
-        writer.writeUInt32(seq.flags);
-        writer.writeFloat32(seq.rarity);
-        writer.writeUInt32(seq.syncPoint);
-        writer.writeExtent(seq.extent);
+        writer.write(seq.intervalStart);
+        writer.write(seq.intervalEnd);
+        writer.write(seq.moveSpeed);
+        writer.write(seq.flags);
+        writer.write(seq.rarity);
+        writer.write(seq.syncPoint);
+        writer.write(seq.extent);
     }
 }
 
 void MDXWriter::writeGLBS(BinaryWriter& writer, const MDXFile& mdx) {
     u32 size = mdx.globalSequences.size() * 4;
     writeChunkHeader(writer, GLBS_TAG, size);
-    writer.writeUInt32Array(mdx.globalSequences);
+    writer.write(mdx.globalSequences);
 }
 
 void MDXWriter::writeTEXS(BinaryWriter& writer, const MDXFile& mdx) {
@@ -141,9 +141,9 @@ void MDXWriter::writeTEXS(BinaryWriter& writer, const MDXFile& mdx) {
     writeChunkHeader(writer, TEXS_TAG, size);
     
     for (const auto& tex : mdx.textures) {
-        writer.writeUInt32(tex.replaceableId);
+        writer.write(tex.replaceableId);
         writer.writeString(tex.fileName, 260);
-        writer.writeUInt32(tex.flags);
+        writer.write(tex.flags);
     }
 }
 
@@ -153,9 +153,9 @@ void MDXWriter::writeSNDS(BinaryWriter& writer, const MDXFile& mdx) {
     
     for (const auto& st : mdx.soundTracks) {
         writer.writeString(st.fileName, 260);
-        writer.writeFloat32(st.volume);
-        writer.writeFloat32(st.pitch);
-        writer.writeUInt32(st.flags);
+        writer.write(st.volume);
+        writer.write(st.pitch);
+        writer.write(st.flags);
     }
 }
 
@@ -170,16 +170,16 @@ void MDXWriter::writeMTLS(BinaryWriter& writer, const MDXFile& mdx) {
 void MDXWriter::writeMaterial(BinaryWriter& writer, const Material& mat, const MDXFile& mdx) {
     SizeEnclosure sizeEnclosure(writer);
     
-    writer.writeUInt32(mat.priorityPlane);
-    writer.writeUInt32(mat.flags);
+    writer.write(mat.priorityPlane);
+    writer.write(mat.flags);
     
     if (mdx.version > 800 && mdx.version < 1100) {
         writer.writeString(mat.shader, 80);
     }
     
     // Write LAYS chunk
-    writer.writeUInt32(LAYS_TAG);
-    writer.writeUInt32(mat.layers.size());
+    writer.write(LAYS_TAG);
+    writer.write(mat.layers.size());
     
     for (const auto& layer : mat.layers) {
         writeLayer(writer, layer, mdx);
@@ -189,27 +189,27 @@ void MDXWriter::writeMaterial(BinaryWriter& writer, const Material& mat, const M
 void MDXWriter::writeLayer(BinaryWriter& writer, const Layer& layer, const MDXFile& mdx) {
     SizeEnclosure sizeEnclosure(writer);
     
-    writer.writeUInt32(static_cast<u32>(layer.filterMode));
-    writer.writeUInt32(static_cast<u32>(layer.shadingFlags));
-    writer.writeUInt32(layer.textureId);
-    writer.writeUInt32(layer.textureAnimationId);
-    writer.writeUInt32(layer.coordId);
-    writer.writeFloat32(layer.alpha);
+    writer.write(static_cast<u32>(layer.filterMode));
+    writer.write(static_cast<u32>(layer.shadingFlags));
+    writer.write(layer.textureId);
+    writer.write(layer.textureAnimationId);
+    writer.write(layer.coordId);
+    writer.write(layer.alpha);
 
     if (mdx.version > 800) {
-        writer.writeFloat32(layer.emissiveGain);
-        writer.writeVector3f(layer.fresnelColor);
-        writer.writeFloat32(layer.fresnelOpacity);
-        writer.writeFloat32(layer.fresnelTeamColor);
+        writer.write(layer.emissiveGain);
+        writer.write(layer.fresnelColor);
+        writer.write(layer.fresnelOpacity);
+        writer.write(layer.fresnelTeamColor);
     }
 
     if (mdx.version >= 1100) {
-        writer.writeUInt32(layer.is_hd ? 1 : 0);
-        writer.writeUInt32(layer.subTextures.size());
+        writer.write(layer.is_hd ? 1 : 0);
+        writer.write(layer.subTextures.size());
         
         for (const auto& subTex : layer.subTextures) {
-            writer.writeUInt32(subTex.textureId);
-            writer.writeUInt32(subTex.slot);
+            writer.write(subTex.textureId);
+            writer.write(subTex.slot);
             writeTrackChunk(writer, KMTF_TAG, subTex.tracks);
         }
     }
@@ -259,63 +259,63 @@ void MDXWriter::writeGeoset(BinaryWriter& writer, const Geoset& geo, const MDXFi
     
     // Write VRTX
     writeChunkHeader(writer, VRTX_TAG, geo.vertexPositions.size());
-    writer.writeVector3fArray(geo.vertexPositions);
+    writer.write(geo.vertexPositions);
     
     // Write NRMS
     writeChunkHeader(writer, NRMS_TAG, geo.vertexNormals.size());
-    writer.writeVector3fArray(geo.vertexNormals);
+    writer.write(geo.vertexNormals);
     
     // Write PTYP
     writeChunkHeader(writer, PTYP_TAG, geo.faceTypeGroups.size());
-    writer.writeUInt32Array(geo.faceTypeGroups);
+    writer.write(geo.faceTypeGroups);
     
     // Write PCNT
     writeChunkHeader(writer, PCNT_TAG, geo.faceGroups.size());
-    writer.writeUInt32Array(geo.faceGroups);
+    writer.write(geo.faceGroups);
     
     // Write PVTX
     writeChunkHeader(writer, PVTX_TAG, geo.faces.size());
-    writer.writeUInt16Array(geo.faces);
+    writer.write(geo.faces);
     
     // Write GNDX
     writeChunkHeader(writer, GNDX_TAG, geo.vertexGroups.size());
-    writer.writeUInt8Array(geo.vertexGroups);
+    writer.write(geo.vertexGroups);
     
     // Write MTGC
     writeChunkHeader(writer, MTGC_TAG, geo.matrixGroups.size());
-    writer.writeUInt32Array(geo.matrixGroups);
+    writer.write(geo.matrixGroups);
     
     // Write MATS
     writeChunkHeader(writer, MATS_TAG, geo.matrixIndices.size());
-    writer.writeUInt32Array(geo.matrixIndices);
+    writer.write(geo.matrixIndices);
     
-    writer.writeUInt32(geo.materialId);
-    writer.writeUInt32(geo.selectionGroup);
-    writer.writeUInt32(geo.selectionFlags);
+    writer.write(geo.materialId);
+    writer.write(geo.selectionGroup);
+    writer.write(geo.selectionFlags);
     
     if (mdx.version > 800) {
-        writer.writeUInt32(geo.lod);
+        writer.write(geo.lod);
         writer.writeString(geo.lodName, 80);
     }
     
-    writer.writeExtent(geo.extent);
+    writer.write(geo.extent);
     
-    writer.writeUInt32(geo.sequenceExtents.size());
+    writer.write(geo.sequenceExtents.size());
     for (const auto& ext : geo.sequenceExtents) {
-        writer.writeExtent(ext);
+        writer.write(ext);
     }
     
     if (mdx.version > 800) {
         // Write optional TANG
         if (!geo.tangents.empty()) {
             writeChunkHeader(writer, TANG_TAG, geo.tangents.size());
-            writer.writeVector4fArray(geo.tangents);
+            writer.write(geo.tangents);
         }
         
         // Write optional SKIN
         if (!geo.skinData.empty()) {
             writeChunkHeader(writer, SKIN_TAG, geo.skinData.size());
-            writer.writeUInt8Array(geo.skinData);
+            writer.write(geo.skinData);
         }
     }
     
@@ -325,7 +325,7 @@ void MDXWriter::writeGeoset(BinaryWriter& writer, const Geoset& geo, const MDXFi
         
         for (const auto& uvSet : geo.textureCoordinateSets) {
             writeChunkHeader(writer, UVBS_TAG, uvSet.size());
-            writer.writeVector2fArray(uvSet);
+            writer.write(uvSet);
         }
     }
 }
@@ -342,10 +342,10 @@ void MDXWriter::writeGEOA(BinaryWriter& writer, const MDXFile& mdx) {
 void MDXWriter::writeGeosetAnimation(BinaryWriter& writer, const GeosetAnimation& anim) {
     SizeEnclosure sizeEnclosure(writer);
     
-    writer.writeFloat32(anim.alpha);
-    writer.writeUInt32(anim.flags);
-    writer.writeVector3f(anim.color);
-    writer.writeUInt32(anim.geosetId);
+    writer.write(anim.alpha);
+    writer.write(anim.flags);
+    writer.write(anim.color);
+    writer.write(anim.geosetId);
     
     writeTrackChunk(writer, KGAO_TAG, anim.alphaTracks);
     writeTrackChunk(writer, KGAC_TAG, anim.colorTracks);
@@ -361,17 +361,17 @@ void MDXWriter::writeBONE(BinaryWriter& writer, const MDXFile& mdx) {
 
 void MDXWriter::writeBone(BinaryWriter& writer, const Bone& bone) {
     writeNode(writer, bone.node);
-    writer.writeUInt32(bone.geosetId);
-    writer.writeUInt32(bone.geosetAnimationId);
+    writer.write(bone.geosetId);
+    writer.write(bone.geosetAnimationId);
 }
 
 void MDXWriter::writeNode(BinaryWriter& writer, const Node& node) {
     SizeEnclosure sizeEnclosure(writer);
     
     writer.writeString(node.name, 80);
-    writer.writeUInt32(node.objectId);
-    writer.writeUInt32(node.parentId);
-    writer.writeUInt32(static_cast<u32>(node.flags));
+    writer.write(node.objectId);
+    writer.write(node.parentId);
+    writer.write(static_cast<u32>(node.flags));
     
     writeNodeTracks(writer, node);
 }
@@ -394,15 +394,15 @@ void MDXWriter::writeLight(BinaryWriter& writer, const Light& light, const MDXFi
     SizeEnclosure sizeEnclosure(writer);
     
     writeNode(writer, light.node);
-    writer.writeUInt32(static_cast<u32>(light.type));
-    writer.writeFloat32(light.attenuationStart);
-    writer.writeFloat32(light.attenuationEnd);
-    writer.writeVector3f(light.color);
-    writer.writeFloat32(light.intensity);
-    writer.writeVector3f(light.ambientColor);
-    writer.writeFloat32(light.ambientIntensity);
+    writer.write(static_cast<u32>(light.type));
+    writer.write(light.attenuationStart);
+    writer.write(light.attenuationEnd);
+    writer.write(light.color);
+    writer.write(light.intensity);
+    writer.write(light.ambientColor);
+    writer.write(light.ambientIntensity);
     if (mdx.version >= 1200) {
-        writer.writeFloat32(light.shadowIntensity);
+        writer.write(light.shadowIntensity);
     }
     
     writeTrackChunk(writer, KLAS_TAG, light.attenuationStartTracks);
@@ -439,7 +439,7 @@ void MDXWriter::writeAttachment(BinaryWriter& writer, const Attachment& att) {
     
     writeNode(writer, att.node);
     writer.writeString(att.path, 260);
-    writer.writeUInt32(att.attachmentId);
+    writer.write(att.attachmentId);
     
     writeTrackChunk(writer, KATV_TAG, att.visibilityTracks);
 }
@@ -447,7 +447,7 @@ void MDXWriter::writeAttachment(BinaryWriter& writer, const Attachment& att) {
 void MDXWriter::writePIVT(BinaryWriter& writer, const MDXFile& mdx) {
     u32 size = mdx.pivotPoints.size() * 12;
     writeChunkHeader(writer, PIVT_TAG, size);
-    writer.writeVector3fArray(mdx.pivotPoints);
+    writer.write(mdx.pivotPoints);
 }
 
 void MDXWriter::writePREM(BinaryWriter& writer, const MDXFile& mdx) {
@@ -462,13 +462,13 @@ void MDXWriter::writeParticleEmitter(BinaryWriter& writer, const ParticleEmitter
     SizeEnclosure sizeEnclosure(writer);
     
     writeNode(writer, pem.node);
-    writer.writeFloat32(pem.emissionRate);
-    writer.writeFloat32(pem.gravity);
-    writer.writeFloat32(pem.longitude);
-    writer.writeFloat32(pem.latitude);
+    writer.write(pem.emissionRate);
+    writer.write(pem.gravity);
+    writer.write(pem.longitude);
+    writer.write(pem.latitude);
     writer.writeString(pem.spawnModelFileName, 260);
-    writer.writeFloat32(pem.lifespan);
-    writer.writeFloat32(pem.initialVelocity);
+    writer.write(pem.lifespan);
+    writer.write(pem.initialVelocity);
     
     writeTrackChunk(writer, KPEE_TAG, pem.emissionRateTracks);
     writeTrackChunk(writer, KPEG_TAG, pem.gravityTracks);
@@ -491,50 +491,50 @@ void MDXWriter::writeParticleEmitter2(BinaryWriter& writer, const ParticleEmitte
     SizeEnclosure sizeEnclosure(writer);
     
     writeNode(writer, pem2.node);
-    writer.writeFloat32(pem2.speed);
-    writer.writeFloat32(pem2.variation);
-    writer.writeFloat32(pem2.latitude);
-    writer.writeFloat32(pem2.gravity);
-    writer.writeFloat32(pem2.lifespan);
-    writer.writeFloat32(pem2.emissionRate);
-    writer.writeFloat32(pem2.length);
-    writer.writeFloat32(pem2.width);
+    writer.write(pem2.speed);
+    writer.write(pem2.variation);
+    writer.write(pem2.latitude);
+    writer.write(pem2.gravity);
+    writer.write(pem2.lifespan);
+    writer.write(pem2.emissionRate);
+    writer.write(pem2.length);
+    writer.write(pem2.width);
     
-    writer.writeUInt32(pem2.filterMode);
-    writer.writeUInt32(pem2.rows);
-    writer.writeUInt32(pem2.columns);
-    writer.writeUInt32(pem2.headOrTail);
+    writer.write(pem2.filterMode);
+    writer.write(pem2.rows);
+    writer.write(pem2.columns);
+    writer.write(pem2.headOrTail);
     
-    writer.writeFloat32(pem2.tailLength);
-    writer.writeFloat32(pem2.time);
-    
-    for (int i = 0; i < 3; i++) {
-        writer.writeVector3f(pem2.segmentColor[i]);
-    }
-    for (int i = 0; i < 3; i++) {
-        writer.writeUInt8(pem2.segmentAlpha[i]);
-    }
-    for (int i = 0; i < 3; i++) {
-        writer.writeFloat32(pem2.segmentScaling[i]);
-    }
+    writer.write(pem2.tailLength);
+    writer.write(pem2.time);
     
     for (int i = 0; i < 3; i++) {
-        writer.writeUInt32(pem2.headInterval[i]);
+        writer.write(pem2.segmentColor[i]);
     }
     for (int i = 0; i < 3; i++) {
-        writer.writeUInt32(pem2.headDecayInterval[i]);
+        writer.write(pem2.segmentAlpha[i]);
     }
     for (int i = 0; i < 3; i++) {
-        writer.writeUInt32(pem2.tailInterval[i]);
-    }
-    for (int i = 0; i < 3; i++) {
-        writer.writeUInt32(pem2.tailDecayInterval[i]);
+        writer.write(pem2.segmentScaling[i]);
     }
     
-    writer.writeUInt32(pem2.textureId);
-    writer.writeUInt32(pem2.squirt);
-    writer.writeUInt32(pem2.priorityPlane);
-    writer.writeUInt32(pem2.replaceableId);
+    for (int i = 0; i < 3; i++) {
+        writer.write(pem2.headInterval[i]);
+    }
+    for (int i = 0; i < 3; i++) {
+        writer.write(pem2.headDecayInterval[i]);
+    }
+    for (int i = 0; i < 3; i++) {
+        writer.write(pem2.tailInterval[i]);
+    }
+    for (int i = 0; i < 3; i++) {
+        writer.write(pem2.tailDecayInterval[i]);
+    }
+    
+    writer.write(pem2.textureId);
+    writer.write(pem2.squirt);
+    writer.write(pem2.priorityPlane);
+    writer.write(pem2.replaceableId);
     
     writeTrackChunk(writer, KP2S_TAG, pem2.speedTracks);
     writeTrackChunk(writer, KP2R_TAG, pem2.variationTracks);
@@ -558,17 +558,17 @@ void MDXWriter::writeRibbonEmitter(BinaryWriter& writer, const RibbonEmitter& ri
     SizeEnclosure sizeEnclosure(writer);
     
     writeNode(writer, ribb.node);
-    writer.writeFloat32(ribb.heightAbove);
-    writer.writeFloat32(ribb.heightBelow);
-    writer.writeFloat32(ribb.alpha);
-    writer.writeVector3f(ribb.color);
-    writer.writeFloat32(ribb.lifespan);
-    writer.writeUInt32(ribb.textureSlot);
-    writer.writeUInt32(ribb.emissionRate);
-    writer.writeUInt32(ribb.rows);
-    writer.writeUInt32(ribb.columns);
-    writer.writeUInt32(ribb.materialId);
-    writer.writeFloat32(ribb.gravity);
+    writer.write(ribb.heightAbove);
+    writer.write(ribb.heightBelow);
+    writer.write(ribb.alpha);
+    writer.write(ribb.color);
+    writer.write(ribb.lifespan);
+    writer.write(ribb.textureSlot);
+    writer.write(ribb.emissionRate);
+    writer.write(ribb.rows);
+    writer.write(ribb.columns);
+    writer.write(ribb.materialId);
+    writer.write(ribb.gravity);
     
     writeTrackChunk(writer, KRHA_TAG, ribb.heightAboveTracks);
     writeTrackChunk(writer, KRHB_TAG, ribb.heightBelowTracks);
@@ -589,10 +589,10 @@ void MDXWriter::writeEVTS(BinaryWriter& writer, const MDXFile& mdx) {
 void MDXWriter::writeEventObject(BinaryWriter& writer, const EventObject& evt) {
     writeNode(writer, evt.node);
     
-    writer.writeUInt32(KEVT_TAG);
-    writer.writeUInt32(evt.eventTrackTimes.size());
-    writer.writeUInt32Array(evt.eventTrackTimes);
-    writer.writeUInt32(evt.globalSequenceId);
+    writer.write(KEVT_TAG);
+    writer.write(evt.eventTrackTimes.size());
+    writer.write(evt.eventTrackTimes);
+    writer.write(evt.globalSequenceId);
 }
 
 void MDXWriter::writeCAMS(BinaryWriter& writer, const MDXFile& mdx) {
@@ -607,11 +607,11 @@ void MDXWriter::writeCamera(BinaryWriter& writer, const Camera& cam) {
     SizeEnclosure sizeEnclosure(writer);
     
     writer.writeString(cam.name, 80);
-    writer.writeVector3f(cam.position);
-    writer.writeFloat32(cam.fieldOfView);
-    writer.writeFloat32(cam.farClippingPlane);
-    writer.writeFloat32(cam.nearClippingPlane);
-    writer.writeVector3f(cam.targetPosition);
+    writer.write(cam.position);
+    writer.write(cam.fieldOfView);
+    writer.write(cam.farClippingPlane);
+    writer.write(cam.nearClippingPlane);
+    writer.write(cam.targetPosition);
     
     writeTrackChunk(writer, KCTR_TAG, cam.positionTracks);
     writeTrackChunk(writer, KCRL_TAG, cam.targetRotationTracks);
@@ -628,12 +628,13 @@ void MDXWriter::writeCLID(BinaryWriter& writer, const MDXFile& mdx) {
 
 void MDXWriter::writeCollisionShape(BinaryWriter& writer, const CollisionShape& shape) {
     writeNode(writer, shape.node);
-    writer.writeUInt32(shape.type);
+    writer.write(static_cast<u32>(shape.type));
     
-    writer.writeVector3fArray(shape.vertices);
+    writer.write(shape.vertices);
     
-    if (shape.type == 2 || shape.type == 3) {
-        writer.writeFloat32(shape.radius);
+    if (    shape.type == CollisionShape::ShapeType::Sphere 
+        ||  shape.type == CollisionShape::ShapeType::Cylinder) {
+        writer.write(shape.radius);
     }
 }
 
@@ -641,10 +642,10 @@ void MDXWriter::writeBPOS(BinaryWriter& writer, const MDXFile& mdx) {
     u32 size = 4 + mdx.bindPoses.size() * 48; // count + matrices
     writeChunkHeader(writer, BPOS_TAG, size);
     
-    writer.writeUInt32(mdx.bindPoses.size());
+    writer.write(mdx.bindPoses.size());
     for (const auto& pose : mdx.bindPoses) {
         for (int i = 0; i < 12; i++) {
-            writer.writeFloat32(pose[i]);
+            writer.write(pose[i]);
         }
     }
 }
@@ -671,14 +672,14 @@ void MDXWriter::writeCornEmitter(BinaryWriter& writer, const CornEmitter& corn) 
     SizeEnclosure sizeEnclosure(writer);
     
     writeNode(writer, corn.node);
-    writer.writeFloat32(corn.lifeSpan);
-    writer.writeFloat32(corn.emissionRate);
-    writer.writeFloat32(corn.speed);
-    writer.writeFloat32(corn.color.x);
-    writer.writeFloat32(corn.color.y);
-    writer.writeFloat32(corn.color.z);
-    writer.writeFloat32(corn.color.w);
-    writer.writeUInt32(corn.replaceableId);
+    writer.write(corn.lifeSpan);
+    writer.write(corn.emissionRate);
+    writer.write(corn.speed);
+    writer.write(corn.color.x);
+    writer.write(corn.color.y);
+    writer.write(corn.color.z);
+    writer.write(corn.color.w);
+    writer.write(corn.replaceableId);
     writer.writeString(corn.path, 260);
     writer.writeString(corn.animVisibilityGuide, 260);
     

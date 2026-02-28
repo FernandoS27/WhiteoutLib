@@ -27,14 +27,14 @@
 #include <string>
 #include <span>
 
-namespace Common {
+namespace common {
     class BinaryReader;
 }
 
 namespace mdx {
 
 // Use BinaryReader from Common namespace
-using Common::BinaryReader;
+using common::BinaryReader;
 
 // ============================================================================
 // MDX Parser

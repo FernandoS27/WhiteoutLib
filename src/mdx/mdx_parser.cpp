@@ -1,26 +1,19 @@
 
+#include "../common/streams.h"
 #include "../include/mdx/mdx_parser.h"
 #include "../include/common/binary_reader.h"
+
 #include <cstring>
 #include <fstream>
 #include <streambuf>
 #include <stdexcept>
 
+
 namespace mdx {
 
-using Common::BinaryReader;
+using common::BinaryReader;
 
 namespace {
-
-class span_streambuf : public std::streambuf {
-public:
-    span_streambuf(std::span<const u8> data) {
-        char* begin = const_cast<char*>(
-            reinterpret_cast<const char*>(data.data())
-        );
-        setg(begin, begin, begin + data.size());
-    }
-};
 
 template<typename T>
 Track<T> readTrackChunk(BinaryReader& reader,
@@ -33,7 +26,7 @@ Track<T> readTrackChunk(BinaryReader& reader,
     track.globalSequenceId = globalSequenceId;
     track.keyCount = trackCount;
     size_t keySize = (isSmoothInterpolation(track.interpolationType)) ? sizeof(typename Track<T>::TangentKey) : sizeof(typename Track<T>::Key);
-    track.keys_data = reader.readUInt8Array(trackCount * keySize);
+    track.keys_data = reader.read<std::vector<u8>>(trackCount * keySize);
     return track;
 }
 
@@ -69,7 +62,7 @@ MDXFile MDXParser::parse(const std::string& filePath) {
 }
 
 MDXFile MDXParser::parse(std::span<const u8> buffer) {
-    span_streambuf streambuf(buffer);
+    common::span_streambuf streambuf(buffer);
     std::istream in(&streambuf);
     BinaryReader reader(in);
     return parse(reader);
@@ -79,9 +72,9 @@ MDXFile MDXParser::parse(BinaryReader& reader) {
     MDXFile mdx;
 
     // Read magic number
-    u32 magic = reader.readUInt32();
+    u32 magic = reader.read<u32>();
     if (magic != MDLX_TAG) {
-        std::string error = "Invalid MDX file: expected magic 'MDLX', got '" + std::string((char*)&magic, 4) + "'";
+        std::string error = "Invalid MDX file: expected magic 'MDLX', got '" + std::string(reinterpret_cast<char*>(&magic), 4) + "'";
         if (parseMode == ParseMode::Strict) {
             throw std::runtime_error(error);
         }
@@ -185,20 +178,20 @@ MDXFile MDXParser::parse(BinaryReader& reader) {
 }
 
 MDXParser::ChunkHeader MDXParser::readChunkHeader(BinaryReader& reader) {
-    u32 tag = reader.readUInt32();
-    u32 size = reader.readUInt32();
+    u32 tag = reader.read<u32>();
+    u32 size = reader.read<u32>();
     return {tag, size};
 }
 
 void MDXParser::parseVERS(BinaryReader& reader, u32 size, MDXFile& mdx) {
-    mdx.version = reader.readUInt32();
+    mdx.version = reader.read<u32>();
 }
 
 void MDXParser::parseMODL(BinaryReader& reader, u32 size, MDXFile& mdx) {
     mdx.modelName = reader.readString(80);
     mdx.animationFileName = reader.readString(260);
-    mdx.modelExtent = reader.readExtent();
-    mdx.blendTime = reader.readUInt32();
+    mdx.modelExtent = reader.read<Extent>();
+    mdx.blendTime = reader.read<u32>();
 }
 
 void MDXParser::parseSEQS(BinaryReader& reader, u32 size, MDXFile& mdx) {
@@ -208,19 +201,19 @@ void MDXParser::parseSEQS(BinaryReader& reader, u32 size, MDXFile& mdx) {
     for (u32 i = 0; i < count; i++) {
         Sequence& seq = mdx.sequences[i];
         seq.name = reader.readString(80);
-        seq.intervalStart = reader.readUInt32();
-        seq.intervalEnd = reader.readUInt32();
-        seq.moveSpeed = reader.readFloat32();
-        seq.flags = reader.readUInt32();
-        seq.rarity = reader.readFloat32();
-        seq.syncPoint = reader.readUInt32();
-        seq.extent = reader.readExtent();
+        seq.intervalStart = reader.read<u32>();
+        seq.intervalEnd = reader.read<u32>();
+        seq.moveSpeed = reader.read<f32>();
+        seq.flags = reader.read<u32>();
+        seq.rarity = reader.read<f32>();
+        seq.syncPoint = reader.read<u32>();
+        seq.extent = reader.read<Extent>();
     }
 }
 
 void MDXParser::parseGLBS(BinaryReader& reader, u32 size, MDXFile& mdx) {
     u32 count = size / 4;
-    mdx.globalSequences = reader.readUInt32Array(count);
+    mdx.globalSequences = reader.read<std::vector<u32>>(count);
 }
 
 void MDXParser::parseTEXS(BinaryReader& reader, u32 size, MDXFile& mdx) {
@@ -228,9 +221,9 @@ void MDXParser::parseTEXS(BinaryReader& reader, u32 size, MDXFile& mdx) {
     mdx.textures.resize(count);
     
     for (u32 i = 0; i < count; i++) {
-        mdx.textures[i].replaceableId = reader.readUInt32();
+        mdx.textures[i].replaceableId = reader.read<u32>();
         mdx.textures[i].fileName = reader.readString(260);
-        mdx.textures[i].flags = reader.readUInt32();
+        mdx.textures[i].flags = reader.read<u32>();
     }
 }
 
@@ -240,9 +233,9 @@ void MDXParser::parseSNDS(BinaryReader& reader, u32 size, MDXFile& mdx) {
     while (totalRead < size) {
         SoundTrack st;
         st.fileName = reader.readString(260);
-        st.volume = reader.readFloat32();
-        st.pitch = reader.readFloat32();
-        st.flags = reader.readUInt32();
+        st.volume = reader.read<f32>();
+        st.pitch = reader.read<f32>();
+        st.flags = reader.read<u32>();
         
         mdx.soundTracks.push_back(st);
         totalRead += 272;
@@ -264,9 +257,9 @@ Material MDXParser::parseMaterial(BinaryReader& reader, u32 chunkSize, MDXFile& 
     u32 startPos = reader.getPosition();
     bool is_hd = false;
     
-    mat.inclusiveSize = reader.readUInt32();
-    mat.priorityPlane = reader.readUInt32();
-    mat.flags = reader.readUInt32();
+    mat.inclusiveSize = reader.read<u32>();
+    mat.priorityPlane = reader.read<u32>();
+    mat.flags = reader.read<u32>();
     
     if (mdx.version > 800 && mdx.version < 1100) {
         mat.shader = reader.readString(80);
@@ -274,8 +267,8 @@ Material MDXParser::parseMaterial(BinaryReader& reader, u32 chunkSize, MDXFile& 
     }
     
     // Read LAYS chunk
-    u32 laysTag = reader.readUInt32();
-    u32 layerCount = reader.readUInt32();
+    u32 laysTag = reader.read<u32>();
+    u32 layerCount = reader.read<u32>();
     
     mat.layers.resize(layerCount);
     for (u32 i = 0; i < layerCount; i++) {
@@ -323,37 +316,37 @@ Layer MDXParser::parseLayer(BinaryReader& reader, MDXFile& mdx) {
     Layer layer;
     u32 startPos = reader.getPosition();
     
-    layer.inclusiveSize = reader.readUInt32();
-    layer.filterMode = static_cast<Layer::FilterMode>(reader.readUInt32());
-    layer.shadingFlags = static_cast<Layer::ShadingFlag>(reader.readUInt32());
-    layer.textureId = reader.readUInt32();
-    layer.textureAnimationId = reader.readUInt32();
-    layer.coordId = reader.readUInt32();
-    layer.alpha = reader.readFloat32();
+    layer.inclusiveSize = reader.read<u32>();
+    layer.filterMode = static_cast<Layer::FilterMode>(reader.read<u32>());
+    layer.shadingFlags = static_cast<Layer::ShadingFlag>(reader.read<u32>());
+    layer.textureId = reader.read<u32>();
+    layer.textureAnimationId = reader.read<u32>();
+    layer.coordId = reader.read<u32>();
+    layer.alpha = reader.read<f32>();
 
     if (mdx.version > 800) {
-        layer.emissiveGain = reader.readFloat32();
-        layer.fresnelColor = reader.readVector3f();
-        layer.fresnelOpacity = reader.readFloat32();
-        layer.fresnelTeamColor = reader.readFloat32();
+        layer.emissiveGain = reader.read<f32>();
+        layer.fresnelColor = reader.read<Vector3f>();
+        layer.fresnelOpacity = reader.read<f32>();
+        layer.fresnelTeamColor = reader.read<f32>();
     }
 
     if (mdx.version >= 1100) {
         layer.textureId = 0;
-        const auto is_hd = reader.readUInt32();
+        const auto is_hd = reader.read<u32>();
         layer.is_hd = is_hd != 0;
-        const auto num_textures = reader.readUInt32();
+        const auto num_textures = reader.read<u32>();
         for (u32 i = 0; i < num_textures; i++) {
             Layer::SubTexture subTex;
-            subTex.textureId = reader.readUInt32();
-            subTex.slot = reader.readUInt32();
+            subTex.textureId = reader.read<u32>();
+            subTex.slot = reader.read<u32>();
             
             u32 startPos = reader.getPosition();
-            u32 peek_tag = reader.readUInt32();
+            u32 peek_tag = reader.read<u32>();
             if (peek_tag == KMTF_TAG) {
-                u32 trackCount = reader.readUInt32();
-                u32 interpolationType = reader.readUInt32();
-                u32 globalSequenceId = reader.readUInt32();
+                u32 trackCount = reader.read<u32>();
+                u32 interpolationType = reader.read<u32>();
+                u32 globalSequenceId = reader.read<u32>();
                 subTex.tracks = readTrackChunk<u32>(
                     reader,
                     trackCount,
@@ -371,10 +364,10 @@ Layer MDXParser::parseLayer(BinaryReader& reader, MDXFile& mdx) {
     while (reader.getPosition() < endPos) {
         u32 currentPos = reader.getPosition();
         
-        u32 trackTag = reader.readUInt32();
-        u32 trackCount = reader.readUInt32();
-        u32 interpolationType = reader.readUInt32();
-        u32 globalSequenceId = reader.readUInt32();
+        u32 trackTag = reader.read<u32>();
+        u32 trackCount = reader.read<u32>();
+        u32 interpolationType = reader.read<u32>();
+        u32 globalSequenceId = reader.read<u32>();
         
         switch (trackTag) {
             case KMTF_TAG: // Texture ID (for older versions 800-1100)
@@ -455,15 +448,15 @@ TextureAnimation MDXParser::parseTextureAnimation(BinaryReader& reader, u32 maxS
     TextureAnimation anim;
     u32 startPos = reader.getPosition();
     
-    anim.inclusiveSize = reader.readUInt32();
+    anim.inclusiveSize = reader.read<u32>();
     
     // Parse animation tracks (KTAT, KTAR, KTAS)
     u32 endPos = startPos + anim.inclusiveSize;
     while (reader.getPosition() < endPos) {
-        u32 trackTag = reader.readUInt32();
-        u32 trackCount = reader.readUInt32();
-        u32 interpolationType = reader.readUInt32();
-        u32 globalSequenceId = reader.readUInt32();
+        u32 trackTag = reader.read<u32>();
+        u32 trackCount = reader.read<u32>();
+        u32 interpolationType = reader.read<u32>();
+        u32 globalSequenceId = reader.read<u32>();
         
         switch (trackTag) {
             case KTAT_TAG: // KTAT - translation
@@ -517,56 +510,56 @@ Geoset MDXParser::parseGeoset(BinaryReader& reader, u32 maxSize, MDXFile& mdx) {
     Geoset geoset;
     u32 startPos = reader.getPosition();
     
-    geoset.inclusiveSize = reader.readUInt32();
+    geoset.inclusiveSize = reader.read<u32>();
     
     // Parse VRTX - vertex positions
-    u32 vrtxTag = reader.readUInt32();
-    u32 vertexCount = reader.readUInt32();
-    geoset.vertexPositions = reader.readVector3fArray(vertexCount);
+    u32 vrtxTag = reader.read<u32>();
+    u32 vertexCount = reader.read<u32>();
+    geoset.vertexPositions = reader.read<std::vector<Vector3f>>(vertexCount);
     
     // Parse NRMS - normals
-    u32 nrmsTag = reader.readUInt32();
-    u32 normalCount = reader.readUInt32();
-    geoset.vertexNormals = reader.readVector3fArray(normalCount);
+    u32 nrmsTag = reader.read<u32>();
+    u32 normalCount = reader.read<u32>();
+    geoset.vertexNormals = reader.read<std::vector<Vector3f>>(normalCount);
     
     // Parse PTYP - face type groups
-    u32 ptypTag = reader.readUInt32();
-    u32 faceTypeGroupCount = reader.readUInt32();
-    geoset.faceTypeGroups = reader.readUInt32Array(faceTypeGroupCount);
+    u32 ptypTag = reader.read<u32>();
+    u32 faceTypeGroupCount = reader.read<u32>();
+    geoset.faceTypeGroups = reader.read<std::vector<u32>>(faceTypeGroupCount);
     
     // Parse PCNT - face groups
-    u32 pcntTag = reader.readUInt32();
-    u32 faceGroupCount = reader.readUInt32();
-    geoset.faceGroups = reader.readUInt32Array(faceGroupCount);
+    u32 pcntTag = reader.read<u32>();
+    u32 faceGroupCount = reader.read<u32>();
+    geoset.faceGroups = reader.read<std::vector<u32>>(faceGroupCount);
     
     // Parse PVTX - face indices
-    u32 pvtxTag = reader.readUInt32();
-    u32 faceCount = reader.readUInt32();
-    geoset.faces = reader.readUInt16Array(faceCount);
+    u32 pvtxTag = reader.read<u32>();
+    u32 faceCount = reader.read<u32>();
+    geoset.faces = reader.read<std::vector<u16>>(faceCount);
     
     // Parse GNDX - vertex groups
-    u32 gndxTag = reader.readUInt32();
-    u32 vertexGroupCount = reader.readUInt32();
-    geoset.vertexGroups = reader.readUInt8Array(vertexGroupCount);
+    u32 gndxTag = reader.read<u32>();
+    u32 vertexGroupCount = reader.read<u32>();
+    geoset.vertexGroups = reader.read<std::vector<u8>>(vertexGroupCount);
     
     // Parse MTGC - matrix groups
-    u32 mtgcTag = reader.readUInt32();
-    u32 matrixGroupCount = reader.readUInt32();
-    geoset.matrixGroups = reader.readUInt32Array(matrixGroupCount);
+    u32 mtgcTag = reader.read<u32>();
+    u32 matrixGroupCount = reader.read<u32>();
+    geoset.matrixGroups = reader.read<std::vector<u32>>(matrixGroupCount);
     
     // Parse MATS - matrix indices
-    u32 matsTag = reader.readUInt32();
-    u32 matrixIndexCount = reader.readUInt32();
-    geoset.matrixIndices = reader.readUInt32Array(matrixIndexCount);
+    u32 matsTag = reader.read<u32>();
+    u32 matrixIndexCount = reader.read<u32>();
+    geoset.matrixIndices = reader.read<std::vector<u32>>(matrixIndexCount);
     
     // Material ID, selection group, selection flags
-    geoset.materialId = reader.readUInt32();
-    geoset.selectionGroup = reader.readUInt32();
-    geoset.selectionFlags = reader.readUInt32();
+    geoset.materialId = reader.read<u32>();
+    geoset.selectionGroup = reader.read<u32>();
+    geoset.selectionFlags = reader.read<u32>();
     
     // LOD fields (Reforged only)
     if (mdx.version > 800) {
-        geoset.lod = reader.readUInt32();
+        geoset.lod = reader.read<u32>();
         geoset.lodName = reader.readString(80);
     } else {
         geoset.lod = 0;
@@ -574,13 +567,13 @@ Geoset MDXParser::parseGeoset(BinaryReader& reader, u32 maxSize, MDXFile& mdx) {
     }
     
     // Extent
-    geoset.extent = reader.readExtent();
+    geoset.extent = reader.read<Extent>();
     
     // Sequence extents
-    u32 extentsCount = reader.readUInt32();
+    u32 extentsCount = reader.read<u32>();
     geoset.sequenceExtents.resize(extentsCount);
     for (u32 i = 0; i < extentsCount; i++) {
-        geoset.sequenceExtents[i] = reader.readExtent();
+        geoset.sequenceExtents[i] = reader.read<Extent>();
     }
     
     // Parse UVAS - texture coordinate sets
@@ -588,27 +581,27 @@ Geoset MDXParser::parseGeoset(BinaryReader& reader, u32 maxSize, MDXFile& mdx) {
     u32 endPos = startPos + geoset.inclusiveSize;
 
     while (currentPos < endPos) {
-        u32 peekTag = reader.readUInt32();
+        u32 peekTag = reader.read<u32>();
         switch (peekTag) {
             case UVAS_TAG: {
-                u32 uvSetCount = reader.readUInt32();
+                u32 uvSetCount = reader.read<u32>();
             
                 geoset.textureCoordinateSets.resize(uvSetCount);
                 for (u32 i = 0; i < uvSetCount; i++) {
-                    u32 uvbsTag = reader.readUInt32();
-                    u32 uvCount = reader.readUInt32();
-                    geoset.textureCoordinateSets[i] = reader.readVector2fArray(uvCount);
+                    u32 uvbsTag = reader.read<u32>();
+                    u32 uvCount = reader.read<u32>();
+                    geoset.textureCoordinateSets[i] = reader.read<std::vector<Vector2f>>(uvCount);
                 }
                 break;
             }
             case TANG_TAG: {
-                u32 tangentCount = reader.readUInt32();
-                geoset.tangents = reader.readVector4fArray(tangentCount);
+                u32 tangentCount = reader.read<u32>();
+                geoset.tangents = reader.read<std::vector<Vector4f>>(tangentCount);
                 break;
             }
             case SKIN_TAG: {
-                u32 skinDataCount = reader.readUInt32();
-                geoset.skinData = reader.readUInt8Array(skinDataCount);
+                u32 skinDataCount = reader.read<u32>();
+                geoset.skinData = reader.read<std::vector<u8>>(skinDataCount);
                 break;
             }
             default: {
@@ -618,7 +611,7 @@ Geoset MDXParser::parseGeoset(BinaryReader& reader, u32 maxSize, MDXFile& mdx) {
                 }
                 issues.push_back(error);
                 reader.skip(4); // Skip the size field of the unknown chunk
-                u32 unknownSize = reader.readUInt32();
+                u32 unknownSize = reader.read<u32>();
                 reader.skip(unknownSize * 4);
                 break;
             }
@@ -636,19 +629,19 @@ void MDXParser::parseGEOA(BinaryReader& reader, u32 size, MDXFile& mdx) {
         u32 startPos = reader.getPosition();
         
         GeosetAnimation anim;
-        anim.inclusiveSize = reader.readUInt32();
-        anim.alpha = reader.readFloat32();
-        anim.flags = reader.readUInt32();
-        anim.color = reader.readVector3f();
-        anim.geosetId = reader.readUInt32();
+        anim.inclusiveSize = reader.read<u32>();
+        anim.alpha = reader.read<f32>();
+        anim.flags = reader.read<u32>();
+        anim.color = reader.read<Vector3f>();
+        anim.geosetId = reader.read<u32>();
         
         // Parse animation tracks (KGAO, KGAC)
         u32 endPos = startPos + anim.inclusiveSize;
         while (reader.getPosition() < endPos) {
-            u32 trackTag = reader.readUInt32();
-            u32 trackCount = reader.readUInt32();
-            u32 interpolationType = reader.readUInt32();
-            u32 globalSequenceId = reader.readUInt32();
+            u32 trackTag = reader.read<u32>();
+            u32 trackCount = reader.read<u32>();
+            u32 interpolationType = reader.read<u32>();
+            u32 globalSequenceId = reader.read<u32>();
             
             switch (trackTag) {
                 case KGAO_TAG: // KGAO - alpha
@@ -687,8 +680,8 @@ void MDXParser::parseBONE(BinaryReader& reader, u32 size, MDXFile& mdx) {
         u32 startPos = reader.getPosition();
         bone.node = parseNode(reader);
         
-        bone.geosetId = reader.readUInt32();
-        bone.geosetAnimationId = reader.readUInt32();
+        bone.geosetId = reader.read<u32>();
+        bone.geosetAnimationId = reader.read<u32>();
 
         bone.node.type = Node::NodeType::Bone; // Set node type to Bone
         bone.node.nodeFamilyId = mdx.bones.size(); // Assign a unique family ID based on current bone count
@@ -703,13 +696,13 @@ void MDXParser::parseBONE(BinaryReader& reader, u32 size, MDXFile& mdx) {
 Node MDXParser::parseNode(BinaryReader& reader) {
     Node node;
     u32 startPos = reader.getPosition();
-    u32 nodeSize = reader.readUInt32();
+    u32 nodeSize = reader.read<u32>();
     
     node.inclusiveSize = nodeSize;
     node.name = reader.readString(80);
-    node.objectId = reader.readUInt32();
-    node.parentId = reader.readUInt32();
-    node.flags = static_cast<Node::NodeFlag>(reader.readUInt32());
+    node.objectId = reader.read<u32>();
+    node.parentId = reader.read<u32>();
+    node.flags = static_cast<Node::NodeFlag>(reader.read<u32>());
     
     parseNodeTracks(reader, node, nodeSize);
     
@@ -725,10 +718,10 @@ void MDXParser::parseNodeTracks(BinaryReader& reader, Node& node, u32 nodeSize) 
     while (reader.getPosition() - startPos < tracksSize) {
         if (reader.getPosition() - startPos >= tracksSize) break;
         
-        u32 trackTag = reader.readUInt32();
-        u32 trackCount = reader.readUInt32();
-        u32 interpolationType = reader.readUInt32();
-        u32 globalSequenceId = reader.readUInt32();
+        u32 trackTag = reader.read<u32>();
+        u32 trackCount = reader.read<u32>();
+        u32 interpolationType = reader.read<u32>();
+        u32 globalSequenceId = reader.read<u32>();
         
         switch (trackTag) {
             case KGTR_TAG:
@@ -779,17 +772,17 @@ Light MDXParser::parseLight(BinaryReader& reader, u32 maxSize, MDXFile& mdx) {
     Light light;
     u32 startPos = reader.getPosition();
     
-    light.inclusiveSize = reader.readUInt32();
+    light.inclusiveSize = reader.read<u32>();
     light.node = parseNode(reader);
-    light.type = static_cast<Light::LightType>(reader.readUInt32());
-    light.attenuationStart = reader.readFloat32();
-    light.attenuationEnd = reader.readFloat32();
-    light.color = reader.readVector3f();
-    light.intensity = reader.readFloat32();
-    light.ambientColor = reader.readVector3f();
-    light.ambientIntensity = reader.readFloat32();
+    light.type = static_cast<Light::LightType>(reader.read<u32>());
+    light.attenuationStart = reader.read<f32>();
+    light.attenuationEnd = reader.read<f32>();
+    light.color = reader.read<Vector3f>();
+    light.intensity = reader.read<f32>();
+    light.ambientColor = reader.read<Vector3f>();
+    light.ambientIntensity = reader.read<f32>();
     if (mdx.version >= 1200) {
-        light.shadowIntensity = reader.readFloat32();
+        light.shadowIntensity = reader.read<f32>();
     } else {
         light.shadowIntensity = 0.4f; // Default value for older versions
     }
@@ -797,10 +790,10 @@ Light MDXParser::parseLight(BinaryReader& reader, u32 maxSize, MDXFile& mdx) {
     // Parse animation tracks (KLAS, KLAE, KLAC, KLAI, KLBI, KLBC, KLAV)
     u32 endPos = startPos + light.inclusiveSize;
     while (reader.getPosition() < endPos) {
-        u32 trackTag = reader.readUInt32();
-        u32 trackCount = reader.readUInt32();
-        u32 interpolationType = reader.readUInt32();
-        u32 globalSequenceId = reader.readUInt32();
+        u32 trackTag = reader.read<u32>();
+        u32 trackCount = reader.read<u32>();
+        u32 interpolationType = reader.read<u32>();
+        u32 globalSequenceId = reader.read<u32>();
         
         switch (trackTag) {
             case KLAS_TAG: // KLAS - attenuationStart
@@ -905,18 +898,18 @@ Attachment MDXParser::parseAttachment(BinaryReader& reader, u32 maxSize) {
     Attachment att;
     u32 startPos = reader.getPosition();
     
-    att.inclusiveSize = reader.readUInt32();
+    att.inclusiveSize = reader.read<u32>();
     att.node = parseNode(reader);
     att.path = reader.readString(260);
-    att.attachmentId = reader.readUInt32();
+    att.attachmentId = reader.read<u32>();
     
     // Parse animation tracks (KATV)
     u32 endPos = startPos + att.inclusiveSize;
     while (reader.getPosition() < endPos) {
-        u32 trackTag = reader.readUInt32();
-        u32 trackCount = reader.readUInt32();
-        u32 interpolationType = reader.readUInt32();
-        u32 globalSequenceId = reader.readUInt32();
+        u32 trackTag = reader.read<u32>();
+        u32 trackCount = reader.read<u32>();
+        u32 interpolationType = reader.read<u32>();
+        u32 globalSequenceId = reader.read<u32>();
         
         switch (trackTag) {
             case KATV_TAG: // KATV - visibility
@@ -941,7 +934,7 @@ void MDXParser::parsePIVT(BinaryReader& reader, u32 size, MDXFile& mdx) {
     mdx.pivotPoints.resize(count);
     
     for (u32 i = 0; i < count; i++) {
-        mdx.pivotPoints[i] = reader.readVector3f();
+        mdx.pivotPoints[i] = reader.read<Vector3f>();
     }
 }
 
@@ -962,23 +955,23 @@ ParticleEmitter MDXParser::parseParticleEmitter(BinaryReader& reader, u32 maxSiz
     ParticleEmitter pem;
     u32 startPos = reader.getPosition();
     
-    pem.inclusiveSize = reader.readUInt32();
+    pem.inclusiveSize = reader.read<u32>();
     pem.node = parseNode(reader);
-    pem.emissionRate = reader.readFloat32();
-    pem.gravity = reader.readFloat32();
-    pem.longitude = reader.readFloat32();
-    pem.latitude = reader.readFloat32();
+    pem.emissionRate = reader.read<f32>();
+    pem.gravity = reader.read<f32>();
+    pem.longitude = reader.read<f32>();
+    pem.latitude = reader.read<f32>();
     pem.spawnModelFileName = reader.readString(260);
-    pem.lifespan = reader.readFloat32();
-    pem.initialVelocity = reader.readFloat32();
+    pem.lifespan = reader.read<f32>();
+    pem.initialVelocity = reader.read<f32>();
     
     // Parse animation tracks (KPEE, KPEG, KPLN, KPLT, KPEL, KPES, KPEV)
     u32 endPos = startPos + pem.inclusiveSize;
     while (reader.getPosition() < endPos) {
-        u32 trackTag = reader.readUInt32();
-        u32 trackCount = reader.readUInt32();
-        u32 interpolationType = reader.readUInt32();
-        u32 globalSequenceId = reader.readUInt32();
+        u32 trackTag = reader.read<u32>();
+        u32 trackCount = reader.read<u32>();
+        u32 interpolationType = reader.read<u32>();
+        u32 globalSequenceId = reader.read<u32>();
         
         switch (trackTag) {
             case KPEE_TAG: // KPEE - emissionRate
@@ -1063,60 +1056,60 @@ ParticleEmitter2 MDXParser::parseParticleEmitter2(BinaryReader& reader, u32 maxS
     ParticleEmitter2 pem2;
     u32 startPos = reader.getPosition();
     
-    pem2.inclusiveSize = reader.readUInt32();
+    pem2.inclusiveSize = reader.read<u32>();
     pem2.node = parseNode(reader);
-    pem2.speed = reader.readFloat32();
-    pem2.variation = reader.readFloat32();
-    pem2.latitude = reader.readFloat32();
-    pem2.gravity = reader.readFloat32();
-    pem2.lifespan = reader.readFloat32();
-    pem2.emissionRate = reader.readFloat32();
-    pem2.length = reader.readFloat32();
-    pem2.width = reader.readFloat32();
+    pem2.speed = reader.read<f32>();
+    pem2.variation = reader.read<f32>();
+    pem2.latitude = reader.read<f32>();
+    pem2.gravity = reader.read<f32>();
+    pem2.lifespan = reader.read<f32>();
+    pem2.emissionRate = reader.read<f32>();
+    pem2.length = reader.read<f32>();
+    pem2.width = reader.read<f32>();
     
-    pem2.filterMode = reader.readUInt32();
-    pem2.rows = reader.readUInt32();
-    pem2.columns = reader.readUInt32();
-    pem2.headOrTail = reader.readUInt32();
+    pem2.filterMode = reader.read<u32>();
+    pem2.rows = reader.read<u32>();
+    pem2.columns = reader.read<u32>();
+    pem2.headOrTail = reader.read<u32>();
     
-    pem2.tailLength = reader.readFloat32();
-    pem2.time = reader.readFloat32();
-    
-    for (int i = 0; i < 3; i++) {
-        pem2.segmentColor[i] = reader.readVector3f();
-    }
-    for (int i = 0; i < 3; i++) {
-        pem2.segmentAlpha[i] = reader.readUInt8();
-    }
-    for (int i = 0; i < 3; i++) {
-        pem2.segmentScaling[i] = reader.readFloat32();
-    }
+    pem2.tailLength = reader.read<f32>();
+    pem2.time = reader.read<f32>();
     
     for (int i = 0; i < 3; i++) {
-        pem2.headInterval[i] = reader.readUInt32();
+        pem2.segmentColor[i] = reader.read<Vector3f>();
     }
     for (int i = 0; i < 3; i++) {
-        pem2.headDecayInterval[i] = reader.readUInt32();
+        pem2.segmentAlpha[i] = reader.read<u8>();
     }
     for (int i = 0; i < 3; i++) {
-        pem2.tailInterval[i] = reader.readUInt32();
-    }
-    for (int i = 0; i < 3; i++) {
-        pem2.tailDecayInterval[i] = reader.readUInt32();
+        pem2.segmentScaling[i] = reader.read<f32>();
     }
     
-    pem2.textureId = reader.readUInt32();
-    pem2.squirt = reader.readUInt32();
-    pem2.priorityPlane = reader.readUInt32();
-    pem2.replaceableId = reader.readUInt32();
+    for (int i = 0; i < 3; i++) {
+        pem2.headInterval[i] = reader.read<u32>();
+    }
+    for (int i = 0; i < 3; i++) {
+        pem2.headDecayInterval[i] = reader.read<u32>();
+    }
+    for (int i = 0; i < 3; i++) {
+        pem2.tailInterval[i] = reader.read<u32>();
+    }
+    for (int i = 0; i < 3; i++) {
+        pem2.tailDecayInterval[i] = reader.read<u32>();
+    }
+    
+    pem2.textureId = reader.read<u32>();
+    pem2.squirt = reader.read<u32>();
+    pem2.priorityPlane = reader.read<u32>();
+    pem2.replaceableId = reader.read<u32>();
     
     // Parse animation tracks (KP2S, KP2R, KP2L, KP2G, KP2E, KP2N, KP2W, KP2V)
     u32 endPos = startPos + pem2.inclusiveSize;
     while (reader.getPosition() < endPos) {
-        u32 trackTag = reader.readUInt32();
-        u32 trackCount = reader.readUInt32();
-        u32 interpolationType = reader.readUInt32();
-        u32 globalSequenceId = reader.readUInt32();
+        u32 trackTag = reader.read<u32>();
+        u32 trackCount = reader.read<u32>();
+        u32 interpolationType = reader.read<u32>();
+        u32 globalSequenceId = reader.read<u32>();
         
         switch (trackTag) {
             case KP2S_TAG: // KP2S - speed
@@ -1209,27 +1202,27 @@ RibbonEmitter MDXParser::parseRibbonEmitter(BinaryReader& reader, u32 maxSize) {
     RibbonEmitter ribb;
     u32 startPos = reader.getPosition();
     
-    ribb.inclusiveSize = reader.readUInt32();
+    ribb.inclusiveSize = reader.read<u32>();
     ribb.node = parseNode(reader);
-    ribb.heightAbove = reader.readFloat32();
-    ribb.heightBelow = reader.readFloat32();
-    ribb.alpha = reader.readFloat32();
-    ribb.color = reader.readVector3f();
-    ribb.lifespan = reader.readFloat32();
-    ribb.textureSlot = reader.readUInt32();
-    ribb.emissionRate = reader.readUInt32();
-    ribb.rows = reader.readUInt32();
-    ribb.columns = reader.readUInt32();
-    ribb.materialId = reader.readUInt32();
-    ribb.gravity = reader.readFloat32();
+    ribb.heightAbove = reader.read<f32>();
+    ribb.heightBelow = reader.read<f32>();
+    ribb.alpha = reader.read<f32>();
+    ribb.color = reader.read<Vector3f>();
+    ribb.lifespan = reader.read<f32>();
+    ribb.textureSlot = reader.read<u32>();
+    ribb.emissionRate = reader.read<u32>();
+    ribb.rows = reader.read<u32>();
+    ribb.columns = reader.read<u32>();
+    ribb.materialId = reader.read<u32>();
+    ribb.gravity = reader.read<f32>();
     
     // Parse animation tracks (KRHA, KRHB, KRAL, KRCO, KRTX, KRVS)
     u32 endPos = startPos + ribb.inclusiveSize;
     while (reader.getPosition() < endPos) {
-        u32 trackTag = reader.readUInt32();
-        u32 trackCount = reader.readUInt32();
-        u32 interpolationType = reader.readUInt32();
-        u32 globalSequenceId = reader.readUInt32();
+        u32 trackTag = reader.read<u32>();
+        u32 trackCount = reader.read<u32>();
+        u32 interpolationType = reader.read<u32>();
+        u32 globalSequenceId = reader.read<u32>();
         
         switch (trackTag) {
             case KRHA_TAG: // KRHA - heightAbove
@@ -1301,14 +1294,14 @@ void MDXParser::parseEVTS(BinaryReader& reader, u32 size, MDXFile& mdx) {
         evt.node.nodeFamilyId = mdx.eventObjects.size(); // Assign a unique family ID based on current event object count
         
         // Read KEVT chunk
-        u32 kevtTag = reader.readUInt32();
-        u32 trackCount = reader.readUInt32();
+        u32 kevtTag = reader.read<u32>();
+        u32 trackCount = reader.read<u32>();
         
         for (u32 i = 0; i < trackCount; i++) {
-            evt.eventTrackTimes.push_back(reader.readUInt32());
+            evt.eventTrackTimes.push_back(reader.read<u32>());
         }
         
-        evt.globalSequenceId = reader.readUInt32();
+        evt.globalSequenceId = reader.read<u32>();
         
         mdx.eventObjects.push_back(evt);
         
@@ -1331,21 +1324,21 @@ Camera MDXParser::parseCamera(BinaryReader& reader, u32 maxSize) {
     Camera cam;
     u32 startPos = reader.getPosition();
     
-    cam.inclusiveSize = reader.readUInt32();
+    cam.inclusiveSize = reader.read<u32>();
     cam.name = reader.readString(80);
-    cam.position = reader.readVector3f();
-    cam.fieldOfView = reader.readFloat32();
-    cam.farClippingPlane = reader.readFloat32();
-    cam.nearClippingPlane = reader.readFloat32();
-    cam.targetPosition = reader.readVector3f();
+    cam.position = reader.read<Vector3f>();
+    cam.fieldOfView = reader.read<f32>();
+    cam.farClippingPlane = reader.read<f32>();
+    cam.nearClippingPlane = reader.read<f32>();
+    cam.targetPosition = reader.read<Vector3f>();
     
     // Parse animation tracks (KCTR, KCRL, KTTR)
     u32 endPos = startPos + cam.inclusiveSize;
     while (reader.getPosition() < endPos) {
-        u32 trackTag = reader.readUInt32();
-        u32 trackCount = reader.readUInt32();
-        u32 interpolationType = reader.readUInt32();
-        u32 globalSequenceId = reader.readUInt32();
+        u32 trackTag = reader.read<u32>();
+        u32 trackCount = reader.read<u32>();
+        u32 interpolationType = reader.read<u32>();
+        u32 globalSequenceId = reader.read<u32>();
         
         switch (trackTag) {
             case KCTR_TAG: // KCTR - position
@@ -1400,32 +1393,33 @@ void MDXParser::parseCLID(BinaryReader& reader, u32 size, MDXFile& mdx) {
 CollisionShape MDXParser::parseCollisionShape(BinaryReader& reader) {
     CollisionShape shape;
     shape.node = parseNode(reader);
-    shape.type = reader.readUInt32();
+    u32 type_index = reader.read<u32>();
+    shape.type = static_cast<CollisionShape::ShapeType>(type_index);
     
-    u32 vertexCount = 0;
-    if (shape.type == 0 || shape.type == 1) vertexCount = 2;
-    else if (shape.type == 2) vertexCount = 1;
-    else if (shape.type == 3) vertexCount = 2;
+    constexpr std::array<size_t, 4> shapeVertexCounts = {2, 2, 1, 2};
+
+    u32 vertexCount = shapeVertexCounts[type_index];
     
     shape.vertices.resize(vertexCount);
     for (u32 i = 0; i < vertexCount; i++) {
-        shape.vertices[i] = reader.readVector3f();
+        shape.vertices[i] = reader.read<Vector3f>();
     }
     
-    if (shape.type == 2 || shape.type == 3) {
-        shape.radius = reader.readFloat32();
+    if (    shape.type == CollisionShape::ShapeType::Sphere 
+        ||  shape.type == CollisionShape::ShapeType::Cylinder) {
+        shape.radius = reader.read<f32>();
     }
     
     return shape;
 }
 
 void MDXParser::parseBPOS(BinaryReader& reader, u32 size, MDXFile& mdx) {
-    u32 count = reader.readUInt32();
+    u32 count = reader.read<u32>();
     mdx.bindPoses.resize(count);
     
     for (u32 i = 0; i < count; i++) {
         for (int j = 0; j < 12; j++) {
-            mdx.bindPoses[i][j] = reader.readFloat32();
+            mdx.bindPoses[i][j] = reader.read<f32>();
         }
     }
 }
@@ -1447,26 +1441,26 @@ void MDXParser::parseCORN(BinaryReader& reader, u32 size, MDXFile& mdx) {
         CornEmitter corn;
         u32 startPos = reader.getPosition();
         
-        corn.inclusiveSize = reader.readUInt32();
+        corn.inclusiveSize = reader.read<u32>();
         corn.node = parseNode(reader);
         corn.node.type = Node::NodeType::CornEmitter; // Set node type to CornEmitter
         corn.node.nodeFamilyId = mdx.cornEmitters.size(); // Assign a unique family ID based on current corn emitter count
 
-        corn.lifeSpan = reader.readFloat32();
-        corn.emissionRate = reader.readFloat32();
-        corn.speed = reader.readFloat32();
-        corn.color = reader.readVector4f();
-        corn.replaceableId = reader.readUInt32();
+        corn.lifeSpan = reader.read<f32>();
+        corn.emissionRate = reader.read<f32>();
+        corn.speed = reader.read<f32>();
+        corn.color = reader.read<Vector4f>();
+        corn.replaceableId = reader.read<u32>();
         corn.path = reader.readString(260);
         corn.animVisibilityGuide = reader.readString(260);
         
         // Parse animation tracks (KPPA, KPPC, KPPE, KPPL, KPPS, KPPV)
         u32 endPos = startPos + corn.inclusiveSize;
         while (reader.getPosition() < endPos) {
-            u32 trackTag = reader.readUInt32();
-            u32 trackCount = reader.readUInt32();
-            u32 interpolationType = reader.readUInt32();
-            u32 globalSequenceId = reader.readUInt32();
+            u32 trackTag = reader.read<u32>();
+            u32 trackCount = reader.read<u32>();
+            u32 interpolationType = reader.read<u32>();
+            u32 globalSequenceId = reader.read<u32>();
             
             switch (trackTag) {
                 case KPPA_TAG: // KPPA - lifeSpan

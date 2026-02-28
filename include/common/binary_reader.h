@@ -1,12 +1,13 @@
 #pragma once
 
 #include "common_types.h"
+#include "concepts.h"
 #include <istream>
 #include <cstring>
 #include <vector>
 #include <string>
 
-namespace Common {
+namespace common {
 
 class BinaryReader {
 public:
@@ -19,133 +20,44 @@ public:
     ~BinaryReader() {
         // Do not close the stream, as it is managed externally
     }
-    
-    // Read basic types
-    u8 readUInt8() {
-        u8 val;
-        file.read(reinterpret_cast<char*>(&val), 1);
-        return val;
+
+    template<BinaryBlob T>
+    T read() {
+        T value;
+        file.read(reinterpret_cast<char*>(&value), sizeof(T));
+        return value;
     }
 
-    i8 readInt8() {
-        i8 val;
-        file.read(reinterpret_cast<char*>(&val), 1);
-        return val;
-    }
-    
-    u16 readUInt16() {
-        u16 val;
-        file.read(reinterpret_cast<char*>(&val), 2);
-        return val;
+    template<TrivialContiguousRange C>
+    C read(std::size_t count) {
+        C container(count);  // works for std::vector
+        file.read(
+            reinterpret_cast<char*>(std::data(container)),
+            std::size(container) * sizeof(typename C::value_type)
+        );
+        return container;
     }
 
-    i16 readInt16() {
-        i16 val;
-        file.read(reinterpret_cast<char*>(&val), 2);
-        return val;
-    }
-    
-    u32 readUInt32() {
-        u32 val;
-        file.read(reinterpret_cast<char*>(&val), 4);
-        return val;
-    }
-    
-    i32 readInt32() {
-        i32 val;
-        file.read(reinterpret_cast<char*>(&val), 4);
-        return val;
-    }
-    
-    f32 readFloat32() {
-        f32 val;
-        file.read(reinterpret_cast<char*>(&val), 4);
-        return val;
-    }
-    
-    // Read array of basic types
-    std::vector<u8> readUInt8Array(u32 count) {
-        std::vector<u8> arr(count);
-        file.read(reinterpret_cast<char*>(arr.data()), count);
+    template<BinaryBlob T, std::size_t N>
+    std::array<T, N> readArray() {
+        std::array<T, N> arr;
+        file.read(reinterpret_cast<char*>(arr.data()), sizeof(arr));
         return arr;
     }
     
-    std::vector<u32> readUInt32Array(u32 count) {
-        std::vector<u32> arr(count);
-        file.read(reinterpret_cast<char*>(arr.data()), count * 4);
-        return arr;
-    }
-    
-    std::vector<f32> readFloat32Array(u32 count) {
-        std::vector<f32> arr(count);
-        file.read(reinterpret_cast<char*>(arr.data()), count * 4);
-        return arr;
-    }
-    
-    std::vector<u16> readUInt16Array(u32 count) {
-        std::vector<u16> arr(count);
-        file.read(reinterpret_cast<char*>(arr.data()), count * 2);
-        return arr;
-    }
-
-    std::vector<Vector3f> readVector3fArray(u32 count) {
-        std::vector<Vector3f> arr(count);
-        file.read(reinterpret_cast<char*>(arr.data()), count * sizeof(Vector3f));
-        return arr;
-    }
-
-    std::vector<Vector4f> readVector4fArray(u32 count) {
-        std::vector<Vector4f> arr(count);
-        file.read(reinterpret_cast<char*>(arr.data()), count * sizeof(Vector4f));
-        return arr;
-    }
-
-    std::vector<Vector2f> readVector2fArray(u32 count) {
-        std::vector<Vector2f> arr(count);
-        file.read(reinterpret_cast<char*>(arr.data()), count * sizeof(Vector2f));
-        return arr;
-    }
-
     void readBytes(char* buffer, u32 count) {
         file.read(buffer, count);
     }
     
-    // Read vector types
-    Vector3f readVector3f() {
-        return Vector3f(readFloat32(), readFloat32(), readFloat32());
-    }
-    
-    Vector4f readVector4f() {
-        return Vector4f(readFloat32(), readFloat32(), readFloat32(), readFloat32());
-    }
-    
-    Vector2f readVector2f() {
-        return Vector2f(readFloat32(), readFloat32());
-    }
-    
-    // Read extent
-    Extent readExtent() {
-        Extent ext;
-        ext.boundsRadius = readFloat32();
-        ext.minimum = readVector3f();
-        ext.maximum = readVector3f();
-        return ext;
-    }
-    
     // Read string with fixed size
-    std::string readString(u32 size) {
-        std::vector<char> buffer(size);
-        file.read(buffer.data(), size);
-        
-        // Find null terminator
-        size_t len = 0;
-        while (len < size && buffer[len] != '\0') {
-            len++;
-        }
-        return std::string(buffer.begin(), buffer.begin() + len);
+    std::string readString(std::size_t size) {
+        std::string str(size, '\0');
+        file.read(str.data(), size);
+        auto nullPos = str.find('\0');
+        if (nullPos != std::string::npos) str.resize(nullPos);
+        return str;
     }
-    
-    // Read variable length string (null-terminated)
+
     std::string readZString() {
         std::string result;
         char c;
@@ -191,4 +103,4 @@ private:
     u32 fileSize = 0;
 };
 
-} // namespace Common
+} // namespace common

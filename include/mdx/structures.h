@@ -648,8 +648,14 @@ struct Camera {
  * Collision shapes define simplified geometry for collision detection.
  */
 struct CollisionShape {
+    enum class ShapeType : u32 {
+        Box = 0,
+        Plane = 1,
+        Sphere = 2,
+        Cylinder = 3
+    };
     Node node;                      ///< Base node data
-    u32 type = 0;                  ///< Shape type: 0=cube, 1=plane, 2=sphere, 3=cylinder
+    ShapeType type = ShapeType::Box; ///< Shape type
     std::vector<Vector3f> vertices; ///< Shape vertices (box only)
     f32 radius = 0.0f;             ///< Radius (sphere/cylinder only)
 };
