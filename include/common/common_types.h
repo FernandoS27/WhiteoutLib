@@ -1,6 +1,5 @@
 #pragma once
 
-#include <concepts>
 #include <cstdint>
 #include <limits>
 #include <array>
@@ -28,22 +27,16 @@ using f64 = double;
 // Normalized Integer Types
 // ============================================================================
 
-template<typename T>
-concept UnsignedInt = std::is_unsigned_v<T> && std::is_integral_v<T>;
-
-template<typename T>
-concept SignedInt = std::is_signed_v<T> && std::is_integral_v<T>;
-
-template<SignedInt SInt>
+template<typename SInt>
 struct snorm;
 
-template<UnsignedInt UInt>
+template<typename UInt>
 struct unorm;
 
-template<SignedInt SInt>
+template<typename SInt>
 struct snorm {
     SInt value = 0;
-    using UInt = std::make_unsigned_t<SInt>;
+    using UInt = std::make_unsigned<SInt>::type;
 
     static constexpr f32 max_value() {
         return static_cast<f32>(std::numeric_limits<SInt>::max());
@@ -75,7 +68,7 @@ struct snorm {
     }
 };
 
-template<UnsignedInt UInt>
+template<typename UInt>
 struct unorm {
     UInt value = 0;
     using SInt = std::make_signed_t<UInt>;

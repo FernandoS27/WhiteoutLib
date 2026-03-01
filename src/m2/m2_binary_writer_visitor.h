@@ -1,14 +1,12 @@
 #pragma once
 
+#include "../include/common/binary_writer.h"
 #include "../include/m2/types.h"
 #include "../include/m2/structures.h"
 
 #include <deque>
 #include <functional>
-
-namespace common {
-    class BinaryWriter;
-}
+#include <type_traits>
 
 namespace m2 {
 
@@ -98,6 +96,20 @@ protected:
     void visit(const M2TEXLEntry& entry);
     void visit(const M2TEXLChunk& chunk);
 
+    // Skeleton structure visit methods
+    void visit(const M2SKL1Chunk& chunk);
+    void visit(const M2SKA1Chunk& chunk);
+    void visit(const M2SKB1Chunk& chunk);
+    void visit(const M2SKS1Chunk& chunk);
+    void visit(const M2SKPDChunk& chunk);
+
+    // Skin structure visit methods
+    void visit(const M2SkinSection& section);
+    void visit(const M2Batch& batch);
+    void visit(const M2ShadowBatch& batch);
+    void visit(const M2SkinProfile& profile);
+    void visit(const M2SkinFile& file);
+
     void visit(const AnimationTrackBase& track);
     
     template<typename T>
@@ -113,5 +125,40 @@ protected:
     std::deque<std::function<void()>> deferredWrites; // offset, write function
     u32 baseOffset = 0;
 };
+
+template<typename T>
+void M2BinaryWriterVisitor::visit(const AnimationTrack<T>& track) {
+    writer.write(track.interpolationType);
+    writer.write(track.globalSequenceId);
+    visit(track.timestamps);
+    visit(track.values);
+}
+
+template<typename T>
+void M2BinaryWriterVisitor::visit(const std::vector<T>& array) {
+    writer.template write<u32>(static_cast<u32>(array.size()));
+    u32 offsetPos = writer.getPosition();
+    writer.template write<u32>(0);
+    if (array.empty()) {
+        return;
+    }
+
+    deferredWrites.push_back([this, offsetPos, &array]() {
+        u32 currentPos = writer.getPosition();
+        writer.setPosition(offsetPos);
+        writer.write(currentPos - baseOffset);
+        writer.setPosition(currentPos);
+
+        if constexpr (std::is_trivially_copyable_v<T>) {
+            writer.write(array);
+        } else {
+            for (const T& item : array) {
+                visit(item);
+            }
+        }
+
+        writer.AlignTo(16);
+    });
+}
 
 } // namespace m2

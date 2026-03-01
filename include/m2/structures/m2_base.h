@@ -68,8 +68,7 @@ struct Sequence {
     u16 blendTimeIn = 0;
     u16 blendTimeOut = 0;
 
-    Extent boundingBox;
-    f32 boundingSphereRadius = 0.0f;
+    M2Extent bounding;
 
     i16 variationNext = -1;
     u16 aliasNext = 0;
@@ -364,10 +363,8 @@ struct MD20Header {
     std::vector<u16> textureWeightCombos;
     std::vector<u16> textureTransformCombos;
 
-    Extent boundingBox;
-    f32 boundingSphereRadius = 0.0f;
-    Extent collisionBox;
-    f32 collisionSphereRadius = 0.0f;
+    M2Extent bounding;
+    M2Extent collision;
 
     std::vector<u16> collisionTriangleIndices;
     std::vector<Vector3f> collisionVertices;

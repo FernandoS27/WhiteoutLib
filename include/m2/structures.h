@@ -2,6 +2,8 @@
 
 #include "structures/m2_base.h"
 #include "structures/m2_chunks.h"
+#include "structures/m2_skin.h"
+#include "structures/m2_skeleton.h"
 
 #include <optional>
 #include <limits>
@@ -15,7 +17,7 @@ enum class M2Format : u32 {
     Invalid = std::numeric_limits<u32>::max(),
 };
 
-struct M2File {
+struct M2BaseFile {
     M2Format format = M2Format::Invalid;
     MD20Header header;
     std::optional<M2PFIDChunk> pfid_chunk = std::nullopt;
@@ -50,22 +52,51 @@ struct M2File {
 };
 
 struct M2SkinFile {
-    // placeholder;
+    M2SkinProfile profile;
+    bool isLodSkin = false;
+    int lodLevel = 0;
+    int index = 0;
 };
 
 struct M2AnimFile {
-    // placeholder;
+    u32 animId = 0;
+    u32 variant = 0;
+};
+
+struct M2BoneFile {
+    u32 boneId = 0;
 };
 
 struct M2SkeletonFile {
+    std::optional<M2SKL1Chunk> skl1_chunk = std::nullopt;  // Skeleton label/header
+    std::optional<M2SKA1Chunk> ska1_chunk = std::nullopt;  // Skeleton attachments
+    std::optional<M2SKB1Chunk> skb1_chunk = std::nullopt;  // Skeleton bones
+    std::optional<M2SKS1Chunk> sks1_chunk = std::nullopt;  // Skeleton sequences
+    std::optional<M2SKPDChunk> skpd_chunk = std::nullopt;  // Skeleton parent data
+    std::optional<M2AFIDChunk> afid_chunk = std::nullopt;  // Animation file IDs
+    std::optional<M2BFIDChunk> bfid_chunk = std::nullopt;  // Bone file IDs
+};
+
+struct M2PhysicsFile {
     // placeholder;
 };
 
+enum class M2FileType {
+    Base,
+    Skin,
+    Anim,
+    Skeleton,
+    Physics,
+};
+
 struct M2FileSystem {
-    M2File m2;
+    std::string baseName;
+    M2BaseFile base;
     std::vector<M2SkinFile> skins;
     std::vector<M2AnimFile> anims;
-    std::vector<M2SkeletonFile> skeletons;
+    std::vector<M2BoneFile> bones;
+    std::optional<M2SkeletonFile> skeleton = std::nullopt;
+    std::optional<M2PhysicsFile> physics = std::nullopt;
 };
 
 } // namespace m2

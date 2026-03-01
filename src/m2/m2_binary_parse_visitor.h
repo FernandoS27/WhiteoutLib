@@ -19,7 +19,7 @@ public:
     }
 
     template<typename T>
-    void read(T& header, M2File& file) {
+    void read(T& header, M2BaseFile& file) {
         start();
         visit(header, file);
     }
@@ -47,14 +47,14 @@ protected:
     void visit(MD20Header& header);
 
     // Chunk structure visit methods
-    void visit(M2TXACChunk& chunk, M2File& file);
+    void visit(M2TXACChunk& chunk, M2BaseFile& file);
 
     // File reference chunks
-    void visit(M2PFIDChunk& chunk, M2File& file);
-    void visit(M2SFIDChunk& chunk, M2File& file);
+    void visit(M2PFIDChunk& chunk, M2BaseFile& file);
+    void visit(M2SFIDChunk& chunk, M2BaseFile& file);
     void visit(M2AFIDEntry& entry);
-    void visit(M2AFIDChunk& chunk, M2File& file);
-    void visit(M2BFIDChunk& chunk, M2File& file);
+    void visit(M2AFIDChunk& chunk);
+    void visit(M2BFIDChunk& chunk);
 
     void visit(M2EXPTEntry& entry);
     void visit(M2EXPTChunk& chunk);
@@ -94,6 +94,20 @@ protected:
     void visit(M2TEXLEntry& entry);
     void visit(M2TEXLChunk& chunk);
 
+    // Skeleton structure visit methods
+    void visit(M2SKL1Chunk& chunk);
+    void visit(M2SKA1Chunk& chunk);
+    void visit(M2SKB1Chunk& chunk);
+    void visit(M2SKS1Chunk& chunk);
+    void visit(M2SKPDChunk& chunk);
+
+    // Skin structure visit methods
+    void visit(M2SkinSection& section);
+    void visit(M2Batch& batch);
+    void visit(M2ShadowBatch& batch);
+    void visit(M2SkinProfile& profile);
+    void visit(M2SkinFile& file);
+
     template<typename T>
     void visit(std::vector<T>& array);
 
@@ -108,5 +122,40 @@ protected:
     u32 baseOffset = 0;
     i32 maxSize = -1;
 };
+
+template<typename T>
+void M2BinaryParseVisitor::visit(std::vector<T>& array) {
+    const auto count = reader.read<u32>();
+    const auto offset = reader.read<u32>();
+    if (count == 0) {
+        array.clear();
+        return;
+    }
+
+    const auto currentPos = reader.getPosition();
+    reader.setPosition(offset + baseOffset);
+
+    if constexpr (std::is_trivially_copyable_v<T>) {
+        array = reader.read<std::vector<T>>(count);
+    } else {
+        array.clear();
+        array.reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            T element;
+            this->visit(element);
+            array.push_back(std::move(element));
+        }
+    }
+
+    reader.setPosition(currentPos);
+}
+
+template<typename T>
+void M2BinaryParseVisitor::visit(AnimationTrack<T>& track) {
+    track.interpolationType = reader.read<u16>();
+    track.globalSequenceId = reader.read<u16>();
+    visit(track.timestamps);
+    visit(track.values);
+}
 
 } // namespace m2

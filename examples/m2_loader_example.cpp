@@ -3,10 +3,10 @@
 #include <iostream>
 #include <iomanip>
 
-void printModelInfo(const m2::M2File& model) {
+void printModelInfo(const m2::M2BaseFile& model) {
     std::cout << "=== M2 Model Information ===" << std::endl;
     std::cout << "Version: " << model.header.version << std::endl;
-    std::cout << "Bounding Sphere Radius: " << model.header.boundingSphereRadius << std::endl;
+    std::cout << "Bounding Sphere Radius: " << model.header.bounding.sphereRadius << std::endl;
     
     std::cout << "\n=== Animation Sequences ===" << std::endl;
     std::cout << "Number of sequences: " << model.header.sequences.size() << std::endl;
@@ -46,7 +46,7 @@ int main(int argc, char* argv[]) {
         
         std::cout << "Loading M2 file: " << m2FilePath << std::endl;
         
-        m2::M2File model = parser.parse(m2FilePath);
+        m2::M2FileSystem model = parser.parse(m2FilePath);
         
         const auto& issues = parser.getIssues();
         if (!issues.empty()) {
@@ -56,7 +56,7 @@ int main(int argc, char* argv[]) {
             }
         }
         
-        printModelInfo(model);
+        printModelInfo(model.base);
         
         std::cout << "\nModel loaded successfully!" << std::endl;
         return 0;

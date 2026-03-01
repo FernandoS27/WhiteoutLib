@@ -16,15 +16,18 @@ class M2Writer {
 public:
     explicit M2Writer();
     
-    void write(const std::string& filePath, const M2File& model);
+    void write(const std::string& filePath, const M2FileSystem& model);
     
-    std::vector<uint8_t> writeToBuffer(const M2File& model);
+    std::vector<uint8_t> write(const M2BaseFile& model);
+    std::vector<uint8_t> write(const M2SkinFile& model);
     
 private:
 
-    void write(const M2File& model);
+    void writeM2Base(BinaryWriter& writer, const M2BaseFile& model);
+    void writeM2Skin(BinaryWriter& writer, const M2SkinFile& model);
 
-    void writeChunked(BinaryWriter& writer, const M2File& model);
+    void writeChunkedM2Base(BinaryWriter& writer, const M2BaseFile& model);
+    void writeChunkedM2Skeleton(BinaryWriter& writer, const M2SkeletonFile& model);
 };
 
 } // namespace m2

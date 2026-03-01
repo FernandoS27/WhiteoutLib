@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <stdexcept>
+#include <span>
 
 
 namespace common {
@@ -21,9 +22,9 @@ class M2Parser {
 public:
     explicit M2Parser(ParseMode mode = ParseMode::Lenient);
     
-    M2File parse(const std::string& filePath);
+    M2FileSystem parse(const std::string& filePath);
     
-    M2File parse(std::span<const uint8_t> buffer);
+    void parse(std::span<const uint8_t> buffer, M2FileSystem& fileSystem, M2FileType fileType);
     
     const std::vector<std::string>& getIssues() const { return issues; }
     
@@ -35,9 +36,12 @@ private:
     ParseMode parseMode;
     std::vector<std::string> issues;
 
-    M2File parse(common::BinaryReader& reader);
+    void parseM2Base(common::BinaryReader& reader, M2BaseFile& file);
+    void parseChunkedM2Base(common::BinaryReader& reader, M2BaseFile& m2file);
+
+    void parseM2Skin(common::BinaryReader& reader, M2SkinFile& skinFile);
     
-    void parseChunked(common::BinaryReader& reader, M2File& m2file);
+    void parseChunkedM2Skeleton(common::BinaryReader& reader, M2SkeletonFile& skeletonFile);
 
     void reportIssue(const std::string& message);
     void skipUnknownChunk(common::BinaryReader& reader, uint32_t tag, uint32_t size);

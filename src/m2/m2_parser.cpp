@@ -3,6 +3,7 @@
 #include "../include/common/binary_reader.h"
 #include "../common/streams.h"
 #include "m2_binary_parse_visitor.h"
+#include "m2_file_system.h"
 
 #include <fstream>
 #include <cstring>
@@ -14,47 +15,142 @@ using common::BinaryReader;
 M2Parser::M2Parser(ParseMode mode) 
     : parseMode(mode) {}
 
-M2File M2Parser::parse(const std::string& filePath) {
-    std::ifstream file(filePath, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open M2 file: " + filePath);
+M2FileSystem M2Parser::parse(const std::string& filePath) {
+    auto groupedFiles = m2::collectM2Bundle(filePath);
+    if (!groupedFiles) {
+        throw std::runtime_error("Failed to collect M2 bundle: " + filePath);
     }
-    BinaryReader reader(file);
-    return parse(reader);
+    M2FileSystem fileSystem;
+    // Parse main M2 file
+    {
+        std::ifstream file(groupedFiles->m2, std::ios::binary);
+        if (!file.is_open()) {
+            throw std::runtime_error("Failed to open M2 file: " + groupedFiles->m2.string());
+        }
+        BinaryReader reader(file);
+        parseM2Base(reader, fileSystem.base);
+        fileSystem.baseName = groupedFiles->m2.stem().string();
+    }
+    // Parse skin files
+    for (const auto& [index, skinPath] : groupedFiles->baseSkins) {
+        std::ifstream file(skinPath, std::ios::binary);
+        if (!file.is_open()) {
+            reportIssue("Failed to open skin file: " + skinPath.string());
+            continue;
+        }
+        
+        try {
+            BinaryReader reader(file);
+            M2SkinFile skinFile;
+            parseM2Skin(reader, skinFile);
+            skinFile.isLodSkin = false;
+            skinFile.index = index;
+            fileSystem.skins.push_back(std::move(skinFile));
+        } catch (const std::exception& e) {
+            reportIssue("Error parsing skin file '" + skinPath.string() + "': " + e.what());
+        }
+    }
+    for (const auto& [lodLevel, skinPath] : groupedFiles->lodSkins) {
+        std::ifstream file(skinPath, std::ios::binary);
+        if (!file.is_open()) {
+            reportIssue("Failed to open skin file: " + skinPath.string());
+            continue;
+        }
+        try {
+            BinaryReader reader(file);
+            M2SkinFile skinFile;
+            parseM2Skin(reader, skinFile);
+            skinFile.isLodSkin = true;
+            skinFile.lodLevel = lodLevel;
+            fileSystem.skins.push_back(std::move(skinFile));
+        } catch (const std::exception& e) {
+            reportIssue("Error parsing skin file '" + skinPath.string() + "': " + e.what());
+        }
+    }
+    if (groupedFiles->skel) {
+        std::ifstream file(groupedFiles->skel.value(), std::ios::binary);
+        if (!file.is_open()) {
+            reportIssue("Failed to open skeleton file: " + groupedFiles->skel.value().string());
+        } else {
+            try {
+                BinaryReader reader(file);
+                fileSystem.skeleton.emplace();
+                parseChunkedM2Skeleton(reader, fileSystem.skeleton.value());
+            } catch (const std::exception& e) {
+                reportIssue("Error parsing skeleton file '" + groupedFiles->skel.value().string() + "': " + e.what());
+            }
+        }
+    }
+    return fileSystem;
 }
 
-M2File M2Parser::parse(std::span<const u8> buffer) {
+void M2Parser::parse(std::span<const uint8_t> buffer, M2FileSystem& fileSystem, M2FileType fileType) {
     common::span_streambuf streambuf(buffer);
     std::istream in(&streambuf);
     BinaryReader reader(in);
-    return parse(reader);
+    switch (fileType) {
+        case M2FileType::Base:
+            parseM2Base(reader, fileSystem.base);
+            break;
+        case M2FileType::Skin:
+            fileSystem.skins.emplace_back();
+            parseM2Skin(reader, fileSystem.skins.back());
+            break;
+        case M2FileType::Skeleton:
+            if (fileSystem.skeleton.has_value()) {
+                reportIssue("Multiple skeleton files found in buffer, skipping additional ones");
+                return;
+            }
+            fileSystem.skeleton.emplace();
+            parseChunkedM2Skeleton(reader, fileSystem.skeleton.value());
+            break;
+        // Add cases for other file types as needed
+        default:
+            throw std::runtime_error("Unsupported M2 file type for parsing");
+    }
 }
 
-M2File M2Parser::parse(BinaryReader& reader) {
-    M2File m2file;
+void M2Parser::parseM2Base(BinaryReader& reader,  M2BaseFile& file) {
     u32 magic = reader.read<u32>();
     reader.setPosition(0);
     
     if (magic == MD20_TAG) {
-        m2file.format = M2Format::ClassicMD20;
+        file.format = M2Format::ClassicMD20;
         M2BinaryParseVisitor parser(reader);
-        parser.read(m2file.header);
+        parser.read(file.header);
+        return;
     } else if (magic == MD21_TAG) {
-        m2file.format = M2Format::LegionMD21;
-        parseChunked(reader, m2file);
-    } else {
-        std::string error = "Invalid M2 magic: expected MD20 or MD21, got '" 
-                           + std::string(reinterpret_cast<char*>(&magic), 4) + "'";
-        if (parseMode == ParseMode::Strict) {
-            throw std::runtime_error(error);
-        }
-        issues.push_back(error);
-        return m2file;
+        file.format = M2Format::LegionMD21;
+        parseChunkedM2Base(reader, file);
+        return;
     }
-    return m2file;
+    std::string error = "Invalid M2 magic: expected MD20 or MD21, got '" 
+                        + std::string(reinterpret_cast<char*>(&magic), 4) + "'";
+    if (parseMode == ParseMode::Strict) {
+        throw std::runtime_error(error);
+    }
+    issues.push_back(error);
 }
 
-void M2Parser::parseChunked(BinaryReader& reader, M2File& m2file) {
+void M2Parser::parseM2Skin(BinaryReader& reader, M2SkinFile& skinFile) {
+    u32 magic = reader.read<u32>();
+    reader.setPosition(0);
+    
+    if (magic == SKIN_TAG) {
+        skinFile.profile = M2SkinProfile();
+        M2BinaryParseVisitor parser(reader);
+        parser.read(skinFile.profile);
+        return;
+    }
+    std::string error = "Invalid M2 magic: expected SKIN, got '" 
+                        + std::string(reinterpret_cast<char*>(&magic), 4) + "'";
+    if (parseMode == ParseMode::Strict) {
+        throw std::runtime_error(error);
+    }
+    issues.push_back(error);
+}
+
+void M2Parser::parseChunkedM2Base(BinaryReader& reader, M2BaseFile& m2file) {
     while (reader.hasRemaining()) {
         u32 chunkTag = reader.read<u32>();
         u32 chunkSize = reader.read<u32>();
@@ -81,13 +177,13 @@ void M2Parser::parseChunked(BinaryReader& reader, M2File& m2file) {
             case AFID_TAG: {
                 M2BinaryParseVisitor parser(reader, chunkSize);
                 m2file.afid_chunk.emplace();
-                parser.read(m2file.afid_chunk.value(), m2file);
+                parser.read(m2file.afid_chunk.value());
                 break;
             }
             case BFID_TAG: {
                 M2BinaryParseVisitor parser(reader, chunkSize);
                 m2file.bfid_chunk.emplace();
-                parser.read(m2file.bfid_chunk.value(), m2file);
+                parser.read(m2file.bfid_chunk.value());
                 break;
             }
             case TXAC_TAG: {
@@ -238,6 +334,63 @@ void M2Parser::parseChunked(BinaryReader& reader, M2File& m2file) {
                 M2BinaryParseVisitor parser(reader, chunkSize);
                 m2file.texl_chunk.emplace();
                 parser.read(m2file.texl_chunk.value());
+                break;
+            }
+            default:
+                skipUnknownChunk(reader, chunkTag, chunkSize);
+                break;
+        }
+        reader.setPosition(chunkStart + chunkSize);
+    }
+}
+
+void M2Parser::parseChunkedM2Skeleton(BinaryReader& reader, M2SkeletonFile& skeletonFile) {
+    while (reader.hasRemaining()) {
+        u32 chunkTag = reader.read<u32>();
+        u32 chunkSize = reader.read<u32>();
+        u32 chunkStart = reader.getPosition();
+        
+        switch (chunkTag) {
+            case SKL1_TAG: {
+                M2BinaryParseVisitor parser(reader, chunkSize);
+                skeletonFile.skl1_chunk.emplace();
+                parser.read(skeletonFile.skl1_chunk.value());
+                break;
+            }
+            case SKA1_TAG: {
+                M2BinaryParseVisitor parser(reader, chunkSize);
+                skeletonFile.ska1_chunk.emplace();
+                parser.read(skeletonFile.ska1_chunk.value());
+                break;
+            }
+            case SKB1_TAG: {
+                M2BinaryParseVisitor parser(reader, chunkSize);
+                skeletonFile.skb1_chunk.emplace();
+                parser.read(skeletonFile.skb1_chunk.value());
+                break;
+            }
+            case SKS1_TAG: {
+                M2BinaryParseVisitor parser(reader, chunkSize);
+                skeletonFile.sks1_chunk.emplace();
+                parser.read(skeletonFile.sks1_chunk.value());
+                break;
+            }
+            case SKPD_TAG: {
+                M2BinaryParseVisitor parser(reader, chunkSize);
+                skeletonFile.skpd_chunk.emplace();
+                parser.read(skeletonFile.skpd_chunk.value());
+                break;
+            }
+            case AFID_TAG: {
+                M2BinaryParseVisitor parser(reader, chunkSize);
+                skeletonFile.afid_chunk.emplace();
+                parser.read(skeletonFile.afid_chunk.value());
+                break;
+            }
+            case BFID_TAG: {
+                M2BinaryParseVisitor parser(reader, chunkSize);
+                skeletonFile.bfid_chunk.emplace();
+                parser.read(skeletonFile.bfid_chunk.value());
                 break;
             }
             default:

@@ -4,6 +4,36 @@
 
 namespace m2 {
 
+constexpr u32 PFID_TAG = makeTag("PFID");
+constexpr u32 SFID_TAG = makeTag("SFID");
+constexpr u32 AFID_TAG = makeTag("AFID");
+constexpr u32 BFID_TAG = makeTag("BFID");
+constexpr u32 TXAC_TAG = makeTag("TXAC");
+constexpr u32 EXPT_TAG = makeTag("EXPT");
+constexpr u32 EXP2_TAG = makeTag("EXP2");
+constexpr u32 PABC_TAG = makeTag("PABC");
+constexpr u32 PADC_TAG = makeTag("PADC");
+constexpr u32 PSBC_TAG = makeTag("PSBC");
+constexpr u32 PEDC_TAG = makeTag("PEDC");
+constexpr u32 SKID_TAG = makeTag("SKID");
+constexpr u32 TXID_TAG = makeTag("TXID");
+constexpr u32 LDV1_TAG = makeTag("LDV1");
+constexpr u32 RPID_TAG = makeTag("RPID");
+constexpr u32 GPID_TAG = makeTag("GPID");
+constexpr u32 WFV1_TAG = makeTag("WFV1");
+constexpr u32 WFV2_TAG = makeTag("WFV2");
+constexpr u32 WFV3_TAG = makeTag("WFV3");
+constexpr u32 PFDC_TAG = makeTag("PFDC");
+constexpr u32 EDGF_TAG = makeTag("EDGF");
+constexpr u32 NERF_TAG = makeTag("NERF");
+constexpr u32 DETL_TAG = makeTag("DETL");
+constexpr u32 DBOC_TAG = makeTag("DBOC");
+constexpr u32 AFRA_TAG = makeTag("AFRA");
+constexpr u32 PCOL_TAG = makeTag("PCOL");
+constexpr u32 DPIV_TAG = makeTag("DPIV");
+constexpr u32 TEXL_TAG = makeTag("TEXL");
+constexpr u32 PGD1_TAG = makeTag("PGD1");
+
 struct M2TXACChunk {
     std::vector<std::array<u8, 2>> unknown;
 };

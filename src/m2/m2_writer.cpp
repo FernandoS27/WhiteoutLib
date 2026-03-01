@@ -3,6 +3,7 @@
 #include "../include/common/binary_writer.h"
 #include "../common/streams.h"
 #include "m2_binary_writer_visitor.h"
+#include "m2_file_system.h"
 #include <fstream>
 
 namespace m2 {
@@ -11,27 +12,42 @@ using common::BinaryWriter;
 
 M2Writer::M2Writer() = default;
 
-void M2Writer::write(const std::string& filePath, const M2File& model) {
-    std::ofstream file(filePath, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for writing: " + filePath);
-    }
-    
-    BinaryWriter writer(file);
-    
-    switch (model.format) {
-        case M2Format::ClassicMD20: {
-            M2BinaryWriterVisitor visitor(writer);
-            visitor.write(model.header);
-            break;
+void M2Writer::write(const std::string& filePath, const M2FileSystem& model) {
+    auto groupedFiles = fromM2FileSystem(model, filePath);
+
+    {
+        std::ofstream file(groupedFiles.m2, std::ios::binary);
+        if (!file.is_open()) {
+            throw std::runtime_error("Failed to open M2 file for writing: " + groupedFiles.m2.string());
         }
-        case M2Format::LegionMD21:
-            writeChunked(writer, model);
-            break;
+        BinaryWriter writer(file);
+        writeM2Base(writer, model.base);
+    }
+    for (const auto& skinFile : model.skins) {
+        std::filesystem::path skinPath;
+        if (skinFile.isLodSkin) {
+            skinPath = groupedFiles.lodSkins.at(skinFile.lodLevel);
+        } else {
+            skinPath = groupedFiles.baseSkins.at(skinFile.index);
+        }
+        std::ofstream file(skinPath, std::ios::binary);
+        if (!file.is_open()) {
+            throw std::runtime_error("Failed to open skin file for writing: " + skinPath.string());
+        }
+        BinaryWriter writer(file);
+        writeM2Skin(writer, skinFile);
+    }
+    if (model.skeleton) {
+        std::ofstream file(groupedFiles.skel.value(), std::ios::binary);
+        if (!file.is_open()) {
+            throw std::runtime_error("Failed to open skeleton file for writing: " + groupedFiles.skel.value().string());
+        }
+        BinaryWriter writer(file);
+        writeChunkedM2Skeleton(writer, model.skeleton.value());
     }
 }
 
-std::vector<u8> M2Writer::writeToBuffer(const M2File& model) {
+std::vector<u8> M2Writer::write(const M2BaseFile& model) {
     std::vector<u8> buffer;
     buffer.reserve(2 * 1024 * 1024); // Reserve 2MB to avoid frequent reallocations
     common::vector_streambuf streambuf(buffer);
@@ -45,14 +61,34 @@ std::vector<u8> M2Writer::writeToBuffer(const M2File& model) {
             break;
         }
         case M2Format::LegionMD21:
-            writeChunked(writer, model);
+            writeChunkedM2Base(writer, model);
             break;
     }
+
+    buffer.shrink_to_fit(); // Reduce capacity to actual size
 
     return buffer;
 }
 
-void M2Writer::writeChunked(BinaryWriter& writer, const M2File& model) {
+void M2Writer::writeM2Base(BinaryWriter& writer, const M2BaseFile& model) {
+    switch (model.format) {
+        case M2Format::ClassicMD20: {
+            M2BinaryWriterVisitor visitor(writer);
+            visitor.write(model.header);
+            break;
+        }
+        case M2Format::LegionMD21:
+            writeChunkedM2Base(writer, model);
+            break;
+    }
+}
+
+void M2Writer::writeM2Skin(BinaryWriter& writer, const M2SkinFile& model) {
+    M2BinaryWriterVisitor visitor(writer);
+    visitor.write(model.profile);
+}
+
+void M2Writer::writeChunkedM2Base(BinaryWriter& writer, const M2BaseFile& model) {
     const auto write_chunk = ([this, &writer]<typename T>(u32 tag,const T& header){
         writer.write(tag);
         u32 sizePos = writer.getPosition();
@@ -74,6 +110,9 @@ void M2Writer::writeChunked(BinaryWriter& writer, const M2File& model) {
     });
     
     write_chunk(MD21_TAG, model.header);
+    if (model.ldv1_chunk) {
+        write_chunk(LDV1_TAG, model.ldv1_chunk.value());
+    }
     if (model.pfid_chunk) {
         write_chunk(PFID_TAG, model.pfid_chunk.value());
     }
@@ -112,9 +151,6 @@ void M2Writer::writeChunked(BinaryWriter& writer, const M2File& model) {
     }
     if (model.txid_chunk) {
         write_chunk(TXID_TAG, model.txid_chunk.value());
-    }
-    if (model.ldv1_chunk) {
-        write_chunk(LDV1_TAG, model.ldv1_chunk.value());
     }
     if (model.rpid_chunk) {
         write_chunk(RPID_TAG, model.rpid_chunk.value());
@@ -162,6 +198,50 @@ void M2Writer::writeChunked(BinaryWriter& writer, const M2File& model) {
     }
     if (model.texl_chunk) {
         write_chunk(TEXL_TAG, model.texl_chunk.value());
+    }
+}
+
+void M2Writer::writeChunkedM2Skeleton(BinaryWriter& writer, const M2SkeletonFile& model) {
+    const auto write_chunk = ([this, &writer]<typename T>(u32 tag, const T& chunk) {
+        writer.write(tag);
+        u32 sizePos = writer.getPosition();
+        writer.write<u32>(0); // placeholder for chunk size
+        u32 chunkStart = writer.getPosition();
+        
+        M2BinaryWriterVisitor visitor(writer);
+        visitor.write(chunk);
+        
+        u32 chunkEnd = writer.getPosition();
+        u32 chunkSize = chunkEnd - chunkStart;
+        
+        // Go back and write the actual chunk size
+        writer.setPosition(sizePos);
+        writer.write(chunkSize);
+        
+        // Return to the end of the chunk
+        writer.setPosition(chunkEnd);
+    });
+    
+    if (model.skl1_chunk) {
+        write_chunk(SKL1_TAG, model.skl1_chunk.value());
+    }
+    if (model.ska1_chunk) {
+        write_chunk(SKA1_TAG, model.ska1_chunk.value());
+    }
+    if (model.skb1_chunk) {
+        write_chunk(SKB1_TAG, model.skb1_chunk.value());
+    }
+    if (model.sks1_chunk) {
+        write_chunk(SKS1_TAG, model.sks1_chunk.value());
+    }
+    if (model.skpd_chunk) {
+        write_chunk(SKPD_TAG, model.skpd_chunk.value());
+    }
+    if (model.afid_chunk) {
+        write_chunk(AFID_TAG, model.afid_chunk.value());
+    }
+    if (model.bfid_chunk) {
+        write_chunk(BFID_TAG, model.bfid_chunk.value());
     }
 }
 

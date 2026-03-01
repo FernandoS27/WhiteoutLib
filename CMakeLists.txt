@@ -18,7 +18,14 @@ target_include_directories(mdx_lib PUBLIC
 add_library(m2_lib
     src/m2/m2_parser.cpp
     src/m2/m2_writer.cpp
-    src/m2/m2_binary_parse_visitor.cpp    src/m2/m2_binary_writer_visitor.cpp)
+    src/m2/m2_binary_parse_visitor/m2_base.cpp
+    src/m2/m2_binary_parse_visitor/m2_chunk.cpp
+    src/m2/m2_binary_parse_visitor/m2_skin.cpp
+    src/m2/m2_binary_writer_visitor/m2_base.cpp
+    src/m2/m2_binary_writer_visitor/m2_chunk.cpp
+    src/m2/m2_binary_writer_visitor/m2_skin.cpp
+    src/m2/m2_file_system.cpp
+)
 
 target_include_directories(m2_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
