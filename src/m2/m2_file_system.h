@@ -6,6 +6,7 @@
 
 #include "../include/m2/structures.h"
 
+namespace whiteout {
 namespace m2 {
 
 struct AnimVariants {
@@ -35,3 +36,4 @@ std::optional<M2GroupedFiles> collectM2Bundle(const std::filesystem::path& m2Pat
 M2GroupedFiles fromM2FileSystem(const M2FileSystem& fsys, std::filesystem::path whereTo);
 
 }  // namespace m2
+}  // namespace whiteout

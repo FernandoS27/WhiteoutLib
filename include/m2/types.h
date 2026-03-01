@@ -10,9 +10,14 @@
 
 #include "../common/common_types.h"
 
+namespace whiteout {
 namespace m2 {
 
-using ::Extent;
+struct Extent {
+    Vector3f minimum;
+    Vector3f maximum;
+    f32 sphereRadius = 0.0f;
+};
 
 template<typename T>
 struct AnimationKey {
@@ -26,12 +31,6 @@ struct SplineKey {
     T value;
     T inTangent;
     T outTangent;
-};
-
-struct M2Extent {
-    Vector3f minimum;
-    Vector3f maximum;
-    f32 sphereRadius = 0.0f;
 };
 
 struct AnimationTrackBase {
@@ -69,3 +68,4 @@ constexpr u32 MD20_TAG = makeTag("MD20");
 constexpr u32 MD21_TAG = makeTag("MD21");
 
 } // namespace m2
+} // namespace whiteout

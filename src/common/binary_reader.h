@@ -1,12 +1,13 @@
 #pragma once
 
-#include "common_types.h"
+#include "../../include/common/common_types.h"
 #include "concepts.h"
 #include <istream>
 #include <cstring>
 #include <vector>
 #include <string>
 
+namespace whiteout {
 namespace common {
 
 class BinaryReader {
@@ -104,3 +105,4 @@ private:
 };
 
 } // namespace common
+} // namespace whiteout

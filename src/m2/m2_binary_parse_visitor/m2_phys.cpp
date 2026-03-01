@@ -1,6 +1,7 @@
 #include "../m2_binary_parse_visitor.h"
-#include "common/binary_reader.h"
+#include "../../common/binary_reader.h"
 
+namespace whiteout {
 namespace m2 {
 
 using common::BinaryReader;
@@ -296,3 +297,4 @@ void M2BinaryParseVisitor::visit(PHYVEntry& entry) {
 }
 
 } // namespace m2
+} // namespace whiteout

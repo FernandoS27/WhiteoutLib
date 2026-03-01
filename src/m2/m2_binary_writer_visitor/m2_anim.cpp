@@ -1,6 +1,7 @@
 #include "../m2_binary_writer_visitor.h"
-#include "../include/common/binary_writer.h"
+#include "../../common/binary_writer.h"
 
+namespace whiteout {
 namespace m2 {
 
 using common::BinaryWriter;
@@ -30,3 +31,4 @@ void M2BinaryWriterVisitor::visit(const AFSBChunk& chunk) {
 }
 
 } // namespace m2
+} // namespace whiteout

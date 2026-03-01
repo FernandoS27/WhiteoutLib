@@ -2,6 +2,7 @@
 
 #include "../types.h"
 
+namespace whiteout {
 namespace m2 {
 
 enum class GlobalFlag : u32 {
@@ -68,7 +69,7 @@ struct Sequence {
     u16 blendTimeIn = 0;
     u16 blendTimeOut = 0;
 
-    M2Extent bounding;
+    Extent bounding;
 
     i16 variationNext = -1;
     u16 aliasNext = 0;
@@ -363,8 +364,8 @@ struct MD20Header {
     std::vector<u16> textureWeightCombos;
     std::vector<u16> textureTransformCombos;
 
-    M2Extent bounding;
-    M2Extent collision;
+    Extent bounding;
+    Extent collision;
 
     std::vector<u16> collisionTriangleIndices;
     std::vector<Vector3f> collisionVertices;
@@ -382,3 +383,4 @@ struct MD20Header {
 };
 
 } // namespace m2
+} // namespace whiteout

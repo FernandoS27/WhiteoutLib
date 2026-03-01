@@ -1,14 +1,14 @@
 
 #include "../common/streams.h"
 #include "../include/mdx/mdx_parser.h"
-#include "../include/common/binary_reader.h"
+#include "../common/binary_reader.h"
 
 #include <cstring>
 #include <fstream>
 #include <streambuf>
 #include <stdexcept>
 
-
+namespace whiteout {
 namespace mdx {
 
 using common::BinaryReader;
@@ -1523,3 +1523,4 @@ void MDXParser::parseCORN(BinaryReader& reader, u32 size, MDXFile& mdx) {
 }
 
 } // namespace mdx
+} // namespace whiteout

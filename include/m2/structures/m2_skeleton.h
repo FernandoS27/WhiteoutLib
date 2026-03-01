@@ -2,6 +2,7 @@
 
 #include "m2_base.h"
 
+namespace whiteout {
 namespace m2 {
 
 // Skeleton file tags
@@ -46,3 +47,4 @@ struct M2SKPDChunk {
 };
 
 } // namespace m2
+} // namespace whiteout

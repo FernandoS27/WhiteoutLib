@@ -1,11 +1,14 @@
 #include "../include/mdx/mdx_writer.h"
-#include "../include/common/binary_writer.h"
+#include "../common/binary_writer.h"
 #include <iostream>
 #include <fstream>
 #include <cstring>
 #include <stdexcept>
 
+namespace whiteout {
 namespace mdx {
+
+using common::BinaryWriter;
 
 namespace {
 
@@ -692,3 +695,4 @@ void MDXWriter::writeCornEmitter(BinaryWriter& writer, const CornEmitter& corn) 
 }
 
 } // namespace mdx
+} // namespace whiteout

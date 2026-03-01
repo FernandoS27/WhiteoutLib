@@ -1,13 +1,15 @@
 
 #include "../include/m2/m2_parser.h"
-#include "../include/common/binary_reader.h"
+#include "../common/binary_reader.h"
 #include "../common/streams.h"
 #include "m2_binary_parse_visitor.h"
 #include "m2_file_system.h"
 
 #include <fstream>
 #include <cstring>
+#include <stdexcept>
 
+namespace whiteout {
 namespace m2 {
 
 using common::BinaryReader;
@@ -533,3 +535,4 @@ void M2Parser::reportIssue(const std::string& message) {
 }
 
 } // namespace m2
+} // namespace whiteout

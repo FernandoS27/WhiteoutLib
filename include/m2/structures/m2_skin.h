@@ -2,6 +2,7 @@
 
 #include "m2_base.h"
 
+namespace whiteout {
 namespace m2 {
 
 constexpr u32 SKIN_TAG = makeTag("SKIN");
@@ -64,3 +65,4 @@ struct M2SkinProfile {
 };
 
 } // namespace m2
+} // namespace whiteout

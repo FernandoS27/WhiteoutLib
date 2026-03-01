@@ -4,6 +4,7 @@
 #include <span>
 #include "../include/common/common_types.h"
 
+namespace whiteout {
 namespace common {
 
 class span_streambuf : public std::streambuf {
@@ -43,3 +44,4 @@ private:
 };
 
 } // namespace common
+} // namespace whiteout

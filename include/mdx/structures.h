@@ -18,6 +18,7 @@
 #include "types.h"
 #include <array>
 
+namespace whiteout {
 namespace mdx {
 
 // ============================================================================
@@ -704,3 +705,4 @@ struct CornEmitter {
 };
 
 } // namespace mdx
+} // namespace whiteout

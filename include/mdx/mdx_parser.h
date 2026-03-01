@@ -27,6 +27,7 @@
 #include <string>
 #include <span>
 
+namespace whiteout {
 namespace common {
     class BinaryReader;
 }
@@ -181,3 +182,4 @@ private:
 };
 
 } // namespace mdx
+} // namespace whiteout

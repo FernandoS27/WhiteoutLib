@@ -1,6 +1,7 @@
 #include "../m2_binary_writer_visitor.h"
-#include "../include/common/binary_writer.h"
+#include "../../common/binary_writer.h"
 
+namespace whiteout {
 namespace m2 {
 
 using common::BinaryWriter;
@@ -69,3 +70,4 @@ void M2BinaryWriterVisitor::visit(const M2SkinFile& file) {
 }
 
 } // namespace m2
+} // namespace whiteout

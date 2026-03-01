@@ -22,6 +22,7 @@
 #include <memory>
 #include <span>
 
+namespace whiteout {
 namespace common {
     class BinaryWriter;
 }
@@ -123,3 +124,4 @@ private:
 };
 
 } // namespace mdx
+} // namespace whiteout

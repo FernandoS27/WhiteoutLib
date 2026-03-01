@@ -32,6 +32,7 @@
 #include "mdx_parser.h"
 #include "mdx_writer.h"
 
+namespace whiteout {
 namespace mdx {
     /// Library major version number
     constexpr int MAJOR_VERSION = 1;
@@ -39,4 +40,5 @@ namespace mdx {
     constexpr int MINOR_VERSION = 0;
     /// Library patch version number
     constexpr int PATCH_VERSION = 0;
-}
+} // namespace mdx
+} // namespace whiteout

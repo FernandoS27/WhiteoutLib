@@ -2,6 +2,7 @@
 
 #include "m2_base.h"
 
+namespace whiteout {
 namespace m2 {
 
 constexpr u32 PFID_TAG = makeTag("PFID");
@@ -254,3 +255,4 @@ struct M2TEXLChunk {
 };
 
 } // namespace m2
+} // namespace whiteout

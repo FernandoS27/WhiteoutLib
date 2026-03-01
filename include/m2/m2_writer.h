@@ -4,6 +4,7 @@
 #include <string>
 #include <cstdint>
 
+namespace whiteout {
 namespace common {
     class BinaryWriter;
 }
@@ -33,3 +34,4 @@ private:
 };
 
 } // namespace m2
+} // namespace whiteout

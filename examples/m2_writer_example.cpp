@@ -15,8 +15,8 @@ int main(int argc, char* argv[]) {
     
     try {
         std::cout << "Loading input M2 file: " << inputPath << std::endl;
-        m2::M2Parser parser(m2::ParseMode::Lenient);
-        m2::M2FileSystem model = parser.parse(inputPath);
+        whiteout::m2::M2Parser parser(whiteout::m2::ParseMode::Lenient);
+        whiteout::m2::M2FileSystem model = parser.parse(inputPath);
         
         const auto& issues = parser.getIssues();
         if (!issues.empty()) {
@@ -32,7 +32,7 @@ int main(int argc, char* argv[]) {
         
         std::cout << "\nWriting output M2 file: " << outputPath << std::endl;
 
-        m2::M2Writer writer;
+        whiteout::m2::M2Writer writer;
         writer.write(outputPath, model);
         
         std::cout << "\nModel written successfully!" << std::endl;

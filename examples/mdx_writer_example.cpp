@@ -15,8 +15,8 @@ int main(int argc, char* argv[]) {
     try {
         // Parse the input MDX file
         std::cout << "Loading " << inputPath << "...\n";
-        mdx::MDXParser parser(mdx::MDXParser::ParseMode::Lenient, mdx::MDXParser::UpgradeMode::PreserveOriginal);
-        mdx::MDXFile mdxFile = parser.parse(inputPath);
+        whiteout::mdx::MDXParser parser(whiteout::mdx::MDXParser::ParseMode::Lenient, whiteout::mdx::MDXParser::UpgradeMode::PreserveOriginal);
+        whiteout::mdx::MDXFile mdxFile = parser.parse(inputPath);
 
         std::cout << "Loaded successfully:\n";
         std::cout << "  Model: " << mdxFile.modelName << "\n";
@@ -29,7 +29,7 @@ int main(int argc, char* argv[]) {
 
         // Write the MDX file
         std::cout << "\nWriting to " << outputPath << "...\n";
-        mdx::MDXWriter writer;
+        whiteout::mdx::MDXWriter writer;
         writer.write(outputPath, mdxFile);
 
         std::cout << "Written successfully!\n";

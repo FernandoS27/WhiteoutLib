@@ -4,6 +4,7 @@
 #include <vector>
 #include <optional>
 
+namespace whiteout {
 namespace m2 {
 
 // ============================================================================
@@ -73,3 +74,4 @@ struct M2AnimProfile {
 };
 
 } // namespace m2
+} // namespace whiteout

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "types.h"
 #include "structures/m2_base.h"
 #include "structures/m2_chunks.h"
 #include "structures/m2_skin.h"
@@ -11,6 +12,7 @@
 #include <optional>
 #include <limits>
 
+namespace whiteout {
 namespace m2 {
 
 enum class M2Format : u32 {
@@ -107,3 +109,4 @@ struct M2FileSystem {
 };
 
 } // namespace m2
+} // namespace whiteout

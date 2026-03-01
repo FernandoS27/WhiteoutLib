@@ -1,11 +1,12 @@
 #pragma once
 
-#include "../include/common/binary_reader.h"
+#include "../common/binary_reader.h"
 #include "../include/m2/types.h"
 #include "../include/m2/structures.h"
 
 #include <type_traits>
 
+namespace whiteout {
 namespace m2 {
 
 class M2BinaryParseVisitor {
@@ -214,3 +215,4 @@ void M2BinaryParseVisitor::visit(AnimationTrack<T>& track) {
 }
 
 } // namespace m2
+} // namespace whiteout

@@ -3,6 +3,7 @@
 #include "m2_base.h"
 #include <vector>
 
+namespace whiteout {
 namespace m2 {
 
 // Matrix types for physics
@@ -349,3 +350,4 @@ struct PHYVEntry {
 };
 
 } // namespace m2
+} // namespace whiteout

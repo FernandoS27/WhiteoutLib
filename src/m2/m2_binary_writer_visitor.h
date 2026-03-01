@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../include/common/binary_writer.h"
+#include "../common/binary_writer.h"
 #include "../include/m2/types.h"
 #include "../include/m2/structures.h"
 
@@ -8,6 +8,7 @@
 #include <functional>
 #include <type_traits>
 
+namespace whiteout {
 namespace m2 {
 
 class M2BinaryWriterVisitor {
@@ -203,3 +204,4 @@ void M2BinaryWriterVisitor::visit(const std::vector<T>& array) {
 }
 
 } // namespace m2
+} // namespace whiteout

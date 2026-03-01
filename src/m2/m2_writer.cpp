@@ -1,11 +1,12 @@
 
 #include "../include/m2/m2_writer.h"
-#include "../include/common/binary_writer.h"
+#include "../common/binary_writer.h"
 #include "../common/streams.h"
 #include "m2_binary_writer_visitor.h"
 #include "m2_file_system.h"
 #include <fstream>
 
+namespace whiteout {
 namespace m2 {
 
 using common::BinaryWriter;
@@ -318,3 +319,4 @@ void M2Writer::writeChunkedM2Anim(BinaryWriter& writer, const M2AnimFile& model)
 }
 
 } // namespace m2
+} // namespace whiteout

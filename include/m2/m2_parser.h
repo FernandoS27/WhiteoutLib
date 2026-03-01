@@ -6,7 +6,7 @@
 #include <stdexcept>
 #include <span>
 
-
+namespace whiteout {
 namespace common {
     class BinaryReader;
 }
@@ -50,3 +50,4 @@ private:
 };
 
 } // namespace m2
+} // namespace whiteout

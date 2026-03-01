@@ -4,6 +4,7 @@
 #include <sstream>
 #include <iomanip>
 
+namespace whiteout {
 namespace m2 {
 
 namespace {
@@ -197,3 +198,4 @@ fromM2FileSystem(const M2FileSystem& fsys,
 }
 
 }  // namespace m2
+}  // namespace whiteout

@@ -23,10 +23,18 @@
 
 #include "../common/common_types.h"
 
+namespace whiteout {
 namespace mdx {
 
-/// Extent type from common types (bounding volume information)
-using ::Extent;
+// ============================================================================
+// Extent Type
+// ============================================================================
+
+struct Extent {
+    f32 boundsRadius;
+    Vector3f minimum;
+    Vector3f maximum;
+};
 
 // ============================================================================
 // Chunk Tags (as u32)
@@ -346,3 +354,4 @@ struct MDXFile {
 };
 
 } // namespace mdx
+} // namespace whiteout

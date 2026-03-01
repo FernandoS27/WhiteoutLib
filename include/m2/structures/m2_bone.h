@@ -3,6 +3,7 @@
 #include "m2_base.h"
 #include <vector>
 
+namespace whiteout {
 namespace m2 {
 
 // ============================================================================
@@ -48,3 +49,4 @@ struct BOMTChunk {
 };
 
 } // namespace m2
+} // namespace whiteout

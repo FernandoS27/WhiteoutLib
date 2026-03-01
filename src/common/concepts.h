@@ -2,6 +2,7 @@
 #include <span>
 #include <type_traits>
 
+namespace whiteout {
 namespace common {
 
 template<typename C>
@@ -37,3 +38,4 @@ concept BinaryScalar =
     !std::is_same_v<T, bool>;
 
 } // namespace common
+} // namespace whiteout
