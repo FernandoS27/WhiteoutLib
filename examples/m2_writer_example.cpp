@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) 2026 Fernando Sahmkow
+
 
 #include <m2/m2.h>
 #include <iostream>

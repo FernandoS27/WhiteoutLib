@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) 2026 Fernando Sahmkow
+
 
 #include "../include/m2/m2_parser.h"
 #include "../common/binary_reader.h"
