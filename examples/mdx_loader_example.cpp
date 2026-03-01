@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include <mdx/mdx.h>
+#include <whiteout/mdx/mdx.h>
 #include <iostream>
 #include <iomanip>
 
@@ -15,7 +15,7 @@ void printVector4(const whiteout::Vector4f& v, const std::string& name = "") {
     std::cout << "(" << v.x << ", " << v.y << ", " << v.z << ", " << v.w << ")" << std::endl;
 }
 
-void printModelInfo(const whiteout::mdx::MDXFile& mdx) {
+void printModelInfo(const whiteout::mdx::Model& mdx) {
     std::cout << "=== MDX File Information ===" << std::endl;
     std::cout << "Version: " << mdx.version << std::endl;
     std::cout << "Model Name: " << mdx.modelName << std::endl;
@@ -48,7 +48,7 @@ void printModelInfo(const whiteout::mdx::MDXFile& mdx) {
     std::cout << "Bind Poses: " << mdx.bindPoses.size() << std::endl;
 }
 
-void printSequences(const whiteout::mdx::MDXFile& mdx) {
+void printSequences(const whiteout::mdx::Model& mdx) {
     if (mdx.sequences.empty()) {
         std::cout << "No sequences found." << std::endl;
         return;
@@ -65,7 +65,7 @@ void printSequences(const whiteout::mdx::MDXFile& mdx) {
     }
 }
 
-void printTextures(const whiteout::mdx::MDXFile& mdx) {
+void printTextures(const whiteout::mdx::Model& mdx) {
     if (mdx.textures.empty()) {
         std::cout << "No textures found." << std::endl;
         return;
@@ -81,7 +81,7 @@ void printTextures(const whiteout::mdx::MDXFile& mdx) {
     }
 }
 
-void printBones(const whiteout::mdx::MDXFile& mdx) {
+void printBones(const whiteout::mdx::Model& mdx) {
     if (mdx.bones.empty()) {
         std::cout << "No bones found." << std::endl;
         return;
@@ -102,7 +102,7 @@ void printBones(const whiteout::mdx::MDXFile& mdx) {
     }
 }
 
-void printGeosets(const whiteout::mdx::MDXFile& mdx) {
+void printGeosets(const whiteout::mdx::Model& mdx) {
     if (mdx.geosets.empty()) {
         std::cout << "No geosets found." << std::endl;
         return;
@@ -152,8 +152,8 @@ int main(int argc, char* argv[]) {
 
         std::cout << "Loading MDX file: " << filePath << std::endl;
         
-        whiteout::mdx::MDXParser parser;
-        whiteout::mdx::MDXFile mdx = parser.parse(filePath);
+        whiteout::mdx::Parser parser;
+        whiteout::mdx::Model mdx = parser.parse(filePath);
         
         std::cout << "\n=== File Successfully Loaded ===" << std::endl;
         

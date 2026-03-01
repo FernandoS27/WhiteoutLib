@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 
-#include <m2/m2.h>
+#include <whiteout/m2/m2.h>
 #include <iostream>
 #include <fstream>
 
@@ -18,8 +18,8 @@ int main(int argc, char* argv[]) {
     
     try {
         std::cout << "Loading input M2 file: " << inputPath << std::endl;
-        whiteout::m2::M2Parser parser(whiteout::m2::ParseMode::Lenient);
-        whiteout::m2::M2FileSystem model = parser.parse(inputPath);
+        whiteout::m2::Parser parser(whiteout::m2::ParseMode::Lenient);
+        whiteout::m2::FileSystem model = parser.parse(inputPath);
         
         const auto& issues = parser.getIssues();
         if (!issues.empty()) {
@@ -35,7 +35,7 @@ int main(int argc, char* argv[]) {
         
         std::cout << "\nWriting output M2 file: " << outputPath << std::endl;
 
-        whiteout::m2::M2Writer writer;
+        whiteout::m2::Writer writer;
         writer.write(outputPath, model);
         
         std::cout << "\nModel written successfully!" << std::endl;

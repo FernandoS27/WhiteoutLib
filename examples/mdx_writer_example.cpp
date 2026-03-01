@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include <mdx/mdx.h>
+#include <whiteout/mdx/mdx.h>
 #include <iostream>
 #include <filesystem>
 
@@ -18,8 +18,8 @@ int main(int argc, char* argv[]) {
     try {
         // Parse the input MDX file
         std::cout << "Loading " << inputPath << "...\n";
-        whiteout::mdx::MDXParser parser(whiteout::mdx::MDXParser::ParseMode::Lenient, whiteout::mdx::MDXParser::UpgradeMode::PreserveOriginal);
-        whiteout::mdx::MDXFile mdxFile = parser.parse(inputPath);
+        whiteout::mdx::Parser parser(whiteout::mdx::Parser::ParseMode::Lenient, whiteout::mdx::Parser::UpgradeMode::PreserveOriginal);
+        whiteout::mdx::Model mdxFile = parser.parse(inputPath);
 
         std::cout << "Loaded successfully:\n";
         std::cout << "  Model: " << mdxFile.modelName << "\n";
@@ -32,7 +32,7 @@ int main(int argc, char* argv[]) {
 
         // Write the MDX file
         std::cout << "\nWriting to " << outputPath << "...\n";
-        whiteout::mdx::MDXWriter writer;
+        whiteout::mdx::Writer writer;
         writer.write(outputPath, mdxFile);
 
         std::cout << "Written successfully!\n";

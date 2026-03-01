@@ -2,11 +2,11 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 
-#include <m2/m2.h>
+#include <whiteout/m2/m2.h>
 #include <iostream>
 #include <iomanip>
 
-void printModelInfo(const whiteout::m2::M2BaseFile& model) {
+void printModelInfo(const whiteout::m2::BaseFile& model) {
     std::cout << "=== M2 Model Information ===" << std::endl;
     std::cout << "Version: " << model.header.version << std::endl;
     std::cout << "Bounding Sphere Radius: " << model.header.bounding.sphereRadius << std::endl;
@@ -45,11 +45,11 @@ int main(int argc, char* argv[]) {
     std::string m2FilePath = argv[1];
     
     try {
-        whiteout::m2::M2Parser parser(whiteout::m2::ParseMode::Lenient);
+        whiteout::m2::Parser parser(whiteout::m2::ParseMode::Lenient);
         
         std::cout << "Loading M2 file: " << m2FilePath << std::endl;
         
-        whiteout::m2::M2FileSystem model = parser.parse(m2FilePath);
+        whiteout::m2::FileSystem model = parser.parse(m2FilePath);
         
         const auto& issues = parser.getIssues();
         if (!issues.empty()) {
