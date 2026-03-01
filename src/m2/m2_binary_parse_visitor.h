@@ -94,6 +94,48 @@ protected:
     void visit(M2TEXLEntry& entry);
     void visit(M2TEXLChunk& chunk);
 
+    // Physics structure visit methods
+    void visit(PHYSHeader& header);
+    void visit(PHYTEntry& entry);
+    void visit(BODYEntry& entry);
+    void visit(BDY2Entry& entry);
+    void visit(BDY3Entry& entry);
+    void visit(BDY4Entry& entry);
+    void visit(SHAPEntry& entry);
+    void visit(SHP2Entry& entry);
+    void visit(BOXSEntry& entry);
+    void visit(CAPSEntry& entry);
+    void visit(SPHSEntry& entry);
+    void visit(PLYTNode& node);
+    void visit(PLYTData& data, const PLYTHeader& header);
+    void visit(PLYTEntry& entry);
+    void visit(JOINEntry& entry);
+    void visit(Matrix3x4& matrix);
+    void visit(WELJEntry& entry);
+    void visit(WLJ2Entry& entry);
+    void visit(WLJ3Entry& entry);
+    void visit(SPHJEntry& entry);
+    void visit(SHOJEntry& entry);
+    void visit(SHJ2Entry& entry);
+    void visit(PRSJEntry& entry);
+    void visit(PRS2Entry& entry);
+    void visit(REVJEntry& entry);
+    void visit(REV2Entry& entry);
+    void visit(DSTJEntry& entry);
+    void visit(PHYVEntry& entry);
+
+    // Bone structure visit methods
+    void visit(BONEHeader& header);
+    void visit(Matrix4x4& matrix);
+    void visit(BIDAChunk& chunk);
+    void visit(BOMTChunk& chunk);
+
+    // Anim structure visit methods
+    void visit(AFM2Chunk& chunk);
+    void visit(AFSAChunk& chunk);
+    void visit(AFSBChunk& chunk);
+    void visit(M2AnimFile& file);
+
     // Skeleton structure visit methods
     void visit(M2SKL1Chunk& chunk);
     void visit(M2SKA1Chunk& chunk);
@@ -110,6 +152,9 @@ protected:
 
     template<typename T>
     void visit(std::vector<T>& array);
+
+    template<typename T>
+    void parse_chunked_vector(std::vector<T>& array);
 
     void visit(std::string& str);
 
@@ -148,6 +193,16 @@ void M2BinaryParseVisitor::visit(std::vector<T>& array) {
     }
 
     reader.setPosition(currentPos);
+}
+
+template<typename T>
+void M2BinaryParseVisitor::parse_chunked_vector(std::vector<T>& array) {
+    if (maxSize <= 0) {
+        array.clear();
+        return;
+    }
+    const size_t totalSize = maxSize / sizeof(T);
+    array = reader.read<std::vector<T>>(totalSize);
 }
 
 template<typename T>

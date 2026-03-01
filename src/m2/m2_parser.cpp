@@ -81,6 +81,41 @@ M2FileSystem M2Parser::parse(const std::string& filePath) {
             }
         }
     }
+    for (const auto& [boneId, bonePath] : groupedFiles->bones) {
+        std::ifstream file(bonePath, std::ios::binary);
+        if (!file.is_open()) {
+            reportIssue("Failed to open bone file: " + bonePath.string());
+            continue;
+        }
+        try {
+            BinaryReader reader(file);
+            M2BoneFile boneFile;
+            boneFile.boneId = boneId;
+            parseChunkedM2Bone(reader, boneFile);
+            fileSystem.bones.push_back(std::move(boneFile));
+        } catch (const std::exception& e) {
+            reportIssue("Error parsing bone file '" + bonePath.string() + "': " + e.what());
+        }
+    }
+    for (const auto& [animId, animVariants] : groupedFiles->anims) {
+        for (const auto& [variant, animPath] : animVariants.variants) {
+            std::ifstream file(animPath, std::ios::binary);
+            if (!file.is_open()) {
+                reportIssue("Failed to open anim file: " + animPath.string());
+                continue;
+            }
+            try {
+                BinaryReader reader(file);
+                M2AnimFile animFile;
+                animFile.animId = animId;
+                animFile.variant = variant;
+                parseChunkedM2Anim(reader, animFile);
+                fileSystem.anims.push_back(std::move(animFile));
+            } catch (const std::exception& e) {
+                reportIssue("Error parsing anim file '" + animPath.string() + "': " + e.what());
+            }
+        }
+    }
     return fileSystem;
 }
 
@@ -399,6 +434,90 @@ void M2Parser::parseChunkedM2Skeleton(BinaryReader& reader, M2SkeletonFile& skel
         }
         reader.setPosition(chunkStart + chunkSize);
     }
+}
+
+void M2Parser::parseChunkedM2Bone(BinaryReader& reader, M2BoneFile& boneFile) {
+    // First, read the BONE header (4 bytes, should be 1)
+    M2BinaryParseVisitor headerParser(reader);
+    headerParser.read(boneFile.header);
+    
+    // Then read the chunked data
+    while (reader.hasRemaining()) {
+        u32 chunkTag = reader.read<u32>();
+        u32 chunkSize = reader.read<u32>();
+        u32 chunkStart = reader.getPosition();
+        
+        switch (chunkTag) {
+            case BIDA_TAG: {
+                M2BinaryParseVisitor parser(reader, chunkSize);
+                boneFile.bida_chunk.emplace();
+                parser.read(boneFile.bida_chunk.value());
+                break;
+            }
+            case BOMT_TAG: {
+                M2BinaryParseVisitor parser(reader, chunkSize);
+                boneFile.bomt_chunk.emplace();
+                parser.read(boneFile.bomt_chunk.value());
+                break;
+            }
+            default:
+                skipUnknownChunk(reader, chunkTag, chunkSize);
+                break;
+        }
+        reader.setPosition(chunkStart + chunkSize);
+    }
+}
+
+void M2Parser::parseChunkedM2Anim(BinaryReader& reader, M2AnimFile& animFile) {
+    // Check if the file is chunked by peeking at the first 4 bytes
+    u32 firstTag = reader.read<u32>();
+    reader.setPosition(0);
+    
+    // If it starts with AFM2, AFSA, or AFSB, it's chunked format
+    if (firstTag != AFM2_TAG && firstTag != AFSA_TAG && firstTag != AFSB_TAG) {
+        // Pre-Legion format: raw data
+        u32 fileSize = reader.getRemainingBytes();
+
+        // Update it to use the new chunked structure for consistency
+        animFile.profile.afm2_chunk.emplace();
+        animFile.profile.isChunked = true;
+        animFile.profile.afm2_chunk->animationData = reader.read<std::vector<u8>>(fileSize);
+        return;
+    }
+    // Chunked format
+    animFile.profile.isChunked = true;
+    
+    while (reader.hasRemaining()) {
+        u32 chunkTag = reader.read<u32>();
+        u32 chunkSize = reader.read<u32>();
+        u32 chunkStart = reader.getPosition();
+        
+        switch (chunkTag) {
+            case AFM2_TAG: {
+                M2BinaryParseVisitor parser(reader, chunkSize);
+                animFile.profile.afm2_chunk.emplace();
+                parser.read(animFile.profile.afm2_chunk.value());
+                break;
+            }
+            case AFSA_TAG: {
+                M2BinaryParseVisitor parser(reader, chunkSize);
+                animFile.profile.afsa_chunk.emplace();
+                parser.read(animFile.profile.afsa_chunk.value());
+                break;
+            }
+            case AFSB_TAG: {
+                M2BinaryParseVisitor parser(reader, chunkSize);
+                animFile.profile.afsb_chunk.emplace();
+                parser.read(animFile.profile.afsb_chunk.value());
+                break;
+            }
+            default:
+                skipUnknownChunk(reader, chunkTag, chunkSize);
+                break;
+        }
+        reader.setPosition(chunkStart + chunkSize);
+    }
+
 }
 
 void M2Parser::skipUnknownChunk(BinaryReader& reader, u32 tag, u32 size) {

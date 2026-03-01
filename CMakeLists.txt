@@ -21,9 +21,13 @@ add_library(m2_lib
     src/m2/m2_binary_parse_visitor/m2_base.cpp
     src/m2/m2_binary_parse_visitor/m2_chunk.cpp
     src/m2/m2_binary_parse_visitor/m2_skin.cpp
+    src/m2/m2_binary_parse_visitor/m2_bone.cpp
+    src/m2/m2_binary_parse_visitor/m2_anim.cpp
     src/m2/m2_binary_writer_visitor/m2_base.cpp
     src/m2/m2_binary_writer_visitor/m2_chunk.cpp
     src/m2/m2_binary_writer_visitor/m2_skin.cpp
+    src/m2/m2_binary_writer_visitor/m2_bone.cpp
+    src/m2/m2_binary_writer_visitor/m2_anim.cpp
     src/m2/m2_file_system.cpp
 )
 

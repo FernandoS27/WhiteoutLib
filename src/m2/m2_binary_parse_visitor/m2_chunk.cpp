@@ -30,13 +30,11 @@ void M2BinaryParseVisitor::visit(M2AFIDEntry& entry) {
 }
 
 void M2BinaryParseVisitor::visit(M2AFIDChunk& chunk) {
-    size_t entryCount = maxSize / sizeof(M2AFIDEntry);
-    chunk.animFileIds = reader.read<std::vector<M2AFIDEntry>>(entryCount);
+    parse_chunked_vector(chunk.animFileIds);
 }
 
 void M2BinaryParseVisitor::visit(M2BFIDChunk& chunk) {
-    size_t entryCount = maxSize / sizeof(u32);
-    chunk.boneFileDataIds = reader.read<std::vector<u32>>(entryCount);
+    parse_chunked_vector(chunk.boneFileDataIds);
 }
 
 void M2BinaryParseVisitor::visit(M2EXPTEntry& entry) {

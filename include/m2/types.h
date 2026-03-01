@@ -28,16 +28,16 @@ struct SplineKey {
     T outTangent;
 };
 
-struct AnimationTrackBase {
-    u16 interpolationType = 0;
-    u16 globalSequenceId = 0xFFFF;
-    std::vector<std::vector<u32>> timestamps;
-};
-
 struct M2Extent {
     Vector3f minimum;
     Vector3f maximum;
     f32 sphereRadius = 0.0f;
+};
+
+struct AnimationTrackBase {
+    u16 interpolationType = 0;
+    u16 globalSequenceId = 0xFFFF;
+    std::vector<std::vector<u32>> timestamps;
 };
 
 template<typename T>

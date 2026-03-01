@@ -4,6 +4,9 @@
 #include "structures/m2_chunks.h"
 #include "structures/m2_skin.h"
 #include "structures/m2_skeleton.h"
+#include "structures/m2_phys.h"
+#include "structures/m2_bone.h"
+#include "structures/m2_anim.h"
 
 #include <optional>
 #include <limits>
@@ -59,11 +62,15 @@ struct M2SkinFile {
 };
 
 struct M2AnimFile {
+    M2AnimProfile profile;
     u32 animId = 0;
     u32 variant = 0;
 };
 
 struct M2BoneFile {
+    BONEHeader header;
+    std::optional<BIDAChunk> bida_chunk = std::nullopt;  // Bone IDs
+    std::optional<BOMTChunk> bomt_chunk = std::nullopt;  // Bone offset matrices
     u32 boneId = 0;
 };
 

@@ -42,6 +42,8 @@ private:
     void parseM2Skin(common::BinaryReader& reader, M2SkinFile& skinFile);
     
     void parseChunkedM2Skeleton(common::BinaryReader& reader, M2SkeletonFile& skeletonFile);
+    void parseChunkedM2Bone(common::BinaryReader& reader, M2BoneFile& boneFile);
+    void parseChunkedM2Anim(common::BinaryReader& reader, M2AnimFile& animFile);
 
     void reportIssue(const std::string& message);
     void skipUnknownChunk(common::BinaryReader& reader, uint32_t tag, uint32_t size);

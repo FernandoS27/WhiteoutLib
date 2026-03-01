@@ -96,6 +96,47 @@ protected:
     void visit(const M2TEXLEntry& entry);
     void visit(const M2TEXLChunk& chunk);
 
+    // Physics structure visit methods
+    void visit(const PHYSHeader& header);
+    void visit(const PHYTEntry& entry);
+    void visit(const BODYEntry& entry);
+    void visit(const BDY2Entry& entry);
+    void visit(const BDY3Entry& entry);
+    void visit(const BDY4Entry& entry);
+    void visit(const SHAPEntry& entry);
+    void visit(const SHP2Entry& entry);
+    void visit(const BOXSEntry& entry);
+    void visit(const CAPSEntry& entry);
+    void visit(const SPHSEntry& entry);
+    void visit(const PLYTNode& node);
+    void visit(const PLYTData& data, const PLYTHeader& header);
+    void visit(const PLYTEntry& entry);
+    void visit(const JOINEntry& entry);
+    void visit(const Matrix3x4& matrix);
+    void visit(const WELJEntry& entry);
+    void visit(const WLJ2Entry& entry);
+    void visit(const WLJ3Entry& entry);
+    void visit(const SPHJEntry& entry);
+    void visit(const SHOJEntry& entry);
+    void visit(const SHJ2Entry& entry);
+    void visit(const PRSJEntry& entry);
+    void visit(const PRS2Entry& entry);
+    void visit(const REVJEntry& entry);
+    void visit(const REV2Entry& entry);
+    void visit(const DSTJEntry& entry);
+    void visit(const PHYVEntry& entry);
+
+    // Bone structure visit methods
+    void visit(const BONEHeader& header);
+    void visit(const Matrix4x4& matrix);
+    void visit(const BIDAChunk& chunk);
+    void visit(const BOMTChunk& chunk);
+
+    // Anim structure visit methods
+    void visit(const AFM2Chunk& chunk);
+    void visit(const AFSAChunk& chunk);
+    void visit(const AFSBChunk& chunk);
+
     // Skeleton structure visit methods
     void visit(const M2SKL1Chunk& chunk);
     void visit(const M2SKA1Chunk& chunk);

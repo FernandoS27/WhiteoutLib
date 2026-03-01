@@ -28,6 +28,8 @@ private:
 
     void writeChunkedM2Base(BinaryWriter& writer, const M2BaseFile& model);
     void writeChunkedM2Skeleton(BinaryWriter& writer, const M2SkeletonFile& model);
+    void writeChunkedM2Bone(BinaryWriter& writer, const M2BoneFile& model);
+    void writeChunkedM2Anim(BinaryWriter& writer, const M2AnimFile& model);
 };
 
 } // namespace m2

@@ -245,4 +245,76 @@ void M2Writer::writeChunkedM2Skeleton(BinaryWriter& writer, const M2SkeletonFile
     }
 }
 
+void M2Writer::writeChunkedM2Bone(BinaryWriter& writer, const M2BoneFile& model) {
+    // First, write the BONE header (4 bytes, should be 1)
+    M2BinaryWriterVisitor headerWriter(writer);
+    headerWriter.write(model.header);
+    
+    // Then write the chunked data
+    const auto write_chunk = ([this, &writer]<typename T>(u32 tag, const T& chunk) {
+        writer.write(tag);
+        u32 sizePos = writer.getPosition();
+        writer.write<u32>(0); // placeholder for chunk size
+        u32 chunkStart = writer.getPosition();
+        
+        M2BinaryWriterVisitor visitor(writer);
+        visitor.write(chunk);
+        
+        u32 chunkEnd = writer.getPosition();
+        u32 chunkSize = chunkEnd - chunkStart;
+        
+        // Go back and write the actual chunk size
+        writer.setPosition(sizePos);
+        writer.write(chunkSize);
+        
+        // Return to the end of the chunk
+        writer.setPosition(chunkEnd);
+    });
+    
+    if (model.bida_chunk) {
+        write_chunk(BIDA_TAG, model.bida_chunk.value());
+    }
+    if (model.bomt_chunk) {
+        write_chunk(BOMT_TAG, model.bomt_chunk.value());
+    }
+}
+
+void M2Writer::writeChunkedM2Anim(BinaryWriter& writer, const M2AnimFile& model) {
+    if (model.profile.isChunked) {
+        // Legion 24500+ chunked format
+        const auto write_chunk = ([this, &writer]<typename T>(u32 tag, const T& chunk) {
+            writer.write(tag);
+            u32 sizePos = writer.getPosition();
+            writer.write<u32>(0); // placeholder for chunk size
+            u32 chunkStart = writer.getPosition();
+            
+            M2BinaryWriterVisitor visitor(writer);
+            visitor.write(chunk);
+            
+            u32 chunkEnd = writer.getPosition();
+            u32 chunkSize = chunkEnd - chunkStart;
+            
+            // Go back and write the actual chunk size
+            writer.setPosition(sizePos);
+            writer.write(chunkSize);
+            
+            // Return to the end of the chunk
+            writer.setPosition(chunkEnd);
+        });
+        
+        if (model.profile.afm2_chunk) {
+            write_chunk(AFM2_TAG, model.profile.afm2_chunk.value());
+        }
+        if (model.profile.afsa_chunk) {
+            write_chunk(AFSA_TAG, model.profile.afsa_chunk.value());
+        }
+        if (model.profile.afsb_chunk) {
+            write_chunk(AFSB_TAG, model.profile.afsb_chunk.value());
+        }
+    } else {
+        // Pre-Legion format: raw data
+        writer.write(model.profile.afm2_chunk->animationData);
+    }
+}
+
 } // namespace m2
