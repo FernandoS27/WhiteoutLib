@@ -60,7 +60,6 @@ void BinaryParseVisitor::visit(SkinProfile& profile) {
     visit(profile.submeshes);
     visit(profile.batches);
 
-    profile.boneCountMax = reader.read<u32>();
     profile.lodVertexBase = reader.read<u32>();
 
     if (version >= M2_VERSION_CATA) {

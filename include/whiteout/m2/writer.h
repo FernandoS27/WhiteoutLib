@@ -3,13 +3,13 @@
 
 #pragma once
 
-#include "structures.h"
-#include <string>
 #include <cstdint>
+#include <string>
+#include "structures.h"
 
 namespace whiteout {
 namespace common {
-    class BinaryWriter;
+class BinaryWriter;
 }
 
 namespace m2 {
@@ -19,14 +19,13 @@ using common::BinaryWriter;
 class Writer {
 public:
     explicit Writer();
-    
+
     void write(const std::string& filePath, const FileSystem& model);
-    
+
     std::vector<uint8_t> write(const BaseFile& model);
     std::vector<uint8_t> write(const SkinFile& model);
-    
-private:
 
+private:
     void writeBase(BinaryWriter& writer, const BaseFile& model);
     void writeSkin(BinaryWriter& writer, const SkinFile& model);
 

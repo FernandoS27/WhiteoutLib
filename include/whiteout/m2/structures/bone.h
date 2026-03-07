@@ -3,22 +3,11 @@
 
 #pragma once
 
-#include "base.h"
 #include <vector>
+#include "base.h"
 
 namespace whiteout {
 namespace m2 {
-
-// ============================================================================
-// Matrix types for BONE
-// ============================================================================
-
-struct Matrix4x4 {
-    std::array<f32, 16> data; // 4x4 = 16 floats
-    
-    Matrix4x4() : data{} {}
-    constexpr Matrix4x4(std::array<f32, 16> d) : data(d) {}
-};
 
 // ============================================================================
 // BONE File Chunks and Tags
@@ -40,7 +29,8 @@ struct BONEHeader {
 // ============================================================================
 
 struct BIDAChunk {
-    std::vector<u16> boneIds; // count should be equivalent to number of FacePose (808) sequences - 1
+    std::vector<u16>
+        boneIds; // count should be equivalent to number of FacePose (808) sequences - 1
 };
 
 // ============================================================================
@@ -48,7 +38,8 @@ struct BIDAChunk {
 // ============================================================================
 
 struct BOMTChunk {
-    std::vector<Matrix4x4> boneOffsetMatrices; // same count as BIDA, transformation matrix for the given bone
+    std::vector<Matrix44f>
+        boneOffsetMatrices; // same count as BIDA, transformation matrix for the given bone
 };
 
 } // namespace m2

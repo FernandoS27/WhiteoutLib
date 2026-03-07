@@ -47,7 +47,7 @@ void BinaryWriterVisitor::visit(const BDY2Entry& entry) {
     writer.write(std::array<u8, 2>{0, 0}); // padding
     writer.write(entry.shapes_base);
     writer.write(entry.shapes_count);
-    writer.write(entry.unk_1c);
+    writer.write(entry.massScale);
 }
 
 void BinaryWriterVisitor::visit(const BDY3Entry& entry) {
@@ -57,11 +57,11 @@ void BinaryWriterVisitor::visit(const BDY3Entry& entry) {
     writer.write(entry.shapeIndex);
     writer.write(std::array<u8, 2>{0, 0}); // padding
     writer.write(entry.shapesCount);
-    writer.write(entry.unk0);
-    writer.write(entry.unk_1c);
+    writer.write(entry.mass);
+    writer.write(entry.massScale);
     writer.write(entry.drag);
-    writer.write(entry.unk1);
-    writer.write(entry.unk_28);
+    writer.write(entry.angularDamping);
+    writer.write(entry.linearDamping);
 }
 
 void BinaryWriterVisitor::visit(const BDY4Entry& entry) {
@@ -71,11 +71,11 @@ void BinaryWriterVisitor::visit(const BDY4Entry& entry) {
     writer.write(entry.shapeIndex);
     writer.write(std::array<u8, 2>{0, 0}); // padding
     writer.write(entry.shapesCount);
-    writer.write(entry.unk0);
-    writer.write(entry.unk_1c);
+    writer.write(entry.mass);
+    writer.write(entry.massScale);
     writer.write(entry.drag);
-    writer.write(entry.unk1);
-    writer.write(entry.unk_28);
+    writer.write(entry.angularDamping);
+    writer.write(entry.linearDamping);
     writer.write(std::array<u8, 4>{0, 0, 0, 0}); // unk_2c
 }
 
@@ -102,7 +102,7 @@ void BinaryWriterVisitor::visit(const SHP2Entry& entry) {
     writer.write(entry.unk_14);
     writer.write(entry.unk_18);
     writer.write(entry.unk_1c);
-    writer.write(entry.unk_1e);
+    writer.write(entry.padding_1e);
 }
 
 // ============================================================================
@@ -126,10 +126,10 @@ void BinaryWriterVisitor::visit(const SPHSEntry& entry) {
 }
 
 void BinaryWriterVisitor::visit(const PLYTNode& node) {
-    writer.write(node.unk_00);
-    writer.write(node.vertexIndex);
-    writer.write(node.unkIndex0);
-    writer.write(node.unkIndex1);
+    writer.write(node.byte0);
+    writer.write(node.byte1);
+    writer.write(node.byte2);
+    writer.write(node.byte3);
 }
 
 void BinaryWriterVisitor::visit(const PLYTData& data, const PLYTHeader& header) {
@@ -138,19 +138,19 @@ void BinaryWriterVisitor::visit(const PLYTData& data, const PLYTHeader& header) 
         writer.write(vertex);
     }
 
-    // Write unk_1 array
-    for (const auto& val : data.unk_1) {
-        writer.write(val);
-    }
-
-    // Write unk_2 array
-    for (const auto& val : data.unk_2) {
-        writer.write(val);
+    // Write face planes (Vector4f)
+    for (const auto& plane : data.facePlanes) {
+        writer.write(plane);
     }
 
     // Write nodes
     for (const auto& node : data.nodes) {
         visit(node);
+    }
+
+    // Write face indices
+    for (const auto& idx : data.faceIndices) {
+        writer.write(idx);
     }
 }
 
@@ -159,7 +159,7 @@ void BinaryWriterVisitor::visit(const PLYTEntry& entry) {
     writer.write(header.vertexCount);
     writer.write(std::array<u8, 4>{0, 0, 0, 0}); // unk_04
     writer.write(header.runtime_08_ptr);
-    writer.write(header.count_10);
+    writer.write(header.faceCount);
     writer.write(std::array<u8, 4>{0, 0, 0, 0}); // unk_14
     writer.write(header.runtime_18_ptr);
     writer.write(header.runtime_20_ptr);
@@ -167,7 +167,7 @@ void BinaryWriterVisitor::visit(const PLYTEntry& entry) {
     writer.write(std::array<u8, 4>{0, 0, 0, 0}); // unk_2c
     writer.write(header.runtime_30_ptr);
     for (i32 i = 0; i < 6; ++i) {
-        writer.write(header.unk_38[i]);
+        writer.write(header.bounds[i]);
     }
 
     visit(entry.data, header);

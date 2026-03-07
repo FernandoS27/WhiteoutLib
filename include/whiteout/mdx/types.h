@@ -6,25 +6,26 @@
 /**
  * @file types.h
  * @brief Core type definitions and constants for the MDX format
- * 
+ *
  * This file defines:
  * - Chunk tag constants (4-character codes identifying different data sections)
  * - Track types for animation data
  * - The main Model structure that represents a complete model
- * 
+ *
  * MDX files are organized as a series of tagged chunks. Each chunk contains
  * a specific type of data (vertices, materials, animations, etc.).
  */
 
-#include <cstdint>
-#include <vector>
-#include <string>
 #include <array>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <span>
+#include <string>
+#include <vector>
 
 #include "../common_types.h"
+#include "../vector_types.h"
 
 namespace whiteout {
 namespace mdx {
@@ -45,18 +46,18 @@ struct Extent {
 
 /**
  * @brief Helper function to create a chunk tag from a 4-character string at compile time
- * 
+ *
  * MDX files use 4-character tags stored as little-endian u32 values.
  * This function converts a 4-character string literal to the appropriate u32.
- * 
+ *
  * @tparam N Size of the string literal (must be 5 including null terminator)
  * @param str 4-character string literal
  * @return u32 Little-endian chunk tag value
- * 
+ *
  * @example
  * constexpr u32 MY_TAG = makeTag(\"TEST\");
  */
-template<std::size_t N>
+template <std::size_t N>
 constexpr u32 makeTag(const char (&str)[N]) {
     static_assert(N == 5, "Tag must be exactly 4 characters (plus null terminator)");
     return static_cast<u32>(static_cast<u8>(str[0])) |
@@ -217,23 +218,18 @@ struct CornEmitter;
 
 /**
  * @brief Header information for an animation track
- * 
+ *
  * Each animation track starts with this header which describes the type
  * of interpolation and how many keyframes follow.
  */
 struct TrackHeader {
-    u32 tag;                 ///< Chunk tag identifying the track type
-    u32 count;               ///< Number of keyframes in this track
-    u32 interpolationType;   ///< Interpolation: 0=none, 1=linear, 2=hermite, 3=bezier
-    u32 globalSequenceId;    ///< Global sequence ID or 0xFFFFFFFF if not global
+    u32 tag;               ///< Chunk tag identifying the track type
+    u32 count;             ///< Number of keyframes in this track
+    u32 interpolationType; ///< Interpolation: 0=none, 1=linear, 2=hermite, 3=bezier
+    u32 globalSequenceId;  ///< Global sequence ID or 0xFFFFFFFF if not global
 };
 
-enum class InterpolationType : u32 {
-    None = 0,
-    Linear = 1,
-    Hermite = 2,
-    Bezier = 3
-};
+enum class InterpolationType : u32 { None = 0, Linear = 1, Hermite = 2, Bezier = 3 };
 
 constexpr bool isSmoothInterpolation(InterpolationType t) {
     return t == InterpolationType::Hermite || t == InterpolationType::Bezier;
@@ -241,21 +237,21 @@ constexpr bool isSmoothInterpolation(InterpolationType t) {
 
 /**
  * @brief Generic animation track with keyframe data
- * 
+ *
  * Tracks store animation data as a series of keyframes. The interpolation type
  * determines how values between keyframes are calculated.
- * 
+ *
  * @tparam T The value type (f32, Vector3f, Vector4f, u32, etc.)
  */
-template<typename T>
+template <typename T>
 struct Track {
     /**
      * @brief Simple keyframe with frame number and value
      * Used for linear and no interpolation.
      */
     struct Key {
-        u32 frame = 0;  ///< Frame number in the animation
-        T value{};      ///< Value at this frame
+        u32 frame = 0; ///< Frame number in the animation
+        T value{};     ///< Value at this frame
     };
 
     /**
@@ -263,24 +259,25 @@ struct Track {
      * Used for Hermite and Bezier interpolation.
      */
     struct TangentKey {
-        u32 frame = 0;  ///< Frame number in the animation
-        T value{};      ///< Value at this frame
-        T inTan{};      ///< Incoming tangent for curve interpolation
-        T outTan{};     ///< Outgoing tangent for curve interpolation
+        u32 frame = 0; ///< Frame number in the animation
+        T value{};     ///< Value at this frame
+        T inTan{};     ///< Incoming tangent for curve interpolation
+        T outTan{};    ///< Outgoing tangent for curve interpolation
     };
 
-    bool isUsed = false;                                            ///< Whether this track contains animation data
-    InterpolationType interpolationType = InterpolationType::None;  ///< Interpolation type
-    u32 globalSequenceId = 0;                                       ///< Global sequence ID if applicable
-    size_t keyCount = 0;                                            ///< Number of keyframes
-    std::vector<u8> keys_data;                                      ///< Raw keyframe data
+    bool isUsed = false; ///< Whether this track contains animation data
+    InterpolationType interpolationType = InterpolationType::None; ///< Interpolation type
+    u32 globalSequenceId = 0;  ///< Global sequence ID if applicable
+    size_t keyCount = 0;       ///< Number of keyframes
+    std::vector<u8> keys_data; ///< Raw keyframe data
 
     /**
      * @brief Get keyframes as a span (for linear/no interpolation)
      * @return Span of Key structures
      */
     std::span<Key> keys() {
-        return std::span<Key>(reinterpret_cast<Key*>(keys_data.data()), keys_data.size() / sizeof(Key));
+        return std::span<Key>(reinterpret_cast<Key*>(keys_data.data()),
+                              keys_data.size() / sizeof(Key));
     }
 
     /**
@@ -288,7 +285,8 @@ struct Track {
      * @return Span of TangentKey structures
      */
     std::span<TangentKey> tangentKeys() {
-        return std::span<TangentKey>(reinterpret_cast<TangentKey*>(keys_data.data()), keys_data.size() / sizeof(TangentKey));
+        return std::span<TangentKey>(reinterpret_cast<TangentKey*>(keys_data.data()),
+                                     keys_data.size() / sizeof(TangentKey));
     }
 };
 
@@ -298,62 +296,62 @@ struct Track {
 
 /**
  * @brief Complete MDX model file structure
- * 
+ *
  * This structure represents an entire MDX model, including all geometry,
  * materials, animations, and metadata. It can represent models from
  * Warcraft III Classic (version 800) through Reforged (version 1200).
- * 
+ *
  * The structure is organized into chunks, each containing a specific type
  * of data. Not all chunks are required - optional chunks can have empty vectors.
  */
 struct Model {
-    u32 version = 800;  ///< MDX version: 800 (Classic), 900, 1000, 1100, 1200 (Reforged)
-    
+    u32 version = 800; ///< MDX version: 800 (Classic), 900, 1000, 1100, 1200 (Reforged)
+
     // Model metadata
-    std::string modelName;           ///< Name of the model
-    std::string animationFileName;   ///< Path to external animation file (rarely used)
-    Extent modelExtent;              ///< Bounding volume for the entire model
-    u32 blendTime = 0;               ///< Time in milliseconds to blend between animations
-    
+    std::string modelName;         ///< Name of the model
+    std::string animationFileName; ///< Path to external animation file (rarely used)
+    Extent modelExtent;            ///< Bounding volume for the entire model
+    u32 blendTime = 0;             ///< Time in milliseconds to blend between animations
+
     // Animation and timing
-    std::vector<u32> globalSequences;           ///< Global looping animation durations
-    std::vector<Sequence> sequences;            ///< Named animation sequences
-    
+    std::vector<u32> globalSequences; ///< Global looping animation durations
+    std::vector<Sequence> sequences;  ///< Named animation sequences
+
     // Textures and materials
-    std::vector<Texture> textures;              ///< Texture paths and settings
-    std::vector<SoundTrack> soundTracks;        ///< Sound tracks (deprecated)
-    std::vector<Material> materials;            ///< Material definitions
-    std::vector<TextureAnimation> textureAnimations;  ///< UV animation data
-    
+    std::vector<Texture> textures;                   ///< Texture paths and settings
+    std::vector<SoundTrack> soundTracks;             ///< Sound tracks (deprecated)
+    std::vector<Material> materials;                 ///< Material definitions
+    std::vector<TextureAnimation> textureAnimations; ///< UV animation data
+
     // Geometry
-    std::vector<Geoset> geosets;                ///< Mesh geometry
-    std::vector<GeosetAnimation> geosetAnimations;  ///< Mesh visibility/color animation
-    
+    std::vector<Geoset> geosets;                   ///< Mesh geometry
+    std::vector<GeosetAnimation> geosetAnimations; ///< Mesh visibility/color animation
+
     // Hierarchy and attachments
-    std::vector<Bone> bones;                    ///< Skeleton bones
-    std::vector<Helper> helpers;                ///< Helper/attachment nodes
-    std::vector<Attachment> attachments;        ///< Equipment attachment points
-    std::vector<Vector3f> pivotPoints;          ///< Pivot points for nodes
-    
+    std::vector<Bone> bones;             ///< Skeleton bones
+    std::vector<Helper> helpers;         ///< Helper/attachment nodes
+    std::vector<Attachment> attachments; ///< Equipment attachment points
+    std::vector<Vector3f> pivotPoints;   ///< Pivot points for nodes
+
     // Lights
-    std::vector<Light> lights;                  ///< Light sources
-    
+    std::vector<Light> lights; ///< Light sources
+
     // Particle systems
-    std::vector<ParticleEmitter> particleEmitters;    ///< Particle emitters v1
-    std::vector<ParticleEmitter2> particleEmitters2;  ///< Particle emitters v2
-    std::vector<RibbonEmitter> ribbonEmitters;        ///< Ribbon trail effects
-    std::vector<CornEmitter> cornEmitters;            ///< PopcornFX emitters (Reforged)
-    
+    std::vector<ParticleEmitter> particleEmitters;   ///< Particle emitters v1
+    std::vector<ParticleEmitter2> particleEmitters2; ///< Particle emitters v2
+    std::vector<RibbonEmitter> ribbonEmitters;       ///< Ribbon trail effects
+    std::vector<CornEmitter> cornEmitters;           ///< PopcornFX emitters (Reforged)
+
     // Events and cameras
-    std::vector<EventObject> eventObjects;      ///< Animation event triggers
-    std::vector<Camera> cameras;                ///< Camera definitions
-    
+    std::vector<EventObject> eventObjects; ///< Animation event triggers
+    std::vector<Camera> cameras;           ///< Camera definitions
+
     // Collision and effects
-    std::vector<CollisionShape> collisionShapes;  ///< Collision geometry
-    std::vector<FaceEffect> faceEffects;          ///< Facial effects (Reforged)
-    
+    std::vector<CollisionShape> collisionShapes; ///< Collision geometry
+    std::vector<FaceEffect> faceEffects;         ///< Facial effects (Reforged)
+
     // Reforged skinning (version > 800)
-    std::vector<std::array<f32, 12>> bindPoses;   ///< Bind pose matrices (3x4 each)
+    std::vector<std::array<f32, 12>> bindPoses; ///< Bind pose matrices (3x4 each)
 };
 
 } // namespace mdx

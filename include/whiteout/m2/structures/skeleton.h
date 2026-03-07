@@ -19,7 +19,7 @@ constexpr u32 SKPD_TAG = makeTag("SKPD");
 struct SKL1Chunk {
     u32 flags = 0x100;               // Always 0x100 in Legion (7.3.2.25079)
     std::string name;                // Skeleton name
-    std::array<u8, 4> reserved = {};  // Reserved, always 0 in Legion
+    std::array<u8, 4> reserved = {}; // Reserved, always 0 in Legion
 };
 
 // SKA1: Skeleton attachments chunk
@@ -39,14 +39,14 @@ struct SKS1Chunk {
     std::vector<GlobalSequence> globalLoops;
     std::vector<Sequence> sequences;
     std::vector<u16> sequenceLookups;
-    std::array<u8, 8> reserved = {};  // Reserved, always 0 in Legion
+    std::array<u8, 8> reserved = {}; // Reserved, always 0 in Legion
 };
 
 // SKPD: Skeleton parent data
 struct SKPDChunk {
-    std::array<u8, 8> reserved0 = {};   // Always 0 in Legion (7.3.2.25079)
-    u32 parentSkeletonFileId = 0;       // File ID of parent skeleton (for de-duplication)
-    std::array<u8, 4> reserved1 = {};   // Always 0 in Legion (7.3.2.25079)
+    std::array<u8, 8> reserved0 = {}; // Always 0 in Legion (7.3.2.25079)
+    u32 parentSkeletonFileId = 0;     // File ID of parent skeleton (for de-duplication)
+    std::array<u8, 4> reserved1 = {}; // Always 0 in Legion (7.3.2.25079)
 };
 
 } // namespace m2

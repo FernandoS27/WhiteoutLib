@@ -3,15 +3,15 @@
 
 #pragma once
 
-#include "structures.h"
+#include <span>
+#include <stdexcept>
 #include <string>
 #include <vector>
-#include <stdexcept>
-#include <span>
+#include "structures.h"
 
 namespace whiteout {
 namespace common {
-    class BinaryReader;
+class BinaryReader;
 }
 
 namespace m2 {
@@ -24,18 +24,22 @@ enum class ParseMode {
 class Parser {
 public:
     explicit Parser(ParseMode mode = ParseMode::Lenient);
-    
+
     FileSystem parse(const std::string& filePath);
-    
+
     void parse(std::span<const uint8_t> buffer, FileSystem& fileSystem, FileType fileType);
-    
-    const std::vector<std::string>& getIssues() const { return issues; }
-    
-    void clearIssues() { issues.clear(); }
-    
+
+    const std::vector<std::string>& getIssues() const {
+        return issues;
+    }
+
+    void clearIssues() {
+        issues.clear();
+    }
+
 private:
     friend class common::BinaryReader;
-    
+
     ParseMode parseMode;
     std::vector<std::string> issues;
 
@@ -43,7 +47,7 @@ private:
     void parseChunkedBase(common::BinaryReader& reader, BaseFile& m2file);
 
     void parseSkin(common::BinaryReader& reader, SkinFile& skinFile);
-    
+
     void parseChunkedSkeleton(common::BinaryReader& reader, SkeletonFile& skeletonFile);
     void parseChunkedBone(common::BinaryReader& reader, BoneFile& boneFile);
     void parseChunkedAnim(common::BinaryReader& reader, AnimFile& animFile);

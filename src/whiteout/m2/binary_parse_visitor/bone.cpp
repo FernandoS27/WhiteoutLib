@@ -29,8 +29,10 @@ void BinaryParseVisitor::visit(BIDAChunk& chunk) {
 // BOMT - Bone Offset Matrices
 // ============================================================================
 
-void BinaryParseVisitor::visit(Matrix4x4& matrix) {
-    matrix.data = reader.readArray<f32, 16>();
+void BinaryParseVisitor::visit(Matrix44f& matrix) {
+    for (auto& row : matrix.data) {
+        row = reader.readArray<f32, 4>();
+    }
 }
 
 void BinaryParseVisitor::visit(BOMTChunk& chunk) {

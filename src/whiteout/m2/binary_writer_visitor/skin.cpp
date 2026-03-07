@@ -60,11 +60,11 @@ void BinaryWriterVisitor::visit(const SkinProfile& profile) {
     visit(profile.submeshes);
     visit(profile.batches);
 
-    writer.write(profile.boneCountMax);
     writer.write(profile.lodVertexBase);
 
     if (version >= M2_VERSION_CATA) {
         visit(profile.shadowBatches);
+        writer.AlignTo(16);
     }
 }
 

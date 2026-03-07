@@ -6,6 +6,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Whiteout Library
 add_library(whiteout_lib
+    # Common
+    src/whiteout/common_types.cpp
+    src/whiteout/vector_types.cpp
+
     # MDX
     src/whiteout/mdx/parser.cpp
     src/whiteout/mdx/writer.cpp
@@ -24,6 +28,13 @@ add_library(whiteout_lib
     src/whiteout/m2/binary_writer_visitor/bone.cpp
     src/whiteout/m2/binary_writer_visitor/anim.cpp
     src/whiteout/m2/file_system.cpp
+
+    # M3
+    src/whiteout/m3/types.cpp
+    src/whiteout/m3/parser.cpp
+    src/whiteout/m3/writer.cpp
+    src/whiteout/m3/binary_parse_visitor.cpp
+    src/whiteout/m3/binary_writer_visitor.cpp
 )
 
 target_include_directories(whiteout_lib PUBLIC
@@ -58,5 +69,17 @@ add_executable(m2_writer_example
 
 target_link_libraries(m2_writer_example PRIVATE whiteout_lib)
 
-# Enable testing
-enable_testing()
+# M3 Loader Example Program
+add_executable(m3_loader_example
+    examples/m3_loader_example.cpp
+)
+
+target_link_libraries(m3_loader_example PRIVATE whiteout_lib)
+
+# M3 Writer Example Program
+add_executable(m3_writer_example
+    examples/m3_writer_example.cpp
+)
+
+target_link_libraries(m3_writer_example PRIVATE whiteout_lib)
+

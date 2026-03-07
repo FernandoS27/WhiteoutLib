@@ -29,7 +29,7 @@ void BinaryWriterVisitor::visit(const BIDAChunk& chunk) {
 // BOMT - Bone Offset Matrices
 // ============================================================================
 
-void BinaryWriterVisitor::visit(const Matrix4x4& matrix) {
+void BinaryWriterVisitor::visit(const Matrix44f& matrix) {
     writer.write(matrix.data);
 }
 

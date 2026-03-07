@@ -3,17 +3,17 @@
 
 #pragma once
 
-#include "types.h"
-#include "structures/base.h"
-#include "structures/chunks.h"
-#include "structures/skin.h"
-#include "structures/skeleton.h"
-#include "structures/phys.h"
-#include "structures/bone.h"
 #include "structures/anim.h"
+#include "structures/base.h"
+#include "structures/bone.h"
+#include "structures/chunks.h"
+#include "structures/phys.h"
+#include "structures/skeleton.h"
+#include "structures/skin.h"
+#include "types.h"
 
-#include <optional>
 #include <limits>
+#include <optional>
 
 namespace whiteout {
 namespace m2 {
@@ -74,19 +74,19 @@ struct AnimFile {
 
 struct BoneFile {
     BONEHeader header;
-    std::optional<BIDAChunk> bida_chunk = std::nullopt;  // Bone IDs
-    std::optional<BOMTChunk> bomt_chunk = std::nullopt;  // Bone offset matrices
+    std::optional<BIDAChunk> bida_chunk = std::nullopt; // Bone IDs
+    std::optional<BOMTChunk> bomt_chunk = std::nullopt; // Bone offset matrices
     u32 boneId = 0;
 };
 
 struct SkeletonFile {
-    std::optional<SKL1Chunk> skl1_chunk = std::nullopt;  // Skeleton label/header
-    std::optional<SKA1Chunk> ska1_chunk = std::nullopt;  // Skeleton attachments
-    std::optional<SKB1Chunk> skb1_chunk = std::nullopt;  // Skeleton bones
-    std::optional<SKS1Chunk> sks1_chunk = std::nullopt;  // Skeleton sequences
-    std::optional<SKPDChunk> skpd_chunk = std::nullopt;  // Skeleton parent data
-    std::optional<AFIDChunk> afid_chunk = std::nullopt;  // Animation file IDs
-    std::optional<BFIDChunk> bfid_chunk = std::nullopt;  // Bone file IDs
+    std::optional<SKL1Chunk> skl1_chunk = std::nullopt; // Skeleton label/header
+    std::optional<SKA1Chunk> ska1_chunk = std::nullopt; // Skeleton attachments
+    std::optional<SKB1Chunk> skb1_chunk = std::nullopt; // Skeleton bones
+    std::optional<SKS1Chunk> sks1_chunk = std::nullopt; // Skeleton sequences
+    std::optional<SKPDChunk> skpd_chunk = std::nullopt; // Skeleton parent data
+    std::optional<AFIDChunk> afid_chunk = std::nullopt; // Animation file IDs
+    std::optional<BFIDChunk> bfid_chunk = std::nullopt; // Bone file IDs
 };
 
 struct PhysicsFile {

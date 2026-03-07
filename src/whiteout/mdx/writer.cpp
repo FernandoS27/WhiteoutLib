@@ -238,7 +238,7 @@ void Writer::writeLayer(BinaryWriter& writer, const Layer& layer, const Model& m
 
         for (const auto& subTex : layer.subTextures) {
             writer.write(subTex.textureId);
-            writer.write(subTex.slot);
+            writer.write(static_cast<u32>(subTex.slot));
             writeTrackChunk(writer, KMTF_TAG, subTex.tracks);
         }
     }

@@ -61,9 +61,14 @@ struct SkinProfile {
     std::vector<SkinSection> submeshes;
     std::vector<Batch> batches;
 
-    u32 boneCountMax = 0;
+    /// Cumulative vertex base for LOD skins. Always 0 for the base skin (skin00).
+    /// For LOD skin N, equals the sum of vertexCount from skins 0..N-1.
+    /// This offsets u16 vertex indices into the M2's global vertex array, allowing
+    /// models with >65535 total vertices to use multiple LOD skins while keeping
+    /// per-skin indices within u16 range.
     u32 lodVertexBase = 0;
 
+    /// Shadow rendering batches (present from Cata onwards, version >= 265).
     std::vector<ShadowBatch> shadowBatches;
 };
 

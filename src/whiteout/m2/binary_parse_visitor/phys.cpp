@@ -47,7 +47,7 @@ void BinaryParseVisitor::visit(BDY2Entry& entry) {
     reader.read<u8>(2); // padding
     entry.shapes_base = reader.read<i32>();
     entry.shapes_count = reader.read<i32>();
-    entry.unk_1c = reader.read<f32>();
+    entry.massScale = reader.read<f32>();
 }
 
 void BinaryParseVisitor::visit(BDY3Entry& entry) {
@@ -57,11 +57,11 @@ void BinaryParseVisitor::visit(BDY3Entry& entry) {
     entry.shapeIndex = reader.read<u16>();
     reader.read<u8>(2); // padding
     entry.shapesCount = reader.read<i32>();
-    entry.unk0 = reader.read<f32>();
-    entry.unk_1c = reader.read<f32>();
+    entry.mass = reader.read<f32>();
+    entry.massScale = reader.read<f32>();
     entry.drag = reader.read<f32>();
-    entry.unk1 = reader.read<f32>();
-    entry.unk_28 = reader.read<f32>();
+    entry.angularDamping = reader.read<f32>();
+    entry.linearDamping = reader.read<f32>();
 }
 
 void BinaryParseVisitor::visit(BDY4Entry& entry) {
@@ -71,11 +71,11 @@ void BinaryParseVisitor::visit(BDY4Entry& entry) {
     entry.shapeIndex = reader.read<u16>();
     reader.read<u8>(2); // padding
     entry.shapesCount = reader.read<i32>();
-    entry.unk0 = reader.read<f32>();
-    entry.unk_1c = reader.read<f32>();
+    entry.mass = reader.read<f32>();
+    entry.massScale = reader.read<f32>();
     entry.drag = reader.read<f32>();
-    entry.unk1 = reader.read<f32>();
-    entry.unk_28 = reader.read<f32>();
+    entry.angularDamping = reader.read<f32>();
+    entry.linearDamping = reader.read<f32>();
     reader.read<u8>(4); // unk_2c
 }
 
@@ -102,7 +102,7 @@ void BinaryParseVisitor::visit(SHP2Entry& entry) {
     entry.unk_14 = reader.read<u32>();
     entry.unk_18 = reader.read<f32>();
     entry.unk_1c = reader.read<u16>();
-    entry.unk_1e = reader.read<u16>();
+    entry.padding_1e = reader.read<u16>();
 }
 
 // ============================================================================
@@ -126,40 +126,48 @@ void BinaryParseVisitor::visit(SPHSEntry& entry) {
 }
 
 void BinaryParseVisitor::visit(PLYTNode& node) {
-    node.unk_00 = reader.read<i8>();
-    node.vertexIndex = reader.read<i8>();
-    node.unkIndex0 = reader.read<i8>();
-    node.unkIndex1 = reader.read<i8>();
+    node.byte0 = reader.read<u8>();
+    node.byte1 = reader.read<u8>();
+    node.byte2 = reader.read<u8>();
+    node.byte3 = reader.read<u8>();
 }
 
 void BinaryParseVisitor::visit(PLYTData& data, const PLYTHeader& header) {
     // Read vertices
     data.vertices = reader.read<std::vector<Vector3f>>(header.vertexCount);
-    data.unk_1 = reader.read<std::vector<u8>>(header.count_10);
-    data.unk_2 = reader.read<std::vector<u8>>(header.count_10);
-    // Read nodes (nodeCount elements)
+    // Read face planes (Vector4f: nx, ny, nz, d)
+    data.facePlanes.resize(header.faceCount);
+    for (u32 i = 0; i < header.faceCount; ++i) {
+        data.facePlanes[i].x = reader.read<f32>();
+        data.facePlanes[i].y = reader.read<f32>();
+        data.facePlanes[i].z = reader.read<f32>();
+        data.facePlanes[i].w = reader.read<f32>();
+    }
+    // Read BSP tree nodes
     data.nodes.reserve(header.nodeCount);
     for (u32 i = 0; i < header.nodeCount; ++i) {
         PLYTNode node;
         visit(node);
         data.nodes.push_back(std::move(node));
     }
+    // Read per-face indices
+    data.faceIndices = reader.read<std::vector<u8>>(header.faceCount);
 }
 
 void BinaryParseVisitor::visit(PLYTEntry& entry) {
     PLYTHeader& header = entry.header;
     header.vertexCount = reader.read<u32>();
-    reader.read<u8>(4); // unk_04
+    header.unk_04 = reader.read<u32>();
     header.runtime_08_ptr = reader.read<u64>();
-    header.count_10 = reader.read<u32>();
-    reader.read<u8>(4); // unk_14
+    header.faceCount = reader.read<u32>();
+    header.unk_14 = reader.read<u32>();
     header.runtime_18_ptr = reader.read<u64>();
     header.runtime_20_ptr = reader.read<u64>();
     header.nodeCount = reader.read<u32>();
-    reader.read<u8>(4); // unk_2c
+    header.unk_2c = reader.read<u32>();
     header.runtime_30_ptr = reader.read<u64>();
     for (i32 i = 0; i < 6; ++i) {
-        header.unk_38[i] = reader.read<f32>();
+        header.bounds[i] = reader.read<f32>();
     }
 
     visit(entry.data, header);

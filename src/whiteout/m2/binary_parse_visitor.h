@@ -130,7 +130,7 @@ protected:
 
     // Bone structure visit methods
     void visit(BONEHeader& header);
-    void visit(Matrix4x4& matrix);
+    void visit(Matrix44f& matrix);
     void visit(BIDAChunk& chunk);
     void visit(BOMTChunk& chunk);
 
@@ -161,6 +161,9 @@ protected:
     void parse_chunked_vector(std::vector<T>& array);
 
     void visit(std::string& str);
+
+    template <typename T>
+    void visit(lazy_vector<T>& lv);
 
     template <typename T>
     void visit(AnimationTrack<T>& track);
@@ -210,8 +213,33 @@ void BinaryParseVisitor::parse_chunked_vector(std::vector<T>& array) {
 }
 
 template <typename T>
+void BinaryParseVisitor::visit(lazy_vector<T>& lv) {
+    const auto count = reader.read<u32>();
+    const auto offset = reader.read<u32>();
+
+    lv.backingData.resize(count);
+    lv.isLoaded.assign(count, false);
+    lv.pendingLoads.clear();
+
+    if (count == 0)
+        return;
+
+    const auto currentPos = reader.getPosition();
+    reader.setPosition(offset + baseOffset);
+
+    for (size_t i = 0; i < count; ++i) {
+        typename lazy_vector<T>::M2ArrayHeader header;
+        header.count = reader.read<u32>();
+        header.offset = reader.read<u32>();
+        lv.pendingLoads.emplace_back(i, header);
+    }
+
+    reader.setPosition(currentPos);
+}
+
+template <typename T>
 void BinaryParseVisitor::visit(AnimationTrack<T>& track) {
-    track.interpolationType = reader.read<u16>();
+    track.interpolationType = static_cast<InterpolationType>(reader.read<u16>());
     track.globalSequenceId = reader.read<u16>();
     visit(track.timestamps);
     visit(track.values);

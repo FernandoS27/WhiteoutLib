@@ -296,7 +296,7 @@ Material Parser::parseMaterial(BinaryReader& reader, u32 chunkSize, Model& mdx) 
             for (auto& layer : mat.layers) {
                 Layer::SubTexture subTex;
                 subTex.textureId = layer.textureId;
-                subTex.slot = 0;
+                subTex.slot = Layer::SlotType::DiffuseMap;
                 subTex.tracks = std::move(layer.textureIdTracks);
                 hdLayers[0].subTextures.push_back(subTex);
             }
@@ -308,7 +308,7 @@ Material Parser::parseMaterial(BinaryReader& reader, u32 chunkSize, Model& mdx) 
             for (auto& layer : mat.layers) {
                 Layer::SubTexture subTex;
                 subTex.textureId = layer.textureId;
-                subTex.slot = 0;
+                subTex.slot = Layer::SlotType::DiffuseMap;
                 subTex.tracks = std::move(layer.textureIdTracks);
                 layer.subTextures.push_back(subTex);
                 layer.textureId = 0; // Clear textureId since it will be in subTextures
@@ -347,7 +347,7 @@ Layer Parser::parseLayer(BinaryReader& reader, Model& mdx) {
         for (u32 i = 0; i < num_textures; i++) {
             Layer::SubTexture subTex;
             subTex.textureId = reader.read<u32>();
-            subTex.slot = reader.read<u32>();
+            subTex.slot = static_cast<Layer::SlotType>(reader.read<u32>());
 
             u32 startPos = reader.getPosition();
             u32 peek_tag = reader.read<u32>();

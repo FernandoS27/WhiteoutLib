@@ -3,9 +3,9 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <limits>
-#include <array>
 #include <type_traits>
 
 namespace whiteout {
@@ -24,21 +24,72 @@ using i16 = std::int16_t;
 using i32 = std::int32_t;
 using i64 = std::int64_t;
 
-using f16 = u16; // Half-precision float (not natively supported, will need conversion)
 using f32 = float;
 using f64 = double;
+
+/// IEEE 754 half-precision (binary16) floating-point wrapper.
+/// Trivially copyable – just a u16 under the hood.
+///
+/// Layout:  [15] sign  |  [14:10] exponent (bias 15)  |  [9:0] mantissa
+struct f16 {
+    u16 raw = 0;
+
+    f16() = default;
+
+    /// Implicit conversion **from** float.
+    f16(f32 f) : raw(from_float_impl(f)) {}
+
+    /// Implicit conversion **to** float.
+    operator f32() const {
+        return to_float();
+    }
+
+    /// Build from the raw 16-bit pattern.
+    static f16 from_raw(u16 bits) {
+        f16 r;
+        r.raw = bits;
+        return r;
+    }
+
+    /// Convert a 32-bit float to a half-precision bit pattern.
+    static f16 from_float(f32 f) {
+        f16 r;
+        r.raw = from_float_impl(f);
+        return r;
+    }
+
+    /// Convert the stored half-precision value to 32-bit float.
+    f32 to_float() const {
+        return to_float_impl(raw);
+    }
+
+    // -- comparison (operate on the float value) -----------------------------
+    bool operator==(f16 o) const {
+        return raw == o.raw;
+    }
+    bool operator!=(f16 o) const {
+        return raw != o.raw;
+    }
+
+private:
+    /// float -> f16 bit pattern (round-to-nearest-even).
+    static u16 from_float_impl(f32 f);
+
+    /// f16 bit pattern -> float.
+    static f32 to_float_impl(u16 h);
+};
 
 // ============================================================================
 // Normalized Integer Types
 // ============================================================================
 
-template<typename SInt>
+template <typename SInt>
 struct snorm;
 
-template<typename UInt>
+template <typename UInt>
 struct unorm;
 
-template<typename SInt>
+template <typename SInt>
 struct snorm {
     SInt value = 0;
     using UInt = std::make_unsigned<SInt>::type;
@@ -56,8 +107,10 @@ struct snorm {
 
     // from [-1, 1]
     static constexpr snorm from_float(f32 f) {
-        if (f < -1.0f) f = -1.0f;
-        if (f >  1.0f) f =  1.0f;
+        if (f < -1.0f)
+            f = -1.0f;
+        if (f > 1.0f)
+            f = 1.0f;
 
         snorm result;
         result.value = static_cast<SInt>(f * max_value());
@@ -73,7 +126,7 @@ struct snorm {
     }
 };
 
-template<typename UInt>
+template <typename UInt>
 struct unorm {
     UInt value = 0;
     using SInt = std::make_signed_t<UInt>;
@@ -91,8 +144,10 @@ struct unorm {
 
     // from [0, 1]
     static constexpr unorm from_float(f32 f) {
-        if (f < 0.0f) f = 0.0f;
-        if (f > 1.0f) f = 1.0f;
+        if (f < 0.0f)
+            f = 0.0f;
+        if (f > 1.0f)
+            f = 1.0f;
         unorm result;
         result.value = static_cast<UInt>(f * max_value() + 0.5f);
         return result;
@@ -107,76 +162,128 @@ struct unorm {
     }
 };
 
-using unorm8  = unorm<u8>;
+using unorm8 = unorm<u8>;
 using unorm16 = unorm<u16>;
 using unorm32 = unorm<u32>;
 
-using snorm8  = snorm<i8>;
+using snorm8 = snorm<i8>;
 using snorm16 = snorm<i16>;
 using snorm32 = snorm<i32>;
 
-// ============================================================================
-// Vector and Matrix Types
-// ============================================================================
+template <typename T, int FractionBits>
+struct fixed_point {
+    static_assert(std::is_integral_v<T> && !std::is_same_v<T, bool>,
+                  "fixed_point<T, FractionBits>: T must be an integral type (except bool).");
+    static_assert(FractionBits >= 0, "fixed_point<T, FractionBits>: FractionBits must be >= 0.");
+    static_assert(FractionBits < std::numeric_limits<T>::digits,
+                  "fixed_point<T, FractionBits>: FractionBits is too large for T.");
 
-struct Vector3f {
-    union {
-        struct { f32 x, y, z; };
-        std::array<f32, 3> data;
-    };
+    using value_type = T;
+    using unsigned_type = std::make_unsigned_t<T>;
 
-    Vector3f() = default;
-    constexpr Vector3f(f32 x_, f32 y_, f32 z_) : x(x_), y(y_), z(z_) {}
-};
+    static constexpr int fractional_bits = FractionBits;
+    static constexpr unsigned_type scale = (unsigned_type{1} << FractionBits);
 
-struct Vector4f {
-    union {
-        struct { f32 x, y, z, w; };
-        std::array<f32, 4> data;
-    };
+    // No constructors/member initializers => stays trivial.
+    value_type raw;
 
-    Vector4f() = default;
-    constexpr Vector4f(f32 x_, f32 y_, f32 z_, f32 w_) : x(x_), y(y_), z(z_), w(w_) {}
-};
-
-struct Quaternion {
-    union {
-        struct { u16 x, y, z, w; };
-        std::array<u16, 4> data;
-    };
-
-    Quaternion() = default;
-    constexpr Quaternion(u16 x_, u16 y_, u16 z_, u16 w_) : x(x_), y(y_), z(z_), w(w_) {}
-    
-    // From normalized floats
-    static constexpr Quaternion fromFloats(f32 fx, f32 fy, f32 fz, f32 fw) {
-        return Quaternion(
-            snorm16::from_float(fx).value,
-            snorm16::from_float(fy).value,
-            snorm16::from_float(fz).value,
-            unorm16::from_float(fw).value
-        );
+    static constexpr fixed_point from_raw(value_type v) {
+        return fixed_point{v};
     }
 
-    operator Vector4f() const {
-        return Vector4f{
-            static_cast<f32>(snorm16::from_raw(x)),
-            static_cast<f32>(snorm16::from_raw(y)),
-            static_cast<f32>(snorm16::from_raw(z)),
-            static_cast<f32>(unorm16::from_raw(w))
-        };
+    static constexpr fixed_point from_int(value_type v) {
+        return fixed_point{static_cast<value_type>(v * static_cast<value_type>(scale))};
+    }
+
+    static constexpr fixed_point from_float(f32 v) {
+        const f32 scaled = v * static_cast<f32>(scale);
+        const f32 rounded = (scaled >= 0.0f) ? (scaled + 0.5f) : (scaled - 0.5f);
+        return fixed_point{static_cast<value_type>(rounded)};
+    }
+
+    constexpr value_type to_int() const {
+        return static_cast<value_type>(raw / static_cast<value_type>(scale));
+    }
+
+    constexpr f32 to_float() const {
+        return static_cast<f32>(raw) / static_cast<f32>(scale);
+    }
+
+    // Arithmetic operators
+    constexpr fixed_point operator+(const fixed_point& other) const {
+        return from_raw(raw + other.raw);
+    }
+
+    constexpr fixed_point operator-(const fixed_point& other) const {
+        return from_raw(raw - other.raw);
+    }
+
+    constexpr fixed_point operator*(const fixed_point& other) const {
+        return from_raw(static_cast<value_type>((static_cast<i64>(raw) * other.raw) / scale));
+    }
+
+    constexpr fixed_point operator/(const fixed_point& other) const {
+        return from_raw(static_cast<value_type>((static_cast<i64>(raw) * scale) / other.raw));
+    }
+
+    // Unary operators
+    constexpr fixed_point operator-() const {
+        return from_raw(-raw);
+    }
+
+    constexpr fixed_point operator+() const {
+        return *this;
+    }
+
+    // Compound assignment operators
+    constexpr fixed_point& operator+=(const fixed_point& other) {
+        raw += other.raw;
+        return *this;
+    }
+
+    constexpr fixed_point& operator-=(const fixed_point& other) {
+        raw -= other.raw;
+        return *this;
+    }
+
+    constexpr fixed_point& operator*=(const fixed_point& other) {
+        raw = static_cast<value_type>((static_cast<i64>(raw) * other.raw) / scale);
+        return *this;
+    }
+
+    constexpr fixed_point& operator/=(const fixed_point& other) {
+        raw = static_cast<value_type>((static_cast<i64>(raw) * scale) / other.raw);
+        return *this;
+    }
+
+    // Comparison operators
+    constexpr bool operator==(const fixed_point& other) const {
+        return raw == other.raw;
+    }
+
+    constexpr bool operator!=(const fixed_point& other) const {
+        return raw != other.raw;
+    }
+
+    constexpr bool operator<(const fixed_point& other) const {
+        return raw < other.raw;
+    }
+
+    constexpr bool operator>(const fixed_point& other) const {
+        return raw > other.raw;
+    }
+
+    constexpr bool operator<=(const fixed_point& other) const {
+        return raw <= other.raw;
+    }
+
+    constexpr bool operator>=(const fixed_point& other) const {
+        return raw >= other.raw;
     }
 };
 
-struct Vector2f {
-    union {
-        struct { f32 x, y; };
-        std::array<f32, 2> data;
-    };
-
-    Vector2f() = default;
-    constexpr Vector2f(f32 x_, f32 y_) : x(x_), y(y_) {}
-};
+using fixed16_8 = fixed_point<i16, 8>;
+using fixed16_11 = fixed_point<i16, 11>;
+using fixed32_16 = fixed_point<i32, 16>;
 
 } // namespace whiteout
-

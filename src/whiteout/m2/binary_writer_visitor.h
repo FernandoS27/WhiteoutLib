@@ -129,7 +129,7 @@ protected:
 
     // Bone structure visit methods
     void visit(const BONEHeader& header);
-    void visit(const Matrix4x4& matrix);
+    void visit(const Matrix44f& matrix);
     void visit(const BIDAChunk& chunk);
     void visit(const BOMTChunk& chunk);
 
@@ -155,6 +155,9 @@ protected:
     void visit(const AnimationTrackBase& track);
 
     template <typename T>
+    void visit(const lazy_vector<T>& lv);
+
+    template <typename T>
     void visit(const AnimationTrack<T>& track);
 
     template <typename T>
@@ -167,6 +170,29 @@ protected:
     std::deque<std::function<void()>> deferredWrites; // offset, write function
     u32 baseOffset = 0;
 };
+
+template <typename T>
+void BinaryWriterVisitor::visit(const lazy_vector<T>& lv) {
+    const auto count = static_cast<u32>(lv.backingData.size());
+    writer.write<u32>(count);
+    u32 offsetPos = writer.getPosition();
+    writer.write<u32>(0);
+    if (count == 0)
+        return;
+
+    deferredWrites.push_back([this, offsetPos, &lv]() {
+        u32 currentPos = writer.getPosition();
+        writer.setPosition(offsetPos);
+        writer.write(currentPos - baseOffset);
+        writer.setPosition(currentPos);
+
+        for (const auto& subArray : lv.backingData) {
+            visit(subArray);
+        }
+
+        writer.AlignTo(16);
+    });
+}
 
 template <typename T>
 void BinaryWriterVisitor::visit(const AnimationTrack<T>& track) {

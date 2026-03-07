@@ -71,16 +71,16 @@ public:
     }
 
     // Write padding
-    void writePadding(u32 count) {
+    void writePadding(u32 count, u8 fillByte = 0) {
         for (u32 i = 0; i < count; i++) {
-            write<u8>(0U);
+            write<u8>(fillByte);
         }
     }
 
-    void AlignTo(u32 alignment) {
+    void AlignTo(u32 alignment, u8 fillByte = 0) {
         u32 currentPos = getPosition();
         u32 padding = (alignment - (currentPos % alignment)) % alignment;
-        writePadding(padding);
+        writePadding(padding, fillByte);
     }
 
     // Check if stream is valid

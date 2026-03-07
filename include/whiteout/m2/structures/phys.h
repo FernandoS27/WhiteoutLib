@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include "base.h"
 #include <vector>
+#include "base.h"
 
 namespace whiteout {
 namespace m2 {
@@ -12,7 +12,7 @@ namespace m2 {
 // Matrix types for physics
 struct Matrix3x4 {
     std::array<f32, 12> data; // 3x4 = 12 floats
-    
+
     Matrix3x4() : data{} {}
     constexpr Matrix3x4(std::array<f32, 12> d) : data(d) {}
 };
@@ -81,7 +81,7 @@ struct BODYEntry {
     Vector3f position;
     u16 modelBoneIndex = 0;
     u8 padding_b[2] = {};
-    i32 shapes_base = 0; // starting at shapes[shapes_base]
+    i32 shapes_base = 0;  // starting at shapes[shapes_base]
     i32 shapes_count = 0; // number of shapes in this body
 };
 
@@ -93,7 +93,7 @@ struct BDY2Entry {
     u8 padding_b[2] = {};
     i32 shapes_base = 0;
     i32 shapes_count = 0;
-    f32 unk_1c = 1.0f; // default 1.0
+    f32 massScale = 1.0f; // (was unk_1c) mass multiplier
 };
 
 struct BDY3Entry {
@@ -103,26 +103,26 @@ struct BDY3Entry {
     u16 shapeIndex = 0;
     u8 padding_b[2] = {};
     i32 shapesCount = 0;
-    f32 unk0 = 0.0f;
-    f32 unk_1c = 1.0f; // default 1.0
-    f32 drag = 0.0f; // default 0
-    f32 unk1 = 0.0f; // default 0, sort of weight
-    f32 unk_28 = 0.89999998f; // default 0.89999998
+    f32 mass = 0.0f;                 // body mass factor (0.0-3.0, typically 0.5/0.75/1.0)
+    f32 massScale = 1.0f;            // mass multiplier (1.0 or 10.0)
+    f32 drag = 0.0f;                 // drag coefficient (0.0-10.0)
+    f32 angularDamping = 0.0f;       // angular velocity damping (0.0-20.0)
+    f32 linearDamping = 0.89999998f; // linear velocity damping (0.01-0.9)
 };
 
 struct BDY4Entry {
-    u16 type = 0;
+    u16 type = 0; // 0=kinematic/static, 1=dynamic
     u16 boneIndex = 0;
     Vector3f position;
     u16 shapeIndex = 0;
     u8 padding_b[2] = {};
     i32 shapesCount = 0;
-    f32 unk0 = 0.0f;
-    f32 unk_1c = 1.0f;
-    f32 drag = 0.0f;
-    f32 unk1 = 0.0f;
-    f32 unk_28 = 0.89999998f;
-    u8 unk_2c[4] = {}; // default 0x00000000
+    f32 mass = 0.0f;                 // body mass factor (0.0-3.0, typically 0.5/0.75/1.0)
+    f32 massScale = 1.0f;            // mass multiplier (1.0 or 10.0)
+    f32 drag = 0.0f;                 // drag coefficient (0.0-10.0)
+    f32 angularDamping = 0.0f;       // angular velocity damping (0.0-20.0)
+    f32 linearDamping = 0.89999998f; // linear velocity damping (0.01-0.9)
+    u8 unk_2c[4] = {};               // flags: v4=0xC000/0x8000, v6=collision group index
 };
 
 // ============================================================================
@@ -152,10 +152,10 @@ struct SHP2Entry {
     f32 friction = 0.0f;
     f32 restitution = 0.0f;
     f32 density = 0.0f;
-    u32 unk_14 = 0; // default 0
-    f32 unk_18 = 1.0f; // default 1.0
-    u16 unk_1c = 0; // default 0
-    u16 unk_1e = 0; // no default, padding?
+    u32 unk_14 = 0;     // default 0
+    f32 unk_18 = 1.0f;  // default 1.0
+    u16 unk_1c = 0;     // default 0
+    u16 padding_1e = 0; // uninitialized garbage in v4, zeroed in v5+
 };
 
 // ============================================================================
@@ -183,31 +183,38 @@ struct PLYTVertex {
 };
 
 struct PLYTNode {
-    i8 unk_00 = 0; // 1 or -1
-    i8 vertexIndex = 0; // index in vertex list
-    i8 unkIndex0 = 0; // index into the nodes
-    i8 unkIndex1 = 0; // index into the nodes
+    u8 byte0 = 0; // node metadata / face reference
+    u8 byte1 = 0; // index value
+    u8 byte2 = 0; // child reference (0xFF = leaf)
+    u8 byte3 = 0; // child reference
 };
 
+// NOTE: PLYT chunk uses a "headers-then-data" layout:
+//   u32 entryCount
+//   PLYTHeader[entryCount]  (all headers contiguous)
+//   PLYTData[entryCount]    (all data blocks contiguous)
+// The current PLYTEntry struct works for in-memory representation,
+// but the binary parser must read all headers first, then all data.
+
 struct PLYTData {
-    std::vector<Vector3f> vertices; // convex hull mesh vertices
-    std::vector<u8> unk_1; // len = count_10
-    std::vector<u8> unk_2; // len = count_10
-    std::vector<PLYTNode> nodes; // tree structure
+    std::vector<Vector3f> vertices;   // convex hull mesh vertices [vertexCount]
+    std::vector<Vector4f> facePlanes; // face plane equations (nx,ny,nz,d) [faceCount]
+    std::vector<PLYTNode> nodes;      // BSP tree nodes [nodeCount]
+    std::vector<u8> faceIndices;      // per-face index/metadata [faceCount]
 };
 
 struct PLYTHeader {
-    u32 vertexCount = 0; // mostly 8
-    u8 unk_04[4] = {};
-    u64 runtime_08_ptr = 0; // RUNTIME_08_ptr_data_0 in file
-    u32 count_10 = 0; // mostly 6
-    u8 unk_14[4] = {};
-    u64 runtime_18_ptr = 0; // RUNTIME_18_ptr_data_1
-    u64 runtime_20_ptr = 0; // RUNTIME_20_ptr_data_2
-    u32 nodeCount = 0; // mostly 24
-    u8 unk_2c[4] = {};
-    u64 runtime_30_ptr = 0; // RUNTIME_30_ptr_data_3
-    f32 unk_38[6] = {}; // might be floats with e-08 values
+    u32 vertexCount = 0;    // +0x00: convex hull vertex count (corpus: always 8)
+    u32 unk_04 = 0;         // +0x04: 0 in v4, non-zero in v5+ (version metadata)
+    u64 runtime_08_ptr = 0; // +0x08: always 0 on disk, filled at runtime
+    u32 faceCount = 0;      // +0x10: number of faces / face planes (corpus: always 6)
+    u32 unk_14 = 0;         // +0x14: 1 in v4, varies in v5+
+    u64 runtime_18_ptr = 0; // +0x18: always 0 on disk
+    u64 runtime_20_ptr = 0; // +0x20: always 0 on disk
+    u32 nodeCount = 0;      // +0x28: BSP tree node count (corpus: always 24)
+    u32 unk_2c = 0;         // +0x2C: 0 in v4, non-zero in v5+
+    u64 runtime_30_ptr = 0; // +0x30: always 0 on disk
+    f32 bounds[6] = {};     // +0x38: bounding data (likely min/max extents)
 };
 
 struct PLYTEntry {
@@ -223,9 +230,9 @@ enum class JointType : i16 {
     Spherical = 0,
     Shoulder = 1,
     Weld = 2,
-    Revolute = 3, // version 2+
+    Revolute = 3,  // version 2+
     Prismatic = 4, // version 2+
-    Distance = 5 // version 2+
+    Distance = 5   // version 2+
 };
 
 struct JOINEntry {
@@ -252,7 +259,7 @@ struct WLJ2Entry {
     Matrix3x4 frameB;
     f32 angularFrequencyHz = 0.0f;
     f32 angularDampingRatio = 0.0f;
-    f32 linearFrequencyHz = 0.0f; // default 0
+    f32 linearFrequencyHz = 0.0f;  // default 0
     f32 linearDampingRatio = 0.0f; // default 0
 };
 
@@ -279,7 +286,7 @@ struct SHOJEntry {
     f32 upperTwistAngle = 0.0f;
     f32 coneAngle = 0.0f;
     f32 maxMotorTorque = 0.0f; // version 2+
-    u32 motorMode = 0; // version 2+
+    u32 motorMode = 0;         // version 2+
 };
 
 struct SHJ2Entry {

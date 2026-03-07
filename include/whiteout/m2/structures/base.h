@@ -130,7 +130,7 @@ struct Bone {
     u32 boneNameCRC = 0;
 
     AnimationTrack<Vector3f> translation;
-    AnimationTrack<Quaternion> rotation;
+    AnimationTrack<CompatQuaternion> rotation;
     AnimationTrack<Vector3f> scale;
     Vector3f pivot;
 };
@@ -228,7 +228,7 @@ struct TextureWeight {
 
 struct TextureTransform {
     AnimationTrack<Vector3f> translation;
-    AnimationTrack<Quaternion> rotation;
+    AnimationTrack<CompatQuaternion> rotation;
     AnimationTrack<Vector3f> scaling;
 };
 

@@ -143,11 +143,9 @@ struct GPIDChunk {
     std::vector<GPIDEntry> geometryParticleModels;
 };
 
-struct WFV1Chunk {
-};
+struct WFV1Chunk {};
 
-struct WFV2Chunk {
-};
+struct WFV2Chunk {};
 
 struct PGD1Entry {
     u16 geoset = 0;

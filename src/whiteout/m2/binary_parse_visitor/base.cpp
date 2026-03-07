@@ -277,7 +277,7 @@ void BinaryParseVisitor::visit(std::string& str) {
 }
 
 void BinaryParseVisitor::visit(AnimationTrackBase& track) {
-    track.interpolationType = reader.read<u16>();
+    track.interpolationType = static_cast<InterpolationType>(reader.read<u16>());
     track.globalSequenceId = reader.read<u16>();
     visit(track.timestamps);
 }

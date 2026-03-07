@@ -9,10 +9,10 @@ It is inspired by StormLib, a library used by older Blizzard games to handle pro
   - Classic
   - Reforged
 - **World of Warcraft (`.m2`)**
+- **StarCraft II / Heroes of the Storm (`.m3/.m3a`)**
 
 ## Planned Support
 
-- **StarCraft II / Heroes of the Storm (`.m3/.m3a`)**
 - **Diablo III (`.app`, appearance format)**
 
 ## Format References

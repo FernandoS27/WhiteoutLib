@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstring>
 #include <istream>
 #include <string>
@@ -40,7 +41,7 @@ public:
         return container;
     }
 
-    template <BinaryBlob T, std::size_t N>
+    template <typename T, std::size_t N>
     std::array<T, N> readArray() {
         std::array<T, N> arr;
         file.read(reinterpret_cast<char*>(arr.data()), sizeof(arr));
@@ -52,12 +53,14 @@ public:
     }
 
     // Read string with fixed size
-    std::string readString(std::size_t size) {
+    std::string readString(std::size_t size, bool trimNulls = true) {
         std::string str(size, '\0');
         file.read(str.data(), size);
-        auto nullPos = str.find('\0');
-        if (nullPos != std::string::npos)
-            str.resize(nullPos);
+        if (trimNulls) {
+            auto nullPos = str.find('\0');
+            if (nullPos != std::string::npos)
+                str.resize(nullPos);
+        }
         return str;
     }
 

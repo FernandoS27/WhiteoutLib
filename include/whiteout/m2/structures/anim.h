@@ -3,9 +3,9 @@
 
 #pragma once
 
-#include "base.h"
-#include <vector>
 #include <optional>
+#include <vector>
+#include "base.h"
 
 namespace whiteout {
 namespace m2 {
@@ -72,7 +72,7 @@ struct AnimProfile {
     std::optional<AFM2Chunk> afm2_chunk = std::nullopt; // Animation data
     std::optional<AFSAChunk> afsa_chunk = std::nullopt; // Attachment data
     std::optional<AFSBChunk> afsb_chunk = std::nullopt; // Bone data
-    
+
     bool isChunked = false; // Whether this uses chunked format
 };
 
