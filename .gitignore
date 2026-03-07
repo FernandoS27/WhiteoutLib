@@ -1,7 +1,7 @@
 # Build directories
 build/
 scripts/
-docs/
+Models/
 
 # IDE
 .vscode/
