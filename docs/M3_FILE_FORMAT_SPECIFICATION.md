@@ -1438,6 +1438,13 @@ struct SubFlare {
 
 **Tag**: `MADD` | **Versions**: v1=140, v2=152, v3=160 bytes
 
+> ⚠️ **Disclaimer**: The field names and descriptions in this section are largely
+> educated guesses and AI-generated inferences — they have **not** been validated
+> against Blizzard tooling or reverse-engineered behavioural data.  The binary
+> **layout** (chunk sizes, version branching, reference counts and field widths) is
+> accurate as parsed from the corpus; only the semantic interpretation of the
+> individual fields is speculative.
+
 Extended material parameters referenced from MODL.materialAddData (v30+).
 
 **Version layout**:
@@ -2121,15 +2128,22 @@ struct WRP {
 
 ### 13.3 PHRB — Rigid Body
 
-**Tag**: `PHRB` | **Versions**: v2=80, v3=56, v4=80 bytes
+**Tag**: `PHRB` | **Versions**: v2=104, v3=56, v4=80 bytes
 
 ```cpp
 struct PHRB {
     if (version <= 2) {
-        u32             unknown1[15];       // Legacy block
-        u16             bone;               // Legacy bone index
-        u16             padding;            // Alignment padding
-        u32             unknown2[4];        // Legacy trailing fields
+        // Legacy Havok-era layout (80-byte base + post-ref fields)
+        f32             density;            // Mass density
+        f32             friction;           // Surface friction
+        f32             restitution;        // Bounce / elasticity
+        f32             linearDamping;      // Linear velocity damping
+        f32             angularDamping;     // Angular velocity damping
+        f32             gravityScale;       // Gravity multiplier
+        f32             inertiaTensor[3][3];// 3x3 symmetric inertia tensor (36 bytes)
+        u16             parentBoneIndex;    // Parent/anchor bone
+        u16             boneIndex;          // Legacy bone index (typically == parentBoneIndex)
+        u32             reserved[4];        // Always 0 (16 bytes)
     }
     if (version >= 3) {
         u16             simulationType;     // Simulation mode
@@ -2146,20 +2160,19 @@ struct PHRB {
         AnimRef<u32>    dynamicState;       // Animated dynamic/static state
         f32             dynamicBlendOut;    // Dynamic state blend-out factor
     }
-    if (version >= 3) {
-        Ref<PHSH>       rigidBodyShape;
-        Flag            flags;              // RigidBodyFlag bitmask
-        u16             localForces;        // Local force channel bitmask
-        u16             worldForces;        // World force channel bitmask
-        u32             priority;           // Solver/update priority
-    }
+    // Present in all versions
+    Ref<PHSH>           rigidBodyShape;     // Reference to physics shape
+    Flag                flags;              // RigidBodyFlag bitmask
+    u16                 localForces;        // Local force channel bitmask
+    u16                 worldForces;        // World force channel bitmask
+    u32                 priority;           // Solver/update priority
 };
 ```
 
 Parser behavior summary:
-- `version <= 2`: reads only the 80-byte legacy block (`unknown1`, `bone`, `padding`, `unknown2`)
-- `version == 3`: reads the v3+ main layout without `dynamicState` and `dynamicBlendOut` (56 bytes)
-- `version >= 4`: reads full v4 layout including `dynamicState` and `dynamicBlendOut` (80 bytes)
+- `version <= 2`: reads legacy Havok-era layout with 80-byte base (including inertia tensor) + 12-byte Ref<PHSH> + 12-byte post-ref fields = **104 bytes total**
+- `version == 3`: reads modern layout without `dynamicState`/`dynamicBlendOut` = **56 bytes**
+- `version >= 4`: reads full v4+ layout with animated dynamic state = **80 bytes**
 
 **PHRB Flags:**
 
@@ -2195,36 +2208,40 @@ Most common flag combinations: 0x0021 (37.4%), 0x0025 (22.2%), 0x0061 (16.2%),
 
 Parser-aligned versioned layout (`visit(PhysicsShape&)`):
 - v1 and below use a legacy-only branch
-- v2+ use the modern layout
-- v3+ use mesh references directly
-- v2 uses a separate legacy mesh-reference block in place of the v3+ mesh refs
+- v2+ use the modern layout with hull/mesh sections
+- v3+ mesh references are interleaved with the hull section
+- v2 mesh references follow `meshTolerance`, replacing the v3+ positions
 
 ```cpp
 struct PHSH {
     Matrix44f   transform;
-    u8          shapeType;              // 0=box, 1=sphere, 2=capsule, 3=cylinder, 4=convex_hull, 5=mesh
-    u8          padding[3];
 
     if (version <= 1) {
-        // Legacy v1 branch
+        // Legacy v1 layout
+        f32         collisionMargin;    // Havok convex radius
+        u8          shapeType;          // Shape type enum
+        u8          padding[3];
         Ref<VEC3>   legacyVertices;
         Ref<U8__>   unknown0;
         Ref<U16_>   faceIndices;
         Ref<VEC4>   planeEquations;
+        Vector3f    halfExtents;
     }
 
     if (version >= 2) {
-        // Version 2+
-        Vector3f    oldSizes;
+        // Modern v2+ layout
+        u8          shapeType;          // 0=box, 1=sphere, 2=capsule, 3=cylinder, 4=convex_hull, 5=mesh
+        u8          padding[3];
+        Vector3f    oldSizes;           // v1 leftover, usually zero
 
-        // Convex/simple-shape block
-        Ref<?>      reserved0;
-        Vector3f    shapeDimensions;
-        Ref<DMMN>   hullFaceNormals;
-        Ref<VEC4>   hullVertexPositions;
-        Ref<DMSE>   hullHalfEdges;
-        Ref<U8__>   hullVertexFaceIndices;
-        Vector3f    hullCenter;
+        // Convex/simple-shape section
+        Ref<?>      reserved0;          // Always empty
+        Vector3f    shapeDimensions;    // Shape dimensions for types 0–3, zero for 4–5
+        Ref<VEC3>   hullFaceNormals;    // Per-face normals (shapeType=4)
+        Ref<VEC4>   hullVertexPositions;// Vertex positions (w=0)
+        Ref<DMSE>   hullHalfEdges;      // Half-edge connectivity
+        Ref<U8__>   hullVertexFaceIndices;// One face index per vertex
+        Vector3f    hullCenter;         // Hull centroid
         u32         hullFaceNormalCount;
         u32         hullVertexCount;
         u32         hullHalfEdgeCount;
@@ -2233,35 +2250,38 @@ struct PHSH {
     }
 
     if (version >= 3) {
-        Ref<DMMN>   meshFaceNormals;
-        Ref<VEC4>   meshVertexPositions;
-        Ref<MT16>   meshFaceIndices16;
-        Ref<MT32>   meshFaceIndices32;
+        // v3+ mesh section
+        Ref<DMMN>   meshFaceNormals;    // Physics mesh normals
+        Ref<VEC4>   meshVertexPositions;// Vertex positions (w=0)
+        Ref<MT16>   meshFaceIndices16;  // 16-bit triangle indices (or empty)
+        Ref<MT32>   meshFaceIndices32;  // 32-bit triangle indices (or empty)
     }
 
     if (version >= 2) {
+        // Mesh bounds
         Vector3f    meshBoundsCenter;
         Vector3f    meshBoundsExtent;
         Vector3f    meshTolerance;
     }
 
-    // v2 stores legacy mesh references here instead
     if (version == 2) {
-        Ref<DMMN>   meshFaceNormalsLegacy;
-        Ref<VEC4>   meshVertexPositionsLegacy;
-        Ref<DMMT>   unknownLegacy0;
-        Ref<DMME>   unknownLegacy1;
+        // v2 mesh section
+        Ref<DMMN>   meshFaceNormals;
+        Ref<VEC3>   meshVertexPositions;// VEC3, not VEC4
+        Ref<DMMT>   unknown;            // Physics mesh triangles
+        Ref<DMME>   unknown2;           // Physics mesh edges
     }
 
     if (version >= 2) {
+        // Common mesh counters
         u32         meshNormalCount;
         u32         meshVertexCount;
-        u32         meshFaceIndex16Count;
-        u32         meshFaceIndex32Count;
+        u32         meshFaceIndex16Count;// MT16 face count (0 when MT32 used)
+        u32         meshFaceIndex32Count;// MT32 face count (0 when MT16 used)
         u32         meshUnknown1;
-        u32         meshReserved;
-        u32         meshTreeDepth;
-        f32         meshCollisionMargin;
+        u32         meshReserved;       // Always 0
+        u32         meshTreeDepth;      // Correlates with mesh complexity (1–12)
+        f32         meshCollisionMargin;// MT16: small float; MT32: 0.0
     }
 };
 ```
@@ -2425,29 +2445,26 @@ struct CAM {
     }
 
     if (version == 2) {
-        // Beta: farClip/nearClip are plain floats (promoted to AnimRef in v3)
+        // Beta v2 only: farClip/nearClip are plain f32 (promoted to AnimRef in loader)
         f32             farClip;            // Static far clip distance
         f32             nearClip;           // Static near clip distance
     }
 
+    if (version >= 5) {
+        u32             dofType;            // Default 3 when absent
+    }
+
     if (version >= 3) {
         // v3+: farClip/nearClip became animatable
-    }
-
-    if (version >= 5) {
-        u32             dofType;            // default 3 when field is absent
-    }
-
-    if (version >= 3) {
         AnimRef<f32>    farClip;
         AnimRef<f32>    nearClip;
     }
 
     if (version >= 2) {
         AnimRef<f32>    shadowClipDistance;
-        AnimRef<f32>    focusDistance;       // DOF focal point distance
-        AnimRef<f32>    farFocusRange;       // DOF far focus range
-        AnimRef<f32>    nearFocusRange;      // DOF near focus range
+        AnimRef<f32>    focusDistance;      // DOF focal point distance
+        AnimRef<f32>    farFocusRange;      // DOF far focus range
+        AnimRef<f32>    nearFocusRange;     // DOF near focus range
     }
 
     if (version >= 4) {
@@ -2460,11 +2477,22 @@ struct CAM {
     }
 
     if (version >= 5) {
-        AnimRef<f32>    bokehFStop;
-        AnimRef<f32>    bokehMaxCoCDiameter;
+        AnimRef<f32>    bokehFStop;         // Bokeh f-stop value
+        AnimRef<f32>    bokehMaxCoCDiameter;// Max circle of confusion diameter
     }
 };
 ```
+
+**Parser Flow** (`visit(Camera&, version)`):
+1. Always reads `boneIndex` (u32) and `name` (Ref<CHAR>)
+2. `version >= 2`: reads `fieldOfView` (AnimRef<f32>) and `useVerticalFOV` (u32)
+3. `version == 2`: reads plain `farClip` (f32) and `nearClip` (f32), promotes them to AnimRef in-memory
+4. `version >= 5`: reads `dofType` (u32)
+5. `version >= 3`: reads animatable `farClip` and `nearClip` (AnimRef<f32>)
+6. `version >= 2`: reads DOF parameters: `shadowClipDistance`, `focusDistance`, `farFocusRange`, `nearFocusRange`
+7. `version >= 4`: reads `nearFalloffStart` and `nearFalloffEnd`
+8. `version >= 2`: reads `dofAmount`
+9. `version >= 5`: reads `bokehFStop` and `bokehMaxCoCDiameter`
 
 **CAM_ v2 layout** (MD33 only, 144 bytes with 8-byte SmallRef):
 
@@ -2902,9 +2930,9 @@ only.
 | **FOR_** | 0x01 | 104 | No refs |
 | | 0x02 | 104 | |
 | **WRP_** | 0x01 | 132 | No refs |
-| **PHRB** | 0x02 | 80 | Legacy block (no refs) |
-| | 0x03 | 56 | +rigidBodyShape |
-| | 0x04 | 80 | +dynamicState, +dynamicBlendOut |
+| **PHRB** | 0x02 | 104 | Legacy (80-byte base + Ref<PHSH> + 12-byte post-ref) |
+| | 0x03 | 56 | Modern: simulationType, physicsType, Ref<PHSH>, flags, forces |
+| | 0x04 | 80 | +dynamicState (AnimRef), +dynamicBlendOut |
 | **PHYJ** | 0x00 | 180 | No refs |
 | **PHCL** | 0x02 | 128 | Legacy |
 | | 0x04 | 192 | Full |
@@ -2919,9 +2947,9 @@ only.
 | **SSGS** | 0x01 | 108 | 2 refs |
 | **ATVL** | 0x00 | 116 | 2 refs |
 | **LFSB** | 0x02 | 56 | No refs |
-| **PHSH** | 0x01 | 132 | 1 ref |
-| | 0x02 | 292 | |
-| | 0x03 | 300 | 10 refs (6 hull + 4 mesh); see §13.3 |
+| **PHSH** | 0x01 | 132 | Legacy: 1 ref (transform, collisionMargin, shapeType, 4 refs, halfExtents) |
+| | 0x02 | 292 | Modern: 10 refs (hull section + v2 mesh refs) |
+| | 0x03 | 300 | Modern: 10 refs (hull section + v3+ mesh refs); see §13.3 |
 | **DMMN** | 0x00 | 12 | Vector3f normal |
 | | 0x01 | 8 | Packed/compressed normal (PHSH mesh) |
 | **PHCC** | 0x00 | 76 | No refs |
