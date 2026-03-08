@@ -20,11 +20,11 @@
 #include <cstdint>
 #include <map>
 #include <memory>
-#include <span>
 #include <string>
 #include <vector>
 
 #include "../common_types.h"
+#include "../compatibility.h"
 #include "../vector_types.h"
 
 namespace whiteout {
@@ -77,7 +77,8 @@ constexpr u32 MODL_TAG = makeTag("MODL"); ///< Model information (name, bounds, 
 constexpr u32 SEQS_TAG = makeTag("SEQS"); ///< Animation sequences
 constexpr u32 GLBS_TAG = makeTag("GLBS"); ///< Global sequences (looping animations)
 constexpr u32 TEXS_TAG = makeTag("TEXS"); ///< Texture paths
-constexpr u32 SNDS_TAG = makeTag("SNDS"); ///< Sound tracks (deprecated)
+constexpr u32 SNDS_TAG = makeTag("SNDS"); ///< Sounds (deprecated)
+constexpr u32 SNEM_TAG = makeTag("SNEM"); ///< Sound emitters (deprecated)
 constexpr u32 MTLS_TAG = makeTag("MTLS"); ///< Materials (shaders and rendering properties)
 constexpr u32 TXAN_TAG = makeTag("TXAN"); ///< Texture animations
 constexpr u32 GEOS_TAG = makeTag("GEOS"); ///< Geosets (mesh geometry)
@@ -98,6 +99,7 @@ constexpr u32 FAFX_TAG = makeTag("FAFX"); ///< Face effects (Reforged facial ani
 constexpr u32 CORN_TAG = makeTag("CORN"); ///< Corn emitters (PopcornFX - Reforged)
 constexpr u32 LAYS_TAG = makeTag("LAYS"); ///< Material layers
 constexpr u32 KEVT_TAG = makeTag("KEVT"); ///< Event track keys
+constexpr u32 KSEK_TAG = makeTag("KSEK"); ///< Sound emitter track keys
 
 // Geoset sub-chunk tags
 constexpr u32 VRTX_TAG = makeTag("VRTX"); ///< Vertex positions
@@ -193,7 +195,8 @@ constexpr u32 KPPV_TAG = makeTag("KPPV"); ///< Corn visibility animation
 struct Node;
 struct Sequence;
 struct Texture;
-struct SoundTrack;
+struct Sound;
+struct SoundEmitter;
 struct Material;
 struct Layer;
 struct TextureAnimation;
@@ -319,7 +322,8 @@ struct Model {
 
     // Textures and materials
     std::vector<Texture> textures;                   ///< Texture paths and settings
-    std::vector<SoundTrack> soundTracks;             ///< Sound tracks (deprecated)
+    std::vector<Sound> sounds;                       ///< Sounds (deprecated)
+    std::vector<SoundEmitter> soundEmitters;         ///< Sound emitters (deprecated)
     std::vector<Material> materials;                 ///< Material definitions
     std::vector<TextureAnimation> textureAnimations; ///< UV animation data
 

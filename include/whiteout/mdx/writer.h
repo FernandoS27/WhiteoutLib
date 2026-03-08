@@ -21,7 +21,7 @@
  */
 
 #include <memory>
-#include <span>
+#include "../compatibility.h"
 #include "structures.h"
 #include "types.h"
 
@@ -75,6 +75,7 @@ private:
     void writeGLBS(BinaryWriter& writer, const Model& mdx); ///< Write global sequences
     void writeTEXS(BinaryWriter& writer, const Model& mdx); ///< Write textures chunk
     void writeSNDS(BinaryWriter& writer, const Model& mdx); ///< Write sounds chunk
+    void writeSNEM(BinaryWriter& writer, const Model& mdx); ///< Write sound emitters chunk
     void writeMTLS(BinaryWriter& writer, const Model& mdx); ///< Write materials chunk
     void writeTXAN(BinaryWriter& writer, const Model& mdx); ///< Write texture animations
     void writeGEOS(BinaryWriter& writer, const Model& mdx); ///< Write geosets chunk
@@ -111,6 +112,7 @@ private:
     void writeEventObject(BinaryWriter& writer, const EventObject& evt);
     void writeCamera(BinaryWriter& writer, const Camera& cam);
     void writeCollisionShape(BinaryWriter& writer, const CollisionShape& shape);
+    void writeSoundEmitter(BinaryWriter& writer, const SoundEmitter& snem);
     void writeCornEmitter(BinaryWriter& writer, const CornEmitter& corn);
 
     /**

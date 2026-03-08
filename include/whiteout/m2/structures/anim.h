@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include <optional>
 #include <vector>
+#include "../../compatibility.h"
 #include "base.h"
 
 namespace whiteout {

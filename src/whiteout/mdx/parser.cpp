@@ -120,6 +120,9 @@ Model Parser::parse(BinaryReader& reader) {
         case SNDS_TAG:
             parseSNDS(reader, header.size, mdx);
             break;
+        case SNEM_TAG:
+            parseSNEM(reader, header.size, mdx);
+            break;
         case MTLS_TAG:
             parseMTLS(reader, header.size, mdx);
             break;
@@ -236,18 +239,57 @@ void Parser::parseTEXS(BinaryReader& reader, u32 size, Model& mdx) {
 }
 
 void Parser::parseSNDS(BinaryReader& reader, u32 size, Model& mdx) {
+    u32 count = size / 56;
+
+    for (u32 i = 0; i < count; i++) {
+        Sound snd;
+        snd.soundFile = reader.readString(44);
+        snd.maximumDistance = reader.read<f32>();
+        snd.minimumDistance = reader.read<f32>();
+        snd.soundChannel = reader.read<u32>();
+
+        mdx.sounds.push_back(snd);
+    }
+}
+
+void Parser::parseSNEM(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
-        SoundTrack st;
-        st.fileName = reader.readString(260);
-        st.volume = reader.read<f32>();
-        st.pitch = reader.read<f32>();
-        st.flags = reader.read<u32>();
-
-        mdx.soundTracks.push_back(st);
-        totalRead += 272;
+        SoundEmitter snem = parseSoundEmitter(reader, size - totalRead);
+        snem.node.nodeFamilyId = mdx.soundEmitters.size();
+        mdx.soundEmitters.push_back(snem);
+        totalRead += snem.inclusiveSize;
     }
+}
+
+SoundEmitter Parser::parseSoundEmitter(BinaryReader& reader, u32 maxSize) {
+    SoundEmitter snem;
+    u32 startPos = reader.getPosition();
+
+    snem.inclusiveSize = reader.read<u32>();
+    snem.node = parseNode(reader);
+
+    // Parse animation tracks (KSEK)
+    u32 endPos = startPos + snem.inclusiveSize;
+    while (reader.getPosition() < endPos) {
+        u32 trackTag = reader.read<u32>();
+        u32 trackCount = reader.read<u32>();
+        u32 interpolationType = reader.read<u32>();
+        u32 globalSequenceId = reader.read<u32>();
+
+        switch (trackTag) {
+        case KSEK_TAG: // KSEK - sound track
+            snem.soundTrack =
+                readTrackChunk<u32>(reader, trackCount, interpolationType, globalSequenceId);
+            break;
+        default:
+            SkipUnknownTrack(reader, trackTag, trackCount, interpolationType);
+            break;
+        }
+    }
+
+    return snem;
 }
 
 void Parser::parseMTLS(BinaryReader& reader, u32 size, Model& mdx) {

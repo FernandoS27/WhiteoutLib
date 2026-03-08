@@ -85,8 +85,10 @@ void Writer::write(BinaryWriter& writer, const Model& mdx) {
         writeGLBS(writer, mdx);
     if (!mdx.textures.empty())
         writeTEXS(writer, mdx);
-    if (!mdx.soundTracks.empty())
+    if (!mdx.sounds.empty())
         writeSNDS(writer, mdx);
+    if (!mdx.soundEmitters.empty())
+        writeSNEM(writer, mdx);
     if (!mdx.materials.empty())
         writeMTLS(writer, mdx);
     if (!mdx.textureAnimations.empty())
@@ -177,15 +179,31 @@ void Writer::writeTEXS(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::writeSNDS(BinaryWriter& writer, const Model& mdx) {
-    u32 size = mdx.soundTracks.size() * 272;
+    u32 size = mdx.sounds.size() * 56;
     writeChunkHeader(writer, SNDS_TAG, size);
 
-    for (const auto& st : mdx.soundTracks) {
-        writer.writeString(st.fileName, 260);
-        writer.write(st.volume);
-        writer.write(st.pitch);
-        writer.write(st.flags);
+    for (const auto& snd : mdx.sounds) {
+        writer.writeString(snd.soundFile, 44);
+        writer.write(snd.maximumDistance);
+        writer.write(snd.minimumDistance);
+        writer.write(snd.soundChannel);
     }
+}
+
+void Writer::writeSNEM(BinaryWriter& writer, const Model& mdx) {
+    SizeEnclosure sizeEnclosure(writer, SNEM_TAG);
+
+    for (const auto& snem : mdx.soundEmitters) {
+        writeSoundEmitter(writer, snem);
+    }
+}
+
+void Writer::writeSoundEmitter(BinaryWriter& writer, const SoundEmitter& snem) {
+    SizeEnclosure sizeEnclosure(writer);
+
+    writeNode(writer, snem.node);
+
+    writeTrackChunk(writer, KSEK_TAG, snem.soundTrack);
 }
 
 void Writer::writeMTLS(BinaryWriter& writer, const Model& mdx) {

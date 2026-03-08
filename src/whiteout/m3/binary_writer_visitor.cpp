@@ -1036,8 +1036,8 @@ void BinaryWriterVisitor::visit(const RibbonEmitter& emitter, u32 version) {
     writer.write(emitter.massRandom);
     writer.write(emitter.massSizeMultiplier);
     if (version <= 6) {
-        writer.write<u32>(
-            hasFlag(emitter.additionalFlags, RibbonAdditionalFlag::WorldSpace) ? 1u : 0u);
+        writer.write<u32>(hasFlag(emitter.additionalFlags, RibbonAdditionalFlag::WorldSpace) ? 1u
+                                                                                             : 0u);
     }
 
     writer.write(emitter.localForces);

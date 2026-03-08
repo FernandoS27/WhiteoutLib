@@ -62,17 +62,23 @@ struct Texture {
 };
 
 // ============================================================================
-// SoundTrack (Deprecated)
+// Sound (Deprecated)
 // ============================================================================
 
 /**
- * @brief Sound track definition (deprecated, rarely used)
+ * @brief Sound definition (deprecated, not used in shipped models)
+ *
+ * Sounds define audio file paths and playback properties.
+ * While readers for this chunk exist in the internal game code,
+ * no known shipped model contains SNDS data.
+ *
+ * Binary layout: 56 bytes per entry
  */
-struct SoundTrack {
-    std::string fileName; ///< Path to sound file (WAV, MP3, etc.)
-    f32 volume = 1.0f;    ///< Volume multiplier
-    f32 pitch = 1.0f;     ///< Pitch multiplier
-    u32 flags = 0;        ///< Sound flags
+struct Sound {
+    std::string soundFile;      ///< Path to sound file (44 bytes, null-terminated)
+    f32 maximumDistance = 0.0f; ///< Maximum audible distance
+    f32 minimumDistance = 0.0f; ///< Minimum distance (full volume)
+    u32 soundChannel = 0;       ///< Sound channel identifier
 };
 
 // ============================================================================
@@ -183,6 +189,24 @@ inline Node::NodeFlag operator~(Node::NodeFlag flag) {
 inline bool hasFlag(Node::NodeFlag flags, Node::NodeFlag flag) {
     return (static_cast<u32>(flags) & static_cast<u32>(flag)) != 0;
 }
+
+// ============================================================================
+// Sound Emitter (Deprecated)
+// ============================================================================
+
+/**
+ * @brief Sound emitter attached to the model hierarchy (deprecated)
+ *
+ * Sound emitters are positioned nodes that can emit sounds at specific
+ * animation frames via KSEK tracks. While readers exist in the internal
+ * game code, no known shipped model contains SNEM data.
+ */
+struct SoundEmitter {
+    u32 inclusiveSize = 0; ///< Size of emitter data
+    Node node;             ///< Base node data with transform
+
+    Track<u32> soundTrack; ///< KSEK - sound event track (u32 values)
+};
 
 // ============================================================================
 // Layer

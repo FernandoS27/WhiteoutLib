@@ -24,9 +24,9 @@
  */
 
 #include <memory>
-#include <span>
 #include <string>
 #include <vector>
+#include "../compatibility.h"
 #include "structures.h"
 #include "types.h"
 
@@ -136,6 +136,7 @@ private:
     void parseGLBS(BinaryReader& reader, u32 size, Model& mdx); ///< Parse global sequences
     void parseTEXS(BinaryReader& reader, u32 size, Model& mdx); ///< Parse textures chunk
     void parseSNDS(BinaryReader& reader, u32 size, Model& mdx); ///< Parse sounds chunk
+    void parseSNEM(BinaryReader& reader, u32 size, Model& mdx); ///< Parse sound emitters chunk
     void parseMTLS(BinaryReader& reader, u32 size, Model& mdx); ///< Parse materials chunk
     void parseTXAN(BinaryReader& reader, u32 size, Model& mdx); ///< Parse texture animations
     void parseGEOS(BinaryReader& reader, u32 size, Model& mdx); ///< Parse geosets chunk
@@ -178,6 +179,7 @@ private:
     Camera parseCamera(BinaryReader& reader, u32 maxSize);               ///< Parse a camera
     Light parseLight(BinaryReader& reader, u32 maxSize, Model& mdx);     ///< Parse a light
     CollisionShape parseCollisionShape(BinaryReader& reader);            ///< Parse collision shape
+    SoundEmitter parseSoundEmitter(BinaryReader& reader, u32 maxSize);   ///< Parse sound emitter
 
     /**
      * @brief Parse animation tracks

@@ -3,10 +3,10 @@
 
 #pragma once
 
-#include <span>
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include "../compatibility.h"
 #include "structures.h"
 
 namespace whiteout {

@@ -10,6 +10,11 @@ Models/
 *.vcxproj
 *.vcxproj.filters
 
+# Python
+__pycache__/
+.venv/
+venv/
+
 # Dependencies
 vcpkg_installed/
 

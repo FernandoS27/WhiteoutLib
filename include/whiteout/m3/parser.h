@@ -3,9 +3,9 @@
 
 #pragma once
 
-#include <span>
 #include <string>
 #include <vector>
+#include "../compatibility.h"
 #include "structures.h"
 
 namespace whiteout {

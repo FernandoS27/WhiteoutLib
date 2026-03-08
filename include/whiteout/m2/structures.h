@@ -13,7 +13,7 @@
 #include "types.h"
 
 #include <limits>
-#include <optional>
+#include "../compatibility.h"
 
 namespace whiteout {
 namespace m2 {

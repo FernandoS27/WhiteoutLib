@@ -7,9 +7,9 @@
 
 #include <array>
 #include <memory>
-#include <optional>
 #include <string>
 #include <vector>
+#include <whiteout/compatibility.h>
 
 namespace whiteout {
 namespace m3 {

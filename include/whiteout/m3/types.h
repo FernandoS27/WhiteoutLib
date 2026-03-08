@@ -9,11 +9,11 @@
 #include <cstring>
 #include <map>
 #include <memory>
-#include <span>
 #include <string>
 #include <vector>
 
 #include "../common_types.h"
+#include "../compatibility.h"
 #include "../vector_types.h"
 
 namespace whiteout {

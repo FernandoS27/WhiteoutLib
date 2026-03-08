@@ -179,7 +179,8 @@ MDX {
     (SEQS)                   // Animation sequences
     (GLBS)                   // Global sequences
     (TEXS)                   // Textures
-    (SNDS)                   // Sound tracks (pre-release, unused)
+    (SNDS)                   // Sounds (deprecated, unused in shipped models)
+    (SNEM)                   // Sound emitters (deprecated, unused in shipped models)
     (MTLS)                   // Materials
     (TXAN)                   // Texture animations
     (GEOS)                   // Geosets (mesh data)
@@ -356,22 +357,40 @@ Texture {                           // 268 bytes
 }
 ```
 
-### 7.6 SNDS — Sound Tracks
+### 7.6 SNDS — Sounds
 
-**Tag:** `0x53444E53` · **Element size:** 272 bytes · **Count:** `size / 272`
+**Tag:** `0x53444E53` · **Element size:** 56 bytes · **Count:** `size / 56`
 
-> **Note:** This chunk was used before Warcraft III released and is not present in any known shipped model. Documented for completeness.
+> **Note:** This chunk was used before Warcraft III released and is not present in any known shipped model. Readers for it still exist in the internal game code. Documented for completeness based on disassembly research.
 
 ```
 SNDS {
-    SoundTrack[size / 272] soundTracks
+    Sound[size / 56] sounds
 }
 
-SoundTrack {                        // 272 bytes
-    char[260]   fileName
-    f32         volume
-    f32         pitch
-    u32         flags
+Sound {                             // 56 bytes
+    char[44]    soundFile           // Path to sound file (null-terminated)
+    f32         maximumDistance     // Maximum audible distance
+    f32         minimumDistance     // Minimum distance (full volume)
+    u32         soundChannel        // Sound channel identifier
+}
+```
+
+### 7.6b SNEM — Sound Emitters
+
+**Tag:** `0x4D454E53` · **Variable-sized objects**
+
+> **Note:** Like SNDS, this chunk is not present in any known shipped model but readers exist in the internal game code. Sound emitters are node-based objects that can emit sounds at specific animation frames via KSEK tracks.
+
+```
+SNEM {
+    SoundEmitter[?] soundEmitters   // Parse using inclusiveSize
+}
+
+SoundEmitter {
+    u32         inclusiveSize       // Total size including this field
+    Node        node                // Base node data with transform
+    (KSEK)                          // Sound track: u32 values
 }
 ```
 
@@ -1260,6 +1279,14 @@ The following table lists all track tags, their data type `T`, parent object, an
 | **KPPS** | `f32` | Speed |
 | **KPPV** | `f32` | Visibility |
 
+#### Sound Emitter Tracks (SNEM)
+
+| Tag | Data Type | Description |
+|-----|-----------|-------------|
+| **KSEK** | `u32` | Sound event track |
+
+> **Note:** KSEK follows the standard track structure (with interpolation type and global sequence ID in the header), unlike KEVT which has a unique layout.
+
 ### 8.3 KEVT — Event Tracks
 
 Event object tracks have a unique structure that differs from all other track types. They store only frame times with no interpolation or value data.
@@ -1425,7 +1452,7 @@ For reference, here are the FourCC tag values as `u32` little-endian:
 ```
 MDLX = 0x584C444D      VERS = 0x53524556      MODL = 0x4C444F4D
 SEQS = 0x53514553      GLBS = 0x53424C47      TEXS = 0x53584554
-SNDS = 0x53444E53      MTLS = 0x534C544D      TXAN = 0x4E415854
+SNDS = 0x53444E53      SNEM = 0x4D454E53      MTLS = 0x534C544D      TXAN = 0x4E415854
 GEOS = 0x534F4547      GEOA = 0x414F4547      BONE = 0x454E4F42
 LITE = 0x4554494C      HELP = 0x504C4548      ATCH = 0x48435441
 PIVT = 0x54564950      PREM = 0x4D455250      PRE2 = 0x32455250
@@ -1437,7 +1464,7 @@ LAYS = 0x5359414C      VRTX = 0x58545256      NRMS = 0x534D524E
 PTYP = 0x50595450      PCNT = 0x544E4350      PVTX = 0x58545650
 GNDX = 0x58444E47      MTGC = 0x4347544D      MATS = 0x5354414D
 TANG = 0x474E4154      SKIN = 0x4E494B53      UVAS = 0x53415655
-UVBS = 0x53425655      KEVT = 0x5456454B
+UVBS = 0x53425655      KEVT = 0x5456454B      KSEK = 0x4B45534B
 ```
 
 ### Track Tag Constants
@@ -1463,6 +1490,7 @@ KRCO = 0x4F43524B      KRTX = 0x5854524B      KRVS = 0x5356524B
 KCTR = 0x5254434B      KCRL = 0x4C52434B      KTTR = 0x5254544B
 KPPA = 0x4150504B      KPPC = 0x4350504B      KPPE = 0x4550504B
 KPPL = 0x4C50504B      KPPS = 0x5350504B      KPPV = 0x5650504B
+KSEK = 0x4B45534B
 ```
 
 ---
