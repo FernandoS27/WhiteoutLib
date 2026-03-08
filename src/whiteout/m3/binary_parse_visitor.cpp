@@ -336,8 +336,8 @@ void BinaryParseVisitor::visit(TextureLayer& value, u32 version) {
     visit(value.texturePath);
     value.color = reader.read<AnimRef<ColorBGRA>>();
     value.flags = static_cast<TextureLayerFlag>(reader.read<u32>());
-    value.uvMapping = reader.read<u32>();
-    value.colorType = reader.read<u32>();
+    value.uvMapping = static_cast<UVMappingMode>(reader.read<u32>());
+    value.colorType = static_cast<ColorChannelSelect>(reader.read<u32>());
     value.rgbMultiply = reader.read<AnimRef<f32>>();
     value.rgbAdd = reader.read<AnimRef<f32>>();
     value.pocTexture = reader.read<u32>();
@@ -367,7 +367,7 @@ void BinaryParseVisitor::visit(TextureLayer& value, u32 version) {
         value.triplanarScale = reader.read<AnimRef<Vector3f>>();
     }
     value.uvSourceRelated = reader.read<u32>();
-    value.fresnelMode = reader.read<u32>();
+    value.fresnelMode = static_cast<FresnelMode>(reader.read<u32>());
     value.fresnelExponent = reader.read<f32>();
     value.fresnelMin = reader.read<f32>();
     value.fresnelMax = reader.read<f32>();
@@ -383,7 +383,7 @@ void BinaryParseVisitor::visit(StandardMaterial& value, u32 version) {
     visit(value.name);
     value.additionalFlags = static_cast<MaterialAdditionalFlag>(reader.read<u32>());
     value.flags = static_cast<MaterialFlag>(reader.read<u32>());
-    value.blendMode = reader.read<u32>();
+    value.blendMode = static_cast<BlendMode>(reader.read<u32>());
     value.priority = reader.read<i32>();
     value.rttChannels = reader.read<u32>();
     value.specularExponent = reader.read<f32>();
@@ -420,11 +420,11 @@ void BinaryParseVisitor::visit(StandardMaterial& value, u32 version) {
         visit(value.normalBlend2Layer);
     }
 
-    value.materialClass = reader.read<u32>();
-    value.layerBlendMode = reader.read<u32>();
-    value.emissiveBlendMode1 = reader.read<u32>();
-    value.emissiveBlendMode2 = reader.read<u32>();
-    value.specularMode = reader.read<u32>();
+    value.materialClass = static_cast<MaterialClass>(reader.read<u32>());
+    value.layerBlendMode = static_cast<LayerBlendOp>(reader.read<u32>());
+    value.emissiveBlendMode1 = static_cast<LayerBlendOp>(reader.read<u32>());
+    value.emissiveBlendMode2 = static_cast<LayerBlendOp>(reader.read<u32>());
+    value.specularMode = static_cast<SpecularMode>(reader.read<u32>());
     value.parallaxHeight = reader.read<AnimRef<f32>>();
     value.motionBlurAmount = reader.read<AnimRef<f32>>();
     if (version >= 19) {
@@ -468,7 +468,7 @@ void BinaryParseVisitor::visit(VolumeMaterial& value, u32 version) {
     (void)version;
     visit(value.name);
     value.blendMode = reader.read<u32>();
-    value.falloffType = reader.read<u32>();
+    value.falloffType = static_cast<VolumeFalloffType>(reader.read<u32>());
     value.density = reader.read<AnimRef<f32>>();
     visit(value.colorMap);
     visit(value.noiseMap1);
@@ -495,8 +495,8 @@ void BinaryParseVisitor::visit(HairMaterial& value, u32 version) {
 void BinaryParseVisitor::visit(VolumeNoiseMaterial& value, u32 version) {
     (void)version;
     visit(value.name);
-    value.falloffType = reader.read<u32>();
-    value.drawTransparency = reader.read<u32>();
+    value.falloffType = static_cast<VolumeFalloffType>(reader.read<u32>());
+    value.drawTransparency = static_cast<VolumeNoiseCameraMode>(reader.read<u32>());
     value.density = reader.read<AnimRef<f32>>();
     value.nearPlane = reader.read<AnimRef<f32>>();
     value.falloff = reader.read<AnimRef<f32>>();
@@ -704,7 +704,8 @@ void BinaryParseVisitor::visit(ParticleEmitter& value, u32 version) {
     value.initialSpeed = reader.read<AnimRef<f32>>();
     value.initialSpeedRandom = reader.read<AnimRef<f32>>();
     if (version <= 14) {
-        value.deprecated.emitSpeedRandomize = reader.read<u32>();
+        if (reader.read<u32>())
+            value.additionalFlags |= ParticleAdditionalFlag::EmitSpeedRandomize;
     }
     value.initialYaw = reader.read<AnimRef<f32>>();
     value.initialPitch = reader.read<AnimRef<f32>>();
@@ -715,7 +716,8 @@ void BinaryParseVisitor::visit(ParticleEmitter& value, u32 version) {
     value.lifetime = reader.read<AnimRef<f32>>();
     value.lifetimeRandom = reader.read<AnimRef<f32>>();
     if (version <= 14) {
-        value.deprecated.lifespanRandomize = reader.read<u32>();
+        if (reader.read<u32>())
+            value.additionalFlags |= ParticleAdditionalFlag::LifespanRandomize;
     }
 
     // Distance & Gravity
@@ -743,24 +745,25 @@ void BinaryParseVisitor::visit(ParticleEmitter& value, u32 version) {
     // Per-Particle Curves
     value.sizeAnimation = reader.read<AnimRef<Vector3f>>();
     if (version <= 11) {
-        value.deprecated.sizeMidTimeLegacy = reader.read<f32>();
+        value.sizeMidTime = reader.read<f32>();
     }
     value.rotationAnimation = reader.read<AnimRef<Vector3f>>();
     if (version <= 11) {
-        value.deprecated.rotationMidTimeLegacy = reader.read<f32>();
+        value.rotationMidTime = reader.read<f32>();
     }
     value.colorStart = reader.read<AnimRef<ColorBGRA>>();
     value.colorMid = reader.read<AnimRef<ColorBGRA>>();
     value.colorEnd = reader.read<AnimRef<ColorBGRA>>();
     if (version <= 11) {
-        value.deprecated.colorMidTimeLegacy = reader.read<f32>();
-        value.deprecated.alphaMidTimeLegacy = reader.read<f32>();
+        value.colorMidTime = reader.read<f32>();
+        value.alphaMidTime = reader.read<f32>();
     }
 
     // Physics
     value.drag = reader.read<f32>();
     if (version <= 14) {
-        value.deprecated.massRandomizeLegacy = reader.read<u32>();
+        if (reader.read<u32>())
+            value.additionalFlags |= ParticleAdditionalFlag::MassRandomize;
     }
     value.mass = reader.read<f32>();
     value.massRandom = reader.read<f32>();
@@ -768,7 +771,8 @@ void BinaryParseVisitor::visit(ParticleEmitter& value, u32 version) {
         value.massSizeMultiplier = reader.read<f32>();
     }
     if (version <= 14) {
-        value.deprecated.worldSpaceLegacy = reader.read<u32>();
+        if (reader.read<u32>())
+            value.additionalFlags |= ParticleAdditionalFlag::WorldSpace;
     }
 
     // Forces
@@ -786,7 +790,7 @@ void BinaryParseVisitor::visit(ParticleEmitter& value, u32 version) {
     value.noiseCoherence = reader.read<f32>();
     value.noiseEdge = reader.read<f32>();
     if (version <= 11) {
-        value.deprecated.unknown31f2da8 = reader.read<f32>();
+        value.deprecated.noiseSmoothness = reader.read<f32>();
     }
     if (version >= 11) {
         value.indexPlusLength = reader.read<u32>();
@@ -892,9 +896,9 @@ void BinaryParseVisitor::visit(ParticleEmitter& value, u32 version) {
 
     // Smoothing (since v14)
     if (version >= 14) {
-        value.colorSmoothing = reader.read<u32>();
-        value.sizeSmoothing = reader.read<u32>();
-        value.rotationSmoothing = reader.read<u32>();
+        value.colorSmoothing = reader.read<InterpolationMode>();
+        value.sizeSmoothing = reader.read<InterpolationMode>();
+        value.rotationSmoothing = reader.read<InterpolationMode>();
     }
 
     // UV Screen Space (since v17)
@@ -932,8 +936,8 @@ void BinaryParseVisitor::visit(ParticleEmitter& value, u32 version) {
 
     // v23+ unknowns
     if (version >= 23) {
-        value.unknown9a7afdf2 = reader.read<u32>();
-        value.unknown87d57a7a = reader.read<i32>();
+        value.spawnRibbonOnBounceChance = reader.read<f32>();
+        value.ribbonLinkIndex = reader.read<i32>();
     }
 }
 
@@ -949,7 +953,7 @@ void BinaryParseVisitor::visit(SplineRibbon& value, u32 version) {
     value.emissionOffset = reader.read<Vector3f>();
     value.emissionVector = reader.read<Vector3f>();
     value.velocity = reader.read<AnimRef<f32>>();
-    value.unknown01 = reader.read<u32>();
+    value.reserved = reader.read<u32>();
     value.boneIndex = reader.read<u32>();
     value.velocityBaseFactor = reader.read<AnimRef<f32>>();
     value.velocityEndFactor = reader.read<AnimRef<f32>>();
@@ -964,8 +968,8 @@ void BinaryParseVisitor::visit(SplineRibbon& value, u32 version) {
     value.velocityFrequency = reader.read<AnimRef<f32>>();
     value.yaw = reader.read<AnimRef<f32>>();
     value.pitch = reader.read<AnimRef<f32>>();
-    value.unknown02 = reader.read<f32>();
-    value.unknown03 = reader.read<f32>();
+    value.emissionVectorNormFactor = reader.read<f32>();
+    value.velocityNormFactor = reader.read<f32>();
 }
 
 void BinaryParseVisitor::visit(RibbonEmitter& value, u32 version) {
@@ -981,7 +985,8 @@ void BinaryParseVisitor::visit(RibbonEmitter& value, u32 version) {
     value.initialSpeed = reader.read<AnimRef<f32>>();
     value.initialSpeedRandom = reader.read<AnimRef<f32>>();
     if (version <= 6) {
-        value.deprecated.speedRandomize = reader.read<u32>();
+        if (reader.read<u32>())
+            value.additionalFlags |= RibbonAdditionalFlag::SpeedRandomize;
     }
 
     // till v6: pitch then yaw, since v8: yaw then pitch
@@ -999,7 +1004,8 @@ void BinaryParseVisitor::visit(RibbonEmitter& value, u32 version) {
     value.lifetime = reader.read<AnimRef<f32>>();
     value.lifetimeRandom = reader.read<AnimRef<f32>>();
     if (version <= 6) {
-        value.deprecated.lifespanRandomize = reader.read<u32>();
+        if (reader.read<u32>())
+            value.additionalFlags |= RibbonAdditionalFlag::LifespanRandomize;
     }
 
     // Distance & gravity
@@ -1025,30 +1031,32 @@ void BinaryParseVisitor::visit(RibbonEmitter& value, u32 version) {
     // Curves
     value.sizeAnimation = reader.read<AnimRef<Vector3f>>();
     if (version <= 5) {
-        value.deprecated.sizeMidTimeLegacy = reader.read<f32>();
+        value.sizeMidTime = reader.read<f32>();
     }
     value.rotationAnimation = reader.read<AnimRef<Vector3f>>();
     if (version <= 5) {
-        value.deprecated.rotationMidTimeLegacy = reader.read<f32>();
+        value.rotationMidTime = reader.read<f32>();
     }
     value.colorStart = reader.read<AnimRef<ColorBGRA>>();
     value.colorMid = reader.read<AnimRef<ColorBGRA>>();
     value.colorEnd = reader.read<AnimRef<ColorBGRA>>();
     if (version <= 5) {
-        value.deprecated.colorMidTimeLegacy = reader.read<f32>();
-        value.deprecated.alphaMidTimeLegacy = reader.read<f32>();
+        value.colorMidTime = reader.read<f32>();
+        value.alphaMidTime = reader.read<f32>();
     }
 
     // Physics
     value.drag = reader.read<f32>();
     if (version <= 6) {
-        value.deprecated.massRandomize = reader.read<u32>();
+        if (reader.read<u32>())
+            value.additionalFlags |= RibbonAdditionalFlag::MassRandomize;
     }
     value.mass = reader.read<f32>();
     value.massRandom = reader.read<f32>();
     value.massSizeMultiplier = reader.read<f32>();
     if (version <= 6) {
-        value.deprecated.worldSpace = reader.read<u32>();
+        if (reader.read<u32>())
+            value.additionalFlags |= RibbonAdditionalFlag::WorldSpace;
     }
 
     // Forces
@@ -1071,7 +1079,7 @@ void BinaryParseVisitor::visit(RibbonEmitter& value, u32 version) {
 
     // Shape
     value.emitterShape = reader.read<u32>();
-    value.basedSource = reader.read<u32>();
+    value.ribbonType = reader.read<RibbonType>();
     value.divisions = reader.read<f32>();
     value.edges = reader.read<u32>();
     value.innerRadius = reader.read<f32>();
@@ -1087,8 +1095,8 @@ void BinaryParseVisitor::visit(RibbonEmitter& value, u32 version) {
     // Flags & smoothing
     value.flags = static_cast<RibbonFlag>(reader.read<u32>());
     if (version >= 8) {
-        value.sizeSmoothing = reader.read<u32>();
-        value.colorSmoothing = reader.read<u32>();
+        value.sizeSmoothing = reader.read<InterpolationMode>();
+        value.colorSmoothing = reader.read<InterpolationMode>();
     }
 
     // Collision & LOD

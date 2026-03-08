@@ -27,7 +27,7 @@ protected:
     // Write a single character
     int overflow(int ch) override {
         if (ch == traits_type::eof())
-            return traits_type::eof();
+            return traits_type::not_eof(ch);
 
         buffer_.push_back(static_cast<u8>(ch));
         return ch;

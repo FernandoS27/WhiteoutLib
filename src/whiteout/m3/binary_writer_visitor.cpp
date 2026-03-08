@@ -580,7 +580,7 @@ void BinaryWriterVisitor::visit(const SplineRibbon& ribbon, u32 version) {
     writer.write(ribbon.emissionOffset);
     writer.write(ribbon.emissionVector);
     writer.write(ribbon.velocity);
-    writer.write(ribbon.unknown01);
+    writer.write(ribbon.reserved);
     writer.write(ribbon.boneIndex);
     writer.write(ribbon.velocityBaseFactor);
     writer.write(ribbon.velocityEndFactor);
@@ -595,8 +595,8 @@ void BinaryWriterVisitor::visit(const SplineRibbon& ribbon, u32 version) {
     writer.write(ribbon.velocityFrequency);
     writer.write(ribbon.yaw);
     writer.write(ribbon.pitch);
-    writer.write(ribbon.unknown02);
-    writer.write(ribbon.unknown03);
+    writer.write(ribbon.emissionVectorNormFactor);
+    writer.write(ribbon.velocityNormFactor);
 }
 
 void BinaryWriterVisitor::visit(const LensFlare& flare, u32 version) {
@@ -742,7 +742,8 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter, u32 version) {
     writer.write(emitter.initialSpeed);
     writer.write(emitter.initialSpeedRandom);
     if (version <= 14) {
-        writer.write(emitter.deprecated.emitSpeedRandomize);
+        writer.write<u32>(
+            hasFlag(emitter.additionalFlags, ParticleAdditionalFlag::EmitSpeedRandomize) ? 1u : 0u);
     }
     writer.write(emitter.initialYaw);
     writer.write(emitter.initialPitch);
@@ -752,7 +753,8 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter, u32 version) {
     writer.write(emitter.lifetime);
     writer.write(emitter.lifetimeRandom);
     if (version <= 14) {
-        writer.write(emitter.deprecated.lifespanRandomize);
+        writer.write<u32>(
+            hasFlag(emitter.additionalFlags, ParticleAdditionalFlag::LifespanRandomize) ? 1u : 0u);
     }
 
     writer.write(emitter.killRadius);
@@ -776,23 +778,24 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter, u32 version) {
 
     writer.write(emitter.sizeAnimation);
     if (version <= 11) {
-        writer.write(emitter.deprecated.sizeMidTimeLegacy);
+        writer.write(emitter.sizeMidTime);
     }
     writer.write(emitter.rotationAnimation);
     if (version <= 11) {
-        writer.write(emitter.deprecated.rotationMidTimeLegacy);
+        writer.write(emitter.rotationMidTime);
     }
     writer.write(emitter.colorStart);
     writer.write(emitter.colorMid);
     writer.write(emitter.colorEnd);
     if (version <= 11) {
-        writer.write(emitter.deprecated.colorMidTimeLegacy);
-        writer.write(emitter.deprecated.alphaMidTimeLegacy);
+        writer.write(emitter.colorMidTime);
+        writer.write(emitter.alphaMidTime);
     }
 
     writer.write(emitter.drag);
     if (version <= 14) {
-        writer.write(emitter.deprecated.massRandomizeLegacy);
+        writer.write<u32>(
+            hasFlag(emitter.additionalFlags, ParticleAdditionalFlag::MassRandomize) ? 1u : 0u);
     }
     writer.write(emitter.mass);
     writer.write(emitter.massRandom);
@@ -800,7 +803,8 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter, u32 version) {
         writer.write(emitter.massSizeMultiplier);
     }
     if (version <= 14) {
-        writer.write(emitter.deprecated.worldSpaceLegacy);
+        writer.write<u32>(
+            hasFlag(emitter.additionalFlags, ParticleAdditionalFlag::WorldSpace) ? 1u : 0u);
     }
 
     writer.write(emitter.localForces);
@@ -816,7 +820,7 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter, u32 version) {
     writer.write(emitter.noiseCoherence);
     writer.write(emitter.noiseEdge);
     if (version <= 11) {
-        writer.write(emitter.deprecated.unknown31f2da8);
+        writer.write(emitter.deprecated.noiseSmoothness);
     }
     if (version >= 11) {
         writer.write(emitter.indexPlusLength);
@@ -912,9 +916,9 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter, u32 version) {
     }
 
     if (version >= 14) {
-        writer.write(emitter.colorSmoothing);
-        writer.write(emitter.sizeSmoothing);
-        writer.write(emitter.rotationSmoothing);
+        writer.write(static_cast<u32>(emitter.colorSmoothing));
+        writer.write(static_cast<u32>(emitter.sizeSmoothing));
+        writer.write(static_cast<u32>(emitter.rotationSmoothing));
     }
 
     if (version >= 17) {
@@ -944,8 +948,8 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter, u32 version) {
     visit(emitter.copyIndices);
 
     if (version >= 23) {
-        writer.write(emitter.unknown9a7afdf2);
-        writer.write(emitter.unknown87d57a7a);
+        writer.write(emitter.spawnRibbonOnBounceChance);
+        writer.write(emitter.ribbonLinkIndex);
     }
 }
 
@@ -967,7 +971,8 @@ void BinaryWriterVisitor::visit(const RibbonEmitter& emitter, u32 version) {
     writer.write(emitter.initialSpeed);
     writer.write(emitter.initialSpeedRandom);
     if (version <= 6) {
-        writer.write(emitter.deprecated.speedRandomize);
+        writer.write<u32>(
+            hasFlag(emitter.additionalFlags, RibbonAdditionalFlag::SpeedRandomize) ? 1u : 0u);
     }
 
     // till v6: pitch then yaw, since v8: yaw then pitch
@@ -984,7 +989,8 @@ void BinaryWriterVisitor::visit(const RibbonEmitter& emitter, u32 version) {
     writer.write(emitter.lifetime);
     writer.write(emitter.lifetimeRandom);
     if (version <= 6) {
-        writer.write(emitter.deprecated.lifespanRandomize);
+        writer.write<u32>(
+            hasFlag(emitter.additionalFlags, RibbonAdditionalFlag::LifespanRandomize) ? 1u : 0u);
     }
 
     writer.write(emitter.killRadius);
@@ -1007,29 +1013,31 @@ void BinaryWriterVisitor::visit(const RibbonEmitter& emitter, u32 version) {
 
     writer.write(emitter.sizeAnimation);
     if (version <= 5) {
-        writer.write(emitter.deprecated.sizeMidTimeLegacy);
+        writer.write(emitter.sizeMidTime);
     }
     writer.write(emitter.rotationAnimation);
     if (version <= 5) {
-        writer.write(emitter.deprecated.rotationMidTimeLegacy);
+        writer.write(emitter.rotationMidTime);
     }
     writer.write(emitter.colorStart);
     writer.write(emitter.colorMid);
     writer.write(emitter.colorEnd);
     if (version <= 5) {
-        writer.write(emitter.deprecated.colorMidTimeLegacy);
-        writer.write(emitter.deprecated.alphaMidTimeLegacy);
+        writer.write(emitter.colorMidTime);
+        writer.write(emitter.alphaMidTime);
     }
 
     writer.write(emitter.drag);
     if (version <= 6) {
-        writer.write(emitter.deprecated.massRandomize);
+        writer.write<u32>(
+            hasFlag(emitter.additionalFlags, RibbonAdditionalFlag::MassRandomize) ? 1u : 0u);
     }
     writer.write(emitter.mass);
     writer.write(emitter.massRandom);
     writer.write(emitter.massSizeMultiplier);
     if (version <= 6) {
-        writer.write(emitter.deprecated.worldSpace);
+        writer.write<u32>(
+            hasFlag(emitter.additionalFlags, RibbonAdditionalFlag::WorldSpace) ? 1u : 0u);
     }
 
     writer.write(emitter.localForces);
@@ -1049,7 +1057,7 @@ void BinaryWriterVisitor::visit(const RibbonEmitter& emitter, u32 version) {
     }
 
     writer.write(emitter.emitterShape);
-    writer.write(emitter.basedSource);
+    writer.write(static_cast<u32>(emitter.ribbonType));
     writer.write(emitter.divisions);
     writer.write(emitter.edges);
     writer.write(emitter.innerRadius);
@@ -1063,8 +1071,8 @@ void BinaryWriterVisitor::visit(const RibbonEmitter& emitter, u32 version) {
 
     writer.write(emitter.flags);
     if (version >= 8) {
-        writer.write(emitter.sizeSmoothing);
-        writer.write(emitter.colorSmoothing);
+        writer.write(static_cast<u32>(emitter.sizeSmoothing));
+        writer.write(static_cast<u32>(emitter.colorSmoothing));
     }
 
     writer.write(emitter.friction);

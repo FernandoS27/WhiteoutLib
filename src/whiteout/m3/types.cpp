@@ -81,13 +81,16 @@ void VertexBuffer::initialize() {
     // - u8 boneWeights[4] (4 bytes) at offset 12
     // - u8 boneIndices[4] (4 bytes) at offset 16
     // - i8 normal[3] (3 bytes) at offset 20
-    // - u8 pad0 (1 byte) at offset 23
-    // Total: 24 bytes
+    // - i8 sign (1 byte) at offset 23  (tangent handedness)
+    // Total base: 24 bytes
+    // Optional: color (4 bytes)
+    // UV layers: 4 bytes each (2 x i16)
+    // Trailing: tangent[3] (i8) + tangentSign (i8) = 4 bytes
 
     impl->colorOffset = 24;
     impl->uvOffset = impl->hasColor ? 28 : 24;
 
-    // Stride = 24 + (hasColor ? 4 : 0) + (numUVs * 4) + 4 (trailing padding)
+    // Stride = 24 + (hasColor ? 4 : 0) + (numUVs * 4) + 4 (tangent + tangentSign)
     impl->stride = 24 + (impl->hasColor ? 4 : 0) + (impl->numUVs * 4) + 4;
 
     // Calculate vertex count
@@ -173,9 +176,37 @@ std::vector<Vector3f> VertexBuffer::getNormals() const {
 }
 
 std::vector<Vector4f> VertexBuffer::getTangents() const {
-    // Tangents are not stored in M3 vertex buffers - they are computed
-    // Return empty vector
-    return std::vector<Vector4f>();
+    std::vector<Vector4f> tangents;
+    if (!impl || impl->count == 0) {
+        return tangents;
+    }
+
+    tangents.reserve(impl->count);
+
+    for (size_t i = 0; i < impl->count; ++i) {
+        // Tangent is stored in the last 4 bytes of each vertex:
+        // tangent[3] (i8 x,y,z) + tangentSign (i8 handedness)
+        size_t offset = i * impl->stride + (impl->stride - 4);
+
+        i8 tx = static_cast<i8>(data[offset + 0]);
+        i8 ty = static_cast<i8>(data[offset + 1]);
+        i8 tz = static_cast<i8>(data[offset + 2]);
+        i8 tw = static_cast<i8>(data[offset + 3]);
+
+        Vector4f tangent;
+        tangent.x = static_cast<f32>(tx) / 127.0f;
+        tangent.y = static_cast<f32>(ty) / 127.0f;
+        tangent.z = static_cast<f32>(tz) / 127.0f;
+        // Handedness sign: -1 or +1 (stored as i8, typically -1 (0xFF) or 0)
+        // 0xFF (-1 as i8) -> -1.0/127 ~ -0.008 -> treat as -1
+        // 0x00 (0)        -> 0.0/127 = 0       -> treat as +1
+        // The engine reads these as UNORM and remaps, but for simplicity:
+        tangent.w = (tw < 0) ? -1.0f : 1.0f;
+
+        tangents.push_back(tangent);
+    }
+
+    return tangents;
 }
 
 std::vector<Vector2f> VertexBuffer::getUVs(size_t which) const {
@@ -201,6 +232,36 @@ std::vector<Vector2f> VertexBuffer::getUVs(size_t which) const {
         Vector2f uv;
         uv.x = static_cast<f32>(u) / 2048.0f;
         uv.y = static_cast<f32>(v) / 2048.0f;
+
+        uvs.push_back(uv);
+    }
+
+    return uvs;
+}
+
+std::vector<Vector2f> VertexBuffer::getUVs(size_t which, f32 uvMultiply, f32 uvOffset) const {
+    std::vector<Vector2f> uvs;
+    if (!impl || impl->count == 0 || which >= impl->numUVs) {
+        return uvs;
+    }
+
+    uvs.reserve(impl->count);
+
+    // UV data starts at uvOffset, each UV layer is 4 bytes (2 x i16)
+    size_t uvLayerOffset = impl->uvOffset + (which * 4);
+
+    for (size_t i = 0; i < impl->count; ++i) {
+        size_t offset = i * impl->stride + uvLayerOffset;
+
+        // Read as signed 16-bit integers
+        i16 u, v;
+        std::memcpy(&u, &data[offset + 0], sizeof(i16));
+        std::memcpy(&v, &data[offset + 2], sizeof(i16));
+
+        // REGN v5+: float_uv = i16_uv * uvMultiply + uvOffset
+        Vector2f uv;
+        uv.x = static_cast<f32>(u) * uvMultiply + uvOffset;
+        uv.y = static_cast<f32>(v) * uvMultiply + uvOffset;
 
         uvs.push_back(uv);
     }

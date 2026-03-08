@@ -528,7 +528,9 @@ struct SEQS {
     u32             replayStart;            // Replay start (default 1)
     u32             replayEnd;              // Replay end (default 1)
     u32             blendTime;              // Blend time in ms (default 100)
-    u32             unknown05;              // v1 only (v2 omits this)
+    if (version <= 1) {
+        u32         unknown05;              // v1 only (v2 omits this)
+    }
     Extent          bounds;                 // Bounding volume
     Ref<U8__>       animationSets;
 };
@@ -815,20 +817,34 @@ by `MODL.vertexFlags`:
 // Bit 30: Has UV layer 5
 
 struct Vertex {
-    Vector3f    position;
-    u8          boneWeights[4]; // normalized u8[4]
-    u8          boneIndices[4]; // u8[4]
-    i8          normal[3];      // signed, divide by 127.0
-    u8          pad0;
-    ColorBGRA   vertexColor;    // only if bit 10 set
+    Vector3f    position;       // 12 bytes at offset 0
+    u8          boneWeights[4]; // normalized u8[4] at offset 12 (divide by 255.0)
+    u8          boneIndices[4]; // u8[4] at offset 16
+    i8          normal[3];      // signed at offset 20 (divide by 127.0)
+    i8          sign;           // tangent-space handedness at offset 23 (see note)
+    ColorBGRA   vertexColor;    // only if bit 10 set (4 bytes)
     i16         uv[N][2];       //  4×N bytes (N = number of UV sets)
-    u8          pad1[4];        // trailing padding
+    i8          tangent[3];     // tangent vector (divide by 127.0, see note)
+    i8          tangentSign;    // tangent-space handedness (duplicate of sign)
 };
 // Total = 24 + (hasColor ? 4 : 0) + (numUVs × 4) + 4
 ```
 
-UV coordinates are stored as `int16`. Use the REGN chunk's `uvMultiply` and `uvOffset`
-fields (v5) or divide by 2048 (earlier versions) to convert to float UVs.
+> **Tangent handedness**: The `sign` byte at offset 23 and the `tangentSign` at the end
+> of each vertex encode the tangent-space handedness. The GPU vertex format determines
+> interpretation: with `R8G8B8A8_SNORM`, values map to ≈-1.0 or ≈+1.0; with
+> `R8G8B8A8_UNORM`, `0x00`→0.0 and `0xFF`→1.0 (remapped to -1/+1 by shader logic).
+> The engine computes `binormal = cross(normal, tangent) * sign`.
+>
+> **Tangent vector**: The last 4 bytes of each vertex are the tangent vector (3 signed
+> bytes) plus a redundant handedness sign byte. Present when `MODL.flags & 0x1`
+> (tangents computed) is set. Tangent vectors are not guaranteed to be perpendicular
+> to normals — they represent the UV-gradient direction. The binormal is derived via
+> cross product at runtime.
+
+UV coordinates are stored as `int16`. For REGN v5+, use the region's `uvMultiply` and
+`uvOffset` fields: `float_uv = i16_uv * uvMultiply + uvOffset`. For earlier REGN
+versions, divide by 2048.0: `float_uv = i16_uv / 2048.0`.
 
 ### 9.3 DIV_ — Mesh Divisions
 
@@ -983,8 +999,10 @@ struct ATT {
            // boneWeights: 4 × u8 at offset 12 (divide by 255.0)
            // boneIndices: 4 × u8 at offset 16
            // normal: 3 × i8 at offset 20 (divide by 127.0)
+           // sign: i8 at offset 23 (tangent handedness)
            // vertexColor (if present): 4 bytes at offset 24
            // UVs: i16 pairs starting at offset 24 or 28
+           // tangent: 3 × i8 + 1 × i8 sign at end of vertex
        }
        for (u32 i = 0; i < region.indexCount; i += 3) {
            u16 i0 = indexBuffer[region.firstIndex + i + 0];
@@ -1052,10 +1070,11 @@ struct MATM {
 | 5 | Volume | VOL_ |
 | 6 | Volume Noise | VON_ |
 | 7 | Creep | CREP |
-| 8 | STB | STBM |
-| 9 | Reflection | REF_ |
-| 10 | Lens Flare | LFLR |
-| 11 | Material Add Data | MADD |
+| 8 | _(unused / not observed)_ | — |
+| 9 | Splat Terrain Bake | STBM |
+| 10 | Reflection | REF_ |
+| 11 | Lens Flare | LFLR |
+| 12 | Buffer Material | MADD |
 
 ### 11.2 MAT_ — Standard Material
 
@@ -1164,22 +1183,69 @@ struct MAT {
 
 **Layer Indices** (v19/v20, 18 layers):
 
-| Index | Layer | Common Texture |
-|-------|-------|----------------|
-| 0 | Diffuse | `*_Diff.dds` |
-| 1 | Decal | |
-| 2 | Specular | `*_Spec.dds` |
-| 3 | Gloss | (v15 skips this) |
-| 4 | Emissive | `*_Emis.dds` |
-| 5 | Emissive 2 | |
-| 6 | Environment | |
-| 7 | Environment Mask | |
-| 8 | Alpha | |
-| 9 | Alpha 2 | |
-| 10 | Normal | `*_Norm.dds` |
-| 11 | Height | |
-| 12 | Light Map | (v19+) |
-| 13–17 | Additional layers | (v19+) |
+| Index | Layer | Shader Name | Common Texture |
+|-------|-------|-------------|----------------|
+| 0 | Diffuse | Diffuse | `*_Diff.dds` |
+| 1 | Decal | Decal | |
+| 2 | Specular | Specular | `*_Spec.dds` |
+| 3 | Gloss | SpecularExponent | (v15 skips this) |
+| 4 | Emissive | Emissive | `*_Emis.dds` |
+| 5 | Emissive 2 | Emissive2 | |
+| 6 | Environment | Envio | |
+| 7 | Environment Mask | EnvioMask | |
+| 8 | Alpha | AlphaMask | |
+| 9 | Alpha 2 | AlphaMask2 | |
+| 10 | Normal | Normal | `*_Norm.dds` |
+| 11 | Height | Heightmap | |
+| 12 | Light Map | LightMap | (v19+) |
+| 13 | Ambient Occlusion | AO | (v19+) |
+| 14 | Normal Blend 1 Mask | NormalBlendMask | (v19+) |
+| 15 | Normal Blend 2 Mask | NormalBlendMask2 | (v19+) |
+| 16 | Normal Blend 1 | NormalBlendNormal | (v19+) |
+| 17 | Normal Blend 2 | NormalBlendNormal2 | (v19+) |
+
+> **Note**: The "Shader Name" column shows the token used in HLSL shaders (e.g.,
+> `PSMaterialLayer_Envio`). "Envio" (Environment) and "EnvioMask" layers support
+> cubemap textures via `texCUBE()` sampling in addition to standard 2D textures.
+
+**BlendMode** (`blendMode` field):
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0 | Opaque | Fully opaque rendering |
+| 1 | AlphaBlend | Standard alpha blending |
+| 2 | Add | Additive blending |
+| 3 | AlphaAdd | Alpha-modulated additive |
+| 4 | Mod | Multiplicative blending |
+| 5 | Mod2x | Double multiplicative |
+
+**MaterialClass** (`materialClass` field):
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0 | Unit | Unit material (characters, heroes) |
+| 1 | Building | Building/structure material |
+| 2 | Doodad | Doodad/prop material |
+| 3 | SpecialFX | Special effect material |
+
+**LayerBlendOp** (`layerBlendMode`, `emissiveBlendMode1`, `emissiveBlendMode2` fields):
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0 | Mod | Multiply: `base * layer` |
+| 1 | Mod2x | Double multiply: `base * layer * 2` |
+| 2 | Add | Add: `base + layer` |
+| 3 | Lerp | Linear interpolate by layer alpha |
+| 4 | TeamColorEmissiveAdd | Team color emissive add |
+| 5 | TeamColorDiffuseAdd | Team color diffuse add |
+| 6 | AddNoAlpha | Add ignoring alpha channel |
+
+**SpecularMode** (`specularMode` field):
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0 | RGB | Use RGB channels for specularity |
+| 1 | AlphaOnly | Use alpha channel only for specularity |
 
 ### 11.3 LAYR — Texture Layer
 
@@ -1254,6 +1320,49 @@ struct LAYR {
 | 0x4000 | fresnelTransform | Fresnel-based UV transform |
 | 0x8000 | fresnelNormalize | Normalize fresnel values |
 
+**UVMapping** (`uvMapping` field):
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0 | ExplicitUV0 | Use UV coordinate set 0 |
+| 1 | ExplicitUV1 | Use UV coordinate set 1 |
+| 2 | ReflectCubicEnvio | Cubic environment reflection mapping |
+| 3 | ReflectSphericalEnvio | Spherical environment reflection mapping |
+| 4 | PlanarLocalZ | Planar local UVs (Z plane) |
+| 5 | PlanarWorldZ | Planar world UVs (Z plane) |
+| 6 | ParticleFlipbook | Particle flipbook UVs |
+| 7 | CubicEnvio | Cubic environment mapping |
+| 8 | SphericalEnvio | Spherical environment mapping |
+| 9 | ExplicitUV2 | Use UV coordinate set 2 |
+| 10 | ExplicitUV3 | Use UV coordinate set 3 |
+| 11 | PlanarLocalX | Planar local UVs (X plane) |
+| 12 | PlanarLocalY | Planar local UVs (Y plane) |
+| 13 | PlanarWorldX | Planar world UVs (X plane) |
+| 14 | PlanarWorldY | Planar world UVs (Y plane) |
+| 15 | ScreenSpace | Screen-space UVs |
+| 16 | TriPlanarLocal | Tri-planar blending (local space) |
+| 17 | TriPlanarWorld | Tri-planar blending (world space) |
+| 18 | TriPlanarWorldLocalZ | Tri-planar world with local Z |
+
+**ColorChannelSelect** (`colorType` field):
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0 | RGB | Use RGB channels (alpha set to 1) |
+| 1 | RGBA | Use all RGBA channels |
+| 2 | Alpha | Use alpha channel only (splat to all) |
+| 3 | Red | Use red channel only (splat to all) |
+| 4 | Green | Use green channel only (splat to all) |
+| 5 | Blue | Use blue channel only (splat to all) |
+
+**FresnelMode** (`fresnelMode` field):
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0 | None | No fresnel effect |
+| 1 | Standard | Standard fresnel (edge glow) |
+| 2 | Inverted | Inverted fresnel (center glow) |
+
 ### 11.4 DIS_ — Displacement Material
 
 **Tag**: `DIS_` | **Version**: v4 = 68 bytes
@@ -1269,6 +1378,10 @@ struct DIS {
     u32             priority;
 };
 ```
+
+> **Note**: The `normalMap` layer provides the displacement direction normal, and
+> `strengthMap` controls the displacement magnitude. Despite the field names, these
+> are displacement-specific layers — not the same as the standard material normal map.
 
 ### 11.5 CMP_ — Composite Material
 
@@ -1320,6 +1433,17 @@ struct VOL {
 };
 ```
 
+> **Note**: VOL_ and VON_ both use `SHADINGMODE_VOLUME` (shading mode 4) in the
+> engine shader system. They are distinguished by a secondary toggle:
+> `VOLUME_TYPE_UNIFORM` = 0 (VOL_) vs `VOLUME_TYPE_NOISY` = 1 (VON_).
+
+**Volume Falloff Type** (`falloffType` field):
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0 | Linear | Linear density falloff |
+| 1 | Exponential | Exponential density falloff |
+
 ### 11.8 VON_ — Volume Noise Material
 
 **Tag**: `VON_` | **Version**: v0 = 268 bytes
@@ -1343,6 +1467,26 @@ struct VON {
     Flag            flags;
 };
 ```
+
+**Volume Falloff Type** (`falloffType` field — same enum as VOL_):
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0 | Linear | Linear density falloff |
+| 1 | Exponential | Exponential density falloff |
+
+**Camera Position Mode** (`drawTransparency` field):
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0 | Outside | Camera is outside the volume |
+| 1 | Inside | Camera is inside the volume |
+
+**VON_ Flags** (`flags` field):
+
+| Mask | Name | Description |
+|------|------|-------------|
+| 0x1 | DrawAfterTransparency | Draw in a separate pass after transparency |
 
 ### 11.9 CREP — Creep Material
 
@@ -1396,6 +1540,16 @@ struct REF {
 };
 ```
 
+**REF_ Flags** (`flags` field):
+
+| Mask | Name | Description |
+|------|------|-------------|
+| 0x1 | UseReflectionMap | Enable the reflection map layer |
+| 0x2 | UseDisplacementMap | Enable the displacement map layer |
+| 0x4 | RenderInTransparentPass | Render in the transparent pass |
+| 0x8 | Blurring | Enable blurring effect |
+| 0x10 | UseBlurMap | Enable the blur map layer (v2+) |
+
 ### 11.12 LFLR — Lens Flare Material
 
 **Tag**: `LFLR` | **Versions**: v2=80, v3=152 bytes
@@ -1434,7 +1588,11 @@ struct SubFlare {
 };
 ```
 
-### 11.13 MADD — Material Additional Data
+> **Note**: The lens flare shader has two modes controlled by whether a `maskMap` is
+> present. Mode 0 (no mask): uses only the `flareMap` atlas. Mode 1 (with mask):
+> multiplies the atlas color by a "dirty lens" mask texture.
+
+### 11.13 MADD — Buffer Material
 
 **Tag**: `MADD` | **Versions**: v1=140, v2=152, v3=160 bytes
 
@@ -1445,7 +1603,8 @@ struct SubFlare {
 > accurate as parsed from the corpus; only the semantic interpretation of the
 > individual fields is speculative.
 
-Extended material parameters referenced from MODL.materialAddData (v30+).
+Buffer material referenced via MATM materialType=12.  Also stored in
+MODL.materialAddData (v30+).
 
 **Version layout**:
 - **v1** (140 bytes): 8 references (4 active + 4 reserved) + data fields at offset 96
@@ -1592,7 +1751,7 @@ struct PAR {
     f32                 noiseCoherence;
     f32                 noiseEdge;
     if (version <= 11) {
-        f32             unknown31f2da8;
+        f32             noiseSmoothness;
     }
     if (version >= 11) {
         u32             indexPlusLength;
@@ -1696,10 +1855,10 @@ struct PAR {
     }
 
     if (version >= 14) {
-        // Smoothing
-        u32             colorSmoothing;
-        u32             sizeSmoothing;
-        u32             rotationSmoothing;
+        // Smoothing (InterpolationMode enum, see below)
+        InterpolationMode colorSmoothing;
+        InterpolationMode sizeSmoothing;
+        InterpolationMode rotationSmoothing;
     }
 
     if (version >= 17) {
@@ -1726,9 +1885,8 @@ struct PAR {
     Ref<U32_>           copyIndices;
 
     if (version >= 23) {
-        // Unknown tail fields
-        u32             unknown9a7afdf2;
-        i32             unknown87d57a7a;
+        f32             spawnRibbonOnBounceChance;
+        i32             ribbonLinkIndex;            // index into RIB_ (-1 = none)
     }
 };
 ```
@@ -1746,15 +1904,21 @@ struct PAR {
 | 6 | Mesh |
 | 7 | Spline |
 
-**Particle Instance Type Enum**:
+**Particle Instance Type Enum** (maps 1:1 to `b_iInstanceType` in `Particle.fx`):
 
-| Value | Type |
-|-------|------|
-| 0 | Particle |
-| 1 | Particle2 |
-| 2 | Tail |
-| 3 | Head-and-Tail |
-| 4 | Model |
+| Value | Name | Description |
+|-------|------|-------------|
+| 0 | Billboard | Camera-facing billboard quad |
+| 1 | Tail | Velocity-stretched quad; length from `tailLength` |
+| 2 | FaceTravelDir | Quad oriented along instantaneous velocity |
+| 3 | FaceWorldDir | Quad oriented along a fixed world direction |
+| 4 | SingleAxis | Billboard locked to a single rotation axis |
+| 5 | TerrainOriented | Quad projected onto terrain normal |
+| 6 | TerrainDirOriented | Terrain-oriented + velocity-stretched |
+| 7 | EmitterOriented | Quad uses the emitter bone's orientation |
+| 8 | PhysicsOriented | Quad oriented by physics simulation |
+| 9 | Pinned | Stretch between spawn origin and current position |
+| 10 | Trail | Like Tail but offset by one tail-length |
 
 **LOD Enum**:
 
@@ -1814,6 +1978,17 @@ struct PAR {
 |------|------|-------------|
 | 0x2 | Relative | Relative rotation |
 | 0x4 | AlwaysSet | Always set |
+
+**Interpolation Mode Enum** (shared by `colorSmoothing`, `sizeSmoothing`,
+`rotationSmoothing` in PAR_ v14+ and RIB_ v8+; maps to `RibbonParticleCommon.fx`):
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0 | Linear | Linear interpolation between keyframes |
+| 1 | LinearSmooth | Linear interpolation with smoothed transitions |
+| 2 | Bezier | Bezier curve interpolation |
+| 3 | LinearWithHold | Linear interpolation with hold at keyframes |
+| 4 | BezierWithHold | Bezier curve interpolation with hold at keyframes |
 
 ### 12.2 PARC — Particle Emitter Copy
 
@@ -1935,7 +2110,7 @@ struct RIB {
 
     // Shape
     u32                 emitterShape;
-    u32                 basedSource;
+    RibbonType          ribbonType;         // RibbonType enum (see below)
     f32                 divisions;
     u32                 edges;
     f32                 innerRadius;
@@ -1951,8 +2126,8 @@ struct RIB {
     // Flags
     Flag                flags;
     if (version >= 8) {
-        u32             sizeSmoothing;
-        u32             colorSmoothing;
+        InterpolationMode sizeSmoothing;    // InterpolationMode enum
+        InterpolationMode colorSmoothing;   // InterpolationMode enum
     }
 
     // Collision and LOD
@@ -2015,13 +2190,22 @@ struct RIB {
 | 0x4 | massRandomize | Randomize mass |
 | 0x8 | worldSpace | World-space coordinates |
 
+**Ribbon Type Enum** (`ribbonType` field; maps to `b_iRibbonType` in `Ribbon.fx`):
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0 | Billboard | Camera-facing ribbon strip |
+| 1 | Planar | Flat/planar ribbon |
+| 2 | Cylinder | Cylindrical cross-section |
+| 3 | Star | Star-shaped cross-section |
+
 **Spline Ribbon** (SRIB, 272 bytes):
 ```cpp
 struct SplineRibbon {
     Vector3f        emissionOffset;
     Vector3f        emissionVector;
     AnimRef<f32>    velocity;
-    u32             unknownEee1a711;
+    u32             reserved;             // always 0 (padding/reserved)
     u32             boneIndex;
     AnimRef<f32>    velocityBaseFactor;
     AnimRef<f32>    velocityEndFactor;
@@ -2036,8 +2220,8 @@ struct SplineRibbon {
     AnimRef<f32>    velocityFrequency;
     AnimRef<f32>    yaw;
     AnimRef<f32>    pitch;
-    f32             unknown02;
-    f32             unknown03;
+    f32             emissionVectorNormFactor; // precomputed ≈ 0.01/|emissionVector|
+    f32             velocityNormFactor;      // precomputed ≈ 0.01/velocity.initValue
 };
 ```
 
@@ -2049,33 +2233,54 @@ Projected textures / decals. Contains no `Ref<T>` fields.
 
 ```cpp
 struct PROJ {
-    u32             projectionType;
+    u32             projectionType;         // ProjectionType enum (see below)
     u32             boneIndex;
-    u32             materialIndex;
-    u8              unknown[96];
+    u32             materialReferenceIndex;
+    AnimRef<Vector3f> offset;               // 36 bytes — animated 3D offset
+    AnimRef<f32>    pitch;                  // animated pitch angle
+    AnimRef<f32>    yaw;                    // animated yaw angle
+    AnimRef<f32>    roll;                   // animated roll angle
     AnimRef<f32>    fieldOfView;
     AnimRef<f32>    aspectRatio;
-    AnimRef<f32>    nearClip;
-    AnimRef<f32>    farClip;
-    AnimRef<f32>    minusZ;
-    AnimRef<f32>    plusZ;
-    AnimRef<f32>    minusX;
-    AnimRef<f32>    plusX;
-    AnimRef<f32>    minusY;
-    AnimRef<f32>    plusY;
-    u32             unknown2;
-    Vector3f        alphaPlay;
-    Vector2f        attack;
-    Vector2f        hold;
-    Vector2f        decay;
-    f32             splatAttenuation;
-    AnimRef<u32>    alive;
+    AnimRef<f32>    near;                   // near clip distance
+    AnimRef<f32>    far;                    // far clip distance
+    AnimRef<f32>    boxOffsetZBottom;       // box projection -Z
+    AnimRef<f32>    boxOffsetZTop;          // box projection +Z
+    AnimRef<f32>    boxOffsetXLeft;         // box projection -X
+    AnimRef<f32>    boxOffsetXRight;        // box projection +X
+    AnimRef<f32>    boxOffsetYFront;        // box projection -Y
+    AnimRef<f32>    boxOffsetYBack;         // box projection +Y
+    f32             falloff;
+    f32             alphaInit;              // alpha at start
+    f32             alphaMid;               // alpha at midpoint
+    f32             alphaEnd;               // alpha at end
+    f32             lifetimeAttack;         // fade-in start
+    f32             lifetimeAttackTo;       // fade-in end
+    f32             lifetimeHold;           // hold start
+    f32             lifetimeHoldTo;         // hold end
+    f32             lifetimeDecay;          // fade-out start
+    f32             lifetimeDecayTo;        // fade-out end
+    f32             attenuationDistance;    // distance attenuation
+    AnimRef<u32>    active;                 // alive/active toggle
     u32             layer;
     u32             lodReduce;
     u32             lodCut;
-    u32             staticPosition;
+    Flag            flags;                  // ProjectorFlag bitfield (see below)
 };
 ```
+
+**Projection Type Enum** (`projectionType` field):
+
+| Value | Name |
+|-------|------|
+| 0 | Orthographic |
+| 1 | Perspective |
+
+**Projector Flags** (`flags` field):
+
+| Mask | Name | Description |
+|------|------|-------------|
+| 0x1 | static | Static position |
 
 ---
 
@@ -2916,7 +3121,7 @@ only.
 | | 0x13 | 1464 | |
 | | 0x15 | 1464 | |
 | | 0x16 | 1484 | +phaseShift |
-| | 0x17 | 1492 | +unknown9a7afdf2, unknown87d57a7a |
+| | 0x17 | 1492 | +spawnRibbonOnBounceChance, ribbonLinkIndex |
 | | 0x18 | 1496 | +worldForcesMassMultiplier |
 | **PARC** | 0x00 | 40 | No refs |
 | **RIB_** | 0x04 | 744 **†** | **(β)** 1 ref; beta ribbon |
@@ -3796,19 +4001,19 @@ are useful companion reading.
 
 #### F.1.1 Runtime data model
 
-A minimal C++17 runtime particle representation needs roughly:
+A minimal runtime particle representation needs roughly:
 
-```cpp
+```slang
 struct LiveParticle {
-    Vector3f  position;
-    Vector3f  velocity;
-    f32       age;          // seconds since spawn
-    f32       maxAge;       // resolved from lifetime + lifetimeRandom
-    f32       mass;         // resolved from mass ± massRandom
-    Vector3f  size;         // current interpolated size
-    Vector3f  rotation;     // current interpolated rotation (degrees)
-    ColorBGRA color;        // current interpolated BGRA
-    u16       flipFrame;    // current flipbook frame index
+    float3   position;
+    float3   velocity;
+    float    age;          // seconds since spawn
+    float    maxAge;       // resolved from lifetime + lifetimeRandom
+    float    mass;         // resolved from mass ± massRandom
+    float3   size;         // current interpolated size
+    float3   rotation;     // current interpolated rotation (degrees)
+    float4   color;        // current interpolated BGRA (unorm)
+    uint     flipFrame;    // current flipbook frame index
 };
 ```
 
@@ -3855,15 +4060,15 @@ The relevant fields are:
 
 For each new particle you must generate initial conditions:
 
-```cpp
-// Pseudocode per spawn
-f32 speed    = resolve(initialSpeed) + rand_pm(resolve(initialSpeedRandom));
-f32 yaw      = resolve(initialYaw);
-f32 pitch    = resolve(initialPitch);
-f32 hSpread  = resolve(initialHorizontal);
-f32 vSpread  = resolve(initialVertical);
-f32 life     = resolve(lifetime) + rand_pm(resolve(lifetimeRandom));
-f32 pmass    = mass + rand_pm(massRandom);
+```slang
+// Per spawn
+float speed    = resolve(initialSpeed) + randPm(resolve(initialSpeedRandom));
+float yaw      = resolve(initialYaw);
+float pitch    = resolve(initialPitch);
+float hSpread  = resolve(initialHorizontal);
+float vSpread  = resolve(initialVertical);
+float life     = resolve(lifetime) + randPm(resolve(lifetimeRandom));
+float pmass    = mass + randPm(massRandom);
 ```
 
 Whether the random channels are actually active depends on the enable bits. In
@@ -3883,37 +4088,170 @@ Your renderer must evaluate these curves every frame.
 
 **Color and alpha.** `colorStart`, `colorMid`, `colorEnd` are `AnimRef<ColorBGRA>`
 values (resolve them for the current animation state to get the base curve
-endpoints). Interpolate between them using `colorMidTime` and `colorMidHoldTime`:
+endpoints). Interpolate between them using `colorMidTime` and `colorMidHoldTime`.
 
-```cpp
-// Simplified — ignoring smoothing for clarity
-ColorBGRA evalColor(f32 t, ColorBGRA start, ColorBGRA mid, ColorBGRA end,
-                    f32 midTime, f32 holdTime) {
-    f32 holdEnd = midTime + holdTime;
-    if (t <= midTime)
-        return lerp(start, mid, t / midTime);
-    else if (t <= holdEnd)
-        return mid;
-    else
-        return lerp(mid, end, (t - holdEnd) / (1.0f - holdEnd));
+The original engine shader (`RibbonParticleCommon.fx`) defines five interpolation
+modes that apply to all per-particle curves.  Translated to Slang:
+
+```slang
+// Interpolation mode enum — matches the engine's b_iParticleColorInterpolation values
+static const int INTERPOLATION_LINEAR             = 0;  // e_imLinear
+static const int INTERPOLATION_LINEAR_SMOOTH      = 1;  // e_imLinearSmooth
+static const int INTERPOLATION_BEZIER             = 2;  // e_imBezier
+static const int INTERPOLATION_LINEAR_WITH_HOLD   = 3;  // e_imLinearWithHold
+static const int INTERPOLATION_BEZIER_WITH_HOLD   = 4;  // e_imBezierWithHold
+
+// Quadratic Bezier helper  (from Common.fx)
+float bezierInterpolation(float v0, float v1, float v2, float t) {
+    float invT = 1.0 - t;
+    return invT * invT * v0 + 2.0 * t * invT * v1 + t * t * v2;
+}
+
+// Hermite smoothstep helper  (from Common.fx)
+float smoothStep(float x) {
+    return x * x * (3.0 - 2.0 * x);
+}
+
+// General-purpose 3-key interpolation — scalar overload
+float interpolateValue(
+    float age,
+    float value0, float value1, float value2,
+    float midTime, float inversedMidTime, float midTimeHold,
+    int   interpolation
+) {
+    float ret = value0;
+
+    if (interpolation == INTERPOLATION_BEZIER) {
+        ret = bezierInterpolation(value0, value1, value2, age);
+    } else if (interpolation == INTERPOLATION_LINEAR) {
+        if (age < midTime) {
+            float t = age * inversedMidTime;
+            ret = lerp(value0, value1, t);
+        } else {
+            float t = (age - midTime) / (1.0 - midTime);
+            ret = lerp(value1, value2, t);
+        }
+    } else if (interpolation == INTERPOLATION_LINEAR_SMOOTH) {
+        if (age < midTime) {
+            float t = smoothStep(age * inversedMidTime);
+            ret = lerp(value0, value1, t);
+        } else {
+            float t = smoothStep((age - midTime) / (1.0 - midTime));
+            ret = lerp(value1, value2, t);
+        }
+    } else if (interpolation == INTERPOLATION_LINEAR_WITH_HOLD) {
+        float t0 = midTime - midTimeHold;
+        float t1 = midTime + midTimeHold;
+        if (age < t0)        ret = lerp(value0, value1, age / t0);
+        else if (age < t1)   ret = value1;
+        else                 ret = lerp(value1, value2, (age - t1) / (1.0 - t1));
+    } else if (interpolation == INTERPOLATION_BEZIER_WITH_HOLD) {
+        float t0 = midTime - midTimeHold;
+        float t1 = midTime + midTimeHold;
+        float a  = age;
+        float v0 = value0, v2Out = value2;
+        if (a < t0)   { a = a / t0;                       v2Out = value1; }
+        else          { a = (a - t1) / (1.0 - t1);        v0 = value1;    }
+        a = saturate(a);
+        ret = bezierInterpolation(v0, value1, v2Out, a);
+    }
+    return ret;
 }
 ```
+
+The `float3` overload is **not** identical to the scalar version for
+`INTERPOLATION_BEZIER_WITH_HOLD`. The scalar version replaces either `value0` or
+`value2` with `value1` and evaluates a single two-piece quadratic Bezier with no
+explicit hold region. The `float3` overload instead uses a three-piece evaluation
+with an explicit hold region `[t0, t1]` where ``ret = value1``, and shifts the
+Bezier mid-control points with `lerp(value0, value1, midTimeHold)` and
+`lerp(value1, value2, midTimeHold)` respectively:
+
+```slang
+// float3 overload — BEZIER_WITH_HOLD only (from RibbonParticleCommon.fx)
+float t0 = midTime - midTimeHold;
+float t1 = midTime + midTimeHold;
+if (age < t0) {
+    ret = bezierInterpolation(value0, lerp(value0, value1, midTimeHold), value1, age / t0);
+} else if (age < t1) {
+    ret = value1;
+} else {
+    ret = bezierInterpolation(value1, lerp(value1, value2, midTimeHold), value2,
+                              (age - t1) / (1.0 - t1));
+}
+```
+
+All other modes (Linear, LinearSmooth, Bezier, LinearWithHold) are identical
+between the scalar and `float3` overloads.
+Use `interpolateValue` for every per-particle curve (color, alpha, size, rotation).
 
 Alpha is **not** stored as a separate channel — it is the `.a` byte of the BGRA
 color. The chunk does carry its own `alphaMidTime` and `alphaMidHoldTime`, so you
 should interpolate the alpha component on its own timeline. `colorSmoothing`
-selects the curve interpolation mode (see `Appendix_ParticleKeyInterpolation`);
-when non-zero, use Hermite/Bezier rather than linear.
+selects one of the five interpolation modes (0–4) listed above.
+**Note:** in the particle vertex shader, the same specialization constant
+`b_iParticleColorInterpolation` is used for both color RGB and alpha — they share
+a single mode selector, not independent ones.
 
 **Size.** `sizeAnimation` is an `AnimRef<Vector3f>` — the three components are
 {start, mid, end} packed into one vector. Evaluate the same
 Start → Mid → End ramp using `sizeMidTime` / `sizeMidHoldTime` /
 `sizeSmoothing`.
 
+The vertex shader decompresses size the same way as the other curves:
+
+```slang
+// vInputSize was decompressed from the vertex: vertIn.vSize * (1.0 / 256.0)
+float sizeNow = interpolateValue(
+    normalizedAge,
+    vInputSize.x, vInputSize.y, vInputSize.z,
+    midKeyTimes[batchIdx].x,
+    inversedMidKeyTimes[batchIdx].x,
+    midKeyHoldTimes[batchIdx].x,
+    particleSizeInterpolation   // b_iParticleSizeInterpolation
+);
+```
+
 **Rotation.** Same pattern as size — `rotationAnimation` is
 `AnimRef<Vector3f>` {start, mid, end}. Use `rotationMidTime` /
 `rotationMidHoldTime` / `rotationSmoothing`. If `rotationFlags & Relative` is
 set, mid and end values are offsets from start rather than absolute.
+
+The rotation value is used to build an axis-angle matrix in the vertex shader:
+
+```slang
+// Axis-angle rotation around an arbitrary axis  (from VSUtils.fx)
+float3x3 makeRotation(float angle, float3 axis) {
+    float s, c;
+    sincos(angle, s, c);
+    float oneC = 1.0 - c;
+    float3x3 m;
+    m[0][0] = oneC * axis.x * axis.x + c;
+    m[1][1] = oneC * axis.y * axis.y + c;
+    m[2][2] = oneC * axis.z * axis.z + c;
+    float xy = axis.x * axis.y;
+    float zs = axis.z * s;
+    m[1][0] = oneC * xy + zs;    m[0][1] = oneC * xy - zs;
+    float zx = axis.z * axis.x;
+    float ys = axis.y * s;
+    m[2][0] = oneC * zx - ys;    m[0][2] = oneC * zx + ys;
+    float yz = axis.y * axis.z;
+    float xs = axis.x * s;
+    m[2][1] = oneC * yz + xs;    m[1][2] = oneC * yz - xs;
+    return m;
+}
+
+float generateRotation(float age, float3 vRotation, int batchIdx) {
+    return interpolateValue(
+        age,
+        vRotation.x, vRotation.y, vRotation.z,
+        midKeyTimes[batchIdx].w,
+        inversedMidKeyTimes[batchIdx].w,
+        midKeyHoldTimes[batchIdx].w,
+        particleRotationInterpolation  // b_iParticleRotationInterpolation
+    );
+}
+```
 
 **Randomization.** When `sizeRandomEnable`, `rotationRandomEnable`, or
 `colorRandomEnable` are non-zero, the corresponding random companion channel
@@ -3936,28 +4274,78 @@ is displayed:
 
 When `flags & RandomFlipbookStart` is set, pick the initial frame randomly
 within the start range instead of always starting at `flipbookStartInitIndex`.
-Compute UVs as:
+The vertex shader (`Particle.fx`) resolves the flipbook cell like this:
 
-```cpp
-u32 col = frame % flipbookColumns;
-u32 row = frame / flipbookColumns;
-f32 u0 = (col + flipbookColumnFraction) / flipbookColumns;
-f32 v0 = (row + flipbookRowFraction)    / flipbookRows;
+```slang
+// Inside EmitParticleUV — UVMAP_PARTICLE_FLIPBOOK path
+int cell;
+if (sizeAndAge.w <= flipbookMidKeyTime[batchIdx]) {
+    float range  = flipbookFrames[batchIdx].y - flipbookFrames[batchIdx].x;
+    float offset = range * (sizeAndAge.w / flipbookMidKeyTime[batchIdx]);
+    cell = int(flipbookFrames[batchIdx].x + floor(offset + 0.5));
+} else {
+    float range  = flipbookFrames[batchIdx].z - flipbookFrames[batchIdx].y;
+    float offset = range * ((sizeAndAge.w - flipbookMidKeyTime[batchIdx])
+                            / (1.0 - flipbookMidKeyTime[batchIdx]));
+    cell = int(flipbookFrames[batchIdx].y + floor(offset + 0.5));
+}
+if (randomFlipBookStart)
+    cell += int(floor(noiseVector.w));
+
+int cellX = cell % int(flipbookColumnCount[batchIdx]);
+int cellY = cell / int(flipbookColumnCount[batchIdx]);
+float2 uvOffset = float2(
+    float(cellX) * flipbookCellSize[batchIdx].x,
+    float(cellY) * flipbookCellSize[batchIdx].y
+);
+float2 uv = baseUV * flipbookCellSize[batchIdx] + uvOffset;
 ```
 
 #### F.1.6 Physics update
 
 Each simulation tick, integrate the standard Newtonian update for every live
-particle:
+particle. The engine (`VSElementUtils.fx`) implements an analytic exponential-drag
+solver rather than naïve Euler integration.  Translated to Slang:
 
+```slang
+// Analytic displacement and velocity under constant gravity + linear drag.
+// Ported from VSElementUtils.fx — CalculateDisplacmentAndVelocity().
+void calculateDisplacementAndVelocity(
+    float  elapsedTime,
+    float3 initialVelocity,
+    float  mass,
+    float  invMass,
+    float  drag,
+    float  invDrag,
+    float  gravity,
+    out float3 displacement,
+    out float3 velocity
+) {
+    float3 gVec                    = float3(0.0, 0.0, gravity);
+    float3 massGravity             = mass * gVec;
+    float3 massGravityOverDrag     = massGravity * invDrag;
+    float  expTerm                 = exp(-drag * invMass * elapsedTime);
+
+    // displacement
+    float3 term0a = -(initialVelocity + massGravityOverDrag);
+    float  term0b = mass * invDrag;
+    float3 term0  = term0a * term0b * expTerm;
+    float3 term1  = elapsedTime * massGravityOverDrag;
+    float3 term2  = term0b * (initialVelocity + massGravityOverDrag);
+    displacement  = term0 - term1 + term2;
+
+    // instantaneous velocity
+    float3 vTerm0 = invDrag * expTerm * (drag * initialVelocity + massGravity);
+    velocity      = vTerm0 - massGravityOverDrag;
+}
 ```
-acceleration  = (0, 0, -gravity)          // or * mass if MultiplyGravityByMass
-acceleration += forceField contributions  // from FOR_ chunks on localForces/worldForces channels
-acceleration += noise term
-velocity      = velocity * (1 - drag * dt) + acceleration * dt
-              + windDirection * windMultiplier * dt
-position     += velocity * dt
-```
+
+The vertex shader calls this per-particle when `useProceduralPosition` is set,
+passing the time delta from birth and the initial velocity stored in
+`interpolator1.xyz`. Unlike ribbons (which use per-batch uniform physics
+constants), the particle shader reads mass, drag, and gravity from **per-vertex**
+attributes: `interpolator1.w` = 1/mass, `birthDeathAndDrag.zw` = {drag, 1/drag},
+and `interpolator2.w` = negated gravity.
 
 `noiseAmplitude`, `noiseFrequency`, `noiseCoherence`, and `noiseEdge` parameterize
 a procedural noise displacement. A simple implementation evaluates a coherent noise
@@ -3994,8 +4382,8 @@ speed, size, alpha, color, rotation, horizontal spread, and vertical spread) app
 a **per-particle procedural wave** on top of the base property. Think of them as
 LFO modulation:
 
-```cpp
-f32 overlay = resolve(amplitude) * waveFunc(type, age * resolve(frequency) + phase);
+```slang
+float overlay = resolve(amplitude) * waveFunc(type, age * resolve(frequency) + phase);
 ```
 
 `type` selects the wave shape (sine, sawtooth, etc.). `phaseShift` (v22+) offsets
@@ -4006,20 +4394,72 @@ in the Art Tools
 #### F.1.9 Instance type and rendering
 
 `instanceType` (`ParticleInstanceType` enum) determines the geometry you need to
-build per particle:
+build per particle.  The vertex shader (`Particle.fx`) branches on a
+`b_iInstanceType` specialization constant:
 
-| Value | Enum | Geometry |
-|-------|------|----------|
-| 0 | `Particle` | Camera-facing billboard quad. |
-| 1 | `Particle2` | Same as Particle (engine alias). |
-| 2 | `Tail` | Velocity-oriented stretched quad; length from `tailLength`. |
-| 3 | `HeadAndTail` | Two quads — one billboard head, one velocity-stretched tail. |
-| 4 | `Model` | Instance of an external `.m3` model listed in `modelPaths`. |
+| Value | Shader constant | Geometry |
+|-------|----------------|----------|
+| 0 | `PARTICLE_BILLBOARD` | Camera-facing billboard quad. |
+| 1 | `PARTICLE_TAIL` | Velocity-oriented stretched quad; length from `tailLength`. |
+| 2 | `PARTICLE_FACE_TRAVEL_DIR` | Quad oriented along instantaneous velocity. |
+| 3 | `PARTICLE_FACE_WORLD_DIR` | Quad oriented along a fixed world direction. |
+| 4 | `PARTICLE_SINGLE_AXIS` | Billboard locked to a single rotation axis. |
+| 5 | `PARTICLE_TERRAIN_ORIENTED` | Quad projected onto terrain normal. |
+| 6 | `PARTICLE_TERRAIN_DIR_ORIENTED` | Terrain-oriented + velocity-stretched. |
+| 7 | `PARTICLE_EMITTER_ORIENTED` | Quad uses the emitter bone's orientation. |
+| 8 | `PARTICLE_PHYSICS_ORIENTED` | Quad oriented by physics simulation. |
+| 9 | `PARTICLE_PINNED` | Stretch between spawn origin and current position. |
+| 10 | `PARTICLE_TRAIL` | Like Tail but offset by one tail-length. |
+
+The vertex input struct declared in `Particle.fx` supplies all per-particle data:
+
+```slang
+struct ParticleVertex {
+    float4  position             : NORMAL;       // world-space position
+    int4    size                 : TEXCOORD0;    // {start, mid, end, extra} * 256
+    half4   color0               : COLOR0;       // start color (BGRA)
+    half4   color1               : COLOR1;       // mid color
+    half4   color2               : TEXCOORD1;    // end color
+    int4    rotation             : TEXCOORD2;    // {start, mid, end} * 32 + random UV in .w
+    float4  birthDeathAndDrag    : TEXCOORD3;    // {birthTime, deathTime, drag, 1/drag}
+    uint4   batchIndex           : TEXCOORD4;    // batch ID for instanced draw
+    half4   interpolator1        : TEXCOORD5;    // xyz = initial velocity, w = 1/mass
+    half4   interpolator2        : TEXCOORD6;    // context-dependent; .xyz = direction/tail/spawn-pos,
+                                                 //   .w = negated gravity (for procedural position)
+    half4   noiseVector          : TEXCOORD7;    // xyz = noise offset, w = random seed
+    int2    offset               : POSITION;     // quad corner {-1,+1}
+};
+```
 
 For billboard and tail types, compute the quad from the current interpolated size,
 rotation, and color, then submit with the material resolved from `materialIndex`.
 Use `instanceAngle` to apply a fixed orientation offset, and `instanceDistance`
 (v17+) to space model instances.
+
+The billboard path (most common) works as follows:
+
+```slang
+// PARTICLE_BILLBOARD path  (from Particle.fx → ParticleVertexMain)
+float  angle   = generateRotation(normalizedAge, inputRotation, batchIdx);
+float3 forward = cameraDirection;
+float3 right   = billboardRight;
+float3 up      = billboardUp;
+
+if (useModelInstancing) {
+    position = mul(float4(position, 1.0), particleInstanceTransform[batchIdx]).xyz;
+}
+
+float3x3 rot    = makeRotation(angle, forward);
+float3   offset = quadCorner.x * right + quadCorner.y * up;
+offset         *= elementScale[batchIdx];
+position       += mul(sizeNow * offset, rot);
+
+right    = mul(right, rot);
+up       = mul(up, rot);
+normal   = normalize(cross(right, up));
+tangent  = right;
+binormal = -up;
+```
 
 When `flags & Sort` is set, sort particles back-to-front by camera distance before
 drawing. `flags & SortHeight` uses world Z instead of camera distance.
@@ -4071,32 +4511,70 @@ describe the same system from the artist's perspective.
 Unlike particles, the natural runtime unit for a ribbon is a **segment ring**
 rather than a point. A minimal representation looks like:
 
-```cpp
+```slang
 struct RibbonSegment {
-    Vector3f position;      // center of this ring
-    Vector3f velocity;      // current velocity
-    f32      age;           // seconds since emission
-    f32      maxAge;        // resolved lifetime (or infinite for length-based)
-    f32      distFromHead;  // cumulative distance from the emitter
-    f32      width;         // interpolated half-width at this segment
-    f32      twist;         // interpolated rotation (degrees) around the spine
-    ColorBGRA color;        // interpolated color + alpha
+    float3   position;      // center of this ring
+    float3   velocity;      // current velocity
+    float    age;           // seconds since emission
+    float    maxAge;        // resolved lifetime (or infinite for length-based)
+    float    distFromHead;  // cumulative distance from the emitter
+    float    width;         // interpolated half-width at this segment
+    float    twist;         // interpolated rotation (degrees) around the spine
+    float4   color;         // interpolated color + alpha (unorm)
 };
 ```
 
-The entire ribbon is drawn as a single triangle strip (or indexed mesh) by
-connecting consecutive rings. A ring's cross-section is determined by `emitterShape`:
+The ribbon vertex shader (`Ribbon.fx`) declares two separate vertex layouts
+selected by the simulation technique constant `b_iRibbonSimTech`:
 
-| `emitterShape` | Geometry |
-|----------------|----------|
-| 0 — Planar billboarded | One quad per segment, always camera-facing. |
-| 1 — Planar | One quad per segment, orientation locked at emission time. |
-| 2 — Cylinder | Prism with `edges` sides extruded along the spine. |
-| 3 — Star | Like Cylinder but with alternating inner/outer radii, creating star-shaped indents. `innerRadius` (0–1) controls indent depth. |
+```slang
+static const int RIBBON_SIM_GPUONLY                   = 0;
+static const int RIBBON_SIM_SPLINE_RIBBON             = 1;
+static const int RIBBON_SIM_MIXED                     = 2;
+static const int RIBBON_SIM_MIXED_PRECOMPUTED_TANGENT = 3;
+static const int RIBBON_SIM_LEGACY                    = 4;
+
+// Vertex layout for spline ribbons (minimal — positions come from uniforms)
+struct SplineRibbonVertex {
+    float4       position   : POSITION;     // .x=age, .y=contractedAge, .z=invAge, .w=contractedInvAge
+    half2        uv         : TEXCOORD0;
+    half2        offset     : NORMAL;       // cross-section corner
+    uint4        batchIndex : TEXCOORD6;
+};
+
+// Vertex layout for standard / GPU-only / legacy ribbons
+struct RibbonVertex {
+    float4       position       : POSITION;   // xyz = world position, w = birth time
+    half4        size           : TEXCOORD1;  // {start, mid, end, unused}
+    half4        color0         : COLOR0;     // start color (BGRA)
+    half4        color1         : COLOR1;     // mid color
+    half4        color2         : TEXCOORD2;  // end color
+    half4        rotation       : TEXCOORD3;  // {start, mid, end, extra-U}
+    half2        offset         : NORMAL;     // cross-section corner
+    half3        up             : TEXCOORD4;  // emission-time up vector
+    float4       initialVelocity: TEXCOORD5;  // xyz = velocity, w = death time
+    uint4        batchIndex     : TEXCOORD6;
+    // Conditional fields (depend on sim technique):
+    // half2 uv             : TEXCOORD0;  // legacy only
+    // half  extraU         : TEXCOORD7;  // GPU-only
+    // float3 positionPrev  : TEXCOORD7;  // precomputed tangent / legacy
+    // float3 positionNext  : TEXCOORD8;  // legacy only
+};
+```
+
+The four cross-section shapes are selected by `b_iRibbonType`:
+
+| `b_iRibbonType` | Geometry |
+|-----------------|----------|
+| 0 — `RIBBON_BILLBOARD` | One quad per segment, always camera-facing. |
+| 1 — `RIBBON_PLANAR` | One quad per segment, orientation locked at emission time. |
+| 2 — `RIBBON_CYLINDER` | Prism with `edges` sides extruded along the spine. |
+| 3 — `RIBBON_STAR` | Like Cylinder but with alternating inner/outer radii, creating star-shaped indents. `innerRadius` (0–1) controls indent depth. |
 
 `edges` specifies the polygon count of a cylindrical or star cross-section.
 `divisions` controls the tessellation density along the spine (higher = smoother
-but more expensive). `basedSource` selects the emission source mode.
+but more expensive). `ribbonType` selects the ribbon cross-section shape
+(see **Ribbon Type Enum** above).
 
 #### F.2.2 Emitter setup
 
@@ -4125,12 +4603,12 @@ distance from the emitter are forcibly removed.
 When a segment is born, compute its initial velocity from the same kinds of
 fields used in `PAR_`:
 
-```cpp
-f32 speed  = resolve(initialSpeed) + rand_pm(resolve(initialSpeedRandom));
-f32 yaw    = resolve(initialYaw);
-f32 pitch  = resolve(initialPitch);
-f32 hSpread = resolve(initialHorizontal);
-f32 vSpread = resolve(initialVertical);
+```slang
+float speed   = resolve(initialSpeed) + randPm(resolve(initialSpeedRandom));
+float yaw     = resolve(initialYaw);
+float pitch   = resolve(initialPitch);
+float hSpread = resolve(initialHorizontal);
+float vSpread = resolve(initialVertical);
 ```
 
 Whether the random terms are active is controlled by `additionalFlags` (v8+:
@@ -4159,24 +4637,69 @@ half-width of each ring.
 **Rotation (twist).** `rotationAnimation` is `AnimRef<Vector3f>` {start, mid,
 end} in degrees. Twist rotates the cross-section around the ribbon spine.
 
-The evaluation code is identical to the `PAR_` helper shown in §F.1.4:
+For **color, alpha, and size**, the evaluation code is identical to the `PAR_`
+helper shown in §F.1.4. The ribbon vertex shader (`Ribbon.fx`) calls the same
+`interpolateValue` function from `RibbonParticleCommon`.
 
-```cpp
-ColorBGRA segColor = evalColor(t, start, mid, end, colorMidTime, colorMidHoldTime);
-f32       segAlpha = evalLerp(t, startA, midA, endA, alphaMidTime, alphaMidHoldTime);
-f32       segWidth = evalLerp(t, sizeStart, sizeMid, sizeEnd, sizeMidTime, sizeMidHoldTime);
+**However, ribbon rotation uses a simple two-piece linear interpolation** — it
+does **not** go through the 5-mode `interpolateValue()` function. There is no
+`b_iRibbonRotationInterpolation` constant in the shaders. From `Ribbon.fx`:
+
+```slang
+float3 segColor = interpolateValue(
+    age, color0.rgb, color1.rgb, color2.rgb,
+    midKeyTimes[batchIdx].y,
+    inversedMidKeyTimes[batchIdx].y,
+    midKeyHoldTimes[batchIdx].y,
+    ribbonColorInterpolation  // b_iRibbonColorInterpolation
+);
+float segAlpha = interpolateValue(
+    age, color0.a, color1.a, color2.a,
+    midKeyTimes[batchIdx].z,
+    inversedMidKeyTimes[batchIdx].z,
+    midKeyHoldTimes[batchIdx].z,
+    ribbonColorInterpolation
+);
+float segWidth = interpolateValue(
+    age, size.x, size.y, size.z,
+    midKeyTimes[batchIdx].x,
+    inversedMidKeyTimes[batchIdx].x,
+    midKeyHoldTimes[batchIdx].x,
+    ribbonSizeInterpolation   // b_iRibbonSizeInterpolation
+) * 0.5;   // engine multiplies by 0.5 to get half-width
+
+// Ribbon twist — simple two-piece linear, NOT through interpolateValue()
+float angle;
+if (age < midKeyTimes[batchIdx].w)
+    angle = lerp(rotation.x, rotation.y, age / midKeyTimes[batchIdx].w);
+else
+    angle = lerp(rotation.y, rotation.z,
+                 (age - midKeyTimes[batchIdx].w) / (1.0 - midKeyTimes[batchIdx].w));
 ```
 
 #### F.2.6 Physics update
 
-Every segment simulates independently each tick. The integration is the same
-Newtonian model as `PAR_`:
+Every segment simulates independently each tick. The integration uses the same
+analytic exponential-drag solver as `PAR_` (§F.1.6):
 
-```
-acceleration  = (0, 0, -gravity)
-acceleration += forceField contributions   // localForces / worldForces channel masks
-velocity      = velocity * (1 - drag * dt) + acceleration * dt
-position     += velocity * dt
+```slang
+// From Ribbon.fx — proceduralPosition path
+float3 offsetFromOrigin;
+float3 instantaneousVelocity;
+
+float elapsed = systemTime[batchIdx] - segment.birthTime;
+calculateDisplacementAndVelocity(
+    elapsed,
+    segment.initialVelocity,
+    physicsConstants[batchIdx].x,    // mass
+    physicsConstants[batchIdx].y,    // 1/mass
+    physicsConstants[batchIdx].w,    // drag
+    1.0 / physicsConstants[batchIdx].w,  // 1/drag
+    -physicsConstants[batchIdx].z,   // -gravity (downward)
+    offsetFromOrigin,
+    instantaneousVelocity
+);
+segment.position += proceduralScalar * offsetFromOrigin;
 ```
 
 `mass` and `massRandom` work the same way; `massSizeMultiplier` scales
@@ -4238,10 +4761,67 @@ global phase offset (the Art Tools call it "Overlay Offset").
 Once all segments have been updated, build the renderable strip:
 
 1. Walk segments from head (newest) to tail (oldest).
-2. At each ring, compute a right vector. For billboard shape, use
-   `cross(cameraForward, spineDirection)`; for planar, use the orientation
-   locked at emission time; for cylinder/star, expand `edges` vertices around
-   the spine at the current width and twist.
+2. At each ring, compute a right vector. The ribbon vertex shader
+   (`Ribbon.fx`) handles the four cross-sections:
+
+```slang
+static const int RIBBON_BILLBOARD = 0;
+static const int RIBBON_PLANAR    = 1;
+static const int RIBBON_CYLINDER  = 2;
+static const int RIBBON_STAR      = 3;
+
+// Tangent — average of prev/next segment directions (legacy/mixed path)
+float3 tangent = normalize(
+    (position - positionPrev) + (positionNext - position)
+);
+tangent = safeNormalize(tangent, float3(1, 0, 0));
+
+float3 normal, binormal;
+if (ribbonType == RIBBON_BILLBOARD) {
+    float3 cameraDir = cameraDirection;
+    if (ribbonLocalSpace)
+        cameraDir = mul(cameraDir, float3x3(invWorldTransform[batchIdx]));
+
+    if (proceduralPosition && !precomputedTangent
+        && simTech != RIBBON_SIM_MIXED) {
+        // GPU / procedural path — flatten tangent onto camera plane,
+        // then derive binormal perpendicular to the flattened segment.
+        float3 segment = normalize(tangent - cameraDir * dot(tangent, cameraDirection));
+        binormal = cross(segment, cameraDir);
+    } else {
+        // Standard / legacy / precomputed-tangent path
+        normal   = -cameraDir;
+        binormal = safeNormalize(cross(normal, tangent), float3(0, 1, 0));
+    }
+    normal = safeNormalize(cross(tangent, binormal), float3(0, 0, 1));
+} else {
+    binormal = vertIn.up;
+    normal   = safeNormalize(cross(tangent, binormal), float3(0, 0, 1));
+}
+
+// Apply per-segment twist rotation
+float angle;
+if (age < midKeyTimes[batchIdx].w)
+    angle = lerp(rotation.x, rotation.y, age / midKeyTimes[batchIdx].w);
+else
+    angle = lerp(rotation.y, rotation.z,
+                 (age - midKeyTimes[batchIdx].w) / (1.0 - midKeyTimes[batchIdx].w));
+float3x3 rot = makeRotation(angle, tangent);
+binormal = mul(binormal, rot);
+normal   = mul(normal, rot);
+
+// Build vertex offset
+float3 vertexOffset;
+if (ribbonType == RIBBON_BILLBOARD || ribbonType == RIBBON_PLANAR) {
+    vertexOffset = offset.y * binormal;
+} else { // RIBBON_CYLINDER or RIBBON_STAR
+    float3x3 basis = float3x3(normal, tangent, binormal);
+    vertexOffset = mul(float3(offset.x, 0.0, offset.y), basis);
+    if (ribbonType == RIBBON_CYLINDER)
+        vertexOffset = safeNormalize(vertexOffset, float3(0, 0, 1));
+}
+position += vertexOffset * halfWidth;
+```
 3. Connect consecutive rings with triangle strip indices.
 4. Assign UVs: U typically goes 0→1 across the width; V goes 0→1 along the
    length from head to tail (or proportional to `distFromHead / maxLength` for
@@ -4313,29 +4893,29 @@ different runtime profile from standard ribbons:
 Each `SRIB` record (272 bytes, version 0) defines one control point on the
 Bezier curve:
 
-```cpp
+```slang
 struct SplineRibbon {
-    Vector3f     emissionOffset;       // local-space offset from the bone
-    Vector3f     emissionVector;       // tangent direction at this point
-    AnimRef<f32> velocity;             // speed along the spline at this point
-    u32          unknown01;
-    u32          boneIndex;            // the bone this control point follows
-    AnimRef<f32> velocityBaseFactor;   // velocity weight near the base
-    AnimRef<f32> velocityEndFactor;    // velocity weight near the end
+    float3      emissionOffset;       // local-space offset from the bone
+    float3      emissionVector;       // tangent direction at this point
+    AnimRef     velocity;             // speed along the spline at this point
+    uint        reserved;             // always 0 (padding/reserved)
+    uint        boneIndex;            // the bone this control point follows
+    AnimRef     velocityBaseFactor;   // velocity weight near the base
+    AnimRef     velocityEndFactor;    // velocity weight near the end
     // Overlay groups — procedural noise layered on top of base values
-    u32          yawType;
-    AnimRef<f32> yawAmplitude;
-    AnimRef<f32> yawFrequency;
-    u32          pitchType;
-    AnimRef<f32> pitchAmplitude;
-    AnimRef<f32> pitchFrequency;
-    u32          velocityType;
-    AnimRef<f32> velocityAmplitude;
-    AnimRef<f32> velocityFrequency;
-    AnimRef<f32> yaw;                  // animated yaw offset (degrees)
-    AnimRef<f32> pitch;                // animated pitch offset (degrees)
-    f32          unknown02;
-    f32          unknown03;
+    uint        yawType;
+    AnimRef     yawAmplitude;
+    AnimRef     yawFrequency;
+    uint        pitchType;
+    AnimRef     pitchAmplitude;
+    AnimRef     pitchFrequency;
+    uint        velocityType;
+    AnimRef     velocityAmplitude;
+    AnimRef     velocityFrequency;
+    AnimRef     yaw;                  // animated yaw offset (degrees)
+    AnimRef     pitch;                // animated pitch offset (degrees)
+    float       emissionVectorNormFactor; // precomputed ≈ 0.01/|emissionVector|
+    float       velocityNormFactor;      // precomputed ≈ 0.01/velocity.initValue
 };
 ```
 
@@ -4367,7 +4947,7 @@ C2 = P1 - T1
 C3 = P1
 ```
 
-Subdivide the resulting `B(t) = (1-t)³C0 + 3(1-t)²t·C1 + 3(1-t)t²·C2 + t³·C3`
+Subdivide the resulting $B(t) = (1-t)^3 C_0 + 3(1-t)^2 t \cdot C_1 + 3(1-t) t^2 \cdot C_2 + t^3 C_3$
 into `divisions` equally-spaced rings. This gives you the same segment-ring
 array used for standard ribbon rendering (§F.2.10), minus the per-segment
 physics step.
@@ -4375,10 +4955,10 @@ physics step.
 Apply yaw and pitch overlays to rotate the tangent direction at each control
 point before computing `T0` / `T1`:
 
-```cpp
-f32 yawDeg   = resolve(srib.yaw)
+```slang
+float yawDeg   = resolve(srib.yaw)
              + evalOverlay(srib.yawType, srib.yawAmplitude, srib.yawFrequency, t);
-f32 pitchDeg = resolve(srib.pitch)
+float pitchDeg = resolve(srib.pitch)
              + evalOverlay(srib.pitchType, srib.pitchAmplitude, srib.pitchFrequency, t);
 // Rotate emissionVector by yaw around local X, pitch around local Y
 ```
@@ -4412,13 +4992,13 @@ and `AccurateGPUTangents` are stubs — they exist in the binary because the
 `RIB_` struct is shared, but the Art Tools mark them as unused for spline
 ribbons.
 
-Implementation-wise, evaluate the same `evalLerp()` helper from §F.1.4, but
+Implementation-wise, evaluate the same `interpolateValue()` helper from §F.1.4, but
 pass `t` (position along the curve) instead of `age / maxAge`:
 
-```cpp
-ColorBGRA c = evalColor(t, colorStart, colorMid, colorEnd, colorMidTime, 0.0f);
-f32 alpha   = evalLerp(t, alphaStart, alphaMid, alphaEnd, alphaMidTime, 0.0f);
-f32 width   = evalLerp(t, sizeStart, sizeMid, sizeEnd, sizeMidTime, 0.0f);
+```slang
+float4 c     = float4(interpolateValue(t, colorStart, colorMid, colorEnd, colorMidTime, 0.0), 1.0);
+float  alpha = interpolateValue(t, alphaStart, alphaMid, alphaEnd, alphaMidTime, 0.0);
+float  width = interpolateValue(t, sizeStart, sizeMid, sizeEnd, sizeMidTime, 0.0);
 ```
 
 #### F.3.6 Physics — what actually works
@@ -4436,10 +5016,10 @@ Only **gravity** is documented as functional:
 Gravity is applied to the control-point positions (not to individual curve
 samples). In practice this means:
 
-```cpp
-for (auto& cp : controlPoints) {
-    cp.velocity.z -= gravity * dt;
-    cp.position   += cp.velocity * dt;
+```slang
+for (int i = 0; i < controlPointCount; i++) {
+    controlPoints[i].velocity.z -= gravity * dt;
+    controlPoints[i].position   += controlPoints[i].velocity * dt;
 }
 ```
 
@@ -4507,18 +5087,18 @@ Detect this mode by checking `emitterShape == 7` on a `PAR_` record.
 
 When loading an M3, identify spline effects as follows:
 
-```cpp
+```slang
 // Spline-shaped particle emitters
-for (auto& par : model.particleEmitters) {
-    if (par.emitterShape == EmitterShape::Spline) {
+for (int i = 0; i < particleEmitterCount; i++) {
+    if (particleEmitters[i].emitterShape == EMITTER_SHAPE_SPLINE) {
         // Emission positions come from par.splatLineData (SVC3)
         // Everything else is standard PAR_ behavior
     }
 }
 
 // Spline ribbons
-for (auto& rib : model.ribbonEmitters) {
-    if (!rib.splineRibbons.empty()) {
+for (int i = 0; i < ribbonEmitterCount; i++) {
+    if (ribbonEmitters[i].splineRibbonCount > 0) {
         // This is a spline ribbon — use SRIB control points
         // instead of trailing-segment emission
     }
@@ -4548,23 +5128,23 @@ A projector is conceptually a camera frustum (or box) positioned at a bone.
 Everything inside the volume receives the projected material. A minimal runtime
 representation looks like:
 
-```cpp
+```slang
 struct LiveProjector {
-    u32          boneIndex;
-    u32          materialIndex;    // resolved through MATM
-    ProjectionType type;           // Orthographic (0) or Perspective (1)
+    uint           boneIndex;
+    uint           materialIndex;    // resolved through MATM
+    int            projectionType;   // Orthographic (0) or Perspective (1)
 
     // Frustum / box geometry — all animatable
-    Matrix4x4    projMatrix;       // built from the fields below
-    Vector3f     offset;
-    f32          pitch, yaw, roll;
+    float4x4       projMatrix;       // built from the fields below
+    float3         offset;
+    float          pitch, yaw, roll;
 
     // Lifetime state machine
     enum Phase { Attack, Hold, Decay, Dead };
-    Phase        phase;
-    f32          phaseTime;        // seconds spent in current phase
-    f32          phaseDuration;    // resolved duration for this phase
-    f32          alpha;            // current opacity [0–255]
+    Phase          phase;
+    float          phaseTime;        // seconds spent in current phase
+    float          phaseDuration;    // resolved duration for this phase
+    float          alpha;            // current opacity [0–255]
 };
 ```
 
@@ -4634,24 +5214,24 @@ Each duration has a base value and a "To" value. When `To` differs from the
 base, the actual duration is randomized in the range `[base, To]`. The alpha
 values are floats in the range 0–255 (matching the Art Tools spinner range).
 
-```cpp
-f32 attackDur = randRange(lifetimeAttack, lifetimeAttackTo);
-f32 holdDur   = randRange(lifetimeHold,   lifetimeHoldTo);
-f32 decayDur  = randRange(lifetimeDecay,  lifetimeDecayTo);
+```slang
+float attackDur = randRange(lifetimeAttack, lifetimeAttackTo);
+float holdDur   = randRange(lifetimeHold,   lifetimeHoldTo);
+float decayDur  = randRange(lifetimeDecay,  lifetimeDecayTo);
 
 // Each frame:
 switch (phase) {
-    case Attack:
+    case Phase.Attack:
         alpha = lerp(alphaInit, alphaMid, phaseTime / attackDur);
-        if (phaseTime >= attackDur) { phase = Hold; phaseTime = 0; }
+        if (phaseTime >= attackDur) { phase = Phase.Hold; phaseTime = 0.0; }
         break;
-    case Hold:
+    case Phase.Hold:
         alpha = alphaMid;
-        if (phaseTime >= holdDur) { phase = Decay; phaseTime = 0; }
+        if (phaseTime >= holdDur) { phase = Phase.Decay; phaseTime = 0.0; }
         break;
-    case Decay:
+    case Phase.Decay:
         alpha = lerp(alphaMid, alphaEnd, phaseTime / decayDur);
-        if (phaseTime >= decayDur) phase = Dead;
+        if (phaseTime >= decayDur) phase = Phase.Dead;
         break;
 }
 ```
@@ -4675,9 +5255,9 @@ fades as the receiving surface gets farther from the projector origin:
 
 The `falloff` field provides an additional edge-softness control. In practice:
 
-```cpp
-f32 depthFraction = surfaceDepth / projectorRange;
-f32 attenFactor = saturate((1.0f - depthFraction) / (1.0f - attenuationDistance));
+```slang
+float depthFraction = surfaceDepth / projectorRange;
+float attenFactor   = saturate((1.0 - depthFraction) / (1.0 - attenuationDistance));
 finalAlpha *= attenFactor;
 ```
 

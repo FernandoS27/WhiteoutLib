@@ -278,6 +278,9 @@ struct VertexBuffer {
     std::vector<Vector3f> getNormals() const;
     std::vector<Vector4f> getTangents() const;
     std::vector<Vector2f> getUVs(size_t which) const;
+    /// Get UV coordinates for a specific layer, using region-level scale/offset (REGN v5+).
+    /// For REGN v5+: float_uv = i16_uv * uvMultiply + uvOffset
+    std::vector<Vector2f> getUVs(size_t which, f32 uvMultiply, f32 uvOffset) const;
     std::vector<ColorBGRA> getColors() const;
     std::vector<std::array<u8, 4>> getBoneIndices() const;
     std::vector<std::array<u8, 4>> getBoneWeights() const;

@@ -20,18 +20,18 @@ namespace m3 {
 
 /// Material type enum - identifies which material array a MATM entry references
 enum class MaterialType : u32 {
-    Standard = 1,
-    Displacement = 2,
-    Composite = 3,
-    Terrain = 4,
-    Volume = 5,
-    VolumeNoise = 6,
-    Creep = 7,
-    STB = 8,
-    Reflection = 9,
-    LensFlare = 10,
-    MaterialAddData = 11,
-    BufferMaterial = 12,
+    Standard = 1,         // MAT_
+    Displacement = 2,     // DIS_
+    Composite = 3,        // CMP_
+    Terrain = 4,          // TER_
+    Volume = 5,           // VOL_
+    VolumeNoise = 6,      // VON_
+    Creep = 7,            // CREP
+    Hair = 8,             // HAI_
+    SplatTerrainBake = 9, // STBM
+    Reflection = 10,      // REF_
+    LensFlare = 11,       // LFLR
+    BufferMaterial = 12,  // MADD
 };
 
 /// Light type enum
@@ -72,13 +72,19 @@ enum class EmitterShape : u32 {
     Spline = 7,
 };
 
-/// Particle instance/visual type enum
+/// Particle instance/visual type enum (maps 1:1 to b_iInstanceType in Particle.fx)
 enum class ParticleInstanceType : u32 {
-    Particle = 0,
-    Particle2 = 1,
-    Tail = 2,
-    HeadAndTail = 3,
-    Model = 4,
+    Billboard = 0,          ///< Camera-facing billboard quad
+    Tail = 1,               ///< Velocity-stretched quad
+    FaceTravelDir = 2,      ///< Quad oriented along instantaneous velocity
+    FaceWorldDir = 3,       ///< Quad oriented along a fixed world direction
+    SingleAxis = 4,         ///< Billboard locked to a single rotation axis
+    TerrainOriented = 5,    ///< Quad projected onto terrain normal
+    TerrainDirOriented = 6, ///< Terrain-oriented + velocity-stretched
+    EmitterOriented = 7,    ///< Quad uses the emitter bone's orientation
+    PhysicsOriented = 8,    ///< Quad oriented by physics simulation
+    Pinned = 9,             ///< Stretch between spawn origin and current position
+    Trail = 10,             ///< Like Tail but offset by one tail-length
 };
 
 /// Force type enum
@@ -97,6 +103,14 @@ enum class ForceShape : u32 {
     Hemisphere = 3,
 };
 
+/// Ribbon cross-section type enum (maps 1:1 to b_iRibbonType in Ribbon.fx)
+enum class RibbonType : u32 {
+    Billboard = 0, ///< Camera-facing ribbon strip
+    Planar = 1,    ///< Flat/planar ribbon strip
+    Cylinder = 2,  ///< Cylindrical cross-section
+    Star = 3,      ///< Star-shaped cross-section
+};
+
 /// Projection type enum
 enum class ProjectionType : u32 {
     Orthographic = 0,
@@ -108,6 +122,17 @@ enum class VolumeType : u32 {
     Box = 0,
     Sphere = 1,
     Capsule = 2,
+};
+
+/// Interpolation mode enum (maps to RibbonParticleCommon.fx constants)
+/// Used by PAR_ colorSmoothing/sizeSmoothing/rotationSmoothing and RIB_
+/// sizeSmoothing/colorSmoothing
+enum class InterpolationMode : u32 {
+    Linear = 0,         ///< ITERPOLATION_LINEAR
+    LinearSmooth = 1,   ///< ITERPOLATION_LINEAR_SMOOTH
+    Bezier = 2,         ///< ITERPOLATION_BEZIER
+    LinearWithHold = 3, ///< ITERPOLATION_LINEAR_WITH_HOLD
+    BezierWithHold = 4, ///< ITERPOLATION_BEZIER_WITH_HOLD
 };
 
 // ============================================================================
@@ -264,20 +289,107 @@ enum class TextureLayerFlag : u32 {
 };
 M3_DEFINE_FLAG_OPS(TextureLayerFlag, u32)
 
+/// Blend mode for materials (MAT_.blendMode, VOL_.blendMode)
+enum class BlendMode : u32 {
+    Opaque = 0,     ///< Fully opaque
+    AlphaBlend = 1, ///< Standard alpha blending
+    Add = 2,        ///< Additive blending
+    AlphaAdd = 3,   ///< Alpha-modulated additive
+    Mod = 4,        ///< Multiplicative blending
+    Mod2x = 5,      ///< Double multiplicative
+};
+
+/// Material class (MAT_.materialClass)
+enum class MaterialClass : u32 {
+    Unit = 0,      ///< Unit/character material
+    Building = 1,  ///< Building/structure material
+    Doodad = 2,    ///< Doodad/prop material
+    SpecialFX = 3, ///< Special effect material
+};
+
+/// Layer blend operation (MAT_.layerBlendMode, emissiveBlendMode)
+enum class LayerBlendOp : u32 {
+    Mod = 0,                  ///< Multiply: base * layer
+    Mod2x = 1,                ///< Double multiply: base * layer * 2
+    Add = 2,                  ///< Add: base + layer
+    Lerp = 3,                 ///< Linear interpolate by layer alpha
+    TeamColorEmissiveAdd = 4, ///< Team color emissive add
+    TeamColorDiffuseAdd = 5,  ///< Team color diffuse add
+    AddNoAlpha = 6,           ///< Add ignoring alpha channel
+};
+
+/// UV mapping mode (LAYR.uvMapping)
+enum class UVMappingMode : u32 {
+    ExplicitUV0 = 0,           ///< UV coordinate set 0
+    ExplicitUV1 = 1,           ///< UV coordinate set 1
+    ReflectCubicEnvio = 2,     ///< Cubic environment reflection
+    ReflectSphericalEnvio = 3, ///< Spherical environment reflection
+    PlanarLocalZ = 4,          ///< Planar local UVs (Z plane)
+    PlanarWorldZ = 5,          ///< Planar world UVs (Z plane)
+    ParticleFlipbook = 6,      ///< Particle flipbook UVs
+    CubicEnvio = 7,            ///< Cubic environment mapping
+    SphericalEnvio = 8,        ///< Spherical environment mapping
+    ExplicitUV2 = 9,           ///< UV coordinate set 2
+    ExplicitUV3 = 10,          ///< UV coordinate set 3
+    PlanarLocalX = 11,         ///< Planar local UVs (X plane)
+    PlanarLocalY = 12,         ///< Planar local UVs (Y plane)
+    PlanarWorldX = 13,         ///< Planar world UVs (X plane)
+    PlanarWorldY = 14,         ///< Planar world UVs (Y plane)
+    ScreenSpace = 15,          ///< Screen-space UVs
+    TriPlanarLocal = 16,       ///< Tri-planar blending (local space)
+    TriPlanarWorld = 17,       ///< Tri-planar blending (world space)
+    TriPlanarWorldLocalZ = 18, ///< Tri-planar world with local Z
+};
+
+/// Color channel selection (LAYR.colorType)
+enum class ColorChannelSelect : u32 {
+    RGB = 0,   ///< Use RGB channels (alpha forced to 1)
+    RGBA = 1,  ///< Use all RGBA channels
+    Alpha = 2, ///< Use alpha channel only (splat to all)
+    Red = 3,   ///< Use red channel only (splat to all)
+    Green = 4, ///< Use green channel only (splat to all)
+    Blue = 5,  ///< Use blue channel only (splat to all)
+};
+
+/// Specular mode (MAT_.specularMode)
+enum class SpecularMode : u32 {
+    RGB = 0,       ///< Use RGB channels for specularity
+    AlphaOnly = 1, ///< Use alpha channel only
+};
+
+/// Fresnel mode (LAYR.fresnelMode)
+enum class FresnelMode : u32 {
+    None = 0,     ///< No fresnel effect
+    Standard = 1, ///< Standard fresnel (edge glow)
+    Inverted = 2, ///< Inverted fresnel (center glow)
+};
+
 enum class ReflectionMaterialFlag : u32 {
     None = 0x0,
     UseReflectionMap = 0x1,        ///< Use reflection map
     UseDisplacementMap = 0x2,      ///< Use displacement map
     RenderInTransparentPass = 0x4, ///< Render in transparent pass
     Blurring = 0x8,                ///< Enable blurring
-    UseBlurMap = 0x16,             ///< Use blur map
+    UseBlurMap = 0x10,             ///< Use blur map
 };
 
 enum class VolumeNoiseMaterialFlag : u32 {
     None = 0x0,
-    DrawAfterTrtansparecy = 0x1, ///< Draw in separate pass after transparency
+    DrawAfterTransparency = 0x1, ///< Draw in separate pass after transparency
 };
 M3_DEFINE_FLAG_OPS(VolumeNoiseMaterialFlag, u32)
+
+/// Volume falloff type (VOL_.falloffType, VON_.falloffType)
+enum class VolumeFalloffType : u32 {
+    Linear = 0,      ///< Linear density falloff
+    Exponential = 1, ///< Exponential density falloff
+};
+
+/// Volume noise camera position mode (VON_.drawTransparency)
+enum class VolumeNoiseCameraMode : u32 {
+    Outside = 0, ///< Camera is outside the volume
+    Inside = 1,  ///< Camera is inside the volume
+};
 
 /// Light flags (LITE)
 enum class LightFlag : u32 {
@@ -649,8 +761,8 @@ struct TextureLayer {
     std::string texturePath;
     AnimRef<ColorBGRA> color;
     TextureLayerFlag flags = TextureLayerFlag::None; ///< Texture layer flags
-    u32 uvMapping;
-    u32 colorType;
+    UVMappingMode uvMapping = UVMappingMode::ExplicitUV0;
+    ColorChannelSelect colorType = ColorChannelSelect::RGB;
     AnimRef<f32> rgbMultiply;
     AnimRef<f32> rgbAdd;
     u32 pocTexture;
@@ -676,7 +788,7 @@ struct TextureLayer {
     AnimRef<Vector3f> triplanarOffset; // v23+
     AnimRef<Vector3f> triplanarScale;  // v23+
     u32 uvSourceRelated;
-    u32 fresnelMode;
+    FresnelMode fresnelMode = FresnelMode::None;
     f32 fresnelExponent;
     f32 fresnelMin;
     f32 fresnelMax;
@@ -694,7 +806,7 @@ struct StandardMaterial {
     std::string name;
     MaterialAdditionalFlag additionalFlags = MaterialAdditionalFlag::None; ///< Additional flags
     MaterialFlag flags = MaterialFlag::None;                               ///< Material flags
-    u32 blendMode;
+    BlendMode blendMode = BlendMode::Opaque;
     i32 priority;
     u32 rttChannels;
     f32 specularExponent;
@@ -724,11 +836,11 @@ struct StandardMaterial {
     std::optional<TextureLayer> normalBlend2MaskLayer; // v19+
     std::optional<TextureLayer> normalBlend1Layer;     // v19+
     std::optional<TextureLayer> normalBlend2Layer;     // v19+
-    u32 materialClass;
-    u32 layerBlendMode;
-    u32 emissiveBlendMode1;
-    u32 emissiveBlendMode2;
-    u32 specularMode;
+    MaterialClass materialClass = MaterialClass::Unit;
+    LayerBlendOp layerBlendMode = LayerBlendOp::Mod;
+    LayerBlendOp emissiveBlendMode1 = LayerBlendOp::Mod;
+    LayerBlendOp emissiveBlendMode2 = LayerBlendOp::Mod;
+    SpecularMode specularMode = SpecularMode::RGB;
     AnimRef<f32> parallaxHeight;
     AnimRef<f32> motionBlurAmount;
     std::vector<AnimRef<f32>> normalBlendFactors; // v19+
@@ -784,7 +896,7 @@ struct VolumeMaterial {
     static constexpr u32 max_version = 0;
     std::string name;
     u32 blendMode;
-    u32 falloffType;
+    VolumeFalloffType falloffType;
     AnimRef<f32> density;
     std::optional<TextureLayer> colorMap;
     std::optional<TextureLayer> noiseMap1;
@@ -817,8 +929,8 @@ struct VolumeNoiseMaterial {
     static constexpr u32 tag = TAG_VON;
     static constexpr u32 max_version = 0;
     std::string name;
-    u32 falloffType;
-    u32 drawTransparency;
+    VolumeFalloffType falloffType;
+    VolumeNoiseCameraMode drawTransparency;
     AnimRef<f32> density;
     AnimRef<f32> nearPlane;
     AnimRef<f32> falloff;
@@ -1099,7 +1211,7 @@ struct ParticleEmitter {
     u32 collisionDieBounce = 0;
 
     // Instance
-    ParticleInstanceType instanceType = ParticleInstanceType::Particle;
+    ParticleInstanceType instanceType = ParticleInstanceType::Billboard;
     f32 tailLength = 1.0f;
     Vector3f instanceAngle;
     f32 instanceDistance = 1.0f; ///< since v17
@@ -1143,9 +1255,9 @@ struct ParticleEmitter {
     ParticleRotationFlag rotationFlags = ParticleRotationFlag::None; ///< since v18
 
     // Smoothing (since v14)
-    u32 colorSmoothing = 0;
-    u32 sizeSmoothing = 0;
-    u32 rotationSmoothing = 0;
+    InterpolationMode colorSmoothing = InterpolationMode::Linear;
+    InterpolationMode sizeSmoothing = InterpolationMode::Linear;
+    InterpolationMode rotationSmoothing = InterpolationMode::Linear;
 
     // UV Screen Space (since v17)
     AnimRef<f32> alphaThreshold;
@@ -1178,21 +1290,13 @@ struct ParticleEmitter {
     std::vector<std::string> modelPaths; ///< Reference -> SCHR
     std::vector<u32> copyIndices;        ///< Reference -> U32_
 
-    // v23+ unknowns
-    u32 unknown9a7afdf2 = 0;  ///< since v23
-    i32 unknown87d57a7a = -1; ///< since v23
+    // Ribbon-on-bounce (since v23)
+    f32 spawnRibbonOnBounceChance = 0.0f; ///< since v23; probability of spawning a ribbon on bounce
+    i32 ribbonLinkIndex = -1;             ///< since v23; index into RIB_ array (-1 = none)
 
-    /// Deprecated fields (till v14 and v11)
+    /// Deprecated fields (cannot be migrated to canonical fields)
     struct {
-        u32 emitSpeedRandomize = 0;       ///< till v14
-        u32 lifespanRandomize = 0;        ///< till v14
-        f32 sizeMidTimeLegacy = 0.5f;     ///< till v11 (old position)
-        f32 rotationMidTimeLegacy = 0.5f; ///< till v11 (old position)
-        f32 colorMidTimeLegacy = 0.5f;    ///< till v11 (old position)
-        f32 alphaMidTimeLegacy = 0.5f;    ///< till v11 (old position)
-        u32 massRandomizeLegacy = 0;      ///< till v14
-        u32 worldSpaceLegacy = 0;         ///< till v14
-        f32 unknown31f2da8 = 0.0f;        ///< till v11
+        f32 noiseSmoothness = 0.0f; ///< till v11; deprecated fifth noise parameter
     } deprecated;
     M3_DEFINE_VERSION_ACCESSORS()
 };
@@ -1214,7 +1318,7 @@ struct SplineRibbon {
     Vector3f emissionOffset;
     Vector3f emissionVector;
     AnimRef<f32> velocity;
-    u32 unknown01 = 0;
+    u32 reserved = 0; ///< Always 0 in all observed corpus data
     u32 boneIndex = 0;
     AnimRef<f32> velocityBaseFactor;
     AnimRef<f32> velocityEndFactor;
@@ -1229,8 +1333,8 @@ struct SplineRibbon {
     AnimRef<f32> velocityFrequency;
     AnimRef<f32> yaw;
     AnimRef<f32> pitch;
-    f32 unknown02 = 0.0f;
-    f32 unknown03 = 0.0f;
+    f32 emissionVectorNormFactor = 0.0f; ///< Precomputed ≈ 0.01 / |emissionVector|
+    f32 velocityNormFactor = 0.0f;       ///< Precomputed ≈ 0.01 / velocity.initValue
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -1302,7 +1406,7 @@ struct RibbonEmitter {
 
     // Ribbon shape
     u32 emitterShape;
-    u32 basedSource;
+    RibbonType ribbonType = RibbonType::Billboard;
     f32 divisions = 0.0f;
     u32 edges;
     f32 innerRadius;
@@ -1316,8 +1420,8 @@ struct RibbonEmitter {
     RibbonFlag flags = RibbonFlag::None; ///< Ribbon emitter flags
 
     // Smoothing
-    u32 sizeSmoothing;
-    u32 colorSmoothing;
+    InterpolationMode sizeSmoothing = InterpolationMode::Linear;
+    InterpolationMode colorSmoothing = InterpolationMode::Linear;
 
     // Collision & LOD
     f32 friction;
@@ -1346,17 +1450,9 @@ struct RibbonEmitter {
     AnimRef<f32> particleVelocity;
     AnimRef<f32> overlay;
 
-    /// Deprecated fields (till v6 and till v5)
+    /// Deprecated fields (cannot be migrated to canonical fields)
     struct {
-        u32 speedRandomize = 0;           ///< till v6
-        u32 lifespanRandomize = 0;        ///< till v6
-        u32 massRandomize = 0;            ///< till v6
-        u32 worldSpace = 0;               ///< till v6
-        f32 sizeMidTimeLegacy = 1.0f;     ///< till v5
-        f32 rotationMidTimeLegacy = 1.0f; ///< till v5
-        f32 colorMidTimeLegacy = 1.0f;    ///< till v5
-        f32 alphaMidTimeLegacy = 1.0f;    ///< till v5
-        i32 unknown3fbae7d6 = 0;          ///< till v6
+        i32 unknown3fbae7d6 = 0; ///< till v6
     } deprecated;
     M3_DEFINE_VERSION_ACCESSORS()
 };
