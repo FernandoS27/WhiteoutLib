@@ -4,6 +4,10 @@ project(WhiteoutLib VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+if(MSVC)
+    add_compile_options(/FS)
+endif()
+
 # Whiteout Library
 add_library(whiteout_lib
     # Common
@@ -35,6 +39,29 @@ add_library(whiteout_lib
     src/whiteout/m3/writer.cpp
     src/whiteout/m3/binary_parse_visitor.cpp
     src/whiteout/m3/binary_writer_visitor.cpp
+
+    # Textures
+    src/whiteout/textures/texture.cpp
+    src/whiteout/textures/dds/parser.cpp
+    src/whiteout/textures/dds/writer.cpp
+    src/whiteout/textures/blp/parser.cpp
+    src/whiteout/textures/blp/writer.cpp
+    src/whiteout/textures/tex/parser.cpp
+    src/whiteout/textures/tex/writer.cpp
+    src/whiteout/textures/tex/tex_common.cpp
+    src/whiteout/textures/wu_quantize.cpp
+    src/whiteout/textures/bcn.cpp
+    src/whiteout/textures/bcn/bc1.cpp
+    src/whiteout/textures/bcn/bc2.cpp
+    src/whiteout/textures/bcn/bc3.cpp
+    src/whiteout/textures/bcn/bc4.cpp
+    src/whiteout/textures/bcn/bc5.cpp
+    src/whiteout/textures/bcn/bc6h.cpp
+    src/whiteout/textures/bcn/bc7.cpp
+    src/whiteout/textures/bcn/bcn_common.cpp
+    src/whiteout/textures/jpeg/huffman.cpp
+    src/whiteout/textures/jpeg/jpeg_decode.cpp
+    src/whiteout/textures/jpeg/jpeg_encode.cpp
 )
 
 target_include_directories(whiteout_lib PUBLIC
@@ -82,4 +109,11 @@ add_executable(m3_writer_example
 )
 
 target_link_libraries(m3_writer_example PRIVATE whiteout_lib)
+
+# Texture Format Converter Example
+add_executable(texture_convert_example
+    examples/texture_convert_example.cpp
+)
+
+target_link_libraries(texture_convert_example PRIVATE whiteout_lib)
 
