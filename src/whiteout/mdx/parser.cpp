@@ -34,7 +34,92 @@ Track<T> readTrackChunk(BinaryReader& reader, u32 trackCount, u32 interpolationT
 
 } // namespace
 
-void Parser::SkipUnknownChunk(BinaryReader& reader, u32 tag, u32 size) {
+// ============================================================================
+// ParserImpl - Implementation class using PImpl idiom
+// ============================================================================
+
+class Parser::Impl {
+public:
+    ParseMode parseMode = ParseMode::Lenient;
+    UpgradeMode upgradeMode = UpgradeMode::UpgradeOldVersions;
+    std::vector<std::string> issues;
+    static constexpr u32 CurrentVersion = 1200; ///< Latest known MDX version (Reforged)
+
+    // Internal helper methods for parsing
+    void SkipUnknownChunk(BinaryReader& reader, u32 tag, u32 size);
+    void SkipUnknownTrack(BinaryReader& reader, u32 tag, u32 trackCount, u32 interpolationType);
+
+    struct ChunkHeader {
+        u32 tag;  ///< Chunk identifier
+        u32 size; ///< Chunk data size in bytes
+    };
+
+    ChunkHeader readChunkHeader(BinaryReader& reader);
+
+    Model parse(BinaryReader& reader);
+
+    // Chunk-specific parsers - each handles one MDX chunk type
+    void parseVERS(BinaryReader& reader, u32 size, Model& mdx);
+    void parseMODL(BinaryReader& reader, u32 size, Model& mdx);
+    void parseSEQS(BinaryReader& reader, u32 size, Model& mdx);
+    void parseGLBS(BinaryReader& reader, u32 size, Model& mdx);
+    void parseTEXS(BinaryReader& reader, u32 size, Model& mdx);
+    void parseSNDS(BinaryReader& reader, u32 size, Model& mdx);
+    void parseSNEM(BinaryReader& reader, u32 size, Model& mdx);
+    void parseMTLS(BinaryReader& reader, u32 size, Model& mdx);
+    void parseTXAN(BinaryReader& reader, u32 size, Model& mdx);
+    void parseGEOS(BinaryReader& reader, u32 size, Model& mdx);
+    void parseGEOA(BinaryReader& reader, u32 size, Model& mdx);
+    void parseBONE(BinaryReader& reader, u32 size, Model& mdx);
+    void parseLITE(BinaryReader& reader, u32 size, Model& mdx);
+    void parseHELP(BinaryReader& reader, u32 size, Model& mdx);
+    void parseATCH(BinaryReader& reader, u32 size, Model& mdx);
+    void parsePIVT(BinaryReader& reader, u32 size, Model& mdx);
+    void parsePREM(BinaryReader& reader, u32 size, Model& mdx);
+    void parsePRE2(BinaryReader& reader, u32 size, Model& mdx);
+    void parseRIBB(BinaryReader& reader, u32 size, Model& mdx);
+    void parseEVTS(BinaryReader& reader, u32 size, Model& mdx);
+    void parseCAMS(BinaryReader& reader, u32 size, Model& mdx);
+    void parseCLID(BinaryReader& reader, u32 size, Model& mdx);
+    void parseBPOS(BinaryReader& reader, u32 size, Model& mdx);
+    void parseFAFX(BinaryReader& reader, u32 size, Model& mdx);
+    void parseCORN(BinaryReader& reader, u32 size, Model& mdx);
+
+    // Structure parsers - parse individual structure types
+    Node parseNode(BinaryReader& reader);
+    void parseNodeTracks(BinaryReader& reader, Node& node, u32 nodeSize);
+
+    Material parseMaterial(BinaryReader& reader, u32 chunkSize, Model& mdx);
+    Layer parseLayer(BinaryReader& reader, Model& mdx);
+
+    Geoset parseGeoset(BinaryReader& reader, u32 maxSize, Model& mdx);
+
+    TextureAnimation parseTextureAnimation(BinaryReader& reader, u32 maxSize);
+
+    Attachment parseAttachment(BinaryReader& reader, u32 maxSize);
+    ParticleEmitter parseParticleEmitter(BinaryReader& reader, u32 maxSize);
+    ParticleEmitter2 parseParticleEmitter2(BinaryReader& reader, u32 maxSize);
+    RibbonEmitter parseRibbonEmitter(BinaryReader& reader, u32 maxSize);
+    Camera parseCamera(BinaryReader& reader, u32 maxSize);
+    Light parseLight(BinaryReader& reader, u32 maxSize, Model& mdx);
+    CollisionShape parseCollisionShape(BinaryReader& reader);
+    SoundEmitter parseSoundEmitter(BinaryReader& reader, u32 maxSize);
+
+    /**
+     * @brief Parse animation tracks
+     * @tparam T Track value type (f32, Vector3f, etc.)
+     * @param reader Binary reader
+     * @param tag Track chunk tag
+     * @param interpolationType Interpolation mode
+     * @param trackCount Number of tracks to parse
+     * @return Vector of parsed tracks
+     */
+    template <typename T>
+    std::vector<Track<T>> parseTracks(BinaryReader& reader, u32 tag, u32 interpolationType,
+                                      u32 trackCount);
+};
+
+void Parser::Impl::SkipUnknownChunk(BinaryReader& reader, u32 tag, u32 size) {
     std::string error =
         "Unknown chunk: " + std::string((char*)&tag, 4) + " (size: " + std::to_string(size) + ")";
     if (parseMode == ParseMode::Strict) {
@@ -44,8 +129,8 @@ void Parser::SkipUnknownChunk(BinaryReader& reader, u32 tag, u32 size) {
     reader.skip(size);
 }
 
-void Parser::SkipUnknownTrack(BinaryReader& reader, u32 tag, u32 trackCount,
-                              u32 interpolationType) {
+void Parser::Impl::SkipUnknownTrack(BinaryReader& reader, u32 tag, u32 trackCount,
+                                    u32 interpolationType) {
     std::string error = "Unknown track: " + std::string((char*)&tag, 4) +
                         " (count: " + std::to_string(trackCount) + ")";
     if (parseMode == ParseMode::Strict) {
@@ -58,6 +143,17 @@ void Parser::SkipUnknownTrack(BinaryReader& reader, u32 tag, u32 trackCount,
     reader.skip(trackCount * keySize);
 }
 
+// ============================================================================
+// Parser Public Interface (using PImpl)
+// ============================================================================
+
+Parser::Parser(ParseMode parseMode, UpgradeMode upgradeMode) : pImpl(std::make_unique<Impl>()) {
+    pImpl->parseMode = parseMode;
+    pImpl->upgradeMode = upgradeMode;
+}
+
+Parser::~Parser() = default;
+
 Model Parser::parse(const std::string& filePath) {
     std::ifstream file;
     file.open(filePath, std::ios::binary);
@@ -65,17 +161,30 @@ Model Parser::parse(const std::string& filePath) {
         throw std::runtime_error("Failed to open file: " + filePath);
     }
     BinaryReader reader(file);
-    return parse(reader);
+    return pImpl->parse(reader);
 }
 
 Model Parser::parse(std::span<const u8> buffer) {
     common::span_streambuf streambuf(buffer);
     std::istream in(&streambuf);
     BinaryReader reader(in);
-    return parse(reader);
+    return pImpl->parse(reader);
 }
 
-Model Parser::parse(BinaryReader& reader) {
+bool Parser::hasIssues() const {
+    return !pImpl->issues.empty();
+}
+
+const std::vector<std::string>& Parser::getIssues() const {
+    return pImpl->issues;
+}
+
+// ============================================================================
+// ParserImpl Implementation - Moved all private methods here
+// ============================================================================
+
+Model Parser::Impl::parse(BinaryReader& reader) {
+    issues.clear();
     Model mdx;
 
     // Read magic number
@@ -188,24 +297,24 @@ Model Parser::parse(BinaryReader& reader) {
     return mdx;
 }
 
-Parser::ChunkHeader Parser::readChunkHeader(BinaryReader& reader) {
+Parser::Impl::ChunkHeader Parser::Impl::readChunkHeader(BinaryReader& reader) {
     u32 tag = reader.read<u32>();
     u32 size = reader.read<u32>();
     return {tag, size};
 }
 
-void Parser::parseVERS(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseVERS(BinaryReader& reader, u32 size, Model& mdx) {
     mdx.version = reader.read<u32>();
 }
 
-void Parser::parseMODL(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseMODL(BinaryReader& reader, u32 size, Model& mdx) {
     mdx.modelName = reader.readString(80);
     mdx.animationFileName = reader.readString(260);
     mdx.modelExtent = reader.read<Extent>();
     mdx.blendTime = reader.read<u32>();
 }
 
-void Parser::parseSEQS(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseSEQS(BinaryReader& reader, u32 size, Model& mdx) {
     u32 count = size / 132;
     mdx.sequences.resize(count);
 
@@ -222,12 +331,12 @@ void Parser::parseSEQS(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-void Parser::parseGLBS(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseGLBS(BinaryReader& reader, u32 size, Model& mdx) {
     u32 count = size / 4;
     mdx.globalSequences = reader.read<std::vector<u32>>(count);
 }
 
-void Parser::parseTEXS(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseTEXS(BinaryReader& reader, u32 size, Model& mdx) {
     u32 count = size / 268;
     mdx.textures.resize(count);
 
@@ -238,7 +347,7 @@ void Parser::parseTEXS(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-void Parser::parseSNDS(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseSNDS(BinaryReader& reader, u32 size, Model& mdx) {
     u32 count = size / 56;
 
     for (u32 i = 0; i < count; i++) {
@@ -252,7 +361,7 @@ void Parser::parseSNDS(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-void Parser::parseSNEM(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseSNEM(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
@@ -263,7 +372,7 @@ void Parser::parseSNEM(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-SoundEmitter Parser::parseSoundEmitter(BinaryReader& reader, u32 maxSize) {
+SoundEmitter Parser::Impl::parseSoundEmitter(BinaryReader& reader, u32 maxSize) {
     SoundEmitter snem;
     u32 startPos = reader.getPosition();
 
@@ -292,7 +401,7 @@ SoundEmitter Parser::parseSoundEmitter(BinaryReader& reader, u32 maxSize) {
     return snem;
 }
 
-void Parser::parseMTLS(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseMTLS(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
@@ -302,7 +411,7 @@ void Parser::parseMTLS(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-Material Parser::parseMaterial(BinaryReader& reader, u32 chunkSize, Model& mdx) {
+Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 chunkSize, Model& mdx) {
     Material mat;
     u32 startPos = reader.getPosition();
     bool is_hd = false;
@@ -362,7 +471,7 @@ Material Parser::parseMaterial(BinaryReader& reader, u32 chunkSize, Model& mdx) 
     return mat;
 }
 
-Layer Parser::parseLayer(BinaryReader& reader, Model& mdx) {
+Layer Parser::Impl::parseLayer(BinaryReader& reader, Model& mdx) {
     Layer layer;
     u32 startPos = reader.getPosition();
 
@@ -455,7 +564,7 @@ Layer Parser::parseLayer(BinaryReader& reader, Model& mdx) {
     return layer;
 }
 
-void Parser::parseTXAN(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseTXAN(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
@@ -466,7 +575,7 @@ void Parser::parseTXAN(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-TextureAnimation Parser::parseTextureAnimation(BinaryReader& reader, u32 maxSize) {
+TextureAnimation Parser::Impl::parseTextureAnimation(BinaryReader& reader, u32 maxSize) {
     TextureAnimation anim;
     u32 startPos = reader.getPosition();
 
@@ -501,7 +610,7 @@ TextureAnimation Parser::parseTextureAnimation(BinaryReader& reader, u32 maxSize
     return anim;
 }
 
-void Parser::parseGEOS(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseGEOS(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
@@ -516,7 +625,7 @@ void Parser::parseGEOS(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-Geoset Parser::parseGeoset(BinaryReader& reader, u32 maxSize, Model& mdx) {
+Geoset Parser::Impl::parseGeoset(BinaryReader& reader, u32 maxSize, Model& mdx) {
     Geoset geoset;
     u32 startPos = reader.getPosition();
 
@@ -632,7 +741,7 @@ Geoset Parser::parseGeoset(BinaryReader& reader, u32 maxSize, Model& mdx) {
     return geoset;
 }
 
-void Parser::parseGEOA(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseGEOA(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
@@ -673,7 +782,7 @@ void Parser::parseGEOA(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-void Parser::parseBONE(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseBONE(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
@@ -696,7 +805,7 @@ void Parser::parseBONE(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-Node Parser::parseNode(BinaryReader& reader) {
+Node Parser::Impl::parseNode(BinaryReader& reader) {
     Node node;
     u32 startPos = reader.getPosition();
     u32 nodeSize = reader.read<u32>();
@@ -712,7 +821,7 @@ Node Parser::parseNode(BinaryReader& reader) {
     return node;
 }
 
-void Parser::parseNodeTracks(BinaryReader& reader, Node& node, u32 nodeSize) {
+void Parser::Impl::parseNodeTracks(BinaryReader& reader, Node& node, u32 nodeSize) {
     u32 nodeDataSize = 4 + 80 + 4 + 4 + 4; // inclusiveSize + name + objectId + parentId + flags
     u32 tracksSize = nodeSize - nodeDataSize;
 
@@ -747,7 +856,7 @@ void Parser::parseNodeTracks(BinaryReader& reader, Node& node, u32 nodeSize) {
     }
 }
 
-void Parser::parseLITE(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseLITE(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
@@ -761,7 +870,7 @@ void Parser::parseLITE(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-Light Parser::parseLight(BinaryReader& reader, u32 maxSize, Model& mdx) {
+Light Parser::Impl::parseLight(BinaryReader& reader, u32 maxSize, Model& mdx) {
     Light light;
     u32 startPos = reader.getPosition();
 
@@ -826,7 +935,7 @@ Light Parser::parseLight(BinaryReader& reader, u32 maxSize, Model& mdx) {
     return light;
 }
 
-void Parser::parseHELP(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseHELP(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
@@ -846,7 +955,7 @@ void Parser::parseHELP(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-void Parser::parseATCH(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseATCH(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
@@ -861,7 +970,7 @@ void Parser::parseATCH(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-Attachment Parser::parseAttachment(BinaryReader& reader, u32 maxSize) {
+Attachment Parser::Impl::parseAttachment(BinaryReader& reader, u32 maxSize) {
     Attachment att;
     u32 startPos = reader.getPosition();
 
@@ -892,7 +1001,7 @@ Attachment Parser::parseAttachment(BinaryReader& reader, u32 maxSize) {
     return att;
 }
 
-void Parser::parsePIVT(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parsePIVT(BinaryReader& reader, u32 size, Model& mdx) {
     u32 count = size / 12;
     mdx.pivotPoints.resize(count);
 
@@ -901,7 +1010,7 @@ void Parser::parsePIVT(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-void Parser::parsePREM(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parsePREM(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
@@ -916,7 +1025,7 @@ void Parser::parsePREM(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-ParticleEmitter Parser::parseParticleEmitter(BinaryReader& reader, u32 maxSize) {
+ParticleEmitter Parser::Impl::parseParticleEmitter(BinaryReader& reader, u32 maxSize) {
     ParticleEmitter pem;
     u32 startPos = reader.getPosition();
 
@@ -976,7 +1085,7 @@ ParticleEmitter Parser::parseParticleEmitter(BinaryReader& reader, u32 maxSize) 
     return pem;
 }
 
-void Parser::parsePRE2(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parsePRE2(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
@@ -991,7 +1100,7 @@ void Parser::parsePRE2(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-ParticleEmitter2 Parser::parseParticleEmitter2(BinaryReader& reader, u32 maxSize) {
+ParticleEmitter2 Parser::Impl::parseParticleEmitter2(BinaryReader& reader, u32 maxSize) {
     ParticleEmitter2 pem2;
     u32 startPos = reader.getPosition();
 
@@ -1092,7 +1201,7 @@ ParticleEmitter2 Parser::parseParticleEmitter2(BinaryReader& reader, u32 maxSize
     return pem2;
 }
 
-void Parser::parseRIBB(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseRIBB(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
@@ -1107,7 +1216,7 @@ void Parser::parseRIBB(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-RibbonEmitter Parser::parseRibbonEmitter(BinaryReader& reader, u32 maxSize) {
+RibbonEmitter Parser::Impl::parseRibbonEmitter(BinaryReader& reader, u32 maxSize) {
     RibbonEmitter ribb;
     u32 startPos = reader.getPosition();
 
@@ -1167,7 +1276,7 @@ RibbonEmitter Parser::parseRibbonEmitter(BinaryReader& reader, u32 maxSize) {
     return ribb;
 }
 
-void Parser::parseEVTS(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseEVTS(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
@@ -1197,7 +1306,7 @@ void Parser::parseEVTS(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-void Parser::parseCAMS(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseCAMS(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
@@ -1207,7 +1316,7 @@ void Parser::parseCAMS(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-Camera Parser::parseCamera(BinaryReader& reader, u32 maxSize) {
+Camera Parser::Impl::parseCamera(BinaryReader& reader, u32 maxSize) {
     Camera cam;
     u32 startPos = reader.getPosition();
 
@@ -1249,7 +1358,7 @@ Camera Parser::parseCamera(BinaryReader& reader, u32 maxSize) {
     return cam;
 }
 
-void Parser::parseCLID(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseCLID(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
@@ -1267,7 +1376,7 @@ void Parser::parseCLID(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-CollisionShape Parser::parseCollisionShape(BinaryReader& reader) {
+CollisionShape Parser::Impl::parseCollisionShape(BinaryReader& reader) {
     CollisionShape shape;
     shape.node = parseNode(reader);
     u32 type_index = reader.read<u32>();
@@ -1290,7 +1399,7 @@ CollisionShape Parser::parseCollisionShape(BinaryReader& reader) {
     return shape;
 }
 
-void Parser::parseBPOS(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseBPOS(BinaryReader& reader, u32 size, Model& mdx) {
     u32 count = reader.read<u32>();
     mdx.bindPoses.resize(count);
 
@@ -1301,7 +1410,7 @@ void Parser::parseBPOS(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-void Parser::parseFAFX(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseFAFX(BinaryReader& reader, u32 size, Model& mdx) {
     u32 count = size / 340;
     mdx.faceEffects.resize(count);
 
@@ -1311,7 +1420,7 @@ void Parser::parseFAFX(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-void Parser::parseCORN(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseCORN(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {

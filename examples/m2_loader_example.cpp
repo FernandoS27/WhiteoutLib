@@ -45,7 +45,7 @@ int main(int argc, char* argv[]) {
     std::string m2FilePath = argv[1];
     
     try {
-        whiteout::m2::Parser parser(whiteout::m2::ParseMode::Lenient);
+        whiteout::m2::Parser parser(whiteout::m2::Parser::ParseMode::Lenient);
         
         std::cout << "Loading M2 file: " << m2FilePath << std::endl;
         

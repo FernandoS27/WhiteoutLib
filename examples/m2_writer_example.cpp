@@ -18,7 +18,7 @@ int main(int argc, char* argv[]) {
     
     try {
         std::cout << "Loading input M2 file: " << inputPath << std::endl;
-        whiteout::m2::Parser parser(whiteout::m2::ParseMode::Lenient);
+        whiteout::m2::Parser parser(whiteout::m2::Parser::ParseMode::Lenient);
         whiteout::m2::FileSystem model = parser.parse(inputPath);
         
         const auto& issues = parser.getIssues();

@@ -16,9 +16,40 @@ namespace m2 {
 
 using common::BinaryReader;
 
-Parser::Parser(ParseMode mode) : parseMode(mode) {}
+// ============================================================================
+// ParserImpl - Implementation class using PImpl idiom
+// ============================================================================
+
+class Parser::Impl {
+public:
+    ParseMode parseMode;
+    std::vector<std::string> issues;
+
+    void parseBase(BinaryReader& reader, BaseFile& file);
+    void parseChunkedBase(BinaryReader& reader, BaseFile& m2file);
+
+    void parseSkin(BinaryReader& reader, SkinFile& skinFile);
+
+    void parseChunkedSkeleton(BinaryReader& reader, SkeletonFile& skeletonFile);
+    void parseChunkedBone(BinaryReader& reader, BoneFile& boneFile);
+    void parseChunkedAnim(BinaryReader& reader, AnimFile& animFile);
+
+    void reportIssue(const std::string& message);
+    void skipUnknownChunk(BinaryReader& reader, uint32_t tag, uint32_t size);
+};
+
+// ============================================================================
+// Parser Public Interface (using PImpl)
+// ============================================================================
+
+Parser::Parser(ParseMode mode) : pImpl(std::make_unique<Impl>()) {
+    pImpl->parseMode = mode;
+}
+
+Parser::~Parser() = default;
 
 FileSystem Parser::parse(const std::string& filePath) {
+    pImpl->issues.clear();
     auto groupedFiles = m2::collectBundle(filePath);
     if (!groupedFiles) {
         throw std::runtime_error("Failed to collect M2 bundle: " + filePath);
@@ -31,81 +62,82 @@ FileSystem Parser::parse(const std::string& filePath) {
             throw std::runtime_error("Failed to open M2 file: " + groupedFiles->m2.string());
         }
         BinaryReader reader(file);
-        parseBase(reader, fileSystem.base);
+        pImpl->parseBase(reader, fileSystem.base);
         fileSystem.baseName = groupedFiles->m2.stem().string();
     }
     // Parse skin files
     for (const auto& [index, skinPath] : groupedFiles->baseSkins) {
         std::ifstream file(skinPath, std::ios::binary);
         if (!file.is_open()) {
-            reportIssue("Failed to open skin file: " + skinPath.string());
+            pImpl->reportIssue("Failed to open skin file: " + skinPath.string());
             continue;
         }
 
         try {
             BinaryReader reader(file);
             SkinFile skinFile;
-            parseSkin(reader, skinFile);
+            pImpl->parseSkin(reader, skinFile);
             skinFile.isLodSkin = false;
             skinFile.index = index;
             fileSystem.skins.push_back(std::move(skinFile));
         } catch (const std::exception& e) {
-            reportIssue("Error parsing skin file '" + skinPath.string() + "': " + e.what());
+            pImpl->reportIssue("Error parsing skin file '" + skinPath.string() + "': " + e.what());
         }
     }
     for (const auto& [lodLevel, skinPath] : groupedFiles->lodSkins) {
         std::ifstream file(skinPath, std::ios::binary);
         if (!file.is_open()) {
-            reportIssue("Failed to open skin file: " + skinPath.string());
+            pImpl->reportIssue("Failed to open skin file: " + skinPath.string());
             continue;
         }
         try {
             BinaryReader reader(file);
             SkinFile skinFile;
-            parseSkin(reader, skinFile);
+            pImpl->parseSkin(reader, skinFile);
             skinFile.isLodSkin = true;
             skinFile.lodLevel = lodLevel;
             fileSystem.skins.push_back(std::move(skinFile));
         } catch (const std::exception& e) {
-            reportIssue("Error parsing skin file '" + skinPath.string() + "': " + e.what());
+            pImpl->reportIssue("Error parsing skin file '" + skinPath.string() + "': " + e.what());
         }
     }
     if (groupedFiles->skel) {
         std::ifstream file(groupedFiles->skel.value(), std::ios::binary);
         if (!file.is_open()) {
-            reportIssue("Failed to open skeleton file: " + groupedFiles->skel.value().string());
+            pImpl->reportIssue("Failed to open skeleton file: " +
+                               groupedFiles->skel.value().string());
         } else {
             try {
                 BinaryReader reader(file);
                 fileSystem.skeleton.emplace();
-                parseChunkedSkeleton(reader, fileSystem.skeleton.value());
+                pImpl->parseChunkedSkeleton(reader, fileSystem.skeleton.value());
             } catch (const std::exception& e) {
-                reportIssue("Error parsing skeleton file '" + groupedFiles->skel.value().string() +
-                            "': " + e.what());
+                pImpl->reportIssue("Error parsing skeleton file '" +
+                                   groupedFiles->skel.value().string() + "': " + e.what());
             }
         }
     }
     for (const auto& [boneId, bonePath] : groupedFiles->bones) {
         std::ifstream file(bonePath, std::ios::binary);
         if (!file.is_open()) {
-            reportIssue("Failed to open bone file: " + bonePath.string());
+            pImpl->reportIssue("Failed to open bone file: " + bonePath.string());
             continue;
         }
         try {
             BinaryReader reader(file);
             BoneFile boneFile;
             boneFile.boneId = boneId;
-            parseChunkedBone(reader, boneFile);
+            pImpl->parseChunkedBone(reader, boneFile);
             fileSystem.bones.push_back(std::move(boneFile));
         } catch (const std::exception& e) {
-            reportIssue("Error parsing bone file '" + bonePath.string() + "': " + e.what());
+            pImpl->reportIssue("Error parsing bone file '" + bonePath.string() + "': " + e.what());
         }
     }
     for (const auto& [animId, animVariants] : groupedFiles->anims) {
         for (const auto& [variant, animPath] : animVariants.variants) {
             std::ifstream file(animPath, std::ios::binary);
             if (!file.is_open()) {
-                reportIssue("Failed to open anim file: " + animPath.string());
+                pImpl->reportIssue("Failed to open anim file: " + animPath.string());
                 continue;
             }
             try {
@@ -113,10 +145,11 @@ FileSystem Parser::parse(const std::string& filePath) {
                 AnimFile animFile;
                 animFile.animId = animId;
                 animFile.variant = variant;
-                parseChunkedAnim(reader, animFile);
+                pImpl->parseChunkedAnim(reader, animFile);
                 fileSystem.anims.push_back(std::move(animFile));
             } catch (const std::exception& e) {
-                reportIssue("Error parsing anim file '" + animPath.string() + "': " + e.what());
+                pImpl->reportIssue("Error parsing anim file '" + animPath.string() +
+                                   "': " + e.what());
             }
         }
     }
@@ -124,24 +157,25 @@ FileSystem Parser::parse(const std::string& filePath) {
 }
 
 void Parser::parse(std::span<const uint8_t> buffer, FileSystem& fileSystem, FileType fileType) {
+    pImpl->issues.clear();
     common::span_streambuf streambuf(buffer);
     std::istream in(&streambuf);
     BinaryReader reader(in);
     switch (fileType) {
     case FileType::Base:
-        parseBase(reader, fileSystem.base);
+        pImpl->parseBase(reader, fileSystem.base);
         break;
     case FileType::Skin:
         fileSystem.skins.emplace_back();
-        parseSkin(reader, fileSystem.skins.back());
+        pImpl->parseSkin(reader, fileSystem.skins.back());
         break;
     case FileType::Skeleton:
         if (fileSystem.skeleton.has_value()) {
-            reportIssue("Multiple skeleton files found in buffer, skipping additional ones");
+            pImpl->reportIssue("Multiple skeleton files found in buffer, skipping additional ones");
             return;
         }
         fileSystem.skeleton.emplace();
-        parseChunkedSkeleton(reader, fileSystem.skeleton.value());
+        pImpl->parseChunkedSkeleton(reader, fileSystem.skeleton.value());
         break;
     // Add cases for other file types as needed
     default:
@@ -149,7 +183,33 @@ void Parser::parse(std::span<const uint8_t> buffer, FileSystem& fileSystem, File
     }
 }
 
-void Parser::parseBase(BinaryReader& reader, BaseFile& file) {
+const std::vector<std::string>& Parser::getIssues() const {
+    return pImpl->issues;
+}
+
+bool Parser::hasIssues() const {
+    return !pImpl->issues.empty();
+}
+
+// ============================================================================
+// ParserImpl Implementation - Moved all private methods here
+// ============================================================================
+
+void Parser::Impl::reportIssue(const std::string& message) {
+    if (parseMode == ParseMode::Strict) {
+        throw std::runtime_error(message);
+    }
+    issues.push_back(message);
+}
+
+void Parser::Impl::skipUnknownChunk(BinaryReader& reader, uint32_t tag, uint32_t size) {
+    std::string error = "Unknown chunk: " + std::string(reinterpret_cast<char*>(&tag), 4) +
+                        " (size: " + std::to_string(size) + ")";
+    reportIssue(error);
+    reader.skip(size);
+}
+
+void Parser::Impl::parseBase(BinaryReader& reader, BaseFile& file) {
     u32 magic = reader.read<u32>();
     reader.setPosition(0);
 
@@ -171,7 +231,7 @@ void Parser::parseBase(BinaryReader& reader, BaseFile& file) {
     issues.push_back(error);
 }
 
-void Parser::parseSkin(BinaryReader& reader, SkinFile& skinFile) {
+void Parser::Impl::parseSkin(BinaryReader& reader, SkinFile& skinFile) {
     u32 magic = reader.read<u32>();
     reader.setPosition(0);
 
@@ -189,7 +249,7 @@ void Parser::parseSkin(BinaryReader& reader, SkinFile& skinFile) {
     issues.push_back(error);
 }
 
-void Parser::parseChunkedBase(BinaryReader& reader, BaseFile& m2file) {
+void Parser::Impl::parseChunkedBase(BinaryReader& reader, BaseFile& m2file) {
     while (reader.hasRemaining()) {
         u32 chunkTag = reader.read<u32>();
         u32 chunkSize = reader.read<u32>();
@@ -383,7 +443,7 @@ void Parser::parseChunkedBase(BinaryReader& reader, BaseFile& m2file) {
     }
 }
 
-void Parser::parseChunkedSkeleton(BinaryReader& reader, SkeletonFile& skeletonFile) {
+void Parser::Impl::parseChunkedSkeleton(BinaryReader& reader, SkeletonFile& skeletonFile) {
     while (reader.hasRemaining()) {
         u32 chunkTag = reader.read<u32>();
         u32 chunkSize = reader.read<u32>();
@@ -440,7 +500,7 @@ void Parser::parseChunkedSkeleton(BinaryReader& reader, SkeletonFile& skeletonFi
     }
 }
 
-void Parser::parseChunkedBone(BinaryReader& reader, BoneFile& boneFile) {
+void Parser::Impl::parseChunkedBone(BinaryReader& reader, BoneFile& boneFile) {
     // First, read the BONE header (4 bytes, should be 1)
     BinaryParseVisitor headerParser(reader);
     headerParser.read(boneFile.header);
@@ -472,7 +532,7 @@ void Parser::parseChunkedBone(BinaryReader& reader, BoneFile& boneFile) {
     }
 }
 
-void Parser::parseChunkedAnim(BinaryReader& reader, AnimFile& animFile) {
+void Parser::Impl::parseChunkedAnim(BinaryReader& reader, AnimFile& animFile) {
     // Check if the file is chunked by peeking at the first 4 bytes
     u32 firstTag = reader.read<u32>();
     reader.setPosition(0);
@@ -480,6 +540,7 @@ void Parser::parseChunkedAnim(BinaryReader& reader, AnimFile& animFile) {
     // If it starts with AFM2, AFSA, or AFSB, it's chunked format
     if (firstTag != AFM2_TAG && firstTag != AFSA_TAG && firstTag != AFSB_TAG) {
         // Pre-Legion format: raw data
+
         u32 fileSize = reader.getRemainingBytes();
 
         // Update it to use the new chunked structure for consistency
@@ -521,18 +582,6 @@ void Parser::parseChunkedAnim(BinaryReader& reader, AnimFile& animFile) {
         }
         reader.setPosition(chunkStart + chunkSize);
     }
-}
-
-void Parser::skipUnknownChunk(BinaryReader& reader, u32 tag, u32 size) {
-    std::string tagStr(reinterpret_cast<char*>(&tag), 4);
-    reportIssue("Unknown M2 chunk: " + tagStr + " (size: " + std::to_string(size) + ")");
-}
-
-void Parser::reportIssue(const std::string& message) {
-    if (parseMode == ParseMode::Strict) {
-        throw std::runtime_error(message);
-    }
-    issues.push_back(message);
 }
 
 } // namespace m2

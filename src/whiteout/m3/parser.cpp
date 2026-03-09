@@ -14,25 +14,21 @@ namespace m3 {
 
 using common::BinaryReader;
 
-Parser::Parser(ParseMode mode) : parseMode(mode) {}
+// ============================================================================
+// ParserImpl - Implementation class using PImpl idiom
+// ============================================================================
 
-Model Parser::parse(const std::string& filePath) {
-    std::ifstream file(filePath, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open M3 file: " + filePath);
-    }
-    BinaryReader reader(file);
-    return parseFromReader(reader);
-}
+class Parser::Impl {
+public:
+    ParseMode parseMode;
+    std::vector<std::string> issues;
 
-Model Parser::parse(std::span<const u8> buffer) {
-    common::span_streambuf streambuf(buffer);
-    std::istream in(&streambuf);
-    BinaryReader reader(in);
-    return parseFromReader(reader);
-}
+    Model parseFromReader(BinaryReader& reader);
+    void reportIssue(const std::string& message);
+};
 
-Model Parser::parseFromReader(BinaryReader& reader) {
+Model Parser::Impl::parseFromReader(BinaryReader& reader) {
+    issues.clear();
     Model model;
     try {
         BinaryParseVisitor visitor(reader);
@@ -51,11 +47,45 @@ Model Parser::parseFromReader(BinaryReader& reader) {
     return model;
 }
 
-void Parser::reportIssue(const std::string& message) {
+void Parser::Impl::reportIssue(const std::string& message) {
     if (parseMode == ParseMode::Strict) {
         throw std::runtime_error(message);
     }
     issues.push_back(message);
+}
+
+// ============================================================================
+// Parser Public Interface (using PImpl)
+// ============================================================================
+
+Parser::Parser(ParseMode mode) : pImpl(std::make_unique<Impl>()) {
+    pImpl->parseMode = mode;
+}
+
+Parser::~Parser() = default;
+
+Model Parser::parse(const std::string& filePath) {
+    std::ifstream file(filePath, std::ios::binary);
+    if (!file.is_open()) {
+        throw std::runtime_error("Failed to open M3 file: " + filePath);
+    }
+    BinaryReader reader(file);
+    return pImpl->parseFromReader(reader);
+}
+
+Model Parser::parse(std::span<const u8> buffer) {
+    common::span_streambuf streambuf(buffer);
+    std::istream in(&streambuf);
+    BinaryReader reader(in);
+    return pImpl->parseFromReader(reader);
+}
+
+bool Parser::hasIssues() const {
+    return !pImpl->issues.empty();
+}
+
+const std::vector<std::string>& Parser::getIssues() const {
+    return pImpl->issues;
 }
 
 } // namespace m3

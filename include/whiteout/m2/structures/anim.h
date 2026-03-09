@@ -1,6 +1,25 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
+/**
+ * @file anim.h
+ * @brief External animation file (.anim) structures
+ *
+ * Defines the chunk types found in external .anim files. Animations whose
+ * sequence flags have (flags & 0x130) == 0 are stored externally, with one
+ * .anim file per (animId, subAnimId) pair.
+ *
+ * @par Pre-Legion Format
+ * Raw data blobs containing timestamps and keyframe values for animation
+ * tracks. Filename: `<model>%04d-%02d.anim` (animId, subAnimId).
+ *
+ * @par Legion 24500+ Chunked Format
+ * When the M2 header sets flag 0x200000 or a .skel file exists, .anim files
+ * use a chunked layout with AFM2, AFSA, and AFSB chunks.
+ *
+ * @see M2_FILE_FORMAT_SPECIFICATION.md Section 16 — External Animation Files
+ */
+
 #pragma once
 
 #include <vector>
@@ -11,69 +30,74 @@ namespace whiteout {
 namespace m2 {
 
 // ============================================================================
-// ANIM File Chunks and Tags (Legion 24500+)
+// ANIM File Chunk Tags (Legion 24500+)
 // ============================================================================
 
-constexpr u32 AFM2_TAG = makeTag("AFM2");
-constexpr u32 AFSA_TAG = makeTag("AFSA");
-constexpr u32 AFSB_TAG = makeTag("AFSB");
+constexpr u32 AFM2_TAG = makeTag("AFM2"); ///< Animation data chunk tag
+constexpr u32 AFSA_TAG = makeTag("AFSA"); ///< Attachment skeleton animation chunk tag
+constexpr u32 AFSB_TAG = makeTag("AFSB"); ///< Bone skeleton animation chunk tag
 
 // ============================================================================
-// ANIM File Structure
+// AFM2 — Animation Data
 // ============================================================================
 
-// Pre-Legion: .anim files are raw data blobs containing timestamps and values
-// for animation blocks. They are loaded when (Sequence.flags & 0x130) == 0
-// Filename format: "%s%04d-%02d.anim" % (model_name, anim_id, sub_anim_id)
-
-// Legion 24500+: Optionally chunked format
-// Files are chunked if:
-// - M2 header's 0x200000 flag is set (new mid-expansion format)
-// - The M2 has a .skel file
-
-// ============================================================================
-// AFM2 - Animation Data (Legion 24500+)
-// ============================================================================
-
-// Raw animation data chunk - same content as old anim file but with chunk header
-// For new format M2s, this contains animation data for Events only
-// For old format converted files, this is bit-identical to the old .anim file
+/**
+ * @brief Raw animation data chunk (Legion 24500+)
+ *
+ * For new-format M2s, contains animation data for Events only.
+ * For old-format converted files, this is bit-identical to the pre-Legion
+ * raw .anim blob.
+ */
 struct AFM2Chunk {
-    std::vector<u8> animationData; // Raw animation block data
+    std::vector<u8> animationData; ///< Raw animation block data
 };
 
 // ============================================================================
-// AFSA - Attachment Skeleton Data (Legion 24500+)
+// AFSA — Attachment Skeleton Animation
 // ============================================================================
 
-// Skeleton data for attachments
-// Contains animation data for attachment points
+/**
+ * @brief Attachment animation data chunk (Legion 24500+)
+ *
+ * Contains animation keyframes for attachment points (Attachment.animate
+ * tracks) that were separated from the main M2 in the skeleton split.
+ */
 struct AFSAChunk {
-    std::vector<u8> attachmentData; // Raw attachment animation data
+    std::vector<u8> attachmentData; ///< Raw attachment animation data
 };
 
 // ============================================================================
-// AFSB - Bone Skeleton Data (Legion 24500+)
+// AFSB — Bone Skeleton Animation
 // ============================================================================
 
-// Skeleton data for bones
-// Contains animation data for bone transformations
+/**
+ * @brief Bone animation data chunk (Legion 24500+)
+ *
+ * Contains animation keyframes for bone transformations (translation,
+ * rotation, scale tracks) that were separated from the main M2 during
+ * the skeleton refactor.
+ */
 struct AFSBChunk {
-    std::vector<u8> boneData; // Raw bone animation data
+    std::vector<u8> boneData; ///< Raw bone animation data
 };
 
 // ============================================================================
-// Complete ANIM File Structure
+// Complete ANIM File
 // ============================================================================
 
+/**
+ * @brief Complete parsed .anim file
+ *
+ * Represents a single external animation file. For pre-Legion files, the raw
+ * data is in afm2_chunk.animationData. For chunked files, data is split across
+ * AFM2 (events), AFSA (attachments), and AFSB (bones).
+ */
 struct AnimProfile {
+    std::optional<AFM2Chunk> afm2_chunk = std::nullopt; ///< Animation data (events for new format)
+    std::optional<AFSAChunk> afsa_chunk = std::nullopt; ///< Attachment animation data
+    std::optional<AFSBChunk> afsb_chunk = std::nullopt; ///< Bone animation data
 
-    // For chunked files (Legion 24500+):
-    std::optional<AFM2Chunk> afm2_chunk = std::nullopt; // Animation data
-    std::optional<AFSAChunk> afsa_chunk = std::nullopt; // Attachment data
-    std::optional<AFSBChunk> afsb_chunk = std::nullopt; // Bone data
-
-    bool isChunked = false; // Whether this uses chunked format
+    bool isChunked = false; ///< True if this file uses chunked format (Legion 24500+)
 };
 
 } // namespace m2

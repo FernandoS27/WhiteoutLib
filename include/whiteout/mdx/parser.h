@@ -49,6 +49,8 @@ using common::BinaryReader;
  *
  * The Parser reads binary MDX files and converts them into the Model
  * structure. It supports multiple parsing modes and can handle version differences.
+ *
+ * Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
  */
 class Parser {
 public:
@@ -74,9 +76,10 @@ public:
      * @param upgradeMode How to handle version differences
      */
     Parser(ParseMode parseMode = ParseMode::Lenient,
-           UpgradeMode upgradeMode = UpgradeMode::UpgradeOldVersions)
-        : parseMode(parseMode), upgradeMode(upgradeMode) {}
-    ~Parser() = default;
+           UpgradeMode upgradeMode = UpgradeMode::UpgradeOldVersions);
+
+    /// @brief Destructor (defined in .cpp for incomplete type)
+    ~Parser();
 
     /**
      * @brief Parse an MDX file from disk
@@ -98,101 +101,17 @@ public:
      * @brief Check if parsing encountered any issues
      * @return True if there were warnings or recoverable errors
      */
-    bool hasIssues() const {
-        return !issues.empty();
-    }
+    bool hasIssues() const;
 
     /**
      * @brief Get list of issues encountered during parsing
      * @return Vector of issue description strings
      */
-    const std::vector<std::string>& getIssues() const {
-        return issues;
-    }
+    const std::vector<std::string>& getIssues() const;
 
 private:
-    ParseMode parseMode = ParseMode::Lenient;
-    UpgradeMode upgradeMode = UpgradeMode::UpgradeOldVersions;
-    std::vector<std::string> issues;
-    static constexpr u32 CurrentVersion = 1200; ///< Latest known MDX version (Reforged)
-
-    // Internal helper methods for parsing
-    void SkipUnknownChunk(BinaryReader& reader, u32 tag, u32 size);
-    void SkipUnknownTrack(BinaryReader& reader, u32 tag, u32 trackCount, u32 interpolationType);
-
-    struct ChunkHeader {
-        u32 tag;  ///< Chunk identifier
-        u32 size; ///< Chunk data size in bytes
-    };
-
-    ChunkHeader readChunkHeader(BinaryReader& reader);
-
-    Model parse(BinaryReader& reader);
-
-    // Chunk-specific parsers - each handles one MDX chunk type
-    void parseVERS(BinaryReader& reader, u32 size, Model& mdx); ///< Parse version chunk
-    void parseMODL(BinaryReader& reader, u32 size, Model& mdx); ///< Parse model info chunk
-    void parseSEQS(BinaryReader& reader, u32 size, Model& mdx); ///< Parse sequences chunk
-    void parseGLBS(BinaryReader& reader, u32 size, Model& mdx); ///< Parse global sequences
-    void parseTEXS(BinaryReader& reader, u32 size, Model& mdx); ///< Parse textures chunk
-    void parseSNDS(BinaryReader& reader, u32 size, Model& mdx); ///< Parse sounds chunk
-    void parseSNEM(BinaryReader& reader, u32 size, Model& mdx); ///< Parse sound emitters chunk
-    void parseMTLS(BinaryReader& reader, u32 size, Model& mdx); ///< Parse materials chunk
-    void parseTXAN(BinaryReader& reader, u32 size, Model& mdx); ///< Parse texture animations
-    void parseGEOS(BinaryReader& reader, u32 size, Model& mdx); ///< Parse geosets chunk
-    void parseGEOA(BinaryReader& reader, u32 size, Model& mdx); ///< Parse geoset animations
-    void parseBONE(BinaryReader& reader, u32 size, Model& mdx); ///< Parse bones chunk
-    void parseLITE(BinaryReader& reader, u32 size, Model& mdx); ///< Parse lights chunk
-    void parseHELP(BinaryReader& reader, u32 size, Model& mdx); ///< Parse helpers chunk
-    void parseATCH(BinaryReader& reader, u32 size, Model& mdx); ///< Parse attachments chunk
-    void parsePIVT(BinaryReader& reader, u32 size, Model& mdx); ///< Parse pivot points
-    void parsePREM(BinaryReader& reader, u32 size, Model& mdx); ///< Parse particle emitters v1
-    void parsePRE2(BinaryReader& reader, u32 size, Model& mdx); ///< Parse particle emitters v2
-    void parseRIBB(BinaryReader& reader, u32 size, Model& mdx); ///< Parse ribbon emitters
-    void parseEVTS(BinaryReader& reader, u32 size, Model& mdx); ///< Parse event objects
-    void parseCAMS(BinaryReader& reader, u32 size, Model& mdx); ///< Parse cameras chunk
-    void parseCLID(BinaryReader& reader, u32 size, Model& mdx); ///< Parse collision shapes
-    void parseBPOS(BinaryReader& reader, u32 size, Model& mdx); ///< Parse bind poses (Reforged)
-    void parseFAFX(BinaryReader& reader, u32 size, Model& mdx); ///< Parse face effects (Reforged)
-    void parseCORN(BinaryReader& reader, u32 size, Model& mdx); ///< Parse corn emitters (Reforged)
-
-    // Structure parsers - parse individual structure types
-    Node parseNode(BinaryReader& reader); ///< Parse a node (common to many types)
-    void parseNodeTracks(BinaryReader& reader, Node& node,
-                         u32 nodeSize); ///< Parse node animation tracks
-
-    Material parseMaterial(BinaryReader& reader, u32 chunkSize,
-                           Model& mdx);                 ///< Parse a single material
-    Layer parseLayer(BinaryReader& reader, Model& mdx); ///< Parse a material layer
-
-    Geoset parseGeoset(BinaryReader& reader, u32 maxSize, Model& mdx); ///< Parse a single geoset
-
-    TextureAnimation parseTextureAnimation(BinaryReader& reader,
-                                           u32 maxSize); ///< Parse texture animation
-
-    Attachment parseAttachment(BinaryReader& reader, u32 maxSize); ///< Parse an attachment
-    ParticleEmitter parseParticleEmitter(BinaryReader& reader,
-                                         u32 maxSize); ///< Parse particle emitter v1
-    ParticleEmitter2 parseParticleEmitter2(BinaryReader& reader,
-                                           u32 maxSize); ///< Parse particle emitter v2
-    RibbonEmitter parseRibbonEmitter(BinaryReader& reader, u32 maxSize); ///< Parse ribbon emitter
-    Camera parseCamera(BinaryReader& reader, u32 maxSize);               ///< Parse a camera
-    Light parseLight(BinaryReader& reader, u32 maxSize, Model& mdx);     ///< Parse a light
-    CollisionShape parseCollisionShape(BinaryReader& reader);            ///< Parse collision shape
-    SoundEmitter parseSoundEmitter(BinaryReader& reader, u32 maxSize);   ///< Parse sound emitter
-
-    /**
-     * @brief Parse animation tracks
-     * @tparam T Track value type (f32, Vector3f, etc.)
-     * @param reader Binary reader
-     * @param tag Track chunk tag
-     * @param interpolationType Interpolation mode
-     * @param trackCount Number of tracks to parse
-     * @return Vector of parsed tracks
-     */
-    template <typename T>
-    std::vector<Track<T>> parseTracks(BinaryReader& reader, u32 tag, u32 interpolationType,
-                                      u32 trackCount);
+    class Impl;
+    std::unique_ptr<Impl> pImpl;
 };
 
 } // namespace mdx

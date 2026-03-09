@@ -13,7 +13,27 @@ namespace m2 {
 
 using common::BinaryWriter;
 
-Writer::Writer() = default;
+// ============================================================================
+// WriterImpl - Implementation class using PImpl idiom
+// ============================================================================
+
+class Writer::Impl {
+public:
+    void writeBase(BinaryWriter& writer, const BaseFile& model);
+    void writeSkin(BinaryWriter& writer, const SkinFile& model);
+    void writeChunkedBase(BinaryWriter& writer, const BaseFile& model);
+    void writeChunkedSkeleton(BinaryWriter& writer, const SkeletonFile& model);
+    void writeChunkedBone(BinaryWriter& writer, const BoneFile& model);
+    void writeChunkedAnim(BinaryWriter& writer, const AnimFile& model);
+};
+
+// ============================================================================
+// Writer Public Interface (using PImpl)
+// ============================================================================
+
+Writer::Writer() : pImpl(std::make_unique<Impl>()) {}
+
+Writer::~Writer() = default;
 
 void Writer::write(const std::string& filePath, const FileSystem& model) {
     auto groupedFiles = fromFileSystem(model, filePath);
@@ -25,7 +45,7 @@ void Writer::write(const std::string& filePath, const FileSystem& model) {
                                      groupedFiles.m2.string());
         }
         BinaryWriter writer(file);
-        writeBase(writer, model.base);
+        pImpl->writeBase(writer, model.base);
     }
     for (const auto& skinFile : model.skins) {
         std::filesystem::path skinPath;
@@ -39,7 +59,7 @@ void Writer::write(const std::string& filePath, const FileSystem& model) {
             throw std::runtime_error("Failed to open skin file for writing: " + skinPath.string());
         }
         BinaryWriter writer(file);
-        writeSkin(writer, skinFile);
+        pImpl->writeSkin(writer, skinFile);
     }
     if (model.skeleton) {
         std::ofstream file(groupedFiles.skel.value(), std::ios::binary);
@@ -48,7 +68,7 @@ void Writer::write(const std::string& filePath, const FileSystem& model) {
                                      groupedFiles.skel.value().string());
         }
         BinaryWriter writer(file);
-        writeChunkedSkeleton(writer, model.skeleton.value());
+        pImpl->writeChunkedSkeleton(writer, model.skeleton.value());
     }
 }
 
@@ -66,7 +86,7 @@ std::vector<u8> Writer::write(const BaseFile& model) {
         break;
     }
     case Format::LegionMD21:
-        writeChunkedBase(writer, model);
+        pImpl->writeChunkedBase(writer, model);
         break;
     }
 
@@ -75,7 +95,24 @@ std::vector<u8> Writer::write(const BaseFile& model) {
     return buffer;
 }
 
-void Writer::writeBase(BinaryWriter& writer, const BaseFile& model) {
+std::vector<u8> Writer::write(const SkinFile& model) {
+    std::vector<u8> buffer;
+    buffer.reserve(512 * 1024); // Reserve 512KB for skin files
+    common::vector_streambuf streambuf(buffer);
+    std::ostream out(&streambuf);
+    BinaryWriter writer(out);
+
+    pImpl->writeSkin(writer, model);
+
+    buffer.shrink_to_fit();
+    return buffer;
+}
+
+// ============================================================================
+// WriterImpl Implementation - Moved all private methods here
+// ============================================================================
+
+void Writer::Impl::writeBase(BinaryWriter& writer, const BaseFile& model) {
     switch (model.format) {
     case Format::ClassicMD20: {
         BinaryWriterVisitor visitor(writer);
@@ -88,13 +125,13 @@ void Writer::writeBase(BinaryWriter& writer, const BaseFile& model) {
     }
 }
 
-void Writer::writeSkin(BinaryWriter& writer, const SkinFile& model) {
+void Writer::Impl::writeSkin(BinaryWriter& writer, const SkinFile& model) {
     BinaryWriterVisitor visitor(writer);
     visitor.write(model.profile);
 }
 
-void Writer::writeChunkedBase(BinaryWriter& writer, const BaseFile& model) {
-    const auto write_chunk = ([this, &writer]<typename T>(u32 tag, const T& header) {
+void Writer::Impl::writeChunkedBase(BinaryWriter& writer, const BaseFile& model) {
+    const auto write_chunk = ([&writer]<typename T>(u32 tag, const T& header) {
         writer.write(tag);
         u32 sizePos = writer.getPosition();
         writer.write<u32>(0); // placeholder for chunk size
@@ -206,8 +243,8 @@ void Writer::writeChunkedBase(BinaryWriter& writer, const BaseFile& model) {
     }
 }
 
-void Writer::writeChunkedSkeleton(BinaryWriter& writer, const SkeletonFile& model) {
-    const auto write_chunk = ([this, &writer]<typename T>(u32 tag, const T& chunk) {
+void Writer::Impl::writeChunkedSkeleton(BinaryWriter& writer, const SkeletonFile& model) {
+    const auto write_chunk = ([&writer]<typename T>(u32 tag, const T& chunk) {
         writer.write(tag);
         u32 sizePos = writer.getPosition();
         writer.write<u32>(0); // placeholder for chunk size
@@ -250,13 +287,13 @@ void Writer::writeChunkedSkeleton(BinaryWriter& writer, const SkeletonFile& mode
     }
 }
 
-void Writer::writeChunkedBone(BinaryWriter& writer, const BoneFile& model) {
+void Writer::Impl::writeChunkedBone(BinaryWriter& writer, const BoneFile& model) {
     // First, write the BONE header (4 bytes, should be 1)
     BinaryWriterVisitor headerWriter(writer);
     headerWriter.write(model.header);
 
     // Then write the chunked data
-    const auto write_chunk = ([this, &writer]<typename T>(u32 tag, const T& chunk) {
+    const auto write_chunk = ([&writer]<typename T>(u32 tag, const T& chunk) {
         writer.write(tag);
         u32 sizePos = writer.getPosition();
         writer.write<u32>(0); // placeholder for chunk size
@@ -284,10 +321,10 @@ void Writer::writeChunkedBone(BinaryWriter& writer, const BoneFile& model) {
     }
 }
 
-void Writer::writeChunkedAnim(BinaryWriter& writer, const AnimFile& model) {
+void Writer::Impl::writeChunkedAnim(BinaryWriter& writer, const AnimFile& model) {
     if (model.profile.isChunked) {
         // Legion 24500+ chunked format
-        const auto write_chunk = ([this, &writer]<typename T>(u32 tag, const T& chunk) {
+        const auto write_chunk = ([&writer]<typename T>(u32 tag, const T& chunk) {
             writer.write(tag);
             u32 sizePos = writer.getPosition();
             writer.write<u32>(0); // placeholder for chunk size

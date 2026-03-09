@@ -14,7 +14,27 @@ namespace m3 {
 
 using common::BinaryWriter;
 
-Writer::Writer() = default;
+// ============================================================================
+// WriterImpl - Implementation class using PImpl idiom
+// ============================================================================
+
+class Writer::Impl {
+public:
+    void writeToWriter(BinaryWriter& writer, const Model& model);
+};
+
+void Writer::Impl::writeToWriter(BinaryWriter& writer, const Model& model) {
+    BinaryWriterVisitor visitor(writer);
+    visitor.write(model);
+}
+
+// ============================================================================
+// Writer Public Interface (using PImpl)
+// ============================================================================
+
+Writer::Writer() : pImpl(std::make_unique<Impl>()) {}
+
+Writer::~Writer() = default;
 
 void Writer::write(const std::string& filePath, const Model& model) {
     std::ofstream file(filePath, std::ios::binary);
@@ -22,7 +42,7 @@ void Writer::write(const std::string& filePath, const Model& model) {
         throw std::runtime_error("Failed to open M3 file for writing: " + filePath);
     }
     BinaryWriter writer(file);
-    writeToWriter(writer, model);
+    pImpl->writeToWriter(writer, model);
 }
 
 std::vector<u8> Writer::write(const Model& model) {
@@ -33,13 +53,8 @@ std::vector<u8> Writer::write(const Model& model) {
     common::vector_streambuf streambuf(buffer);
     std::ostream out(&streambuf);
     BinaryWriter writer(out);
-    writeToWriter(writer, model);
+    pImpl->writeToWriter(writer, model);
     return buffer;
-}
-
-void Writer::writeToWriter(BinaryWriter& writer, const Model& model) {
-    BinaryWriterVisitor visitor(writer);
-    visitor.write(model);
 }
 
 } // namespace m3
