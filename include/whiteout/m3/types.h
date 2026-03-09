@@ -59,10 +59,10 @@ constexpr u32 makeTag(const char (&str)[N]) {
 
 /// Convert a FourCC tag value back to a human-readable 4-character string.
 constexpr std::string tagToString(u32 tag) {
-    char chars[5] = {static_cast<char>((tag >> 24) & 0xFF), static_cast<char>((tag >> 16) & 0xFF),
-                     static_cast<char>((tag >> 8) & 0xFF), static_cast<char>((tag >> 0) & 0xFF),
-                     '\0'};
-    return std::string(chars, 4);
+    std::array<char, 5> chars = {
+        static_cast<char>((tag >> 24) & 0xFF), static_cast<char>((tag >> 16) & 0xFF),
+        static_cast<char>((tag >> 8) & 0xFF), static_cast<char>((tag >> 0) & 0xFF), '\0'};
+    return std::string(chars.data(), 4);
 }
 
 // ============================================================================
