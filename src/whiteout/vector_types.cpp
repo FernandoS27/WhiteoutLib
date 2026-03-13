@@ -8,104 +8,6 @@
 namespace whiteout {
 
 // ============================================================================
-// VectorMethods<T>
-// ============================================================================
-
-template <typename T>
-T& VectorMethods<T>::operator+=(const T& other) {
-    auto& self = static_cast<T&>(*this);
-    for (size_t i = 0; i < self.data.size(); i++) {
-        self.data[i] += other.data[i];
-    }
-    return static_cast<T&>(*this);
-}
-
-template <typename T>
-T& VectorMethods<T>::operator-=(const T& other) {
-    auto& self = static_cast<T&>(*this);
-    for (size_t i = 0; i < self.data.size(); i++) {
-        self.data[i] -= other.data[i];
-    }
-    return static_cast<T&>(*this);
-}
-
-template <typename T>
-T VectorMethods<T>::operator+(const T& other) const {
-    T result = static_cast<const T&>(*this);
-    result += other;
-    return result;
-}
-
-template <typename T>
-T VectorMethods<T>::operator-(const T& other) const {
-    T result = static_cast<const T&>(*this);
-    result -= other;
-    return result;
-}
-
-template <typename T>
-f32 VectorMethods<T>::dot(const T& other) const {
-    auto& self = static_cast<const T&>(*this);
-    f32 result = 0.0f;
-    for (size_t i = 0; i < self.data.size(); i++) {
-        result += self.data[i] * other.data[i];
-    }
-    return result;
-}
-
-template <typename T>
-T VectorMethods<T>::lerp(const T& start, const T& end, f32 t) {
-    T result;
-    for (size_t i = 0; i < start.data.size(); i++) {
-        result.data[i] = start.data[i] + t * (end.data[i] - start.data[i]);
-    }
-    return result;
-}
-
-template <typename T>
-T VectorMethods<T>::bezier_lerp(const T& start, const T& outtan, const T& intan, const T& end,
-                                f32 t) {
-    const auto simple_pow = [](f32 base, size_t exp) {
-        f32 result = 1.0f;
-        for (size_t i = 0; i < exp; i++) {
-            result *= base;
-        }
-        return result;
-    };
-    T result;
-    for (size_t i = 0; i < start.data.size(); i++) {
-        f32 p0 = start.data[i];
-        f32 p1 = outtan.data[i];
-        f32 p2 = intan.data[i];
-        f32 p3 = end.data[i];
-        result.data[i] = simple_pow(1 - t, 3) * p0 + 3 * simple_pow(1 - t, 2) * t * p1 +
-                         3 * (1 - t) * simple_pow(t, 2) * p2 + simple_pow(t, 3) * p3;
-    }
-    return result;
-}
-
-template <typename T>
-T VectorMethods<T>::hermite_lerp(const T& prev, const T& start, const T& end, const T& next,
-                                 f32 t) {
-    T result;
-    for (size_t i = 0; i < start.data.size(); i++) {
-        f32 p0 = prev.data[i];
-        f32 p1 = start.data[i];
-        f32 p2 = end.data[i];
-        f32 p3 = next.data[i];
-        result.data[i] =
-            0.5f * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t +
-                    (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t);
-    }
-    return result;
-}
-
-// Explicit instantiations
-template struct VectorMethods<Vector2f>;
-template struct VectorMethods<Vector3f>;
-template struct VectorMethods<Vector4f>;
-
-// ============================================================================
 // Quaternion
 // ============================================================================
 
@@ -127,51 +29,193 @@ Quaternion Quaternion::operator*(const Quaternion& other) const {
     return result;
 }
 
-Quaternion& Quaternion::operator+=(const Quaternion& other) {
-    x += other.x;
-    y += other.y;
-    z += other.z;
-    w += other.w;
-    return *this;
+Quaternion Quaternion::conjugate() const {
+    return Quaternion(-x, -y, -z, w);
 }
 
-Quaternion Quaternion::operator+(const Quaternion& other) const {
-    Quaternion result = *this;
-    result += other;
-    return result;
+Quaternion Quaternion::inverse() const {
+    f32 n = length_squared();
+    if (n < 1e-12f)
+        return Quaternion(0, 0, 0, 0);
+    f32 inv_n = 1.0f / n;
+    return Quaternion(-x * inv_n, -y * inv_n, -z * inv_n, w * inv_n);
 }
 
-Quaternion& Quaternion::operator-=(const Quaternion& other) {
-    x -= other.x;
-    y -= other.y;
-    z -= other.z;
-    w -= other.w;
-    return *this;
+Quaternion Quaternion::log() const {
+    // For unit quaternion q = (sin(θ)·axis, cos(θ)):
+    // log(q) = (θ·axis, 0)
+    f32 cw = w < -1.0f ? -1.0f : (w > 1.0f ? 1.0f : w);
+    f32 theta = std::acos(cw);
+    f32 sin_theta = std::sin(theta);
+    if (std::abs(sin_theta) < 1e-6f)
+        return Quaternion(0, 0, 0, 0);
+    f32 coeff = theta / sin_theta;
+    return Quaternion(x * coeff, y * coeff, z * coeff, 0.0f);
 }
 
-Quaternion Quaternion::operator-(const Quaternion& other) const {
-    Quaternion result = *this;
-    result -= other;
-    return result;
+Quaternion Quaternion::exp() const {
+    // For pure quaternion q = (v, 0):
+    // exp(q) = (sin(|v|)/|v| · v, cos(|v|))
+    f32 theta = std::sqrt(x * x + y * y + z * z);
+    if (theta < 1e-6f)
+        return Quaternion(0, 0, 0, 1);
+    f32 coeff = std::sin(theta) / theta;
+    return Quaternion(x * coeff, y * coeff, z * coeff, std::cos(theta));
 }
 
-Quaternion Quaternion::operator-() const {
-    return Quaternion(-x, -y, -z, -w);
+Quaternion Quaternion::identity() {
+    return Quaternion(0, 0, 0, 1);
 }
 
-f32 Quaternion::dot(const Quaternion& other) const {
-    return x * other.x + y * other.y + z * other.z + w * other.w;
+Quaternion Quaternion::from_axis_angle(const Vector3f& axis, f32 angle_rad) {
+    f32 half_angle = angle_rad * 0.5f;
+    f32 s = std::sin(half_angle);
+    return Quaternion(axis.x * s, axis.y * s, axis.z * s, std::cos(half_angle));
 }
 
-void Quaternion::normalize() {
-    f32 len = std::sqrt(x * x + y * y + z * z + w * w);
-    if (len > 0.0f) {
-        f32 invLen = 1.0f / len;
-        x *= invLen;
-        y *= invLen;
-        z *= invLen;
-        w *= invLen;
+Quaternion Quaternion::from_euler_angles(const Vector3f& euler_rad) {
+    f32 cx = std::cos(euler_rad.x * 0.5f);
+    f32 sx = std::sin(euler_rad.x * 0.5f);
+    f32 cy = std::cos(euler_rad.y * 0.5f);
+    f32 sy = std::sin(euler_rad.y * 0.5f);
+    f32 cz = std::cos(euler_rad.z * 0.5f);
+    f32 sz = std::sin(euler_rad.z * 0.5f);
+    return Quaternion(sx * cy * cz - cx * sy * sz, cx * sy * cz + sx * cy * sz,
+                      cx * cy * sz - sx * sy * cz, cx * cy * cz + sx * sy * sz);
+}
+
+Quaternion Quaternion::ln_dif(const Quaternion& a, const Quaternion& b) {
+    Quaternion diff = a.inverse() * b;
+    diff.normalize();
+    return diff.log();
+}
+
+Vector3f Quaternion::to_euler_angles() const {
+    // YXZ intrinsic rotation order (pitch-yaw-roll)
+    // x = pitch, y = yaw, z = roll
+    const f32 sinp = 2.0f * (w * x - y * z);
+    const f32 pitch =
+        (std::abs(sinp) >= 1.0f) ? std::copysign(3.14159265358979f * 0.5f, sinp) : std::asin(sinp);
+    const f32 yaw = std::atan2(2.0f * (w * y + x * z), 1.0f - 2.0f * (x * x + y * y));
+    const f32 roll = std::atan2(2.0f * (w * z + x * y), 1.0f - 2.0f * (x * x + z * z));
+    return {pitch, yaw, roll};
+}
+
+std::pair<Vector3f, f32> Quaternion::to_axis_angle() const {
+    const Quaternion q = (w < 0.0f) ? -*this : *this;
+    const f32 cw = q.w < -1.0f ? -1.0f : (q.w > 1.0f ? 1.0f : q.w);
+    const f32 angle = 2.0f * std::acos(cw);
+    const f32 s = std::sqrt(1.0f - cw * cw);
+    if (s < 1e-6f)
+        return {{1.0f, 0.0f, 0.0f}, angle};
+    return {{q.x / s, q.y / s, q.z / s}, angle};
+}
+
+Vector3f Quaternion::rotate_vector(const Vector3f& v) const {
+    // q * v * q^-1, optimized to avoid full quaternion multiplies
+    const Vector3f u{x, y, z};
+    const f32 s = w;
+    const f32 d = u.dot(v);
+    // Cross product u × v
+    const Vector3f c{u.y * v.z - u.z * v.y, u.z * v.x - u.x * v.z, u.x * v.y - u.y * v.x};
+    return u * (2.0f * d) + v * (s * s - u.dot(u)) + c * (2.0f * s);
+}
+
+/// Computes TCB (Tension-Continuity-Bias / Kochanek-Bartels) spline tangents
+/// for quaternion keyframe interpolation via squad().
+///
+/// Algorithm:
+///   1. Compute log-space derivatives from neighboring keyframes
+///   2. Adjust for non-uniform keyframe spacing
+///   3. Apply TCB weights to blend the derivatives
+///   4. Exponentiate back to quaternion space
+///
+/// @param prev         Previous keyframe value (nullptr at sequence start)
+/// @param prev_time    Timestamp of previous keyframe
+/// @param current      Current keyframe value
+/// @param current_time Timestamp of current keyframe
+/// @param tension      [-1,1] How sharp the curve is at this key
+/// @param continuity   [-1,1] How much overshoot / undershoot
+/// @param bias         [-1,1] Direction preference (toward prev or next)
+/// @param next         Next keyframe value (nullptr at sequence end)
+/// @param next_time    Timestamp of next keyframe
+/// @return {in_tangent, out_tangent} for use with squad()
+std::pair<Quaternion, Quaternion> Quaternion::tcb_tangents(
+    const Quaternion* const prev, const f32 prev_time, const Quaternion& current,
+    const f32 current_time, const f32 tension, const f32 continuity, const f32 bias,
+    const Quaternion* const next, const f32 next_time) {
+
+    // Endpoint with no neighbors — return identity tangents
+    if (!prev && !next)
+        return {current, current};
+
+    // ---- Step 1: Log-space derivatives from neighboring keyframes ----
+    // These represent the angular "velocity" of rotation toward/away from neighbors.
+    Quaternion log_deriv_prev(0, 0, 0, 0);
+    Quaternion log_deriv_next(0, 0, 0, 0);
+
+    if (prev) {
+        // Flip to ensure shortest-path (same hemisphere)
+        Quaternion aligned_prev = *prev;
+        if (current.dot(aligned_prev) < 0.0f)
+            aligned_prev = -aligned_prev;
+        log_deriv_prev = ln_dif(aligned_prev, current);
     }
+    if (next) {
+        Quaternion aligned_next = *next;
+        if (current.dot(aligned_next) < 0.0f)
+            aligned_next = -aligned_next;
+        log_deriv_next = ln_dif(current, aligned_next);
+    }
+
+    // At sequence endpoints, mirror the single available derivative
+    if (!prev)
+        log_deriv_prev = log_deriv_next;
+    if (!next)
+        log_deriv_next = log_deriv_prev;
+
+    // ---- Step 2: Non-uniform keyframe spacing adjustment ----
+    // When keys are unevenly spaced, scale derivatives proportionally.
+    // As |continuity| → 1, factors lerp toward 1.0 (uniform-spacing behavior).
+    f32 spacing_prev = 1.0f;
+    f32 spacing_next = 1.0f;
+
+    if (prev && next) {
+        const f32 half_span = 0.5f * (next_time - prev_time);
+        if (half_span > 0.0f) {
+            spacing_prev = (current_time - prev_time) / half_span;
+            spacing_next = (next_time - current_time) / half_span;
+
+            const f32 continuity_abs = std::abs(continuity);
+            spacing_prev += continuity_abs * (1.0f - spacing_prev);
+            spacing_next += continuity_abs * (1.0f - spacing_next);
+        }
+    }
+
+    // ---- Step 3: TCB blend weights ----
+    // Decompose tension/continuity/bias into per-derivative weights for
+    // the in-tangent (arriving) and out-tangent (departing) sides.
+    const f32 half_tension_compl = 0.5f * (1.0f - tension);
+    const f32 cont_minus = 1.0f - continuity;
+    const f32 cont_plus = 1.0f + continuity;
+    const f32 bias_minus = 1.0f - bias;
+    const f32 bias_plus = 1.0f + bias;
+
+    const f32 in_weight_prev = half_tension_compl * cont_plus * bias_plus * spacing_next;
+    const f32 in_weight_next = half_tension_compl * cont_minus * bias_minus * spacing_next - 1.0f;
+    const f32 out_weight_prev = -half_tension_compl * cont_minus * bias_plus * spacing_prev + 1.0f;
+    const f32 out_weight_next = -half_tension_compl * cont_plus * bias_minus * spacing_prev;
+
+    // ---- Step 4: Blend log derivatives and exponentiate back to quaternion space ----
+    const Quaternion in_log =
+        (log_deriv_prev * in_weight_prev + log_deriv_next * in_weight_next) * 0.5f;
+    const Quaternion out_log =
+        (log_deriv_prev * out_weight_prev + log_deriv_next * out_weight_next) * 0.5f;
+
+    const Quaternion in_tangent = current * in_log.exp();
+    const Quaternion out_tangent = current * out_log.exp();
+
+    return {in_tangent, out_tangent};
 }
 
 Quaternion Quaternion::slerp(const Quaternion& a, const Quaternion& b, f32 t) {
@@ -354,6 +398,84 @@ Matrix44f Matrix44f::inverse(const Matrix44f& m) {
         }
     }
     return inv;
+}
+
+Vector3f Matrix44f::extract_scale() const {
+    // Scale = length of each column of the upper-left 3x3 (R * S has columns = R_col * s)
+    f32 sx = std::sqrt(data[0][0] * data[0][0] + data[1][0] * data[1][0] + data[2][0] * data[2][0]);
+    f32 sy = std::sqrt(data[0][1] * data[0][1] + data[1][1] * data[1][1] + data[2][1] * data[2][1]);
+    f32 sz = std::sqrt(data[0][2] * data[0][2] + data[1][2] * data[1][2] + data[2][2] * data[2][2]);
+    return {sx, sy, sz};
+}
+
+Quaternion Matrix44f::extract_rotation() const {
+    // Remove scale from the 3x3 to get a pure rotation matrix, then convert to quaternion
+    const Vector3f s = extract_scale();
+    const f32 inv_sx = s.x > 0.0f ? 1.0f / s.x : 0.0f;
+    const f32 inv_sy = s.y > 0.0f ? 1.0f / s.y : 0.0f;
+    const f32 inv_sz = s.z > 0.0f ? 1.0f / s.z : 0.0f;
+
+    // Normalized rotation matrix entries
+    const f32 m00 = data[0][0] * inv_sx, m01 = data[0][1] * inv_sy, m02 = data[0][2] * inv_sz;
+    const f32 m10 = data[1][0] * inv_sx, m11 = data[1][1] * inv_sy, m12 = data[1][2] * inv_sz;
+    const f32 m20 = data[2][0] * inv_sx, m21 = data[2][1] * inv_sy, m22 = data[2][2] * inv_sz;
+
+    // Shepperd's method — numerically stable quaternion extraction
+    const f32 trace = m00 + m11 + m22;
+    Quaternion q;
+    if (trace > 0.0f) {
+        const f32 s = std::sqrt(trace + 1.0f) * 2.0f;
+        q.w = 0.25f * s;
+        q.x = (m21 - m12) / s;
+        q.y = (m02 - m20) / s;
+        q.z = (m10 - m01) / s;
+    } else if (m00 > m11 && m00 > m22) {
+        const f32 s = std::sqrt(1.0f + m00 - m11 - m22) * 2.0f;
+        q.w = (m21 - m12) / s;
+        q.x = 0.25f * s;
+        q.y = (m01 + m10) / s;
+        q.z = (m02 + m20) / s;
+    } else if (m11 > m22) {
+        const f32 s = std::sqrt(1.0f + m11 - m00 - m22) * 2.0f;
+        q.w = (m02 - m20) / s;
+        q.x = (m01 + m10) / s;
+        q.y = 0.25f * s;
+        q.z = (m12 + m21) / s;
+    } else {
+        const f32 s = std::sqrt(1.0f + m22 - m00 - m11) * 2.0f;
+        q.w = (m10 - m01) / s;
+        q.x = (m02 + m20) / s;
+        q.y = (m12 + m21) / s;
+        q.z = 0.25f * s;
+    }
+    q.normalize();
+    return q;
+}
+
+Vector3f Matrix44f::extract_translation() const {
+    // In T*R*S, row 3 stores the translation transformed by R*S.
+    // Undo by dividing out scale per column, then multiplying by the rotation matrix.
+    const Vector3f s = extract_scale();
+    const f32 inv_sx = s.x > 0.0f ? 1.0f / s.x : 0.0f;
+    const f32 inv_sy = s.y > 0.0f ? 1.0f / s.y : 0.0f;
+    const f32 inv_sz = s.z > 0.0f ? 1.0f / s.z : 0.0f;
+
+    // Descale row 3 to undo the S factor, yielding R^T * t
+    const f32 d0 = data[3][0] * inv_sx;
+    const f32 d1 = data[3][1] * inv_sy;
+    const f32 d2 = data[3][2] * inv_sz;
+
+    // Normalized rotation matrix columns (= rows of R^T)
+    const f32 r00 = data[0][0] * inv_sx, r01 = data[0][1] * inv_sy, r02 = data[0][2] * inv_sz;
+    const f32 r10 = data[1][0] * inv_sx, r11 = data[1][1] * inv_sy, r12 = data[1][2] * inv_sz;
+    const f32 r20 = data[2][0] * inv_sx, r21 = data[2][1] * inv_sy, r22 = data[2][2] * inv_sz;
+
+    // t = R * descaled_row3 (R * R^T * t = t)
+    return {
+        r00 * d0 + r01 * d1 + r02 * d2,
+        r10 * d0 + r11 * d1 + r12 * d2,
+        r20 * d0 + r21 * d1 + r22 * d2,
+    };
 }
 
 } // namespace whiteout

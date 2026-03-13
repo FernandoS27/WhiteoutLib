@@ -17,6 +17,35 @@ public:
         char* begin = const_cast<char*>(reinterpret_cast<const char*>(data.data()));
         setg(begin, begin, begin + data.size());
     }
+
+protected:
+    pos_type seekoff(off_type off, std::ios_base::seekdir dir,
+                     std::ios_base::openmode which = std::ios_base::in) override {
+        if (!(which & std::ios_base::in))
+            return pos_type(off_type(-1));
+        char* newpos;
+        switch (dir) {
+        case std::ios_base::beg:
+            newpos = eback() + off;
+            break;
+        case std::ios_base::cur:
+            newpos = gptr() + off;
+            break;
+        case std::ios_base::end:
+            newpos = egptr() + off;
+            break;
+        default:
+            return pos_type(off_type(-1));
+        }
+        if (newpos < eback() || newpos > egptr())
+            return pos_type(off_type(-1));
+        setg(eback(), newpos, egptr());
+        return pos_type(newpos - eback());
+    }
+
+    pos_type seekpos(pos_type pos, std::ios_base::openmode which = std::ios_base::in) override {
+        return seekoff(off_type(pos), std::ios_base::beg, which);
+    }
 };
 
 class vector_streambuf : public std::streambuf {

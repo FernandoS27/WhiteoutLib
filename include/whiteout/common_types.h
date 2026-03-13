@@ -32,7 +32,7 @@ using f64 = double;
 ///
 /// Layout:  [15] sign  |  [14:10] exponent (bias 15)  |  [9:0] mantissa
 struct f16 {
-    u16 raw = 0;
+    u16 raw;
 
     f16() = default;
 
@@ -91,7 +91,7 @@ struct unorm;
 
 template <typename SInt>
 struct snorm {
-    SInt value = 0;
+    SInt value;
     using UInt = std::make_unsigned<SInt>::type;
 
     static constexpr f32 max_value() {
@@ -124,11 +124,67 @@ struct snorm {
     constexpr operator unorm<UInt>() const {
         return unorm<UInt>((static_cast<f32>(*this) + 1.0f) * 0.5f);
     }
+
+    // Arithmetic operators (operate via float, clamp to [-1, 1])
+    constexpr snorm operator+(snorm o) const {
+        return from_float(f32(*this) + f32(o));
+    }
+    constexpr snorm operator-(snorm o) const {
+        return from_float(f32(*this) - f32(o));
+    }
+    constexpr snorm operator*(snorm o) const {
+        return from_float(f32(*this) * f32(o));
+    }
+    constexpr snorm operator/(snorm o) const {
+        return from_float(f32(*this) / f32(o));
+    }
+
+    // Unary operators
+    constexpr snorm operator-() const {
+        return from_raw(static_cast<SInt>(-value));
+    }
+    constexpr snorm operator+() const {
+        return *this;
+    }
+
+    // Compound assignment operators
+    constexpr snorm& operator+=(snorm o) {
+        return *this = *this + o;
+    }
+    constexpr snorm& operator-=(snorm o) {
+        return *this = *this - o;
+    }
+    constexpr snorm& operator*=(snorm o) {
+        return *this = *this * o;
+    }
+    constexpr snorm& operator/=(snorm o) {
+        return *this = *this / o;
+    }
+
+    // Comparison operators (raw value comparison preserves ordering)
+    constexpr bool operator==(snorm o) const {
+        return value == o.value;
+    }
+    constexpr bool operator!=(snorm o) const {
+        return value != o.value;
+    }
+    constexpr bool operator<(snorm o) const {
+        return value < o.value;
+    }
+    constexpr bool operator>(snorm o) const {
+        return value > o.value;
+    }
+    constexpr bool operator<=(snorm o) const {
+        return value <= o.value;
+    }
+    constexpr bool operator>=(snorm o) const {
+        return value >= o.value;
+    }
 };
 
 template <typename UInt>
 struct unorm {
-    UInt value = 0;
+    UInt value;
     using SInt = std::make_signed_t<UInt>;
 
     static constexpr f32 max_value() {
@@ -159,6 +215,59 @@ struct unorm {
 
     constexpr operator snorm<SInt>() const {
         return snorm<SInt>::from_float(static_cast<f32>(*this) * 2.0f - 1.0f);
+    }
+
+    // Arithmetic operators (operate via float, clamp to [0, 1])
+    constexpr unorm operator+(unorm o) const {
+        return from_float(f32(*this) + f32(o));
+    }
+    constexpr unorm operator-(unorm o) const {
+        return from_float(f32(*this) - f32(o));
+    }
+    constexpr unorm operator*(unorm o) const {
+        return from_float(f32(*this) * f32(o));
+    }
+    constexpr unorm operator/(unorm o) const {
+        return from_float(f32(*this) / f32(o));
+    }
+
+    // Unary operators
+    constexpr unorm operator+() const {
+        return *this;
+    }
+
+    // Compound assignment operators
+    constexpr unorm& operator+=(unorm o) {
+        return *this = *this + o;
+    }
+    constexpr unorm& operator-=(unorm o) {
+        return *this = *this - o;
+    }
+    constexpr unorm& operator*=(unorm o) {
+        return *this = *this * o;
+    }
+    constexpr unorm& operator/=(unorm o) {
+        return *this = *this / o;
+    }
+
+    // Comparison operators (raw value comparison preserves ordering)
+    constexpr bool operator==(unorm o) const {
+        return value == o.value;
+    }
+    constexpr bool operator!=(unorm o) const {
+        return value != o.value;
+    }
+    constexpr bool operator<(unorm o) const {
+        return value < o.value;
+    }
+    constexpr bool operator>(unorm o) const {
+        return value > o.value;
+    }
+    constexpr bool operator<=(unorm o) const {
+        return value <= o.value;
+    }
+    constexpr bool operator>=(unorm o) const {
+        return value >= o.value;
     }
 };
 

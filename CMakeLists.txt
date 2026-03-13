@@ -4,6 +4,9 @@ project(WhiteoutLib VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(WHITEOUT_ENABLE_CASC "Enable CASC archive support via CascLib" OFF)
+option(WHITEOUT_BUILD_EXAMPLES "Build example programs" OFF)
+
 if(MSVC)
     add_compile_options(/FS)
 endif()
@@ -62,11 +65,23 @@ add_library(whiteout_lib
     src/whiteout/textures/jpeg/huffman.cpp
     src/whiteout/textures/jpeg/jpeg_decode.cpp
     src/whiteout/textures/jpeg/jpeg_encode.cpp
+
+    # Diablo IV
+    src/whiteout/sno/sno_types.cpp
+    src/whiteout/sno/core_toc.cpp
+    src/whiteout/sno/d4/sno_defs.cpp
+    src/whiteout/sno/sno_value.cpp
+    src/whiteout/sno/sno_reader.cpp
+
+    # Diablo III
+    src/whiteout/sno/d3/sno_defs.cpp
 )
 
 target_include_directories(whiteout_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+
+if(WHITEOUT_BUILD_EXAMPLES)
 
 # Example Program
 add_executable(mdx_loader_example
@@ -117,3 +132,48 @@ add_executable(texture_convert_example
 
 target_link_libraries(texture_convert_example PRIVATE whiteout_lib)
 
+endif() # WHITEOUT_BUILD_EXAMPLES
+
+# =============================================================================
+# Optional CASC support (via CascLib)
+# =============================================================================
+option(WHITEOUT_ENABLE_CASC "Enable CASC archive support via CascLib" ON)
+
+if(WHITEOUT_ENABLE_CASC)
+    include(FetchContent)
+    FetchContent_Declare(CascLib
+        GIT_REPOSITORY https://github.com/ladislav-zezula/CascLib.git
+        GIT_TAG        master
+    )
+    set(CASC_BUILD_SHARED_LIB OFF CACHE BOOL "" FORCE)
+    set(CASC_BUILD_STATIC_LIB ON CACHE BOOL "" FORCE)
+    # CascLib's CMakeLists.txt uses an old cmake_minimum_required version.
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
+    FetchContent_MakeAvailable(CascLib)
+
+    add_library(whiteout_casc
+        src/whiteout/casc/storage.cpp
+    )
+
+    target_include_directories(whiteout_casc PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+
+    target_link_libraries(whiteout_casc
+        PUBLIC whiteout_lib
+        PRIVATE casc_static
+    )
+
+    target_compile_definitions(whiteout_casc PUBLIC WHITEOUT_HAS_CASC=1)
+
+    if(WHITEOUT_BUILD_EXAMPLES)
+
+    # Interactive SNO browser example
+    add_executable(sno_browser_example
+        examples/sno_browser_example.cpp
+    )
+
+    target_link_libraries(sno_browser_example PRIVATE whiteout_casc)
+
+    endif() # WHITEOUT_BUILD_EXAMPLES
+endif() # WHITEOUT_ENABLE_CASC

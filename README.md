@@ -10,10 +10,11 @@ It is inspired by StormLib, a library used by older Blizzard games to handle pro
   - Reforged
 - **World of Warcraft (`.m2`)** (partial, still has issues with .anim and .skel files)
 - **StarCraft II / Heroes of the Storm (`.m3/.m3a`)**
+- **Diablo III & IV (`.acr,.app,.ani,.ans,.mat,.prt`, SNO format family)**
 
 ## Planned Support
 
-- **Diablo III & IV (`.acr,.app,.ani,.ans,.mat,.prt`, format family)**
+- **Optimized parsers for Diablo III/IV `.app, .ani, .acr, .prt, .mat, .ans`**
 
 ## Current Texture Format Support
 
@@ -21,6 +22,13 @@ It is inspired by StormLib, a library used by older Blizzard games to handle pro
     Both BLP1 (Warcraft III Classic) & BLP2 (World of Warcraft)
 - **Direct3D Surface (`.dds`)**
 - **Diablo 3 (`.tex`)**
+
+## Planned Support
+- **Diablo 4 (`.tex`)**
+
+## CASC File System Support
+- **Optional support of CASC by wrapping CascLib**
++ Some formats are easier to parse using CASC, like m2 and sno.
 
 ## Language Compatibility
 
@@ -46,6 +54,11 @@ Example programs are available in `examples/` for loading and writing supported 
 ## License
 
 BSD 3-Clause. See [LICENSE](LICENSE).
+
+## Third-Party Notices
+
+This project includes and/or references third-party components.
+See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for details.
 
 ## Disclaimer
 
