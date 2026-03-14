@@ -15,7 +15,10 @@ endif()
 add_library(whiteout_lib
     # Common
     src/whiteout/common_types.cpp
+    src/whiteout/utils.cpp
     src/whiteout/vector_types.cpp
+    src/whiteout/common/bit_io.cpp
+    src/whiteout/common/huffman_table.cpp
 
     # MDX
     src/whiteout/mdx/parser.cpp
@@ -52,7 +55,15 @@ add_library(whiteout_lib
     src/whiteout/textures/tex/parser.cpp
     src/whiteout/textures/tex/writer.cpp
     src/whiteout/textures/tex/tex_common.cpp
-    src/whiteout/textures/wu_quantize.cpp
+    src/whiteout/textures/bmp/parser.cpp
+    src/whiteout/textures/bmp/writer.cpp
+    src/whiteout/textures/tga/parser.cpp
+    src/whiteout/textures/tga/writer.cpp
+    src/whiteout/textures/gif/writer.cpp
+    src/whiteout/textures/utils/quantize.cpp
+    src/whiteout/textures/utils/blue_noise.cpp
+    src/whiteout/textures/utils/pixel_convert.cpp
+    src/whiteout/textures/utils/srgb_linearize.cpp
     src/whiteout/textures/bcn.cpp
     src/whiteout/textures/bcn/bc1.cpp
     src/whiteout/textures/bcn/bc2.cpp
@@ -62,9 +73,16 @@ add_library(whiteout_lib
     src/whiteout/textures/bcn/bc6h.cpp
     src/whiteout/textures/bcn/bc7.cpp
     src/whiteout/textures/bcn/bcn_common.cpp
-    src/whiteout/textures/jpeg/huffman.cpp
+    src/whiteout/textures/mipmap/filters.cpp
+    src/whiteout/textures/mipmap/stages.cpp
+    src/whiteout/textures/mipmap/generator.cpp
     src/whiteout/textures/jpeg/jpeg_decode.cpp
     src/whiteout/textures/jpeg/jpeg_encode.cpp
+    src/whiteout/textures/jpeg/parser.cpp
+    src/whiteout/textures/jpeg/writer.cpp
+    src/whiteout/textures/png/deflate.cpp
+    src/whiteout/textures/png/parser.cpp
+    src/whiteout/textures/png/writer.cpp
 
     # Diablo IV
     src/whiteout/sno/sno_types.cpp
@@ -128,6 +146,7 @@ target_link_libraries(m3_writer_example PRIVATE whiteout_lib)
 # Texture Format Converter Example
 add_executable(texture_convert_example
     examples/texture_convert_example.cpp
+    examples/texture_converter.cpp
 )
 
 target_link_libraries(texture_convert_example PRIVATE whiteout_lib)

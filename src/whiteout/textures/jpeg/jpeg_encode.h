@@ -15,9 +15,7 @@
 
 #include "jpeg_decode.h" // For jpeg::Image
 
-namespace whiteout {
-namespace textures {
-namespace jpeg {
+namespace whiteout::textures::jpeg {
 
 /// Encode an image as a baseline JPEG (SOF0) WITHOUT applying colourspace
 /// conversion.  Component sample values are stored directly into the DCT data,
@@ -30,6 +28,4 @@ namespace jpeg {
 /// @return  The encoded JPEG byte stream, or an empty vector on failure.
 std::vector<u8> encode_raw(const Image& image, i32 quality = 75, std::string* out_error = nullptr);
 
-} // namespace jpeg
-} // namespace textures
-} // namespace whiteout
+} // namespace whiteout::textures::jpeg

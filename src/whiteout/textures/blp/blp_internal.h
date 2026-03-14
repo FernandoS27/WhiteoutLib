@@ -17,7 +17,7 @@
 
 #include <whiteout/common_types.h>
 
-#include "../pixel_convert.h"
+#include "../utils/pixel_convert.h"
 
 namespace whiteout::textures::blp {
 

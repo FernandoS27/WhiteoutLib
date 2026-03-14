@@ -31,6 +31,7 @@
 #include <vector>
 
 #include <whiteout/common_types.h>
+#include <whiteout/textures/parser.h>
 #include <whiteout/textures/texture.h>
 
 namespace whiteout::textures::blp {
@@ -48,7 +49,7 @@ namespace whiteout::textures::blp {
  *
  * Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
  */
-class Parser {
+class Parser : public textures::Parser {
 public:
     /**
      * @brief Parsing strictness mode
@@ -73,7 +74,7 @@ public:
      * @return Parsed texture data, or std::nullopt on failure (in Lenient mode)
      * @throws std::runtime_error If file cannot be opened or parsing fails in strict mode
      */
-    std::optional<Texture> parse(const std::string& filePath);
+    std::optional<Texture> parse(const std::string& filePath) override;
 
     /**
      * @brief Parse a BLP file from memory buffer
@@ -81,7 +82,7 @@ public:
      * @return Parsed texture data, or std::nullopt on failure (in Lenient mode)
      * @throws std::runtime_error If parsing fails in strict mode
      */
-    std::optional<Texture> parse(std::span<const u8> buffer);
+    std::optional<Texture> parse(std::span<const u8> buffer) override;
 
     /**
      * @brief Check if parsing encountered any issues

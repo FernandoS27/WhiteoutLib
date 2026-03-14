@@ -29,6 +29,7 @@
 
 #include <whiteout/common_types.h>
 #include <whiteout/textures/blp/types.h>
+#include <whiteout/textures/writer.h>
 #include <whiteout/textures/texture.h>
 
 namespace whiteout::textures::blp {
@@ -45,7 +46,7 @@ namespace whiteout::textures::blp {
  *
  * Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
  */
-class Writer {
+class Writer : public textures::Writer {
 public:
     /**
      * @brief Writing strictness mode
@@ -64,6 +65,13 @@ public:
     /// @brief Destructor (defined in .cpp for incomplete type)
     ~Writer();
 
+    void write(const std::string& filePath, const Texture& texture) override;
+
+    /**
+     * @brief Write a BLP file to a byte buffer with default options
+     */
+    std::vector<u8> write(const Texture& texture) override;
+
     /**
      * @brief Write a BLP file to disk
      * @param filePath Path where the BLP file should be written
@@ -71,7 +79,7 @@ public:
      * @param opts Encoding options (version, encoding, alpha, quality)
      * @throws std::runtime_error If file cannot be created, or encoding fails in strict mode
      */
-    void write(const std::string& filePath, const Texture& texture, const SaveOptions& opts = {});
+    void write(const std::string& filePath, const Texture& texture, const SaveOptions& opts);
 
     /**
      * @brief Write a BLP file to a byte buffer
@@ -80,7 +88,7 @@ public:
      * @return Vector containing the binary BLP data, or empty on failure (in Lenient mode)
      * @throws std::runtime_error If encoding fails in strict mode
      */
-    std::vector<u8> write(const Texture& texture, const SaveOptions& opts = {});
+    std::vector<u8> write(const Texture& texture, const SaveOptions& opts);
 
     /**
      * @brief Check if writing encountered any issues

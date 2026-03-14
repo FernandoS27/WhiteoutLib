@@ -3,7 +3,7 @@
 
 /// Texture format converter example.
 ///
-/// Converts between BLP, TEX (Diablo III SNO) and DDS texture formats.
+/// Converts between BLP, BMP, DDS, JPEG, PNG, TEX and TGA texture formats.
 /// The conversion direction is determined by the file extensions of the
 /// input and output paths.
 ///
@@ -25,27 +25,41 @@
 ///       Pixel format when saving as DDS.  The texture is converted
 ///       automatically via Texture::copyAsFormat().
 ///
+///   --jpeg_quality=<1..100>
+///       JPEG encoder quality level (default 75).  Only used when
+///       saving as .jpg / .jpeg.
+///
+///   --generate_mipmaps
+///       Regenerate all mip levels from the base image after loading.
+///       The filter pipeline is chosen based on the texture's kind.
+///
+///   --texture_kind=<diffuse|normal|specular|orm|albedo|roughness|
+///                   metalness|ao|gloss|emissive|other>
+///       Set the semantic kind of the texture.  This affects mipmap
+///       generation filters.  If omitted, the kind is guessed from
+///       the file name, pixel format, or channel count.
+///
 /// If only one positional argument is given, the output path is derived by
 /// replacing the input extension with the appropriate target format:
-///   .blp → .dds,  .tex → .dds,  .dds → .blp
+///   .blp → .dds,  .tex → .dds,  .dds → .blp,  .bmp → .dds,  .tga → .dds
+///   .jpg → .png,  .jpeg → .png,  .png → .jpg
 
-#include <whiteout/textures/blp/blp.h>
-#include <whiteout/textures/dds/dds.h>
-#include <whiteout/textures/tex/tex.h>
+#include "texture_converter.h"
 
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
-#include <optional>
 #include <string>
+#include <vector>
+
+namespace tex = whiteout::textures;
+using TFF = tex::TextureFileFormat;
+using TC = tex::TextureConverter;
 
 // ============================================================================
 // Helpers
 // ============================================================================
-
-enum class FileFormat { BLP, DDS, TEX, Unknown };
 
 static std::string to_lower(std::string s) {
     std::transform(s.begin(), s.end(), s.begin(),
@@ -53,161 +67,20 @@ static std::string to_lower(std::string s) {
     return s;
 }
 
-static std::string get_extension(const std::string& path) {
-    auto ext = std::filesystem::path(path).extension().string();
-    return to_lower(ext);
-}
-
 static std::string replace_extension(const std::string& path, const std::string& new_ext) {
     return std::filesystem::path(path).replace_extension(new_ext).string();
 }
 
-static FileFormat classify(const std::string& path) {
-    auto ext = get_extension(path);
-    if (ext == ".blp") return FileFormat::BLP;
-    if (ext == ".dds") return FileFormat::DDS;
-    if (ext == ".tex") return FileFormat::TEX;
-    return FileFormat::Unknown;
-}
-
-static const char* format_name(whiteout::textures::PixelFormat fmt) {
-    switch (fmt) {
-    case whiteout::textures::PixelFormat::RGBA8:   return "RGBA8";
-    case whiteout::textures::PixelFormat::RGBA16F: return "RGBA16F";
-    case whiteout::textures::PixelFormat::RGBA32F: return "RGBA32F";
-    case whiteout::textures::PixelFormat::BC1:     return "BC1 (DXT1)";
-    case whiteout::textures::PixelFormat::BC2:     return "BC2 (DXT3)";
-    case whiteout::textures::PixelFormat::BC3:     return "BC3 (DXT5)";
-    case whiteout::textures::PixelFormat::BC4:     return "BC4 (ATI1)";
-    case whiteout::textures::PixelFormat::BC5:     return "BC5 (ATI2)";
-    case whiteout::textures::PixelFormat::BC6H:    return "BC6H";
-    case whiteout::textures::PixelFormat::BC7:     return "BC7";
-    }
-    return "Unknown";
-}
-
-static const char* type_name(whiteout::textures::TextureType type) {
-    switch (type) {
-    case whiteout::textures::TextureType::Texture2D:  return "2D";
-    case whiteout::textures::TextureType::Texture3D:  return "3D";
-    case whiteout::textures::TextureType::TextureCube: return "Cube";
-    }
-    return "Unknown";
-}
-
-static const char* file_format_name(FileFormat fmt) {
-    switch (fmt) {
-    case FileFormat::BLP: return "BLP";
-    case FileFormat::DDS: return "DDS";
-    case FileFormat::TEX: return "TEX";
-    default:              return "Unknown";
-    }
-}
-
-// ============================================================================
-// BLP file helpers (class-based API requires manual file I/O)
-// ============================================================================
-
-static std::optional<whiteout::textures::Texture> load_blp_file(const std::string& path,
-                                                      std::string* error) {
-    whiteout::textures::blp::Parser parser;
-    auto result = parser.parse(path);
-    if (!result && error) {
-        if (parser.hasIssues()) {
-            *error = parser.getIssues().front();
-        } else {
-            *error = "Unknown BLP parse error";
-        }
-    }
-    return result;
-}
-
-static bool save_blp_file(const whiteout::textures::Texture& tex, const std::string& path,
-                          const whiteout::textures::blp::SaveOptions& opts, std::string* error) {
-    whiteout::textures::blp::Writer writer;
-    writer.write(path, tex, opts);
-    if (writer.hasIssues()) {
-        if (error) *error = writer.getIssues().front();
-        return false;
-    }
-    return true;
-}
-
-// ============================================================================
-// DDS file helpers (class-based API requires manual file I/O)
-// ============================================================================
-
-static std::optional<whiteout::textures::Texture> load_dds_file(const std::string& path,
-                                                      std::string* error) {
-    whiteout::textures::dds::Parser parser;
-    auto result = parser.parse(path);
-    if (parser.hasIssues()) {
-        if (error) *error = parser.getIssues().front();
-        return std::nullopt;
-    }
-    return result;
-}
-
-static bool save_dds_file(const whiteout::textures::Texture& tex, const std::string& path,
-                          std::string* error) {
-    whiteout::textures::dds::Writer writer;
-    writer.write(path, tex);
-    if (writer.hasIssues()) {
-        if (error) *error = writer.getIssues().front();
-        return false;
-    }
-    return true;
-}
-
-static std::optional<whiteout::textures::Texture> load_tex_file(const std::string& path,
-                                                       std::string* error) {
-    whiteout::textures::tex::Parser parser;
-    auto result = parser.parse(path);
-    if (parser.hasIssues()) {
-        if (error) *error = parser.getIssues().front();
-        return std::nullopt;
-    }
-    return result;
-}
-
-static bool save_tex_file(const whiteout::textures::Texture& tex, const std::string& path,
-                          std::string* error) {
-    whiteout::textures::tex::Writer writer;
-    writer.write(path, tex);
-    if (writer.hasIssues()) {
-        if (error) *error = writer.getIssues().front();
-        return false;
-    }
-    return true;
-}
-
-// ============================================================================
-// Loaders
-// ============================================================================
-
-static std::optional<whiteout::textures::Texture> load_texture(const std::string& path,
-                                                     FileFormat fmt,
-                                                     std::string* error) {
-    switch (fmt) {
-    case FileFormat::BLP: return load_blp_file(path, error);
-    case FileFormat::DDS: return load_dds_file(path, error);
-    case FileFormat::TEX: return load_tex_file(path, error);
-    default:
-        if (error) *error = "unsupported input format";
-        return std::nullopt;
-    }
-}
-
-// ============================================================================
-// Default output extension for a given input format
-// ============================================================================
-
-static std::string default_output_extension(FileFormat input_fmt) {
+static std::string default_output_extension(TFF input_fmt) {
     switch (input_fmt) {
-    case FileFormat::BLP: return ".dds";
-    case FileFormat::TEX: return ".dds";
-    case FileFormat::DDS: return ".blp";
-    default:              return ".dds";
+    case TFF::BLP:  return ".dds";
+    case TFF::BMP:  return ".dds";
+    case TFF::DDS:  return ".blp";
+    case TFF::JPEG: return ".png";
+    case TFF::PNG:  return ".jpg";
+    case TFF::TEX:  return ".dds";
+    case TFF::TGA:  return ".dds";
+    default:        return ".dds";
     }
 }
 
@@ -215,7 +88,6 @@ static std::string default_output_extension(FileFormat input_fmt) {
 // Option parsing helpers
 // ============================================================================
 
-/// Return the value after '=' in an --option=value arg, or empty string.
 static std::string get_option_value(const char* arg, const char* prefix) {
     const auto prefix_len = std::strlen(prefix);
     if (std::strncmp(arg, prefix, prefix_len) == 0)
@@ -227,9 +99,11 @@ static void print_usage(const char* program) {
     std::cout
         << "Usage: " << program << " <input> [output] [options...]\n"
         << "\n"
-        << "Converts between BLP, TEX and DDS texture formats.\n"
+        << "Converts between BLP, BMP, DDS, JPEG, PNG, TEX and TGA texture formats.\n"
         << "If no output path is given, the extension is replaced automatically:\n"
-        << "  .blp -> .dds    .tex -> .dds    .dds -> .blp\n"
+        << "  .blp -> .dds    .bmp -> .dds    .tex -> .dds\n"
+        << "  .dds -> .blp    .tga -> .dds\n"
+        << "  .jpg -> .png    .png -> .jpg\n"
         << "\n"
         << "Options (all affect the output file):\n"
         << "  --blp_type=<1|2>\n"
@@ -239,7 +113,18 @@ static void print_usage(const char* program) {
         << "      BLP internal encoding\n"
         << "\n"
         << "  --dds_format=<true_color|bc1|bc2|bc3|bc4|bc5|bc6|bc7>\n"
-        << "      DDS pixel format (texture is auto-converted)\n";
+        << "      DDS pixel format (texture is auto-converted)\n"
+        << "\n"
+        << "  --jpeg_quality=<1..100>\n"
+        << "      JPEG encoder quality level (default: 75)\n"
+        << "\n"
+        << "  --generate_mipmaps\n"
+        << "      Regenerate all mip levels from the base image\n"
+        << "\n"
+        << "  --texture_kind=<diffuse|normal|specular|orm|albedo|roughness|\n"
+        << "                  metalness|ao|gloss|emissive|other>\n"
+        << "      Semantic kind of the texture (affects mipmap filters).\n"
+        << "      If omitted, guessed from file name / pixel format.\n";
 }
 
 // ============================================================================
@@ -257,6 +142,9 @@ int main(int argc, char* argv[]) {
     std::string opt_blp_type;
     std::string opt_blp_compression;
     std::string opt_dds_format;
+    std::string opt_texture_kind;
+    std::string opt_jpeg_quality;
+    bool opt_generate_mipmaps = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string v;
@@ -266,6 +154,12 @@ int main(int argc, char* argv[]) {
             opt_blp_compression = to_lower(v);
         } else if ((v = get_option_value(argv[i], "--dds_format=")).size()) {
             opt_dds_format = to_lower(v);
+        } else if ((v = get_option_value(argv[i], "--jpeg_quality=")).size()) {
+            opt_jpeg_quality = v;
+        } else if ((v = get_option_value(argv[i], "--texture_kind=")).size()) {
+            opt_texture_kind = to_lower(v);
+        } else if (std::strcmp(argv[i], "--generate_mipmaps") == 0) {
+            opt_generate_mipmaps = true;
         } else if (std::strncmp(argv[i], "--", 2) == 0) {
             std::cerr << "Unknown option: " << argv[i] << "\n";
             return 1;
@@ -280,9 +174,10 @@ int main(int argc, char* argv[]) {
     }
 
     const std::string input_path = positional[0];
-    FileFormat input_fmt = classify(input_path);
-    if (input_fmt == FileFormat::Unknown) {
-        std::cerr << "Unrecognised input extension: " << get_extension(input_path) << "\n";
+    TFF input_fmt = TC::classifyPath(input_path);
+    if (input_fmt == TFF::Unknown) {
+        std::cerr << "Unrecognised input extension: "
+                  << std::filesystem::path(input_path).extension().string() << "\n";
         return 1;
     }
 
@@ -293,20 +188,21 @@ int main(int argc, char* argv[]) {
         output_path = replace_extension(input_path, default_output_extension(input_fmt));
     }
 
-    FileFormat output_fmt = classify(output_path);
-    if (output_fmt == FileFormat::Unknown) {
-        std::cerr << "Unrecognised output extension: " << get_extension(output_path) << "\n";
+    TFF output_fmt = TC::classifyPath(output_path);
+    if (output_fmt == TFF::Unknown) {
+        std::cerr << "Unrecognised output extension: "
+                  << std::filesystem::path(output_path).extension().string() << "\n";
         return 1;
     }
 
     // -- Resolve BLP save options ------------------------------------------
-    whiteout::textures::blp::SaveOptions blp_opts;
+    tex::blp::SaveOptions blp_opts;
 
     if (!opt_blp_type.empty()) {
         if (opt_blp_type == "1") {
-            blp_opts.version = whiteout::textures::blp::BlpVersion::BLP1;
+            blp_opts.version = tex::blp::BlpVersion::BLP1;
         } else if (opt_blp_type == "2") {
-            blp_opts.version = whiteout::textures::blp::BlpVersion::BLP2;
+            blp_opts.version = tex::blp::BlpVersion::BLP2;
         } else {
             std::cerr << "Invalid --blp_type value '" << opt_blp_type
                       << "'. Expected 1 or 2.\n";
@@ -316,17 +212,14 @@ int main(int argc, char* argv[]) {
 
     if (!opt_blp_compression.empty()) {
         if (opt_blp_compression == "true_color") {
-            blp_opts.encoding = whiteout::textures::blp::BlpEncoding::BGRA;
+            blp_opts.encoding = tex::blp::BlpEncoding::BGRA;
         } else if (opt_blp_compression == "paletted") {
-            blp_opts.encoding = whiteout::textures::blp::BlpEncoding::Palettized;
+            blp_opts.encoding = tex::blp::BlpEncoding::Palettized;
         } else if (opt_blp_compression == "jpeg") {
-            blp_opts.encoding = whiteout::textures::blp::BlpEncoding::JPEG;
-        } else if (opt_blp_compression == "bc1") {
-            blp_opts.encoding = whiteout::textures::blp::BlpEncoding::DXT;
-        } else if (opt_blp_compression == "bc2") {
-            blp_opts.encoding = whiteout::textures::blp::BlpEncoding::DXT;
-        } else if (opt_blp_compression == "bc3") {
-            blp_opts.encoding = whiteout::textures::blp::BlpEncoding::DXT;
+            blp_opts.encoding = tex::blp::BlpEncoding::JPEG;
+        } else if (opt_blp_compression == "bc1" || opt_blp_compression == "bc2" ||
+                   opt_blp_compression == "bc3") {
+            blp_opts.encoding = tex::blp::BlpEncoding::DXT;
         } else {
             std::cerr << "Invalid --blp_compression value '" << opt_blp_compression
                       << "'. Expected true_color, paletted, jpeg, bc1, bc2, or bc3.\n";
@@ -336,26 +229,26 @@ int main(int argc, char* argv[]) {
 
     // -- Resolve DDS target pixel format -----------------------------------
     bool dds_convert = false;
-    whiteout::textures::PixelFormat dds_target_fmt = whiteout::textures::PixelFormat::RGBA8;
+    tex::PixelFormat dds_target_fmt = tex::PixelFormat::RGBA8;
 
     if (!opt_dds_format.empty()) {
         dds_convert = true;
         if (opt_dds_format == "true_color") {
-            dds_target_fmt = whiteout::textures::PixelFormat::RGBA8;
+            dds_target_fmt = tex::PixelFormat::RGBA8;
         } else if (opt_dds_format == "bc1") {
-            dds_target_fmt = whiteout::textures::PixelFormat::BC1;
+            dds_target_fmt = tex::PixelFormat::BC1;
         } else if (opt_dds_format == "bc2") {
-            dds_target_fmt = whiteout::textures::PixelFormat::BC2;
+            dds_target_fmt = tex::PixelFormat::BC2;
         } else if (opt_dds_format == "bc3") {
-            dds_target_fmt = whiteout::textures::PixelFormat::BC3;
+            dds_target_fmt = tex::PixelFormat::BC3;
         } else if (opt_dds_format == "bc4") {
-            dds_target_fmt = whiteout::textures::PixelFormat::BC4;
+            dds_target_fmt = tex::PixelFormat::BC4;
         } else if (opt_dds_format == "bc5") {
-            dds_target_fmt = whiteout::textures::PixelFormat::BC5;
+            dds_target_fmt = tex::PixelFormat::BC5;
         } else if (opt_dds_format == "bc6") {
-            dds_target_fmt = whiteout::textures::PixelFormat::BC6H;
+            dds_target_fmt = tex::PixelFormat::BC6H;
         } else if (opt_dds_format == "bc7") {
-            dds_target_fmt = whiteout::textures::PixelFormat::BC7;
+            dds_target_fmt = tex::PixelFormat::BC7;
         } else {
             std::cerr << "Invalid --dds_format value '" << opt_dds_format
                       << "'. Expected true_color, bc1, bc2, bc3, bc4, bc5, bc6, or bc7.\n";
@@ -363,45 +256,136 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    std::cout << "Converting " << file_format_name(input_fmt) << " -> "
-              << file_format_name(output_fmt) << "\n";
+    std::cout << "Converting " << TC::fileFormatName(input_fmt) << " -> "
+              << TC::fileFormatName(output_fmt) << "\n";
 
     // -- Load ---------------------------------------------------------------
-    std::string error;
-    auto texture = load_texture(input_path, input_fmt, &error);
+    TC converter;
+    auto texture = converter.load(input_path, input_fmt);
     if (!texture) {
-        std::cerr << "Failed to load " << input_path << ": " << error << "\n";
+        std::cerr << "Failed to load " << input_path;
+        if (converter.hasIssues())
+            std::cerr << ": " << converter.getIssues().front();
+        std::cerr << "\n";
         return 1;
     }
 
     std::cout << "  Input:      " << input_path << "\n";
-    std::cout << "  Type:       " << type_name(texture->type()) << "\n";
-    std::cout << "  Format:     " << format_name(texture->format()) << "\n";
+    std::cout << "  Type:       " << TC::textureTypeName(texture->type()) << "\n";
+    std::cout << "  Format:     " << TC::pixelFormatName(texture->format()) << "\n";
     std::cout << "  Dimensions: " << texture->width() << "x" << texture->height() << "\n";
     std::cout << "  Mip levels: " << texture->mipCount() << "\n";
 
+    // -- Resolve texture kind -----------------------------------------------
+    if (!opt_texture_kind.empty()) {
+        using K = tex::TextureKind;
+        K k = K::Other;
+        if      (opt_texture_kind == "diffuse")   k = K::Diffuse;
+        else if (opt_texture_kind == "normal")    k = K::Normal;
+        else if (opt_texture_kind == "specular")  k = K::Specular;
+        else if (opt_texture_kind == "orm")       k = K::ORM;
+        else if (opt_texture_kind == "albedo")    k = K::Albedo;
+        else if (opt_texture_kind == "roughness") k = K::Roughness;
+        else if (opt_texture_kind == "metalness") k = K::Metalness;
+        else if (opt_texture_kind == "ao")        k = K::AmbientOcclusion;
+        else if (opt_texture_kind == "gloss")     k = K::Gloss;
+        else if (opt_texture_kind == "emissive")  k = K::Emissive;
+        else if (opt_texture_kind == "other")     k = K::Other;
+        else {
+            std::cerr << "Invalid --texture_kind value '" << opt_texture_kind
+                      << "'. Expected diffuse, normal, specular, orm, albedo, roughness,\n"
+                      << "  metalness, ao, gloss, emissive, or other.\n";
+            return 1;
+        }
+        texture->setKind(k);
+        std::cout << "  Kind:       " << TC::textureKindName(k) << " (explicit)\n";
+    } else {
+        auto k = TC::guessTextureKind(input_path, texture->format());
+        texture->setKind(k);
+        std::cout << "  Kind:       " << TC::textureKindName(k) << " (guessed)\n";
+    }
+
+    // -- Generate mipmaps ---------------------------------------------------
+    if (opt_generate_mipmaps) {
+        bool is_bcn = texture->format() >= tex::PixelFormat::BC1 &&
+                      texture->format() <= tex::PixelFormat::BC7;
+        if (is_bcn) {
+            std::cout << "  Decompressing " << TC::pixelFormatName(texture->format())
+                      << " -> RGBA8 for mipmap generation...\n";
+            *texture = texture->copyAsFormat(tex::PixelFormat::RGBA8);
+        }
+        std::cout << "  Generating mipmaps...\n";
+        texture->generateMipmaps();
+        std::cout << "  Mip levels: " << texture->mipCount() << " (regenerated)\n";
+    }
+
+    // -- Resolve JPEG quality -----------------------------------------------
+    int jpeg_quality = tex::kDefaultJpegQuality;
+    if (!opt_jpeg_quality.empty()) {
+        int q = std::atoi(opt_jpeg_quality.c_str());
+        if (q < 1 || q > 100) {
+            std::cerr << "Invalid --jpeg_quality value '" << opt_jpeg_quality
+                      << "'. Expected 1..100.\n";
+            return 1;
+        }
+        jpeg_quality = q;
+    }
+
+    // Wire JPEG quality into BLP save options.
+    blp_opts.jpegQuality = jpeg_quality;
+
+    // If --jpeg_quality was given for BLP output but no explicit --blp_compression,
+    // auto-select JPEG encoding so the quality option actually takes effect.
+    if (output_fmt == TFF::BLP && !opt_jpeg_quality.empty() && opt_blp_compression.empty()) {
+        blp_opts.encoding = tex::blp::BlpEncoding::JPEG;
+    }
+
+    // JPEG and Palettized encodings are native to BLP1.  Auto-select BLP1
+    // unless the user explicitly requested a version with --blp_type.
+    if (output_fmt == TFF::BLP && opt_blp_type.empty() &&
+        (blp_opts.encoding == tex::blp::BlpEncoding::JPEG ||
+         blp_opts.encoding == tex::blp::BlpEncoding::Palettized)) {
+        blp_opts.version = tex::blp::BlpVersion::BLP1;
+    }
+
+    if (output_fmt == TFF::BLP &&
+         blp_opts.encoding == tex::blp::BlpEncoding::Palettized) {
+        blp_opts.dither = true;
+        blp_opts.ditherStrength = 0.8f;
+    }
+
     // -- Pre-save conversion ------------------------------------------------
     switch (output_fmt) {
-    case FileFormat::BLP: {
-        // Convert the texture to the format expected by the chosen BLP encoding.
-        if (!opt_blp_compression.empty()) {
-            whiteout::textures::PixelFormat needed = whiteout::textures::PixelFormat::RGBA8;
-            if (opt_blp_compression == "bc1")      needed = whiteout::textures::PixelFormat::BC1;
-            else if (opt_blp_compression == "bc2")  needed = whiteout::textures::PixelFormat::BC2;
-            else if (opt_blp_compression == "bc3")  needed = whiteout::textures::PixelFormat::BC3;
+    case TFF::BLP: {
+        tex::PixelFormat needed = tex::PixelFormat::RGBA8;
+        bool need_conversion = false;
 
-            if (texture->format() != needed) {
-                std::cout << "  Converting " << format_name(texture->format())
-                          << " -> " << format_name(needed) << " for BLP output...\n";
-                *texture = texture->copyAsFormat(needed);
-            }
+        if (blp_opts.encoding == tex::blp::BlpEncoding::JPEG ||
+            blp_opts.encoding == tex::blp::BlpEncoding::Palettized ||
+            blp_opts.encoding == tex::blp::BlpEncoding::BGRA) {
+            need_conversion = (texture->format() != tex::PixelFormat::RGBA8);
+        } else if (opt_blp_compression == "bc1") {
+            needed = tex::PixelFormat::BC1;
+            need_conversion = (texture->format() != needed);
+        } else if (opt_blp_compression == "bc2") {
+            needed = tex::PixelFormat::BC2;
+            need_conversion = (texture->format() != needed);
+        } else if (opt_blp_compression == "bc3") {
+            needed = tex::PixelFormat::BC3;
+            need_conversion = (texture->format() != needed);
+        }
+
+        if (need_conversion) {
+            std::cout << "  Converting " << TC::pixelFormatName(texture->format())
+                      << " -> " << TC::pixelFormatName(needed) << " for BLP output...\n";
+            *texture = texture->copyAsFormat(needed);
         }
         break;
     }
-    case FileFormat::DDS: {
+    case TFF::DDS: {
         if (dds_convert && texture->format() != dds_target_fmt) {
-            std::cout << "  Converting " << format_name(texture->format())
-                      << " -> " << format_name(dds_target_fmt) << " for DDS output...\n";
+            std::cout << "  Converting " << TC::pixelFormatName(texture->format())
+                      << " -> " << TC::pixelFormatName(dds_target_fmt) << " for DDS output...\n";
             *texture = texture->copyAsFormat(dds_target_fmt);
         }
         break;
@@ -412,27 +396,22 @@ int main(int argc, char* argv[]) {
 
     // -- Save ---------------------------------------------------------------
     bool ok = false;
-    switch (output_fmt) {
-    case FileFormat::BLP:
-        ok = save_blp_file(*texture, output_path, blp_opts, &error);
-        break;
-    case FileFormat::DDS:
-        ok = save_dds_file(*texture, output_path, &error);
-        break;
-    case FileFormat::TEX:
-        ok = save_tex_file(*texture, output_path, &error);
-        break;
-    default:
-        error = "unsupported output format";
-        break;
-    }
+    if (output_fmt == TFF::BLP)
+        ok = converter.save(*texture, output_path, blp_opts);
+    else if (output_fmt == TFF::JPEG)
+        ok = converter.save(*texture, output_path, jpeg_quality);
+    else
+        ok = converter.save(*texture, output_path);
 
     if (!ok) {
-        std::cerr << "Failed to save " << output_path << ": " << error << "\n";
+        std::cerr << "Failed to save " << output_path;
+        if (converter.hasIssues())
+            std::cerr << ": " << converter.getIssues().front();
+        std::cerr << "\n";
         return 1;
     }
 
     std::cout << "  Output:     " << output_path << "\n";
-    std::cout << "  Format:     " << format_name(texture->format()) << "\n";
+    std::cout << "  Format:     " << TC::pixelFormatName(texture->format()) << "\n";
     return 0;
 }

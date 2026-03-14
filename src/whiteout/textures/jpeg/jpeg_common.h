@@ -10,9 +10,7 @@
 
 #include <whiteout/common_types.h>
 
-namespace whiteout {
-namespace textures {
-namespace jpeg {
+namespace whiteout::textures::jpeg {
 
 // ============================================================================
 // Block & Component Limits
@@ -31,18 +29,21 @@ inline constexpr i32 MAX_COMPONENTS = 4;
 inline constexpr i32 MAX_TABLES = 4;
 
 // ============================================================================
-// DCT / IDCT Constants — Loeffler-Ligtenberg-Moschytz (LLM) Butterfly
+// DCT / IDCT Constants
 // ============================================================================
 //
 // All constants are derived from the DCT basis functions using the notation:
 //   c_k = cos(k * pi / 16)
 //
-// The LLM butterfly decomposes the 8-point DCT into cascaded 2-point rotations.
-// Each rotation is implemented with 3 multiplications instead of 4, at the cost
-// of pre-combining sin/cos terms.
+// The IDCT uses the Loeffler-Ligtenberg-Moschytz (LLM) factorisation, which
+// decomposes the 8-point DCT into cascaded 2-point rotations (11 multiplies,
+// 29 adds).  The FDCT uses the Arai-Agui-Nakajima (AAN) butterfly.
 //
-// Reference: Loeffler, Ligtenberg & Moschytz, "Practical Fast 1-D DCT
-//            Algorithms with 11 Multiplications", IEEE ICASSP 1989.
+// References:
+//   - IDCT: Loeffler et al., "Practical Fast 1-D DCT Algorithms with 11
+//     Multiplications", IEEE ICASSP 1989.
+//   - FDCT: Arai, Agui & Nakajima, "A Fast DCT-SQ Scheme for Images",
+//     Transactions of IEICE, vol. E-71(11), 1988.
 // ============================================================================
 
 inline constexpr f32 PI_F = std::numbers::pi_v<f32>;
@@ -152,7 +153,7 @@ inline constexpr f32 ODD_PAIR_73 = SQRT2_F * (-dct_cos(3) - dct_cos(5));
 /// sqrt(2) * (c5 - c3)  —  correction for (x5 + x1).
 inline constexpr f32 ODD_PAIR_51 = SQRT2_F * (dct_cos(5) - dct_cos(3));
 
-// -- Forward DCT specific constants -----------------------------------------
+// -- Forward DCT (AAN) specific constants -----------------------------------
 
 /// cos(pi/4) = 1 / sqrt(2)  —  used in the FDCT even-part butterfly.
 inline constexpr f32 COS_PI_OVER_4 = 1.0f / SQRT2_F;
@@ -197,6 +198,4 @@ inline constexpr u8 MARKER_DQT = 0xDB;  // Define Quantization Table
 inline constexpr u8 MARKER_DRI = 0xDD;  // Define Restart Interval
 inline constexpr u8 MARKER_RST0 = 0xD0; // Restart marker base (RST0–RST7)
 
-} // namespace jpeg
-} // namespace textures
-} // namespace whiteout
+} // namespace whiteout::textures::jpeg

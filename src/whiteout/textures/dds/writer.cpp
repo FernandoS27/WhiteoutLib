@@ -28,7 +28,7 @@ std::vector<u8> Writer::Impl::write(const Texture& texture) {
         return {};
     }
 
-    const bool use_dx10 = needs_dx10_header(texture.format());
+    const bool use_dx10 = needs_dx10_header(texture.format()) || texture.isSrgb();
 
     const size_t header_size = 4 + sizeof(DDS_HEADER) + (use_dx10 ? sizeof(DDS_HEADER_DXT10) : 0);
     const size_t total_size = header_size + static_cast<size_t>(texture.dataSize());
@@ -83,7 +83,8 @@ std::vector<u8> Writer::Impl::write(const Texture& texture) {
 
     if (use_dx10) {
         DDS_HEADER_DXT10 dx10_header{};
-        dx10_header.dxgiFormat = pixel_format_to_dxgi(texture.format());
+        dx10_header.dxgiFormat = texture.isSrgb() ? pixel_format_to_dxgi_srgb(texture.format())
+                                                  : pixel_format_to_dxgi(texture.format());
         dx10_header.arraySize = 1;
         dx10_header.miscFlags2 = 0;
 
@@ -116,7 +117,9 @@ void Writer::write(const std::string& filePath, const Texture& texture) {
     if (data.empty()) {
         return; // issues already logged in Lenient mode, or threw in Strict mode
     }
-    write_file_bytes(filePath, data);
+    if (!write_file_bytes(filePath, data, *pImpl)) {
+        return;
+    }
 }
 
 std::vector<u8> Writer::write(const Texture& texture) {

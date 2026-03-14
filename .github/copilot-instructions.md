@@ -17,6 +17,8 @@ optional dependency (CascLib, fetched via CMake FetchContent).
 | 3D models | StarCraft II / HotS | `.m3`, `.m3a` |
 | Textures | WC3 / WoW | `.blp` (BLP1 + BLP2) |
 | Textures | General | `.dds` (legacy + DX10) |
+| Textures | General | `.bmp` (24/32-bit uncompressed) |
+| Textures | General | `.tga` (uncompressed + RLE) |
 | Textures | D3 / D4 | `.tex` (Blizzard proprietary) |
 | Data files | Diablo III | SNO files (`.acr`, `.app`, `.ani`, etc.) |
 | Data files | Diablo IV | SNO files (same extensions, different layout) |
@@ -41,7 +43,13 @@ WhiteoutLib/
 │   ├── m3/                     #   SC2 M3 format (same pattern)
 │   ├── mdx/                    #   WC3 MDX format (same pattern)
 │   ├── sno/                    #   Diablo SNO (sno_reader.h, sno_value.h, sno_types.h, core_toc.h)
-│   └── textures/texture.h      #   Texture class, PixelFormat enum (BLP/DDS/TEX)
+│   └── textures/               #   Texture class + format-specific public headers
+│       ├── texture.h           #     Texture, PixelFormat, TextureKind, TextureType
+│       ├── blp/                #     BLP1/BLP2 (blp.h, parser.h, writer.h, types.h)
+│       ├── bmp/                #     BMP (bmp.h, parser.h, writer.h)
+│       ├── dds/                #     DDS (dds.h, parser.h, writer.h)
+│       ├── tex/                #     Blizzard TEX (tex.h, parser.h, writer.h, types.h)
+│       └── tga/                #     TGA (tga.h, parser.h, writer.h)
 ├── src/whiteout/               # PRIVATE IMPLEMENTATION
 │   ├── common/                 #   binary_reader.h, binary_writer.h, concepts.h, streams.h
 │   ├── m2/                     #   parser.cpp, writer.cpp, file_system, binary_*_visitor/
@@ -52,14 +60,25 @@ WhiteoutLib/
 │   │   └── d4/                 #   D4-specific auto-generated type registry
 │   ├── textures/               #   texture.cpp, format parsers/writers, codec suite
 │   │   ├── bcn/                #     BC1–BC7 encode/decode (bc1.cpp … bc7.cpp, bcn_common.cpp)
+│   │   ├── bcn.h / bcn.cpp     #     Format-agnostic BCn dispatcher
 │   │   ├── blp/                #     BLP1/BLP2 parser + writer
+│   │   ├── bmp/                #     BMP parser + writer
 │   │   ├── dds/                #     DDS parser + writer
 │   │   ├── jpeg/               #     Custom Huffman + JPEG (no libjpeg dependency)
-│   │   └── tex/                #     Blizzard TEX parser + writer
+│   │   ├── mipmap/             #     Mipmap generation pipeline (filters, stages, generator)
+│   │   ├── tex/                #     Blizzard TEX parser + writer
+│   │   ├── tga/                #     TGA parser + writer (uncompressed + RLE)
+│   │   ├── utils/              #     Shared texture utilities
+│   │   │   ├── pixel_convert.h #       Per-pixel format converters via RGBA32F intermediate
+│   │   │   ├── srgb_linearize.h#       sRGB ↔ linear conversion with LUT
+│   │   │   ├── quantize.h/.cpp #       Wu's color quantization for palette generation
+│   │   │   ├── blue_noise.h/.cpp#      Void-and-Cluster blue-noise threshold map
+│   │   ├── io_helpers.h        #     File I/O utilities (read_file_bytes, write_file_bytes)
+│   │   └── issue_sink.h        #     Base class for strict/lenient error reporting
 │   └── casc/storage.cpp        #   CascLib C-API bridge
 ├── examples/                   # Standalone example programs (one per format)
 ├── docs/                       # File-format specs (BLP, M2, M3, MDX, SNO, CASC)
-└── scripts/                    # Code generators (e.g. gen_sno_defs.py)
+└── scripts/                    # Code generators (e.g. gen_sno_defs.py, gen_d3_sno_defs.py)
 ```
 
 ---
@@ -72,9 +91,14 @@ All defined in the single `CMakeLists.txt`:
 |--------|------|-------------|
 | `whiteout_lib` | Static library | Core library — all formats except CASC |
 | `whiteout_casc` | Static library | CASC wrapper, links `whiteout_lib` + `casc_static` |
-| `*_example` | Executables | Example programs in `examples/` |
+| `*_example` | Executables | Example programs in `examples/` (gated by `WHITEOUT_BUILD_EXAMPLES`) |
 
-**Optional flag:** `WHITEOUT_ENABLE_CASC=ON` (default ON) fetches CascLib via FetchContent.
+**Options:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `WHITEOUT_ENABLE_CASC` | OFF | Fetches CascLib via FetchContent, builds `whiteout_casc` |
+| `WHITEOUT_BUILD_EXAMPLES` | OFF | Builds example programs |
 
 **Build commands:**
 ```
@@ -149,19 +173,55 @@ Foundation types shared by all modules:
 
 **Data flow:** buffer → MD33/MD34 header → index table → visit each referenced block → populate `Model` → return.
 
-### 4.5 Texture Module — BLP, DDS, TEX
+### 4.5 Texture Module — BLP, DDS, BMP, TGA, TEX
 
 **Public:** `include/whiteout/textures/texture.h`
++ `blp/{blp.h, parser.h, writer.h, types.h}`, `dds/{dds.h, parser.h, writer.h}`,
+  `bmp/{bmp.h, parser.h, writer.h}`, `tga/{tga.h, parser.h, writer.h}`,
+  `tex/{tex.h, parser.h, writer.h, types.h}`
 **Internal:** `src/whiteout/textures/` tree
 
 - **`Texture`** is the format-agnostic interchange type (PImpl). Holds pixel data + mip chain + metadata.
-- `PixelFormat` enum: `RGBA8`, `RGBA16F`, `RGBA32F`, `BC1`–`BC7`.
-- Three format parser/writer pairs: `blp/`, `dds/`, `tex/`.
+- `PixelFormat` enum: `R8`, `R16`, `R32F`, `RG8`, `RG16`, `RG32F`, `RGBA8`, `RGBA16`, `RGBA32F`, `BC1`–`BC7`.
+- `TextureKind` enum (11 values): `Other`, `Diffuse`, `Normal`, `Specular`, `ORM`, `Albedo`, `Roughness`, `Metalness`, `AmbientOcclusion`, `Gloss`, `Emissive`.
+- `TextureType` enum: `Texture2D`, `Texture3D`, `TextureCube`.
+- Factory methods: `create2D()`, `create3D()`, `createCube()`.
+- Format conversion: `format(PixelFormat)` (in-place), `copyAsFormat(PixelFormat)` (non-destructive).
+- `generateMipmaps()` — generates full mip chain with kind-aware pipeline selection.
+- sRGB flag: `isSrgb()` / `setSrgb(bool)`.
+- Five format parser/writer pairs: `blp/`, `bmp/`, `dds/`, `tga/`, `tex/`.
 - Full **BCn codec suite** (`bcn/bc1.cpp` through `bcn/bc7.cpp`) — no external dependency.
 - Custom **JPEG encoder/decoder** (`jpeg/`) — no libjpeg dependency.
-- `wu_quantize.cpp` implements Wu's color quantization for palette generation.
+- `utils/quantize.cpp` implements Wu's color quantization for palette generation.
+- `utils/blue_noise.cpp` provides the Void-and-Cluster blue-noise threshold map used by dithering.
 
-**Data flow:** raw file → format-specific parser → `Texture` object (decoded to RGBA or keeps compressed) → optional `convertFormat()` → format-specific writer.
+#### Mipmap Generation Pipeline (`src/whiteout/textures/mipmap/`)
+
+- **`generator.h`** — Public API: `generateMipmaps(Texture&)` with automatic pipeline selection per `TextureKind`.
+- **`pipeline.h`** — Configurable pipeline: pre-process stages → downsample filter → post-process stages.
+- **`filters.h`** — Downsample filters: `boxFilter()`, `lanczos3Filter()`, `kaiserFilter(β)`.
+- **`stages.h`** — Processing stages: gamma linearize/delinearize, normal-map unpack/pack/renormalize/Toksvig correction, roughness square/unsquare, gloss↔roughness conversion.
+- **`mip_image.h`** — Intermediate float-per-channel image buffer.
+- Every mip level is generated directly from the base (mip 0) — eliminates cascading blur.
+- Pipeline auto-selected per `TextureKind`:
+  - **Diffuse/Albedo:** Lanczos3 + sRGB linearize/delinearize
+  - **Normal:** Kaiser(β=6) + unpack/Toksvig/renormalize/pack
+  - **Roughness:** Kaiser(β=6.5) variance-preserving (r→r², filter, √r)
+  - **Other kinds:** Kaiser variants with kind-specific β values
+
+#### Internal Helpers (`src/whiteout/textures/`)
+
+| File | Purpose |
+|------|---------|
+| `bcn.h` / `bcn.cpp` | Format-agnostic BCn dispatcher |
+| `io_helpers.h` | File I/O utilities (`read_file_bytes`, `write_file_bytes`) |
+| `issue_sink.h` | Base class for strict/lenient error reporting |
+| `utils/pixel_convert.h` | Per-pixel format converters via RGBA32F intermediate |
+| `utils/srgb_linearize.h` | sRGB ↔ linear conversion with LUT |
+| `utils/quantize.h/.cpp` | Wu's color quantization for palette generation |
+| `utils/blue_noise.h/.cpp` | Void-and-Cluster blue-noise threshold map |
+
+**Data flow:** raw file → format-specific parser → `Texture` object (decoded to RGBA or keeps compressed) → optional `convertFormat()` / `generateMipmaps()` → format-specific writer.
 
 ### 4.6 SNO Module — Diablo III & IV Data Files
 
@@ -283,6 +343,7 @@ m2::Parser::parse(filePath)
 ```
 textures::Texture tex = blp::parse(blpData)   // → Texture (maybe BC1 compressed)
 tex.convertFormat(PixelFormat::RGBA8)          // → decode BC1 to RGBA8
+tex.generateMipmaps()                          // → kind-aware mip chain generation
 std::vector<u8> ddsBytes = dds::write(tex)     // → re-encode as DDS
 ```
 
@@ -296,15 +357,21 @@ std::vector<u8> ddsBytes = dds::write(tex)     // → re-encode as DDS
 |-----------------|----------|
 | Add a new SNO basic type | `src/whiteout/sno/sno_reader.cpp` → `TypeHash` namespace + `readBasicType()` switch |
 | Add a new D4 SNO type/field | Run `scripts/gen_sno_defs.py` (regenerates `d4/sno_defs.cpp`) |
-| Add a new D3 SNO type/field | `src/whiteout/sno/d3/sno_defs.cpp` (auto-generated) |
+| Add a new D3 SNO type/field | `src/whiteout/sno/d3/sno_defs.cpp` (auto-generated via `scripts/gen_d3_sno_defs.py`) |
 | Fix SNO alignment issues | `sno_reader.cpp` → `getTypeAlignment()` / `getBasicTypeAlignment()` |
 | Fix SNO variable array parsing | `sno_reader.cpp` → `DT_VARIABLEARRAY` / `DT_POLYMORPHIC_VARIABLEARRAY` cases |
 | Add M2 chunk support | `src/whiteout/m2/binary_parse_visitor/chunk.cpp` + `include/whiteout/m2/structures/chunks.h` |
 | Fix M2 bone/anim parsing | `src/whiteout/m2/binary_parse_visitor/{bone,anim}.cpp` |
 | Add M3 material type | `include/whiteout/m3/structures/material.h` + `src/whiteout/m3/binary_parse_visitor.cpp` (material.inl) |
 | Add BCn codec or fix encoding | `src/whiteout/textures/bcn/{bc1..bc7}.cpp` |
-| Add new texture format | New dir under `src/whiteout/textures/`, parser/writer pair, update `CMakeLists.txt` |
+| Add new texture format | New dir under `src/whiteout/textures/` + `include/whiteout/textures/`, parser/writer pair, update `CMakeLists.txt` |
 | Fix BLP palette/JPEG issues | `src/whiteout/textures/blp/parser.cpp` or `writer.cpp` |
+| Fix BMP parsing/writing | `src/whiteout/textures/bmp/parser.cpp` or `writer.cpp` |
+| Fix TGA parsing/writing | `src/whiteout/textures/tga/parser.cpp` or `writer.cpp` |
+| Modify mipmap pipeline | `src/whiteout/textures/mipmap/` — `generator.cpp` (kind→pipeline mapping), `filters.cpp`, `stages.cpp` |
+| Add new TextureKind pipeline | `src/whiteout/textures/mipmap/generator.cpp` → pipeline selection switch |
+| Add mipmap filter or stage | `src/whiteout/textures/mipmap/filters.h/.cpp` or `stages.h/.cpp` |
+| Fix pixel format conversion | `src/whiteout/textures/utils/pixel_convert.h` or `texture.cpp` |
 | Add CASC features | `src/whiteout/casc/storage.cpp` + `include/whiteout/casc/storage.h` |
 | Add CoreTOC format variant | `src/whiteout/sno/core_toc.cpp` |
 | Add new example program | New `.cpp` in `examples/`, add `add_executable` + `target_link_libraries` in `CMakeLists.txt` |

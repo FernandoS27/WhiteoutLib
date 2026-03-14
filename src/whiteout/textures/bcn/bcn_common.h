@@ -11,11 +11,13 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cassert>
 #include <cstring>
 #include <optional>
 #include <span>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <whiteout/common_types.h>
@@ -213,7 +215,7 @@ inline u64 colour_error_rgb(RGBA a, RGBA b) {
 
 // ============================================================================
 // Generic gather_block: extract a 4×4 RGBA block with edge-clamping.
-// Works with u8 (RGBA8) or u16 (RGBA16F) element types.
+// Works with u8 (RGBA8) or u16 (RGBA16) or f32 (RGBA32F) element types.
 // ============================================================================
 
 template <typename T>
@@ -242,7 +244,7 @@ inline void gather_rgba8_block(std::span<const u8> rgba, u32 width, u32 block_x,
 
 // ============================================================================
 // Generic scatter_block: write a decoded 4×4 RGBA block back to the image.
-// Works with u8 (RGBA8) or u16 (RGBA16F) element types.
+// Works with u8 (RGBA8) or u16 (RGBA16) or f32 (RGBA32F) element types.
 // ============================================================================
 
 template <typename T>
@@ -287,17 +289,84 @@ void scatter_channel_block(const std::array<u8, 16>& values, u32 width, u32 heig
                            u32 block_y, u8* result, u32 stride, u32 channel_offset);
 
 // ============================================================================
+// Parallel tile dispatch utility.
+//
+// Divides the block grid into tiles of up to kTileBlocks×kTileBlocks blocks
+// (64×64 pixels) and distributes them across worker threads.
+//
+//   thread_count = 1 → serial (no threads spawned)
+//   thread_count = 0 → auto (std::thread::hardware_concurrency())
+//   thread_count > 1 → use that many threads
+//
+// TileFn signature: void(u32 bx_start, u32 by_start, u32 bx_end, u32 by_end)
+// Each invocation processes all blocks in [bx_start,bx_end) × [by_start,by_end).
+// ============================================================================
+
+template <typename TileFn>
+void parallel_for_tiles(u32 blocks_wide, u32 blocks_tall, u32 thread_count, TileFn&& tile_fn) {
+    constexpr u32 kTileBlocks = 16; // 16×16 blocks = 64×64 pixels max
+
+    const u32 tiles_wide = (blocks_wide + kTileBlocks - 1) / kTileBlocks;
+    const u32 tiles_tall = (blocks_tall + kTileBlocks - 1) / kTileBlocks;
+    const u32 total_tiles = tiles_wide * tiles_tall;
+
+    // Resolve auto thread count.
+    if (thread_count == 0)
+        thread_count = std::max(1u, std::thread::hardware_concurrency());
+
+    if (thread_count <= 1 || total_tiles <= 1) {
+        // Serial path — no threads spawned.
+        for (u32 ty = 0; ty < tiles_tall; ++ty) {
+            for (u32 tx = 0; tx < tiles_wide; ++tx) {
+                const u32 bx0 = tx * kTileBlocks;
+                const u32 by0 = ty * kTileBlocks;
+                tile_fn(bx0, by0, std::min(bx0 + kTileBlocks, blocks_wide),
+                        std::min(by0 + kTileBlocks, blocks_tall));
+            }
+        }
+        return;
+    }
+
+    // Parallel path — work-stealing via atomic counter.
+    const u32 num_threads = std::min(thread_count, total_tiles);
+    std::atomic<u32> next_tile{0};
+
+    auto worker = [&]() {
+        for (;;) {
+            const u32 tile_idx = next_tile.fetch_add(1, std::memory_order_relaxed);
+            if (tile_idx >= total_tiles)
+                break;
+            const u32 ty = tile_idx / tiles_wide;
+            const u32 tx = tile_idx % tiles_wide;
+            const u32 bx0 = tx * kTileBlocks;
+            const u32 by0 = ty * kTileBlocks;
+            tile_fn(bx0, by0, std::min(bx0 + kTileBlocks, blocks_wide),
+                    std::min(by0 + kTileBlocks, blocks_tall));
+        }
+    };
+
+    std::vector<std::thread> threads;
+    threads.reserve(num_threads - 1);
+    for (u32 i = 1; i < num_threads; ++i)
+        threads.emplace_back(worker);
+    worker(); // current thread participates
+    for (auto& t : threads)
+        t.join();
+}
+
+// ============================================================================
 // Generic decode_image for RGBA8 block formats.
 //
 // Iterates 4×4 blocks, calls DecodeBlockF(src_ptr, block_pixels) for each,
 // then scatters into the output image.
 //   BlockBytes : compressed block size in bytes (8 for BC1/BC4, 16 for others)
 //   DecodeBlockF : void(const u8* src, u8* out_rgba64)
+//   thread_count : 1 = serial, 0 = auto, >1 = that many threads
 // ============================================================================
 
 template <u32 BlockBytes, typename DecodeBlockF>
 std::vector<u8> decode_image_rgba8(std::span<const u8> data, u32 width, u32 height,
-                                   DecodeBlockF decode_block_fn) {
+                                   DecodeBlockF decode_block_fn, u32 thread_count = 1) {
     assert(width > 0 && height > 0);
 
     const u32 blocks_wide = (width + 3) / 4;
@@ -306,14 +375,18 @@ std::vector<u8> decode_image_rgba8(std::span<const u8> data, u32 width, u32 heig
 
     std::vector<u8> result(static_cast<size_t>(width) * height * 4, 0);
 
-    for (u32 block_y = 0; block_y < blocks_tall; ++block_y) {
-        for (u32 block_x = 0; block_x < blocks_wide; ++block_x) {
-            std::array<u8, 64> block_pixels{};
-            decode_block_fn(data.data() + (block_y * blocks_wide + block_x) * BlockBytes,
-                            block_pixels.data());
-            scatter_rgba8_block(block_pixels, width, height, block_x, block_y, result);
-        }
-    }
+    parallel_for_tiles(blocks_wide, blocks_tall, thread_count,
+        [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
+            for (u32 block_y = by0; block_y < by1; ++block_y) {
+                for (u32 block_x = bx0; block_x < bx1; ++block_x) {
+                    std::array<u8, 64> block_pixels{};
+                    decode_block_fn(
+                        data.data() + (block_y * blocks_wide + block_x) * BlockBytes,
+                        block_pixels.data());
+                    scatter_rgba8_block(block_pixels, width, height, block_x, block_y, result);
+                }
+            }
+        });
 
     return result;
 }
@@ -325,11 +398,12 @@ std::vector<u8> decode_image_rgba8(std::span<const u8> data, u32 width, u32 heig
 // EncodeBlockF(block_rgba64, dst_ptr) for each.
 //   BlockBytes : compressed block size in bytes (8 for BC1/BC4, 16 for others)
 //   EncodeBlockF : void(const u8* rgba64, u8* out)
+//   thread_count : 1 = serial, 0 = auto, >1 = that many threads
 // ============================================================================
 
 template <u32 BlockBytes, typename EncodeBlockF>
 std::vector<u8> encode_image_rgba8(std::span<const u8> rgba, u32 width, u32 height,
-                                   EncodeBlockF encode_block_fn) {
+                                   EncodeBlockF encode_block_fn, u32 thread_count = 1) {
     assert(width > 0 && height > 0);
     assert(rgba.size() >= static_cast<size_t>(width) * height * 4);
 
@@ -337,14 +411,18 @@ std::vector<u8> encode_image_rgba8(std::span<const u8> rgba, u32 width, u32 heig
     const u32 blocks_tall = (height + 3) / 4;
     std::vector<u8> result(static_cast<size_t>(blocks_wide) * blocks_tall * BlockBytes);
 
-    for (u32 block_y = 0; block_y < blocks_tall; ++block_y) {
-        for (u32 block_x = 0; block_x < blocks_wide; ++block_x) {
-            std::array<u8, 64> block{};
-            gather_rgba8_block(rgba, width, block_x, block_y, block);
-            encode_block_fn(block.data(),
-                            result.data() + (block_y * blocks_wide + block_x) * BlockBytes);
-        }
-    }
+    parallel_for_tiles(blocks_wide, blocks_tall, thread_count,
+        [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
+            for (u32 block_y = by0; block_y < by1; ++block_y) {
+                for (u32 block_x = bx0; block_x < bx1; ++block_x) {
+                    std::array<u8, 64> block{};
+                    gather_rgba8_block(rgba, width, block_x, block_y, block);
+                    encode_block_fn(
+                        block.data(),
+                        result.data() + (block_y * blocks_wide + block_x) * BlockBytes);
+                }
+            }
+        });
 
     return result;
 }

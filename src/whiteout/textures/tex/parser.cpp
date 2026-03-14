@@ -184,8 +184,12 @@ Parser::Parser(ParseMode parseMode) : pImpl(std::make_unique<Impl>()) {
 Parser::~Parser() = default;
 
 std::optional<Texture> Parser::parse(const std::string& filePath) {
-    auto buf = read_file_bytes(filePath);
-    return pImpl->parse(std::span<const u8>{buf}, nullptr);
+    pImpl->issues.clear();
+    auto buf = read_file_bytes(filePath, *pImpl);
+    if (!buf) {
+        return std::nullopt;
+    }
+    return pImpl->parse(std::span<const u8>{*buf}, nullptr);
 }
 
 std::optional<Texture> Parser::parse(std::span<const u8> buffer) {

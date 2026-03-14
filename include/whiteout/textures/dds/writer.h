@@ -21,6 +21,7 @@
 #include <vector>
 
 #include <whiteout/common_types.h>
+#include <whiteout/textures/writer.h>
 #include <whiteout/textures/texture.h>
 
 namespace whiteout::textures::dds {
@@ -30,7 +31,7 @@ namespace whiteout::textures::dds {
 // ============================================================================
 
 /// Encodes a Texture into DDS format.
-class Writer {
+class Writer : public textures::Writer {
 public:
     enum class WriteMode {
         Strict, ///< Throw on any issue.
@@ -44,10 +45,10 @@ public:
     Writer& operator=(const Writer&) = delete;
 
     /// Serialize the texture to a DDS file on disk.
-    void write(const std::string& filePath, const Texture& texture);
+    void write(const std::string& filePath, const Texture& texture) override;
 
     /// Serialize the texture to a DDS byte buffer.
-    std::vector<u8> write(const Texture& texture);
+    std::vector<u8> write(const Texture& texture) override;
 
     /// @return true if the last write produced any issues.
     bool hasIssues() const;

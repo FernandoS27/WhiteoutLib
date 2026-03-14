@@ -125,7 +125,7 @@ u16 finish_unquantize(u32 val) {
 namespace {
 
 /// Decode a BC6H block.  Extracts mode, endpoints, partition, indices,
-/// then unquantizes + interpolates to produce 16 RGBA16F pixels.
+/// then unquantizes + interpolates to produce 16 half-float pixels.
 void decode_block(const u8* block, u16* out) {
     // Determine mode from the first 2 or 5 bits.
     u32 b0 = block[0] & 0x1F; // first 5 bits
@@ -510,32 +510,54 @@ void decode_block(const u8* block, u16* out) {
     }
 }
 
-std::vector<u16> decode_image(std::span<const u8> bc6h, u32 width, u32 height) {
+/// Convert a u16 half-float bit pattern to f32 (unsigned — clamp negatives to 0).
+inline f32 half_to_float_quick(u16 h) {
+    return f16::from_raw(h).to_float();
+}
+
+std::vector<f32> decode_image(std::span<const u8> bc6h, u32 width, u32 height,
+                              u32 thread_count) {
     assert(width > 0 && height > 0);
 
     const u32 blocks_wide = (width + 3) / 4;
     const u32 blocks_tall = (height + 3) / 4;
     assert(bc6h.size() >= static_cast<size_t>(blocks_wide) * blocks_tall * 16);
 
-    std::vector<u16> result(static_cast<size_t>(width) * height * 4, 0);
+    // Decode into u16 half-float intermediary, then expand to f32.
+    std::vector<u16> half_buf(static_cast<size_t>(width) * height * 4, 0);
 
-    for (u32 block_y = 0; block_y < blocks_tall; ++block_y) {
-        for (u32 block_x = 0; block_x < blocks_wide; ++block_x) {
-            std::array<u16, 64> block_pixels{}; // 16 pixels × 4 channels
-            decode_block(bc6h.data() + (block_y * blocks_wide + block_x) * 16, block_pixels.data());
-            scatter_rgba_block<u16>(block_pixels, width, height, block_x, block_y, result);
-        }
-    }
+    parallel_for_tiles(blocks_wide, blocks_tall, thread_count,
+        [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
+            for (u32 block_y = by0; block_y < by1; ++block_y) {
+                for (u32 block_x = bx0; block_x < bx1; ++block_x) {
+                    std::array<u16, 64> block_pixels{}; // 16 pixels × 4 channels
+                    decode_block(
+                        bc6h.data() + (block_y * blocks_wide + block_x) * 16,
+                        block_pixels.data());
+                    scatter_rgba_block<u16>(block_pixels, width, height, block_x, block_y,
+                                           half_buf);
+                }
+            }
+        });
+
+    // Convert half-float → float.
+    std::vector<f32> result(half_buf.size());
+    for (size_t i = 0; i < half_buf.size(); ++i)
+        result[i] = half_to_float_quick(half_buf[i]);
 
     return result;
 }
 
 } // anonymous namespace
 
-std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error) {
+std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error,
+                                     u32 thread_count) {
     return transform_texture_impl(
-        src, PixelFormat::BC6H, PixelFormat::RGBA16F, "bc6h::decodeTexture",
-        [](std::span<const u8> data, u32 w, u32 h) { return decode_image(data, w, h); }, out_error);
+        src, PixelFormat::BC6H, PixelFormat::RGBA32F, "bc6h::decodeTexture",
+        [thread_count](std::span<const u8> data, u32 w, u32 h) {
+            return decode_image(data, w, h, thread_count);
+        },
+        out_error);
 }
 
 // ============================================================================
@@ -680,7 +702,8 @@ void encode_block(const u16* rgba_f16, u8* out) {
     std::memcpy(out, writer.data.data(), 16);
 }
 
-std::vector<u8> encode_image(std::span<const u16> rgba_f16, u32 width, u32 height) {
+std::vector<u8> encode_image(std::span<const u16> rgba_f16, u32 width, u32 height,
+                             u32 thread_count) {
     assert(width > 0 && height > 0);
     assert(rgba_f16.size() >= static_cast<size_t>(width) * height * 4);
 
@@ -688,42 +711,41 @@ std::vector<u8> encode_image(std::span<const u16> rgba_f16, u32 width, u32 heigh
     const u32 blocks_tall = (height + 3) / 4;
     std::vector<u8> result(static_cast<size_t>(blocks_wide) * blocks_tall * 16);
 
-    for (u32 block_y = 0; block_y < blocks_tall; ++block_y) {
-        for (u32 block_x = 0; block_x < blocks_wide; ++block_x) {
-            std::array<u16, 64> block{}; // 16 pixels × 4 channels
-            gather_rgba_block<u16>(rgba_f16, width, block_x, block_y, block);
-            encode_block(block.data(), result.data() + (block_y * blocks_wide + block_x) * 16);
-        }
-    }
+    parallel_for_tiles(blocks_wide, blocks_tall, thread_count,
+        [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
+            for (u32 block_y = by0; block_y < by1; ++block_y) {
+                for (u32 block_x = bx0; block_x < bx1; ++block_x) {
+                    std::array<u16, 64> block{}; // 16 pixels × 4 channels
+                    gather_rgba_block<u16>(rgba_f16, width, block_x, block_y, block);
+                    encode_block(
+                        block.data(),
+                        result.data() + (block_y * blocks_wide + block_x) * 16);
+                }
+            }
+        });
 
     return result;
 }
 
 } // anonymous namespace
 
-std::optional<Texture> encodeTexture(const Texture& src, std::string* out_error) {
-    if (src.format() != PixelFormat::RGBA16F && src.format() != PixelFormat::RGBA32F) {
+std::optional<Texture> encodeTexture(const Texture& src, std::string* out_error,
+                                     u32 thread_count) {
+    if (src.format() != PixelFormat::RGBA32F) {
         if (out_error)
-            *out_error = "bc6h::encodeTexture: source must be RGBA16F or RGBA32F";
+            *out_error = "bc6h::encodeTexture: source must be RGBA32F";
         return std::nullopt;
     }
-    const bool is_f32 = (src.format() == PixelFormat::RGBA32F);
 
     return transform_texture_impl(
         src, src.format(), PixelFormat::BC6H, "bc6h::encodeTexture",
-        [is_f32](std::span<const u8> data, u32 w, u32 h) {
-            if (!is_f32) {
-                auto src_u16 = std::span<const u16>(reinterpret_cast<const u16*>(data.data()),
-                                                    data.size() / 2);
-                return encode_image(src_u16, w, h);
-            } else {
-                auto src_f32 = std::span<const f32>(reinterpret_cast<const f32*>(data.data()),
-                                                    data.size() / 4);
-                std::vector<u16> temp(src_f32.size());
-                for (size_t i = 0; i < src_f32.size(); ++i)
-                    temp[i] = float_to_half(src_f32[i]);
-                return encode_image(temp, w, h);
-            }
+        [thread_count](std::span<const u8> data, u32 w, u32 h) {
+            auto src_f32 =
+                std::span<const f32>(reinterpret_cast<const f32*>(data.data()), data.size() / 4);
+            std::vector<u16> temp(src_f32.size());
+            for (size_t i = 0; i < src_f32.size(); ++i)
+                temp[i] = float_to_half(src_f32[i]);
+            return encode_image(temp, w, h, thread_count);
         },
         out_error);
 }

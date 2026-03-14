@@ -62,8 +62,10 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
     }
 
     std::optional<PixelFormat> pixel_format;
+    bool srgb = false;
     if (has_dx10_header) {
         pixel_format = dxgi_to_pixel_format(dx10_header.dxgiFormat);
+        srgb = is_dxgi_srgb(dx10_header.dxgiFormat);
         if (!pixel_format) {
             fail("Unsupported DXGI format: " + std::to_string(dx10_header.dxgiFormat));
             return std::nullopt;
@@ -103,6 +105,8 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
         texture = Texture::create2D(*pixel_format, width, height, mipCount);
     }
 
+    texture.setSrgb(srgb);
+
     if (buffer_.size() < data_offset + texture.dataSize()) {
         fail("DDS file truncated: need " + std::to_string(data_offset + texture.dataSize()) +
              " bytes, got " + std::to_string(buffer_.size()));
@@ -122,8 +126,12 @@ Parser::Parser(ParseMode parseMode) : pImpl(std::make_unique<Impl>()) {
 Parser::~Parser() = default;
 
 std::optional<Texture> Parser::parse(const std::string& filePath) {
-    auto buf = read_file_bytes(filePath);
-    return pImpl->parse(std::span<const u8>{buf});
+    pImpl->issues.clear();
+    auto buf = read_file_bytes(filePath, *pImpl);
+    if (!buf) {
+        return std::nullopt;
+    }
+    return pImpl->parse(std::span<const u8>{*buf});
 }
 
 std::optional<Texture> Parser::parse(std::span<const u8> buffer) {

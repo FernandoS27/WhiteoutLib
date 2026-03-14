@@ -33,8 +33,10 @@ void decode_block(const u8* block, u8* out);
 ///
 /// @param src       Source texture (must be BC1).
 /// @param out_error Optional string to receive an error message on failure.
+/// @param thread_count  Number of threads (1 = serial, 0 = auto, >1 = N threads).
 /// @return The decoded texture, or std::nullopt on error.
-std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error = nullptr);
+std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error = nullptr,
+                                     u32 thread_count = 1);
 
 // ---- Encode ----------------------------------------------------------------
 
@@ -50,9 +52,10 @@ void encode_block(const u8* rgba, u8* out, bool alpha = false);
 /// @param src       Source texture (must be RGBA8).
 /// @param alpha     If true, enable 1-bit punch-through alpha.
 /// @param out_error Optional string to receive an error message on failure.
+/// @param thread_count  Number of threads (1 = serial, 0 = auto, >1 = N threads).
 /// @return The compressed texture, or std::nullopt on error.
 std::optional<Texture> encodeTexture(const Texture& src, bool alpha = false,
-                                     std::string* out_error = nullptr);
+                                     std::string* out_error = nullptr, u32 thread_count = 1);
 
 } // namespace bc1
 } // namespace whiteout::textures

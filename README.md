@@ -22,6 +22,8 @@ It is inspired by StormLib, a library used by older Blizzard games to handle pro
     Both BLP1 (Warcraft III Classic) & BLP2 (World of Warcraft)
 - **Direct3D Surface (`.dds`)**
 - **Diablo 3 (`.tex`)**
+- **Standard formats `.jpeg, .bmp, .png, .tga` and `.gif` for saving only.**
+- **Mipmap generation for PBR & Legacy pipelines, minding texture type and characteristics**
 
 ## Planned Support
 - **Diablo 4 (`.tex`)**

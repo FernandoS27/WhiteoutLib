@@ -23,7 +23,8 @@ namespace bc2 {
 /// @param src       Source texture (must be BC2).
 /// @param out_error Optional string to receive an error message on failure.
 /// @return The decoded texture, or std::nullopt on error.
-std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error = nullptr);
+std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error = nullptr,
+                                     u32 thread_count = 1);
 
 // ---- Encode ----------------------------------------------------------------
 
@@ -31,8 +32,10 @@ std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error 
 ///
 /// @param src       Source texture (must be RGBA8).
 /// @param out_error Optional string to receive an error message on failure.
+/// @param thread_count  Number of threads (1 = serial, 0 = auto, >1 = N threads).
 /// @return The compressed texture, or std::nullopt on error.
-std::optional<Texture> encodeTexture(const Texture& src, std::string* out_error = nullptr);
+std::optional<Texture> encodeTexture(const Texture& src, std::string* out_error = nullptr,
+                                     u32 thread_count = 1);
 
 } // namespace bc2
 } // namespace whiteout::textures

@@ -265,61 +265,6 @@ Quaternion Quaternion::squad(const Quaternion& start, const Quaternion& outtan,
 // Matrix44f
 // ============================================================================
 
-Matrix44f Matrix44f::operator+(const Matrix44f& other) const {
-    Matrix44f result{};
-    for (size_t i = 0; i < 4; i++) {
-        for (size_t j = 0; j < 4; j++) {
-            result.data[i][j] = data[i][j] + other.data[i][j];
-        }
-    }
-    return result;
-}
-
-Matrix44f Matrix44f::operator-(const Matrix44f& other) const {
-    Matrix44f result{};
-    for (size_t i = 0; i < 4; i++) {
-        for (size_t j = 0; j < 4; j++) {
-            result.data[i][j] = data[i][j] - other.data[i][j];
-        }
-    }
-    return result;
-}
-
-Matrix44f Matrix44f::operator*(f32 scalar) const {
-    Matrix44f result{};
-    for (size_t i = 0; i < 4; i++) {
-        for (size_t j = 0; j < 4; j++) {
-            result.data[i][j] = data[i][j] * scalar;
-        }
-    }
-    return result;
-}
-
-Matrix44f Matrix44f::operator*(const Matrix44f& other) const {
-    Matrix44f result{};
-    for (size_t i = 0; i < 4; i++) {
-        for (size_t j = 0; j < 4; j++) {
-            for (size_t k = 0; k < 4; k++) {
-                result.data[i][j] += data[i][k] * other.data[k][j];
-            }
-        }
-    }
-    return result;
-}
-
-Matrix44f& Matrix44f::operator*=(const Matrix44f& other) {
-    *this = (*this) * other;
-    return *this;
-}
-
-Matrix44f Matrix44f::identity() {
-    Matrix44f result{};
-    for (size_t i = 0; i < 4; i++) {
-        result.data[i][i] = 1.0f;
-    }
-    return result;
-}
-
 Matrix44f Matrix44f::translation(const Vector3f& t) {
     Matrix44f result = identity();
     result.data[3][0] = t.x;

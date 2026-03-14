@@ -4,12 +4,13 @@
 #include <whiteout/textures/blp/writer.h>
 
 #include "../jpeg/jpeg_encode.h"
-#include "../wu_quantize.h"
+#include "../utils/quantize.h"
 #include "blp_internal.h"
 
 #include "../issue_sink.h"
 
 #include "../io_helpers.h"
+#include "../utils/srgb_linearize.h"
 
 #include <algorithm>
 #include <cstring>
@@ -24,7 +25,8 @@ namespace {
 // Writer-side helpers
 // ============================================================================
 
-wu::QuantizeResult build_optimal_palette(const Texture& texture, u32 mipCount) {
+wu::QuantizeResult build_optimal_palette(const Texture& texture, u32 mipCount, bool dither,
+                                         f32 dither_strength) {
     u64 total_pixels = 0;
     for (u32 mip = 0; mip < mipCount; ++mip) {
         const auto& mip_info = texture.mipLevel(mip);
@@ -39,7 +41,12 @@ wu::QuantizeResult build_optimal_palette(const Texture& texture, u32 mipCount) {
         offset += src.size();
     }
 
-    return wu::quantize(all_rgba.data(), static_cast<u32>(total_pixels));
+    auto quantizer = wu::Quantizer();
+    if (dither) {
+        const auto& base = texture.mipLevel(0);
+        quantizer.ditherAware(base.width, base.height, dither_strength);
+    }
+    return quantizer.quantize(all_rgba.data(), static_cast<u32>(total_pixels));
 }
 
 std::vector<u8> encode_alpha_data(const u8* rgba, u32 pixel_count, u32 alpha_bits) {
@@ -73,10 +80,16 @@ std::vector<u8> encode_alpha_data(const u8* rgba, u32 pixel_count, u32 alpha_bit
     }
 }
 
-std::vector<u8> encode_palettized_mip(const u8* rgba, u32 pixel_count, u32 alpha_bits,
-                                      const wu::QuantizeResult& quantization) {
+std::vector<u8> encode_palettized_mip(const u8* rgba, u32 width, u32 height, u32 alpha_bits,
+                                      const wu::QuantizeResult& quantization, bool dither,
+                                      f32 dither_strength) {
+    const u32 pixel_count = width * height;
     std::vector<u8> indices(pixel_count);
-    quantization.mapPixels(rgba, pixel_count, indices.data());
+    if (dither) {
+        quantization.mapPixelsDithered(rgba, width, height, dither_strength, indices.data());
+    } else {
+        quantization.mapPixels(rgba, pixel_count, indices.data());
+    }
     auto alpha = encode_alpha_data(rgba, pixel_count, alpha_bits);
     indices.insert(indices.end(), alpha.begin(), alpha.end());
     return indices;
@@ -135,19 +148,27 @@ private:
 std::vector<u8> Writer::Impl::write(const Texture& texture, const SaveOptions& opts) {
     issues.clear();
 
+    // BLP has no sRGB flag — linearize if the source is sRGB.
+    Texture linearized;
+    const Texture* src = &texture;
+    if (texture.isSrgb()) {
+        linearized = linearizeSrgbCopy(texture);
+        src = &linearized;
+    }
+
     WriteContext ctx;
-    ctx.texture = &texture;
+    ctx.texture = src;
     ctx.opts = opts;
-    ctx.mipCount = std::min(texture.mipCount(), MAX_MIP_LEVELS);
+    ctx.mipCount = std::min(src->mipCount(), MAX_MIP_LEVELS);
     ctx.alpha_bits = static_cast<u32>(opts.alpha);
     ctx.encoding = opts.encoding;
     ctx.palette.fill(0);
 
-    if (texture.width() == 0 || texture.height() == 0) {
+    if (src->width() == 0 || src->height() == 0) {
         fail("Cannot save an empty texture as BLP");
         return {};
     }
-    if (texture.type() != TextureType::Texture2D) {
+    if (src->type() != TextureType::Texture2D) {
         fail("BLP only supports 2D textures");
         return {};
     }
@@ -219,7 +240,8 @@ void Writer::Impl::validate(const WriteContext& ctx) {
 std::vector<std::vector<u8>> Writer::Impl::encodeMipPayloads(WriteContext& ctx) {
     wu::QuantizeResult quantized;
     if (ctx.encoding == BlpEncoding::Palettized) {
-        quantized = build_optimal_palette(*ctx.texture, ctx.mipCount);
+        quantized = build_optimal_palette(*ctx.texture, ctx.mipCount, ctx.opts.dither,
+                                          ctx.opts.ditherStrength);
         std::memcpy(ctx.palette.data(), quantized.palette.data(), sizeof(ctx.palette));
     }
 
@@ -241,8 +263,9 @@ std::vector<std::vector<u8>> Writer::Impl::encodeMipPayloads(WriteContext& ctx) 
             break;
         }
         case BlpEncoding::Palettized: {
-            payloads[mip] = encode_palettized_mip(source.data(), mip_info.width * mip_info.height,
-                                                  ctx.alpha_bits, quantized);
+            payloads[mip] = encode_palettized_mip(source.data(), mip_info.width, mip_info.height,
+                                                  ctx.alpha_bits, quantized, ctx.opts.dither,
+                                                  ctx.opts.ditherStrength);
             break;
         }
         case BlpEncoding::BGRA: {
@@ -377,12 +400,22 @@ Writer::Writer(WriteMode writeMode) : pImpl(std::make_unique<Impl>()) {
 
 Writer::~Writer() = default;
 
+void Writer::write(const std::string& filePath, const Texture& texture) {
+    write(filePath, texture, SaveOptions{});
+}
+
+std::vector<u8> Writer::write(const Texture& texture) {
+    return write(texture, SaveOptions{});
+}
+
 void Writer::write(const std::string& filePath, const Texture& texture, const SaveOptions& opts) {
     auto data = pImpl->write(texture, opts);
     if (data.empty()) {
         return; // issues already logged in Lenient mode, or threw in Strict mode
     }
-    write_file_bytes(filePath, data);
+    if (!write_file_bytes(filePath, data, *pImpl)) {
+        return;
+    }
 }
 
 std::vector<u8> Writer::write(const Texture& texture, const SaveOptions& opts) {

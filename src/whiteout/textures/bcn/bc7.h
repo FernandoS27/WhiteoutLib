@@ -24,8 +24,10 @@ namespace bc7 {
 ///
 /// @param src       Source texture (must be BC7).
 /// @param out_error Optional string to receive an error message on failure.
+/// @param thread_count  Number of threads (1 = serial, 0 = auto, >1 = N threads).
 /// @return The decoded texture, or std::nullopt on error.
-std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error = nullptr);
+std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error = nullptr,
+                                     u32 thread_count = 1);
 
 // ---- Encode ----------------------------------------------------------------
 
@@ -58,7 +60,7 @@ enum class Quality : u32 {
 /// @param out_error  Optional string to receive an error message on failure.
 /// @return The compressed texture, or std::nullopt on error.
 std::optional<Texture> encodeTexture(const Texture& src, Quality quality = Quality::Normal,
-                                     std::string* out_error = nullptr);
+                                     std::string* out_error = nullptr, u32 thread_count = 1);
 
 } // namespace bc7
 } // namespace whiteout::textures

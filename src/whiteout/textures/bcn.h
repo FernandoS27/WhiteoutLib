@@ -31,25 +31,31 @@ constexpr bool isCompressed(PixelFormat fmt) {
 }
 
 /// Returns the uncompressed pixel format that a BCn format decodes to.
-/// BC6H → RGBA16F; all other BCn → RGBA8.
+/// BC4 → R8; BC5 → RG8; BC6H → RGBA32F; all other BCn → RGBA8.
 /// Returns @p fmt unchanged if it is not a BCn format.
 constexpr PixelFormat decoded_format(PixelFormat fmt) {
+    if (fmt == PixelFormat::BC4)
+        return PixelFormat::R8;
+    if (fmt == PixelFormat::BC5)
+        return PixelFormat::RG8;
     if (fmt == PixelFormat::BC6H)
-        return PixelFormat::RGBA16F;
+        return PixelFormat::RGBA32F;
     if (isCompressed(fmt))
         return PixelFormat::RGBA8;
     return fmt;
 }
 
-/// Returns the BCn format(s) that can encode a given uncompressed format.
-/// RGBA8  can encode to BC1, BC2, BC3, BC4, BC5, BC7.
-/// RGBA16F / RGBA32F can encode to BC6H.
-/// Returns true if @p source can be encoded to @p target.
+/// Returns true if @p source can be directly encoded to @p target.
+/// R8 → BC4; RG8 → BC5; RGBA8 → BC1/BC2/BC3/BC7; RGBA32F → BC6H.
 constexpr bool can_encode(PixelFormat source, PixelFormat target) {
     if (!isCompressed(target))
         return false;
+    if (target == PixelFormat::BC4)
+        return source == PixelFormat::R8;
+    if (target == PixelFormat::BC5)
+        return source == PixelFormat::RG8;
     if (target == PixelFormat::BC6H)
-        return source == PixelFormat::RGBA16F || source == PixelFormat::RGBA32F;
+        return source == PixelFormat::RGBA32F;
     return source == PixelFormat::RGBA8;
 }
 
@@ -59,19 +65,18 @@ constexpr bool can_encode(PixelFormat source, PixelFormat target) {
 
 /// Encode an uncompressed texture to a BCn format.
 ///
-/// @param src      Source texture (RGBA8 for BC1–BC5/BC7, RGBA16F or RGBA32F
-///                 for BC6H).
+/// @param src      Source texture (R8 for BC4, RG8 for BC5, RGBA8 for
+///                 BC1/BC2/BC3/BC7, RGBA32F for BC6H).
 /// @param target   The target BCn pixel format.
 /// @param out_error  Optional pointer to receive an error description on
 ///                   failure.
+/// @param thread_count  Number of threads (1 = serial, 0 = auto, >1 = that
+///                      many threads).  Work is split into 64×64-pixel tiles.
 /// @return The compressed texture, or std::nullopt on error.
 ///
-/// @note  Format-specific options (BC1 punch-through alpha, BC4 channel
-///        selection, BC5 channel pair, BC7 quality) use their defaults
-///        when going through this interface.  For full control, use the
-///        per-format encode headers directly.
+/// @note  For full control, use the per-format encode headers directly.
 std::optional<Texture> encode(const Texture& src, PixelFormat target,
-                              std::string* out_error = nullptr);
+                              std::string* out_error = nullptr, u32 thread_count = 1);
 
 /// Decode a BCn-compressed texture to its uncompressed representation.
 ///
@@ -79,8 +84,11 @@ std::optional<Texture> encode(const Texture& src, PixelFormat target,
 ///
 /// @param src       Source compressed texture.
 /// @param out_error Optional pointer to receive an error description.
-/// @return The decoded texture (RGBA8 or RGBA16F), or std::nullopt on error.
-std::optional<Texture> decode(const Texture& src, std::string* out_error = nullptr);
+/// @param thread_count  Number of threads (1 = serial, 0 = auto, >1 = that
+///                      many threads).  Work is split into 64×64-pixel tiles.
+/// @return The decoded texture (RGBA8 or RGBA32F), or std::nullopt on error.
+std::optional<Texture> decode(const Texture& src, std::string* out_error = nullptr,
+                              u32 thread_count = 1);
 
 } // namespace whiteout::textures::bcn
 

@@ -6,6 +6,7 @@
 #include "../issue_sink.h"
 
 #include "../io_helpers.h"
+#include "../utils/srgb_linearize.h"
 
 #include <algorithm>
 #include <cstring>
@@ -20,8 +21,13 @@ public:
     std::vector<u8> write(const Texture& texture, const SaveOptions& opts);
 };
 
-std::vector<u8> Writer::Impl::write(const Texture& texture, const SaveOptions& opts) {
+std::vector<u8> Writer::Impl::write(const Texture& texture_in, const SaveOptions& opts) {
     issues.clear();
+
+    // TEX has no sRGB flag — linearize if the source is sRGB.
+    Texture linearized;
+    const Texture& texture =
+        texture_in.isSrgb() ? (linearized = linearizeSrgbCopy(texture_in)) : texture_in;
 
     if (texture.width() == 0 || texture.height() == 0) {
         fail("Cannot save an empty texture");
@@ -181,12 +187,22 @@ Writer::Writer(WriteMode writeMode) : pImpl(std::make_unique<Impl>()) {
 
 Writer::~Writer() = default;
 
+void Writer::write(const std::string& filePath, const Texture& texture) {
+    write(filePath, texture, SaveOptions{});
+}
+
+std::vector<u8> Writer::write(const Texture& texture) {
+    return write(texture, SaveOptions{});
+}
+
 void Writer::write(const std::string& filePath, const Texture& texture, const SaveOptions& opts) {
     auto data = pImpl->write(texture, opts);
     if (data.empty()) {
         return; // issues already logged in Lenient mode, or threw in Strict mode
     }
-    write_file_bytes(filePath, data);
+    if (!write_file_bytes(filePath, data, *pImpl)) {
+        return;
+    }
 }
 
 std::vector<u8> Writer::write(const Texture& texture, const SaveOptions& opts) {

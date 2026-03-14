@@ -19,38 +19,29 @@ namespace bc5 {
 
 // ---- Decode ----------------------------------------------------------------
 
-/// Decode a BC5 Texture into a new Texture with RGBA8 pixel format.
+/// Decode a BC5 Texture into a new Texture with RG8 pixel format.
 ///
-/// Channel 0 -> R, Channel 1 -> G, B = 0, A = 255.
+/// Channel 0 -> R, Channel 1 -> G.
 ///
 /// @param src       Source texture (must be BC5).
 /// @param out_error Optional string to receive an error message on failure.
 /// @return The decoded texture, or std::nullopt on error.
-std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error = nullptr);
+std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error = nullptr,
+                                     u32 thread_count = 1);
 
 // ---- Encode ----------------------------------------------------------------
 
-/// Which pair of RGBA8 channels to compress.
-enum class ChannelPair : u32 {
-    RG = 0, ///< Red -> first BC4 block, Green -> second.
-    RB = 1, ///< Red -> first, Blue -> second.
-    RA = 2, ///< Red -> first, Alpha -> second.
-    GB = 3, ///< Green -> first, Blue -> second.
-    GA = 4, ///< Green -> first, Alpha -> second.
-    BA = 5, ///< Blue -> first, Alpha -> second.
-};
-
-/// Compress an RGBA8 Texture into a new Texture with BC5 pixel format.
+/// Compress an RG8 Texture into a new Texture with BC5 pixel format.
 ///
-/// The source texture must have format PixelFormat::RGBA8.  All mip levels
+/// The source texture must have format PixelFormat::RG8.  All mip levels
 /// and layers are individually compressed.
 ///
-/// @param src       Source texture (must be RGBA8).
-/// @param channels  Which channel pair to encode (default: RG).
+/// @param src       Source texture (must be RG8).
 /// @param out_error Optional string to receive an error message on failure.
+/// @param thread_count  Number of threads (1 = serial, 0 = auto, >1 = N threads).
 /// @return The compressed texture, or std::nullopt on error.
-std::optional<Texture> encodeTexture(const Texture& src, ChannelPair channels = ChannelPair::RG,
-                                     std::string* out_error = nullptr);
+std::optional<Texture> encodeTexture(const Texture& src, std::string* out_error = nullptr,
+                                     u32 thread_count = 1);
 
 } // namespace bc5
 } // namespace whiteout::textures

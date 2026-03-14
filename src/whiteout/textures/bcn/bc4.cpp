@@ -37,7 +37,8 @@ void decode_block(const u8* block, u8* out) {
 
 namespace {
 
-std::vector<u8> decode_image(std::span<const u8> bc4, u32 width, u32 height) {
+std::vector<u8> decode_image(std::span<const u8> bc4, u32 width, u32 height,
+                             u32 thread_count) {
     assert(width > 0 && height > 0);
 
     const u32 blocks_wide = (width + 3) / 4;
@@ -46,33 +47,30 @@ std::vector<u8> decode_image(std::span<const u8> bc4, u32 width, u32 height) {
 
     std::vector<u8> result(static_cast<size_t>(width) * height, 0);
 
-    for (u32 block_y = 0; block_y < blocks_tall; ++block_y) {
-        for (u32 block_x = 0; block_x < blocks_wide; ++block_x) {
-            std::array<u8, 16> block_vals{};
-            decode_block(bc4.data() + (block_y * blocks_wide + block_x) * 8, block_vals.data());
-            scatter_channel_block(block_vals, width, height, block_x, block_y, result.data(), 1, 0);
-        }
-    }
+    parallel_for_tiles(blocks_wide, blocks_tall, thread_count,
+        [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
+            for (u32 block_y = by0; block_y < by1; ++block_y) {
+                for (u32 block_x = bx0; block_x < bx1; ++block_x) {
+                    std::array<u8, 16> block_vals{};
+                    decode_block(bc4.data() + (block_y * blocks_wide + block_x) * 8,
+                                 block_vals.data());
+                    scatter_channel_block(block_vals, width, height, block_x, block_y,
+                                          result.data(), 1, 0);
+                }
+            }
+        });
 
     return result;
 }
 
 } // anonymous namespace
 
-std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error) {
+std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error,
+                                     u32 thread_count) {
     return transform_texture_impl(
-        src, PixelFormat::BC4, PixelFormat::RGBA8, "bc4::decodeTexture",
-        [](std::span<const u8> data, u32 w, u32 h) {
-            auto decoded = decode_image(data, w, h);
-            // Place decoded channel into R, set G=0, B=0, A=255
-            std::vector<u8> rgba(static_cast<size_t>(w) * h * 4);
-            for (u32 i = 0; i < w * h; ++i) {
-                rgba[i * 4 + 0] = decoded[i]; // R
-                rgba[i * 4 + 1] = 0;          // G
-                rgba[i * 4 + 2] = 0;          // B
-                rgba[i * 4 + 3] = 255;        // A
-            }
-            return rgba;
+        src, PixelFormat::BC4, PixelFormat::R8, "bc4::decodeTexture",
+        [thread_count](std::span<const u8> data, u32 w, u32 h) {
+            return decode_image(data, w, h, thread_count);
         },
         out_error);
 }
@@ -217,36 +215,38 @@ void encode_block(const u8* values, u8* out) {
 
 namespace {
 
-std::vector<u8> encode_image(std::span<const u8> rgba, u32 width, u32 height, Channel channel) {
+std::vector<u8> encode_image(std::span<const u8> r8, u32 width, u32 height, u32 thread_count) {
     assert(width > 0 && height > 0);
-    assert(rgba.size() >= static_cast<size_t>(width) * height * 4);
+    assert(r8.size() >= static_cast<size_t>(width) * height);
 
-    const u32 channel_offset = static_cast<u32>(channel);
     const u32 blocks_wide = (width + 3) / 4;
     const u32 blocks_tall = (height + 3) / 4;
     std::vector<u8> result(static_cast<size_t>(blocks_wide) * blocks_tall * 8);
 
-    for (u32 block_y = 0; block_y < blocks_tall; ++block_y) {
-        for (u32 block_x = 0; block_x < blocks_wide; ++block_x) {
-            // Extract 4×4 single-channel block with clamped edges
-            std::array<u8, 16> block{};
-            gather_channel_block(rgba, width, height, block_x, block_y, block, 4, channel_offset);
+    parallel_for_tiles(blocks_wide, blocks_tall, thread_count,
+        [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
+            for (u32 block_y = by0; block_y < by1; ++block_y) {
+                for (u32 block_x = bx0; block_x < bx1; ++block_x) {
+                    std::array<u8, 16> block{};
+                    gather_channel_block(r8, width, height, block_x, block_y, block, 1, 0);
 
-            u32 block_offset = (block_y * blocks_wide + block_x) * 8;
-            encode_block(block.data(), result.data() + block_offset);
-        }
-    }
+                    u32 block_offset = (block_y * blocks_wide + block_x) * 8;
+                    encode_block(block.data(), result.data() + block_offset);
+                }
+            }
+        });
 
     return result;
 }
 
 } // anonymous namespace
 
-std::optional<Texture> encodeTexture(const Texture& src, Channel channel, std::string* out_error) {
+std::optional<Texture> encodeTexture(const Texture& src, std::string* out_error,
+                                     u32 thread_count) {
     return transform_texture_impl(
-        src, PixelFormat::RGBA8, PixelFormat::BC4, "bc4::encodeTexture",
-        [channel](std::span<const u8> data, u32 w, u32 h) {
-            return encode_image(data, w, h, channel);
+        src, PixelFormat::R8, PixelFormat::BC4, "bc4::encodeTexture",
+        [thread_count](std::span<const u8> data, u32 w, u32 h) {
+            return encode_image(data, w, h, thread_count);
         },
         out_error);
 }

@@ -9,43 +9,64 @@
 #pragma once
 
 #include <fstream>
+#include <optional>
 #include <span>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
 #include <whiteout/common_types.h>
 
+#include "issue_sink.h"
+
 namespace whiteout::textures {
 
 /// Read an entire binary file into a byte vector.
-inline std::vector<u8> read_file_bytes(const std::string& path) {
+/// Returns std::nullopt in lenient mode on failure, or throws in strict mode.
+inline std::optional<std::vector<u8>> read_file_bytes(const std::string& path, IssueSink& sink) {
     std::ifstream file;
     file.open(path, std::ios::binary | std::ios::ate);
     if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file: " + path);
+        sink.fail("Failed to open file: " + path);
+        return std::nullopt;
     }
-    const auto size = static_cast<size_t>(file.tellg());
+
+    const auto end_pos = file.tellg();
+    if (end_pos < 0) {
+        sink.fail("Failed to determine file size: " + path);
+        return std::nullopt;
+    }
+
+    const auto size = static_cast<size_t>(end_pos);
     file.seekg(0, std::ios::beg);
+
     std::vector<u8> buf(size);
-    if (!file.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(size))) {
-        throw std::runtime_error("Failed to read file: " + path);
+    if (size > 0 &&
+        !file.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(size))) {
+        sink.fail("Failed to read file: " + path);
+        return std::nullopt;
     }
+
     return buf;
 }
 
 /// Write a byte vector to a binary file.
-inline void write_file_bytes(const std::string& path, std::span<const u8> data) {
+/// Returns false in lenient mode on failure, or throws in strict mode.
+inline bool write_file_bytes(const std::string& path, std::span<const u8> data, IssueSink& sink) {
     std::ofstream file;
     file.open(path, std::ios::binary);
     if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for writing: " + path);
+        sink.fail("Failed to open file for writing: " + path);
+        return false;
     }
+
     file.write(reinterpret_cast<const char*>(data.data()),
                static_cast<std::streamsize>(data.size()));
     if (!file) {
-        throw std::runtime_error("Failed to write file: " + path);
+        sink.fail("Failed to write file: " + path);
+        return false;
     }
+
+    return true;
 }
 
 } // namespace whiteout::textures

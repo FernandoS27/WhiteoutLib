@@ -14,8 +14,15 @@ namespace whiteout {
 // Vector and Matrix Types
 // ============================================================================
 
-template <typename T>
+template <typename T, typename BaseType>
 struct VectorMethods {
+    using FloatType =
+    typename std::conditional<
+        std::is_floating_point<BaseType>::value,
+        BaseType,
+        f32
+    >::type;
+
     // Component-wise arithmetic
     T& operator+=(const T& other) {
         auto& self = static_cast<T&>(*this);
@@ -44,28 +51,28 @@ struct VectorMethods {
     }
 
     // Scalar arithmetic
-    T& operator*=(f32 scalar) {
+    T& operator*=(FloatType scalar) {
         auto& self = static_cast<T&>(*this);
         for (size_t i = 0; i < self.data.size(); i++)
             self.data[i] *= scalar;
         return self;
     }
 
-    T& operator/=(f32 scalar) {
+    T& operator/=(FloatType scalar) {
         auto& self = static_cast<T&>(*this);
-        const f32 inv = 1.0f / scalar;
+        const FloatType inv = 1.0f / scalar;
         for (size_t i = 0; i < self.data.size(); i++)
             self.data[i] *= inv;
         return self;
     }
 
-    T operator*(f32 scalar) const {
+    T operator*(FloatType scalar) const {
         T result = static_cast<const T&>(*this);
         result *= scalar;
         return result;
     }
 
-    T operator/(f32 scalar) const {
+    T operator/(FloatType scalar) const {
         T result = static_cast<const T&>(*this);
         result /= scalar;
         return result;
@@ -122,37 +129,37 @@ struct VectorMethods {
     }
 
     // Geometric operations
-    f32 dot(const T& other) const {
+    FloatType dot(const T& other) const {
         auto& self = static_cast<const T&>(*this);
-        f32 result = 0.0f;
+        FloatType result = 0.0f;
         for (size_t i = 0; i < self.data.size(); i++)
             result += self.data[i] * other.data[i];
         return result;
     }
 
-    f32 length_squared() const {
+    FloatType length_squared() const {
         return dot(static_cast<const T&>(*this));
     }
 
-    f32 length() const {
+    FloatType length() const {
         return std::sqrt(length_squared());
     }
 
     void normalize() {
-        f32 len = length();
+        FloatType len = length();
         if (len > 0.0f)
             *this /= len;
     }
 
     T normalized() const {
-        f32 len = length();
+        FloatType len = length();
         if (len > 0.0f)
             return *this / len;
         return static_cast<const T&>(*this);
     }
 
     // Interpolation
-    static T lerp(const T& start, const T& end, f32 t) {
+    static T lerp(const T& start, const T& end, FloatType t) {
         T result;
         for (size_t i = 0; i < start.data.size(); i++)
             result.data[i] = start.data[i] + t * (end.data[i] - start.data[i]);
@@ -160,46 +167,46 @@ struct VectorMethods {
     }
 
     // TCB (Kochanek-Bartels) tangents for vector types
-    static T tcb_in_tangent(const T& prev, const T& current, const T& next, f32 tension,
-                            f32 continuity, f32 bias) {
-        f32 s = (1 - tension) * (1 - continuity) * (1 + bias) * 0.5f;
-        f32 r = (1 - tension) * (1 + continuity) * (1 - bias) * 0.5f;
+    static T tcb_in_tangent(const T& prev, const T& current, const T& next, FloatType tension,
+                            FloatType continuity, FloatType bias) {
+        FloatType s = (1 - tension) * (1 - continuity) * (1 + bias) * 0.5f;
+        FloatType r = (1 - tension) * (1 + continuity) * (1 - bias) * 0.5f;
         return (current - prev) * s + (next - current) * r;
     }
 
-    static T tcb_out_tangent(const T& prev, const T& current, const T& next, f32 tension,
-                             f32 continuity, f32 bias) {
-        f32 s = (1 - tension) * (1 + continuity) * (1 + bias) * 0.5f;
-        f32 r = (1 - tension) * (1 - continuity) * (1 - bias) * 0.5f;
+    static T tcb_out_tangent(const T& prev, const T& current, const T& next, FloatType tension,
+                             FloatType continuity, FloatType bias) {
+        FloatType s = (1 - tension) * (1 + continuity) * (1 + bias) * 0.5f;
+        FloatType r = (1 - tension) * (1 - continuity) * (1 - bias) * 0.5f;
         return (current - prev) * s + (next - current) * r;
     }
 
-    static T bezier_lerp(const T& start, const T& outtan, const T& intan, const T& end, f32 t) {
-        const auto simple_pow = [](f32 base, size_t exp) {
-            f32 result = 1.0f;
+    static T bezier_lerp(const T& start, const T& outtan, const T& intan, const T& end, FloatType t) {
+        const auto simple_pow = [](FloatType base, size_t exp) {
+            FloatType result = 1.0f;
             for (size_t i = 0; i < exp; i++)
                 result *= base;
             return result;
         };
         T result;
         for (size_t i = 0; i < start.data.size(); i++) {
-            f32 p0 = start.data[i];
-            f32 p1 = outtan.data[i];
-            f32 p2 = intan.data[i];
-            f32 p3 = end.data[i];
+            FloatType p0 = start.data[i];
+            FloatType p1 = outtan.data[i];
+            FloatType p2 = intan.data[i];
+            FloatType p3 = end.data[i];
             result.data[i] = simple_pow(1 - t, 3) * p0 + 3 * simple_pow(1 - t, 2) * t * p1 +
                              3 * (1 - t) * simple_pow(t, 2) * p2 + simple_pow(t, 3) * p3;
         }
         return result;
     }
 
-    static T hermite_lerp(const T& prev, const T& start, const T& end, const T& next, f32 t) {
+    static T hermite_lerp(const T& prev, const T& start, const T& end, const T& next, FloatType t) {
         T result;
         for (size_t i = 0; i < start.data.size(); i++) {
-            f32 p0 = prev.data[i];
-            f32 p1 = start.data[i];
-            f32 p2 = end.data[i];
-            f32 p3 = next.data[i];
+            FloatType p0 = prev.data[i];
+            FloatType p1 = start.data[i];
+            FloatType p2 = end.data[i];
+            FloatType p3 = next.data[i];
             result.data[i] =
                 0.5f * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t +
                         (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t);
@@ -209,7 +216,7 @@ struct VectorMethods {
 };
 
 template <typename T>
-struct Vector2 : public VectorMethods<Vector2<T>> {
+struct Vector2 : public VectorMethods<Vector2<T>, T> {
     union {
         struct {
             T x, y;
@@ -238,7 +245,7 @@ using Vector2i = Vector2<i32>;
 using Vector2u = Vector2<u32>;
 
 template <typename T>
-struct Vector3 : public VectorMethods<Vector3<T>> {
+struct Vector3 : public VectorMethods<Vector3<T>, T> {
     union {
         struct {
             T x, y, z;
@@ -291,11 +298,12 @@ struct Vector3 : public VectorMethods<Vector3<T>> {
 };
 
 using Vector3f = Vector3<f32>;
+using Vector3d = Vector3<f64>;
 using Vector3i = Vector3<i32>;
 using Vector3u = Vector3<u32>;
 
 template <typename T>
-struct Vector4 : public VectorMethods<Vector4<T>> {
+struct Vector4 : public VectorMethods<Vector4<T>, T> {
     union {
         struct {
             T x, y, z, w;
@@ -501,7 +509,7 @@ using Vector4f = Vector4<f32>;
 using Vector4i = Vector4<i32>;
 using Vector4u = Vector4<u32>;
 
-struct Quaternion : public VectorMethods<Quaternion> {
+struct Quaternion : public VectorMethods<Quaternion, f32> {
     union {
         struct {
             f32 x, y, z, w;
@@ -514,8 +522,8 @@ struct Quaternion : public VectorMethods<Quaternion> {
     Quaternion operator*(const Quaternion& other) const;
 
     // Re-expose scalar multiply from VectorMethods (hidden by quaternion operator*)
-    using VectorMethods<Quaternion>::operator*=;
-    using VectorMethods<Quaternion>::operator*;
+    using VectorMethods<Quaternion, f32>::operator*=;
+    using VectorMethods<Quaternion, f32>::operator*;
 
     Quaternion conjugate() const;
     Quaternion inverse() const;
@@ -545,10 +553,10 @@ struct Quaternion : public VectorMethods<Quaternion> {
     constexpr Quaternion(f32 x_, f32 y_, f32 z_, f32 w_) : x(x_), y(y_), z(z_), w(w_) {}
 };
 
-template <typename T>
+template <typename T, size_t Rows, size_t Cols>
 struct MatrixMethods {
-    constexpr static size_t rows = T::rows;
-    constexpr static size_t cols = T::cols;
+    constexpr static size_t rows = Rows;
+    constexpr static size_t cols = Cols;
 
     std::array<std::array<f32, cols>, rows> data;
 
@@ -638,9 +646,7 @@ struct MatrixMethods {
     }
 };
 
-struct Matrix44f : public MatrixMethods<Matrix44f> {
-    constexpr static size_t rows = 4;
-    constexpr static size_t cols = 4;
+struct Matrix44f : public MatrixMethods<Matrix44f, 4, 4> {
 
     static Matrix44f translation(const Vector3f& t);
     static Matrix44f rotation(const Quaternion& q);
@@ -656,9 +662,7 @@ struct Matrix44f : public MatrixMethods<Matrix44f> {
     Matrix44f() = default;
 };
 
-struct Matrix33f : public MatrixMethods<Matrix33f> {
-    constexpr static size_t rows = 3;
-    constexpr static size_t cols = 3;
+struct Matrix33f : public MatrixMethods<Matrix33f, 3, 3> {
 
     Matrix33f() = default;
 };

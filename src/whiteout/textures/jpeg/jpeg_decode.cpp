@@ -27,9 +27,7 @@
 #include <array>
 #include <cstring>
 
-namespace whiteout {
-namespace textures {
-namespace jpeg {
+namespace whiteout::textures::jpeg {
 
 namespace {
 
@@ -211,8 +209,8 @@ struct BaselineDecoder {
     }
 
     u16 readBigEndianU16(size_t offset) const {
-        return static_cast<u16>((bitstream.streamData[offset] << 8) |
-                                bitstream.streamData[offset + 1]);
+        return static_cast<u16>((bitstream.data[offset] << 8) |
+                                bitstream.data[offset + 1]);
     }
 
     // -- Marker Segment Parsers --
@@ -247,10 +245,10 @@ struct BaselineDecoder {
 bool BaselineDecoder::parseQuantizationTable(size_t dataOffset, size_t dataLength) {
     size_t endOffset = dataOffset + dataLength;
     while (dataOffset < endOffset) {
-        if (dataOffset >= bitstream.streamSize) {
+        if (dataOffset >= bitstream.size) {
             return reportError("DQT: unexpected end of data");
         }
-        u8 tableInfo = bitstream.streamData[dataOffset++];
+        u8 tableInfo = bitstream.data[dataOffset++];
         i32 elementPrecision = (tableInfo >> 4) & 0x0F; // 0 = 8-bit, 1 = 16-bit
         i32 tableIndex = tableInfo & 0x0F;
         if (tableIndex >= MAX_TABLES) {
@@ -264,7 +262,7 @@ bool BaselineDecoder::parseQuantizationTable(size_t dataOffset, size_t dataLengt
             }
             for (i32 coefficientIndex = 0; coefficientIndex < BLOCK_PIXELS; coefficientIndex++) {
                 quantTables[tableIndex][coefficientIndex] =
-                    static_cast<i16>(bitstream.streamData[dataOffset++]);
+                    static_cast<i16>(bitstream.data[dataOffset++]);
             }
         } else {
             if (dataOffset + BLOCK_PIXELS * 2 > endOffset) {
@@ -272,7 +270,7 @@ bool BaselineDecoder::parseQuantizationTable(size_t dataOffset, size_t dataLengt
             }
             for (i32 coefficientIndex = 0; coefficientIndex < BLOCK_PIXELS; coefficientIndex++) {
                 quantTables[tableIndex][coefficientIndex] = static_cast<i16>(
-                    (bitstream.streamData[dataOffset] << 8) | bitstream.streamData[dataOffset + 1]);
+                    (bitstream.data[dataOffset] << 8) | bitstream.data[dataOffset + 1]);
                 dataOffset += 2;
             }
         }
@@ -286,13 +284,13 @@ bool BaselineDecoder::parseFrameHeader(size_t dataOffset, size_t dataLength) {
     if (dataLength < 6) {
         return reportError("SOF0: segment too short");
     }
-    u8 samplePrecision = bitstream.streamData[dataOffset];
+    u8 samplePrecision = bitstream.data[dataOffset];
     if (samplePrecision != 8) {
         return reportError("SOF0: only 8-bit sample precision is supported");
     }
     imageHeight = readBigEndianU16(dataOffset + 1);
     imageWidth = readBigEndianU16(dataOffset + 3);
-    componentCount = bitstream.streamData[dataOffset + 5];
+    componentCount = bitstream.data[dataOffset + 5];
     if (componentCount == 0 || componentCount > MAX_COMPONENTS) {
         return reportError("SOF0: unsupported component count " + std::to_string(componentCount));
     }
@@ -307,11 +305,11 @@ bool BaselineDecoder::parseFrameHeader(size_t dataOffset, size_t dataLength) {
     maxVerticalSampling = 1;
     for (u32 componentIndex = 0; componentIndex < componentCount; componentIndex++) {
         size_t specOffset = dataOffset + 6 + componentIndex * 3;
-        components[componentIndex].componentId = bitstream.streamData[specOffset];
-        u8 samplingFactors = bitstream.streamData[specOffset + 1];
+        components[componentIndex].componentId = bitstream.data[specOffset];
+        u8 samplingFactors = bitstream.data[specOffset + 1];
         components[componentIndex].horizontalSampling = (samplingFactors >> 4) & 0x0F;
         components[componentIndex].verticalSampling = samplingFactors & 0x0F;
-        components[componentIndex].quantTableIndex = bitstream.streamData[specOffset + 2];
+        components[componentIndex].quantTableIndex = bitstream.data[specOffset + 2];
         if (components[componentIndex].horizontalSampling == 0 ||
             components[componentIndex].verticalSampling == 0) {
             return reportError("SOF0: zero sampling factor for component " +
@@ -347,10 +345,10 @@ bool BaselineDecoder::parseFrameHeader(size_t dataOffset, size_t dataLength) {
 bool BaselineDecoder::parseHuffmanTable(size_t dataOffset, size_t dataLength) {
     size_t endOffset = dataOffset + dataLength;
     while (dataOffset < endOffset) {
-        if (dataOffset >= bitstream.streamSize) {
+        if (dataOffset >= bitstream.size) {
             return reportError("DHT: unexpected end of data");
         }
-        u8 tableInfo = bitstream.streamData[dataOffset++];
+        u8 tableInfo = bitstream.data[dataOffset++];
         i32 tableClass = (tableInfo >> 4) & 0x0F; // 0 = DC, 1 = AC
         i32 tableIndex = tableInfo & 0x0F;
         if (tableClass > 1 || tableIndex >= MAX_TABLES) {
@@ -361,7 +359,7 @@ bool BaselineDecoder::parseHuffmanTable(size_t dataOffset, size_t dataLength) {
             return reportError("DHT: code length counts truncated");
         }
         std::array<u8, 16> codeLengthCounts{};
-        std::memcpy(codeLengthCounts.data(), bitstream.streamData + dataOffset, 16);
+        std::memcpy(codeLengthCounts.data(), bitstream.data + dataOffset, 16);
         dataOffset += 16;
 
         i32 totalSymbols = 0;
@@ -373,9 +371,9 @@ bool BaselineDecoder::parseHuffmanTable(size_t dataOffset, size_t dataLength) {
         }
 
         if (tableClass == 0) {
-            dcHuffmanTables[tableIndex].build(codeLengthCounts, bitstream.streamData + dataOffset);
+            dcHuffmanTables[tableIndex].build(codeLengthCounts, bitstream.data + dataOffset);
         } else {
-            acHuffmanTables[tableIndex].build(codeLengthCounts, bitstream.streamData + dataOffset);
+            acHuffmanTables[tableIndex].build(codeLengthCounts, bitstream.data + dataOffset);
         }
         dataOffset += totalSymbols;
     }
@@ -396,7 +394,7 @@ bool BaselineDecoder::parseScanHeader(size_t dataOffset, size_t dataLength, size
     if (dataLength < 1) {
         return reportError("SOS: segment too short");
     }
-    u8 scanComponentCount = bitstream.streamData[dataOffset];
+    u8 scanComponentCount = bitstream.data[dataOffset];
     if (scanComponentCount != componentCount) {
         return reportError("SOS: scan component count does not match frame header");
     }
@@ -405,8 +403,8 @@ bool BaselineDecoder::parseScanHeader(size_t dataOffset, size_t dataLength, size
     }
 
     for (u32 scanIndex = 0; scanIndex < scanComponentCount; scanIndex++) {
-        u8 selectorId = bitstream.streamData[dataOffset + 1 + scanIndex * 2];
-        u8 tableSelectors = bitstream.streamData[dataOffset + 1 + scanIndex * 2 + 1];
+        u8 selectorId = bitstream.data[dataOffset + 1 + scanIndex * 2];
+        u8 tableSelectors = bitstream.data[dataOffset + 1 + scanIndex * 2 + 1];
 
         bool foundMatchingComponent = false;
         for (u32 componentIndex = 0; componentIndex < componentCount; componentIndex++) {
@@ -596,7 +594,7 @@ bool BaselineDecoder::assembleInterleavedImage(Image& outputImage) {
 // ============================================================================
 
 bool BaselineDecoder::decode(const u8* data, size_t size, Image& outputImage) {
-    bitstream.reset(data, size, 0);
+    bitstream.init(data, size, 0);
 
     // Verify SOI (Start of Image) marker.
     if (size < 2 || data[0] != 0xFF || data[1] != 0xD8) {
@@ -701,7 +699,7 @@ bool BaselineDecoder::decode(const u8* data, size_t size, Image& outputImage) {
     }
 
     // Decode the entropy-coded scan data.
-    bitstream.reset(data, size, scanDataPosition);
+    bitstream.init(data, size, scanDataPosition);
     if (!decodeScanData()) {
         return false;
     }
@@ -725,6 +723,4 @@ std::optional<Image> decode_raw(std::span<const u8> data, std::string* out_error
     return image;
 }
 
-} // namespace jpeg
-} // namespace textures
-} // namespace whiteout
+} // namespace whiteout::textures::jpeg

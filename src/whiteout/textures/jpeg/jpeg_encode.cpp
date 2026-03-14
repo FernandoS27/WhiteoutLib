@@ -11,8 +11,8 @@
 ///              configurable quality (1-100), no chroma subsampling.
 ///
 /// Algorithms used:
-///   - Forward DCT: Loeffler-Ligtenberg-Moschytz (LLM) separable 1-D
-///     butterfly, applied row-then-column (IEEE 1992 fast DCT).
+///   - Forward DCT: Arai-Agui-Nakajima (AAN) separable 1-D butterfly,
+///     applied row-then-column (Transactions on IEICE 1988).
 ///   - Huffman encoding: standard tables from ITU-T T.81 Annex K.
 ///   - Quantisation: scaled standard luminance table for all components.
 
@@ -25,9 +25,7 @@
 #include <array>
 #include <cstring>
 
-namespace whiteout {
-namespace textures {
-namespace jpeg {
+namespace whiteout::textures::jpeg {
 
 namespace {
 
@@ -61,14 +59,31 @@ static constexpr std::array<u8, BLOCK_PIXELS> STD_LUMINANCE_QUANT_NATURAL = {{
 }};
 
 // ============================================================================
-// Forward DCT — Loeffler-Ligtenberg-Moschytz (LLM) Butterfly
+// Forward DCT — Arai-Agui-Nakajima (AAN) Butterfly
 // ============================================================================
 
-/// 1-D forward DCT butterfly on 8 values (LLM algorithm, IEEE 1992).
+/// AAN scale factors per 1-D frequency index.
+///
+/// The AAN butterfly produces outputs that are scaled non-uniformly relative
+/// to the true DCT: output[k] = true_DCT[k] * aanscale[k] * sqrt(N).
+/// Quantisation must compensate by dividing by (aanscale[row] * aanscale[col])
+/// so that the values stored in the JPEG file match the standard definition.
+static constexpr std::array<f32, BLOCK_SIZE> AAN_SCALE_FACTORS = {{
+    1.0f,
+    SQRT2_F * dct_cos(1),
+    SQRT2_F * dct_cos(2),
+    SQRT2_F * dct_cos(3),
+    SQRT2_F * dct_cos(4),
+    SQRT2_F * dct_cos(5),
+    SQRT2_F * dct_cos(6),
+    SQRT2_F * dct_cos(7),
+}};
+
+/// 1-D forward DCT butterfly on 8 values (AAN algorithm, IEICE 1988).
 ///
 /// This is the forward (analysis) counterpart of the inverse DCT butterfly
-/// in jpeg_decode.cpp.  Produces unscaled output: for an 8-element constant
-/// input `c`, the DC output is `8*c`.
+/// in jpeg_decode.cpp.  Produces scaled output: each frequency bin k is
+/// multiplied by AAN_SCALE_FACTORS[k] relative to the true DCT.
 ///
 /// Constants are defined in jpeg_common.h, derived from cos(k*pi/16) factors.
 void fdct_1d_butterfly(const std::array<f32, BLOCK_SIZE>& input,
@@ -173,10 +188,15 @@ void forward_dct_and_quantise(const u8* inputPixels, u32 inputRowStride,
     }
 
     // Quantise and reorder to zig-zag.
+    // The AAN butterfly leaves each coefficient scaled by aanscale[row] * aanscale[col].
+    // Fold these scale factors into the quantisation divisor to produce standard values.
     for (i32 zigzagIndex = 0; zigzagIndex < BLOCK_PIXELS; zigzagIndex++) {
         i32 naturalPosition = ZIGZAG_ORDER[zigzagIndex];
-        f32 quantiserValue = static_cast<f32>(quantTable[zigzagIndex]);
-        f32 coefficientValue = dctCoefficients[naturalPosition] / quantiserValue;
+        i32 row = naturalPosition / BLOCK_SIZE;
+        i32 col = naturalPosition % BLOCK_SIZE;
+        f32 divisor = static_cast<f32>(quantTable[zigzagIndex]) *
+                      AAN_SCALE_FACTORS[row] * AAN_SCALE_FACTORS[col];
+        f32 coefficientValue = dctCoefficients[naturalPosition] / divisor;
         // Round to nearest integer (away from zero for tie-breaking).
         quantisedCoeffs[zigzagIndex] = static_cast<i32>(
             coefficientValue > 0.0f ? coefficientValue + 0.5f : coefficientValue - 0.5f);
@@ -573,6 +593,4 @@ std::vector<u8> encode_raw(const Image& image, i32 quality, std::string* out_err
     return std::move(encoder.outputBuffer);
 }
 
-} // namespace jpeg
-} // namespace textures
-} // namespace whiteout
+} // namespace whiteout::textures::jpeg

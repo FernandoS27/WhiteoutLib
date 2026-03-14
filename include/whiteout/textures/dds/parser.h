@@ -24,6 +24,7 @@
 #include <vector>
 
 #include <whiteout/common_types.h>
+#include <whiteout/textures/parser.h>
 #include <whiteout/textures/texture.h>
 
 namespace whiteout::textures::dds {
@@ -33,7 +34,7 @@ namespace whiteout::textures::dds {
 // ============================================================================
 
 /// Reads a DDS file or byte buffer and decodes it into a Texture.
-class Parser {
+class Parser : public textures::Parser {
 public:
     enum class ParseMode {
         Strict, ///< Throw on any issue.
@@ -47,10 +48,10 @@ public:
     Parser& operator=(const Parser&) = delete;
 
     /// Parse a DDS file from disk.
-    std::optional<Texture> parse(const std::string& filePath);
+    std::optional<Texture> parse(const std::string& filePath) override;
 
     /// Parse a DDS byte buffer.
-    std::optional<Texture> parse(std::span<const u8> buffer);
+    std::optional<Texture> parse(std::span<const u8> buffer) override;
 
     /// @return true if the last parse produced any issues.
     bool hasIssues() const;

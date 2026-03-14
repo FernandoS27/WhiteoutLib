@@ -9,15 +9,28 @@
 #include <stdexcept>
 
 #include "bcn.h"
-#include "pixel_convert.h"
+#include "mipmap/generator.h"
+#include "utils/pixel_convert.h"
 
 namespace whiteout::textures {
 
 u32 bytesPerBlock(PixelFormat fmt) {
     switch (fmt) {
+    case PixelFormat::R8:
+        return 1;
+    case PixelFormat::R16:
+        return 2;
+    case PixelFormat::R32F:
+        return 4;
+    case PixelFormat::RG8:
+        return 2;
+    case PixelFormat::RG16:
+        return 4;
+    case PixelFormat::RG32F:
+        return 8;
     case PixelFormat::RGBA8:
         return 4;
-    case PixelFormat::RGBA16F:
+    case PixelFormat::RGBA16:
         return 8;
     case PixelFormat::RGBA32F:
         return 16;
@@ -41,8 +54,14 @@ u32 bytesPerBlock(PixelFormat fmt) {
 
 u32 blockEdge(PixelFormat fmt) {
     switch (fmt) {
+    case PixelFormat::R8:
+    case PixelFormat::R16:
+    case PixelFormat::R32F:
+    case PixelFormat::RG8:
+    case PixelFormat::RG16:
+    case PixelFormat::RG32F:
     case PixelFormat::RGBA8:
-    case PixelFormat::RGBA16F:
+    case PixelFormat::RGBA16:
     case PixelFormat::RGBA32F:
         return 1;
     default:
@@ -63,6 +82,8 @@ u64 computeImageSize(PixelFormat fmt, u32 width, u32 height) {
 struct Texture::Impl {
     TextureType type = TextureType::Texture2D;
     PixelFormat format = PixelFormat::RGBA8;
+    TextureKind kind = TextureKind::Other;
+    bool srgb = false;
 
     u32 width = 0;
     u32 height = 0;
@@ -203,6 +224,18 @@ TextureType Texture::type() const {
 PixelFormat Texture::format() const {
     return impl_->format;
 }
+TextureKind Texture::kind() const {
+    return impl_->kind;
+}
+void Texture::setKind(TextureKind k) {
+    impl_->kind = k;
+}
+bool Texture::isSrgb() const {
+    return impl_->srgb;
+}
+void Texture::setSrgb(bool srgb) {
+    impl_->srgb = srgb;
+}
 
 u32 Texture::width() const {
     return impl_->width;
@@ -273,7 +306,7 @@ namespace {
 // Uncompressed format conversion
 // ============================================================================
 
-/// Convert an image between two uncompressed formats (RGBA8, RGBA16F, RGBA32F).
+/// Convert an image between any two uncompressed formats via RGBA32F intermediate.
 /// Both textures must already have the same dimensions and mip structure.
 Texture convert_uncompressed(const Texture& src, PixelFormat new_fmt) {
     assert(!bcn::isCompressed(src.format()));
@@ -300,40 +333,10 @@ Texture convert_uncompressed(const Texture& src, PixelFormat new_fmt) {
         break;
     }
 
-    // Select the per-pixel converter once, outside all loops.
-    using PixelConverter = void (*)(const u8* src, u8* dst);
-
-    PixelConverter convert_pixel = nullptr;
-
-    if (src_fmt == PixelFormat::RGBA8 && new_fmt == PixelFormat::RGBA32F) {
-        convert_pixel = [](const u8* s, u8* d) { rgba8_to_rgba32f(s, reinterpret_cast<f32*>(d)); };
-    } else if (src_fmt == PixelFormat::RGBA32F && new_fmt == PixelFormat::RGBA8) {
-        convert_pixel = [](const u8* s, u8* d) {
-            rgba32f_to_rgba8(reinterpret_cast<const f32*>(s), d);
-        };
-    } else if (src_fmt == PixelFormat::RGBA8 && new_fmt == PixelFormat::RGBA16F) {
-        convert_pixel = [](const u8* s, u8* d) {
-            std::array<f32, 4> tmp;
-            rgba8_to_rgba32f(s, tmp.data());
-            rgba32f_to_rgba16f(tmp.data(), reinterpret_cast<u16*>(d));
-        };
-    } else if (src_fmt == PixelFormat::RGBA16F && new_fmt == PixelFormat::RGBA8) {
-        convert_pixel = [](const u8* s, u8* d) {
-            std::array<f32, 4> tmp;
-            rgba16f_to_rgba32f(reinterpret_cast<const u16*>(s), tmp.data());
-            rgba32f_to_rgba8(tmp.data(), d);
-        };
-    } else if (src_fmt == PixelFormat::RGBA16F && new_fmt == PixelFormat::RGBA32F) {
-        convert_pixel = [](const u8* s, u8* d) {
-            rgba16f_to_rgba32f(reinterpret_cast<const u16*>(s), reinterpret_cast<f32*>(d));
-        };
-    } else if (src_fmt == PixelFormat::RGBA32F && new_fmt == PixelFormat::RGBA16F) {
-        convert_pixel = [](const u8* s, u8* d) {
-            rgba32f_to_rgba16f(reinterpret_cast<const f32*>(s), reinterpret_cast<u16*>(d));
-        };
-    }
-
-    assert(convert_pixel && "unsupported format pair");
+    // Obtain per-pixel converters through RGBA32F intermediate.
+    auto to_f32 = get_to_rgba32f(src_fmt);
+    auto from_f32 = get_from_rgba32f(new_fmt);
+    assert(to_f32 && from_f32 && "unsupported format pair");
 
     const u32 src_bpp = bytesPerBlock(src_fmt); // bytes per pixel for uncompressed
     const u32 dst_bpp = bytesPerBlock(new_fmt);
@@ -352,7 +355,9 @@ Texture convert_uncompressed(const Texture& src, PixelFormat new_fmt) {
             u8* d8 = dst_span.data();
 
             for (u32 px = 0; px < n; ++px) {
-                convert_pixel(s + px * src_bpp, d8 + px * dst_bpp);
+                f32 tmp[4];
+                to_f32(s + px * src_bpp, tmp);
+                from_f32(tmp, d8 + px * dst_bpp);
             }
         }
     }
@@ -369,7 +374,8 @@ Texture convert_uncompressed(const Texture& src, PixelFormat new_fmt) {
 ///
 /// Conversion path:
 ///   1. Same format → no-op.
-///   2. BCn source  → decode to RGBA8 (or RGBA16F for BC6H), then proceed.
+///   2. BCn source  → decode to native format (R8/RG8/RGBA8/RGBA32F),
+///      then proceed.
 ///   3. Uncompressed → uncompressed → pixel-level conversion.
 ///   4. Uncompressed → BCn → bcn::encode (with an intermediate pixel-level
 ///      conversion if the decoded format doesn't match what the encoder needs).
@@ -398,9 +404,17 @@ Texture Texture::copyAsFormat(PixelFormat new_fmt) const {
         return convert_uncompressed(*this, new_fmt);
 
     // 4. Target is BCn — encode.
-    //    bcn::encode requires RGBA8 for BC1–BC5/BC7 and RGBA16F/RGBA32F for BC6H.
-    const PixelFormat needed =
-        (new_fmt == PixelFormat::BC6H) ? PixelFormat::RGBA16F : PixelFormat::RGBA8;
+    //    bcn::encode requires R8 for BC4, RG8 for BC5, RGBA32F for BC6H,
+    //    RGBA8 for all others.
+    PixelFormat needed;
+    if (new_fmt == PixelFormat::BC4)
+        needed = PixelFormat::R8;
+    else if (new_fmt == PixelFormat::BC5)
+        needed = PixelFormat::RG8;
+    else if (new_fmt == PixelFormat::BC6H)
+        needed = PixelFormat::RGBA32F;
+    else
+        needed = PixelFormat::RGBA8;
 
     // Convert to the needed intermediate format if necessary.
     const Texture* src_ptr = this;
@@ -415,6 +429,10 @@ Texture Texture::copyAsFormat(PixelFormat new_fmt) const {
     if (!encoded)
         throw std::runtime_error("Texture::copyAsFormat: encode failed: " + err);
     return std::move(*encoded);
+}
+
+void Texture::generateMipmaps() {
+    mipmap::generateMipmaps(*this);
 }
 
 } // namespace whiteout::textures

@@ -23,6 +23,7 @@
 
 #include <whiteout/common_types.h>
 #include <whiteout/textures/tex/types.h>
+#include <whiteout/textures/writer.h>
 #include <whiteout/textures/texture.h>
 
 namespace whiteout::textures::tex {
@@ -32,7 +33,7 @@ namespace whiteout::textures::tex {
 // ============================================================================
 
 /// Encodes a Texture into TEX format.
-class Writer {
+class Writer : public textures::Writer {
 public:
     enum class WriteMode {
         Strict, ///< Throw on any issue.
@@ -45,11 +46,17 @@ public:
     Writer(const Writer&) = delete;
     Writer& operator=(const Writer&) = delete;
 
+    /// Serialize the texture to a TEX file on disk (base override, uses default options).
+    void write(const std::string& filePath, const Texture& texture) override;
+
+    /// Serialize the texture to a TEX byte buffer (base override, uses default options).
+    std::vector<u8> write(const Texture& texture) override;
+
     /// Serialize the texture to a TEX file on disk.
-    void write(const std::string& filePath, const Texture& texture, const SaveOptions& opts = {});
+    void write(const std::string& filePath, const Texture& texture, const SaveOptions& opts);
 
     /// Serialize the texture to a TEX byte buffer.
-    std::vector<u8> write(const Texture& texture, const SaveOptions& opts = {});
+    std::vector<u8> write(const Texture& texture, const SaveOptions& opts);
 
     /// @return true if the last write produced any issues.
     bool hasIssues() const;

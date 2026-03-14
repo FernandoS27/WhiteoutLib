@@ -24,25 +24,16 @@ namespace bc4 {
 /// @param out    Pointer to 16 bytes that will receive the decoded values.
 void decode_block(const u8* block, u8* out);
 
-/// Decode a BC4 Texture into a new Texture with RGBA8 pixel format.
-///
-/// The decoded channel is placed in the R channel; G and B are set to 0,
-/// A is set to 255.
+/// Decode a BC4 Texture into a new Texture with R8 pixel format.
 ///
 /// @param src       Source texture (must be BC4).
 /// @param out_error Optional string to receive an error message on failure.
+/// @param thread_count  Number of threads (1 = serial, 0 = auto, >1 = N threads).
 /// @return The decoded texture, or std::nullopt on error.
-std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error = nullptr);
+std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error = nullptr,
+                                     u32 thread_count = 1);
 
 // ---- Encode ----------------------------------------------------------------
-
-/// Which channel of the RGBA8 source to compress.
-enum class Channel : u32 {
-    R = 0,
-    G = 1,
-    B = 2,
-    A = 3,
-};
 
 /// Compress a single 4x4 block (16 single-channel values) into an 8-byte
 /// BC4 block.
@@ -51,17 +42,17 @@ enum class Channel : u32 {
 /// @param out     Pointer to 8 bytes that will receive the compressed block.
 void encode_block(const u8* values, u8* out);
 
-/// Compress an RGBA8 Texture into a new Texture with BC4 pixel format.
+/// Compress an R8 Texture into a new Texture with BC4 pixel format.
 ///
-/// The source texture must have format PixelFormat::RGBA8.  All mip levels
+/// The source texture must have format PixelFormat::R8.  All mip levels
 /// and layers are individually compressed.
 ///
-/// @param src       Source texture (must be RGBA8).
-/// @param channel   Which channel to encode (default: R).
+/// @param src       Source texture (must be R8).
 /// @param out_error Optional string to receive an error message on failure.
+/// @param thread_count  Number of threads (1 = serial, 0 = auto, >1 = N threads).
 /// @return The compressed texture, or std::nullopt on error.
-std::optional<Texture> encodeTexture(const Texture& src, Channel channel = Channel::R,
-                                     std::string* out_error = nullptr);
+std::optional<Texture> encodeTexture(const Texture& src, std::string* out_error = nullptr,
+                                     u32 thread_count = 1);
 
 } // namespace bc4
 } // namespace whiteout::textures

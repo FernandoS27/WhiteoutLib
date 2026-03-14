@@ -14,9 +14,7 @@
 
 #include <whiteout/common_types.h>
 
-namespace whiteout {
-namespace textures {
-namespace jpeg {
+namespace whiteout::textures::jpeg {
 
 /// Decoded image returned by the JPEG decoder.
 struct Image {
@@ -31,6 +29,4 @@ struct Image {
 /// Progressive, arithmetic-coded, and lossless JPEG variants are not supported.
 std::optional<Image> decode_raw(std::span<const u8> data, std::string* out_error = nullptr);
 
-} // namespace jpeg
-} // namespace textures
-} // namespace whiteout
+} // namespace whiteout::textures::jpeg

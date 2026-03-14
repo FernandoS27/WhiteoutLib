@@ -16,7 +16,7 @@
 #include <stdexcept>
 #include "../io_helpers.h"
 #include "../issue_sink.h"
-#include "../pixel_convert.h"
+#include "../utils/pixel_convert.h"
 
 namespace whiteout::textures::blp {
 
@@ -490,8 +490,12 @@ Parser::Parser(ParseMode parseMode) : pImpl(std::make_unique<Impl>()) {
 Parser::~Parser() = default;
 
 std::optional<Texture> Parser::parse(const std::string& filePath) {
-    auto buf = read_file_bytes(filePath);
-    return pImpl->parse(std::span<const u8>{buf});
+    pImpl->issues.clear();
+    auto buf = read_file_bytes(filePath, *pImpl);
+    if (!buf) {
+        return std::nullopt;
+    }
+    return pImpl->parse(std::span<const u8>{*buf});
 }
 
 std::optional<Texture> Parser::parse(std::span<const u8> buffer) {

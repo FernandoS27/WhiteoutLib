@@ -8,7 +8,7 @@
  * @brief Format-agnostic GPU texture container and pixel-format utilities
  *
  * This file defines:
- * - PixelFormat enumeration covering uncompressed (RGBA8/16F/32F) and
+ * - PixelFormat enumeration covering uncompressed (R/RG/RGBA in 8/16/32F) and
  *   block-compressed (BC1–BC7) pixel encodings
  * - Utility functions for computing block sizes, image byte sizes, and mip counts
  * - TextureType (2D, 3D, Cube)
@@ -38,8 +38,14 @@ namespace textures {
 /// Uncompressed formats store one pixel per "block"; BCn formats store a
 /// 4×4 pixel tile per block.
 enum class PixelFormat : u32 {
+    R8,      ///< 8-bit single channel (1 byte per pixel).
+    R16,     ///< 16-bit single channel UNORM (2 bytes per pixel).
+    R32F,    ///< Single-precision single channel (4 bytes per pixel).
+    RG8,     ///< 8-bit dual channel (2 bytes per pixel).
+    RG16,    ///< 16-bit dual channel UNORM (4 bytes per pixel).
+    RG32F,   ///< Single-precision dual channel (8 bytes per pixel).
     RGBA8,   ///< 8-bit RGBA (4 bytes per pixel).
-    RGBA16F, ///< Half-precision RGBA (8 bytes per pixel).
+    RGBA16,  ///< 16-bit RGBA UNORM (8 bytes per pixel).
     RGBA32F, ///< Single-precision RGBA (16 bytes per pixel).
     BC1,     ///< DXT1 – 8 bytes per 4×4 block (RGB + optional 1-bit alpha).
     BC2,     ///< DXT3 – 16 bytes per 4×4 block (explicit 4-bit alpha).
@@ -76,6 +82,25 @@ u64 computeImageSize(PixelFormat fmt, u32 width, u32 height);
 /// @param h Base height.
 /// @param d Base depth (default 1 for 2D / cube textures).
 u32 computeMaxMipCount(u32 w, u32 h, u32 d = 1);
+
+// ============================================================================
+// Texture Kind
+// ============================================================================
+
+/// Semantic role of a texture in a material.
+enum class TextureKind : u32 {
+    Other,            ///< Unknown or application-specific usage.
+    Diffuse,          ///< Diffuse / base colour (legacy).
+    Normal,           ///< Tangent-space normal map.
+    Specular,         ///< Specular intensity / colour.
+    ORM,              ///< Packed Occlusion + Roughness + Metalness.
+    Albedo,           ///< PBR base colour (albedo).
+    Roughness,        ///< Roughness (single channel).
+    Metalness,        ///< Metalness (single channel).
+    AmbientOcclusion, ///< Ambient occlusion (single channel).
+    Gloss,            ///< Gloss / smoothness (single channel).
+    Emissive,         ///< Emissive colour / intensity.
+};
 
 // ============================================================================
 // Texture Type
@@ -154,7 +179,8 @@ struct Texture {
      *
      * Conversion path:
      * - Same format → plain copy.
-     * - BCn → decoded to RGBA8 (or RGBA16F for BC6H), then recurse.
+     * - BCn → decoded to native format (R8 for BC4, RG8 for BC5,
+     *   RGBA32F for BC6H, RGBA8 for others), then recurse.
      * - Uncompressed → uncompressed → per-pixel conversion.
      * - Uncompressed → BCn → encode via the appropriate codec.
      *
@@ -162,6 +188,34 @@ struct Texture {
      * @return A new Texture with the converted data.
      */
     Texture copyAsFormat(PixelFormat new_fmt) const;
+
+    // ── Mipmap generation ───────────────────────────────────────────────
+
+    /**
+     * @brief Generate all mip levels from the base image (mip 0).
+     *
+     * Every mip level is generated directly from the original full-resolution
+     * image using an appropriately-sized filter kernel, rather than cascading
+     * from the previous mip level.  This eliminates cumulative blur.
+     *
+     * Selects the best filter and pipeline for the texture's kind():
+     * - Diffuse / Albedo — Lanczos3; sRGB linearize/delinearize when
+     *   isSrgb() is true.
+     * - Normal — Kaiser(β=6) with unpack / Toksvig / renormalize / pack.
+     * - Specular — Kaiser(β=6); sRGB linearize/delinearize when isSrgb().
+     * - Roughness — Kaiser(β=6.5) variance-preserving: r→r², filter, √.
+     * - Gloss — convert to roughness, apply variance filter, convert back.
+     * - Metalness — Kaiser(β=5.5) mean filtering.
+     * - AmbientOcclusion — Kaiser(β=6) mean filtering.
+     * - Emissive — Lanczos3; sRGB linearize/delinearize when isSrgb().
+     * - ORM — per-channel: R=AO (Kaiser β=6), G=Roughness (variance-
+     *   preserving), B=Metalness (Kaiser β=5.5).
+     * - Other — Box filter; sRGB linearize/delinearize when isSrgb().
+     *
+     * The texture must use an uncompressed pixel format.  BCn textures
+     * should be decompressed first.  No-op if the texture has ≤ 1 mip.
+     */
+    void generateMipmaps();
 
     // ── Factory methods ────────────────────────────────────────────────
 
@@ -201,6 +255,15 @@ struct Texture {
     TextureType type() const;
     /// @return The pixel format of the stored data.
     PixelFormat format() const;
+    /// @return The semantic kind of this texture.
+    TextureKind kind() const;
+    /// @brief Set the semantic kind of this texture.
+    void setKind(TextureKind k);
+
+    /// @return True if the texture data is in sRGB colour space.
+    bool isSrgb() const;
+    /// @brief Mark the texture as sRGB or linear.
+    void setSrgb(bool srgb);
 
     /// @return Base mip width in pixels.
     u32 width() const;

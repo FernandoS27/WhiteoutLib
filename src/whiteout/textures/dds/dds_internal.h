@@ -46,16 +46,29 @@ static constexpr u32 DDSCAPS2_CUBEMAP_ALL_FACES =
     DDSCAPS2_CUBEMAP_NEGATIVEZ;
 
 enum DxgiFormat : u32 {
-    DXGI_FORMAT_R8G8B8A8_UNORM = 28,
-    DXGI_FORMAT_R16G16B16A16_FLOAT = 10,
     DXGI_FORMAT_R32G32B32A32_FLOAT = 2,
+    DXGI_FORMAT_R16G16B16A16_FLOAT = 10,
+    DXGI_FORMAT_R16G16B16A16_UNORM = 11,
+    DXGI_FORMAT_R32G32_FLOAT = 16,
+    DXGI_FORMAT_R8G8B8A8_UNORM = 28,
+    DXGI_FORMAT_R8G8B8A8_UNORM_SRGB = 29,
+    DXGI_FORMAT_R16G16_FLOAT = 34,
+    DXGI_FORMAT_R16G16_UNORM = 35,
+    DXGI_FORMAT_R32_FLOAT = 41,
+    DXGI_FORMAT_R8G8_UNORM = 49,
+    DXGI_FORMAT_R16_UNORM = 56,
+    DXGI_FORMAT_R8_UNORM = 61,
     DXGI_FORMAT_BC1_UNORM = 71,
+    DXGI_FORMAT_BC1_UNORM_SRGB = 72,
     DXGI_FORMAT_BC2_UNORM = 74,
+    DXGI_FORMAT_BC2_UNORM_SRGB = 75,
     DXGI_FORMAT_BC3_UNORM = 77,
+    DXGI_FORMAT_BC3_UNORM_SRGB = 78,
     DXGI_FORMAT_BC4_UNORM = 80,
     DXGI_FORMAT_BC5_UNORM = 83,
     DXGI_FORMAT_BC6H_UF16 = 95,
     DXGI_FORMAT_BC7_UNORM = 98,
+    DXGI_FORMAT_BC7_UNORM_SRGB = 99,
 };
 
 enum D3D10ResourceDimension : u32 {
@@ -116,17 +129,33 @@ static_assert(sizeof(DDS_HEADER_DXT10) == 20, "DDS_HEADER_DXT10 must be 20 bytes
 
 inline std::optional<PixelFormat> dxgi_to_pixel_format(u32 dxgi_format) {
     switch (dxgi_format) {
+    case DXGI_FORMAT_R8_UNORM:
+        return PixelFormat::R8;
+    case DXGI_FORMAT_R16_UNORM:
+        return PixelFormat::R16;
+    case DXGI_FORMAT_R32_FLOAT:
+        return PixelFormat::R32F;
+    case DXGI_FORMAT_R8G8_UNORM:
+        return PixelFormat::RG8;
+    case DXGI_FORMAT_R16G16_UNORM:
+        return PixelFormat::RG16;
+    case DXGI_FORMAT_R32G32_FLOAT:
+        return PixelFormat::RG32F;
     case DXGI_FORMAT_R8G8B8A8_UNORM:
+    case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
         return PixelFormat::RGBA8;
-    case DXGI_FORMAT_R16G16B16A16_FLOAT:
-        return PixelFormat::RGBA16F;
+    case DXGI_FORMAT_R16G16B16A16_UNORM:
+        return PixelFormat::RGBA16;
     case DXGI_FORMAT_R32G32B32A32_FLOAT:
         return PixelFormat::RGBA32F;
     case DXGI_FORMAT_BC1_UNORM:
+    case DXGI_FORMAT_BC1_UNORM_SRGB:
         return PixelFormat::BC1;
     case DXGI_FORMAT_BC2_UNORM:
+    case DXGI_FORMAT_BC2_UNORM_SRGB:
         return PixelFormat::BC2;
     case DXGI_FORMAT_BC3_UNORM:
+    case DXGI_FORMAT_BC3_UNORM_SRGB:
         return PixelFormat::BC3;
     case DXGI_FORMAT_BC4_UNORM:
         return PixelFormat::BC4;
@@ -135,6 +164,7 @@ inline std::optional<PixelFormat> dxgi_to_pixel_format(u32 dxgi_format) {
     case DXGI_FORMAT_BC6H_UF16:
         return PixelFormat::BC6H;
     case DXGI_FORMAT_BC7_UNORM:
+    case DXGI_FORMAT_BC7_UNORM_SRGB:
         return PixelFormat::BC7;
     default:
         return std::nullopt;
@@ -143,10 +173,22 @@ inline std::optional<PixelFormat> dxgi_to_pixel_format(u32 dxgi_format) {
 
 inline u32 pixel_format_to_dxgi(PixelFormat format) {
     switch (format) {
+    case PixelFormat::R8:
+        return DXGI_FORMAT_R8_UNORM;
+    case PixelFormat::R16:
+        return DXGI_FORMAT_R16_UNORM;
+    case PixelFormat::R32F:
+        return DXGI_FORMAT_R32_FLOAT;
+    case PixelFormat::RG8:
+        return DXGI_FORMAT_R8G8_UNORM;
+    case PixelFormat::RG16:
+        return DXGI_FORMAT_R16G16_UNORM;
+    case PixelFormat::RG32F:
+        return DXGI_FORMAT_R32G32_FLOAT;
     case PixelFormat::RGBA8:
         return DXGI_FORMAT_R8G8B8A8_UNORM;
-    case PixelFormat::RGBA16F:
-        return DXGI_FORMAT_R16G16B16A16_FLOAT;
+    case PixelFormat::RGBA16:
+        return DXGI_FORMAT_R16G16B16A16_UNORM;
     case PixelFormat::RGBA32F:
         return DXGI_FORMAT_R32G32B32A32_FLOAT;
     case PixelFormat::BC1:
@@ -165,6 +207,36 @@ inline u32 pixel_format_to_dxgi(PixelFormat format) {
         return DXGI_FORMAT_BC7_UNORM;
     }
     return 0;
+}
+
+inline u32 pixel_format_to_dxgi_srgb(PixelFormat format) {
+    switch (format) {
+    case PixelFormat::RGBA8:
+        return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+    case PixelFormat::BC1:
+        return DXGI_FORMAT_BC1_UNORM_SRGB;
+    case PixelFormat::BC2:
+        return DXGI_FORMAT_BC2_UNORM_SRGB;
+    case PixelFormat::BC3:
+        return DXGI_FORMAT_BC3_UNORM_SRGB;
+    case PixelFormat::BC7:
+        return DXGI_FORMAT_BC7_UNORM_SRGB;
+    default:
+        return pixel_format_to_dxgi(format);
+    }
+}
+
+inline bool is_dxgi_srgb(u32 dxgi_format) {
+    switch (dxgi_format) {
+    case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+    case DXGI_FORMAT_BC1_UNORM_SRGB:
+    case DXGI_FORMAT_BC2_UNORM_SRGB:
+    case DXGI_FORMAT_BC3_UNORM_SRGB:
+    case DXGI_FORMAT_BC7_UNORM_SRGB:
+        return true;
+    default:
+        return false;
+    }
 }
 
 inline std::optional<PixelFormat> legacy_pixfmt_to_pixel_format(
@@ -204,13 +276,15 @@ inline std::optional<PixelFormat> legacy_pixfmt_to_pixel_format(
 
 inline bool needs_dx10_header(PixelFormat format) {
     switch (format) {
-    case PixelFormat::RGBA16F:
-    case PixelFormat::RGBA32F:
-    case PixelFormat::BC6H:
-    case PixelFormat::BC7:
-        return true;
-    default:
+    case PixelFormat::RGBA8:
+    case PixelFormat::BC1:
+    case PixelFormat::BC2:
+    case PixelFormat::BC3:
+    case PixelFormat::BC4:
+    case PixelFormat::BC5:
         return false;
+    default:
+        return true;
     }
 }
 
