@@ -36,4 +36,31 @@ MipImage kaiserFilter(const MipImage& src, u32 dstWidth, u32 dstHeight, f64 beta
 /// Convenience: halve dimensions.
 MipImage kaiserFilter(const MipImage& src, f64 beta);
 
+/// Downsample an equirectangular environment map using GGX importance-sampled
+/// convolution (split-sum prefilter, roughness derived from the downsample ratio).
+///
+/// The output texel at (u, v) accumulates contributions from `N` sample
+/// directions drawn with the GGX NDF using a Hammersley low-discrepancy
+/// sequence.  The roughness increases with each mip level and is derived
+/// from the input/output size ratio so that the pipeline can always sample
+/// directly from the original image.
+///
+/// Assumptions:
+/// - The input image is an equirectangular (lat-long) panorama.
+/// - The image stores data in linear light (sRGB decode should be done first).
+/// - V == N (isotropic reflection; standard split-sum approximation).
+MipImage environmentPrefilterGGX(const MipImage& src, u32 dstWidth, u32 dstHeight);
+
+/// Downsample an equirectangular environment map using a solid-angle-weighted
+/// spherical Kaiser-windowed sinc filter (β = 6, 3-lobe support).
+///
+/// Unlike the separable pixel-space Kaiser filter, each output texel accumulates
+/// source samples weighted by:
+///   - a Kaiser window applied over the great-circle angular distance, and
+///   - sin(θ) (the solid-angle differential of the equirectangular projection).
+///
+/// U wraps horizontally; V clamps at the poles.  A bilinear fallback is used
+/// for degenerate output texels (zero weight sum).
+MipImage sphericalKaiserFilter(const MipImage& src, u32 dstWidth, u32 dstHeight);
+
 } // namespace whiteout::textures::mipmap

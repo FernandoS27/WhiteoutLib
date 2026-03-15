@@ -266,4 +266,268 @@ MipImage lanczos3Filter(const MipImage& src) {
     return lanczos3Filter(src, std::max(src.width / 2, 1u), std::max(src.height / 2, 1u));
 }
 
+// ============================================================================
+// GGX importance-sampled environment prefilter
+// ============================================================================
+
+namespace {
+
+constexpr u32 GGX_SAMPLE_COUNT = 128;
+
+/// Van der Corput radical inverse in base 2.
+f32 radicalInverseBase2(u32 n) {
+    n = (n << 16u) | (n >> 16u);
+    n = ((n & 0x55555555u) << 1u) | ((n & 0xAAAAAAAAu) >> 1u);
+    n = ((n & 0x33333333u) << 2u) | ((n & 0xCCCCCCCCu) >> 2u);
+    n = ((n & 0x0F0F0F0Fu) << 4u) | ((n & 0xF0F0F0F0u) >> 4u);
+    n = ((n & 0x00FF00FFu) << 8u) | ((n & 0xFF00FF00u) >> 8u);
+    return f32(n) * 2.3283064365386963e-10f; // / 0x100000000
+}
+
+/// 2D Hammersley point (i/N, VdC(i)).
+void hammersley2(u32 i, u32 N, f32& xi1, f32& xi2) {
+    xi1 = f32(i) / f32(N);
+    xi2 = radicalInverseBase2(i);
+}
+
+/// GGX importance-sample a half-vector in tangent space (hz > 0).
+void importanceSampleGGX(f32 xi1, f32 xi2, f32 roughness, f32& hx, f32& hy, f32& hz) {
+    const f32 a = roughness * roughness;
+    const f32 phi = 2.0f * static_cast<f32>(PI) * xi1;
+    const f32 denom = std::max(1.0f + (a * a - 1.0f) * xi2, 1e-7f);
+    const f32 cosTheta = std::sqrt((1.0f - xi2) / denom);
+    const f32 sinTheta = std::sqrt(std::max(1.0f - cosTheta * cosTheta, 0.0f));
+    hx = std::cos(phi) * sinTheta;
+    hy = std::sin(phi) * sinTheta;
+    hz = cosTheta;
+}
+
+/// Equirectangular UV → unit direction.
+/// Convention: u ∈ [0,1) maps azimuth [0, 2π), v ∈ [0,1] maps inclination [0 (top), π (bottom)].
+void uvToDir(f32 u, f32 v, f32& dx, f32& dy, f32& dz) {
+    const f32 phi   = u * 2.0f * static_cast<f32>(PI);
+    const f32 theta = v * static_cast<f32>(PI);
+    const f32 sinT  = std::sin(theta);
+    dx = sinT * std::cos(phi);
+    dy = std::cos(theta);
+    dz = sinT * std::sin(phi);
+}
+
+/// Unit direction → equirectangular UV.
+void dirToUV(f32 dx, f32 dy, f32 dz, f32& ou, f32& ov) {
+    const f32 phi = std::atan2(dz, dx); // [-π, π]
+    ou = phi / (2.0f * static_cast<f32>(PI));
+    if (ou < 0.0f) ou += 1.0f;
+    ov = std::acos(std::clamp(dy, -1.0f, 1.0f)) / static_cast<f32>(PI);
+}
+
+/// Build a tangent basis (T, B) orthonormal to N.
+void buildTBN(f32 nx, f32 ny, f32 nz,
+              f32& tx, f32& ty, f32& tz,
+              f32& bx, f32& by, f32& bz) {
+    // Choose an up vector that is not collinear with N.
+    const bool nearPole = std::abs(ny) > 0.999f;
+    const f32 ux = nearPole ? 1.0f : 0.0f;
+    const f32 uy = nearPole ? 0.0f : 1.0f;
+    // T = normalize(up × N)
+    tx = uy * nz;           // uz = 0, so uy*nz - uz*ny = uy*nz
+    ty = -ux * nz;          // uz*nx - ux*nz = -ux*nz
+    tz = ux * ny - uy * nx;
+    const f32 tlen = std::sqrt(tx * tx + ty * ty + tz * tz);
+    if (tlen > 1e-7f) { tx /= tlen; ty /= tlen; tz /= tlen; }
+    // B = N × T
+    bx = ny * tz - nz * ty;
+    by = nz * tx - nx * tz;
+    bz = nx * ty - ny * tx;
+}
+
+/// Bilinear sample of a MipImage at (u, v) ∈ [0,1]².
+/// U wraps horizontally; V clamps at poles.
+void sampleBilinear(const MipImage& img, f32 u, f32 v, f32* result, u32 channels) {
+    u -= std::floor(u); // wrap U
+    v = std::clamp(v, 0.0f, 1.0f);
+    const f32 px = u * f32(img.width  - 1);
+    const f32 py = v * f32(img.height - 1);
+    const u32 x0 = u32(px);
+    const u32 y0 = u32(py);
+    const u32 x1 = std::min(x0 + 1, img.width  - 1);
+    const u32 y1 = std::min(y0 + 1, img.height - 1);
+    const f32 fx = px - f32(x0);
+    const f32 fy = py - f32(y0);
+    const f32* p00 = img.pixel(x0, y0);
+    const f32* p10 = img.pixel(x1, y0);
+    const f32* p01 = img.pixel(x0, y1);
+    const f32* p11 = img.pixel(x1, y1);
+    for (u32 c = 0; c < channels; ++c)
+        result[c] = (p00[c] * (1.0f - fx) + p10[c] * fx) * (1.0f - fy) +
+                    (p01[c] * (1.0f - fx) + p11[c] * fx) * fy;
+}
+
+} // anonymous namespace
+
+MipImage environmentPrefilterGGX(const MipImage& src, u32 dstW, u32 dstH) {
+    // Derive roughness from the mip level implied by the downsample ratio.
+    // roughness = log2(srcW / dstW) / log2(srcW) maps linearly from mip 0
+    // (roughness = 0) to the smallest mip (roughness = 1).
+    const f32 srcLog2 = std::log2(f32(src.width));
+    const f32 roughness = srcLog2 > 0.0f
+        ? std::clamp(std::log2(f32(src.width) / f32(dstW)) / srcLog2, 0.0f, 1.0f)
+        : 0.0f;
+
+    MipImage dst(dstW, dstH, src.channels);
+
+    for (u32 y = 0; y < dstH; ++y) {
+        const f32 tv = (f32(y) + 0.5f) / f32(dstH);
+        for (u32 x = 0; x < dstW; ++x) {
+            const f32 tu = (f32(x) + 0.5f) / f32(dstW);
+
+            // Convert texel centre to a world direction on the sphere.
+            f32 nx, ny, nz;
+            uvToDir(tu, tv, nx, ny, nz);
+
+            // Build tangent basis (V == N, isotropic split-sum assumption).
+            f32 tx, ty, tz, bx, by, bz;
+            buildTBN(nx, ny, nz, tx, ty, tz, bx, by, bz);
+
+            // Accumulate GGX importance-sampled contributions.
+            f32 color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+            f32 totalWeight = 0.0f;
+
+            for (u32 i = 0; i < GGX_SAMPLE_COUNT; ++i) {
+                f32 xi1, xi2;
+                hammersley2(i, GGX_SAMPLE_COUNT, xi1, xi2);
+
+                // Half-vector in tangent space, transform to world space.
+                f32 hx, hy, hz;
+                importanceSampleGGX(xi1, xi2, roughness, hx, hy, hz);
+                const f32 wx = tx * hx + bx * hy + nx * hz;
+                const f32 wy = ty * hx + by * hy + ny * hz;
+                const f32 wz = tz * hx + bz * hy + nz * hz;
+
+                // Sample direction L = 2*(N·H)*H - N.
+                const f32 NdotH = nx * wx + ny * wy + nz * wz;
+                const f32 lx = 2.0f * NdotH * wx - nx;
+                const f32 ly = 2.0f * NdotH * wy - ny;
+                const f32 lz = 2.0f * NdotH * wz - nz;
+                const f32 NdotL = nx * lx + ny * ly + nz * lz;
+                if (NdotL <= 0.0f)
+                    continue;
+
+                f32 su, sv;
+                dirToUV(lx, ly, lz, su, sv);
+                f32 sample[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+                sampleBilinear(src, su, sv, sample, src.channels);
+
+                for (u32 c = 0; c < src.channels; ++c)
+                    color[c] += sample[c] * NdotL;
+                totalWeight += NdotL;
+            }
+
+            f32* dstPixel = dst.pixel(x, y);
+            if (totalWeight > 0.0f) {
+                const f32 invW = 1.0f / totalWeight;
+                for (u32 c = 0; c < src.channels; ++c)
+                    dstPixel[c] = color[c] * invW;
+            } else {
+                // Roughness ≈ 0 or degenerate: copy the source texel verbatim.
+                sampleBilinear(src, tu, tv, dstPixel, src.channels);
+            }
+        }
+    }
+    return dst;
+}
+
+// ============================================================================
+// Spherical Kaiser filter (solid-angle-weighted, equirectangular)
+// ============================================================================
+
+MipImage sphericalKaiserFilter(const MipImage& src, u32 dstW, u32 dstH) {
+    constexpr f64 SKAISER_BETA = 6.0;
+    constexpr i32 SKAISER_LOBES = 3;
+    const f64 invI0Beta = 1.0 / bessel_I0(SKAISER_BETA);
+
+    // Angular support radius in radians: 3 source-texel angular widths.
+    const f64 angularRadius =
+        SKAISER_LOBES * PI / static_cast<f64>(src.height);
+    const f64 cosRadiusCutoff = std::cos(angularRadius);
+
+    MipImage dst(dstW, dstH, src.channels);
+
+    for (u32 y = 0; y < dstH; ++y) {
+        const f32 tv = (static_cast<f32>(y) + 0.5f) / static_cast<f32>(dstH);
+        for (u32 x = 0; x < dstW; ++x) {
+            const f32 tu = (static_cast<f32>(x) + 0.5f) / static_cast<f32>(dstW);
+
+            f32 nx, ny, nz;
+            uvToDir(tu, tv, nx, ny, nz);
+
+            // Conservative UV bounding box in source texel space.
+            // Near the poles sinTheta → 0, so cap duPad at 0.5 (full-wrap).
+            const f32 sinThetaN =
+                std::max(std::sin(tv * static_cast<f32>(PI)), 0.01f);
+            const f32 dvPad = static_cast<f32>(angularRadius / PI);
+            const f32 duPad = std::min(
+                static_cast<f32>(angularRadius / (PI * static_cast<f64>(sinThetaN))), 0.5f);
+
+            const u32 srcY0 = static_cast<u32>(
+                std::max(0.0f, (tv - dvPad) * static_cast<f32>(src.height) - 0.5f));
+            const u32 srcY1 = std::min(
+                static_cast<u32>((tv + dvPad) * static_cast<f32>(src.height) + 0.5f),
+                src.height - 1u);
+            const i32 srcX0 =
+                static_cast<i32>((tu - duPad) * static_cast<f32>(src.width) - 0.5f);
+            const i32 srcX1 =
+                static_cast<i32>((tu + duPad) * static_cast<f32>(src.width) + 0.5f);
+
+            f32 color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+            f64 weightSum = 0.0;
+
+            for (u32 sy = srcY0; sy <= srcY1; ++sy) {
+                const f32 sv = (static_cast<f32>(sy) + 0.5f) / static_cast<f32>(src.height);
+                // Solid-angle differential: sin(θ) dθ dφ.
+                const f64 solidAngle = std::sin(static_cast<f64>(sv) * PI);
+
+                for (i32 sx = srcX0; sx <= srcX1; ++sx) {
+                    const f32 su = (static_cast<f32>(sx) + 0.5f) / static_cast<f32>(src.width);
+                    f32 lx, ly, lz;
+                    uvToDir(su, sv, lx, ly, lz);
+
+                    const f32 cosAngle = nx * lx + ny * ly + nz * lz;
+                    if (static_cast<f64>(cosAngle) < cosRadiusCutoff)
+                        continue;
+
+                    // Normalised angular distance t ∈ [0, 1].
+                    const f64 angle = std::acos(
+                        static_cast<f64>(std::clamp(cosAngle, -1.0f, 1.0f)));
+                    const f64 t2 = (angle / angularRadius) * (angle / angularRadius);
+                    const f64 kaiserW = (t2 < 1.0)
+                        ? bessel_I0(SKAISER_BETA * std::sqrt(1.0 - t2)) * invI0Beta
+                        : 0.0;
+                    const f64 weight = kaiserW * solidAngle;
+
+                    // Wrap sx across U boundary.
+                    const u32 wrappedSx = static_cast<u32>(
+                        (sx % static_cast<i32>(src.width) + static_cast<i32>(src.width)) %
+                        static_cast<i32>(src.width));
+                    const f32* srcPixel = src.pixel(wrappedSx, sy);
+
+                    for (u32 c = 0; c < src.channels; ++c)
+                        color[c] += srcPixel[c] * static_cast<f32>(weight);
+                    weightSum += weight;
+                }
+            }
+
+            f32* dstPixel = dst.pixel(x, y);
+            if (weightSum > 0.0) {
+                const f32 invW = static_cast<f32>(1.0 / weightSum);
+                for (u32 c = 0; c < src.channels; ++c)
+                    dstPixel[c] = color[c] * invW;
+            } else {
+                sampleBilinear(src, tu, tv, dstPixel, src.channels);
+            }
+        }
+    }
+    return dst;
+}
+
 } // namespace whiteout::textures::mipmap

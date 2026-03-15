@@ -100,6 +100,10 @@ enum class TextureKind : u32 {
     AmbientOcclusion, ///< Ambient occlusion (single channel).
     Gloss,            ///< Gloss / smoothness (single channel).
     Emissive,         ///< Emissive colour / intensity.
+    AlphaMask,        ///< Opacity / alpha mask (single channel, linear).
+    Lightmap,         ///< Lightmap or baked light contribution (HDR colour).
+    EnvironmentPBR,   ///< Environment / reflection map (equirectangular, GGX prefiltered).
+    EnvironmentLegacy, ///< Environment map (equirectangular, spherical Kaiser-filtered).
 };
 
 // ============================================================================
@@ -222,6 +226,12 @@ struct Texture {
      * - Emissive — Lanczos3; sRGB linearize/delinearize when isSrgb().
      * - ORM — per-channel: R=AO (Kaiser β=6), G=Roughness (variance-
      *   preserving), B=Metalness (Kaiser β=5.5).
+     * - AlphaMask — Box filter; no sRGB conversion (linear mask data).
+     * - Lightmap — Lanczos3; clamp channels to [0, ∞) (no sRGB).
+     * - EnvironmentPBR — GGX importance-sampled convolution (equirectangular);
+     *   roughness increases with each mip level.
+     * - EnvironmentLegacy — Solid-angle-weighted spherical Kaiser convolution
+     *   (equirectangular); no roughness encoding.
      * - Other — Box filter; sRGB linearize/delinearize when isSrgb().
      *
      * The texture must use an uncompressed pixel format.  BCn textures

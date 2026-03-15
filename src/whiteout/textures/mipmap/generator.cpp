@@ -152,6 +152,8 @@ MipmapPipeline pipelineForKind(TextureKind kind, bool srgb) {
     const Filter kaiser6 = makeKaiserFilter(6.0);
     const Filter kaiser55 = makeKaiserFilter(5.5);
     const Filter kaiser65 = makeKaiserFilter(6.5);
+    const Filter ggxEnv = static_cast<FilterFn>(environmentPrefilterGGX);
+    const Filter spherKaiser = static_cast<FilterFn>(sphericalKaiserFilter);
 
     switch (kind) {
     case TextureKind::Diffuse:
@@ -185,6 +187,24 @@ MipmapPipeline pipelineForKind(TextureKind kind, bool srgb) {
         if (srgb)
             return {{linearize}, lanczos3, {delinearize}};
         return {{}, lanczos3, {}};
+
+    case TextureKind::AlphaMask:
+        return {{preBlurAlpha}, kaiser6, {preserveAlphaCoverage}};
+
+    case TextureKind::Lightmap:
+        if (srgb)
+            return {{linearize}, lanczos3, {clampPositive, delinearize}};
+        return {{}, lanczos3, {clampPositive}};
+
+    case TextureKind::EnvironmentPBR:
+        if (srgb)
+            return {{linearize}, ggxEnv, {delinearize}};
+        return {{}, ggxEnv, {}};
+
+    case TextureKind::EnvironmentLegacy:
+        if (srgb)
+            return {{linearize}, spherKaiser, {delinearize}};
+        return {{}, spherKaiser, {}};
 
     // ORM is handled by per-channel splitting in generateMipmaps();
     // it never reaches here, but the compiler requires all enum values.

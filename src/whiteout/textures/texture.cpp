@@ -308,6 +308,11 @@ bool is_rg_normal_format(PixelFormat format) {
            format == PixelFormat::RG32F;
 }
 
+bool is_rgba_normal_format(PixelFormat format) {
+    return format == PixelFormat::RGBA8 || format == PixelFormat::RGBA16 ||
+           format == PixelFormat::RGBA32F;
+}
+
 Texture make_texture_like(const Texture& src, PixelFormat new_fmt) {
     switch (src.type()) {
     case TextureType::Texture2D:
@@ -378,7 +383,9 @@ Texture convert_uncompressed(const Texture& src, PixelFormat new_fmt) {
 }
 
 std::optional<Texture> copy_normal_to_rgba8(const Texture& src) {
-    if (!is_rg_normal_format(src.format()))
+    const bool is_rg = is_rg_normal_format(src.format());
+    const bool is_rgba = is_rgba_normal_format(src.format());
+    if (!is_rg && !is_rgba)
         return std::nullopt;
 
     Texture dst = make_texture_like(src, PixelFormat::RGBA8);
@@ -412,10 +419,13 @@ std::optional<Texture> copy_normal_to_rgba8(const Texture& src) {
 
                 const f32 normal_x = rgba[0] * 2.0f - 1.0f;
                 const f32 normal_y = rgba[1] * 2.0f - 1.0f;
-                const f32 normal_z =
-                    std::sqrt(std::max(0.0f, 1.0f - normal_x * normal_x - normal_y * normal_y));
 
-                rgba[2] = (normal_z + 1.0f) * 0.5f;
+                if (is_rg || rgba[2] == 0.0f) {
+                    const f32 normal_z = std::sqrt(
+                        std::max(0.0f, 1.0f - normal_x * normal_x - normal_y * normal_y));
+                    rgba[2] = (normal_z + 1.0f) * 0.5f;
+                }
+
                 rgba[3] = 1.0f;
                 from_f32(rgba, dst_bytes + pixel * bytesPerBlock(PixelFormat::RGBA8));
             }

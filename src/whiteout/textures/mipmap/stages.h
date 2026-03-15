@@ -55,4 +55,22 @@ void glossToRoughness(MipImage& img);
 /// Convert roughness back to gloss: r → (1 − r).
 void roughnessToGloss(MipImage& img);
 
+// ── Alpha-mask stages ──────────────────────────────────────────────────
+
+/// Clamp the R, G, B channels to [0, ∞) — eliminates ringing artefacts
+/// introduced by the Lanczos3 filter in HDR lightmap data.
+/// Alpha (channel 3, if present) is left unchanged.
+void clampPositive(MipImage& img);
+
+/// Apply a separable Gaussian blur (σ ≈ 0.5, 3-tap [¼ ½ ¼]) to the alpha
+/// channel only.  Intended as a pre-process stage for AlphaMask textures.
+/// Also records the pre-blur alpha coverage so that preserveAlphaCoverage
+/// can restore it after downsampling.
+void preBlurAlpha(MipImage& img);
+
+/// Rescale the alpha channel so that coverage (fraction of texels with
+/// alpha ≥ 0.5) matches the value captured by the preceding preBlurAlpha
+/// call.  Must be used as a post-process stage in the same pipeline execution.
+void preserveAlphaCoverage(MipImage& img);
+
 } // namespace whiteout::textures::mipmap
