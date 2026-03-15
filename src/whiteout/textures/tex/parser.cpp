@@ -18,7 +18,8 @@ namespace whiteout::textures::tex {
 
 // Defined in d4_parser.cpp
 std::optional<Texture> parseD4Impl(std::span<const u8> texData, std::span<const u8> payloadData,
-                                   D4TexInfo* outInfo, IssueSink& sink);
+                                   std::span<const u8> lowResPayloadData, D4TexInfo* outInfo,
+                                   IssueSink& sink);
 
 static Parser::FileKind detect_tex_kind(std::span<const u8> buffer) {
     if (buffer.size() < 8)
@@ -266,20 +267,45 @@ std::optional<Texture> Parser::parse(const std::string& texFilePath,
     auto payloadBuf = read_file_bytes(payloadFilePath, *pImpl);
     if (!payloadBuf)
         return std::nullopt;
-    return parseD4Impl(std::span<const u8>{*texBuf}, std::span<const u8>{*payloadBuf}, nullptr,
+    return parseD4Impl(std::span<const u8>{*texBuf}, std::span<const u8>{*payloadBuf}, {}, nullptr,
                        *pImpl);
 }
 
 std::optional<Texture> Parser::parse(std::span<const u8> texData,
                                      std::span<const u8> payloadData) {
     pImpl->issues.clear();
-    return parseD4Impl(texData, payloadData, nullptr, *pImpl);
+    return parseD4Impl(texData, payloadData, {}, nullptr, *pImpl);
 }
 
 std::optional<Texture> Parser::parse(std::span<const u8> texData,
                                      std::span<const u8> payloadData, D4TexInfo* outInfo) {
     pImpl->issues.clear();
-    return parseD4Impl(texData, payloadData, outInfo, *pImpl);
+    return parseD4Impl(texData, payloadData, {}, outInfo, *pImpl);
+}
+
+std::optional<Texture> Parser::parse(const std::string& texFilePath,
+                                     const std::string& hiResPayloadFilePath,
+                                     const std::string& lowResPayloadFilePath) {
+    pImpl->issues.clear();
+    auto texBuf = read_file_bytes(texFilePath, *pImpl);
+    if (!texBuf)
+        return std::nullopt;
+    auto hiBuf = read_file_bytes(hiResPayloadFilePath, *pImpl);
+    if (!hiBuf)
+        return std::nullopt;
+    auto loBuf = read_file_bytes(lowResPayloadFilePath, *pImpl);
+    if (!loBuf)
+        return std::nullopt;
+    return parseD4Impl(std::span<const u8>{*texBuf}, std::span<const u8>{*hiBuf},
+                       std::span<const u8>{*loBuf}, nullptr, *pImpl);
+}
+
+std::optional<Texture> Parser::parse(std::span<const u8> texData,
+                                     std::span<const u8> hiResPayloadData,
+                                     std::span<const u8> lowResPayloadData,
+                                     D4TexInfo* outInfo) {
+    pImpl->issues.clear();
+    return parseD4Impl(texData, hiResPayloadData, lowResPayloadData, outInfo, *pImpl);
 }
 
 bool Parser::hasIssues() const {

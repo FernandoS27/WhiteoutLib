@@ -89,6 +89,17 @@ public:
                                  std::span<const u8> payloadData,
                                  D4TexInfo* outInfo);
 
+    /// Parse a D4 TEX with hi-res + low-res payloads from file paths.
+    std::optional<Texture> parse(const std::string& texFilePath,
+                                 const std::string& hiResPayloadFilePath,
+                                 const std::string& lowResPayloadFilePath);
+
+    /// Parse a D4 TEX with hi-res + low-res payload byte buffers.
+    std::optional<Texture> parse(std::span<const u8> texData,
+                                 std::span<const u8> hiResPayloadData,
+                                 std::span<const u8> lowResPayloadData,
+                                 D4TexInfo* outInfo);
+
     /// @return true if the last parse produced any issues.
     bool hasIssues() const;
 

@@ -250,12 +250,18 @@ std::optional<D4FormatMapping> d4_tex_format_to_pixel_format(u32 d4_fmt) {
     switch (d4_fmt) {
     case D4_TEX_FMT_R8G8B8A8:
         return D4FormatMapping{PixelFormat::RGBA8, false, 1, 4};
+    case D4_TEX_FMT_R8:
+        return D4FormatMapping{PixelFormat::R8, false, 1, 1};
+    case D4_TEX_FMT_R8G8B8A8_SRGB:
+        return D4FormatMapping{PixelFormat::RGBA8, true, 1, 4};
     case D4_TEX_FMT_BC1:
     case D4_TEX_FMT_BC1_ALT:
     case D4_TEX_FMT_BC1_LINEAR:
         return D4FormatMapping{PixelFormat::BC1, false, 4, 8};
     case D4_TEX_FMT_BC1_SRGB:
         return D4FormatMapping{PixelFormat::BC1, true, 4, 8};
+    case D4_TEX_FMT_BC2:
+        return D4FormatMapping{PixelFormat::BC2, false, 4, 16};
     case D4_TEX_FMT_BC3:
         return D4FormatMapping{PixelFormat::BC3, false, 4, 16};
     case D4_TEX_FMT_RGBA16F:
@@ -263,12 +269,13 @@ std::optional<D4FormatMapping> d4_tex_format_to_pixel_format(u32 d4_fmt) {
     case D4_TEX_FMT_BC4:
         return D4FormatMapping{PixelFormat::BC4, false, 4, 8};
     case D4_TEX_FMT_BC5:
+    case D4_TEX_FMT_BC5_ALT:
     case D4_TEX_FMT_BC5_SNORM:
         return D4FormatMapping{PixelFormat::BC5, false, 4, 16};
-    case D4_TEX_FMT_BC7:
-        return D4FormatMapping{PixelFormat::BC7, false, 4, 16};
-    case D4_TEX_FMT_BC7_SRGB:
-        return D4FormatMapping{PixelFormat::BC7, true, 4, 16};
+    case D4_TEX_FMT_BC3_ALT:
+        return D4FormatMapping{PixelFormat::BC3, false, 4, 16};
+    case D4_TEX_FMT_BC3_ALT_SRGB:
+        return D4FormatMapping{PixelFormat::BC3, true, 4, 16};
     default:
         return std::nullopt;
     }

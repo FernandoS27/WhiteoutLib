@@ -52,14 +52,19 @@ static constexpr u32 D4_TEX_FMT_R8G8B8A8 = 0;
 static constexpr u32 D4_TEX_FMT_BC1 = 9;
 static constexpr u32 D4_TEX_FMT_BC1_ALT = 10;
 static constexpr u32 D4_TEX_FMT_BC3 = 12;
+static constexpr u32 D4_TEX_FMT_R8 = 23;
 static constexpr u32 D4_TEX_FMT_RGBA16F = 25;
 static constexpr u32 D4_TEX_FMT_BC4 = 41;
 static constexpr u32 D4_TEX_FMT_BC5 = 42;
+static constexpr u32 D4_TEX_FMT_BC5_ALT = 43; ///< D3-inherited BC5/ATI2 format ID
 static constexpr u32 D4_TEX_FMT_BC5_SNORM = 44;
+static constexpr u32 D4_TEX_FMT_R8G8B8A8_SRGB = 45;
 static constexpr u32 D4_TEX_FMT_BC1_LINEAR = 46;
 static constexpr u32 D4_TEX_FMT_BC1_SRGB = 47;
-static constexpr u32 D4_TEX_FMT_BC7 = 49;
-static constexpr u32 D4_TEX_FMT_BC7_SRGB = 50;
+static constexpr u32 D4_TEX_FMT_BC2 = 48;
+// Corpus validation shows 49/50 decode as BC3-family data, not BC7.
+static constexpr u32 D4_TEX_FMT_BC3_ALT = 49;
+static constexpr u32 D4_TEX_FMT_BC3_ALT_SRGB = 50;
 
 static constexpr u32 D4_ROW_ALIGNMENT = 256;
 static constexpr u32 D4_TEX_FORMAT_HASH = 0xF9CD83E6u;

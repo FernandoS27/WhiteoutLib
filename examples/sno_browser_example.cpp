@@ -1090,8 +1090,11 @@ static void actionExtractRandomGroup(
     // Create output directories.
     std::string metaDir = std::string("meta/") + chosen.name;
     std::string payloadDir = std::string("payload/") + chosen.name;
+    std::string paylowDir = std::string("paylow/") + chosen.name;
     std::filesystem::create_directories(metaDir);
     bool payloadDirCreated = false;
+    bool paylowDirCreated = false;
+    const bool isTexture = (chosen.group == SnoGroup::Texture);
 
     const char* groupExt = snoGroupExtension(chosen.group);
     const char* groupDir = isD3 ? snoGroupDirD3(chosen.group)
@@ -1205,6 +1208,29 @@ static void actionExtractRandomGroup(
                     else
                         payloadSpan = std::span<const whiteout::u8>(
                             *payloadFileData);
+                }
+            }
+
+            // For Textures, also dump the 2nd payload (low-res tier)
+            // from base:paylow\<snoId>.
+            if (isTexture) {
+                auto paylowFileData = storage.readFile(
+                    "base:paylow\\" + std::to_string(entry.snoId));
+                if (paylowFileData && !paylowFileData->empty()) {
+                    if (!paylowDirCreated) {
+                        std::filesystem::create_directories(paylowDir);
+                        paylowDirCreated = true;
+                    }
+                    std::string paylowPath =
+                        paylowDir + "/" + entry.name + "." + ext;
+                    std::ofstream plout(paylowPath, std::ios::binary);
+                    if (plout) {
+                        plout.write(
+                            reinterpret_cast<const char*>(
+                                paylowFileData->data()),
+                            static_cast<std::streamsize>(
+                                paylowFileData->size()));
+                    }
                 }
             }
         }

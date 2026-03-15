@@ -205,7 +205,9 @@ static void copy_mip_stripping_alignment(const u8* src, u8* dst, u32 d4_fmt, u32
 // ============================================================================
 
 std::optional<Texture> parseD4Impl(std::span<const u8> texData, std::span<const u8> payloadData,
-                                   D4TexInfo* outInfo, IssueSink& sink) {
+                                   std::span<const u8> lowResPayloadData, D4TexInfo* outInfo,
+                                   IssueSink& sink) {
+    const bool has_lowres = !lowResPayloadData.empty();
     // ---- Parse SNO metadata ------------------------------------------------
     sno::SnoReader reader;
     auto snoFile = reader.parse(texData, sno::SnoGroup::Texture);
@@ -279,60 +281,86 @@ std::optional<Texture> parseD4Impl(std::span<const u8> texData, std::span<const 
         return std::nullopt;
     }
 
+    // Low-res mip count: the remaining entries after the hi-res split.
+    const u32 lowres_mip_count =
+        (is_two_tier && has_lowres) ? (entries_per_face - hires_mip_count) : 0;
+    const u32 total_mip_count = hires_mip_count + lowres_mip_count;
+
     // ---- Create texture ----------------------------------------------------
     Texture result;
     if (is_cubemap) {
-        result = Texture::createCube(pixel_fmt, full_width, hires_mip_count);
+        result = Texture::createCube(pixel_fmt, full_width, total_mip_count);
     } else {
-        result = Texture::create2D(pixel_fmt, full_width, full_height, hires_mip_count);
+        result = Texture::create2D(pixel_fmt, full_width, full_height, total_mip_count);
     }
 
     if (mapping->is_srgb) {
         result.setSrgb(true);
     }
 
-    // ---- Copy pixel data ---------------------------------------------------
+    // ---- Helper: decode one mip from a payload ----------------------------
+    auto decode_mip = [&](u32 mip_idx, u32 ser_idx, u32 face,
+                          std::span<const u8> payload,
+                          const char* tier_name) -> bool {
+        const u32 mip_width = std::max(full_width >> mip_idx, 1u);
+        const u32 mip_height = std::max(full_height >> mip_idx, 1u);
+
+        if (ser_idx >= ser_tex.size()) {
+            sink.fail("D4 TEX serTex index out of range for " + std::string(tier_name) +
+                      " mip " + std::to_string(mip_idx));
+            return false;
+        }
+
+        const u32 payload_offset = ser_tex[ser_idx].offset;
+        const u32 payload_size = ser_tex[ser_idx].sizeAndFlags;
+
+        if (payload_size == 0)
+            return true; // zero-size padding entry (cubemap tail)
+
+        const u64 payload_end = static_cast<u64>(payload_offset) + payload_size;
+
+        if (payload_end > payload.size()) {
+            sink.fail("D4 TEX " + std::string(tier_name) +
+                      " payload data out of bounds at mip " + std::to_string(mip_idx) +
+                      " (offset " + std::to_string(payload_offset) + " + size " +
+                      std::to_string(payload_size) + " > " +
+                      std::to_string(payload.size()) + ")");
+            return false;
+        }
+
+        auto dest = result.mipData(mip_idx, face);
+        const u8* src = payload.data() + payload_offset;
+
+        if (is_rgba16f) {
+            const u64 src_raw_bytes = static_cast<u64>(mip_width) * mip_height * 8;
+            std::vector<u8> temp(src_raw_bytes);
+            copy_mip_stripping_alignment(src, temp.data(), tex_fmt, mip_width, mip_height);
+            convert_rgba16f_to_rgba32f(temp.data(), dest.data(), mip_width, mip_height);
+        } else {
+            copy_mip_stripping_alignment(src, dest.data(), tex_fmt, mip_width, mip_height);
+        }
+        return true;
+    };
+
+    // ---- Copy hi-res pixel data --------------------------------------------
     for (u32 face = 0; face < (is_cubemap ? face_count : 1u); ++face) {
         for (u32 mip = 0; mip < hires_mip_count; ++mip) {
-            const u32 mip_width = std::max(full_width >> mip, 1u);
-            const u32 mip_height = std::max(full_height >> mip, 1u);
-
-            // SerTex index: for cubemaps face-major layout
             const u32 ser_idx =
                 is_cubemap ? face * entries_per_face + mip : mip;
-
-            if (ser_idx >= ser_tex.size()) {
-                sink.fail("D4 TEX serTex index out of range for mip " + std::to_string(mip));
+            if (!decode_mip(mip, ser_idx, face, payloadData, "hi-res"))
                 return std::nullopt;
-            }
+        }
+    }
 
-            const u32 payload_offset = ser_tex[ser_idx].offset;
-            const u32 payload_size = ser_tex[ser_idx].sizeAndFlags;
-            const u64 payload_end = static_cast<u64>(payload_offset) + payload_size;
-
-            if (payload_end > payloadData.size()) {
-                sink.fail("D4 TEX payload data out of bounds at mip " + std::to_string(mip) +
-                          " (offset " + std::to_string(payload_offset) + " + size " +
-                          std::to_string(payload_size) + " > " +
-                          std::to_string(payloadData.size()) + ")");
+    // ---- Copy low-res pixel data (when provided) ---------------------------
+    for (u32 face = 0; face < (is_cubemap ? face_count : 1u); ++face) {
+        for (u32 lr = 0; lr < lowres_mip_count; ++lr) {
+            const u32 mip_idx = hires_mip_count + lr;
+            const u32 ser_idx =
+                is_cubemap ? face * entries_per_face + hires_mip_count + lr
+                           : hires_mip_count + lr;
+            if (!decode_mip(mip_idx, ser_idx, face, lowResPayloadData, "low-res"))
                 return std::nullopt;
-            }
-
-            auto dest = result.mipData(mip, face);
-            const u8* src = payloadData.data() + payload_offset;
-
-            if (is_rgba16f) {
-                // RGBA16F → RGBA32F: first strip alignment into a temp buffer,
-                // then convert half→float.
-                const u64 raw_size = d4_compute_raw_mip_size(tex_fmt, mip_width, mip_height);
-                // raw_size here uses the source format's bytes_per_unit (8 per pixel for RGBA16F)
-                const u64 src_raw_bytes = static_cast<u64>(mip_width) * mip_height * 8;
-                std::vector<u8> temp(src_raw_bytes);
-                copy_mip_stripping_alignment(src, temp.data(), tex_fmt, mip_width, mip_height);
-                convert_rgba16f_to_rgba32f(temp.data(), dest.data(), mip_width, mip_height);
-            } else {
-                copy_mip_stripping_alignment(src, dest.data(), tex_fmt, mip_width, mip_height);
-            }
         }
     }
 
@@ -351,6 +379,8 @@ std::optional<Texture> parseD4Impl(std::span<const u8> texData, std::span<const 
         outInfo->avgColor = extract_avg_color(root);
         outInfo->frames = extract_frames(root);
         outInfo->isTwoTier = is_two_tier;
+        outInfo->hiResMipCount = hires_mip_count;
+        outInfo->lowResMipCount = lowres_mip_count;
     }
 
     return result;

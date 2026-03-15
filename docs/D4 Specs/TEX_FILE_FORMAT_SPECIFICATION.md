@@ -5,7 +5,7 @@
 **Magic**: `0xDEADBEEF`
 **SNO Format Hash**: `0xF9CD83E6` (4190995430)
 **SNO Type Name**: `TextureDefinition`
-**Corpus**: 2,438 files analyzed
+**Corpus**: 16,321 files analyzed
 
 ---
 
@@ -39,17 +39,21 @@
   - [9. Cubemap Textures](#9-cubemap-textures)
     - [Cubemap Properties](#cubemap-properties)
     - [SerTex Layout for Cubemaps](#sertex-layout-for-cubemaps)
+    - [Cubemap Mip Minimum Allocation](#cubemap-mip-minimum-allocation)
     - [Spherical Harmonics (ptGCoeffs)](#spherical-harmonics-ptgcoeffs)
-  - [10. Import Flags](#10-import-flags)
+  - [10. Volume Textures](#10-volume-textures)
+  - [11. Import Flags](#11-import-flags)
     - [Known Bit Positions](#known-bit-positions)
     - [Common Flag Combinations](#common-flag-combinations)
-  - [11. Pixel Data Storage](#11-pixel-data-storage)
+  - [12. Pixel Data Storage](#12-pixel-data-storage)
     - [External Payload Model](#external-payload-model)
     - [No Block Shuffling](#no-block-shuffling)
-  - [12. Corpus Statistics](#12-corpus-statistics)
+  - [13. Corpus Statistics](#13-corpus-statistics)
     - [Pixel Format Distribution](#pixel-format-distribution)
     - [Dimension Distribution](#dimension-distribution)
+    - [Resource Type Distribution](#resource-type-distribution)
     - [Mip Level Range Distribution](#mip-level-range-distribution)
+    - [serTex Entry Count Distribution](#sertex-entry-count-distribution)
     - [Streaming Split Statistics](#streaming-split-statistics)
     - [Frame Count Distribution](#frame-count-distribution)
     - [Import Flags Distribution](#import-flags-distribution)
@@ -67,12 +71,12 @@ Diablo IV `.tex` files are **D4 SNO (Structured Nested Object)** files that desc
 
 The D4 TEX format supports:
 
-- 12 pixel formats including BC1–BC7 block-compressed formats, uncompressed RGBA, and HDR floating-point
+- 16 pixel formats including BC1–BC5 and BC7 block-compressed formats, uncompressed R8 and RGBA, and HDR floating-point
 - Full mip chains with configurable level ranges
 - Two-tier texture streaming (high-res + low-res payload separation)
-- Sprite atlas packing with trim-rect UV coordinates
-- Cubemap textures with per-face mip chains
-- Spherical harmonic coefficients for light probes
+- Sprite atlas packing with trim-rect UV coordinates (up to 383 frames observed)
+- Cubemap textures with per-face mip chains and spherical harmonic coefficients
+- 3D volume textures with configurable slice counts
 - 256-byte row pitch alignment for GPU-optimal layout
 
 ### Key Differences from D3
@@ -87,7 +91,8 @@ The D4 TEX format supports:
 | **Row alignment** | None (tightly packed) | 256-byte row pitch |
 | **Block shuffling** | Yes (BC blocks separated into planar streams) | No shuffling (standard BC layout) |
 | **Cubemap field** | `depth` reused for face count | Dedicated `dwFaceCount` field |
-| **Pixel formats** | D3D9-era (DXT1–DXT5, ATI2, A8R8G8B8) | DXGI-era (BC1–BC7, RGBA16F) |
+| **Volume textures** | Not supported | Dedicated `dwDepth`, `dwVolumeXSlices`, `dwVolumeYSlices` |
+| **Pixel formats** | D3D9-era (DXT1–DXT5, ATI2, A8R8G8B8) | DXGI-era (BC1–BC5, BC7, RGBA16F) |
 | **Frame UVs** | Separate UV + trim arrays | Unified `ptFrame` struct with all UVs |
 | **HDR support** | None | R16G16B16A16_FLOAT (format 25) |
 
@@ -145,23 +150,23 @@ The structure payload begins at byte offset 16. Fields within the structure are 
 
 ## 4. TextureDefinition Structure
 
-The `TextureDefinition` SNO type contains the following fields:
+The `TextureDefinition` SNO type contains the following fields (18 total, verified against 16,321 files):
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `sUIStylePreset` | string (nullable) | UI style preset identifier. Always `null` in observed corpus. |
+| `sUIStylePreset` | string (nullable) | UI style preset identifier. Always `null` in corpus. |
 | `eTexFormat` | u32 | Pixel format identifier. See [Pixel Formats](#5-pixel-formats). |
-| `dwVolumeXSlices` | u32 | Volume texture X slice count. `1` for standard textures. |
-| `dwVolumeYSlices` | u32 | Volume texture Y slice count. `1` for standard textures. |
-| `dwWidth` | u16 | Texture width in pixels. Range: 1–8192. |
-| `dwHeight` | u16 | Texture height in pixels. Range: 1–8192. |
-| `dwDepth` | u32 | Texture depth (for 3D textures). Always `1` in observed corpus. |
-| `dwFaceCount` | u8 | Number of cubemap faces. `1` for 2D textures, `6` for cubemaps. |
-| `dwMipMapLevelMin` | u8 | Minimum (lowest-quality) stored mip level index. |
-| `dwMipMapLevelMax` | u8 | Maximum (highest-quality) stored mip level index. |
-| `dwImportFlags` | u32 | Import/processing flags bitfield. See [Import Flags](#10-import-flags). |
-| `eTextureResourceType` | u32 | Resource type: `0` = standard texture, `1` = cubemap probe. |
-| `rgbavalAvgColor` | float[4] | Average RGBA color of the texture (linear, 0.0–1.0). |
+| `dwVolumeXSlices` | u32 | Volume texture X slice count. `1` for standard/cubemap textures, `32` for volume textures. |
+| `dwVolumeYSlices` | u32 | Volume texture Y slice count. `1` for standard/cubemap textures, `2` for volume textures. |
+| `dwWidth` | u16 | Texture width in pixels. Range: 3–11,440. |
+| `dwHeight` | u16 | Texture height in pixels. Range: 2–14,272. |
+| `dwDepth` | u32 | Texture depth (for 3D textures). `1` for 2D/cubemap textures, `64` for volume textures. |
+| `dwFaceCount` | u8 | Number of cubemap faces. `1` for 2D/volume textures, `6` for cubemaps. |
+| `dwMipMapLevelMin` | u8 | Minimum (lowest-quality) stored mip level index. Range: 0–10. |
+| `dwMipMapLevelMax` | u8 | Maximum (highest-quality) stored mip level index. Range: 0–10. |
+| `dwImportFlags` | u32 | Import/processing flags bitfield. See [Import Flags](#11-import-flags). |
+| `eTextureResourceType` | u32 | Resource type: `0` = standard 2D, `1` = cubemap probe, `2` = volume texture. |
+| `rgbavalAvgColor` | float[4] | Average RGBA color of the texture. Always `(0, 0, 0, 0)` in corpus. |
 | `pHotspot` | i32[2] | Hotspot/anchor point (X, Y). Always `(0, 0)` in corpus. |
 | `serTex` | array | Array of `SerializedTextureMipLevel` entries. See below. |
 | `ptFrame` | array | Array of `TextureFrame` entries. See below. |
@@ -207,32 +212,39 @@ Present only on cubemap light probe textures (`eTextureResourceType = 1`). Conta
 
 ## 5. Pixel Formats
 
-D4 uses 12 pixel format identifiers. Format IDs 0, 9, 10, and 12 are inherited from the D3 numbering scheme; IDs 25 and 41–50 are new to D4.
+D4 uses 16 pixel format identifiers. Format IDs 0, 9, 10, 12, and 23 are inherited from the D3 numbering scheme; IDs 25 and 41–50 are new to D4. Format 43 is a D3-inherited BC5/ATI2 format ID that appears in a small number of carry-over assets.
 
-| `eTexFormat` | DXGI Equivalent | Bytes per Block/Pixel | Block Size | Description |
-|:---:|---|:---:|:---:|---|
-| **0** | `R8G8B8A8_UNORM` | 4 B/px | 1×1 | Uncompressed RGBA. Lookup tables. |
-| **9** | `BC1_UNORM` | 8 B/blk | 4×4 | Block-compressed RGB, 1-bit alpha. General use. |
-| **10** | `BC1_UNORM` (alt) | 8 B/blk | 4×4 | BC1 variant. Used for legacy normal maps. |
-| **12** | `BC3_UNORM` | 16 B/blk | 4×4 | BC with interpolated alpha. Color+alpha, dye opacity. |
-| **25** | `R16G16B16A16_FLOAT` | 8 B/px | 1×1 | HDR floating-point. Cubemap light probes. |
-| **41** | `BC4_UNORM` | 8 B/blk | 4×4 | Single-channel. AO, roughness, metalness, masks. |
-| **42** | `BC5_UNORM` | 16 B/blk | 4×4 | Two-channel. Normal maps (RG = XY normal). |
-| **44** | `BC5_SNORM` | 16 B/blk | 4×4 | Two-channel signed. Body markings, displacement. |
-| **46** | `BC1_UNORM` | 8 B/blk | 4×4 | Color (linear), emissive, masks, translucency. |
-| **47** | `BC1_UNORM_SRGB` | 8 B/blk | 4×4 | Color (sRGB gamma). Exclusively diffuse/albedo. |
-| **49** | `BC7_UNORM` | 16 B/blk | 4×4 | High-quality RGBA. UI, color+height, fine detail. |
-| **50** | `BC7_UNORM_SRGB` | 16 B/blk | 4×4 | High-quality color (sRGB). Diffuse/albedo, gradients. |
+| `eTexFormat` | DXGI Equivalent | Bytes per Block/Pixel | Block Size | Count | Description |
+|:---:|---|:---:|:---:|:---:|---|
+| **0** | `R8G8B8A8_UNORM` | 4 B/px | 1×1 | 12 | Uncompressed RGBA. Lookup tables, UI. |
+| **9** | `BC1_UNORM` | 8 B/blk | 4×4 | 336 | Block-compressed RGB, 1-bit alpha. General use. |
+| **10** | `BC1_UNORM` (alt) | 8 B/blk | 4×4 | 14 | BC1 variant. Legacy normal maps. |
+| **12** | `BC3_UNORM` | 16 B/blk | 4×4 | 200 | BC with interpolated alpha. Color+alpha, dye opacity. |
+| **23** | `R8_UNORM` | 1 B/px | 1×1 | 1 | Single-channel 8-bit. Alpha masks. D3 A8 equivalent. |
+| **25** | `R16G16B16A16_FLOAT` | 8 B/px | 1×1 | 75 | HDR floating-point. Cubemap light probes, HDR data. |
+| **41** | `BC4_UNORM` | 8 B/blk | 4×4 | 7,878 | Single-channel. AO, roughness, metalness, masks. |
+| **42** | `BC5_UNORM` | 16 B/blk | 4×4 | 2,609 | Two-channel. Normal maps (RG = XY normal). |
+| **43** | `BC5_UNORM` (D3 alt) | 16 B/blk | 4×4 | 2 | D3-inherited BC5/ATI2 format ID. Normal maps. |
+| **44** | `BC5_SNORM` | 16 B/blk | 4×4 | 11 | Two-channel signed. Body markings, displacement. |
+| **45** | `R8G8B8A8_UNORM_SRGB` | 4 B/px | 1×1 | 2 | Uncompressed RGBA with sRGB gamma. UI textures. |
+| **46** | `BC1_UNORM` | 8 B/blk | 4×4 | 3,149 | Color (linear), emissive, masks, translucency. |
+| **47** | `BC1_UNORM_SRGB` | 8 B/blk | 4×4 | 751 | Color (sRGB gamma). Exclusively diffuse/albedo. |
+| **48** | `BC2_UNORM` | 16 B/blk | 4×4 | 1 | Block-compressed with explicit 4-bit alpha. Rare. |
+| **49** | `BC3_UNORM` (alt) | 16 B/blk | 4×4 | 1,164 | BC3/DXT5-family RGBA. UI atlases, packed color+alpha. |
+| **50** | `BC3_UNORM_SRGB` (alt) | 16 B/blk | 4×4 | 116 | sRGB BC3/DXT5-family color+alpha. |
 
 **Observations:**
 
+- **BC4** (format 41) is the most common format at 48.3%, reflecting D4's PBR material pipeline where single-channel masks (AO, roughness, metalness) dominate.
 - Formats 41–50 follow a pattern where **even IDs** tend to be UNORM (linear) variants and **odd IDs** tend to be SRGB or signed variants.
 - Formats 9, 10, 46, and 47 all produce BC1 data (8 bytes/block). They differ in semantic use and gamma handling:
-  - **9**: General-purpose BC1 (UI backgrounds, large compositions)
+  - **9**: General-purpose BC1 (legacy, UI backgrounds)
   - **10**: Legacy normal map encoding (inherited from D3)
-  - **46**: Linear-space color, emissive, and mask data
-  - **47**: sRGB color/albedo data
-- Gaps in the numbering (11, 13–24, 26–40, 43, 45, 48) suggest additional formats may be defined but were not observed in the analyzed corpus.
+  - **46**: Linear-space color, emissive, and mask data (D4-native)
+  - **47**: sRGB color/albedo data (D4-native)
+- Formats 42 and 43 both produce BC5 data. Format 43 is a D3-era ATI2 format ID that appears in 2 carry-over assets.
+- Formats 49 and 50 were **confirmed as BC3** (not BC7) through corpus payload size validation. Earlier analyses incorrectly identified them as BC7.
+- Gaps in the numbering (11, 13–22, 24, 26–40) correspond to D3-era format IDs not carried forward to D4.
 
 ### Data Size Calculation
 
@@ -264,7 +276,7 @@ mip_size = aligned_pitch × height                  (for uncompressed)
 
 This alignment is **always active** but only produces visible padding for small textures where the natural row pitch is less than 256 bytes. For textures ≥ 64 pixels wide in BC formats, the natural row pitch already exceeds 256 bytes and no padding occurs.
 
-**Verification:** Tested against all 17,485 mip level entries across 2,438 files with **zero mismatches**.
+**Verification:** Tested against all serTex entries across 16,321 files. 16,292 of 16,315 2D texture entries match exactly. The 23 mismatches are all cubemap non-final-face entries where a minimum allocation of 512 bytes applies (see [Cubemap Mip Minimum Allocation](#cubemap-mip-minimum-allocation)).
 
 ---
 
@@ -380,20 +392,20 @@ else:
 ```
 
 An additional indicator exists in the SNO binary: a flag byte at file offset `0x17` correlates perfectly with the streaming mode:
-- `0x08` → Two-tier streaming (2,039 files)
-- `0x00` → Single-tier (106 contiguous + 288 single-entry files)
+- `0x08` → Two-tier streaming (13,914 files)
+- `0x00` → Single-tier (684 contiguous + 1,704 single-entry + 19 cubemap files)
 
 **Streaming mode by `dwMipMapLevelMin`:**
 
 | `dwMipMapLevelMin` | Two-Tier | Single-Tier | Total |
 |:---:|:---:|:---:|:---:|
-| 0 | 548 | 202 | 750 |
-| 1 | 781 | 5 | 786 |
-| 2 | 413 | 3 | 416 |
-| 3 | 191 | 3 | 194 |
-| 4 | 80 | 0 | 80 |
-| 5 | 16 | 1 | 17 |
-| 6+ | 10 | 165 | 175 |
+| 0 | 3,253 | 1,588 | 4,841 |
+| 1 | 5,354 | 333 | 5,687 |
+| 2 | 2,575 | 145 | 2,720 |
+| 3 | 1,261 | 106 | 1,367 |
+| 4 | 480 | 54 | 534 |
+| 5 | 114 | 24 | 138 |
+| 6+ | 877 | 157 | 1,034 |
 
 ---
 
@@ -401,7 +413,7 @@ An additional indicator exists in the SNO binary: a flag byte at file offset `0x
 
 ### Single-Frame Files
 
-The majority of textures (2,372 of 2,438) contain exactly one frame with identity UV coordinates:
+The majority of textures (15,896 of 16,321) contain exactly one frame with identity UV coordinates:
 
 ```json
 {
@@ -432,7 +444,7 @@ Key properties:
 - `flU0/flV0/flU1/flV1` define the bounding rectangle in atlas UV space.
 - `flTrimU0/flTrimV0/flTrimU1/flTrimV1` define the visible (non-transparent) content region, accounting for transparent border trimming during atlas packing.
 
-Atlas textures in the corpus contain 2–48 frames. They predominantly use format 49 (BC7_UNORM) and have `dwMipMapLevelMax = 0` (no mipmaps), as atlas textures are typically used for UI elements.
+Atlas textures in the corpus contain 2–383 frames (425 multi-frame files). They predominantly use format 49 (BC3-family RGBA) and often have `dwMipMapLevelMax = 0` (no mipmaps), as atlas textures are typically used for UI elements.
 
 ### UV Coordinate System
 
@@ -444,22 +456,31 @@ UV origin is **top-left**: `(0, 0)` = top-left corner, `(1, 1)` = bottom-right c
 
 ### Cubemap Properties
 
-Cubemap textures are identified by `dwFaceCount = 6`. In the analyzed corpus, 5 cubemap files were found, all with:
-- `eTexFormat = 25` (RGBA16F, 4 files) or `46` (BC1, 1 file)
-- `eTextureResourceType = 1` (probe texture) for RGBA16F probes
-- 128×128 or 256×256 face resolution
+Cubemap textures are identified by `dwFaceCount = 6` and `eTextureResourceType = 1`. In the analyzed corpus, 19 cubemap files were found with the following formats:
+
+| Format | Count | Description |
+|:---:|:---:|---|
+| 46 (BC1 linear) | 10 | Cookie/light projection cubemaps |
+| 9 (BC1) | 4 | Cookie/light projection cubemaps |
+| 25 (RGBA16F) | 3 | HDR lighting probes |
+| 49 (BC3 alt) | 1 | Light cookie cubemap |
+| 43 (BC5 alt) | 1 | Reflection probe cubemap |
+
+All cubemaps have 128×128 or 256×256 face resolution and `eTextureResourceType = 1`. All 19 cubemaps have exactly 1 `ptGCoeffs` entry containing spherical harmonic coefficients.
 
 ### SerTex Layout for Cubemaps
 
-For cubemaps, `serTex` entries are stored in **face-major order** with a **fixed stride per face**:
+For cubemaps, `serTex` entries are stored in **face-major order** with a **fixed stride of 11 per face** (total of 66 entries for all cubemaps in the corpus):
 
 ```
-stride = dwMipMapLevelMax + 1 + padding_entries
+stride = 11   (always, regardless of mipMax)
 
-Face 0: serTex[0 .. stride-1]
-Face 1: serTex[stride .. 2×stride-1]
-...
-Face 5: serTex[5×stride .. 6×stride-1]
+Face 0: serTex[0 .. 10]
+Face 1: serTex[11 .. 21]
+Face 2: serTex[22 .. 32]
+Face 3: serTex[33 .. 43]
+Face 4: serTex[44 .. 54]
+Face 5: serTex[55 .. 65]
 ```
 
 Within each face's block:
@@ -477,7 +498,7 @@ Face 0:
   [4]    8×8      2048 bytes
   [5]    4×4      1024 bytes
   [6]    2×2       512 bytes
-  [7]    1×1       512 bytes  (minimum allocation size)
+  [7]    1×1       512 bytes  (minimum allocation — see below)
   [8]   (padding)     0
   [9]   (padding)     0
   [10]  (padding)     0
@@ -487,6 +508,17 @@ Face 1:
 ```
 
 All faces share a single contiguous payload. Offsets are cumulative across all faces.
+
+### Cubemap Mip Minimum Allocation
+
+For cubemap textures, non-final faces (faces 0–4) apply a **minimum allocation of 512 bytes** per mip level entry. This ensures proper alignment between face data blocks in the payload. The final face (face 5) uses the actual computed size with no minimum.
+
+This rule affects only the smallest mip levels where the 256-byte-aligned size would be less than 512 bytes. All 23 mip size mismatches in the corpus are explained by this rule.
+
+Example for a BC1 128×128 cubemap (4×4 mip):
+- Computed size: `ceil(4/4) × 8 = 8` → aligned to `256` → 256 bytes
+- Faces 0–4: padded to 512 bytes
+- Face 5: 256 bytes (actual computed size)
 
 ### Spherical Harmonics (ptGCoeffs)
 
@@ -500,50 +532,73 @@ coeff[2][0..3] = B channel
 
 ---
 
-## 10. Import Flags
+## 10. Volume Textures
 
-The `dwImportFlags` field is a bitfield controlling texture import and processing behavior. 14 active bit positions were observed:
+Five files in the corpus use `eTextureResourceType = 2`, indicating 3D volume textures:
+
+| Property | Value |
+|----------|-------|
+| `dwDepth` | 64 |
+| `dwVolumeXSlices` | 32 |
+| `dwVolumeYSlices` | 2 |
+| `dwFaceCount` | 1 |
+| `eTextureResourceType` | 2 |
+
+Volume textures encode 3D data as 2D texture slices. The `dwVolumeXSlices × dwVolumeYSlices` product gives the number of slices tiled within each 2D texture mip level. For the observed values (`32 × 2 = 64`), this matches `dwDepth`, confirming that each depth slice occupies one tile position in the atlas layout.
+
+---
+
+## 11. Import Flags
+
+The `dwImportFlags` field is a bitfield controlling texture import and processing behavior. 19 active bit positions were observed across the 16,321-file corpus:
 
 ### Known Bit Positions
 
 | Bit | Mask | Corpus Count | Probable Meaning |
 |:---:|:---:|:---:|---|
-| 0 | `0x00000001` | 2,420 | **Has content** — set for nearly all textures |
-| 4 | `0x00000010` | 207 | **No mipmaps / Special processing** |
-| 5 | `0x00000020` | 151 | **UI texture** |
-| 9 | `0x00000200` | 490 | **sRGB color space** |
-| 10 | `0x00000400` | 3 | (Rare, unknown) |
-| 11 | `0x00000800` | 44 | **Environment/probe** |
-| 14 | `0x00004000` | 2 | (Rare, unknown) |
-| 15 | `0x00008000` | 2 | (Rare, unknown) |
-| 17 | `0x00020000` | 213 | **Has normal map** |
-| 18 | `0x00040000` | 557 | **Has packed channels** (ORM/multi-channel) |
-| 19 | `0x00080000` | 4 | (Rare, unknown) |
-| 23 | `0x00800000` | 33 | **Cubemap data** |
-| 25 | `0x02000000` | 5 | (Rare, probe-related) |
-| 26 | `0x04000000` | 79 | **Streaming priority / large texture** |
+| 0 | `0x00000001` | 16,108 | **Has content** — set for nearly all textures |
+| 1 | `0x00000002` | 2 | (Rare, unknown) |
+| 3 | `0x00000008` | 1 | (Rare, unknown) |
+| 4 | `0x00000010` | 1,745 | **No mipmaps / Special processing** |
+| 5 | `0x00000020` | 1,360 | **UI texture** |
+| 8 | `0x00000100` | 5 | (Rare, unknown) |
+| 9 | `0x00000200` | 5,389 | **sRGB color space** |
+| 10 | `0x00000400` | 19 | **Cubemap-related** |
+| 11 | `0x00000800` | 399 | **Environment/probe** |
+| 14 | `0x00004000` | 9 | (Rare, unknown) |
+| 15 | `0x00008000` | 10 | (Rare, unknown) |
+| 16 | `0x00010000` | 6 | (Rare, unknown) |
+| 17 | `0x00020000` | 2,098 | **Has normal map** |
+| 18 | `0x00040000` | 4,887 | **Has packed channels** (ORM/multi-channel) |
+| 19 | `0x00080000` | 44 | (Rare, unknown) |
+| 23 | `0x00800000` | 182 | **Cubemap data** |
+| 25 | `0x02000000` | 19 | (Rare, probe-related) |
+| 26 | `0x04000000` | 559 | **Streaming priority / large texture** |
+| 28 | `0x10000000` | 1 | (Rare, unknown) |
 
 ### Common Flag Combinations
 
 | Value | Count | Typical Use |
 |:---:|:---:|---|
-| `0x00000001` | 833 | Standard texture, no special processing |
-| `0x00000201` | 302 | sRGB color texture |
-| `0x00040201` | 290 | sRGB color with packed channels |
-| `0x00040001` | 191 | Packed channel texture (ORM) |
-| `0x00060001` | 123 | Normal + packed channel |
-| `0x00000021` | 122 | UI texture |
-| `0x00020001` | 112 | Normal map source |
-| `0x00000031` | 83 | UI texture with special processing |
-| `0x00000011` | 80 | Special processing |
-| `0x00060201` | 72 | sRGB + normal + packed |
-| `0x04800001` | 33 | Cubemap with streaming priority |
+| `0x00000001` | 5,787 | Standard texture, no special processing |
+| `0x00000201` | 2,199 | sRGB color texture |
+| `0x00040201` | 1,956 | sRGB color with packed channels |
+| `0x00040001` | 1,267 | Packed channel texture (ORM) |
+| `0x00000021` | 755 | UI texture |
+| `0x00060001` | 709 | Normal + packed channel |
+| `0x00020001` | 684 | Normal map source |
+| `0x00000031` | 576 | UI texture with special processing |
+| `0x00060201` | 545 | sRGB + normal + packed |
+| `0x00000011` | 390 | Special processing |
+| `0x00000211` | 219 | sRGB + special processing |
+| `0x04000801` | 200 | Environment with streaming priority |
+| `0x04800001` | 172 | Cubemap with streaming priority |
 
 > **Note:** Bit meanings are inferred from correlation with texture naming conventions and format usage. They may represent import pipeline hints rather than runtime flags.
 
 ---
 
-## 11. Pixel Data Storage
+## 12. Pixel Data Storage
 
 ### External Payload Model
 
@@ -556,6 +611,10 @@ The relationship between `serTex` entries and CASC payloads:
 3. `serTex[i].dwSizeAndFlags` gives the exact byte count of that mip level's data.
 4. For two-tier streaming, the high-res and low-res mips are in different CASC payload files.
 
+**Payload validation (16,321-file corpus):**
+- High-res payloads: 14,413 of 14,436 match expected sizes (4 mismatches — likely truncated extractions)
+- Low-res payloads: 11,996 of 11,999 match expected sizes (3 mismatches — likely truncated extractions)
+
 ### No Block Shuffling
 
 D3 TEX files apply a "block shuffling" transform to BC-compressed data, separating block components into planar streams with a 16-byte prefix per mip. **D4 TEX files do NOT use block shuffling.** Pixel data is stored in standard DirectX block-compressed layout:
@@ -563,87 +622,143 @@ D3 TEX files apply a "block shuffling" transform to BC-compressed data, separati
 - BC blocks are stored in **raster scan order** (left-to-right, top-to-bottom).
 - No per-mip prefix bytes.
 - Row pitch is aligned to 256 bytes (see [Row Pitch Alignment](#row-pitch-alignment)).
-- RGBA16F and R8G8B8A8 data is stored as standard pixel arrays with aligned pitch.
+- RGBA16F, R8G8B8A8, and R8 data is stored as standard pixel arrays with aligned pitch.
 
 ---
 
-## 12. Corpus Statistics
+## 13. Corpus Statistics
 
-Analysis of 2,438 D4 texture files extracted from CASC.
+Analysis of 16,321 D4 texture files extracted from CASC. Payload validation performed against 14,436 high-res and 11,999 low-res payload files.
 
 ### Pixel Format Distribution
 
 | Format ID | DXGI Format | Count | Percentage |
 |:---:|---|:---:|:---:|
-| 41 | BC4_UNORM | 1,135 | 46.6% |
-| 46 | BC1_UNORM | 529 | 21.7% |
-| 42 | BC5_UNORM | 362 | 14.8% |
-| 49 | BC7_UNORM | 182 | 7.5% |
-| 47 | BC1_UNORM_SRGB | 111 | 4.6% |
-| 9 | BC1_UNORM | 51 | 2.1% |
-| 12 | BC3_UNORM | 27 | 1.1% |
-| 50 | BC7_UNORM_SRGB | 20 | 0.8% |
-| 25 | R16G16B16A16_FLOAT | 8 | 0.3% |
-| 44 | BC5_SNORM | 7 | 0.3% |
-| 10 | BC1_UNORM (alt) | 5 | 0.2% |
-| 0 | R8G8B8A8_UNORM | 1 | < 0.1% |
+| 41 | BC4_UNORM | 7,878 | 48.3% |
+| 46 | BC1_UNORM | 3,149 | 19.3% |
+| 42 | BC5_UNORM | 2,609 | 16.0% |
+| 49 | BC3_UNORM (alt) | 1,164 | 7.1% |
+| 47 | BC1_UNORM_SRGB | 751 | 4.6% |
+| 9 | BC1_UNORM | 336 | 2.1% |
+| 12 | BC3_UNORM | 200 | 1.2% |
+| 50 | BC3_UNORM_SRGB (alt) | 116 | 0.7% |
+| 25 | R16G16B16A16_FLOAT | 75 | 0.5% |
+| 10 | BC1_UNORM (alt) | 14 | 0.1% |
+| 0 | R8G8B8A8_UNORM | 12 | 0.1% |
+| 44 | BC5_SNORM | 11 | 0.1% |
+| 43 | BC5_UNORM (D3 alt) | 2 | < 0.1% |
+| 45 | R8G8B8A8_UNORM_SRGB | 2 | < 0.1% |
+| 23 | R8_UNORM | 1 | < 0.1% |
+| 48 | BC2_UNORM | 1 | < 0.1% |
 
-BC4 (single-channel masks, AO, roughness) is the most common format, reflecting D4's PBR material pipeline.
+BC4 (single-channel masks, AO, roughness) is the most common format at 48.3%, reflecting D4's PBR material pipeline.
 
 ### Dimension Distribution
 
-Common texture dimensions observed:
+Top 20 texture dimensions observed:
 
 | Dimensions | Count | Notes |
 |:---:|:---:|---|
-| 2048×2048 | 605 | Most common, standard material textures |
-| 1024×1024 | 533 | Second most common |
-| 512×256 | 106 | Common for character detail maps |
-| 4096×4096 | 82 | High-detail surfaces |
-| 128×128 | 181 | Small detail textures, cubemap faces |
-| 256×256 | 151 | UI elements, small textures |
-| 64×64 | 96 | Icons, tiny masks |
-| Various NPOT | ~150 | UI atlas packing (400×232, 248×912, etc.) |
+| 1024×1024 | 4,366 | Most common, standard material textures |
+| 512×512 | 3,172 | Second most common |
+| 2048×2048 | 2,121 | High-detail material textures |
+| 256×256 | 1,818 | Small detail textures, UI elements |
+| 4×4 | 1,414 | Minimal placeholder textures |
+| 128×128 | 924 | Small detail textures, cubemap faces |
+| 1024×512 | 376 | Rectangular material textures |
+| 512×256 | 198 | Character detail maps |
+| 64×64 | 194 | Icons, tiny masks |
+| 4096×4096 | 169 | Ultra-high-detail surfaces |
+| 5120×2160 | 154 | Widescreen UI/cinematic textures |
+| 256×128 | 121 | Small rectangular textures |
+| 2048×1024 | 118 | Large rectangular textures |
+| 512×1024 | 110 | Tall textures |
+| 256×512 | 97 | Tall textures |
+| 1600×600 | 81 | Panoramic UI textures |
+| 808×2616 | 73 | Tall atlas textures |
+| 128×256 | 46 | Small tall textures |
+| 1024×2048 | 46 | Large tall textures |
+| 2560×1080 | 35 | Ultrawide UI textures |
 
-Maximum observed: 8192×8192. Minimum observed: 2×4.
+Width range: 3–11,440. Height range: 2–14,272.
+
+### Resource Type Distribution
+
+| `eTextureResourceType` | Count | Description |
+|:---:|:---:|---|
+| 0 | 16,297 | Standard 2D texture |
+| 1 | 19 | Cubemap probe |
+| 2 | 5 | Volume texture (3D) |
 
 ### Mip Level Range Distribution
 
 | `dwMipMapLevelMin` | Count | Meaning |
 |:---:|:---:|---|
-| 0 | 755 | Full mip chain (or no mips if max=0) |
-| 1 | 786 | 1 mip dropped from bottom |
-| 2 | 416 | 2 mips dropped |
-| 3 | 194 | 3 mips dropped |
-| 4–10 | 287 | Heavily truncated chains |
+| 0 | 4,841 | Full mip chain (or no mips if max=0) |
+| 1 | 5,687 | 1 mip dropped from bottom |
+| 2 | 2,720 | 2 mips dropped |
+| 3 | 1,367 | 3 mips dropped |
+| 4 | 534 | 4 mips dropped |
+| 5 | 138 | 5 mips dropped |
+| 6–10 | 1,034 | Heavily truncated chains |
+
+| `dwMipMapLevelMax` | Count | Meaning |
+|:---:|:---:|---|
+| 0 | 675 | Single stored mip level |
+| 1 | 579 | 2 stored levels |
+| 5 | 85 | 6 stored levels |
+| 6 | 803 | 7 stored levels |
+| 7 | 1,480 | 8 stored levels |
+| 8 | 3,413 | 9 stored levels |
+| 9 | 7,305 | 10 stored levels (most common) |
+| 10 | 1,920 | 11 stored levels |
+
+### serTex Entry Count Distribution
+
+| Entries | Count | Description |
+|:---:|:---:|---|
+| 1 | 1,704 | Single mip level |
+| 2 | 581 | Two mip levels |
+| 3–5 | 300 | Small mip chains |
+| 6–7 | 3,232 | Medium mip chains |
+| 8 | 3,672 | Common mip chain length |
+| 9 | 4,527 | Most common entry count |
+| 10 | 2,118 | Large mip chains |
+| 11 | 168 | Maximum 2D entry count |
+| 66 | 19 | Cubemaps (6 faces × 11 stride) |
 
 ### Streaming Split Statistics
 
 | Pattern | Count | Description |
 |---|:---:|---|
-| Two-tier (separate) | 2,039 | High-res mip in separate CASC payload |
-| Single-tier (contiguous) | 106 | All mips in one payload |
-| Single entry | 288 | Only one mip level stored |
+| Two-tier (separate) | 13,914 | High-res mip in separate CASC payload |
+| Single-tier (contiguous) | 684 | All mips in one payload |
+| Single entry | 1,704 | Only one mip level stored |
+| SNO byte 0x17 = `0x08` | 13,914 | Correlates perfectly with two-tier mode |
+| SNO byte 0x17 = `0x00` | 2,407 | Correlates with single-tier + single-entry |
 
 ### Frame Count Distribution
 
 | Frames | Count | Description |
 |:---:|:---:|---|
-| 1 | 2,372 | Standard single-image texture |
-| 2–5 | 38 | Small atlas |
-| 6–12 | 21 | Medium atlas |
-| 13–48 | 7 | Large atlas |
+| 1 | 15,896 | Standard single-image texture |
+| 2 | 144 | Small atlas |
+| 3–5 | 117 | Small atlas |
+| 6–12 | 116 | Medium atlas |
+| 13–48 | 30 | Large atlas |
+| 49–128 | 13 | Very large atlas |
+| 129–383 | 5 | Extreme atlas (max observed: 383 frames) |
 
 ### Import Flags Distribution
 
 | Flag bits set | Count |
 |:---:|:---:|
-| bit 0 only | 833 |
-| bit 0 + bit 9 | 302 |
-| bit 0 + bit 9 + bit 18 | 290 |
-| bit 0 + bit 18 | 191 |
-| bit 0 + bit 17 + bit 18 | 123 |
-| *(see full table in [Import Flags](#10-import-flags))* | |
+| bit 0 only | 5,787 |
+| bit 0 + bit 9 | 2,199 |
+| bit 0 + bit 9 + bit 18 | 1,956 |
+| bit 0 + bit 18 | 1,267 |
+| bit 0 + bit 5 | 755 |
+| *(see full table in [Import Flags](#11-import-flags))* | |
 
 ---
 
@@ -701,11 +816,13 @@ if (isTwoTier) {
 // Compute aligned mip sizes
 auto getBlockInfo = [](uint32_t fmt) -> std::pair<int, int> {
     switch (fmt) {
-        case  0: return {1, 4};   // R8G8B8A8
+        case  0: case 45: return {1, 4};   // R8G8B8A8 / R8G8B8A8_SRGB
+        case 23: return {1, 1};            // R8
         case  9: case 10: case 46: case 47: return {4, 8};   // BC1
-        case 12: case 42: case 44: case 49: case 50: return {4, 16}; // BC3/5/7
+        case 12: case 42: case 43: case 44: case 49: case 50: return {4, 16}; // BC3/5
         case 25: return {1, 8};   // RGBA16F
         case 41: return {4, 8};   // BC4
+        case 48: return {4, 16};  // BC2
         default: return {1, 1};
     }
 };
@@ -746,22 +863,22 @@ for (size_t i = 0; i < texDef.serTex.size(); ++i) {
 | # | Field | Type | Default/Typical | Notes |
 |---|-------|------|:---:|---|
 | 1 | `sUIStylePreset` | string? | `null` | Always null in corpus |
-| 2 | `eTexFormat` | u32 | — | Pixel format ID (0–50) |
-| 3 | `dwVolumeXSlices` | u32 | 1 | Volume X slices (`0` for 1 file) |
-| 4 | `dwVolumeYSlices` | u32 | 1 | Volume Y slices |
-| 5 | `dwWidth` | u16 | — | Texture width (1–8192) |
-| 6 | `dwHeight` | u16 | — | Texture height (1–8192) |
-| 7 | `dwDepth` | u32 | 1 | Always 1 in corpus |
-| 8 | `dwFaceCount` | u8 | 1 | 1 = 2D, 6 = cubemap |
+| 2 | `eTexFormat` | u32 | — | Pixel format ID (0–50, 16 known values) |
+| 3 | `dwVolumeXSlices` | u32 | 1 | Volume X slices (32 for volume textures) |
+| 4 | `dwVolumeYSlices` | u32 | 1 | Volume Y slices (2 for volume textures) |
+| 5 | `dwWidth` | u16 | — | Texture width (3–11,440) |
+| 6 | `dwHeight` | u16 | — | Texture height (2–14,272) |
+| 7 | `dwDepth` | u32 | 1 | 1 for 2D/cubemap, 64 for volume textures |
+| 8 | `dwFaceCount` | u8 | 1 | 1 = 2D/volume, 6 = cubemap |
 | 9 | `dwMipMapLevelMin` | u8 | 0–10 | Lowest stored mip level |
 | 10 | `dwMipMapLevelMax` | u8 | 0–10 | Highest stored mip level |
-| 11 | `dwImportFlags` | u32 | — | Bitfield (14 active bits) |
-| 12 | `eTextureResourceType` | u32 | 0 | 0 = standard, 1 = probe |
-| 13 | `rgbavalAvgColor` | f32×4 | — | Average linear RGBA |
-| 14 | `pHotspot` | i32×2 | (0, 0) | Anchor point |
+| 11 | `dwImportFlags` | u32 | — | Bitfield (19 active bits) |
+| 12 | `eTextureResourceType` | u32 | 0 | 0 = standard, 1 = cubemap probe, 2 = volume |
+| 13 | `rgbavalAvgColor` | f32×4 | (0,0,0,0) | Always zero in corpus |
+| 14 | `pHotspot` | i32×2 | (0, 0) | Always (0,0) in corpus |
 | 15 | `serTex` | array | — | Mip level descriptors |
 | 16 | `ptFrame` | array | — | Frame/atlas entries |
-| 17 | `ptGCoeffs` | array | [] | SH coefficients (probes) |
+| 17 | `ptGCoeffs` | array | [] | SH coefficients (cubemap probes only) |
 | 18 | `ptPostprocessed` | u32 | 0 | Always 0 in corpus |
 
 ### SerializedTextureMipLevel — Fields
