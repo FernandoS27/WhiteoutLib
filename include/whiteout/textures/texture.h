@@ -189,6 +189,18 @@ struct Texture {
      */
     Texture copyAsFormat(PixelFormat new_fmt) const;
 
+    /**
+     * @brief Return a copy of a 2-channel normal map expanded to RGBA8.
+     *
+     * Only supported for textures whose kind() is TextureKind::Normal and
+     * whose format is RG8, RG16, RG32F, or BC5. The returned texture keeps
+     * the original shape, mip chain, kind, and sRGB flag, but stores data as
+     * RGBA8 with Z reconstructed from the packed X/Y normal in R/G.
+     *
+     * @return Expanded RGBA8 texture, or std::nullopt when unsupported.
+     */
+    std::optional<Texture> copyFromNormalToRGBA() const;
+
     // ── Mipmap generation ───────────────────────────────────────────────
 
     /**

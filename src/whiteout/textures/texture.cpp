@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cassert>
 #include <stdexcept>
 
@@ -302,6 +303,28 @@ void Texture::setData(std::vector<u8> new_data) {
 
 namespace {
 
+bool is_rg_normal_format(PixelFormat format) {
+    return format == PixelFormat::RG8 || format == PixelFormat::RG16 ||
+           format == PixelFormat::RG32F;
+}
+
+Texture make_texture_like(const Texture& src, PixelFormat new_fmt) {
+    switch (src.type()) {
+    case TextureType::Texture2D:
+        return Texture::create2D(new_fmt, src.width(), src.height(), src.mipCount());
+    case TextureType::Texture3D:
+        return Texture::create3D(new_fmt, src.width(), src.height(), src.depth(), src.mipCount());
+    case TextureType::TextureCube:
+        return Texture::createCube(new_fmt, src.width(), src.mipCount());
+    }
+    return {};
+}
+
+void copy_texture_metadata(const Texture& src, Texture& dst) {
+    dst.setKind(src.kind());
+    dst.setSrgb(src.isSrgb());
+}
+
 // ============================================================================
 // Uncompressed format conversion
 // ============================================================================
@@ -320,18 +343,8 @@ Texture convert_uncompressed(const Texture& src, PixelFormat new_fmt) {
     const u32 mips = src.mipCount();
 
     // Build destination texture with the same shape but the new format.
-    Texture dst;
-    switch (src.type()) {
-    case TextureType::Texture2D:
-        dst = Texture::create2D(new_fmt, src.width(), src.height(), mips);
-        break;
-    case TextureType::Texture3D:
-        dst = Texture::create3D(new_fmt, src.width(), src.height(), src.depth(), mips);
-        break;
-    case TextureType::TextureCube:
-        dst = Texture::createCube(new_fmt, src.width(), mips);
-        break;
-    }
+    Texture dst = make_texture_like(src, new_fmt);
+    copy_texture_metadata(src, dst);
 
     // Obtain per-pixel converters through RGBA32F intermediate.
     auto to_f32 = get_to_rgba32f(src_fmt);
@@ -361,6 +374,54 @@ Texture convert_uncompressed(const Texture& src, PixelFormat new_fmt) {
             }
         }
     }
+    return dst;
+}
+
+std::optional<Texture> copy_normal_to_rgba8(const Texture& src) {
+    if (!is_rg_normal_format(src.format()))
+        return std::nullopt;
+
+    Texture dst = make_texture_like(src, PixelFormat::RGBA8);
+    copy_texture_metadata(src, dst);
+
+    auto to_f32 = get_to_rgba32f(src.format());
+    auto from_f32 = get_from_rgba32f(PixelFormat::RGBA8);
+    if (!to_f32 || !from_f32)
+        return std::nullopt;
+
+    const u32 src_bpp = bytesPerBlock(src.format());
+    const u32 layers = src.layerCount();
+    const u32 mips = src.mipCount();
+
+    for (u32 layer = 0; layer < layers; ++layer) {
+        for (u32 mip = 0; mip < mips; ++mip) {
+            const auto src_span = src.mipData(mip, layer);
+            auto dst_span = dst.mipData(mip, layer);
+
+            const u32 width = src.mipLevel(mip, layer).width;
+            const u32 height = src.mipLevel(mip, layer).height;
+            const u32 depth = src.mipLevel(mip, layer).depth;
+            const u32 pixel_count = width * height * depth;
+
+            const u8* src_bytes = src_span.data();
+            u8* dst_bytes = dst_span.data();
+
+            for (u32 pixel = 0; pixel < pixel_count; ++pixel) {
+                f32 rgba[4];
+                to_f32(src_bytes + pixel * src_bpp, rgba);
+
+                const f32 normal_x = rgba[0] * 2.0f - 1.0f;
+                const f32 normal_y = rgba[1] * 2.0f - 1.0f;
+                const f32 normal_z =
+                    std::sqrt(std::max(0.0f, 1.0f - normal_x * normal_x - normal_y * normal_y));
+
+                rgba[2] = (normal_z + 1.0f) * 0.5f;
+                rgba[3] = 1.0f;
+                from_f32(rgba, dst_bytes + pixel * bytesPerBlock(PixelFormat::RGBA8));
+            }
+        }
+    }
+
     return dst;
 }
 
@@ -429,6 +490,24 @@ Texture Texture::copyAsFormat(PixelFormat new_fmt) const {
     if (!encoded)
         throw std::runtime_error("Texture::copyAsFormat: encode failed: " + err);
     return std::move(*encoded);
+}
+
+std::optional<Texture> Texture::copyFromNormalToRGBA() const {
+    if (kind() != TextureKind::Normal)
+        return std::nullopt;
+
+    if (format() == PixelFormat::BC5) {
+        std::string err;
+        auto decoded = bcn::decode(*this, &err);
+        if (!decoded)
+            return std::nullopt;
+
+        decoded->setKind(kind());
+        decoded->setSrgb(isSrgb());
+        return copy_normal_to_rgba8(*decoded);
+    }
+
+    return copy_normal_to_rgba8(*this);
 }
 
 void Texture::generateMipmaps() {
