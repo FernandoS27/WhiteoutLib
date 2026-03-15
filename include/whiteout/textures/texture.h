@@ -118,6 +118,21 @@ enum class TextureType : u32 {
 };
 
 // ============================================================================
+// Channel
+// ============================================================================
+
+/// Individual colour / data channel within a pixel.
+///
+/// The numeric value matches the zero-based channel index used by every
+/// uncompressed PixelFormat (R=0, G=1, B=2, A=3).
+enum class Channel : u32 {
+    R = 0, ///< Red   (or single-channel value for R* formats).
+    G = 1, ///< Green (or second channel for RG* formats).
+    B = 2, ///< Blue  (RGBA* formats only).
+    A = 3, ///< Alpha (RGBA* formats only).
+};
+
+// ============================================================================
 // Mip Level Descriptor
 // ============================================================================
 
@@ -192,6 +207,44 @@ struct Texture {
      * @return A new Texture with the converted data.
      */
     Texture copyAsFormat(PixelFormat new_fmt) const;
+
+    /**
+     * @brief Swap two channels in-place across all mip levels and array layers.
+     *
+     * Operates directly on the stored pixel data without any intermediate copy.
+     * Supports all uncompressed PixelFormats (R*, RG*, RGBA*).
+     *
+     * Failure conditions (returns false):
+     * - The texture uses a BCn block-compressed format.
+     * - Either channel is not present in the current pixel format
+     *   (e.g. Channel::B on an RG8 texture).
+     *
+     * @param a First channel to swap.
+     * @param b Second channel to swap.
+     * @return true on success (including when @p a == @p b, which is a no-op),
+     *         false when the operation is not valid for this texture.
+     */
+    bool swapChannels(Channel a, Channel b);
+
+    /**
+     * @brief Invert a single channel in-place across all mip levels and array layers.
+     *
+     * Each sample value @c v is replaced with @c max_value - v, where
+     * @c max_value is the maximum representable value for the channel's
+     * underlying type (255 for u8, 65535 for u16, 1.0 for f32).
+     *
+     * Operates directly on the stored pixel data without any intermediate copy.
+     * Supports all uncompressed PixelFormats (R*, RG*, RGBA*).
+     *
+     * Failure conditions (returns false):
+     * - The texture uses a BCn block-compressed format.
+     * - The requested channel is not present in the current pixel format
+     *   (e.g. Channel::B on an RG8 texture).
+     *
+     * @param ch Channel to invert.
+     * @return true on success, false when the operation is not valid for this texture.
+     */
+    bool invertChannel(Channel ch);
 
     /**
      * @brief Return a copy of a 2-channel normal map expanded to RGBA8.

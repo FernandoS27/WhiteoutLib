@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <cassert>
 #include <stdexcept>
 
@@ -531,6 +532,128 @@ std::optional<Texture> Texture::copyFromNormalToRGBA() const {
 
 void Texture::generateMipmaps() {
     mipmap::generateMipmaps(*this);
+}
+
+bool Texture::swapChannels(Channel a, Channel b) {
+    if (bcn::isCompressed(impl_->format))
+        return false;
+
+    u32 channel_count;
+    switch (impl_->format) {
+    case PixelFormat::R8:
+    case PixelFormat::R16:
+    case PixelFormat::R32F:
+        channel_count = 1;
+        break;
+    case PixelFormat::RG8:
+    case PixelFormat::RG16:
+    case PixelFormat::RG32F:
+        channel_count = 2;
+        break;
+    case PixelFormat::RGBA8:
+    case PixelFormat::RGBA16:
+    case PixelFormat::RGBA32F:
+        channel_count = 4;
+        break;
+    default:
+        return false;
+    }
+
+    const u32 ai = static_cast<u32>(a);
+    const u32 bi = static_cast<u32>(b);
+
+    if (ai >= channel_count || bi >= channel_count)
+        return false;
+
+    if (ai == bi)
+        return true;
+
+    const u32 bpp = bytesPerBlock(impl_->format);
+    const u32 bytes_per_channel = bpp / channel_count;
+    const u32 layers = layerCount();
+    const u32 mips = mipCount();
+
+    for (u32 layer = 0; layer < layers; ++layer) {
+        for (u32 mip = 0; mip < mips; ++mip) {
+            auto span = mipData(mip, layer);
+            const MipLevel& lvl = mipLevel(mip, layer);
+            const u32 pixel_count = lvl.width * lvl.height * lvl.depth;
+            u8* pixels = span.data();
+
+            for (u32 px = 0; px < pixel_count; ++px) {
+                u8* pixel = pixels + px * bpp;
+                u8* ch_a = pixel + ai * bytes_per_channel;
+                u8* ch_b = pixel + bi * bytes_per_channel;
+                for (u32 byte = 0; byte < bytes_per_channel; ++byte)
+                    std::swap(ch_a[byte], ch_b[byte]);
+            }
+        }
+    }
+
+    return true;
+}
+
+bool Texture::invertChannel(Channel ch) {
+    if (bcn::isCompressed(impl_->format))
+        return false;
+
+    u32 channel_count;
+    switch (impl_->format) {
+    case PixelFormat::R8:
+    case PixelFormat::R16:
+    case PixelFormat::R32F:
+        channel_count = 1;
+        break;
+    case PixelFormat::RG8:
+    case PixelFormat::RG16:
+    case PixelFormat::RG32F:
+        channel_count = 2;
+        break;
+    case PixelFormat::RGBA8:
+    case PixelFormat::RGBA16:
+    case PixelFormat::RGBA32F:
+        channel_count = 4;
+        break;
+    default:
+        return false;
+    }
+
+    const u32 ci = static_cast<u32>(ch);
+    if (ci >= channel_count)
+        return false;
+
+    const u32 bpp = bytesPerBlock(impl_->format);
+    const u32 bytes_per_channel = bpp / channel_count;
+    const u32 layers = layerCount();
+    const u32 mips = mipCount();
+
+    for (u32 layer = 0; layer < layers; ++layer) {
+        for (u32 mip = 0; mip < mips; ++mip) {
+            auto span = mipData(mip, layer);
+            const MipLevel& lvl = mipLevel(mip, layer);
+            const u32 pixel_count = lvl.width * lvl.height * lvl.depth;
+            u8* pixels = span.data();
+
+            for (u32 px = 0; px < pixel_count; ++px) {
+                u8* ch_ptr = pixels + px * bpp + ci * bytes_per_channel;
+                if (bytes_per_channel == 1) {
+                    ch_ptr[0] = static_cast<u8>(255u - ch_ptr[0]);
+                } else if (bytes_per_channel == 2) {
+                    u16 v;
+                    std::memcpy(&v, ch_ptr, 2);
+                    v = static_cast<u16>(65535u - v);
+                    std::memcpy(ch_ptr, &v, 2);
+                } else if (bytes_per_channel == 4) {
+                    f32 v;
+                    std::memcpy(&v, ch_ptr, 4);
+                    v = 1.0f - v;
+                    std::memcpy(ch_ptr, &v, 4);
+                }
+            }
+        }
+    }
+
+    return true;
 }
 
 } // namespace whiteout::textures
