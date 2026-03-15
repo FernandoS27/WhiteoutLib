@@ -53,6 +53,7 @@ add_library(whiteout_lib
     src/whiteout/textures/blp/parser.cpp
     src/whiteout/textures/blp/writer.cpp
     src/whiteout/textures/tex/parser.cpp
+    src/whiteout/textures/tex/d4_parser.cpp
     src/whiteout/textures/tex/writer.cpp
     src/whiteout/textures/tex/tex_common.cpp
     src/whiteout/textures/bmp/parser.cpp

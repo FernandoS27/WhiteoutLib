@@ -7,6 +7,7 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <stdexcept>
 #include "../io_helpers.h"
 #include "../issue_sink.h"
@@ -14,6 +15,34 @@
 #include "tex_internal.h"
 
 namespace whiteout::textures::tex {
+
+// Defined in d4_parser.cpp
+std::optional<Texture> parseD4Impl(std::span<const u8> texData, std::span<const u8> payloadData,
+                                   D4TexInfo* outInfo, IssueSink& sink);
+
+static Parser::FileKind detect_tex_kind(std::span<const u8> buffer) {
+    if (buffer.size() < 8)
+        return Parser::FileKind::Unknown;
+
+    u32 magic = 0;
+    std::memcpy(&magic, buffer.data(), sizeof(u32));
+    if (magic != TEX_MAGIC)
+        return Parser::FileKind::Unknown;
+
+    u32 tag = 0;
+    std::memcpy(&tag, buffer.data() + 4, sizeof(u32));
+
+    if (tag == TEX_VERSION) {
+        // Treat truncated D3-like headers as unknown to avoid false positives.
+        return buffer.size() >= MIN_HEADER_SIZE ? Parser::FileKind::Diablo3Tex
+                                                : Parser::FileKind::Unknown;
+    }
+
+    if (tag == D4_TEX_FORMAT_HASH)
+        return Parser::FileKind::Diablo4MetaTex;
+
+    return Parser::FileKind::Unknown;
+}
 
 class Parser::Impl : public IssueSink {
 public:
@@ -198,6 +227,59 @@ std::optional<Texture> Parser::parse(std::span<const u8> buffer) {
 
 std::optional<Texture> Parser::parse(std::span<const u8> buffer, TexInfo* outInfo) {
     return pImpl->parse(buffer, outInfo);
+}
+
+Parser::FileKind Parser::detectKind(std::span<const u8> buffer) const {
+    return detect_tex_kind(buffer);
+}
+
+Parser::FileKind Parser::detectKind(const std::string& filePath) const {
+    std::ifstream file;
+    file.open(filePath, std::ios::binary | std::ios::ate);
+    if (!file.is_open())
+        return FileKind::Unknown;
+
+    const auto end_pos = file.tellg();
+    if (end_pos < 0)
+        return FileKind::Unknown;
+
+    const size_t size = static_cast<size_t>(end_pos);
+    const size_t read_size = std::min<size_t>(size, MIN_HEADER_SIZE);
+
+    file.seekg(0, std::ios::beg);
+    std::vector<u8> buffer(read_size);
+    if (read_size > 0 &&
+        !file.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(read_size)))
+        return FileKind::Unknown;
+
+    return detect_tex_kind(std::span<const u8>{buffer});
+}
+
+// -- Diablo IV ---------------------------------------------------------------
+
+std::optional<Texture> Parser::parse(const std::string& texFilePath,
+                                     const std::string& payloadFilePath) {
+    pImpl->issues.clear();
+    auto texBuf = read_file_bytes(texFilePath, *pImpl);
+    if (!texBuf)
+        return std::nullopt;
+    auto payloadBuf = read_file_bytes(payloadFilePath, *pImpl);
+    if (!payloadBuf)
+        return std::nullopt;
+    return parseD4Impl(std::span<const u8>{*texBuf}, std::span<const u8>{*payloadBuf}, nullptr,
+                       *pImpl);
+}
+
+std::optional<Texture> Parser::parse(std::span<const u8> texData,
+                                     std::span<const u8> payloadData) {
+    pImpl->issues.clear();
+    return parseD4Impl(texData, payloadData, nullptr, *pImpl);
+}
+
+std::optional<Texture> Parser::parse(std::span<const u8> texData,
+                                     std::span<const u8> payloadData, D4TexInfo* outInfo) {
+    pImpl->issues.clear();
+    return parseD4Impl(texData, payloadData, outInfo, *pImpl);
 }
 
 bool Parser::hasIssues() const {

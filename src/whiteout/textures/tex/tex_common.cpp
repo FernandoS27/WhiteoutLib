@@ -242,4 +242,69 @@ u32 align_up(u32 value, u32 align) {
     return (value + align - 1) / align * align;
 }
 
+// ============================================================================
+// Diablo IV format helpers
+// ============================================================================
+
+std::optional<D4FormatMapping> d4_tex_format_to_pixel_format(u32 d4_fmt) {
+    switch (d4_fmt) {
+    case D4_TEX_FMT_R8G8B8A8:
+        return D4FormatMapping{PixelFormat::RGBA8, false, 1, 4};
+    case D4_TEX_FMT_BC1:
+    case D4_TEX_FMT_BC1_ALT:
+    case D4_TEX_FMT_BC1_LINEAR:
+        return D4FormatMapping{PixelFormat::BC1, false, 4, 8};
+    case D4_TEX_FMT_BC1_SRGB:
+        return D4FormatMapping{PixelFormat::BC1, true, 4, 8};
+    case D4_TEX_FMT_BC3:
+        return D4FormatMapping{PixelFormat::BC3, false, 4, 16};
+    case D4_TEX_FMT_RGBA16F:
+        return D4FormatMapping{PixelFormat::RGBA32F, false, 1, 8}; // will convert f16→f32
+    case D4_TEX_FMT_BC4:
+        return D4FormatMapping{PixelFormat::BC4, false, 4, 8};
+    case D4_TEX_FMT_BC5:
+    case D4_TEX_FMT_BC5_SNORM:
+        return D4FormatMapping{PixelFormat::BC5, false, 4, 16};
+    case D4_TEX_FMT_BC7:
+        return D4FormatMapping{PixelFormat::BC7, false, 4, 16};
+    case D4_TEX_FMT_BC7_SRGB:
+        return D4FormatMapping{PixelFormat::BC7, true, 4, 16};
+    default:
+        return std::nullopt;
+    }
+}
+
+u64 d4_compute_aligned_mip_size(u32 d4_fmt, u32 width, u32 height) {
+    auto mapping = d4_tex_format_to_pixel_format(d4_fmt);
+    if (!mapping)
+        return 0;
+
+    u32 rows;
+    u32 row_bytes;
+    if (mapping->block_dim > 1) {
+        const u32 bw = std::max(1u, (width + mapping->block_dim - 1) / mapping->block_dim);
+        rows = std::max(1u, (height + mapping->block_dim - 1) / mapping->block_dim);
+        row_bytes = bw * mapping->bytes_per_unit;
+    } else {
+        rows = height;
+        row_bytes = width * mapping->bytes_per_unit;
+    }
+
+    const u32 aligned_pitch = align_up(row_bytes, D4_ROW_ALIGNMENT);
+    return static_cast<u64>(aligned_pitch) * rows;
+}
+
+u64 d4_compute_raw_mip_size(u32 d4_fmt, u32 width, u32 height) {
+    auto mapping = d4_tex_format_to_pixel_format(d4_fmt);
+    if (!mapping)
+        return 0;
+
+    if (mapping->block_dim > 1) {
+        const u32 bw = std::max(1u, (width + mapping->block_dim - 1) / mapping->block_dim);
+        const u32 bh = std::max(1u, (height + mapping->block_dim - 1) / mapping->block_dim);
+        return static_cast<u64>(bw) * bh * mapping->bytes_per_unit;
+    }
+    return static_cast<u64>(width) * height * mapping->bytes_per_unit;
+}
+
 } // namespace whiteout::textures::tex

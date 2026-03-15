@@ -14,6 +14,7 @@
  * - SaveOptions controlling how a Texture is serialised into the TEX container
  */
 
+#include <array>
 #include <string>
 #include <vector>
 
@@ -80,6 +81,40 @@ struct SaveOptions {
     u32 samplerHint1;             ///< First sampler hint value.
     u32 samplerHint2;             ///< Second sampler hint value.
     std::vector<TexFrame> frames; ///< Flip-book frames to embed (may be empty).
+};
+
+// ============================================================================
+// Diablo IV Types
+// ============================================================================
+
+/// A single frame/sprite within a D4 texture atlas.
+struct D4TexFrame {
+    u32 imageHandle; ///< GBID hash for this frame (0 = unnamed).
+    f32 u0;          ///< Left UV.
+    f32 v0;          ///< Top UV.
+    f32 u1;          ///< Right UV.
+    f32 v1;          ///< Bottom UV.
+    f32 trimU0;      ///< Trimmed content left UV.
+    f32 trimV0;      ///< Trimmed content top UV.
+    f32 trimU1;      ///< Trimmed content right UV.
+    f32 trimV1;      ///< Trimmed content bottom UV.
+};
+
+/// Metadata extracted from a Diablo IV TEX file by the parser.
+struct D4TexInfo {
+    i32 snoId;                      ///< SNO identifier.
+    u32 texFormat;                  ///< Raw eTexFormat value.
+    u32 width;                      ///< Full-resolution width.
+    u32 height;                     ///< Full-resolution height.
+    u32 depth;                      ///< Texture depth (1 for 2D).
+    u32 faceCount;                  ///< 1 for 2D, 6 for cubemaps.
+    u32 mipMapLevelMin;             ///< Smallest stored mip index.
+    u32 mipMapLevelMax;             ///< Largest stored mip index.
+    u32 importFlags;                ///< Import flag bitfield.
+    u32 textureResourceType;        ///< 0 = standard, 1 = cubemap probe.
+    std::array<f32, 4> avgColor;    ///< Average linear RGBA colour.
+    std::vector<D4TexFrame> frames; ///< Atlas frame entries.
+    bool isTwoTier;                 ///< True when pixel data uses two-tier streaming.
 };
 
 } // namespace whiteout::textures::tex

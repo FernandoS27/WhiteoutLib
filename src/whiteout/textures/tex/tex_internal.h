@@ -45,6 +45,25 @@ static constexpr u32 TEX_FMT_ATI2 = 43;
 
 static constexpr u32 BC_MIP_PREFIX_SIZE = 16;
 
+// ============================================================================
+// D4 TEX pixel format IDs
+// ============================================================================
+static constexpr u32 D4_TEX_FMT_R8G8B8A8 = 0;
+static constexpr u32 D4_TEX_FMT_BC1 = 9;
+static constexpr u32 D4_TEX_FMT_BC1_ALT = 10;
+static constexpr u32 D4_TEX_FMT_BC3 = 12;
+static constexpr u32 D4_TEX_FMT_RGBA16F = 25;
+static constexpr u32 D4_TEX_FMT_BC4 = 41;
+static constexpr u32 D4_TEX_FMT_BC5 = 42;
+static constexpr u32 D4_TEX_FMT_BC5_SNORM = 44;
+static constexpr u32 D4_TEX_FMT_BC1_LINEAR = 46;
+static constexpr u32 D4_TEX_FMT_BC1_SRGB = 47;
+static constexpr u32 D4_TEX_FMT_BC7 = 49;
+static constexpr u32 D4_TEX_FMT_BC7_SRGB = 50;
+
+static constexpr u32 D4_ROW_ALIGNMENT = 256;
+static constexpr u32 D4_TEX_FORMAT_HASH = 0xF9CD83E6u;
+
 #pragma pack(push, 1)
 
 struct SnoPreamble {
@@ -133,5 +152,17 @@ void encode_mip_face(u32 tex_format, std::span<const u8> source, u8* destination
                      u32 mip_height, u32 standard_data_size, bool needs_swizzle, bool is_shuffled);
 
 u32 align_up(u32 value, u32 align);
+
+// D4 format helpers
+struct D4FormatMapping {
+    PixelFormat format;
+    bool is_srgb;
+    u32 block_dim;     // 1 for uncompressed, 4 for BCn
+    u32 bytes_per_unit; // per pixel or per 4×4 block
+};
+
+std::optional<D4FormatMapping> d4_tex_format_to_pixel_format(u32 d4_fmt);
+u64 d4_compute_aligned_mip_size(u32 d4_fmt, u32 width, u32 height);
+u64 d4_compute_raw_mip_size(u32 d4_fmt, u32 width, u32 height);
 
 } // namespace whiteout::textures::tex

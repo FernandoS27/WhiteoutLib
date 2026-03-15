@@ -5,26 +5,30 @@
 
 /**
  * @file tex.h
- * @brief Main header for the TEX (Diablo III SNO texture) library
+ * @brief Main header for the TEX (Diablo III / IV SNO texture) library
  *
  * This is the primary include file for the TEX library.  Include this single
  * header to access all TEX functionality including parsing, writing, and type
  * definitions.
  *
- * The TEX format is Diablo III's SNO-based texture container.  It wraps
- * standard GPU pixel data with game-specific metadata such as SNO IDs,
- * sampler hints, and optional flip-book frame definitions.
+ * The TEX format is used by both Diablo III and Diablo IV.  D3 TEX files
+ * are monolithic (metadata + pixel data in one file).  D4 TEX files separate
+ * the SNO metadata from the pixel payload, so parsing requires two inputs.
  *
  * @example Basic Usage
  * @code
  * #include <whiteout/textures/tex/tex.h>
  *
- * // Parse a TEX file
+ * // Parse a D3 TEX file
  * tex::Parser parser;
  * tex::TexInfo info;
  * auto texture = parser.parse(file_bytes, &info);
  *
- * // Re-encode as TEX
+ * // Parse a D4 TEX file (metadata + payload)
+ * tex::D4TexInfo d4info;
+ * auto d4texture = parser.parse(tex_bytes, payload_bytes, &d4info);
+ *
+ * // Re-encode as D3 TEX
  * tex::Writer writer;
  * auto output = writer.write(*texture, {
  *     .snoId = info.snoId,

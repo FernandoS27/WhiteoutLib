@@ -1087,16 +1087,18 @@ static void actionExtractRandomGroup(
     }
     indices.resize(extractCount);
 
-    // Create output directory.
-    std::string outDir = chosen.name;
-    std::filesystem::create_directories(outDir);
+    // Create output directories.
+    std::string metaDir = std::string("meta/") + chosen.name;
+    std::string payloadDir = std::string("payload/") + chosen.name;
+    std::filesystem::create_directories(metaDir);
+    bool payloadDirCreated = false;
 
     const char* groupExt = snoGroupExtension(chosen.group);
     const char* groupDir = isD3 ? snoGroupDirD3(chosen.group)
                                 : snoGroupDir(chosen.group);
 
     std::cout << "  Extracting " << extractCount << " "
-              << chosen.name << " files to " << outDir << "/\n";
+              << chosen.name << " files to " << metaDir << "/\n";
 
     size_t saved = 0;
     size_t failed = 0;
@@ -1153,30 +1155,47 @@ static void actionExtractRandomGroup(
 
         // Build output filename.
         std::string ext = groupExt ? groupExt : "sno";
-        std::string outPath = outDir + "/" + entry.name + "." + ext;
+        std::string metaPath = metaDir + "/" + entry.name + "." + ext;
 
-        std::ofstream out(outPath, std::ios::binary);
-        if (!out) {
-            failedEntries.push_back(
-                entry.name + " (snoId=" + std::to_string(entry.snoId) +
-                ") — could not write to " + outPath);
-            ++failed;
-            continue;
+        // Save meta file.
+        {
+            std::ofstream out(metaPath, std::ios::binary);
+            if (!out) {
+                failedEntries.push_back(
+                    entry.name + " (snoId=" + std::to_string(entry.snoId) +
+                    ") — could not write to " + metaPath);
+                ++failed;
+                continue;
+            }
+            out.write(reinterpret_cast<const char*>(fileData->data()),
+                      static_cast<std::streamsize>(fileData->size()));
         }
-        out.write(reinterpret_cast<const char*>(fileData->data()),
-                  static_cast<std::streamsize>(fileData->size()));
-        out.close();
         ++saved;
 
-        // Optionally parse and write JSON.
-        if (exportJson) {
-            // Try to load payload for D4.
-            std::span<const whiteout::u8> payloadSpan;
-            std::optional<std::vector<whiteout::u8>> payloadFileData;
-            if (!isD3) {
-                payloadFileData = storage.readFile(
-                    "base:payload\\" + std::to_string(entry.snoId));
-                if (payloadFileData && payloadFileData->size() > 16) {
+        // Try to load and save payload for D4.
+        std::span<const whiteout::u8> payloadSpan;
+        std::optional<std::vector<whiteout::u8>> payloadFileData;
+        if (!isD3) {
+            payloadFileData = storage.readFile(
+                "base:payload\\" + std::to_string(entry.snoId));
+            if (payloadFileData && !payloadFileData->empty()) {
+                // Create payload directory on first use.
+                if (!payloadDirCreated) {
+                    std::filesystem::create_directories(payloadDir);
+                    payloadDirCreated = true;
+                }
+
+                // Save raw payload file.
+                std::string payPath = payloadDir + "/" + entry.name + "." + ext;
+                std::ofstream pout(payPath, std::ios::binary);
+                if (pout) {
+                    pout.write(
+                        reinterpret_cast<const char*>(payloadFileData->data()),
+                        static_cast<std::streamsize>(payloadFileData->size()));
+                }
+
+                // Prepare payload span for parsing (skip SNO header if present).
+                if (payloadFileData->size() > 16) {
                     whiteout::u32 payMagic = 0;
                     std::memcpy(&payMagic, payloadFileData->data(), 4);
                     if (payMagic == whiteout::sno::kSnoMagic)
@@ -1188,13 +1207,16 @@ static void actionExtractRandomGroup(
                             *payloadFileData);
                 }
             }
+        }
 
+        // Optionally parse and write JSON.
+        if (exportJson) {
             auto parsed = !payloadSpan.empty()
                 ? reader.parse(*fileData, entry.group, payloadSpan)
                 : reader.parse(*fileData, entry.group);
 
             if (parsed) {
-                std::string jsonPath = outPath + ".json";
+                std::string jsonPath = metaPath + ".json";
                 std::ofstream jout(jsonPath, std::ios::binary);
                 if (jout) {
                     std::string json = toJson(*parsed);
@@ -1212,12 +1234,12 @@ static void actionExtractRandomGroup(
         }
     }
 
-    std::cout << "\n  Done. Saved " << saved << " files to " << outDir
+    std::cout << "\n  Done. Saved " << saved << " meta files to " << metaDir
               << "/ (" << failed << " failed).\n";
 
     // Write a failure log if there were any failures.
     if (!failedEntries.empty()) {
-        std::string logPath = outDir + "/_failed.log";
+        std::string logPath = metaDir + "/_failed.log";
         std::ofstream log(logPath);
         if (log) {
             for (auto& line : failedEntries)
