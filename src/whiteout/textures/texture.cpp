@@ -382,11 +382,20 @@ Texture convert_uncompressed(const Texture& src, PixelFormat new_fmt) {
     return dst;
 }
 
-std::optional<Texture> copy_normal_to_rgba8(const Texture& src) {
+std::optional<Texture> copy_normal_to_rgba8(const Texture& src, PixelFormat orig_fmt) {
     const bool is_rg = is_rg_normal_format(src.format());
     const bool is_rgba = is_rgba_normal_format(src.format());
     if (!is_rg && !is_rgba)
         return std::nullopt;
+
+    size_t x = 0, y = 1;
+    bool flip_y = false;
+    // BC3N
+    if (is_rgba && orig_fmt == PixelFormat::BC3) {
+        y = 1;
+        x = 3;
+        flip_y = true;
+    }
 
     Texture dst = make_texture_like(src, PixelFormat::RGBA8);
     copy_texture_metadata(src, dst);
@@ -417,15 +426,15 @@ std::optional<Texture> copy_normal_to_rgba8(const Texture& src) {
                 f32 rgba[4];
                 to_f32(src_bytes + pixel * src_bpp, rgba);
 
-                const f32 normal_x = rgba[0] * 2.0f - 1.0f;
-                const f32 normal_y = rgba[1] * 2.0f - 1.0f;
-
-                if (is_rg || rgba[2] == 0.0f) {
+                const f32 x_value = rgba[x];
+                const f32 y_value = rgba[y];
+                const f32 normal_x = x_value * 2.0f - 1.0f;
+                const f32 normal_y = y_value * 2.0f - 1.0f;
                     const f32 normal_z = std::sqrt(
                         std::max(0.0f, 1.0f - normal_x * normal_x - normal_y * normal_y));
-                    rgba[2] = (normal_z + 1.0f) * 0.5f;
-                }
-
+                rgba[0] = x_value;
+                rgba[1] = (flip_y ? 1.0f - y_value : y_value);
+                rgba[2] = (normal_z + 1.0f) * 0.5f;
                 rgba[3] = 1.0f;
                 from_f32(rgba, dst_bytes + pixel * bytesPerBlock(PixelFormat::RGBA8));
             }
@@ -506,7 +515,7 @@ std::optional<Texture> Texture::copyFromNormalToRGBA() const {
     if (kind() != TextureKind::Normal)
         return std::nullopt;
 
-    if (format() == PixelFormat::BC5) {
+    if (bcn::isCompressed(impl_->format)) {
         std::string err;
         auto decoded = bcn::decode(*this, &err);
         if (!decoded)
@@ -514,10 +523,10 @@ std::optional<Texture> Texture::copyFromNormalToRGBA() const {
 
         decoded->setKind(kind());
         decoded->setSrgb(isSrgb());
-        return copy_normal_to_rgba8(*decoded);
+        return copy_normal_to_rgba8(*decoded, impl_->format);
     }
 
-    return copy_normal_to_rgba8(*this);
+    return copy_normal_to_rgba8(*this, impl_->format);
 }
 
 void Texture::generateMipmaps() {
