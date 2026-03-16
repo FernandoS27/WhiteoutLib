@@ -3,28 +3,13 @@
 
 #pragma once
 
-#include "common_types.h"
-#include "compatibility.h"
+#include "../common_types.h"
+#include "../compatibility.h"
 
 #include <memory>
 #include <vector>
 
-namespace whiteout {
-
-class VirtualFileSystem {
-public:
-    virtual ~VirtualFileSystem() = default;
-
-    /// Read the entire contents of a file into a byte vector.
-    virtual std::vector<u8> readFile(const std::string& path) const = 0;
-
-    virtual std::vector<u8> readFile(u32 fileId) const = 0;
-
-    /// Check if a file exists at the given path.
-    virtual bool fileExists(const std::string& path) const = 0;
-
-    virtual bool fileExists(u32 fileId) const = 0;
-};
+namespace whiteout::utils {
 
 enum class AttributeClass : u32 {
     Position = 0,
@@ -94,4 +79,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-} // namespace whiteout
+} // namespace whiteout::utils

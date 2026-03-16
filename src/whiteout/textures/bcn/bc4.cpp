@@ -38,7 +38,7 @@ void decode_block(const u8* block, u8* out) {
 namespace {
 
 std::vector<u8> decode_image(std::span<const u8> bc4, u32 width, u32 height,
-                             u32 thread_count) {
+                             interfaces::WorkerPool* pool) {
     assert(width > 0 && height > 0);
 
     const u32 blocks_wide = (width + 3) / 4;
@@ -47,7 +47,7 @@ std::vector<u8> decode_image(std::span<const u8> bc4, u32 width, u32 height,
 
     std::vector<u8> result(static_cast<size_t>(width) * height, 0);
 
-    parallel_for_tiles(blocks_wide, blocks_tall, thread_count,
+    parallel_for_tiles(blocks_wide, blocks_tall, pool,
         [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
             for (u32 block_y = by0; block_y < by1; ++block_y) {
                 for (u32 block_x = bx0; block_x < bx1; ++block_x) {
@@ -66,11 +66,11 @@ std::vector<u8> decode_image(std::span<const u8> bc4, u32 width, u32 height,
 } // anonymous namespace
 
 std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error,
-                                     u32 thread_count) {
+                                     interfaces::WorkerPool* pool) {
     return transform_texture_impl(
         src, PixelFormat::BC4, PixelFormat::R8, "bc4::decodeTexture",
-        [thread_count](std::span<const u8> data, u32 w, u32 h) {
-            return decode_image(data, w, h, thread_count);
+        [pool](std::span<const u8> data, u32 w, u32 h) {
+            return decode_image(data, w, h, pool);
         },
         out_error);
 }
@@ -215,7 +215,8 @@ void encode_block(const u8* values, u8* out) {
 
 namespace {
 
-std::vector<u8> encode_image(std::span<const u8> r8, u32 width, u32 height, u32 thread_count) {
+std::vector<u8> encode_image(std::span<const u8> r8, u32 width, u32 height,
+                             interfaces::WorkerPool* pool) {
     assert(width > 0 && height > 0);
     assert(r8.size() >= static_cast<size_t>(width) * height);
 
@@ -223,7 +224,7 @@ std::vector<u8> encode_image(std::span<const u8> r8, u32 width, u32 height, u32 
     const u32 blocks_tall = (height + 3) / 4;
     std::vector<u8> result(static_cast<size_t>(blocks_wide) * blocks_tall * 8);
 
-    parallel_for_tiles(blocks_wide, blocks_tall, thread_count,
+    parallel_for_tiles(blocks_wide, blocks_tall, pool,
         [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
             for (u32 block_y = by0; block_y < by1; ++block_y) {
                 for (u32 block_x = bx0; block_x < bx1; ++block_x) {
@@ -242,11 +243,11 @@ std::vector<u8> encode_image(std::span<const u8> r8, u32 width, u32 height, u32 
 } // anonymous namespace
 
 std::optional<Texture> encodeTexture(const Texture& src, std::string* out_error,
-                                     u32 thread_count) {
+                                     interfaces::WorkerPool* pool) {
     return transform_texture_impl(
         src, PixelFormat::R8, PixelFormat::BC4, "bc4::encodeTexture",
-        [thread_count](std::span<const u8> data, u32 w, u32 h) {
-            return encode_image(data, w, h, thread_count);
+        [pool](std::span<const u8> data, u32 w, u32 h) {
+            return encode_image(data, w, h, pool);
         },
         out_error);
 }

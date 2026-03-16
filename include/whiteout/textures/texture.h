@@ -24,6 +24,7 @@
 #include <vector>
 
 #include <whiteout/common_types.h>
+#include <whiteout/interfaces.h>
 #include "../compatibility.h"
 
 namespace whiteout {
@@ -204,9 +205,12 @@ struct Texture {
      * - Uncompressed → BCn → encode via the appropriate codec.
      *
      * @param new_fmt Target pixel format.
+    * @param pool Optional WorkerPool for parallel BCn encode/decode work.
+    *             Ignored for purely uncompressed-to-uncompressed conversions.
      * @return A new Texture with the converted data.
      */
-    Texture copyAsFormat(PixelFormat new_fmt) const;
+    Texture copyAsFormat(PixelFormat new_fmt,
+                    interfaces::WorkerPool* pool = nullptr) const;
 
     /**
      * @brief Swap two channels in-place across all mip levels and array layers.
@@ -254,9 +258,12 @@ struct Texture {
      * the original shape, mip chain, kind, and sRGB flag, but stores data as
      * RGBA8 with Z reconstructed from the packed X/Y normal in R/G.
      *
+     * @param pool Optional WorkerPool for parallel BCn decode work when the
+     *             source texture is compressed.
      * @return Expanded RGBA8 texture, or std::nullopt when unsupported.
      */
-    std::optional<Texture> copyFromNormalToRGBA() const;
+    std::optional<Texture> copyFromNormalToRGBA(
+        interfaces::WorkerPool* pool = nullptr) const;
 
     // ── Mipmap generation ───────────────────────────────────────────────
 
@@ -289,8 +296,14 @@ struct Texture {
      *
      * The texture must use an uncompressed pixel format.  BCn textures
      * should be decompressed first.  No-op if the texture has ≤ 1 mip.
+    *
+    * @param pool Optional WorkerPool used to parallelize mip generation
+    *             across mip levels and layers. If null, generation runs
+    *             on the calling thread.
+    * @return std::nullopt on success; std::optional<std::string> with error
+    *         message on failure. No exceptions are thrown.
      */
-    void generateMipmaps();
+    std::optional<std::string> generateMipmaps(interfaces::WorkerPool* pool = nullptr);
 
     // ── Factory methods ────────────────────────────────────────────────
 

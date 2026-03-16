@@ -277,11 +277,11 @@ void decode_block(const u8* block, u8* out) {
 // ============================================================================
 
 std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error,
-                                     u32 thread_count) {
+                                     interfaces::WorkerPool* pool) {
     return transform_texture_impl(
         src, PixelFormat::BC7, PixelFormat::RGBA8, "bc7::decodeTexture",
-        [thread_count](std::span<const u8> data, u32 w, u32 h) {
-            return decode_image_rgba8<16>(data, w, h, decode_block, thread_count);
+        [pool](std::span<const u8> data, u32 w, u32 h) {
+            return decode_image_rgba8<16>(data, w, h, decode_block, pool);
         },
         out_error);
 }

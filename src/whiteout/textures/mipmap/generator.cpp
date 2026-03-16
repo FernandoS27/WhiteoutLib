@@ -12,8 +12,10 @@
 #include "stages.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
+#include <mutex>
 
 namespace whiteout::textures::mipmap {
 
@@ -316,12 +318,54 @@ MipImage mergeChannels(const std::vector<MipImage>& channels) {
 // Public entry point
 // ============================================================================
 
-void generateMipmaps(Texture& tex) {
+std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool* pool) {
     const u32 mipCount = tex.mipCount();
     if (mipCount <= 1)
-        return;
+        return std::nullopt;
 
     const u32 layerCount = tex.layerCount();
+    const bool usePool = pool != nullptr && pool->thread_count() > 1;
+
+    std::optional<std::string> firstError;
+    std::mutex errorMutex;
+    std::atomic<bool> hasError{false};
+
+    auto captureError = [&](const std::string& errMsg) {
+        std::lock_guard<std::mutex> guard(errorMutex);
+        if (!firstError) {
+            firstError = errMsg;
+            hasError.store(true, std::memory_order_release);
+        }
+    };
+
+    auto submitJob = [&](const auto& job) {
+        if (hasError.load(std::memory_order_acquire))
+            return;
+        if (!usePool) {
+            try {
+                job();
+            } catch (const std::exception& e) {
+                captureError(std::string("Mipmap generation error: ") + e.what());
+            } catch (...) {
+                captureError("Mipmap generation error: unknown exception");
+            }
+            return;
+        }
+
+        interfaces::WorkerTask task;
+        task.fn = [&, job]() {
+            if (!hasError.load(std::memory_order_acquire)) {
+                try {
+                    job();
+                } catch (const std::exception& e) {
+                    captureError(std::string("Mipmap generation error: ") + e.what());
+                } catch (...) {
+                    captureError("Mipmap generation error: unknown exception");
+                }
+            }
+        };
+        pool->submit(task);
+    };
 
     // ORM textures: split into individual channels, apply the correct
     // per-channel pipeline (AO / Roughness / Metalness), then recombine.
@@ -341,30 +385,42 @@ void generateMipmaps(Texture& tex) {
 
         const Filter boxDown = static_cast<FilterFn>(boxFilter);
 
+        std::vector<std::vector<MipImage>> originalByLayer(layerCount);
+        for (u32 layer = 0; layer < layerCount; ++layer)
+            originalByLayer[layer] = splitChannels(extractMip(tex, 0, layer));
+
         for (u32 layer = 0; layer < layerCount; ++layer) {
-            const auto originalChannels = splitChannels(extractMip(tex, 0, layer));
-
             for (u32 mip = 1; mip < mipCount; ++mip) {
-                const auto& targetLevel = tex.mipLevel(mip, layer);
-                const u32 targetWidth = targetLevel.width;
-                const u32 targetHeight = targetLevel.height;
+                submitJob([&, layer, mip]() {
+                    const auto& originalChannels = originalByLayer[layer];
+                    const auto& targetLevel = tex.mipLevel(mip, layer);
+                    const u32 targetWidth = targetLevel.width;
+                    const u32 targetHeight = targetLevel.height;
 
-                std::vector<MipImage> mipChannels;
-                mipChannels.reserve(originalChannels.size());
+                    std::vector<MipImage> mipChannels;
+                    mipChannels.reserve(originalChannels.size());
 
-                // Known ORM channels: apply the matching per-channel pipeline.
-                for (size_t ch = 0; ch < std::min(originalChannels.size(), ORM_CHANNEL_COUNT); ++ch)
-                    mipChannels.push_back(channelPipelines[ch].execute(originalChannels[ch],
-                                                                       targetWidth, targetHeight));
+                    // Known ORM channels: apply the matching per-channel pipeline.
+                    for (size_t ch = 0;
+                         ch < std::min(originalChannels.size(), ORM_CHANNEL_COUNT); ++ch) {
+                        mipChannels.push_back(
+                            channelPipelines[ch].execute(originalChannels[ch], targetWidth,
+                                                         targetHeight));
+                    }
 
-                // Any extra channels (e.g. alpha): simple box filter from original.
-                for (size_t ch = ORM_CHANNEL_COUNT; ch < originalChannels.size(); ++ch)
-                    mipChannels.push_back(boxDown(originalChannels[ch], targetWidth, targetHeight));
+                    // Any extra channels (e.g. alpha): simple box filter from original.
+                    for (size_t ch = ORM_CHANNEL_COUNT; ch < originalChannels.size(); ++ch)
+                        mipChannels.push_back(
+                            boxDown(originalChannels[ch], targetWidth, targetHeight));
 
-                writeMip(tex, mip, layer, mergeChannels(mipChannels));
+                    writeMip(tex, mip, layer, mergeChannels(mipChannels));
+                });
             }
         }
-        return;
+
+        if (usePool)
+            pool->wait_idle();
+        return firstError;
     }
 
     const MipmapPipeline pipeline = pipelineForKind(tex.kind(), tex.isSrgb());
@@ -372,6 +428,8 @@ void generateMipmaps(Texture& tex) {
     const u32 originalChannelCount = channelCount(tex.format());
     const bool needNormalExpansion = isNormal && originalChannelCount < 4;
 
+    std::vector<MipImage> originalByLayer;
+    originalByLayer.reserve(layerCount);
     for (u32 layer = 0; layer < layerCount; ++layer) {
         // Extract the original (full-resolution) mip once per layer.
         MipImage originalMip = extractMip(tex, 0, layer);
@@ -381,19 +439,31 @@ void generateMipmaps(Texture& tex) {
         if (needNormalExpansion)
             originalMip = expandNormalToRGBA(originalMip);
 
-        // Every mip is generated directly from the original — no cascading.
-        for (u32 mip = 1; mip < mipCount; ++mip) {
-            const auto& targetLevel = tex.mipLevel(mip, layer);
-            MipImage mipResult =
-                pipeline.execute(originalMip, targetLevel.width, targetLevel.height);
+        originalByLayer.push_back(std::move(originalMip));
+    }
 
-            // Collapse back to the texture's native channel count for writing.
-            if (needNormalExpansion)
-                writeMip(tex, mip, layer, collapseNormalFromRGBA(mipResult, originalChannelCount));
-            else
-                writeMip(tex, mip, layer, mipResult);
+    // Every mip is generated directly from the original — no cascading.
+    for (u32 layer = 0; layer < layerCount; ++layer) {
+        for (u32 mip = 1; mip < mipCount; ++mip) {
+            submitJob([&, layer, mip]() {
+                const auto& targetLevel = tex.mipLevel(mip, layer);
+                MipImage mipResult =
+                    pipeline.execute(originalByLayer[layer], targetLevel.width, targetLevel.height);
+
+                // Collapse back to the texture's native channel count for writing.
+                if (needNormalExpansion) {
+                    writeMip(tex, mip, layer,
+                             collapseNormalFromRGBA(mipResult, originalChannelCount));
+                } else {
+                    writeMip(tex, mip, layer, mipResult);
+                }
+            });
         }
     }
+
+    if (usePool)
+        pool->wait_idle();
+    return firstError;
 }
 
 } // namespace whiteout::textures::mipmap

@@ -150,12 +150,12 @@ void encode_block(const u8* rgba, u8* out, Quality quality) {
 // ============================================================================
 
 std::optional<Texture> encodeTexture(const Texture& src, Quality quality, std::string* out_error,
-                                     u32 thread_count) {
+                                     interfaces::WorkerPool* pool) {
     return transform_texture_impl(
         src, PixelFormat::RGBA8, PixelFormat::BC7, "bc7::encodeTexture",
-        [quality, thread_count](std::span<const u8> data, u32 w, u32 h) {
+        [quality, pool](std::span<const u8> data, u32 w, u32 h) {
             return encode_image_rgba8<16>(data, w, h,
-                [quality](const u8* b, u8* o) { encode_block(b, o, quality); }, thread_count);
+                [quality](const u8* b, u8* o) { encode_block(b, o, quality); }, pool);
         },
         out_error);
 }

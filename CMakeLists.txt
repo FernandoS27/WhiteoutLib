@@ -15,7 +15,10 @@ endif()
 add_library(whiteout_lib
     # Common
     src/whiteout/common_types.cpp
-    src/whiteout/utils.cpp
+    # src/whiteout/utils/vertex_buffer.cpp
+    src/whiteout/utils/simple_thread_pool.cpp
+    src/whiteout/utils/timeline_semaphore.cpp
+    src/whiteout/utils/os_file_system.cpp
     src/whiteout/vector_types.cpp
     src/whiteout/common/bit_io.cpp
     src/whiteout/common/huffman_table.cpp
@@ -173,6 +176,7 @@ if(WHITEOUT_ENABLE_CASC)
 
     add_library(whiteout_casc
         src/whiteout/casc/storage.cpp
+        src/whiteout/casc/casc_file_system.cpp
     )
 
     target_include_directories(whiteout_casc PUBLIC

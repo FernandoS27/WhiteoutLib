@@ -1,5 +1,7 @@
 # WhiteoutLib
 
+> **Alpha Stage:** This library is currently in early alpha. A lot of the design is actively being iterated on and may change significantly between versions.
+
 WhiteoutLib is a C++ library for reading and writing 3D model & texture formats used in Blizzard Entertainment games.
 It is inspired by StormLib, a library used by older Blizzard games to handle proprietary file formats like BLP, MDX, and MPQ. 
 

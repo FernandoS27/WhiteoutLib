@@ -11,16 +11,15 @@
 
 #include <algorithm>
 #include <array>
-#include <atomic>
 #include <cassert>
 #include <cstring>
 #include <optional>
 #include <span>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include <whiteout/common_types.h>
+#include <whiteout/interfaces.h>
 #include <whiteout/textures/texture.h>
 
 namespace whiteout::textures {
@@ -292,30 +291,27 @@ void scatter_channel_block(const std::array<u8, 16>& values, u32 width, u32 heig
 // Parallel tile dispatch utility.
 //
 // Divides the block grid into tiles of up to kTileBlocks×kTileBlocks blocks
-// (64×64 pixels) and distributes them across worker threads.
+// (64×64 pixels) and submits them to a WorkerPool.
 //
-//   thread_count = 1 → serial (no threads spawned)
-//   thread_count = 0 → auto (std::thread::hardware_concurrency())
-//   thread_count > 1 → use that many threads
+//   pool = nullptr → serial execution on the calling thread
+//   pool != nullptr → each tile is submitted as a WorkerTask; pool->wait_idle()
+//                     is called before returning
 //
 // TileFn signature: void(u32 bx_start, u32 by_start, u32 bx_end, u32 by_end)
 // Each invocation processes all blocks in [bx_start,bx_end) × [by_start,by_end).
 // ============================================================================
 
 template <typename TileFn>
-void parallel_for_tiles(u32 blocks_wide, u32 blocks_tall, u32 thread_count, TileFn&& tile_fn) {
+void parallel_for_tiles(u32 blocks_wide, u32 blocks_tall,
+                        interfaces::WorkerPool* pool, TileFn&& tile_fn) {
     constexpr u32 kTileBlocks = 16; // 16×16 blocks = 64×64 pixels max
 
     const u32 tiles_wide = (blocks_wide + kTileBlocks - 1) / kTileBlocks;
     const u32 tiles_tall = (blocks_tall + kTileBlocks - 1) / kTileBlocks;
     const u32 total_tiles = tiles_wide * tiles_tall;
 
-    // Resolve auto thread count.
-    if (thread_count == 0)
-        thread_count = std::max(1u, std::thread::hardware_concurrency());
-
-    if (thread_count <= 1 || total_tiles <= 1) {
-        // Serial path — no threads spawned.
+    if (!pool || total_tiles <= 1) {
+        // Serial path — no pool.
         for (u32 ty = 0; ty < tiles_tall; ++ty) {
             for (u32 tx = 0; tx < tiles_wide; ++tx) {
                 const u32 bx0 = tx * kTileBlocks;
@@ -327,31 +323,19 @@ void parallel_for_tiles(u32 blocks_wide, u32 blocks_tall, u32 thread_count, Tile
         return;
     }
 
-    // Parallel path — work-stealing via atomic counter.
-    const u32 num_threads = std::min(thread_count, total_tiles);
-    std::atomic<u32> next_tile{0};
-
-    auto worker = [&]() {
-        for (;;) {
-            const u32 tile_idx = next_tile.fetch_add(1, std::memory_order_relaxed);
-            if (tile_idx >= total_tiles)
-                break;
-            const u32 ty = tile_idx / tiles_wide;
-            const u32 tx = tile_idx % tiles_wide;
+    // Parallel path — submit each tile to the pool.
+    for (u32 ty = 0; ty < tiles_tall; ++ty) {
+        for (u32 tx = 0; tx < tiles_wide; ++tx) {
             const u32 bx0 = tx * kTileBlocks;
             const u32 by0 = ty * kTileBlocks;
-            tile_fn(bx0, by0, std::min(bx0 + kTileBlocks, blocks_wide),
-                    std::min(by0 + kTileBlocks, blocks_tall));
+            const u32 bx1 = std::min(bx0 + kTileBlocks, blocks_wide);
+            const u32 by1 = std::min(by0 + kTileBlocks, blocks_tall);
+            pool->submit(interfaces::WorkerTask{
+                [=, &tile_fn]() { tile_fn(bx0, by0, bx1, by1); }
+            });
         }
-    };
-
-    std::vector<std::thread> threads;
-    threads.reserve(num_threads - 1);
-    for (u32 i = 1; i < num_threads; ++i)
-        threads.emplace_back(worker);
-    worker(); // current thread participates
-    for (auto& t : threads)
-        t.join();
+    }
+    pool->wait_idle();
 }
 
 // ============================================================================
@@ -366,7 +350,8 @@ void parallel_for_tiles(u32 blocks_wide, u32 blocks_tall, u32 thread_count, Tile
 
 template <u32 BlockBytes, typename DecodeBlockF>
 std::vector<u8> decode_image_rgba8(std::span<const u8> data, u32 width, u32 height,
-                                   DecodeBlockF decode_block_fn, u32 thread_count = 1) {
+                                   DecodeBlockF decode_block_fn,
+                                   interfaces::WorkerPool* pool = nullptr) {
     assert(width > 0 && height > 0);
 
     const u32 blocks_wide = (width + 3) / 4;
@@ -375,7 +360,7 @@ std::vector<u8> decode_image_rgba8(std::span<const u8> data, u32 width, u32 heig
 
     std::vector<u8> result(static_cast<size_t>(width) * height * 4, 0);
 
-    parallel_for_tiles(blocks_wide, blocks_tall, thread_count,
+    parallel_for_tiles(blocks_wide, blocks_tall, pool,
         [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
             for (u32 block_y = by0; block_y < by1; ++block_y) {
                 for (u32 block_x = bx0; block_x < bx1; ++block_x) {
@@ -403,7 +388,8 @@ std::vector<u8> decode_image_rgba8(std::span<const u8> data, u32 width, u32 heig
 
 template <u32 BlockBytes, typename EncodeBlockF>
 std::vector<u8> encode_image_rgba8(std::span<const u8> rgba, u32 width, u32 height,
-                                   EncodeBlockF encode_block_fn, u32 thread_count = 1) {
+                                   EncodeBlockF encode_block_fn,
+                                   interfaces::WorkerPool* pool = nullptr) {
     assert(width > 0 && height > 0);
     assert(rgba.size() >= static_cast<size_t>(width) * height * 4);
 
@@ -411,7 +397,7 @@ std::vector<u8> encode_image_rgba8(std::span<const u8> rgba, u32 width, u32 heig
     const u32 blocks_tall = (height + 3) / 4;
     std::vector<u8> result(static_cast<size_t>(blocks_wide) * blocks_tall * BlockBytes);
 
-    parallel_for_tiles(blocks_wide, blocks_tall, thread_count,
+    parallel_for_tiles(blocks_wide, blocks_tall, pool,
         [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
             for (u32 block_y = by0; block_y < by1; ++block_y) {
                 for (u32 block_x = bx0; block_x < bx1; ++block_x) {

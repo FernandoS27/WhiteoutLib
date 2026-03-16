@@ -34,11 +34,11 @@ void decode_block(const u8* block, u8* out) {
 } // anonymous namespace
 
 std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error,
-                                     u32 thread_count) {
+                                     interfaces::WorkerPool* pool) {
     return transform_texture_impl(
         src, PixelFormat::BC3, PixelFormat::RGBA8, "bc3::decodeTexture",
-        [thread_count](std::span<const u8> data, u32 w, u32 h) {
-            return decode_image_rgba8<16>(data, w, h, decode_block, thread_count);
+        [pool](std::span<const u8> data, u32 w, u32 h) {
+            return decode_image_rgba8<16>(data, w, h, decode_block, pool);
         },
         out_error);
 }
@@ -64,11 +64,11 @@ void encode_block(const u8* rgba, u8* out) {
 } // anonymous namespace
 
 std::optional<Texture> encodeTexture(const Texture& src, std::string* out_error,
-                                     u32 thread_count) {
+                                     interfaces::WorkerPool* pool) {
     return transform_texture_impl(
         src, PixelFormat::RGBA8, PixelFormat::BC3, "bc3::encodeTexture",
-        [thread_count](std::span<const u8> data, u32 w, u32 h) {
-            return encode_image_rgba8<16>(data, w, h, encode_block, thread_count);
+        [pool](std::span<const u8> data, u32 w, u32 h) {
+            return encode_image_rgba8<16>(data, w, h, encode_block, pool);
         },
         out_error);
 }

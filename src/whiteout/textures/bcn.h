@@ -15,6 +15,7 @@
 #include <optional>
 #include <string>
 
+#include <whiteout/interfaces.h>
 #include <whiteout/textures/texture.h>
 
 namespace whiteout::textures::bcn {
@@ -70,13 +71,14 @@ constexpr bool can_encode(PixelFormat source, PixelFormat target) {
 /// @param target   The target BCn pixel format.
 /// @param out_error  Optional pointer to receive an error description on
 ///                   failure.
-/// @param thread_count  Number of threads (1 = serial, 0 = auto, >1 = that
-///                      many threads).  Work is split into 64×64-pixel tiles.
+/// @param pool  Optional WorkerPool for parallel tile processing. Pass
+///              nullptr (default) for serial execution on the calling thread.
 /// @return The compressed texture, or std::nullopt on error.
 ///
 /// @note  For full control, use the per-format encode headers directly.
 std::optional<Texture> encode(const Texture& src, PixelFormat target,
-                              std::string* out_error = nullptr, u32 thread_count = 1);
+                              std::string* out_error = nullptr,
+                              interfaces::WorkerPool* pool = nullptr);
 
 /// Decode a BCn-compressed texture to its uncompressed representation.
 ///
@@ -84,11 +86,11 @@ std::optional<Texture> encode(const Texture& src, PixelFormat target,
 ///
 /// @param src       Source compressed texture.
 /// @param out_error Optional pointer to receive an error description.
-/// @param thread_count  Number of threads (1 = serial, 0 = auto, >1 = that
-///                      many threads).  Work is split into 64×64-pixel tiles.
+/// @param pool  Optional WorkerPool for parallel tile processing. Pass
+///              nullptr (default) for serial execution on the calling thread.
 /// @return The decoded texture (RGBA8 or RGBA32F), or std::nullopt on error.
 std::optional<Texture> decode(const Texture& src, std::string* out_error = nullptr,
-                              u32 thread_count = 1);
+                              interfaces::WorkerPool* pool = nullptr);
 
 } // namespace whiteout::textures::bcn
 

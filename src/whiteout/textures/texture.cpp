@@ -464,7 +464,7 @@ void Texture::format(PixelFormat new_fmt) {
     *this = copyAsFormat(new_fmt);
 }
 
-Texture Texture::copyAsFormat(PixelFormat new_fmt) const {
+Texture Texture::copyAsFormat(PixelFormat new_fmt, interfaces::WorkerPool* pool) const {
     // 1. Same format — just copy.
     if (impl_->format == new_fmt)
         return *this;
@@ -472,10 +472,10 @@ Texture Texture::copyAsFormat(PixelFormat new_fmt) const {
     // 2. If source is compressed, decode it first.
     if (bcn::isCompressed(impl_->format)) {
         std::string err;
-        auto decoded = bcn::decode(*this, &err);
+        auto decoded = bcn::decode(*this, &err, pool);
         if (!decoded)
             throw std::runtime_error("Texture::copyAsFormat: decode failed: " + err);
-        return decoded->copyAsFormat(new_fmt);
+        return decoded->copyAsFormat(new_fmt, pool);
     }
 
     // Source is now guaranteed to be uncompressed.
@@ -506,19 +506,19 @@ Texture Texture::copyAsFormat(PixelFormat new_fmt) const {
     }
 
     std::string err;
-    auto encoded = bcn::encode(*src_ptr, new_fmt, &err);
+    auto encoded = bcn::encode(*src_ptr, new_fmt, &err, pool);
     if (!encoded)
         throw std::runtime_error("Texture::copyAsFormat: encode failed: " + err);
     return std::move(*encoded);
 }
 
-std::optional<Texture> Texture::copyFromNormalToRGBA() const {
+std::optional<Texture> Texture::copyFromNormalToRGBA(interfaces::WorkerPool* pool) const {
     if (kind() != TextureKind::Normal)
         return std::nullopt;
 
     if (bcn::isCompressed(impl_->format)) {
         std::string err;
-        auto decoded = bcn::decode(*this, &err);
+        auto decoded = bcn::decode(*this, &err, pool);
         if (!decoded)
             return std::nullopt;
 
@@ -530,8 +530,8 @@ std::optional<Texture> Texture::copyFromNormalToRGBA() const {
     return copy_normal_to_rgba8(*this, impl_->format);
 }
 
-void Texture::generateMipmaps() {
-    mipmap::generateMipmaps(*this);
+std::optional<std::string> Texture::generateMipmaps(interfaces::WorkerPool* pool) {
+    return mipmap::generateMipmaps(*this, pool);
 }
 
 bool Texture::swapChannels(Channel a, Channel b) {

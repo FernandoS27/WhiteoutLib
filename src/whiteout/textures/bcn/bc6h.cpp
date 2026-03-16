@@ -516,7 +516,7 @@ inline f32 half_to_float_quick(u16 h) {
 }
 
 std::vector<f32> decode_image(std::span<const u8> bc6h, u32 width, u32 height,
-                              u32 thread_count) {
+                              interfaces::WorkerPool* pool) {
     assert(width > 0 && height > 0);
 
     const u32 blocks_wide = (width + 3) / 4;
@@ -526,7 +526,7 @@ std::vector<f32> decode_image(std::span<const u8> bc6h, u32 width, u32 height,
     // Decode into u16 half-float intermediary, then expand to f32.
     std::vector<u16> half_buf(static_cast<size_t>(width) * height * 4, 0);
 
-    parallel_for_tiles(blocks_wide, blocks_tall, thread_count,
+    parallel_for_tiles(blocks_wide, blocks_tall, pool,
         [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
             for (u32 block_y = by0; block_y < by1; ++block_y) {
                 for (u32 block_x = bx0; block_x < bx1; ++block_x) {
@@ -551,11 +551,11 @@ std::vector<f32> decode_image(std::span<const u8> bc6h, u32 width, u32 height,
 } // anonymous namespace
 
 std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error,
-                                     u32 thread_count) {
+                                     interfaces::WorkerPool* pool) {
     return transform_texture_impl(
         src, PixelFormat::BC6H, PixelFormat::RGBA32F, "bc6h::decodeTexture",
-        [thread_count](std::span<const u8> data, u32 w, u32 h) {
-            return decode_image(data, w, h, thread_count);
+        [pool](std::span<const u8> data, u32 w, u32 h) {
+            return decode_image(data, w, h, pool);
         },
         out_error);
 }
@@ -703,7 +703,7 @@ void encode_block(const u16* rgba_f16, u8* out) {
 }
 
 std::vector<u8> encode_image(std::span<const u16> rgba_f16, u32 width, u32 height,
-                             u32 thread_count) {
+                             interfaces::WorkerPool* pool) {
     assert(width > 0 && height > 0);
     assert(rgba_f16.size() >= static_cast<size_t>(width) * height * 4);
 
@@ -711,7 +711,7 @@ std::vector<u8> encode_image(std::span<const u16> rgba_f16, u32 width, u32 heigh
     const u32 blocks_tall = (height + 3) / 4;
     std::vector<u8> result(static_cast<size_t>(blocks_wide) * blocks_tall * 16);
 
-    parallel_for_tiles(blocks_wide, blocks_tall, thread_count,
+    parallel_for_tiles(blocks_wide, blocks_tall, pool,
         [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
             for (u32 block_y = by0; block_y < by1; ++block_y) {
                 for (u32 block_x = bx0; block_x < bx1; ++block_x) {
@@ -730,7 +730,7 @@ std::vector<u8> encode_image(std::span<const u16> rgba_f16, u32 width, u32 heigh
 } // anonymous namespace
 
 std::optional<Texture> encodeTexture(const Texture& src, std::string* out_error,
-                                     u32 thread_count) {
+                                     interfaces::WorkerPool* pool) {
     if (src.format() != PixelFormat::RGBA32F) {
         if (out_error)
             *out_error = "bc6h::encodeTexture: source must be RGBA32F";
@@ -739,13 +739,13 @@ std::optional<Texture> encodeTexture(const Texture& src, std::string* out_error,
 
     return transform_texture_impl(
         src, src.format(), PixelFormat::BC6H, "bc6h::encodeTexture",
-        [thread_count](std::span<const u8> data, u32 w, u32 h) {
+        [pool](std::span<const u8> data, u32 w, u32 h) {
             auto src_f32 =
                 std::span<const f32>(reinterpret_cast<const f32*>(data.data()), data.size() / 4);
             std::vector<u16> temp(src_f32.size());
             for (size_t i = 0; i < src_f32.size(); ++i)
                 temp[i] = float_to_half(src_f32[i]);
-            return encode_image(temp, w, h, thread_count);
+            return encode_image(temp, w, h, pool);
         },
         out_error);
 }

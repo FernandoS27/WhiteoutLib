@@ -37,6 +37,11 @@ namespace whiteout::textures::mipmap {
 /// be decompressed first via `format()` or `copyAsFormat()`.
 ///
 /// If the texture has only one mip level, this function is a no-op.
-void generateMipmaps(Texture& tex);
+///
+/// @param pool Optional WorkerPool used to parallelize independent
+///             (layer, mip) jobs. If null, processing is single-threaded.
+/// @return std::nullopt on success; std::optional<std::string> with error
+///         message on failure. No exceptions are thrown.
+std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool* pool = nullptr);
 
 } // namespace whiteout::textures::mipmap

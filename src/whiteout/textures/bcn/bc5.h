@@ -25,9 +25,10 @@ namespace bc5 {
 ///
 /// @param src       Source texture (must be BC5).
 /// @param out_error Optional string to receive an error message on failure.
+/// @param pool  Optional WorkerPool for parallel tile processing.
 /// @return The decoded texture, or std::nullopt on error.
 std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error = nullptr,
-                                     u32 thread_count = 1);
+                                     interfaces::WorkerPool* pool = nullptr);
 
 // ---- Encode ----------------------------------------------------------------
 
@@ -38,10 +39,10 @@ std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error 
 ///
 /// @param src       Source texture (must be RG8).
 /// @param out_error Optional string to receive an error message on failure.
-/// @param thread_count  Number of threads (1 = serial, 0 = auto, >1 = N threads).
+/// @param pool  Optional WorkerPool for parallel tile processing.
 /// @return The compressed texture, or std::nullopt on error.
 std::optional<Texture> encodeTexture(const Texture& src, std::string* out_error = nullptr,
-                                     u32 thread_count = 1);
+                                     interfaces::WorkerPool* pool = nullptr);
 
 } // namespace bc5
 } // namespace whiteout::textures

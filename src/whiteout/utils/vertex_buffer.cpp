@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "whiteout/utils.h"
+#include "whiteout/utils/vertex_buffer.h"
 
 #include <cstring>
 #include <functional>
