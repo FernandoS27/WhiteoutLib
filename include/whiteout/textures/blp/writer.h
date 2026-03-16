@@ -32,6 +32,8 @@
 #include <whiteout/textures/writer.h>
 #include <whiteout/textures/texture.h>
 
+namespace whiteout::interfaces { class WorkerPool; }
+
 namespace whiteout::textures::blp {
 
 // ============================================================================
@@ -59,8 +61,10 @@ public:
     /**
      * @brief Construct a new Writer
      * @param writeMode Strictness mode for writing
+     * @param pool Optional WorkerPool for parallel quantization (nullptr = serial)
      */
-    explicit Writer(WriteMode writeMode = WriteMode::Lenient);
+    explicit Writer(WriteMode writeMode = WriteMode::Lenient,
+                    interfaces::WorkerPool* pool = nullptr);
 
     /// @brief Destructor (defined in .cpp for incomplete type)
     ~Writer();

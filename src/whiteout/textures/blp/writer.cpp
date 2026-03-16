@@ -26,7 +26,8 @@ namespace {
 // ============================================================================
 
 wu::QuantizeResult build_optimal_palette(const Texture& texture, u32 mipCount, bool dither,
-                                         f32 dither_strength) {
+                                         f32 dither_strength,
+                                         interfaces::WorkerPool* pool) {
     u64 total_pixels = 0;
     for (u32 mip = 0; mip < mipCount; ++mip) {
         const auto& mip_info = texture.mipLevel(mip);
@@ -42,6 +43,8 @@ wu::QuantizeResult build_optimal_palette(const Texture& texture, u32 mipCount, b
     }
 
     auto quantizer = wu::Quantizer();
+    if (pool)
+        quantizer.workerPool(pool);
     if (dither) {
         const auto& base = texture.mipLevel(0);
         quantizer.ditherAware(base.width, base.height, dither_strength);
@@ -129,6 +132,8 @@ struct WriteContext {
 
 class Writer::Impl : public IssueSink {
 public:
+    interfaces::WorkerPool* pool = nullptr;
+
     std::vector<u8> write(const Texture& texture, const SaveOptions& opts);
 
 private:
@@ -241,7 +246,7 @@ std::vector<std::vector<u8>> Writer::Impl::encodeMipPayloads(WriteContext& ctx) 
     wu::QuantizeResult quantized;
     if (ctx.encoding == BlpEncoding::Palettized) {
         quantized = build_optimal_palette(*ctx.texture, ctx.mipCount, ctx.opts.dither,
-                                          ctx.opts.ditherStrength);
+                                          ctx.opts.ditherStrength, pool);
         std::memcpy(ctx.palette.data(), quantized.palette.data(), sizeof(ctx.palette));
     }
 
@@ -394,8 +399,10 @@ std::vector<u8> Writer::Impl::buildBlp2(const WriteContext& ctx,
     return output;
 }
 
-Writer::Writer(WriteMode writeMode) : pImpl(std::make_unique<Impl>()) {
+Writer::Writer(WriteMode writeMode, interfaces::WorkerPool* pool)
+    : pImpl(std::make_unique<Impl>()) {
     pImpl->strict_mode = (writeMode == WriteMode::Strict);
+    pImpl->pool = pool;
 }
 
 Writer::~Writer() = default;

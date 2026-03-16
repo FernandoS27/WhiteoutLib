@@ -33,6 +33,8 @@
 #include <whiteout/common_types.h>
 #include <whiteout/textures/texture.h>
 
+namespace whiteout::interfaces { class WorkerPool; }
+
 namespace whiteout::textures::gif {
 
 // ============================================================================
@@ -69,7 +71,8 @@ public:
         Lenient  ///< Collect issues, return empty data on failure.
     };
 
-    explicit Writer(WriteMode writeMode = WriteMode::Lenient);
+    explicit Writer(WriteMode writeMode = WriteMode::Lenient,
+                    interfaces::WorkerPool* pool = nullptr);
     ~Writer();
 
     Writer(const Writer&) = delete;

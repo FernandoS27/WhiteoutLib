@@ -191,6 +191,8 @@ void write_netscape_ext(std::vector<u8>& output, u16 loop_count) {
 
 class Writer::Impl : public IssueSink {
 public:
+    interfaces::WorkerPool* pool = nullptr;
+
     std::vector<u8> write(const std::vector<Texture>& frames, const SaveOptions& opts);
 };
 
@@ -249,8 +251,11 @@ std::vector<u8> Writer::Impl::write(const std::vector<Texture>& frames, const Sa
     }
 
     // Build a single global 256-color palette from all frames.
-    auto quantized = wu::Quantizer().quantize(all_rgba.data(),
-                                              static_cast<u32>(pixel_count * frames.size()));
+    auto quantizer = wu::Quantizer();
+    if (pool)
+        quantizer.workerPool(pool);
+    auto quantized = quantizer.quantize(all_rgba.data(),
+                                        static_cast<u32>(pixel_count * frames.size()));
     const u32 color_count = quantized.color_count;
 
     // Build the GIF global color table (always 256 entries = 768 bytes).
@@ -342,8 +347,10 @@ std::vector<u8> Writer::Impl::write(const std::vector<Texture>& frames, const Sa
 // Writer — public interface
 // ============================================================================
 
-Writer::Writer(WriteMode writeMode) : pImpl(std::make_unique<Impl>()) {
+Writer::Writer(WriteMode writeMode, interfaces::WorkerPool* pool)
+    : pImpl(std::make_unique<Impl>()) {
     pImpl->strict_mode = (writeMode == WriteMode::Strict);
+    pImpl->pool = pool;
 }
 
 Writer::~Writer() = default;
