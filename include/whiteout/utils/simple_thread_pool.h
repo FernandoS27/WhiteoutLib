@@ -33,12 +33,12 @@ public:
     void submit(const interfaces::WorkerTask& task) override;
 
     /// Block until the pool has no pending or running tasks.
-    void wait_idle() override;
+    void waitIdle() override;
 
     /// Get the number of worker threads in this pool.
     ///
     /// @return Worker thread count.
-    size_t thread_count() const noexcept override;
+    size_t threadCount() const noexcept override;
 
 private:
     struct Impl;

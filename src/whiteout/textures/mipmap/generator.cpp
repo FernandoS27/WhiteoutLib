@@ -326,7 +326,7 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
         return std::nullopt;
 
     const u32 layerCount = tex.layerCount();
-    const bool usePool = pool != nullptr && pool->thread_count() > 1;
+    const bool usePool = pool != nullptr && pool->threadCount() > 1;
 
     std::optional<std::string> firstError;
     std::mutex errorMutex;

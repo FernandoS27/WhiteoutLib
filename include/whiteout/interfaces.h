@@ -52,10 +52,10 @@ public:
     virtual void submit(const WorkerTask& task) = 0;
 
     // Wait until pool idle
-    virtual void wait_idle() = 0;
+    virtual void waitIdle() = 0;
 
     // Worker thread count
-    virtual size_t thread_count() const noexcept = 0;
+    virtual size_t threadCount() const noexcept = 0;
 };
 
 class VirtualFileSystem {

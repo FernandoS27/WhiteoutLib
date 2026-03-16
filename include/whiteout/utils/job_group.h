@@ -6,6 +6,8 @@
 #include <memory>
 #include <cstddef>
 
+#include "../interfaces.h"
+
 namespace whiteout::utils {
 
 /// Thread-safe counter-based completion primitive for grouped jobs.
@@ -51,7 +53,13 @@ public:
     /// Check whether the group has no pending jobs.
     ///
     /// @return true if pending count is zero, false otherwise.
-    bool is_ready() const;
+    bool isReady() const;
+
+    /// Set a timeline semaphore to be signaled when the pending count reaches zero.
+    ///
+    /// @param sem Semaphore to signal on completion.
+    /// @param value Value to signal on the semaphore.
+    void signalOnComplete(interfaces::TimelineSemaphore* sem, interfaces::TimelineSemaphore::Value value);
 
 private:
     struct Impl;

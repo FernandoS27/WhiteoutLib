@@ -87,13 +87,13 @@ void SimpleThreadPool::submit(const interfaces::WorkerTask& task)
     m_impl->cv.notify_one();
 }
 
-void SimpleThreadPool::wait_idle()
+void SimpleThreadPool::waitIdle()
 {
     std::unique_lock<std::mutex> lock(m_impl->mutex);
     m_impl->doneCv.wait(lock, [this] { return m_impl->pendingCount == 0; });
 }
 
-size_t SimpleThreadPool::thread_count() const noexcept
+size_t SimpleThreadPool::threadCount() const noexcept
 {
     return m_impl->workers.size();
 }

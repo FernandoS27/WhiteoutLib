@@ -259,11 +259,11 @@ inline DitherParams make_dither_params(f32 strength) {
 /// When pool is null or count is small, runs serially on the calling thread.
 template <typename Fn>
 void parallel_for_chunks(u32 count, interfaces::WorkerPool* pool, Fn&& fn) {
-    if (!pool || pool->thread_count() <= 1 || count < 1024) {
+    if (!pool || pool->threadCount() <= 1 || count < 1024) {
         fn(0u, count);
         return;
     }
-    const u32 nThreads = static_cast<u32>(pool->thread_count());
+    const u32 nThreads = static_cast<u32>(pool->threadCount());
     const u32 chunk = (count + nThreads - 1) / nThreads;
     utils::JobGroup group;
     for (u32 t = 0; t < nThreads; ++t) {
@@ -588,8 +588,8 @@ void kmeans_refine(const u8* rgba, u32 pixel_count, std::array<u32, MAX_COLORS>&
     // the highest-error pixel to prevent palette collapse.
     const u32 weight_threshold = std::max(pixel_count / (color_count * 16u), 1u);
 
-    const bool usePool = pool && pool->thread_count() > 1 && pixel_count >= 1024;
-    const u32 nThreads = usePool ? static_cast<u32>(pool->thread_count()) : 1;
+    const bool usePool = pool && pool->threadCount() > 1 && pixel_count >= 1024;
+    const u32 nThreads = usePool ? static_cast<u32>(pool->threadCount()) : 1;
 
     // Per-thread accumulators for parallel reduction.
     std::vector<std::vector<ColorF>> thread_sums(nThreads, std::vector<ColorF>(color_count));
@@ -919,8 +919,8 @@ void QuantizeResult::refineDitherAware(const u8* rgba, u32 width, u32 height, f3
 
     const u32 starve_threshold = std::max(pixel_count / (color_count * 16u), 1u);
 
-    const bool usePool = pool && pool->thread_count() > 1 && pixel_count >= 1024;
-    const u32 nThreads = usePool ? static_cast<u32>(pool->thread_count()) : 1;
+    const bool usePool = pool && pool->threadCount() > 1 && pixel_count >= 1024;
+    const u32 nThreads = usePool ? static_cast<u32>(pool->threadCount()) : 1;
 
     // Per-thread accumulators.
     std::vector<std::vector<ColorF>> thread_accum(nThreads, std::vector<ColorF>(color_count));
