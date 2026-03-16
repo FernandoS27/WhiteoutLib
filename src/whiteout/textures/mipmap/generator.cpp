@@ -17,6 +17,8 @@
 #include <cstring>
 #include <mutex>
 
+#include <whiteout/utils/job_group.h>
+
 namespace whiteout::textures::mipmap {
 
 // ============================================================================
@@ -330,6 +332,8 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
     std::mutex errorMutex;
     std::atomic<bool> hasError{false};
 
+    utils::JobGroup jobGroup;
+
     auto captureError = [&](const std::string& errMsg) {
         std::lock_guard<std::mutex> guard(errorMutex);
         if (!firstError) {
@@ -363,7 +367,9 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
                     captureError("Mipmap generation error: unknown exception");
                 }
             }
+            jobGroup.done();
         };
+        jobGroup.add(1);
         pool->submit(task);
     };
 
@@ -419,7 +425,7 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
         }
 
         if (usePool)
-            pool->wait_idle();
+            jobGroup.wait();
         return firstError;
     }
 
@@ -462,7 +468,7 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
     }
 
     if (usePool)
-        pool->wait_idle();
+        jobGroup.wait();
     return firstError;
 }
 

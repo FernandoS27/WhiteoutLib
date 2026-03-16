@@ -26,6 +26,8 @@
 
 #include "blue_noise.h"
 
+#include <whiteout/interfaces.h>
+#include <whiteout/utils/job_group.h>
 #include <whiteout/vector_types.h>
 
 #include <algorithm>
@@ -247,6 +249,36 @@ struct DitherParams {
 
 inline DitherParams make_dither_params(f32 strength) {
     return {static_cast<f64>(strength) * 32.0, 1.0 / static_cast<f64>(BLUE_NOISE_TOTAL - 1)};
+}
+
+// ============================================================================
+// Parallel for utility — splits [0, count) into chunks and submits to pool
+// ============================================================================
+
+/// Invoke fn(begin, end) for each chunk of [0, count).
+/// When pool is null or count is small, runs serially on the calling thread.
+template <typename Fn>
+void parallel_for_chunks(u32 count, interfaces::WorkerPool* pool, Fn&& fn) {
+    if (!pool || pool->thread_count() <= 1 || count < 1024) {
+        fn(0u, count);
+        return;
+    }
+    const u32 nThreads = static_cast<u32>(pool->thread_count());
+    const u32 chunk = (count + nThreads - 1) / nThreads;
+    utils::JobGroup group;
+    for (u32 t = 0; t < nThreads; ++t) {
+        const u32 begin = t * chunk;
+        const u32 end = std::min(begin + chunk, count);
+        if (begin >= end) break;
+        group.add(1);
+        interfaces::WorkerTask task{
+            [begin, end, &fn, &group]() {
+                fn(begin, end);
+                group.done();
+            }};
+        pool->submit(task);
+    }
+    group.wait();
 }
 
 /// Compute the blue-noise dither offset for a pixel at (x, y).
@@ -533,7 +565,8 @@ bool cut(const Moments& moments, Box& lower, Box& upper) {
 // ============================================================================
 
 void kmeans_refine(const u8* rgba, u32 pixel_count, std::array<u32, MAX_COLORS>& palette,
-                   u32 color_count, u32 iterations, bool srgb) {
+                   u32 color_count, u32 iterations, bool srgb,
+                   interfaces::WorkerPool* pool) {
     if (color_count <= 1 || pixel_count == 0 || iterations == 0)
         return;
 
@@ -544,27 +577,69 @@ void kmeans_refine(const u8* rgba, u32 pixel_count, std::array<u32, MAX_COLORS>&
 
     // Pre-compute Lab for every pixel.
     std::vector<Lab> pixel_labs(pixel_count);
-    for (u32 p = 0; p < pixel_count; ++p)
-        pixel_labs[p] = pixel_lab(rgba, p, lut);
+    parallel_for_chunks(pixel_count, pool, [&](u32 begin, u32 end) {
+        for (u32 p = begin; p < end; ++p)
+            pixel_labs[p] = pixel_lab(rgba, p, lut);
+    });
 
-    std::vector<ColorF> sums(color_count);
-    std::vector<u32> counts(color_count);
     std::vector<u8> assignments(pixel_count);
 
     // Minimum cluster weight — below this threshold we reinitialize from
     // the highest-error pixel to prevent palette collapse.
     const u32 weight_threshold = std::max(pixel_count / (color_count * 16u), 1u);
 
+    const bool usePool = pool && pool->thread_count() > 1 && pixel_count >= 1024;
+    const u32 nThreads = usePool ? static_cast<u32>(pool->thread_count()) : 1;
+
+    // Per-thread accumulators for parallel reduction.
+    std::vector<std::vector<ColorF>> thread_sums(nThreads, std::vector<ColorF>(color_count));
+    std::vector<std::vector<u32>> thread_counts(nThreads, std::vector<u32>(color_count));
+
     for (u32 iter = 0; iter < iterations; ++iter) {
-        std::fill(sums.begin(), sums.end(), ColorF{0, 0, 0});
-        std::fill(counts.begin(), counts.end(), 0u);
+        for (u32 t = 0; t < nThreads; ++t) {
+            std::fill(thread_sums[t].begin(), thread_sums[t].end(), ColorF{0, 0, 0});
+            std::fill(thread_counts[t].begin(), thread_counts[t].end(), 0u);
+        }
 
         // Assign each pixel to the nearest centroid using CIELAB ΔE².
-        for (u32 p = 0; p < pixel_count; ++p) {
-            const u32 best = find_nearest(pixel_labs[p], centroid_labs);
-            assignments[p] = static_cast<u8>(best);
-            sums[best] += read_pixel_rgb(rgba, p);
-            counts[best]++;
+        if (usePool) {
+            const u32 chunk = (pixel_count + nThreads - 1) / nThreads;
+            utils::JobGroup group;
+            for (u32 t = 0; t < nThreads; ++t) {
+                const u32 begin = t * chunk;
+                const u32 end = std::min(begin + chunk, pixel_count);
+                if (begin >= end) break;
+                group.add(1);
+                interfaces::WorkerTask task{
+                    [&, t, begin, end]() {
+                        for (u32 p = begin; p < end; ++p) {
+                            const u32 best = find_nearest(pixel_labs[p], centroid_labs);
+                            assignments[p] = static_cast<u8>(best);
+                            thread_sums[t][best] += read_pixel_rgb(rgba, p);
+                            thread_counts[t][best]++;
+                        }
+                        group.done();
+                    }};
+                pool->submit(task);
+            }
+            group.wait();
+        } else {
+            for (u32 p = 0; p < pixel_count; ++p) {
+                const u32 best = find_nearest(pixel_labs[p], centroid_labs);
+                assignments[p] = static_cast<u8>(best);
+                thread_sums[0][best] += read_pixel_rgb(rgba, p);
+                thread_counts[0][best]++;
+            }
+        }
+
+        // Reduce per-thread accumulators.
+        std::vector<ColorF> sums(color_count, ColorF{0, 0, 0});
+        std::vector<u32> counts(color_count, 0u);
+        for (u32 t = 0; t < nThreads; ++t) {
+            for (u32 c = 0; c < color_count; ++c) {
+                sums[c] += thread_sums[t][c];
+                counts[c] += thread_counts[t][c];
+            }
         }
 
         // Recompute centroids.
@@ -602,22 +677,28 @@ void kmeans_refine(const u8* rgba, u32 pixel_count, std::array<u32, MAX_COLORS>&
 // ============================================================================
 
 void rebuild_tag_volume_nearest(const std::array<u32, MAX_COLORS>& palette, u32 color_count,
-                                std::vector<u8>& tag, bool srgb) {
+                                std::vector<u8>& tag, bool srgb,
+                                interfaces::WorkerPool* pool) {
     tag.assign(HIST_TOTAL, 0);
     const auto pal_labs = palette_to_labs(palette, color_count, srgb);
 
     // Each bin center maps to the representative color at (bin - 1) * 8 + 4.
-    for (i32 ri = 1; ri < HIST_SIZE; ++ri) {
-        const f64 rc = (ri - 1) * 8.0 + 4.0;
-        for (i32 gi = 1; gi < HIST_SIZE; ++gi) {
-            const f64 gc = (gi - 1) * 8.0 + 4.0;
-            for (i32 bi = 1; bi < HIST_SIZE; ++bi) {
-                const f64 bc = (bi - 1) * 8.0 + 4.0;
-                tag[idx(ri, gi, bi)] =
-                    static_cast<u8>(find_nearest(rgb_to_lab(rc, gc, bc, srgb), pal_labs));
+    // Parallelize by r-slices (32 slices of 33×33 work each).
+    constexpr u32 rSlices = HIST_SIZE - 1; // 32
+    parallel_for_chunks(rSlices, pool, [&](u32 begin, u32 end) {
+        for (u32 s = begin; s < end; ++s) {
+            const i32 ri = static_cast<i32>(s) + 1;
+            const f64 rc = (ri - 1) * 8.0 + 4.0;
+            for (i32 gi = 1; gi < HIST_SIZE; ++gi) {
+                const f64 gc = (gi - 1) * 8.0 + 4.0;
+                for (i32 bi = 1; bi < HIST_SIZE; ++bi) {
+                    const f64 bc = (bi - 1) * 8.0 + 4.0;
+                    tag[idx(ri, gi, bi)] =
+                        static_cast<u8>(find_nearest(rgb_to_lab(rc, gc, bc, srgb), pal_labs));
+                }
             }
         }
-    }
+    });
 }
 
 } // anonymous namespace
@@ -635,6 +716,7 @@ struct Quantizer::Impl {
     u32 ditherHeight = 0;
     f32 ditherStrength = 0.0f;
     u32 ditherIterations = 5;
+    interfaces::WorkerPool* pool = nullptr;
 };
 
 // ============================================================================
@@ -670,11 +752,21 @@ Quantizer& Quantizer::ditherAware(u32 width, u32 height, f32 strength, u32 itera
     return *this;
 }
 
+Quantizer& Quantizer::workerPool(interfaces::WorkerPool* pool) {
+    m_impl->pool = pool;
+    return *this;
+}
+
 // ============================================================================
 // Quantizer::quantize — main entry point
 // ============================================================================
 
 QuantizeResult Quantizer::quantize(const u8* rgba, u32 pixel_count) const {
+    return quantize(rgba, pixel_count, m_impl->pool);
+}
+
+QuantizeResult Quantizer::quantize(const u8* rgba, u32 pixel_count,
+                                   interfaces::WorkerPool* pool) const {
     QuantizeResult result;
     if (pixel_count == 0 || m_impl->maxColors == 0) {
         result.color_count = 0;
@@ -740,17 +832,18 @@ QuantizeResult Quantizer::quantize(const u8* rgba, u32 pixel_count) const {
     result.color_count = box_count;
 
     // --- 5. K-means refinement using full 8-bit pixel data ---
-    kmeans_refine(rgba, pixel_count, result.palette, box_count, d.kmeansIterations, d.srgbInput);
+    kmeans_refine(rgba, pixel_count, result.palette, box_count, d.kmeansIterations, d.srgbInput,
+                  pool);
 
     // --- 6. Build tag volume for fast pixel lookup ---
-    rebuild_tag_volume_nearest(result.palette, box_count, result.tag_, d.srgbInput);
+    rebuild_tag_volume_nearest(result.palette, box_count, result.tag_, d.srgbInput, pool);
 
     result.srgb_ = d.srgbInput;
 
     // --- 7. Dither-aware gradient descent refinement ---
     if (d.ditherAware && d.ditherWidth > 0 && d.ditherHeight > 0 && d.ditherStrength > 0.0f) {
         result.refineDitherAware(rgba, d.ditherWidth, d.ditherHeight, d.ditherStrength,
-                                d.ditherIterations);
+                                d.ditherIterations, pool);
     }
 
     return result;
@@ -803,7 +896,7 @@ void QuantizeResult::mapPixelsDithered(const u8* rgba, u32 width, u32 height, f3
 // ============================================================================
 
 void QuantizeResult::refineDitherAware(const u8* rgba, u32 width, u32 height, f32 strength,
-                                       u32 iterations) {
+                                       u32 iterations, interfaces::WorkerPool* pool) {
     if (color_count <= 1 || width == 0 || height == 0 || iterations == 0 || strength <= 0.0f)
         return;
 
@@ -817,14 +910,22 @@ void QuantizeResult::refineDitherAware(const u8* rgba, u32 width, u32 height, f3
     // Pre-compute Lab for all original pixels and per-pixel dither offsets.
     std::vector<Lab> pixel_labs(pixel_count);
     std::vector<f64> offsets(pixel_count);
-    for (u32 i = 0; i < pixel_count; ++i) {
-        pixel_labs[i] = pixel_lab(rgba, i, lut);
-        offsets[i] = dither_offset(i % width, i / width, noise, dp);
-    }
+    parallel_for_chunks(pixel_count, pool, [&](u32 begin, u32 end) {
+        for (u32 i = begin; i < end; ++i) {
+            pixel_labs[i] = pixel_lab(rgba, i, lut);
+            offsets[i] = dither_offset(i % width, i / width, noise, dp);
+        }
+    });
 
-    std::vector<ColorF> accum(color_count);
-    std::vector<u32> counts(color_count);
     const u32 starve_threshold = std::max(pixel_count / (color_count * 16u), 1u);
+
+    const bool usePool = pool && pool->thread_count() > 1 && pixel_count >= 1024;
+    const u32 nThreads = usePool ? static_cast<u32>(pool->thread_count()) : 1;
+
+    // Per-thread accumulators.
+    std::vector<std::vector<ColorF>> thread_accum(nThreads, std::vector<ColorF>(color_count));
+    std::vector<std::vector<u32>> thread_counts(nThreads, std::vector<u32>(color_count));
+    std::vector<f64> thread_errors(nThreads, 0.0);
 
     // Descending learning rate: start at 1.0, decay geometrically.
     f64 lr = 1.0;
@@ -834,20 +935,60 @@ void QuantizeResult::refineDitherAware(const u8* rgba, u32 width, u32 height, f3
     for (u32 iter = 0; iter < iterations; ++iter) {
         const auto pal_labs = colors_to_labs(pal_colors.data(), color_count, srgb_);
 
-        std::fill(accum.begin(), accum.end(), ColorF{0, 0, 0});
-        std::fill(counts.begin(), counts.end(), 0u);
+        for (u32 t = 0; t < nThreads; ++t) {
+            std::fill(thread_accum[t].begin(), thread_accum[t].end(), ColorF{0, 0, 0});
+            std::fill(thread_counts[t].begin(), thread_counts[t].end(), 0u);
+            thread_errors[t] = 0.0;
+        }
 
         // Simulate dithering: assign pixels based on dithered color,
         // but accumulate original pixel color for the gradient step.
-        f64 total_error = 0.0;
-        for (u32 i = 0; i < pixel_count; ++i) {
-            const auto px = read_pixel_rgb(rgba, i);
-            const auto dithered = clamp_color(px + ColorF{offsets[i], offsets[i], offsets[i]});
-            const u32 best = find_nearest(rgb_to_lab(dithered, srgb_), pal_labs);
+        if (usePool) {
+            const u32 chunk = (pixel_count + nThreads - 1) / nThreads;
+            utils::JobGroup group;
+            for (u32 t = 0; t < nThreads; ++t) {
+                const u32 begin = t * chunk;
+                const u32 end = std::min(begin + chunk, pixel_count);
+                if (begin >= end) break;
+                group.add(1);
+                interfaces::WorkerTask task{
+                    [&, t, begin, end]() {
+                        f64 local_error = 0.0;
+                        for (u32 i = begin; i < end; ++i) {
+                            const auto px = read_pixel_rgb(rgba, i);
+                            const auto dithered = clamp_color(px + ColorF{offsets[i], offsets[i], offsets[i]});
+                            const u32 best = find_nearest(rgb_to_lab(dithered, srgb_), pal_labs);
+                            local_error += lab_dist_sq(pixel_labs[i], pal_labs[best]);
+                            thread_accum[t][best] += px;
+                            thread_counts[t][best]++;
+                        }
+                        thread_errors[t] = local_error;
+                        group.done();
+                    }};
+                pool->submit(task);
+            }
+            group.wait();
+        } else {
+            for (u32 i = 0; i < pixel_count; ++i) {
+                const auto px = read_pixel_rgb(rgba, i);
+                const auto dithered = clamp_color(px + ColorF{offsets[i], offsets[i], offsets[i]});
+                const u32 best = find_nearest(rgb_to_lab(dithered, srgb_), pal_labs);
+                thread_errors[0] += lab_dist_sq(pixel_labs[i], pal_labs[best]);
+                thread_accum[0][best] += px;
+                thread_counts[0][best]++;
+            }
+        }
 
-            total_error += lab_dist_sq(pixel_labs[i], pal_labs[best]);
-            accum[best] += px;
-            counts[best]++;
+        // Reduce per-thread accumulators.
+        std::vector<ColorF> accum(color_count, ColorF{0, 0, 0});
+        std::vector<u32> counts(color_count, 0u);
+        f64 total_error = 0.0;
+        for (u32 t = 0; t < nThreads; ++t) {
+            total_error += thread_errors[t];
+            for (u32 c = 0; c < color_count; ++c) {
+                accum[c] += thread_accum[t][c];
+                counts[c] += thread_counts[t][c];
+            }
         }
 
         // Early termination if error is no longer decreasing.
@@ -876,7 +1017,7 @@ void QuantizeResult::refineDitherAware(const u8* rgba, u32 width, u32 height, f3
     }
 
     pack_palette(pal_colors.data(), color_count, palette);
-    rebuild_tag_volume_nearest(palette, color_count, tag_, srgb_);
+    rebuild_tag_volume_nearest(palette, color_count, tag_, srgb_, pool);
 }
 
 } // namespace whiteout::textures::wu

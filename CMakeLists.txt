@@ -16,6 +16,7 @@ add_library(whiteout_lib
     # Common
     src/whiteout/common_types.cpp
     # src/whiteout/utils/vertex_buffer.cpp
+    src/whiteout/utils/job_group.cpp
     src/whiteout/utils/simple_thread_pool.cpp
     src/whiteout/utils/timeline_semaphore.cpp
     src/whiteout/utils/os_file_system.cpp
@@ -154,6 +155,13 @@ add_executable(texture_convert_example
 )
 
 target_link_libraries(texture_convert_example PRIVATE whiteout_lib)
+
+# Blue Noise Map Generator (prints std::array for blue_noise.cpp)
+add_executable(blue_noise_generator
+    examples/blue_noise_generator.cpp
+)
+
+target_link_libraries(blue_noise_generator PRIVATE whiteout_lib)
 
 endif() # WHITEOUT_BUILD_EXAMPLES
 

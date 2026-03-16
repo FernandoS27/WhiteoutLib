@@ -21,6 +21,7 @@
 #include <whiteout/common_types.h>
 #include <whiteout/interfaces.h>
 #include <whiteout/textures/texture.h>
+#include <whiteout/utils/job_group.h>
 
 namespace whiteout::textures {
 
@@ -323,6 +324,7 @@ void parallel_for_tiles(u32 blocks_wide, u32 blocks_tall,
         return;
     }
 
+    utils::JobGroup jobGroup;
     // Parallel path — submit each tile to the pool.
     for (u32 ty = 0; ty < tiles_tall; ++ty) {
         for (u32 tx = 0; tx < tiles_wide; ++tx) {
@@ -330,12 +332,17 @@ void parallel_for_tiles(u32 blocks_wide, u32 blocks_tall,
             const u32 by0 = ty * kTileBlocks;
             const u32 bx1 = std::min(bx0 + kTileBlocks, blocks_wide);
             const u32 by1 = std::min(by0 + kTileBlocks, blocks_tall);
-            pool->submit(interfaces::WorkerTask{
-                [=, &tile_fn]() { tile_fn(bx0, by0, bx1, by1); }
-            });
+            jobGroup.add(1);
+            interfaces::WorkerTask task{
+                [bx0, by0, bx1, by1, &tile_fn, &jobGroup]() {
+                    tile_fn(bx0, by0, bx1, by1);
+                    jobGroup.done();
+                }
+            };
+            pool->submit(task);
         }
     }
-    pool->wait_idle();
+    jobGroup.wait();
 }
 
 // ============================================================================

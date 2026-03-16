@@ -30,6 +30,8 @@
 #include <span>
 #include <vector>
 
+namespace whiteout::interfaces { class WorkerPool; }
+
 namespace whiteout::textures::wu {
 
 /// Maximum number of palette entries produced.
@@ -82,8 +84,10 @@ struct QuantizeResult {
     /// @param height       Image height in pixels.
     /// @param strength     Dither strength in [0, 1], matching mapPixelsDithered().
     /// @param iterations   Number of gradient descent iterations (default 5).
+    /// @param pool         Optional WorkerPool for parallel per-pixel work.
     void refineDitherAware(const u8* rgba, u32 width, u32 height,
-                           f32 strength, u32 iterations = 5);
+                           f32 strength, u32 iterations = 5,
+                           interfaces::WorkerPool* pool = nullptr);
 
 private:
     friend class Quantizer;
@@ -132,12 +136,21 @@ public:
     /// @param iterations Number of refinement iterations (default 5).
     Quantizer& ditherAware(u32 width, u32 height, f32 strength, u32 iterations = 5);
 
+    /// Set an optional WorkerPool for parallel per-pixel operations during
+    /// k-means refinement, tag volume construction, and dither-aware refinement.
+    /// @param pool  WorkerPool pointer (nullptr = serial execution).
+    Quantizer& workerPool(interfaces::WorkerPool* pool);
+
     /// Run the quantization on an RGBA8 pixel buffer.
     ///
     /// @param rgba         Pointer to pixel_count × 4 bytes of RGBA8 data.
     /// @param pixel_count  Number of pixels (width × height, or sum over mips).
     /// @return A QuantizeResult containing the palette and fast pixel-mapping tables.
     QuantizeResult quantize(const u8* rgba, u32 pixel_count) const;
+
+    /// @overload quantize with explicit WorkerPool (overrides the builder setting).
+    QuantizeResult quantize(const u8* rgba, u32 pixel_count,
+                            interfaces::WorkerPool* pool) const;
 
 private:
     struct Impl;
