@@ -49,6 +49,7 @@ struct SimpleThreadPool::Impl
                             std::unique_lock<std::mutex> lock(mutex);
                             jobs.push(std::move(task));
                         }
+                        cv.notify_one();
                         std::this_thread::yield();
                         continue;
                     }
@@ -63,6 +64,9 @@ struct SimpleThreadPool::Impl
                         if (--pendingCount == 0)
                             doneCv.notify_all();
                     }
+                    // Wake threads that may now have runnable tasks
+                    // (dependencies satisfied by this task's signal).
+                    cv.notify_all();
                 }
             });
         }
