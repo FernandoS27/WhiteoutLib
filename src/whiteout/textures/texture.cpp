@@ -769,6 +769,47 @@ std::optional<Texture> Texture::mergeChannels(
 }
 
 std::optional<std::string> Texture::generateMipmaps(interfaces::WorkerPool* pool) {
+    return generateMipmaps(kKeepMipCount, pool);
+}
+
+std::optional<std::string> Texture::generateMipmaps(u32 newMipCount,
+                                                    interfaces::WorkerPool* pool) {
+    // Validate and apply the requested mip count.
+    const u32 maxMips = computeMaxMipCount(impl_->width, impl_->height, impl_->depth);
+
+    if (newMipCount != kKeepMipCount) {
+        if (newMipCount > maxMips)
+            return std::string("newMipCount exceeds maximum ("
+                               + std::to_string(maxMips) + ")");
+
+        if (newMipCount != mipCount()) {
+            // Rebuild the mip chain with the new count, preserving mip 0 data.
+            const u32 layers = impl_->layerCount();
+            std::vector<MipLevel> newMips;
+            const u64 total = build_mip_chain(impl_->format, impl_->width,
+                                              impl_->height, impl_->depth,
+                                              newMipCount, layers, newMips);
+
+            std::vector<u8> newData(static_cast<size_t>(total), 0);
+
+            // Copy mip 0 from each layer.
+            for (u32 layer = 0; layer < layers; ++layer) {
+                const auto& oldMip0 = impl_->mips[layer * mipCount()];
+                const auto& newMip0 = newMips[layer * newMipCount];
+                const size_t copySize = std::min<size_t>(oldMip0.size, newMip0.size);
+                std::memcpy(newData.data() + newMip0.offset,
+                            impl_->data.data() + oldMip0.offset, copySize);
+            }
+
+            impl_->mips = std::move(newMips);
+            impl_->data = std::move(newData);
+        }
+
+        // Single mip level means no generation work needed.
+        if (newMipCount == 1)
+            return std::nullopt;
+    }
+
     if (impl_->kind != TextureKind::ORM)
         return mipmap::generateMipmaps(*this, pool);
 

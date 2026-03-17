@@ -134,6 +134,13 @@ enum class Channel : u32 {
 };
 
 // ============================================================================
+// Mipmap Constants
+// ============================================================================
+
+/// Pass to Texture::generateMipmaps() to preserve the existing mip count.
+static constexpr u32 kKeepMipCount = 0;
+
+// ============================================================================
 // Mip Level Descriptor
 // ============================================================================
 
@@ -348,12 +355,22 @@ struct Texture {
      * The texture must use an uncompressed pixel format.  BCn textures
      * should be decompressed first.  No-op if the texture has ≤ 1 mip.
     *
+    * @param newMipCount Desired number of mip levels in the output texture.
+    *                    Pass kKeepMipCount (0) to preserve the existing mip
+    *                    count. Must be between 1 and
+    *                    computeMaxMipCount(width, height, depth). When 1,
+    *                    the mip chain is truncated to the base level only
+    *                    and the function returns immediately.
     * @param pool Optional WorkerPool used to parallelize mip generation
     *             across mip levels and layers. If null, generation runs
     *             on the calling thread.
     * @return std::nullopt on success; std::optional<std::string> with error
     *         message on failure. No exceptions are thrown.
      */
+    std::optional<std::string> generateMipmaps(u32 newMipCount,
+                                               interfaces::WorkerPool* pool = nullptr);
+
+    /// @overload Preserves existing mip count; optional worker pool.
     std::optional<std::string> generateMipmaps(interfaces::WorkerPool* pool = nullptr);
 
     // ── Factory methods ────────────────────────────────────────────────
