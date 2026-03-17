@@ -45,6 +45,7 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <numeric>
 #include <span>
 
 namespace whiteout::textures::wu {
@@ -287,7 +288,14 @@ constexpr u32 kMinItemsPerTile = 1024;
 template <typename Fn>
 void parallel_for_chunks(u32 count, QuantizeContext* ctx, Fn&& fn) {
     if (!ctx || !ctx->pool || ctx->pool->threadCount() <= 1 || count < kMinItemsPerTile) {
-        fn(0u, count);
+        // Small counts or no pool: run as a single unit.
+        // In async mode, still chain through the timeline to preserve DAG ordering —
+        // otherwise the preceding submitSingleTask hasn't finished yet.
+        if (ctx && ctx->sem) {
+            submitSingleTask(ctx, [count, fn = std::forward<Fn>(fn)]() { fn(0u, count); });
+        } else {
+            fn(0u, count);
+        }
         return;
     }
 
@@ -297,7 +305,11 @@ void parallel_for_chunks(u32 count, QuantizeContext* ctx, Fn&& fn) {
     const u32 tileCount = (count + itemsPerTile - 1) / itemsPerTile;
 
     if (tileCount <= 1) {
-        fn(0u, count);
+        if (ctx->sem) {
+            submitSingleTask(ctx, [count, fn = std::forward<Fn>(fn)]() { fn(0u, count); });
+        } else {
+            fn(0u, count);
+        }
         return;
     }
 
@@ -736,6 +748,99 @@ struct QuantizeState {
 };
 
 // ============================================================================
+// 3D Hilbert curve — palette sorting
+// ============================================================================
+
+/// Compute the 3D Hilbert curve index for an (x, y, z) coordinate.
+/// Uses Skilling's transpose algorithm ("Programming the Hilbert Curve", 2004).
+/// @param x, y, z  Coordinates in [0, 2^order).
+/// @param order     Number of bits per axis (e.g. 8 for 256 levels).
+/// @return 1D Hilbert index in [0, 2^(3*order)).
+inline u64 hilbert_xyz2d(u32 x, u32 y, u32 z, u32 order) {
+    // Inverse undo: convert (x,y,z) to transpose form of the Hilbert index.
+    // Algorithm from: J. Skilling, "Programming the Hilbert Curve",
+    // AIP Conference Proceedings 707 (2004), 381–387.
+    u32 coords[3] = {x, y, z};
+    const u32 n = 3;
+    const u32 M = 1u << (order - 1);
+
+    // Inverse undo: Gray decode along each axis.
+    for (u32 q = M; q > 1; q >>= 1) {
+        const u32 p = q - 1;
+        for (u32 i = 0; i < n; ++i) {
+            if (coords[i] & q)
+                coords[0] ^= p; // invert
+            else {
+                const u32 t = (coords[0] ^ coords[i]) & p;
+                coords[0] ^= t;
+                coords[i] ^= t; // exchange
+            }
+        }
+    }
+
+    // Gray encode all axes.
+    for (u32 i = 1; i < n; ++i)
+        coords[i] ^= coords[i - 1];
+
+    u32 t2 = 0;
+    for (u32 q = M; q > 1; q >>= 1) {
+        if (coords[n - 1] & q)
+            t2 ^= q - 1;
+    }
+    for (u32 i = 0; i < n; ++i)
+        coords[i] ^= t2;
+
+    // Untranspose: interleave bits from coords[] into a single index.
+    u64 d = 0;
+    for (i32 bit = static_cast<i32>(order) - 1; bit >= 0; --bit) {
+        for (u32 i = 0; i < n; ++i) {
+            d = (d << 1) | ((coords[i] >> bit) & 1u);
+        }
+    }
+    return d;
+}
+
+/// Sort palette entries by their 3D Hilbert curve index and remap the tag volume.
+/// Groups perceptually similar colors under neighboring indices, improving
+/// compression of index data.
+void sort_palette_hilbert(std::shared_ptr<QuantizeState> state) {
+    const u32 colorCount = state->colorCount;
+    if (colorCount <= 1)
+        return;
+
+    // Compute Hilbert index for each palette entry using 8-bit RGB coordinates.
+    constexpr u32 kOrder = 8; // 256 levels per axis
+    std::vector<u32> order(colorCount);
+    std::iota(order.begin(), order.end(), 0u);
+
+    std::vector<u64> hilbertKeys(colorCount);
+    for (u32 i = 0; i < colorCount; ++i) {
+        const u32 packed = state->palette[i];
+        const u32 r = (packed >> 16) & 0xFF;
+        const u32 g = (packed >> 8) & 0xFF;
+        const u32 b = packed & 0xFF;
+        hilbertKeys[i] = hilbert_xyz2d(r, g, b, kOrder);
+    }
+
+    std::sort(order.begin(), order.end(),
+              [&](u32 a, u32 b) { return hilbertKeys[a] < hilbertKeys[b]; });
+
+    // Build old→new remapping table and reorder palette.
+    std::vector<u8> remap(colorCount);
+    std::array<u32, MAX_COLORS> newPalette{};
+    for (u32 newIdx = 0; newIdx < colorCount; ++newIdx) {
+        const u32 oldIdx = order[newIdx];
+        remap[oldIdx] = static_cast<u8>(newIdx);
+        newPalette[newIdx] = state->palette[oldIdx];
+    }
+    state->palette = newPalette;
+
+    // Remap tag volume.
+    for (auto& t : state->tag)
+        t = remap[t];
+}
+
+// ============================================================================
 // Tag volume build — maps quantized color → palette index
 // ============================================================================
 
@@ -1109,11 +1214,9 @@ void build_quantize_dag(std::shared_ptr<QuantizeState> state, QuantizeContext* c
     });
 
     // ── 7. Dither-aware refinement (flattened iteration DAG) ───────────
-    if (!state->ditherAwareEnabled || state->ditherWidth == 0 ||
-        state->ditherHeight == 0 || state->ditherStrength <= 0.0f) {
-        // No dither refinement — skip.
-        return;
-    }
+    const bool doDither = state->ditherAwareEnabled && state->ditherWidth > 0 &&
+                          state->ditherHeight > 0 && state->ditherStrength > 0.0f;
+    if (doDither) {
 
     const u32 ditherPixelCount = std::min(state->ditherWidth * state->ditherHeight, state->pixelCount);
 
@@ -1270,6 +1373,12 @@ void build_quantize_dag(std::shared_ptr<QuantizeState> state, QuantizeContext* c
                 }
             }
         }
+    });
+    } // end doDither
+
+    // ── 8. Hilbert sort — reorder palette by 3D Hilbert curve index ────
+    submitSingleTask(ctx, [state]() {
+        sort_palette_hilbert(state);
     });
 }
 
@@ -1562,6 +1671,8 @@ void QuantizeResult::refineDitherAware(const u8* rgba, u32 width, u32 height, f3
     state->colorCount = color_count;
     state->srgb = srgb_;
     build_tag_volume(state, &ctx);
+    sort_palette_hilbert(state);
+    palette = state->palette;
     tag_ = std::move(state->tag);
 }
 
