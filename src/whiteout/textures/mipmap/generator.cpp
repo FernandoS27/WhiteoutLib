@@ -240,8 +240,8 @@ MipmapPipeline pipelineForKind(TextureKind kind, bool srgb) {
             return {{sLinearize}, spherKaiser, {sDelinearize}};
         return {{}, spherKaiser, {}};
 
-    // ORM is handled by per-channel splitting in generateMipmaps();
-    // it never reaches here, but the compiler requires all enum values.
+    // ORM is split into per-channel textures by Texture::generateMipmaps()
+    // before reaching this function, so it falls through to the default.
     case TextureKind::ORM:
     case TextureKind::Other:
     default:
@@ -308,38 +308,6 @@ MipImage collapseNormalFromRGBA(const MipImage& src, u32 targetChannels) {
         f32* dstPixel = dst.pixels.data() + pixelIdx * targetChannels;
         for (u32 channel = 0; channel < targetChannels; ++channel)
             dstPixel[channel] = srcPixel[channel];
-    }
-    return dst;
-}
-
-// ============================================================================
-// Channel split / merge (for ORM per-channel processing)
-// ============================================================================
-
-/// Split a multi-channel MipImage into individual single-channel images.
-std::vector<MipImage> splitChannels(const MipImage& src) {
-    std::vector<MipImage> channelImages;
-    channelImages.reserve(src.channels);
-    const size_t pixelCount = src.pixelCount();
-    for (u32 channelIdx = 0; channelIdx < src.channels; ++channelIdx) {
-        MipImage singleChannel(src.width, src.height, 1);
-        for (size_t pixelIdx = 0; pixelIdx < pixelCount; ++pixelIdx)
-            singleChannel.pixels[pixelIdx] = src.pixels[pixelIdx * src.channels + channelIdx];
-        channelImages.push_back(std::move(singleChannel));
-    }
-    return channelImages;
-}
-
-/// Merge single-channel MipImages back into one multi-channel image.
-MipImage mergeChannels(const std::vector<MipImage>& channels) {
-    const u32 width = channels[0].width;
-    const u32 height = channels[0].height;
-    const u32 numChannels = static_cast<u32>(channels.size());
-    MipImage dst(width, height, numChannels);
-    const size_t pixelCount = dst.pixelCount();
-    for (u32 channelIdx = 0; channelIdx < numChannels; ++channelIdx) {
-        for (size_t pixelIdx = 0; pixelIdx < pixelCount; ++pixelIdx)
-            dst.pixels[pixelIdx * numChannels + channelIdx] = channels[channelIdx].pixels[pixelIdx];
     }
     return dst;
 }
@@ -411,153 +379,6 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
         return test != nullptr;
     }();
 
-    // ORM textures: split into individual channels, apply the correct
-    // per-channel pipeline (AO / Roughness / Metalness), then recombine.
-    // Each mip is generated directly from the original (mip 0) channels.
-    if (tex.kind() == TextureKind::ORM) {
-        // R = AO, G = Roughness, B = Metalness.
-        constexpr TextureKind ORM_CHANNEL_KINDS[] = {
-            TextureKind::AmbientOcclusion,
-            TextureKind::Roughness,
-            TextureKind::Metalness,
-        };
-        constexpr size_t ORM_CHANNEL_COUNT = std::size(ORM_CHANNEL_KINDS);
-
-        MipmapPipeline channelPipelines[ORM_CHANNEL_COUNT];
-        for (size_t i = 0; i < ORM_CHANNEL_COUNT; ++i)
-            channelPipelines[i] = pipelineForKind(ORM_CHANNEL_KINDS[i], false);
-
-        const PoolFilter boxDown = static_cast<PoolFilterFn>(boxFilter);
-
-        std::vector<std::vector<MipImage>> originalByLayer(layerCount);
-        for (u32 layer = 0; layer < layerCount; ++layer)
-            originalByLayer[layer] = splitChannels(extractMip(tex, 0, layer));
-
-        // Parallelism strategy:
-        // When semaphores are available, each (mip,layer) gets its own
-        // timeline semaphore.  A compute task signals the semaphore, and a
-        // paired write task waits on it.  All compute tasks are submitted
-        // before any write tasks so workers process computes first,
-        // maximising pool utilisation.
-        //
-        // Without semaphore support (or without a pool) we fall back to the
-        // combined compute+write submitJob path.
-        if (useSemaphores) {
-            const size_t totalJobs = static_cast<size_t>(layerCount) * (mipCount - 1);
-            std::vector<std::unique_ptr<interfaces::TimelineSemaphore>> sems(totalJobs);
-            std::vector<interfaces::TimelineSemaphore::Value> computeVals(totalJobs);
-            std::vector<interfaces::TimelineSemaphore::Value> writeVals(totalJobs);
-            std::vector<MipImage> results(totalJobs);
-
-            // Pre-allocate semaphores and reserve values.
-            for (size_t i = 0; i < totalJobs; ++i) {
-                sems[i] = pool->createTimelineSemaphore();
-                computeVals[i] = sems[i]->next();
-                writeVals[i] = sems[i]->next();
-            }
-
-            // Pass 1 — submit all compute tasks.
-            for (u32 layer = 0; layer < layerCount; ++layer) {
-                for (u32 mip = 1; mip < mipCount; ++mip) {
-                    const size_t idx =
-                        static_cast<size_t>(layer) * (mipCount - 1) + (mip - 1);
-                    auto* sem = sems[idx].get();
-
-                    interfaces::WorkerTask computeTask;
-                    computeTask.fn = [&, layer, mip, idx]() {
-                        if (hasError.load(std::memory_order_acquire))
-                            return;
-                        try {
-                            const auto& originalChannels = originalByLayer[layer];
-                            const auto& targetLevel = tex.mipLevel(mip, layer);
-                            const u32 targetWidth = targetLevel.width;
-                            const u32 targetHeight = targetLevel.height;
-
-                            std::vector<MipImage> mipChannels;
-                            mipChannels.reserve(originalChannels.size());
-
-                            for (size_t ch = 0;
-                                 ch < std::min(originalChannels.size(), ORM_CHANNEL_COUNT);
-                                 ++ch) {
-                                mipChannels.push_back(channelPipelines[ch].execute(
-                                    originalChannels[ch], targetWidth, targetHeight));
-                            }
-
-                            for (size_t ch = ORM_CHANNEL_COUNT;
-                                 ch < originalChannels.size(); ++ch)
-                                mipChannels.push_back(boxDown(
-                                    originalChannels[ch], targetWidth, targetHeight, nullptr));
-
-                            results[idx] = mergeChannels(mipChannels);
-                        } catch (const std::exception& e) {
-                            captureError(
-                                std::string("Mipmap generation error: ") + e.what());
-                        } catch (...) {
-                            captureError("Mipmap generation error: unknown exception");
-                        }
-                    };
-                    computeTask.signalSemaphore = sem;
-                    computeTask.signalValue = computeVals[idx];
-                    pool->submit(computeTask);
-                }
-            }
-
-            // Pass 2 — submit all write tasks (wait on paired compute).
-            for (u32 layer = 0; layer < layerCount; ++layer) {
-                for (u32 mip = 1; mip < mipCount; ++mip) {
-                    const size_t idx =
-                        static_cast<size_t>(layer) * (mipCount - 1) + (mip - 1);
-                    auto* sem = sems[idx].get();
-
-                    interfaces::WorkerTask writeTask;
-                    writeTask.fn = [&, mip, layer, idx]() {
-                        if (!hasError.load(std::memory_order_acquire))
-                            writeMip(tex, mip, layer, results[idx]);
-                    };
-                    writeTask.waitSemaphore = sem;
-                    writeTask.waitValue = computeVals[idx];
-                    writeTask.signalSemaphore = sem;
-                    writeTask.signalValue = writeVals[idx];
-                    pool->submit(writeTask);
-                }
-            }
-
-            // Wait for every write to finish.
-            for (size_t i = 0; i < totalJobs; ++i)
-                sems[i]->wait(writeVals[i]);
-        } else {
-            // Fallback: single-task compute+write via submitJob.
-            for (u32 layer = 0; layer < layerCount; ++layer) {
-                for (u32 mip = 1; mip < mipCount; ++mip) {
-                    submitJob([&, layer, mip]() {
-                        const auto& originalChannels = originalByLayer[layer];
-                        const auto& targetLevel = tex.mipLevel(mip, layer);
-                        const u32 targetWidth = targetLevel.width;
-                        const u32 targetHeight = targetLevel.height;
-
-                        std::vector<MipImage> mipChannels;
-                        mipChannels.reserve(originalChannels.size());
-
-                        for (size_t ch = 0;
-                             ch < std::min(originalChannels.size(), ORM_CHANNEL_COUNT); ++ch) {
-                            mipChannels.push_back(channelPipelines[ch].execute(
-                                originalChannels[ch], targetWidth, targetHeight));
-                        }
-
-                        for (size_t ch = ORM_CHANNEL_COUNT; ch < originalChannels.size(); ++ch)
-                            mipChannels.push_back(
-                                boxDown(originalChannels[ch], targetWidth, targetHeight, nullptr));
-
-                        writeMip(tex, mip, layer, mergeChannels(mipChannels));
-                    });
-                }
-            }
-            if (usePool)
-                jobGroup.wait();
-        }
-        return firstError;
-    }
-
     const TextureKind texKind = tex.kind();
     const bool texSrgb = tex.isSrgb();
     const bool isNormal = texKind == TextureKind::Normal;
@@ -573,7 +394,6 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
         originalByLayer.push_back(std::move(originalMip));
     }
 
-    // Same two-pass semaphore strategy as the ORM path above.
     if (useSemaphores) {
         const size_t totalJobs = static_cast<size_t>(layerCount) * (mipCount - 1);
         std::vector<std::unique_ptr<interfaces::TimelineSemaphore>> sems(totalJobs);

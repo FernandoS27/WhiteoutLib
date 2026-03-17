@@ -304,6 +304,52 @@ void Texture::setData(std::vector<u8> new_data) {
 
 namespace {
 
+u32 format_channel_count(PixelFormat format) {
+    switch (format) {
+    case PixelFormat::R8:
+    case PixelFormat::R16:
+    case PixelFormat::R32F:
+        return 1;
+    case PixelFormat::RG8:
+    case PixelFormat::RG16:
+    case PixelFormat::RG32F:
+        return 2;
+    case PixelFormat::RGBA8:
+    case PixelFormat::RGBA16:
+    case PixelFormat::RGBA32F:
+        return 4;
+    default:
+        return 0; // BCn
+    }
+}
+
+u32 format_bytes_per_channel(PixelFormat format) {
+    switch (format) {
+    case PixelFormat::R8:  case PixelFormat::RG8:  case PixelFormat::RGBA8:  return 1;
+    case PixelFormat::R16: case PixelFormat::RG16: case PixelFormat::RGBA16: return 2;
+    case PixelFormat::R32F: case PixelFormat::RG32F: case PixelFormat::RGBA32F: return 4;
+    default: return 0;
+    }
+}
+
+PixelFormat single_channel_format(PixelFormat format) {
+    switch (format_bytes_per_channel(format)) {
+    case 1: return PixelFormat::R8;
+    case 2: return PixelFormat::R16;
+    case 4: return PixelFormat::R32F;
+    default: return format;
+    }
+}
+
+PixelFormat rgba_format_for(PixelFormat singleCh) {
+    switch (singleCh) {
+    case PixelFormat::R8:  return PixelFormat::RGBA8;
+    case PixelFormat::R16: return PixelFormat::RGBA16;
+    case PixelFormat::R32F: return PixelFormat::RGBA32F;
+    default: return singleCh;
+    }
+}
+
 bool is_rg_normal_format(PixelFormat format) {
     return format == PixelFormat::RG8 || format == PixelFormat::RG16 ||
            format == PixelFormat::RG32F;
@@ -530,8 +576,154 @@ std::optional<Texture> Texture::copyFromNormalToRGBA(interfaces::WorkerPool* poo
     return copy_normal_to_rgba8(*this, impl_->format);
 }
 
+std::optional<std::vector<Texture>> Texture::splitChannels(
+    const std::vector<Channel>& channels) const {
+    const u32 srcChCount = format_channel_count(impl_->format);
+    if (srcChCount == 0) // BCn
+        return std::nullopt;
+
+    for (auto ch : channels) {
+        if (static_cast<u32>(ch) >= srcChCount)
+            return std::nullopt;
+    }
+
+    const PixelFormat singleFmt = single_channel_format(impl_->format);
+    const u32 bytesPerCh = format_bytes_per_channel(impl_->format);
+    const u32 srcBpp = bytesPerBlock(impl_->format);
+    const u32 layers = layerCount();
+    const u32 mips = mipCount();
+
+    std::vector<Texture> result;
+    result.reserve(channels.size());
+
+    for (auto ch : channels) {
+        const u32 ci = static_cast<u32>(ch);
+        Texture dst = make_texture_like(*this, singleFmt);
+        dst.setSrgb(isSrgb());
+
+        for (u32 layer = 0; layer < layers; ++layer) {
+            for (u32 mip = 0; mip < mips; ++mip) {
+                const auto srcSpan = mipData(mip, layer);
+                auto dstSpan = dst.mipData(mip, layer);
+                const auto& lvl = mipLevel(mip, layer);
+                const u32 n = lvl.width * lvl.height * lvl.depth;
+
+                const u8* s = srcSpan.data();
+                u8* d = dstSpan.data();
+
+                for (u32 px = 0; px < n; ++px)
+                    std::memcpy(d + static_cast<size_t>(px) * bytesPerCh,
+                                s + static_cast<size_t>(px) * srcBpp + ci * bytesPerCh,
+                                bytesPerCh);
+            }
+        }
+
+        result.push_back(std::move(dst));
+    }
+
+    return result;
+}
+
+std::optional<Texture> Texture::mergeChannels(
+    const std::vector<Texture>& sources,
+    const std::vector<Channel>& targetChannels) {
+    if (sources.empty() || sources.size() != targetChannels.size())
+        return std::nullopt;
+
+    const Texture& ref = sources[0];
+    const u32 srcChCount = format_channel_count(ref.format());
+    if (srcChCount != 1)
+        return std::nullopt;
+
+    const u32 bytesPerCh = format_bytes_per_channel(ref.format());
+    if (bytesPerCh == 0)
+        return std::nullopt;
+
+    // Validate all sources match.
+    for (size_t i = 1; i < sources.size(); ++i) {
+        const Texture& s = sources[i];
+        if (s.format() != ref.format() || s.type() != ref.type() ||
+            s.width() != ref.width() || s.height() != ref.height() ||
+            s.depth() != ref.depth() || s.mipCount() != ref.mipCount())
+            return std::nullopt;
+    }
+
+    const PixelFormat dstFmt = rgba_format_for(ref.format());
+    const u32 dstBpp = bytesPerBlock(dstFmt);
+    Texture dst = make_texture_like(ref, dstFmt);
+
+    const u32 layers = ref.layerCount();
+    const u32 mips = ref.mipCount();
+
+    for (size_t i = 0; i < sources.size(); ++i) {
+        const u32 ci = static_cast<u32>(targetChannels[i]);
+        if (ci >= 4)
+            return std::nullopt;
+
+        for (u32 layer = 0; layer < layers; ++layer) {
+            for (u32 mip = 0; mip < mips; ++mip) {
+                const auto srcSpan = sources[i].mipData(mip, layer);
+                auto dstSpan = dst.mipData(mip, layer);
+                const auto& lvl = ref.mipLevel(mip, layer);
+                const u32 n = lvl.width * lvl.height * lvl.depth;
+
+                const u8* s = srcSpan.data();
+                u8* d = dstSpan.data();
+
+                for (u32 px = 0; px < n; ++px)
+                    std::memcpy(d + static_cast<size_t>(px) * dstBpp + ci * bytesPerCh,
+                                s + static_cast<size_t>(px) * bytesPerCh,
+                                bytesPerCh);
+            }
+        }
+    }
+
+    return dst;
+}
+
 std::optional<std::string> Texture::generateMipmaps(interfaces::WorkerPool* pool) {
-    return mipmap::generateMipmaps(*this, pool);
+    if (impl_->kind != TextureKind::ORM)
+        return mipmap::generateMipmaps(*this, pool);
+
+    // ORM textures: split into per-channel textures, generate mipmaps
+    // independently with kind-appropriate pipelines, then recombine.
+    // R = Ambient Occlusion, G = Roughness, B = Metalness.
+    static constexpr Channel kRGB[] = {Channel::R, Channel::G, Channel::B};
+    static constexpr TextureKind kChannelKinds[] = {
+        TextureKind::AmbientOcclusion,
+        TextureKind::Roughness,
+        TextureKind::Metalness,
+    };
+
+    const u32 srcChCount = format_channel_count(impl_->format);
+    if (srcChCount == 0)
+        return std::string("ORM mipmap generation requires an uncompressed format");
+
+    const std::vector<Channel> channels(kRGB, kRGB + std::min<u32>(3u, srcChCount));
+    auto split = splitChannels(channels);
+    if (!split)
+        return std::string("ORM splitChannels failed");
+
+    auto& channelTextures = *split;
+    for (size_t i = 0; i < channelTextures.size(); ++i)
+        channelTextures[i].setKind(kChannelKinds[i]);
+
+    for (auto& chTex : channelTextures) {
+        auto err = mipmap::generateMipmaps(chTex, pool);
+        if (err)
+            return err;
+    }
+
+    // Merge filtered channels back into this texture (mips 1+).
+    auto merged = Texture::mergeChannels(channelTextures, channels);
+    if (!merged)
+        return std::string("ORM mergeChannels failed");
+
+    merged->fillChannel(Channel::A, 1.0f); // ensure alpha is fully opaque
+
+    std::swap(impl_->data, merged->impl_->data);
+
+    return std::nullopt;
 }
 
 bool Texture::swapChannels(Channel a, Channel b) {
@@ -650,6 +842,49 @@ bool Texture::invertChannel(Channel ch) {
                     std::memcpy(ch_ptr, &v, 4);
                 }
             }
+        }
+    }
+
+    return true;
+}
+
+bool Texture::fillChannel(Channel target, f32 value) {
+    const u32 chCount = format_channel_count(impl_->format);
+    if (chCount == 0)
+        return false;
+
+    const u32 ci = static_cast<u32>(target);
+    if (ci >= chCount)
+        return false;
+
+    const u32 bpp = bytesPerBlock(impl_->format);
+    const u32 bytes_per_channel = bpp / chCount;
+    const u32 layers = layerCount();
+    const u32 mips = mipCount();
+
+    // Pre-encode the value into the target byte width.
+    u8 encoded[4] = {};
+    if (bytes_per_channel == 1) {
+        encoded[0] = static_cast<u8>(
+            std::clamp(value * 255.0f + 0.5f, 0.0f, 255.0f));
+    } else if (bytes_per_channel == 2) {
+        u16 raw = static_cast<u16>(
+            std::clamp(value * 65535.0f + 0.5f, 0.0f, 65535.0f));
+        std::memcpy(encoded, &raw, 2);
+    } else {
+        std::memcpy(encoded, &value, 4);
+    }
+
+    for (u32 layer = 0; layer < layers; ++layer) {
+        for (u32 mip = 0; mip < mips; ++mip) {
+            auto span = mipData(mip, layer);
+            const MipLevel& lvl = mipLevel(mip, layer);
+            const u32 pixel_count = lvl.width * lvl.height * lvl.depth;
+            u8* pixels = span.data();
+
+            for (u32 px = 0; px < pixel_count; ++px)
+                std::memcpy(pixels + px * bpp + ci * bytes_per_channel,
+                            encoded, bytes_per_channel);
         }
     }
 

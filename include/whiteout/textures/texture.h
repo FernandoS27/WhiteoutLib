@@ -251,6 +251,57 @@ struct Texture {
     bool invertChannel(Channel ch);
 
     /**
+     * @brief Fill a single channel with a constant value across all mip levels
+     * and array layers.
+     *
+     * The floating-point value is quantised to the channel's underlying type
+     * (clamped to [0, 255] for u8, [0, 65535] for u16, stored directly for f32).
+     *
+     * Returns false for BCn formats or if the channel index exceeds the
+     * format's channel count.
+     *
+     * @param target Channel to fill.
+     * @param value  Value to write (interpreted as [0, 1] for integer formats).
+     * @return true on success, false when the operation is not valid.
+     */
+    bool fillChannel(Channel target, f32 value);
+
+    /**
+     * @brief Split selected channels into individual single-channel textures.
+     *
+     * Each requested channel produces a separate Texture with a single-channel
+     * format matching the source bit depth (R8, R16, or R32F).  All mip levels
+     * and layers are copied.  The returned textures inherit the source's sRGB
+     * flag but their kind is set to TextureKind::Other.
+     *
+     * Returns std::nullopt if the source is BCn-compressed or if any
+     * requested channel index exceeds the source channel count.
+     *
+     * @param channels Channels to extract (e.g. {Channel::R, Channel::G}).
+     * @return One Texture per requested channel, or std::nullopt on failure.
+     */
+    std::optional<std::vector<Texture>> splitChannels(
+        const std::vector<Channel>& channels) const;
+
+    /**
+     * @brief Merge single-channel textures into one multi-channel texture.
+     *
+     * Each source texture is written into the corresponding target channel of
+     * a new RGBA-width texture whose bit depth matches the sources (RGBA8,
+     * RGBA16, or RGBA32F).  All sources must share the same format, dimensions,
+     * mip count, and texture type.  Channels not covered by the input list
+     * are zero-filled.
+     *
+     * @param sources          Single-channel textures to combine.
+     * @param targetChannels   Destination channel for each source (same length
+     *                         as @p sources).
+     * @return The combined RGBA texture, or std::nullopt on failure.
+     */
+    static std::optional<Texture> mergeChannels(
+        const std::vector<Texture>& sources,
+        const std::vector<Channel>& targetChannels);
+
+    /**
      * @brief Return a copy of a 2-channel normal map expanded to RGBA8.
      *
      * Only supported for textures whose kind() is TextureKind::Normal and
