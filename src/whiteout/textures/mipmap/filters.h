@@ -10,38 +10,30 @@
 /// The arbitrary-size form is used by the generator so that every mip level
 /// can be produced directly from the original full-resolution image.
 ///
-/// All filters accept an optional WorkerPool* to parallelize output-row
-/// computation across threads.  When pool is nullptr, filters run
+/// All filters accept an optional PipelineContext* to parallelize output-row
+/// computation across threads.  When ctx is nullptr, filters run
 /// single-threaded.
 
 #pragma once
 
 #include "mip_image.h"
 
-#include <whiteout/interfaces.h>
-
 namespace whiteout::textures::mipmap {
 
-MipImage boxFilter(const MipImage& src, u32 dstWidth, u32 dstHeight,
-                   interfaces::WorkerPool* pool = nullptr);
+struct PipelineContext;
+
+// Main overloads: write into a pre-allocated @p dst.
+void boxFilter(const MipImage& src, MipImage& dst, PipelineContext* ctx = nullptr);
+void lanczos3Filter(const MipImage& src, MipImage& dst, PipelineContext* ctx = nullptr);
+void kaiserFilter(const MipImage& src, MipImage& dst, PipelineContext* ctx = nullptr);
+void kaiserFilter(const MipImage& src, MipImage& dst, f64 beta, PipelineContext* ctx = nullptr);
+void environmentPrefilterGGX(const MipImage& src, MipImage& dst, PipelineContext* ctx = nullptr);
+void sphericalKaiserFilter(const MipImage& src, MipImage& dst, PipelineContext* ctx = nullptr);
+
+// Convenience overloads: half-size, single-threaded.
 MipImage boxFilter(const MipImage& src);
-
-MipImage lanczos3Filter(const MipImage& src, u32 dstWidth, u32 dstHeight,
-                        interfaces::WorkerPool* pool = nullptr);
 MipImage lanczos3Filter(const MipImage& src);
-
-MipImage kaiserFilter(const MipImage& src, u32 dstWidth, u32 dstHeight,
-                      interfaces::WorkerPool* pool = nullptr);
 MipImage kaiserFilter(const MipImage& src);
-
-MipImage kaiserFilter(const MipImage& src, u32 dstWidth, u32 dstHeight, f64 beta,
-                      interfaces::WorkerPool* pool = nullptr);
 MipImage kaiserFilter(const MipImage& src, f64 beta);
-
-MipImage environmentPrefilterGGX(const MipImage& src, u32 dstWidth, u32 dstHeight,
-                                 interfaces::WorkerPool* pool = nullptr);
-
-MipImage sphericalKaiserFilter(const MipImage& src, u32 dstWidth, u32 dstHeight,
-                               interfaces::WorkerPool* pool = nullptr);
 
 } // namespace whiteout::textures::mipmap

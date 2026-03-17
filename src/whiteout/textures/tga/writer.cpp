@@ -7,7 +7,7 @@
 
 #include "../io_helpers.h"
 #include "../issue_sink.h"
-#include "../utils/pixel_convert.h"
+#include "../utils/color_convert.h"
 
 #include <cstring>
 #include <memory>

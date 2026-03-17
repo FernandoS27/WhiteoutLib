@@ -142,16 +142,16 @@ void writeMip(Texture& tex, u32 mip, u32 layer, const MipImage& img) {
 
 /// Create a PoolFilter that delegates to kaiserFilter with a fixed β value.
 PoolFilter makeKaiserFilter(f64 beta) {
-    return [beta](const MipImage& image, u32 dstW, u32 dstH, interfaces::WorkerPool* pool) {
-        return kaiserFilter(image, dstW, dstH, beta, pool);
+    return [beta](const MipImage& image, MipImage& dst, PipelineContext* ctx) {
+        kaiserFilter(image, dst, beta, ctx);
     };
 }
 
-/// Wrap a stage function into a PoolStage (stages already accept pool).
-using StageFn = void (*)(MipImage&, interfaces::WorkerPool*);
+/// Wrap a stage function into a PoolStage (stages already accept ctx).
+using StageFn = void (*)(MipImage&, PipelineContext*);
 
-/// Wrap a 4-arg filter function into a PoolFilter.
-using PoolFilterFn = MipImage (*)(const MipImage&, u32, u32, interfaces::WorkerPool*);
+/// Wrap a 3-arg filter function into a PoolFilter.
+using PoolFilterFn = void (*)(const MipImage&, MipImage&, PipelineContext*);
 
 MipmapPipeline pipelineForKind(TextureKind kind, bool srgb) {
     const PoolFilter lanczos3 = static_cast<PoolFilterFn>(lanczos3Filter);
@@ -177,13 +177,37 @@ MipmapPipeline pipelineForKind(TextureKind kind, bool srgb) {
 
     // AlphaMask stages: preBlurAlpha returns coverage, preserveAlphaCoverage
     // consumes it.  We share the value through a std::shared_ptr<f32>.
+    // Both stages are submitted as single tasks when running in async mode,
+    // because they perform synchronous pixel reads before parallelForRows.
     auto makeAlphaStages = []() -> std::pair<PoolStage, PoolStage> {
+        // Safety: `coverage` is a shared_ptr<f32> captured by value in both
+        // the pre and post PoolStage lambdas.  Timeline ordering ensures pre
+        // completes (writing *coverage) before post reads it.  The shared_ptr
+        // copies in each lambda keep the f32 alive even after the pipeline
+        // object (and this factory lambda) is destroyed.
         auto coverage = std::make_shared<f32>(0.5f);
-        PoolStage pre = [coverage](MipImage& img, interfaces::WorkerPool* pool) {
-            *coverage = preBlurAlpha(img, pool);
+        PoolStage pre = [coverage](MipImage& img, PipelineContext* ctx) {
+            if (ctx && ctx->sem) {
+                // Safety: `&img` binds to the referent (state->input in
+                // executeAsync), not the PoolStage parameter's stack slot.
+                // submitSingleTask chains through the timeline, and
+                // preBlurAlpha is called with ctx=nullptr so its internal
+                // parallelForRows runs single-threaded — no nested dispatch.
+                submitSingleTask(ctx, [&img, coverage]() {
+                    *coverage = preBlurAlpha(img, nullptr);
+                });
+            } else {
+                *coverage = preBlurAlpha(img, ctx);
+            }
         };
-        PoolStage post = [coverage](MipImage& img, interfaces::WorkerPool* pool) {
-            preserveAlphaCoverage(img, *coverage, pool);
+        PoolStage post = [coverage](MipImage& img, PipelineContext* ctx) {
+            if (ctx && ctx->sem) {
+                submitSingleTask(ctx, [&img, coverage]() {
+                    preserveAlphaCoverage(img, *coverage, nullptr);
+                });
+            } else {
+                preserveAlphaCoverage(img, *coverage, ctx);
+            }
         };
         return {std::move(pre), std::move(post)};
     };
@@ -397,54 +421,38 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
     if (useSemaphores) {
         const size_t totalJobs = static_cast<size_t>(layerCount) * (mipCount - 1);
         std::vector<std::unique_ptr<interfaces::TimelineSemaphore>> sems(totalJobs);
-        std::vector<interfaces::TimelineSemaphore::Value> computeVals(totalJobs);
-        std::vector<interfaces::TimelineSemaphore::Value> writeVals(totalJobs);
         std::vector<MipImage> results(totalJobs);
+        std::vector<interfaces::TimelineSemaphore::Value> finalVals(totalJobs);
 
-        for (size_t i = 0; i < totalJobs; ++i) {
+        for (size_t i = 0; i < totalJobs; ++i)
             sems[i] = pool->createTimelineSemaphore();
-            computeVals[i] = sems[i]->next();
-            writeVals[i] = sems[i]->next();
-        }
 
-        // Pass 1 — submit all compute tasks.
-        // Each job gets its own pipeline so that per-pipeline mutable state
-        // (e.g. AlphaMask coverage bridge) stays thread-safe.
+        // Submit flattened pipelines — each stage/filter is a series of
+        // tile tasks chained through the per-job timeline semaphore.
+        // No task ever blocks waiting for sub-tasks it spawned.
         for (u32 layer = 0; layer < layerCount; ++layer) {
             for (u32 mip = 1; mip < mipCount; ++mip) {
+                if (hasError.load(std::memory_order_acquire))
+                    break;
+
                 const size_t idx =
                     static_cast<size_t>(layer) * (mipCount - 1) + (mip - 1);
                 auto* sem = sems[idx].get();
 
-                interfaces::WorkerTask computeTask;
-                computeTask.fn = [&, layer, mip, idx, texKind, texSrgb]() {
-                    if (hasError.load(std::memory_order_acquire))
-                        return;
-                    try {
-                        const MipmapPipeline pipeline = pipelineForKind(texKind, texSrgb);
-                        const auto& targetLevel = tex.mipLevel(mip, layer);
-                        results[idx] = pipeline.execute(
-                            originalByLayer[layer], targetLevel.width, targetLevel.height);
-                    } catch (const std::exception& e) {
-                        captureError(
-                            std::string("Mipmap generation error: ") + e.what());
-                    } catch (...) {
-                        captureError("Mipmap generation error: unknown exception");
-                    }
-                };
-                computeTask.signalSemaphore = sem;
-                computeTask.signalValue = computeVals[idx];
-                pool->submit(computeTask);
-            }
-        }
+                const MipmapPipeline pipeline = pipelineForKind(texKind, texSrgb);
+                const auto& targetLevel = tex.mipLevel(mip, layer);
 
-        // Pass 2 — submit all write tasks.
-        for (u32 layer = 0; layer < layerCount; ++layer) {
-            for (u32 mip = 1; mip < mipCount; ++mip) {
-                const size_t idx =
-                    static_cast<size_t>(layer) * (mipCount - 1) + (mip - 1);
-                auto* sem = sems[idx].get();
+                // Seed the timeline so the first tile tasks can proceed.
+                const auto startVal = sem->next();
+                sem->signal(startVal);
 
+                // executeAsync submits all pipeline steps as individual tasks.
+                const auto computeDoneVal = pipeline.executeAsync(
+                    originalByLayer[layer], targetLevel.width, targetLevel.height,
+                    pool, sem, startVal, &results[idx]);
+
+                // Submit write task.
+                const auto writeDoneVal = sem->next();
                 interfaces::WorkerTask writeTask;
                 writeTask.fn = [&, mip, layer, idx]() {
                     if (!hasError.load(std::memory_order_acquire)) {
@@ -456,15 +464,17 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
                     }
                 };
                 writeTask.waitSemaphore = sem;
-                writeTask.waitValue = computeVals[idx];
+                writeTask.waitValue = computeDoneVal;
                 writeTask.signalSemaphore = sem;
-                writeTask.signalValue = writeVals[idx];
+                writeTask.signalValue = writeDoneVal;
                 pool->submit(writeTask);
+
+                finalVals[idx] = writeDoneVal;
             }
         }
 
         for (size_t i = 0; i < totalJobs; ++i)
-            sems[i]->wait(writeVals[i]);
+            sems[i]->wait(finalVals[i]);
     } else {
         // Fallback: single-task compute+write via submitJob.
         // Each job builds its own pipeline for AlphaMask thread safety.

@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <cstring>
 
-#include "../utils/pixel_convert.h"
+#include "../utils/color_convert.h"
 
 namespace whiteout::textures::tex {
 

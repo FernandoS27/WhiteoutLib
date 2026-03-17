@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 
 namespace whiteout::textures::mipmap {
 
@@ -16,16 +17,17 @@ namespace whiteout::textures::mipmap {
 // Box filter
 // ============================================================================
 
-MipImage boxFilter(const MipImage& src, u32 dstWidth, u32 dstHeight,
-                   interfaces::WorkerPool* pool) {
+void boxFilter(const MipImage& src, MipImage& dst,
+               PipelineContext* ctx) {
+    const u32 dstWidth = dst.width;
+    const u32 dstHeight = dst.height;
     const u32 numChannels = src.channels;
     const u32 srcW = src.width;
     const u32 srcH = src.height;
     const f32* srcData = src.pixels.data();
-    MipImage dst(dstWidth, dstHeight, numChannels);
     f32* dstData = dst.pixels.data();
 
-    parallelForRows(dstHeight, pool, [=](u32 y0, u32 y1) {
+    parallelForRows(dstHeight, ctx, [=](u32 y0, u32 y1) {
         for (u32 dstY = y0; dstY < y1; ++dstY) {
             const f32 srcYStart = static_cast<f32>(dstY) * srcH / dstHeight;
             const f32 srcYEnd = static_cast<f32>(dstY + 1) * srcH / dstHeight;
@@ -60,11 +62,12 @@ MipImage boxFilter(const MipImage& src, u32 dstWidth, u32 dstHeight,
             }
         }
     });
-    return dst;
 }
 
 MipImage boxFilter(const MipImage& src) {
-    return boxFilter(src, std::max(src.width / 2, 1u), std::max(src.height / 2, 1u));
+    MipImage dst(std::max(src.width / 2, 1u), std::max(src.height / 2, 1u), src.channels);
+    boxFilter(src, dst);
+    return dst;
 }
 
 // ============================================================================
@@ -179,8 +182,10 @@ u32 buildLanczos3Weights(f64 center, u32 srcSize, f32* weights, i32* indices, f6
 // ---- Generic separable 2-pass downsample -----------------------------------
 
 template <typename WeightFn>
-MipImage separableDownsample(const MipImage& src, u32 dstWidth, u32 dstHeight,
-                             WeightFn buildWeights, interfaces::WorkerPool* pool) {
+void separableDownsample(const MipImage& src, MipImage& dst,
+                         WeightFn buildWeights, PipelineContext* ctx) {
+    const u32 dstWidth = dst.width;
+    const u32 dstHeight = dst.height;
     const u32 numChannels = src.channels;
     const f64 ratioX = static_cast<f64>(src.width) / dstWidth;
     const f64 ratioY = static_cast<f64>(src.height) / dstHeight;
@@ -190,9 +195,17 @@ MipImage separableDownsample(const MipImage& src, u32 dstWidth, u32 dstHeight,
     const size_t maxTapsY = static_cast<size_t>(effectiveRadius(ratioY)) * 2 + 2;
 
     // Pass 1 — horizontal: src.width → dstWidth, keep src.height.
-    MipImage horizontalPass(dstWidth, src.height, numChannels);
+    // Safety: `hp` is a shared_ptr captured by value in both pass lambdas,
+    // keeping the intermediate buffer alive across async tile tasks.  In async
+    // mode, pass 2's tiles wait on pass 1's timeline signal, so pass 2 never
+    // reads `hp` before pass 1 has finished writing it.
+    auto hp = std::make_shared<MipImage>(dstWidth, src.height, numChannels);
+    const f32* srcPixels = src.pixels.data();
+    const u32 srcW = src.width;
+    const u32 srcH = src.height;
 
-    parallelForRows(src.height, pool, [&](u32 y0, u32 y1) {
+    parallelForRows(srcH, ctx, [srcPixels, srcW, numChannels, dstWidth, ratioX, maxTapsX,
+                                 buildWeights, hp](u32 y0, u32 y1) {
         // Thread-local weight/index buffers to avoid contention.
         std::vector<f32> tapWeightsH(maxTapsX);
         std::vector<i32> tapIndicesH(maxTapsX);
@@ -201,13 +214,14 @@ MipImage separableDownsample(const MipImage& src, u32 dstWidth, u32 dstHeight,
                 const f64 center = (static_cast<f64>(dstX) + HALF_PIXEL) * ratioX - HALF_PIXEL;
 
                 const u32 tapCount =
-                    buildWeights(center, src.width, tapWeightsH.data(), tapIndicesH.data(), ratioX);
+                    buildWeights(center, srcW, tapWeightsH.data(), tapIndicesH.data(), ratioX);
 
-                f32* outPixel = horizontalPass.pixel(dstX, srcY);
+                f32* outPixel = hp->pixel(dstX, srcY);
                 for (u32 channel = 0; channel < numChannels; ++channel)
                     outPixel[channel] = 0.0f;
                 for (u32 tap = 0; tap < tapCount; ++tap) {
-                    const f32* srcPixel = src.pixel(static_cast<u32>(tapIndicesH[tap]), srcY);
+                    const f32* srcPixel =
+                        srcPixels + (static_cast<size_t>(srcY) * srcW + tapIndicesH[tap]) * numChannels;
                     for (u32 channel = 0; channel < numChannels; ++channel)
                         outPixel[channel] += srcPixel[channel] * tapWeightsH[tap];
                 }
@@ -216,32 +230,31 @@ MipImage separableDownsample(const MipImage& src, u32 dstWidth, u32 dstHeight,
     });
 
     // Pass 2 — vertical: src.height → dstHeight, keep dstWidth.
-    MipImage dst(dstWidth, dstHeight, numChannels);
+    f32* dstData = dst.pixels.data();
 
-    parallelForRows(dstHeight, pool, [&](u32 y0, u32 y1) {
+    parallelForRows(dstHeight, ctx, [maxTapsY, dstWidth, dstHeight, ratioY, numChannels, buildWeights,
+                                      hp, dstData, srcH](u32 y0, u32 y1) {
         std::vector<f32> tapWeightsV(maxTapsY);
         std::vector<i32> tapIndicesV(maxTapsY);
         for (u32 dstY = y0; dstY < y1; ++dstY) {
             const f64 center = (static_cast<f64>(dstY) + HALF_PIXEL) * ratioY - HALF_PIXEL;
 
             const u32 tapCount =
-                buildWeights(center, src.height, tapWeightsV.data(), tapIndicesV.data(), ratioY);
+                buildWeights(center, srcH, tapWeightsV.data(), tapIndicesV.data(), ratioY);
 
             for (u32 dstX = 0; dstX < dstWidth; ++dstX) {
-                f32* outPixel = dst.pixel(dstX, dstY);
+                f32* outPixel = dstData + (static_cast<size_t>(dstY) * dstWidth + dstX) * numChannels;
                 for (u32 channel = 0; channel < numChannels; ++channel)
                     outPixel[channel] = 0.0f;
                 for (u32 tap = 0; tap < tapCount; ++tap) {
                     const f32* srcPixel =
-                        horizontalPass.pixel(dstX, static_cast<u32>(tapIndicesV[tap]));
+                        hp->pixel(dstX, static_cast<u32>(tapIndicesV[tap]));
                     for (u32 channel = 0; channel < numChannels; ++channel)
                         outPixel[channel] += srcPixel[channel] * tapWeightsV[tap];
                 }
             }
         }
     });
-
-    return dst;
 }
 
 } // anonymous namespace
@@ -252,36 +265,40 @@ MipImage separableDownsample(const MipImage& src, u32 dstWidth, u32 dstHeight,
 
 constexpr f64 DEFAULT_KAISER_BETA = 4.0;
 
-MipImage kaiserFilter(const MipImage& src, u32 dstWidth, u32 dstHeight, f64 beta,
-                      interfaces::WorkerPool* pool) {
-    return separableDownsample(
-        src, dstWidth, dstHeight,
+void kaiserFilter(const MipImage& src, MipImage& dst, f64 beta,
+                  PipelineContext* ctx) {
+    separableDownsample(
+        src, dst,
         [beta](f64 center, u32 srcSize, f32* tapWeights, i32* tapIndices, f64 ratio) {
             return buildKaiserWeights(center, srcSize, tapWeights, tapIndices, beta, ratio);
         },
-        pool);
+        ctx);
 }
 
-MipImage kaiserFilter(const MipImage& src, u32 dstWidth, u32 dstHeight,
-                      interfaces::WorkerPool* pool) {
-    return kaiserFilter(src, dstWidth, dstHeight, DEFAULT_KAISER_BETA, pool);
+void kaiserFilter(const MipImage& src, MipImage& dst,
+                  PipelineContext* ctx) {
+    kaiserFilter(src, dst, DEFAULT_KAISER_BETA, ctx);
 }
 
 MipImage kaiserFilter(const MipImage& src, f64 beta) {
-    return kaiserFilter(src, std::max(src.width / 2, 1u), std::max(src.height / 2, 1u), beta);
+    MipImage dst(std::max(src.width / 2, 1u), std::max(src.height / 2, 1u), src.channels);
+    kaiserFilter(src, dst, beta);
+    return dst;
 }
 
 MipImage kaiserFilter(const MipImage& src) {
     return kaiserFilter(src, DEFAULT_KAISER_BETA);
 }
 
-MipImage lanczos3Filter(const MipImage& src, u32 dstWidth, u32 dstHeight,
-                        interfaces::WorkerPool* pool) {
-    return separableDownsample(src, dstWidth, dstHeight, buildLanczos3Weights, pool);
+void lanczos3Filter(const MipImage& src, MipImage& dst,
+                    PipelineContext* ctx) {
+    separableDownsample(src, dst, buildLanczos3Weights, ctx);
 }
 
 MipImage lanczos3Filter(const MipImage& src) {
-    return lanczos3Filter(src, std::max(src.width / 2, 1u), std::max(src.height / 2, 1u));
+    MipImage dst(std::max(src.width / 2, 1u), std::max(src.height / 2, 1u), src.channels);
+    lanczos3Filter(src, dst);
+    return dst;
 }
 
 // ============================================================================
@@ -383,19 +400,25 @@ void sampleBilinear(const MipImage& img, f32 u, f32 v, f32* result, u32 channels
 
 } // anonymous namespace
 
-MipImage environmentPrefilterGGX(const MipImage& src, u32 dstW, u32 dstH,
-                                 interfaces::WorkerPool* pool) {
+// Safety: `&src` is captured by reference in the parallelForRows lambda.
+// Per C++ [expr.prim.lambda.capture]/15, capturing a reference parameter by
+// reference binds to the *referent*, not the parameter's stack slot.  In the
+// async path the referent is `state->input` (owned by the shared_ptr<State>
+// in executeAsync), which outlives all tile tasks via the timeline chain.
+void environmentPrefilterGGX(const MipImage& src, MipImage& dst,
+                             PipelineContext* ctx) {
+    const u32 dstW = dst.width;
+    const u32 dstH = dst.height;
     // Derive roughness from the mip level implied by the downsample ratio.
     const f32 srcLog2 = std::log2(f32(src.width));
     const f32 roughness = srcLog2 > 0.0f
         ? std::clamp(std::log2(f32(src.width) / f32(dstW)) / srcLog2, 0.0f, 1.0f)
         : 0.0f;
 
-    MipImage dst(dstW, dstH, src.channels);
     const u32 channels = src.channels;
     f32* dstData = dst.pixels.data();
 
-    parallelForRows(dstH, pool, [&src, dstW, dstH, channels, roughness, dstData](u32 y0, u32 y1) {
+    parallelForRows(dstH, ctx, [&src, dstW, dstH, channels, roughness, dstData](u32 y0, u32 y1) {
         for (u32 y = y0; y < y1; ++y) {
             const f32 tv = (f32(y) + 0.5f) / f32(dstH);
             for (u32 x = 0; x < dstW; ++x) {
@@ -455,15 +478,18 @@ MipImage environmentPrefilterGGX(const MipImage& src, u32 dstW, u32 dstH,
             }
         }
     });
-    return dst;
 }
 
 // ============================================================================
 // Spherical Kaiser filter (solid-angle-weighted, equirectangular)
 // ============================================================================
 
-MipImage sphericalKaiserFilter(const MipImage& src, u32 dstW, u32 dstH,
-                               interfaces::WorkerPool* pool) {
+// Safety: same `&src` capture reasoning as environmentPrefilterGGX above —
+// the referent is the caller's stable MipImage, not a transient stack slot.
+void sphericalKaiserFilter(const MipImage& src, MipImage& dst,
+                           PipelineContext* ctx) {
+    const u32 dstW = dst.width;
+    const u32 dstH = dst.height;
     constexpr f64 SKAISER_BETA = 6.0;
     constexpr i32 SKAISER_LOBES = 3;
     const f64 invI0Beta = 1.0 / bessel_I0(SKAISER_BETA);
@@ -473,11 +499,10 @@ MipImage sphericalKaiserFilter(const MipImage& src, u32 dstW, u32 dstH,
         SKAISER_LOBES * PI / static_cast<f64>(src.height);
     const f64 cosRadiusCutoff = std::cos(angularRadius);
 
-    MipImage dst(dstW, dstH, src.channels);
     const u32 channels = src.channels;
     f32* dstData = dst.pixels.data();
 
-    parallelForRows(dstH, pool, [&src, dstW, dstH, channels, invI0Beta,
+    parallelForRows(dstH, ctx, [&src, dstW, dstH, channels, invI0Beta,
                                   angularRadius, cosRadiusCutoff, dstData](u32 y0, u32 y1) {
         for (u32 y = y0; y < y1; ++y) {
             const f32 tv = (static_cast<f32>(y) + 0.5f) / static_cast<f32>(dstH);
@@ -552,7 +577,6 @@ MipImage sphericalKaiserFilter(const MipImage& src, u32 dstW, u32 dstH,
             }
         }
     });
-    return dst;
 }
 
 } // namespace whiteout::textures::mipmap

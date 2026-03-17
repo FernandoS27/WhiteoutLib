@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 
 namespace whiteout::textures::mipmap {
 
@@ -43,12 +44,12 @@ f32 linearToSrgb(f32 linearValue) {
 
 } // anonymous namespace
 
-void linearize(MipImage& img, interfaces::WorkerPool* pool) {
+void linearize(MipImage& img, PipelineContext* ctx) {
     const u32 colorChannelCount = std::min(img.channels, 3u);
     const u32 channels = img.channels;
     f32* data = img.pixels.data();
     const u32 w = img.width;
-    parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+    parallelForRows(img.height, ctx, [=](u32 y0, u32 y1) {
         for (u32 y = y0; y < y1; ++y) {
             f32* row = data + static_cast<size_t>(y) * w * channels;
             for (u32 x = 0; x < w; ++x) {
@@ -60,12 +61,12 @@ void linearize(MipImage& img, interfaces::WorkerPool* pool) {
     });
 }
 
-void delinearize(MipImage& img, interfaces::WorkerPool* pool) {
+void delinearize(MipImage& img, PipelineContext* ctx) {
     const u32 colorChannelCount = std::min(img.channels, 3u);
     const u32 channels = img.channels;
     f32* data = img.pixels.data();
     const u32 w = img.width;
-    parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+    parallelForRows(img.height, ctx, [=](u32 y0, u32 y1) {
         for (u32 y = y0; y < y1; ++y) {
             f32* row = data + static_cast<size_t>(y) * w * channels;
             for (u32 x = 0; x < w; ++x) {
@@ -81,12 +82,12 @@ void delinearize(MipImage& img, interfaces::WorkerPool* pool) {
 // Normal-map helpers
 // ============================================================================
 
-void unpackNormals(MipImage& img, interfaces::WorkerPool* pool) {
+void unpackNormals(MipImage& img, PipelineContext* ctx) {
     const u32 normalChannelCount = std::min(img.channels, 3u);
     const u32 channels = img.channels;
     f32* data = img.pixels.data();
     const u32 w = img.width;
-    parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+    parallelForRows(img.height, ctx, [=](u32 y0, u32 y1) {
         for (u32 y = y0; y < y1; ++y) {
             f32* row = data + static_cast<size_t>(y) * w * channels;
             for (u32 x = 0; x < w; ++x) {
@@ -98,12 +99,12 @@ void unpackNormals(MipImage& img, interfaces::WorkerPool* pool) {
     });
 }
 
-void packNormals(MipImage& img, interfaces::WorkerPool* pool) {
+void packNormals(MipImage& img, PipelineContext* ctx) {
     const u32 normalChannelCount = std::min(img.channels, 3u);
     const u32 channels = img.channels;
     f32* data = img.pixels.data();
     const u32 w = img.width;
-    parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+    parallelForRows(img.height, ctx, [=](u32 y0, u32 y1) {
         for (u32 y = y0; y < y1; ++y) {
             f32* row = data + static_cast<size_t>(y) * w * channels;
             for (u32 x = 0; x < w; ++x) {
@@ -115,12 +116,12 @@ void packNormals(MipImage& img, interfaces::WorkerPool* pool) {
     });
 }
 
-void renormalize(MipImage& img, interfaces::WorkerPool* pool) {
+void renormalize(MipImage& img, PipelineContext* ctx) {
     const u32 channels = img.channels;
     f32* data = img.pixels.data();
     const u32 w = img.width;
     if (channels == 2) {
-        parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+        parallelForRows(img.height, ctx, [=](u32 y0, u32 y1) {
             for (u32 y = y0; y < y1; ++y) {
                 f32* row = data + static_cast<size_t>(y) * w * 2;
                 for (u32 x = 0; x < w; ++x) {
@@ -138,7 +139,7 @@ void renormalize(MipImage& img, interfaces::WorkerPool* pool) {
             }
         });
     } else if (channels >= 3) {
-        parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+        parallelForRows(img.height, ctx, [=](u32 y0, u32 y1) {
             for (u32 y = y0; y < y1; ++y) {
                 f32* row = data + static_cast<size_t>(y) * w * channels;
                 for (u32 x = 0; x < w; ++x) {
@@ -156,13 +157,13 @@ void renormalize(MipImage& img, interfaces::WorkerPool* pool) {
     }
 }
 
-void toksvigCorrection(MipImage& img, interfaces::WorkerPool* pool) {
+void toksvigCorrection(MipImage& img, PipelineContext* ctx) {
     if (img.channels < 4)
         return;
     const u32 channels = img.channels;
     f32* data = img.pixels.data();
     const u32 w = img.width;
-    parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+    parallelForRows(img.height, ctx, [=](u32 y0, u32 y1) {
         for (u32 y = y0; y < y1; ++y) {
             f32* row = data + static_cast<size_t>(y) * w * channels;
             for (u32 x = 0; x < w; ++x) {
@@ -179,11 +180,11 @@ void toksvigCorrection(MipImage& img, interfaces::WorkerPool* pool) {
 // Roughness / Gloss helpers
 // ============================================================================
 
-void squareRoughness(MipImage& img, interfaces::WorkerPool* pool) {
+void squareRoughness(MipImage& img, PipelineContext* ctx) {
     const u32 channels = img.channels;
     f32* data = img.pixels.data();
     const u32 w = img.width;
-    parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+    parallelForRows(img.height, ctx, [=](u32 y0, u32 y1) {
         const size_t start = static_cast<size_t>(y0) * w * channels;
         const size_t end = static_cast<size_t>(y1) * w * channels;
         for (size_t i = start; i < end; ++i)
@@ -191,11 +192,11 @@ void squareRoughness(MipImage& img, interfaces::WorkerPool* pool) {
     });
 }
 
-void unsquareRoughness(MipImage& img, interfaces::WorkerPool* pool) {
+void unsquareRoughness(MipImage& img, PipelineContext* ctx) {
     const u32 channels = img.channels;
     f32* data = img.pixels.data();
     const u32 w = img.width;
-    parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+    parallelForRows(img.height, ctx, [=](u32 y0, u32 y1) {
         const size_t start = static_cast<size_t>(y0) * w * channels;
         const size_t end = static_cast<size_t>(y1) * w * channels;
         for (size_t i = start; i < end; ++i)
@@ -203,11 +204,11 @@ void unsquareRoughness(MipImage& img, interfaces::WorkerPool* pool) {
     });
 }
 
-void glossToRoughness(MipImage& img, interfaces::WorkerPool* pool) {
+void glossToRoughness(MipImage& img, PipelineContext* ctx) {
     const u32 channels = img.channels;
     f32* data = img.pixels.data();
     const u32 w = img.width;
-    parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+    parallelForRows(img.height, ctx, [=](u32 y0, u32 y1) {
         const size_t start = static_cast<size_t>(y0) * w * channels;
         const size_t end = static_cast<size_t>(y1) * w * channels;
         for (size_t i = start; i < end; ++i)
@@ -215,20 +216,20 @@ void glossToRoughness(MipImage& img, interfaces::WorkerPool* pool) {
     });
 }
 
-void roughnessToGloss(MipImage& img, interfaces::WorkerPool* pool) {
-    glossToRoughness(img, pool); // same operation: f(x) = 1 − x
+void roughnessToGloss(MipImage& img, PipelineContext* ctx) {
+    glossToRoughness(img, ctx); // same operation: f(x) = 1 − x
 }
 
 // ============================================================================
 // Lightmap helpers
 // ============================================================================
 
-void clampPositive(MipImage& img, interfaces::WorkerPool* pool) {
+void clampPositive(MipImage& img, PipelineContext* ctx) {
     const u32 colorChannelCount = std::min(img.channels, 3u);
     const u32 channels = img.channels;
     f32* data = img.pixels.data();
     const u32 w = img.width;
-    parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+    parallelForRows(img.height, ctx, [=](u32 y0, u32 y1) {
         for (u32 y = y0; y < y1; ++y) {
             f32* row = data + static_cast<size_t>(y) * w * channels;
             for (u32 x = 0; x < w; ++x) {
@@ -264,7 +265,7 @@ f32 computeAlphaCoverage(const MipImage& img, f32 scale) {
 
 } // anonymous namespace
 
-f32 preBlurAlpha(MipImage& img, interfaces::WorkerPool* pool) {
+f32 preBlurAlpha(MipImage& img, PipelineContext* ctx) {
     if (img.channels == 0)
         return 0.5f;
 
@@ -277,12 +278,16 @@ f32 preBlurAlpha(MipImage& img, interfaces::WorkerPool* pool) {
     const f32 coverageTarget = computeAlphaCoverage(img, 1.0f);
 
     // Separable 3-tap Gaussian blur [¼ ½ ¼] on alpha only.
-    std::vector<f32> tmp(static_cast<size_t>(w) * h);
+    // Safety: `tmp` is a shared_ptr captured by value in both pass lambdas,
+    // keeping the intermediate buffer alive across async tile tasks.  Timeline
+    // ordering from parallelForRows ensures the vertical pass never reads tmp
+    // before the horizontal pass has finished writing it.
+    auto tmp = std::make_shared<std::vector<f32>>(static_cast<size_t>(w) * h);
     f32* imgData = img.pixels.data();
-    f32* tmpData = tmp.data();
+    f32* tmpData = tmp->data();
 
     // Horizontal pass → tmp
-    parallelForRows(h, pool, [=](u32 y0, u32 y1) {
+    parallelForRows(h, ctx, [alphaCh, w, channels, imgData, tmpData, tmp](u32 y0, u32 y1) {
         for (u32 y = y0; y < y1; ++y) {
             for (u32 x = 0; x < w; ++x) {
                 const u32 xL = (x > 0) ? x - 1 : 0;
@@ -296,7 +301,7 @@ f32 preBlurAlpha(MipImage& img, interfaces::WorkerPool* pool) {
     });
 
     // Vertical pass → img
-    parallelForRows(h, pool, [=](u32 y0, u32 y1) {
+    parallelForRows(h, ctx, [alphaCh, w, h, channels, imgData, tmpData, tmp](u32 y0, u32 y1) {
         for (u32 y = y0; y < y1; ++y) {
             const u32 yU = (y > 0) ? y - 1 : 0;
             const u32 yD = (y + 1 < h) ? y + 1 : h - 1;
@@ -312,7 +317,7 @@ f32 preBlurAlpha(MipImage& img, interfaces::WorkerPool* pool) {
     return coverageTarget;
 }
 
-void preserveAlphaCoverage(MipImage& img, f32 coverageTarget, interfaces::WorkerPool* pool) {
+void preserveAlphaCoverage(MipImage& img, f32 coverageTarget, PipelineContext* ctx) {
     if (img.channels == 0)
         return;
 
@@ -337,7 +342,7 @@ void preserveAlphaCoverage(MipImage& img, f32 coverageTarget, interfaces::Worker
     const u32 channels = img.channels;
     f32* data = img.pixels.data();
     const u32 w = img.width;
-    parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+    parallelForRows(img.height, ctx, [=](u32 y0, u32 y1) {
         const size_t start = static_cast<size_t>(y0) * w;
         const size_t end = static_cast<size_t>(y1) * w;
         for (size_t i = start; i < end; ++i)

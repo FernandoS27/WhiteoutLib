@@ -68,6 +68,7 @@ add_library(whiteout_lib
     src/whiteout/textures/utils/quantize.cpp
     src/whiteout/textures/utils/blue_noise.cpp
     src/whiteout/textures/utils/pixel_convert.cpp
+    src/whiteout/textures/utils/color_convert.cpp
     src/whiteout/textures/utils/srgb_linearize.cpp
     src/whiteout/textures/bcn.cpp
     src/whiteout/textures/bcn/bc1.cpp

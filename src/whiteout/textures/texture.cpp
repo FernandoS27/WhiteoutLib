@@ -304,49 +304,45 @@ void Texture::setData(std::vector<u8> new_data) {
 
 namespace {
 
-u32 format_channel_count(PixelFormat format) {
-    switch (format) {
-    case PixelFormat::R8:
-    case PixelFormat::R16:
-    case PixelFormat::R32F:
-        return 1;
-    case PixelFormat::RG8:
-    case PixelFormat::RG16:
-    case PixelFormat::RG32F:
-        return 2;
-    case PixelFormat::RGBA8:
-    case PixelFormat::RGBA16:
-    case PixelFormat::RGBA32F:
-        return 4;
-    default:
-        return 0; // BCn
+// Runtime format-info tables — auto-derived from FormatTraits.
+template <PixelFormat... Fmts>
+constexpr std::array<u32, sizeof...(Fmts)> make_channels_table(FormatList<Fmts...>) {
+    return {{FormatTraits<Fmts>::channels...}};
+}
+
+template <PixelFormat... Fmts>
+constexpr std::array<u32, sizeof...(Fmts)> make_bpc_table(FormatList<Fmts...>) {
+    return {{(FormatTraits<Fmts>::bytes_per_pixel / FormatTraits<Fmts>::channels)...}};
+}
+
+constexpr auto kChannelCounts = make_channels_table(UncompressedFormats{});
+constexpr auto kBytesPerChannel = make_bpc_table(UncompressedFormats{});
+
+u32 format_channel_count(PixelFormat fmt) {
+    const u32 idx = static_cast<u32>(fmt);
+    return (idx < kUncompressedCount) ? kChannelCounts[idx] : 0u;
+}
+
+u32 format_bytes_per_channel(PixelFormat fmt) {
+    const u32 idx = static_cast<u32>(fmt);
+    return (idx < kUncompressedCount) ? kBytesPerChannel[idx] : 0u;
+}
+
+PixelFormat single_channel_format(PixelFormat fmt) {
+    switch (format_bytes_per_channel(fmt)) {
+    case 1:  return PixelFormat::R8;
+    case 2:  return PixelFormat::R16;
+    case 4:  return PixelFormat::R32F;
+    default: return fmt;
     }
 }
 
-u32 format_bytes_per_channel(PixelFormat format) {
-    switch (format) {
-    case PixelFormat::R8:  case PixelFormat::RG8:  case PixelFormat::RGBA8:  return 1;
-    case PixelFormat::R16: case PixelFormat::RG16: case PixelFormat::RGBA16: return 2;
-    case PixelFormat::R32F: case PixelFormat::RG32F: case PixelFormat::RGBA32F: return 4;
-    default: return 0;
-    }
-}
-
-PixelFormat single_channel_format(PixelFormat format) {
-    switch (format_bytes_per_channel(format)) {
-    case 1: return PixelFormat::R8;
-    case 2: return PixelFormat::R16;
-    case 4: return PixelFormat::R32F;
-    default: return format;
-    }
-}
-
-PixelFormat rgba_format_for(PixelFormat singleCh) {
-    switch (singleCh) {
-    case PixelFormat::R8:  return PixelFormat::RGBA8;
-    case PixelFormat::R16: return PixelFormat::RGBA16;
-    case PixelFormat::R32F: return PixelFormat::RGBA32F;
-    default: return singleCh;
+PixelFormat rgba_format_for(PixelFormat fmt) {
+    switch (format_bytes_per_channel(fmt)) {
+    case 1:  return PixelFormat::RGBA8;
+    case 2:  return PixelFormat::RGBA16;
+    case 4:  return PixelFormat::RGBA32F;
+    default: return fmt;
     }
 }
 
@@ -381,7 +377,8 @@ void copy_texture_metadata(const Texture& src, Texture& dst) {
 // Uncompressed format conversion
 // ============================================================================
 
-/// Convert an image between any two uncompressed formats via RGBA32F intermediate.
+/// Convert an image between any two uncompressed formats.
+/// Uses direct channel conversion (no float intermediate) when possible.
 /// Both textures must already have the same dimensions and mip structure.
 Texture convert_uncompressed(const Texture& src, PixelFormat new_fmt) {
     assert(!bcn::isCompressed(src.format()));
@@ -398,13 +395,9 @@ Texture convert_uncompressed(const Texture& src, PixelFormat new_fmt) {
     Texture dst = make_texture_like(src, new_fmt);
     copy_texture_metadata(src, dst);
 
-    // Obtain per-pixel converters through RGBA32F intermediate.
-    auto to_f32 = get_to_rgba32f(src_fmt);
-    auto from_f32 = get_from_rgba32f(new_fmt);
-    assert(to_f32 && from_f32 && "unsupported format pair");
-
-    const u32 src_bpp = bytesPerBlock(src_fmt); // bytes per pixel for uncompressed
-    const u32 dst_bpp = bytesPerBlock(new_fmt);
+    // Direct bulk conversion — avoids per-pixel float intermediate.
+    auto fn = get_converter(src_fmt, new_fmt);
+    assert(fn && "unsupported format pair");
 
     for (u32 layer = 0; layer < layers; ++layer) {
         for (u32 mip = 0; mip < mips; ++mip) {
@@ -414,16 +407,8 @@ Texture convert_uncompressed(const Texture& src, PixelFormat new_fmt) {
             const u32 w = src.mipLevel(mip, layer).width;
             const u32 h = src.mipLevel(mip, layer).height;
             const u32 d = src.mipLevel(mip, layer).depth;
-            const u32 n = w * h * d;
 
-            const u8* s = src_span.data();
-            u8* d8 = dst_span.data();
-
-            for (u32 px = 0; px < n; ++px) {
-                f32 tmp[4];
-                to_f32(s + px * src_bpp, tmp);
-                from_f32(tmp, d8 + px * dst_bpp);
-            }
+            fn(src_span.data(), dst_span.data(), w * h * d);
         }
     }
     return dst;
@@ -490,6 +475,108 @@ std::optional<Texture> copy_normal_to_rgba8(const Texture& src, PixelFormat orig
 
     return dst;
 }
+
+// ============================================================================
+// Channel operation dispatch structs
+// ============================================================================
+
+struct SwapChannelsOp {
+    template <PixelFormat Fmt>
+    static void apply(Texture::Impl& impl, u32 ai, u32 bi, bool& ok) {
+        using T = typename FormatTraits<Fmt>::channel_type;
+        constexpr u32 ch = FormatTraits<Fmt>::channels;
+        constexpr u32 bpp = FormatTraits<Fmt>::bytes_per_pixel;
+
+        if (ai >= ch || bi >= ch) { ok = false; return; }
+        if (ai == bi) { ok = true; return; }
+
+        const u32 layers = impl.layerCount();
+        const u32 mips = impl.mipCount();
+
+        for (u32 layer = 0; layer < layers; ++layer) {
+            for (u32 mip = 0; mip < mips; ++mip) {
+                const auto& lvl = impl.mips[layer * mips + mip];
+                const u32 pixel_count = lvl.width * lvl.height * lvl.depth;
+                u8* pixels = impl.data.data() + lvl.offset;
+
+                for (u32 px = 0; px < pixel_count; ++px) {
+                    u8* pixel = pixels + px * bpp;
+                    T va, vb;
+                    std::memcpy(&va, pixel + ai * sizeof(T), sizeof(T));
+                    std::memcpy(&vb, pixel + bi * sizeof(T), sizeof(T));
+                    std::memcpy(pixel + ai * sizeof(T), &vb, sizeof(T));
+                    std::memcpy(pixel + bi * sizeof(T), &va, sizeof(T));
+                }
+            }
+        }
+        ok = true;
+    }
+};
+
+struct InvertChannelOp {
+    template <PixelFormat Fmt>
+    static void apply(Texture::Impl& impl, u32 ci, bool& ok) {
+        using T = typename FormatTraits<Fmt>::channel_type;
+        constexpr u32 ch = FormatTraits<Fmt>::channels;
+        constexpr u32 bpp = FormatTraits<Fmt>::bytes_per_pixel;
+
+        if (ci >= ch) { ok = false; return; }
+
+        const u32 layers = impl.layerCount();
+        const u32 mips = impl.mipCount();
+
+        for (u32 layer = 0; layer < layers; ++layer) {
+            for (u32 mip = 0; mip < mips; ++mip) {
+                const auto& lvl = impl.mips[layer * mips + mip];
+                const u32 pixel_count = lvl.width * lvl.height * lvl.depth;
+                u8* pixels = impl.data.data() + lvl.offset;
+
+                for (u32 px = 0; px < pixel_count; ++px) {
+                    u8* ch_ptr = pixels + px * bpp + ci * sizeof(T);
+                    T val;
+                    std::memcpy(&val, ch_ptr, sizeof(T));
+                    if constexpr (std::is_same_v<T, u8>)
+                        val = static_cast<u8>(255u - val);
+                    else if constexpr (std::is_same_v<T, u16>)
+                        val = static_cast<u16>(65535u - val);
+                    else
+                        val = 1.0f - val;
+                    std::memcpy(ch_ptr, &val, sizeof(T));
+                }
+            }
+        }
+        ok = true;
+    }
+};
+
+struct FillChannelOp {
+    template <PixelFormat Fmt>
+    static void apply(Texture::Impl& impl, u32 ci, f32 value, bool& ok) {
+        using T = typename FormatTraits<Fmt>::channel_type;
+        constexpr u32 ch = FormatTraits<Fmt>::channels;
+        constexpr u32 bpp = FormatTraits<Fmt>::bytes_per_pixel;
+
+        if (ci >= ch) { ok = false; return; }
+
+        const T encoded = convert_channel<T, f32>(value);
+
+        const u32 layers = impl.layerCount();
+        const u32 mips = impl.mipCount();
+
+        for (u32 layer = 0; layer < layers; ++layer) {
+            for (u32 mip = 0; mip < mips; ++mip) {
+                const auto& lvl = impl.mips[layer * mips + mip];
+                const u32 pixel_count = lvl.width * lvl.height * lvl.depth;
+                u8* pixels = impl.data.data() + lvl.offset;
+
+                for (u32 px = 0; px < pixel_count; ++px)
+                    std::memcpy(pixels + px * bpp + ci * sizeof(T),
+                                &encoded, sizeof(T));
+            }
+        }
+        ok = true;
+    }
+};
 
 } // anonymous namespace
 
@@ -730,165 +817,31 @@ bool Texture::swapChannels(Channel a, Channel b) {
     if (bcn::isCompressed(impl_->format))
         return false;
 
-    u32 channel_count;
-    switch (impl_->format) {
-    case PixelFormat::R8:
-    case PixelFormat::R16:
-    case PixelFormat::R32F:
-        channel_count = 1;
-        break;
-    case PixelFormat::RG8:
-    case PixelFormat::RG16:
-    case PixelFormat::RG32F:
-        channel_count = 2;
-        break;
-    case PixelFormat::RGBA8:
-    case PixelFormat::RGBA16:
-    case PixelFormat::RGBA32F:
-        channel_count = 4;
-        break;
-    default:
-        return false;
-    }
-
-    const u32 ai = static_cast<u32>(a);
-    const u32 bi = static_cast<u32>(b);
-
-    if (ai >= channel_count || bi >= channel_count)
-        return false;
-
-    if (ai == bi)
-        return true;
-
-    const u32 bpp = bytesPerBlock(impl_->format);
-    const u32 bytes_per_channel = bpp / channel_count;
-    const u32 layers = layerCount();
-    const u32 mips = mipCount();
-
-    for (u32 layer = 0; layer < layers; ++layer) {
-        for (u32 mip = 0; mip < mips; ++mip) {
-            auto span = mipData(mip, layer);
-            const MipLevel& lvl = mipLevel(mip, layer);
-            const u32 pixel_count = lvl.width * lvl.height * lvl.depth;
-            u8* pixels = span.data();
-
-            for (u32 px = 0; px < pixel_count; ++px) {
-                u8* pixel = pixels + px * bpp;
-                u8* ch_a = pixel + ai * bytes_per_channel;
-                u8* ch_b = pixel + bi * bytes_per_channel;
-                for (u32 byte = 0; byte < bytes_per_channel; ++byte)
-                    std::swap(ch_a[byte], ch_b[byte]);
-            }
-        }
-    }
-
-    return true;
+    u32 ai = static_cast<u32>(a);
+    u32 bi = static_cast<u32>(b);
+    bool ok = false;
+    dispatch_uncompressed<SwapChannelsOp>(impl_->format, *impl_, ai, bi, ok);
+    return ok;
 }
 
 bool Texture::invertChannel(Channel ch) {
     if (bcn::isCompressed(impl_->format))
         return false;
 
-    u32 channel_count;
-    switch (impl_->format) {
-    case PixelFormat::R8:
-    case PixelFormat::R16:
-    case PixelFormat::R32F:
-        channel_count = 1;
-        break;
-    case PixelFormat::RG8:
-    case PixelFormat::RG16:
-    case PixelFormat::RG32F:
-        channel_count = 2;
-        break;
-    case PixelFormat::RGBA8:
-    case PixelFormat::RGBA16:
-    case PixelFormat::RGBA32F:
-        channel_count = 4;
-        break;
-    default:
-        return false;
-    }
-
-    const u32 ci = static_cast<u32>(ch);
-    if (ci >= channel_count)
-        return false;
-
-    const u32 bpp = bytesPerBlock(impl_->format);
-    const u32 bytes_per_channel = bpp / channel_count;
-    const u32 layers = layerCount();
-    const u32 mips = mipCount();
-
-    for (u32 layer = 0; layer < layers; ++layer) {
-        for (u32 mip = 0; mip < mips; ++mip) {
-            auto span = mipData(mip, layer);
-            const MipLevel& lvl = mipLevel(mip, layer);
-            const u32 pixel_count = lvl.width * lvl.height * lvl.depth;
-            u8* pixels = span.data();
-
-            for (u32 px = 0; px < pixel_count; ++px) {
-                u8* ch_ptr = pixels + px * bpp + ci * bytes_per_channel;
-                if (bytes_per_channel == 1) {
-                    ch_ptr[0] = static_cast<u8>(255u - ch_ptr[0]);
-                } else if (bytes_per_channel == 2) {
-                    u16 v;
-                    std::memcpy(&v, ch_ptr, 2);
-                    v = static_cast<u16>(65535u - v);
-                    std::memcpy(ch_ptr, &v, 2);
-                } else if (bytes_per_channel == 4) {
-                    f32 v;
-                    std::memcpy(&v, ch_ptr, 4);
-                    v = 1.0f - v;
-                    std::memcpy(ch_ptr, &v, 4);
-                }
-            }
-        }
-    }
-
-    return true;
+    u32 ci = static_cast<u32>(ch);
+    bool ok = false;
+    dispatch_uncompressed<InvertChannelOp>(impl_->format, *impl_, ci, ok);
+    return ok;
 }
 
 bool Texture::fillChannel(Channel target, f32 value) {
-    const u32 chCount = format_channel_count(impl_->format);
-    if (chCount == 0)
+    if (bcn::isCompressed(impl_->format))
         return false;
 
-    const u32 ci = static_cast<u32>(target);
-    if (ci >= chCount)
-        return false;
-
-    const u32 bpp = bytesPerBlock(impl_->format);
-    const u32 bytes_per_channel = bpp / chCount;
-    const u32 layers = layerCount();
-    const u32 mips = mipCount();
-
-    // Pre-encode the value into the target byte width.
-    u8 encoded[4] = {};
-    if (bytes_per_channel == 1) {
-        encoded[0] = static_cast<u8>(
-            std::clamp(value * 255.0f + 0.5f, 0.0f, 255.0f));
-    } else if (bytes_per_channel == 2) {
-        u16 raw = static_cast<u16>(
-            std::clamp(value * 65535.0f + 0.5f, 0.0f, 65535.0f));
-        std::memcpy(encoded, &raw, 2);
-    } else {
-        std::memcpy(encoded, &value, 4);
-    }
-
-    for (u32 layer = 0; layer < layers; ++layer) {
-        for (u32 mip = 0; mip < mips; ++mip) {
-            auto span = mipData(mip, layer);
-            const MipLevel& lvl = mipLevel(mip, layer);
-            const u32 pixel_count = lvl.width * lvl.height * lvl.depth;
-            u8* pixels = span.data();
-
-            for (u32 px = 0; px < pixel_count; ++px)
-                std::memcpy(pixels + px * bpp + ci * bytes_per_channel,
-                            encoded, bytes_per_channel);
-        }
-    }
-
-    return true;
+    u32 ci = static_cast<u32>(target);
+    bool ok = false;
+    dispatch_uncompressed<FillChannelOp>(impl_->format, *impl_, ci, value, ok);
+    return ok;
 }
 
 } // namespace whiteout::textures
