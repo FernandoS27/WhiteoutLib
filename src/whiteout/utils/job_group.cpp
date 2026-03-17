@@ -33,10 +33,9 @@ void JobGroup::done()
 {
     if (m_impl->remaining.fetch_sub(1, std::memory_order_acq_rel) == 1)
     {
+        std::lock_guard<std::mutex> lock(m_impl->mutex);
         if (m_impl->signalSemaphore)
             m_impl->signalSemaphore->signal(m_impl->signalValue);
-        
-        std::lock_guard<std::mutex> lock(m_impl->mutex);
         m_impl->cv.notify_all();
     }
 }
@@ -54,8 +53,11 @@ bool JobGroup::isReady() const
 
 void JobGroup::signalOnComplete(interfaces::TimelineSemaphore* sem, interfaces::TimelineSemaphore::Value value)
 {
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
     m_impl->signalSemaphore = sem;
     m_impl->signalValue = value;
+    if (m_impl->remaining.load(std::memory_order_acquire) == 0)
+        sem->signal(value);
 }
 
 } // namespace whiteout::utils
