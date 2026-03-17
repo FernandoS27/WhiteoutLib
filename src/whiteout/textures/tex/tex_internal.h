@@ -62,9 +62,8 @@ static constexpr u32 D4_TEX_FMT_R8G8B8A8_SRGB = 45;
 static constexpr u32 D4_TEX_FMT_BC1_LINEAR = 46;
 static constexpr u32 D4_TEX_FMT_BC1_SRGB = 47;
 static constexpr u32 D4_TEX_FMT_BC2 = 48;
-// Corpus validation shows 49/50 decode as BC3-family data, not BC7.
 static constexpr u32 D4_TEX_FMT_BC3_ALT = 49;
-static constexpr u32 D4_TEX_FMT_BC3_ALT_SRGB = 50;
+static constexpr u32 D4_TEX_FMT_BC7 = 50;
 
 static constexpr u32 D4_ROW_ALIGNMENT = 256;
 static constexpr u32 D4_TEX_FORMAT_HASH = 0xF9CD83E6u;

@@ -274,8 +274,8 @@ std::optional<D4FormatMapping> d4_tex_format_to_pixel_format(u32 d4_fmt) {
         return D4FormatMapping{PixelFormat::BC5, false, 4, 16};
     case D4_TEX_FMT_BC3_ALT:
         return D4FormatMapping{PixelFormat::BC3, false, 4, 16};
-    case D4_TEX_FMT_BC3_ALT_SRGB:
-        return D4FormatMapping{PixelFormat::BC3, true, 4, 16};
+    case D4_TEX_FMT_BC7:
+        return D4FormatMapping{PixelFormat::BC7, false, 4, 16};
     default:
         return std::nullopt;
     }
