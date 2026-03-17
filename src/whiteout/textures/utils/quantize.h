@@ -24,13 +24,12 @@
  */
 
 #include <whiteout/common_types.h>
+#include <whiteout/interfaces.h>
 
 #include <array>
 #include <memory>
 #include <span>
 #include <vector>
-
-namespace whiteout::interfaces { class WorkerPool; }
 
 namespace whiteout::textures::wu {
 
@@ -151,6 +150,29 @@ public:
     /// @overload quantize with explicit WorkerPool (overrides the builder setting).
     QuantizeResult quantize(const u8* rgba, u32 pixel_count,
                             interfaces::WorkerPool* pool) const;
+
+    /// Run quantization asynchronously, returning a timeline value to wait on.
+    ///
+    /// All work is submitted as flat DAG nodes chained through the timeline
+    /// semaphore.  No task ever submits sub-tasks — the entire pipeline is
+    /// a single flat DAG.
+    ///
+    /// The caller must ensure `rgba` remains valid until the returned timeline
+    /// value is signaled.  `outResult` is written to by the final DAG task.
+    ///
+    /// @param rgba         Pointer to pixel_count × 4 bytes of RGBA8 data.
+    /// @param pixel_count  Number of pixels.
+    /// @param pool         WorkerPool to submit tasks to.
+    /// @param sem          Timeline semaphore for DAG ordering.
+    /// @param startValue   Timeline value that all initial tasks wait on.
+    /// @param outResult    Output pointer — written when the pipeline completes.
+    /// @return The timeline semaphore value to wait on before reading *outResult.
+    interfaces::TimelineSemaphore::Value quantizeAsync(
+        const u8* rgba, u32 pixel_count,
+        interfaces::WorkerPool* pool,
+        interfaces::TimelineSemaphore* sem,
+        interfaces::TimelineSemaphore::Value startValue,
+        QuantizeResult* outResult) const;
 
 private:
     struct Impl;
