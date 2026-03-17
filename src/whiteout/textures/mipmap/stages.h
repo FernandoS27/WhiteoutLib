@@ -6,71 +6,50 @@
 ///
 /// Each stage is a free function that transforms a MipImage in-place.
 /// Stages are assembled into a pipeline by the generator.
+///
+/// Every stage has a pool-aware overload that accepts a WorkerPool* to
+/// parallelize the per-pixel work across row-range tiles.  When pool is
+/// nullptr, the stage runs single-threaded.
 
 #pragma once
 
 #include "mip_image.h"
 
+#include <whiteout/interfaces.h>
+
 namespace whiteout::textures::mipmap {
 
 // ── Gamma / colour-space stages ────────────────────────────────────────
 
-/// Convert colour channels from sRGB gamma to linear (in-place).
-/// Operates on channels 0..min(channels,3)-1; alpha (ch 3) is unchanged.
-void linearize(MipImage& img);
-
-/// Convert colour channels from linear to sRGB gamma (in-place).
-void delinearize(MipImage& img);
+void linearize(MipImage& img, interfaces::WorkerPool* pool = nullptr);
+void delinearize(MipImage& img, interfaces::WorkerPool* pool = nullptr);
 
 // ── Normal-map stages ──────────────────────────────────────────────────
 
-/// Unpack normal-map encoding: remap channels from [0,1] to [-1,1].
-void unpackNormals(MipImage& img);
-
-/// Pack normal-map encoding: remap channels from [-1,1] back to [0,1].
-void packNormals(MipImage& img);
-
-/// Re-normalise 2-D or 3-D normal vectors (in-place).
-/// 2-channel images: normalises (R, G) as an XY normal.
-/// 3+ channel images: normalises (R, G, B) as an XYZ normal.
-void renormalize(MipImage& img);
-
-/// Compute Toksvig specular anti-aliasing factor from filtered normals.
-/// Must be called after the downsample filter and before renormalize().
-/// Stores the factor (filtered normal length) in the alpha channel.
-/// No-op for images with fewer than 4 channels.
-void toksvigCorrection(MipImage& img);
+void unpackNormals(MipImage& img, interfaces::WorkerPool* pool = nullptr);
+void packNormals(MipImage& img, interfaces::WorkerPool* pool = nullptr);
+void renormalize(MipImage& img, interfaces::WorkerPool* pool = nullptr);
+void toksvigCorrection(MipImage& img, interfaces::WorkerPool* pool = nullptr);
 
 // ── Roughness / gloss stages ───────────────────────────────────────────
 
-/// Square all channel values: r → r² (variance-preserving pre-filter stage).
-void squareRoughness(MipImage& img);
+void squareRoughness(MipImage& img, interfaces::WorkerPool* pool = nullptr);
+void unsquareRoughness(MipImage& img, interfaces::WorkerPool* pool = nullptr);
+void glossToRoughness(MipImage& img, interfaces::WorkerPool* pool = nullptr);
+void roughnessToGloss(MipImage& img, interfaces::WorkerPool* pool = nullptr);
 
-/// Reconstruct roughness from squared values: r² → √r (post-filter stage).
-void unsquareRoughness(MipImage& img);
+// ── Lightmap / alpha-mask stages ───────────────────────────────────────
 
-/// Convert gloss to roughness: g → (1 − g).
-void glossToRoughness(MipImage& img);
+void clampPositive(MipImage& img, interfaces::WorkerPool* pool = nullptr);
 
-/// Convert roughness back to gloss: r → (1 − r).
-void roughnessToGloss(MipImage& img);
+/// Apply a separable Gaussian blur to the alpha channel and capture
+/// coverage.  Returns the pre-blur alpha coverage value that must be
+/// passed to preserveAlphaCoverage().
+f32 preBlurAlpha(MipImage& img, interfaces::WorkerPool* pool = nullptr);
 
-// ── Alpha-mask stages ──────────────────────────────────────────────────
-
-/// Clamp the R, G, B channels to [0, ∞) — eliminates ringing artefacts
-/// introduced by the Lanczos3 filter in HDR lightmap data.
-/// Alpha (channel 3, if present) is left unchanged.
-void clampPositive(MipImage& img);
-
-/// Apply a separable Gaussian blur (σ ≈ 0.5, 3-tap [¼ ½ ¼]) to the alpha
-/// channel only.  Intended as a pre-process stage for AlphaMask textures.
-/// Also records the pre-blur alpha coverage so that preserveAlphaCoverage
-/// can restore it after downsampling.
-void preBlurAlpha(MipImage& img);
-
-/// Rescale the alpha channel so that coverage (fraction of texels with
-/// alpha ≥ 0.5) matches the value captured by the preceding preBlurAlpha
-/// call.  Must be used as a post-process stage in the same pipeline execution.
-void preserveAlphaCoverage(MipImage& img);
+/// Rescale the alpha channel so that coverage matches @p coverageTarget
+/// (typically the value returned by preBlurAlpha).
+void preserveAlphaCoverage(MipImage& img, f32 coverageTarget,
+                           interfaces::WorkerPool* pool = nullptr);
 
 } // namespace whiteout::textures::mipmap

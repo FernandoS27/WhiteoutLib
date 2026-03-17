@@ -5,6 +5,7 @@
 /// @brief Implementation of mipmap pipeline pre/post-processing stages.
 
 #include "stages.h"
+#include "pipeline.h"
 
 #include <algorithm>
 #include <cmath>
@@ -42,132 +43,201 @@ f32 linearToSrgb(f32 linearValue) {
 
 } // anonymous namespace
 
-void linearize(MipImage& img) {
+void linearize(MipImage& img, interfaces::WorkerPool* pool) {
     const u32 colorChannelCount = std::min(img.channels, 3u);
-    const size_t pixelCount = img.pixelCount();
-    for (size_t pixelIdx = 0; pixelIdx < pixelCount; ++pixelIdx) {
-        f32* pixel = img.pixels.data() + pixelIdx * img.channels;
-        for (u32 channel = 0; channel < colorChannelCount; ++channel)
-            pixel[channel] = srgbToLinear(pixel[channel]);
-    }
+    const u32 channels = img.channels;
+    f32* data = img.pixels.data();
+    const u32 w = img.width;
+    parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+        for (u32 y = y0; y < y1; ++y) {
+            f32* row = data + static_cast<size_t>(y) * w * channels;
+            for (u32 x = 0; x < w; ++x) {
+                f32* pixel = row + x * channels;
+                for (u32 c = 0; c < colorChannelCount; ++c)
+                    pixel[c] = srgbToLinear(pixel[c]);
+            }
+        }
+    });
 }
 
-void delinearize(MipImage& img) {
+void delinearize(MipImage& img, interfaces::WorkerPool* pool) {
     const u32 colorChannelCount = std::min(img.channels, 3u);
-    const size_t pixelCount = img.pixelCount();
-    for (size_t pixelIdx = 0; pixelIdx < pixelCount; ++pixelIdx) {
-        f32* pixel = img.pixels.data() + pixelIdx * img.channels;
-        for (u32 channel = 0; channel < colorChannelCount; ++channel)
-            pixel[channel] = linearToSrgb(pixel[channel]);
-    }
+    const u32 channels = img.channels;
+    f32* data = img.pixels.data();
+    const u32 w = img.width;
+    parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+        for (u32 y = y0; y < y1; ++y) {
+            f32* row = data + static_cast<size_t>(y) * w * channels;
+            for (u32 x = 0; x < w; ++x) {
+                f32* pixel = row + x * channels;
+                for (u32 c = 0; c < colorChannelCount; ++c)
+                    pixel[c] = linearToSrgb(pixel[c]);
+            }
+        }
+    });
 }
 
 // ============================================================================
 // Normal-map helpers
 // ============================================================================
 
-void unpackNormals(MipImage& img) {
+void unpackNormals(MipImage& img, interfaces::WorkerPool* pool) {
     const u32 normalChannelCount = std::min(img.channels, 3u);
-    const size_t pixelCount = img.pixelCount();
-    for (size_t pixelIdx = 0; pixelIdx < pixelCount; ++pixelIdx) {
-        f32* pixel = img.pixels.data() + pixelIdx * img.channels;
-        for (u32 channel = 0; channel < normalChannelCount; ++channel)
-            pixel[channel] = pixel[channel] * 2.0f - 1.0f;
-    }
-}
-
-void packNormals(MipImage& img) {
-    const u32 normalChannelCount = std::min(img.channels, 3u);
-    const size_t pixelCount = img.pixelCount();
-    for (size_t pixelIdx = 0; pixelIdx < pixelCount; ++pixelIdx) {
-        f32* pixel = img.pixels.data() + pixelIdx * img.channels;
-        for (u32 channel = 0; channel < normalChannelCount; ++channel)
-            pixel[channel] = (pixel[channel] + 1.0f) * 0.5f;
-    }
-}
-
-void renormalize(MipImage& img) {
-    const size_t pixelCount = img.pixelCount();
-    if (img.channels == 2) {
-        // 2-channel normal map: derive Z = sqrt(1 - x² - y²), normalize the
-        // full 3-D vector, then store back just (x, y).  This keeps the
-        // implicit-Z convention intact for shaders that reconstruct Z.
-        for (size_t pixelIdx = 0; pixelIdx < pixelCount; ++pixelIdx) {
-            f32* pixel = img.pixels.data() + pixelIdx * 2;
-            const f32 normalX = pixel[0], normalY = pixel[1];
-            const f32 normalZ =
-                std::sqrt(std::max(0.0f, 1.0f - normalX * normalX - normalY * normalY));
-            const f32 length = std::sqrt(normalX * normalX + normalY * normalY + normalZ * normalZ);
-            if (length > NORMALIZE_EPSILON) {
-                pixel[0] = normalX / length;
-                pixel[1] = normalY / length;
+    const u32 channels = img.channels;
+    f32* data = img.pixels.data();
+    const u32 w = img.width;
+    parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+        for (u32 y = y0; y < y1; ++y) {
+            f32* row = data + static_cast<size_t>(y) * w * channels;
+            for (u32 x = 0; x < w; ++x) {
+                f32* pixel = row + x * channels;
+                for (u32 c = 0; c < normalChannelCount; ++c)
+                    pixel[c] = pixel[c] * 2.0f - 1.0f;
             }
         }
-    } else if (img.channels >= 3) {
-        for (size_t pixelIdx = 0; pixelIdx < pixelCount; ++pixelIdx) {
-            f32* pixel = img.pixels.data() + pixelIdx * img.channels;
-            const f32 length =
-                std::sqrt(pixel[0] * pixel[0] + pixel[1] * pixel[1] + pixel[2] * pixel[2]);
-            if (length > NORMALIZE_EPSILON) {
-                pixel[0] /= length;
-                pixel[1] /= length;
-                pixel[2] /= length;
+    });
+}
+
+void packNormals(MipImage& img, interfaces::WorkerPool* pool) {
+    const u32 normalChannelCount = std::min(img.channels, 3u);
+    const u32 channels = img.channels;
+    f32* data = img.pixels.data();
+    const u32 w = img.width;
+    parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+        for (u32 y = y0; y < y1; ++y) {
+            f32* row = data + static_cast<size_t>(y) * w * channels;
+            for (u32 x = 0; x < w; ++x) {
+                f32* pixel = row + x * channels;
+                for (u32 c = 0; c < normalChannelCount; ++c)
+                    pixel[c] = (pixel[c] + 1.0f) * 0.5f;
             }
         }
+    });
+}
+
+void renormalize(MipImage& img, interfaces::WorkerPool* pool) {
+    const u32 channels = img.channels;
+    f32* data = img.pixels.data();
+    const u32 w = img.width;
+    if (channels == 2) {
+        parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+            for (u32 y = y0; y < y1; ++y) {
+                f32* row = data + static_cast<size_t>(y) * w * 2;
+                for (u32 x = 0; x < w; ++x) {
+                    f32* pixel = row + x * 2;
+                    const f32 normalX = pixel[0], normalY = pixel[1];
+                    const f32 normalZ =
+                        std::sqrt(std::max(0.0f, 1.0f - normalX * normalX - normalY * normalY));
+                    const f32 length =
+                        std::sqrt(normalX * normalX + normalY * normalY + normalZ * normalZ);
+                    if (length > NORMALIZE_EPSILON) {
+                        pixel[0] = normalX / length;
+                        pixel[1] = normalY / length;
+                    }
+                }
+            }
+        });
+    } else if (channels >= 3) {
+        parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+            for (u32 y = y0; y < y1; ++y) {
+                f32* row = data + static_cast<size_t>(y) * w * channels;
+                for (u32 x = 0; x < w; ++x) {
+                    f32* pixel = row + x * channels;
+                    const f32 length = std::sqrt(
+                        pixel[0] * pixel[0] + pixel[1] * pixel[1] + pixel[2] * pixel[2]);
+                    if (length > NORMALIZE_EPSILON) {
+                        pixel[0] /= length;
+                        pixel[1] /= length;
+                        pixel[2] /= length;
+                    }
+                }
+            }
+        });
     }
 }
 
-void toksvigCorrection(MipImage& img) {
+void toksvigCorrection(MipImage& img, interfaces::WorkerPool* pool) {
     if (img.channels < 4)
         return;
-    const size_t pixelCount = img.pixelCount();
-    for (size_t pixelIdx = 0; pixelIdx < pixelCount; ++pixelIdx) {
-        f32* pixel = img.pixels.data() + pixelIdx * img.channels;
-        // The length of the averaged (un-renormalised) normal encodes how
-        // aligned the source normals were.  A length of 1 means perfect
-        // alignment; shorter lengths indicate increasing divergence and
-        // require reduced specular power to avoid shimmering.
-        const f32 normalLength =
-            std::sqrt(pixel[0] * pixel[0] + pixel[1] * pixel[1] + pixel[2] * pixel[2]);
-        pixel[3] = std::clamp(normalLength, 0.0f, 1.0f);
-    }
+    const u32 channels = img.channels;
+    f32* data = img.pixels.data();
+    const u32 w = img.width;
+    parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+        for (u32 y = y0; y < y1; ++y) {
+            f32* row = data + static_cast<size_t>(y) * w * channels;
+            for (u32 x = 0; x < w; ++x) {
+                f32* pixel = row + x * channels;
+                const f32 normalLength =
+                    std::sqrt(pixel[0] * pixel[0] + pixel[1] * pixel[1] + pixel[2] * pixel[2]);
+                pixel[3] = std::clamp(normalLength, 0.0f, 1.0f);
+            }
+        }
+    });
 }
 
 // ============================================================================
 // Roughness / Gloss helpers
 // ============================================================================
 
-void squareRoughness(MipImage& img) {
-    for (auto& value : img.pixels)
-        value *= value;
+void squareRoughness(MipImage& img, interfaces::WorkerPool* pool) {
+    const u32 channels = img.channels;
+    f32* data = img.pixels.data();
+    const u32 w = img.width;
+    parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+        const size_t start = static_cast<size_t>(y0) * w * channels;
+        const size_t end = static_cast<size_t>(y1) * w * channels;
+        for (size_t i = start; i < end; ++i)
+            data[i] *= data[i];
+    });
 }
 
-void unsquareRoughness(MipImage& img) {
-    for (auto& value : img.pixels)
-        value = std::sqrt(std::max(value, 0.0f));
+void unsquareRoughness(MipImage& img, interfaces::WorkerPool* pool) {
+    const u32 channels = img.channels;
+    f32* data = img.pixels.data();
+    const u32 w = img.width;
+    parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+        const size_t start = static_cast<size_t>(y0) * w * channels;
+        const size_t end = static_cast<size_t>(y1) * w * channels;
+        for (size_t i = start; i < end; ++i)
+            data[i] = std::sqrt(std::max(data[i], 0.0f));
+    });
 }
 
-void glossToRoughness(MipImage& img) {
-    for (auto& value : img.pixels)
-        value = 1.0f - value;
+void glossToRoughness(MipImage& img, interfaces::WorkerPool* pool) {
+    const u32 channels = img.channels;
+    f32* data = img.pixels.data();
+    const u32 w = img.width;
+    parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+        const size_t start = static_cast<size_t>(y0) * w * channels;
+        const size_t end = static_cast<size_t>(y1) * w * channels;
+        for (size_t i = start; i < end; ++i)
+            data[i] = 1.0f - data[i];
+    });
 }
 
-void roughnessToGloss(MipImage& img) {
-    glossToRoughness(img); // same operation: f(x) = 1 − x
+void roughnessToGloss(MipImage& img, interfaces::WorkerPool* pool) {
+    glossToRoughness(img, pool); // same operation: f(x) = 1 − x
 }
 
 // ============================================================================
 // Lightmap helpers
 // ============================================================================
 
-void clampPositive(MipImage& img) {
+void clampPositive(MipImage& img, interfaces::WorkerPool* pool) {
     const u32 colorChannelCount = std::min(img.channels, 3u);
-    const size_t pixelCount = img.pixelCount();
-    for (size_t pixelIdx = 0; pixelIdx < pixelCount; ++pixelIdx) {
-        f32* pixel = img.pixels.data() + pixelIdx * img.channels;
-        for (u32 channel = 0; channel < colorChannelCount; ++channel)
-            pixel[channel] = std::max(pixel[channel], 0.0f);
-    }
+    const u32 channels = img.channels;
+    f32* data = img.pixels.data();
+    const u32 w = img.width;
+    parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+        for (u32 y = y0; y < y1; ++y) {
+            f32* row = data + static_cast<size_t>(y) * w * channels;
+            for (u32 x = 0; x < w; ++x) {
+                f32* pixel = row + x * channels;
+                for (u32 c = 0; c < colorChannelCount; ++c)
+                    pixel[c] = std::max(pixel[c], 0.0f);
+            }
+        }
+    });
 }
 
 // ============================================================================
@@ -179,9 +249,6 @@ namespace {
 constexpr f32 ALPHA_THRESHOLD = 0.5f;
 constexpr f32 ALPHA_COVERAGE_SCALE_MAX = 4.0f;
 constexpr int ALPHA_COVERAGE_SEARCH_ITERS = 16;
-
-/// Per-thread coverage target written by preBlurAlpha, read by preserveAlphaCoverage.
-thread_local f32 tl_alphaCoverageTarget = 0.5f;
 
 f32 computeAlphaCoverage(const MipImage& img, f32 scale) {
     if (img.channels == 0)
@@ -197,52 +264,60 @@ f32 computeAlphaCoverage(const MipImage& img, f32 scale) {
 
 } // anonymous namespace
 
-void preBlurAlpha(MipImage& img) {
+f32 preBlurAlpha(MipImage& img, interfaces::WorkerPool* pool) {
     if (img.channels == 0)
-        return;
+        return 0.5f;
 
     const u32 alphaCh = img.channels - 1;
     const u32 w = img.width;
     const u32 h = img.height;
+    const u32 channels = img.channels;
 
-    // Capture pre-blur coverage as the target for preserveAlphaCoverage.
-    tl_alphaCoverageTarget = computeAlphaCoverage(img, 1.0f);
+    // Capture pre-blur coverage.
+    const f32 coverageTarget = computeAlphaCoverage(img, 1.0f);
 
     // Separable 3-tap Gaussian blur [¼ ½ ¼] on alpha only.
     std::vector<f32> tmp(static_cast<size_t>(w) * h);
+    f32* imgData = img.pixels.data();
+    f32* tmpData = tmp.data();
 
     // Horizontal pass → tmp
-    for (u32 y = 0; y < h; ++y) {
-        for (u32 x = 0; x < w; ++x) {
-            const u32 xL = (x > 0) ? x - 1 : 0;
-            const u32 xR = (x + 1 < w) ? x + 1 : w - 1;
-            const f32 aL = img.pixels[(y * w + xL) * img.channels + alphaCh];
-            const f32 aM = img.pixels[(y * w + x)  * img.channels + alphaCh];
-            const f32 aR = img.pixels[(y * w + xR) * img.channels + alphaCh];
-            tmp[y * w + x] = 0.25f * aL + 0.5f * aM + 0.25f * aR;
+    parallelForRows(h, pool, [=](u32 y0, u32 y1) {
+        for (u32 y = y0; y < y1; ++y) {
+            for (u32 x = 0; x < w; ++x) {
+                const u32 xL = (x > 0) ? x - 1 : 0;
+                const u32 xR = (x + 1 < w) ? x + 1 : w - 1;
+                const f32 aL = imgData[(y * w + xL) * channels + alphaCh];
+                const f32 aM = imgData[(y * w + x)  * channels + alphaCh];
+                const f32 aR = imgData[(y * w + xR) * channels + alphaCh];
+                tmpData[y * w + x] = 0.25f * aL + 0.5f * aM + 0.25f * aR;
+            }
         }
-    }
+    });
 
     // Vertical pass → img
-    for (u32 y = 0; y < h; ++y) {
-        const u32 yU = (y > 0) ? y - 1 : 0;
-        const u32 yD = (y + 1 < h) ? y + 1 : h - 1;
-        for (u32 x = 0; x < w; ++x) {
-            img.pixels[(y * w + x) * img.channels + alphaCh] =
-                std::clamp(0.25f * tmp[yU * w + x] + 0.5f * tmp[y * w + x] +
-                               0.25f * tmp[yD * w + x],
-                           0.0f, 1.0f);
+    parallelForRows(h, pool, [=](u32 y0, u32 y1) {
+        for (u32 y = y0; y < y1; ++y) {
+            const u32 yU = (y > 0) ? y - 1 : 0;
+            const u32 yD = (y + 1 < h) ? y + 1 : h - 1;
+            for (u32 x = 0; x < w; ++x) {
+                imgData[(y * w + x) * channels + alphaCh] =
+                    std::clamp(0.25f * tmpData[yU * w + x] + 0.5f * tmpData[y * w + x] +
+                                   0.25f * tmpData[yD * w + x],
+                               0.0f, 1.0f);
+            }
         }
-    }
+    });
+
+    return coverageTarget;
 }
 
-void preserveAlphaCoverage(MipImage& img) {
+void preserveAlphaCoverage(MipImage& img, f32 coverageTarget, interfaces::WorkerPool* pool) {
     if (img.channels == 0)
         return;
 
-    const f32 target = tl_alphaCoverageTarget;
     // Nothing to do for degenerate cases.
-    if (target <= 0.0f || target >= 1.0f)
+    if (coverageTarget <= 0.0f || coverageTarget >= 1.0f)
         return;
 
     // Binary search for scale s ∈ [0, ALPHA_COVERAGE_SCALE_MAX] such that
@@ -251,7 +326,7 @@ void preserveAlphaCoverage(MipImage& img) {
     f32 hi = ALPHA_COVERAGE_SCALE_MAX;
     for (int iter = 0; iter < ALPHA_COVERAGE_SEARCH_ITERS; ++iter) {
         const f32 mid = (lo + hi) * 0.5f;
-        if (computeAlphaCoverage(img, mid) < target)
+        if (computeAlphaCoverage(img, mid) < coverageTarget)
             lo = mid;
         else
             hi = mid;
@@ -259,10 +334,16 @@ void preserveAlphaCoverage(MipImage& img) {
     const f32 scale = (lo + hi) * 0.5f;
 
     const u32 alphaCh = img.channels - 1;
-    const size_t pixelCount = img.pixelCount();
-    for (size_t i = 0; i < pixelCount; ++i)
-        img.pixels[i * img.channels + alphaCh] =
-            std::clamp(img.pixels[i * img.channels + alphaCh] * scale, 0.0f, 1.0f);
+    const u32 channels = img.channels;
+    f32* data = img.pixels.data();
+    const u32 w = img.width;
+    parallelForRows(img.height, pool, [=](u32 y0, u32 y1) {
+        const size_t start = static_cast<size_t>(y0) * w;
+        const size_t end = static_cast<size_t>(y1) * w;
+        for (size_t i = start; i < end; ++i)
+            data[i * channels + alphaCh] =
+                std::clamp(data[i * channels + alphaCh] * scale, 0.0f, 1.0f);
+    });
 }
 
 } // namespace whiteout::textures::mipmap

@@ -40,6 +40,9 @@ public:
     /// @return Worker thread count.
     size_t threadCount() const noexcept override;
 
+    /// Create a timeline semaphore backed by utils::TimelineSemaphore.
+    std::unique_ptr<interfaces::TimelineSemaphore> createTimelineSemaphore() override;
+
 private:
     struct Impl;
     std::unique_ptr<Impl> m_impl;

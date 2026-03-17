@@ -5,6 +5,7 @@
 /// @brief Box and Kaiser downsample filter implementations.
 
 #include "filters.h"
+#include "pipeline.h"
 
 #include <algorithm>
 #include <cmath>
@@ -15,44 +16,50 @@ namespace whiteout::textures::mipmap {
 // Box filter
 // ============================================================================
 
-MipImage boxFilter(const MipImage& src, u32 dstWidth, u32 dstHeight) {
+MipImage boxFilter(const MipImage& src, u32 dstWidth, u32 dstHeight,
+                   interfaces::WorkerPool* pool) {
     const u32 numChannels = src.channels;
+    const u32 srcW = src.width;
+    const u32 srcH = src.height;
+    const f32* srcData = src.pixels.data();
     MipImage dst(dstWidth, dstHeight, numChannels);
+    f32* dstData = dst.pixels.data();
 
-    // For each destination pixel, average the source pixels that map to it.
-    for (u32 dstY = 0; dstY < dstHeight; ++dstY) {
-        // Source row span covered by this destination row.
-        const f32 srcYStart = static_cast<f32>(dstY) * src.height / dstHeight;
-        const f32 srcYEnd = static_cast<f32>(dstY + 1) * src.height / dstHeight;
-        const u32 srcRowMin = static_cast<u32>(srcYStart);
-        const u32 srcRowMax = std::min(static_cast<u32>(std::ceil(srcYEnd)), src.height) - 1;
+    parallelForRows(dstHeight, pool, [=](u32 y0, u32 y1) {
+        for (u32 dstY = y0; dstY < y1; ++dstY) {
+            const f32 srcYStart = static_cast<f32>(dstY) * srcH / dstHeight;
+            const f32 srcYEnd = static_cast<f32>(dstY + 1) * srcH / dstHeight;
+            const u32 srcRowMin = static_cast<u32>(srcYStart);
+            const u32 srcRowMax = std::min(static_cast<u32>(std::ceil(srcYEnd)), srcH) - 1;
 
-        for (u32 dstX = 0; dstX < dstWidth; ++dstX) {
-            const f32 srcXStart = static_cast<f32>(dstX) * src.width / dstWidth;
-            const f32 srcXEnd = static_cast<f32>(dstX + 1) * src.width / dstWidth;
-            const u32 srcColMin = static_cast<u32>(srcXStart);
-            const u32 srcColMax = std::min(static_cast<u32>(std::ceil(srcXEnd)), src.width) - 1;
+            for (u32 dstX = 0; dstX < dstWidth; ++dstX) {
+                const f32 srcXStart = static_cast<f32>(dstX) * srcW / dstWidth;
+                const f32 srcXEnd = static_cast<f32>(dstX + 1) * srcW / dstWidth;
+                const u32 srcColMin = static_cast<u32>(srcXStart);
+                const u32 srcColMax = std::min(static_cast<u32>(std::ceil(srcXEnd)), srcW) - 1;
 
-            f32* outPixel = dst.pixel(dstX, dstY);
-            for (u32 channel = 0; channel < numChannels; ++channel)
-                outPixel[channel] = 0.0f;
+                f32* outPixel = dstData + (static_cast<size_t>(dstY) * dstWidth + dstX) * numChannels;
+                for (u32 c = 0; c < numChannels; ++c)
+                    outPixel[c] = 0.0f;
 
-            u32 sampleCount = 0;
-            for (u32 srcY = srcRowMin; srcY <= srcRowMax; ++srcY) {
-                for (u32 srcX = srcColMin; srcX <= srcColMax; ++srcX) {
-                    const f32* srcPixel = src.pixel(srcX, srcY);
-                    for (u32 channel = 0; channel < numChannels; ++channel)
-                        outPixel[channel] += srcPixel[channel];
-                    ++sampleCount;
+                u32 sampleCount = 0;
+                for (u32 srcY = srcRowMin; srcY <= srcRowMax; ++srcY) {
+                    for (u32 srcX = srcColMin; srcX <= srcColMax; ++srcX) {
+                        const f32* srcPixel =
+                            srcData + (static_cast<size_t>(srcY) * srcW + srcX) * numChannels;
+                        for (u32 c = 0; c < numChannels; ++c)
+                            outPixel[c] += srcPixel[c];
+                        ++sampleCount;
+                    }
+                }
+                if (sampleCount > 0) {
+                    const f32 invCount = 1.0f / static_cast<f32>(sampleCount);
+                    for (u32 c = 0; c < numChannels; ++c)
+                        outPixel[c] *= invCount;
                 }
             }
-            if (sampleCount > 0) {
-                const f32 invCount = 1.0f / static_cast<f32>(sampleCount);
-                for (u32 channel = 0; channel < numChannels; ++channel)
-                    outPixel[channel] *= invCount;
-            }
         }
-    }
+    });
     return dst;
 }
 
@@ -173,7 +180,7 @@ u32 buildLanczos3Weights(f64 center, u32 srcSize, f32* weights, i32* indices, f6
 
 template <typename WeightFn>
 MipImage separableDownsample(const MipImage& src, u32 dstWidth, u32 dstHeight,
-                             WeightFn buildWeights) {
+                             WeightFn buildWeights, interfaces::WorkerPool* pool) {
     const u32 numChannels = src.channels;
     const f64 ratioX = static_cast<f64>(src.width) / dstWidth;
     const f64 ratioY = static_cast<f64>(src.height) / dstHeight;
@@ -184,48 +191,55 @@ MipImage separableDownsample(const MipImage& src, u32 dstWidth, u32 dstHeight,
 
     // Pass 1 — horizontal: src.width → dstWidth, keep src.height.
     MipImage horizontalPass(dstWidth, src.height, numChannels);
-    std::vector<f32> tapWeightsH(maxTapsX);
-    std::vector<i32> tapIndicesH(maxTapsX);
-    for (u32 srcY = 0; srcY < src.height; ++srcY) {
-        for (u32 dstX = 0; dstX < dstWidth; ++dstX) {
-            const f64 center = (static_cast<f64>(dstX) + HALF_PIXEL) * ratioX - HALF_PIXEL;
 
-            const u32 tapCount =
-                buildWeights(center, src.width, tapWeightsH.data(), tapIndicesH.data(), ratioX);
+    parallelForRows(src.height, pool, [&](u32 y0, u32 y1) {
+        // Thread-local weight/index buffers to avoid contention.
+        std::vector<f32> tapWeightsH(maxTapsX);
+        std::vector<i32> tapIndicesH(maxTapsX);
+        for (u32 srcY = y0; srcY < y1; ++srcY) {
+            for (u32 dstX = 0; dstX < dstWidth; ++dstX) {
+                const f64 center = (static_cast<f64>(dstX) + HALF_PIXEL) * ratioX - HALF_PIXEL;
 
-            f32* outPixel = horizontalPass.pixel(dstX, srcY);
-            for (u32 channel = 0; channel < numChannels; ++channel)
-                outPixel[channel] = 0.0f;
-            for (u32 tap = 0; tap < tapCount; ++tap) {
-                const f32* srcPixel = src.pixel(static_cast<u32>(tapIndicesH[tap]), srcY);
+                const u32 tapCount =
+                    buildWeights(center, src.width, tapWeightsH.data(), tapIndicesH.data(), ratioX);
+
+                f32* outPixel = horizontalPass.pixel(dstX, srcY);
                 for (u32 channel = 0; channel < numChannels; ++channel)
-                    outPixel[channel] += srcPixel[channel] * tapWeightsH[tap];
+                    outPixel[channel] = 0.0f;
+                for (u32 tap = 0; tap < tapCount; ++tap) {
+                    const f32* srcPixel = src.pixel(static_cast<u32>(tapIndicesH[tap]), srcY);
+                    for (u32 channel = 0; channel < numChannels; ++channel)
+                        outPixel[channel] += srcPixel[channel] * tapWeightsH[tap];
+                }
             }
         }
-    }
+    });
 
     // Pass 2 — vertical: src.height → dstHeight, keep dstWidth.
     MipImage dst(dstWidth, dstHeight, numChannels);
-    std::vector<f32> tapWeightsV(maxTapsY);
-    std::vector<i32> tapIndicesV(maxTapsY);
-    for (u32 dstX = 0; dstX < dstWidth; ++dstX) {
-        for (u32 dstY = 0; dstY < dstHeight; ++dstY) {
+
+    parallelForRows(dstHeight, pool, [&](u32 y0, u32 y1) {
+        std::vector<f32> tapWeightsV(maxTapsY);
+        std::vector<i32> tapIndicesV(maxTapsY);
+        for (u32 dstY = y0; dstY < y1; ++dstY) {
             const f64 center = (static_cast<f64>(dstY) + HALF_PIXEL) * ratioY - HALF_PIXEL;
 
             const u32 tapCount =
                 buildWeights(center, src.height, tapWeightsV.data(), tapIndicesV.data(), ratioY);
 
-            f32* outPixel = dst.pixel(dstX, dstY);
-            for (u32 channel = 0; channel < numChannels; ++channel)
-                outPixel[channel] = 0.0f;
-            for (u32 tap = 0; tap < tapCount; ++tap) {
-                const f32* srcPixel =
-                    horizontalPass.pixel(dstX, static_cast<u32>(tapIndicesV[tap]));
+            for (u32 dstX = 0; dstX < dstWidth; ++dstX) {
+                f32* outPixel = dst.pixel(dstX, dstY);
                 for (u32 channel = 0; channel < numChannels; ++channel)
-                    outPixel[channel] += srcPixel[channel] * tapWeightsV[tap];
+                    outPixel[channel] = 0.0f;
+                for (u32 tap = 0; tap < tapCount; ++tap) {
+                    const f32* srcPixel =
+                        horizontalPass.pixel(dstX, static_cast<u32>(tapIndicesV[tap]));
+                    for (u32 channel = 0; channel < numChannels; ++channel)
+                        outPixel[channel] += srcPixel[channel] * tapWeightsV[tap];
+                }
             }
         }
-    }
+    });
 
     return dst;
 }
@@ -238,16 +252,19 @@ MipImage separableDownsample(const MipImage& src, u32 dstWidth, u32 dstHeight,
 
 constexpr f64 DEFAULT_KAISER_BETA = 4.0;
 
-MipImage kaiserFilter(const MipImage& src, u32 dstWidth, u32 dstHeight, f64 beta) {
+MipImage kaiserFilter(const MipImage& src, u32 dstWidth, u32 dstHeight, f64 beta,
+                      interfaces::WorkerPool* pool) {
     return separableDownsample(
         src, dstWidth, dstHeight,
         [beta](f64 center, u32 srcSize, f32* tapWeights, i32* tapIndices, f64 ratio) {
             return buildKaiserWeights(center, srcSize, tapWeights, tapIndices, beta, ratio);
-        });
+        },
+        pool);
 }
 
-MipImage kaiserFilter(const MipImage& src, u32 dstWidth, u32 dstHeight) {
-    return kaiserFilter(src, dstWidth, dstHeight, DEFAULT_KAISER_BETA);
+MipImage kaiserFilter(const MipImage& src, u32 dstWidth, u32 dstHeight,
+                      interfaces::WorkerPool* pool) {
+    return kaiserFilter(src, dstWidth, dstHeight, DEFAULT_KAISER_BETA, pool);
 }
 
 MipImage kaiserFilter(const MipImage& src, f64 beta) {
@@ -258,8 +275,9 @@ MipImage kaiserFilter(const MipImage& src) {
     return kaiserFilter(src, DEFAULT_KAISER_BETA);
 }
 
-MipImage lanczos3Filter(const MipImage& src, u32 dstWidth, u32 dstHeight) {
-    return separableDownsample(src, dstWidth, dstHeight, buildLanczos3Weights);
+MipImage lanczos3Filter(const MipImage& src, u32 dstWidth, u32 dstHeight,
+                        interfaces::WorkerPool* pool) {
+    return separableDownsample(src, dstWidth, dstHeight, buildLanczos3Weights, pool);
 }
 
 MipImage lanczos3Filter(const MipImage& src) {
@@ -365,75 +383,78 @@ void sampleBilinear(const MipImage& img, f32 u, f32 v, f32* result, u32 channels
 
 } // anonymous namespace
 
-MipImage environmentPrefilterGGX(const MipImage& src, u32 dstW, u32 dstH) {
+MipImage environmentPrefilterGGX(const MipImage& src, u32 dstW, u32 dstH,
+                                 interfaces::WorkerPool* pool) {
     // Derive roughness from the mip level implied by the downsample ratio.
-    // roughness = log2(srcW / dstW) / log2(srcW) maps linearly from mip 0
-    // (roughness = 0) to the smallest mip (roughness = 1).
     const f32 srcLog2 = std::log2(f32(src.width));
     const f32 roughness = srcLog2 > 0.0f
         ? std::clamp(std::log2(f32(src.width) / f32(dstW)) / srcLog2, 0.0f, 1.0f)
         : 0.0f;
 
     MipImage dst(dstW, dstH, src.channels);
+    const u32 channels = src.channels;
+    f32* dstData = dst.pixels.data();
 
-    for (u32 y = 0; y < dstH; ++y) {
-        const f32 tv = (f32(y) + 0.5f) / f32(dstH);
-        for (u32 x = 0; x < dstW; ++x) {
-            const f32 tu = (f32(x) + 0.5f) / f32(dstW);
+    parallelForRows(dstH, pool, [&src, dstW, dstH, channels, roughness, dstData](u32 y0, u32 y1) {
+        for (u32 y = y0; y < y1; ++y) {
+            const f32 tv = (f32(y) + 0.5f) / f32(dstH);
+            for (u32 x = 0; x < dstW; ++x) {
+                const f32 tu = (f32(x) + 0.5f) / f32(dstW);
 
-            // Convert texel centre to a world direction on the sphere.
-            f32 nx, ny, nz;
-            uvToDir(tu, tv, nx, ny, nz);
+                // Convert texel centre to a world direction on the sphere.
+                f32 nx, ny, nz;
+                uvToDir(tu, tv, nx, ny, nz);
 
-            // Build tangent basis (V == N, isotropic split-sum assumption).
-            f32 tx, ty, tz, bx, by, bz;
-            buildTBN(nx, ny, nz, tx, ty, tz, bx, by, bz);
+                // Build tangent basis (V == N, isotropic split-sum assumption).
+                f32 tx, ty, tz, bx, by, bz;
+                buildTBN(nx, ny, nz, tx, ty, tz, bx, by, bz);
 
-            // Accumulate GGX importance-sampled contributions.
-            f32 color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-            f32 totalWeight = 0.0f;
+                // Accumulate GGX importance-sampled contributions.
+                f32 color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+                f32 totalWeight = 0.0f;
 
-            for (u32 i = 0; i < GGX_SAMPLE_COUNT; ++i) {
-                f32 xi1, xi2;
-                hammersley2(i, GGX_SAMPLE_COUNT, xi1, xi2);
+                for (u32 i = 0; i < GGX_SAMPLE_COUNT; ++i) {
+                    f32 xi1, xi2;
+                    hammersley2(i, GGX_SAMPLE_COUNT, xi1, xi2);
 
-                // Half-vector in tangent space, transform to world space.
-                f32 hx, hy, hz;
-                importanceSampleGGX(xi1, xi2, roughness, hx, hy, hz);
-                const f32 wx = tx * hx + bx * hy + nx * hz;
-                const f32 wy = ty * hx + by * hy + ny * hz;
-                const f32 wz = tz * hx + bz * hy + nz * hz;
+                    // Half-vector in tangent space, transform to world space.
+                    f32 hx, hy, hz;
+                    importanceSampleGGX(xi1, xi2, roughness, hx, hy, hz);
+                    const f32 wx = tx * hx + bx * hy + nx * hz;
+                    const f32 wy = ty * hx + by * hy + ny * hz;
+                    const f32 wz = tz * hx + bz * hy + nz * hz;
 
-                // Sample direction L = 2*(N·H)*H - N.
-                const f32 NdotH = nx * wx + ny * wy + nz * wz;
-                const f32 lx = 2.0f * NdotH * wx - nx;
-                const f32 ly = 2.0f * NdotH * wy - ny;
-                const f32 lz = 2.0f * NdotH * wz - nz;
-                const f32 NdotL = nx * lx + ny * ly + nz * lz;
-                if (NdotL <= 0.0f)
-                    continue;
+                    // Sample direction L = 2*(N·H)*H - N.
+                    const f32 NdotH = nx * wx + ny * wy + nz * wz;
+                    const f32 lx = 2.0f * NdotH * wx - nx;
+                    const f32 ly = 2.0f * NdotH * wy - ny;
+                    const f32 lz = 2.0f * NdotH * wz - nz;
+                    const f32 NdotL = nx * lx + ny * ly + nz * lz;
+                    if (NdotL <= 0.0f)
+                        continue;
 
-                f32 su, sv;
-                dirToUV(lx, ly, lz, su, sv);
-                f32 sample[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-                sampleBilinear(src, su, sv, sample, src.channels);
+                    f32 su, sv;
+                    dirToUV(lx, ly, lz, su, sv);
+                    f32 sample[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+                    sampleBilinear(src, su, sv, sample, src.channels);
 
-                for (u32 c = 0; c < src.channels; ++c)
-                    color[c] += sample[c] * NdotL;
-                totalWeight += NdotL;
-            }
+                    for (u32 c = 0; c < channels; ++c)
+                        color[c] += sample[c] * NdotL;
+                    totalWeight += NdotL;
+                }
 
-            f32* dstPixel = dst.pixel(x, y);
-            if (totalWeight > 0.0f) {
-                const f32 invW = 1.0f / totalWeight;
-                for (u32 c = 0; c < src.channels; ++c)
-                    dstPixel[c] = color[c] * invW;
-            } else {
-                // Roughness ≈ 0 or degenerate: copy the source texel verbatim.
-                sampleBilinear(src, tu, tv, dstPixel, src.channels);
+                f32* dstPixel = dstData + (static_cast<size_t>(y) * dstW + x) * channels;
+                if (totalWeight > 0.0f) {
+                    const f32 invW = 1.0f / totalWeight;
+                    for (u32 c = 0; c < channels; ++c)
+                        dstPixel[c] = color[c] * invW;
+                } else {
+                    // Roughness ≈ 0 or degenerate: copy the source texel verbatim.
+                    sampleBilinear(src, tu, tv, dstPixel, channels);
+                }
             }
         }
-    }
+    });
     return dst;
 }
 
@@ -441,7 +462,8 @@ MipImage environmentPrefilterGGX(const MipImage& src, u32 dstW, u32 dstH) {
 // Spherical Kaiser filter (solid-angle-weighted, equirectangular)
 // ============================================================================
 
-MipImage sphericalKaiserFilter(const MipImage& src, u32 dstW, u32 dstH) {
+MipImage sphericalKaiserFilter(const MipImage& src, u32 dstW, u32 dstH,
+                               interfaces::WorkerPool* pool) {
     constexpr f64 SKAISER_BETA = 6.0;
     constexpr i32 SKAISER_LOBES = 3;
     const f64 invI0Beta = 1.0 / bessel_I0(SKAISER_BETA);
@@ -452,81 +474,84 @@ MipImage sphericalKaiserFilter(const MipImage& src, u32 dstW, u32 dstH) {
     const f64 cosRadiusCutoff = std::cos(angularRadius);
 
     MipImage dst(dstW, dstH, src.channels);
+    const u32 channels = src.channels;
+    f32* dstData = dst.pixels.data();
 
-    for (u32 y = 0; y < dstH; ++y) {
-        const f32 tv = (static_cast<f32>(y) + 0.5f) / static_cast<f32>(dstH);
-        for (u32 x = 0; x < dstW; ++x) {
-            const f32 tu = (static_cast<f32>(x) + 0.5f) / static_cast<f32>(dstW);
+    parallelForRows(dstH, pool, [&src, dstW, dstH, channels, invI0Beta,
+                                  angularRadius, cosRadiusCutoff, dstData](u32 y0, u32 y1) {
+        for (u32 y = y0; y < y1; ++y) {
+            const f32 tv = (static_cast<f32>(y) + 0.5f) / static_cast<f32>(dstH);
+            for (u32 x = 0; x < dstW; ++x) {
+                const f32 tu = (static_cast<f32>(x) + 0.5f) / static_cast<f32>(dstW);
 
-            f32 nx, ny, nz;
-            uvToDir(tu, tv, nx, ny, nz);
+                f32 nx, ny, nz;
+                uvToDir(tu, tv, nx, ny, nz);
 
-            // Conservative UV bounding box in source texel space.
-            // Near the poles sinTheta → 0, so cap duPad at 0.5 (full-wrap).
-            const f32 sinThetaN =
-                std::max(std::sin(tv * static_cast<f32>(PI)), 0.01f);
-            const f32 dvPad = static_cast<f32>(angularRadius / PI);
-            const f32 duPad = std::min(
-                static_cast<f32>(angularRadius / (PI * static_cast<f64>(sinThetaN))), 0.5f);
+                const f32 sinThetaN =
+                    std::max(std::sin(tv * static_cast<f32>(PI)), 0.01f);
+                const f32 dvPad = static_cast<f32>(angularRadius / PI);
+                const f32 duPad = std::min(
+                    static_cast<f32>(angularRadius / (PI * static_cast<f64>(sinThetaN))), 0.5f);
 
-            const u32 srcY0 = static_cast<u32>(
-                std::max(0.0f, (tv - dvPad) * static_cast<f32>(src.height) - 0.5f));
-            const u32 srcY1 = std::min(
-                static_cast<u32>((tv + dvPad) * static_cast<f32>(src.height) + 0.5f),
-                src.height - 1u);
-            const i32 srcX0 =
-                static_cast<i32>((tu - duPad) * static_cast<f32>(src.width) - 0.5f);
-            const i32 srcX1 =
-                static_cast<i32>((tu + duPad) * static_cast<f32>(src.width) + 0.5f);
+                const u32 srcY0 = static_cast<u32>(
+                    std::max(0.0f, (tv - dvPad) * static_cast<f32>(src.height) - 0.5f));
+                const u32 srcY1 = std::min(
+                    static_cast<u32>((tv + dvPad) * static_cast<f32>(src.height) + 0.5f),
+                    src.height - 1u);
+                const i32 srcX0 =
+                    static_cast<i32>((tu - duPad) * static_cast<f32>(src.width) - 0.5f);
+                const i32 srcX1 =
+                    static_cast<i32>((tu + duPad) * static_cast<f32>(src.width) + 0.5f);
 
-            f32 color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-            f64 weightSum = 0.0;
+                f32 color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+                f64 weightSum = 0.0;
 
-            for (u32 sy = srcY0; sy <= srcY1; ++sy) {
-                const f32 sv = (static_cast<f32>(sy) + 0.5f) / static_cast<f32>(src.height);
-                // Solid-angle differential: sin(θ) dθ dφ.
-                const f64 solidAngle = std::sin(static_cast<f64>(sv) * PI);
+                for (u32 sy = srcY0; sy <= srcY1; ++sy) {
+                    const f32 sv =
+                        (static_cast<f32>(sy) + 0.5f) / static_cast<f32>(src.height);
+                    const f64 solidAngle = std::sin(static_cast<f64>(sv) * PI);
 
-                for (i32 sx = srcX0; sx <= srcX1; ++sx) {
-                    const f32 su = (static_cast<f32>(sx) + 0.5f) / static_cast<f32>(src.width);
-                    f32 lx, ly, lz;
-                    uvToDir(su, sv, lx, ly, lz);
+                    for (i32 sx = srcX0; sx <= srcX1; ++sx) {
+                        const f32 su =
+                            (static_cast<f32>(sx) + 0.5f) / static_cast<f32>(src.width);
+                        f32 lx, ly, lz;
+                        uvToDir(su, sv, lx, ly, lz);
 
-                    const f32 cosAngle = nx * lx + ny * ly + nz * lz;
-                    if (static_cast<f64>(cosAngle) < cosRadiusCutoff)
-                        continue;
+                        const f32 cosAngle = nx * lx + ny * ly + nz * lz;
+                        if (static_cast<f64>(cosAngle) < cosRadiusCutoff)
+                            continue;
 
-                    // Normalised angular distance t ∈ [0, 1].
-                    const f64 angle = std::acos(
-                        static_cast<f64>(std::clamp(cosAngle, -1.0f, 1.0f)));
-                    const f64 t2 = (angle / angularRadius) * (angle / angularRadius);
-                    const f64 kaiserW = (t2 < 1.0)
-                        ? bessel_I0(SKAISER_BETA * std::sqrt(1.0 - t2)) * invI0Beta
-                        : 0.0;
-                    const f64 weight = kaiserW * solidAngle;
+                        const f64 angle = std::acos(
+                            static_cast<f64>(std::clamp(cosAngle, -1.0f, 1.0f)));
+                        const f64 t2 = (angle / angularRadius) * (angle / angularRadius);
+                        const f64 kaiserW = (t2 < 1.0)
+                            ? bessel_I0(SKAISER_BETA * std::sqrt(1.0 - t2)) * invI0Beta
+                            : 0.0;
+                        const f64 weight = kaiserW * solidAngle;
 
-                    // Wrap sx across U boundary.
-                    const u32 wrappedSx = static_cast<u32>(
-                        (sx % static_cast<i32>(src.width) + static_cast<i32>(src.width)) %
-                        static_cast<i32>(src.width));
-                    const f32* srcPixel = src.pixel(wrappedSx, sy);
+                        const u32 wrappedSx = static_cast<u32>(
+                            (sx % static_cast<i32>(src.width) + static_cast<i32>(src.width)) %
+                            static_cast<i32>(src.width));
+                        const f32* srcPixel = src.pixel(wrappedSx, sy);
 
-                    for (u32 c = 0; c < src.channels; ++c)
-                        color[c] += srcPixel[c] * static_cast<f32>(weight);
-                    weightSum += weight;
+                        for (u32 c = 0; c < channels; ++c)
+                            color[c] += srcPixel[c] * static_cast<f32>(weight);
+                        weightSum += weight;
+                    }
+                }
+
+                f32* dstPixel =
+                    dstData + (static_cast<size_t>(y) * dstW + x) * channels;
+                if (weightSum > 0.0) {
+                    const f32 invW = static_cast<f32>(1.0 / weightSum);
+                    for (u32 c = 0; c < channels; ++c)
+                        dstPixel[c] = color[c] * invW;
+                } else {
+                    sampleBilinear(src, tu, tv, dstPixel, channels);
                 }
             }
-
-            f32* dstPixel = dst.pixel(x, y);
-            if (weightSum > 0.0) {
-                const f32 invW = static_cast<f32>(1.0 / weightSum);
-                for (u32 c = 0; c < src.channels; ++c)
-                    dstPixel[c] = color[c] * invW;
-            } else {
-                sampleBilinear(src, tu, tv, dstPixel, src.channels);
-            }
         }
-    }
+    });
     return dst;
 }
 

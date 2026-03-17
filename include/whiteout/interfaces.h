@@ -5,6 +5,7 @@
 
 #include <functional>
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -56,6 +57,10 @@ public:
 
     // Worker thread count
     virtual size_t threadCount() const noexcept = 0;
+
+    /// Create a timeline semaphore for task dependency management.
+    /// Returns nullptr by default; override in concrete pool implementations.
+    virtual std::unique_ptr<TimelineSemaphore> createTimelineSemaphore() { return nullptr; }
 };
 
 class VirtualFileSystem {

@@ -140,46 +140,74 @@ void writeMip(Texture& tex, u32 mip, u32 layer, const MipImage& img) {
 // Kind → Pipeline mapping
 // ============================================================================
 
-/// Resolve overloaded free functions to the 3-argument Filter signature.
-using FilterFn = MipImage (*)(const MipImage&, u32, u32);
-
-/// Create a Filter that delegates to kaiserFilter with a fixed β value.
-Filter makeKaiserFilter(f64 beta) {
-    return [beta](const MipImage& image, u32 dstW, u32 dstH) {
-        return kaiserFilter(image, dstW, dstH, beta);
+/// Create a PoolFilter that delegates to kaiserFilter with a fixed β value.
+PoolFilter makeKaiserFilter(f64 beta) {
+    return [beta](const MipImage& image, u32 dstW, u32 dstH, interfaces::WorkerPool* pool) {
+        return kaiserFilter(image, dstW, dstH, beta, pool);
     };
 }
 
+/// Wrap a stage function into a PoolStage (stages already accept pool).
+using StageFn = void (*)(MipImage&, interfaces::WorkerPool*);
+
+/// Wrap a 4-arg filter function into a PoolFilter.
+using PoolFilterFn = MipImage (*)(const MipImage&, u32, u32, interfaces::WorkerPool*);
+
 MipmapPipeline pipelineForKind(TextureKind kind, bool srgb) {
-    const Filter lanczos3 = static_cast<FilterFn>(lanczos3Filter);
-    const Filter box = static_cast<FilterFn>(boxFilter);
-    const Filter kaiser6 = makeKaiserFilter(6.0);
-    const Filter kaiser55 = makeKaiserFilter(5.5);
-    const Filter kaiser65 = makeKaiserFilter(6.5);
-    const Filter ggxEnv = static_cast<FilterFn>(environmentPrefilterGGX);
-    const Filter spherKaiser = static_cast<FilterFn>(sphericalKaiserFilter);
+    const PoolFilter lanczos3 = static_cast<PoolFilterFn>(lanczos3Filter);
+    const PoolFilter box = static_cast<PoolFilterFn>(boxFilter);
+    const PoolFilter kaiser6 = makeKaiserFilter(6.0);
+    const PoolFilter kaiser55 = makeKaiserFilter(5.5);
+    const PoolFilter kaiser65 = makeKaiserFilter(6.5);
+    const PoolFilter ggxEnv = static_cast<PoolFilterFn>(environmentPrefilterGGX);
+    const PoolFilter spherKaiser = static_cast<PoolFilterFn>(sphericalKaiserFilter);
+
+    // Stage function pointers are directly convertible to PoolStage.
+    const PoolStage sLinearize = static_cast<StageFn>(linearize);
+    const PoolStage sDelinearize = static_cast<StageFn>(delinearize);
+    const PoolStage sUnpackNormals = static_cast<StageFn>(unpackNormals);
+    const PoolStage sPackNormals = static_cast<StageFn>(packNormals);
+    const PoolStage sRenormalize = static_cast<StageFn>(renormalize);
+    const PoolStage sToksvig = static_cast<StageFn>(toksvigCorrection);
+    const PoolStage sSquare = static_cast<StageFn>(squareRoughness);
+    const PoolStage sUnsquare = static_cast<StageFn>(unsquareRoughness);
+    const PoolStage sGlossToRough = static_cast<StageFn>(glossToRoughness);
+    const PoolStage sRoughToGloss = static_cast<StageFn>(roughnessToGloss);
+    const PoolStage sClampPos = static_cast<StageFn>(clampPositive);
+
+    // AlphaMask stages: preBlurAlpha returns coverage, preserveAlphaCoverage
+    // consumes it.  We share the value through a std::shared_ptr<f32>.
+    auto makeAlphaStages = []() -> std::pair<PoolStage, PoolStage> {
+        auto coverage = std::make_shared<f32>(0.5f);
+        PoolStage pre = [coverage](MipImage& img, interfaces::WorkerPool* pool) {
+            *coverage = preBlurAlpha(img, pool);
+        };
+        PoolStage post = [coverage](MipImage& img, interfaces::WorkerPool* pool) {
+            preserveAlphaCoverage(img, *coverage, pool);
+        };
+        return {std::move(pre), std::move(post)};
+    };
 
     switch (kind) {
     case TextureKind::Diffuse:
     case TextureKind::Albedo:
         if (srgb)
-            return {{linearize}, lanczos3, {delinearize}};
+            return {{sLinearize}, lanczos3, {sDelinearize}};
         return {{}, lanczos3, {}};
 
     case TextureKind::Normal:
-        return {{unpackNormals}, kaiser6, {toksvigCorrection, renormalize, packNormals}};
+        return {{sUnpackNormals}, kaiser6, {sToksvig, sRenormalize, sPackNormals}};
 
     case TextureKind::Specular:
         if (srgb)
-            return {{linearize}, kaiser6, {delinearize}};
+            return {{sLinearize}, kaiser6, {sDelinearize}};
         return {{}, kaiser6, {}};
 
     case TextureKind::Roughness:
-        return {{squareRoughness}, kaiser65, {unsquareRoughness}};
+        return {{sSquare}, kaiser65, {sUnsquare}};
 
     case TextureKind::Gloss:
-        return {
-            {glossToRoughness, squareRoughness}, kaiser65, {unsquareRoughness, roughnessToGloss}};
+        return {{sGlossToRough, sSquare}, kaiser65, {sUnsquare, sRoughToGloss}};
 
     case TextureKind::Metalness:
         return {{}, kaiser55, {}};
@@ -189,25 +217,27 @@ MipmapPipeline pipelineForKind(TextureKind kind, bool srgb) {
 
     case TextureKind::Emissive:
         if (srgb)
-            return {{linearize}, lanczos3, {delinearize}};
+            return {{sLinearize}, lanczos3, {sDelinearize}};
         return {{}, lanczos3, {}};
 
-    case TextureKind::AlphaMask:
-        return {{preBlurAlpha}, kaiser6, {preserveAlphaCoverage}};
+    case TextureKind::AlphaMask: {
+        auto [pre, post] = makeAlphaStages();
+        return {{std::move(pre)}, kaiser6, {std::move(post)}};
+    }
 
     case TextureKind::Lightmap:
         if (srgb)
-            return {{linearize}, lanczos3, {clampPositive, delinearize}};
-        return {{}, lanczos3, {clampPositive}};
+            return {{sLinearize}, lanczos3, {sClampPos, sDelinearize}};
+        return {{}, lanczos3, {sClampPos}};
 
     case TextureKind::EnvironmentPBR:
         if (srgb)
-            return {{linearize}, ggxEnv, {delinearize}};
+            return {{sLinearize}, ggxEnv, {sDelinearize}};
         return {{}, ggxEnv, {}};
 
     case TextureKind::EnvironmentLegacy:
         if (srgb)
-            return {{linearize}, spherKaiser, {delinearize}};
+            return {{sLinearize}, spherKaiser, {sDelinearize}};
         return {{}, spherKaiser, {}};
 
     // ORM is handled by per-channel splitting in generateMipmaps();
@@ -216,7 +246,7 @@ MipmapPipeline pipelineForKind(TextureKind kind, bool srgb) {
     case TextureKind::Other:
     default:
         if (srgb)
-            return {{linearize}, box, {delinearize}};
+            return {{sLinearize}, box, {sDelinearize}};
         return {{}, box, {}};
     }
 }
@@ -373,6 +403,14 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
         pool->submit(task);
     };
 
+    // Check if the pool supports timeline semaphore creation.  When it does,
+    // compute and write tasks are chained through per-job semaphores so all
+    // (mip,layer) pairs run concurrently without nested-pool deadlock.
+    const bool useSemaphores = usePool && [&]() {
+        auto test = pool->createTimelineSemaphore();
+        return test != nullptr;
+    }();
+
     // ORM textures: split into individual channels, apply the correct
     // per-channel pipeline (AO / Roughness / Metalness), then recombine.
     // Each mip is generated directly from the original (mip 0) channels.
@@ -389,86 +427,245 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
         for (size_t i = 0; i < ORM_CHANNEL_COUNT; ++i)
             channelPipelines[i] = pipelineForKind(ORM_CHANNEL_KINDS[i], false);
 
-        const Filter boxDown = static_cast<FilterFn>(boxFilter);
+        const PoolFilter boxDown = static_cast<PoolFilterFn>(boxFilter);
 
         std::vector<std::vector<MipImage>> originalByLayer(layerCount);
         for (u32 layer = 0; layer < layerCount; ++layer)
             originalByLayer[layer] = splitChannels(extractMip(tex, 0, layer));
 
-        for (u32 layer = 0; layer < layerCount; ++layer) {
-            for (u32 mip = 1; mip < mipCount; ++mip) {
-                submitJob([&, layer, mip]() {
-                    const auto& originalChannels = originalByLayer[layer];
-                    const auto& targetLevel = tex.mipLevel(mip, layer);
-                    const u32 targetWidth = targetLevel.width;
-                    const u32 targetHeight = targetLevel.height;
+        // Parallelism strategy:
+        // When semaphores are available, each (mip,layer) gets its own
+        // timeline semaphore.  A compute task signals the semaphore, and a
+        // paired write task waits on it.  All compute tasks are submitted
+        // before any write tasks so workers process computes first,
+        // maximising pool utilisation.
+        //
+        // Without semaphore support (or without a pool) we fall back to the
+        // combined compute+write submitJob path.
+        if (useSemaphores) {
+            const size_t totalJobs = static_cast<size_t>(layerCount) * (mipCount - 1);
+            std::vector<std::unique_ptr<interfaces::TimelineSemaphore>> sems(totalJobs);
+            std::vector<interfaces::TimelineSemaphore::Value> computeVals(totalJobs);
+            std::vector<interfaces::TimelineSemaphore::Value> writeVals(totalJobs);
+            std::vector<MipImage> results(totalJobs);
 
-                    std::vector<MipImage> mipChannels;
-                    mipChannels.reserve(originalChannels.size());
-
-                    // Known ORM channels: apply the matching per-channel pipeline.
-                    for (size_t ch = 0;
-                         ch < std::min(originalChannels.size(), ORM_CHANNEL_COUNT); ++ch) {
-                        mipChannels.push_back(
-                            channelPipelines[ch].execute(originalChannels[ch], targetWidth,
-                                                         targetHeight));
-                    }
-
-                    // Any extra channels (e.g. alpha): simple box filter from original.
-                    for (size_t ch = ORM_CHANNEL_COUNT; ch < originalChannels.size(); ++ch)
-                        mipChannels.push_back(
-                            boxDown(originalChannels[ch], targetWidth, targetHeight));
-
-                    writeMip(tex, mip, layer, mergeChannels(mipChannels));
-                });
+            // Pre-allocate semaphores and reserve values.
+            for (size_t i = 0; i < totalJobs; ++i) {
+                sems[i] = pool->createTimelineSemaphore();
+                computeVals[i] = sems[i]->next();
+                writeVals[i] = sems[i]->next();
             }
-        }
 
-        if (usePool)
-            jobGroup.wait();
+            // Pass 1 — submit all compute tasks.
+            for (u32 layer = 0; layer < layerCount; ++layer) {
+                for (u32 mip = 1; mip < mipCount; ++mip) {
+                    const size_t idx =
+                        static_cast<size_t>(layer) * (mipCount - 1) + (mip - 1);
+                    auto* sem = sems[idx].get();
+
+                    interfaces::WorkerTask computeTask;
+                    computeTask.fn = [&, layer, mip, idx]() {
+                        if (hasError.load(std::memory_order_acquire))
+                            return;
+                        try {
+                            const auto& originalChannels = originalByLayer[layer];
+                            const auto& targetLevel = tex.mipLevel(mip, layer);
+                            const u32 targetWidth = targetLevel.width;
+                            const u32 targetHeight = targetLevel.height;
+
+                            std::vector<MipImage> mipChannels;
+                            mipChannels.reserve(originalChannels.size());
+
+                            for (size_t ch = 0;
+                                 ch < std::min(originalChannels.size(), ORM_CHANNEL_COUNT);
+                                 ++ch) {
+                                mipChannels.push_back(channelPipelines[ch].execute(
+                                    originalChannels[ch], targetWidth, targetHeight));
+                            }
+
+                            for (size_t ch = ORM_CHANNEL_COUNT;
+                                 ch < originalChannels.size(); ++ch)
+                                mipChannels.push_back(boxDown(
+                                    originalChannels[ch], targetWidth, targetHeight, nullptr));
+
+                            results[idx] = mergeChannels(mipChannels);
+                        } catch (const std::exception& e) {
+                            captureError(
+                                std::string("Mipmap generation error: ") + e.what());
+                        } catch (...) {
+                            captureError("Mipmap generation error: unknown exception");
+                        }
+                    };
+                    computeTask.signalSemaphore = sem;
+                    computeTask.signalValue = computeVals[idx];
+                    pool->submit(computeTask);
+                }
+            }
+
+            // Pass 2 — submit all write tasks (wait on paired compute).
+            for (u32 layer = 0; layer < layerCount; ++layer) {
+                for (u32 mip = 1; mip < mipCount; ++mip) {
+                    const size_t idx =
+                        static_cast<size_t>(layer) * (mipCount - 1) + (mip - 1);
+                    auto* sem = sems[idx].get();
+
+                    interfaces::WorkerTask writeTask;
+                    writeTask.fn = [&, mip, layer, idx]() {
+                        if (!hasError.load(std::memory_order_acquire))
+                            writeMip(tex, mip, layer, results[idx]);
+                    };
+                    writeTask.waitSemaphore = sem;
+                    writeTask.waitValue = computeVals[idx];
+                    writeTask.signalSemaphore = sem;
+                    writeTask.signalValue = writeVals[idx];
+                    pool->submit(writeTask);
+                }
+            }
+
+            // Wait for every write to finish.
+            for (size_t i = 0; i < totalJobs; ++i)
+                sems[i]->wait(writeVals[i]);
+        } else {
+            // Fallback: single-task compute+write via submitJob.
+            for (u32 layer = 0; layer < layerCount; ++layer) {
+                for (u32 mip = 1; mip < mipCount; ++mip) {
+                    submitJob([&, layer, mip]() {
+                        const auto& originalChannels = originalByLayer[layer];
+                        const auto& targetLevel = tex.mipLevel(mip, layer);
+                        const u32 targetWidth = targetLevel.width;
+                        const u32 targetHeight = targetLevel.height;
+
+                        std::vector<MipImage> mipChannels;
+                        mipChannels.reserve(originalChannels.size());
+
+                        for (size_t ch = 0;
+                             ch < std::min(originalChannels.size(), ORM_CHANNEL_COUNT); ++ch) {
+                            mipChannels.push_back(channelPipelines[ch].execute(
+                                originalChannels[ch], targetWidth, targetHeight));
+                        }
+
+                        for (size_t ch = ORM_CHANNEL_COUNT; ch < originalChannels.size(); ++ch)
+                            mipChannels.push_back(
+                                boxDown(originalChannels[ch], targetWidth, targetHeight, nullptr));
+
+                        writeMip(tex, mip, layer, mergeChannels(mipChannels));
+                    });
+                }
+            }
+            if (usePool)
+                jobGroup.wait();
+        }
         return firstError;
     }
 
-    const MipmapPipeline pipeline = pipelineForKind(tex.kind(), tex.isSrgb());
-    const bool isNormal = tex.kind() == TextureKind::Normal;
+    const TextureKind texKind = tex.kind();
+    const bool texSrgb = tex.isSrgb();
+    const bool isNormal = texKind == TextureKind::Normal;
     const u32 originalChannelCount = channelCount(tex.format());
     const bool needNormalExpansion = isNormal && originalChannelCount < 4;
 
     std::vector<MipImage> originalByLayer;
     originalByLayer.reserve(layerCount);
     for (u32 layer = 0; layer < layerCount; ++layer) {
-        // Extract the original (full-resolution) mip once per layer.
         MipImage originalMip = extractMip(tex, 0, layer);
-
-        // Expand <4-channel normals to RGBA for correct 3-D filtering
-        // and Toksvig correction.
         if (needNormalExpansion)
             originalMip = expandNormalToRGBA(originalMip);
-
         originalByLayer.push_back(std::move(originalMip));
     }
 
-    // Every mip is generated directly from the original — no cascading.
-    for (u32 layer = 0; layer < layerCount; ++layer) {
-        for (u32 mip = 1; mip < mipCount; ++mip) {
-            submitJob([&, layer, mip]() {
-                const auto& targetLevel = tex.mipLevel(mip, layer);
-                MipImage mipResult =
-                    pipeline.execute(originalByLayer[layer], targetLevel.width, targetLevel.height);
+    // Same two-pass semaphore strategy as the ORM path above.
+    if (useSemaphores) {
+        const size_t totalJobs = static_cast<size_t>(layerCount) * (mipCount - 1);
+        std::vector<std::unique_ptr<interfaces::TimelineSemaphore>> sems(totalJobs);
+        std::vector<interfaces::TimelineSemaphore::Value> computeVals(totalJobs);
+        std::vector<interfaces::TimelineSemaphore::Value> writeVals(totalJobs);
+        std::vector<MipImage> results(totalJobs);
 
-                // Collapse back to the texture's native channel count for writing.
-                if (needNormalExpansion) {
-                    writeMip(tex, mip, layer,
-                             collapseNormalFromRGBA(mipResult, originalChannelCount));
-                } else {
-                    writeMip(tex, mip, layer, mipResult);
-                }
-            });
+        for (size_t i = 0; i < totalJobs; ++i) {
+            sems[i] = pool->createTimelineSemaphore();
+            computeVals[i] = sems[i]->next();
+            writeVals[i] = sems[i]->next();
         }
-    }
 
-    if (usePool)
-        jobGroup.wait();
+        // Pass 1 — submit all compute tasks.
+        // Each job gets its own pipeline so that per-pipeline mutable state
+        // (e.g. AlphaMask coverage bridge) stays thread-safe.
+        for (u32 layer = 0; layer < layerCount; ++layer) {
+            for (u32 mip = 1; mip < mipCount; ++mip) {
+                const size_t idx =
+                    static_cast<size_t>(layer) * (mipCount - 1) + (mip - 1);
+                auto* sem = sems[idx].get();
+
+                interfaces::WorkerTask computeTask;
+                computeTask.fn = [&, layer, mip, idx, texKind, texSrgb]() {
+                    if (hasError.load(std::memory_order_acquire))
+                        return;
+                    try {
+                        const MipmapPipeline pipeline = pipelineForKind(texKind, texSrgb);
+                        const auto& targetLevel = tex.mipLevel(mip, layer);
+                        results[idx] = pipeline.execute(
+                            originalByLayer[layer], targetLevel.width, targetLevel.height);
+                    } catch (const std::exception& e) {
+                        captureError(
+                            std::string("Mipmap generation error: ") + e.what());
+                    } catch (...) {
+                        captureError("Mipmap generation error: unknown exception");
+                    }
+                };
+                computeTask.signalSemaphore = sem;
+                computeTask.signalValue = computeVals[idx];
+                pool->submit(computeTask);
+            }
+        }
+
+        // Pass 2 — submit all write tasks.
+        for (u32 layer = 0; layer < layerCount; ++layer) {
+            for (u32 mip = 1; mip < mipCount; ++mip) {
+                const size_t idx =
+                    static_cast<size_t>(layer) * (mipCount - 1) + (mip - 1);
+                auto* sem = sems[idx].get();
+
+                interfaces::WorkerTask writeTask;
+                writeTask.fn = [&, mip, layer, idx]() {
+                    if (!hasError.load(std::memory_order_acquire)) {
+                        if (needNormalExpansion)
+                            writeMip(tex, mip, layer,
+                                     collapseNormalFromRGBA(results[idx], originalChannelCount));
+                        else
+                            writeMip(tex, mip, layer, results[idx]);
+                    }
+                };
+                writeTask.waitSemaphore = sem;
+                writeTask.waitValue = computeVals[idx];
+                writeTask.signalSemaphore = sem;
+                writeTask.signalValue = writeVals[idx];
+                pool->submit(writeTask);
+            }
+        }
+
+        for (size_t i = 0; i < totalJobs; ++i)
+            sems[i]->wait(writeVals[i]);
+    } else {
+        // Fallback: single-task compute+write via submitJob.
+        // Each job builds its own pipeline for AlphaMask thread safety.
+        for (u32 layer = 0; layer < layerCount; ++layer) {
+            for (u32 mip = 1; mip < mipCount; ++mip) {
+                submitJob([&, layer, mip, texKind, texSrgb]() {
+                    const MipmapPipeline pipeline = pipelineForKind(texKind, texSrgb);
+                    const auto& targetLevel = tex.mipLevel(mip, layer);
+                    MipImage mipResult = pipeline.execute(originalByLayer[layer],
+                                                          targetLevel.width, targetLevel.height);
+                    if (needNormalExpansion)
+                        writeMip(tex, mip, layer,
+                                 collapseNormalFromRGBA(mipResult, originalChannelCount));
+                    else
+                        writeMip(tex, mip, layer, mipResult);
+                });
+            }
+        }
+        if (usePool)
+            jobGroup.wait();
+    }
     return firstError;
 }
 

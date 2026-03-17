@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include "whiteout/utils/simple_thread_pool.h"
+#include "whiteout/utils/timeline_semaphore.h"
 
 #include <vector>
 #include <queue>
@@ -41,8 +42,16 @@ struct SimpleThreadPool::Impl
                         jobs.pop();
                     }
 
-                    if (task.waitSemaphore)
-                        task.waitSemaphore->wait(task.waitValue);
+                    if (task.waitSemaphore &&
+                        task.waitSemaphore->value() < task.waitValue)
+                    {
+                        {
+                            std::unique_lock<std::mutex> lock(mutex);
+                            jobs.push(std::move(task));
+                        }
+                        std::this_thread::yield();
+                        continue;
+                    }
 
                     task.fn();
 
@@ -96,6 +105,11 @@ void SimpleThreadPool::waitIdle()
 size_t SimpleThreadPool::threadCount() const noexcept
 {
     return m_impl->workers.size();
+}
+
+std::unique_ptr<interfaces::TimelineSemaphore> SimpleThreadPool::createTimelineSemaphore()
+{
+    return std::make_unique<TimelineSemaphore>();
 }
 
 } // namespace whiteout::utils
