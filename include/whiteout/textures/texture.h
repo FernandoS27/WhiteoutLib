@@ -148,6 +148,41 @@ enum class Channel : u32 {
 };
 
 // ============================================================================
+// Texture Filter
+// ============================================================================
+
+/// Processing stage or spatial filter that can be applied to individual mip levels.
+///
+/// These correspond to the stages and filters available in the mipmap pipeline,
+/// exposed here so they can be applied independently via Texture::applyFilter().
+enum class TextureFilter : u32 {
+    // ── Gamma / colour-space ────────────────────────────────────────────
+    Linearize,          ///< sRGB → linear conversion (colour channels only).
+    Delinearize,        ///< Linear → sRGB conversion (colour channels only).
+
+    // ── Normal-map stages ──────────────────────────────────────────────
+    UnpackNormals,      ///< UNORM [0,1] → signed [-1,1] on colour channels.
+    PackNormals,        ///< Signed [-1,1] → UNORM [0,1] on colour channels.
+    Renormalize,        ///< Re-unit-length-normalize tangent-space normals.
+    ToksvigCorrection,  ///< Toksvig specular anti-aliasing correction.
+
+    // ── Roughness / gloss stages ───────────────────────────────────────
+    SquareRoughness,    ///< r → r² (variance-preserving pre-filter step).
+    UnsquareRoughness,  ///< r² → √r (variance-preserving post-filter step).
+    GlossToRoughness,   ///< Gloss (smoothness) → roughness conversion.
+    RoughnessToGloss,   ///< Roughness → gloss (smoothness) conversion.
+
+    // ── Clamping / utility stages ──────────────────────────────────────
+    ClampPositive,      ///< Clamp all channels to [0, ∞).
+    ClampBinary,        ///< Snap every channel to 0 or 1 (threshold 0.5).
+    ClampUnit,          ///< Clamp every channel to [0, 1].
+
+    // ── Spatial filters ────────────────────────────────────────────────
+    MedianFilter3x3,    ///< 3×3 median filter (removes salt-and-pepper noise).
+    BilateralFilter,    ///< Edge-preserving 5×5 bilateral filter.
+};
+
+// ============================================================================
 // Mipmap Constants
 // ============================================================================
 
@@ -364,6 +399,23 @@ struct Texture {
      */
     std::optional<Texture> copyFromNormalToRGBA(
         interfaces::WorkerPool* pool = nullptr) const;
+
+    // ── Per-level filtering ─────────────────────────────────────────────
+
+    /**
+     * @brief Apply a processing stage or spatial filter to one or all mip levels.
+     *
+     * Converts the target level(s) to an internal float representation, runs
+     * the requested filter, and writes the result back. The texture must use
+     * an uncompressed pixel format; BCn textures should be decompressed first.
+     *
+     * @param filter The filter / stage to apply (see TextureFilter).
+     * @param level  Mip level index to process.  Pass -1 to apply the filter
+     *               to every mip level.
+     * @return true on success, false if the format is block-compressed or
+     *         the level index is out of range.
+     */
+    bool applyFilter(TextureFilter filter, i32 level = -1);
 
     // ── Mipmap generation ───────────────────────────────────────────────
 

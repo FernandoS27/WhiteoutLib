@@ -13,6 +13,8 @@
 
 #include "bcn.h"
 #include "mipmap/generator.h"
+#include "mipmap/mip_convert.h"
+#include "mipmap/stages.h"
 #include "utils/pixel_convert.h"
 #include "utils/srgb_linearize.h"
 
@@ -895,6 +897,59 @@ std::optional<Texture> Texture::mergeChannels(
     }
 
     return dst;
+}
+
+// ============================================================================
+// Per-level filtering
+// ============================================================================
+
+namespace {
+
+void applyFilterToImage(TextureFilter filter, mipmap::MipImage& img) {
+    using enum TextureFilter;
+    switch (filter) {
+    case Linearize:         mipmap::linearize(img);         break;
+    case Delinearize:       mipmap::delinearize(img);       break;
+    case UnpackNormals:     mipmap::unpackNormals(img);     break;
+    case PackNormals:       mipmap::packNormals(img);       break;
+    case Renormalize:       mipmap::renormalize(img);       break;
+    case ToksvigCorrection: mipmap::toksvigCorrection(img); break;
+    case SquareRoughness:   mipmap::squareRoughness(img);   break;
+    case UnsquareRoughness: mipmap::unsquareRoughness(img); break;
+    case GlossToRoughness:  mipmap::glossToRoughness(img);  break;
+    case RoughnessToGloss:  mipmap::roughnessToGloss(img);  break;
+    case ClampPositive:     mipmap::clampPositive(img);     break;
+    case ClampBinary:       mipmap::clampBinary(img);       break;
+    case ClampUnit:         mipmap::clampUnit(img);         break;
+    case MedianFilter3x3:   mipmap::medianFilter3x3(img);  break;
+    case BilateralFilter:   mipmap::bilateralFilter(img);   break;
+    }
+}
+
+} // anonymous namespace
+
+bool Texture::applyFilter(TextureFilter filter, i32 level) {
+    // BCn formats cannot be filtered in-place.
+    if (mipmap::bytesPerComponent(impl_->format) == 0)
+        return false;
+
+    const u32 mips = impl_->mipCount();
+
+    if (level >= static_cast<i32>(mips))
+        return false;
+
+    const u32 layers = layerCount();
+    const u32 startMip = (level < 0) ? 0 : static_cast<u32>(level);
+    const u32 endMip = (level < 0) ? mips : static_cast<u32>(level) + 1;
+
+    for (u32 mip = startMip; mip < endMip; ++mip) {
+        for (u32 layer = 0; layer < layers; ++layer) {
+            auto img = mipmap::extractMip(*this, mip, layer);
+            applyFilterToImage(filter, img);
+            mipmap::writeMip(*this, mip, layer, img);
+        }
+    }
+    return true;
 }
 
 std::optional<std::string> Texture::generateMipmaps(interfaces::WorkerPool* pool) {
