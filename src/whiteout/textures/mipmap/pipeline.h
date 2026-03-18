@@ -97,8 +97,33 @@ constexpr u32 kMinRowsPerTile = 64;
 /// `JobGroup::wait()` path is used.
 template <typename RowFn>
 void parallelForRows(u32 totalRows, PipelineContext* ctx, RowFn&& fn) {
-    if (!ctx || !ctx->pool || totalRows <= kMinRowsPerTile) {
+    if (!ctx || !ctx->pool) {
         fn(0u, totalRows);
+        return;
+    }
+
+    const auto singleJobFn = [&]() {
+        if (!ctx->sem) {
+            fn(0u, totalRows);
+            return;
+        }
+
+        const auto waitVal = ctx->currentValue;
+        ctx->currentValue = ctx->sem->next();
+        const auto signalVal = ctx->currentValue;
+        interfaces::WorkerTask task;
+        task.fn = [totalRows, fn]() {
+            fn(0u, totalRows);
+        };
+        task.waitSemaphore = ctx->sem;
+        task.waitValue = waitVal;
+        task.signalSemaphore = ctx->sem;
+        task.signalValue = signalVal;
+        ctx->pool->submit(task);
+    };
+
+    if (totalRows <= kMinRowsPerTile) {
+        singleJobFn();
         return;
     }
 
@@ -108,7 +133,7 @@ void parallelForRows(u32 totalRows, PipelineContext* ctx, RowFn&& fn) {
     const u32 tileCount = (totalRows + rowsPerTile - 1) / rowsPerTile;
 
     if (tileCount <= 1) {
-        fn(0u, totalRows);
+        singleJobFn();
         return;
     }
 
@@ -246,6 +271,7 @@ struct MipmapPipeline {
         // Final task: move the result into the caller's output buffer.
         const auto waitVal = ctx.currentValue;
         const auto signalVal = sem->next();
+        ctx.currentValue = signalVal;
         interfaces::WorkerTask copyTask;
         copyTask.fn = [state, output]() {
             *output = std::move(state->result);
