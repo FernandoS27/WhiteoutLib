@@ -990,6 +990,13 @@ std::optional<std::string> Texture::generateMipmaps(u32 newMipCount,
         }
     }
 
+    // mergeChannels produces rgba_format_for(singleFmt) which may differ from
+    // the original format (e.g. RG8 splits to R8, merges back to RGBA8).
+    // Convert back to the original format so data layout matches impl_->mips.
+    if (merged->format() != impl_->format) {
+        *merged = convert_uncompressed(*merged, impl_->format);
+    }
+
     std::swap(impl_->data, merged->impl_->data);
 
     return std::nullopt;

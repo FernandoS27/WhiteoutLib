@@ -136,6 +136,47 @@ void writeMip(Texture& tex, u32 mip, u32 layer, const MipImage& img) {
     }
 }
 
+/// Extract a single depth slice @p z from a mip level as a 2D MipImage.
+MipImage extractSlice(const Texture& tex, u32 mip, u32 layer, u32 z) {
+    const auto& mipLevel = tex.mipLevel(mip, layer);
+    const u32 numChannels = channelCount(tex.format());
+    const u32 bpc = bytesPerComponent(tex.format());
+    MipImage img(mipLevel.width, mipLevel.height, numChannels);
+    if (bpc > 0) {
+        const auto srcData = tex.mipData(mip, layer);
+        const size_t sliceElems = static_cast<size_t>(mipLevel.width) * mipLevel.height * numChannels;
+        const size_t sliceBytes = sliceElems * bpc;
+        unpackToFloat(srcData.data() + z * sliceBytes, img.pixels.data(), sliceElems, bpc);
+    }
+    return img;
+}
+
+/// Write a single depth slice @p z of a mip level from a 2D MipImage.
+void writeSlice(Texture& tex, u32 mip, u32 layer, u32 z, const MipImage& img) {
+    const auto& mipLevel = tex.mipLevel(mip, layer);
+    const u32 numChannels = channelCount(tex.format());
+    const u32 bpc = bytesPerComponent(tex.format());
+    if (bpc > 0) {
+        auto dstData = tex.mipData(mip, layer);
+        const size_t sliceElems = static_cast<size_t>(mipLevel.width) * mipLevel.height * numChannels;
+        const size_t sliceBytes = sliceElems * bpc;
+        packFromFloat(img.pixels.data(), dstData.data() + z * sliceBytes, sliceElems, bpc);
+    }
+}
+
+/// Accumulate @p src into @p acc element-wise.
+void accumulateSlice(MipImage& acc, const MipImage& src) {
+    const size_t count = acc.pixels.size();
+    for (size_t i = 0; i < count; ++i)
+        acc.pixels[i] += src.pixels[i];
+}
+
+/// Scale all elements in @p img by @p factor.
+void scaleImage(MipImage& img, f32 factor) {
+    for (auto& v : img.pixels)
+        v *= factor;
+}
+
 // ============================================================================
 // Kind → Pipeline mapping
 // ============================================================================
@@ -451,17 +492,37 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
     const bool isNormal = texKind == TextureKind::Normal;
     const u32 originalChannelCount = channelCount(tex.format());
     const bool needNormalExpansion = isNormal && originalChannelCount < 4;
+    const bool is3D = tex.mipLevel(0, 0).depth > 1;
 
+    // For 2D/cube textures: one MipImage per layer (as before).
+    // For 3D textures: per-slice MipImages for Z-aware mipmap generation.
     std::vector<MipImage> originalByLayer;
-    originalByLayer.reserve(layerCount);
-    for (u32 layer = 0; layer < layerCount; ++layer) {
-        MipImage originalMip = extractMip(tex, 0, layer);
-        if (needNormalExpansion)
-            originalMip = expandNormalToRGBA(originalMip);
-        originalByLayer.push_back(std::move(originalMip));
+    std::vector<std::vector<MipImage>> srcSlicesByLayer;
+
+    if (is3D) {
+        srcSlicesByLayer.resize(layerCount);
+        for (u32 layer = 0; layer < layerCount; ++layer) {
+            const u32 srcDepth = tex.mipLevel(0, layer).depth;
+            srcSlicesByLayer[layer].reserve(srcDepth);
+            for (u32 z = 0; z < srcDepth; ++z) {
+                MipImage slice = extractSlice(tex, 0, layer, z);
+                if (needNormalExpansion)
+                    slice = expandNormalToRGBA(slice);
+                srcSlicesByLayer[layer].push_back(std::move(slice));
+            }
+        }
+    } else {
+        originalByLayer.reserve(layerCount);
+        for (u32 layer = 0; layer < layerCount; ++layer) {
+            MipImage originalMip = extractMip(tex, 0, layer);
+            if (needNormalExpansion)
+                originalMip = expandNormalToRGBA(originalMip);
+            originalByLayer.push_back(std::move(originalMip));
+        }
     }
 
-    if (useSemaphores) {
+    // Semaphore-based async path only supports 2D/cube textures.
+    if (useSemaphores && !is3D) {
         const size_t totalJobs = static_cast<size_t>(layerCount) * (mipCount - 1);
         std::vector<std::unique_ptr<interfaces::TimelineSemaphore>> sems(totalJobs);
         std::vector<MipImage> results(totalJobs);
@@ -523,17 +584,55 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
         // Each job builds its own pipeline for AlphaMask thread safety.
         for (u32 layer = 0; layer < layerCount; ++layer) {
             for (u32 mip = 1; mip < mipCount; ++mip) {
-                submitJob([&, layer, mip, texKind, texSrgb]() {
-                    const MipmapPipeline pipeline = pipelineForKind(texKind, texSrgb);
-                    const auto& targetLevel = tex.mipLevel(mip, layer);
-                    MipImage mipResult = pipeline.execute(originalByLayer[layer],
-                                                          targetLevel.width, targetLevel.height);
-                    if (needNormalExpansion)
-                        writeMip(tex, mip, layer,
-                                 collapseNormalFromRGBA(mipResult, originalChannelCount));
-                    else
-                        writeMip(tex, mip, layer, mipResult);
-                });
+                if (is3D) {
+                    // 3D textures: process each depth slice independently with
+                    // Z-dimension averaging from the mip-0 source slices.
+                    submitJob([&, layer, mip, texKind, texSrgb]() {
+                        const auto& targetLevel = tex.mipLevel(mip, layer);
+                        const u32 srcDepth = tex.mipLevel(0, layer).depth;
+                        const u32 tgtDepth = targetLevel.depth;
+                        const auto& srcSlices = srcSlicesByLayer[layer];
+
+                        for (u32 z = 0; z < tgtDepth; ++z) {
+                            // Map target slice z to source slice range.
+                            const f32 zStart = static_cast<f32>(z) * srcDepth / tgtDepth;
+                            const f32 zEnd = static_cast<f32>(z + 1) * srcDepth / tgtDepth;
+                            const u32 zMin = static_cast<u32>(zStart);
+                            const u32 zMax = std::min(
+                                static_cast<u32>(std::ceil(zEnd)), srcDepth) - 1;
+
+                            // Average contributing source slices for Z downsampling.
+                            MipImage src = srcSlices[zMin];
+                            for (u32 sz = zMin + 1; sz <= zMax; ++sz)
+                                accumulateSlice(src, srcSlices[sz]);
+                            const u32 sliceCount = zMax - zMin + 1;
+                            if (sliceCount > 1)
+                                scaleImage(src, 1.0f / static_cast<f32>(sliceCount));
+
+                            const MipmapPipeline pipeline = pipelineForKind(texKind, texSrgb);
+                            MipImage result = pipeline.execute(
+                                src, targetLevel.width, targetLevel.height);
+
+                            if (needNormalExpansion)
+                                writeSlice(tex, mip, layer, z,
+                                           collapseNormalFromRGBA(result, originalChannelCount));
+                            else
+                                writeSlice(tex, mip, layer, z, result);
+                        }
+                    });
+                } else {
+                    submitJob([&, layer, mip, texKind, texSrgb]() {
+                        const MipmapPipeline pipeline = pipelineForKind(texKind, texSrgb);
+                        const auto& targetLevel = tex.mipLevel(mip, layer);
+                        MipImage mipResult = pipeline.execute(originalByLayer[layer],
+                                                              targetLevel.width, targetLevel.height);
+                        if (needNormalExpansion)
+                            writeMip(tex, mip, layer,
+                                     collapseNormalFromRGBA(mipResult, originalChannelCount));
+                        else
+                            writeMip(tex, mip, layer, mipResult);
+                    });
+                }
             }
         }
         if (usePool)
