@@ -104,6 +104,9 @@ enum class TextureKind : u32 {
     Gloss,            ///< Gloss / smoothness (single channel).
     Emissive,         ///< Emissive colour / intensity.
     AlphaMask,        ///< Opacity / alpha mask (single channel, linear).
+    BinaryMask,       ///< Hard binary mask (0 or 1); alpha-coverage-preserving filter.
+    TransparencyMask, ///< Smooth transparency mask; alpha-coverage-preserving, continuous values.
+    BlendMask,        ///< Blend weight mask; alpha-coverage-preserving with soft transitions.
     Lightmap,         ///< Lightmap or baked light contribution (HDR colour).
     EnvironmentPBR,   ///< Environment / reflection map (equirectangular, GGX prefiltered).
     EnvironmentLegacy, ///< Environment map (equirectangular, spherical Kaiser-filtered).
@@ -267,6 +270,34 @@ struct Texture {
      * @return true on success, false when the operation is not valid for this texture.
      */
     bool invertChannel(Channel ch);
+
+    /**
+     * @brief Reconstruct the Z component of a tangent-space normal map in-place.
+     *
+     * Interprets channels @p a and @p b as the packed X and Y components of a
+     * unit normal vector, computes Z = sqrt(max(0, 1 - x² - y²)), and writes
+     * the result back to channel @p c.
+     *
+     * Channel values are decoded from the UNORM [0, 1] storage convention to
+     * the signed [-1, 1] range before the computation (i.e. x = 2v - 1), and
+     * the reconstructed Z is re-encoded as (z + 1) / 2 before being written.
+     * This matches the encoding used by all other normal-map utilities in the
+     * library.
+     *
+     * Operates directly on the stored pixel data without any intermediate copy.
+     * Supports all uncompressed PixelFormats (R*, RG*, RGBA*).
+     *
+     * Failure conditions (returns false):
+     * - The texture uses a BCn block-compressed format.
+     * - Any of the three channel indices is not present in the current pixel
+     *   format (e.g. Channel::B on an RG8 texture).
+     *
+     * @param xChannel Channel storing the packed X component (source, read-only).
+     * @param yChannel Channel storing the packed Y component (source, read-only).
+     * @param zChannel Channel to receive the reconstructed Z component (write target).
+     * @return true on success, false when the operation is not valid for this texture.
+     */
+    bool expandNormal(Channel xChannel, Channel yChannel, Channel zChannel);
 
     /**
      * @brief Fill a single channel with a constant value across all mip levels

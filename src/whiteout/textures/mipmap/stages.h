@@ -52,4 +52,25 @@ f32 preBlurAlpha(MipImage& img, PipelineContext* ctx = nullptr);
 void preserveAlphaCoverage(MipImage& img, f32 coverageTarget,
                            PipelineContext* ctx = nullptr);
 
+/// Compute the fraction of texels whose alpha (last channel) × @p scale
+/// meets or exceeds the 0.5 threshold.
+f32 computeAlphaCoverage(const MipImage& img, f32 scale = 1.0f);
+
+// ── Mask stages ────────────────────────────────────────────────────────
+
+/// 3×3 median filter applied to all channels independently.  Removes
+/// salt-and-pepper noise without introducing fractional values on binary
+/// data.  Uses a temporary buffer and two timeline-chained passes.
+void medianFilter3x3(MipImage& img, PipelineContext* ctx = nullptr);
+
+/// Edge-preserving bilateral filter (5×5 window) on all channels.
+/// Smooths uniform regions while preserving sharp transitions.
+void bilateralFilter(MipImage& img, PipelineContext* ctx = nullptr);
+
+/// Snap every channel value to 0 or 1 using a 0.5 threshold.
+void clampBinary(MipImage& img, PipelineContext* ctx = nullptr);
+
+/// Clamp every channel value to [0, 1].
+void clampUnit(MipImage& img, PipelineContext* ctx = nullptr);
+
 } // namespace whiteout::textures::mipmap

@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <memory>
 
 namespace whiteout::textures::mipmap {
@@ -251,6 +252,8 @@ constexpr f32 ALPHA_THRESHOLD = 0.5f;
 constexpr f32 ALPHA_COVERAGE_SCALE_MAX = 4.0f;
 constexpr int ALPHA_COVERAGE_SEARCH_ITERS = 16;
 
+} // anonymous namespace
+
 f32 computeAlphaCoverage(const MipImage& img, f32 scale) {
     if (img.channels == 0)
         return 0.0f;
@@ -262,8 +265,6 @@ f32 computeAlphaCoverage(const MipImage& img, f32 scale) {
             ++above;
     return static_cast<f32>(above) / static_cast<f32>(pixelCount);
 }
-
-} // anonymous namespace
 
 f32 preBlurAlpha(MipImage& img, PipelineContext* ctx) {
     if (img.channels == 0)
@@ -348,6 +349,137 @@ void preserveAlphaCoverage(MipImage& img, f32 coverageTarget, PipelineContext* c
         for (size_t i = start; i < end; ++i)
             data[i * channels + alphaCh] =
                 std::clamp(data[i * channels + alphaCh] * scale, 0.0f, 1.0f);
+    });
+}
+
+// ============================================================================
+// Mask stages
+// ============================================================================
+
+void medianFilter3x3(MipImage& img, PipelineContext* ctx) {
+    const u32 w = img.width;
+    const u32 h = img.height;
+    const u32 channels = img.channels;
+
+    // Output buffer; shared_ptr keeps it alive in async mode.
+    auto out = std::make_shared<std::vector<f32>>(img.pixels.size());
+    f32* imgData = img.pixels.data();
+    f32* outData = out->data();
+
+    // Compute pass: read from img, write to out.
+    parallelForRows(h, ctx, [w, h, channels, imgData, outData, out](u32 y0, u32 y1) {
+        f32 window[9];
+        for (u32 y = y0; y < y1; ++y) {
+            for (u32 x = 0; x < w; ++x) {
+                for (u32 c = 0; c < channels; ++c) {
+                    u32 count = 0;
+                    for (i32 dy = -1; dy <= 1; ++dy) {
+                        for (i32 dx = -1; dx <= 1; ++dx) {
+                            const u32 sx = static_cast<u32>(
+                                std::clamp(static_cast<i32>(x) + dx, 0, static_cast<i32>(w) - 1));
+                            const u32 sy = static_cast<u32>(
+                                std::clamp(static_cast<i32>(y) + dy, 0, static_cast<i32>(h) - 1));
+                            window[count++] =
+                                imgData[(static_cast<size_t>(sy) * w + sx) * channels + c];
+                        }
+                    }
+                    std::nth_element(window, window + count / 2, window + count);
+                    outData[(static_cast<size_t>(y) * w + x) * channels + c] = window[count / 2];
+                }
+            }
+        }
+    });
+
+    // Copy-back pass: timeline ordering ensures compute is done first.
+    parallelForRows(h, ctx, [w, channels, imgData, outData, out](u32 y0, u32 y1) {
+        const size_t start = static_cast<size_t>(y0) * w * channels;
+        const size_t end = static_cast<size_t>(y1) * w * channels;
+        std::memcpy(imgData + start, outData + start, (end - start) * sizeof(f32));
+    });
+}
+
+void bilateralFilter(MipImage& img, PipelineContext* ctx) {
+    const u32 w = img.width;
+    const u32 h = img.height;
+    const u32 channels = img.channels;
+
+    constexpr i32 RADIUS = 2;       // 5x5 window
+    constexpr f32 SIGMA_S = 1.5f;   // spatial sigma
+    constexpr f32 SIGMA_R = 0.1f;   // range sigma (edge sensitivity)
+    constexpr f32 INV_2_SIGMA_S2 = 1.0f / (2.0f * SIGMA_S * SIGMA_S);
+    constexpr f32 INV_2_SIGMA_R2 = 1.0f / (2.0f * SIGMA_R * SIGMA_R);
+
+    auto out = std::make_shared<std::vector<f32>>(img.pixels.size());
+    f32* imgData = img.pixels.data();
+    f32* outData = out->data();
+
+    // Compute pass: per-channel bilateral.
+    parallelForRows(h, ctx, [=, out = out](u32 y0, u32 y1) {
+        for (u32 y = y0; y < y1; ++y) {
+            for (u32 x = 0; x < w; ++x) {
+                const size_t centerIdx = (static_cast<size_t>(y) * w + x) * channels;
+
+                for (u32 c = 0; c < channels; ++c) {
+                    f32 sumValue = 0.0f;
+                    f32 sumWeight = 0.0f;
+                    const f32 centerVal = imgData[centerIdx + c];
+
+                    for (i32 dy = -RADIUS; dy <= RADIUS; ++dy) {
+                        const u32 sy = static_cast<u32>(
+                            std::clamp(static_cast<i32>(y) + dy, 0, static_cast<i32>(h) - 1));
+                        for (i32 dx = -RADIUS; dx <= RADIUS; ++dx) {
+                            const u32 sx = static_cast<u32>(
+                                std::clamp(static_cast<i32>(x) + dx, 0, static_cast<i32>(w) - 1));
+
+                            const f32 srcVal =
+                                imgData[(static_cast<size_t>(sy) * w + sx) * channels + c];
+                            const f32 spatialDist2 =
+                                static_cast<f32>(dx * dx + dy * dy);
+                            const f32 rangeDiff = srcVal - centerVal;
+
+                            const f32 weight = std::exp(
+                                -spatialDist2 * INV_2_SIGMA_S2 -
+                                rangeDiff * rangeDiff * INV_2_SIGMA_R2);
+                            sumValue += srcVal * weight;
+                            sumWeight += weight;
+                        }
+                    }
+                    outData[centerIdx + c] =
+                        (sumWeight > 0.0f) ? sumValue / sumWeight : centerVal;
+                }
+            }
+        }
+    });
+
+    // Copy-back pass.
+    parallelForRows(h, ctx, [w, channels, imgData, outData, out](u32 y0, u32 y1) {
+        const size_t start = static_cast<size_t>(y0) * w * channels;
+        const size_t end = static_cast<size_t>(y1) * w * channels;
+        std::memcpy(imgData + start, outData + start, (end - start) * sizeof(f32));
+    });
+}
+
+void clampBinary(MipImage& img, PipelineContext* ctx) {
+    const u32 channels = img.channels;
+    f32* data = img.pixels.data();
+    const u32 w = img.width;
+    parallelForRows(img.height, ctx, [=](u32 y0, u32 y1) {
+        const size_t start = static_cast<size_t>(y0) * w * channels;
+        const size_t end = static_cast<size_t>(y1) * w * channels;
+        for (size_t i = start; i < end; ++i)
+            data[i] = (data[i] >= 0.5f) ? 1.0f : 0.0f;
+    });
+}
+
+void clampUnit(MipImage& img, PipelineContext* ctx) {
+    const u32 channels = img.channels;
+    f32* data = img.pixels.data();
+    const u32 w = img.width;
+    parallelForRows(img.height, ctx, [=](u32 y0, u32 y1) {
+        const size_t start = static_cast<size_t>(y0) * w * channels;
+        const size_t end = static_cast<size_t>(y1) * w * channels;
+        for (size_t i = start; i < end; ++i)
+            data[i] = std::clamp(data[i], 0.0f, 1.0f);
     });
 }
 

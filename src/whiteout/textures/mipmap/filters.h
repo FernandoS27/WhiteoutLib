@@ -29,6 +29,7 @@ void kaiserFilter(const MipImage& src, MipImage& dst, PipelineContext* ctx = nul
 void kaiserFilter(const MipImage& src, MipImage& dst, f64 beta, PipelineContext* ctx = nullptr);
 void environmentPrefilterGGX(const MipImage& src, MipImage& dst, PipelineContext* ctx = nullptr);
 void sphericalKaiserFilter(const MipImage& src, MipImage& dst, PipelineContext* ctx = nullptr);
+void maxPoolFilter(const MipImage& src, MipImage& dst, PipelineContext* ctx = nullptr);
 
 // Convenience overloads: half-size, single-threaded.
 MipImage boxFilter(const MipImage& src);

@@ -579,4 +579,48 @@ void sphericalKaiserFilter(const MipImage& src, MipImage& dst,
     });
 }
 
+// ============================================================================
+// Max-pool filter (binary mask downsample)
+// ============================================================================
+
+void maxPoolFilter(const MipImage& src, MipImage& dst,
+                   PipelineContext* ctx) {
+    const u32 dstWidth = dst.width;
+    const u32 dstHeight = dst.height;
+    const u32 numChannels = src.channels;
+    const u32 srcW = src.width;
+    const u32 srcH = src.height;
+    const f32* srcData = src.pixels.data();
+    f32* dstData = dst.pixels.data();
+
+    parallelForRows(dstHeight, ctx, [=](u32 y0, u32 y1) {
+        for (u32 dstY = y0; dstY < y1; ++dstY) {
+            const f32 srcYStart = static_cast<f32>(dstY) * srcH / dstHeight;
+            const f32 srcYEnd = static_cast<f32>(dstY + 1) * srcH / dstHeight;
+            const u32 srcRowMin = static_cast<u32>(srcYStart);
+            const u32 srcRowMax = std::min(static_cast<u32>(std::ceil(srcYEnd)), srcH) - 1;
+
+            for (u32 dstX = 0; dstX < dstWidth; ++dstX) {
+                const f32 srcXStart = static_cast<f32>(dstX) * srcW / dstWidth;
+                const f32 srcXEnd = static_cast<f32>(dstX + 1) * srcW / dstWidth;
+                const u32 srcColMin = static_cast<u32>(srcXStart);
+                const u32 srcColMax = std::min(static_cast<u32>(std::ceil(srcXEnd)), srcW) - 1;
+
+                f32* outPixel = dstData + (static_cast<size_t>(dstY) * dstWidth + dstX) * numChannels;
+                for (u32 c = 0; c < numChannels; ++c)
+                    outPixel[c] = 0.0f;
+
+                for (u32 srcY = srcRowMin; srcY <= srcRowMax; ++srcY) {
+                    for (u32 srcX = srcColMin; srcX <= srcColMax; ++srcX) {
+                        const f32* srcPixel =
+                            srcData + (static_cast<size_t>(srcY) * srcW + srcX) * numChannels;
+                        for (u32 c = 0; c < numChannels; ++c)
+                            outPixel[c] = std::max(outPixel[c], srcPixel[c]);
+                    }
+                }
+            }
+        }
+    });
+}
+
 } // namespace whiteout::textures::mipmap

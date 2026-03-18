@@ -162,6 +162,8 @@ MipmapPipeline pipelineForKind(TextureKind kind, bool srgb) {
     const PoolFilter ggxEnv = static_cast<PoolFilterFn>(environmentPrefilterGGX);
     const PoolFilter spherKaiser = static_cast<PoolFilterFn>(sphericalKaiserFilter);
 
+    const PoolFilter maxPool = static_cast<PoolFilterFn>(maxPoolFilter);
+
     // Stage function pointers are directly convertible to PoolStage.
     const PoolStage sLinearize = static_cast<StageFn>(linearize);
     const PoolStage sDelinearize = static_cast<StageFn>(delinearize);
@@ -174,6 +176,8 @@ MipmapPipeline pipelineForKind(TextureKind kind, bool srgb) {
     const PoolStage sGlossToRough = static_cast<StageFn>(glossToRoughness);
     const PoolStage sRoughToGloss = static_cast<StageFn>(roughnessToGloss);
     const PoolStage sClampPos = static_cast<StageFn>(clampPositive);
+    const PoolStage sMedian3x3 = static_cast<StageFn>(medianFilter3x3);
+    const PoolStage sClampBin = static_cast<StageFn>(clampBinary);
 
     // AlphaMask stages: preBlurAlpha returns coverage, preserveAlphaCoverage
     // consumes it.  We share the value through a std::shared_ptr<f32>.
@@ -246,6 +250,42 @@ MipmapPipeline pipelineForKind(TextureKind kind, bool srgb) {
 
     case TextureKind::AlphaMask: {
         auto [pre, post] = makeAlphaStages();
+        return {{std::move(pre)}, kaiser6, {std::move(post)}};
+    }
+
+    case TextureKind::BinaryMask:
+        return {{sMedian3x3}, maxPool, {sClampBin}};
+
+    case TextureKind::TransparencyMask: {
+        auto [pre, post] = makeAlphaStages();
+        return {{std::move(pre)}, kaiser6, {std::move(post)}};
+    }
+
+    case TextureKind::BlendMask: {
+        // Capture alpha coverage before bilateral smoothing,
+        // then restore it after downsampling + clamping.
+        auto coverage = std::make_shared<f32>(0.5f);
+        PoolStage pre = [coverage](MipImage& img, PipelineContext* ctx) {
+            if (ctx && ctx->sem) {
+                submitSingleTask(ctx, [&img, coverage]() {
+                    *coverage = computeAlphaCoverage(img);
+                    bilateralFilter(img, nullptr);
+                });
+            } else {
+                *coverage = computeAlphaCoverage(img);
+                bilateralFilter(img, ctx);
+            }
+        };
+        PoolStage post = [coverage](MipImage& img, PipelineContext* ctx) {
+            clampUnit(img, ctx);
+            if (ctx && ctx->sem) {
+                submitSingleTask(ctx, [&img, coverage]() {
+                    preserveAlphaCoverage(img, *coverage, nullptr);
+                });
+            } else {
+                preserveAlphaCoverage(img, *coverage, ctx);
+            }
+        };
         return {{std::move(pre)}, kaiser6, {std::move(post)}};
     }
 

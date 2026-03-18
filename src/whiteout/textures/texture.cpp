@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstring>
 #include <cassert>
+#include <limits>
 #include <stdexcept>
 
 #include "bcn.h"
@@ -586,6 +587,82 @@ struct InvertChannelOp {
     }
 };
 
+struct ExpandNormalOp {
+    template <PixelFormat Fmt>
+    static void apply(Texture::Impl& impl, u32 ai, u32 bi, u32 ci, bool& ok) {
+        using T = typename FormatTraits<Fmt>::channel_type;
+        constexpr u32 ch  = FormatTraits<Fmt>::channels;
+        constexpr u32 bpp = FormatTraits<Fmt>::bytes_per_pixel;
+
+        if (ai >= ch || bi >= ch || ci >= ch) { ok = false; return; }
+
+        // UNORM decode/encode constants folded at compile time.
+        // For integer types the stored range is [0, numeric_limits::max];
+        // for f32 it is the normalised [0, 1] interval, so max is 1.
+        constexpr f32 kTypeMax = std::is_same_v<T, f32>
+            ? 1.0f
+            : static_cast<f32>(std::numeric_limits<T>::max());
+        constexpr f32 kDecodeScale = 2.0f / kTypeMax;  // maps [0, max] → [-1, 1]
+        constexpr f32 kHalfMax     = kTypeMax * 0.5f;  // maps [-1, 1] → [0, max]
+
+        const u32 x_off = ai * sizeof(T);
+        const u32 y_off = bi * sizeof(T);
+        const u32 z_off = ci * sizeof(T);
+
+        const u32 layers = impl.layerCount();
+        const u32 mips   = impl.mipCount();
+
+        // Three float arrays at this chunk size fit comfortably in L1 cache.
+        constexpr u32 kChunk = 1024;
+        f32 xs[kChunk], ys[kChunk], zs[kChunk];
+
+        for (u32 layer = 0; layer < layers; ++layer) {
+            for (u32 mip = 0; mip < mips; ++mip) {
+                const auto& lvl = impl.mips[layer * mips + mip];
+                const u32   pixel_count = lvl.width * lvl.height * lvl.depth;
+                u8*         pixels = impl.data.data() + lvl.offset;
+
+                for (u32 base = 0; base < pixel_count; base += kChunk) {
+                    const u32 n   = std::min(pixel_count - base, kChunk);
+                    u8* const row = pixels + static_cast<size_t>(base) * bpp;
+
+                    // Phase 1 – gather: deinterleave X and Y into contiguous
+                    // float arrays with UNORM → [-1, 1] decoding applied.
+                    for (u32 i = 0; i < n; ++i) {
+                        T va, vb;
+                        std::memcpy(&va, row + i * bpp + x_off, sizeof(T));
+                        std::memcpy(&vb, row + i * bpp + y_off, sizeof(T));
+                        xs[i] = static_cast<f32>(va) * kDecodeScale - 1.0f;
+                        ys[i] = static_cast<f32>(vb) * kDecodeScale - 1.0f;
+                    }
+
+                    // Phase 2 – compute: reconstruct Z for every pixel.
+                    // Tight loop over contiguous float arrays → auto-vectorizable
+                    // (SIMD sqrt + FMA).
+                    for (u32 i = 0; i < n; ++i)
+                        zs[i] = std::sqrt(std::max(0.0f, 1.0f - xs[i] * xs[i] - ys[i] * ys[i]));
+
+                    // Phase 3 – scatter: encode Z and write back to channel ci
+                    // in the interleaved pixel buffer.
+                    for (u32 i = 0; i < n; ++i) {
+                        // (z + 1) * kHalfMax maps [-1, 1] → [0, max].
+                        // Integer types require rounding to the nearest
+                        // representable value; f32 stores the exact result.
+                        const f32 encoded = (zs[i] + 1.0f) * kHalfMax;
+                        T vc;
+                        if constexpr (std::is_same_v<T, f32>)
+                            vc = encoded;
+                        else
+                            vc = static_cast<T>(std::round(encoded));
+                        std::memcpy(row + i * bpp + z_off, &vc, sizeof(T));
+                    }
+                }
+            }
+        }
+        ok = true;
+    }
+};
+
 struct FillChannelOp {
     template <PixelFormat Fmt>
     static void apply(Texture::Impl& impl, u32 ci, f32 value, bool& ok) {
@@ -936,6 +1013,18 @@ bool Texture::fillChannel(Channel target, f32 value) {
     u32 ci = static_cast<u32>(target);
     bool ok = false;
     dispatch_uncompressed<FillChannelOp>(impl_->format, *impl_, ci, value, ok);
+    return ok;
+}
+
+bool Texture::expandNormal(Channel xChannel, Channel yChannel, Channel zChannel) {
+    if (bcn::isCompressed(impl_->format))
+        return false;
+
+    u32 ai = static_cast<u32>(xChannel);
+    u32 bi = static_cast<u32>(yChannel);
+    u32 ci = static_cast<u32>(zChannel);
+    bool ok = false;
+    dispatch_uncompressed<ExpandNormalOp>(impl_->format, *impl_, ai, bi, ci, ok);
     return ok;
 }
 
