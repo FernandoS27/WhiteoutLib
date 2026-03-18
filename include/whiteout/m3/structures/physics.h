@@ -33,8 +33,6 @@ namespace m3 {
  * within an influence volume shape (sphere, cylinder, box, hemisphere).
  */
 struct Force {
-    static constexpr u32 tag = TAG_FOR;   ///< FourCC tag
-    static constexpr u32 max_version = 2; ///< Latest known FOR_ version
     ForceType forceType;                  ///< Force influence type (radial/wind/explosion)
     ForceShape forceShape;                ///< Influence volume shape
     u32 unknown;                          ///< Unknown field
@@ -55,8 +53,6 @@ struct Force {
  * and angular/axial/radial strength components.
  */
 struct Warp {
-    static constexpr u32 tag = TAG_WRP;   ///< FourCC tag
-    static constexpr u32 max_version = 1; ///< Latest known WRP_ version
     u32 warpType;                         ///< Warp type
     u32 boneIndex;                        ///< Index into BONE array
     u32 unknown;                          ///< Unknown field
@@ -77,8 +73,6 @@ struct Warp {
  * The nextAroundVertex field chains half-edges into closed per-vertex rings.
  */
 struct ConvexHullHalfEdge {
-    static constexpr u32 tag = TAG_DMSE;  ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known DMSE version
     u8 type;                              ///< 0x01 = forward, 0xFF = reverse (twin)
     u8 faceIndex;                         ///< Face this half-edge borders
     u8 vertexIndex;                       ///< Target vertex of this half-edge
@@ -90,8 +84,6 @@ struct ConvexHullHalfEdge {
  * @brief DMMN — Physics mesh normal (v0–v1, 8–12 bytes)
  */
 struct PhysicsMeshNormal {
-    static constexpr u32 tag = TAG_DMMN;  ///< FourCC tag
-    static constexpr u32 max_version = 1; ///< Latest known DMMN version
     Vector3f normal;                      ///< Face normal vector
     M3_DEFINE_VERSION_ACCESSORS()
 };
@@ -100,8 +92,6 @@ struct PhysicsMeshNormal {
  * @brief DMMT — Physics mesh triangle (v0, 28 bytes)
  */
 struct PhysicsMeshTriangle {
-    static constexpr u32 tag = TAG_DMMT;  ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known DMMT version
     u32 vertexIndex0;                     ///< First vertex index
     u32 vertexIndex1;                     ///< Second vertex index
     u32 vertexIndex2;                     ///< Third vertex index
@@ -117,8 +107,6 @@ struct PhysicsMeshTriangle {
  * @brief DMME — Physics mesh edge (v0, 20 bytes)
  */
 struct PhysicsMeshEdge {
-    static constexpr u32 tag = TAG_DMME;  ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known DMME version
     u32 edgeType;                         ///< Edge type
     u32 vertexA;                          ///< First vertex index
     u32 vertexB;                          ///< Second vertex index
@@ -136,8 +124,6 @@ struct PhysicsMeshEdge {
  * (shapeType 4); bytes 184–299 form the mesh section (shapeType 5).
  */
 struct PhysicsShape {
-    static constexpr u32 tag = TAG_PHSH;  ///< FourCC tag
-    static constexpr u32 max_version = 3; ///< Latest known PHSH version
     Matrix44f transform;                  ///< 4×4 shape transform matrix
 
     // v1: collisionMargin + shapeType at offsets 64-71
@@ -205,8 +191,6 @@ struct PhysicsShape {
  * gravity scale, and collision shape references.
  */
 struct RigidBody {
-    static constexpr u32 tag = TAG_PHRB;       ///< FourCC tag
-    static constexpr u32 max_version = 4;      ///< Latest known PHRB version
     u16 simulationType;                        ///< Simulation mode (v3+)
     u16 parentBoneIndex;                       ///< Parent bone index
     u32 physicsType;                           ///< Engine-specific body type (v3+)
@@ -240,8 +224,6 @@ struct RigidBody {
  * Connects two rigid bodies with limit, friction, and break-threshold parameters.
  */
 struct PhysicsJoint {
-    static constexpr u32 tag = TAG_PHYJ;  ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known PHYJ version
     u32 jointType;                        ///< Joint type
     u32 boneIndex1;                       ///< First bone index
     u32 boneIndex2;                       ///< Second bone index
@@ -266,8 +248,6 @@ struct PhysicsJoint {
  * Constrains two rigid bodies with break-force threshold.
  */
 struct PhysicsConstraint {
-    static constexpr u32 tag = TAG_PHCT;  ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known PHCT version
     std::vector<u16> dependents;          ///< Dependent bone indices (U16_)
     u16 rigidBody1;                       ///< First rigid body index
     u16 rigidBody2;                       ///< Second rigid body index
@@ -282,8 +262,6 @@ struct PhysicsConstraint {
  * Capsule-shaped collider used by cloth simulation.
  */
 struct ClothCollider {
-    static constexpr u32 tag = TAG_PHCC;  ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known PHCC version
     Matrix44f transform;                  ///< 4×4 collider transform
     f32 radius;                           ///< Capsule radius
     f32 height;                           ///< Capsule height
@@ -297,8 +275,6 @@ struct ClothCollider {
  * Maps cloth vertices to proxy geometry for collision.
  */
 struct ClothProxy {
-    static constexpr u32 tag = TAG_PHAC;  ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known PHAC version
     u32 proxyIndex;                       ///< Proxy mesh index
     u32 clothIndex;                       ///< Cloth mesh index
     std::vector<u64> proxyVertices;       ///< Proxy vertex data (U64_)
@@ -314,8 +290,6 @@ struct ClothProxy {
  * Added in MODL v28.
  */
 struct ClothPhysics {
-    static constexpr u32 tag = TAG_PHCL;  ///< FourCC tag
-    static constexpr u32 max_version = 4; ///< Latest known PHCL version
     u32 clothMeshCount;                   ///< Number of cloth mesh sections
     u32 skinBoneCount;                    ///< Number of skin bones
     std::vector<u16> skinBones;           ///< Skin bone indices (U16_)

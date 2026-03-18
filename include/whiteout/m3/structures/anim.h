@@ -32,8 +32,6 @@ namespace m3 {
  * parameter string. Used for sound cues, spawn effects, etc.
  */
 struct Event {
-    static constexpr u32 tag = TAG_EVNT;  ///< FourCC tag
-    static constexpr u32 max_version = 2; ///< Latest known EVNT version
     std::string name;                     ///< Event name (Ref<CHAR>)
     u32 unknown;                          ///< Unknown field
     u16 boneIndex;                        ///< Index into BONE array
@@ -53,8 +51,6 @@ struct Event {
  * looping flags, blend time, and bounding volume.
  */
 struct Sequence {
-    static constexpr u32 tag = TAG_SEQS;     ///< FourCC tag
-    static constexpr u32 max_version = 2;    ///< Latest known SEQS version
     i32 id;                                  ///< Unique sequence identifier
     i32 index;                               ///< Sequence index
     std::string name;                        ///< Sequence name (Ref<CHAR>)
@@ -83,8 +79,6 @@ struct Sequence {
  * vectors, quaternions, colors, scalars, flags, and bounding extents.
  */
 struct SubTrackContainer {
-    static constexpr u32 tag = TAG_STC;   ///< FourCC tag
-    static constexpr u32 max_version = 4; ///< Latest known STC_ version
     std::string name;                     ///< Container name (Ref<CHAR>)
     u16 runsConcurrent;                   ///< Non-zero if runs concurrently
     u16 animPriority;                     ///< Animation priority level
@@ -116,8 +110,6 @@ struct SubTrackContainer {
  * Groups sub-track containers by name for organizational purposes.
  */
 struct AnimationGroup {
-    static constexpr u32 tag = TAG_STG;   ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known STG_ version
     std::string name;                     ///< Group name (Ref<CHAR>)
     std::vector<u32> subtrackIndices;     ///< Indices into STC_ array (U32_)
     M3_DEFINE_VERSION_ACCESSORS()
@@ -130,8 +122,6 @@ struct AnimationGroup {
  * 16 bytes of unknown state data.
  */
 struct AnimationState {
-    static constexpr u32 tag = TAG_STS;   ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known STS_ version
     std::vector<u32> animIds;             ///< Animation IDs (U32_)
     std::array<u8, 16> unknown;           ///< Unknown state data (16 bytes)
     M3_DEFINE_VERSION_ACCESSORS()
@@ -144,8 +134,6 @@ struct AnimationState {
  * In practice, always null in observed corpus data.
  */
 struct BoneAnimationSet {
-    static constexpr u32 tag = TAG_BSET;  ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known BSET version
     Flag flags;                           ///< Flags
     u16 animationSequenceIndex;           ///< Primary sequence index
     u16 fallbackSequenceIndex;            ///< Fallback sequence index

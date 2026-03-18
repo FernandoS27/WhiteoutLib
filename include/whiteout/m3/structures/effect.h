@@ -36,8 +36,6 @@ namespace m3 {
  * phase shift, and ribbon-on-bounce parameters.
  */
 struct ParticleEmitter {
-    static constexpr u32 tag = TAG_PAR;    ///< FourCC tag
-    static constexpr u32 max_version = 24; ///< Latest known PAR_ version
 
     // Identification
     u32 boneIndex;     ///< Index into BONE array
@@ -245,8 +243,6 @@ struct ParticleEmitter {
  * Model.copyIndices.
  */
 struct ParticleEmitterCopy {
-    static constexpr u32 tag = TAG_PARC;  ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known PARC version
     AnimRef<f32> emissionRate;            ///< Overridden emission rate
     AnimRef<u16> squirtAmount;            ///< Overridden squirt burst count
     u32 boneIndex;                        ///< Index into BONE array
@@ -261,8 +257,6 @@ struct ParticleEmitterCopy {
  * variation channels.
  */
 struct SplineRibbon {
-    static constexpr u32 tag = TAG_SRIB;  ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known SRIB version
     Vector3f emissionOffset;              ///< Emission point offset from bone
     Vector3f emissionVector;              ///< Emission direction vector
     AnimRef<f32> velocity;                ///< Animated base velocity
@@ -294,8 +288,6 @@ struct SplineRibbon {
  * smoothing/collision settings. Shares many fields with ParticleEmitter.
  */
 struct RibbonEmitter {
-    static constexpr u32 tag = TAG_RIB;   ///< FourCC tag
-    static constexpr u32 max_version = 9; ///< Latest known RIB_ version
 
     // Identification
     u16 boneIndex = 0;         ///< Primary bone index
@@ -419,8 +411,6 @@ struct RibbonEmitter {
  * attenuation distance.
  */
 struct Projector {
-    static constexpr u32 tag = TAG_PROJ;       ///< FourCC tag
-    static constexpr u32 max_version = 5;      ///< Latest known PROJ version
     ProjectionType projectionType;             ///< Projection type (ortho/perspective)
     u32 bone;                                  ///< Index into BONE array
     u32 materialReferenceIndex;                ///< Index into MATM material map

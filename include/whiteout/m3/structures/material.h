@@ -35,8 +35,6 @@ namespace m3 {
  * to dispatch to the correct material vector.
  */
 struct MaterialMap {
-    static constexpr u32 tag = TAG_MATM;  ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known MATM version
     MaterialType materialType;            ///< Material type (1=standard, 2=displacement, etc.)
     u32 materialIndex;                    ///< Index into the typed material array
     M3_DEFINE_VERSION_ACCESSORS()
@@ -51,8 +49,6 @@ struct MaterialMap {
  * emissive, normal, and other texture slots.
  */
 struct TextureLayer {
-    static constexpr u32 tag = TAG_LAYR;             ///< FourCC tag
-    static constexpr u32 max_version = 26;           ///< Latest known LAYR version
     u32 id;                                          ///< Layer identifier
     std::string texturePath;                         ///< Texture file path (Ref<CHAR>)
     AnimRef<ColorBGRA> color;                        ///< Animated color tint
@@ -103,8 +99,6 @@ struct TextureLayer {
  * per-version extensions for normal-blend and gloss layers.
  */
 struct StandardMaterial {
-    static constexpr u32 tag = TAG_MAT;    ///< FourCC tag
-    static constexpr u32 max_version = 20; ///< Latest known MAT_ version
     std::string name;                      ///< Material name (Ref<CHAR>)
     MaterialAdditionalFlag additionalFlags = MaterialAdditionalFlag::None; ///< Additional flags
     MaterialFlag flags = MaterialFlag::None; ///< Material rendering flags
@@ -155,8 +149,6 @@ struct StandardMaterial {
  * Applies vertex displacement via a normal map and animated strength.
  */
 struct DisplacementMaterial {
-    static constexpr u32 tag = TAG_DIS;      ///< FourCC tag
-    static constexpr u32 max_version = 4;    ///< Latest known DIS_ version
     std::string name;                        ///< Material name (Ref<CHAR>)
     u32 unknown;                             ///< Unknown field
     AnimRef<f32> strength;                   ///< Animated displacement strength
@@ -174,8 +166,6 @@ struct DisplacementMaterial {
  * index with an animated blend multiplier.
  */
 struct CompositeSection {
-    static constexpr u32 tag = TAG_CMS;   ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known CMS_ version
     u32 materialIndex;                    ///< Index into MATM array
     AnimRef<f32> mapMultiplier;           ///< Animated blend weight
     M3_DEFINE_VERSION_ACCESSORS()
@@ -187,8 +177,6 @@ struct CompositeSection {
  * Blends multiple sub-materials via CompositeSection entries.
  */
 struct CompositeMaterial {
-    static constexpr u32 tag = TAG_CMP;     ///< FourCC tag
-    static constexpr u32 max_version = 2;   ///< Latest known CMP_ version
     std::string name;                       ///< Material name (Ref<CHAR>)
     u32 priority;                           ///< Render priority
     std::vector<CompositeSection> sections; ///< Sub-material sections (CMS_)
@@ -201,8 +189,6 @@ struct CompositeMaterial {
  * Simple terrain-specific material with a single texture layer.
  */
 struct TerrainMaterial {
-    static constexpr u32 tag = TAG_TER;     ///< FourCC tag
-    static constexpr u32 max_version = 1;   ///< Latest known TER_ version
     std::string name;                       ///< Material name (Ref<CHAR>)
     std::optional<TextureLayer> terrainMap; ///< Terrain texture layer
     u32 unknown;                            ///< Unknown field
@@ -216,8 +202,6 @@ struct TerrainMaterial {
  * two noise maps for procedural volumetric effects.
  */
 struct VolumeMaterial {
-    static constexpr u32 tag = TAG_VOL;    ///< FourCC tag
-    static constexpr u32 max_version = 0;  ///< Latest known VOL_ version
     std::string name;                      ///< Material name (Ref<CHAR>)
     u32 blendMode;                         ///< Blend mode
     VolumeFalloffType falloffType;         ///< Density falloff type
@@ -237,8 +221,6 @@ struct VolumeMaterial {
  * Always null in observed corpus data.
  */
 struct HairMaterial {
-    static constexpr u32 tag = TAG_HAI;         ///< FourCC tag
-    static constexpr u32 max_version = 0;       ///< Latest known HAI_ version
     std::string name;                           ///< Material name (Ref<CHAR>)
     std::optional<TextureLayer> layerBase;      ///< Base color / diffuse texture
     std::optional<TextureLayer> layerSpecShift; ///< Anisotropic specular shift map
@@ -260,8 +242,6 @@ struct HairMaterial {
  * scroll rate, position, scale, and rotation. Used for gas/smoke/cloud effects.
  */
 struct VolumeNoiseMaterial {
-    static constexpr u32 tag = TAG_VON;     ///< FourCC tag
-    static constexpr u32 max_version = 0;   ///< Latest known VON_ version
     std::string name;                       ///< Material name (Ref<CHAR>)
     VolumeFalloffType falloffType;          ///< Density falloff type
     VolumeNoiseCameraMode drawTransparency; ///< Camera position mode (inside/outside)
@@ -286,8 +266,6 @@ struct VolumeNoiseMaterial {
  * Material for Zerg creep rendering with a mask map and creep-low parameter.
  */
 struct CreepMaterial {
-    static constexpr u32 tag = TAG_CREP;  ///< FourCC tag
-    static constexpr u32 max_version = 1; ///< Latest known CREP version
     std::string name;                     ///< Material name (Ref<CHAR>)
     std::optional<TextureLayer> maskMap;  ///< Creep mask texture
     u32 creepLow;                         ///< Creep low parameter
@@ -301,8 +279,6 @@ struct CreepMaterial {
  * specular texture layers.
  */
 struct STBMaterial {
-    static constexpr u32 tag = TAG_STBM;     ///< FourCC tag
-    static constexpr u32 max_version = 0;    ///< Latest known STBM version
     std::string name;                        ///< Material name (Ref<CHAR>)
     std::optional<TextureLayer> diffuseMap;  ///< Diffuse / albedo map
     std::optional<TextureLayer> normalMap;   ///< Normal map
@@ -317,8 +293,6 @@ struct STBMaterial {
  * strength, blur, and multiple texture layers.
  */
 struct ReflectionMaterial {
-    static constexpr u32 tag = TAG_REF;          ///< FourCC tag
-    static constexpr u32 max_version = 3;        ///< Latest known REF_ version
     std::string name;                            ///< Material name (Ref<CHAR>)
     u32 unknown;                                 ///< Unknown field
     AnimRef<f32> reflectionStrength;             ///< Animated reflection strength (v2+)
@@ -341,8 +315,6 @@ struct ReflectionMaterial {
  * size, scale, fade, color, and offset parameters.
  */
 struct SubFlare {
-    static constexpr u32 tag = TAG_LFSB;  ///< FourCC tag
-    static constexpr u32 max_version = 2; ///< Latest known LFSB version
     u32 index;                            ///< Flare element index
     f32 position;                         ///< Position along the flare axis (0–1)
     Vector2f sizeXY;                      ///< Base size (width, height)
@@ -362,8 +334,6 @@ struct SubFlare {
  * elements, and flipbook texture grid parameters.
  */
 struct LensFlare {
-    static constexpr u32 tag = TAG_LFLR;  ///< FourCC tag
-    static constexpr u32 max_version = 3; ///< Latest known LFLR version
     std::string name;                     ///< Flare name (Ref<CHAR>)
     std::optional<TextureLayer> flareMap; ///< Flare texture atlas
     std::optional<TextureLayer> maskMap;  ///< Flare mask texture
@@ -386,8 +356,6 @@ struct LensFlare {
  * animation parameters. Added in MODL v30.
  */
 struct MaterialAddData {
-    static constexpr u32 tag = TAG_MADD;  ///< FourCC tag
-    static constexpr u32 max_version = 3; ///< Latest known MADD version
     std::string keyName;                  ///< Key name (Ref<CHAR>)
     std::vector<u32> keyHash;             ///< Key hash values (U32_)
     std::vector<u32> extraHash;           ///< Extra hash values (U32_, v2+)

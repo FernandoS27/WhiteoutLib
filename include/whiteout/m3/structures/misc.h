@@ -33,8 +33,6 @@ namespace m3 {
  * or mesh) attached to a bone. Used for both tight and fuzzy hit testing.
  */
 struct HitTestShape {
-    static constexpr u32 tag = TAG_SSGS;   ///< FourCC tag
-    static constexpr u32 max_version = 1;  ///< Latest known SSGS version
     HitTestShapeType shapeType;            ///< Shape type (box/sphere/capsule/cylinder/mesh)
     u16 boneIndex;                         ///< Index into BONE array
     u16 padding;                           ///< Alignment padding
@@ -53,8 +51,6 @@ struct HitTestShape {
  * Like HitTestShape but with two bone indices for attachment-point volumes.
  */
 struct AttachmentVolume {
-    static constexpr u32 tag = TAG_ATVL;   ///< FourCC tag
-    static constexpr u32 max_version = 0;  ///< Latest known ATVL version
     u32 bone1;                             ///< First bone index
     u32 bone2;                             ///< Second bone index
     HitTestShapeType shapeType;            ///< Shape type
@@ -75,8 +71,6 @@ struct AttachmentVolume {
  * Named trigger with associated data indices for gameplay events.
  */
 struct TriggerData {
-    static constexpr u32 tag = TAG_TRGD;  ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known TRGD version
     std::vector<u32> dataIndices;         ///< Data index array (U32_)
     std::string name;                     ///< Trigger name (Ref<CHAR>)
     M3_DEFINE_VERSION_ACCESSORS()
@@ -89,8 +83,6 @@ struct TriggerData {
  * limits, weights, and an optional main-turret flag.
  */
 struct TurretBehavior {
-    static constexpr u32 tag = TAG_PATU;  ///< FourCC tag
-    static constexpr u32 max_version = 4; ///< Latest known PATU version
     Matrix44f transform;                  ///< 4×4 turret transform
     Vector4f unknown1;                    ///< Unknown vector 1
     Vector4f unknown2;                    ///< Unknown vector 2
@@ -117,8 +109,6 @@ struct TurretBehavior {
  * Makes a bone always face the camera or a specified direction.
  */
 struct BillboardBehavior {
-    static constexpr u32 tag = TAG_BBSC;  ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known BBSC version
     std::vector<u16> dependents;          ///< Dependent bone indices (U16_)
     u16 boneIndex;                        ///< Index into BONE array
     u8 billboardType;                     ///< Billboard mode type
@@ -135,8 +125,6 @@ struct BillboardBehavior {
  * and goal threshold for terrain-following or foot-planting.
  */
 struct IKJoint {
-    static constexpr u32 tag = TAG_IKJT;  ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known IKJT version
     std::vector<u16> dependents;          ///< Dependent bone indices (U16_)
     u16 boneIndex1;                       ///< First bone index
     u16 boneIndex2;                       ///< Second bone index
@@ -154,8 +142,6 @@ struct IKJoint {
  * and search range for target acquisition.
  */
 struct IKTwoJoint {
-    static constexpr u32 tag = TAG_IK2J;  ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known IK2J version
     std::vector<u16> dependents;          ///< Dependent bone indices (U16_)
     u16 boneBase;                         ///< Base bone (e.g. upper arm/thigh)
     u16 boneTarget;                       ///< Target bone (e.g. forearm/shin)
@@ -176,8 +162,6 @@ struct IKTwoJoint {
  * and vertical search range.
  */
 struct IKCCD {
-    static constexpr u32 tag = TAG_IKCC;  ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known IKCC version
     std::vector<u16> dependents;          ///< Dependent bone indices (U16_)
     u16 boneBase;                         ///< Base bone index
     u16 boneTarget;                       ///< Target bone index
@@ -192,8 +176,6 @@ struct IKCCD {
  * Simple single-bone orientation solver with angle limit and fallback bone.
  */
 struct OneBoneSolver {
-    static constexpr u32 tag = TAG_PAOB;  ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known PAOB version
     std::vector<u16> dependents;          ///< Dependent bone indices (U16_)
     u16 bone;                             ///< Primary bone index
     u16 boneFallback;                     ///< Fallback bone index
@@ -208,8 +190,6 @@ struct OneBoneSolver {
  * Axis-aligned shadow volume defined by a 4×4 transform matrix.
  */
 struct ShadowBox {
-    static constexpr u32 tag = TAG_SHBX;  ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known SHBX version
     Matrix44f matrix;                     ///< 4×4 shadow box transform
     M3_DEFINE_VERSION_ACCESSORS()
 };
@@ -220,8 +200,6 @@ struct ShadowBox {
  * Animated visibility volume bound to a bone, used for culling decisions.
  */
 struct ViewVolume {
-    static constexpr u32 tag = TAG_VVOL;  ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known VVOL version
     u32 nodeIndex;                        ///< Index into BONE array
     AnimRef<Vector3f> size;               ///< Animated half-extents (36 bytes)
     M3_DEFINE_VERSION_ACCESSORS()
@@ -234,8 +212,6 @@ struct ViewVolume {
  * actively used by the engine.
  */
 struct TrailingModel {
-    static constexpr u32 tag = TAG_TMD;   ///< FourCC tag
-    static constexpr u32 max_version = 1; ///< Latest known TMD_ version
     std::vector<Vector3f> vectors;        ///< Control vectors (VEC3)
     f32 param0;                           ///< Parameter 0 (observed: 5.0)
     f32 param1;                           ///< Parameter 1 (observed: 1.0)

@@ -52,9 +52,6 @@ namespace m3 {
  * - v30 (+materialAddData): 868 bytes
  */
 struct Model {
-    static constexpr u32 tag = TAG_MODL;   ///< FourCC tag
-    static constexpr u32 max_version = 30; ///< Latest known MODL version
-
     // ─── Preamble (0x000–0x0E3, 228 bytes) ────────────────────────
     std::string name;                  ///< Model file path (Ref<CHAR>)
     ModelFlag flags = ModelFlag::None; ///< Model flags (tangents, FOW, instancing, etc.)

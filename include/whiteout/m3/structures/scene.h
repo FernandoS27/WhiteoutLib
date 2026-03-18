@@ -30,8 +30,6 @@ namespace m3 {
  * intensity, decay, attenuation start/end, and spot-light hot-spot/falloff.
  */
 struct Light {
-    static constexpr u32 tag = TAG_LITE;  ///< FourCC tag
-    static constexpr u32 max_version = 7; ///< Latest known LITE version
     LightType lightType;                  ///< Light type (omni/spot/directional)
     u16 boneIndex;                        ///< Index into BONE array
     LightFlag flags = LightFlag::None;    ///< Light flags (shadows, specular, AO, etc.)
@@ -56,8 +54,6 @@ struct Light {
  * depth-of-field parameters, and version-dependent bokeh settings.
  */
 struct Camera {
-    static constexpr u32 tag = TAG_CAM;   ///< FourCC tag
-    static constexpr u32 max_version = 5; ///< Latest known CAM_ version
     u32 boneIndex;                        ///< Index into BONE array
     std::string name;                     ///< Camera name (Ref<CHAR>)
     AnimRef<f32> fieldOfView;             ///< Animated FOV in radians (v2+)

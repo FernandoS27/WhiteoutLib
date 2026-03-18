@@ -32,8 +32,6 @@ namespace m3 {
  * and flags controlling inheritance, billboard mode, and IK.
  */
 struct Bone {
-    static constexpr u32 tag = TAG_BONE;  ///< FourCC tag
-    static constexpr u32 max_version = 1; ///< Latest known BONE version
     u32 unknown;                          ///< Unknown field
     std::string name;                     ///< Bone name (Ref<CHAR>)
     BoneFlag flags = BoneFlag::None;      ///< Bone flags (inherit, billboard, IK, skin)
@@ -53,8 +51,6 @@ struct Bone {
  * with bone lookup info for skinning and UV scale/offset for texturing.
  */
 struct Region {
-    static constexpr u32 tag = TAG_REGN;  ///< FourCC tag
-    static constexpr u32 max_version = 5; ///< Latest known REGN version
     u32 index;                            ///< Region index
     u32 unknown;                          ///< Unknown field
     u32 firstVertex;                      ///< First vertex in the vertex buffer
@@ -81,8 +77,6 @@ struct Region {
  * may reference the same region with different materials.
  */
 struct Batch {
-    static constexpr u32 tag = TAG_BAT;   ///< FourCC tag
-    static constexpr u32 max_version = 1; ///< Latest known BAT_ version
     u32 unknown;                          ///< Unknown field
     u16 regionIndex;                      ///< Index into REGN array
     u32 unknown2;                         ///< Unknown field
@@ -97,8 +91,6 @@ struct Batch {
  * Per-node animated bounding extent used for culling and LOD.
  */
 struct MeshSection {
-    static constexpr u32 tag = TAG_MSEC;  ///< FourCC tag
-    static constexpr u32 max_version = 1; ///< Latest known MSEC version
     u32 nodeIndex;                        ///< Index into BONE array
     AnimRef<Extent> bounds;               ///< Animated bounding volume (76 bytes)
     M3_DEFINE_VERSION_ACCESSORS()
@@ -111,8 +103,6 @@ struct MeshSection {
  * and mesh sections. Most models have a single division.
  */
 struct MeshDivision {
-    static constexpr u32 tag = TAG_DIV;   ///< FourCC tag
-    static constexpr u32 max_version = 2; ///< Latest known DIV_ version
     std::vector<u16> faces;               ///< Triangle indices (U16_)
     std::vector<Region> regions;          ///< Regions / submeshes (REGN)
     std::vector<Batch> batches;           ///< Draw call batches (BAT_)
@@ -128,8 +118,6 @@ struct MeshDivision {
  * vertices from model space into bone-local space for skinning.
  */
 struct InitialReference {
-    static constexpr u32 tag = TAG_IREF;  ///< FourCC tag
-    static constexpr u32 max_version = 0; ///< Latest known IREF version
     Matrix44f matrix;                     ///< 4×4 inverse bind-pose matrix
     M3_DEFINE_VERSION_ACCESSORS()
 };
@@ -141,8 +129,6 @@ struct InitialReference {
  * or other models to specific skeleton bones.
  */
 struct AttachmentPoint {
-    static constexpr u32 tag = TAG_ATT;   ///< FourCC tag
-    static constexpr u32 max_version = 1; ///< Latest known ATT_ version
     u32 unknown;                          ///< Unknown field
     std::string name;                     ///< Attachment point name (Ref<CHAR>)
     u32 boneIndex;                        ///< Index into BONE array
