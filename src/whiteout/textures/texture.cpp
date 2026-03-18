@@ -14,6 +14,7 @@
 #include "bcn.h"
 #include "mipmap/generator.h"
 #include "utils/pixel_convert.h"
+#include "utils/srgb_linearize.h"
 
 namespace whiteout::textures {
 
@@ -770,11 +771,20 @@ std::optional<Texture> Texture::copyFromNormalToRGBA(interfaces::WorkerPool* poo
             return std::nullopt;
 
         decoded->setKind(kind());
-        decoded->setSrgb(isSrgb());
-        return copy_normal_to_rgba8(*decoded, impl_->format);
+        ensureColorSpace(*decoded, false);
+        if (impl_->format == PixelFormat::BC3) {
+            decoded->invertChannel(Channel::G);
+            decoded->swapChannels(Channel::R, Channel::A);
+        }
+        decoded->expandNormal(Channel::R, Channel::G, Channel::B);
+        return decoded;
     }
 
-    return copy_normal_to_rgba8(*this, impl_->format);
+    auto dst = copyAsFormat(impl_->format, pool);
+    dst.setKind(TextureKind::Normal);
+    ensureColorSpace(dst, false);
+    dst.expandNormal(Channel::R, Channel::G, Channel::B);
+    return dst;
 }
 
 std::optional<std::vector<Texture>> Texture::splitChannels(

@@ -20,4 +20,14 @@ namespace whiteout::textures {
 /// formats the texture is first decompressed to RGBA8 before linearising.
 Texture linearizeSrgbCopy(const Texture& texture);
 
+/// Convert @p tex in-place so that its pixel data matches the requested
+/// colour space.  If @p srgb is true the data is converted from linear to
+/// sRGB; if false, from sRGB to linear.  No-op when the texture already
+/// carries the requested flag.
+///
+/// Block-compressed textures are decompressed to RGBA8 first (in-place).
+/// Only the first three colour channels (RGB) are affected; alpha is
+/// preserved unchanged.
+void ensureColorSpace(Texture& tex, bool srgb);
+
 } // namespace whiteout::textures
