@@ -244,7 +244,7 @@ TextureKind TextureConverter::guessTextureKind(const std::string& path,
         stem.find("_norm") != std::string::npos)
         return TextureKind::Normal;
     if (stem.find("_orm") != std::string::npos)
-        return TextureKind::ORM;
+        return TextureKind::Multikind;
     if (stem.find("_ao") != std::string::npos ||
         stem.find("occlusion") != std::string::npos)
         return TextureKind::AmbientOcclusion;
@@ -331,13 +331,31 @@ const char* TextureConverter::textureKindName(TextureKind kind) {
     case TextureKind::Diffuse:          return "Diffuse";
     case TextureKind::Normal:           return "Normal";
     case TextureKind::Specular:         return "Specular";
-    case TextureKind::ORM:              return "ORM";
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996)
+#elif defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+    case TextureKind::ORM:              return "ORM (deprecated)";
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#elif defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
     case TextureKind::Albedo:           return "Albedo";
     case TextureKind::Roughness:        return "Roughness";
     case TextureKind::Metalness:        return "Metalness";
     case TextureKind::AmbientOcclusion: return "AmbientOcclusion";
     case TextureKind::Gloss:            return "Gloss";
     case TextureKind::Emissive:         return "Emissive";
+    case TextureKind::AlphaMask:        return "AlphaMask";
+    case TextureKind::Lightmap:         return "Lightmap";
+    case TextureKind::EnvironmentPBR:   return "EnvironmentPBR";
+    case TextureKind::EnvironmentLegacy: return "EnvironmentLegacy";
+    case TextureKind::Multikind:        return "Multikind";
+    case TextureKind::Unused:           return "Unused";
     }
     return "Unknown";
 }

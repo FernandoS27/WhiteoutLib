@@ -94,7 +94,9 @@ enum class TextureKind : u32 {
     Diffuse,          ///< Diffuse / base colour (legacy).
     Normal,           ///< Tangent-space normal map.
     Specular,         ///< Specular intensity / colour.
-    ORM,              ///< Packed Occlusion + Roughness + Metalness.
+    /// @deprecated Use TextureKind::Multikind with per-channel kinds instead.
+    /// Set R=AmbientOcclusion, G=Roughness, B=Metalness via setChannelKind().
+    ORM,              ///< ORM packed texture (R=AO, G=Roughness, B=Metalness, A=Unused).
     Albedo,           ///< PBR base colour (albedo).
     Roughness,        ///< Roughness (single channel).
     Metalness,        ///< Metalness (single channel).
@@ -105,6 +107,15 @@ enum class TextureKind : u32 {
     Lightmap,         ///< Lightmap or baked light contribution (HDR colour).
     EnvironmentPBR,   ///< Environment / reflection map (equirectangular, GGX prefiltered).
     EnvironmentLegacy, ///< Environment map (equirectangular, spherical Kaiser-filtered).
+    /// Packed multi-channel texture where each channel carries a distinct
+    /// semantic role.  Use setChannelKind() / channelKind() to assign and
+    /// query the per-channel kinds.  generateMipmaps() will apply a
+    /// kind-appropriate filter to every channel independently.
+    Multikind,
+    /// Channel is not used and carries no semantic meaning.  Only valid as a
+    /// per-channel kind on a Multikind texture (set via setChannelKind()).
+    /// generateMipmaps() applies a plain box filter to Unused channels.
+    Unused,
 };
 
 // ============================================================================
@@ -342,8 +353,9 @@ struct Texture {
      * - Metalness — Kaiser(β=5.5) mean filtering.
      * - AmbientOcclusion — Kaiser(β=6) mean filtering.
      * - Emissive — Lanczos3; sRGB linearize/delinearize when isSrgb().
-     * - ORM — per-channel: R=AO (Kaiser β=6), G=Roughness (variance-
-     *   preserving), B=Metalness (Kaiser β=5.5).
+     * - ORM (deprecated) — same as Multikind with R=AO/G=Roughness/B=Metalness.
+     * - Multikind — per-channel kind-appropriate pipeline; each channel's
+     *   kind is queried via channelKind(). Unused channels use a box filter.
      * - AlphaMask — Box filter; no sRGB conversion (linear mask data).
      * - Lightmap — Lanczos3; clamp channels to [0, ∞) (no sRGB).
      * - EnvironmentPBR — GGX importance-sampled convolution (equirectangular);
@@ -414,7 +426,41 @@ struct Texture {
     /// @return The semantic kind of this texture.
     TextureKind kind() const;
     /// @brief Set the semantic kind of this texture.
+    /// @note TextureKind::Unused is not valid as a top-level kind; use
+    ///       setChannelKind() on a Multikind texture for per-channel Unused.
     void setKind(TextureKind k);
+
+    /// @return The per-channel kind for channel @p ch.
+    ///
+    /// Only meaningful when kind() == TextureKind::Multikind.
+    /// Returns TextureKind::Other by default for all other kinds.
+    /// @param ch Channel to query (R/G/B/A).
+    TextureKind channelKind(Channel ch) const;
+
+    /// @brief Set the per-channel kind for channel @p ch.
+    ///
+    /// Only meaningful when kind() == TextureKind::Multikind.
+    /// TextureKind::Unused is permitted here to mark a channel as unused.
+    /// @param ch   Channel to configure.
+    /// @param kind Kind to assign, including TextureKind::Unused.
+    void setChannelKind(Channel ch, TextureKind kind);
+
+    /// @return The default fill value for channel @p ch.
+    ///
+    /// This value is used by consumers (e.g. channel merging, material
+    /// baking) when the channel carries no source data.  Defaults to 1.0f
+    /// for all channels.
+    /// @param ch Channel to query (R/G/B/A).
+    f32 channelDefault(Channel ch) const;
+
+    /// @brief Set the default fill value for channel @p ch.
+    ///
+    /// The value is stored as-is (normalised [0, 1] float for integer
+    /// formats, linear scale for f32 formats).  No clamping is applied
+    /// at storage time.
+    /// @param ch    Channel to configure (R/G/B/A).
+    /// @param value Default fill value; 1.0f by convention.
+    void setChannelDefault(Channel ch, f32 value);
 
     /// @return True if the texture data is in sRGB colour space.
     bool isSrgb() const;

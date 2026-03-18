@@ -264,9 +264,12 @@ MipmapPipeline pipelineForKind(TextureKind kind, bool srgb) {
             return {{sLinearize}, spherKaiser, {sDelinearize}};
         return {{}, spherKaiser, {}};
 
-    // ORM is split into per-channel textures by Texture::generateMipmaps()
-    // before reaching this function, so it falls through to the default.
+    // ORM (deprecated) and Multikind are split into per-channel textures by
+    // Texture::generateMipmaps() before reaching this function, so they fall
+    // through to the default.  Unused channels also use a plain box filter.
     case TextureKind::ORM:
+    case TextureKind::Multikind:
+    case TextureKind::Unused:
     case TextureKind::Other:
     default:
         if (srgb)

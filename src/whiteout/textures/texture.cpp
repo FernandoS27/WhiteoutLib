@@ -85,6 +85,11 @@ struct Texture::Impl {
     TextureType type = TextureType::Texture2D;
     PixelFormat format = PixelFormat::RGBA8;
     TextureKind kind = TextureKind::Other;
+    // Per-channel kinds — only meaningful when kind == Multikind.
+    std::array<TextureKind, 4> channelKinds = {TextureKind::Other, TextureKind::Other,
+                                               TextureKind::Other, TextureKind::Other};
+    // Per-channel default fill values; 1.0f by convention for all channels.
+    std::array<f32, 4> channelDefaults = {1.0f, 1.0f, 1.0f, 1.0f};
     bool srgb = false;
 
     u32 width = 0;
@@ -230,7 +235,33 @@ TextureKind Texture::kind() const {
     return impl_->kind;
 }
 void Texture::setKind(TextureKind k) {
+    if (k == TextureKind::ORM) {
+        impl_->kind = TextureKind::Multikind;
+        impl_->channelKinds[0] = TextureKind::AmbientOcclusion;
+        impl_->channelKinds[1] = TextureKind::Roughness;
+        impl_->channelKinds[2] = TextureKind::Metalness;
+        impl_->channelKinds[3] = TextureKind::Unused;
+        return;
+    }
     impl_->kind = k;
+}
+TextureKind Texture::channelKind(Channel ch) const {
+    const u32 idx = static_cast<u32>(ch);
+    return (idx < 4) ? impl_->channelKinds[idx] : TextureKind::Other;
+}
+void Texture::setChannelKind(Channel ch, TextureKind kind) {
+    const u32 idx = static_cast<u32>(ch);
+    if (idx < 4)
+        impl_->channelKinds[idx] = kind;
+}
+f32 Texture::channelDefault(Channel ch) const {
+    const u32 idx = static_cast<u32>(ch);
+    return (idx < 4) ? impl_->channelDefaults[idx] : 1.0f;
+}
+void Texture::setChannelDefault(Channel ch, f32 value) {
+    const u32 idx = static_cast<u32>(ch);
+    if (idx < 4)
+        impl_->channelDefaults[idx] = value;
 }
 bool Texture::isSrgb() const {
     return impl_->srgb;
@@ -371,6 +402,12 @@ Texture make_texture_like(const Texture& src, PixelFormat new_fmt) {
 void copy_texture_metadata(const Texture& src, Texture& dst) {
     dst.setKind(src.kind());
     dst.setSrgb(src.isSrgb());
+    if (src.kind() == TextureKind::Multikind) {
+        for (u32 i = 0; i < 4; ++i) {
+            const auto ch = static_cast<Channel>(i);
+            dst.setChannelKind(ch, src.channelKind(ch));
+        }
+    }
 }
 
 // ============================================================================
@@ -810,31 +847,42 @@ std::optional<std::string> Texture::generateMipmaps(u32 newMipCount,
             return std::nullopt;
     }
 
-    if (impl_->kind != TextureKind::ORM)
+    const bool isMultikind = (impl_->kind == TextureKind::Multikind);
+
+    if (!isMultikind)
         return mipmap::generateMipmaps(*this, pool);
 
-    // ORM textures: split into per-channel textures, generate mipmaps
-    // independently with kind-appropriate pipelines, then recombine.
-    // R = Ambient Occlusion, G = Roughness, B = Metalness.
-    static constexpr Channel kRGB[] = {Channel::R, Channel::G, Channel::B};
-    static constexpr TextureKind kChannelKinds[] = {
-        TextureKind::AmbientOcclusion,
-        TextureKind::Roughness,
-        TextureKind::Metalness,
-    };
-
+    // Multikind: split into per-channel textures, generate
+    // mipmaps independently with kind-appropriate pipelines, then recombine.
     const u32 srcChCount = format_channel_count(impl_->format);
     if (srcChCount == 0)
-        return std::string("ORM mipmap generation requires an uncompressed format");
+        return std::string("Multikind mipmap generation requires an uncompressed format");
 
-    const std::vector<Channel> channels(kRGB, kRGB + std::min<u32>(3u, srcChCount));
+    // Build the per-channel kind array.
+    std::array<TextureKind, 4> chKinds = impl_->channelKinds;
+
+    // Determine which channels to process.
+    const u32 splitCount = srcChCount;
+    std::vector<Channel> channels;
+    std::vector<u32> indices_map;
+    channels.reserve(splitCount);
+    for (u32 i = 0; i < splitCount; ++i) {
+        if (chKinds[i] == TextureKind::Unused)
+            continue;
+        channels.push_back(static_cast<Channel>(i));
+        indices_map.push_back(i);
+    }
+
     auto split = splitChannels(channels);
     if (!split)
-        return std::string("ORM splitChannels failed");
+        return std::string("Multikind splitChannels failed");
 
     auto& channelTextures = *split;
-    for (size_t i = 0; i < channelTextures.size(); ++i)
-        channelTextures[i].setKind(kChannelKinds[i]);
+    for (size_t i = 0; i < channelTextures.size(); ++i) {
+        // Map Unused → Other so pipelineForKind uses a plain box filter.
+        const TextureKind ck = chKinds[indices_map[i]];
+        channelTextures[i].setKind(ck);
+    }
 
     for (auto& chTex : channelTextures) {
         auto err = mipmap::generateMipmaps(chTex, pool);
@@ -845,9 +893,15 @@ std::optional<std::string> Texture::generateMipmaps(u32 newMipCount,
     // Merge filtered channels back into this texture (mips 1+).
     auto merged = Texture::mergeChannels(channelTextures, channels);
     if (!merged)
-        return std::string("ORM mergeChannels failed");
+        return std::string("Multikind mergeChannels failed");
 
-    merged->fillChannel(Channel::A, 1.0f); // ensure alpha is fully opaque
+    // Multikind: fill with default
+    for (size_t i = 0; i < splitCount; ++i) {
+        if (chKinds[i] == TextureKind::Unused) {
+            Channel ch = static_cast<Channel>(i);
+            merged->fillChannel(ch, channelDefault(ch));
+        }
+    }
 
     std::swap(impl_->data, merged->impl_->data);
 
