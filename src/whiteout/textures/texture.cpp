@@ -771,19 +771,24 @@ std::optional<Texture> Texture::copyFromNormalToRGBA(interfaces::WorkerPool* poo
             return std::nullopt;
 
         decoded->setKind(kind());
+        // BC5 decodes to RG8, BC4 to R8 — ensure RGBA8 for channel operations.
+        if (decoded->format() != PixelFormat::RGBA8)
+            *decoded = decoded->copyAsFormat(PixelFormat::RGBA8, pool);
         ensureColorSpace(*decoded, false);
         if (impl_->format == PixelFormat::BC3) {
             decoded->invertChannel(Channel::G);
             decoded->swapChannels(Channel::R, Channel::A);
         }
         decoded->expandNormal(Channel::R, Channel::G, Channel::B);
+        decoded->fillChannel(Channel::A, 1.0f);
         return decoded;
     }
 
-    auto dst = copyAsFormat(impl_->format, pool);
+    auto dst = copyAsFormat(PixelFormat::RGBA8, pool);
     dst.setKind(TextureKind::Normal);
     ensureColorSpace(dst, false);
     dst.expandNormal(Channel::R, Channel::G, Channel::B);
+    dst.fillChannel(Channel::A, 1.0f);
     return dst;
 }
 
@@ -998,6 +1003,58 @@ std::optional<std::string> Texture::generateMipmaps(u32 newMipCount,
     }
 
     std::swap(impl_->data, merged->impl_->data);
+
+    return std::nullopt;
+}
+
+std::optional<std::string> Texture::downscale(u32 levels, interfaces::WorkerPool* pool) {
+    if (levels == 0)
+        return std::nullopt;
+
+    const u32 maxMips = computeMaxMipCount(impl_->width, impl_->height, impl_->depth);
+    if (levels >= maxMips)
+        return std::string("cannot downscale by " + std::to_string(levels)
+                           + " levels (max " + std::to_string(maxMips - 1) + ")");
+
+    const u32 currentMips = mipCount();
+    const u32 targetMips = std::min(currentMips + levels, maxMips);
+
+    // Regenerate mipmaps with extra levels.
+    auto err = generateMipmaps(targetMips, pool);
+    if (err)
+        return err;
+
+    // Drop the first `levels` mips: promote mip[levels] to the new base.
+    const u32 layers = impl_->layerCount();
+    const u32 oldMipCount = mipCount();
+    const u32 newMipCount = oldMipCount - levels;
+
+    const auto& newBase = impl_->mips[levels];
+    const u32 newWidth = newBase.width;
+    const u32 newHeight = newBase.height;
+    const u32 newDepth = newBase.depth;
+
+    std::vector<MipLevel> newMips;
+    const u64 newTotal = build_mip_chain(impl_->format, newWidth, newHeight,
+                                         newDepth, newMipCount, layers, newMips);
+
+    std::vector<u8> newData(static_cast<size_t>(newTotal), 0);
+
+    for (u32 layer = 0; layer < layers; ++layer) {
+        for (u32 mip = 0; mip < newMipCount; ++mip) {
+            const auto& src = impl_->mips[layer * oldMipCount + mip + levels];
+            const auto& dst = newMips[layer * newMipCount + mip];
+            const size_t copySize = std::min<size_t>(src.size, dst.size);
+            std::memcpy(newData.data() + dst.offset,
+                        impl_->data.data() + src.offset, copySize);
+        }
+    }
+
+    impl_->width = newWidth;
+    impl_->height = newHeight;
+    impl_->depth = newDepth;
+    impl_->mips = std::move(newMips);
+    impl_->data = std::move(newData);
 
     return std::nullopt;
 }

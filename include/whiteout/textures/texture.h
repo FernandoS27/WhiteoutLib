@@ -416,6 +416,25 @@ struct Texture {
     /// @overload Preserves existing mip count; optional worker pool.
     std::optional<std::string> generateMipmaps(interfaces::WorkerPool* pool = nullptr);
 
+    /**
+     * @brief Downscale the texture by dropping leading mip levels.
+     *
+     * Increases the mip count by @p levels (clamped to the maximum),
+     * regenerates all mip levels from the base image, then drops the first
+     * @p levels mips — effectively halving the resolution @p levels times
+     * while preserving the original mip chain length.
+     *
+     * The texture must use an uncompressed pixel format (same requirement as
+     * generateMipmaps).  Returns an error if @p levels would reduce every
+     * dimension to zero.
+     *
+     * @param levels Number of mip levels to drop (default 1).
+     * @param pool   Optional WorkerPool for parallel mip generation.
+     * @return std::nullopt on success; error message on failure.
+     */
+    std::optional<std::string> downscale(u32 levels = 1,
+                                         interfaces::WorkerPool* pool = nullptr);
+
     // ── Factory methods ────────────────────────────────────────────────
 
     /**
