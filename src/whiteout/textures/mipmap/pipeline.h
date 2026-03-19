@@ -83,7 +83,7 @@ inline void submitSingleTask(PipelineContext* ctx, std::function<void()> fn) {
 // ── Row-parallel dispatch ──────────────────────────────────────────────
 
 /// Minimum number of rows per tile to avoid excessive dispatch overhead.
-constexpr u32 kMinRowsPerTile = 64;
+constexpr u32 kMinRowsPerTile = 32;
 
 /// Divide @p totalRows into tiles and execute @p fn(startRow, endRow) for
 /// each, optionally in parallel via @p ctx.

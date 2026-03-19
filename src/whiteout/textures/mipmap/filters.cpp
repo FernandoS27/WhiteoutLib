@@ -27,6 +27,28 @@ void boxFilter(const MipImage& src, MipImage& dst,
     const f32* srcData = src.pixels.data();
     f32* dstData = dst.pixels.data();
 
+    // Fast path: exact 2× downsample avoids float math for source rect computation.
+    if (srcW == 2 * dstWidth && srcH == 2 * dstHeight) {
+        parallelForRows(dstHeight, ctx, [=](u32 y0, u32 y1) {
+            for (u32 dstY = y0; dstY < y1; ++dstY) {
+                const f32* row0 = srcData + static_cast<size_t>(dstY * 2) * srcW * numChannels;
+                const f32* row1 = row0 + static_cast<size_t>(srcW) * numChannels;
+                f32* outRow = dstData + static_cast<size_t>(dstY) * dstWidth * numChannels;
+                for (u32 dstX = 0; dstX < dstWidth; ++dstX) {
+                    const f32* p00 = row0 + static_cast<size_t>(dstX * 2) * numChannels;
+                    const f32* p10 = p00 + numChannels;
+                    const f32* p01 = row1 + static_cast<size_t>(dstX * 2) * numChannels;
+                    const f32* p11 = p01 + numChannels;
+                    f32* out = outRow + dstX * numChannels;
+                    for (u32 c = 0; c < numChannels; ++c)
+                        out[c] = (p00[c] + p10[c] + p01[c] + p11[c]) * 0.25f;
+                }
+            }
+        });
+        return;
+    }
+
+    // General case: arbitrary downsample ratios.
     parallelForRows(dstHeight, ctx, [=](u32 y0, u32 y1) {
         for (u32 dstY = y0; dstY < y1; ++dstY) {
             const f32 srcYStart = static_cast<f32>(dstY) * srcH / dstHeight;
@@ -179,82 +201,137 @@ u32 buildLanczos3Weights(f64 center, u32 srcSize, f32* weights, i32* indices, f6
     return tapCount;
 }
 
-// ---- Generic separable 2-pass downsample -----------------------------------
+// ---- Precomputed weight table ----------------------------------------------
+
+/// Stores filter weights and source indices for all destination samples in one
+/// axis, computed once up-front instead of per-pixel inside tight loops.
+struct WeightTable {
+    std::vector<f32> weights;   // [sample * maxTaps + tap]
+    std::vector<i32> indices;   // [sample * maxTaps + tap]
+    std::vector<u32> tapCounts; // [sample]
+    u32 maxTaps = 0;
+
+    const f32* weightsFor(u32 sample) const { return weights.data() + sample * maxTaps; }
+    const i32* indicesFor(u32 sample) const { return indices.data() + sample * maxTaps; }
+};
 
 template <typename WeightFn>
-void separableDownsample(const MipImage& src, MipImage& dst,
-                         WeightFn buildWeights, PipelineContext* ctx) {
+WeightTable precomputeWeights(u32 dstSize, u32 srcSize, f64 ratio, WeightFn buildWeights) {
+    WeightTable table;
+    table.maxTaps = static_cast<u32>(effectiveRadius(ratio)) * 2 + 2;
+    const auto stride = static_cast<size_t>(table.maxTaps);
+    table.weights.resize(dstSize * stride);
+    table.indices.resize(dstSize * stride);
+    table.tapCounts.resize(dstSize);
+    for (u32 i = 0; i < dstSize; ++i) {
+        const f64 center = (static_cast<f64>(i) + HALF_PIXEL) * ratio - HALF_PIXEL;
+        table.tapCounts[i] = buildWeights(
+            center, srcSize,
+            table.weights.data() + i * stride,
+            table.indices.data() + i * stride, ratio);
+    }
+    return table;
+}
+
+// ---- Generic separable 2-pass downsample -----------------------------------
+
+/// Channel-count-templated implementation.  When NC > 0 the compiler sees a
+/// compile-time loop bound in every channel loop, enabling full unrolling and
+/// SIMD packing (e.g. 4-channel pixels map to one 128-bit operation).
+/// NC == 0 is the dynamic fallback for exotic channel counts.
+template <u32 NC, typename WeightFn>
+void separableDownsampleImpl(const MipImage& src, MipImage& dst,
+                              WeightFn buildWeights, PipelineContext* ctx) {
     const u32 dstWidth = dst.width;
     const u32 dstHeight = dst.height;
-    const u32 numChannels = src.channels;
+    const u32 numChannels = NC != 0 ? NC : src.channels;
     const f64 ratioX = static_cast<f64>(src.width) / dstWidth;
     const f64 ratioY = static_cast<f64>(src.height) / dstHeight;
 
-    // Max taps per sample: 2 * effectiveRadius + 2, for safety.
-    const size_t maxTapsX = static_cast<size_t>(effectiveRadius(ratioX)) * 2 + 2;
-    const size_t maxTapsY = static_cast<size_t>(effectiveRadius(ratioY)) * 2 + 2;
+    // Precompute filter weights for both axes up-front.  This avoids
+    // redundant sinc/bessel evaluation inside the tight per-pixel loops
+    // and eliminates per-tile heap allocations for weight/index buffers.
+    auto hWeights = std::make_shared<WeightTable>(
+        precomputeWeights(dstWidth, src.width, ratioX, buildWeights));
+    auto vWeights = std::make_shared<WeightTable>(
+        precomputeWeights(dstHeight, src.height, ratioY, buildWeights));
 
     // Pass 1 — horizontal: src.width → dstWidth, keep src.height.
-    // Safety: `hp` is a shared_ptr captured by value in both pass lambdas,
-    // keeping the intermediate buffer alive across async tile tasks.  In async
-    // mode, pass 2's tiles wait on pass 1's timeline signal, so pass 2 never
-    // reads `hp` before pass 1 has finished writing it.
+    // Safety: shared_ptrs captured by value keep the intermediate buffer and
+    // weight tables alive across async tile tasks.
     auto hp = std::make_shared<MipImage>(dstWidth, src.height, numChannels);
     const f32* srcPixels = src.pixels.data();
     const u32 srcW = src.width;
     const u32 srcH = src.height;
 
-    parallelForRows(srcH, ctx, [srcPixels, srcW, numChannels, dstWidth, ratioX, maxTapsX,
-                                 buildWeights, hp](u32 y0, u32 y1) {
-        // Thread-local weight/index buffers to avoid contention.
-        std::vector<f32> tapWeightsH(maxTapsX);
-        std::vector<i32> tapIndicesH(maxTapsX);
+    parallelForRows(srcH, ctx, [srcPixels, srcW, numChannels, dstWidth,
+                                 hWeights, hp](u32 y0, u32 y1) {
         for (u32 srcY = y0; srcY < y1; ++srcY) {
             for (u32 dstX = 0; dstX < dstWidth; ++dstX) {
-                const f64 center = (static_cast<f64>(dstX) + HALF_PIXEL) * ratioX - HALF_PIXEL;
-
-                const u32 tapCount =
-                    buildWeights(center, srcW, tapWeightsH.data(), tapIndicesH.data(), ratioX);
+                const u32 tapCount = hWeights->tapCounts[dstX];
+                const f32* tapW = hWeights->weightsFor(dstX);
+                const i32* tapI = hWeights->indicesFor(dstX);
 
                 f32* outPixel = hp->pixel(dstX, srcY);
                 for (u32 channel = 0; channel < numChannels; ++channel)
                     outPixel[channel] = 0.0f;
                 for (u32 tap = 0; tap < tapCount; ++tap) {
+                    // Hoist the weight into a local scalar so the compiler
+                    // does not need to reload it through tapW on each channel
+                    // iteration (removes a potential aliasing barrier).
+                    const f32 w = tapW[tap];
                     const f32* srcPixel =
-                        srcPixels + (static_cast<size_t>(srcY) * srcW + tapIndicesH[tap]) * numChannels;
+                        srcPixels + (static_cast<size_t>(srcY) * srcW + tapI[tap]) * numChannels;
                     for (u32 channel = 0; channel < numChannels; ++channel)
-                        outPixel[channel] += srcPixel[channel] * tapWeightsH[tap];
+                        outPixel[channel] += srcPixel[channel] * w;
                 }
             }
         }
     });
 
     // Pass 2 — vertical: src.height → dstHeight, keep dstWidth.
+    //
+    // Restructured as row-based accumulation: the inner loop streams linearly
+    // through an entire row of floats, enabling automatic SIMD vectorization
+    // regardless of channel count.  The scalar weight `w` is broadcast, and
+    // both srcRow and outRow are sequential — ideal for multiply-accumulate.
     f32* dstData = dst.pixels.data();
 
-    parallelForRows(dstHeight, ctx, [maxTapsY, dstWidth, dstHeight, ratioY, numChannels, buildWeights,
-                                      hp, dstData, srcH](u32 y0, u32 y1) {
-        std::vector<f32> tapWeightsV(maxTapsY);
-        std::vector<i32> tapIndicesV(maxTapsY);
+    parallelForRows(dstHeight, ctx, [dstWidth, numChannels, vWeights,
+                                      hp, dstData](u32 y0, u32 y1) {
+        const size_t rowFloats = static_cast<size_t>(dstWidth) * numChannels;
+        const f32* hpData = hp->pixels.data();
         for (u32 dstY = y0; dstY < y1; ++dstY) {
-            const f64 center = (static_cast<f64>(dstY) + HALF_PIXEL) * ratioY - HALF_PIXEL;
+            const u32 tapCount = vWeights->tapCounts[dstY];
+            const f32* tapW = vWeights->weightsFor(dstY);
+            const i32* tapI = vWeights->indicesFor(dstY);
 
-            const u32 tapCount =
-                buildWeights(center, srcH, tapWeightsV.data(), tapIndicesV.data(), ratioY);
+            f32* outRow = dstData + static_cast<size_t>(dstY) * rowFloats;
+            for (size_t i = 0; i < rowFloats; ++i)
+                outRow[i] = 0.0f;
 
-            for (u32 dstX = 0; dstX < dstWidth; ++dstX) {
-                f32* outPixel = dstData + (static_cast<size_t>(dstY) * dstWidth + dstX) * numChannels;
-                for (u32 channel = 0; channel < numChannels; ++channel)
-                    outPixel[channel] = 0.0f;
-                for (u32 tap = 0; tap < tapCount; ++tap) {
-                    const f32* srcPixel =
-                        hp->pixel(dstX, static_cast<u32>(tapIndicesV[tap]));
-                    for (u32 channel = 0; channel < numChannels; ++channel)
-                        outPixel[channel] += srcPixel[channel] * tapWeightsV[tap];
-                }
+            for (u32 tap = 0; tap < tapCount; ++tap) {
+                const f32 w = tapW[tap];
+                const f32* srcRow = hpData + static_cast<size_t>(tapI[tap]) * rowFloats;
+                for (size_t i = 0; i < rowFloats; ++i)
+                    outRow[i] += srcRow[i] * w;
             }
         }
     });
+}
+
+/// Dispatch to a channel-count-specialized instantiation so the compiler sees
+/// compile-time loop bounds for the 1–4 channel cases.
+template <typename WeightFn>
+void separableDownsample(const MipImage& src, MipImage& dst,
+                         WeightFn buildWeights, PipelineContext* ctx) {
+    switch (src.channels) {
+        case 1: separableDownsampleImpl<1>(src, dst, buildWeights, ctx); return;
+        case 2: separableDownsampleImpl<2>(src, dst, buildWeights, ctx); return;
+        case 3: separableDownsampleImpl<3>(src, dst, buildWeights, ctx); return;
+        case 4: separableDownsampleImpl<4>(src, dst, buildWeights, ctx); return;
+        default: separableDownsampleImpl<0>(src, dst, buildWeights, ctx); return;
+    }
 }
 
 } // anonymous namespace
