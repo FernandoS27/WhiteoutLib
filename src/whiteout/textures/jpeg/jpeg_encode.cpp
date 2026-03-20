@@ -47,6 +47,23 @@ static constexpr u16 DQT_8BIT_SEGMENT_LENGTH = 2 + 1 + BLOCK_PIXELS;
 static constexpr u8 SAMPLING_FACTOR_1x1 = 0x11;
 
 // ============================================================================
+// Progressive Scan Band Table
+// ============================================================================
+
+/// Default spectral band split for progressive AC scans.
+/// Low-frequency coefficients (1-5) are sent first for coarse structural detail,
+/// then high-frequency coefficients (6-63) for texture/edges.
+struct SpectralBand {
+    u8 ss;
+    u8 se;
+};
+
+static constexpr std::array<SpectralBand, 2> DEFAULT_AC_BANDS = {{
+    {1, 5},
+    {6, 63},
+}};
+
+// ============================================================================
 // Standard Quantisation Table (ITU-T T.81, Annex K, Table K.1)
 // ============================================================================
 
@@ -457,6 +474,11 @@ void encode_ac_coefficients(BitstreamWriter& writer, const HuffmanEncodeTable& a
     }
 }
 
+/// Return the Huffman table index for a given component (0 = luma, 1 = chroma).
+u8 huffTableIndex(u32 compIndex, u32 componentCount) {
+    return (componentCount > 1 && compIndex > 0) ? 1 : 0;
+}
+
 // ============================================================================
 // Encoder State Machine
 // ============================================================================
@@ -465,8 +487,8 @@ struct BaselineEncoder {
     std::vector<u8> outputBuffer;
 
     std::array<u16, BLOCK_PIXELS> quantTable{};
-    HuffmanEncodeTable dcHuffTable;
-    HuffmanEncodeTable acHuffTable;
+    std::array<HuffmanEncodeTable, 2> dcHuffTables;
+    std::array<HuffmanEncodeTable, 2> acHuffTables;
 
     u32 imageWidth = 0;
     u32 imageHeight = 0;
@@ -505,13 +527,33 @@ struct BaselineEncoder {
                                 std::array<std::vector<std::array<i32, BLOCK_PIXELS>>,
                                            MAX_COMPONENTS>& coeffBlocks);
 
-    /// Encode progressive DC scan (all components interleaved, Ss=0, Se=0, Al=0).
+    /// Encode progressive DC first-pass scan (all components interleaved).
+    /// @param al  Successive approximation low bit (0 = no SA).
     bool encodeProgressiveDcScan(
-        const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>& coeffBlocks);
+        const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>& coeffBlocks,
+        i32 al = 0);
 
-    /// Encode progressive AC scan for one component (Ss=1, Se=63, Al=0) with EOBRUN.
+    /// Encode progressive DC refinement scan (all components, one bit per block).
+    /// @param al  The bit position to refine.
+    bool encodeProgressiveDcRefineScan(
+        const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>& coeffBlocks,
+        i32 al);
+
+    /// Encode progressive AC first-pass scan for one component with EOBRUN.
+    /// @param ss  Spectral selection start.
+    /// @param se  Spectral selection end.
+    /// @param al  Successive approximation low bit (0 = no SA).
     bool encodeProgressiveAcScan(
-        const std::vector<std::array<i32, BLOCK_PIXELS>>& coeffBlocks, u32 compIndex);
+        const std::vector<std::array<i32, BLOCK_PIXELS>>& coeffBlocks, u32 compIndex,
+        i32 ss, i32 se, i32 al = 0);
+
+    /// Encode progressive AC refinement scan for one component.
+    /// @param ss  Spectral selection start.
+    /// @param se  Spectral selection end.
+    /// @param al  The bit position to refine.
+    bool encodeProgressiveAcRefineScan(
+        const std::vector<std::array<i32, BLOCK_PIXELS>>& coeffBlocks, u32 compIndex,
+        i32 ss, i32 se, i32 al);
 
     /// Top-level entry points.
     bool encode(const Image& image, i32 quality);
@@ -567,13 +609,15 @@ bool BaselineEncoder::encodeScanData(const std::array<std::vector<u8>, MAX_COMPO
                 forward_dct_and_quantise(blockDataPointer, strides[componentIndex],
                                          quantisedCoefficients, quantTable);
 
+                u8 tblIdx = huffTableIndex(componentIndex, componentCount);
+
                 // DC: differential coding.
                 i32 dcDifference = quantisedCoefficients[0] - dcPredictions[componentIndex];
                 dcPredictions[componentIndex] = quantisedCoefficients[0];
-                encode_dc_coefficient(writer, dcHuffTable, dcDifference);
+                encode_dc_coefficient(writer, dcHuffTables[tblIdx], dcDifference);
 
                 // AC: run-length coding.
-                encode_ac_coefficients(writer, acHuffTable, quantisedCoefficients);
+                encode_ac_coefficients(writer, acHuffTables[tblIdx], quantisedCoefficients);
             }
         }
     }
@@ -612,7 +656,8 @@ void BaselineEncoder::buildCoefficientBlocks(
 }
 
 bool BaselineEncoder::encodeProgressiveDcScan(
-    const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>& coeffBlocks) {
+    const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>& coeffBlocks,
+    i32 al) {
 
     BitstreamWriter writer;
     writer.init(&outputBuffer);
@@ -623,9 +668,32 @@ bool BaselineEncoder::encodeProgressiveDcScan(
     for (u32 blockIdx = 0; blockIdx < totalBlocks; blockIdx++) {
         for (u32 c = 0; c < componentCount; c++) {
             i32 dc = coeffBlocks[c][blockIdx][0];
-            i32 diff = dc - dcPredictions[c];
-            dcPredictions[c] = dc;
-            encode_dc_coefficient(writer, dcHuffTable, diff);
+            i32 dcShifted = dc >> al;
+            i32 diff = dcShifted - dcPredictions[c];
+            dcPredictions[c] = dcShifted;
+            u8 tblIdx = huffTableIndex(c, componentCount);
+            encode_dc_coefficient(writer, dcHuffTables[tblIdx], diff);
+        }
+    }
+
+    writer.flushWithPadding();
+    return true;
+}
+
+bool BaselineEncoder::encodeProgressiveDcRefineScan(
+    const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>& coeffBlocks,
+    i32 al) {
+
+    BitstreamWriter writer;
+    writer.init(&outputBuffer);
+
+    u32 totalBlocks = mcuColumnsCount * mcuRowsCount;
+
+    for (u32 blockIdx = 0; blockIdx < totalBlocks; blockIdx++) {
+        for (u32 c = 0; c < componentCount; c++) {
+            i32 dc = coeffBlocks[c][blockIdx][0];
+            u32 bit = (static_cast<u32>(dc) >> al) & 1u;
+            writer.writeBits(bit, 1);
         }
     }
 
@@ -634,84 +702,176 @@ bool BaselineEncoder::encodeProgressiveDcScan(
 }
 
 bool BaselineEncoder::encodeProgressiveAcScan(
-    const std::vector<std::array<i32, BLOCK_PIXELS>>& coeffBlocks, u32 compIndex) {
+    const std::vector<std::array<i32, BLOCK_PIXELS>>& coeffBlocks, u32 compIndex,
+    i32 ss, i32 se, i32 al) {
 
-    (void)compIndex;
+    u8 tblIdx = huffTableIndex(compIndex, componentCount);
+    const auto& acTable = acHuffTables[tblIdx];
 
     BitstreamWriter writer;
     writer.init(&outputBuffer);
 
-    // EOBRUN — count of consecutive all-zero AC blocks.
-    u32 eobRun = 0;
-
-    auto flushEobRun = [&]() {
-        if (eobRun == 0) return;
-        // Encode EOBRUN: category = floor(log2(eobRun)), symbol = (category << 4).
-        // Then append eobRun lower bits as additional data.
-        i32 category = 0;
-        {
-            u32 tmp = eobRun;
-            while (tmp > 1) { tmp >>= 1; category++; }
-        }
-        u8 symbol = static_cast<u8>(category << 4);
-        const auto& hcode = acHuffTable.codes[symbol];
+    // Write a single EOB (symbol 0x00) for one all-zero block.
+    // Note: Standard Huffman tables (Annex K) only include EOB0 (0x00), not
+    // multi-block EOBn symbols (0x10, 0x20, ...).  Optimal Huffman coding
+    // would be needed to use EOBn batching; for now we emit individual EOBs.
+    auto writeEob = [&]() {
+        const auto& hcode = acTable.codes[0x00];
         writer.writeBits(hcode.code, hcode.length);
-        if (category > 0) {
-            // Lower 'category' bits of eobRun.
-            u32 bits = eobRun & ((1u << category) - 1);
-            writer.writeBits(bits, category);
-        }
-        eobRun = 0;
     };
 
     for (size_t blockIdx = 0; blockIdx < coeffBlocks.size(); blockIdx++) {
         const auto& coeffs = coeffBlocks[blockIdx];
 
-        // Check if all AC coefficients (1..63) are zero.
+        // Check if all AC coefficients in [ss, se] are zero (after point transform).
+        // Point transform uses truncation toward zero: shift absolute value, restore sign.
         bool allZero = true;
-        for (i32 k = 1; k < BLOCK_PIXELS; k++) {
-            if (coeffs[k] != 0) { allZero = false; break; }
+        for (i32 k = ss; k <= se; k++) {
+            i32 absVal = coeffs[k] < 0 ? -coeffs[k] : coeffs[k];
+            if ((absVal >> al) != 0) { allZero = false; break; }
         }
 
         if (allZero) {
-            eobRun++;
-            // Max EOBRUN for a progressive scan is 32767 (category 14 → 0xE0 symbol).
-            if (eobRun >= 32767) { flushEobRun(); }
+            writeEob();
             continue;
         }
 
-        // If we had pending EOB runs, flush them before encoding this block.
-        flushEobRun();
-
-        // Encode AC coefficients with standard run-length coding.
         i32 consecutiveZeros = 0;
-        for (i32 k = 1; k < BLOCK_PIXELS; k++) {
-            i32 coeff = coeffs[k];
+        for (i32 k = ss; k <= se; k++) {
+            // Apply point transform with truncation toward zero (ITU-T T.81 §G.1.2.2).
+            i32 absVal = coeffs[k] < 0 ? -coeffs[k] : coeffs[k];
+            i32 coeff = coeffs[k] < 0 ? -(absVal >> al) : (absVal >> al);
             if (coeff == 0) { consecutiveZeros++; continue; }
 
             while (consecutiveZeros > 15) {
-                const auto& zrlCode = acHuffTable.codes[0xF0];
+                const auto& zrlCode = acTable.codes[0xF0];
                 writer.writeBits(zrlCode.code, zrlCode.length);
                 consecutiveZeros -= 16;
             }
 
             i32 cat = compute_category(coeff);
             u8 rlSymbol = static_cast<u8>((consecutiveZeros << 4) | cat);
-            const auto& hc = acHuffTable.codes[rlSymbol];
+            const auto& hc = acTable.codes[rlSymbol];
             writer.writeBits(hc.code, hc.length);
             writer.writeBits(compute_magnitude_bits(coeff, cat), cat);
             consecutiveZeros = 0;
         }
 
-        // If the block ends with zeros, emit EOB.
         if (consecutiveZeros > 0) {
-            eobRun++;
-            if (eobRun >= 32767) { flushEobRun(); }
+            writeEob();
         }
     }
 
-    // Flush any remaining EOBRUN at the end of the scan.
-    flushEobRun();
+    writer.flushWithPadding();
+    return true;
+}
+
+bool BaselineEncoder::encodeProgressiveAcRefineScan(
+    const std::vector<std::array<i32, BLOCK_PIXELS>>& coeffBlocks, u32 compIndex,
+    i32 ss, i32 se, i32 al) {
+
+    u8 tblIdx = huffTableIndex(compIndex, componentCount);
+    const auto& acTable = acHuffTables[tblIdx];
+
+    BitstreamWriter writer;
+    writer.init(&outputBuffer);
+
+    // Write a single EOB (symbol 0x00) followed by any pending correction bits.
+    // Note: Standard Huffman tables only include EOB0, not multi-block EOBn.
+    auto writeEobWithCorrections = [&](const std::vector<u32>& corrections) {
+        const auto& hcode = acTable.codes[0x00];
+        writer.writeBits(hcode.code, hcode.length);
+        for (u32 bit : corrections) {
+            writer.writeBits(bit, 1);
+        }
+    };
+
+    for (size_t blockIdx = 0; blockIdx < coeffBlocks.size(); blockIdx++) {
+        const auto& coeffs = coeffBlocks[blockIdx];
+
+        // Find the last position with a newly-nonzero coefficient (EOBPTR
+        // equivalent). ZRL symbols are only emitted while we haven't passed
+        // this point; beyond it any remaining run folds into an EOB.
+        i32 lastNewNzPos = -1;
+        for (i32 k = se; k >= ss; k--) {
+            i32 absCoeff = coeffs[k] < 0 ? -coeffs[k] : coeffs[k];
+            bool prevNonzero = (absCoeff >> (al + 1)) != 0;
+            bool newNonzero = !prevNonzero && ((absCoeff >> al) & 1) != 0;
+            if (newNonzero) { lastNewNzPos = k; break; }
+        }
+
+        if (lastNewNzPos < 0) {
+            // No new nonzero coefficients — emit EOB0 with correction bits.
+            std::vector<u32> corrections;
+            for (i32 k = ss; k <= se; k++) {
+                i32 absCoeff = coeffs[k] < 0 ? -coeffs[k] : coeffs[k];
+                if ((absCoeff >> (al + 1)) != 0) {
+                    corrections.push_back((static_cast<u32>(absCoeff) >> al) & 1u);
+                }
+            }
+            writeEobWithCorrections(corrections);
+            continue;
+        }
+
+        // Encode AC coefficients with refinement.
+        // ZRL checks happen at every nonzero position (not just newly-nonzero)
+        // so that correction bits are written in the correct interleaved order.
+        i32 zerosToSkip = 0;
+        std::vector<u32> localCorrections;
+
+        for (i32 k = ss; k <= se; k++) {
+            i32 absCoeff = coeffs[k] < 0 ? -coeffs[k] : coeffs[k];
+            i32 shifted = absCoeff >> al;
+
+            if (shifted == 0) {
+                // Zero-history position that remains zero.
+                zerosToSkip++;
+                continue;
+            }
+
+            // Nonzero position (either previously-nonzero or newly-nonzero).
+            // Emit pending ZRL symbols BEFORE processing this coefficient.
+            // Only emit ZRL while we haven't passed the last new-nonzero
+            // position; beyond it the run folds into an EOB instead.
+            while (zerosToSkip > 15 && k <= lastNewNzPos) {
+                const auto& zrlCode = acTable.codes[0xF0];
+                writer.writeBits(zrlCode.code, zrlCode.length);
+                for (u32 bit : localCorrections) {
+                    writer.writeBits(bit, 1);
+                }
+                localCorrections.clear();
+                zerosToSkip -= 16;
+            }
+
+            bool prevNonzero = (shifted >> 1) != 0;
+
+            if (prevNonzero) {
+                // Previously-nonzero: buffer correction bit (AFTER ZRL emission).
+                localCorrections.push_back(static_cast<u32>(shifted) & 1u);
+                continue;
+            }
+
+            // Newly-nonzero coefficient.
+            // Encode (runLength, 1) + sign bit + pending correction bits.
+            u8 rlSymbol = static_cast<u8>((zerosToSkip << 4) | 1);
+            const auto& hc = acTable.codes[rlSymbol];
+            writer.writeBits(hc.code, hc.length);
+
+            u32 signBit = (coeffs[k] >= 0) ? 1u : 0u;
+            writer.writeBits(signBit, 1);
+
+            for (u32 bit : localCorrections) {
+                writer.writeBits(bit, 1);
+            }
+            localCorrections.clear();
+            zerosToSkip = 0;
+        }
+
+        // Trailing run with no more new nonzeros — emit EOB0 with corrections.
+        if (zerosToSkip > 0 || !localCorrections.empty()) {
+            writeEobWithCorrections(localCorrections);
+        }
+    }
 
     writer.flushWithPadding();
     return true;
@@ -736,10 +896,18 @@ bool BaselineEncoder::encodeProgressive(const Image& image, i32 quality) {
     }
 
     quantTable = build_quant_table(quality);
-    dcHuffTable.build(DC_LUMA_COUNTS.data(), DC_LUMA_SYMBOLS.data(),
-                      static_cast<i32>(DC_LUMA_SYMBOLS.size()));
-    acHuffTable.build(AC_LUMA_COUNTS.data(), AC_LUMA_SYMBOLS.data(),
-                      static_cast<i32>(AC_LUMA_SYMBOLS.size()));
+
+    // Build Huffman tables: table 0 = luminance, table 1 = chrominance.
+    dcHuffTables[0].build(DC_LUMA_COUNTS.data(), DC_LUMA_SYMBOLS.data(),
+                          static_cast<i32>(DC_LUMA_SYMBOLS.size()));
+    acHuffTables[0].build(AC_LUMA_COUNTS.data(), AC_LUMA_SYMBOLS.data(),
+                          static_cast<i32>(AC_LUMA_SYMBOLS.size()));
+    if (componentCount > 1) {
+        dcHuffTables[1].build(DC_CHROMA_COUNTS.data(), DC_CHROMA_SYMBOLS.data(),
+                              static_cast<i32>(DC_CHROMA_SYMBOLS.size()));
+        acHuffTables[1].build(AC_CHROMA_COUNTS.data(), AC_CHROMA_SYMBOLS.data(),
+                              static_cast<i32>(AC_CHROMA_SYMBOLS.size()));
+    }
 
     outputBuffer.clear();
     outputBuffer.reserve(static_cast<size_t>(imageWidth) * imageHeight * componentCount);
@@ -756,42 +924,89 @@ bool BaselineEncoder::encodeProgressive(const Image& image, i32 quality) {
     std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS> coeffBlocks;
     buildCoefficientBlocks(componentBuffers, componentStrides, coeffBlocks);
 
-    // Release pixel buffers — no longer needed.
     for (u32 c = 0; c < componentCount; c++) {
         componentBuffers[c] = {};
     }
+
+    // --- Successive approximation parameters ---
+    // Al=1: first pass encodes top bits, one refinement pass fills bit 0.
+    constexpr i32 SA_AL = 1; // First pass encodes top bits, one refinement pass fills bit 0.
 
     // --- Write marker segments ---
 
     write_soi(outputBuffer);
     write_dqt(outputBuffer, 0, quantTable);
     write_sof2(outputBuffer, imageWidth, imageHeight, componentCount);
+
+    // DHT: luminance tables (DC class 0 index 0, AC class 1 index 0).
     write_dht(outputBuffer, 0, 0, DC_LUMA_COUNTS.data(), DC_LUMA_SYMBOLS.data(),
               static_cast<i32>(DC_LUMA_SYMBOLS.size()));
     write_dht(outputBuffer, 1, 0, AC_LUMA_COUNTS.data(), AC_LUMA_SYMBOLS.data(),
               static_cast<i32>(AC_LUMA_SYMBOLS.size()));
 
-    // --- DC scan: all components interleaved, Ss=0, Se=0, Ah=0, Al=0 ---
-    {
-        std::vector<u8> compIds(componentCount);
-        std::vector<u8> dcIds(componentCount, 0);
-        std::vector<u8> acIds(componentCount, 0);
-        for (u32 c = 0; c < componentCount; c++) {
-            compIds[c] = static_cast<u8>(c + 1); // 1-based to match SOF2 header.
-        }
-        write_sos_progressive(outputBuffer, compIds, dcIds, acIds, 0, 0, 0, 0);
-
-        if (!encodeProgressiveDcScan(coeffBlocks)) return false;
+    // DHT: chrominance tables (DC class 0 index 1, AC class 1 index 1).
+    if (componentCount > 1) {
+        write_dht(outputBuffer, 0, 1, DC_CHROMA_COUNTS.data(), DC_CHROMA_SYMBOLS.data(),
+                  static_cast<i32>(DC_CHROMA_SYMBOLS.size()));
+        write_dht(outputBuffer, 1, 1, AC_CHROMA_COUNTS.data(), AC_CHROMA_SYMBOLS.data(),
+                  static_cast<i32>(AC_CHROMA_SYMBOLS.size()));
     }
 
-    // --- AC scans: one per component, Ss=1, Se=63, Ah=0, Al=0 ---
-    for (u32 c = 0; c < componentCount; c++) {
-        std::vector<u8> compIds = { static_cast<u8>(c + 1) }; // 1-based to match SOF2 header.
-        std::vector<u8> dcIds = { 0 };
-        std::vector<u8> acIds = { 0 };
-        write_sos_progressive(outputBuffer, compIds, dcIds, acIds, 1, 63, 0, 0);
+    // --- DC first pass: all components interleaved, Ss=0, Se=0, Ah=0, Al=SA_AL ---
+    {
+        std::vector<u8> compIds(componentCount);
+        std::vector<u8> dcIds(componentCount);
+        std::vector<u8> acIds(componentCount, 0);
+        for (u32 c = 0; c < componentCount; c++) {
+            compIds[c] = static_cast<u8>(c + 1);
+            dcIds[c] = huffTableIndex(c, componentCount);
+        }
+        write_sos_progressive(outputBuffer, compIds, dcIds, acIds, 0, 0, 0, SA_AL);
+        if (!encodeProgressiveDcScan(coeffBlocks, SA_AL)) return false;
+    }
 
-        if (!encodeProgressiveAcScan(coeffBlocks[c], c)) return false;
+    // --- AC first passes: per component, per band, Ah=0, Al=SA_AL ---
+    for (u32 c = 0; c < componentCount; c++) {
+        u8 tblIdx = huffTableIndex(c, componentCount);
+        for (const auto& band : DEFAULT_AC_BANDS) {
+            std::vector<u8> compIds = { static_cast<u8>(c + 1) };
+            std::vector<u8> dcIds = { 0 };
+            std::vector<u8> acIds = { tblIdx };
+            write_sos_progressive(outputBuffer, compIds, dcIds, acIds,
+                                  band.ss, band.se, 0, SA_AL);
+            if (!encodeProgressiveAcScan(coeffBlocks[c], c, band.ss, band.se, SA_AL))
+                return false;
+        }
+    }
+
+    // --- Refinement passes (only when SA_AL > 0) ---
+    if (SA_AL > 0) {
+        // DC refinement: all components, Ss=0, Se=0, Ah=SA_AL, Al=0
+        {
+            std::vector<u8> compIds(componentCount);
+            std::vector<u8> dcIds(componentCount);
+            std::vector<u8> acIds(componentCount, 0);
+            for (u32 c = 0; c < componentCount; c++) {
+                compIds[c] = static_cast<u8>(c + 1);
+                dcIds[c] = huffTableIndex(c, componentCount);
+            }
+            write_sos_progressive(outputBuffer, compIds, dcIds, acIds, 0, 0, SA_AL, 0);
+            if (!encodeProgressiveDcRefineScan(coeffBlocks, 0)) return false;
+        }
+
+        // AC refinement: per component, per band, Ah=SA_AL, Al=0
+        for (u32 c = 0; c < componentCount; c++) {
+            u8 tblIdx = huffTableIndex(c, componentCount);
+            for (const auto& band : DEFAULT_AC_BANDS) {
+                std::vector<u8> compIds = { static_cast<u8>(c + 1) };
+                std::vector<u8> dcIds = { 0 };
+                std::vector<u8> acIds = { tblIdx };
+                write_sos_progressive(outputBuffer, compIds, dcIds, acIds,
+                                      band.ss, band.se, SA_AL, 0);
+                if (!encodeProgressiveAcRefineScan(coeffBlocks[c], c, band.ss, band.se, 0))
+                    return false;
+            }
+        }
     }
 
     write_eoi(outputBuffer);
@@ -819,11 +1034,17 @@ bool BaselineEncoder::encode(const Image& image, i32 quality) {
     // Build quantisation table.
     quantTable = build_quant_table(quality);
 
-    // Build Huffman encoding tables from the standard Annex K tables.
-    dcHuffTable.build(DC_LUMA_COUNTS.data(), DC_LUMA_SYMBOLS.data(),
-                      static_cast<i32>(DC_LUMA_SYMBOLS.size()));
-    acHuffTable.build(AC_LUMA_COUNTS.data(), AC_LUMA_SYMBOLS.data(),
-                      static_cast<i32>(AC_LUMA_SYMBOLS.size()));
+    // Build Huffman encoding tables: table 0 = luminance, table 1 = chrominance.
+    dcHuffTables[0].build(DC_LUMA_COUNTS.data(), DC_LUMA_SYMBOLS.data(),
+                          static_cast<i32>(DC_LUMA_SYMBOLS.size()));
+    acHuffTables[0].build(AC_LUMA_COUNTS.data(), AC_LUMA_SYMBOLS.data(),
+                          static_cast<i32>(AC_LUMA_SYMBOLS.size()));
+    if (componentCount > 1) {
+        dcHuffTables[1].build(DC_CHROMA_COUNTS.data(), DC_CHROMA_SYMBOLS.data(),
+                              static_cast<i32>(DC_CHROMA_SYMBOLS.size()));
+        acHuffTables[1].build(AC_CHROMA_COUNTS.data(), AC_CHROMA_SYMBOLS.data(),
+                              static_cast<i32>(AC_CHROMA_SYMBOLS.size()));
+    }
 
     // Estimate output size (typical JPEG is 1-3 bytes/pixel).
     outputBuffer.clear();
@@ -837,11 +1058,37 @@ bool BaselineEncoder::encode(const Image& image, i32 quality) {
     write_soi(outputBuffer);
     write_dqt(outputBuffer, 0, quantTable);
     write_sof0(outputBuffer, imageWidth, imageHeight, componentCount);
+
+    // DHT: luminance tables.
     write_dht(outputBuffer, 0, 0, DC_LUMA_COUNTS.data(), DC_LUMA_SYMBOLS.data(),
               static_cast<i32>(DC_LUMA_SYMBOLS.size()));
     write_dht(outputBuffer, 1, 0, AC_LUMA_COUNTS.data(), AC_LUMA_SYMBOLS.data(),
               static_cast<i32>(AC_LUMA_SYMBOLS.size()));
-    write_sos(outputBuffer, componentCount);
+
+    // DHT: chrominance tables (only for multi-component images).
+    if (componentCount > 1) {
+        write_dht(outputBuffer, 0, 1, DC_CHROMA_COUNTS.data(), DC_CHROMA_SYMBOLS.data(),
+                  static_cast<i32>(DC_CHROMA_SYMBOLS.size()));
+        write_dht(outputBuffer, 1, 1, AC_CHROMA_COUNTS.data(), AC_CHROMA_SYMBOLS.data(),
+                  static_cast<i32>(AC_CHROMA_SYMBOLS.size()));
+    }
+
+    // SOS: per-component table IDs.
+    {
+        write_marker(outputBuffer, MARKER_SOS);
+        u16 segmentLength = static_cast<u16>(6 + componentCount * 2);
+        write_u16_be(outputBuffer, segmentLength);
+        write_u8(outputBuffer, static_cast<u8>(componentCount));
+
+        for (u32 c = 0; c < componentCount; c++) {
+            write_u8(outputBuffer, static_cast<u8>(c + 1));
+            u8 tblIdx = huffTableIndex(c, componentCount);
+            write_u8(outputBuffer, static_cast<u8>((tblIdx << 4) | tblIdx));
+        }
+        write_u8(outputBuffer, 0);  // Ss
+        write_u8(outputBuffer, 63); // Se
+        write_u8(outputBuffer, 0);  // Ah=0, Al=0
+    }
 
     // --- Encode entropy-coded segment ---
 
