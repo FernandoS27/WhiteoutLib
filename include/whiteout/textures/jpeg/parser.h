@@ -28,6 +28,8 @@
 #include <whiteout/textures/parser.h>
 #include <whiteout/textures/texture.h>
 
+namespace whiteout::interfaces { class WorkerPool; }
+
 namespace whiteout::textures::jpeg {
 
 // ============================================================================
@@ -42,7 +44,8 @@ public:
         Lenient ///< Collect issues, return nullopt on failure.
     };
 
-    explicit Parser(ParseMode parseMode = ParseMode::Lenient);
+    explicit Parser(ParseMode parseMode = ParseMode::Lenient,
+                    interfaces::WorkerPool* pool = nullptr);
     ~Parser();
 
     Parser(const Parser&) = delete;

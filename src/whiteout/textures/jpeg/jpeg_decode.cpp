@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <memory>
 
 namespace whiteout::textures::jpeg {
 
@@ -181,7 +182,7 @@ struct ComponentDescriptor {
 // Decoder State Machine
 // ============================================================================
 
-struct BaselineDecoder {
+struct JpegDecoder {
     BitstreamReader bitstream;
 
     std::array<std::array<i16, BLOCK_PIXELS>, MAX_TABLES>
@@ -216,6 +217,7 @@ struct BaselineDecoder {
     std::vector<u32> scanComponentIndices;
 
     std::string* errorOutput = nullptr;
+    JpegContext* ctx = nullptr;
 
     // -- Helpers --
 
@@ -272,7 +274,7 @@ struct BaselineDecoder {
 // ============================================================================
 
 /// DQT — Define Quantization Table (ITU-T T.81, Section B.2.4.1)
-bool BaselineDecoder::parseQuantizationTable(size_t dataOffset, size_t dataLength) {
+bool JpegDecoder::parseQuantizationTable(size_t dataOffset, size_t dataLength) {
     size_t endOffset = dataOffset + dataLength;
     while (dataOffset < endOffset) {
         if (dataOffset >= bitstream.size) {
@@ -310,7 +312,7 @@ bool BaselineDecoder::parseQuantizationTable(size_t dataOffset, size_t dataLengt
 }
 
 /// SOF0 — Baseline DCT Frame Header (ITU-T T.81, Section B.2.2)
-bool BaselineDecoder::parseFrameHeader(size_t dataOffset, size_t dataLength) {
+bool JpegDecoder::parseFrameHeader(size_t dataOffset, size_t dataLength) {
     if (dataLength < 6) {
         return reportError("SOF0: segment too short");
     }
@@ -383,7 +385,7 @@ bool BaselineDecoder::parseFrameHeader(size_t dataOffset, size_t dataLength) {
 }
 
 /// DHT — Define Huffman Table (ITU-T T.81, Section B.2.4.2)
-bool BaselineDecoder::parseHuffmanTable(size_t dataOffset, size_t dataLength) {
+bool JpegDecoder::parseHuffmanTable(size_t dataOffset, size_t dataLength) {
     size_t endOffset = dataOffset + dataLength;
     while (dataOffset < endOffset) {
         if (dataOffset >= bitstream.size) {
@@ -422,7 +424,7 @@ bool BaselineDecoder::parseHuffmanTable(size_t dataOffset, size_t dataLength) {
 }
 
 /// DRI — Define Restart Interval (ITU-T T.81, Section B.2.4.4)
-bool BaselineDecoder::parseRestartInterval(size_t dataOffset, size_t dataLength) {
+bool JpegDecoder::parseRestartInterval(size_t dataOffset, size_t dataLength) {
     if (dataLength < 2) {
         return reportError("DRI: segment too short");
     }
@@ -431,7 +433,7 @@ bool BaselineDecoder::parseRestartInterval(size_t dataOffset, size_t dataLength)
 }
 
 /// SOS — Start of Scan header (ITU-T T.81, Section B.2.3)
-bool BaselineDecoder::parseScanHeader(size_t dataOffset, size_t dataLength, size_t& scanDataStart) {
+bool JpegDecoder::parseScanHeader(size_t dataOffset, size_t dataLength, size_t& scanDataStart) {
     if (dataLength < 1) {
         return reportError("SOS: segment too short");
     }
@@ -502,7 +504,7 @@ bool BaselineDecoder::parseScanHeader(size_t dataOffset, size_t dataLength, size
 /// Decode one 8x8 DCT block from the Huffman-coded bitstream, dequantise the
 /// coefficients using the quantisation table, and store them in natural
 /// (row-major) order via the zig-zag index table.
-bool BaselineDecoder::decodeDctBlock(std::array<i32, BLOCK_PIXELS>& coefficients,
+bool JpegDecoder::decodeDctBlock(std::array<i32, BLOCK_PIXELS>& coefficients,
                                      const HuffmanTable& dcTable, const HuffmanTable& acTable,
                                      i32& dcPrediction,
                                      const std::array<i16, BLOCK_PIXELS>& quantTable) {
@@ -560,7 +562,7 @@ bool BaselineDecoder::decodeDctBlock(std::array<i32, BLOCK_PIXELS>& coefficients
 // ============================================================================
 
 /// Decode all MCUs in the entropy-coded scan segment.
-bool BaselineDecoder::decodeScanData() {
+bool JpegDecoder::decodeScanData() {
     // Validate that all referenced Huffman and quantisation tables are present.
     for (u32 componentIndex = 0; componentIndex < componentCount; componentIndex++) {
         if (!dcHuffmanTables[components[componentIndex].dcHuffmanIndex].isBuilt ||
@@ -625,7 +627,7 @@ bool BaselineDecoder::decodeScanData() {
 
 /// Decode DC first-pass coefficient for one block in a progressive scan.
 /// Ss=0, Se=0, Ah=0 — initial DC coefficient with point transform Al.
-bool BaselineDecoder::decodeProgressiveDcFirst(u32 compIdx, std::array<i32, BLOCK_PIXELS>& coeffs,
+bool JpegDecoder::decodeProgressiveDcFirst(u32 compIdx, std::array<i32, BLOCK_PIXELS>& coeffs,
                                                i32& dcPrediction) {
     const auto& dcTable = dcHuffmanTables[components[compIdx].dcHuffmanIndex];
     i32 dcCategory = dcTable.decodeSymbol(bitstream);
@@ -644,7 +646,7 @@ bool BaselineDecoder::decodeProgressiveDcFirst(u32 compIdx, std::array<i32, BLOC
 
 /// Decode DC refinement for one block in a progressive scan.
 /// Ss=0, Se=0, Ah>0 — read one correction bit per block.
-bool BaselineDecoder::decodeProgressiveDcRefine(std::array<i32, BLOCK_PIXELS>& coeffs) {
+bool JpegDecoder::decodeProgressiveDcRefine(std::array<i32, BLOCK_PIXELS>& coeffs) {
     u32 bit = bitstream.readBits(1);
     coeffs[0] |= static_cast<i32>(bit) << scanApproxLow;
     return true;
@@ -652,7 +654,7 @@ bool BaselineDecoder::decodeProgressiveDcRefine(std::array<i32, BLOCK_PIXELS>& c
 
 /// Decode AC first-pass coefficients for one block in a progressive scan.
 /// Ss>0, Ah=0 — initial AC coefficients in range [Ss, Se] with point transform Al.
-bool BaselineDecoder::decodeProgressiveAcFirst(std::array<i32, BLOCK_PIXELS>& coeffs,
+bool JpegDecoder::decodeProgressiveAcFirst(std::array<i32, BLOCK_PIXELS>& coeffs,
                                                const HuffmanTable& acTable) {
     if (eobRun > 0) {
         --eobRun;
@@ -692,6 +694,19 @@ bool BaselineDecoder::decodeProgressiveAcFirst(std::array<i32, BLOCK_PIXELS>& co
     return true;
 }
 
+/// Apply one correction bit to a previously-nonzero coefficient.
+/// If the read bit is 1, the coefficient magnitude is increased by correctionBit
+/// (added for positive values, subtracted for negative).
+void applyRefinementBit(BitstreamReader& bitstream, i32& coeff, i32 correctionBit) {
+    u32 bit = bitstream.readBits(1);
+    if (bit) {
+        if (coeff > 0)
+            coeff += correctionBit;
+        else
+            coeff -= correctionBit;
+    }
+}
+
 /// Decode AC refinement for one block in a progressive scan.
 /// Ss>0, Ah>0 — refine previously-coded AC coefficients in range [Ss, Se].
 ///
@@ -699,7 +714,7 @@ bool BaselineDecoder::decodeProgressiveAcFirst(std::array<i32, BLOCK_PIXELS>& co
 ///  - Previously-zero coefficients may become nonzero (category=1) or stay zero (run skip).
 ///  - Previously-nonzero coefficients receive one correction bit per pass.
 ///  - EOBRUN mechanism skips remaining zero positions.
-bool BaselineDecoder::decodeProgressiveAcRefine(std::array<i32, BLOCK_PIXELS>& coeffs,
+bool JpegDecoder::decodeProgressiveAcRefine(std::array<i32, BLOCK_PIXELS>& coeffs,
                                                 const HuffmanTable& acTable) {
     i32 k = scanSpectralStart;
     i32 correctionBit = 1 << scanApproxLow;
@@ -708,13 +723,7 @@ bool BaselineDecoder::decodeProgressiveAcRefine(std::array<i32, BLOCK_PIXELS>& c
         // In an EOB run: just refine existing nonzero coefficients.
         for (; k <= scanSpectralEnd; ++k) {
             if (coeffs[k] != 0) {
-                u32 bit = bitstream.readBits(1);
-                if (bit) {
-                    if (coeffs[k] > 0)
-                        coeffs[k] += correctionBit;
-                    else
-                        coeffs[k] -= correctionBit;
-                }
+                applyRefinementBit(bitstream, coeffs[k], correctionBit);
             }
         }
         --eobRun;
@@ -740,13 +749,7 @@ bool BaselineDecoder::decodeProgressiveAcRefine(std::array<i32, BLOCK_PIXELS>& c
                 // Refine remaining nonzero coefficients in this block, then done.
                 for (; k <= scanSpectralEnd; ++k) {
                     if (coeffs[k] != 0) {
-                        u32 bit = bitstream.readBits(1);
-                        if (bit) {
-                            if (coeffs[k] > 0)
-                                coeffs[k] += correctionBit;
-                            else
-                                coeffs[k] -= correctionBit;
-                        }
+                        applyRefinementBit(bitstream, coeffs[k], correctionBit);
                     }
                 }
                 --eobRun;
@@ -767,13 +770,7 @@ bool BaselineDecoder::decodeProgressiveAcRefine(std::array<i32, BLOCK_PIXELS>& c
         for (; k <= scanSpectralEnd; ++k) {
             if (coeffs[k] != 0) {
                 // Refine existing nonzero coefficient.
-                u32 bit = bitstream.readBits(1);
-                if (bit) {
-                    if (coeffs[k] > 0)
-                        coeffs[k] += correctionBit;
-                    else
-                        coeffs[k] -= correctionBit;
-                }
+                applyRefinementBit(bitstream, coeffs[k], correctionBit);
             } else {
                 if (zerosToSkip == 0) {
                     break; // Found the target zero position.
@@ -792,7 +789,7 @@ bool BaselineDecoder::decodeProgressiveAcRefine(std::array<i32, BLOCK_PIXELS>& c
 
 /// Decode one progressive scan (all MCUs). Dispatches to the appropriate
 /// progressive decode function based on Ss, Se, Ah, Al values.
-bool BaselineDecoder::decodeProgressiveScan() {
+bool JpegDecoder::decodeProgressiveScan() {
     bool isDcScan = (scanSpectralStart == 0);
     bool isFirstPass = (scanApproxHigh == 0);
 
@@ -884,17 +881,52 @@ bool BaselineDecoder::decodeProgressiveScan() {
 
 /// After all progressive scans: dequantize coefficient buffers and run IDCT
 /// to produce the final pixel data in each component's sample buffer.
-bool BaselineDecoder::finalizeProgressiveImage() {
+bool JpegDecoder::finalizeProgressiveImage() {
+    // Flatten all blocks across all components into a single index range
+    // for parallel dispatch.  Each block's IDCT is independent.
+    u32 totalBlocks = 0;
+    std::array<u32, MAX_COMPONENTS> blockOffsets{};
     for (u32 ci = 0; ci < componentCount; ++ci) {
-        auto& comp = components[ci];
-        const auto& quantTable = quantTables[comp.quantTableIndex];
+        blockOffsets[ci] = totalBlocks;
+        totalBlocks += components[ci].blocksPerRow * components[ci].blocksPerCol;
+    }
 
-        for (u32 by = 0; by < comp.blocksPerCol; ++by) {
-            for (u32 bx = 0; bx < comp.blocksPerRow; ++bx) {
-                auto& coeffs = comp.coefficientBlocks[by * comp.blocksPerRow + bx];
+    // Capture a snapshot of per-component layout information for the lambda.
+    struct CompInfo {
+        u32 blocksPerRow;
+        u32 blocksPerCol;
+        u32 sampleBufferStride;
+        u32 blockOffset;
+        u8 quantTableIndex;
+    };
+    std::array<CompInfo, MAX_COMPONENTS> info{};
+    for (u32 ci = 0; ci < componentCount; ++ci) {
+        info[ci] = {components[ci].blocksPerRow, components[ci].blocksPerCol,
+                    components[ci].sampleBufferStride, blockOffsets[ci],
+                    components[ci].quantTableIndex};
+    }
 
-                // Dequantize: multiply each zig-zag-ordered coefficient by the quant value
-                // and place in natural (row-major) order for the IDCT.
+    const u32 compCnt = componentCount;
+
+    parallel_for_blocks(totalBlocks, ctx,
+        [this, compCnt, info](u32 flatBegin, u32 flatEnd) {
+            for (u32 flat = flatBegin; flat < flatEnd; ++flat) {
+                // Find which component and which block within it.
+                u32 ci = 0;
+                while (ci + 1 < compCnt &&
+                       flat >= info[ci + 1].blockOffset) {
+                    ++ci;
+                }
+                u32 localIdx = flat - info[ci].blockOffset;
+                u32 bx = localIdx % info[ci].blocksPerRow;
+                u32 by = localIdx / info[ci].blocksPerRow;
+
+                auto& comp = components[ci];
+                auto& coeffs = comp.coefficientBlocks[by * info[ci].blocksPerRow + bx];
+                const auto& quantTable = quantTables[info[ci].quantTableIndex];
+
+                // Dequantize: multiply each zig-zag-ordered coefficient by the
+                // quant value and place in natural (row-major) order for the IDCT.
                 std::array<i32, BLOCK_PIXELS> dequantised{};
                 for (i32 zigzag = 0; zigzag < BLOCK_PIXELS; ++zigzag) {
                     dequantised[ZIGZAG_ORDER[zigzag]] = coeffs[zigzag] * quantTable[zigzag];
@@ -907,8 +939,8 @@ bool BaselineDecoder::finalizeProgressiveImage() {
                                       pixelY * comp.sampleBufferStride + pixelX,
                                   comp.sampleBufferStride);
             }
-        }
-    }
+        });
+
     return true;
 }
 
@@ -919,30 +951,48 @@ bool BaselineDecoder::finalizeProgressiveImage() {
 /// Combine the per-component sample buffers into a single interleaved image.
 /// Components with smaller sampling factors than the maximum are upsampled
 /// using nearest-neighbour replication.
-bool BaselineDecoder::assembleInterleavedImage(Image& outputImage) {
+bool JpegDecoder::assembleInterleavedImage(Image& outputImage) {
     outputImage.width = imageWidth;
     outputImage.height = imageHeight;
     outputImage.components = componentCount;
     outputImage.pixels.resize(static_cast<size_t>(imageWidth) * imageHeight * componentCount);
 
-    for (u32 pixelY = 0; pixelY < imageHeight; pixelY++) {
-        for (u32 pixelX = 0; pixelX < imageWidth; pixelX++) {
-            size_t destinationOffset =
-                (static_cast<size_t>(pixelY) * imageWidth + pixelX) * componentCount;
-            for (u32 componentIndex = 0; componentIndex < componentCount; componentIndex++) {
-                // Map output pixel coordinates to component sample coordinates
-                // (nearest-neighbour upsampling for subsampled components).
-                u32 sampleX =
-                    pixelX * components[componentIndex].horizontalSampling / maxHorizontalSampling;
-                u32 sampleY =
-                    pixelY * components[componentIndex].verticalSampling / maxVerticalSampling;
-                u32 sampleBufferOffset =
-                    sampleY * components[componentIndex].sampleBufferStride + sampleX;
-                outputImage.pixels[destinationOffset + componentIndex] =
-                    components[componentIndex].sampleBuffer[sampleBufferOffset];
-            }
-        }
+    const u32 imgW = imageWidth;
+    const u32 compCnt = componentCount;
+    const u32 maxHS = maxHorizontalSampling;
+    const u32 maxVS = maxVerticalSampling;
+
+    // Capture per-component layout info by value for the lambda.
+    struct CompLayout {
+        u32 horizontalSampling;
+        u32 verticalSampling;
+        u32 sampleBufferStride;
+        const u8* sampleData;
+    };
+    std::array<CompLayout, MAX_COMPONENTS> layouts{};
+    for (u32 ci = 0; ci < componentCount; ++ci) {
+        layouts[ci] = {components[ci].horizontalSampling,
+                       components[ci].verticalSampling,
+                       components[ci].sampleBufferStride,
+                       components[ci].sampleBuffer.data()};
     }
+
+    parallel_for_blocks(imageHeight, ctx,
+        [&outputImage, imgW, compCnt, maxHS, maxVS, layouts](u32 rowBegin, u32 rowEnd) {
+            for (u32 pixelY = rowBegin; pixelY < rowEnd; ++pixelY) {
+                for (u32 pixelX = 0; pixelX < imgW; ++pixelX) {
+                    size_t destOff =
+                        (static_cast<size_t>(pixelY) * imgW + pixelX) * compCnt;
+                    for (u32 ci = 0; ci < compCnt; ++ci) {
+                        u32 sampleX = pixelX * layouts[ci].horizontalSampling / maxHS;
+                        u32 sampleY = pixelY * layouts[ci].verticalSampling / maxVS;
+                        u32 srcOff = sampleY * layouts[ci].sampleBufferStride + sampleX;
+                        outputImage.pixels[destOff + ci] = layouts[ci].sampleData[srcOff];
+                    }
+                }
+            }
+        });
+
     return true;
 }
 
@@ -950,7 +1000,7 @@ bool BaselineDecoder::assembleInterleavedImage(Image& outputImage) {
 // Top-Level: Parse Markers + Decode (ITU-T T.81 Figure E.6)
 // ============================================================================
 
-bool BaselineDecoder::decode(const u8* data, size_t size, Image& outputImage) {
+bool JpegDecoder::decode(const u8* data, size_t size, Image& outputImage) {
     bitstream.init(data, size, 0);
 
     // Verify SOI (Start of Image) marker.
@@ -1117,14 +1167,41 @@ bool BaselineDecoder::decode(const u8* data, size_t size, Image& outputImage) {
 // Public API
 // ============================================================================
 
-std::optional<Image> decode_raw(std::span<const u8> data, std::string* out_error) {
-    BaselineDecoder decoder;
-    decoder.errorOutput = out_error;
-    Image image;
-    if (!decoder.decode(data.data(), data.size(), image)) {
+std::optional<Image> decode_raw(std::span<const u8> data, std::string* out_error,
+                                JpegContext* ctx, Image* asyncOutput) {
+    auto decoder = std::make_shared<JpegDecoder>();
+    decoder->errorOutput = out_error;
+    decoder->ctx = ctx;
+
+    // Parsing + entropy decode must run synchronously: we need the decoded
+    // coefficients / sample buffers and image dimensions before we can build
+    // the parallel DAG for IDCT and pixel assembly.
+    //
+    // When ctx is non-null the caller's timeline is paused during this call;
+    // only the IDCT and assembly phases are parallelised.
+    auto outputImage = std::make_shared<Image>();
+    if (!decoder->decode(data.data(), data.size(), *outputImage)) {
         return std::nullopt;
     }
-    return image;
+
+    if (!ctx || !ctx->sem) {
+        // Serial path — everything already completed in decode().
+        return std::move(*outputImage);
+    }
+
+    // Async path — output will be delivered via asyncOutput after DAG completes.
+    if (asyncOutput) {
+        // Expose dimensions synchronously so callers can validate/allocate
+        // before the pixel data arrives via the DAG.
+        asyncOutput->width = outputImage->width;
+        asyncOutput->height = outputImage->height;
+        asyncOutput->components = outputImage->components;
+
+        submitSingleTask(ctx, [decoder, outputImage, asyncOutput]() {
+            *asyncOutput = std::move(*outputImage);
+        });
+    }
+    return std::nullopt;
 }
 
 } // namespace whiteout::textures::jpeg

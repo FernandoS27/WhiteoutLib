@@ -6,6 +6,7 @@
 #include "../io_helpers.h"
 #include "../issue_sink.h"
 #include "../utils/color_convert.h"
+#include "jpeg_common.h"
 #include "jpeg_encode.h"
 
 #include <algorithm>
@@ -18,6 +19,7 @@ namespace whiteout::textures::jpeg {
 class Writer::Impl : public IssueSink {
 public:
     i32 quality = 75;
+    interfaces::WorkerPool* pool = nullptr;
 
     std::vector<u8> write(const Texture& texture);
 };
@@ -78,29 +80,73 @@ std::vector<u8> Writer::Impl::write(const Texture& texture) {
     const u32 width = rgba.width();
     const u32 height = rgba.height();
     const u8* src = rgba.dataPtr();
-
-    // Determine if the image is fully opaque.  If it has meaningful alpha,
-    // we still encode as 3-component Y'CbCr — JPEG has no standard alpha
-    // channel support, so alpha is silently dropped.
+    const u32 pixelCount = width * height;
 
     // Build a 3-component Y'CbCr image for the raw encoder.
-    // RGB → Y'CbCr (ITU-R BT.601 / JFIF):
-    //   Y  =  0.299   * R + 0.587   * G + 0.114   * B
-    //   Cb = -0.168736 * R - 0.331264 * G + 0.5     * B + 128
-    //   Cr =  0.5      * R - 0.418688 * G - 0.081312 * B + 128
-
     whiteout::textures::jpeg::Image image;
     image.width = width;
     image.height = height;
     image.components = 3;
     image.pixels.resize(static_cast<size_t>(width) * height * 3);
 
-    for (u32 i = 0; i < width * height; ++i) {
+    // --- Optionally set up parallel context ---
+
+    std::unique_ptr<interfaces::TimelineSemaphore> sem;
+    JpegContext jctx;
+    JpegContext* ctxPtr = nullptr;
+
+    if (pool && pool->threadCount() > 1) {
+        sem = pool->createTimelineSemaphore();
+        if (sem) {
+            jctx.pool = pool;
+            jctx.sem = sem.get();
+            jctx.currentValue = sem->value();
+            ctxPtr = &jctx;
+        }
+    }
+
+    if (ctxPtr) {
+        // --- DAG node 1: RGB → Y'CbCr colour conversion (parallel) ---
+        parallel_for_blocks(pixelCount, ctxPtr,
+            [src, &image](u32 begin, u32 end) {
+                for (u32 i = begin; i < end; ++i) {
+                    rgb_to_ycbcr(src[i * 4 + 0], src[i * 4 + 1], src[i * 4 + 2],
+                                 image.pixels[i * 3 + 0], image.pixels[i * 3 + 1],
+                                 image.pixels[i * 3 + 2]);
+                }
+            });
+
+        // --- DAG nodes 2-4: encode (parallel data prep + serial entropy) ---
+        std::vector<u8> encodedOutput;
+        std::string encodeError;
+        whiteout::textures::jpeg::encode_raw(image, quality, &encodeError, false, ctxPtr,
+                                             &encodedOutput);
+
+        // Wait for the entire DAG to complete.
+        jctx.sem->wait(jctx.currentValue);
+
+        if (encodedOutput.empty()) {
+            fail("JPEG encode failed: " + encodeError);
+            return {};
+        }
+
+        // Insert JFIF APP0 marker after the SOI marker (first 2 bytes).
+        auto app0 = build_jfif_app0();
+        std::vector<u8> output;
+        output.reserve(encodedOutput.size() + app0.size());
+        output.insert(output.end(), encodedOutput.begin(), encodedOutput.begin() + 2);
+        output.insert(output.end(), app0.begin(), app0.end());
+        output.insert(output.end(), encodedOutput.begin() + 2, encodedOutput.end());
+        return output;
+    }
+
+    // --- Serial path ---
+
+    for (u32 i = 0; i < pixelCount; ++i) {
         rgb_to_ycbcr(src[i * 4 + 0], src[i * 4 + 1], src[i * 4 + 2],
                      image.pixels[i * 3 + 0], image.pixels[i * 3 + 1], image.pixels[i * 3 + 2]);
     }
 
-    // Encode using the raw baseline encoder.
     std::string encodeError;
     auto encoded = whiteout::textures::jpeg::encode_raw(image, quality, &encodeError);
     if (encoded.empty()) {
@@ -112,20 +158,17 @@ std::vector<u8> Writer::Impl::write(const Texture& texture) {
     auto app0 = build_jfif_app0();
     std::vector<u8> output;
     output.reserve(encoded.size() + app0.size());
-
-    // SOI (2 bytes)
     output.insert(output.end(), encoded.begin(), encoded.begin() + 2);
-    // JFIF APP0
     output.insert(output.end(), app0.begin(), app0.end());
-    // Rest of the encoded stream (DQT, SOF0, DHT, SOS, entropy data, EOI)
     output.insert(output.end(), encoded.begin() + 2, encoded.end());
-
     return output;
 }
 
-Writer::Writer(i32 quality, WriteMode writeMode) : pImpl(std::make_unique<Impl>()) {
+Writer::Writer(i32 quality, WriteMode writeMode, interfaces::WorkerPool* pool)
+    : pImpl(std::make_unique<Impl>()) {
     pImpl->strict_mode = (writeMode == WriteMode::Strict);
     pImpl->quality = std::clamp(quality, 1, 100);
+    pImpl->pool = pool;
 }
 
 Writer::~Writer() = default;

@@ -314,9 +314,10 @@ void write_dqt(std::vector<u8>& out, u8 tableIndex,
     }
 }
 
-/// Write a SOF0 (Baseline DCT Frame Header) marker segment.
-void write_sof0(std::vector<u8>& out, u32 width, u32 height, u32 componentCount) {
-    write_marker(out, MARKER_SOF0);
+/// Write a SOF (Start of Frame) marker segment.
+/// @param sofMarker  MARKER_SOF0 for baseline, MARKER_SOF2 for progressive.
+void write_sof(std::vector<u8>& out, u8 sofMarker, u32 width, u32 height, u32 componentCount) {
+    write_marker(out, sofMarker);
     // Length: 2 + 1 (precision) + 2 (height) + 2 (width) + 1 (num components)
     //       + componentCount * 3
     u16 segmentLength = static_cast<u16>(8 + componentCount * 3);
@@ -330,24 +331,6 @@ void write_sof0(std::vector<u8>& out, u32 width, u32 height, u32 componentCount)
         write_u8(out, static_cast<u8>(componentIndex + 1)); // Component ID (1-based).
         write_u8(out, SAMPLING_FACTOR_1x1); // Sampling factors: 1x1 (no subsampling).
         write_u8(out, 0);                   // Quantisation table index 0 for all.
-    }
-}
-
-/// Write a SOF2 (Progressive DCT Frame Header) marker segment.
-/// Identical format to SOF0, just a different marker byte.
-void write_sof2(std::vector<u8>& out, u32 width, u32 height, u32 componentCount) {
-    write_marker(out, MARKER_SOF2);
-    u16 segmentLength = static_cast<u16>(8 + componentCount * 3);
-    write_u16_be(out, segmentLength);
-    write_u8(out, 8); // 8-bit sample precision.
-    write_u16_be(out, static_cast<u16>(height));
-    write_u16_be(out, static_cast<u16>(width));
-    write_u8(out, static_cast<u8>(componentCount));
-
-    for (u32 componentIndex = 0; componentIndex < componentCount; componentIndex++) {
-        write_u8(out, static_cast<u8>(componentIndex + 1));
-        write_u8(out, SAMPLING_FACTOR_1x1);
-        write_u8(out, 0);
     }
 }
 
@@ -368,26 +351,7 @@ void write_dht(std::vector<u8>& out, u8 tableClass, u8 tableIndex, const u8* len
     }
 }
 
-/// Write the SOS (Start of Scan) marker segment.
-void write_sos(std::vector<u8>& out, u32 componentCount) {
-    write_marker(out, MARKER_SOS);
-    // Length: 2 + 1 (num components) + componentCount * 2 + 3 (spectral selection)
-    u16 segmentLength = static_cast<u16>(6 + componentCount * 2);
-    write_u16_be(out, segmentLength);
-    write_u8(out, static_cast<u8>(componentCount));
-
-    for (u32 componentIndex = 0; componentIndex < componentCount; componentIndex++) {
-        write_u8(out, static_cast<u8>(componentIndex + 1)); // Component selector (matches SOF0 ID).
-        write_u8(out, 0x00);                                // DC table 0, AC table 0 for all.
-    }
-
-    // Spectral selection: Ss=0, Se=63, Ah|Al = 0 (baseline).
-    write_u8(out, 0);  // Ss
-    write_u8(out, 63); // Se
-    write_u8(out, 0);  // Ah=0, Al=0
-}
-
-/// Write a SOS marker for a progressive scan with custom spectral/approximation parameters.
+/// Write a SOS (Start of Scan) marker segment.
 /// @param componentIds  1-based component IDs to include in the scan.
 /// @param dcTableIds    DC Huffman table index per component.
 /// @param acTableIds    AC Huffman table index per component.
@@ -483,7 +447,7 @@ u8 huffTableIndex(u32 compIndex, u32 componentCount) {
 // Encoder State Machine
 // ============================================================================
 
-struct BaselineEncoder {
+struct JpegEncoder {
     std::vector<u8> outputBuffer;
 
     std::array<u16, BLOCK_PIXELS> quantTable{};
@@ -498,6 +462,7 @@ struct BaselineEncoder {
     u32 mcuRowsCount = 0;
 
     std::string* errorOutput = nullptr;
+    JpegContext* ctx = nullptr;
 
     // -- Helpers --
 
@@ -508,6 +473,12 @@ struct BaselineEncoder {
         return false;
     }
 
+    /// Validate input image and initialise common encoder state.
+    bool initFromImage(const Image& image, i32 quality);
+
+    /// Write all DHT (Define Huffman Table) markers to the output buffer.
+    void writeAllDhtMarkers();
+
     // -- Encoding Steps --
 
     /// Prepare per-component sample buffers from the interleaved input image.
@@ -517,9 +488,11 @@ struct BaselineEncoder {
                                std::array<std::vector<u8>, MAX_COMPONENTS>& buffers,
                                std::array<u32, MAX_COMPONENTS>& strides);
 
-    /// Encode all MCUs into the entropy-coded segment (baseline path).
-    bool encodeScanData(const std::array<std::vector<u8>, MAX_COMPONENTS>& buffers,
-                        const std::array<u32, MAX_COMPONENTS>& strides);
+    /// Encode all MCUs from precomputed coefficient blocks (baseline path).
+    /// Entropy coding is inherently serial.
+    bool encodeScanDataFromCoeffs(
+        const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>,
+                         MAX_COMPONENTS>& coeffBlocks);
 
     /// FDCT + quantise all blocks for all components into coefficient storage.
     void buildCoefficientBlocks(const std::array<std::vector<u8>, MAX_COMPONENTS>& buffers,
@@ -555,15 +528,80 @@ struct BaselineEncoder {
         const std::vector<std::array<i32, BLOCK_PIXELS>>& coeffBlocks, u32 compIndex,
         i32 ss, i32 se, i32 al);
 
-    /// Top-level entry points.
-    bool encode(const Image& image, i32 quality);
-    bool encodeProgressive(const Image& image, i32 quality);
+    /// Top-level serial stream writers (called from within a DAG task).
+    /// These write all JPEG markers + entropy-coded data to outputBuffer.
+    void writeBaselineStream(
+        const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>,
+                         MAX_COMPONENTS>& coeffBlocks);
+    void writeProgressiveStream(
+        const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>,
+                         MAX_COMPONENTS>& coeffBlocks);
 };
+
+/// Validate input image and initialise common encoder state (quant table,
+/// Huffman tables, MCU grid, output buffer).
+bool JpegEncoder::initFromImage(const Image& image, i32 quality) {
+    imageWidth = image.width;
+    imageHeight = image.height;
+    componentCount = image.components;
+
+    if (imageWidth == 0 || imageHeight == 0) {
+        return reportError("Cannot encode an image with zero dimensions");
+    }
+    if (componentCount == 0 || componentCount > MAX_COMPONENTS) {
+        return reportError("Unsupported component count " + std::to_string(componentCount));
+    }
+    if (imageWidth > 65535 || imageHeight > 65535) {
+        return reportError("Image dimensions exceed JPEG maximum (65535)");
+    }
+    if (image.pixels.size() < static_cast<size_t>(imageWidth) * imageHeight * componentCount) {
+        return reportError("Pixel buffer too small for the specified dimensions");
+    }
+
+    quantTable = build_quant_table(quality);
+
+    // Build Huffman encoding tables: table 0 = luminance, table 1 = chrominance.
+    dcHuffTables[0].build(DC_LUMA_COUNTS.data(), DC_LUMA_SYMBOLS.data(),
+                          static_cast<i32>(DC_LUMA_SYMBOLS.size()));
+    acHuffTables[0].build(AC_LUMA_COUNTS.data(), AC_LUMA_SYMBOLS.data(),
+                          static_cast<i32>(AC_LUMA_SYMBOLS.size()));
+    if (componentCount > 1) {
+        dcHuffTables[1].build(DC_CHROMA_COUNTS.data(), DC_CHROMA_SYMBOLS.data(),
+                              static_cast<i32>(DC_CHROMA_SYMBOLS.size()));
+        acHuffTables[1].build(AC_CHROMA_COUNTS.data(), AC_CHROMA_SYMBOLS.data(),
+                              static_cast<i32>(AC_CHROMA_SYMBOLS.size()));
+    }
+
+    outputBuffer.clear();
+    outputBuffer.reserve(static_cast<size_t>(imageWidth) * imageHeight * componentCount);
+
+    mcuColumnsCount = (imageWidth + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    mcuRowsCount = (imageHeight + BLOCK_SIZE - 1) / BLOCK_SIZE;
+
+    return true;
+}
+
+/// Write all DHT marker segments to the output buffer.
+void JpegEncoder::writeAllDhtMarkers() {
+    // Luminance tables (DC class 0 index 0, AC class 1 index 0).
+    write_dht(outputBuffer, 0, 0, DC_LUMA_COUNTS.data(), DC_LUMA_SYMBOLS.data(),
+              static_cast<i32>(DC_LUMA_SYMBOLS.size()));
+    write_dht(outputBuffer, 1, 0, AC_LUMA_COUNTS.data(), AC_LUMA_SYMBOLS.data(),
+              static_cast<i32>(AC_LUMA_SYMBOLS.size()));
+
+    // Chrominance tables (DC class 0 index 1, AC class 1 index 1).
+    if (componentCount > 1) {
+        write_dht(outputBuffer, 0, 1, DC_CHROMA_COUNTS.data(), DC_CHROMA_SYMBOLS.data(),
+                  static_cast<i32>(DC_CHROMA_SYMBOLS.size()));
+        write_dht(outputBuffer, 1, 1, AC_CHROMA_COUNTS.data(), AC_CHROMA_SYMBOLS.data(),
+                  static_cast<i32>(AC_CHROMA_SYMBOLS.size()));
+    }
+}
 
 /// Extract each component from the interleaved image into a separate buffer
 /// whose dimensions are rounded up to the next multiple of 8.  Edge pixels
 /// are replicated to avoid boundary artefacts in the DCT.
-void BaselineEncoder::buildComponentBuffers(const Image& image,
+void JpegEncoder::buildComponentBuffers(const Image& image,
                                             std::array<std::vector<u8>, MAX_COMPONENTS>& buffers,
                                             std::array<u32, MAX_COMPONENTS>& strides) {
     u32 paddedWidth = ((imageWidth + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE;
@@ -572,53 +610,53 @@ void BaselineEncoder::buildComponentBuffers(const Image& image,
     for (u32 componentIndex = 0; componentIndex < componentCount; componentIndex++) {
         strides[componentIndex] = paddedWidth;
         buffers[componentIndex].resize(static_cast<size_t>(paddedWidth) * paddedHeight, 0);
+    }
 
-        for (u32 destY = 0; destY < paddedHeight; destY++) {
-            u32 sourceY = std::min(destY, imageHeight - 1);
-            for (u32 destX = 0; destX < paddedWidth; destX++) {
-                u32 sourceX = std::min(destX, imageWidth - 1);
-                u32 destinationOffset = destY * paddedWidth + destX;
-                u32 sourceOffset =
-                    (sourceY * imageWidth + sourceX) * componentCount + componentIndex;
-                buffers[componentIndex][destinationOffset] = image.pixels[sourceOffset];
+    // Each row-range writes to non-overlapping regions of each component buffer.
+    const u32 compCnt = componentCount;
+    const u32 imgW = imageWidth;
+    const u32 imgH = imageHeight;
+    const u8* srcPixels = image.pixels.data();
+
+    parallel_for_blocks(paddedHeight, ctx, [&, paddedWidth, compCnt, imgW, imgH, srcPixels](u32 rowBegin, u32 rowEnd) {
+        for (u32 destY = rowBegin; destY < rowEnd; destY++) {
+            u32 sourceY = std::min(destY, imgH - 1);
+            for (u32 componentIndex = 0; componentIndex < compCnt; componentIndex++) {
+                u8* destRow = buffers[componentIndex].data() + destY * paddedWidth;
+                for (u32 destX = 0; destX < paddedWidth; destX++) {
+                    u32 sourceX = std::min(destX, imgW - 1);
+                    destRow[destX] = srcPixels[(sourceY * imgW + sourceX) * compCnt + componentIndex];
+                }
             }
         }
-    }
+    });
 }
 
-/// Encode all MCU blocks sequentially.  Each MCU contains one 8x8 block per
-/// component (no subsampling), processed in component order.
-bool BaselineEncoder::encodeScanData(const std::array<std::vector<u8>, MAX_COMPONENTS>& buffers,
-                                     const std::array<u32, MAX_COMPONENTS>& strides) {
+/// Encode all MCU blocks from precomputed coefficient blocks (baseline path).
+/// Entropy coding is inherently serial — coefficients must be visited in the
+/// same MCU-row, MCU-column, component order for DC differential coding.
+bool JpegEncoder::encodeScanDataFromCoeffs(
+    const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>,
+                     MAX_COMPONENTS>& coeffBlocks) {
 
     BitstreamWriter writer;
     writer.init(&outputBuffer);
 
     std::array<i32, MAX_COMPONENTS> dcPredictions{};
+    u32 totalBlocks = mcuColumnsCount * mcuRowsCount;
 
-    for (u32 mcuRow = 0; mcuRow < mcuRowsCount; mcuRow++) {
-        for (u32 mcuColumn = 0; mcuColumn < mcuColumnsCount; mcuColumn++) {
-            for (u32 componentIndex = 0; componentIndex < componentCount; componentIndex++) {
-                u32 blockPixelX = mcuColumn * BLOCK_SIZE;
-                u32 blockPixelY = mcuRow * BLOCK_SIZE;
+    for (u32 blockIdx = 0; blockIdx < totalBlocks; blockIdx++) {
+        for (u32 componentIndex = 0; componentIndex < componentCount; componentIndex++) {
+            const auto& quantisedCoefficients = coeffBlocks[componentIndex][blockIdx];
+            u8 tblIdx = huffTableIndex(componentIndex, componentCount);
 
-                const u8* blockDataPointer = buffers[componentIndex].data() +
-                                             blockPixelY * strides[componentIndex] + blockPixelX;
+            // DC: differential coding.
+            i32 dcDifference = quantisedCoefficients[0] - dcPredictions[componentIndex];
+            dcPredictions[componentIndex] = quantisedCoefficients[0];
+            encode_dc_coefficient(writer, dcHuffTables[tblIdx], dcDifference);
 
-                std::array<i32, BLOCK_PIXELS> quantisedCoefficients{};
-                forward_dct_and_quantise(blockDataPointer, strides[componentIndex],
-                                         quantisedCoefficients, quantTable);
-
-                u8 tblIdx = huffTableIndex(componentIndex, componentCount);
-
-                // DC: differential coding.
-                i32 dcDifference = quantisedCoefficients[0] - dcPredictions[componentIndex];
-                dcPredictions[componentIndex] = quantisedCoefficients[0];
-                encode_dc_coefficient(writer, dcHuffTables[tblIdx], dcDifference);
-
-                // AC: run-length coding.
-                encode_ac_coefficients(writer, acHuffTables[tblIdx], quantisedCoefficients);
-            }
+            // AC: run-length coding.
+            encode_ac_coefficients(writer, acHuffTables[tblIdx], quantisedCoefficients);
         }
     }
 
@@ -630,7 +668,7 @@ bool BaselineEncoder::encodeScanData(const std::array<std::vector<u8>, MAX_COMPO
 // Progressive Encoding Helpers
 // ============================================================================
 
-void BaselineEncoder::buildCoefficientBlocks(
+void JpegEncoder::buildCoefficientBlocks(
     const std::array<std::vector<u8>, MAX_COMPONENTS>& buffers,
     const std::array<u32, MAX_COMPONENTS>& strides,
     std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>& coeffBlocks) {
@@ -640,10 +678,15 @@ void BaselineEncoder::buildCoefficientBlocks(
         coeffBlocks[c].resize(totalBlocks);
     }
 
-    for (u32 mcuRow = 0; mcuRow < mcuRowsCount; mcuRow++) {
-        for (u32 mcuCol = 0; mcuCol < mcuColumnsCount; mcuCol++) {
-            u32 blockIndex = mcuRow * mcuColumnsCount + mcuCol;
-            for (u32 c = 0; c < componentCount; c++) {
+    // Each block writes to its own coeffBlocks[c][blockIndex] — no overlap.
+    const u32 mcuCols = mcuColumnsCount;
+    const u32 compCnt = componentCount;
+
+    parallel_for_blocks(totalBlocks, ctx, [&, mcuCols, compCnt](u32 blockBegin, u32 blockEnd) {
+        for (u32 blockIndex = blockBegin; blockIndex < blockEnd; blockIndex++) {
+            u32 mcuRow = blockIndex / mcuCols;
+            u32 mcuCol = blockIndex % mcuCols;
+            for (u32 c = 0; c < compCnt; c++) {
                 u32 blockPixelX = mcuCol * BLOCK_SIZE;
                 u32 blockPixelY = mcuRow * BLOCK_SIZE;
                 const u8* blockDataPointer =
@@ -652,10 +695,10 @@ void BaselineEncoder::buildCoefficientBlocks(
                                          coeffBlocks[c][blockIndex], quantTable);
             }
         }
-    }
+    });
 }
 
-bool BaselineEncoder::encodeProgressiveDcScan(
+bool JpegEncoder::encodeProgressiveDcScan(
     const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>& coeffBlocks,
     i32 al) {
 
@@ -680,7 +723,7 @@ bool BaselineEncoder::encodeProgressiveDcScan(
     return true;
 }
 
-bool BaselineEncoder::encodeProgressiveDcRefineScan(
+bool JpegEncoder::encodeProgressiveDcRefineScan(
     const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>& coeffBlocks,
     i32 al) {
 
@@ -701,7 +744,7 @@ bool BaselineEncoder::encodeProgressiveDcRefineScan(
     return true;
 }
 
-bool BaselineEncoder::encodeProgressiveAcScan(
+bool JpegEncoder::encodeProgressiveAcScan(
     const std::vector<std::array<i32, BLOCK_PIXELS>>& coeffBlocks, u32 compIndex,
     i32 ss, i32 se, i32 al) {
 
@@ -766,7 +809,7 @@ bool BaselineEncoder::encodeProgressiveAcScan(
     return true;
 }
 
-bool BaselineEncoder::encodeProgressiveAcRefineScan(
+bool JpegEncoder::encodeProgressiveAcRefineScan(
     const std::vector<std::array<i32, BLOCK_PIXELS>>& coeffBlocks, u32 compIndex,
     i32 ss, i32 se, i32 al) {
 
@@ -877,80 +920,20 @@ bool BaselineEncoder::encodeProgressiveAcRefineScan(
     return true;
 }
 
-bool BaselineEncoder::encodeProgressive(const Image& image, i32 quality) {
-    imageWidth = image.width;
-    imageHeight = image.height;
-    componentCount = image.components;
-
-    if (imageWidth == 0 || imageHeight == 0) {
-        return reportError("Cannot encode an image with zero dimensions");
-    }
-    if (componentCount == 0 || componentCount > MAX_COMPONENTS) {
-        return reportError("Unsupported component count " + std::to_string(componentCount));
-    }
-    if (imageWidth > 65535 || imageHeight > 65535) {
-        return reportError("Image dimensions exceed JPEG maximum (65535)");
-    }
-    if (image.pixels.size() < static_cast<size_t>(imageWidth) * imageHeight * componentCount) {
-        return reportError("Pixel buffer too small for the specified dimensions");
-    }
-
-    quantTable = build_quant_table(quality);
-
-    // Build Huffman tables: table 0 = luminance, table 1 = chrominance.
-    dcHuffTables[0].build(DC_LUMA_COUNTS.data(), DC_LUMA_SYMBOLS.data(),
-                          static_cast<i32>(DC_LUMA_SYMBOLS.size()));
-    acHuffTables[0].build(AC_LUMA_COUNTS.data(), AC_LUMA_SYMBOLS.data(),
-                          static_cast<i32>(AC_LUMA_SYMBOLS.size()));
-    if (componentCount > 1) {
-        dcHuffTables[1].build(DC_CHROMA_COUNTS.data(), DC_CHROMA_SYMBOLS.data(),
-                              static_cast<i32>(DC_CHROMA_SYMBOLS.size()));
-        acHuffTables[1].build(AC_CHROMA_COUNTS.data(), AC_CHROMA_SYMBOLS.data(),
-                              static_cast<i32>(AC_CHROMA_SYMBOLS.size()));
-    }
-
-    outputBuffer.clear();
-    outputBuffer.reserve(static_cast<size_t>(imageWidth) * imageHeight * componentCount);
-
-    mcuColumnsCount = (imageWidth + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    mcuRowsCount = (imageHeight + BLOCK_SIZE - 1) / BLOCK_SIZE;
-
-    // --- Build all quantised coefficient blocks ---
-
-    std::array<std::vector<u8>, MAX_COMPONENTS> componentBuffers;
-    std::array<u32, MAX_COMPONENTS> componentStrides{};
-    buildComponentBuffers(image, componentBuffers, componentStrides);
-
-    std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS> coeffBlocks;
-    buildCoefficientBlocks(componentBuffers, componentStrides, coeffBlocks);
-
-    for (u32 c = 0; c < componentCount; c++) {
-        componentBuffers[c] = {};
-    }
+void JpegEncoder::writeProgressiveStream(
+    const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>,
+                     MAX_COMPONENTS>& coeffBlocks) {
 
     // --- Successive approximation parameters ---
     // Al=1: first pass encodes top bits, one refinement pass fills bit 0.
-    constexpr i32 SA_AL = 1; // First pass encodes top bits, one refinement pass fills bit 0.
+    constexpr i32 SA_AL = 1;
 
     // --- Write marker segments ---
 
     write_soi(outputBuffer);
     write_dqt(outputBuffer, 0, quantTable);
-    write_sof2(outputBuffer, imageWidth, imageHeight, componentCount);
-
-    // DHT: luminance tables (DC class 0 index 0, AC class 1 index 0).
-    write_dht(outputBuffer, 0, 0, DC_LUMA_COUNTS.data(), DC_LUMA_SYMBOLS.data(),
-              static_cast<i32>(DC_LUMA_SYMBOLS.size()));
-    write_dht(outputBuffer, 1, 0, AC_LUMA_COUNTS.data(), AC_LUMA_SYMBOLS.data(),
-              static_cast<i32>(AC_LUMA_SYMBOLS.size()));
-
-    // DHT: chrominance tables (DC class 0 index 1, AC class 1 index 1).
-    if (componentCount > 1) {
-        write_dht(outputBuffer, 0, 1, DC_CHROMA_COUNTS.data(), DC_CHROMA_SYMBOLS.data(),
-                  static_cast<i32>(DC_CHROMA_SYMBOLS.size()));
-        write_dht(outputBuffer, 1, 1, AC_CHROMA_COUNTS.data(), AC_CHROMA_SYMBOLS.data(),
-                  static_cast<i32>(AC_CHROMA_SYMBOLS.size()));
-    }
+    write_sof(outputBuffer, MARKER_SOF2, imageWidth, imageHeight, componentCount);
+    writeAllDhtMarkers();
 
     // --- DC first pass: all components interleaved, Ss=0, Se=0, Ah=0, Al=SA_AL ---
     {
@@ -962,7 +945,7 @@ bool BaselineEncoder::encodeProgressive(const Image& image, i32 quality) {
             dcIds[c] = huffTableIndex(c, componentCount);
         }
         write_sos_progressive(outputBuffer, compIds, dcIds, acIds, 0, 0, 0, SA_AL);
-        if (!encodeProgressiveDcScan(coeffBlocks, SA_AL)) return false;
+        encodeProgressiveDcScan(coeffBlocks, SA_AL);
     }
 
     // --- AC first passes: per component, per band, Ah=0, Al=SA_AL ---
@@ -974,8 +957,7 @@ bool BaselineEncoder::encodeProgressive(const Image& image, i32 quality) {
             std::vector<u8> acIds = { tblIdx };
             write_sos_progressive(outputBuffer, compIds, dcIds, acIds,
                                   band.ss, band.se, 0, SA_AL);
-            if (!encodeProgressiveAcScan(coeffBlocks[c], c, band.ss, band.se, SA_AL))
-                return false;
+            encodeProgressiveAcScan(coeffBlocks[c], c, band.ss, band.se, SA_AL);
         }
     }
 
@@ -991,7 +973,7 @@ bool BaselineEncoder::encodeProgressive(const Image& image, i32 quality) {
                 dcIds[c] = huffTableIndex(c, componentCount);
             }
             write_sos_progressive(outputBuffer, compIds, dcIds, acIds, 0, 0, SA_AL, 0);
-            if (!encodeProgressiveDcRefineScan(coeffBlocks, 0)) return false;
+            encodeProgressiveDcRefineScan(coeffBlocks, 0);
         }
 
         // AC refinement: per component, per band, Ah=SA_AL, Al=0
@@ -1003,105 +985,40 @@ bool BaselineEncoder::encodeProgressive(const Image& image, i32 quality) {
                 std::vector<u8> acIds = { tblIdx };
                 write_sos_progressive(outputBuffer, compIds, dcIds, acIds,
                                       band.ss, band.se, SA_AL, 0);
-                if (!encodeProgressiveAcRefineScan(coeffBlocks[c], c, band.ss, band.se, 0))
-                    return false;
+                encodeProgressiveAcRefineScan(coeffBlocks[c], c, band.ss, band.se, 0);
             }
         }
     }
 
     write_eoi(outputBuffer);
-    return true;
 }
 
-bool BaselineEncoder::encode(const Image& image, i32 quality) {
-    imageWidth = image.width;
-    imageHeight = image.height;
-    componentCount = image.components;
-
-    if (imageWidth == 0 || imageHeight == 0) {
-        return reportError("Cannot encode an image with zero dimensions");
-    }
-    if (componentCount == 0 || componentCount > MAX_COMPONENTS) {
-        return reportError("Unsupported component count " + std::to_string(componentCount));
-    }
-    if (imageWidth > 65535 || imageHeight > 65535) {
-        return reportError("Image dimensions exceed JPEG maximum (65535)");
-    }
-    if (image.pixels.size() < static_cast<size_t>(imageWidth) * imageHeight * componentCount) {
-        return reportError("Pixel buffer too small for the specified dimensions");
-    }
-
-    // Build quantisation table.
-    quantTable = build_quant_table(quality);
-
-    // Build Huffman encoding tables: table 0 = luminance, table 1 = chrominance.
-    dcHuffTables[0].build(DC_LUMA_COUNTS.data(), DC_LUMA_SYMBOLS.data(),
-                          static_cast<i32>(DC_LUMA_SYMBOLS.size()));
-    acHuffTables[0].build(AC_LUMA_COUNTS.data(), AC_LUMA_SYMBOLS.data(),
-                          static_cast<i32>(AC_LUMA_SYMBOLS.size()));
-    if (componentCount > 1) {
-        dcHuffTables[1].build(DC_CHROMA_COUNTS.data(), DC_CHROMA_SYMBOLS.data(),
-                              static_cast<i32>(DC_CHROMA_SYMBOLS.size()));
-        acHuffTables[1].build(AC_CHROMA_COUNTS.data(), AC_CHROMA_SYMBOLS.data(),
-                              static_cast<i32>(AC_CHROMA_SYMBOLS.size()));
-    }
-
-    // Estimate output size (typical JPEG is 1-3 bytes/pixel).
-    outputBuffer.clear();
-    outputBuffer.reserve(static_cast<size_t>(imageWidth) * imageHeight * componentCount);
-
-    mcuColumnsCount = (imageWidth + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    mcuRowsCount = (imageHeight + BLOCK_SIZE - 1) / BLOCK_SIZE;
-
-    // --- Write JPEG marker segments ---
+void JpegEncoder::writeBaselineStream(
+    const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>,
+                     MAX_COMPONENTS>& coeffBlocks) {
 
     write_soi(outputBuffer);
     write_dqt(outputBuffer, 0, quantTable);
-    write_sof0(outputBuffer, imageWidth, imageHeight, componentCount);
+    write_sof(outputBuffer, MARKER_SOF0, imageWidth, imageHeight, componentCount);
+    writeAllDhtMarkers();
 
-    // DHT: luminance tables.
-    write_dht(outputBuffer, 0, 0, DC_LUMA_COUNTS.data(), DC_LUMA_SYMBOLS.data(),
-              static_cast<i32>(DC_LUMA_SYMBOLS.size()));
-    write_dht(outputBuffer, 1, 0, AC_LUMA_COUNTS.data(), AC_LUMA_SYMBOLS.data(),
-              static_cast<i32>(AC_LUMA_SYMBOLS.size()));
-
-    // DHT: chrominance tables (only for multi-component images).
-    if (componentCount > 1) {
-        write_dht(outputBuffer, 0, 1, DC_CHROMA_COUNTS.data(), DC_CHROMA_SYMBOLS.data(),
-                  static_cast<i32>(DC_CHROMA_SYMBOLS.size()));
-        write_dht(outputBuffer, 1, 1, AC_CHROMA_COUNTS.data(), AC_CHROMA_SYMBOLS.data(),
-                  static_cast<i32>(AC_CHROMA_SYMBOLS.size()));
-    }
-
-    // SOS: per-component table IDs.
+    // SOS: per-component table IDs (baseline: Ss=0, Se=63, Ah=0, Al=0).
     {
-        write_marker(outputBuffer, MARKER_SOS);
-        u16 segmentLength = static_cast<u16>(6 + componentCount * 2);
-        write_u16_be(outputBuffer, segmentLength);
-        write_u8(outputBuffer, static_cast<u8>(componentCount));
-
+        std::vector<u8> compIds(componentCount);
+        std::vector<u8> dcIds(componentCount);
+        std::vector<u8> acIds(componentCount);
         for (u32 c = 0; c < componentCount; c++) {
-            write_u8(outputBuffer, static_cast<u8>(c + 1));
+            compIds[c] = static_cast<u8>(c + 1);
             u8 tblIdx = huffTableIndex(c, componentCount);
-            write_u8(outputBuffer, static_cast<u8>((tblIdx << 4) | tblIdx));
+            dcIds[c] = tblIdx;
+            acIds[c] = tblIdx;
         }
-        write_u8(outputBuffer, 0);  // Ss
-        write_u8(outputBuffer, 63); // Se
-        write_u8(outputBuffer, 0);  // Ah=0, Al=0
+        write_sos_progressive(outputBuffer, compIds, dcIds, acIds, 0, 63, 0, 0);
     }
 
-    // --- Encode entropy-coded segment ---
-
-    std::array<std::vector<u8>, MAX_COMPONENTS> componentBuffers;
-    std::array<u32, MAX_COMPONENTS> componentStrides{};
-    buildComponentBuffers(image, componentBuffers, componentStrides);
-
-    if (!encodeScanData(componentBuffers, componentStrides)) {
-        return false;
-    }
+    encodeScanDataFromCoeffs(coeffBlocks);
 
     write_eoi(outputBuffer);
-    return true;
 }
 
 } // anonymous namespace
@@ -1110,16 +1027,53 @@ bool BaselineEncoder::encode(const Image& image, i32 quality) {
 // Public API
 // ============================================================================
 
+/// Coefficient block type alias for readability.
+using CoeffBlocks = std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>;
+
 std::vector<u8> encode_raw(const Image& image, i32 quality, std::string* out_error,
-                           bool progressive) {
-    BaselineEncoder encoder;
-    encoder.errorOutput = out_error;
-    bool ok = progressive ? encoder.encodeProgressive(image, quality)
-                          : encoder.encode(image, quality);
-    if (!ok) {
+                           bool progressive, JpegContext* ctx,
+                           std::vector<u8>* asyncOutput) {
+    auto enc = std::make_shared<JpegEncoder>();
+    enc->errorOutput = out_error;
+    enc->ctx = ctx;
+
+    if (!enc->initFromImage(image, quality)) {
         return {};
     }
-    return std::move(encoder.outputBuffer);
+
+    // --- DAG node 1: Build per-component sample buffers (parallel) ---
+    auto compBufs = std::make_shared<std::array<std::vector<u8>, MAX_COMPONENTS>>();
+    auto compStrides = std::make_shared<std::array<u32, MAX_COMPONENTS>>();
+    enc->buildComponentBuffers(image, *compBufs, *compStrides);
+
+    // --- DAG node 2: FDCT + quantise all blocks (parallel) ---
+    auto coeffs = std::make_shared<CoeffBlocks>();
+    enc->buildCoefficientBlocks(*compBufs, *compStrides, *coeffs);
+
+    // --- DAG node 3: Write markers + entropy-coded data (serial) ---
+    // The lambda captures all shared_ptrs to keep preceding data alive.
+    submitSingleTask(ctx, [enc, compBufs, compStrides, coeffs, progressive]() {
+        // Release component sample buffers — only coefficients needed.
+        for (u32 c = 0; c < enc->componentCount; c++) {
+            (*compBufs)[c] = {};
+        }
+
+        if (progressive) {
+            enc->writeProgressiveStream(*coeffs);
+        } else {
+            enc->writeBaselineStream(*coeffs);
+        }
+    });
+
+    // --- Optional output transfer for async callers ---
+    if (asyncOutput && ctx && ctx->sem) {
+        submitSingleTask(ctx, [enc, asyncOutput]() {
+            *asyncOutput = std::move(enc->outputBuffer);
+        });
+        return {};
+    }
+
+    return std::move(enc->outputBuffer);
 }
 
 } // namespace whiteout::textures::jpeg

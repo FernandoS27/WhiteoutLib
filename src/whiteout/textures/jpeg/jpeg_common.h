@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-/// Shared constants and tables for the baseline JPEG encoder and decoder.
+/// Shared constants, tables, and parallel dispatch for the JPEG codec.
 
 #pragma once
 
+#include <algorithm>
 #include <array>
+#include <functional>
+#include <memory>
 #include <numbers>
 
 #include <whiteout/common_types.h>
+#include <whiteout/interfaces.h>
+#include <whiteout/utils/job_group.h>
 
 namespace whiteout::textures::jpeg {
 
@@ -197,5 +202,110 @@ inline constexpr u8 MARKER_SOS = 0xDA;  // Start Of Scan
 inline constexpr u8 MARKER_DQT = 0xDB;  // Define Quantization Table
 inline constexpr u8 MARKER_DRI = 0xDD;  // Define Restart Interval
 inline constexpr u8 MARKER_RST0 = 0xD0; // Restart marker base (RST0–RST7)
+
+// ============================================================================
+// Parallel Dispatch Infrastructure
+// ============================================================================
+
+/// Carries a pool + optional timeline semaphore through the JPEG pipeline.
+/// When sem is non-null, parallel_for_blocks operates in async (non-blocking)
+/// mode.  When sem is null, falls back to blocking JobGroup::wait().
+struct JpegContext {
+    interfaces::WorkerPool* pool = nullptr;
+    interfaces::TimelineSemaphore* sem = nullptr;
+    interfaces::TimelineSemaphore::Value currentValue = 0;
+};
+
+/// Submit a single function as a task chained through the timeline.
+/// In synchronous mode (no timeline), runs the function directly.
+inline void submitSingleTask(JpegContext* ctx, std::function<void()> fn) {
+    if (!ctx || !ctx->sem) {
+        fn();
+        return;
+    }
+    const auto waitVal = ctx->currentValue;
+    ctx->currentValue = ctx->sem->next();
+    interfaces::WorkerTask task;
+    task.fn = std::move(fn);
+    task.waitSemaphore = ctx->sem;
+    task.waitValue = waitVal;
+    task.signalSemaphore = ctx->sem;
+    task.signalValue = ctx->currentValue;
+    ctx->pool->submit(task);
+}
+
+/// Minimum items per work tile to avoid excessive dispatch overhead.
+inline constexpr u32 kMinItemsPerTile = 64;
+
+/// Invoke fn(begin, end) for each chunk of [0, count).
+/// In async mode (ctx->sem set), tiles are chained through the timeline and
+/// the call returns immediately.  In blocking mode, uses JobGroup::wait().
+/// No task submitted here ever creates sub-tasks — all nodes are flat.
+template <typename Fn>
+void parallel_for_blocks(u32 count, JpegContext* ctx, Fn&& fn) {
+    if (!ctx || !ctx->pool || ctx->pool->threadCount() <= 1 || count < kMinItemsPerTile) {
+        if (ctx && ctx->sem) {
+            submitSingleTask(ctx, [count, fn = std::forward<Fn>(fn)]() { fn(0u, count); });
+        } else {
+            fn(0u, count);
+        }
+        return;
+    }
+
+    const u32 nThreads = static_cast<u32>(ctx->pool->threadCount());
+    const u32 tilesWanted = std::min(nThreads * 2, count);
+    const u32 itemsPerTile = std::max(count / tilesWanted, 1u);
+    const u32 tileCount = (count + itemsPerTile - 1) / itemsPerTile;
+
+    if (tileCount <= 1) {
+        if (ctx->sem) {
+            submitSingleTask(ctx, [count, fn = std::forward<Fn>(fn)]() { fn(0u, count); });
+        } else {
+            fn(0u, count);
+        }
+        return;
+    }
+
+    if (ctx->sem) {
+        // Async (non-blocking) path — no thread blocks.
+        const auto waitVal = ctx->currentValue;
+        ctx->currentValue = ctx->sem->next();
+        const auto signalVal = ctx->currentValue;
+
+        auto jobGroup = std::make_shared<utils::JobGroup>();
+        jobGroup->add(tileCount);
+        jobGroup->signalOnComplete(ctx->sem, signalVal);
+
+        for (u32 t = 0; t < tileCount; ++t) {
+            const u32 begin = t * itemsPerTile;
+            const u32 end = std::min(begin + itemsPerTile, count);
+            interfaces::WorkerTask task;
+            task.fn = [begin, end, fn, jg = jobGroup]() {
+                fn(begin, end);
+                jg->done();
+            };
+            task.waitSemaphore = ctx->sem;
+            task.waitValue = waitVal;
+            ctx->pool->submit(task);
+        }
+    } else {
+        // Blocking path — caller waits for all tiles.
+        const u32 chunk = (count + nThreads - 1) / nThreads;
+        utils::JobGroup group;
+        for (u32 t = 0; t < nThreads; ++t) {
+            const u32 begin = t * chunk;
+            const u32 end = std::min(begin + chunk, count);
+            if (begin >= end) break;
+            group.add(1);
+            interfaces::WorkerTask task{
+                [begin, end, &fn, &group]() {
+                    fn(begin, end);
+                    group.done();
+                }};
+            ctx->pool->submit(task);
+        }
+        group.wait();
+    }
+}
 
 } // namespace whiteout::textures::jpeg
