@@ -99,7 +99,7 @@ std::vector<u8> encode_palettized_mip(const u8* rgba, u32 width, u32 height, u32
 }
 
 std::vector<u8> encode_jpeg_mip(const u8* rgba, u32 width, u32 height, bool with_alpha, i32 quality,
-                                std::string* out_error) {
+                                bool progressive, std::string* out_error) {
     const u32 pixel_count = width * height;
     const u32 components = with_alpha ? 4u : 3u;
     jpeg::Image image;
@@ -114,7 +114,7 @@ std::vector<u8> encode_jpeg_mip(const u8* rgba, u32 width, u32 height, bool with
         if (with_alpha)
             image.pixels[i * components + 3] = rgba[i * 4 + 3]; // A
     }
-    return jpeg::encode_raw(image, quality, out_error);
+    return jpeg::encode_raw(image, quality, out_error, progressive);
 }
 
 } // anonymous namespace
@@ -260,7 +260,8 @@ std::vector<std::vector<u8>> Writer::Impl::encodeMipPayloads(WriteContext& ctx) 
             const bool with_alpha = (ctx.alpha_bits == 8);
             std::string jpeg_error;
             payloads[mip] = encode_jpeg_mip(source.data(), mip_info.width, mip_info.height,
-                                            with_alpha, ctx.opts.jpegQuality, &jpeg_error);
+                                            with_alpha, ctx.opts.jpegQuality,
+                                            ctx.opts.jpegProgressive, &jpeg_error);
             if (payloads[mip].empty()) {
                 fail(jpeg_error.empty() ? "JPEG mip encode failed" : jpeg_error);
                 return {};

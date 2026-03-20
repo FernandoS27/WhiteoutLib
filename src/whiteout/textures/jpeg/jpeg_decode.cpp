@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-/// Baseline (SOF0) JPEG decoder.
+/// JPEG decoder supporting baseline (SOF0) and progressive (SOF2) modes.
 ///
 /// Returns raw component values without Y'CbCr-to-RGB conversion.  BLP files
 /// store BGRA colour components directly in the JPEG data stream, so the raw
 /// values must be preserved.
 ///
-/// Supported:   Baseline sequential DCT (SOF0), 8-bit precision, 1-4 channels,
-///              restart markers (DRI/RST), chroma subsampling.
-/// Unsupported: Progressive (SOF2), arithmetic coding, lossless, hierarchical.
+/// Supported:   Baseline sequential DCT (SOF0), progressive DCT (SOF2),
+///              8-bit precision, 1-4 channels, restart markers (DRI/RST),
+///              chroma subsampling.
+/// Unsupported: Arithmetic coding, lossless, hierarchical.
 ///
 /// Algorithms used:
 ///   - Huffman decoding: fast 9-bit look-up table with slow-path fallback
@@ -168,6 +169,12 @@ struct ComponentDescriptor {
 
     u32 sampleBufferStride = 0;   ///< Row pitch (in samples) of the decoded buffer.
     std::vector<u8> sampleBuffer; ///< Decoded samples before interleaving.
+
+    /// Progressive mode: per-block coefficient storage (zig-zag order).
+    /// Size = totalBlocksHorizontal * totalBlocksVertical, each entry is 64 coefficients.
+    std::vector<std::array<i32, BLOCK_PIXELS>> coefficientBlocks;
+    u32 blocksPerRow = 0; ///< Number of 8×8 blocks per row for this component.
+    u32 blocksPerCol = 0; ///< Number of 8×8 blocks per column for this component.
 };
 
 // ============================================================================
@@ -196,6 +203,17 @@ struct BaselineDecoder {
     u32 mcuColumnsCount = 0;
     u32 mcuRowsCount = 0;
     u32 restartInterval = 0; ///< MCUs between restart markers (0 = disabled).
+
+    // -- Progressive state --
+    bool isProgressive = false;
+    u8 scanSpectralStart = 0;  ///< Ss from current scan's SOS.
+    u8 scanSpectralEnd = 63;   ///< Se from current scan's SOS.
+    u8 scanApproxHigh = 0;     ///< Ah (successive approximation high bit).
+    u8 scanApproxLow = 0;      ///< Al (successive approximation low bit).
+    u32 eobRun = 0;            ///< EOBRUN counter for progressive AC scans.
+
+    /// Component indices included in the current scan (set by parseScanHeader).
+    std::vector<u32> scanComponentIndices;
 
     std::string* errorOutput = nullptr;
 
@@ -227,6 +245,18 @@ struct BaselineDecoder {
                         const HuffmanTable& acTable, i32& dcPrediction,
                         const std::array<i16, BLOCK_PIXELS>& quantTable);
     bool decodeScanData();
+
+    // -- Progressive Entropy Decoding --
+
+    bool decodeProgressiveScan();
+    bool decodeProgressiveDcFirst(u32 compIdx, std::array<i32, BLOCK_PIXELS>& coeffs,
+                                  i32& dcPrediction);
+    bool decodeProgressiveDcRefine(std::array<i32, BLOCK_PIXELS>& coeffs);
+    bool decodeProgressiveAcFirst(std::array<i32, BLOCK_PIXELS>& coeffs,
+                                  const HuffmanTable& acTable);
+    bool decodeProgressiveAcRefine(std::array<i32, BLOCK_PIXELS>& coeffs,
+                                   const HuffmanTable& acTable);
+    bool finalizeProgressiveImage();
 
     // -- Output Assembly --
 
@@ -337,6 +367,17 @@ bool BaselineDecoder::parseFrameHeader(size_t dataOffset, size_t dataLength) {
         components[componentIndex].sampleBufferStride = bufferWidth;
         components[componentIndex].sampleBuffer.resize(
             static_cast<size_t>(bufferWidth) * bufferHeight, 0);
+
+        // For progressive mode, allocate per-block coefficient storage.
+        u32 bpr = mcuColumnsCount * components[componentIndex].horizontalSampling;
+        u32 bpc = mcuRowsCount * components[componentIndex].verticalSampling;
+        components[componentIndex].blocksPerRow = bpr;
+        components[componentIndex].blocksPerCol = bpc;
+        if (isProgressive) {
+            std::array<i32, BLOCK_PIXELS> zeroBlock{};
+            components[componentIndex].coefficientBlocks.assign(
+                static_cast<size_t>(bpr) * bpc, zeroBlock);
+        }
     }
     return true;
 }
@@ -395,13 +436,18 @@ bool BaselineDecoder::parseScanHeader(size_t dataOffset, size_t dataLength, size
         return reportError("SOS: segment too short");
     }
     u8 scanComponentCount = bitstream.data[dataOffset];
-    if (scanComponentCount != componentCount) {
-        return reportError("SOS: scan component count does not match frame header");
+    if (scanComponentCount == 0 || scanComponentCount > componentCount) {
+        return reportError("SOS: invalid scan component count " +
+                           std::to_string(scanComponentCount));
+    }
+    if (!isProgressive && scanComponentCount != componentCount) {
+        return reportError("SOS: baseline scan component count does not match frame header");
     }
     if (dataLength < 1 + scanComponentCount * 2 + 3) {
         return reportError("SOS: segment too short for component selectors");
     }
 
+    scanComponentIndices.clear();
     for (u32 scanIndex = 0; scanIndex < scanComponentCount; scanIndex++) {
         u8 selectorId = bitstream.data[dataOffset + 1 + scanIndex * 2];
         u8 tableSelectors = bitstream.data[dataOffset + 1 + scanIndex * 2 + 1];
@@ -415,6 +461,7 @@ bool BaselineDecoder::parseScanHeader(size_t dataOffset, size_t dataLength, size
                     components[componentIndex].acHuffmanIndex >= MAX_TABLES) {
                     return reportError("SOS: Huffman table index out of range");
                 }
+                scanComponentIndices.push_back(componentIndex);
                 foundMatchingComponent = true;
                 break;
             }
@@ -425,8 +472,25 @@ bool BaselineDecoder::parseScanHeader(size_t dataOffset, size_t dataLength, size
         }
     }
 
-    // Bytes after component selectors: Ss, Se, Ah|Al (spectral selection /
-    // successive approximation).  Baseline always uses 0, 63, 0.
+    // Extract spectral selection and successive approximation.
+    size_t ssOffset = dataOffset + 1 + scanComponentCount * 2;
+    scanSpectralStart = bitstream.data[ssOffset];
+    scanSpectralEnd = bitstream.data[ssOffset + 1];
+    u8 ahAl = bitstream.data[ssOffset + 2];
+    scanApproxHigh = (ahAl >> 4) & 0x0F;
+    scanApproxLow = ahAl & 0x0F;
+
+    if (isProgressive) {
+        if (scanSpectralStart > 63 || scanSpectralEnd > 63 ||
+            scanSpectralStart > scanSpectralEnd) {
+            return reportError("SOS: invalid spectral selection range");
+        }
+        // AC scans must be non-interleaved (single component).
+        if (scanSpectralStart > 0 && scanComponentIndices.size() > 1) {
+            return reportError("SOS: AC spectral selection requires single-component scan");
+        }
+    }
+
     scanDataStart = dataOffset + 1 + scanComponentCount * 2 + 3;
     return true;
 }
@@ -556,6 +620,299 @@ bool BaselineDecoder::decodeScanData() {
 }
 
 // ============================================================================
+// Progressive Scan Decoding (ITU-T T.81, Sections G.1–G.2)
+// ============================================================================
+
+/// Decode DC first-pass coefficient for one block in a progressive scan.
+/// Ss=0, Se=0, Ah=0 — initial DC coefficient with point transform Al.
+bool BaselineDecoder::decodeProgressiveDcFirst(u32 compIdx, std::array<i32, BLOCK_PIXELS>& coeffs,
+                                               i32& dcPrediction) {
+    const auto& dcTable = dcHuffmanTables[components[compIdx].dcHuffmanIndex];
+    i32 dcCategory = dcTable.decodeSymbol(bitstream);
+    if (dcCategory < 0) {
+        return reportError("Progressive DC first: Huffman decode error");
+    }
+    i32 dcDifference = 0;
+    if (dcCategory > 0) {
+        u32 magnitudeBits = bitstream.readBits(dcCategory);
+        dcDifference = extend_magnitude_to_signed(magnitudeBits, dcCategory);
+    }
+    dcPrediction += dcDifference;
+    coeffs[0] = dcPrediction << scanApproxLow;
+    return true;
+}
+
+/// Decode DC refinement for one block in a progressive scan.
+/// Ss=0, Se=0, Ah>0 — read one correction bit per block.
+bool BaselineDecoder::decodeProgressiveDcRefine(std::array<i32, BLOCK_PIXELS>& coeffs) {
+    u32 bit = bitstream.readBits(1);
+    coeffs[0] |= static_cast<i32>(bit) << scanApproxLow;
+    return true;
+}
+
+/// Decode AC first-pass coefficients for one block in a progressive scan.
+/// Ss>0, Ah=0 — initial AC coefficients in range [Ss, Se] with point transform Al.
+bool BaselineDecoder::decodeProgressiveAcFirst(std::array<i32, BLOCK_PIXELS>& coeffs,
+                                               const HuffmanTable& acTable) {
+    if (eobRun > 0) {
+        --eobRun;
+        return true;
+    }
+
+    for (i32 k = scanSpectralStart; k <= scanSpectralEnd; ++k) {
+        i32 symbol = acTable.decodeSymbol(bitstream);
+        if (symbol < 0) {
+            return reportError("Progressive AC first: Huffman decode error");
+        }
+        i32 runLength = (symbol >> 4) & 0x0F;
+        i32 category = symbol & 0x0F;
+
+        if (category == 0) {
+            if (runLength == 15) {
+                k += 15; // ZRL: skip 16 positions (loop increments once more).
+                continue;
+            }
+            // EOBn: End of band for 2^runLength blocks.
+            eobRun = (1u << runLength);
+            if (runLength > 0) {
+                eobRun += bitstream.readBits(runLength);
+            }
+            --eobRun; // Current block counts as one.
+            return true;
+        }
+
+        k += runLength;
+        if (k > scanSpectralEnd) {
+            return reportError("Progressive AC first: coefficient index out of range");
+        }
+        u32 magnitudeBits = bitstream.readBits(category);
+        i32 value = extend_magnitude_to_signed(magnitudeBits, category);
+        coeffs[k] = value << scanApproxLow;
+    }
+    return true;
+}
+
+/// Decode AC refinement for one block in a progressive scan.
+/// Ss>0, Ah>0 — refine previously-coded AC coefficients in range [Ss, Se].
+///
+/// This is the most complex progressive pass. For each block:
+///  - Previously-zero coefficients may become nonzero (category=1) or stay zero (run skip).
+///  - Previously-nonzero coefficients receive one correction bit per pass.
+///  - EOBRUN mechanism skips remaining zero positions.
+bool BaselineDecoder::decodeProgressiveAcRefine(std::array<i32, BLOCK_PIXELS>& coeffs,
+                                                const HuffmanTable& acTable) {
+    i32 k = scanSpectralStart;
+    i32 correctionBit = 1 << scanApproxLow;
+
+    if (eobRun > 0) {
+        // In an EOB run: just refine existing nonzero coefficients.
+        for (; k <= scanSpectralEnd; ++k) {
+            if (coeffs[k] != 0) {
+                u32 bit = bitstream.readBits(1);
+                if (bit) {
+                    if (coeffs[k] > 0)
+                        coeffs[k] += correctionBit;
+                    else
+                        coeffs[k] -= correctionBit;
+                }
+            }
+        }
+        --eobRun;
+        return true;
+    }
+
+    for (; k <= scanSpectralEnd; ++k) {
+        i32 symbol = acTable.decodeSymbol(bitstream);
+        if (symbol < 0) {
+            return reportError("Progressive AC refine: Huffman decode error");
+        }
+        i32 runLength = (symbol >> 4) & 0x0F;
+        i32 category = symbol & 0x0F;
+
+        i32 newValue = 0; // Will be set if a new nonzero coefficient is created.
+        if (category == 0) {
+            if (runLength < 15) {
+                // EOBn.
+                eobRun = (1u << runLength);
+                if (runLength > 0) {
+                    eobRun += bitstream.readBits(runLength);
+                }
+                // Refine remaining nonzero coefficients in this block, then done.
+                for (; k <= scanSpectralEnd; ++k) {
+                    if (coeffs[k] != 0) {
+                        u32 bit = bitstream.readBits(1);
+                        if (bit) {
+                            if (coeffs[k] > 0)
+                                coeffs[k] += correctionBit;
+                            else
+                                coeffs[k] -= correctionBit;
+                        }
+                    }
+                }
+                --eobRun;
+                return true;
+            }
+            // runLength == 15: ZRL with no new nonzero — skip 16 zero positions.
+        } else if (category == 1) {
+            // New nonzero coefficient: read sign bit.
+            u32 signBit = bitstream.readBits(1);
+            newValue = signBit ? correctionBit : -correctionBit;
+        } else {
+            return reportError("Progressive AC refine: unexpected category " +
+                               std::to_string(category));
+        }
+
+        // Skip `runLength` zero-valued positions, refining nonzero ones along the way.
+        i32 zerosToSkip = runLength;
+        for (; k <= scanSpectralEnd; ++k) {
+            if (coeffs[k] != 0) {
+                // Refine existing nonzero coefficient.
+                u32 bit = bitstream.readBits(1);
+                if (bit) {
+                    if (coeffs[k] > 0)
+                        coeffs[k] += correctionBit;
+                    else
+                        coeffs[k] -= correctionBit;
+                }
+            } else {
+                if (zerosToSkip == 0) {
+                    break; // Found the target zero position.
+                }
+                --zerosToSkip;
+            }
+        }
+
+        // Place the new nonzero coefficient (if any) at position k.
+        if (newValue != 0 && k <= scanSpectralEnd) {
+            coeffs[k] = newValue;
+        }
+    }
+    return true;
+}
+
+/// Decode one progressive scan (all MCUs). Dispatches to the appropriate
+/// progressive decode function based on Ss, Se, Ah, Al values.
+bool BaselineDecoder::decodeProgressiveScan() {
+    bool isDcScan = (scanSpectralStart == 0);
+    bool isFirstPass = (scanApproxHigh == 0);
+
+    // Validate Huffman and quant tables for scan components.
+    for (u32 ci : scanComponentIndices) {
+        if (isDcScan) {
+            if (!dcHuffmanTables[components[ci].dcHuffmanIndex].isBuilt) {
+                return reportError("Missing DC Huffman table for progressive scan");
+            }
+        }
+        if (!isDcScan || scanSpectralEnd > 0) {
+            if (!acHuffmanTables[components[ci].acHuffmanIndex].isBuilt) {
+                return reportError("Missing AC Huffman table for progressive scan");
+            }
+        }
+    }
+
+    eobRun = 0;
+
+    if (isDcScan) {
+        // DC scan — may be interleaved (multiple components).
+        u32 mcuSequenceIndex = 0;
+        for (u32 mcuRow = 0; mcuRow < mcuRowsCount; ++mcuRow) {
+            for (u32 mcuColumn = 0; mcuColumn < mcuColumnsCount; ++mcuColumn) {
+                if (restartInterval > 0 && mcuSequenceIndex > 0 &&
+                    (mcuSequenceIndex % restartInterval) == 0) {
+                    for (u32 ci : scanComponentIndices) {
+                        components[ci].dcPrediction = 0;
+                    }
+                    bitstream.handleRestartMarker();
+                    eobRun = 0;
+                }
+
+                for (u32 ci : scanComponentIndices) {
+                    auto& comp = components[ci];
+                    for (u32 blockRow = 0; blockRow < comp.verticalSampling; ++blockRow) {
+                        for (u32 blockCol = 0; blockCol < comp.horizontalSampling; ++blockCol) {
+                            u32 bx = mcuColumn * comp.horizontalSampling + blockCol;
+                            u32 by = mcuRow * comp.verticalSampling + blockRow;
+                            auto& coeffs = comp.coefficientBlocks[by * comp.blocksPerRow + bx];
+
+                            if (isFirstPass) {
+                                if (!decodeProgressiveDcFirst(ci, coeffs, comp.dcPrediction))
+                                    return false;
+                            } else {
+                                if (!decodeProgressiveDcRefine(coeffs))
+                                    return false;
+                            }
+                        }
+                    }
+                }
+                ++mcuSequenceIndex;
+            }
+        }
+    } else {
+        // AC scan — always single component.
+        u32 ci = scanComponentIndices[0];
+        auto& comp = components[ci];
+        const auto& acTable = acHuffmanTables[comp.acHuffmanIndex];
+
+        // For non-interleaved scans the MCU is a single block.
+        u32 totalBlocksX = comp.blocksPerRow;
+        u32 totalBlocksY = comp.blocksPerCol;
+        u32 mcuSequenceIndex = 0;
+
+        for (u32 by = 0; by < totalBlocksY; ++by) {
+            for (u32 bx = 0; bx < totalBlocksX; ++bx) {
+                if (restartInterval > 0 && mcuSequenceIndex > 0 &&
+                    (mcuSequenceIndex % restartInterval) == 0) {
+                    bitstream.handleRestartMarker();
+                    eobRun = 0;
+                }
+
+                auto& coeffs = comp.coefficientBlocks[by * totalBlocksX + bx];
+
+                if (isFirstPass) {
+                    if (!decodeProgressiveAcFirst(coeffs, acTable))
+                        return false;
+                } else {
+                    if (!decodeProgressiveAcRefine(coeffs, acTable))
+                        return false;
+                }
+                ++mcuSequenceIndex;
+            }
+        }
+    }
+    return true;
+}
+
+/// After all progressive scans: dequantize coefficient buffers and run IDCT
+/// to produce the final pixel data in each component's sample buffer.
+bool BaselineDecoder::finalizeProgressiveImage() {
+    for (u32 ci = 0; ci < componentCount; ++ci) {
+        auto& comp = components[ci];
+        const auto& quantTable = quantTables[comp.quantTableIndex];
+
+        for (u32 by = 0; by < comp.blocksPerCol; ++by) {
+            for (u32 bx = 0; bx < comp.blocksPerRow; ++bx) {
+                auto& coeffs = comp.coefficientBlocks[by * comp.blocksPerRow + bx];
+
+                // Dequantize: multiply each zig-zag-ordered coefficient by the quant value
+                // and place in natural (row-major) order for the IDCT.
+                std::array<i32, BLOCK_PIXELS> dequantised{};
+                for (i32 zigzag = 0; zigzag < BLOCK_PIXELS; ++zigzag) {
+                    dequantised[ZIGZAG_ORDER[zigzag]] = coeffs[zigzag] * quantTable[zigzag];
+                }
+
+                u32 pixelX = bx * BLOCK_SIZE;
+                u32 pixelY = by * BLOCK_SIZE;
+                inverse_dct_block(dequantised,
+                                  comp.sampleBuffer.data() +
+                                      pixelY * comp.sampleBufferStride + pixelX,
+                                  comp.sampleBufferStride);
+            }
+        }
+    }
+    return true;
+}
+
+// ============================================================================
 // Output Assembly (Interleave + Nearest-Neighbour Upsample)
 // ============================================================================
 
@@ -601,13 +958,36 @@ bool BaselineDecoder::decode(const u8* data, size_t size, Image& outputImage) {
         return reportError("Not a JPEG file (no SOI marker)");
     }
     size_t parsePosition = 2;
-
     bool foundFrameHeader = false;
-    bool foundScanHeader = false;
-    size_t scanDataPosition = 0;
 
-    // Walk through marker segments until we hit SOS (start of entropy data).
-    while (parsePosition + 1 < size && !foundScanHeader) {
+    // Helper lambda: skip past the entropy-coded segment after an SOS to find
+    // the next marker.  JPEG entropy data uses byte-stuffing (0xFF 0x00) for
+    // literal 0xFF values; any 0xFF followed by a non-zero, non-stuffing byte
+    // is a marker.
+    auto skipEntropyData = [&]() {
+        while (parsePosition + 1 < size) {
+            if (data[parsePosition] == 0xFF) {
+                u8 next = data[parsePosition + 1];
+                if (next == 0x00) {
+                    parsePosition += 2; // Byte-stuffed 0xFF value.
+                    continue;
+                }
+                if (next >= MARKER_RST0 && next <= MARKER_RST0 + 7) {
+                    parsePosition += 2; // Restart marker — skip.
+                    continue;
+                }
+                // Found a real marker; leave parsePosition pointing at the 0xFF.
+                return;
+            }
+            ++parsePosition;
+        }
+    };
+
+    // Main marker parsing + scan decoding loop.
+    // For baseline: parses markers up to the single SOS, decodes, and exits.
+    // For progressive: loops over multiple SOS segments, decoding each scan.
+    bool done = false;
+    while (parsePosition + 1 < size && !done) {
         if (data[parsePosition] != 0xFF) {
             parsePosition++; // Skip padding bytes between markers.
             continue;
@@ -655,7 +1035,12 @@ bool BaselineDecoder::decode(const u8* data, size_t size, Image& outputImage) {
             foundFrameHeader = true;
             break;
         case MARKER_SOF2:
-            return reportError("Progressive JPEG (SOF2) is not supported");
+            isProgressive = true;
+            if (!parseFrameHeader(segmentDataOffset, segmentDataLength)) {
+                return false;
+            }
+            foundFrameHeader = true;
+            break;
         case MARKER_DHT:
             if (!parseHuffmanTable(segmentDataOffset, segmentDataLength)) {
                 return false;
@@ -668,15 +1053,36 @@ bool BaselineDecoder::decode(const u8* data, size_t size, Image& outputImage) {
             break;
         case MARKER_SOS: {
             if (!foundFrameHeader) {
-                return reportError("SOS marker encountered before SOF0 frame header");
+                return reportError("SOS marker encountered before frame header");
             }
+            size_t scanDataPosition = 0;
             if (!parseScanHeader(segmentDataOffset, segmentDataLength, scanDataPosition)) {
                 return false;
             }
-            // scanDataPosition is already an absolute offset (parseScanHeader
-            // receives an absolute dataOffset and adds the header size to it).
-            foundScanHeader = true;
-            break;
+
+            bitstream.init(data, size, scanDataPosition);
+
+            if (isProgressive) {
+                // Reset DC predictions at the start of each progressive scan.
+                for (u32 ci : scanComponentIndices) {
+                    components[ci].dcPrediction = 0;
+                }
+                if (!decodeProgressiveScan()) {
+                    return false;
+                }
+            } else {
+                if (!decodeScanData()) {
+                    return false;
+                }
+                done = true; // Baseline: single scan only.
+            }
+
+            // Skip past the entropy-coded segment to find the next marker.
+            // The bitstream reader has consumed some bytes, but the marker
+            // scanner works on the raw byte stream, so we need to fast-forward.
+            parsePosition = scanDataPosition;
+            skipEntropyData();
+            continue; // Don't add segmentLength — we've already repositioned.
         }
         default:
             // Reject unsupported SOF variants (SOF1, SOF3-SOF15 except DHT/SOF2).
@@ -692,16 +1098,14 @@ bool BaselineDecoder::decode(const u8* data, size_t size, Image& outputImage) {
     }
 
     if (!foundFrameHeader) {
-        return reportError("No SOF0 frame header found in JPEG data");
-    }
-    if (!foundScanHeader) {
-        return reportError("No SOS scan header found in JPEG data");
+        return reportError("No frame header found in JPEG data");
     }
 
-    // Decode the entropy-coded scan data.
-    bitstream.init(data, size, scanDataPosition);
-    if (!decodeScanData()) {
-        return false;
+    // For progressive mode: run IDCT on accumulated coefficients.
+    if (isProgressive) {
+        if (!finalizeProgressiveImage()) {
+            return false;
+        }
     }
 
     return assembleInterleavedImage(outputImage);
