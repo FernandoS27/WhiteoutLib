@@ -37,119 +37,125 @@ namespace {
 // JPEG Sign Extension
 // ============================================================================
 
-/// Extend a magnitude-coded value to its signed representation.
-/// JPEG DC/AC coefficients use a magnitude + sign bit encoding where values
-/// below 2^(category-1) are negative.
-i32 extend_magnitude_to_signed(u32 magnitudeBits, i32 category) {
+/// Branchless JPEG sign extension (libjpeg-turbo style).
+/// If the magnitude value is below 2^(category-1), the value is negative.
+/// Uses an arithmetic mask to avoid the branch.
+inline i32 extend_magnitude_to_signed(u32 magnitudeBits, i32 category) {
     i32 threshold = 1 << (category - 1);
-    if (static_cast<i32>(magnitudeBits) < threshold) {
-        return static_cast<i32>(magnitudeBits) - (2 * threshold - 1);
-    }
-    return static_cast<i32>(magnitudeBits);
+    // mask = 0xFFFFFFFF when negative, 0x00000000 when positive.
+    i32 mask = -static_cast<i32>(static_cast<i32>(magnitudeBits) < threshold);
+    return static_cast<i32>(magnitudeBits) + (mask & (1 - (2 * threshold)));
 }
 
 // ============================================================================
 // Inverse DCT — Loeffler-Ligtenberg-Moschytz (LLM) Butterfly
 // ============================================================================
 
-/// 1-D IDCT butterfly on 8 values (LLM algorithm, IEEE 1992).
-///
-/// The LLM factorisation computes:
-///   X[k] = sum_{n=0..7} x[n] * cos(pi*(2k+1)*n / 16)
-/// using 11 multiplies and 29 adds (instead of the naive 64 multiplies).
-///
-/// Constants are defined in jpeg_common.h, derived from cos(k*pi/16) factors.
-void idct_1d_butterfly(const std::array<f32, BLOCK_SIZE>& input,
-                       std::array<f32, BLOCK_SIZE>& output) {
-    // Even-indexed butterflies (inputs: x0, x2, x4, x6)
-    f32 rotation = (input[2] + input[6]) * EVEN_ROTATION_K;
-    f32 even2 = rotation - input[6] * EVEN_ROTATION_A;
-    f32 even3 = rotation + input[2] * EVEN_ROTATION_B;
-    f32 even0 = input[0] + input[4];
-    f32 even1 = input[0] - input[4];
-    f32 stage_e0 = even0 + even3;
-    f32 stage_e3 = even0 - even3;
-    f32 stage_e1 = even1 + even2;
-    f32 stage_e2 = even1 - even2;
+/// In-place 1-D IDCT butterfly on 8 contiguous floats (LLM algorithm).
+/// Reads all 8 inputs into registers before writing, so input == output is safe.
+static inline void idct_1d_inplace(f32* data) {
+    const f32 x0 = data[0], x1 = data[1], x2 = data[2], x3 = data[3];
+    const f32 x4 = data[4], x5 = data[5], x6 = data[6], x7 = data[7];
 
-    // Odd-indexed butterflies (inputs: x1, x3, x5, x7)
-    f32 sum_73 = input[7] + input[3];
-    f32 sum_51 = input[5] + input[1];
-    f32 sum_71 = input[7] + input[1];
-    f32 sum_53 = input[5] + input[3];
-    f32 scaleFactor = (sum_73 + sum_51) * ODD_SCALE;
+    // Even-indexed butterflies (x0, x2, x4, x6).
+    const f32 rot = (x2 + x6) * EVEN_ROTATION_K;
+    const f32 even2 = rot - x6 * EVEN_ROTATION_A;
+    const f32 even3 = rot + x2 * EVEN_ROTATION_B;
+    const f32 e0 = x0 + x4;
+    const f32 e1 = x0 - x4;
+    const f32 se0 = e0 + even3;
+    const f32 se3 = e0 - even3;
+    const f32 se1 = e1 + even2;
+    const f32 se2 = e1 - even2;
 
-    f32 odd0 = input[7] * ODD_COEFF_X7;
-    f32 odd1 = input[5] * ODD_COEFF_X5;
-    f32 odd2 = input[3] * ODD_COEFF_X3;
-    f32 odd3 = input[1] * ODD_COEFF_X1;
-    sum_71 = scaleFactor + sum_71 * ODD_PAIR_71;
-    sum_53 = scaleFactor + sum_53 * ODD_PAIR_53;
-    sum_73 = sum_73 * ODD_PAIR_73;
-    sum_51 = sum_51 * ODD_PAIR_51;
-    odd3 += sum_71 + sum_51;
-    odd2 += sum_53 + sum_73;
-    odd1 += sum_53 + sum_51;
-    odd0 += sum_71 + sum_73;
+    // Odd-indexed butterflies (x1, x3, x5, x7).
+    const f32 s73 = x7 + x3, s51 = x5 + x1;
+    const f32 s71 = x7 + x1, s53 = x5 + x3;
+    const f32 sf = (s73 + s51) * ODD_SCALE;
+    const f32 t71 = sf + s71 * ODD_PAIR_71;
+    const f32 t53 = sf + s53 * ODD_PAIR_53;
+    const f32 t73 = s73 * ODD_PAIR_73;
+    const f32 t51 = s51 * ODD_PAIR_51;
+    const f32 o0 = x7 * ODD_COEFF_X7 + t71 + t73;
+    const f32 o1 = x5 * ODD_COEFF_X5 + t53 + t51;
+    const f32 o2 = x3 * ODD_COEFF_X3 + t53 + t73;
+    const f32 o3 = x1 * ODD_COEFF_X1 + t71 + t51;
 
     // Final butterfly: combine even and odd parts.
-    output[0] = stage_e0 + odd3;
-    output[1] = stage_e1 + odd2;
-    output[2] = stage_e2 + odd1;
-    output[3] = stage_e3 + odd0;
-    output[4] = stage_e3 - odd0;
-    output[5] = stage_e2 - odd1;
-    output[6] = stage_e1 - odd2;
-    output[7] = stage_e0 - odd3;
+    data[0] = se0 + o3;
+    data[1] = se1 + o2;
+    data[2] = se2 + o1;
+    data[3] = se3 + o0;
+    data[4] = se3 - o0;
+    data[5] = se2 - o1;
+    data[6] = se1 - o2;
+    data[7] = se0 - o3;
+}
+
+/// Transpose an 8x8 float matrix in-place.
+/// After transpose, columns become rows — enabling contiguous access for the
+/// column IDCT pass.
+static inline void transpose_8x8_inplace(f32* block) {
+    for (i32 i = 0; i < BLOCK_SIZE; ++i) {
+        for (i32 j = i + 1; j < BLOCK_SIZE; ++j) {
+            const i32 a = i * BLOCK_SIZE + j;
+            const i32 b = j * BLOCK_SIZE + i;
+            const f32 tmp = block[a];
+            block[a] = block[b];
+            block[b] = tmp;
+        }
+    }
 }
 
 /// Apply the 2-D IDCT to an 8x8 block of dequantised coefficients.
 ///
-/// Uses a separable approach: 1-D IDCT along rows, then 1-D IDCT along columns.
-/// The final output includes the standard +128 DC level-shift and is clamped to
-/// [0, 255].  The 1/8 normalisation factor for the 2-D transform is applied in
-/// the column pass (0.125 = 1/8).
+/// Strategy: row IDCT → 8x8 transpose → column IDCT (now contiguous) →
+/// normalise + level-shift + clamp → write to strided output.
 void inverse_dct_block(const std::array<i32, BLOCK_PIXELS>& dequantisedCoefficients,
                        u8* outputPixels, u32 outputRowStride) {
-    std::array<f32, BLOCK_PIXELS> intermediateBuffer{};
+    alignas(32) f32 block[BLOCK_PIXELS];
 
-    // Row pass (horizontal 1-D IDCT).
-    for (i32 rowIndex = 0; rowIndex < BLOCK_SIZE; rowIndex++) {
-        std::array<f32, BLOCK_SIZE> rowInput{};
-        for (i32 columnIndex = 0; columnIndex < BLOCK_SIZE; columnIndex++) {
-            rowInput[columnIndex] =
-                static_cast<f32>(dequantisedCoefficients[rowIndex * BLOCK_SIZE + columnIndex]);
-        }
+    // Row pass: convert i32 → f32, skip all-zero-AC rows, run 1-D IDCT.
+    for (i32 row = 0; row < BLOCK_SIZE; ++row) {
+        const i32* src = dequantisedCoefficients.data() + row * BLOCK_SIZE;
+        f32* dst = block + row * BLOCK_SIZE;
 
-        // Optimisation: if all AC coefficients in the row are zero, broadcast DC.
-        bool allAcCoefficientsZero =
-            std::all_of(rowInput.begin() + 1, rowInput.end(), [](f32 val) { return val == 0.0f; });
-
-        if (allAcCoefficientsZero) {
-            std::fill_n(&intermediateBuffer[rowIndex * BLOCK_SIZE], BLOCK_SIZE, rowInput[0]);
+        // Fast all-AC-zero check using integer OR (avoids float comparisons).
+        const i32 acOr = src[1] | src[2] | src[3] | src[4] | src[5] | src[6] | src[7];
+        if (acOr == 0) {
+            const f32 dc = static_cast<f32>(src[0]);
+            dst[0] = dc; dst[1] = dc; dst[2] = dc; dst[3] = dc;
+            dst[4] = dc; dst[5] = dc; dst[6] = dc; dst[7] = dc;
         } else {
-            std::array<f32, BLOCK_SIZE> rowOutput{};
-            idct_1d_butterfly(rowInput, rowOutput);
-            std::copy(rowOutput.begin(), rowOutput.end(),
-                      &intermediateBuffer[rowIndex * BLOCK_SIZE]);
+            dst[0] = static_cast<f32>(src[0]); dst[1] = static_cast<f32>(src[1]);
+            dst[2] = static_cast<f32>(src[2]); dst[3] = static_cast<f32>(src[3]);
+            dst[4] = static_cast<f32>(src[4]); dst[5] = static_cast<f32>(src[5]);
+            dst[6] = static_cast<f32>(src[6]); dst[7] = static_cast<f32>(src[7]);
+            idct_1d_inplace(dst);
         }
     }
 
-    // Column pass (vertical 1-D IDCT + normalisation + level-shift).
-    for (i32 columnIndex = 0; columnIndex < BLOCK_SIZE; columnIndex++) {
-        std::array<f32, BLOCK_SIZE> columnInput{};
-        for (i32 rowIndex = 0; rowIndex < BLOCK_SIZE; rowIndex++) {
-            columnInput[rowIndex] = intermediateBuffer[rowIndex * BLOCK_SIZE + columnIndex];
-        }
+    // Transpose so columns become contiguous rows.
+    transpose_8x8_inplace(block);
 
-        std::array<f32, BLOCK_SIZE> columnOutput{};
-        idct_1d_butterfly(columnInput, columnOutput);
+    // Column pass: 1-D IDCT on all 8 (transposed) columns.
+    for (i32 col = 0; col < BLOCK_SIZE; ++col) {
+        idct_1d_inplace(block + col * BLOCK_SIZE);
+    }
 
-        for (i32 rowIndex = 0; rowIndex < BLOCK_SIZE; rowIndex++) {
-            i32 pixelValue = static_cast<i32>(columnOutput[rowIndex] * DCT_2D_NORMALISATION +
-                                              DC_LEVEL_SHIFT_AND_ROUND);
-            outputPixels[rowIndex * outputRowStride + columnIndex] =
-                static_cast<u8>(std::clamp(pixelValue, 0, 255));
+    // Second transpose: restore row-major order so rows are contiguous.
+    transpose_8x8_inplace(block);
+
+    // Normalise + clamp + write: inner loop reads/writes contiguous memory.
+    // The compiler can vectorize the 8-wide float→u8 conversion (mul, add,
+    // cvt, pack) since both source and destination are contiguous.
+    for (i32 row = 0; row < BLOCK_SIZE; ++row) {
+        const f32* src = block + row * BLOCK_SIZE;
+        u8* dst = outputPixels + row * outputRowStride;
+        for (i32 col = 0; col < BLOCK_SIZE; ++col) {
+            const i32 val = static_cast<i32>(src[col] * DCT_2D_NORMALISATION +
+                                             DC_LEVEL_SHIFT_AND_ROUND);
+            dst[col] = static_cast<u8>(std::clamp(val, 0, 255));
         }
     }
 }
@@ -248,17 +254,38 @@ struct JpegDecoder {
                         const std::array<i16, BLOCK_PIXELS>& quantTable);
     bool decodeScanData();
 
+    /// Decode entropy data to coefficient blocks WITHOUT running IDCT.
+    /// Used when a worker pool is available so IDCT can run in parallel.
+    /// Reuses the progressive coefficient storage in each ComponentDescriptor.
+    bool decodeScanDataToCoefficients();
+
+    /// Parallel baseline entropy decode using restart intervals.
+    /// Fuses entropy decode + dequantise + IDCT per interval.
+    /// When directOutput is non-null and no subsampling is active, writes the
+    /// interleaved pixel data directly to the output image (skipping sample
+    /// buffers and the separate assembly pass).
+    bool decodeScanDataParallel(Image* directOutput = nullptr);
+
     // -- Progressive Entropy Decoding --
 
     bool decodeProgressiveScan();
     bool decodeProgressiveDcFirst(u32 compIdx, std::array<i32, BLOCK_PIXELS>& coeffs,
                                   i32& dcPrediction);
     bool decodeProgressiveDcRefine(std::array<i32, BLOCK_PIXELS>& coeffs);
-    bool decodeProgressiveAcFirst(std::array<i32, BLOCK_PIXELS>& coeffs,
-                                  const HuffmanTable& acTable);
-    bool decodeProgressiveAcRefine(std::array<i32, BLOCK_PIXELS>& coeffs,
-                                   const HuffmanTable& acTable);
+    bool decodeProgressiveAcFirst(BitstreamReader& bs,
+                                  std::array<i32, BLOCK_PIXELS>& coeffs,
+                                  const HuffmanTable& acTable, u32& eobRun,
+                                  u8 ss, u8 se, u8 al);
+    bool decodeProgressiveAcRefine(BitstreamReader& bs,
+                                   std::array<i32, BLOCK_PIXELS>& coeffs,
+                                   const HuffmanTable& acTable, u32& eobRun,
+                                   u8 ss, u8 se, u8 al);
     bool finalizeProgressiveImage();
+
+    /// Combined dequantize + IDCT + interleave for the no-subsampling case.
+    /// Writes directly to the output image, eliminating the intermediate
+    /// sample buffer write + a separate assembly pass.
+    bool finalizeAndAssembleImage(Image& outputImage);
 
     // -- Output Assembly --
 
@@ -594,7 +621,8 @@ bool JpegDecoder::decodeScanData() {
                 for (u32 blockRow = 0; blockRow < component.verticalSampling; blockRow++) {
                     for (u32 blockColumn = 0; blockColumn < component.horizontalSampling;
                          blockColumn++) {
-                        std::array<i32, BLOCK_PIXELS> dctCoefficients{};
+                        // No zero-init needed: decodeDctBlock starts with fill(0).
+                        std::array<i32, BLOCK_PIXELS> dctCoefficients;
                         if (!decodeDctBlock(
                                 dctCoefficients, dcHuffmanTables[component.dcHuffmanIndex],
                                 acHuffmanTables[component.acHuffmanIndex], component.dcPrediction,
@@ -618,6 +646,347 @@ bool JpegDecoder::decodeScanData() {
             mcuSequenceIndex++;
         }
     }
+    return true;
+}
+
+/// Decode baseline entropy data into coefficient blocks (no IDCT).
+/// Allocates progressive-style coefficient storage so that finalizeProgressiveImage()
+/// can run IDCT in parallel afterwards.
+bool JpegDecoder::decodeScanDataToCoefficients() {
+    // Validate tables (same as decodeScanData).
+    for (u32 ci = 0; ci < componentCount; ci++) {
+        if (!dcHuffmanTables[components[ci].dcHuffmanIndex].isBuilt ||
+            !acHuffmanTables[components[ci].acHuffmanIndex].isBuilt) {
+            return reportError("Missing Huffman table for component " + std::to_string(ci));
+        }
+        if (!quantTablePresent[components[ci].quantTableIndex]) {
+            return reportError("Missing quantisation table for component " + std::to_string(ci));
+        }
+    }
+
+    // Allocate coefficient blocks (same layout as progressive mode).
+    for (u32 ci = 0; ci < componentCount; ci++) {
+        auto& comp = components[ci];
+        comp.blocksPerRow = mcuColumnsCount * comp.horizontalSampling;
+        comp.blocksPerCol = mcuRowsCount * comp.verticalSampling;
+        u32 totalBlocks = comp.blocksPerRow * comp.blocksPerCol;
+        static constexpr std::array<i32, BLOCK_PIXELS> kZeroBlock{};
+        comp.coefficientBlocks.assign(totalBlocks, kZeroBlock);
+    }
+
+    u32 mcuSequenceIndex = 0;
+    for (u32 mcuRow = 0; mcuRow < mcuRowsCount; mcuRow++) {
+        for (u32 mcuCol = 0; mcuCol < mcuColumnsCount; mcuCol++) {
+            if (restartInterval > 0 && mcuSequenceIndex > 0 &&
+                (mcuSequenceIndex % restartInterval) == 0) {
+                for (u32 ci = 0; ci < componentCount; ci++) {
+                    components[ci].dcPrediction = 0;
+                }
+                bitstream.handleRestartMarker();
+            }
+
+            for (u32 ci = 0; ci < componentCount; ci++) {
+                auto& comp = components[ci];
+                for (u32 blockRow = 0; blockRow < comp.verticalSampling; blockRow++) {
+                    for (u32 blockCol = 0; blockCol < comp.horizontalSampling; blockCol++) {
+                        u32 bx = mcuCol * comp.horizontalSampling + blockCol;
+                        u32 by = mcuRow * comp.verticalSampling + blockRow;
+                        auto& coeffs = comp.coefficientBlocks[by * comp.blocksPerRow + bx];
+
+                        // Decode DC.
+                        const auto& dcTable = dcHuffmanTables[comp.dcHuffmanIndex];
+                        i32 dcCategory = dcTable.decodeSymbol(bitstream);
+                        if (dcCategory < 0) return reportError("Huffman DC decode error");
+                        i32 dcDifference = 0;
+                        if (dcCategory > 0) {
+                            u32 magnitudeBits = bitstream.readBits(dcCategory);
+                            dcDifference = extend_magnitude_to_signed(magnitudeBits, dcCategory);
+                        }
+                        comp.dcPrediction += dcDifference;
+                        coeffs[0] = comp.dcPrediction;
+
+                        // Decode AC.
+                        const auto& acTable = acHuffmanTables[comp.acHuffmanIndex];
+                        i32 coeffIdx = 1;
+                        while (coeffIdx < BLOCK_PIXELS) {
+                            i32 sym = acTable.decodeSymbol(bitstream);
+                            if (sym < 0) return reportError("Huffman AC decode error");
+                            i32 run = (sym >> 4) & 0x0F;
+                            i32 cat = sym & 0x0F;
+                            if (cat == 0) {
+                                if (run == 0) break;     // EOB
+                                if (run == 15) { coeffIdx += 16; continue; } // ZRL
+                                break;
+                            }
+                            coeffIdx += run;
+                            if (coeffIdx >= BLOCK_PIXELS) {
+                                return reportError("AC coefficient index out of range");
+                            }
+                            u32 mag = bitstream.readBits(cat);
+                            i32 acVal = extend_magnitude_to_signed(mag, cat);
+                            // Store in zig-zag order (coefficients are NOT dequantized
+                            // here — finalizeProgressiveImage handles dequantization).
+                            coeffs[coeffIdx] = acVal;
+                            coeffIdx++;
+                        }
+                    }
+                }
+            }
+            mcuSequenceIndex++;
+        }
+    }
+    return true;
+}
+
+/// Parallel baseline entropy decode using restart intervals.
+/// Pre-scans raw bytes for RST marker positions, then decodes each interval
+/// independently in parallel — fusing entropy decode + dequantise + IDCT.
+/// When directOutput is non-null, writes interleaved pixels directly to the
+/// output image (only works for the no-subsampling case: all h/v sampling = 1).
+bool JpegDecoder::decodeScanDataParallel(Image* directOutput) {
+    // Validate tables.
+    for (u32 ci = 0; ci < componentCount; ci++) {
+        if (!dcHuffmanTables[components[ci].dcHuffmanIndex].isBuilt ||
+            !acHuffmanTables[components[ci].acHuffmanIndex].isBuilt) {
+            return reportError("Missing Huffman table for component " + std::to_string(ci));
+        }
+        if (!quantTablePresent[components[ci].quantTableIndex]) {
+            return reportError("Missing quantisation table for component " + std::to_string(ci));
+        }
+    }
+
+    // Pre-allocate the output image for direct-output mode.
+    if (directOutput) {
+        directOutput->width = imageWidth;
+        directOutput->height = imageHeight;
+        directOutput->components = componentCount;
+        directOutput->pixels.resize(
+            static_cast<size_t>(imageWidth) * imageHeight * componentCount);
+    }
+
+    // Pre-scan raw bytes to find restart marker byte positions.
+    auto intervalStarts = std::make_shared<std::vector<size_t>>();
+    intervalStarts->push_back(bitstream.bytePos);
+    {
+        size_t pos = bitstream.bytePos;
+        while (pos + 1 < bitstream.size) {
+            if (bitstream.data[pos] == 0xFF) {
+                u8 next = bitstream.data[pos + 1];
+                if (next == 0x00) { pos += 2; continue; }
+                if (next >= MARKER_RST0 && next <= MARKER_RST0 + 7) {
+                    pos += 2;
+                    intervalStarts->push_back(pos);
+                    continue;
+                }
+                break; // real marker — end of entropy data
+            }
+            ++pos;
+        }
+    }
+
+    const u32 nIntervals = static_cast<u32>(intervalStarts->size());
+    const u32 mcusPerInterval = restartInterval;
+    const u32 totalMCUs = mcuColumnsCount * mcuRowsCount;
+    const u32 mcuCols = mcuColumnsCount;
+    const u32 compCnt = componentCount;
+
+    // Capture per-component layout + table info for the parallel lambda.
+    struct CompInfo {
+        u8 dcHuffIdx;
+        u8 acHuffIdx;
+        u8 quantIdx;
+        u8 hSampling;
+        u8 vSampling;
+        u32 sampleStride;
+    };
+    std::array<CompInfo, MAX_COMPONENTS> compInfo{};
+    for (u32 ci = 0; ci < compCnt; ++ci) {
+        compInfo[ci] = {
+            components[ci].dcHuffmanIndex,
+            components[ci].acHuffmanIndex,
+            components[ci].quantTableIndex,
+            components[ci].horizontalSampling,
+            components[ci].verticalSampling,
+            components[ci].sampleBufferStride
+        };
+    }
+
+    if (directOutput) {
+        // Fused path: decode + dequant + IDCT → temp blocks → interleave → output.
+        // Skips sample buffers entirely for the no-subsampling case.
+        u8* const outputData = directOutput->pixels.data();
+        const u32 imgW = imageWidth;
+        const u32 imgH = imageHeight;
+
+        parallel_for_blocks(nIntervals, ctx,
+            [this, intervalStarts, mcusPerInterval, totalMCUs, mcuCols, compCnt, compInfo,
+             outputData, imgW, imgH]
+            (u32 intBegin, u32 intEnd) {
+                for (u32 interval = intBegin; interval < intEnd; ++interval) {
+                    BitstreamReader localBs;
+                    localBs.init(bitstream.data, bitstream.size,
+                                 (*intervalStarts)[interval]);
+
+                    std::array<i32, MAX_COMPONENTS> dcPreds{};
+                    u32 mcuStart = interval * mcusPerInterval;
+                    u32 mcuEnd = std::min(mcuStart + mcusPerInterval, totalMCUs);
+
+                    for (u32 mcuIdx = mcuStart; mcuIdx < mcuEnd; ++mcuIdx) {
+                        u32 mcuRow = mcuIdx / mcuCols;
+                        u32 mcuCol = mcuIdx % mcuCols;
+
+                        // Decode all component blocks for this MCU into temp arrays.
+                        std::array<std::array<u8, BLOCK_PIXELS>, MAX_COMPONENTS> blks;
+                        for (u32 ci = 0; ci < compCnt; ++ci) {
+                            const auto& info = compInfo[ci];
+                            const auto& dcTable = dcHuffmanTables[info.dcHuffIdx];
+                            const auto& acTable = acHuffmanTables[info.acHuffIdx];
+                            const auto& qt = quantTables[info.quantIdx];
+
+                            std::array<i32, BLOCK_PIXELS> dequant{};
+
+                            i32 dcCat = dcTable.decodeSymbol(localBs);
+                            i32 dcDiff = 0;
+                            if (dcCat > 0) {
+                                u32 mag = localBs.readBits(dcCat);
+                                dcDiff = extend_magnitude_to_signed(mag, dcCat);
+                            }
+                            dcPreds[ci] += dcDiff;
+                            dequant[0] = dcPreds[ci] * qt[0];
+
+                            i32 k = 1;
+                            while (k < BLOCK_PIXELS) {
+                                i32 sym = acTable.decodeSymbol(localBs);
+                                i32 run = (sym >> 4) & 0x0F;
+                                i32 cat = sym & 0x0F;
+                                if (cat == 0) {
+                                    if (run == 15) { k += 16; continue; }
+                                    break;
+                                }
+                                k += run;
+                                if (k >= BLOCK_PIXELS) break;
+                                u32 mag = localBs.readBits(cat);
+                                i32 val = extend_magnitude_to_signed(mag, cat);
+                                dequant[ZIGZAG_ORDER[k]] = val * qt[k];
+                                k++;
+                            }
+
+                            inverse_dct_block(dequant, blks[ci].data(), BLOCK_SIZE);
+                        }
+
+                        // Interleave directly to output image.
+                        u32 px = mcuCol * BLOCK_SIZE;
+                        u32 py = mcuRow * BLOCK_SIZE;
+                        u32 rowEnd = std::min(py + static_cast<u32>(BLOCK_SIZE), imgH);
+                        u32 cols = std::min(px + static_cast<u32>(BLOCK_SIZE), imgW) - px;
+
+                        for (u32 y = py; y < rowEnd; ++y) {
+                            u8* dst = outputData +
+                                (static_cast<size_t>(y) * imgW + px) * compCnt;
+                            u32 bRow = y - py;
+                            if (compCnt == 4) {
+                                const u8* s0 = blks[0].data() + bRow * BLOCK_SIZE;
+                                const u8* s1 = blks[1].data() + bRow * BLOCK_SIZE;
+                                const u8* s2 = blks[2].data() + bRow * BLOCK_SIZE;
+                                const u8* s3 = blks[3].data() + bRow * BLOCK_SIZE;
+                                for (u32 x = 0; x < cols; ++x) {
+                                    dst[x * 4    ] = s0[x];
+                                    dst[x * 4 + 1] = s1[x];
+                                    dst[x * 4 + 2] = s2[x];
+                                    dst[x * 4 + 3] = s3[x];
+                                }
+                            } else if (compCnt == 3) {
+                                const u8* s0 = blks[0].data() + bRow * BLOCK_SIZE;
+                                const u8* s1 = blks[1].data() + bRow * BLOCK_SIZE;
+                                const u8* s2 = blks[2].data() + bRow * BLOCK_SIZE;
+                                for (u32 x = 0; x < cols; ++x) {
+                                    dst[x * 3    ] = s0[x];
+                                    dst[x * 3 + 1] = s1[x];
+                                    dst[x * 3 + 2] = s2[x];
+                                }
+                            } else if (compCnt == 1) {
+                                std::memcpy(dst, blks[0].data() + bRow * BLOCK_SIZE,
+                                            cols);
+                            } else {
+                                for (u32 x = 0; x < cols; ++x) {
+                                    for (u32 c = 0; c < compCnt; ++c) {
+                                        dst[x * compCnt + c] =
+                                            blks[c][bRow * BLOCK_SIZE + x];
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+    } else {
+        // Standard path: decode + dequant + IDCT → per-component sample buffers.
+        parallel_for_blocks(nIntervals, ctx,
+            [this, intervalStarts, mcusPerInterval, totalMCUs, mcuCols, compCnt, compInfo]
+            (u32 intBegin, u32 intEnd) {
+                for (u32 interval = intBegin; interval < intEnd; ++interval) {
+                    BitstreamReader localBs;
+                    localBs.init(bitstream.data, bitstream.size,
+                                 (*intervalStarts)[interval]);
+
+                    std::array<i32, MAX_COMPONENTS> dcPreds{};
+                    u32 mcuStart = interval * mcusPerInterval;
+                    u32 mcuEnd = std::min(mcuStart + mcusPerInterval, totalMCUs);
+
+                    for (u32 mcuIdx = mcuStart; mcuIdx < mcuEnd; ++mcuIdx) {
+                        u32 mcuRow = mcuIdx / mcuCols;
+                        u32 mcuCol = mcuIdx % mcuCols;
+
+                        for (u32 ci = 0; ci < compCnt; ++ci) {
+                            const auto& info = compInfo[ci];
+                            const auto& dcTable = dcHuffmanTables[info.dcHuffIdx];
+                            const auto& acTable = acHuffmanTables[info.acHuffIdx];
+                            const auto& qt = quantTables[info.quantIdx];
+
+                            for (u32 br = 0; br < info.vSampling; ++br) {
+                                for (u32 bc = 0; bc < info.hSampling; ++bc) {
+                                    std::array<i32, BLOCK_PIXELS> dequant{};
+
+                                    i32 dcCat = dcTable.decodeSymbol(localBs);
+                                    i32 dcDiff = 0;
+                                    if (dcCat > 0) {
+                                        u32 mag = localBs.readBits(dcCat);
+                                        dcDiff = extend_magnitude_to_signed(mag, dcCat);
+                                    }
+                                    dcPreds[ci] += dcDiff;
+                                    dequant[0] = dcPreds[ci] * qt[0];
+
+                                    i32 k = 1;
+                                    while (k < BLOCK_PIXELS) {
+                                        i32 sym = acTable.decodeSymbol(localBs);
+                                        i32 run = (sym >> 4) & 0x0F;
+                                        i32 cat = sym & 0x0F;
+                                        if (cat == 0) {
+                                            if (run == 15) { k += 16; continue; }
+                                            break;
+                                        }
+                                        k += run;
+                                        if (k >= BLOCK_PIXELS) break;
+                                        u32 mag = localBs.readBits(cat);
+                                        i32 val = extend_magnitude_to_signed(mag, cat);
+                                        dequant[ZIGZAG_ORDER[k]] = val * qt[k];
+                                        k++;
+                                    }
+
+                                    u32 px = (mcuCol * info.hSampling + bc) * BLOCK_SIZE;
+                                    u32 py = (mcuRow * info.vSampling + br) * BLOCK_SIZE;
+                                    inverse_dct_block(dequant,
+                                        components[ci].sampleBuffer.data()
+                                            + py * info.sampleStride + px,
+                                        info.sampleStride);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+    }
+
     return true;
 }
 
@@ -654,15 +1023,17 @@ bool JpegDecoder::decodeProgressiveDcRefine(std::array<i32, BLOCK_PIXELS>& coeff
 
 /// Decode AC first-pass coefficients for one block in a progressive scan.
 /// Ss>0, Ah=0 — initial AC coefficients in range [Ss, Se] with point transform Al.
-bool JpegDecoder::decodeProgressiveAcFirst(std::array<i32, BLOCK_PIXELS>& coeffs,
-                                               const HuffmanTable& acTable) {
+bool JpegDecoder::decodeProgressiveAcFirst(BitstreamReader& bs,
+                                               std::array<i32, BLOCK_PIXELS>& coeffs,
+                                               const HuffmanTable& acTable, u32& eobRun,
+                                               u8 ss, u8 se, u8 al) {
     if (eobRun > 0) {
         --eobRun;
         return true;
     }
 
-    for (i32 k = scanSpectralStart; k <= scanSpectralEnd; ++k) {
-        i32 symbol = acTable.decodeSymbol(bitstream);
+    for (i32 k = ss; k <= se; ++k) {
+        i32 symbol = acTable.decodeSymbol(bs);
         if (symbol < 0) {
             return reportError("Progressive AC first: Huffman decode error");
         }
@@ -677,34 +1048,31 @@ bool JpegDecoder::decodeProgressiveAcFirst(std::array<i32, BLOCK_PIXELS>& coeffs
             // EOBn: End of band for 2^runLength blocks.
             eobRun = (1u << runLength);
             if (runLength > 0) {
-                eobRun += bitstream.readBits(runLength);
+                eobRun += bs.readBits(runLength);
             }
             --eobRun; // Current block counts as one.
             return true;
         }
 
         k += runLength;
-        if (k > scanSpectralEnd) {
+        if (k > se) {
             return reportError("Progressive AC first: coefficient index out of range");
         }
-        u32 magnitudeBits = bitstream.readBits(category);
+        u32 magnitudeBits = bs.readBits(category);
         i32 value = extend_magnitude_to_signed(magnitudeBits, category);
-        coeffs[k] = value << scanApproxLow;
+        coeffs[k] = value << al;
     }
     return true;
 }
 
-/// Apply one correction bit to a previously-nonzero coefficient.
+/// Apply one correction bit to a previously-nonzero coefficient (branchless).
 /// If the read bit is 1, the coefficient magnitude is increased by correctionBit
 /// (added for positive values, subtracted for negative).
-void applyRefinementBit(BitstreamReader& bitstream, i32& coeff, i32 correctionBit) {
-    u32 bit = bitstream.readBits(1);
-    if (bit) {
-        if (coeff > 0)
-            coeff += correctionBit;
-        else
-            coeff -= correctionBit;
-    }
+inline void applyRefinementBit(BitstreamReader& bs, i32& coeff, i32 correctionBit) {
+    const i32 bit = static_cast<i32>(bs.readBits(1));
+    // sign = +1 for positive coeff, -1 for negative (coeff is always nonzero here).
+    const i32 sign = (coeff >> 31) | 1;
+    coeff += bit * sign * correctionBit;
 }
 
 /// Decode AC refinement for one block in a progressive scan.
@@ -714,24 +1082,26 @@ void applyRefinementBit(BitstreamReader& bitstream, i32& coeff, i32 correctionBi
 ///  - Previously-zero coefficients may become nonzero (category=1) or stay zero (run skip).
 ///  - Previously-nonzero coefficients receive one correction bit per pass.
 ///  - EOBRUN mechanism skips remaining zero positions.
-bool JpegDecoder::decodeProgressiveAcRefine(std::array<i32, BLOCK_PIXELS>& coeffs,
-                                                const HuffmanTable& acTable) {
-    i32 k = scanSpectralStart;
-    i32 correctionBit = 1 << scanApproxLow;
+bool JpegDecoder::decodeProgressiveAcRefine(BitstreamReader& bs,
+                                                std::array<i32, BLOCK_PIXELS>& coeffs,
+                                                const HuffmanTable& acTable, u32& eobRun,
+                                                u8 ss, u8 se, u8 al) {
+    i32 k = ss;
+    i32 correctionBit = 1 << al;
 
     if (eobRun > 0) {
         // In an EOB run: just refine existing nonzero coefficients.
-        for (; k <= scanSpectralEnd; ++k) {
+        for (; k <= se; ++k) {
             if (coeffs[k] != 0) {
-                applyRefinementBit(bitstream, coeffs[k], correctionBit);
+                applyRefinementBit(bs, coeffs[k], correctionBit);
             }
         }
         --eobRun;
         return true;
     }
 
-    for (; k <= scanSpectralEnd; ++k) {
-        i32 symbol = acTable.decodeSymbol(bitstream);
+    for (; k <= se; ++k) {
+        i32 symbol = acTable.decodeSymbol(bs);
         if (symbol < 0) {
             return reportError("Progressive AC refine: Huffman decode error");
         }
@@ -744,12 +1114,12 @@ bool JpegDecoder::decodeProgressiveAcRefine(std::array<i32, BLOCK_PIXELS>& coeff
                 // EOBn.
                 eobRun = (1u << runLength);
                 if (runLength > 0) {
-                    eobRun += bitstream.readBits(runLength);
+                    eobRun += bs.readBits(runLength);
                 }
                 // Refine remaining nonzero coefficients in this block, then done.
-                for (; k <= scanSpectralEnd; ++k) {
+                for (; k <= se; ++k) {
                     if (coeffs[k] != 0) {
-                        applyRefinementBit(bitstream, coeffs[k], correctionBit);
+                        applyRefinementBit(bs, coeffs[k], correctionBit);
                     }
                 }
                 --eobRun;
@@ -757,9 +1127,10 @@ bool JpegDecoder::decodeProgressiveAcRefine(std::array<i32, BLOCK_PIXELS>& coeff
             }
             // runLength == 15: ZRL with no new nonzero — skip 16 zero positions.
         } else if (category == 1) {
-            // New nonzero coefficient: read sign bit.
-            u32 signBit = bitstream.readBits(1);
-            newValue = signBit ? correctionBit : -correctionBit;
+            // New nonzero coefficient: read sign bit (branchless).
+            // signBit=1 → +correctionBit, signBit=0 → -correctionBit.
+            const i32 signBit = static_cast<i32>(bs.readBits(1));
+            newValue = (signBit * 2 - 1) * correctionBit;
         } else {
             return reportError("Progressive AC refine: unexpected category " +
                                std::to_string(category));
@@ -767,10 +1138,10 @@ bool JpegDecoder::decodeProgressiveAcRefine(std::array<i32, BLOCK_PIXELS>& coeff
 
         // Skip `runLength` zero-valued positions, refining nonzero ones along the way.
         i32 zerosToSkip = runLength;
-        for (; k <= scanSpectralEnd; ++k) {
+        for (; k <= se; ++k) {
             if (coeffs[k] != 0) {
                 // Refine existing nonzero coefficient.
-                applyRefinementBit(bitstream, coeffs[k], correctionBit);
+                applyRefinementBit(bs, coeffs[k], correctionBit);
             } else {
                 if (zerosToSkip == 0) {
                     break; // Found the target zero position.
@@ -780,7 +1151,7 @@ bool JpegDecoder::decodeProgressiveAcRefine(std::array<i32, BLOCK_PIXELS>& coeff
         }
 
         // Place the new nonzero coefficient (if any) at position k.
-        if (newValue != 0 && k <= scanSpectralEnd) {
+        if (newValue != 0 && k <= se) {
             coeffs[k] = newValue;
         }
     }
@@ -866,10 +1237,14 @@ bool JpegDecoder::decodeProgressiveScan() {
                 auto& coeffs = comp.coefficientBlocks[by * totalBlocksX + bx];
 
                 if (isFirstPass) {
-                    if (!decodeProgressiveAcFirst(coeffs, acTable))
+                    if (!decodeProgressiveAcFirst(bitstream, coeffs, acTable,
+                                                  eobRun, scanSpectralStart,
+                                                  scanSpectralEnd, scanApproxLow))
                         return false;
                 } else {
-                    if (!decodeProgressiveAcRefine(coeffs, acTable))
+                    if (!decodeProgressiveAcRefine(bitstream, coeffs, acTable,
+                                                   eobRun, scanSpectralStart,
+                                                   scanSpectralEnd, scanApproxLow))
                         return false;
                 }
                 ++mcuSequenceIndex;
@@ -906,10 +1281,30 @@ bool JpegDecoder::finalizeProgressiveImage() {
                     components[ci].quantTableIndex};
     }
 
+    // Precompute natural-to-zigzag index map so the inner loop can use a
+    // contiguous-write gather pattern instead of a random-write scatter.
+    // NATURAL_TO_ZIGZAG[naturalPos] = zigzagPos.
+    std::array<u8, BLOCK_PIXELS> naturalToZigzag{};
+    for (i32 z = 0; z < BLOCK_PIXELS; ++z) {
+        naturalToZigzag[ZIGZAG_ORDER[z]] = static_cast<u8>(z);
+    }
+
+    // Precompute natural-order quantisation tables for each unique quant table
+    // so the per-block loop avoids the scatter entirely.
+    std::array<std::array<i16, BLOCK_PIXELS>, MAX_TABLES> naturalQuantTables{};
+    for (u32 ci = 0; ci < componentCount; ++ci) {
+        const u8 qi = info[ci].quantTableIndex;
+        const auto& qt = quantTables[qi];
+        auto& nqt = naturalQuantTables[qi];
+        for (i32 z = 0; z < BLOCK_PIXELS; ++z) {
+            nqt[ZIGZAG_ORDER[z]] = qt[z];
+        }
+    }
+
     const u32 compCnt = componentCount;
 
     parallel_for_blocks(totalBlocks, ctx,
-        [this, compCnt, info](u32 flatBegin, u32 flatEnd) {
+        [this, compCnt, info, naturalToZigzag, naturalQuantTables](u32 flatBegin, u32 flatEnd) {
             for (u32 flat = flatBegin; flat < flatEnd; ++flat) {
                 // Find which component and which block within it.
                 u32 ci = 0;
@@ -923,13 +1318,14 @@ bool JpegDecoder::finalizeProgressiveImage() {
 
                 auto& comp = components[ci];
                 auto& coeffs = comp.coefficientBlocks[by * info[ci].blocksPerRow + bx];
-                const auto& quantTable = quantTables[info[ci].quantTableIndex];
+                const auto& nqt = naturalQuantTables[info[ci].quantTableIndex];
 
-                // Dequantize: multiply each zig-zag-ordered coefficient by the
-                // quant value and place in natural (row-major) order for the IDCT.
-                std::array<i32, BLOCK_PIXELS> dequantised{};
-                for (i32 zigzag = 0; zigzag < BLOCK_PIXELS; ++zigzag) {
-                    dequantised[ZIGZAG_ORDER[zigzag]] = coeffs[zigzag] * quantTable[zigzag];
+                // Dequantize in natural (row-major) order: gather from zigzag,
+                // multiply by natural-order quant table, write contiguously.
+                // The contiguous write pattern is auto-vectorisation friendly.
+                std::array<i32, BLOCK_PIXELS> dequantised;
+                for (i32 n = 0; n < BLOCK_PIXELS; ++n) {
+                    dequantised[n] = coeffs[naturalToZigzag[n]] * nqt[n];
                 }
 
                 u32 pixelX = bx * BLOCK_SIZE;
@@ -938,6 +1334,121 @@ bool JpegDecoder::finalizeProgressiveImage() {
                                   comp.sampleBuffer.data() +
                                       pixelY * comp.sampleBufferStride + pixelX,
                                   comp.sampleBufferStride);
+            }
+        });
+
+    return true;
+}
+
+/// Combined dequantize + IDCT + interleave for the no-subsampling case.
+/// Processes blocks by MCU position: for each MCU, all component blocks are
+/// dequantised and IDCT'd into stack-allocated temporaries, then interleaved
+/// directly into the output image.  Eliminates the intermediate sample buffers
+/// and the separate assembly pass.
+bool JpegDecoder::finalizeAndAssembleImage(Image& outputImage) {
+    outputImage.width = imageWidth;
+    outputImage.height = imageHeight;
+    outputImage.components = componentCount;
+    outputImage.pixels.resize(
+        static_cast<size_t>(imageWidth) * imageHeight * componentCount);
+
+    // Precompute natural-to-zigzag index map.
+    std::array<u8, BLOCK_PIXELS> naturalToZigzag{};
+    for (i32 z = 0; z < BLOCK_PIXELS; ++z) {
+        naturalToZigzag[ZIGZAG_ORDER[z]] = static_cast<u8>(z);
+    }
+
+    // Precompute natural-order quantisation tables.
+    std::array<std::array<i16, BLOCK_PIXELS>, MAX_TABLES> naturalQuantTables{};
+    for (u32 ci = 0; ci < componentCount; ++ci) {
+        const u8 qi = components[ci].quantTableIndex;
+        const auto& qt = quantTables[qi];
+        auto& nqt = naturalQuantTables[qi];
+        for (i32 z = 0; z < BLOCK_PIXELS; ++z) {
+            nqt[ZIGZAG_ORDER[z]] = qt[z];
+        }
+    }
+
+    const u32 compCnt = componentCount;
+    const u32 imgW = imageWidth;
+    const u32 imgH = imageHeight;
+    const u32 mcuCols = mcuColumnsCount;
+    const u32 totalMCUs = mcuColumnsCount * mcuRowsCount;
+
+    struct CompLayout {
+        u32 blocksPerRow;
+        u8 quantTableIndex;
+    };
+    std::array<CompLayout, MAX_COMPONENTS> layout{};
+    for (u32 ci = 0; ci < compCnt; ++ci) {
+        layout[ci] = {components[ci].blocksPerRow, components[ci].quantTableIndex};
+    }
+
+    parallel_for_blocks(totalMCUs, ctx,
+        [this, compCnt, imgW, imgH, mcuCols, layout, naturalToZigzag,
+         naturalQuantTables, &outputImage]
+        (u32 mcuBegin, u32 mcuEnd) {
+            u8* const pixelBase = outputImage.pixels.data();
+
+            for (u32 mcuIdx = mcuBegin; mcuIdx < mcuEnd; ++mcuIdx) {
+                const u32 mcuCol = mcuIdx % mcuCols;
+                const u32 mcuRow = mcuIdx / mcuCols;
+                const u32 px = mcuCol * BLOCK_SIZE;
+                const u32 py = mcuRow * BLOCK_SIZE;
+
+                // Dequantize + IDCT each component block into temp arrays.
+                std::array<std::array<u8, BLOCK_PIXELS>, MAX_COMPONENTS> blks;
+                for (u32 ci = 0; ci < compCnt; ++ci) {
+                    auto& coeffs = components[ci].coefficientBlocks[
+                        mcuRow * layout[ci].blocksPerRow + mcuCol];
+                    const auto& nqt = naturalQuantTables[layout[ci].quantTableIndex];
+
+                    std::array<i32, BLOCK_PIXELS> dequantised;
+                    for (i32 n = 0; n < BLOCK_PIXELS; ++n) {
+                        dequantised[n] = coeffs[naturalToZigzag[n]] * nqt[n];
+                    }
+                    inverse_dct_block(dequantised, blks[ci].data(), BLOCK_SIZE);
+                }
+
+                // Interleave all components directly into the output image.
+                const u32 rowEnd = std::min(py + static_cast<u32>(BLOCK_SIZE), imgH);
+                const u32 cols = std::min(px + static_cast<u32>(BLOCK_SIZE), imgW) - px;
+
+                for (u32 y = py; y < rowEnd; ++y) {
+                    u8* dst = pixelBase +
+                        (static_cast<size_t>(y) * imgW + px) * compCnt;
+                    const u32 bRow = y - py;
+                    if (compCnt == 4) {
+                        const u8* s0 = blks[0].data() + bRow * BLOCK_SIZE;
+                        const u8* s1 = blks[1].data() + bRow * BLOCK_SIZE;
+                        const u8* s2 = blks[2].data() + bRow * BLOCK_SIZE;
+                        const u8* s3 = blks[3].data() + bRow * BLOCK_SIZE;
+                        for (u32 x = 0; x < cols; ++x) {
+                            dst[x * 4    ] = s0[x];
+                            dst[x * 4 + 1] = s1[x];
+                            dst[x * 4 + 2] = s2[x];
+                            dst[x * 4 + 3] = s3[x];
+                        }
+                    } else if (compCnt == 3) {
+                        const u8* s0 = blks[0].data() + bRow * BLOCK_SIZE;
+                        const u8* s1 = blks[1].data() + bRow * BLOCK_SIZE;
+                        const u8* s2 = blks[2].data() + bRow * BLOCK_SIZE;
+                        for (u32 x = 0; x < cols; ++x) {
+                            dst[x * 3    ] = s0[x];
+                            dst[x * 3 + 1] = s1[x];
+                            dst[x * 3 + 2] = s2[x];
+                        }
+                    } else if (compCnt == 1) {
+                        std::memcpy(dst, blks[0].data() + bRow * BLOCK_SIZE, cols);
+                    } else {
+                        for (u32 x = 0; x < cols; ++x) {
+                            for (u32 c = 0; c < compCnt; ++c) {
+                                dst[x * compCnt + c] =
+                                    blks[c][bRow * BLOCK_SIZE + x];
+                            }
+                        }
+                    }
+                }
             }
         });
 
@@ -977,17 +1488,82 @@ bool JpegDecoder::assembleInterleavedImage(Image& outputImage) {
                        components[ci].sampleBuffer.data()};
     }
 
+    // Detect the common no-subsampling case (all components match max sampling).
+    bool noSubsampling = true;
+    for (u32 ci = 0; ci < compCnt; ++ci) {
+        if (layouts[ci].horizontalSampling != maxHS ||
+            layouts[ci].verticalSampling != maxVS) {
+            noSubsampling = false;
+            break;
+        }
+    }
+
     parallel_for_blocks(imageHeight, ctx,
-        [&outputImage, imgW, compCnt, maxHS, maxVS, layouts](u32 rowBegin, u32 rowEnd) {
-            for (u32 pixelY = rowBegin; pixelY < rowEnd; ++pixelY) {
-                for (u32 pixelX = 0; pixelX < imgW; ++pixelX) {
-                    size_t destOff =
-                        (static_cast<size_t>(pixelY) * imgW + pixelX) * compCnt;
+        [&outputImage, imgW, compCnt, maxHS, maxVS, layouts, noSubsampling]
+        (u32 rowBegin, u32 rowEnd) {
+            u8* const pixelBase = outputImage.pixels.data();
+
+            if (noSubsampling) {
+                // Fast path: sampleX == pixelX, sampleY == pixelY for all components.
+                // No divisions needed; specialise inner loop by component count
+                // so the compiler can unroll and use wider stores.
+                for (u32 pixelY = rowBegin; pixelY < rowEnd; ++pixelY) {
+                    u8* dest = pixelBase + static_cast<size_t>(pixelY) * imgW * compCnt;
+                    std::array<const u8*, MAX_COMPONENTS> srcRow{};
                     for (u32 ci = 0; ci < compCnt; ++ci) {
-                        u32 sampleX = pixelX * layouts[ci].horizontalSampling / maxHS;
+                        srcRow[ci] = layouts[ci].sampleData +
+                                     pixelY * layouts[ci].sampleBufferStride;
+                    }
+
+                    if (compCnt == 1) {
+                        // Grayscale: straight memcpy.
+                        std::memcpy(dest, srcRow[0], imgW);
+                    } else if (compCnt == 4) {
+                        // 4-component (BLP BGRA): explicit interleave enables
+                        // the compiler to emit 32-bit packed writes.
+                        const u8* s0 = srcRow[0];
+                        const u8* s1 = srcRow[1];
+                        const u8* s2 = srcRow[2];
+                        const u8* s3 = srcRow[3];
+                        for (u32 x = 0; x < imgW; ++x) {
+                            dest[x * 4    ] = s0[x];
+                            dest[x * 4 + 1] = s1[x];
+                            dest[x * 4 + 2] = s2[x];
+                            dest[x * 4 + 3] = s3[x];
+                        }
+                    } else if (compCnt == 3) {
+                        const u8* s0 = srcRow[0];
+                        const u8* s1 = srcRow[1];
+                        const u8* s2 = srcRow[2];
+                        for (u32 x = 0; x < imgW; ++x) {
+                            dest[x * 3    ] = s0[x];
+                            dest[x * 3 + 1] = s1[x];
+                            dest[x * 3 + 2] = s2[x];
+                        }
+                    } else {
+                        for (u32 pixelX = 0; pixelX < imgW; ++pixelX) {
+                            for (u32 ci = 0; ci < compCnt; ++ci) {
+                                dest[pixelX * compCnt + ci] = srcRow[ci][pixelX];
+                            }
+                        }
+                    }
+                }
+            } else {
+                // General path with upsampling.  Hoist sampleY + row pointer
+                // computation out of the inner pixel loop.
+                for (u32 pixelY = rowBegin; pixelY < rowEnd; ++pixelY) {
+                    u8* dest = pixelBase + static_cast<size_t>(pixelY) * imgW * compCnt;
+                    std::array<const u8*, MAX_COMPONENTS> srcRow{};
+                    for (u32 ci = 0; ci < compCnt; ++ci) {
                         u32 sampleY = pixelY * layouts[ci].verticalSampling / maxVS;
-                        u32 srcOff = sampleY * layouts[ci].sampleBufferStride + sampleX;
-                        outputImage.pixels[destOff + ci] = layouts[ci].sampleData[srcOff];
+                        srcRow[ci] = layouts[ci].sampleData +
+                                     sampleY * layouts[ci].sampleBufferStride;
+                    }
+                    for (u32 pixelX = 0; pixelX < imgW; ++pixelX) {
+                        for (u32 ci = 0; ci < compCnt; ++ci) {
+                            u32 sampleX = pixelX * layouts[ci].horizontalSampling / maxHS;
+                            dest[pixelX * compCnt + ci] = srcRow[ci][sampleX];
+                        }
                     }
                 }
             }
@@ -1037,6 +1613,20 @@ bool JpegDecoder::decode(const u8* data, size_t size, Image& outputImage) {
     // For baseline: parses markers up to the single SOS, decodes, and exits.
     // For progressive: loops over multiple SOS segments, decoding each scan.
     bool done = false;
+    bool parallelBaselineDone = false;
+    bool seenFirstSos = false;
+    bool dhtAfterSos = false;
+
+    // Progressive scan collection for parallel AC decode.
+    struct ProgressiveScanInfo {
+        std::vector<u32> componentIndices;
+        u8 ss, se, ah, al;
+        size_t entropyStart;
+        // Huffman table indices for the scan's components.
+        std::array<u8, MAX_COMPONENTS> acHuffIdx{};
+    };
+    std::vector<ProgressiveScanInfo> collectedScans;
+    bool collectProgressiveScans = false;
     while (parsePosition + 1 < size && !done) {
         if (data[parsePosition] != 0xFF) {
             parsePosition++; // Skip padding bytes between markers.
@@ -1092,9 +1682,31 @@ bool JpegDecoder::decode(const u8* data, size_t size, Image& outputImage) {
             foundFrameHeader = true;
             break;
         case MARKER_DHT:
+            // If DHT appears between SOS markers and we've collected AC scans
+            // for parallel dispatch, flush them now (before overwriting tables).
+            if (seenFirstSos && !collectedScans.empty()) {
+                for (auto& scan : collectedScans) {
+                    scanComponentIndices = scan.componentIndices;
+                    scanSpectralStart = scan.ss;
+                    scanSpectralEnd = scan.se;
+                    scanApproxHigh = scan.ah;
+                    scanApproxLow = scan.al;
+                    for (u32 ci : scanComponentIndices) {
+                        components[ci].acHuffmanIndex = scan.acHuffIdx[ci];
+                    }
+                    bitstream.init(data, size, scan.entropyStart);
+                    eobRun = 0;
+                    if (!decodeProgressiveScan()) {
+                        return false;
+                    }
+                }
+                collectedScans.clear();
+                collectProgressiveScans = false;
+            }
             if (!parseHuffmanTable(segmentDataOffset, segmentDataLength)) {
                 return false;
             }
+            if (seenFirstSos) dhtAfterSos = true;
             break;
         case MARKER_DRI:
             if (!parseRestartInterval(segmentDataOffset, segmentDataLength)) {
@@ -1110,19 +1722,78 @@ bool JpegDecoder::decode(const u8* data, size_t size, Image& outputImage) {
                 return false;
             }
 
-            bitstream.init(data, size, scanDataPosition);
+            if (!seenFirstSos) {
+                seenFirstSos = true;
+                // Decide whether to collect progressive scans for parallel decode.
+                collectProgressiveScans = isProgressive && ctx && ctx->pool &&
+                                          ctx->pool->threadCount() > 1;
+            }
 
             if (isProgressive) {
-                // Reset DC predictions at the start of each progressive scan.
-                for (u32 ci : scanComponentIndices) {
-                    components[ci].dcPrediction = 0;
-                }
-                if (!decodeProgressiveScan()) {
-                    return false;
+                bool isDcScan = (scanSpectralStart == 0);
+
+                if (isDcScan) {
+                    // DC scans: always serial (inter-block prediction dependency).
+                    bitstream.init(data, size, scanDataPosition);
+                    for (u32 ci : scanComponentIndices) {
+                        components[ci].dcPrediction = 0;
+                    }
+                    if (!decodeProgressiveScan()) {
+                        return false;
+                    }
+                } else if (collectProgressiveScans && !dhtAfterSos) {
+                    // AC scan: collect for later parallel dispatch.
+                    ProgressiveScanInfo info;
+                    info.componentIndices = scanComponentIndices;
+                    info.ss = scanSpectralStart;
+                    info.se = scanSpectralEnd;
+                    info.ah = scanApproxHigh;
+                    info.al = scanApproxLow;
+                    info.entropyStart = scanDataPosition;
+                    for (u32 ci : scanComponentIndices) {
+                        info.acHuffIdx[ci] = components[ci].acHuffmanIndex;
+                    }
+                    collectedScans.push_back(std::move(info));
+                } else {
+                    // AC scan: serial fallback.
+                    bitstream.init(data, size, scanDataPosition);
+                    eobRun = 0;
+                    if (!decodeProgressiveScan()) {
+                        return false;
+                    }
                 }
             } else {
-                if (!decodeScanData()) {
-                    return false;
+                // Baseline: choose parallel or serial path.
+                bool canParallelDecode = ctx && ctx->pool &&
+                    ctx->pool->threadCount() > 1 && restartInterval > 0;
+                if (canParallelDecode) {
+                    bitstream.init(data, size, scanDataPosition);
+                    // Check no-subsampling for fused direct output.
+                    bool noSub = true;
+                    for (u32 ci = 0; ci < componentCount; ++ci) {
+                        if (components[ci].horizontalSampling != 1 ||
+                            components[ci].verticalSampling != 1) {
+                            noSub = false;
+                            break;
+                        }
+                    }
+                    if (!decodeScanDataParallel(noSub ? &outputImage : nullptr)) {
+                        return false;
+                    }
+                    parallelBaselineDone = true;
+                } else {
+                    bitstream.init(data, size, scanDataPosition);
+                    bool useParallelIdct = ctx && ctx->pool &&
+                        ctx->pool->threadCount() > 1;
+                    if (useParallelIdct) {
+                        if (!decodeScanDataToCoefficients()) {
+                            return false;
+                        }
+                    } else {
+                        if (!decodeScanData()) {
+                            return false;
+                        }
+                    }
                 }
                 done = true; // Baseline: single scan only.
             }
@@ -1151,8 +1822,142 @@ bool JpegDecoder::decode(const u8* data, size_t size, Image& outputImage) {
         return reportError("No frame header found in JPEG data");
     }
 
-    // For progressive mode: run IDCT on accumulated coefficients.
-    if (isProgressive) {
+    // Detect no-subsampling: all components have 1×1 sampling factors.
+    bool noSubsampling = true;
+    for (u32 ci = 0; ci < componentCount; ++ci) {
+        if (components[ci].horizontalSampling != 1 ||
+            components[ci].verticalSampling != 1) {
+            noSubsampling = false;
+            break;
+        }
+    }
+
+    if (parallelBaselineDone && noSubsampling) {
+        // Fused baseline parallel: decodeScanDataParallel wrote directly to
+        // outputImage.  Nothing left to do.
+        return true;
+    } else if (parallelBaselineDone) {
+        // Parallel baseline with subsampling: IDCT done, need assembly.
+        return assembleInterleavedImage(outputImage);
+    } else if (!collectedScans.empty()) {
+        // Parallel progressive: dispatch collected AC scans in waves, then finalize.
+        //
+        // Group scans into waves where scans within a wave target different
+        // (component, spectral_range) pairs — safe to decode in parallel.
+        // When a scan conflicts with one already in the current wave,
+        // flush the wave and start a new one.
+        struct ScanKey {
+            u32 ci;
+            u8 ss;
+            u8 se;
+        };
+
+        std::vector<std::vector<size_t>> waves;
+        std::vector<ScanKey> currentWaveKeys;
+        std::vector<size_t> currentWave;
+
+        auto hasConflict = [&](u32 ci, u8 ss, u8 se) {
+            for (auto& k : currentWaveKeys) {
+                if (k.ci == ci && k.ss == ss && k.se == se) return true;
+            }
+            return false;
+        };
+
+        for (size_t i = 0; i < collectedScans.size(); ++i) {
+            auto& scan = collectedScans[i];
+            u32 ci = scan.componentIndices[0]; // AC scans are single-component.
+            if (hasConflict(ci, scan.ss, scan.se)) {
+                waves.push_back(std::move(currentWave));
+                currentWave.clear();
+                currentWaveKeys.clear();
+            }
+            currentWave.push_back(i);
+            currentWaveKeys.push_back({ci, scan.ss, scan.se});
+        }
+        if (!currentWave.empty()) {
+            waves.push_back(std::move(currentWave));
+        }
+
+        // Process each wave — parallel when multiple scans, serial otherwise.
+        for (auto& wave : waves) {
+            if (wave.size() == 1 || !ctx || !ctx->pool) {
+                for (size_t idx : wave) {
+                    auto& scan = collectedScans[idx];
+                    scanComponentIndices = scan.componentIndices;
+                    scanSpectralStart = scan.ss;
+                    scanSpectralEnd = scan.se;
+                    scanApproxHigh = scan.ah;
+                    scanApproxLow = scan.al;
+                    for (u32 ci : scanComponentIndices) {
+                        components[ci].acHuffmanIndex = scan.acHuffIdx[ci];
+                    }
+                    bitstream.init(data, size, scan.entropyStart);
+                    eobRun = 0;
+                    if (!decodeProgressiveScan()) {
+                        return false;
+                    }
+                }
+            } else {
+                // Parallel: each scan in its own task.
+                // Use a blocking context (no timeline) so that decode() doesn't
+                // return before the lambda captures of local data are consumed.
+                JpegContext blockingCtx;
+                blockingCtx.pool = ctx->pool;
+                blockingCtx.sem = nullptr;
+                blockingCtx.currentValue = 0;
+
+                parallel_for_tasks(static_cast<u32>(wave.size()), &blockingCtx, [&](u32 taskIdx) {
+                    auto& scan = collectedScans[wave[taskIdx]];
+                    u32 ci = scan.componentIndices[0];
+                    auto& comp = components[ci];
+                    const auto& acTable = acHuffmanTables[scan.acHuffIdx[ci]];
+
+                    BitstreamReader localBs;
+                    localBs.init(data, size, scan.entropyStart);
+                    u32 localEobRun = 0;
+
+                    u32 totalBlocksX = comp.blocksPerRow;
+                    u32 totalBlocksY = comp.blocksPerCol;
+                    u32 mcuSeqIdx = 0;
+
+                    for (u32 by = 0; by < totalBlocksY; ++by) {
+                        for (u32 bx = 0; bx < totalBlocksX; ++bx) {
+                            if (restartInterval > 0 && mcuSeqIdx > 0 &&
+                                (mcuSeqIdx % restartInterval) == 0) {
+                                localBs.handleRestartMarker();
+                                localEobRun = 0;
+                            }
+                            auto& coeffs = comp.coefficientBlocks[by * totalBlocksX + bx];
+                            if (scan.ah == 0) {
+                                decodeProgressiveAcFirst(localBs, coeffs, acTable,
+                                                         localEobRun, scan.ss,
+                                                         scan.se, scan.al);
+                            } else {
+                                decodeProgressiveAcRefine(localBs, coeffs, acTable,
+                                                          localEobRun, scan.ss,
+                                                          scan.se, scan.al);
+                            }
+                            ++mcuSeqIdx;
+                        }
+                    }
+                });
+            }
+        }
+
+        // Dequantize + IDCT + assemble (fused for no-subsampling).
+        if (noSubsampling) {
+            return finalizeAndAssembleImage(outputImage);
+        }
+        if (!finalizeProgressiveImage()) {
+            return false;
+        }
+    } else if (isProgressive ||
+               (ctx && ctx->pool && ctx->pool->threadCount() > 1)) {
+        // Serial progressive (DHT-between-SOS fallback) or
+        // baseline with pool (serial entropy → parallel IDCT).
+        if (noSubsampling) {
+            return finalizeAndAssembleImage(outputImage);
+        }
         if (!finalizeProgressiveImage()) {
             return false;
         }

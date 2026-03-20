@@ -20,6 +20,7 @@ class Writer::Impl : public IssueSink {
 public:
     i32 quality = 75;
     interfaces::WorkerPool* pool = nullptr;
+    bool progressive = false;
 
     std::vector<u8> write(const Texture& texture);
 };
@@ -119,8 +120,8 @@ std::vector<u8> Writer::Impl::write(const Texture& texture) {
         // --- DAG nodes 2-4: encode (parallel data prep + serial entropy) ---
         std::vector<u8> encodedOutput;
         std::string encodeError;
-        whiteout::textures::jpeg::encode_raw(image, quality, &encodeError, false, ctxPtr,
-                                             &encodedOutput);
+        whiteout::textures::jpeg::encode_raw(image, quality, &encodeError, progressive,
+                                             ctxPtr, &encodedOutput);
 
         // Wait for the entire DAG to complete.
         jctx.sem->wait(jctx.currentValue);
@@ -148,7 +149,8 @@ std::vector<u8> Writer::Impl::write(const Texture& texture) {
     }
 
     std::string encodeError;
-    auto encoded = whiteout::textures::jpeg::encode_raw(image, quality, &encodeError);
+    auto encoded = whiteout::textures::jpeg::encode_raw(image, quality, &encodeError,
+                                                        progressive);
     if (encoded.empty()) {
         fail("JPEG encode failed: " + encodeError);
         return {};
@@ -164,11 +166,13 @@ std::vector<u8> Writer::Impl::write(const Texture& texture) {
     return output;
 }
 
-Writer::Writer(i32 quality, WriteMode writeMode, interfaces::WorkerPool* pool)
+Writer::Writer(i32 quality, WriteMode writeMode, interfaces::WorkerPool* pool,
+               bool progressive)
     : pImpl(std::make_unique<Impl>()) {
     pImpl->strict_mode = (writeMode == WriteMode::Strict);
     pImpl->quality = std::clamp(quality, 1, 100);
     pImpl->pool = pool;
+    pImpl->progressive = progressive;
 }
 
 Writer::~Writer() = default;

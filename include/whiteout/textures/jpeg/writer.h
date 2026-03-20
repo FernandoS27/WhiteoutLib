@@ -9,7 +9,8 @@
  *
  * This file provides the Writer class for encoding Texture objects into
  * standard JPEG (JFIF) format with proper RGB-to-Y'CbCr colour conversion.
- * Outputs baseline sequential DCT (SOF0) images.
+ * Outputs baseline sequential DCT (SOF0) images by default, with an
+ * optional progressive (SOF2) mode.
  *
  * The writer supports two modes:
  * - **Strict** – any issue throws `std::runtime_error`.
@@ -43,7 +44,8 @@ public:
     };
 
     explicit Writer(i32 quality = 75, WriteMode writeMode = WriteMode::Lenient,
-                    interfaces::WorkerPool* pool = nullptr);
+                    interfaces::WorkerPool* pool = nullptr,
+                    bool progressive = false);
     ~Writer();
 
     Writer(const Writer&) = delete;

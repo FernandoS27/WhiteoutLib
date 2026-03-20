@@ -308,4 +308,58 @@ void parallel_for_blocks(u32 count, JpegContext* ctx, Fn&& fn) {
     }
 }
 
+/// Dispatch fn(index) for each item in [0, count), one task per item.
+/// Designed for coarse-grained work items where each item is expensive.
+/// No minimum threshold — uses the full pool even for small counts.
+/// In async mode (ctx->sem set), tasks are chained through the timeline.
+/// In blocking mode, uses JobGroup::wait().
+template <typename Fn>
+void parallel_for_tasks(u32 count, JpegContext* ctx, Fn&& fn) {
+    if (!ctx || !ctx->pool || ctx->pool->threadCount() <= 1 || count <= 1) {
+        if (ctx && ctx->sem) {
+            submitSingleTask(ctx, [count, fn = std::forward<Fn>(fn)]() {
+                for (u32 i = 0; i < count; ++i) fn(i);
+            });
+        } else {
+            for (u32 i = 0; i < count; ++i) fn(i);
+        }
+        return;
+    }
+
+    if (ctx->sem) {
+        // Async (non-blocking) path — chained through timeline.
+        const auto waitVal = ctx->currentValue;
+        ctx->currentValue = ctx->sem->next();
+        const auto signalVal = ctx->currentValue;
+
+        auto jobGroup = std::make_shared<utils::JobGroup>();
+        jobGroup->add(count);
+        jobGroup->signalOnComplete(ctx->sem, signalVal);
+
+        for (u32 i = 0; i < count; ++i) {
+            interfaces::WorkerTask task;
+            task.fn = [i, fn, jg = jobGroup]() {
+                fn(i);
+                jg->done();
+            };
+            task.waitSemaphore = ctx->sem;
+            task.waitValue = waitVal;
+            ctx->pool->submit(task);
+        }
+    } else {
+        // Blocking path — caller waits for all tasks.
+        utils::JobGroup group;
+        for (u32 i = 0; i < count; ++i) {
+            group.add(1);
+            interfaces::WorkerTask task{
+                [i, &fn, &group]() {
+                    fn(i);
+                    group.done();
+                }};
+            ctx->pool->submit(task);
+        }
+        group.wait();
+    }
+}
+
 } // namespace whiteout::textures::jpeg
