@@ -11,8 +11,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <iomanip>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include "../io_helpers.h"
 #include "../issue_sink.h"
@@ -190,8 +193,18 @@ struct ParseContext {
     u32 jpeg_header_size{};
     bool jpeg_alpha_opaque{true};
 
-    /// Safe sub-span of the input buffer at the given offset/size.
-    std::span<const u8> mip_span(u32 offset, u32 size) const {
+    // BLP0 external mip data — when non-empty, mip_span uses these instead of buffer offsets.
+    std::vector<std::vector<u8>> external_mips;
+
+    /// Safe sub-span of mip data. Uses external_mips when available (BLP0),
+    /// otherwise indexes into the main buffer at the given offset/size.
+    std::span<const u8> mip_span(u32 offset, u32 size, u32 mip_index = 0) const {
+        if (!external_mips.empty()) {
+            if (mip_index < external_mips.size() && !external_mips[mip_index].empty()) {
+                return std::span<const u8>{external_mips[mip_index]};
+            }
+            return {};
+        }
         if (offset == 0 || size == 0 || static_cast<size_t>(offset) > buffer.size()) {
             return {};
         }
@@ -202,7 +215,7 @@ struct ParseContext {
 
 /// Copy raw mip data into @p destination, zero-filling any remainder.
 static void copy_mip_raw(const ParseContext& ctx, u32 mip_index, std::span<u8> destination) {
-    auto span = ctx.mip_span(ctx.mip_offsets[mip_index], ctx.mip_sizes[mip_index]);
+    auto span = ctx.mip_span(ctx.mip_offsets[mip_index], ctx.mip_sizes[mip_index], mip_index);
     if (span.empty()) {
         std::memset(destination.data(), 0, destination.size());
         return;
@@ -218,10 +231,13 @@ static void copy_mip_raw(const ParseContext& ctx, u32 mip_index, std::span<u8> d
 class Parser::Impl : public IssueSink {
 public:
     std::optional<Texture> parse(std::span<const u8> buffer);
+    std::optional<Texture> parse(std::span<const u8> buffer, const std::string& filePath);
 
 private:
+    bool readBlp0Header(ParseContext& ctx);
     bool readBlp1Header(ParseContext& ctx);
     bool readBlp2Header(ParseContext& ctx);
+    bool loadBlp0ExternalMips(ParseContext& ctx, const std::string& filePath);
     std::optional<Texture> decodeMips(const ParseContext& ctx);
 
     bool loadJpegMips(const ParseContext& ctx, Texture& result);
@@ -248,6 +264,15 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
 
     bool header_ok = false;
     switch (magic) {
+    case BLP0_MAGIC:
+        // BLP0 from a raw buffer cannot load external mip files.
+        // Parse header + content header; mip 0 data is not available.
+        header_ok = readBlp0Header(ctx);
+        if (header_ok) {
+            fail("BLP0 parsed from buffer: external mip files (.b00-.b15) are not "
+                 "available; use the file-path overload for full mipmap support");
+        }
+        break;
     case BLP1_MAGIC:
         header_ok = readBlp1Header(ctx);
         break;
@@ -265,9 +290,39 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
     return decodeMips(ctx);
 }
 
+std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer,
+                                           const std::string& filePath) {
+    issues.clear();
+
+    if (buffer.size() < 4) {
+        fail("Buffer too small for BLP magic");
+        return std::nullopt;
+    }
+
+    u32 magic{};
+    std::memcpy(&magic, buffer.data(), 4);
+
+    // Only BLP0 needs the file path (for external mip files).
+    // Other versions delegate to the buffer-only path.
+    if (magic != BLP0_MAGIC) {
+        return parse(buffer);
+    }
+
+    // BLP0 path — load header, then read external mip files.
+    ParseContext ctx;
+    ctx.buffer = buffer;
+    if (!readBlp0Header(ctx)) {
+        return std::nullopt;
+    }
+    if (!loadBlp0ExternalMips(ctx, filePath)) {
+        return std::nullopt;
+    }
+    return decodeMips(ctx);
+}
+
 bool Parser::Impl::loadJpegMips(const ParseContext& ctx, Texture& result) {
     for (u32 mip = 0; mip < ctx.mipCount; ++mip) {
-        auto span = ctx.mip_span(ctx.mip_offsets[mip], ctx.mip_sizes[mip]);
+        auto span = ctx.mip_span(ctx.mip_offsets[mip], ctx.mip_sizes[mip], mip);
         if (span.empty()) {
             auto dst = result.mipData(mip);
             std::memset(dst.data(), 0, dst.size());
@@ -287,7 +342,7 @@ bool Parser::Impl::loadJpegMips(const ParseContext& ctx, Texture& result) {
 
 void Parser::Impl::loadPalettizedMips(const ParseContext& ctx, Texture& result) {
     for (u32 mip = 0; mip < ctx.mipCount; ++mip) {
-        auto span = ctx.mip_span(ctx.mip_offsets[mip], ctx.mip_sizes[mip]);
+        auto span = ctx.mip_span(ctx.mip_offsets[mip], ctx.mip_sizes[mip], mip);
         if (span.empty()) {
             auto dst = result.mipData(mip);
             std::memset(dst.data(), 0, dst.size());
@@ -303,8 +358,107 @@ void Parser::Impl::loadPalettizedMips(const ParseContext& ctx, Texture& result) 
 }
 
 // ============================================================================
-// Header readers — normalize BLP1/BLP2 into a common ParseContext
+// Header readers — normalize BLP0/BLP1/BLP2 into a common ParseContext
 // ============================================================================
+
+bool Parser::Impl::readBlp0Header(ParseContext& ctx) {
+    // BLP0 header is identical to BLP1 (28 bytes), but has no mipmap locator.
+    // Content header (JPEG header or palette) starts at offset 0x1C.
+    if (ctx.buffer.size() < sizeof(BLP1Header)) {
+        return fail("BLP0 file too small");
+    }
+
+    BLP1Header header{};
+    std::memcpy(&header, ctx.buffer.data(), sizeof(BLP1Header));
+
+    if (header.width == 0 || header.height == 0) {
+        return fail("BLP0 has zero dimensions");
+    }
+
+    ctx.width = header.width;
+    ctx.height = header.height;
+    ctx.pixel_format = PixelFormat::RGBA8;
+
+    // BLP0 has no mipmap locator — mip data comes from external .bXX files.
+    // Mip count is determined later when external files are loaded.
+    // For buffer-only parsing, only mip 0 is reported with empty data.
+    if (header.hasMipmaps != 0) {
+        ctx.mipCount =
+            std::min(textures::computeMaxMipCount(header.width, header.height), MAX_MIP_LEVELS);
+    } else {
+        ctx.mipCount = 1;
+    }
+
+    // Content header starts right after the BLP1Header (offset 0x1C), no mipmap locator.
+    static constexpr size_t CONTENT_HDR_OFFSET = sizeof(BLP1Header);
+
+    if (header.content != CONTENT_DIRECT) {
+        // JPEG path
+        if (ctx.buffer.size() < CONTENT_HDR_OFFSET + 4) {
+            return fail("BLP0 file too small for JPEG header size");
+        }
+        u32 jpeg_hdr_size = 0;
+        std::memcpy(&jpeg_hdr_size, ctx.buffer.data() + CONTENT_HDR_OFFSET, 4);
+        const size_t jpeg_hdr_data_off = CONTENT_HDR_OFFSET + 4;
+        if (jpeg_hdr_size > 0 && ctx.buffer.size() < jpeg_hdr_data_off + jpeg_hdr_size) {
+            jpeg_hdr_size = static_cast<u32>(ctx.buffer.size() - jpeg_hdr_data_off);
+        }
+
+        ctx.encoding = BlpEncoding::JPEG;
+        ctx.jpeg_header = ctx.buffer.data() + jpeg_hdr_data_off;
+        ctx.jpeg_header_size = jpeg_hdr_size;
+        ctx.jpeg_alpha_opaque = (header.alphaBitDepth != 8);
+    } else {
+        // Palettized (CONTENT_DIRECT) path
+        static constexpr size_t PALETTE_SIZE = 256 * 4;
+        if (ctx.buffer.size() < CONTENT_HDR_OFFSET + PALETTE_SIZE) {
+            return fail("BLP0 file too small for palette");
+        }
+
+        std::memcpy(ctx.palette.data(), ctx.buffer.data() + CONTENT_HDR_OFFSET, PALETTE_SIZE);
+        ctx.encoding = BlpEncoding::Palettized;
+        ctx.alpha_bits = sanitize_alpha_bits(header.alphaBitDepth);
+    }
+
+    return true;
+}
+
+bool Parser::Impl::loadBlp0ExternalMips(ParseContext& ctx, const std::string& filePath) {
+    namespace fs = std::filesystem;
+
+    const fs::path blpPath(filePath);
+    const fs::path parentDir = blpPath.parent_path();
+    const std::string stem = blpPath.stem().string();
+
+    ctx.external_mips.resize(ctx.mipCount);
+
+    for (u32 mip = 0; mip < ctx.mipCount; ++mip) {
+        // Build extension: .b00, .b01, ..., .b15
+        std::ostringstream ext;
+        ext << ".b" << std::setfill('0') << std::setw(2) << mip;
+
+        const fs::path mipFilePath = parentDir / (stem + ext.str());
+
+        auto mipData = read_file_bytes(mipFilePath.string(), *this);
+        if (!mipData || mipData->empty()) {
+            // Truncate mip count at first missing file.
+            ctx.mipCount = std::max(mip, 1u);
+            ctx.external_mips.resize(ctx.mipCount);
+            if (mip == 0) {
+                return fail("BLP0: could not read base mip file: " + mipFilePath.string());
+            }
+            break;
+        }
+
+        ctx.external_mips[mip] = std::move(*mipData);
+        // Set offset/size entries for compatibility (offset is unused when external_mips is set,
+        // but size is used by some code paths).
+        ctx.mip_offsets[mip] = 1; // Non-zero so mip_span doesn't treat it as empty.
+        ctx.mip_sizes[mip] = static_cast<u32>(ctx.external_mips[mip].size());
+    }
+
+    return true;
+}
 
 bool Parser::Impl::readBlp1Header(ParseContext& ctx) {
     if (ctx.buffer.size() < sizeof(BLP1Header) + sizeof(MipmapLocator)) {
@@ -458,7 +612,7 @@ std::optional<Texture> Parser::Impl::decodeMips(const ParseContext& ctx) {
     case BlpEncoding::BGRA:
         for (u32 mip = 0; mip < ctx.mipCount; ++mip) {
             auto destination = result.mipData(mip);
-            auto span = ctx.mip_span(ctx.mip_offsets[mip], ctx.mip_sizes[mip]);
+            auto span = ctx.mip_span(ctx.mip_offsets[mip], ctx.mip_sizes[mip], mip);
             if (span.empty()) {
                 std::memset(destination.data(), 0, destination.size());
                 continue;
@@ -495,7 +649,7 @@ std::optional<Texture> Parser::parse(const std::string& filePath) {
     if (!buf) {
         return std::nullopt;
     }
-    return pImpl->parse(std::span<const u8>{*buf});
+    return pImpl->parse(std::span<const u8>{*buf}, filePath);
 }
 
 std::optional<Texture> Parser::parse(std::span<const u8> buffer) {

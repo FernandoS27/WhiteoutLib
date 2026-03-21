@@ -27,6 +27,7 @@ using whiteout::textures::swap_red_blue;
 // Format constants
 // ============================================================================
 
+static constexpr u32 BLP0_MAGIC = 0x30504C42u;
 static constexpr u32 BLP1_MAGIC = 0x31504C42u;
 static constexpr u32 BLP2_MAGIC = 0x32504C42u;
 
