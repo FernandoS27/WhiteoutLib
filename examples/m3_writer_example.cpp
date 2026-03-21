@@ -3,7 +3,7 @@
 
 /// M3 writer example: reads an M3 file and writes it back.
 
-#include <whiteout/m3/m3.h>
+#include <whiteout/models/m3/m3.h>
 #include <iostream>
 #include <fstream>
 

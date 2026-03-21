@@ -3,7 +3,7 @@
 
 /// M3 loader example: reads an M3 file and prints model information.
 
-#include <whiteout/m3/m3.h>
+#include <whiteout/models/m3/m3.h>
 #include <iostream>
 #include <iomanip>
 

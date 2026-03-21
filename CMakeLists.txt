@@ -25,30 +25,42 @@ add_library(whiteout_lib
     src/whiteout/common/huffman_table.cpp
 
     # MDX
-    src/whiteout/mdx/parser.cpp
-    src/whiteout/mdx/writer.cpp
+    src/whiteout/models/mdx/parser.cpp
+    src/whiteout/models/mdx/writer.cpp
 
     # M2
-    src/whiteout/m2/parser.cpp
-    src/whiteout/m2/writer.cpp
-    src/whiteout/m2/binary_parse_visitor/base.cpp
-    src/whiteout/m2/binary_parse_visitor/chunk.cpp
-    src/whiteout/m2/binary_parse_visitor/skin.cpp
-    src/whiteout/m2/binary_parse_visitor/bone.cpp
-    src/whiteout/m2/binary_parse_visitor/anim.cpp
-    src/whiteout/m2/binary_writer_visitor/base.cpp
-    src/whiteout/m2/binary_writer_visitor/chunk.cpp
-    src/whiteout/m2/binary_writer_visitor/skin.cpp
-    src/whiteout/m2/binary_writer_visitor/bone.cpp
-    src/whiteout/m2/binary_writer_visitor/anim.cpp
-    src/whiteout/m2/file_system.cpp
+    src/whiteout/models/m2/parser.cpp
+    src/whiteout/models/m2/chunk_parser.cpp
+    src/whiteout/models/m2/writer.cpp
+    src/whiteout/models/m2/binary_parse_visitor/base.cpp
+    src/whiteout/models/m2/binary_parse_visitor/chunk.cpp
+    src/whiteout/models/m2/binary_parse_visitor/skin.cpp
+    src/whiteout/models/m2/binary_parse_visitor/bone.cpp
+    src/whiteout/models/m2/binary_parse_visitor/anim.cpp
+    src/whiteout/models/m2/binary_writer_visitor/base.cpp
+    src/whiteout/models/m2/binary_writer_visitor/chunk.cpp
+    src/whiteout/models/m2/binary_writer_visitor/skin.cpp
+    src/whiteout/models/m2/binary_writer_visitor/bone.cpp
+    src/whiteout/models/m2/binary_writer_visitor/anim.cpp
+    src/whiteout/models/m2/file_system.cpp
+    src/whiteout/models/m2/wow_file_system.cpp
 
     # M3
-    src/whiteout/m3/types.cpp
-    src/whiteout/m3/parser.cpp
-    src/whiteout/m3/writer.cpp
-    src/whiteout/m3/binary_parse_visitor.cpp
-    src/whiteout/m3/binary_writer_visitor.cpp
+    src/whiteout/models/m3/types.cpp
+    src/whiteout/models/m3/parser.cpp
+    src/whiteout/models/m3/writer.cpp
+    src/whiteout/models/m3/binary_parse_visitor.cpp
+    src/whiteout/models/m3/binary_writer_visitor.cpp
+
+    # WEM
+    src/whiteout/models/wem/parser.cpp
+    src/whiteout/models/wem/writer.cpp
+    src/whiteout/models/wem/binary_parse_visitor.cpp
+    src/whiteout/models/wem/binary_writer_visitor.cpp
+    src/whiteout/models/wem/converter_registry.cpp
+    src/whiteout/models/wem/converters/mdx_converter.cpp
+    src/whiteout/models/wem/converters/m2_converter.cpp
+    src/whiteout/models/wem/converters/m3_converter.cpp
 
     # Textures
     src/whiteout/textures/texture.cpp
@@ -163,6 +175,55 @@ add_executable(blue_noise_generator
 )
 
 target_link_libraries(blue_noise_generator PRIVATE whiteout_lib)
+
+# JPEG Encode/Decode Round-Trip Test
+add_executable(jpeg_test
+    examples/jpeg_test.cpp
+)
+
+target_link_libraries(jpeg_test PRIVATE whiteout_lib)
+
+# Wu Quantizer Test
+add_executable(quantize_test
+    examples/quantize_test.cpp
+)
+
+target_link_libraries(quantize_test PRIVATE whiteout_lib)
+
+# BLP0 Parser Validation Test
+add_executable(blp0_test
+    examples/blp0_test.cpp
+)
+
+target_link_libraries(blp0_test PRIVATE whiteout_lib)
+
+# WEM Round-Trip Test
+add_executable(wem_round_trip_example
+    examples/wem_round_trip_example.cpp
+)
+
+target_link_libraries(wem_round_trip_example PRIVATE whiteout_lib)
+
+# MDX to WEM Converter Example
+add_executable(mdx_to_wem_example
+    examples/mdx_to_wem_example.cpp
+)
+
+target_link_libraries(mdx_to_wem_example PRIVATE whiteout_lib)
+
+# M2 to WEM Converter Example
+add_executable(m2_to_wem_example
+    examples/m2_to_wem_example.cpp
+)
+
+target_link_libraries(m2_to_wem_example PRIVATE whiteout_lib)
+
+# M3 to WEM Converter Example
+add_executable(m3_to_wem_example
+    examples/m3_to_wem_example.cpp
+)
+
+target_link_libraries(m3_to_wem_example PRIVATE whiteout_lib)
 
 endif() # WHITEOUT_BUILD_EXAMPLES
 

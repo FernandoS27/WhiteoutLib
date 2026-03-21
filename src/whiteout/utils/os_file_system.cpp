@@ -31,11 +31,6 @@ OsFileSystem::~OsFileSystem() = default;
 OsFileSystem::OsFileSystem(OsFileSystem&&) noexcept = default;
 OsFileSystem& OsFileSystem::operator=(OsFileSystem&&) noexcept = default;
 
-bool OsFileSystem::supportsFileIds() const
-{
-    return false;
-}
-
 std::vector<u8> OsFileSystem::readFile(const std::string& path) const
 {
     const fs::path fullPath = m_impl->resolve(path);
@@ -57,19 +52,25 @@ std::vector<u8> OsFileSystem::readFile(const std::string& path) const
     return buffer;
 }
 
-std::vector<u8> OsFileSystem::readFile([[maybe_unused]] u32 fileId) const
-{
-    return {};
-}
-
 bool OsFileSystem::fileExists(const std::string& path) const
 {
     return fs::is_regular_file(m_impl->resolve(path));
 }
 
-bool OsFileSystem::fileExists([[maybe_unused]] u32 fileId) const
+std::vector<interfaces::DirectoryEntry> OsFileSystem::listDirectory(const std::string& path) const
 {
-    return false;
+    std::vector<interfaces::DirectoryEntry> entries;
+    const fs::path fullPath = m_impl->resolve(path);
+
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(fullPath, ec)) {
+        if (ec) break;
+        entries.push_back({
+            entry.path().filename().string(),
+            entry.is_directory()
+        });
+    }
+    return entries;
 }
 
 } // namespace whiteout::utils

@@ -22,7 +22,7 @@ namespace whiteout::casc {
 
 namespace whiteout::utils {
 
-/// VirtualFileSystem implementation backed by a whiteout::casc::Storage.
+/// CascFileSystem implementation backed by a whiteout::casc::Storage.
 ///
 /// The Storage must outlive this object — CascFileSystem holds a non-owning
 /// reference to it.
@@ -33,8 +33,8 @@ namespace whiteout::utils {
 ///   casc::Storage storage;
 ///   storage.open("C:/Games/Diablo IV");
 ///   utils::CascFileSystem fs(storage);
-///   auto data = fs.readFile("base/meta/actor/assassin.acr");
-class CascFileSystem : public interfaces::VirtualFileSystem
+///   auto data = fs.readFile(12345);
+class CascFileSystem : public interfaces::CascFileSystem
 {
 public:
     explicit CascFileSystem(const casc::Storage& storage);
@@ -46,15 +46,8 @@ public:
     CascFileSystem(CascFileSystem&&) = delete;
     CascFileSystem& operator=(CascFileSystem&&) = delete;
 
-    bool supportsFileIds() const override;
-
-    /// Read a file by its CASC path. Returns an empty vector if not found.
-    std::vector<u8> readFile(const std::string& path) const override;
-
     /// Read a file by its numeric file data ID. Returns an empty vector if not found.
     std::vector<u8> readFile(u32 fileId) const override;
-
-    bool fileExists(const std::string& path) const override;
 
     bool fileExists(u32 fileId) const override;
 

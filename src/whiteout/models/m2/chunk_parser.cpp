@@ -1,0 +1,417 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) 2026 Fernando Sahmkow
+
+#include "chunk_parser.h"
+#include "../../common/binary_reader.h"
+#include "binary_parse_visitor.h"
+#include "wow_file_system.h"
+
+#include <cstring>
+#include <stdexcept>
+
+namespace whiteout {
+namespace m2 {
+
+using common::BinaryReader;
+
+ChunkParser::ChunkParser(ParseMode mode) : parseMode(mode) {}
+
+void ChunkParser::reportIssue(const std::string& message) {
+    if (parseMode == ParseMode::Strict) {
+        throw std::runtime_error(message);
+    }
+    issues.push_back(message);
+}
+
+void ChunkParser::skipUnknownChunk(BinaryReader& reader, u32 tag, u32 size) {
+    std::string error = "Unknown chunk: " + std::string(reinterpret_cast<char*>(&tag), 4) +
+                        " (size: " + std::to_string(size) + ")";
+    reportIssue(error);
+    reader.skip(size);
+}
+
+void ChunkParser::drainIssues(std::vector<std::string>& target) {
+    target.insert(target.end(),
+                  std::make_move_iterator(issues.begin()),
+                  std::make_move_iterator(issues.end()));
+    issues.clear();
+}
+
+std::vector<ChunkParser::ChunkEntry> ChunkParser::collectChunks(BinaryReader& reader) {
+    std::vector<ChunkEntry> chunks;
+    while (reader.hasRemaining()) {
+        u32 tag = reader.read<u32>();
+        u32 size = reader.read<u32>();
+        u32 dataOffset = reader.getPosition();
+        chunks.push_back({tag, size, dataOffset});
+        reader.skip(size);
+    }
+    return chunks;
+}
+
+// ============================================================================
+// Chunked Base (.m2 MD21 wrapper)
+// ============================================================================
+
+void ChunkParser::parseChunkedBase(BinaryReader& reader, BaseFile& m2file, WoWFileSystem* wfs) {
+    auto chunks = collectChunks(reader);
+
+    // -- Pass 1: parse all non-MD21 chunks first --
+    for (const auto& chunk : chunks) {
+        if (chunk.tag == MD21_TAG) {
+            continue;
+        }
+        reader.setPosition(chunk.dataOffset);
+
+        switch (chunk.tag) {
+        case PFID_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.pfid_chunk.emplace();
+            parser.read(m2file.pfid_chunk.value(), m2file);
+            break;
+        }
+        case SFID_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.sfid_chunk.emplace();
+            parser.read(m2file.sfid_chunk.value(), m2file);
+            break;
+        }
+        case AFID_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.afid_chunk.emplace();
+            parser.read(m2file.afid_chunk.value());
+            break;
+        }
+        case BFID_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.bfid_chunk.emplace();
+            parser.read(m2file.bfid_chunk.value());
+            break;
+        }
+        case TXAC_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.txac_chunk.emplace();
+            parser.read(m2file.txac_chunk.value(), m2file);
+            break;
+        }
+        case EXPT_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.expt_chunk.emplace();
+            parser.read(m2file.expt_chunk.value());
+            break;
+        }
+        case EXP2_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.exp2_chunk.emplace();
+            parser.read(m2file.exp2_chunk.value());
+            break;
+        }
+        case PABC_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.pabc_chunk.emplace();
+            parser.read(m2file.pabc_chunk.value());
+            break;
+        }
+        case PADC_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.padc_chunk.emplace();
+            parser.read(m2file.padc_chunk.value());
+            break;
+        }
+        case PSBC_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.psbc_chunk.emplace();
+            parser.read(m2file.psbc_chunk.value());
+            break;
+        }
+        case PEDC_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.pedc_chunk.emplace();
+            parser.read(m2file.pedc_chunk.value());
+            break;
+        }
+        case SKID_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.skid_chunk.emplace();
+            parser.read(m2file.skid_chunk.value());
+            break;
+        }
+        case TXID_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.txid_chunk.emplace();
+            parser.read(m2file.txid_chunk.value());
+            break;
+        }
+        case LDV1_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.ldv1_chunk.emplace();
+            parser.read(m2file.ldv1_chunk.value());
+            break;
+        }
+        case RPID_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.rpid_chunk.emplace();
+            parser.read(m2file.rpid_chunk.value());
+            break;
+        }
+        case GPID_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.gpid_chunk.emplace();
+            parser.read(m2file.gpid_chunk.value());
+            break;
+        }
+        case WFV1_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.wfv1_chunk.emplace();
+            parser.read(m2file.wfv1_chunk.value());
+            break;
+        }
+        case WFV2_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.wfv2_chunk.emplace();
+            parser.read(m2file.wfv2_chunk.value());
+            break;
+        }
+        case PGD1_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.pgd1_chunk.emplace();
+            parser.read(m2file.pgd1_chunk.value());
+            break;
+        }
+        case WFV3_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.wfv3_chunk.emplace();
+            parser.read(m2file.wfv3_chunk.value());
+            break;
+        }
+        case PFDC_TAG: {
+            reportIssue("Parsing PFDC chunk is not fully implemented yet");
+            m2file.pfdc_chunk.emplace();
+            m2file.pfdc_chunk->physicsData = reader.read<std::vector<u8>>(chunk.size);
+            break;
+        }
+        case EDGF_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.edgf_chunk.emplace();
+            parser.read(m2file.edgf_chunk.value());
+            break;
+        }
+        case NERF_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.nerf_chunk.emplace();
+            parser.read(m2file.nerf_chunk.value());
+            break;
+        }
+        case DETL_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.detl_chunk.emplace();
+            parser.read(m2file.detl_chunk.value());
+            break;
+        }
+        case DBOC_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.dboc_chunk.emplace();
+            parser.read(m2file.dboc_chunk.value());
+            break;
+        }
+        case AFRA_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.afra_chunk.emplace();
+            parser.read(m2file.afra_chunk.value());
+            break;
+        }
+        case PCOL_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.pcol_chunk.emplace();
+            parser.read(m2file.pcol_chunk.value());
+            break;
+        }
+        case DPIV_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.dpiv_chunk.emplace();
+            parser.read(m2file.dpiv_chunk.value());
+            break;
+        }
+        case TEXL_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.texl_chunk.emplace();
+            parser.read(m2file.texl_chunk.value());
+            break;
+        }
+        default:
+            skipUnknownChunk(reader, chunk.tag, chunk.size);
+            break;
+        }
+    }
+
+    // Feed chunk metadata to WoWFileSystem so it can resolve satellite files
+    if (m2file.afid_chunk) {
+        wfs->setAnimChunk(*m2file.afid_chunk);
+    }
+    if (m2file.skid_chunk) {
+        wfs->setSkeletonChunk(*m2file.skid_chunk);
+    }
+    if (m2file.sfid_chunk) {
+        wfs->setSkinChunk(*m2file.sfid_chunk);
+    }
+
+    // -- Pass 2: parse MD21 (core header) last --
+    for (const auto& chunk : chunks) {
+        if (chunk.tag == MD21_TAG) {
+            reader.setPosition(chunk.dataOffset);
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            parser.read(m2file.header);
+            break;
+        }
+    }
+}
+
+// ============================================================================
+// Chunked Skeleton (.skel)
+// ============================================================================
+
+void ChunkParser::parseChunkedSkeleton(BinaryReader& reader, SkeletonFile& skeletonFile, WoWFileSystem* wfs) {
+    auto chunks = collectChunks(reader);
+
+    for (const auto& chunk : chunks) {
+        reader.setPosition(chunk.dataOffset);
+
+        switch (chunk.tag) {
+        case SKL1_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            skeletonFile.skl1_chunk.emplace();
+            parser.read(skeletonFile.skl1_chunk.value());
+            break;
+        }
+        case SKA1_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            skeletonFile.ska1_chunk.emplace();
+            parser.read(skeletonFile.ska1_chunk.value());
+            break;
+        }
+        case SKB1_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            skeletonFile.skb1_chunk.emplace();
+            parser.read(skeletonFile.skb1_chunk.value());
+            break;
+        }
+        case SKS1_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            skeletonFile.sks1_chunk.emplace();
+            parser.read(skeletonFile.sks1_chunk.value());
+            break;
+        }
+        case SKPD_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            skeletonFile.skpd_chunk.emplace();
+            parser.read(skeletonFile.skpd_chunk.value());
+            break;
+        }
+        case AFID_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            skeletonFile.afid_chunk.emplace();
+            parser.read(skeletonFile.afid_chunk.value());
+            break;
+        }
+        case BFID_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            skeletonFile.bfid_chunk.emplace();
+            parser.read(skeletonFile.bfid_chunk.value());
+            break;
+        }
+        default:
+            skipUnknownChunk(reader, chunk.tag, chunk.size);
+            break;
+        }
+    }
+}
+
+// ============================================================================
+// Chunked Bone (.bone)
+// ============================================================================
+
+void ChunkParser::parseChunkedBone(BinaryReader& reader, BoneFile& boneFile, WoWFileSystem* wfs) {
+    // First, read the BONE header (4 bytes, should be 1)
+    BinaryParseVisitor headerParser(reader, wfs);
+    headerParser.read(boneFile.header);
+
+    auto chunks = collectChunks(reader);
+
+    for (const auto& chunk : chunks) {
+        reader.setPosition(chunk.dataOffset);
+
+        switch (chunk.tag) {
+        case BIDA_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            boneFile.bida_chunk.emplace();
+            parser.read(boneFile.bida_chunk.value());
+            break;
+        }
+        case BOMT_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            boneFile.bomt_chunk.emplace();
+            parser.read(boneFile.bomt_chunk.value());
+            break;
+        }
+        default:
+            skipUnknownChunk(reader, chunk.tag, chunk.size);
+            break;
+        }
+    }
+}
+
+// ============================================================================
+// Chunked Anim (.anim)
+// ============================================================================
+
+void ChunkParser::parseChunkedAnim(BinaryReader& reader, AnimFile& animFile, WoWFileSystem* wfs) {
+    // Check if the file is chunked by peeking at the first 4 bytes
+    u32 firstTag = reader.read<u32>();
+    reader.setPosition(0);
+
+    // If it starts with AFM2, AFSA, or AFSB, it's chunked format
+    if (firstTag != AFM2_TAG && firstTag != AFSA_TAG && firstTag != AFSB_TAG) {
+        // Pre-Legion format: raw data
+        u32 fileSize = reader.getRemainingBytes();
+        animFile.profile.afm2_chunk.emplace();
+        animFile.profile.isChunked = true;
+        animFile.profile.afm2_chunk->animationData = reader.read<std::vector<u8>>(fileSize);
+        return;
+    }
+
+    // Chunked format
+    animFile.profile.isChunked = true;
+
+    auto chunks = collectChunks(reader);
+
+    for (const auto& chunk : chunks) {
+        reader.setPosition(chunk.dataOffset);
+
+        switch (chunk.tag) {
+        case AFM2_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            animFile.profile.afm2_chunk.emplace();
+            parser.read(animFile.profile.afm2_chunk.value());
+            break;
+        }
+        case AFSA_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            animFile.profile.afsa_chunk.emplace();
+            parser.read(animFile.profile.afsa_chunk.value());
+            break;
+        }
+        case AFSB_TAG: {
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            animFile.profile.afsb_chunk.emplace();
+            parser.read(animFile.profile.afsb_chunk.value());
+            break;
+        }
+        default:
+            skipUnknownChunk(reader, chunk.tag, chunk.size);
+            break;
+        }
+    }
+}
+
+} // namespace m2
+} // namespace whiteout

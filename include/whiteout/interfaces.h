@@ -63,21 +63,37 @@ public:
     virtual std::unique_ptr<TimelineSemaphore> createTimelineSemaphore() { return nullptr; }
 };
 
-class VirtualFileSystem {
+/// Abstract file system that resolves files by numeric data ID (e.g. CASC).
+class CascFileSystem {
 public:
-    virtual ~VirtualFileSystem() = default;
+    virtual ~CascFileSystem() = default;
 
-    virtual bool supportsFileIds() const = 0;
+    /// Read the entire contents of a file by its numeric data ID.
+    virtual std::vector<u8> readFile(u32 fileId) const = 0;
+
+    /// Check if a file with the given data ID exists.
+    virtual bool fileExists(u32 fileId) const = 0;
+};
+
+/// Entry returned by VirtualPathFileSystem::listDirectory().
+struct DirectoryEntry {
+    std::string name;
+    bool isDirectory;
+};
+
+/// Abstract path-based file system (similar to std::filesystem).
+class VirtualPathFileSystem {
+public:
+    virtual ~VirtualPathFileSystem() = default;
 
     /// Read the entire contents of a file into a byte vector.
     virtual std::vector<u8> readFile(const std::string& path) const = 0;
 
-    virtual std::vector<u8> readFile(u32 fileId) const = 0;
-
     /// Check if a file exists at the given path.
     virtual bool fileExists(const std::string& path) const = 0;
 
-    virtual bool fileExists(u32 fileId) const = 0;
+    /// List all entries (files and subdirectories) in the given directory.
+    virtual std::vector<DirectoryEntry> listDirectory(const std::string& path) const = 0;
 };
 
 } // namespace whiteout::interfaces

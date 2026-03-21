@@ -2,7 +2,9 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 
-#include <whiteout/m2/m2.h>
+#include <whiteout/models/m2/m2.h>
+#include <whiteout/utils/os_file_system.h>
+#include <filesystem>
 #include <iostream>
 #include <fstream>
 
@@ -18,8 +20,10 @@ int main(int argc, char* argv[]) {
     
     try {
         std::cout << "Loading input M2 file: " << inputPath << std::endl;
+        std::filesystem::path p(inputPath);
+        whiteout::utils::OsFileSystem vfs(p.parent_path().string());
         whiteout::m2::Parser parser(whiteout::m2::Parser::ParseMode::Lenient);
-        whiteout::m2::FileSystem model = parser.parse(inputPath);
+        whiteout::m2::FileSystem model = parser.parse(vfs, inputPath);
         
         const auto& issues = parser.getIssues();
         if (!issues.empty()) {
@@ -29,9 +33,10 @@ int main(int argc, char* argv[]) {
             }
         }
         
+        const auto& m2Model = model.base.header.model;
         std::cout << "\nModifying model..." << std::endl;
-        std::cout << "  - Bones: " << model.base.header.bones.size() << std::endl;
-        std::cout << "  - Vertices: " << model.base.header.vertices.size() << std::endl;
+        std::cout << "  - Bones: " << m2Model.bones.size() << std::endl;
+        std::cout << "  - Vertices: " << m2Model.vertices.size() << std::endl;
         
         std::cout << "\nWriting output M2 file: " << outputPath << std::endl;
 

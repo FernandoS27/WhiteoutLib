@@ -391,8 +391,10 @@ struct fixed_point {
     }
 };
 
+using fixed8_5 = fixed_point<i8, 5>;
 using fixed16_8 = fixed_point<i16, 8>;
 using fixed16_11 = fixed_point<i16, 11>;
 using fixed32_16 = fixed_point<i32, 16>;
+using fp_6_9 = fixed_point<u16, 9>;
 
 } // namespace whiteout

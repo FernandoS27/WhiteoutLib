@@ -19,26 +19,10 @@ CascFileSystem::CascFileSystem(const casc::Storage& storage)
 
 CascFileSystem::~CascFileSystem() = default;
 
-bool CascFileSystem::supportsFileIds() const
-{
-    return true;
-}
-
-std::vector<u8> CascFileSystem::readFile(const std::string& path) const
-{
-    auto result = m_impl->storage.readFile(path);
-    return result ? std::move(*result) : std::vector<u8>{};
-}
-
 std::vector<u8> CascFileSystem::readFile(u32 fileId) const
 {
     auto result = m_impl->storage.readFile(static_cast<i32>(fileId));
     return result ? std::move(*result) : std::vector<u8>{};
-}
-
-bool CascFileSystem::fileExists(const std::string& path) const
-{
-    return m_impl->storage.fileExists(path);
 }
 
 bool CascFileSystem::fileExists(u32 fileId) const

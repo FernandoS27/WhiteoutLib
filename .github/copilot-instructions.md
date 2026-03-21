@@ -39,9 +39,11 @@ WhiteoutLib/
 │   ├── vector_types.h          #   Vector2f/3f/4f, Quaternion, Matrix44f
 │   ├── utils.h                 #   VirtualFileSystem, VertexBuffer, VertexBufferBuilder
 │   ├── casc/storage.h          #   RAII CascLib wrapper (Storage class)
-│   ├── m2/                     #   WoW M2 format (parser.h, writer.h, structures.h, types.h)
-│   ├── m3/                     #   SC2 M3 format (same pattern)
-│   ├── mdx/                    #   WC3 MDX format (same pattern)
+│   ├── models/                 #   3D model formats
+│   │   ├── m2/                 #     WoW M2 format (parser.h, writer.h, structures.h, types.h)
+│   │   ├── m3/                 #     SC2 M3 format (same pattern)
+│   │   ├── mdx/                #     WC3 MDX format (same pattern)
+│   │   └── wem/                #     WEM intermediate format (wem.h, converters.h, parser.h, writer.h)
 │   ├── sno/                    #   Diablo SNO (sno_reader.h, sno_value.h, sno_types.h, core_toc.h)
 │   └── textures/               #   Texture class + format-specific public headers
 │       ├── texture.h           #     Texture, PixelFormat, TextureKind, TextureType
@@ -52,9 +54,11 @@ WhiteoutLib/
 │       └── tga/                #     TGA (tga.h, parser.h, writer.h)
 ├── src/whiteout/               # PRIVATE IMPLEMENTATION
 │   ├── common/                 #   binary_reader.h, binary_writer.h, concepts.h, streams.h
-│   ├── m2/                     #   parser.cpp, writer.cpp, file_system, binary_*_visitor/
-│   ├── m3/                     #   parser.cpp, writer.cpp, binary_*_visitor (*.inl)
-│   ├── mdx/                    #   parser.cpp, writer.cpp
+│   ├── models/                 #   3D model format implementations
+│   │   ├── m2/                 #     parser.cpp, writer.cpp, file_system, binary_*_visitor/
+│   │   ├── m3/                 #     parser.cpp, writer.cpp, binary_*_visitor (*.inl)
+│   │   ├── mdx/                #     parser.cpp, writer.cpp
+│   │   └── wem/                #     parser.cpp, writer.cpp, converters/{mdx,m2,m3}_converter.cpp
 │   ├── sno/                    #   sno_reader.cpp, sno_defs.h/.cpp, sno_value.cpp, core_toc.cpp
 │   │   ├── d3/                 #   D3-specific auto-generated type registry
 │   │   └── d4/                 #   D4-specific auto-generated type registry
@@ -127,8 +131,8 @@ Foundation types shared by all modules:
 
 ### 4.2 MDX Module — Warcraft III Models
 
-**Public:** `include/whiteout/mdx/{mdx.h, parser.h, writer.h, structures.h, types.h}`
-**Internal:** `src/whiteout/mdx/{parser.cpp, writer.cpp}`
+**Public:** `include/whiteout/models/mdx/{mdx.h, parser.h, writer.h, structures.h, types.h}`
+**Internal:** `src/whiteout/models/mdx/{parser.cpp, writer.cpp}`
 
 - **Chunk-based** binary format. Each chunk: 4-byte FourCC tag + 4-byte size.
 - `types.h` defines 50+ chunk tag constants (`MDLX_TAG`, `VERS_TAG`, `GEOS_TAG`, …).
@@ -138,11 +142,27 @@ Foundation types shared by all modules:
 
 **Data flow:** buffer → `BinaryReader` → chunk loop → populate `Model` struct → return.
 
-### 4.3 M2 Module — World of Warcraft Models
+### 4.3 WEM Module — Intermediate Format
 
-**Public:** `include/whiteout/m2/{m2.h, parser.h, writer.h, structures.h, types.h}`
+**Public:** `include/whiteout/models/wem/{wem.h, converters.h, parser.h, writer.h, structures.h, types.h}`
+**Internal:** `src/whiteout/models/wem/{parser.cpp, writer.cpp, converters/{mdx,m2,m3}_converter.cpp}`
+
+- **WEM** (Whiteout Edit Model) is a format-agnostic intermediate format for 3D model mesh/material data.
+- Superset of MDX, M2, and M3 static mesh and material properties.
+- **v1 scope**: mesh and material only — skeleton, animation, attachments, cameras deferred.
+- **Chunk-based** binary format: magic `WOEM` (0x4D454F57) + version u32 (v1), chunks: `MODL`, `TEXR`, `MATL`, `MESH`.
+- `types.h` defines enums: `BlendMode`, `UVMappingMode`, `TextureSlotSemantic`, `MaterialFlags`, `SubmeshFlags`, `FresnelMode`, `ColorChannelSelect`, `MaterialClass`, `LayerBlendOp`, `SpecularMode`, `MaterialType` (Standard/Composite), plus `Extent` struct.
+- `structures.h` defines: `TextureRef`, `FresnelProperties`, `TextureSlot`, `CompositeSection`, `Material` (type-tagged), `Submesh`, `Mesh` (SoA layout), `Model` (root container).
+- **Converters** (`converters.h`): bidirectional conversion functions `fromMdx`/`toMdx`, `fromM2`/`toM2`, `fromM3`/`toM3`.
+- PImpl pattern for parser/writer. Namespace: `whiteout::models::wem`.
+
+**Data flow:** engine format → `fromXxx()` → `Model` struct → optional edit → `toXxx()` → engine format.
+
+### 4.4 M2 Module — World of Warcraft Models
+
+**Public:** `include/whiteout/models/m2/{m2.h, parser.h, writer.h, structures.h, types.h}`
 + `structures/{base.h, skin.h, anim.h, bone.h, chunks.h, phys.h, skeleton.h}`
-**Internal:** `src/whiteout/m2/{parser.cpp, writer.cpp, file_system.h/.cpp}`
+**Internal:** `src/whiteout/models/m2/{parser.cpp, writer.cpp, file_system.h/.cpp}`
 + `binary_parse_visitor/{base,chunk,skin,bone,anim}.cpp`
 + `binary_writer_visitor/{base,chunk,skin,bone,anim}.cpp`
 
@@ -156,11 +176,11 @@ Foundation types shared by all modules:
 
 **Data flow:** path → `file_system` discovers bundle → parse each file type → `BinaryParseVisitor` → populate `FileSystem` → return.
 
-### 4.4 M3 Module — StarCraft II / Heroes of the Storm Models
+### 4.5 M3 Module — StarCraft II / Heroes of the Storm Models
 
-**Public:** `include/whiteout/m3/{m3.h, parser.h, writer.h, structures.h, types.h}`
+**Public:** `include/whiteout/models/m3/{m3.h, parser.h, writer.h, structures.h, types.h}`
 + `structures/{anim,base,effect,material,mesh,misc,physics,scene,types}.h`
-**Internal:** `src/whiteout/m3/{parser.cpp, writer.cpp, types.cpp}`
+**Internal:** `src/whiteout/models/m3/{parser.cpp, writer.cpp, types.cpp}`
 + `binary_parse_visitor.cpp` (includes `.inl` per-domain files)
 + `binary_writer_visitor.cpp` (includes `.inl` per-domain files)
 
@@ -173,7 +193,7 @@ Foundation types shared by all modules:
 
 **Data flow:** buffer → MD33/MD34 header → index table → visit each referenced block → populate `Model` → return.
 
-### 4.5 Texture Module — BLP, DDS, BMP, TGA, TEX
+### 4.6 Texture Module — BLP, DDS, BMP, TGA, TEX
 
 **Public:** `include/whiteout/textures/texture.h`
 + `blp/{blp.h, parser.h, writer.h, types.h}`, `dds/{dds.h, parser.h, writer.h}`,
@@ -223,7 +243,7 @@ Foundation types shared by all modules:
 
 **Data flow:** raw file → format-specific parser → `Texture` object (decoded to RGBA or keeps compressed) → optional `convertFormat()` / `generateMipmaps()` → format-specific writer.
 
-### 4.6 SNO Module — Diablo III & IV Data Files
+### 4.7 SNO Module — Diablo III & IV Data Files
 
 **Public:** `include/whiteout/sno/{sno_reader.h, sno_value.h, sno_types.h, core_toc.h}`
 **Internal:** `src/whiteout/sno/{sno_reader.cpp, sno_defs.h/.cpp, sno_value.cpp, sno_types.cpp, core_toc.cpp}`
@@ -263,7 +283,7 @@ This is the most complex module. Key concepts:
 - `SnoGroup` enum: 150+ asset categories (Actor, Animation, Material, Texture, Sound, etc.).
 - Each group has a numeric ID used as the CASC file-ID prefix.
 
-### 4.7 CASC Module — Archive Access
+### 4.8 CASC Module — Archive Access
 
 **Public:** `include/whiteout/casc/storage.h`
 **Internal:** `src/whiteout/casc/storage.cpp`
@@ -360,9 +380,9 @@ std::vector<u8> ddsBytes = dds::write(tex)     // → re-encode as DDS
 | Add a new D3 SNO type/field | `src/whiteout/sno/d3/sno_defs.cpp` (auto-generated via `scripts/gen_d3_sno_defs.py`) |
 | Fix SNO alignment issues | `sno_reader.cpp` → `getTypeAlignment()` / `getBasicTypeAlignment()` |
 | Fix SNO variable array parsing | `sno_reader.cpp` → `DT_VARIABLEARRAY` / `DT_POLYMORPHIC_VARIABLEARRAY` cases |
-| Add M2 chunk support | `src/whiteout/m2/binary_parse_visitor/chunk.cpp` + `include/whiteout/m2/structures/chunks.h` |
-| Fix M2 bone/anim parsing | `src/whiteout/m2/binary_parse_visitor/{bone,anim}.cpp` |
-| Add M3 material type | `include/whiteout/m3/structures/material.h` + `src/whiteout/m3/binary_parse_visitor.cpp` (material.inl) |
+| Add M2 chunk support | `src/whiteout/models/m2/binary_parse_visitor/chunk.cpp` + `include/whiteout/models/m2/structures/chunks.h` |
+| Fix M2 bone/anim parsing | `src/whiteout/models/m2/binary_parse_visitor/{bone,anim}.cpp` |
+| Add M3 material type | `include/whiteout/models/m3/structures/material.h` + `src/whiteout/models/m3/binary_parse_visitor.cpp` (material.inl) |
 | Add BCn codec or fix encoding | `src/whiteout/textures/bcn/{bc1..bc7}.cpp` |
 | Add new texture format | New dir under `src/whiteout/textures/` + `include/whiteout/textures/`, parser/writer pair, update `CMakeLists.txt` |
 | Fix BLP palette/JPEG issues | `src/whiteout/textures/blp/parser.cpp` or `writer.cpp` |

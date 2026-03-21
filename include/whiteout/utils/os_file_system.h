@@ -12,7 +12,7 @@
 
 namespace whiteout::utils {
 
-/// VirtualFileSystem implementation backed by the OS filesystem.
+/// VirtualPathFileSystem implementation backed by the OS filesystem.
 ///
 /// All paths passed to readFile() / fileExists() are resolved relative to
 /// the root directory supplied at construction time.
@@ -20,7 +20,7 @@ namespace whiteout::utils {
 /// Example:
 ///   utils::OsFileSystem fs("C:/Games/Warcraft III/Data");
 ///   auto data = fs.readFile("units/human/arthas/arthas.mdx");
-class OsFileSystem : public interfaces::VirtualFileSystem
+class OsFileSystem : public interfaces::VirtualPathFileSystem
 {
 public:
     /// Construct with a root directory. The path is stored as-is;
@@ -36,19 +36,13 @@ public:
     OsFileSystem(OsFileSystem&&) noexcept;
     OsFileSystem& operator=(OsFileSystem&&) noexcept;
 
-    /// Returns false — OS filesystems are path-based only.
-    bool supportsFileIds() const override;
-
     /// Read a file at `rootPath / path`. Returns an empty vector if not found.
     std::vector<u8> readFile(const std::string& path) const override;
 
-    /// Not supported for OS filesystems — always returns an empty vector.
-    std::vector<u8> readFile(u32 fileId) const override;
-
     bool fileExists(const std::string& path) const override;
 
-    /// Not supported for OS filesystems — always returns false.
-    bool fileExists(u32 fileId) const override;
+    /// List all entries in the directory at `rootPath / path`.
+    std::vector<interfaces::DirectoryEntry> listDirectory(const std::string& path) const override;
 
 private:
     struct Impl;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include <whiteout/mdx/mdx.h>
+#include <whiteout/models/mdx/mdx.h>
 #include <iostream>
 #include <filesystem>
 
