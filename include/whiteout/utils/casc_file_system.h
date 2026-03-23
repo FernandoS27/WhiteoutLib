@@ -49,6 +49,10 @@ public:
     /// Read a file by its numeric file data ID. Returns an empty vector if not found.
     std::vector<u8> readFile(u32 fileId) const override;
 
+    std::optional<u32> reserveFileId(const std::string& path) override;
+
+    bool writeFile(u32 fileId, const std::vector<u8>& data) override;
+
     bool fileExists(u32 fileId) const override;
 
 private:

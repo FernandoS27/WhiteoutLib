@@ -39,6 +39,8 @@ public:
     /// Read a file at `rootPath / path`. Returns an empty vector if not found.
     std::vector<u8> readFile(const std::string& path) const override;
 
+    bool writeFile(const std::string& path, const std::vector<u8>& data) override;
+
     bool fileExists(const std::string& path) const override;
 
     /// List all entries in the directory at `rootPath / path`.

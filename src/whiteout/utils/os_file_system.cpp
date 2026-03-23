@@ -57,6 +57,23 @@ bool OsFileSystem::fileExists(const std::string& path) const
     return fs::is_regular_file(m_impl->resolve(path));
 }
 
+bool OsFileSystem::writeFile(const std::string& path, const std::vector<u8>& data)
+{
+    const fs::path fullPath = m_impl->resolve(path);
+
+    // Ensure parent directories exist
+    std::error_code ec;
+    fs::create_directories(fullPath.parent_path(), ec);
+
+    std::ofstream file(fullPath, std::ios::binary);
+    if (!file.is_open())
+        return false;
+
+    file.write(reinterpret_cast<const char*>(data.data()),
+               static_cast<std::streamsize>(data.size()));
+    return file.good();
+}
+
 std::vector<interfaces::DirectoryEntry> OsFileSystem::listDirectory(const std::string& path) const
 {
     std::vector<interfaces::DirectoryEntry> entries;

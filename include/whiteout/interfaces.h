@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "common_types.h"
+#include "compatibility.h"
 
 namespace whiteout::interfaces {
 
@@ -71,6 +72,10 @@ public:
     /// Read the entire contents of a file by its numeric data ID.
     virtual std::vector<u8> readFile(u32 fileId) const = 0;
 
+    virtual std::optional<u32> reserveFileId(const std::string& path) = 0;
+
+    virtual bool writeFile(u32 fileId, const std::vector<u8>& data) = 0;
+
     /// Check if a file with the given data ID exists.
     virtual bool fileExists(u32 fileId) const = 0;
 };
@@ -88,6 +93,8 @@ public:
 
     /// Read the entire contents of a file into a byte vector.
     virtual std::vector<u8> readFile(const std::string& path) const = 0;
+
+    virtual bool writeFile(const std::string& path, const std::vector<u8>& data) = 0;
 
     /// Check if a file exists at the given path.
     virtual bool fileExists(const std::string& path) const = 0;

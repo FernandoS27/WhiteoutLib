@@ -25,6 +25,18 @@ std::vector<u8> CascFileSystem::readFile(u32 fileId) const
     return result ? std::move(*result) : std::vector<u8>{};
 }
 
+std::optional<u32> CascFileSystem::reserveFileId(const std::string& path)
+{
+    // CascLib does not support reserving file IDs, so we return std::nullopt to indicate failure.
+    return std::nullopt;
+}
+
+bool CascFileSystem::writeFile(u32 fileId, const std::vector<u8>& data)
+{
+    // CascLib does not support writing files, so we return false to indicate failure.
+    return false;
+}
+
 bool CascFileSystem::fileExists(u32 fileId) const
 {
     return m_impl->storage.fileExists(static_cast<i32>(fileId));
