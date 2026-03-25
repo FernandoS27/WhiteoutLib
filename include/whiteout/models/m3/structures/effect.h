@@ -108,7 +108,7 @@ struct ParticleEmitter {
     AnimRef<Vector3f> shapeInner;                    ///< Animated inner shape dimensions
     AnimRef<f32> outerRadius;                        ///< Animated outer radius
     AnimRef<f32> innerRadius;                        ///< Animated inner radius
-    std::vector<u32> shapeRegions;                   ///< Shape region indices (U32_, v14+)
+    std::vector<u32> shapeRegions;                   ///< Shape region indices (U32_, v14+), which mesh region from div to use
 
     // Randomization
     u32 velocityType = 0;                      ///< Velocity randomization type
@@ -199,8 +199,8 @@ struct ParticleEmitter {
     AnimRef<Vector3f> uvAngle;   ///< Animated UV rotation angles
     AnimRef<Vector2f> uvTiling;  ///< Animated UV tiling
 
-    // Spline (always present)
-    std::vector<AnimRef<Vector3f>> splatLineData; ///< Spline control points (SVC3)
+    // Spline
+    std::vector<AnimRef<Vector3f>> splineLineData; ///< Spline control points (SVC3)
 
     // Wind & LOD
     f32 windMultiplier = 0.0f; ///< Wind influence multiplier
@@ -212,7 +212,7 @@ struct ParticleEmitter {
     AnimRef<f32> upperBound; ///< Animated upper bound
 
     // Trails
-    i32 trailLinkIndex = -1;        ///< Linked trail emitter index (-1 = none)
+    i32 trailLinkIndex = -1;        ///< Linked trail emitter index (-1 = none) aka another particle emitter
     f32 trailChance = 0.0f;         ///< Trail spawn probability
     AnimRef<f32> trailEmissionRate; ///< Animated trail emission rate
 

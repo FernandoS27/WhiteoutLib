@@ -78,8 +78,8 @@ enum class EmitterShape : u32 {
     Box = 3,      ///< Emit from a box volume
     Cylinder = 4, ///< Emit from a cylinder
     Disc = 5,     ///< Emit from a disc
-    Mesh = 6,     ///< Emit from mesh surface
-    Spline = 7,   ///< Emit along a spline path
+    Spline = 6,   ///< Emit from a spline path, splineLineData
+    Mesh = 7,     ///< Emit from mesh surface, mesh region indices in shapeRegions
 };
 
 /** @brief Particle visual / billboard type (maps to b_iInstanceType in Particle.fx) */

@@ -197,7 +197,7 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter, u32 version) {
         writer.write(emitter.uvTiling);
     }
 
-    visit(emitter.splatLineData);
+    visit(emitter.splineLineData);
 
     writer.write(emitter.windMultiplier);
     writer.write(emitter.lodReduce);

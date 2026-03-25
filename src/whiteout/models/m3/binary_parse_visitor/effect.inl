@@ -219,7 +219,7 @@ void BinaryParseVisitor::visit(ParticleEmitter& value, u32 version) {
     }
 
     // Spline (always present)
-    visit(value.splatLineData);
+    visit(value.splineLineData);
 
     // Wind & LOD
     value.windMultiplier = reader.read<f32>();
