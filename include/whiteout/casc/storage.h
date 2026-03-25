@@ -163,6 +163,29 @@ struct FindEntry {
 };
 
 // ============================================================================
+// Progress Callback
+// ============================================================================
+
+/// Progress message types reported during storage open (mirrors CascLib).
+enum class ProgressMessage : u32 {
+    LoadingFile,             ///< Loading a file from disk.
+    LoadingManifest,         ///< Loading a manifest file.
+    DownloadingFile,         ///< Downloading a file from CDN.
+    LoadingIndexes,          ///< Loading CASC index files.
+    DownloadingArchiveIndexes ///< Downloading archive index files.
+};
+
+/// Callback signature for storage open progress.
+/// @param userParam   Opaque pointer supplied in OpenStorageOptions.
+/// @param message     Type of progress activity.
+/// @param objectName  Optional name of the object being processed.
+/// @param current     Current item index (0-based).
+/// @param total       Total items to process (0 if unknown).
+/// @returns true to **cancel** the operation, false to continue.
+using ProgressCallback = bool (*)(void* userParam, ProgressMessage message,
+                                  const char* objectName, u32 current, u32 total);
+
+// ============================================================================
 // Open Options
 // ============================================================================
 
@@ -190,6 +213,12 @@ struct OpenStorageOptions {
 
     /// If true, calls CascOpenStorageEx in online mode.
     bool online = false;
+
+    /// Optional progress callback invoked during open (downloads, loading, etc.).
+    ProgressCallback progressCallback = nullptr;
+
+    /// Opaque user parameter forwarded to progressCallback.
+    void* progressParam = nullptr;
 };
 
 // ============================================================================

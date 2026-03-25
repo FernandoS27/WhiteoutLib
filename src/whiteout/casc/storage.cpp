@@ -188,6 +188,45 @@ private:
     HANDLE m_handle;
 };
 
+// Trampoline data for bridging the public ProgressCallback to CascLib's C callback.
+struct ProgressTrampoline {
+    ProgressCallback callback;
+    void* userParam;
+};
+
+bool WINAPI progressTrampolineFunc(void* ptrUserParam, CASC_PROGRESS_MSG message,
+                                   LPCSTR szObject, DWORD currentValue, DWORD totalValue) {
+    auto* trampoline = static_cast<ProgressTrampoline*>(ptrUserParam);
+    if (trampoline == nullptr || trampoline->callback == nullptr) {
+        return false;
+    }
+
+    ProgressMessage msg;
+    switch (message) {
+    case CascProgressLoadingFile:
+        msg = ProgressMessage::LoadingFile;
+        break;
+    case CascProgressLoadingManifest:
+        msg = ProgressMessage::LoadingManifest;
+        break;
+    case CascProgressDownloadingFile:
+        msg = ProgressMessage::DownloadingFile;
+        break;
+    case CascProgressLoadingIndexes:
+        msg = ProgressMessage::LoadingIndexes;
+        break;
+    case CascProgressDownloadingArchiveIndexes:
+        msg = ProgressMessage::DownloadingArchiveIndexes;
+        break;
+    default:
+        msg = ProgressMessage::LoadingFile;
+        break;
+    }
+
+    return trampoline->callback(trampoline->userParam, msg, szObject, static_cast<u32>(currentValue),
+                                static_cast<u32>(totalValue));
+}
+
 class ScopedFindHandle {
 public:
     explicit ScopedFindHandle(HANDLE handle = INVALID_HANDLE_VALUE) : m_handle(handle) {}
@@ -365,17 +404,53 @@ bool Storage::openEx(const OpenStorageOptions& options) {
     const auto buildKeyArg = toCascString(options.buildKey);
     const auto cdnHostArg = toCascString(options.cdnHostUrl);
 
-    const TCHAR* params = !options.path.empty() ? pathArg.c_str() : codeNameArg.c_str();
+    // For online mode, CascLib expects the first parameter to be a combined
+    // string: "localCachePath*productCode" (optionally "*region").
+    // Following CascTest.cpp, the args struct should only carry the callback
+    // and flags — szLocalPath/szCodeName/szRegion must NOT be set, as CascLib
+    // parses them from the combined first parameter string.
+    CascString combinedParam;
+    if (options.online && !options.path.empty() && !options.codeName.empty()) {
+        combinedParam = pathArg;
+        combinedParam += static_cast<TCHAR>('*');
+        combinedParam += codeNameArg;
+        if (!options.region.empty()) {
+            combinedParam += static_cast<TCHAR>('*');
+            combinedParam += regionArg;
+        }
+    }
+
+    const TCHAR* params;
+    if (!combinedParam.empty()) {
+        params = combinedParam.c_str();
+    } else if (!options.path.empty()) {
+        params = pathArg.c_str();
+    } else {
+        params = codeNameArg.c_str();
+    }
 
     CASC_OPEN_STORAGE_ARGS args{};
     args.Size = sizeof(args);
-    args.szLocalPath = options.path.empty() ? nullptr : pathArg.c_str();
-    args.szCodeName = options.codeName.empty() ? nullptr : codeNameArg.c_str();
-    args.szRegion = options.region.empty() ? nullptr : regionArg.c_str();
+
+    // For online mode, only set callback + flags (matching CascTest.cpp).
+    // For local mode, populate the full args struct.
+    if (!options.online) {
+        args.szLocalPath = options.path.empty() ? nullptr : pathArg.c_str();
+        args.szCodeName = options.codeName.empty() ? nullptr : codeNameArg.c_str();
+        args.szRegion = options.region.empty() ? nullptr : regionArg.c_str();
+        args.szBuildKey = options.buildKey.empty() ? nullptr : buildKeyArg.c_str();
+        args.szCdnHostUrl = options.cdnHostUrl.empty() ? nullptr : cdnHostArg.c_str();
+    }
+
     args.dwLocaleMask = static_cast<DWORD>(options.localeMask);
     args.dwFlags = static_cast<DWORD>(options.flags);
-    args.szBuildKey = options.buildKey.empty() ? nullptr : buildKeyArg.c_str();
-    args.szCdnHostUrl = options.cdnHostUrl.empty() ? nullptr : cdnHostArg.c_str();
+
+    // Set up progress callback trampoline if one was provided.
+    ProgressTrampoline trampoline{options.progressCallback, options.progressParam};
+    if (options.progressCallback != nullptr) {
+        args.PfnProgressCallback = progressTrampolineFunc;
+        args.PtrProgressParam = &trampoline;
+    }
 
     HANDLE hStorage = nullptr;
     if (!CascOpenStorageEx(params, &args, options.online, &hStorage)) {
