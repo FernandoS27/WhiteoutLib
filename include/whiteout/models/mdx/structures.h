@@ -149,7 +149,6 @@ struct Node {
 
     static constexpr u32 NO_PARENT = 0xFFFFFFFF; ///< Value indicating no parent node
 
-    u32 inclusiveSize = 0;            ///< Size of node data including children
     std::string name;                 ///< Node name (for debugging/reference)
     u32 objectId = 0;                 ///< Unique ID for this node
     u32 parentId = NO_PARENT;         ///< Parent node ID or NO_PARENT
@@ -202,7 +201,6 @@ inline bool hasFlag(Node::NodeFlag flags, Node::NodeFlag flag) {
  * game code, no known shipped model contains SNEM data.
  */
 struct SoundEmitter {
-    u32 inclusiveSize = 0; ///< Size of emitter data
     Node node;             ///< Base node data with transform
 
     Track<u32> soundTrack; ///< KSEK - sound event track (u32 values)
@@ -267,7 +265,6 @@ struct Layer {
         Track<u32> tracks;                    ///< Texture ID animation
     };
 
-    u32 inclusiveSize = 0;                        ///< Size of layer data
     FilterMode filterMode = FilterMode::None;     ///< Blending mode
     ShadingFlag shadingFlags = ShadingFlag::None; ///< Rendering flags
     u32 textureId = 0;                            ///< Texture index (versions 800-1100)
@@ -331,7 +328,6 @@ inline bool hasFlag(Layer::ShadingFlag flags, Layer::ShadingFlag flag) {
  * layers that specify textures and blending modes.
  */
 struct Material {
-    u32 inclusiveSize = 0;     ///< Size of material data including layers
     u32 priorityPlane = 0;     ///< Rendering priority (higher = render last)
     u32 flags = 0;             ///< Material flags
     std::string shader;        ///< Shader name (Reforged)
@@ -349,10 +345,8 @@ struct Material {
  * like scrolling water, rotating symbols, etc.
  */
 struct TextureAnimation {
-    u32 inclusiveSize = 0; ///< Size of animation data
-
     Track<Vector3f> translationTracks; ///< UV translation animation
-    Track<f32> rotationTracks;         ///< UV rotation animation
+    Track<Quaternion> rotationTracks;  ///< UV rotation animation (quaternion XYZW)
     Track<Vector3f> scalingTracks;     ///< UV scaling animation
 };
 
@@ -367,8 +361,6 @@ struct TextureAnimation {
  * Models can have multiple geosets with different materials or LOD levels.
  */
 struct Geoset {
-    u32 inclusiveSize = 0; ///< Size of geoset data
-
     std::vector<Vector3f> vertexPositions; ///< Vertex positions
     std::vector<Vector3f> vertexNormals;   ///< Vertex normals
     std::vector<u32> faceTypeGroups;       ///< Face type groups (4 = triangles)
@@ -404,7 +396,6 @@ struct Geoset {
  * Geoset animations control the visibility and color tinting of meshes.
  */
 struct GeosetAnimation {
-    u32 inclusiveSize = 0;              ///< Size of animation data
     f32 alpha = 1.0f;                   ///< Base alpha value
     u32 flags = 0;                      ///< Animation flags
     Vector3f color = Vector3f(1, 1, 1); ///< Base color tint
@@ -452,7 +443,6 @@ struct Light {
         Ambient = 2      ///< Ambient light (affects everything equally)
     };
 
-    u32 inclusiveSize = 0;                     ///< Size of light data
     Node node;                                 ///< Base node data
     LightType type = LightType::Omni;          ///< Type of light
     f32 attenuationStart = 0.0f;               ///< Distance where attenuation begins
@@ -499,7 +489,6 @@ struct Helper {
  * can be attached to this model.
  */
 struct Attachment {
-    u32 inclusiveSize = 0; ///< Size of attachment data
     Node node;             ///< Base node data
     std::string path;      ///< Path to attached model
     u32 attachmentId = 0;  ///< Attachment slot ID
@@ -518,7 +507,6 @@ struct Attachment {
  * Used for effects like footprints, blood splatter, etc.
  */
 struct ParticleEmitter {
-    u32 inclusiveSize = 0;          ///< Size of emitter data
     Node node;                      ///< Base node data
     f32 emissionRate = 0.0f;        ///< Particles per second
     f32 gravity = 0.0f;             ///< Gravity force
@@ -550,7 +538,6 @@ struct ParticleEmitter {
  * Used for fire, smoke, magic effects, etc.
  */
 struct ParticleEmitter2 {
-    u32 inclusiveSize = 0;   ///< Size of emitter data
     Node node;               ///< Base node data
     f32 speed = 0.0f;        ///< Particle speed
     f32 variation = 0.0f;    ///< Speed variation (randomness)
@@ -605,7 +592,6 @@ struct ParticleEmitter2 {
  * missile contrails, etc.
  */
 struct RibbonEmitter {
-    u32 inclusiveSize = 0;              ///< Size of emitter data
     Node node;                          ///< Base node data
     f32 heightAbove = 0.0f;             ///< Height above attachment point
     f32 heightBelow = 0.0f;             ///< Height below attachment point
@@ -655,7 +641,6 @@ struct EventObject {
  * in-game cutscenes.
  */
 struct Camera {
-    u32 inclusiveSize = 0;         ///< Size of camera data
     std::string name;              ///< Camera name
     Vector3f position;             ///< Camera position
     f32 fieldOfView = 0.0f;        ///< Field of view angle in radians
@@ -710,7 +695,6 @@ struct FaceEffect {
  * Advanced particle system using PopcornFX technology in Warcraft III: Reforged.
  */
 struct CornEmitter {
-    u32 inclusiveSize = 0;                 ///< Size of emitter data
     Node node;                             ///< Base node data
     f32 lifeSpan = 0.0f;                   ///< Particle lifetime
     f32 emissionRate = 0.0f;               ///< Emission rate

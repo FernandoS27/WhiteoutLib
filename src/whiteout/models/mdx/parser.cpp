@@ -365,10 +365,11 @@ void Parser::Impl::parseSNEM(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
+        u32 posBefore = reader.getPosition();
         SoundEmitter snem = parseSoundEmitter(reader, size - totalRead);
         snem.node.nodeFamilyId = mdx.soundEmitters.size();
         mdx.soundEmitters.push_back(snem);
-        totalRead += snem.inclusiveSize;
+        totalRead += reader.getPosition() - posBefore;
     }
 }
 
@@ -376,11 +377,11 @@ SoundEmitter Parser::Impl::parseSoundEmitter(BinaryReader& reader, u32 maxSize) 
     SoundEmitter snem;
     u32 startPos = reader.getPosition();
 
-    snem.inclusiveSize = reader.read<u32>();
+    u32 inclusiveSize = reader.read<u32>();
     snem.node = parseNode(reader);
 
     // Parse animation tracks (KSEK)
-    u32 endPos = startPos + snem.inclusiveSize;
+    u32 endPos = startPos + inclusiveSize;
     while (reader.getPosition() < endPos) {
         u32 trackTag = reader.read<u32>();
         u32 trackCount = reader.read<u32>();
@@ -405,9 +406,10 @@ void Parser::Impl::parseMTLS(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
+        u32 posBefore = reader.getPosition();
         Material mat = parseMaterial(reader, size - totalRead, mdx);
         mdx.materials.push_back(mat);
-        totalRead += mat.inclusiveSize;
+        totalRead += reader.getPosition() - posBefore;
     }
 }
 
@@ -416,7 +418,7 @@ Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 chunkSize, Model&
     u32 startPos = reader.getPosition();
     bool is_hd = false;
 
-    mat.inclusiveSize = reader.read<u32>();
+    [[maybe_unused]] u32 inclusiveSize = reader.read<u32>();
     mat.priorityPlane = reader.read<u32>();
     mat.flags = reader.read<u32>();
 
@@ -475,7 +477,7 @@ Layer Parser::Impl::parseLayer(BinaryReader& reader, Model& mdx) {
     Layer layer;
     u32 startPos = reader.getPosition();
 
-    layer.inclusiveSize = reader.read<u32>();
+    u32 inclusiveSize = reader.read<u32>();
     layer.filterMode = static_cast<Layer::FilterMode>(reader.read<u32>());
     layer.shadingFlags = static_cast<Layer::ShadingFlag>(reader.read<u32>());
     layer.textureId = reader.read<u32>();
@@ -515,7 +517,7 @@ Layer Parser::Impl::parseLayer(BinaryReader& reader, Model& mdx) {
         }
     }
 
-    const u32 endPos = startPos + layer.inclusiveSize;
+    const u32 endPos = startPos + inclusiveSize;
     while (reader.getPosition() < endPos) {
         u32 currentPos = reader.getPosition();
 
@@ -568,10 +570,10 @@ void Parser::Impl::parseTXAN(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
-        u32 startPos = reader.getPosition();
+        u32 posBefore = reader.getPosition();
         TextureAnimation anim = parseTextureAnimation(reader, size - totalRead);
         mdx.textureAnimations.push_back(anim);
-        totalRead += anim.inclusiveSize;
+        totalRead += reader.getPosition() - posBefore;
     }
 }
 
@@ -579,10 +581,10 @@ TextureAnimation Parser::Impl::parseTextureAnimation(BinaryReader& reader, u32 m
     TextureAnimation anim;
     u32 startPos = reader.getPosition();
 
-    anim.inclusiveSize = reader.read<u32>();
+    u32 inclusiveSize = reader.read<u32>();
 
     // Parse animation tracks (KTAT, KTAR, KTAS)
-    u32 endPos = startPos + anim.inclusiveSize;
+    u32 endPos = startPos + inclusiveSize;
     while (reader.getPosition() < endPos) {
         u32 trackTag = reader.read<u32>();
         u32 trackCount = reader.read<u32>();
@@ -594,9 +596,9 @@ TextureAnimation Parser::Impl::parseTextureAnimation(BinaryReader& reader, u32 m
             anim.translationTracks =
                 readTrackChunk<Vector3f>(reader, trackCount, interpolationType, globalSequenceId);
             break;
-        case KTAR_TAG: // KTAR - rotation
+        case KTAR_TAG: // KTAR - rotation (quaternion XYZW)
             anim.rotationTracks =
-                readTrackChunk<f32>(reader, trackCount, interpolationType, globalSequenceId);
+                readTrackChunk<Quaternion>(reader, trackCount, interpolationType, globalSequenceId);
             break;
         case KTAS_TAG: // KTAS - scaling
             anim.scalingTracks =
@@ -614,14 +616,11 @@ void Parser::Impl::parseGEOS(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
-        u32 startPos = reader.getPosition();
+        u32 posBefore = reader.getPosition();
         Geoset geo = parseGeoset(reader, size - totalRead, mdx);
 
-        // Ensure we're at the correct position
-        reader.setPosition(startPos + geo.inclusiveSize);
-
         mdx.geosets.push_back(geo);
-        totalRead += geo.inclusiveSize;
+        totalRead += reader.getPosition() - posBefore;
     }
 }
 
@@ -629,7 +628,7 @@ Geoset Parser::Impl::parseGeoset(BinaryReader& reader, u32 maxSize, Model& mdx) 
     Geoset geoset;
     u32 startPos = reader.getPosition();
 
-    geoset.inclusiveSize = reader.read<u32>();
+    u32 inclusiveSize = reader.read<u32>();
 
     // Parse VRTX - vertex positions
     u32 vrtxTag = reader.read<u32>();
@@ -697,7 +696,7 @@ Geoset Parser::Impl::parseGeoset(BinaryReader& reader, u32 maxSize, Model& mdx) 
 
     // Parse UVAS - texture coordinate sets
     u32 currentPos = reader.getPosition();
-    u32 endPos = startPos + geoset.inclusiveSize;
+    u32 endPos = startPos + inclusiveSize;
 
     while (currentPos < endPos) {
         u32 peekTag = reader.read<u32>();
@@ -738,6 +737,9 @@ Geoset Parser::Impl::parseGeoset(BinaryReader& reader, u32 maxSize, Model& mdx) 
         currentPos = reader.getPosition();
     }
 
+    // Ensure we're at the correct position
+    reader.setPosition(startPos + inclusiveSize);
+
     return geoset;
 }
 
@@ -748,14 +750,14 @@ void Parser::Impl::parseGEOA(BinaryReader& reader, u32 size, Model& mdx) {
         u32 startPos = reader.getPosition();
 
         GeosetAnimation anim;
-        anim.inclusiveSize = reader.read<u32>();
+        u32 inclusiveSize = reader.read<u32>();
         anim.alpha = reader.read<f32>();
         anim.flags = reader.read<u32>();
         anim.color = reader.read<Vector3f>();
         anim.geosetId = reader.read<u32>();
 
         // Parse animation tracks (KGAO, KGAC)
-        u32 endPos = startPos + anim.inclusiveSize;
+        u32 endPos = startPos + inclusiveSize;
         while (reader.getPosition() < endPos) {
             u32 trackTag = reader.read<u32>();
             u32 trackCount = reader.read<u32>();
@@ -778,7 +780,7 @@ void Parser::Impl::parseGEOA(BinaryReader& reader, u32 size, Model& mdx) {
         }
 
         mdx.geosetAnimations.push_back(anim);
-        totalRead += anim.inclusiveSize;
+        totalRead += reader.getPosition() - startPos;
     }
 }
 
@@ -810,7 +812,6 @@ Node Parser::Impl::parseNode(BinaryReader& reader) {
     u32 startPos = reader.getPosition();
     u32 nodeSize = reader.read<u32>();
 
-    node.inclusiveSize = nodeSize;
     node.name = reader.readString(80);
     node.objectId = reader.read<u32>();
     node.parentId = reader.read<u32>();
@@ -860,13 +861,13 @@ void Parser::Impl::parseLITE(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
-        u32 startPos = reader.getPosition();
+        u32 posBefore = reader.getPosition();
         Light light = parseLight(reader, size - totalRead, mdx);
         light.node.type = Node::NodeType::Light; // Set node type to Light
         light.node.nodeFamilyId =
             mdx.lights.size(); // Assign a unique family ID based on current light count
         mdx.lights.push_back(light);
-        totalRead += light.inclusiveSize;
+        totalRead += reader.getPosition() - posBefore;
     }
 }
 
@@ -874,7 +875,7 @@ Light Parser::Impl::parseLight(BinaryReader& reader, u32 maxSize, Model& mdx) {
     Light light;
     u32 startPos = reader.getPosition();
 
-    light.inclusiveSize = reader.read<u32>();
+    u32 inclusiveSize = reader.read<u32>();
     light.node = parseNode(reader);
     light.type = static_cast<Light::LightType>(reader.read<u32>());
     light.attenuationStart = reader.read<f32>();
@@ -890,7 +891,7 @@ Light Parser::Impl::parseLight(BinaryReader& reader, u32 maxSize, Model& mdx) {
     }
 
     // Parse animation tracks (KLAS, KLAE, KLAC, KLAI, KLBI, KLBC, KLAV)
-    u32 endPos = startPos + light.inclusiveSize;
+    u32 endPos = startPos + inclusiveSize;
     while (reader.getPosition() < endPos) {
         u32 trackTag = reader.read<u32>();
         u32 trackCount = reader.read<u32>();
@@ -959,6 +960,7 @@ void Parser::Impl::parseATCH(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
+        u32 posBefore = reader.getPosition();
         Attachment att = parseAttachment(reader, size - totalRead);
 
         att.node.type = Node::NodeType::Attachment; // Set node type to Attachment
@@ -966,7 +968,7 @@ void Parser::Impl::parseATCH(BinaryReader& reader, u32 size, Model& mdx) {
             mdx.attachments.size(); // Assign a unique family ID based on current attachment count
 
         mdx.attachments.push_back(att);
-        totalRead += att.inclusiveSize;
+        totalRead += reader.getPosition() - posBefore;
     }
 }
 
@@ -974,13 +976,13 @@ Attachment Parser::Impl::parseAttachment(BinaryReader& reader, u32 maxSize) {
     Attachment att;
     u32 startPos = reader.getPosition();
 
-    att.inclusiveSize = reader.read<u32>();
+    u32 inclusiveSize = reader.read<u32>();
     att.node = parseNode(reader);
     att.path = reader.readString(260);
     att.attachmentId = reader.read<u32>();
 
     // Parse animation tracks (KATV)
-    u32 endPos = startPos + att.inclusiveSize;
+    u32 endPos = startPos + inclusiveSize;
     while (reader.getPosition() < endPos) {
         u32 trackTag = reader.read<u32>();
         u32 trackCount = reader.read<u32>();
@@ -1014,6 +1016,7 @@ void Parser::Impl::parsePREM(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
+        u32 posBefore = reader.getPosition();
         ParticleEmitter pem = parseParticleEmitter(reader, size - totalRead);
         pem.node.type = Node::NodeType::ParticleEmitter; // Set node type to ParticleEmitter
         pem.node.nodeFamilyId =
@@ -1021,7 +1024,7 @@ void Parser::Impl::parsePREM(BinaryReader& reader, u32 size, Model& mdx) {
                 .size(); // Assign a unique family ID based on current particle emitter count
 
         mdx.particleEmitters.push_back(pem);
-        totalRead += pem.inclusiveSize;
+        totalRead += reader.getPosition() - posBefore;
     }
 }
 
@@ -1029,7 +1032,7 @@ ParticleEmitter Parser::Impl::parseParticleEmitter(BinaryReader& reader, u32 max
     ParticleEmitter pem;
     u32 startPos = reader.getPosition();
 
-    pem.inclusiveSize = reader.read<u32>();
+    u32 inclusiveSize = reader.read<u32>();
     pem.node = parseNode(reader);
     pem.emissionRate = reader.read<f32>();
     pem.gravity = reader.read<f32>();
@@ -1040,7 +1043,7 @@ ParticleEmitter Parser::Impl::parseParticleEmitter(BinaryReader& reader, u32 max
     pem.initialVelocity = reader.read<f32>();
 
     // Parse animation tracks (KPEE, KPEG, KPLN, KPLT, KPEL, KPES, KPEV)
-    u32 endPos = startPos + pem.inclusiveSize;
+    u32 endPos = startPos + inclusiveSize;
     while (reader.getPosition() < endPos) {
         u32 trackTag = reader.read<u32>();
         u32 trackCount = reader.read<u32>();
@@ -1089,6 +1092,7 @@ void Parser::Impl::parsePRE2(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
+        u32 posBefore = reader.getPosition();
         ParticleEmitter2 pem2 = parseParticleEmitter2(reader, size - totalRead);
         pem2.node.type = Node::NodeType::ParticleEmitter2; // Set node type to ParticleEmitter2
         pem2.node.nodeFamilyId =
@@ -1096,7 +1100,7 @@ void Parser::Impl::parsePRE2(BinaryReader& reader, u32 size, Model& mdx) {
                 .size(); // Assign a unique family ID based on current particle emitter count
 
         mdx.particleEmitters2.push_back(pem2);
-        totalRead += pem2.inclusiveSize;
+        totalRead += reader.getPosition() - posBefore;
     }
 }
 
@@ -1104,7 +1108,7 @@ ParticleEmitter2 Parser::Impl::parseParticleEmitter2(BinaryReader& reader, u32 m
     ParticleEmitter2 pem2;
     u32 startPos = reader.getPosition();
 
-    pem2.inclusiveSize = reader.read<u32>();
+    u32 inclusiveSize = reader.read<u32>();
     pem2.node = parseNode(reader);
     pem2.speed = reader.read<f32>();
     pem2.variation = reader.read<f32>();
@@ -1152,7 +1156,7 @@ ParticleEmitter2 Parser::Impl::parseParticleEmitter2(BinaryReader& reader, u32 m
     pem2.replaceableId = reader.read<u32>();
 
     // Parse animation tracks (KP2S, KP2R, KP2L, KP2G, KP2E, KP2N, KP2W, KP2V)
-    u32 endPos = startPos + pem2.inclusiveSize;
+    u32 endPos = startPos + inclusiveSize;
     while (reader.getPosition() < endPos) {
         u32 trackTag = reader.read<u32>();
         u32 trackCount = reader.read<u32>();
@@ -1205,6 +1209,7 @@ void Parser::Impl::parseRIBB(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
+        u32 posBefore = reader.getPosition();
         RibbonEmitter ribb = parseRibbonEmitter(reader, size - totalRead);
         ribb.node.type = Node::NodeType::RibbonEmitter; // Set node type to RibbonEmitter
         ribb.node.nodeFamilyId =
@@ -1212,7 +1217,7 @@ void Parser::Impl::parseRIBB(BinaryReader& reader, u32 size, Model& mdx) {
                 .size(); // Assign a unique family ID based on current ribbon emitter count
 
         mdx.ribbonEmitters.push_back(ribb);
-        totalRead += ribb.inclusiveSize;
+        totalRead += reader.getPosition() - posBefore;
     }
 }
 
@@ -1220,7 +1225,7 @@ RibbonEmitter Parser::Impl::parseRibbonEmitter(BinaryReader& reader, u32 maxSize
     RibbonEmitter ribb;
     u32 startPos = reader.getPosition();
 
-    ribb.inclusiveSize = reader.read<u32>();
+    u32 inclusiveSize = reader.read<u32>();
     ribb.node = parseNode(reader);
     ribb.heightAbove = reader.read<f32>();
     ribb.heightBelow = reader.read<f32>();
@@ -1235,7 +1240,7 @@ RibbonEmitter Parser::Impl::parseRibbonEmitter(BinaryReader& reader, u32 maxSize
     ribb.gravity = reader.read<f32>();
 
     // Parse animation tracks (KRHA, KRHB, KRAL, KRCO, KRTX, KRVS)
-    u32 endPos = startPos + ribb.inclusiveSize;
+    u32 endPos = startPos + inclusiveSize;
     while (reader.getPosition() < endPos) {
         u32 trackTag = reader.read<u32>();
         u32 trackCount = reader.read<u32>();
@@ -1310,9 +1315,10 @@ void Parser::Impl::parseCAMS(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
+        u32 posBefore = reader.getPosition();
         Camera cam = parseCamera(reader, size - totalRead);
         mdx.cameras.push_back(cam);
-        totalRead += cam.inclusiveSize;
+        totalRead += reader.getPosition() - posBefore;
     }
 }
 
@@ -1320,7 +1326,7 @@ Camera Parser::Impl::parseCamera(BinaryReader& reader, u32 maxSize) {
     Camera cam;
     u32 startPos = reader.getPosition();
 
-    cam.inclusiveSize = reader.read<u32>();
+    u32 inclusiveSize = reader.read<u32>();
     cam.name = reader.readString(80);
     cam.position = reader.read<Vector3f>();
     cam.fieldOfView = reader.read<f32>();
@@ -1329,7 +1335,7 @@ Camera Parser::Impl::parseCamera(BinaryReader& reader, u32 maxSize) {
     cam.targetPosition = reader.read<Vector3f>();
 
     // Parse animation tracks (KCTR, KCRL, KTTR)
-    u32 endPos = startPos + cam.inclusiveSize;
+    u32 endPos = startPos + inclusiveSize;
     while (reader.getPosition() < endPos) {
         u32 trackTag = reader.read<u32>();
         u32 trackCount = reader.read<u32>();
@@ -1427,7 +1433,7 @@ void Parser::Impl::parseCORN(BinaryReader& reader, u32 size, Model& mdx) {
         CornEmitter corn;
         u32 startPos = reader.getPosition();
 
-        corn.inclusiveSize = reader.read<u32>();
+        u32 inclusiveSize = reader.read<u32>();
         corn.node = parseNode(reader);
         corn.node.type = Node::NodeType::CornEmitter; // Set node type to CornEmitter
         corn.node.nodeFamilyId =
@@ -1443,7 +1449,7 @@ void Parser::Impl::parseCORN(BinaryReader& reader, u32 size, Model& mdx) {
         corn.animVisibilityGuide = reader.readString(260);
 
         // Parse animation tracks (KPPA, KPPC, KPPE, KPPL, KPPS, KPPV)
-        u32 endPos = startPos + corn.inclusiveSize;
+        u32 endPos = startPos + inclusiveSize;
         while (reader.getPosition() < endPos) {
             u32 trackTag = reader.read<u32>();
             u32 trackCount = reader.read<u32>();
@@ -1482,7 +1488,7 @@ void Parser::Impl::parseCORN(BinaryReader& reader, u32 size, Model& mdx) {
         }
 
         mdx.cornEmitters.push_back(corn);
-        totalRead += corn.inclusiveSize;
+        totalRead += reader.getPosition() - startPos;
     }
 }
 

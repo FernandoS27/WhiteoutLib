@@ -53,7 +53,7 @@ static void writeTrackChunk(BinaryWriter& writer, u32 tag, const Track<T>& track
 
     // Write track header
     writer.write(tag);
-    writer.write(track.keyCount);
+    writer.write(static_cast<u32>(track.keyCount));
     writer.write(static_cast<u32>(track.interpolationType));
     writer.write(track.globalSequenceId);
 
@@ -327,7 +327,7 @@ void Writer::Impl::writeMaterial(BinaryWriter& writer, const Material& mat, cons
 
     // Write LAYS chunk
     writer.write(LAYS_TAG);
-    writer.write(mat.layers.size());
+    writer.write(static_cast<u32>(mat.layers.size()));
 
     for (const auto& layer : mat.layers) {
         writeLayer(writer, layer, mdx);
@@ -353,7 +353,7 @@ void Writer::Impl::writeLayer(BinaryWriter& writer, const Layer& layer, const Mo
 
     if (mdx.version >= 1100) {
         writer.write(layer.is_hd ? 1 : 0);
-        writer.write(layer.subTextures.size());
+        writer.write(static_cast<u32>(layer.subTextures.size()));
 
         for (const auto& subTex : layer.subTextures) {
             writer.write(subTex.textureId);
@@ -447,7 +447,7 @@ void Writer::Impl::writeGeoset(BinaryWriter& writer, const Geoset& geo, const Mo
 
     writer.write(geo.extent);
 
-    writer.write(geo.sequenceExtents.size());
+    writer.write(static_cast<u32>(geo.sequenceExtents.size()));
     for (const auto& ext : geo.sequenceExtents) {
         writer.write(ext);
     }
@@ -736,7 +736,7 @@ void Writer::Impl::writeEventObject(BinaryWriter& writer, const EventObject& evt
     writeNode(writer, evt.node);
 
     writer.write(KEVT_TAG);
-    writer.write(evt.eventTrackTimes.size());
+    writer.write(static_cast<u32>(evt.eventTrackTimes.size()));
     writer.write(evt.eventTrackTimes);
     writer.write(evt.globalSequenceId);
 }
@@ -788,7 +788,7 @@ void Writer::Impl::writeBPOS(BinaryWriter& writer, const Model& mdx) {
     u32 size = 4 + mdx.bindPoses.size() * 48; // count + matrices
     writeChunkHeader(writer, BPOS_TAG, size);
 
-    writer.write(mdx.bindPoses.size());
+    writer.write(static_cast<u32>(mdx.bindPoses.size()));
     for (const auto& pose : mdx.bindPoses) {
         for (int i = 0; i < 12; i++) {
             writer.write(pose[i]);

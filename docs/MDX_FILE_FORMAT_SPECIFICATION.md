@@ -525,12 +525,12 @@ TXAN {
 TextureAnimation {
     u32         inclusiveSize
     (KTAT)                          // Translation: float[3]
-    (KTAR)                          // Rotation: f32 (scalar angle)
+    (KTAR)                          // Rotation: float[4] (quaternion XYZW)
     (KTAS)                          // Scaling: float[3]
 }
 ```
 
-> **Important:** KTAR is a **scalar `f32`** rotation, not a quaternion. This differs from GhostWolf's original specification which lists it as `float[4]`.
+> **Note:** KTAR uses a **quaternion `float[4]`** rotation, matching GhostWolf's original specification.
 
 ### 7.9 GEOS — Geosets
 
@@ -1194,10 +1194,10 @@ The following table lists all track tags, their data type `T`, parent object, an
 | Tag | Data Type | Description |
 |-----|-----------|-------------|
 | **KTAT** | `float[3]` | Translation (u, v, w) |
-| **KTAR** | `f32` | Rotation (scalar angle) |
+| **KTAR** | `float[4]` | Rotation (quaternion XYZW) |
 | **KTAS** | `float[3]` | Scaling (u, v, w) |
 
-> **Note:** KTAR uses a scalar `f32`, unlike node rotation KGRT which uses a quaternion `float[4]`.
+> **Note:** KTAR uses a quaternion `float[4]`, same as node rotation KGRT.
 
 #### Geoset Animation Tracks
 
@@ -1419,7 +1419,7 @@ Warcraft III animations use millisecond timing. At 60 FPS, advance animation cou
 ### Rotations
 
 - **Node rotations (KGRT):** Quaternions as `float[4]` in (x, y, z, w) order.
-- **Texture animation rotations (KTAR):** Scalar `f32` angle.
+- **Texture animation rotations (KTAR):** Quaternions as `float[4]` in (x, y, z, w) order.
 - **Camera rotations (KCRL):** Scalar `f32` angle.
 
 ### Inclusive Size Fields
@@ -1661,7 +1661,7 @@ This dual system lets artists achieve common patterns efficiently:
 
 | Item | Old Spec | Corrected |
 |------|----------|-----------|
-| KTAR data type | `float[4]` (quaternion) | `f32` (scalar angle) |
+| KTAR data type | `f32` (scalar angle) | `float[4]` (quaternion XYZW) |
 | KPPC data type | `float[3]` (RGB) | `float[4]` (RGBA) |
 | KEVT field order | globalSequenceId before tracks | globalSequenceId **after** tracks |
 | Material shader | Present when `version > 800` | Present when `version > 800 && version < 1100` |
