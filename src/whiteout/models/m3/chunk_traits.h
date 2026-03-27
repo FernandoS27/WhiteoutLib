@@ -619,7 +619,7 @@ struct ChunkTagTraits<ConvexHullHalfEdge> {
 };
 
 template <>
-struct ChunkTagTraits<PhysicsMeshNormal> {
+struct ChunkTagTraits<PhysicsMeshBvhNode> {
     static constexpr u32 value = TAG_DMMN;
     static constexpr u32 max_version = 1;
     static constexpr bool is_trivial = false;

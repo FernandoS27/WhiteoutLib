@@ -9,9 +9,15 @@ void BinaryParseVisitor::visit(ConvexHullHalfEdge& value, u32 version) {
     value.nextAroundVertex = reader.read<u8>();
 }
 
-void BinaryParseVisitor::visit(PhysicsMeshNormal& value, u32 version) {
-    (void)version;
-    value.normal = reader.read<Vector3f>();
+void BinaryParseVisitor::visit(PhysicsMeshBvhNode& value, u32 version) {
+    if (version >= 1) {
+        value.octahedral.octX = reader.read<i16>();
+        value.octahedral.octY = reader.read<i16>();
+        value.octahedral.slabMin = reader.read<u16>();
+        value.octahedral.slabMax = reader.read<u16>();
+    } else {
+        value.normal = reader.read<Vector3f>();
+    }
 }
 
 void BinaryParseVisitor::visit(PhysicsMeshTriangle& value, u32 version) {
@@ -70,7 +76,7 @@ void BinaryParseVisitor::visit(PhysicsShape& value, u32 version) {
     value.hullUnknown1 = reader.read<f32>();
 
     if (version >= 3) {
-        visit(value.meshFaceNormals);
+        visit(value.meshBvhNodes);
         visit(value.meshVertexPositions);
         visit(value.meshFaceIndices16);
         visit(value.meshFaceIndices32);
@@ -79,7 +85,7 @@ void BinaryParseVisitor::visit(PhysicsShape& value, u32 version) {
     value.meshBoundsExtent = reader.read<Vector3f>();
     value.meshTolerance = reader.read<Vector3f>();
     if (version == 2) {
-        visit(value.deprecated.v2.meshFaceNormals);
+        visit(value.deprecated.v2.meshBvhNodes);
         visit(value.deprecated.v2.meshVertexPositions);
         visit(value.deprecated.v2.unknown);
         visit(value.deprecated.v2.unknown2);
@@ -198,9 +204,9 @@ void BinaryParseVisitor::visit(ClothPhysics& value, u32 version) {
     value.windScale = reader.read<f32>();
     value.shearStiffness = reader.read<f32>();
     value.dragFactor = reader.read<f32>();
-    value.liftFactor = reader.read<f32>();
-    value.sphereStiffness = reader.read<f32>();
     if (version >= 4) {
+        value.liftFactor = reader.read<f32>();
+        value.sphereStiffness = reader.read<f32>();
         value.flatten = reader.read<u32>();
         value.active = reader.read<AnimRef<u32>>();
         value.useSkinCollision = reader.read<u32>();

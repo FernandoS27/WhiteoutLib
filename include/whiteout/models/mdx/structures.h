@@ -158,7 +158,7 @@ struct Node {
 
     // Animation tracks
     Track<Vector3f> translationTracks; ///< Position animation
-    Track<Vector4f> rotationTracks;    ///< Rotation animation (quaternion XYZW)
+    Track<Quaternion> rotationTracks;    ///< Rotation animation (quaternion XYZW)
     Track<Vector3f> scalingTracks;     ///< Scale animation
 };
 

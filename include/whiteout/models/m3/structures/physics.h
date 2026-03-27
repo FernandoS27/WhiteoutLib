@@ -81,10 +81,117 @@ struct ConvexHullHalfEdge {
 };
 
 /**
- * @brief DMMN — Physics mesh normal (v0–v1, 8–12 bytes)
+ * @brief DMMN — Physics mesh BVH node (v0: 12 bytes, v1: 8 bytes)
+ *
+ * DMMN entries form a linearized k-DOP Bounding Volume Hierarchy (BVH) tree
+ * for concave mesh collision. The entry count is always odd: n = 2*n_leaves - 1.
+ *
+ * **Tree structure** — right-skewed binary tree stored in DFS preorder:
+ *   - Array layout: (INT_0, LEAF_1), (INT_2, LEAF_3), ..., LEAF_{n-1}
+ *   - Even indices 0..n-3: internal nodes
+ *   - Odd indices 1..n-2: leaf nodes
+ *   - Last index n-1: leaf node
+ *   - Each internal node 2k: left child = leaf 2k+1, right child = node 2k+2
+ *
+ * **v0** (Havok-era, 12 bytes per node) — stores only the slab normal direction
+ * as a plain Vector3f. No quantized slab bounds are present; the tree topology
+ * and bounding-slab directions are identical to v1, but distance culling relies
+ * on the runtime computing slab projections against meshBoundsCenter/Extent.
+ * Only 3 files in the corpus use v0 (all with PHSH v2).
+ *
+ * **v1** (Domino physics, 8 bytes per node) — octahedral-encoded normal +
+ * quantized slab bounds:
+ *   - i16 octX, octY: octahedral-mapped slab normal (snorm16 pair)
+ *   - u16 slabMin, slabMax: quantized bounding-slab distances along the normal
+ *   - Internal nodes: slabMax != 0; leaf sentinel: slabMax == 0
+ *     (except the last node, which may have slabMax != 0 despite being a leaf)
+ *
+ * **Quantization** (v1, universally confirmed across 468 corpus files):
+ *   - Per-axis step: tol_i = extent_i / 32767
+ *   - Projected step: tol_proj = dot(tolerance, |normal|)
+ *   - Slab values quantized as: q = round(projection / tol_proj)
+ *   - Root node slab range approaches [-32767, +32767] (full AABB)
+ *
+ * Internal nodes use one slab direction; their paired leaf uses a DIFFERENT
+ * slab direction, forming a 2-DOP bound per primitive group. Most trees (391/468)
+ * use multiple slab normals across internal levels for tighter culling.
+ *
+ * PHSH meshTreeDepth gives the tree height (longest root-to-leaf path in nodes).
  */
-struct PhysicsMeshNormal {
-    Vector3f normal;                      ///< Face normal vector
+struct PhysicsMeshBvhNode {
+    /// BVH node: octahedral-encoded slab normal + quantized slab bounds (v1, 8 bytes).
+    struct Octahedral {
+        i16 octX;                         ///< Octahedral-encoded X (snorm16)
+        i16 octY;                         ///< Octahedral-encoded Y (snorm16)
+        u16 slabMin;                      ///< Quantized bounding-slab min distance
+        u16 slabMax;                      ///< Quantized bounding-slab max distance (0 = leaf sentinel)
+
+        /// Decode octahedral (octX, octY) to a unit-length slab normal.
+        Vector3f decodeNormal() const {
+            f32 x = static_cast<f32>(snorm16::from_raw(octX));
+            f32 y = static_cast<f32>(snorm16::from_raw(octY));
+            f32 z = 1.0f - std::abs(x) - std::abs(y);
+            if (z < 0.0f) {
+                f32 ox = x;
+                x = (1.0f - std::abs(y)) * (ox >= 0.0f ? 1.0f : -1.0f);
+                y = (1.0f - std::abs(ox)) * (y >= 0.0f ? 1.0f : -1.0f);
+            }
+            return Vector3f{x, y, z}.normalized();
+        }
+
+        /// Encode a unit-length normal into octahedral (octX, octY).
+        /// slabMin and slabMax are set from the provided arguments.
+        static Octahedral fromNormal(const Vector3f& n, u16 sMin = 0, u16 sMax = 0) {
+            f32 invL1 = 1.0f / (std::abs(n.x) + std::abs(n.y) + std::abs(n.z));
+            f32 ox = n.x * invL1;
+            f32 oy = n.y * invL1;
+            if (n.z < 0.0f) {
+                f32 tmpX = ox;
+                ox = (1.0f - std::abs(oy)) * (tmpX >= 0.0f ? 1.0f : -1.0f);
+                oy = (1.0f - std::abs(tmpX)) * (oy >= 0.0f ? 1.0f : -1.0f);
+            }
+            Octahedral result;
+            result.octX = snorm16::from_float(ox).value;
+            result.octY = snorm16::from_float(oy).value;
+            result.slabMin = sMin;
+            result.slabMax = sMax;
+            return result;
+        }
+
+        /// Compute the projected quantization step for this node's normal.
+        /// @param tolerance  PHSH meshTolerance (= meshBoundsExtent / 32767).
+        f32 projectedStep(const Vector3f& tolerance) const {
+            Vector3f n = decodeNormal();
+            return std::abs(n.x) * tolerance.x
+                 + std::abs(n.y) * tolerance.y
+                 + std::abs(n.z) * tolerance.z;
+        }
+
+        /// Dequantize slabMin to a signed slab distance in model-space units.
+        /// @param tolerance  PHSH meshTolerance (= meshBoundsExtent / 32767).
+        f32 decodeSlabMin(const Vector3f& tolerance) const {
+            return static_cast<f32>(static_cast<i16>(slabMin)) * projectedStep(tolerance);
+        }
+
+        /// Dequantize slabMax to a signed slab distance in model-space units.
+        /// @param tolerance  PHSH meshTolerance (= meshBoundsExtent / 32767).
+        f32 decodeSlabMax(const Vector3f& tolerance) const {
+            return static_cast<f32>(static_cast<i16>(slabMax)) * projectedStep(tolerance);
+        }
+
+        /// Dequantize both slab bounds as a (min, max) pair.
+        /// @param tolerance  PHSH meshTolerance (= meshBoundsExtent / 32767).
+        /// @return {min distance, max distance} in model-space units.
+        std::pair<f32, f32> decodeSlabRange(const Vector3f& tolerance) const {
+            f32 step = projectedStep(tolerance);
+            return {static_cast<f32>(static_cast<i16>(slabMin)) * step,
+                    static_cast<f32>(static_cast<i16>(slabMax)) * step};
+        }
+    };
+    union {
+        Vector3f normal{};                ///< Slab normal direction (v0, 12 bytes)
+        Octahedral octahedral;            ///< Packed octahedral normal + slab bounds (v1, 8 bytes)
+    };
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -148,27 +255,27 @@ struct PhysicsShape {
     f32 hullUnknown1;                              ///< Unknown hull parameter 1
 
     // --- Mesh section (binary offsets 184–299, shapeType = 5 only) ---
-    std::vector<PhysicsMeshNormal> meshFaceNormals;    ///< Face normals (DMMN)
+    std::vector<PhysicsMeshBvhNode> meshBvhNodes;       ///< BVH tree nodes (DMMN)
     std::vector<Vector4f> meshVertexPositions;         ///< Vertex positions, w=0 (VEC4)
     std::vector<std::array<u16, 7>> meshFaceIndices16; ///< 16-bit face data (MT16, or empty)
     std::vector<std::array<u32, 7>> meshFaceIndices32; ///< 32-bit face data (MT32, or empty)
     // MT32/MT16 per-entry layout: {v0, v1, v2, adj0, adj1, adj2, flags}
-    Vector3f meshBoundsCenter; ///< Mesh bounding center
-    Vector3f meshBoundsExtent; ///< Mesh bounding half-extents
-    Vector3f meshTolerance;    ///< Mesh tolerance vector
+    Vector3f meshBoundsCenter; ///< AABB center in model space (quantization grid origin)
+    Vector3f meshBoundsExtent; ///< AABB half-extents (quantization range: tolerance = extent / 32767)
+    Vector3f meshTolerance;    ///< Per-axis quantization step (= extent / 32767)
     u32 meshNormalCount;       ///< Number of mesh normals
     u32 meshVertexCount;       ///< Number of mesh vertices
     u32 meshFaceIndex16Count;  ///< MT16 face count (0 when MT32)
     u32 meshFaceIndex32Count;  ///< MT32 face count (0 when MT16)
     u32 meshUnknown1;          ///< Unknown mesh parameter
     u32 meshReserved;          ///< Reserved (always 0)
-    u32 meshTreeDepth;         ///< BVH tree depth (1–12)
+    u32 meshTreeDepth;         ///< BVH tree height (root-to-leaf path length, 1–12)
     f32 meshCollisionMargin;   ///< Collision margin (MT16: small float; MT32: 0.0)
 
     /// Deprecated shape data from older versions
     struct {
         struct {
-            std::vector<PhysicsMeshNormal> meshFaceNormals; ///< v2 only: face normals
+            std::vector<PhysicsMeshBvhNode> meshBvhNodes; ///< v2 only: BVH tree nodes
             std::vector<Vector3f> meshVertexPositions;      ///< v2 only: vertex positions
             std::vector<PhysicsMeshTriangle> unknown;       ///< v2 only: triangles
             std::vector<PhysicsMeshEdge> unknown2;          ///< v2 only: edges
@@ -310,9 +417,9 @@ struct ClothPhysics {
     f32 windScale;                        ///< Wind force scale
     f32 shearStiffness;                   ///< Shear stiffness
     f32 dragFactor;                       ///< Drag factor
-    f32 liftFactor;                       ///< Lift factor
-    f32 sphereStiffness;                  ///< Sphere collider stiffness
-    u32 flatten;                          ///< Flatten mode
+    f32 liftFactor;                       ///< Lift factor (v4+)
+    f32 sphereStiffness;                  ///< Sphere collider stiffness (v4+)
+    u32 flatten;                          ///< Flatten mode (v4+)
     AnimRef<u32> active;                  ///< Animated active state
     u32 useSkinCollision;                 ///< Use skin mesh for collision
     f32 skinOffset;                       ///< Skin collision offset

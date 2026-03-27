@@ -41,7 +41,7 @@ struct MaterialMap {
 };
 
 /**
- * @brief LAYR — Texture layer (v0–v26, 356–468 bytes)
+ * @brief LAYR — Texture layer (v0–v26, 352–464 bytes)
  *
  * A single texture binding with animated color tint, UV transforms, flipbook
  * parameters, fresnel settings, and AVI video playback controls. Materials
@@ -87,7 +87,7 @@ struct TextureLayer {
     Vector3f fresnelTranslation;                            ///< Fresnel UV translation (v25+)
     Vector3f fresnelMask;                                   ///< Fresnel mask vector (v25+)
     Vector2f fresnelRotation;                               ///< Fresnel UV rotation (v25+)
-    u32 uvDensity;                                          ///< UV density hint (v25+)
+    u32 uvDensity;                                          ///< UV density hint (v0–v25, absent in v26)
     M3_DEFINE_VERSION_ACCESSORS()
 };
 

@@ -52,7 +52,9 @@ void BinaryWriterVisitor::visit(const TextureLayer& layer, u32 version) {
         writer.write(layer.fresnelMask);
         writer.write(layer.fresnelRotation);
     }
-    writer.write(layer.uvDensity);
+    if (version < 26) {
+        writer.write(layer.uvDensity);
+    }
 }
 
 void BinaryWriterVisitor::visit(const StandardMaterial& material, u32 version) {

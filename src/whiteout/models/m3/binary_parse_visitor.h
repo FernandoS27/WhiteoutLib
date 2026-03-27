@@ -69,7 +69,7 @@ protected:
     void visit(Force& value, u32 version);
     void visit(Warp& value, u32 version);
     void visit(ConvexHullHalfEdge& value, u32 version);
-    void visit(PhysicsMeshNormal& value, u32 version);
+    void visit(PhysicsMeshBvhNode& value, u32 version);
     void visit(PhysicsMeshTriangle& value, u32 version);
     void visit(PhysicsMeshEdge& value, u32 version);
     void visit(PhysicsShape& value, u32 version);

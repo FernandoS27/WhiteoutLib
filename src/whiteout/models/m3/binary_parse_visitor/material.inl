@@ -52,7 +52,9 @@ void BinaryParseVisitor::visit(TextureLayer& value, u32 version) {
         value.fresnelMask = reader.read<Vector3f>();
         value.fresnelRotation = reader.read<Vector2f>();
     }
-    value.uvDensity = reader.read<u32>();
+    if (version < 26) {
+        value.uvDensity = reader.read<u32>();
+    }
 }
 
 void BinaryParseVisitor::visit(StandardMaterial& value, u32 version) {

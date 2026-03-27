@@ -83,7 +83,7 @@ protected:
     void visit(const PhysicsShape& shape, u32 version);
     void visit(const PhysicsMeshTriangle& triangle, u32 version);
     void visit(const PhysicsMeshEdge& edge, u32 version);
-    void visit(const PhysicsMeshNormal& normal, u32 version);
+    void visit(const PhysicsMeshBvhNode& normal, u32 version);
     void visit(const ConvexHullHalfEdge& edge, u32 version);
     void visit(const ClothCollider& collider, u32 version);
     void visit(const ClothProxy& proxy, u32 version);

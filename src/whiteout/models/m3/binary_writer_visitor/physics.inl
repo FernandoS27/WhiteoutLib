@@ -9,9 +9,15 @@ void BinaryWriterVisitor::visit(const ConvexHullHalfEdge& edge, u32 version) {
     writer.write(edge.nextAroundVertex);
 }
 
-void BinaryWriterVisitor::visit(const PhysicsMeshNormal& normal, u32 version) {
-    (void)version;
-    writer.write(normal.normal);
+void BinaryWriterVisitor::visit(const PhysicsMeshBvhNode& normal, u32 version) {
+    if (version >= 1) {
+        writer.write(normal.octahedral.octX);
+        writer.write(normal.octahedral.octY);
+        writer.write(normal.octahedral.slabMin);
+        writer.write(normal.octahedral.slabMax);
+    } else {
+        writer.write(normal.normal);
+    }
 }
 
 void BinaryWriterVisitor::visit(const PhysicsMeshTriangle& triangle, u32 version) {
@@ -72,7 +78,7 @@ void BinaryWriterVisitor::visit(const PhysicsShape& shape, u32 version) {
     writer.write(shape.hullUnknown1);
 
     if (version >= 3) {
-        visit(shape.meshFaceNormals);
+        visit(shape.meshBvhNodes);
         visit(shape.meshVertexPositions);
         visit(shape.meshFaceIndices16);
         visit(shape.meshFaceIndices32);
@@ -81,7 +87,7 @@ void BinaryWriterVisitor::visit(const PhysicsShape& shape, u32 version) {
     writer.write(shape.meshBoundsExtent);
     writer.write(shape.meshTolerance);
     if (version == 2) {
-        visit(shape.deprecated.v2.meshFaceNormals);
+        visit(shape.deprecated.v2.meshBvhNodes);
         visit(shape.deprecated.v2.meshVertexPositions);
         visit(shape.deprecated.v2.unknown);
         visit(shape.deprecated.v2.unknown2);
@@ -159,6 +165,9 @@ void BinaryWriterVisitor::visit(const PhysicsJoint& joint, u32 version) {
     writer.write(joint.angularFrequency);
     writer.write(joint.breakThreshold);
     writer.write(joint.enableShape);
+    writer.write<u8>(0);
+    writer.write<u8>(0);
+    writer.write<u8>(0);
 }
 
 void BinaryWriterVisitor::visit(const ClothPhysics& cloth, u32 version) {
@@ -183,9 +192,9 @@ void BinaryWriterVisitor::visit(const ClothPhysics& cloth, u32 version) {
     writer.write(cloth.windScale);
     writer.write(cloth.shearStiffness);
     writer.write(cloth.dragFactor);
-    writer.write(cloth.liftFactor);
-    writer.write(cloth.sphereStiffness);
     if (version >= 4) {
+        writer.write(cloth.liftFactor);
+        writer.write(cloth.sphereStiffness);
         writer.write(cloth.flatten);
         writer.write(cloth.active);
         writer.write(cloth.useSkinCollision);

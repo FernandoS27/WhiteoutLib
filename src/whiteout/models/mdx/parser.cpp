@@ -844,7 +844,7 @@ void Parser::Impl::parseNodeTracks(BinaryReader& reader, Node& node, u32 nodeSiz
             break;
         case KGRT_TAG:
             node.rotationTracks =
-                readTrackChunk<Vector4f>(reader, trackCount, interpolationType, globalSequenceId);
+                readTrackChunk<Quaternion>(reader, trackCount, interpolationType, globalSequenceId);
             break;
         case KGSC_TAG:
             node.scalingTracks =
