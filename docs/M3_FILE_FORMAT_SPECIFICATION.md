@@ -2456,22 +2456,22 @@ struct PHSH {
 
     if (version >= 3) {
         // v3+ mesh section
-        Ref<DMMN>   meshFaceNormals;    // Physics mesh normals
-        Ref<VEC4>   meshVertexPositions;// Vertex positions (w=0)
+        Ref<DMMN>   meshBvhNodes;       // k-DOP BVH tree nodes (see §14.9b)
+        Ref<VEC4>   meshVertexPositions;// Vertex positions in mesh-local space (w=0)
         Ref<MT16>   meshFaceIndices16;  // 16-bit triangle indices (or empty)
         Ref<MT32>   meshFaceIndices32;  // 32-bit triangle indices (or empty)
     }
 
     if (version >= 2) {
-        // Mesh bounds
-        Vector3f    meshBoundsCenter;
-        Vector3f    meshBoundsExtent;
-        Vector3f    meshTolerance;
+        // Mesh AABB / quantization grid
+        Vector3f    meshBoundsCenter;   // AABB center in model space (quantization grid origin)
+        Vector3f    meshBoundsExtent;   // AABB half-extents (defines quantization range)
+        Vector3f    meshTolerance;      // Per-axis quantization step (= extent / 32767)
     }
 
     if (version == 2) {
         // v2 mesh section
-        Ref<DMMN>   meshFaceNormals;
+        Ref<DMMN>   meshBvhNodes;
         Ref<VEC3>   meshVertexPositions;// VEC3, not VEC4
         Ref<DMMT>   unknown;            // Physics mesh triangles
         Ref<DMME>   unknown2;           // Physics mesh edges
@@ -2479,13 +2479,13 @@ struct PHSH {
 
     if (version >= 2) {
         // Common mesh counters
-        u32         meshNormalCount;
+        u32         meshNormalCount;    // DMMN entry count (= 2 * n_leaves - 1, always odd)
         u32         meshVertexCount;
         u32         meshFaceIndex16Count;// MT16 face count (0 when MT32 used)
         u32         meshFaceIndex32Count;// MT32 face count (0 when MT16 used)
         u32         meshUnknown1;
         u32         meshReserved;       // Always 0
-        u32         meshTreeDepth;      // Correlates with mesh complexity (1–12)
+        u32         meshTreeDepth;      // BVH tree height (root-to-leaf path length, 1–12)
         f32         meshCollisionMargin;// MT16: small float; MT32: 0.0
     }
 };
@@ -2562,9 +2562,9 @@ struct PHCL {
     f32             windScale;
     f32             shearStiffness;
     f32             dragFactor;
-    f32             liftFactor;
-    f32             sphereStiffness;
     if (version >= 4) {
+        f32             liftFactor;
+        f32             sphereStiffness;
         u32             flatten;
         AnimRef<u32>    active;
         u32             useSkinCollision;
@@ -2868,6 +2868,72 @@ struct SHBX {
 };
 ```
 
+### 14.9b DMMN — Physics Mesh BVH Node
+
+**Tag**: `DMMN` | **Versions**: v0 = 12 bytes, v1 = 8 bytes
+
+DMMN entries form a linearized **k-DOP Bounding Volume Hierarchy** for concave mesh
+collision detection (PHSH `shapeType = 5`).
+
+```cpp
+// v0 — slab normal direction only (Havok-era, no quantized bounds)
+struct DMMN_v0 {
+    Vector3f    normal;             // Slab normal direction (unit vector)
+};
+
+// v1 — octahedral-encoded normal + quantized slab bounds (Domino physics)
+struct DMMN_v1 {
+    i16         octX;               // Octahedral-mapped normal X (snorm16)
+    i16         octY;               // Octahedral-mapped normal Y (snorm16)
+    u16         slabMin;            // Quantized bounding-slab min distance
+    u16         slabMax;            // Quantized bounding-slab max distance (0 = leaf sentinel)
+};
+```
+
+**v0 vs v1**: v0 stores only the slab normal direction as a plain `Vector3f` (12 bytes).
+No precomputed slab bounds are present — the runtime must project vertices against
+`meshBoundsCenter`/`meshBoundsExtent` to compute slab distances on the fly. The tree
+topology is identical to v1. Only 3 corpus files use v0 (all paired with PHSH v2).
+v1 compresses the normal into an octahedral encoding and adds precomputed quantized
+slab bounds, enabling fast rejection without per-query projection.
+
+**Octahedral decoding** (v1):
+
+```
+x = octX / 32767.0
+y = octY / 32767.0
+z = 1.0 - |x| - |y|
+if z < 0:  x = (1 - |y|) * sign(x),  y = (1 - |x|) * sign(y)
+normalize(x, y, z)
+```
+
+**Tree structure** — right-skewed binary tree stored in DFS preorder:
+
+- The array has n = 2 × n_leaves − 1 entries (always odd).
+- Layout: (INT₀, LEAF₁), (INT₂, LEAF₃), …, LEAF_{n−1}
+- Even indices 0 … n−3: **internal nodes** (v1: slabMax ≠ 0).
+- Odd indices 1 … n−2: **leaf nodes** (v1: slabMax = 0 as sentinel).
+- Last index n−1: **leaf node** (v1: may have slabMax ≠ 0 despite being a leaf).
+- Each internal node at index 2k has: left child = 2k+1 (leaf), right child = 2k+2 (internal or final leaf).
+
+Each internal node defines one bounding slab (a pair of parallel planes along the
+node's normal direction). Its paired leaf uses a **different** normal direction,
+forming a 2-DOP bound per primitive group. Most trees (391/468 in corpus) use
+multiple distinct slab normals across internal levels for tighter culling.
+
+**Quantization** (v1 only) — universally confirmed across the corpus (468 files):
+
+- `meshTolerance = meshBoundsExtent / 32767` (per-axis quantization step)
+- Projected step: `tol_proj = dot(meshTolerance, |normal|)`
+- Slab distances quantized as: `q = round(projection / tol_proj)`
+- Root node slab range approaches [−32767, +32767] (the full AABB span)
+
+**PHSH `meshTreeDepth`** gives the tree height (longest root-to-leaf path length
+in nodes, range 1–12). This is NOT the leaf count; `n = 2 × meshTreeDepth − 1`
+holds only for perfectly right-skewed trees (91/468 files).
+
+**Corpus:** 561 files — 3 files have v0, 558 files have v1.
+
 ### 14.10 DMMT — Physics Mesh Triangle
 
 **Tag**: `DMMT` | **Version**: v0 = 28 bytes
@@ -3155,8 +3221,8 @@ only.
 | **PHSH** | 0x01 | 132 | Legacy: 1 ref (transform, collisionMargin, shapeType, 4 refs, halfExtents) |
 | | 0x02 | 292 | Modern: 10 refs (hull section + v2 mesh refs) |
 | | 0x03 | 300 | Modern: 10 refs (hull section + v3+ mesh refs); see §13.3 |
-| **DMMN** | 0x00 | 12 | Vector3f normal |
-| | 0x01 | 8 | Packed/compressed normal (PHSH mesh) |
+| **DMMN** | 0x00 | 12 | Vector3f slab normal |
+| | 0x01 | 8 | k-DOP BVH node: octahedral normal (i16×2) + quantized slab bounds (u16×2); see §14.9b |
 | **PHCC** | 0x00 | 76 | No refs |
 | **PHAC** | 0x00 | 32 | 2 refs |
 | **DMSE** | 0x00 | 4 | Convex hull half-edge |
@@ -3830,7 +3896,7 @@ rarity tiers:
 |-------|-------|---------|
 | MT32 | 528 | PHSH mesh triangle entries (7×u32: 3 vertices + 3 adjacency + flags) |
 | PARC | 537 | SC2 particle copy data |
-| DMMN | 561 | PHSH mesh face normals (v0: Vector3f, v1: 8-byte compressed) |
+| DMMN | 561 | k-DOP BVH tree nodes for PHSH mesh collision (v0: Vector3f normal, v1: octahedral + slab bounds); see §14.9b |
 | TER_ | 656 | Terrain objects |
 | MADD | 686 | Material add data (HotS only) |
 | LFSB | 700 | Lens flare sub-elements |
