@@ -65,10 +65,6 @@ void BinaryWriterVisitor::visit(const PADCChunk& chunk) {
     visit(chunk.textureWeights);
 }
 
-void BinaryWriterVisitor::visit(const SequenceBounds& bounds) {
-    writer.write(bounds);
-}
-
 void BinaryWriterVisitor::visit(const PSBCChunk& chunk) {
     visit(chunk.parentSequenceBounds);
 }

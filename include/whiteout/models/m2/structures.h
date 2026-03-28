@@ -66,7 +66,7 @@ struct Model {
     std::vector<std::array<u8, 2>> textureCombinerHints;     ///< TXAC
     std::vector<u16> parentSequenceReplacements;             ///< PABC
     std::vector<TextureWeight> parentTextureWeights;         ///< PADC
-    std::vector<SequenceBounds> parentSequenceBounds;        ///< PSBC
+    std::vector<Extent> parentSequenceBounds;                ///< PSBC
     std::vector<AnimationTrackBase> parentEventData;         ///< PEDC
     std::vector<u32> recursiveParticleModelIds;              ///< RPID
     std::vector<u32> geometryParticleModelIds;               ///< GPID

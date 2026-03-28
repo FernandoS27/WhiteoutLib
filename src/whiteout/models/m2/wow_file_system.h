@@ -94,6 +94,7 @@ private:
     std::map<u32, std::vector<u8>> m_animCache;
     std::vector<u8> m_skelCache;
     bool m_skelLoaded = false;
+    bool m_isParentSkeleton = false;
 
     std::vector<u32> m_registeredSkins;
     std::vector<u32> m_registeredLodSkins;

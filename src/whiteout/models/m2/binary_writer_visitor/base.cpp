@@ -224,15 +224,15 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter) {
     writer.write(emitter.boneId);
     writer.write(emitter.textureId);
 
-    visit(emitter.geometryModelFilename);
-    visit(emitter.recursionModelFilename);
+    visit(emitter.particleModelFilename);
+    visit(emitter.childEmittersModelFilename);
 
     writer.write(emitter.blendingType);
     writer.write(emitter.emitterType);
     writer.write(emitter.particleColorIndex);
 
-    writer.write(emitter.multiTextureParamX[0]);
-    writer.write(emitter.multiTextureParamX[1]);
+    writer.write(emitter.multiTexScale[0]);
+    writer.write(emitter.multiTexScale[1]);
     writer.write(emitter.textureTilerotation);
     writer.write(emitter.rows);
     writer.write(emitter.columns);
@@ -244,11 +244,11 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter) {
     visit(emitter.gravity);
     visit(emitter.lifespan);
 
-    writer.write(emitter.lifespanVary);
+    writer.write(emitter.lifespanVariation);
 
     visit(emitter.emissionRate);
 
-    writer.write(emitter.emissionRateVary);
+    writer.write(emitter.emissionRateVariation);
 
     visit(emitter.emissionAreaWidth);
     visit(emitter.emissionAreaLength);
@@ -258,20 +258,20 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter) {
     visit(emitter.alphaTrack);
     visit(emitter.scaleTrack);
     writer.write(emitter.scaleVary);
-    visit(emitter.headIntensity);
-    visit(emitter.tailIntensity);
+    visit(emitter.headUVScroll);
+    visit(emitter.tailUVScroll);
 
     writer.write(emitter.tailLength);
     writer.write(emitter.twinkleSpeed);
     writer.write(emitter.twinklePercent);
     writer.write(emitter.twinkleScale.x);
     writer.write(emitter.twinkleScale.y);
-    writer.write(emitter.squirtMultiplier);
+    writer.write(emitter.inheritVelocityScale);
     writer.write(emitter.drag);
     writer.write(emitter.baseSpin);
-    writer.write(emitter.baseSpinVary);
-    writer.write(emitter.spin);
-    writer.write(emitter.spinVary);
+    writer.write(emitter.baseSpinVariation);
+    writer.write(emitter.spinSpeed);
+    writer.write(emitter.spinSpeedVariation);
 
     writer.write(emitter.tumble.minimum);
     writer.write(emitter.tumble.maximum);
@@ -289,14 +289,14 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter) {
     const bool extendedParticle = (version > 271) ||
         hasFlag(globalFlags, GlobalFlag::NewParticleRecord);
     if (extendedParticle) {
-        writer.write(emitter.multiTextureParam0[0][0]);
-        writer.write(emitter.multiTextureParam0[0][1]);
-        writer.write(emitter.multiTextureParam0[1][0]);
-        writer.write(emitter.multiTextureParam0[1][1]);
-        writer.write(emitter.multiTextureParam1[0][0]);
-        writer.write(emitter.multiTextureParam1[0][1]);
-        writer.write(emitter.multiTextureParam1[1][0]);
-        writer.write(emitter.multiTextureParam1[1][1]);
+        writer.write(emitter.multiTexScrollMid[0][0]);
+        writer.write(emitter.multiTexScrollMid[0][1]);
+        writer.write(emitter.multiTexScrollMid[1][0]);
+        writer.write(emitter.multiTexScrollMid[1][1]);
+        writer.write(emitter.multiTexScrollRange[0][0]);
+        writer.write(emitter.multiTexScrollRange[0][1]);
+        writer.write(emitter.multiTexScrollRange[1][0]);
+        writer.write(emitter.multiTexScrollRange[1][1]);
     }
 }
 

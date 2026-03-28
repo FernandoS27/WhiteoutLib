@@ -62,12 +62,6 @@ void BinaryParseVisitor::visit(PADCChunk& chunk) {
     visit(chunk.textureWeights);
 }
 
-void BinaryParseVisitor::visit(SequenceBounds& bounds) {
-    bounds.extent.minimum = reader.read<Vector3f>();
-    bounds.extent.maximum = reader.read<Vector3f>();
-    bounds.radius = reader.read<f32>();
-}
-
 void BinaryParseVisitor::visit(PSBCChunk& chunk) {
     visit(chunk.parentSequenceBounds);
 }

@@ -74,7 +74,6 @@ protected:
     void visit(const EXP2Chunk& chunk);
     void visit(const PABCChunk& chunk);
     void visit(const PADCChunk& chunk);
-    void visit(const SequenceBounds& bounds);
     void visit(const PSBCChunk& chunk);
     void visit(const PEDCChunk& chunk);
     void visit(const SKIDChunk& chunk);

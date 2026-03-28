@@ -1,5 +1,6 @@
 
 #include <cassert>
+#include <cstring>
 #include <fstream>
 #include <whiteout/models/m2/writer.h>
 #include "../../common/binary_writer.h"
@@ -76,6 +77,31 @@ void Writer::write(interfaces::CascFileSystem& cascFs, const Model& model) {
     pImpl->writeViaWfs(wfs, base, skins, skeleton);
 }
 
+namespace {
+
+/// Find the byte offset of a chunk's data region within a chunked M2 buffer.
+/// The chunk layout is: [FourCC:4][size:4][data:size]. Returns the offset of
+/// the first byte of 'data', or SIZE_MAX if the tag is not found.
+size_t findChunkDataOffset(const std::vector<u8>& buffer, u32 tag) {
+    if (buffer.size() < 8)
+        return SIZE_MAX;
+    for (size_t pos = 0; pos + 8 <= buffer.size();) {
+        u32 chunkTag;
+        u32 chunkSize;
+        std::memcpy(&chunkTag, buffer.data() + pos, 4);
+        std::memcpy(&chunkSize, buffer.data() + pos + 4, 4);
+        if (chunkTag == tag)
+            return pos + 8;
+        size_t next = pos + 8 + chunkSize;
+        if (next <= pos)
+            return SIZE_MAX;
+        pos = next;
+    }
+    return SIZE_MAX;
+}
+
+} // anonymous namespace
+
 M2SerializeResult Writer::write(const Model& model) {
     pImpl->m_issues.clear();
 
@@ -86,6 +112,7 @@ M2SerializeResult Writer::write(const Model& model) {
 
     M2SerializeResult result;
 
+    u32 numBaseSkins = 0;
     {
         SFIDChunk sfid;
         for (const auto& s : skins) {
@@ -93,6 +120,7 @@ M2SerializeResult Writer::write(const Model& model) {
                 sfid.lodSkinFileDataIds.push_back(0);
             } else {
                 sfid.skinFileDataIds.push_back(0);
+                ++numBaseSkins;
             }
         }
         base.sfid_chunk = std::move(sfid);
@@ -116,6 +144,46 @@ M2SerializeResult Writer::write(const Model& model) {
             result.skinlodData.push_back(std::move(entry));
         } else {
             result.skinData.push_back(std::move(entry));
+        }
+    }
+
+    // ── Populate pathOffset fields ──────────────────────────────────────────
+    // For MD21 (chunked) format, find the byte offsets within the serialized
+    // buffers where each file-data-ID u32 lives so callers can patch them.
+
+    if (base.format == Format::LegionMD21) {
+        // SFID chunk layout: [skinFileDataIds: u32 × N][lodSkinFileDataIds: u32 × M]
+        size_t sfidData = findChunkDataOffset(result.m2Data, SFID_TAG);
+        if (sfidData != SIZE_MAX) {
+            for (u32 i = 0; i < result.skinData.size(); ++i) {
+                result.skinData[i].pathOffset = sfidData + i * sizeof(u32);
+            }
+            size_t lodBase = sfidData + numBaseSkins * sizeof(u32);
+            for (u32 i = 0; i < result.skinlodData.size(); ++i) {
+                result.skinlodData[i].pathOffset = lodBase + i * sizeof(u32);
+            }
+        }
+
+        // SKID chunk layout: [skeletonFileDataId: u32]
+        if (result.skeletonData.has_value()) {
+            size_t skidData = findChunkDataOffset(result.m2Data, SKID_TAG);
+            if (skidData != SIZE_MAX) {
+                result.skeletonData->pathOffset = skidData;
+            }
+        }
+
+        // AFID chunk layout: [AFIDEntry × N] where each entry is {u16 animId, u16 subAnimId, u32 fileDataId}
+        // AFID can live in m2Data or (when skeleton is emitted) in skeletonData.
+        std::vector<u8>& afidBuffer = result.skeletonData.has_value()
+                                          ? result.skeletonData->data
+                                          : result.m2Data;
+        size_t afidData = findChunkDataOffset(afidBuffer, AFID_TAG);
+        if (afidData != SIZE_MAX) {
+            constexpr size_t kAFIDEntrySize = sizeof(u16) + sizeof(u16) + sizeof(u32); // 8
+            constexpr size_t kFileDataIdOffset = sizeof(u16) + sizeof(u16);             // 4
+            for (size_t i = 0; i < result.animData.size(); ++i) {
+                result.animData[i].pathOffset = afidData + i * kAFIDEntrySize + kFileDataIdOffset;
+            }
         }
     }
 

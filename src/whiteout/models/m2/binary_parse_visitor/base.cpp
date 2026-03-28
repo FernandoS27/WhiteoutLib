@@ -199,15 +199,15 @@ void BinaryParseVisitor::visit(ParticleEmitter& emitter) {
     emitter.boneId = reader.read<u16>();
     emitter.textureId = reader.read<u16>();
 
-    visit(emitter.geometryModelFilename);
-    visit(emitter.recursionModelFilename);
+    visit(emitter.particleModelFilename);
+    visit(emitter.childEmittersModelFilename);
 
     emitter.blendingType = static_cast<ParticleBlending>(reader.read<u8>());
     emitter.emitterType = static_cast<ParticleEmitterType>(reader.read<u8>());
     emitter.particleColorIndex = reader.read<u16>();
 
-    emitter.multiTextureParamX[0] = reader.read<fixed8_5>();
-    emitter.multiTextureParamX[1] = reader.read<fixed8_5>();
+    emitter.multiTexScale[0] = reader.read<fixed8_5>();
+    emitter.multiTexScale[1] = reader.read<fixed8_5>();
     emitter.textureTilerotation = reader.read<i16>();
     emitter.rows = reader.read<u16>();
     emitter.columns = reader.read<u16>();
@@ -219,11 +219,11 @@ void BinaryParseVisitor::visit(ParticleEmitter& emitter) {
     visit(emitter.gravity);
     visit(emitter.lifespan);
 
-    emitter.lifespanVary = reader.read<f32>();
+    emitter.lifespanVariation = reader.read<f32>();
 
     visit(emitter.emissionRate);
 
-    emitter.emissionRateVary = reader.read<f32>();
+    emitter.emissionRateVariation = reader.read<f32>();
 
     visit(emitter.emissionAreaWidth);
     visit(emitter.emissionAreaLength);
@@ -233,20 +233,20 @@ void BinaryParseVisitor::visit(ParticleEmitter& emitter) {
     visit(emitter.alphaTrack);
     visit(emitter.scaleTrack);
     emitter.scaleVary = reader.read<Vector2f>();
-    visit(emitter.headIntensity);
-    visit(emitter.tailIntensity);
+    visit(emitter.headUVScroll);
+    visit(emitter.tailUVScroll);
 
     emitter.tailLength = reader.read<f32>();
     emitter.twinkleSpeed = reader.read<f32>();
     emitter.twinklePercent = reader.read<f32>();
     emitter.twinkleScale.x = reader.read<f32>();
     emitter.twinkleScale.y = reader.read<f32>();
-    emitter.squirtMultiplier = reader.read<f32>();
+    emitter.inheritVelocityScale = reader.read<f32>();
     emitter.drag = reader.read<f32>();
     emitter.baseSpin = reader.read<f32>();
-    emitter.baseSpinVary = reader.read<f32>();
-    emitter.spin = reader.read<f32>();
-    emitter.spinVary = reader.read<f32>();
+    emitter.baseSpinVariation = reader.read<f32>();
+    emitter.spinSpeed = reader.read<f32>();
+    emitter.spinSpeedVariation = reader.read<f32>();
 
     emitter.tumble.minimum = reader.read<Vector3f>();
     emitter.tumble.maximum = reader.read<Vector3f>();
@@ -264,14 +264,14 @@ void BinaryParseVisitor::visit(ParticleEmitter& emitter) {
     const bool extendedParticle = (version > 271) ||
         hasFlag(globalFlags, GlobalFlag::NewParticleRecord);
     if (extendedParticle) {
-        emitter.multiTextureParam0[0][0] = reader.read<fixed16_9>();
-        emitter.multiTextureParam0[0][1] = reader.read<fixed16_9>();
-        emitter.multiTextureParam0[1][0] = reader.read<fixed16_9>();
-        emitter.multiTextureParam0[1][1] = reader.read<fixed16_9>();
-        emitter.multiTextureParam1[0][0] = reader.read<fixed16_9>();
-        emitter.multiTextureParam1[0][1] = reader.read<fixed16_9>();
-        emitter.multiTextureParam1[1][0] = reader.read<fixed16_9>();
-        emitter.multiTextureParam1[1][1] = reader.read<fixed16_9>();
+        emitter.multiTexScrollMid[0][0] = reader.read<fixed16_9>();
+        emitter.multiTexScrollMid[0][1] = reader.read<fixed16_9>();
+        emitter.multiTexScrollMid[1][0] = reader.read<fixed16_9>();
+        emitter.multiTexScrollMid[1][1] = reader.read<fixed16_9>();
+        emitter.multiTexScrollRange[0][0] = reader.read<fixed16_9>();
+        emitter.multiTexScrollRange[0][1] = reader.read<fixed16_9>();
+        emitter.multiTexScrollRange[1][0] = reader.read<fixed16_9>();
+        emitter.multiTexScrollRange[1][1] = reader.read<fixed16_9>();
     }
 }
 

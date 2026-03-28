@@ -27,11 +27,6 @@ struct LodProfile {
 
 // ── Chunk data types (shared between Model and chunk wrappers) ──────────────
 
-struct SequenceBounds {
-    Extent extent;
-    f32 radius = 0.0f;
-};
-
 struct WaterfallData {
     f32 bumpScale = 0.0f;
     f32 value0_x = 0.0f;

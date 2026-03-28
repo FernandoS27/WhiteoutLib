@@ -336,42 +336,39 @@ enum class ParticleBlending : u8 {
 };
 
 enum class ParticleFlag : u32 {
-    None = 0,
-    Lighting = 0x1,
-    Unk_0x2 = 0x2,
-    InheritOrientation = 0x4,
-    WorldSpace = 0x8,
-    DoNotTrail = 0x10,
-    Unshaded = 0x20,
-    Squirt = 0x40,
-    ModelSpace = 0x80,
-    Unk_0x100 = 0x100,
-    Unk_0x200 = 0x200,
-    Pinned = 0x400,
-
-    Unk_0x800 = 0x800,
-    XYQuad = 0x1000,
-    Project = 0x2000,
-    Unk_0x4000 = 0x4000,
-    Unk_0x8000 = 0x8000,
-    ChooseRandomTexture = 0x10000,
-    Unk_0x20000 = 0x20000,
-    Unk_0x40000 = 0x40000,
-    Unk_0x80000 = 0x80000,
-    Unk_0x100000 = 0x100000,
-    Outwards = 0x200000,
-
-    Unk_0x400000 = 0x400000,
-
-    ScaleVary = 0x800000,
-    Unk_0x1000000 = 0x1000000,
-    RandomFlipbookStart = 0x2000000,
-    IgnoresDistance = 0x4000000,
-    CompressedGravity = 0x8000000,
-    BoneGenerator = 0x10000000,
-    Unk_0x20000000 = 0x20000000,
-    Unk_0x40000000 = 0x40000000,
-    UsesMultitexturing = 0x80000000,
+    None                  = 0,
+    Shaded                = 0x1,        // ~flags & 1 → CParticleMat bit 0 (inverted); lighting enabled by default
+    SortParticles         = 0x2,        // Depth-sorted rendering via s_pq priority queue
+    VelocityOrient        = 0x4,        // Billboard aligns along velocity vector
+    Unshaded              = 0x8,        // Clears lit flag on CParticleMat
+    WorldSpace            = 0x10,       // Particles operate in world space; skips bone matrix transform in CreateParticle/UpdateXform.
+    InheritBoneScale      = 0x20,       // In IBuildVertices: multiplies particle size by m_scaleFactor, which is sqrt(length(boneMatrix column 0)) extracted in UpdateXform. Particles scale proportionally to attached bone
+    InheritVelocity       = 0x40,       // Child emitter inherits parent velocity
+    ImplosionFilter       = 0x80,       // Particles going away from the center (world space or bone matrix if local) are killed.
+    HemisphereUpDirection = 0x100,      // Sets velocity direction to be Z-up in SphereEmitters.
+    NegateSpinRandom      = 0x200,      // Negate spin angle for particles with random bit & 1
+    ClampTailToAge        = 0x400,      // Clamp tail length to min(tailLength, age) in IBuildVertices
+    InheritPosition       = 0x800,      // Child inherits parent position; random emission spacing
+    XYQuad                = 0x1000,     // Use s_quadToView matrix instead of screen-aligned billboard
+    ProjectParticle       = 0x2000,     // Snap particle to terrain via s_projectCallback
+    FollowPosition        = 0x4000,     // Add emitter delta-position to particle when 2*dt < age
+    Squirt                = 0x8000,     // Particle Emitter only emits as bursts particles when emissionRate is animated.
+    ChooseRandomTexture   = 0x10000,    // Random flipbook frame via CRandom::dice_
+    HeadStyle             = 0x20000,    // Controls head particle style bit pattern in SetParticleStyle
+    TailStyle             = 0x40000,    // Controls tail particle style bit pattern in SetParticleStyle
+    UnscaledSizeVariation = 0x80000,    // Independent X/Y scale variation (2 random floats)
+    Unfogged              = 0x100000,   // Sets unfogged flag on CParticleMat
+    RandFlipbookStart     = 0x200000,   // Random starting frame via SetRandFlipBookStart
+    Unk_0x400000          = 0x400000,   // ?
+    CompressedGravity     = 0x800000,   // Gravity is compressed.
+    BoneGeneratorBone     = 0x1000000,  // Select CBoneGeneratorBone (1) vs CBoneGeneratorJoint (0); emitterType 4
+    NoGlobalViewScale     = 0x2000000,  // Skip s_globalViewScale multiplication on emission rate
+    LodIgnoreDistance     = 0x4000000,  // Skip distance-based LOD emissionrate scaling in EmitNewParticles
+    OffsetHeadBySpin      = 0x8000000,  // Offset head particle position along spin rotation axis
+    MultiTexture          = 0x10000000, // Route through multi-texture particle creation path
+    MultitexUseModx4      = 0x20000000, // CParticleMat bit 3; uses Modx4 instead of Modx2 requires MultiTexture
+    MultitexUse3Colors    = 0x40000000, // CParticleMat bit 4; uses 3 colors instead of 2 requires MultiTexture
+    DynamicWind           = 0x80000000, // Enables dynamic wind; SET=dynamic callback, CLEAR=static from M2 data
 };
 
 struct ParticleEmitter {
@@ -389,14 +386,16 @@ struct ParticleEmitter {
         };
     };
 
-    std::string geometryModelFilename;
-    std::string recursionModelFilename;
+    // If the path is valid, the particle system uses model particles
+    std::string particleModelFilename;
+    // Child emitters are obtained from it.
+    std::string childEmittersModelFilename; // Emitted as trail per particle.
 
     ParticleBlending blendingType = ParticleBlending::Opaque;
     ParticleEmitterType emitterType = ParticleEmitterType::Plane;
     u16 particleColorIndex = 0;
 
-    std::array<fixed8_5, 2> multiTextureParamX;
+    std::array<fixed8_5, 2> multiTexScale; // Scale per layer
     i16 textureTilerotation;
     u16 rows;
     u16 columns;
@@ -407,9 +406,9 @@ struct ParticleEmitter {
     AnimationTrack<f32> horizontalRange;
     AnimationTrack<f32> gravity;
     AnimationTrack<f32> lifespan;
-    f32 lifespanVary = 0.0f;
+    f32 lifespanVariation = 0.0f;
     AnimationTrack<f32> emissionRate;
-    f32 emissionRateVary = 0.0f;
+    f32 emissionRateVariation = 0.0f;
     AnimationTrack<f32> emissionAreaWidth;
     AnimationTrack<f32> emissionAreaLength;
     AnimationTrack<f32> zSource;
@@ -417,20 +416,33 @@ struct ParticleEmitter {
     ParticleAnimationTrack<unorm16> alphaTrack;
     ParticleAnimationTrack<Vector2f> scaleTrack;
     Vector2f scaleVary = Vector2f(0.0f, 0.0f);
-    ParticleAnimationTrack<unorm16> headIntensity;
-    ParticleAnimationTrack<unorm16> tailIntensity;
+    ParticleAnimationTrack<unorm16> headUVScroll;
+    ParticleAnimationTrack<unorm16> tailUVScroll;
     f32 tailLength = 0.0f;
-    f32 twinkleSpeed = 0.0f;
-    f32 twinklePercent = 0.0f;
-    Vector2f twinkleScale = Vector2f(0.0f, 0.0f);
-    f32 squirtMultiplier = 1.0f;
-    f32 drag = 0.0f;
-    f32 baseSpin = 0.0f;
-    f32 baseSpinVary = 0.0f;
-    f32 spin = 0.0f;
-    f32 spinVary = 0.0f;
 
-    M2Box tumble;
+    // Twinkle effect, causes twinkling like effects on particles.
+    // they scale up and down randomly and are culled based on a thresshole.
+    f32 twinkleSpeed = 0.0f; // blinking speed
+    f32 twinklePercent = 1.0f; // how visible is the particle. 1.0 - 100% time, 0.5 - 50% of time.
+    Vector2f twinkleScale = Vector2f(0.0f, 0.0f); // min and max scale variation
+
+    // Scales the velocity inherited from the parent particle.
+    f32 inheritVelocityScale = 1.0f;
+
+    // Drag effect, causes particles to slow down over time.
+    f32 drag = 0.0f;
+
+    // 2D Billboard spin rotation
+    // Quad and Multitex Particles only
+    f32 baseSpin = 0.0f;
+    f32 baseSpinVariation = 0.0f;
+    f32 spinSpeed = 0.0f;
+    f32 spinSpeedVariation = 0.0f;
+
+    // 3D Model particle rotation (ModelParticles only)
+    M2Box tumble; // angularVelocity min and max
+
+    // Static wind parameters, ignored if DynamicWind flag is set
     Vector3f windVector;
     f32 windTime = 0.0f;
 
@@ -442,8 +454,9 @@ struct ParticleEmitter {
     std::vector<Vector3f> splinePoints;
     AnimationTrack<u8> enabledIn;
 
-    std::array<std::array<fixed16_9, 2>, 2> multiTextureParam0{};
-    std::array<std::array<fixed16_9, 2>, 2> multiTextureParam1{};
+    std::array<std::array<fixed16_9, 2>, 2> multiTexScrollMid{};
+    std::array<std::array<fixed16_9, 2>, 2> multiTexScrollRange{};
+    
     std::optional<ParticleEmitterExtension> extension;
 };
 

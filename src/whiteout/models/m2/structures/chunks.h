@@ -92,7 +92,7 @@ struct PADCChunk {
 };
 
 struct PSBCChunk {
-    std::vector<SequenceBounds> parentSequenceBounds;
+    std::vector<Extent> parentSequenceBounds;
 };
 
 struct PEDCChunk {
