@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: BSD-3-Clause
-// Copyright (c) 2026 Fernando Sahmkow
 
 #include "wow_file_system.h"
 
@@ -12,8 +10,6 @@ namespace {
 
 namespace fs = std::filesystem;
 
-/// Strip the .m2 extension to get the base stem (directory + stem).
-/// "creature/nightelfmale/nightelfmale_hd.m2" → "creature/nightelfmale/nightelfmale_hd"
 std::string extractBaseStem(const std::string& m2Path) {
     fs::path p(m2Path);
     return (p.parent_path() / p.stem()).string();
@@ -27,36 +23,40 @@ std::string zeroPad(int value, int width) {
     return s;
 }
 
-} // namespace
-
-// ============================================================================
-// Construction
-// ============================================================================
+}
 
 WoWFileSystem::WoWFileSystem(interfaces::VirtualPathFileSystem& pathFs, const std::string& m2Path)
-    : m_pathFs(&pathFs), m_baseStem(extractBaseStem(m2Path)),
+    : m_mode(WoWFileSystemMode::Read), m_pathFs(&pathFs), m_baseStem(extractBaseStem(m2Path)),
       m_m2Storage(pathFs.readFile(m2Path)), m_m2Data(m_m2Storage) {}
 
 WoWFileSystem::WoWFileSystem(interfaces::CascFileSystem& cascFs, std::span<const u8> m2Data)
-    : m_cascFs(&cascFs), m_m2Data(m2Data) {}
+    : m_mode(WoWFileSystemMode::Read), m_cascFs(&cascFs), m_m2Data(m2Data) {}
 
-// ============================================================================
-// Base M2 data
-// ============================================================================
+WoWFileSystem::WoWFileSystem(interfaces::VirtualPathFileSystem& pathFs, const std::string& m2Path,
+                             WoWFileSystemMode mode)
+    : m_mode(mode), m_pathFs(&pathFs), m_baseStem(extractBaseStem(m2Path)) {
+    if (mode == WoWFileSystemMode::Read) {
+        m_m2Storage = pathFs.readFile(m2Path);
+        m_m2Data = m_m2Storage;
+    }
+}
+
+WoWFileSystem::WoWFileSystem(interfaces::CascFileSystem& cascFs, WoWFileSystemMode mode)
+    : m_mode(mode), m_cascFs(&cascFs) {
+    assert(mode == WoWFileSystemMode::Create);
+}
 
 std::span<const u8> WoWFileSystem::getM2Base() const { return m_m2Data; }
-
-// ============================================================================
-// Chunk metadata setters
-// ============================================================================
 
 void WoWFileSystem::setSkinChunk(const SFIDChunk& chunk) { m_sfid = chunk; }
 void WoWFileSystem::setAnimChunk(const AFIDChunk& chunk) { m_afid = chunk; }
 void WoWFileSystem::setSkeletonChunk(const SKIDChunk& chunk) { m_skid = chunk; }
-
-// ============================================================================
-// Satellite data accessors
-// ============================================================================
+void WoWFileSystem::setParentSkeletonChunk(const SKPDChunk& chunk) {
+    SKIDChunk parentSkid;
+    parentSkid.skeletonFileDataId = chunk.parentSkeletonFileId;
+    m_skid = parentSkid;
+    m_skelLoaded = false;
+}
 
 std::span<const u8> WoWFileSystem::getSkin(u32 skinId, bool isLod) {
     auto& cache = isLod ? m_lodSkinCache : m_skinCache;
@@ -140,10 +140,6 @@ std::span<const u8> WoWFileSystem::getSkeleton() {
     return m_skelCache;
 }
 
-// ============================================================================
-// Helpers
-// ============================================================================
-
 u32 WoWFileSystem::animKey(u16 animId, u16 subAnimId) {
     return (static_cast<u32>(animId) << 16) | subAnimId;
 }
@@ -161,17 +157,11 @@ std::string WoWFileSystem::buildSkelPath() const {
     return m_baseStem + ".skel";
 }
 
-// ============================================================================
-// Exploratory search
-// ============================================================================
-
 void WoWFileSystem::exploratorySearch() {
     if (!m_pathFs || m_baseStem.empty()) {
         return;
     }
 
-    // Extract directory and filename stem from m_baseStem.
-    // e.g. "creature/nightelfmale/nightelfmale_hd" → dir="creature/nightelfmale", stem="nightelfmale_hd"
     fs::path basePath(m_baseStem);
     fs::path dir = basePath.parent_path();
     std::string stem = basePath.filename().string();
@@ -181,14 +171,12 @@ void WoWFileSystem::exploratorySearch() {
     for (const auto& entry : entries) {
         if (entry.isDirectory) continue;
 
-        // Only consider files whose name starts with our stem
         if (entry.name.size() <= stem.size()) continue;
         if (entry.name.compare(0, stem.size(), stem) != 0) continue;
 
         std::string suffix = entry.name.substr(stem.size());
         std::string fullPath = (dir / entry.name).string();
 
-        // .skel — e.g. "nightelfmale_hd.skel"
         if (suffix == ".skel") {
             if (!m_skelLoaded) {
                 m_skelCache = m_pathFs->readFile(fullPath);
@@ -197,9 +185,8 @@ void WoWFileSystem::exploratorySearch() {
             continue;
         }
 
-        // .skin — e.g. "nightelfmale_hd00.skin" or "nightelfmale_hd_lod01.skin"
         if (suffix.size() > 5 && suffix.substr(suffix.size() - 5) == ".skin") {
-            std::string mid = suffix.substr(0, suffix.size() - 5); // e.g. "00" or "_lod01"
+            std::string mid = suffix.substr(0, suffix.size() - 5);
             if (mid.size() == 2 && std::isdigit(static_cast<unsigned char>(mid[0]))
                                && std::isdigit(static_cast<unsigned char>(mid[1]))) {
                 u32 skinId = static_cast<u32>(std::stoi(mid));
@@ -217,10 +204,9 @@ void WoWFileSystem::exploratorySearch() {
             continue;
         }
 
-        // .anim — e.g. "nightelfmale_hd0000-00.anim"
         if (suffix.size() == 12 && suffix.substr(suffix.size() - 5) == ".anim"
             && suffix[4] == '-') {
-            // suffix = "0000-00.anim"  (4 digits, dash, 2 digits, .anim)
+
             std::string animIdStr = suffix.substr(0, 4);
             std::string subIdStr  = suffix.substr(5, 2);
             bool allDigits = true;
@@ -239,5 +225,165 @@ void WoWFileSystem::exploratorySearch() {
     }
 }
 
-} // namespace m2
-} // namespace whiteout
+u32 WoWFileSystem::allocateHandle(const std::string& pathHint) {
+    if (m_cascFs) {
+        auto id = m_cascFs->reserveFileId(pathHint);
+        return id.value_or(0);
+    }
+    return m_nextPathIndex++;
+}
+
+u32 WoWFileSystem::newSkinFileEntry() {
+    assert(m_mode == WoWFileSystemMode::Create);
+    u32 index = static_cast<u32>(m_registeredSkins.size());
+    u32 handle = allocateHandle(buildSkinPath(index, false));
+    m_registeredSkins.push_back(handle);
+    return handle;
+}
+
+u32 WoWFileSystem::newLodSkinFileEntry() {
+    assert(m_mode == WoWFileSystemMode::Create);
+    u32 index = static_cast<u32>(m_registeredLodSkins.size());
+    u32 handle = allocateHandle(buildSkinPath(index, true));
+    m_registeredLodSkins.push_back(handle);
+    return handle;
+}
+
+u32 WoWFileSystem::newSkeletonFileEntry() {
+    assert(m_mode == WoWFileSystemMode::Create);
+    u32 handle = allocateHandle(buildSkelPath());
+    m_registeredSkelId = handle;
+    return handle;
+}
+
+u32 WoWFileSystem::newAnimFileEntry(u16 animId, u16 subAnimId) {
+    assert(m_mode == WoWFileSystemMode::Create);
+    u32 handle = allocateHandle(buildAnimPath(animId, subAnimId));
+    m_registeredAnims.push_back(AFIDEntry{animId, subAnimId, handle});
+    return handle;
+}
+
+SFIDChunk WoWFileSystem::buildSFIDChunk() const {
+    assert(m_mode == WoWFileSystemMode::Create);
+    SFIDChunk chunk;
+    chunk.skinFileDataIds = m_registeredSkins;
+    chunk.lodSkinFileDataIds = m_registeredLodSkins;
+    return chunk;
+}
+
+AFIDChunk WoWFileSystem::buildAFIDChunk() const {
+    assert(m_mode == WoWFileSystemMode::Create);
+    AFIDChunk chunk;
+    chunk.animFileIds = m_registeredAnims;
+    return chunk;
+}
+
+SKIDChunk WoWFileSystem::buildSKIDChunk() const {
+    assert(m_mode == WoWFileSystemMode::Create);
+    SKIDChunk chunk;
+    chunk.skeletonFileDataId = m_registeredSkelId;
+    return chunk;
+}
+
+void WoWFileSystem::setM2Base(std::vector<u8> data) {
+    assert(m_mode == WoWFileSystemMode::Create);
+    m_m2Storage = std::move(data);
+    m_m2Data = m_m2Storage;
+}
+
+void WoWFileSystem::writeSkinFile(u32 handle, std::vector<u8> data) {
+    assert(m_mode == WoWFileSystemMode::Create);
+
+    for (u32 i = 0; i < static_cast<u32>(m_registeredSkins.size()); ++i) {
+        if (m_registeredSkins[i] == handle) {
+            m_skinCache[handle] = std::move(data);
+            return;
+        }
+    }
+    for (u32 i = 0; i < static_cast<u32>(m_registeredLodSkins.size()); ++i) {
+        if (m_registeredLodSkins[i] == handle) {
+            m_lodSkinCache[handle] = std::move(data);
+            return;
+        }
+    }
+    assert(false && "writeSkinFile: handle not found in registered skins or LOD skins");
+}
+
+void WoWFileSystem::writeAnimFile(u32 handle, std::vector<u8> data) {
+    assert(m_mode == WoWFileSystemMode::Create);
+    m_animCache[handle] = std::move(data);
+}
+
+void WoWFileSystem::writeSkeletonFile(u32 handle, std::vector<u8> data) {
+    assert(m_mode == WoWFileSystemMode::Create);
+    assert(handle == m_registeredSkelId && "writeSkeletonFile: handle mismatch");
+    m_skelCache = std::move(data);
+    m_skelLoaded = true;
+}
+
+void WoWFileSystem::flush() {
+    assert(m_mode == WoWFileSystemMode::Create);
+
+    if (m_pathFs) {
+
+        if (!m_m2Storage.empty()) {
+            m_pathFs->writeFile(m_baseStem + ".m2", m_m2Storage);
+        }
+
+        for (u32 i = 0; i < static_cast<u32>(m_registeredSkins.size()); ++i) {
+            u32 handle = m_registeredSkins[i];
+            auto it = m_skinCache.find(handle);
+            if (it != m_skinCache.end()) {
+                m_pathFs->writeFile(buildSkinPath(i, false), it->second);
+            }
+        }
+
+        for (u32 i = 0; i < static_cast<u32>(m_registeredLodSkins.size()); ++i) {
+            u32 handle = m_registeredLodSkins[i];
+            auto it = m_lodSkinCache.find(handle);
+            if (it != m_lodSkinCache.end()) {
+                m_pathFs->writeFile(buildSkinPath(i, true), it->second);
+            }
+        }
+
+        for (const auto& entry : m_registeredAnims) {
+            auto it = m_animCache.find(entry.fileDataId);
+            if (it != m_animCache.end()) {
+                m_pathFs->writeFile(buildAnimPath(entry.animId, entry.subAnimId), it->second);
+            }
+        }
+
+        if (m_skelLoaded && !m_skelCache.empty()) {
+            m_pathFs->writeFile(buildSkelPath(), m_skelCache);
+        }
+    } else if (m_cascFs) {
+
+        for (u32 handle : m_registeredSkins) {
+            auto it = m_skinCache.find(handle);
+            if (it != m_skinCache.end() && handle != 0) {
+                m_cascFs->writeFile(handle, it->second);
+            }
+        }
+
+        for (u32 handle : m_registeredLodSkins) {
+            auto it = m_lodSkinCache.find(handle);
+            if (it != m_lodSkinCache.end() && handle != 0) {
+                m_cascFs->writeFile(handle, it->second);
+            }
+        }
+
+        for (const auto& entry : m_registeredAnims) {
+            auto it = m_animCache.find(entry.fileDataId);
+            if (it != m_animCache.end() && entry.fileDataId != 0) {
+                m_cascFs->writeFile(entry.fileDataId, it->second);
+            }
+        }
+
+        if (m_skelLoaded && !m_skelCache.empty() && m_registeredSkelId != 0) {
+            m_cascFs->writeFile(m_registeredSkelId, m_skelCache);
+        }
+    }
+}
+
+}
+}

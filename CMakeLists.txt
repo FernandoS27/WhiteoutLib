@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(WhiteoutLib VERSION 1.0.0 LANGUAGES CXX)
+project(WhiteoutLib VERSION 1.0.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -34,11 +34,13 @@ add_library(whiteout_lib
     src/whiteout/models/m2/writer.cpp
     src/whiteout/models/m2/binary_parse_visitor/base.cpp
     src/whiteout/models/m2/binary_parse_visitor/chunk.cpp
+    src/whiteout/models/m2/binary_parse_visitor/extensions.cpp
     src/whiteout/models/m2/binary_parse_visitor/skin.cpp
     src/whiteout/models/m2/binary_parse_visitor/bone.cpp
     src/whiteout/models/m2/binary_parse_visitor/anim.cpp
     src/whiteout/models/m2/binary_writer_visitor/base.cpp
     src/whiteout/models/m2/binary_writer_visitor/chunk.cpp
+    src/whiteout/models/m2/binary_writer_visitor/extensions.cpp
     src/whiteout/models/m2/binary_writer_visitor/skin.cpp
     src/whiteout/models/m2/binary_writer_visitor/bone.cpp
     src/whiteout/models/m2/binary_writer_visitor/anim.cpp
@@ -175,27 +177,6 @@ add_executable(blue_noise_generator
 )
 
 target_link_libraries(blue_noise_generator PRIVATE whiteout_lib)
-
-# JPEG Encode/Decode Round-Trip Test
-add_executable(jpeg_test
-    examples/jpeg_test.cpp
-)
-
-target_link_libraries(jpeg_test PRIVATE whiteout_lib)
-
-# Wu Quantizer Test
-add_executable(quantize_test
-    examples/quantize_test.cpp
-)
-
-target_link_libraries(quantize_test PRIVATE whiteout_lib)
-
-# BLP0 Parser Validation Test
-add_executable(blp0_test
-    examples/blp0_test.cpp
-)
-
-target_link_libraries(blp0_test PRIVATE whiteout_lib)
 
 # WEM Round-Trip Test
 add_executable(wem_round_trip_example

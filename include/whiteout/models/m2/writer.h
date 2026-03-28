@@ -1,99 +1,110 @@
-// SPDX-License-Identifier: BSD-3-Clause
-// Copyright (c) 2026 Fernando Sahmkow
 
 #pragma once
-
-/**
- * @file writer.h
- * @brief M2 file writer
- *
- * This file provides the Writer class for writing M2 model files back to disk.
- * The writer converts in-memory FileSystem structures to binary M2 format,
- * producing the base .m2, .skin, and .skel files as needed.
- *
- * Chunks are emitted in a fixed deterministic order (MD21 -> LDV1 -> PFID -> SFID -> ...),
- * back-to-back with no inter-chunk alignment padding. The writer pre-allocates a 2 MB
- * buffer and shrinks to fit after serialization.
- *
- * @note The writer currently does not emit .bone or .anim files; only the base .m2,
- *       skin (.skin), and skeleton (.skel) files are written.
- *
- * @example Basic writing
- * @code
- * whiteout::m2::FileSystem model;
- * // ... populate model data ...
- *
- * whiteout::m2::Writer writer;
- * writer.write("output/model.m2", model);
- * @endcode
- */
 
 #include <cstdint>
 #include <string>
 #include "structures.h"
 
 namespace whiteout {
-namespace common {
-class BinaryWriter;
+
+namespace interfaces {
+class VirtualPathFileSystem;
+class CascFileSystem;
 }
 
 namespace m2 {
 
-// Use BinaryWriter from Common namespace
-using common::BinaryWriter;
+struct WriteOptions {
+    Format format = Format::LegionMD21;
+    u32 m2Version = M2_VERSION_LEGION;
+    bool emitSkeleton = false;
+    std::string baseStem;
+};
 
-// ============================================================================
-// M2 Writer
-// ============================================================================
+struct M2SerializeResult {
+    struct SkinFileEntry {
+        u32 fileDataId = 0;
+        std::vector<u8> data;
+        size_t pathOffset;
+    };
 
-/**
- * @brief Writer for M2 model files
- *
- * The Writer takes a FileSystem structure and writes it to disk in binary M2 format.
- * It automatically handles chunk serialization, size patching, and multi-file output
- * (base .m2, .skin profiles, .skel skeleton).
- *
- * Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
- */
+    struct SkeletonFileEntry {
+        u32 fileDataId = 0;
+        std::vector<u8> data;
+        size_t pathOffset;
+    };
+
+    struct AnimDataEntry {
+        u16 animId;
+        u16 subAnimId;
+        u32 fileDataId = 0;
+        std::vector<u8> data;
+        size_t pathOffset;
+    };
+
+    std::vector<u8> m2Data;
+    std::vector<SkinFileEntry> skinData;
+    std::vector<SkinFileEntry> skinlodData;
+    std::optional<SkeletonFileEntry> skeletonData;
+    
+    std::vector<AnimDataEntry> animData;
+
+    void patchSkinFileId(u32 skinId, u32 newId) {
+        skinData[skinId].fileDataId = newId;
+        applyPatch(m2Data, skinData[skinId].pathOffset, newId);
+    }
+
+    void patchSkinLodFileId(u32 skinLodId, u32 newId) {
+        skinlodData[skinLodId].fileDataId = newId;
+        applyPatch(m2Data, skinlodData[skinLodId].pathOffset, newId);
+    }
+
+    void patchSkeletonFileId(u32 newId) {
+        if (skeletonData.has_value()) {
+            skeletonData->fileDataId = newId;
+            applyPatch(m2Data, skeletonData->pathOffset, newId);
+        }
+    }
+
+    void patchAnimFileId(u16 animId, u16 subAnimId, u32 newId) {
+        std::vector<u8>* data = skeletonData.has_value() ? &skeletonData->data : &m2Data;
+        for (auto& entry : animData) {
+            if (entry.animId == animId && entry.subAnimId == subAnimId) {
+                entry.fileDataId = newId;
+                applyPatch(*data, entry.pathOffset, newId);
+                break;
+            }
+        }
+    }
+
+private:
+    void applyPatch(std::vector<u8>& buffer, size_t offset, u32 newId) {
+        std::memcpy(buffer.data() + offset, &newId, sizeof(newId));
+    }
+};
+
 class Writer {
 public:
-    /// @brief Construct a new Writer
-    explicit Writer();
 
-    /// @brief Destructor (defined in .cpp for incomplete type)
+    explicit Writer(WriteOptions options = {});
+
     ~Writer();
 
-    /**
-     * @brief Write an M2 file bundle to disk
-     *
-     * Writes the base .m2 file and all associated .skin files (and .skel if present)
-     * to the specified output path. File naming follows M2 bundle conventions:
-     * {stem}.m2, {stem}00.skin, {stem}_lod01.skin, {stem}.skel, etc.
-     *
-     * @param filePath Path where the main .m2 file should be written
-     * @param model Complete FileSystem containing all model data
-     * @throws std::runtime_error If file cannot be created or written
-     */
-    void write(const std::string& filePath, const FileSystem& model);
+    void write(interfaces::VirtualPathFileSystem& fs, const std::string& filePath,
+               const Model& model);
 
-    /**
-     * @brief Write a base M2 file to a byte buffer
-     * @param model BaseFile data to serialize
-     * @return Vector containing the binary M2 data (MD21 chunked format)
-     */
-    std::vector<uint8_t> write(const BaseFile& model);
+    void write(interfaces::CascFileSystem& cascFs, const Model& model);
 
-    /**
-     * @brief Write a skin file to a byte buffer
-     * @param model SkinFile data to serialize
-     * @return Vector containing the binary .skin data
-     */
-    std::vector<uint8_t> write(const SkinFile& model);
+    M2SerializeResult write(const Model& model);
+
+    bool hasIssues() const;
+
+    const std::vector<std::string>& getIssues() const;
 
 private:
     class Impl;
     std::unique_ptr<Impl> pImpl;
 };
 
-} // namespace m2
-} // namespace whiteout
+}
+}

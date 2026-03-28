@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: BSD-3-Clause
-// Copyright (c) 2026 Fernando Sahmkow
 
 #include "../../../common/binary_writer.h"
 #include "../binary_writer_visitor.h"
@@ -45,6 +43,19 @@ void BinaryWriterVisitor::visit(const Sequence& seq) {
 
     writer.write(seq.variationNext);
     writer.write(seq.aliasNext);
+
+    if (!hasFlag(seq.flags, SequenceFlag::StoredAnimated)) {
+        animDataBuffers.push_back(AnimDataBuffer{seq.id, seq.variationIndex, {}});
+        auto& animBuffer = animDataBuffers.back();
+        animDataWriterStates.push_back({});
+        auto& writerState = animDataWriterStates.back();
+        writerState.streambuf = std::make_unique<common::vector_streambuf>(animBuffer.data);
+        writerState.stream = std::make_unique<std::ostream>(writerState.streambuf.get());
+        writerState.writer = std::make_unique<common::BinaryWriter>(*writerState.stream);
+        animDataWriters.push_back(writerState.writer.get());
+    } else {
+        animDataWriters.push_back(&writer);
+    }
 }
 
 void BinaryWriterVisitor::visit(const Vertex& vertex) {
@@ -255,7 +266,7 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter) {
     writer.write(emitter.twinklePercent);
     writer.write(emitter.twinkleScale.x);
     writer.write(emitter.twinkleScale.y);
-    writer.write(emitter.burstMultiplier);
+    writer.write(emitter.squirtMultiplier);
     writer.write(emitter.drag);
     writer.write(emitter.baseSpin);
     writer.write(emitter.baseSpinVary);
@@ -275,7 +286,6 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter) {
     visit(emitter.splinePoints);
     visit(emitter.enabledIn);
 
-    // M2Particle (Cata+): extended multi-texture parameters
     const bool extendedParticle = (version > 271) ||
         hasFlag(globalFlags, GlobalFlag::NewParticleRecord);
     if (extendedParticle) {
@@ -374,22 +384,20 @@ void BinaryWriterVisitor::visit(const AnimationTrackBase& track) {
 void BinaryWriterVisitor::visit(const std::string& str) {
     writer.write<u32>(static_cast<u32>(str.size()));
     u32 offsetPos = writer.getPosition();
-    writer.write<u32>(0); // placeholder for offset
+    writer.write<u32>(0);
     if (str.empty()) {
-        return; // No data to write, so we can skip the deferred write
+        return;
     }
 
-    // Defer writing the string data until after we've written the count and reserved space for the
-    // offset
     deferredWrites.push_back([this, offsetPos, &str]() {
         u32 currentPos = writer.getPosition();
         writer.setPosition(offsetPos);
-        writer.write(currentPos - baseOffset); // Write the actual offset (relative to base)
+        writer.write(currentPos - baseOffset);
         writer.setPosition(currentPos);
         writer.writeString(str);
-        writer.AlignTo(16); // Align to 16 bytes after writing the string
+        writer.AlignTo(16);
     });
 }
 
-} // namespace m2
-} // namespace whiteout
+}
+}

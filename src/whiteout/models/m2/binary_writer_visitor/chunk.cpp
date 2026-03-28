@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: BSD-3-Clause
-// Copyright (c) 2026 Fernando Sahmkow
 
 #include "../../../common/binary_writer.h"
 #include "../binary_writer_visitor.h"
@@ -9,9 +7,15 @@ namespace m2 {
 
 using common::BinaryWriter;
 
-// Chunk structure visit implementations
+void BinaryWriterVisitor::visit(const ParticleEmitterExtension& chunk) {
+    writer.write(chunk.zSource);
+    writer.write(chunk.colorMult);
+    writer.write(chunk.alphaMult);
+    visit(chunk.alphaCutoff);
+}
+
 void BinaryWriterVisitor::visit(const TXACChunk& chunk) {
-    writer.write(chunk.unknown);
+    writer.write(chunk.entries);
 }
 
 void BinaryWriterVisitor::visit(const PFIDChunk& chunk) {
@@ -47,15 +51,10 @@ void BinaryWriterVisitor::visit(const EXPTChunk& chunk) {
     visit(chunk.extendedParticles);
 }
 
-void BinaryWriterVisitor::visit(const ParticleEmitterExtension& particle) {
-    writer.write(particle.zSource);
-    writer.write(particle.colorMult);
-    writer.write(particle.alphaMult);
-    visit(particle.alphaCutoff);
-}
-
 void BinaryWriterVisitor::visit(const EXP2Chunk& chunk) {
-    visit(chunk.content);
+    visit(chunk.emitterExtensions);
+    writer.write(chunk.unknownSize);
+    writer.write(chunk.unknownOffset);
 }
 
 void BinaryWriterVisitor::visit(const PABCChunk& chunk) {
@@ -82,20 +81,8 @@ void BinaryWriterVisitor::visit(const SKIDChunk& chunk) {
     writer.write(chunk.skeletonFileDataId);
 }
 
-void BinaryWriterVisitor::visit(const TXIDEntry& entry) {
-    writer.write(entry.fileDataId);
-}
-
 void BinaryWriterVisitor::visit(const TXIDChunk& chunk) {
     writer.write(chunk.textureIds);
-}
-
-void BinaryWriterVisitor::visit(const LDV1Chunk& chunk) {
-    writer.write(chunk.unknown0);
-    writer.write(chunk.lodCount);
-    writer.write(chunk.unknown2);
-    writer.write(chunk.particleBoneLod);
-    writer.write(chunk.unknown4);
 }
 
 void BinaryWriterVisitor::visit(const M2RPIDEntry& entry) {
@@ -114,15 +101,7 @@ void BinaryWriterVisitor::visit(const GPIDChunk& chunk) {
     writer.write(chunk.geometryParticleModels);
 }
 
-void BinaryWriterVisitor::visit(const WFV1Chunk& chunk) {
-    // Empty chunk
-}
-
-void BinaryWriterVisitor::visit(const WFV2Chunk& chunk) {
-    // Empty chunk
-}
-
-void BinaryWriterVisitor::visit(const PGD1Entry& entry) {
+void BinaryWriterVisitor::visit(const ParticleGeosetData& entry) {
     writer.write(entry.geoset);
 }
 
@@ -130,7 +109,7 @@ void BinaryWriterVisitor::visit(const PGD1Chunk& chunk) {
     visit(chunk.particleGeosetData);
 }
 
-void BinaryWriterVisitor::visit(const WFV3Data& data) {
+void BinaryWriterVisitor::visit(const WaterfallData& data) {
     writer.write(data.bumpScale);
     writer.write(data.value0_x);
     writer.write(data.value0_y);
@@ -162,7 +141,7 @@ void BinaryWriterVisitor::visit(const PFDCChunk& chunk) {
     writer.write(chunk.physicsData);
 }
 
-void BinaryWriterVisitor::visit(const EDGFEntry& entry) {
+void BinaryWriterVisitor::visit(const EdgeFadeData& entry) {
     writer.write(entry.value0);
     writer.write(entry.value8);
     writer.write(entry.valueC);
@@ -172,15 +151,17 @@ void BinaryWriterVisitor::visit(const EDGFChunk& chunk) {
     visit(chunk.entries);
 }
 
-void BinaryWriterVisitor::visit(const NERFEntry& entry) {
-    writer.write(entry.coefs);
+void BinaryWriterVisitor::visit(const DistanceFadeData& entry) {
+    writer.write(entry.squaredFarDist);
+    writer.write(entry.squaredNearDist);
+    writer.write(entry.reserved);
 }
 
 void BinaryWriterVisitor::visit(const NERFChunk& chunk) {
     visit(chunk.entries);
 }
 
-void BinaryWriterVisitor::visit(const DETLEntry& entry) {
+void BinaryWriterVisitor::visit(const DetailedLightData& entry) {
     writer.write(entry.flags);
     writer.write(entry.scale);
     writer.write(entry.diffuseColorMultiplier);
@@ -192,7 +173,7 @@ void BinaryWriterVisitor::visit(const DETLChunk& chunk) {
     visit(chunk.records);
 }
 
-void BinaryWriterVisitor::visit(const DBOCEntry& entry) {
+void BinaryWriterVisitor::visit(const DebugOcclusionData& entry) {
     writer.write(entry.unknown1_1);
     writer.write(entry.unknown1_2);
     writer.write(entry.unknown1_3);
@@ -218,7 +199,7 @@ void BinaryWriterVisitor::visit(const DPIVChunk& chunk) {
     writer.write(chunk.data);
 }
 
-void BinaryWriterVisitor::visit(const TEXLEntry& entry) {
+void BinaryWriterVisitor::visit(const TexturedLightData& entry) {
     writer.write(entry.unknown0);
     writer.write(entry.unknown1);
     writer.write(entry.textureLookup);
@@ -258,5 +239,5 @@ void BinaryWriterVisitor::visit(const SKPDChunk& chunk) {
     writer.write(chunk.reserved1);
 }
 
-} // namespace m2
-} // namespace whiteout
+}
+}

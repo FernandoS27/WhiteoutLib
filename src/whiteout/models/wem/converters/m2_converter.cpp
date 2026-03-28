@@ -103,13 +103,12 @@ u16 convertMaterialFlagsToM2(MaterialFlags mf) {
 // fromM2
 // ============================================================================
 
-ConvertResult M2Converter::fromM2(const m2::FileSystem& m2Files) const {
+ConvertResult M2Converter::fromM2(const m2::Model& header) const {
     ConvertResult result;
     auto& model = result.model;
     auto& issues = result.issues;
 
-    const auto& header = m2Files.base.header.model;
-    model.name = m2Files.baseName;
+    model.name = header.modelName;
     model.bounds = convertM2Extent(header.bounding);
 
     // ── Textures ───────────────────────────────────────────────────
@@ -138,12 +137,26 @@ ConvertResult M2Converter::fromM2(const m2::FileSystem& m2Files) const {
 
     // ── Skin Profiles → Meshes ─────────────────────────────────────
     // Each skin profile becomes a WEM Mesh
-    for (size_t si = 0; si < m2Files.skins.size(); ++si) {
-        const auto& skinFile = m2Files.skins[si];
-        const auto& skin = skinFile.profile;
+    // Combine base skin profiles and LOD profiles
+    struct SkinRef {
+        const m2::SkinProfile* profile;
+        int lodLevel;
+        int index;
+    };
+    std::vector<SkinRef> allSkins;
+    for (size_t i = 0; i < header.skinProfiles.size(); ++i) {
+        allSkins.push_back({&header.skinProfiles[i], 0, static_cast<int>(i)});
+    }
+    for (size_t i = 0; i < header.lodProfiles.size(); ++i) {
+        allSkins.push_back({&header.lodProfiles[i], static_cast<int>(i + 1), static_cast<int>(i)});
+    }
+
+    for (size_t si = 0; si < allSkins.size(); ++si) {
+        const auto& skinRef = allSkins[si];
+        const auto& skin = *skinRef.profile;
         Mesh mesh;
-        mesh.name = m2Files.baseName + "_skin" + std::to_string(si);
-        mesh.lodLevel = static_cast<u32>(skinFile.lodLevel);
+        mesh.name = header.modelName + "_skin" + std::to_string(si);
+        mesh.lodLevel = static_cast<u32>(skinRef.lodLevel);
 
         // Resolve skin vertex indices → copy from global vertex array
         size_t vertCount = skin.vertices.size();
@@ -268,12 +281,9 @@ ConvertResult M2Converter::fromM2(const m2::FileSystem& m2Files) const {
 
 M2ConvertResult M2Converter::toM2(const Model& wemModel, u32 targetVersion) const {
     M2ConvertResult result;
-    auto& fs = result.fileSystem;
+    auto& header = result.model;
     auto& issues = result.issues;
 
-    fs.baseName = wemModel.name;
-    fs.base.header.version = targetVersion;
-    auto& header = fs.base.header.model;
     header.modelName = wemModel.name;
     header.bounding = convertExtentToM2(wemModel.bounds);
 
@@ -331,11 +341,8 @@ M2ConvertResult M2Converter::toM2(const Model& wemModel, u32 targetVersion) cons
             header.vertices.push_back(std::move(vert));
         }
 
-        // Build a skin file for each mesh
-        m2::SkinFile skinFile;
-        skinFile.lodLevel = static_cast<int>(mesh.lodLevel);
-        skinFile.index = static_cast<int>(mi);
-        auto& skin = skinFile.profile;
+        // Build a skin profile for each mesh
+        m2::SkinProfile skin;
         skin.lodVertexBase = globalVertexOffset;
 
         // vertices[] is just the identity mapping for this mesh's range
@@ -395,11 +402,11 @@ M2ConvertResult M2Converter::toM2(const Model& wemModel, u32 targetVersion) cons
             skin.batches.push_back(batch);
         }
 
-        fs.skins.push_back(std::move(skinFile));
+        header.skinProfiles.push_back(std::move(skin));
         globalVertexOffset += static_cast<u32>(meshVertCount);
     }
 
-    header.numSkinProfiles = static_cast<u32>(fs.skins.size());
+    header.numSkinProfiles = static_cast<u32>(header.skinProfiles.size());
 
     return result;
 }
@@ -418,11 +425,16 @@ ExportResult M2Converter::exportToBytes(const Model& model, u32 version) const {
     auto m2Result = toM2(model, version == 0 ? defaultExportVersion() : version);
     ExportResult result;
     result.issues = std::move(m2Result.issues);
-    m2::Writer writer;
-    result.data = writer.write(m2Result.fileSystem.base);
+
+    m2::WriteOptions opts;
+    opts.m2Version = version == 0 ? defaultExportVersion() : version;
+    m2::Writer writer(opts);
+    auto serResult = writer.write(m2Result.model);
+    result.data = std::move(serResult.m2Data);
+
     result.issues.push_back(
         "M2 byte-level export writes only the base .m2 file. "
-        "Use toM2() for the full FileSystem including skin profiles.");
+        "Use toM2() for the full Model including skin profiles.");
     return result;
 }
 
@@ -430,9 +442,9 @@ ExportResult M2Converter::exportToBytes(const Model& model, u32 version) const {
 // Legacy free functions
 // ============================================================================
 
-ConvertResult fromM2(const m2::FileSystem& m2Files) {
+ConvertResult fromM2(const m2::Model& m2Model) {
     static const M2Converter converter;
-    return converter.fromM2(m2Files);
+    return converter.fromM2(m2Model);
 }
 
 M2ConvertResult toM2(const Model& wemModel, u32 targetVersion) {

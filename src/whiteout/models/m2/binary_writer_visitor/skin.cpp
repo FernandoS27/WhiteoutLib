@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: BSD-3-Clause
-// Copyright (c) 2026 Fernando Sahmkow
 
 #include "../../../common/binary_writer.h"
 #include "../binary_writer_visitor.h"
@@ -52,7 +50,7 @@ void BinaryWriterVisitor::visit(const ShadowBatch& batch) {
 }
 
 void BinaryWriterVisitor::visit(const SkinProfile& profile) {
-    writer.write(profile.magic);
+    writer.write(SKIN_TAG);
 
     visit(profile.vertices);
     visit(profile.indices);
@@ -72,5 +70,5 @@ void BinaryWriterVisitor::visit(const SkinFile& file) {
     visit(file.profile);
 }
 
-} // namespace m2
-} // namespace whiteout
+}
+}

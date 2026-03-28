@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: BSD-3-Clause
-// Copyright (c) 2026 Fernando Sahmkow
 
 #include "file_system.h"
 
@@ -25,7 +23,7 @@ std::string format_anim_id(int anim_id, int variant) {
 }
 
 std::optional<std::pair<int, int>> parseAnimSuffix(std::string_view s) {
-    // expects "0069-01.anim"
+
     if (s.size() < 11)
         return std::nullopt;
     if (s[4] != '-' || s.substr(7) != ".anim")
@@ -37,27 +35,27 @@ std::optional<std::pair<int, int>> parseAnimSuffix(std::string_view s) {
 }
 
 std::optional<int> parseBaseSkin(std::string_view s) {
-    // "00.skin"
+
     if (!s.ends_with(".skin"))
         return std::nullopt;
     return std::stoi(std::string(s.substr(0, s.size() - 5)));
 }
 
 std::optional<int> parseLodSkin(std::string_view s) {
-    // "_lod03.skin"
+
     if (!s.starts_with("_lod") || !s.ends_with(".skin"))
         return std::nullopt;
     return std::stoi(std::string(s.substr(4, 2)));
 }
 
 std::optional<int> parseBone(std::string_view s) {
-    // "_07.bone"
+
     if (!s.starts_with("_") || !s.ends_with(".bone"))
         return std::nullopt;
     return std::stoi(std::string(s.substr(1, s.size() - 6)));
 }
 
-} // namespace
+}
 
 std::optional<GroupedFiles> collectBundle(const std::filesystem::path& m2Path) {
     using namespace std::filesystem;
@@ -141,21 +139,12 @@ GroupedFiles fromFileSystem(const FileSystem& fsys, std::filesystem::path whereT
 
     GroupedFiles out;
 
-    // --------------------------------------------------
-    // Base M2
-    // --------------------------------------------------
     out.m2 = dir / fs::path(base.string() + ".m2");
 
-    // --------------------------------------------------
-    // Skeleton (exactly one)
-    // --------------------------------------------------
     if (fsys.skeleton.has_value()) {
         out.skel = dir / fs::path(base.string() + ".skel");
     }
 
-    // --------------------------------------------------
-    // Skins
-    // --------------------------------------------------
     for (const SkinFile& skin : fsys.skins) {
         if (skin.isLodSkin) {
             fs::path p =
@@ -169,9 +158,6 @@ GroupedFiles fromFileSystem(const FileSystem& fsys, std::filesystem::path whereT
         }
     }
 
-    // --------------------------------------------------
-    // Animations
-    // --------------------------------------------------
     for (const AnimFile& anim : fsys.anims) {
         fs::path p =
             dir / fs::path(base.string() + format_anim_id(anim.animId, anim.variant) + ".anim");
@@ -179,9 +165,6 @@ GroupedFiles fromFileSystem(const FileSystem& fsys, std::filesystem::path whereT
         out.anims[anim.animId].variants[anim.variant] = p;
     }
 
-    // --------------------------------------------------
-    // Bones
-    // --------------------------------------------------
     for (size_t i = 0; i < fsys.bones.size(); ++i) {
         fs::path p =
             dir / fs::path(base.string() + "_" + format_number(static_cast<int>(i), 2) + ".bone");
@@ -192,5 +175,5 @@ GroupedFiles fromFileSystem(const FileSystem& fsys, std::filesystem::path whereT
     return out;
 }
 
-} // namespace m2
-} // namespace whiteout
+}
+}

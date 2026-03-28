@@ -23,7 +23,7 @@ int main(int argc, char* argv[]) {
         std::filesystem::path p(inputPath);
         whiteout::utils::OsFileSystem vfs(p.parent_path().string());
         whiteout::m2::Parser parser(whiteout::m2::Parser::ParseMode::Lenient);
-        whiteout::m2::FileSystem model = parser.parse(vfs, inputPath);
+        whiteout::m2::Model model = parser.parse(vfs, inputPath);
         
         const auto& issues = parser.getIssues();
         if (!issues.empty()) {
@@ -33,15 +33,17 @@ int main(int argc, char* argv[]) {
             }
         }
         
-        const auto& m2Model = model.base.header.model;
         std::cout << "\nModifying model..." << std::endl;
-        std::cout << "  - Bones: " << m2Model.bones.size() << std::endl;
-        std::cout << "  - Vertices: " << m2Model.vertices.size() << std::endl;
+        std::cout << "  - Bones: " << model.bones.size() << std::endl;
+        std::cout << "  - Vertices: " << model.vertices.size() << std::endl;
         
+        std::filesystem::path outP(outputPath);
+        whiteout::utils::OsFileSystem outVfs(outP.parent_path().string());
+
         std::cout << "\nWriting output M2 file: " << outputPath << std::endl;
 
         whiteout::m2::Writer writer;
-        writer.write(outputPath, model);
+        writer.write(outVfs, outputPath, model);
         
         std::cout << "\nModel written successfully!" << std::endl;
         

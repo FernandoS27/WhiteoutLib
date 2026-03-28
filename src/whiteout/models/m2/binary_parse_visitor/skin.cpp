@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: BSD-3-Clause
-// Copyright (c) 2026 Fernando Sahmkow
 
 #include "../../../common/binary_reader.h"
 #include "../binary_parse_visitor.h"
@@ -52,8 +50,10 @@ void BinaryParseVisitor::visit(ShadowBatch& batch) {
 }
 
 void BinaryParseVisitor::visit(SkinProfile& profile) {
-    profile.magic = reader.read<u32>();
-
+    if (version >= M2_VERSION_WOTLK) {
+        // Read the magic
+        (void)reader.read<u32>();
+    }
     visit(profile.vertices);
     visit(profile.indices);
     visit(profile.bones);
@@ -73,5 +73,5 @@ void BinaryParseVisitor::visit(SkinFile& file) {
     visit(file.profile);
 }
 
-} // namespace m2
-} // namespace whiteout
+}
+}

@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: BSD-3-Clause
-// Copyright (c) 2026 Fernando Sahmkow
 
 #include "../../../common/binary_reader.h"
 #include "../binary_parse_visitor.h"
@@ -9,10 +7,9 @@ namespace m2 {
 
 using common::BinaryReader;
 
-// Chunk structure visit implementations
 void BinaryParseVisitor::visit(TXACChunk& chunk, BaseFile& file) {
     size_t num_entries = file.header.model.materials.size() + file.header.model.particleEmitters.size();
-    chunk.unknown = reader.read<std::vector<std::array<u8, 2>>>(num_entries);
+    chunk.entries = reader.read<std::vector<std::array<u8, 2>>>(num_entries);
 }
 
 void BinaryParseVisitor::visit(PFIDChunk& chunk, BaseFile& file) {
@@ -48,18 +45,13 @@ void BinaryParseVisitor::visit(EXPTEntry& entry) {
 }
 
 void BinaryParseVisitor::visit(EXPTChunk& chunk) {
-    visit(chunk.extendedParticles);
-}
-
-void BinaryParseVisitor::visit(ParticleEmitterExtension& particle) {
-    particle.zSource = reader.read<f32>();
-    particle.colorMult = reader.read<f32>();
-    particle.alphaMult = reader.read<f32>();
-    visit(particle.alphaCutoff);
+    parse_chunked_vector(chunk.extendedParticles);
 }
 
 void BinaryParseVisitor::visit(EXP2Chunk& chunk) {
-    visit(chunk.content);
+    visit(chunk.emitterExtensions);
+    chunk.unknownSize = reader.read<u32>();
+    chunk.unknownOffset = reader.read<u32>();
 }
 
 void BinaryParseVisitor::visit(PABCChunk& chunk) {
@@ -88,21 +80,8 @@ void BinaryParseVisitor::visit(SKIDChunk& chunk) {
     chunk.skeletonFileDataId = reader.read<u32>();
 }
 
-void BinaryParseVisitor::visit(TXIDEntry& entry) {
-    entry.fileDataId = reader.read<u32>();
-}
-
 void BinaryParseVisitor::visit(TXIDChunk& chunk) {
-    size_t entryCount = maxSize / sizeof(TXIDEntry);
-    chunk.textureIds = reader.read<std::vector<TXIDEntry>>(entryCount);
-}
-
-void BinaryParseVisitor::visit(LDV1Chunk& chunk) {
-    chunk.unknown0 = reader.read<u16>();
-    chunk.lodCount = reader.read<u16>();
-    chunk.unknown2 = reader.read<f32>();
-    chunk.particleBoneLod = reader.readArray<u8, 4>();
-    chunk.unknown4 = reader.read<u32>();
+    parse_chunked_vector(chunk.textureIds);
 }
 
 void BinaryParseVisitor::visit(M2RPIDEntry& entry) {
@@ -110,8 +89,7 @@ void BinaryParseVisitor::visit(M2RPIDEntry& entry) {
 }
 
 void BinaryParseVisitor::visit(M2RPIDChunk& chunk) {
-    size_t entryCount = maxSize / sizeof(M2RPIDEntry);
-    chunk.recursiveParticleModels = reader.read<std::vector<M2RPIDEntry>>(entryCount);
+    parse_chunked_vector(chunk.recursiveParticleModels);
 }
 
 void BinaryParseVisitor::visit(GPIDEntry& entry) {
@@ -123,15 +101,7 @@ void BinaryParseVisitor::visit(GPIDChunk& chunk) {
     chunk.geometryParticleModels = reader.read<std::vector<GPIDEntry>>(entryCount);
 }
 
-void BinaryParseVisitor::visit(WFV1Chunk& chunk) {
-    // Empty chunk
-}
-
-void BinaryParseVisitor::visit(WFV2Chunk& chunk) {
-    // Empty chunk
-}
-
-void BinaryParseVisitor::visit(PGD1Entry& entry) {
+void BinaryParseVisitor::visit(ParticleGeosetData& entry) {
     entry.geoset = reader.read<u16>();
 }
 
@@ -139,7 +109,7 @@ void BinaryParseVisitor::visit(PGD1Chunk& chunk) {
     visit(chunk.particleGeosetData);
 }
 
-void BinaryParseVisitor::visit(WFV3Data& data) {
+void BinaryParseVisitor::visit(WaterfallData& data) {
     data.bumpScale = reader.read<f32>();
     data.value0_x = reader.read<f32>();
     data.value0_y = reader.read<f32>();
@@ -168,28 +138,30 @@ void BinaryParseVisitor::visit(WFV3Chunk& chunk) {
 }
 
 void BinaryParseVisitor::visit(PFDCChunk& chunk) {
-    // Unimplemented chunk - just read raw data for now
+
 }
 
-void BinaryParseVisitor::visit(EDGFEntry& entry) {
+void BinaryParseVisitor::visit(EdgeFadeData& entry) {
     entry.value0 = reader.readArray<f32, 2>();
     entry.value8 = reader.read<f32>();
     entry.valueC = reader.readArray<u8, 0xC>();
 }
 
 void BinaryParseVisitor::visit(EDGFChunk& chunk) {
-    visit(chunk.entries);
+    parse_chunked_vector(chunk.entries);
 }
 
-void BinaryParseVisitor::visit(NERFEntry& entry) {
-    entry.coefs = reader.read<Vector2f>();
+void BinaryParseVisitor::visit(DistanceFadeData& entry) {
+    entry.squaredFarDist = reader.read<f32>();
+    entry.squaredNearDist = reader.read<f32>();
+    entry.reserved = reader.readArray<u32, 2>();
 }
 
 void BinaryParseVisitor::visit(NERFChunk& chunk) {
-    visit(chunk.entries);
+    parse_chunked_vector(chunk.entries);
 }
 
-void BinaryParseVisitor::visit(DETLEntry& entry) {
+void BinaryParseVisitor::visit(DetailedLightData& entry) {
     entry.flags = reader.read<u16>();
     entry.scale = reader.read<u16>();
     entry.diffuseColorMultiplier = reader.read<u16>();
@@ -198,10 +170,10 @@ void BinaryParseVisitor::visit(DETLEntry& entry) {
 }
 
 void BinaryParseVisitor::visit(DETLChunk& chunk) {
-    visit(chunk.records);
+    parse_chunked_vector(chunk.records);
 }
 
-void BinaryParseVisitor::visit(DBOCEntry& entry) {
+void BinaryParseVisitor::visit(DebugOcclusionData& entry) {
     entry.unknown1_1 = reader.read<f32>();
     entry.unknown1_2 = reader.read<f32>();
     entry.unknown1_3 = reader.read<u32>();
@@ -209,7 +181,7 @@ void BinaryParseVisitor::visit(DBOCEntry& entry) {
 }
 
 void BinaryParseVisitor::visit(DBOCChunk& chunk) {
-    visit(chunk.entries);
+    parse_chunked_vector(chunk.entries);
 }
 
 void BinaryParseVisitor::visit(AFRAChunk& chunk) {
@@ -227,7 +199,7 @@ void BinaryParseVisitor::visit(DPIVChunk& chunk) {
     chunk.data = reader.readArray<u8, 32>();
 }
 
-void BinaryParseVisitor::visit(TEXLEntry& entry) {
+void BinaryParseVisitor::visit(TexturedLightData& entry) {
     entry.unknown0 = reader.read<f32>();
     entry.unknown1 = reader.read<f32>();
     entry.textureLookup = reader.read<i32>();
@@ -255,6 +227,7 @@ void BinaryParseVisitor::visit(SKB1Chunk& chunk) {
 }
 
 void BinaryParseVisitor::visit(SKS1Chunk& chunk) {
+    globalFlags = GlobalFlag::ChunkedAnimFiles;
     visit(chunk.globalLoops);
     visit(chunk.sequences);
     visit(chunk.sequenceLookups);
@@ -267,5 +240,5 @@ void BinaryParseVisitor::visit(SKPDChunk& chunk) {
     chunk.reserved1 = reader.readArray<u8, 4>();
 }
 
-} // namespace m2
-} // namespace whiteout
+}
+}

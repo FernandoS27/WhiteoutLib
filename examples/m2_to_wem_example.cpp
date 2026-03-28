@@ -60,7 +60,7 @@ int main(int argc, char* argv[]) {
         std::filesystem::path p(inputPath);
         whiteout::utils::OsFileSystem vfs(p.parent_path().string());
         m2::Parser m2Parser(m2::Parser::ParseMode::Lenient);
-        auto m2Files = m2Parser.parse(vfs, inputPath);
+        auto m2Model = m2Parser.parse(vfs, inputPath);
 
         const auto& m2Issues = m2Parser.getIssues();
         if (!m2Issues.empty()) {
@@ -70,16 +70,15 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        const auto& m2Header = m2Files.base.header.model;
-        std::cout << "M2 loaded: " << m2Header.modelName << std::endl;
-        std::cout << "  Skin files: " << m2Files.skins.size() << std::endl;
-        std::cout << "  Vertices: " << m2Header.vertices.size() << std::endl;
-        std::cout << "  Materials: " << m2Header.materials.size() << std::endl;
-        std::cout << "  Textures: " << m2Header.textures.size() << std::endl;
+        std::cout << "M2 loaded: " << m2Model.modelName << std::endl;
+        std::cout << "  Skin profiles: " << m2Model.skinProfiles.size() << std::endl;
+        std::cout << "  Vertices: " << m2Model.vertices.size() << std::endl;
+        std::cout << "  Materials: " << m2Model.materials.size() << std::endl;
+        std::cout << "  Textures: " << m2Model.textures.size() << std::endl;
 
         // Convert to WEM
         std::cout << "\nConverting M2 -> WEM..." << std::endl;
-        auto result = wem::fromM2(m2Files);
+        auto result = wem::fromM2(m2Model);
 
         if (!result.issues.empty()) {
             std::cout << "\nConversion issues:" << std::endl;
@@ -113,13 +112,14 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        const auto& rtModel = m2Result.model;
         std::cout << "Round-trip M2:" << std::endl;
-        std::cout << "  Skin files: " << m2Result.fileSystem.skins.size()
-                  << " (original: " << m2Files.skins.size() << ")" << std::endl;
-        std::cout << "  Vertices: " << m2Result.fileSystem.base.header.model.vertices.size()
-                  << " (original: " << m2Header.vertices.size() << ")" << std::endl;
-        std::cout << "  Materials: " << m2Result.fileSystem.base.header.model.materials.size()
-                  << " (original: " << m2Header.materials.size() << ")" << std::endl;
+        std::cout << "  Skin profiles: " << rtModel.skinProfiles.size()
+                  << " (original: " << m2Model.skinProfiles.size() << ")" << std::endl;
+        std::cout << "  Vertices: " << rtModel.vertices.size()
+                  << " (original: " << m2Model.vertices.size() << ")" << std::endl;
+        std::cout << "  Materials: " << rtModel.materials.size()
+                  << " (original: " << m2Model.materials.size() << ")" << std::endl;
 
         std::cout << "\nDone." << std::endl;
         return 0;

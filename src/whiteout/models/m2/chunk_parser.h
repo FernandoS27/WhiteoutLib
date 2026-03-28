@@ -1,11 +1,9 @@
-// SPDX-License-Identifier: BSD-3-Clause
-// Copyright (c) 2026 Fernando Sahmkow
 
 #pragma once
 
 #include <whiteout/common_types.h>
 #include <whiteout/models/m2/parser.h>
-#include <whiteout/models/m2/structures.h>
+#include "internal_structures.h"
 
 #include <string>
 #include <vector>
@@ -20,10 +18,6 @@ namespace m2 {
 
 class WoWFileSystem;
 
-/// Handles chunk-based parsing for all chunked M2 file types.
-///
-/// Owns the issue list and parse mode; delegates individual chunk bodies
-/// to BinaryParseVisitor.
 class ChunkParser {
 public:
     using ParseMode = Parser::ParseMode;
@@ -33,14 +27,13 @@ public:
     void parseChunkedBase(common::BinaryReader& reader, BaseFile& m2file, WoWFileSystem* wfs);
     void parseChunkedSkeleton(common::BinaryReader& reader, SkeletonFile& skeletonFile, WoWFileSystem* wfs);
     void parseChunkedBone(common::BinaryReader& reader, BoneFile& boneFile, WoWFileSystem* wfs);
-    void parseChunkedAnim(common::BinaryReader& reader, AnimFile& animFile, WoWFileSystem* wfs);
+    void parseChunkedAnim(common::BinaryReader& reader, AnimFile& animFile, WoWFileSystem* wfs, bool isChunked = false);
 
     void reportIssue(const std::string& message);
 
     bool hasIssues() const { return !issues.empty(); }
     const std::vector<std::string>& getIssues() const { return issues; }
 
-    /// Move accumulated issues into an external list and clear the internal one.
     void drainIssues(std::vector<std::string>& target);
 
 private:
@@ -57,5 +50,5 @@ private:
     std::vector<std::string> issues;
 };
 
-} // namespace m2
-} // namespace whiteout
+}
+}

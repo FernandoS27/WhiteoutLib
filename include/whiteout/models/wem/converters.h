@@ -56,7 +56,7 @@ struct MdxConvertResult {
 };
 
 struct M2ConvertResult {
-    m2::FileSystem fileSystem;
+    m2::Model model;
     std::vector<std::string> issues;
 };
 
@@ -99,7 +99,7 @@ public:
  * @brief Converter between WEM and World of Warcraft M2 format
  *
  * Byte-level import is not supported because M2 requires a multi-file bundle
- * (base .m2 + .skin + .anim files). Use fromM2() with a parsed FileSystem.
+ * (base .m2 + .skin + .anim files). Use fromM2() with a parsed Model.
  * Byte-level export writes only the base .m2 file.
  */
 class M2Converter final : public FormatConverter {
@@ -111,8 +111,8 @@ public:
     u32 defaultExportVersion() const override;
     ExportResult exportToBytes(const Model& model, u32 version = 0) const override;
 
-    /** @brief Convert an M2 file system (model bundle) to WEM representation */
-    ConvertResult fromM2(const m2::FileSystem& m2Files) const;
+    /** @brief Convert a parsed M2 model to WEM representation */
+    ConvertResult fromM2(const m2::Model& m2Model) const;
 
     /** @brief Convert a WEM model to M2 representation (mesh + material only) */
     M2ConvertResult toM2(const Model& wemModel, u32 targetVersion = 274) const;
@@ -151,7 +151,7 @@ public:
 ConvertResult fromMdx(const mdx::Model& mdxModel);
 MdxConvertResult toMdx(const Model& wemModel, u32 targetVersion = 800);
 
-ConvertResult fromM2(const m2::FileSystem& m2Files);
+ConvertResult fromM2(const m2::Model& m2Model);
 M2ConvertResult toM2(const Model& wemModel, u32 targetVersion = 274);
 
 ConvertResult fromM3(const m3::Model& m3Model);

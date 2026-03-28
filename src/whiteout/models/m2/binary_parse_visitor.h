@@ -1,13 +1,11 @@
-// SPDX-License-Identifier: BSD-3-Clause
-// Copyright (c) 2026 Fernando Sahmkow
 
 #pragma once
 
-#include <whiteout/models/m2/structures.h>
+#include "internal_structures.h"
 #include <whiteout/models/m2/types.h>
 #include "../../common/binary_reader.h"
 #include "../../common/streams.h"
-
+#include "traits.h"
 
 #include <type_traits>
 
@@ -30,6 +28,14 @@ public:
     void read(T& header, BaseFile& file) {
         start();
         visit(header, file);
+    }
+
+    void setVersion(u32 version) { 
+        this->version = version; 
+    }
+
+    u32 getVersion() const { 
+        return version; 
     }
 
 protected:
@@ -55,10 +61,10 @@ protected:
     void visit(Model& header);
     void visit(MD20Header& header);
 
-    // Chunk structure visit methods
+    void visit(LodProfile& chunk);
+    void visit(ParticleEmitterExtension& chunk);
     void visit(TXACChunk& chunk, BaseFile& file);
 
-    // File reference chunks
     void visit(PFIDChunk& chunk, BaseFile& file);
     void visit(SFIDChunk& chunk, BaseFile& file);
     void visit(AFIDEntry& entry);
@@ -67,7 +73,6 @@ protected:
 
     void visit(EXPTEntry& entry);
     void visit(EXPTChunk& chunk);
-    void visit(ParticleEmitterExtension& particle);
     void visit(EXP2Chunk& chunk);
     void visit(PABCChunk& chunk);
     void visit(PADCChunk& chunk);
@@ -75,35 +80,31 @@ protected:
     void visit(PSBCChunk& chunk);
     void visit(PEDCChunk& chunk);
     void visit(SKIDChunk& chunk);
-    void visit(TXIDEntry& entry);
     void visit(TXIDChunk& chunk);
-    void visit(LDV1Chunk& chunk);
+
     void visit(M2RPIDEntry& entry);
     void visit(M2RPIDChunk& chunk);
     void visit(GPIDEntry& entry);
     void visit(GPIDChunk& chunk);
-    void visit(WFV1Chunk& chunk);
-    void visit(WFV2Chunk& chunk);
-    void visit(PGD1Entry& entry);
+    void visit(ParticleGeosetData& entry);
     void visit(PGD1Chunk& chunk);
-    void visit(WFV3Data& data);
+    void visit(WaterfallData& data);
     void visit(WFV3Chunk& chunk);
     void visit(PFDCChunk& chunk);
-    void visit(EDGFEntry& entry);
+    void visit(EdgeFadeData& entry);
     void visit(EDGFChunk& chunk);
-    void visit(NERFEntry& entry);
+    void visit(DistanceFadeData& entry);
     void visit(NERFChunk& chunk);
-    void visit(DETLEntry& entry);
+    void visit(DetailedLightData& entry);
     void visit(DETLChunk& chunk);
-    void visit(DBOCEntry& entry);
+    void visit(DebugOcclusionData& entry);
     void visit(DBOCChunk& chunk);
     void visit(AFRAChunk& chunk);
     void visit(PCOLChunk& chunk);
     void visit(DPIVChunk& chunk);
-    void visit(TEXLEntry& entry);
+    void visit(TexturedLightData& entry);
     void visit(TEXLChunk& chunk);
 
-    // Physics structure visit methods
     void visit(PHYSHeader& header);
     void visit(PHYTEntry& entry);
     void visit(BODYEntry& entry);
@@ -133,26 +134,22 @@ protected:
     void visit(DSTJEntry& entry);
     void visit(PHYVEntry& entry);
 
-    // Bone structure visit methods
     void visit(BONEHeader& header);
     void visit(Matrix44f& matrix);
     void visit(BIDAChunk& chunk);
     void visit(BOMTChunk& chunk);
 
-    // Anim structure visit methods
     void visit(AFM2Chunk& chunk);
     void visit(AFSAChunk& chunk);
     void visit(AFSBChunk& chunk);
     void visit(AnimFile& file);
 
-    // Skeleton structure visit methods
     void visit(SKL1Chunk& chunk);
     void visit(SKA1Chunk& chunk);
     void visit(SKB1Chunk& chunk);
     void visit(SKS1Chunk& chunk);
     void visit(SKPDChunk& chunk);
 
-    // Skin structure visit methods
     void visit(SkinSection& section);
     void visit(Batch& batch);
     void visit(ShadowBatch& batch);
@@ -172,7 +169,7 @@ protected:
     void visit(AnimationTrackBase& track);
 
     template <typename T>
-    void visit(AnimationTrackSimple<T>& track);
+    void visit(ParticleAnimationTrack<T>& track);
 
     template <typename T>
     void readAnimationVector(std::vector<std::vector<T>>& keys);
@@ -183,7 +180,8 @@ protected:
     WoWFileSystem* wfs = nullptr;
     u32 baseOffset = 0;
     i32 maxSize = -1;
-    std::vector<std::span<u8>> animBuffers; // for deferred loading of AFID animation data
+    std::vector<std::span<const u8>> animBuffers;
+    std::vector<AnimProfile> animProfiles;
 };
 
 template <typename T>
@@ -198,7 +196,7 @@ void BinaryParseVisitor::visit(std::vector<T>& array) {
     const auto currentPos = reader.getPosition();
     reader.setPosition(offset + baseOffset);
 
-    if constexpr (std::is_trivially_copyable_v<T>) {
+    if constexpr (bulk_copyable_v<T>) {
         array = reader.read<std::vector<T>>(count);
     } else {
         array.clear();
@@ -240,7 +238,7 @@ void BinaryParseVisitor::readAnimationVector(std::vector<std::vector<T>>& keys) 
     keys.resize(ref.count);
     for (size_t i = 0; i < ref.count; ++i) {
         const auto ref = reader.read<Reference>();
-        auto& buffer = animBuffers[i];
+        const auto& buffer = animBuffers[i];
         if (buffer.empty()) {
             const auto savePos = reader.getPosition();
             reader.setPosition(ref.offset + baseOffset);
@@ -266,10 +264,10 @@ void BinaryParseVisitor::visit(AnimationTrack<T>& track) {
 }
 
 template <typename T>
-void BinaryParseVisitor::visit(AnimationTrackSimple<T>& track) {
+void BinaryParseVisitor::visit(ParticleAnimationTrack<T>& track) {
     visit(track.timestamps);
     visit(track.values);
 }
 
-} // namespace m2
-} // namespace whiteout
+}
+}

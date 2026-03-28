@@ -8,10 +8,8 @@
 #include <iostream>
 #include <iomanip>
 
-void printModelInfo(const whiteout::m2::BaseFile& base) {
-    const auto& header = base.header.model;
+void printModelInfo(const whiteout::m2::Model& header) {
     std::cout << "=== M2 Model Information ===" << std::endl;
-    std::cout << "Version: " << base.header.version << std::endl;
     std::cout << "Bounding Sphere Radius: " << header.bounding.sphereRadius << std::endl;
     
     std::cout << "\n=== Animation Sequences ===" << std::endl;
@@ -54,7 +52,7 @@ int main(int argc, char* argv[]) {
         
         std::cout << "Loading M2 file: " << m2FilePath << std::endl;
         
-        whiteout::m2::FileSystem model = parser.parse(vfs, m2FilePath);
+        whiteout::m2::Model model = parser.parse(vfs, m2FilePath);
         
         const auto& issues = parser.getIssues();
         if (!issues.empty()) {
@@ -64,7 +62,7 @@ int main(int argc, char* argv[]) {
             }
         }
         
-        printModelInfo(model.base);
+        printModelInfo(model);
         
         std::cout << "\nModel loaded successfully!" << std::endl;
         return 0;

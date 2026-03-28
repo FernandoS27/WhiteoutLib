@@ -1,9 +1,8 @@
-// SPDX-License-Identifier: BSD-3-Clause
-// Copyright (c) 2026 Fernando Sahmkow
 
 #include "../../../common/binary_reader.h"
 #include "../binary_parse_visitor.h"
 #include "../chunk_parser.h"
+#include "../wow_file_system.h"
 
 namespace whiteout {
 namespace m2 {
@@ -31,6 +30,28 @@ void BinaryParseVisitor::visit(Sequence& seq) {
     seq.duration = reader.read<u32>();
     seq.movespeed = reader.read<f32>();
     seq.flags = reader.read<SequenceFlag>();
+    if (wfs->getAnimBuffer(seq.id, seq.variationIndex).empty()) {
+        animBuffers.emplace_back();
+    } else {
+        auto animData = wfs->getAnimBuffer(seq.id, seq.variationIndex);
+        if (hasFlag(globalFlags, GlobalFlag::UpgradedFormat)) {
+            ChunkParser chunkParser(ChunkParser::ParseMode::Lenient);
+            common::span_streambuf sbuf(animData);
+            std::istream in(&sbuf);
+            BinaryReader reader(in);
+            AnimFile animFile;
+            animFile.animId = seq.id;
+            animFile.variant = seq.variationIndex;
+            chunkParser.parseChunkedAnim(reader, animFile, wfs, true);
+            animProfiles.emplace_back(std::move(animFile.profile));
+            auto& profile = animProfiles.back();
+            if (profile.afm2_chunk) {
+                animBuffers.emplace_back(profile.afm2_chunk->animationData);
+            }
+        } else {
+            animBuffers.emplace_back(animData);
+        }
+    }
     seq.frequency = reader.read<i16>();
     seq.padding = reader.read<u16>();
     seq.replayMin = reader.read<u32>();
@@ -173,7 +194,7 @@ void BinaryParseVisitor::visit(RibbonEmitter& emitter) {
 
 void BinaryParseVisitor::visit(ParticleEmitter& emitter) {
     emitter.particleId = reader.read<u32>();
-    emitter.flags = reader.read<u32>();
+    emitter.flags = reader.read<ParticleFlag>();
     emitter.position = reader.read<Vector3f>();
     emitter.boneId = reader.read<u16>();
     emitter.textureId = reader.read<u16>();
@@ -220,7 +241,7 @@ void BinaryParseVisitor::visit(ParticleEmitter& emitter) {
     emitter.twinklePercent = reader.read<f32>();
     emitter.twinkleScale.x = reader.read<f32>();
     emitter.twinkleScale.y = reader.read<f32>();
-    emitter.burstMultiplier = reader.read<f32>();
+    emitter.squirtMultiplier = reader.read<f32>();
     emitter.drag = reader.read<f32>();
     emitter.baseSpin = reader.read<f32>();
     emitter.baseSpinVary = reader.read<f32>();
@@ -240,18 +261,17 @@ void BinaryParseVisitor::visit(ParticleEmitter& emitter) {
     visit(emitter.splinePoints);
     visit(emitter.enabledIn);
 
-    // M2Particle (Cata+): extended multi-texture parameters
     const bool extendedParticle = (version > 271) ||
         hasFlag(globalFlags, GlobalFlag::NewParticleRecord);
     if (extendedParticle) {
-        emitter.multiTextureParam0[0][0] = reader.read<fp_6_9>();
-        emitter.multiTextureParam0[0][1] = reader.read<fp_6_9>();
-        emitter.multiTextureParam0[1][0] = reader.read<fp_6_9>();
-        emitter.multiTextureParam0[1][1] = reader.read<fp_6_9>();
-        emitter.multiTextureParam1[0][0] = reader.read<fp_6_9>();
-        emitter.multiTextureParam1[0][1] = reader.read<fp_6_9>();
-        emitter.multiTextureParam1[1][0] = reader.read<fp_6_9>();
-        emitter.multiTextureParam1[1][1] = reader.read<fp_6_9>();
+        emitter.multiTextureParam0[0][0] = reader.read<fixed16_9>();
+        emitter.multiTextureParam0[0][1] = reader.read<fixed16_9>();
+        emitter.multiTextureParam0[1][0] = reader.read<fixed16_9>();
+        emitter.multiTextureParam0[1][1] = reader.read<fixed16_9>();
+        emitter.multiTextureParam1[0][0] = reader.read<fixed16_9>();
+        emitter.multiTextureParam1[0][1] = reader.read<fixed16_9>();
+        emitter.multiTextureParam1[1][0] = reader.read<fixed16_9>();
+        emitter.multiTextureParam1[1][1] = reader.read<fixed16_9>();
     }
 }
 
@@ -287,6 +307,10 @@ void BinaryParseVisitor::visit(Model& header) {
 
     if (version >= M2_VERSION_WOTLK) {
         header.numSkinProfiles = reader.read<u32>();
+        header.skinProfiles.reserve(header.numSkinProfiles);
+        header.lodProfiles.reserve(header.numSkinProfiles);
+    } else {
+        visit(header.skinProfiles);
     }
 
     visit(header.colors);
@@ -345,5 +369,5 @@ void BinaryParseVisitor::visit(AnimationTrackBase& track) {
     visit(track.timestamps);
 }
 
-} // namespace m2
-} // namespace whiteout
+}
+}

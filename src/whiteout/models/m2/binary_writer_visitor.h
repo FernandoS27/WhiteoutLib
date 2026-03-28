@@ -1,14 +1,15 @@
-// SPDX-License-Identifier: BSD-3-Clause
-// Copyright (c) 2026 Fernando Sahmkow
 
 #pragma once
 
-#include <whiteout/models/m2/structures.h>
+#include "internal_structures.h"
 #include <whiteout/models/m2/types.h>
 #include "../../common/binary_writer.h"
+#include "../../common/streams.h"
+#include "traits.h"
 
 #include <deque>
 #include <functional>
+#include <ostream>
 #include <type_traits>
 
 namespace whiteout {
@@ -29,6 +30,15 @@ public:
             writeFunc();
         }
     }
+
+    struct AnimDataBuffer {
+        u32 anim_id;
+        u32 sub_anim_id;
+        std::vector<u8> data;
+    };
+
+    std::deque<AnimDataBuffer>& getAnimDataBuffers() { return animDataBuffers; }
+    const std::deque<AnimDataBuffer>& getAnimDataBuffers() const { return animDataBuffers; }
 
 protected:
     void start();
@@ -53,7 +63,6 @@ protected:
     void visit(const Model& model);
     void visit(const MD20Header& header);
 
-    // Chunk structure visit methods
     void visit(const TXACChunk& chunk);
     void visit(const PFIDChunk& chunk);
     void visit(const SFIDChunk& chunk);
@@ -62,7 +71,6 @@ protected:
     void visit(const BFIDChunk& chunk);
     void visit(const EXPTEntry& entry);
     void visit(const EXPTChunk& chunk);
-    void visit(const ParticleEmitterExtension& particle);
     void visit(const EXP2Chunk& chunk);
     void visit(const PABCChunk& chunk);
     void visit(const PADCChunk& chunk);
@@ -70,35 +78,32 @@ protected:
     void visit(const PSBCChunk& chunk);
     void visit(const PEDCChunk& chunk);
     void visit(const SKIDChunk& chunk);
-    void visit(const TXIDEntry& entry);
     void visit(const TXIDChunk& chunk);
-    void visit(const LDV1Chunk& chunk);
+    void visit(const LodProfile& chunk);
     void visit(const M2RPIDEntry& entry);
     void visit(const M2RPIDChunk& chunk);
     void visit(const GPIDEntry& entry);
     void visit(const GPIDChunk& chunk);
-    void visit(const WFV1Chunk& chunk);
-    void visit(const WFV2Chunk& chunk);
-    void visit(const PGD1Entry& entry);
+    void visit(const ParticleGeosetData& entry);
     void visit(const PGD1Chunk& chunk);
-    void visit(const WFV3Data& data);
+    void visit(const WaterfallData& data);
     void visit(const WFV3Chunk& chunk);
     void visit(const PFDCChunk& chunk);
-    void visit(const EDGFEntry& entry);
+    void visit(const EdgeFadeData& entry);
     void visit(const EDGFChunk& chunk);
-    void visit(const NERFEntry& entry);
+    void visit(const DistanceFadeData& entry);
     void visit(const NERFChunk& chunk);
-    void visit(const DETLEntry& entry);
+    void visit(const DetailedLightData& entry);
     void visit(const DETLChunk& chunk);
-    void visit(const DBOCEntry& entry);
+    void visit(const DebugOcclusionData& entry);
     void visit(const DBOCChunk& chunk);
     void visit(const AFRAChunk& chunk);
     void visit(const PCOLChunk& chunk);
     void visit(const DPIVChunk& chunk);
-    void visit(const TEXLEntry& entry);
+    void visit(const TexturedLightData& entry);
     void visit(const TEXLChunk& chunk);
+    void visit(const ParticleEmitterExtension& chunk);
 
-    // Physics structure visit methods
     void visit(const PHYSHeader& header);
     void visit(const PHYTEntry& entry);
     void visit(const BODYEntry& entry);
@@ -128,25 +133,21 @@ protected:
     void visit(const DSTJEntry& entry);
     void visit(const PHYVEntry& entry);
 
-    // Bone structure visit methods
     void visit(const BONEHeader& header);
     void visit(const Matrix44f& matrix);
     void visit(const BIDAChunk& chunk);
     void visit(const BOMTChunk& chunk);
 
-    // Anim structure visit methods
     void visit(const AFM2Chunk& chunk);
     void visit(const AFSAChunk& chunk);
     void visit(const AFSBChunk& chunk);
 
-    // Skeleton structure visit methods
     void visit(const SKL1Chunk& chunk);
     void visit(const SKA1Chunk& chunk);
     void visit(const SKB1Chunk& chunk);
     void visit(const SKS1Chunk& chunk);
     void visit(const SKPDChunk& chunk);
 
-    // Skin structure visit methods
     void visit(const SkinSection& section);
     void visit(const Batch& batch);
     void visit(const ShadowBatch& batch);
@@ -159,7 +160,10 @@ protected:
     void visit(const AnimationTrack<T>& track);
 
     template <typename T>
-    void visit(const AnimationTrackSimple<T>& track);
+    void visit(const ParticleAnimationTrack<T>& track);
+
+    template <typename T>
+    void writeVector(const std::vector<T>& array, common::BinaryWriter* dataWriter);
 
     template <typename T>
     void visit(const std::vector<T>& array);
@@ -169,50 +173,81 @@ protected:
     common::BinaryWriter& writer;
     uint32_t version = 0;
     GlobalFlag globalFlags = GlobalFlag::None;
-    std::deque<std::function<void()>> deferredWrites; // offset, write function
+    std::deque<std::function<void()>> deferredWrites;
     u32 baseOffset = 0;
+    struct AnimDataWriterState {
+        std::unique_ptr<common::vector_streambuf> streambuf;
+        std::unique_ptr<std::ostream> stream;
+        std::unique_ptr<common::BinaryWriter> writer;
+    };
+
+    std::deque<AnimDataBuffer> animDataBuffers;
+    std::deque<AnimDataWriterState> animDataWriterStates;
+    std::vector<common::BinaryWriter*> animDataWriters;
 };
 
 template <typename T>
 void BinaryWriterVisitor::visit(const AnimationTrack<T>& track) {
     writer.write(track.interpolationType);
     writer.write(track.globalSequenceId);
+
+    const auto animDataFunc = [this]<typename U>(const std::vector<std::vector<U>>& values) {
+        u32 offsetPos = writer.getPosition();
+        writer.template write<u32>(0);
+        deferredWrites.push_back([this, offsetPos, &values]() {
+            u32 currentPos = writer.getPosition();
+            writer.setPosition(offsetPos);
+            writer.write(currentPos - baseOffset);
+            writer.setPosition(currentPos);
+
+            for (size_t i = 0; i < values.size(); ++i) {
+                writeVector(values[i], animDataWriters[i]);
+            }
+
+            writer.AlignTo(16);
+        });
+    };
+    animDataFunc(track.timestamps);
+    animDataFunc(track.values);
+}
+
+template <typename T>
+void BinaryWriterVisitor::visit(const ParticleAnimationTrack<T>& track) {
     visit(track.timestamps);
     visit(track.values);
 }
 
 template <typename T>
-void BinaryWriterVisitor::visit(const AnimationTrackSimple<T>& track) {
-    visit(track.timestamps);
-    visit(track.values);
-}
-
-template <typename T>
-void BinaryWriterVisitor::visit(const std::vector<T>& array) {
-    writer.template write<u32>(static_cast<u32>(array.size()));
+void BinaryWriterVisitor::writeVector(const std::vector<T>& array, common::BinaryWriter* dataWriter) {
+    dataWriter->template write<u32>(static_cast<u32>(array.size()));
     u32 offsetPos = writer.getPosition();
-    writer.template write<u32>(0);
+    dataWriter->template write<u32>(0);
     if (array.empty()) {
         return;
     }
 
-    deferredWrites.push_back([this, offsetPos, &array]() {
+    deferredWrites.push_back([this, dataWriter, offsetPos, &array]() {
         u32 currentPos = writer.getPosition();
-        writer.setPosition(offsetPos);
-        writer.write(currentPos - baseOffset);
-        writer.setPosition(currentPos);
+        dataWriter->setPosition(offsetPos);
+        dataWriter->write(currentPos - baseOffset);
+        dataWriter->setPosition(currentPos);
 
-        if constexpr (std::is_trivially_copyable_v<T>) {
-            writer.write(array);
+        if constexpr (bulk_copyable_v<T>) {
+            dataWriter->write(array);
         } else {
             for (const T& item : array) {
                 visit(item);
             }
         }
 
-        writer.AlignTo(16);
+        dataWriter->AlignTo(16);
     });
 }
 
-} // namespace m2
-} // namespace whiteout
+template <typename T>
+void BinaryWriterVisitor::visit(const std::vector<T>& array) {
+    writeVector(array, &writer);
+}
+
+}
+}
