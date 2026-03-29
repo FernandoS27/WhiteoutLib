@@ -250,7 +250,7 @@ struct Bz2Decoder {
 
         // Decode symbols (MTF + RLE2).
         // Build the "in use" symbol list for MTF.
-        u8 mtfSymbols[256];
+        std::array<u8, 256> mtfSymbols;
         u32 mtfCount = 0;
         for (u32 i = 0; i < 256; i++) {
             if (inUse[i])
@@ -591,7 +591,7 @@ MtfResult mtfEncode(const u8* data, u32 len) {
         result.inUse[data[i]] = true;
 
     // Build the MTF list from in-use symbols.
-    u8 mtf[256];
+    std::array<u8, 256> mtf;
     u32 nInUse = 0;
     for (u32 i = 0; i < 256; i++) {
         if (result.inUse[i])

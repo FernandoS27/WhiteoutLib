@@ -18,16 +18,32 @@ namespace whiteout::storages::mpq {
 // Compression type flags (bitmask stored as first byte of compressed sector)
 // ============================================================================
 
-namespace CompressionFlag {
-static constexpr u8 kHuffman = 0x01;
-static constexpr u8 kZlib = 0x02;
-static constexpr u8 kPKware = 0x08;
-static constexpr u8 kBZip2 = 0x10;
-static constexpr u8 kLZMA = 0x12;
-static constexpr u8 kSparse = 0x20;
-static constexpr u8 kAdpcmMono = 0x40;
-static constexpr u8 kAdpcmStereo = 0x80;
-} // namespace CompressionFlag
+enum class CompressionFlag : u8 {
+    None        = 0,
+    kHuffman    = 0x01,
+    kZlib       = 0x02,
+    kPKware     = 0x08,
+    kBZip2      = 0x10,
+    kLZMA       = 0x12,
+    kSparse     = 0x20,
+    kAdpcmMono  = 0x40,
+    kAdpcmStereo = 0x80,
+};
+
+inline CompressionFlag operator|(CompressionFlag a, CompressionFlag b) noexcept {
+    return static_cast<CompressionFlag>(static_cast<u8>(a) | static_cast<u8>(b));
+}
+inline CompressionFlag operator&(CompressionFlag a, CompressionFlag b) noexcept {
+    return static_cast<CompressionFlag>(static_cast<u8>(a) & static_cast<u8>(b));
+}
+inline CompressionFlag operator~(CompressionFlag a) noexcept {
+    return static_cast<CompressionFlag>(~static_cast<u8>(a));
+}
+inline CompressionFlag& operator|=(CompressionFlag& a, CompressionFlag b) noexcept { a = a | b; return a; }
+inline CompressionFlag& operator&=(CompressionFlag& a, CompressionFlag b) noexcept { a = a & b; return a; }
+inline bool hasFlag(CompressionFlag flags, CompressionFlag flag) noexcept {
+    return (flags & flag) != CompressionFlag::None;
+}
 
 // ============================================================================
 // Functions
@@ -53,7 +69,7 @@ static constexpr u8 kAdpcmStereo = 0x80;
 /// @param compressionType  One of the CompressionFlag constants (e.g. kZlib).
 /// @param[out] error       Optional error message on failure.
 /// @return Compressed data with compression byte prefix, or empty vector on failure.
-[[nodiscard]] std::vector<u8> mpqCompress(std::span<const u8> src, u8 compressionType,
+[[nodiscard]] std::vector<u8> mpqCompress(std::span<const u8> src, CompressionFlag compressionType,
                                           std::string* error = nullptr);
 
 } // namespace whiteout::storages::mpq

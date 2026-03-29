@@ -34,9 +34,14 @@ enum class FormatVersion : u16 {
 
 /// Compression algorithm for writing files.
 enum class Compression : u8 {
-    None = 0,      ///< No compression; data stored verbatim.
-    Zlib = 0x02,   ///< zlib / DEFLATE compression (most common MPQ codec).
-    PKware = 0x08, ///< PKware DCL (implode) compression.
+    None        = 0x00, ///< No compression; data stored verbatim.
+    Huffman     = 0x01, ///< Huffman coding (used for audio in older Blizzard games).
+    Zlib        = 0x02, ///< zlib / DEFLATE compression (most common MPQ codec).
+    PKware      = 0x08, ///< PKware DCL (implode) compression.
+    BZip2       = 0x10, ///< bzip2 compression.
+    Sparse      = 0x20, ///< Sparse / RLE compression.
+    AdpcmMono   = 0x40, ///< IMA ADPCM mono (used for mono audio).
+    AdpcmStereo = 0x80, ///< IMA ADPCM stereo (used for stereo audio).
 };
 
 // ============================================================================
@@ -64,13 +69,23 @@ static constexpr u16 EnglishUK = 0x0809;
 // File Flags (public subset)
 // ============================================================================
 
-namespace FileFlags {
-static constexpr u32 Compressed = 0x00000200; ///< File uses sector compression.
-static constexpr u32 Encrypted = 0x00010000;  ///< File data is encrypted.
-static constexpr u32 SingleUnit =
-    0x01000000;                           ///< File stored as a single unit (no sector splitting).
-static constexpr u32 Exists = 0x80000000; ///< Slot is occupied by a real file.
-} // namespace FileFlags
+enum class FileFlags : u32 {
+    None       = 0,
+    Compressed = 0x00000200, ///< File uses sector compression.
+    Encrypted  = 0x00010000, ///< File data is encrypted.
+    SingleUnit = 0x01000000, ///< File stored as a single unit (no sector splitting).
+    Exists     = 0x80000000, ///< Slot is occupied by a real file.
+};
+
+inline FileFlags operator|(FileFlags a, FileFlags b) noexcept {
+    return static_cast<FileFlags>(static_cast<u32>(a) | static_cast<u32>(b));
+}
+inline FileFlags operator&(FileFlags a, FileFlags b) noexcept {
+    return static_cast<FileFlags>(static_cast<u32>(a) & static_cast<u32>(b));
+}
+inline bool hasFlag(FileFlags flags, FileFlags flag) noexcept {
+    return (flags & flag) != FileFlags::None;
+}
 
 // ============================================================================
 // Info Structs
@@ -78,11 +93,11 @@ static constexpr u32 Exists = 0x80000000; ///< Slot is occupied by a real file.
 
 /// Information about a single file in the archive.
 struct FileInfo {
-    std::string name;         ///< Filename (from listfile or hash table lookup).
-    u32 compressedSize = 0;   ///< Compressed storage size in bytes.
-    u32 uncompressedSize = 0; ///< Uncompressed (original) file size in bytes.
-    u32 flags = 0;            ///< Block entry flags (see FileFlags namespace).
-    u16 locale = 0;           ///< Locale ID (typically Locale::Neutral).
+    std::string name;              ///< Filename (from listfile or hash table lookup).
+    u32 compressedSize = 0;        ///< Compressed storage size in bytes.
+    u32 uncompressedSize = 0;      ///< Uncompressed (original) file size in bytes.
+    FileFlags flags = FileFlags::None; ///< Block entry flags (see FileFlags enum).
+    u16 locale = 0;                ///< Locale ID (typically Locale::Neutral).
 };
 
 /// Summary information about the archive.

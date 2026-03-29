@@ -18,18 +18,33 @@ namespace whiteout::storages::mpq {
 // File Flags (used in BlockEntry::flags)
 // ============================================================================
 
-namespace FileFlag {
-static constexpr u32 kImplode = 0x00000100;   ///< File compressed with PKware DCL.
-static constexpr u32 kCompress = 0x00000200;  ///< File compressed with combination of codecs.
-static constexpr u32 kEncrypted = 0x00010000; ///< File is encrypted.
-static constexpr u32 kFixKey = 0x00020000;    ///< Encryption key adjusted by file offset.
-static constexpr u32 kPatchFile = 0x00100000; ///< Patch file (incremental update).
-static constexpr u32 kSingleUnit =
-    0x01000000; ///< File stored as single unit (no sector splitting).
-static constexpr u32 kDeleteMarker = 0x02000000; ///< File is a delete marker (patch archives).
-static constexpr u32 kSectorCrc = 0x04000000;    ///< Per-sector CRC appended to sectors.
-static constexpr u32 kExists = 0x80000000;       ///< File exists.
-} // namespace FileFlag
+enum class FileFlag : u32 {
+    None         = 0,
+    kImplode     = 0x00000100, ///< File compressed with PKware DCL.
+    kCompress    = 0x00000200, ///< File compressed with combination of codecs.
+    kEncrypted   = 0x00010000, ///< File is encrypted.
+    kFixKey      = 0x00020000, ///< Encryption key adjusted by file offset.
+    kPatchFile   = 0x00100000, ///< Patch file (incremental update).
+    kSingleUnit  = 0x01000000, ///< File stored as single unit (no sector splitting).
+    kDeleteMarker = 0x02000000, ///< File is a delete marker (patch archives).
+    kSectorCrc   = 0x04000000, ///< Per-sector CRC appended to sectors.
+    kExists      = 0x80000000, ///< File exists.
+};
+
+inline FileFlag operator|(FileFlag a, FileFlag b) noexcept {
+    return static_cast<FileFlag>(static_cast<u32>(a) | static_cast<u32>(b));
+}
+inline FileFlag operator&(FileFlag a, FileFlag b) noexcept {
+    return static_cast<FileFlag>(static_cast<u32>(a) & static_cast<u32>(b));
+}
+inline FileFlag operator~(FileFlag a) noexcept {
+    return static_cast<FileFlag>(~static_cast<u32>(a));
+}
+inline FileFlag& operator|=(FileFlag& a, FileFlag b) noexcept { a = a | b; return a; }
+inline FileFlag& operator&=(FileFlag& a, FileFlag b) noexcept { a = a & b; return a; }
+inline bool hasFlag(FileFlag flags, FileFlag flag) noexcept {
+    return (flags & flag) != FileFlag::None;
+}
 
 // ============================================================================
 // Block Entry
@@ -37,28 +52,28 @@ static constexpr u32 kExists = 0x80000000;       ///< File exists.
 
 /// A single 16-byte entry in the MPQ block table.
 struct BlockEntry {
-    u32 fileOffset = 0;       ///< Byte offset of the file data (relative to archive start).
-    u32 compressedSize = 0;   ///< Compressed size of the file data.
-    u32 uncompressedSize = 0; ///< Uncompressed file size.
-    u32 flags = 0;            ///< Combination of FileFlag:: constants.
+    u32 fileOffset = 0;              ///< Byte offset of the file data (relative to archive start).
+    u32 compressedSize = 0;          ///< Compressed size of the file data.
+    u32 uncompressedSize = 0;        ///< Uncompressed file size.
+    FileFlag flags = FileFlag::None; ///< Combination of FileFlag values.
 
     [[nodiscard]] bool exists() const {
-        return (flags & FileFlag::kExists) != 0;
+        return hasFlag(flags, FileFlag::kExists);
     }
     [[nodiscard]] bool isCompressed() const {
-        return (flags & (FileFlag::kCompress | FileFlag::kImplode)) != 0;
+        return hasFlag(flags, FileFlag::kCompress) || hasFlag(flags, FileFlag::kImplode);
     }
     [[nodiscard]] bool isEncrypted() const {
-        return (flags & FileFlag::kEncrypted) != 0;
+        return hasFlag(flags, FileFlag::kEncrypted);
     }
     [[nodiscard]] bool hasFixKey() const {
-        return (flags & FileFlag::kFixKey) != 0;
+        return hasFlag(flags, FileFlag::kFixKey);
     }
     [[nodiscard]] bool isSingleUnit() const {
-        return (flags & FileFlag::kSingleUnit) != 0;
+        return hasFlag(flags, FileFlag::kSingleUnit);
     }
     [[nodiscard]] bool hasSectorCrc() const {
-        return (flags & FileFlag::kSectorCrc) != 0;
+        return hasFlag(flags, FileFlag::kSectorCrc);
     }
 };
 

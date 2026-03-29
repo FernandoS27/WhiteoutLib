@@ -16,12 +16,12 @@
 namespace whiteout::storages::mpq {
 
 /// Hash type indices used by hashString().
-struct HashType {
-    static constexpr u32 TableOffset = 0; ///< Hash → table offset (index into hash table).
-    static constexpr u32 NameA = 1;       ///< Hash → name verification A.
-    static constexpr u32 NameB = 2;       ///< Hash → name verification B.
-    static constexpr u32 FileKey = 3;     ///< Hash → file encryption key.
-    static constexpr u32 TableKey = 4;    ///< Hash → table encryption key.
+enum class HashType : u32 {
+    TableOffset = 0, ///< Hash → table offset (index into hash table).
+    NameA = 1,       ///< Hash → name verification A.
+    NameB = 2,       ///< Hash → name verification B.
+    FileKey = 3,     ///< Hash → file encryption key.
+    TableKey = 4,    ///< Hash → table encryption key.
 };
 
 /// Get the global 1280-entry MPQ encryption table (lazy-initialized).
@@ -31,9 +31,9 @@ const u32* getEncryptionTable();
 /// Compute an MPQ hash of a filename.
 /// The filename is normalized (uppercase + '/' → '\\') before hashing.
 /// @param filename  Path to hash.
-/// @param hashType  One of the HashType constants (0–4).
+/// @param hashType  One of the HashType enum values (0–4).
 /// @return The 32-bit hash value.
-u32 hashString(const std::string& filename, u32 hashType);
+u32 hashString(const std::string& filename, HashType hashType);
 
 /// Decrypt a block of u32 values in-place.
 /// @param data   Pointer to the encrypted u32 array.

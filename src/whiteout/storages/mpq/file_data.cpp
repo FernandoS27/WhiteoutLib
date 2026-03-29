@@ -241,14 +241,14 @@ EncodedFile encodeFileData(std::span<const u8> rawData, const EncodeOptions& opt
     if (rawData.empty())
         return result;
 
-    u32 flags = FileFlag::kExists;
+    FileFlag flags = FileFlag::kExists;
 
     // -- Single-unit mode --
     if (opts.singleUnit) {
         flags |= FileFlag::kSingleUnit;
         std::vector<u8> encoded;
 
-        if (opts.compression != 0) {
+        if (opts.compression != CompressionFlag::None) {
             flags |= FileFlag::kCompress;
             auto compressed = mpqCompress(rawData, opts.compression);
             if (!compressed.empty()) {
@@ -294,7 +294,7 @@ EncodedFile encodeFileData(std::span<const u8> rawData, const EncodeOptions& opt
         size_t srcLen = std::min<size_t>(sectorSize, rawData.size() - srcStart);
         auto sectorRaw = rawData.subspan(srcStart, srcLen);
 
-        if (opts.compression != 0) {
+        if (opts.compression != CompressionFlag::None) {
             auto compressed = mpqCompress(sectorRaw, opts.compression);
             if (!compressed.empty()) {
                 sectorData[i] = std::move(compressed);

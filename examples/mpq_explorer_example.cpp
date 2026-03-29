@@ -5,6 +5,7 @@
 /// read or extract files, add/delete files, and save modifications.
 
 #include <whiteout/storages/mpq/storage.h>
+#include <whiteout/utils/simple_thread_pool.h>
 
 #include <algorithm>
 #include <cctype>
@@ -15,6 +16,7 @@
 #include <iostream>
 #include <map>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace mpq = whiteout::storages::mpq;
@@ -84,11 +86,11 @@ static bool wildcardMatch(const std::string& pattern, const std::string& text) {
 }
 
 /// Print file flags in a human-readable form.
-static std::string formatFlags(uint32_t flags) {
+static std::string formatFlags(mpq::FileFlags flags) {
     std::string result;
-    if (flags & mpq::FileFlags::Compressed) result += "compressed ";
-    if (flags & mpq::FileFlags::Encrypted)  result += "encrypted ";
-    if (flags & mpq::FileFlags::SingleUnit) result += "single-unit ";
+    if (mpq::hasFlag(flags, mpq::FileFlags::Compressed)) result += "compressed ";
+    if (mpq::hasFlag(flags, mpq::FileFlags::Encrypted))  result += "encrypted ";
+    if (mpq::hasFlag(flags, mpq::FileFlags::SingleUnit)) result += "single-unit ";
     if (result.empty()) result = "none";
     else result.pop_back(); // trailing space
     return result;
@@ -564,6 +566,8 @@ static void diagnoseOpenFailure(const std::string& path) {
 
 int main(int argc, char* argv[]) {
     std::cout << "=== MPQ Archive Explorer ===\n\n";
+    const size_t numThreads = std::max<size_t>(1, std::thread::hardware_concurrency());
+    whiteout::utils::SimpleThreadPool pool(numThreads);
 
     // Get archive path from argv or prompt.
     std::string archivePath;
@@ -582,7 +586,7 @@ int main(int argc, char* argv[]) {
 
     if (archivePath == "new" || archivePath == "NEW") {
         std::cout << "Creating new empty archive.\n";
-        storage.emplace(mpq::Storage::create());
+        storage.emplace(mpq::Storage::create({}, &pool));
     } else {
         if (!std::filesystem::is_regular_file(archivePath)) {
             std::cerr << "File not found: " << archivePath << "\n";
@@ -591,7 +595,7 @@ int main(int argc, char* argv[]) {
         archivePath = std::filesystem::absolute(archivePath).string();
         std::cout << "Opening: " << archivePath << " ...\n";
         std::string openError;
-        storage = mpq::Storage::open(archivePath, &openError);
+        storage = mpq::Storage::open(archivePath, &openError, &pool);
         if (!openError.empty())
             std::cerr << "  Library error: " << openError << "\n";
     }

@@ -32,7 +32,7 @@ struct WriteEntry {
 
     /// If rawData is non-empty, this is a new/modified file from the overlay.
     std::vector<u8> rawData;
-    u8 compression = CompressionFlag::kZlib;
+    CompressionFlag compression = CompressionFlag::kZlib;
     bool encrypt = false;
     bool singleUnit = false;
 

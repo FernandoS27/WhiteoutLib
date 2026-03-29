@@ -49,7 +49,7 @@ const u32* getEncryptionTable() {
 // Hash String
 // ============================================================================
 
-u32 hashString(const std::string& filename, u32 hashType) {
+u32 hashString(const std::string& filename, HashType hashType) {
     const auto& table = encryptionTable();
     u32 seed1 = 0x7FED7FED;
     u32 seed2 = 0xEEEEEEEE;
@@ -61,7 +61,7 @@ u32 hashString(const std::string& filename, u32 hashType) {
             uc = '\\';
         uc = static_cast<unsigned char>(std::toupper(uc));
 
-        seed1 = table[hashType * 256 + uc] ^ (seed1 + seed2);
+        seed1 = table[static_cast<u32>(hashType) * 256 + uc] ^ (seed1 + seed2);
         seed2 = static_cast<u32>(uc) + seed1 + seed2 + (seed2 << 5) + 3;
     }
     return seed1;

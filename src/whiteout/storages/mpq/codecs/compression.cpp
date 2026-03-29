@@ -3,9 +3,12 @@
 
 #include "../../common/zlib.h"
 #include "adpcm.h"
+
+#include <array>
 #include "bzip2.h"
 #include "compression.h"
 #include "huffman.h"
+#include "lzma.h"
 #include "pkware.h"
 #include "sparse.h"
 
@@ -23,7 +26,7 @@ using DecompressFn = std::vector<u8> (*)(std::span<const u8>, size_t);
 using CompressFn = std::vector<u8> (*)(std::span<const u8>);
 
 struct CodecEntry {
-    u8 flag;
+    CompressionFlag flag;
     const char* name;
     DecompressFn decompress;
     CompressFn compress;
@@ -53,7 +56,7 @@ std::vector<u8> huffmanCompressAdapter(std::span<const u8> src) {
 }
 
 static constexpr size_t kCodecCount = 8;
-static const CodecEntry kCodecTable[kCodecCount] = {
+static const std::array<CodecEntry, kCodecCount> kCodecTable = {{
     {CompressionFlag::kBZip2, "BZip2", bzip2Decompress, bzip2Compress},
     {CompressionFlag::kPKware, "PKware DCL", pkwareExplode, pkwareImplode},
     {CompressionFlag::kZlib, "zlib", zlibDecompressAdapter, zlibCompressAdapter},
@@ -63,10 +66,10 @@ static const CodecEntry kCodecTable[kCodecCount] = {
     {CompressionFlag::kAdpcmStereo, "ADPCM stereo", adpcmStereoDecompressAdapter,
      adpcmStereoCompressAdapter},
     {CompressionFlag::kSparse, "Sparse", sparseDecompress, sparseCompress},
-    {CompressionFlag::kLZMA, "LZMA", nullptr, nullptr},
-};
+    {CompressionFlag::kLZMA, "LZMA", lzmaDecompress, nullptr},
+}};
 
-const CodecEntry* findCodec(u8 flag) {
+const CodecEntry* findCodec(CompressionFlag flag) {
     for (size_t i = 0; i < kCodecCount; ++i) {
         if (kCodecTable[i].flag == flag)
             return &kCodecTable[i];
@@ -76,11 +79,11 @@ const CodecEntry* findCodec(u8 flag) {
 
 /// Apply a single decompression stage to an intermediate buffer.
 /// Returns true on success, replacing `buf` with the decompressed data.
-bool decompressStage(u8 flag, std::vector<u8>& buf, size_t finalSize, std::string* error) {
+bool decompressStage(CompressionFlag flag, std::vector<u8>& buf, size_t finalSize, std::string* error) {
     const auto* codec = findCodec(flag);
     if (!codec) {
         if (error)
-            *error = "Unknown compression flag: " + std::to_string(flag);
+            *error = "Unknown compression flag: " + std::to_string(static_cast<u8>(flag));
         return false;
     }
     if (!codec->decompress) {
@@ -99,11 +102,11 @@ bool decompressStage(u8 flag, std::vector<u8>& buf, size_t finalSize, std::strin
 }
 
 /// Canonical decompression order (innermost first).
-static constexpr u8 kDecompressOrder[] = {
+static constexpr std::array<CompressionFlag, 7> kDecompressOrder = {{
     CompressionFlag::kBZip2,   CompressionFlag::kPKware,    CompressionFlag::kZlib,
     CompressionFlag::kHuffman, CompressionFlag::kAdpcmMono, CompressionFlag::kAdpcmStereo,
     CompressionFlag::kSparse,
-};
+}};
 
 } // anonymous namespace
 
@@ -116,12 +119,12 @@ std::vector<u8> mpqDecompress(std::span<const u8> src, size_t uncompressedSize,
     if (src.empty())
         return {};
 
-    u8 compressionMask = src[0];
+    CompressionFlag compressionMask = static_cast<CompressionFlag>(src[0]);
     auto compressedData = src.subspan(1); // Skip the compression byte.
 
     // If no compression flags set, data is uncompressed (shouldn't happen in
     // practice, but handle gracefully).
-    if (compressionMask == 0) {
+    if (compressionMask == CompressionFlag::None) {
         return {compressedData.begin(), compressedData.end()};
     }
 
@@ -138,8 +141,8 @@ std::vector<u8> mpqDecompress(std::span<const u8> src, size_t uncompressedSize,
     }
 
     // Bitmask-based decompression for all other algorithms.
-    for (u8 flag : kDecompressOrder) {
-        if (compressionMask & flag) {
+    for (CompressionFlag flag : kDecompressOrder) {
+        if (hasFlag(compressionMask, flag)) {
             if (!decompressStage(flag, buf, uncompressedSize, error))
                 return {};
         }
@@ -152,7 +155,7 @@ std::vector<u8> mpqDecompress(std::span<const u8> src, size_t uncompressedSize,
 // Compression
 // ============================================================================
 
-std::vector<u8> mpqCompress(std::span<const u8> src, u8 compressionType, std::string* error) {
+std::vector<u8> mpqCompress(std::span<const u8> src, CompressionFlag compressionType, std::string* error) {
     if (src.empty())
         return {};
 
@@ -160,7 +163,8 @@ std::vector<u8> mpqCompress(std::span<const u8> src, u8 compressionType, std::st
     if (!codec || !codec->compress) {
         if (error)
             *error = codec ? (std::string(codec->name) + " compression not implemented")
-                           : ("Unsupported compression type: " + std::to_string(compressionType));
+                           : ("Unsupported compression type: " +
+                              std::to_string(static_cast<u8>(compressionType)));
         return {};
     }
 
@@ -174,7 +178,7 @@ std::vector<u8> mpqCompress(std::span<const u8> src, u8 compressionType, std::st
     // Prepend the compression type byte.
     std::vector<u8> compressed;
     compressed.reserve(1 + result.size());
-    compressed.push_back(compressionType);
+    compressed.push_back(static_cast<u8>(compressionType));
     compressed.insert(compressed.end(), result.begin(), result.end());
 
     // If compressed is larger than original, store uncompressed.

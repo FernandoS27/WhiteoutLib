@@ -10,7 +10,7 @@ It is inspired by StormLib, a library used by older Blizzard games to handle pro
 - **Warcraft III (`.mdx`)**
   - Classic
   - Reforged
-- **World of Warcraft (`.m2`)** (partial, still has issues with .anim and .skel files)
+- **World of Warcraft (`.m2`)** (partial, still missing version specific parsing for older than Mist of panadaria and .phys and .bone files)
 - **StarCraft II / Heroes of the Storm (`.m3/.m3a`)**
 - **Diablo III & IV (`.acr,.app,.ani,.ans,.mat,.prt`, SNO format family)**
 

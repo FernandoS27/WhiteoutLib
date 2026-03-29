@@ -294,7 +294,7 @@ struct Storage::Impl {
             we.filename = val.originalName;
             we.locale = key.locale;
             we.rawData = val.data;
-            we.compression = static_cast<u8>(val.opts.compression);
+            we.compression = static_cast<CompressionFlag>(val.opts.compression);
             we.encrypt = val.opts.encrypt;
             we.singleUnit = val.opts.singleUnit;
             entries.push_back(std::move(we));
@@ -477,7 +477,7 @@ std::optional<FileInfo> Storage::fileInfo(const std::string& name) const {
     info.name = name;
     info.compressedSize = be.compressedSize;
     info.uncompressedSize = be.uncompressedSize;
-    info.flags = be.flags;
+    info.flags = static_cast<FileFlags>(static_cast<u32>(be.flags));
     info.locale = he.locale;
     return info;
 }

@@ -9,6 +9,7 @@
 #include <whiteout/common_types.h>
 
 #include "tables/block_table.h"
+#include "codecs/compression.h"
 
 #include <span>
 #include <string>
@@ -50,14 +51,14 @@ namespace whiteout::storages::mpq {
 
 /// Result of encoding file data for writing.
 struct EncodedFile {
-    std::vector<u8> data;   ///< Encoded file data (sector offset table + sectors).
-    u32 compressedSize = 0; ///< Total compressed size.
-    u32 flags = 0;          ///< Block entry flags to use.
+    std::vector<u8> data;         ///< Encoded file data (sector offset table + sectors).
+    u32 compressedSize = 0;       ///< Total compressed size.
+    FileFlag flags = FileFlag::None; ///< Block entry flags to use.
 };
 
 /// Options for encoding file data.
 struct EncodeOptions {
-    u8 compression = 0x02; ///< CompressionFlag (default: zlib).
+    CompressionFlag compression = CompressionFlag::kZlib; ///< Compression codec (default: zlib).
     bool encrypt = false;
     bool singleUnit = false;
     u32 sectorSize = 4096;

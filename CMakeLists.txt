@@ -276,6 +276,7 @@ if(WHITEOUT_ENABLE_MPQ)
         src/whiteout/storages/mpq/codecs/adpcm.cpp
         src/whiteout/storages/mpq/codecs/huffman.cpp
         src/whiteout/storages/mpq/codecs/bzip2.cpp
+        src/whiteout/storages/mpq/codecs/lzma.cpp
         src/whiteout/storages/mpq/file_data.cpp
         src/whiteout/storages/mpq/special_files.cpp
         src/whiteout/storages/mpq/writer.cpp

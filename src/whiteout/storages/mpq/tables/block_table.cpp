@@ -28,7 +28,7 @@ bool BlockTable::parse(std::span<const u8> data, u32 count) {
         m_entries[i].fileOffset = src[0];
         m_entries[i].compressedSize = src[1];
         m_entries[i].uncompressedSize = src[2];
-        m_entries[i].flags = src[3];
+        m_entries[i].flags = static_cast<FileFlag>(src[3]);
     }
 
     m_hiBlockOffsets.clear();
@@ -90,7 +90,7 @@ std::vector<u8> BlockTable::serialize() const {
         raw[i * 4 + 0] = e.fileOffset;
         raw[i * 4 + 1] = e.compressedSize;
         raw[i * 4 + 2] = e.uncompressedSize;
-        raw[i * 4 + 3] = e.flags;
+        raw[i * 4 + 3] = static_cast<u32>(e.flags);
     }
 
     encryptBlock(raw.data(), raw.size(), hashString("(block table)", HashType::FileKey));

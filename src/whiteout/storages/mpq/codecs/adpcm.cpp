@@ -4,6 +4,7 @@
 #include "adpcm.h"
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 
 namespace whiteout::storages::mpq {
@@ -11,13 +12,13 @@ namespace whiteout::storages::mpq {
 namespace {
 
 // IMA ADPCM step index adjustment table (indexed by encoded sample & 0x1F).
-static constexpr int kNextStepTable[] = {
+static constexpr std::array<int, 32> kNextStepTable = {{
     -1, 0, -1, 4, -1, 2, -1, 6, -1, 1, -1, 5, -1, 3, -1, 7,
     -1, 1, -1, 5, -1, 3, -1, 7, -1, 2, -1, 4, -1, 6, -1, 8,
-};
+}};
 
 // IMA ADPCM step size table (89 entries, values 7..32767).
-static constexpr int kStepSizeTable[] = {
+static constexpr std::array<int, 89> kStepSizeTable = {{
     7,     8,     9,     10,    11,    12,    13,    14,    16,    17,    19,    21,    23,
     25,    28,    31,    34,    37,    41,    45,    50,    55,    60,    66,    73,    80,
     88,    97,    107,   118,   130,   143,   157,   173,   190,   209,   230,   253,   279,
@@ -25,7 +26,7 @@ static constexpr int kStepSizeTable[] = {
     1060,  1166,  1282,  1411,  1552,  1707,  1878,  2066,  2272,  2499,  2749,  3024,  3327,
     3660,  4026,  4428,  4871,  5358,  5894,  6484,  7132,  7845,  8630,  9493,  10442, 11487,
     12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767,
-};
+}};
 
 static constexpr int kInitialStepIndex = 0x2C;
 static constexpr int kMaxStepIndex = 88;
@@ -101,8 +102,8 @@ std::vector<u8> adpcmDecompress(std::span<const u8> src, size_t expectedSize, in
 
     AdpcmStream is(src.data(), src.size());
 
-    short predictedSamples[2] = {0, 0};
-    short stepIndexes[2] = {kInitialStepIndex, kInitialStepIndex};
+    std::array<short, 2> predictedSamples = {0, 0};
+    std::array<short, 2> stepIndexes = {kInitialStepIndex, kInitialStepIndex};
 
     // First byte is always 0, second is BitShift (compression level - 1).
     u8 dummy, bitShift;
@@ -199,8 +200,8 @@ std::vector<u8> adpcmCompress(std::span<const u8> src, int channelCount) {
     out.push_back(0x00);
     out.push_back(kBitShift);
 
-    short predictedSamples[2] = {0, 0};
-    short stepIndexes[2] = {kInitialStepIndex, kInitialStepIndex};
+    std::array<short, 2> predictedSamples = {0, 0};
+    std::array<short, 2> stepIndexes = {kInitialStepIndex, kInitialStepIndex};
 
     // Write initial sample for each channel.
     size_t samplePos = 0;

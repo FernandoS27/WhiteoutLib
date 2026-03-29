@@ -16,18 +16,18 @@ namespace whiteout::storages::mpq {
 namespace {
 
 // Length codes for PKware explode — maps extra bit counts for each length code.
-static constexpr u8 kLenBits[] = {3, 2, 3, 3, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 7, 7};
+static constexpr std::array<u8, 16> kLenBits = {3, 2, 3, 3, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 7, 7};
 
 // Base lengths for each length code.
-static constexpr u8 kLenBase[] = {0, 4, 8, 16, 32, 64, 128, 0, 1, 2, 3, 4, 5, 6, 7, 8};
+static constexpr std::array<u8, 16> kLenBase = {0, 4, 8, 16, 32, 64, 128, 0, 1, 2, 3, 4, 5, 6, 7, 8};
 
 // Extra bits for distance codes.
-static constexpr u8 kDistBits[] = {2, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+static constexpr std::array<u8, 66> kDistBits = {2, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
                                    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
                                    7, 7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8};
 
 // Shannon-Fano decode table for literal bytes (ASCII mode).
-static constexpr u8 kChBitsAsc[] = {
+static constexpr std::array<u8, 256> kChBitsAsc = {
     0x0B, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x08, 0x07, 0x0C, 0x0C, 0x07, 0x0C, 0x0C,
     0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x0D, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C,
     0x04, 0x0A, 0x08, 0x0C, 0x0A, 0x0C, 0x0A, 0x08, 0x07, 0x07, 0x08, 0x09, 0x07, 0x06, 0x07, 0x08,
@@ -46,7 +46,7 @@ static constexpr u8 kChBitsAsc[] = {
     0x0D, 0x0D, 0x0C, 0x0C, 0x0C, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D};
 
 // Shannon-Fano code values for ASCII mode literals.
-static constexpr u16 kChCodeAsc[] = {
+static constexpr std::array<u16, 256> kChCodeAsc = {
     0x0490, 0x0FE0, 0x07E0, 0x0BE0, 0x03E0, 0x0DE0, 0x05E0, 0x09E0, 0x01E0, 0x00B8, 0x0062, 0x0EE0,
     0x06E0, 0x0022, 0x0AE0, 0x02E0, 0x0CE0, 0x04E0, 0x08E0, 0x00E0, 0x0F60, 0x0760, 0x0B60, 0x0360,
     0x0D60, 0x0560, 0x1240, 0x0960, 0x0160, 0x0E60, 0x0660, 0x0A60, 0x000F, 0x0250, 0x0038, 0x0260,
@@ -74,7 +74,7 @@ static constexpr u16 kChCodeAsc[] = {
 // In binary mode, all 256 literals use 9 bits.
 
 // Length code extra bits.
-static constexpr u8 kLenCode[] = {0x05, 0x03, 0x01, 0x06, 0x0A, 0x02, 0x0C, 0x14,
+static constexpr std::array<u8, 16> kLenCode = {0x05, 0x03, 0x01, 0x06, 0x0A, 0x02, 0x0C, 0x14,
                                   0x04, 0x18, 0x08, 0x30, 0x10, 0x20, 0x40, 0x00};
 
 // ============================================================================
