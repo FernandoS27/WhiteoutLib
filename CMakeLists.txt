@@ -276,6 +276,9 @@ if(WHITEOUT_ENABLE_MPQ)
         src/whiteout/storages/mpq/special_files.cpp
         src/whiteout/storages/mpq/writer.cpp
         src/whiteout/storages/mpq/storage.cpp
+
+        # MPQ filesystem utility
+        src/whiteout/utils/mpq_file_system.cpp
     )
 
     target_include_directories(whiteout_mpq PUBLIC
