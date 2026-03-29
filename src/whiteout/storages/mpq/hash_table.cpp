@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "hash_table.h"
 #include "crypto.h"
+#include "hash_table.h"
 
 #include <algorithm>
 #include <cstring>
@@ -15,7 +15,8 @@ namespace whiteout::storages::mpq {
 
 bool HashTable::parse(std::span<const u8> data, u32 capacity) {
     const size_t expectedSize = static_cast<size_t>(capacity) * sizeof(HashEntry);
-    if (data.size() < expectedSize) return false;
+    if (data.size() < expectedSize)
+        return false;
 
     // Copy the raw data and decrypt in place.
     std::vector<u32> raw(capacity * 4);
@@ -48,44 +49,42 @@ void HashTable::createEmpty(u32 capacity) {
 // Lookup
 // ============================================================================
 
-std::optional<u32> HashTable::lookup(const std::string& filename) const {
-    if (m_entries.empty()) return std::nullopt;
+namespace {
 
+/// Shared probe logic for both locale-filtered and any-locale lookups.
+std::optional<u32> probeFor(const std::vector<HashEntry>& entries, const std::string& filename,
+                            std::optional<u16> locale) {
+    if (entries.empty())
+        return std::nullopt;
+
+    u32 cap = static_cast<u32>(entries.size());
     u32 hashA = hashString(filename, HashType::NameA);
     u32 hashB = hashString(filename, HashType::NameB);
-    u32 startIndex = hashString(filename, HashType::TableOffset) & (capacity() - 1);
+    u32 startIndex = hashString(filename, HashType::TableOffset) & (cap - 1);
 
     u32 index = startIndex;
     do {
-        const auto& e = m_entries[index];
-        if (e.isEmpty()) return std::nullopt; // End of probe chain.
+        const auto& e = entries[index];
+        if (e.isEmpty())
+            return std::nullopt;
         if (e.isOccupied() && e.hashA == hashA && e.hashB == hashB) {
-            return index;
+            if (!locale || e.locale == *locale)
+                return index;
         }
-        index = (index + 1) & (capacity() - 1);
+        index = (index + 1) & (cap - 1);
     } while (index != startIndex);
 
     return std::nullopt;
 }
 
+} // anonymous namespace
+
+std::optional<u32> HashTable::lookup(const std::string& filename) const {
+    return probeFor(m_entries, filename, std::nullopt);
+}
+
 std::optional<u32> HashTable::lookup(const std::string& filename, u16 locale) const {
-    if (m_entries.empty()) return std::nullopt;
-
-    u32 hashA = hashString(filename, HashType::NameA);
-    u32 hashB = hashString(filename, HashType::NameB);
-    u32 startIndex = hashString(filename, HashType::TableOffset) & (capacity() - 1);
-
-    u32 index = startIndex;
-    do {
-        const auto& e = m_entries[index];
-        if (e.isEmpty()) return std::nullopt;
-        if (e.isOccupied() && e.hashA == hashA && e.hashB == hashB && e.locale == locale) {
-            return index;
-        }
-        index = (index + 1) & (capacity() - 1);
-    } while (index != startIndex);
-
-    return std::nullopt;
+    return probeFor(m_entries, filename, locale);
 }
 
 // ============================================================================
@@ -93,7 +92,8 @@ std::optional<u32> HashTable::lookup(const std::string& filename, u16 locale) co
 // ============================================================================
 
 std::optional<u32> HashTable::insert(const std::string& filename, u16 locale, u32 blockIndex) {
-    if (m_entries.empty()) return std::nullopt;
+    if (m_entries.empty())
+        return std::nullopt;
 
     u32 hashA = hashString(filename, HashType::NameA);
     u32 hashB = hashString(filename, HashType::NameB);
@@ -123,14 +123,16 @@ std::optional<u32> HashTable::insert(const std::string& filename, u16 locale, u3
 
 bool HashTable::remove(const std::string& filename) {
     auto idx = lookup(filename);
-    if (!idx) return false;
+    if (!idx)
+        return false;
     m_entries[*idx].blockIndex = kHashEntryDeleted;
     return true;
 }
 
 bool HashTable::remove(const std::string& filename, u16 locale) {
     auto idx = lookup(filename, locale);
-    if (!idx) return false;
+    if (!idx)
+        return false;
     m_entries[*idx].blockIndex = kHashEntryDeleted;
     return true;
 }
@@ -165,7 +167,8 @@ std::vector<u8> HashTable::serialize() const {
 u32 HashTable::occupiedCount() const {
     u32 count = 0;
     for (const auto& e : m_entries) {
-        if (e.isOccupied()) ++count;
+        if (e.isOccupied())
+            ++count;
     }
     return count;
 }

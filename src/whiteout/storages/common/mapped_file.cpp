@@ -27,11 +27,10 @@ namespace whiteout::storages::common {
 // ============================================================================
 
 MappedFile::MappedFile(MappedFile&& other) noexcept
-    : m_data(other.m_data)
-    , m_size(other.m_size)
+    : m_data(other.m_data), m_size(other.m_size)
 #ifdef _WIN32
-    , m_fileHandle(other.m_fileHandle)
-    , m_mappingHandle(other.m_mappingHandle)
+      ,
+      m_fileHandle(other.m_fileHandle), m_mappingHandle(other.m_mappingHandle)
 #endif
 {
     other.m_data = nullptr;
@@ -64,12 +63,15 @@ MappedFile::~MappedFile() {
 }
 
 void MappedFile::release() noexcept {
-    if (!m_data) return;
+    if (!m_data)
+        return;
 
 #ifdef _WIN32
     UnmapViewOfFile(m_data);
-    if (m_mappingHandle) CloseHandle(m_mappingHandle);
-    if (m_fileHandle) CloseHandle(m_fileHandle);
+    if (m_mappingHandle)
+        CloseHandle(m_mappingHandle);
+    if (m_fileHandle)
+        CloseHandle(m_fileHandle);
     m_mappingHandle = nullptr;
     m_fileHandle = nullptr;
 #else
@@ -84,7 +86,8 @@ void MappedFile::release() noexcept {
 // ============================================================================
 
 std::span<const u8> MappedFile::data() const noexcept {
-    if (!m_data) return {};
+    if (!m_data)
+        return {};
     return {m_data, m_size};
 }
 
@@ -92,20 +95,23 @@ std::span<const u8> MappedFile::data() const noexcept {
 
 std::optional<MappedFile> MappedFile::open(const std::string& path) {
     // Convert UTF-8 path to wide string.
-    if (path.empty()) return std::nullopt;
+    if (path.empty())
+        return std::nullopt;
 
-    int wideLen = MultiByteToWideChar(CP_UTF8, 0, path.c_str(),
-                                      static_cast<int>(path.size()), nullptr, 0);
-    if (wideLen <= 0) return std::nullopt;
+    int wideLen =
+        MultiByteToWideChar(CP_UTF8, 0, path.c_str(), static_cast<int>(path.size()), nullptr, 0);
+    if (wideLen <= 0)
+        return std::nullopt;
 
     std::wstring widePath(static_cast<size_t>(wideLen), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), static_cast<int>(path.size()),
-                        widePath.data(), wideLen);
+    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), static_cast<int>(path.size()), widePath.data(),
+                        wideLen);
 
     // Open file for reading.
-    HANDLE hFile = CreateFileW(widePath.c_str(), GENERIC_READ, FILE_SHARE_READ,
-                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (hFile == INVALID_HANDLE_VALUE) return std::nullopt;
+    HANDLE hFile = CreateFileW(widePath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile == INVALID_HANDLE_VALUE)
+        return std::nullopt;
 
     // Get file size.
     LARGE_INTEGER fileSize;
@@ -140,10 +146,12 @@ std::optional<MappedFile> MappedFile::open(const std::string& path) {
 #else // POSIX
 
 std::optional<MappedFile> MappedFile::open(const std::string& path) {
-    if (path.empty()) return std::nullopt;
+    if (path.empty())
+        return std::nullopt;
 
     int fd = ::open(path.c_str(), O_RDONLY);
-    if (fd < 0) return std::nullopt;
+    if (fd < 0)
+        return std::nullopt;
 
     struct stat st;
     if (fstat(fd, &st) != 0 || st.st_size == 0) {
@@ -155,7 +163,8 @@ std::optional<MappedFile> MappedFile::open(const std::string& path) {
     void* mapped = mmap(nullptr, fileSize, PROT_READ, MAP_PRIVATE, fd, 0);
     ::close(fd); // fd can be closed after mmap — mapping stays valid.
 
-    if (mapped == MAP_FAILED) return std::nullopt;
+    if (mapped == MAP_FAILED)
+        return std::nullopt;
 
     MappedFile result;
     result.m_data = static_cast<const u8*>(mapped);

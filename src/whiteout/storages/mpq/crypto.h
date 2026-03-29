@@ -18,10 +18,10 @@ namespace whiteout::storages::mpq {
 /// Hash type indices used by hashString().
 struct HashType {
     static constexpr u32 TableOffset = 0; ///< Hash → table offset (index into hash table).
-    static constexpr u32 NameA        = 1; ///< Hash → name verification A.
-    static constexpr u32 NameB        = 2; ///< Hash → name verification B.
-    static constexpr u32 FileKey      = 3; ///< Hash → file encryption key.
-    static constexpr u32 TableKey     = 4; ///< Hash → table encryption key.
+    static constexpr u32 NameA = 1;       ///< Hash → name verification A.
+    static constexpr u32 NameB = 2;       ///< Hash → name verification B.
+    static constexpr u32 FileKey = 3;     ///< Hash → file encryption key.
+    static constexpr u32 TableKey = 4;    ///< Hash → table encryption key.
 };
 
 /// Get the global 1280-entry MPQ encryption table (lazy-initialized).

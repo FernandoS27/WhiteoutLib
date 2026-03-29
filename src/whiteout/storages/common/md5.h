@@ -25,7 +25,9 @@ public:
     void update(const void* data, size_t length);
 
     /// Feed a span of bytes.
-    void update(std::span<const u8> data) { update(data.data(), data.size()); }
+    void update(std::span<const u8> data) {
+        update(data.data(), data.size());
+    }
 
     /// Finalize and return the 16-byte digest.
     /// After calling finalize(), the hasher should not be reused.

@@ -36,9 +36,15 @@ struct HashEntry {
     u16 platform = 0xFFFF;            ///< Platform (always 0 in practice).
     u32 blockIndex = kHashEntryEmpty; ///< Index into block table, or sentinel.
 
-    [[nodiscard]] bool isEmpty() const { return blockIndex == kHashEntryEmpty; }
-    [[nodiscard]] bool isDeleted() const { return blockIndex == kHashEntryDeleted; }
-    [[nodiscard]] bool isOccupied() const { return !isEmpty() && !isDeleted(); }
+    [[nodiscard]] bool isEmpty() const {
+        return blockIndex == kHashEntryEmpty;
+    }
+    [[nodiscard]] bool isDeleted() const {
+        return blockIndex == kHashEntryDeleted;
+    }
+    [[nodiscard]] bool isOccupied() const {
+        return !isEmpty() && !isDeleted();
+    }
 };
 
 static_assert(sizeof(HashEntry) == 16, "HashEntry must be exactly 16 bytes");
@@ -70,7 +76,8 @@ public:
 
     /// Insert a new entry. Used by the writer during save() when building fresh tables.
     /// Returns the hash table index, or nullopt if the table is full.
-    [[nodiscard]] std::optional<u32> insert(const std::string& filename, u16 locale, u32 blockIndex);
+    [[nodiscard]] std::optional<u32> insert(const std::string& filename, u16 locale,
+                                            u32 blockIndex);
 
     /// Mark an entry as deleted. Used by the writer during save().
     /// Returns true if the entry was found and removed.
@@ -83,11 +90,17 @@ public:
     [[nodiscard]] std::vector<u8> serialize() const;
 
     /// Direct entry access.
-    [[nodiscard]] const HashEntry& entry(u32 index) const { return m_entries[index]; }
-    [[nodiscard]] HashEntry& entry(u32 index) { return m_entries[index]; }
+    [[nodiscard]] const HashEntry& entry(u32 index) const {
+        return m_entries[index];
+    }
+    [[nodiscard]] HashEntry& entry(u32 index) {
+        return m_entries[index];
+    }
 
     /// Number of entries (capacity, always power of 2).
-    [[nodiscard]] u32 capacity() const { return static_cast<u32>(m_entries.size()); }
+    [[nodiscard]] u32 capacity() const {
+        return static_cast<u32>(m_entries.size());
+    }
 
     /// Number of occupied entries.
     [[nodiscard]] u32 occupiedCount() const;

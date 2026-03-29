@@ -19,7 +19,9 @@
 #include <string>
 #include <vector>
 
-namespace whiteout::interfaces { class WorkerPool; }
+namespace whiteout::interfaces {
+class WorkerPool;
+}
 
 namespace whiteout::storages::mpq {
 
@@ -54,10 +56,9 @@ struct WriteEntry {
 /// @param entries   Files to write.
 /// @param hashTableCapacity  Hash table size (power of 2).
 /// @return The complete archive as a byte vector.
-[[nodiscard]] std::vector<u8> writeArchive(
-    const MpqHeader& header,
-    const std::vector<WriteEntry>& entries,
-    u32 hashTableCapacity,
-    interfaces::WorkerPool* pool = nullptr);
+[[nodiscard]] std::vector<u8> writeArchive(const MpqHeader& header,
+                                           const std::vector<WriteEntry>& entries,
+                                           u32 hashTableCapacity,
+                                           interfaces::WorkerPool* pool = nullptr);
 
 } // namespace whiteout::storages::mpq

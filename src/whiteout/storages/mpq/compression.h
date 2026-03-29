@@ -19,14 +19,14 @@ namespace whiteout::storages::mpq {
 // ============================================================================
 
 namespace CompressionFlag {
-    static constexpr u8 kHuffman    = 0x01;
-    static constexpr u8 kZlib       = 0x02;
-    static constexpr u8 kPKware     = 0x08;
-    static constexpr u8 kBZip2      = 0x10;
-    static constexpr u8 kLZMA       = 0x12;
-    static constexpr u8 kSparse     = 0x20;
-    static constexpr u8 kAdpcmMono  = 0x40;
-    static constexpr u8 kAdpcmStereo = 0x80;
+static constexpr u8 kHuffman = 0x01;
+static constexpr u8 kZlib = 0x02;
+static constexpr u8 kPKware = 0x08;
+static constexpr u8 kBZip2 = 0x10;
+static constexpr u8 kLZMA = 0x12;
+static constexpr u8 kSparse = 0x20;
+static constexpr u8 kAdpcmMono = 0x40;
+static constexpr u8 kAdpcmStereo = 0x80;
 } // namespace CompressionFlag
 
 // ============================================================================
@@ -43,10 +43,8 @@ namespace CompressionFlag {
 /// @param uncompressedSize Expected decompressed size.
 /// @param[out] error       Optional error message on failure.
 /// @return Decompressed data, or empty vector on failure.
-[[nodiscard]] std::vector<u8> mpqDecompress(
-    std::span<const u8> src,
-    size_t uncompressedSize,
-    std::string* error = nullptr);
+[[nodiscard]] std::vector<u8> mpqDecompress(std::span<const u8> src, size_t uncompressedSize,
+                                            std::string* error = nullptr);
 
 /// Compress data using a single MPQ compression algorithm.
 /// The output includes the compression byte prefix.
@@ -55,9 +53,7 @@ namespace CompressionFlag {
 /// @param compressionType  One of the CompressionFlag constants (e.g. kZlib).
 /// @param[out] error       Optional error message on failure.
 /// @return Compressed data with compression byte prefix, or empty vector on failure.
-[[nodiscard]] std::vector<u8> mpqCompress(
-    std::span<const u8> src,
-    u8 compressionType,
-    std::string* error = nullptr);
+[[nodiscard]] std::vector<u8> mpqCompress(std::span<const u8> src, u8 compressionType,
+                                          std::string* error = nullptr);
 
 } // namespace whiteout::storages::mpq

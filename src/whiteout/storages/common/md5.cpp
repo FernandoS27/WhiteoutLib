@@ -14,31 +14,43 @@ namespace whiteout::storages::common {
 
 namespace {
 
-inline u32 F(u32 x, u32 y, u32 z) { return (x & y) | (~x & z); }
-inline u32 G(u32 x, u32 y, u32 z) { return (x & z) | (y & ~z); }
-inline u32 H(u32 x, u32 y, u32 z) { return x ^ y ^ z; }
-inline u32 I(u32 x, u32 y, u32 z) { return y ^ (x | ~z); }
+inline u32 F(u32 x, u32 y, u32 z) {
+    return (x & y) | (~x & z);
+}
+inline u32 G(u32 x, u32 y, u32 z) {
+    return (x & z) | (y & ~z);
+}
+inline u32 H(u32 x, u32 y, u32 z) {
+    return x ^ y ^ z;
+}
+inline u32 I(u32 x, u32 y, u32 z) {
+    return y ^ (x | ~z);
+}
 
-inline u32 rotl(u32 x, int n) { return (x << n) | (x >> (32 - n)); }
+inline u32 rotl(u32 x, int n) {
+    return (x << n) | (x >> (32 - n));
+}
 
 inline void FF(u32& a, u32 b, u32 c, u32 d, u32 x, int s, u32 ac) {
-    a += F(b, c, d) + x + ac; a = rotl(a, s) + b;
+    a += F(b, c, d) + x + ac;
+    a = rotl(a, s) + b;
 }
 inline void GG(u32& a, u32 b, u32 c, u32 d, u32 x, int s, u32 ac) {
-    a += G(b, c, d) + x + ac; a = rotl(a, s) + b;
+    a += G(b, c, d) + x + ac;
+    a = rotl(a, s) + b;
 }
 inline void HH(u32& a, u32 b, u32 c, u32 d, u32 x, int s, u32 ac) {
-    a += H(b, c, d) + x + ac; a = rotl(a, s) + b;
+    a += H(b, c, d) + x + ac;
+    a = rotl(a, s) + b;
 }
 inline void II(u32& a, u32 b, u32 c, u32 d, u32 x, int s, u32 ac) {
-    a += I(b, c, d) + x + ac; a = rotl(a, s) + b;
+    a += I(b, c, d) + x + ac;
+    a = rotl(a, s) + b;
 }
 
 inline u32 readLE32(const u8* p) {
-    return static_cast<u32>(p[0])
-         | (static_cast<u32>(p[1]) << 8)
-         | (static_cast<u32>(p[2]) << 16)
-         | (static_cast<u32>(p[3]) << 24);
+    return static_cast<u32>(p[0]) | (static_cast<u32>(p[1]) << 8) | (static_cast<u32>(p[2]) << 16) |
+           (static_cast<u32>(p[3]) << 24);
 }
 
 inline void writeLE32(u8* p, u32 v) {
@@ -66,76 +78,76 @@ void MD5::processBlock(const u8* block) {
     u32 a = m_state[0], b = m_state[1], c = m_state[2], d = m_state[3];
 
     // Round 1
-    FF(a, b, c, d, M[ 0],  7, 0xD76AA478);
-    FF(d, a, b, c, M[ 1], 12, 0xE8C7B756);
-    FF(c, d, a, b, M[ 2], 17, 0x242070DB);
-    FF(b, c, d, a, M[ 3], 22, 0xC1BDCEEE);
-    FF(a, b, c, d, M[ 4],  7, 0xF57C0FAF);
-    FF(d, a, b, c, M[ 5], 12, 0x4787C62A);
-    FF(c, d, a, b, M[ 6], 17, 0xA8304613);
-    FF(b, c, d, a, M[ 7], 22, 0xFD469501);
-    FF(a, b, c, d, M[ 8],  7, 0x698098D8);
-    FF(d, a, b, c, M[ 9], 12, 0x8B44F7AF);
+    FF(a, b, c, d, M[0], 7, 0xD76AA478);
+    FF(d, a, b, c, M[1], 12, 0xE8C7B756);
+    FF(c, d, a, b, M[2], 17, 0x242070DB);
+    FF(b, c, d, a, M[3], 22, 0xC1BDCEEE);
+    FF(a, b, c, d, M[4], 7, 0xF57C0FAF);
+    FF(d, a, b, c, M[5], 12, 0x4787C62A);
+    FF(c, d, a, b, M[6], 17, 0xA8304613);
+    FF(b, c, d, a, M[7], 22, 0xFD469501);
+    FF(a, b, c, d, M[8], 7, 0x698098D8);
+    FF(d, a, b, c, M[9], 12, 0x8B44F7AF);
     FF(c, d, a, b, M[10], 17, 0xFFFF5BB1);
     FF(b, c, d, a, M[11], 22, 0x895CD7BE);
-    FF(a, b, c, d, M[12],  7, 0x6B901122);
+    FF(a, b, c, d, M[12], 7, 0x6B901122);
     FF(d, a, b, c, M[13], 12, 0xFD987193);
     FF(c, d, a, b, M[14], 17, 0xA679438E);
     FF(b, c, d, a, M[15], 22, 0x49B40821);
 
     // Round 2
-    GG(a, b, c, d, M[ 1],  5, 0xF61E2562);
-    GG(d, a, b, c, M[ 6],  9, 0xC040B340);
+    GG(a, b, c, d, M[1], 5, 0xF61E2562);
+    GG(d, a, b, c, M[6], 9, 0xC040B340);
     GG(c, d, a, b, M[11], 14, 0x265E5A51);
-    GG(b, c, d, a, M[ 0], 20, 0xE9B6C7AA);
-    GG(a, b, c, d, M[ 5],  5, 0xD62F105D);
-    GG(d, a, b, c, M[10],  9, 0x02441453);
+    GG(b, c, d, a, M[0], 20, 0xE9B6C7AA);
+    GG(a, b, c, d, M[5], 5, 0xD62F105D);
+    GG(d, a, b, c, M[10], 9, 0x02441453);
     GG(c, d, a, b, M[15], 14, 0xD8A1E681);
-    GG(b, c, d, a, M[ 4], 20, 0xE7D3FBC8);
-    GG(a, b, c, d, M[ 9],  5, 0x21E1CDE6);
-    GG(d, a, b, c, M[14],  9, 0xC33707D6);
-    GG(c, d, a, b, M[ 3], 14, 0xF4D50D87);
-    GG(b, c, d, a, M[ 8], 20, 0x455A14ED);
-    GG(a, b, c, d, M[13],  5, 0xA9E3E905);
-    GG(d, a, b, c, M[ 2],  9, 0xFCEFA3F8);
-    GG(c, d, a, b, M[ 7], 14, 0x676F02D9);
+    GG(b, c, d, a, M[4], 20, 0xE7D3FBC8);
+    GG(a, b, c, d, M[9], 5, 0x21E1CDE6);
+    GG(d, a, b, c, M[14], 9, 0xC33707D6);
+    GG(c, d, a, b, M[3], 14, 0xF4D50D87);
+    GG(b, c, d, a, M[8], 20, 0x455A14ED);
+    GG(a, b, c, d, M[13], 5, 0xA9E3E905);
+    GG(d, a, b, c, M[2], 9, 0xFCEFA3F8);
+    GG(c, d, a, b, M[7], 14, 0x676F02D9);
     GG(b, c, d, a, M[12], 20, 0x8D2A4C8A);
 
     // Round 3
-    HH(a, b, c, d, M[ 5],  4, 0xFFFA3942);
-    HH(d, a, b, c, M[ 8], 11, 0x8771F681);
+    HH(a, b, c, d, M[5], 4, 0xFFFA3942);
+    HH(d, a, b, c, M[8], 11, 0x8771F681);
     HH(c, d, a, b, M[11], 16, 0x6D9D6122);
     HH(b, c, d, a, M[14], 23, 0xFDE5380C);
-    HH(a, b, c, d, M[ 1],  4, 0xA4BEEA44);
-    HH(d, a, b, c, M[ 4], 11, 0x4BDECFA9);
-    HH(c, d, a, b, M[ 7], 16, 0xF6BB4B60);
+    HH(a, b, c, d, M[1], 4, 0xA4BEEA44);
+    HH(d, a, b, c, M[4], 11, 0x4BDECFA9);
+    HH(c, d, a, b, M[7], 16, 0xF6BB4B60);
     HH(b, c, d, a, M[10], 23, 0xBEBFBC70);
-    HH(a, b, c, d, M[13],  4, 0x289B7EC6);
-    HH(d, a, b, c, M[ 0], 11, 0xEAA127FA);
-    HH(c, d, a, b, M[ 3], 16, 0xD4EF3085);
-    HH(b, c, d, a, M[ 6], 23, 0x04881D05);
-    HH(a, b, c, d, M[ 9],  4, 0xD9D4D039);
+    HH(a, b, c, d, M[13], 4, 0x289B7EC6);
+    HH(d, a, b, c, M[0], 11, 0xEAA127FA);
+    HH(c, d, a, b, M[3], 16, 0xD4EF3085);
+    HH(b, c, d, a, M[6], 23, 0x04881D05);
+    HH(a, b, c, d, M[9], 4, 0xD9D4D039);
     HH(d, a, b, c, M[12], 11, 0xE6DB99E5);
     HH(c, d, a, b, M[15], 16, 0x1FA27CF8);
-    HH(b, c, d, a, M[ 2], 23, 0xC4AC5665);
+    HH(b, c, d, a, M[2], 23, 0xC4AC5665);
 
     // Round 4
-    II(a, b, c, d, M[ 0],  6, 0xF4292244);
-    II(d, a, b, c, M[ 7], 10, 0x432AFF97);
+    II(a, b, c, d, M[0], 6, 0xF4292244);
+    II(d, a, b, c, M[7], 10, 0x432AFF97);
     II(c, d, a, b, M[14], 15, 0xAB9423A7);
-    II(b, c, d, a, M[ 5], 21, 0xFC93A039);
-    II(a, b, c, d, M[12],  6, 0x655B59C3);
-    II(d, a, b, c, M[ 3], 10, 0x8F0CCC92);
+    II(b, c, d, a, M[5], 21, 0xFC93A039);
+    II(a, b, c, d, M[12], 6, 0x655B59C3);
+    II(d, a, b, c, M[3], 10, 0x8F0CCC92);
     II(c, d, a, b, M[10], 15, 0xFFEFF47D);
-    II(b, c, d, a, M[ 1], 21, 0x85845DD1);
-    II(a, b, c, d, M[ 8],  6, 0x6FA87E4F);
+    II(b, c, d, a, M[1], 21, 0x85845DD1);
+    II(a, b, c, d, M[8], 6, 0x6FA87E4F);
     II(d, a, b, c, M[15], 10, 0xFE2CE6E0);
-    II(c, d, a, b, M[ 6], 15, 0xA3014314);
+    II(c, d, a, b, M[6], 15, 0xA3014314);
     II(b, c, d, a, M[13], 21, 0x4E0811A1);
-    II(a, b, c, d, M[ 4],  6, 0xF7537E82);
+    II(a, b, c, d, M[4], 6, 0xF7537E82);
     II(d, a, b, c, M[11], 10, 0xBD3AF235);
-    II(c, d, a, b, M[ 2], 15, 0x2AD7D2BB);
-    II(b, c, d, a, M[ 9], 21, 0xEB86D391);
+    II(c, d, a, b, M[2], 15, 0x2AD7D2BB);
+    II(b, c, d, a, M[9], 21, 0xEB86D391);
 
     m_state[0] += a;
     m_state[1] += b;
@@ -193,9 +205,9 @@ std::array<u8, 16> MD5::finalize() {
 
     // Produce the digest.
     std::array<u8, 16> digest{};
-    writeLE32(digest.data() + 0,  m_state[0]);
-    writeLE32(digest.data() + 4,  m_state[1]);
-    writeLE32(digest.data() + 8,  m_state[2]);
+    writeLE32(digest.data() + 0, m_state[0]);
+    writeLE32(digest.data() + 4, m_state[1]);
+    writeLE32(digest.data() + 8, m_state[2]);
     writeLE32(digest.data() + 12, m_state[3]);
     return digest;
 }

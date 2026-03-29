@@ -49,13 +49,19 @@ public:
     std::span<const u8> data() const noexcept;
 
     /// Raw pointer to the mapped data. nullptr if invalid.
-    const u8* ptr() const noexcept { return m_data; }
+    const u8* ptr() const noexcept {
+        return m_data;
+    }
 
     /// Size of the mapped region in bytes. 0 if invalid.
-    size_t size() const noexcept { return m_size; }
+    size_t size() const noexcept {
+        return m_size;
+    }
 
     /// True if a valid mapping is held.
-    explicit operator bool() const noexcept { return m_data != nullptr; }
+    explicit operator bool() const noexcept {
+        return m_data != nullptr;
+    }
 
 private:
     void release() noexcept;

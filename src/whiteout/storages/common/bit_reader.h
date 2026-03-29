@@ -27,7 +27,8 @@ namespace whiteout::storages::common {
 /// @param bitCount  Number of bits to extract (0–64).
 /// @return The extracted value, zero-extended to 64 bits.
 inline u64 extractBits(const u8* data, size_t bitOffset, size_t bitCount) {
-    if (bitCount == 0) return 0;
+    if (bitCount == 0)
+        return 0;
 
     u64 result = 0;
     size_t byteIdx = bitOffset / 8;
@@ -41,7 +42,8 @@ inline u64 extractBits(const u8* data, size_t bitOffset, size_t bitCount) {
         // How many bits can we take from the current byte?
         size_t availInByte = 8 - bitIdx;
         size_t toRead = bitCount - bitsRead;
-        if (toRead > availInByte) toRead = availInByte;
+        if (toRead > availInByte)
+            toRead = availInByte;
 
         u64 mask = (1ULL << toRead) - 1;
         u64 bits = (static_cast<u64>(data[byteIdx]) >> bitIdx) & mask;

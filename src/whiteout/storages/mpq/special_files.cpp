@@ -14,7 +14,8 @@ namespace whiteout::storages::mpq {
 
 std::vector<std::string> parseListfile(std::span<const u8> data) {
     std::vector<std::string> result;
-    if (data.empty()) return result;
+    if (data.empty())
+        return result;
 
     std::string content(reinterpret_cast<const char*>(data.data()), data.size());
     std::istringstream stream(content);
@@ -26,8 +27,10 @@ std::vector<std::string> parseListfile(std::span<const u8> data) {
             line.pop_back();
         }
         // Skip empty lines and comments.
-        if (line.empty()) continue;
-        if (line[0] == ';' || line[0] == '#') continue;
+        if (line.empty())
+            continue;
+        if (line[0] == ';' || line[0] == '#')
+            continue;
 
         result.push_back(std::move(line));
     }
@@ -50,7 +53,8 @@ std::vector<u8> buildListfile(const std::vector<std::string>& filenames) {
 
 FileAttributes parseAttributes(std::span<const u8> data, u32 blockCount) {
     FileAttributes attrs;
-    if (data.size() < 8) return attrs;
+    if (data.size() < 8)
+        return attrs;
 
     // Header: version (u32) + flags (u32).
     u32 version = 0;
@@ -97,14 +101,20 @@ FileAttributes parseAttributes(std::span<const u8> data, u32 blockCount) {
 
 std::vector<u8> buildAttributes(const FileAttributes& attrs, u32 version) {
     u32 flags = 0;
-    if (!attrs.crc32s.empty()) flags |= 0x01;
-    if (!attrs.filetimes.empty()) flags |= 0x02;
-    if (!attrs.md5s.empty()) flags |= 0x04;
+    if (!attrs.crc32s.empty())
+        flags |= 0x01;
+    if (!attrs.filetimes.empty())
+        flags |= 0x02;
+    if (!attrs.md5s.empty())
+        flags |= 0x04;
 
     size_t totalSize = 8;
-    if (flags & 0x01) totalSize += attrs.crc32s.size() * sizeof(u32);
-    if (flags & 0x02) totalSize += attrs.filetimes.size() * sizeof(u64);
-    if (flags & 0x04) totalSize += attrs.md5s.size() * 16;
+    if (flags & 0x01)
+        totalSize += attrs.crc32s.size() * sizeof(u32);
+    if (flags & 0x02)
+        totalSize += attrs.filetimes.size() * sizeof(u64);
+    if (flags & 0x04)
+        totalSize += attrs.md5s.size() * 16;
 
     std::vector<u8> result(totalSize);
     size_t offset = 0;

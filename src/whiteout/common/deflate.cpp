@@ -13,8 +13,8 @@
 #include "deflate.h"
 
 #include "bit_io.h"
-#include "huffman_table.h"
 #include "checksum.h"
+#include "huffman_table.h"
 
 #include <algorithm>
 #include <array>
@@ -34,10 +34,14 @@ namespace {
 
 HuffTable buildFixedLitLenTable() {
     std::array<u8, 288> lengths{};
-    for (i32 i = 0; i <= 143; ++i) lengths[i] = 8;
-    for (i32 i = 144; i <= 255; ++i) lengths[i] = 9;
-    for (i32 i = 256; i <= 279; ++i) lengths[i] = 7;
-    for (i32 i = 280; i <= 287; ++i) lengths[i] = 8;
+    for (i32 i = 0; i <= 143; ++i)
+        lengths[i] = 8;
+    for (i32 i = 144; i <= 255; ++i)
+        lengths[i] = 9;
+    for (i32 i = 256; i <= 279; ++i)
+        lengths[i] = 7;
+    for (i32 i = 280; i <= 287; ++i)
+        lengths[i] = 8;
     HuffTable t;
     t.build(lengths.data(), 288);
     return t;
@@ -45,7 +49,8 @@ HuffTable buildFixedLitLenTable() {
 
 HuffTable buildFixedDistTable() {
     std::array<u8, 32> lengths{};
-    for (i32 i = 0; i < 32; ++i) lengths[i] = 5;
+    for (i32 i = 0; i < 32; ++i)
+        lengths[i] = 5;
     HuffTable t;
     t.build(lengths.data(), 32);
     return t;
@@ -62,20 +67,18 @@ struct LenDistEntry {
 
 // Length codes 257-285.
 static constexpr std::array<LenDistEntry, 29> LENGTH_TABLE = {{
-    {3, 0},   {4, 0},   {5, 0},   {6, 0},   {7, 0},   {8, 0},   {9, 0},
-    {10, 0},  {11, 1},  {13, 1},  {15, 1},  {17, 1},  {19, 2},  {23, 2},
-    {27, 2},  {31, 2},  {35, 3},  {43, 3},  {51, 3},  {59, 3},  {67, 4},
-    {83, 4},  {99, 4},  {115, 4}, {131, 5}, {163, 5}, {195, 5}, {227, 5},
-    {258, 0},
+    {3, 0},  {4, 0},  {5, 0},  {6, 0},   {7, 0},   {8, 0},   {9, 0},   {10, 0},  {11, 1},  {13, 1},
+    {15, 1}, {17, 1}, {19, 2}, {23, 2},  {27, 2},  {31, 2},  {35, 3},  {43, 3},  {51, 3},  {59, 3},
+    {67, 4}, {83, 4}, {99, 4}, {115, 4}, {131, 5}, {163, 5}, {195, 5}, {227, 5}, {258, 0},
 }};
 
 // Distance codes 0-29.
 static constexpr std::array<LenDistEntry, 30> DISTANCE_TABLE = {{
-    {1, 0},     {2, 0},     {3, 0},     {4, 0},     {5, 1},     {7, 1},
-    {9, 2},     {13, 2},    {17, 3},    {25, 3},    {33, 4},    {49, 4},
-    {65, 5},    {97, 5},    {129, 6},   {193, 6},   {257, 7},   {385, 7},
-    {513, 8},   {769, 8},   {1025, 9},  {1537, 9},  {2049, 10}, {3073, 10},
-    {4097, 11}, {6145, 11}, {8193, 12}, {12289, 12},{16385, 13},{24577, 13},
+    {1, 0},     {2, 0},     {3, 0},     {4, 0},      {5, 1},      {7, 1},
+    {9, 2},     {13, 2},    {17, 3},    {25, 3},     {33, 4},     {49, 4},
+    {65, 5},    {97, 5},    {129, 6},   {193, 6},    {257, 7},    {385, 7},
+    {513, 8},   {769, 8},   {1025, 9},  {1537, 9},   {2049, 10},  {3073, 10},
+    {4097, 11}, {6145, 11}, {8193, 12}, {12289, 12}, {16385, 13}, {24577, 13},
 }};
 
 // Code length code order (RFC 1951 Section 3.2.7).
@@ -93,16 +96,19 @@ struct Inflater {
     std::string* errorOut;
 
     bool error(const char* msg) {
-        if (errorOut) *errorOut = msg;
+        if (errorOut)
+            *errorOut = msg;
         return false;
     }
 
     bool inflateStored() {
         br.alignToByte();
-        if (br.bytePos + 4 > br.size) return error("Truncated stored block header");
+        if (br.bytePos + 4 > br.size)
+            return error("Truncated stored block header");
         u32 len = br.readBits(16);
         u32 nlen = br.readBits(16);
-        if ((len ^ nlen) != 0xFFFF) return error("Stored block LEN/NLEN mismatch");
+        if ((len ^ nlen) != 0xFFFF)
+            return error("Stored block LEN/NLEN mismatch");
         for (u32 i = 0; i < len; ++i) {
             if (br.bytePos >= br.size && br.bitsAvail < 8)
                 return error("Truncated stored block data");
@@ -114,7 +120,8 @@ struct Inflater {
     bool inflateBlock(const HuffTable& litLen, const HuffTable& dist) {
         for (;;) {
             i32 sym = litLen.decode(br);
-            if (sym < 0) return error("Invalid literal/length code");
+            if (sym < 0)
+                return error("Invalid literal/length code");
             if (sym < 256) {
                 output.push_back(static_cast<u8>(sym));
             } else if (sym == 256) {
@@ -122,7 +129,8 @@ struct Inflater {
             } else {
                 // Length code.
                 i32 lenIdx = sym - 257;
-                if (lenIdx < 0 || lenIdx >= 29) return error("Invalid length code");
+                if (lenIdx < 0 || lenIdx >= 29)
+                    return error("Invalid length code");
                 u32 length = LENGTH_TABLE[lenIdx].base;
                 if (LENGTH_TABLE[lenIdx].extraBits > 0) {
                     length += br.readBits(LENGTH_TABLE[lenIdx].extraBits);
@@ -130,13 +138,15 @@ struct Inflater {
 
                 // Distance code.
                 i32 distSym = dist.decode(br);
-                if (distSym < 0 || distSym >= 30) return error("Invalid distance code");
+                if (distSym < 0 || distSym >= 30)
+                    return error("Invalid distance code");
                 u32 distance = DISTANCE_TABLE[distSym].base;
                 if (DISTANCE_TABLE[distSym].extraBits > 0) {
                     distance += br.readBits(DISTANCE_TABLE[distSym].extraBits);
                 }
 
-                if (distance > output.size()) return error("Distance exceeds output buffer");
+                if (distance > output.size())
+                    return error("Distance exceeds output buffer");
 
                 // Copy from back-reference.
                 size_t srcPos = output.size() - distance;
@@ -152,7 +162,8 @@ struct Inflater {
         u32 hdist = br.readBits(5) + 1;
         u32 hclen = br.readBits(4) + 4;
 
-        if (hlit > 286 || hdist > 30) return error("Invalid dynamic Huffman header");
+        if (hlit > 286 || hdist > 30)
+            return error("Invalid dynamic Huffman header");
 
         // Read code length code lengths.
         std::array<u8, 19> clCodeLengths{};
@@ -170,12 +181,14 @@ struct Inflater {
         u32 idx = 0;
         while (idx < totalCodes) {
             i32 sym = clTable.decode(br);
-            if (sym < 0) return error("Invalid code length symbol");
+            if (sym < 0)
+                return error("Invalid code length symbol");
 
             if (sym < 16) {
                 codeLengths[idx++] = static_cast<u8>(sym);
             } else if (sym == 16) {
-                if (idx == 0) return error("Repeat code with no previous length");
+                if (idx == 0)
+                    return error("Repeat code with no previous length");
                 u32 rep = br.readBits(2) + 3;
                 u8 prev = codeLengths[idx - 1];
                 for (u32 r = 0; r < rep && idx < totalCodes; ++r)
@@ -212,13 +225,16 @@ struct Inflater {
             u32 btype = br.readBits(2);
 
             if (btype == 0) {
-                if (!inflateStored()) return false;
+                if (!inflateStored())
+                    return false;
             } else if (btype == 1) {
                 static const HuffTable fixedLitLen = buildFixedLitLenTable();
                 static const HuffTable fixedDist = buildFixedDistTable();
-                if (!inflateBlock(fixedLitLen, fixedDist)) return false;
+                if (!inflateBlock(fixedLitLen, fixedDist))
+                    return false;
             } else if (btype == 2) {
-                if (!inflateDynamic()) return false;
+                if (!inflateDynamic())
+                    return false;
             } else {
                 return error("Invalid DEFLATE block type 3");
             }
@@ -262,7 +278,8 @@ void writeFixedDist(BitWriter& bw, i32 code) {
 // Find the length code index (0-28) for a given match length (3-258).
 i32 lengthToCode(u32 length) {
     for (i32 i = 28; i >= 0; --i) {
-        if (length >= LENGTH_TABLE[i].base) return i;
+        if (length >= LENGTH_TABLE[i].base)
+            return i;
     }
     return 0;
 }
@@ -270,7 +287,8 @@ i32 lengthToCode(u32 length) {
 // Find the distance code (0-29) for a given distance (1-32768).
 i32 distanceToCode(u32 dist) {
     for (i32 i = 29; i >= 0; --i) {
-        if (dist >= DISTANCE_TABLE[i].base) return i;
+        if (dist >= DISTANCE_TABLE[i].base)
+            return i;
     }
     return 0;
 }
@@ -309,9 +327,9 @@ struct Deflater {
         std::vector<i32> prev(WINDOW_SIZE, -1);
 
         auto hashFunc = [&](size_t pos) -> u32 {
-            if (pos + 2 >= srcLen) return 0;
-            return ((static_cast<u32>(src[pos]) << 10) ^
-                    (static_cast<u32>(src[pos + 1]) << 5) ^
+            if (pos + 2 >= srcLen)
+                return 0;
+            return ((static_cast<u32>(src[pos]) << 10) ^ (static_cast<u32>(src[pos + 1]) << 5) ^
                     static_cast<u32>(src[pos + 2])) &
                    HASH_MASK;
         };
@@ -328,18 +346,36 @@ struct Deflater {
 
                 while (chainPos >= 0 && chainCount < MAX_CHAIN) {
                     u32 dist = static_cast<u32>(pos - static_cast<size_t>(chainPos));
-                    if (dist > WINDOW_SIZE) break;
+                    if (dist > WINDOW_SIZE)
+                        break;
 
-                    u32 maxLen = static_cast<u32>(std::min(
-                        static_cast<size_t>(MAX_MATCH), srcLen - pos));
+                    u32 maxLen =
+                        static_cast<u32>(std::min(static_cast<size_t>(MAX_MATCH), srcLen - pos));
+                    // Fast prefix check: skip chain entries that don't match first 4 bytes.
+                    if (maxLen >= 4 && std::memcmp(src + pos, src + chainPos, 4) != 0) {
+                        chainPos = prev[static_cast<size_t>(chainPos) & (WINDOW_SIZE - 1)];
+                        ++chainCount;
+                        continue;
+                    }
                     u32 len = 0;
+                    // Compare in 8-byte chunks where possible.
+                    while (len + 8 <= maxLen) {
+                        u64 a, b;
+                        std::memcpy(&a, src + pos + len, 8);
+                        std::memcpy(&b, src + chainPos + len, 8);
+                        if (a != b)
+                            break;
+                        len += 8;
+                    }
+                    // Finish remaining bytes.
                     while (len < maxLen && src[pos + len] == src[chainPos + len]) {
                         ++len;
                     }
                     if (len >= MIN_MATCH && len > bestLen) {
                         bestLen = len;
                         bestDist = dist;
-                        if (len == MAX_MATCH) break;
+                        if (len == MAX_MATCH)
+                            break;
                     }
 
                     chainPos = prev[static_cast<size_t>(chainPos) & (WINDOW_SIZE - 1)];
@@ -393,7 +429,8 @@ struct Deflater {
 
 std::vector<u8> zlib_decompress(std::span<const u8> data, std::string* out_error) {
     if (data.size() < 6) {
-        if (out_error) *out_error = "Zlib data too short";
+        if (out_error)
+            *out_error = "Zlib data too short";
         return {};
     }
 
@@ -401,17 +438,20 @@ std::vector<u8> zlib_decompress(std::span<const u8> data, std::string* out_error
     u8 cmf = data[0];
     u8 flg = data[1];
     if (((static_cast<u16>(cmf) << 8) | flg) % 31 != 0) {
-        if (out_error) *out_error = "Invalid zlib header checksum";
+        if (out_error)
+            *out_error = "Invalid zlib header checksum";
         return {};
     }
     u8 cm = cmf & 0x0F;
     if (cm != 8) {
-        if (out_error) *out_error = "Unsupported zlib compression method";
+        if (out_error)
+            *out_error = "Unsupported zlib compression method";
         return {};
     }
     bool hasDict = (flg & 0x20) != 0;
     if (hasDict) {
-        if (out_error) *out_error = "Preset dictionaries not supported";
+        if (out_error)
+            *out_error = "Preset dictionaries not supported";
         return {};
     }
 
@@ -434,7 +474,8 @@ std::vector<u8> zlib_decompress(std::span<const u8> data, std::string* out_error
                  static_cast<u32>(data[data.size() - 1]);
     u32 computed = adler32(inflater.output);
     if (stored != computed) {
-        if (out_error) *out_error = "Adler-32 checksum mismatch";
+        if (out_error)
+            *out_error = "Adler-32 checksum mismatch";
         return {};
     }
 

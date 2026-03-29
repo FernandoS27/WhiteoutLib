@@ -14,7 +14,8 @@ namespace whiteout::storages::mpq {
 
 bool BlockTable::parse(std::span<const u8> data, u32 count) {
     const size_t expectedSize = static_cast<size_t>(count) * sizeof(BlockEntry);
-    if (data.size() < expectedSize) return false;
+    if (data.size() < expectedSize)
+        return false;
 
     // Copy and decrypt in place.
     std::vector<u32> raw(count * 4);
@@ -36,7 +37,8 @@ bool BlockTable::parse(std::span<const u8> data, u32 count) {
 
 bool BlockTable::parseHiBlockTable(std::span<const u8> data, u32 count) {
     const size_t expectedSize = static_cast<size_t>(count) * sizeof(u16);
-    if (data.size() < expectedSize) return false;
+    if (data.size() < expectedSize)
+        return false;
 
     m_hiBlockOffsets.resize(count);
     std::memcpy(m_hiBlockOffsets.data(), data.data(), expectedSize);
@@ -112,7 +114,8 @@ std::vector<u8> BlockTable::serializeHiBlockTable() const {
 
 bool BlockTable::needsHiBlockTable() const {
     for (const auto& hi : m_hiBlockOffsets) {
-        if (hi != 0) return true;
+        if (hi != 0)
+            return true;
     }
     return false;
 }

@@ -3,8 +3,8 @@
 
 #include <whiteout/storages/mpq/storage.h>
 
-#include "../../storages/common/mapped_file.h"
 #include "../../storages/common/jenkins.h"
+#include "../../storages/common/mapped_file.h"
 #include "../../storages/mpq/block_table.h"
 #include "../../storages/mpq/crypto.h"
 #include "../../storages/mpq/file_data.h"
@@ -15,8 +15,6 @@
 
 #include <whiteout/interfaces.h>
 
-#include <algorithm>
-#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <shared_mutex>
@@ -26,6 +24,106 @@
 namespace whiteout::storages::mpq {
 
 using storages::common::normalizePath;
+
+// ============================================================================
+// Shared archive-parsing helper
+// ============================================================================
+
+namespace {
+
+/// Result of parsing an MPQ archive from a memory-mapped file.
+struct ParsedArchive {
+    storages::common::MappedFile mapping;
+    MpqHeader header;
+    size_t archiveOffset = 0;
+    HashTable hashTable;
+    BlockTable blockTable;
+    std::vector<std::string> listfileNames;
+};
+
+/// Map, parse header, decrypt tables, and read the listfile from an archive on disk.
+/// Returns nullopt on any parse failure.  When @p error is non-null, stores a
+/// diagnostic message explaining the first failure.
+std::optional<ParsedArchive> parseMappedArchive(const std::string& path,
+                                                std::string* error = nullptr) {
+    auto setError = [&](const std::string& msg) {
+        if (error)
+            *error = msg;
+    };
+
+    auto mappedFile = storages::common::MappedFile::open(path);
+    if (!mappedFile) {
+        setError("failed to memory-map the file (file not found, empty, or permission denied)");
+        return std::nullopt;
+    }
+
+    auto parseResult = findAndParseHeader(mappedFile->data());
+    if (!parseResult) {
+        setError("no valid MPQ header found (missing MPQ\\x1A signature or header too small)");
+        return std::nullopt;
+    }
+
+    ParsedArchive pa;
+    pa.header = parseResult->header;
+    pa.archiveOffset = parseResult->archiveOffset;
+    auto archiveSpan = mappedFile->data();
+
+    // Parse hash table.
+    u64 htOffset = pa.archiveOffset + pa.header.hashTableByteOffset();
+    u64 htSize = static_cast<u64>(pa.header.hashTableEntries) * 16;
+    if (htOffset + htSize > archiveSpan.size()) {
+        setError("hash table extends past end of file (offset 0x" + std::to_string(htOffset) +
+                 ", size " + std::to_string(htSize) + ", file size " +
+                 std::to_string(archiveSpan.size()) + ")");
+        return std::nullopt;
+    }
+    if (!pa.hashTable.parse(archiveSpan.subspan(htOffset, htSize), pa.header.hashTableEntries)) {
+        setError("hash table decryption or validation failed");
+        return std::nullopt;
+    }
+
+    // Parse block table.
+    u64 btOffset = pa.archiveOffset + pa.header.blockTableByteOffset();
+    u64 btSize = static_cast<u64>(pa.header.blockTableEntries) * 16;
+    if (btOffset + btSize > archiveSpan.size()) {
+        setError("block table extends past end of file (offset 0x" + std::to_string(btOffset) +
+                 ", size " + std::to_string(btSize) + ", file size " +
+                 std::to_string(archiveSpan.size()) + ")");
+        return std::nullopt;
+    }
+    if (!pa.blockTable.parse(archiveSpan.subspan(btOffset, btSize), pa.header.blockTableEntries)) {
+        setError("block table decryption or validation failed");
+        return std::nullopt;
+    }
+
+    // Parse hi-block table (V2+).
+    if (pa.header.formatVersion >= 1 && pa.header.hiBlockTableOffset != 0) {
+        u64 hiOffset = pa.archiveOffset + pa.header.hiBlockTableOffset;
+        u64 hiSize = static_cast<u64>(pa.header.blockTableEntries) * 2;
+        if (hiOffset + hiSize <= archiveSpan.size()) {
+            pa.blockTable.parseHiBlockTable(archiveSpan.subspan(hiOffset, hiSize),
+                                            pa.header.blockTableEntries);
+        }
+    }
+
+    // Read (listfile).
+    auto lfIdx = pa.hashTable.lookup("(listfile)");
+    if (lfIdx) {
+        const auto& he = pa.hashTable.entry(*lfIdx);
+        if (he.blockIndex < pa.blockTable.count()) {
+            auto lfData =
+                extractFileData(mappedFile->data(), pa.archiveOffset,
+                                pa.blockTable.entry(he.blockIndex), pa.header.sectorSize(), 0);
+            if (!lfData.empty())
+                pa.listfileNames = parseListfile(std::span<const u8>(lfData));
+        }
+    }
+
+    pa.mapping = std::move(*mappedFile);
+    return pa;
+}
+
+} // anonymous namespace
 
 // ============================================================================
 // Overlay key
@@ -85,61 +183,58 @@ struct Storage::Impl {
 
     // -- Helpers --
 
-    /// Extract a file from the source archive by name.
+    /// Extract a file from the source archive by name, with optional locale filter.
     std::optional<std::vector<u8>> extractFromSource(const std::string& name,
-                                                      std::string* error = nullptr) const {
-        if (!sourceArchive) { if (error) *error = "no source archive"; return std::nullopt; }
+                                                     std::optional<u16> locale = std::nullopt,
+                                                     std::string* error = nullptr) const {
+        if (!sourceArchive) {
+            if (error)
+                *error = "no source archive";
+            return std::nullopt;
+        }
 
-        auto idx = hashTable.lookup(name);
-        if (!idx) { if (error) *error = "not found in hash table"; return std::nullopt; }
+        auto idx = locale ? hashTable.lookup(name, *locale) : hashTable.lookup(name);
+        if (!idx) {
+            if (error)
+                *error = "not found in hash table";
+            return std::nullopt;
+        }
 
         const auto& he = hashTable.entry(*idx);
         if (he.blockIndex >= blockTable.count()) {
-            if (error) *error = "block index out of range";
+            if (error)
+                *error = "block index out of range";
             return std::nullopt;
         }
         const auto& be = blockTable.entry(he.blockIndex);
 
         u32 fileKey = 0;
         if (be.isEncrypted()) {
-            // Derive file key from the filename.
             fileKey = deriveFileKey(name, be);
         }
 
-        return extractFileData(
-            sourceArchive->data(),
-            archiveOffset,
-            be,
-            header.sectorSize(),
-            fileKey,
-            error,
-            pool);
+        return extractFileData(sourceArchive->data(), archiveOffset, be, header.sectorSize(),
+                               fileKey, error, pool);
     }
 
-    /// Extract a file by name + locale.
-    std::optional<std::vector<u8>> extractFromSource(const std::string& name, u16 locale) const {
-        if (!sourceArchive) return std::nullopt;
+    /// Shared readFile logic. Caller must hold at least a shared lock on mutex.
+    std::optional<std::vector<u8>> readFileCore(const std::string& name, std::optional<u16> locale,
+                                                std::string* error) const {
+        std::string norm = normalizePath(name);
+        OverlayKey key{norm, locale.value_or(Locale::Neutral)};
 
-        auto idx = hashTable.lookup(name, locale);
-        if (!idx) return std::nullopt;
-
-        const auto& he = hashTable.entry(*idx);
-        if (he.blockIndex >= blockTable.count()) return std::nullopt;
-        const auto& be = blockTable.entry(he.blockIndex);
-
-        u32 fileKey = 0;
-        if (be.isEncrypted()) {
-            fileKey = deriveFileKey(name, be);
+        if (pendingDeletes.contains(key)) {
+            if (error)
+                *error = "file deleted in overlay";
+            return std::nullopt;
         }
 
-        return extractFileData(
-            sourceArchive->data(),
-            archiveOffset,
-            be,
-            header.sectorSize(),
-            fileKey,
-            nullptr,
-            pool);
+        auto it = pendingWrites.find(key);
+        if (it != pendingWrites.end()) {
+            return it->second.data;
+        }
+
+        return extractFromSource(name, locale, error);
     }
 
     /// Build WriteEntry list for the writer — merges source files + overlay.
@@ -161,21 +256,25 @@ struct Storage::Impl {
         // 1. Source files (from listfile).
         for (const auto& name : sourceListfileNames) {
             std::string norm = normalizePath(name);
-            if (deleteSet.count(norm)) continue; // Deleted in overlay.
+            if (deleteSet.contains(norm))
+                continue; // Deleted in overlay.
 
-            if (writeNameSet.count(norm)) {
+            if (writeNameSet.contains(norm)) {
                 // Overwritten in overlay — will be added in step 2.
                 continue;
             }
 
             // Raw copy from source.
             auto idx = hashTable.lookup(name);
-            if (!idx) continue;
+            if (!idx)
+                continue;
             const auto& he = hashTable.entry(*idx);
-            if (he.blockIndex >= blockTable.count()) continue;
+            if (he.blockIndex >= blockTable.count())
+                continue;
             const auto& be = blockTable.entry(he.blockIndex);
 
-            if (!be.exists()) continue;
+            if (!be.exists())
+                continue;
 
             // Get raw sector data span from source archive.
             u64 dataStart = archiveOffset + be.fileOffset;
@@ -203,6 +302,42 @@ struct Storage::Impl {
 
         return entries;
     }
+
+    /// Reset state to invalid (used when save fails after overwriting).
+    void invalidate() {
+        sourceArchive.reset();
+        hashTable = HashTable{};
+        blockTable = BlockTable{};
+        sourceListfileNames.clear();
+        pendingWrites.clear();
+        pendingDeletes.clear();
+        isValid = false;
+    }
+
+    /// Apply the results of parseMappedArchive() into this Impl, setting it as
+    /// the new source archive.  Clears any pending overlay.
+    void applyParsedArchive(ParsedArchive& pa, const std::string& path) {
+        header = pa.header;
+        archiveOffset = pa.archiveOffset;
+        sourcePath = path;
+        hashTable = std::move(pa.hashTable);
+        blockTable = std::move(pa.blockTable);
+        sourceArchive = std::move(pa.mapping);
+        sourceListfileNames = std::move(pa.listfileNames);
+        isValid = true;
+        pendingWrites.clear();
+        pendingDeletes.clear();
+    }
+
+    /// Re-map and re-parse an archive from disk, replacing current state.
+    /// Clears overlay on success. Returns false on any parse failure.
+    bool reloadFromDisk(const std::string& path) {
+        auto pa = parseMappedArchive(path);
+        if (!pa)
+            return false;
+        applyParsedArchive(*pa, path);
+        return true;
+    }
 };
 
 // ============================================================================
@@ -218,86 +353,19 @@ Storage& Storage::operator=(Storage&& other) noexcept = default;
 // Static Factories
 // ============================================================================
 
-std::optional<Storage> Storage::open(const std::string& path,
-                                      interfaces::WorkerPool* pool) {
+std::optional<Storage> Storage::open(const std::string& path, interfaces::WorkerPool* pool) {
     return open(path, nullptr, pool);
 }
 
 std::optional<Storage> Storage::open(const std::string& path, std::string* error,
-                                      interfaces::WorkerPool* pool) {
-    auto setError = [&](const std::string& msg) {
-        if (error) *error = msg;
-    };
-
-    auto mappedFile = storages::common::MappedFile::open(path);
-    if (!mappedFile) {
-        setError("failed to memory-map the file (file not found, empty, or permission denied)");
+                                     interfaces::WorkerPool* pool) {
+    auto pa = parseMappedArchive(path, error);
+    if (!pa)
         return std::nullopt;
-    }
-
-    auto parseResult = findAndParseHeader(mappedFile->data());
-    if (!parseResult) {
-        setError("no valid MPQ header found (missing MPQ\\x1A signature or header too small)");
-        return std::nullopt;
-    }
 
     Storage storage;
-    auto& impl = *storage.m_impl;
-    impl.header = parseResult->header;
-    impl.archiveOffset = parseResult->archiveOffset;
-    impl.sourcePath = path;
-
-    auto archiveSpan = mappedFile->data();
-
-    // Parse hash table.
-    u64 htOffset = impl.archiveOffset + impl.header.hashTableByteOffset();
-    u64 htSize = static_cast<u64>(impl.header.hashTableEntries) * 16;
-    if (htOffset + htSize > archiveSpan.size()) {
-        setError("hash table extends past end of file (offset 0x"
-                 + std::to_string(htOffset) + ", size " + std::to_string(htSize)
-                 + ", file size " + std::to_string(archiveSpan.size()) + ")");
-        return std::nullopt;
-    }
-    if (!impl.hashTable.parse(archiveSpan.subspan(htOffset, htSize), impl.header.hashTableEntries)) {
-        setError("hash table decryption or validation failed");
-        return std::nullopt;
-    }
-
-    // Parse block table.
-    u64 btOffset = impl.archiveOffset + impl.header.blockTableByteOffset();
-    u64 btSize = static_cast<u64>(impl.header.blockTableEntries) * 16;
-    if (btOffset + btSize > archiveSpan.size()) {
-        setError("block table extends past end of file (offset 0x"
-                 + std::to_string(btOffset) + ", size " + std::to_string(btSize)
-                 + ", file size " + std::to_string(archiveSpan.size()) + ")");
-        return std::nullopt;
-    }
-    if (!impl.blockTable.parse(archiveSpan.subspan(btOffset, btSize), impl.header.blockTableEntries)) {
-        setError("block table decryption or validation failed");
-        return std::nullopt;
-    }
-
-    // Parse hi-block table (V2+).
-    if (impl.header.formatVersion >= 1 && impl.header.hiBlockTableOffset != 0) {
-        u64 hiOffset = impl.archiveOffset + impl.header.hiBlockTableOffset;
-        u64 hiSize = static_cast<u64>(impl.header.blockTableEntries) * 2;
-        if (hiOffset + hiSize <= archiveSpan.size()) {
-            impl.blockTable.parseHiBlockTable(
-                archiveSpan.subspan(hiOffset, hiSize),
-                impl.header.blockTableEntries);
-        }
-    }
-
-    impl.sourceArchive = std::move(mappedFile);
-
-    // Try to read (listfile).
-    auto listfileData = impl.extractFromSource("(listfile)");
-    if (listfileData) {
-        impl.sourceListfileNames = parseListfile(std::span<const u8>(*listfileData));
-    }
-
-    impl.isValid = true;
-    impl.pool = pool;
+    storage.m_impl->applyParsedArchive(*pa, path);
+    storage.m_impl->pool = pool;
     return storage;
 }
 
@@ -305,10 +373,8 @@ Storage Storage::create(CreateOptions opts, interfaces::WorkerPool* pool) {
     Storage storage;
     auto& impl = *storage.m_impl;
 
-    impl.header = buildHeader(
-        static_cast<u16>(opts.version),
-        opts.hashTableSize,
-        opts.sectorSizeShift);
+    impl.header =
+        buildHeader(static_cast<u16>(opts.version), opts.hashTableSize, opts.sectorSizeShift);
     impl.isValid = true;
     impl.pool = pool;
     return storage;
@@ -321,11 +387,7 @@ Storage Storage::create(CreateOptions opts, interfaces::WorkerPool* pool) {
 void Storage::close() {
     if (m_impl) {
         std::unique_lock lock(m_impl->mutex);
-        m_impl->sourceArchive.reset();
-        m_impl->pendingWrites.clear();
-        m_impl->pendingDeletes.clear();
-        m_impl->sourceListfileNames.clear();
-        m_impl->isValid = false;
+        m_impl->invalidate();
     }
 }
 
@@ -338,86 +400,56 @@ Storage::operator bool() const noexcept {
 // ============================================================================
 
 std::optional<std::vector<u8>> Storage::readFile(const std::string& name) const {
-    if (!m_impl || !m_impl->isValid) return std::nullopt;
+    if (!m_impl || !m_impl->isValid)
+        return std::nullopt;
     std::shared_lock lock(m_impl->mutex);
-
-    std::string norm = normalizePath(name);
-    OverlayKey key{norm, Locale::Neutral};
-
-    // Check deletions.
-    if (m_impl->pendingDeletes.count(key)) return std::nullopt;
-
-    // Check overlay writes.
-    auto it = m_impl->pendingWrites.find(key);
-    if (it != m_impl->pendingWrites.end()) {
-        return it->second.data; // Return overlay data.
-    }
-
-    // Fall through to source archive.
-    return m_impl->extractFromSource(name);
+    return m_impl->readFileCore(name, std::nullopt, nullptr);
 }
 
-std::optional<std::vector<u8>> Storage::readFile(const std::string& name, std::string* error) const {
+std::optional<std::vector<u8>> Storage::readFile(const std::string& name,
+                                                 std::string* error) const {
     if (!m_impl || !m_impl->isValid) {
-        if (error) *error = "storage not open";
+        if (error)
+            *error = "storage not open";
         return std::nullopt;
     }
     std::shared_lock lock(m_impl->mutex);
-
-    std::string norm = normalizePath(name);
-    OverlayKey key{norm, Locale::Neutral};
-
-    if (m_impl->pendingDeletes.count(key)) {
-        if (error) *error = "file deleted in overlay";
-        return std::nullopt;
-    }
-
-    auto it = m_impl->pendingWrites.find(key);
-    if (it != m_impl->pendingWrites.end()) {
-        return it->second.data;
-    }
-
-    return m_impl->extractFromSource(name, error);
+    return m_impl->readFileCore(name, std::nullopt, error);
 }
 
 std::optional<std::vector<u8>> Storage::readFile(const std::string& name, u16 locale) const {
-    if (!m_impl || !m_impl->isValid) return std::nullopt;
+    if (!m_impl || !m_impl->isValid)
+        return std::nullopt;
     std::shared_lock lock(m_impl->mutex);
-
-    std::string norm = normalizePath(name);
-    OverlayKey key{norm, locale};
-
-    if (m_impl->pendingDeletes.count(key)) return std::nullopt;
-
-    auto it = m_impl->pendingWrites.find(key);
-    if (it != m_impl->pendingWrites.end()) {
-        return it->second.data;
-    }
-
-    return m_impl->extractFromSource(name, locale);
+    return m_impl->readFileCore(name, std::optional<u16>(locale), nullptr);
 }
 
 bool Storage::fileExists(const std::string& name) const {
-    if (!m_impl || !m_impl->isValid) return false;
+    if (!m_impl || !m_impl->isValid)
+        return false;
     std::shared_lock lock(m_impl->mutex);
 
     std::string norm = normalizePath(name);
     OverlayKey key{norm, Locale::Neutral};
 
-    if (m_impl->pendingDeletes.count(key)) return false;
-    if (m_impl->pendingWrites.count(key)) return true;
+    if (m_impl->pendingDeletes.contains(key))
+        return false;
+    if (m_impl->pendingWrites.contains(key))
+        return true;
 
     return m_impl->hashTable.lookup(name).has_value();
 }
 
 std::optional<FileInfo> Storage::fileInfo(const std::string& name) const {
-    if (!m_impl || !m_impl->isValid) return std::nullopt;
+    if (!m_impl || !m_impl->isValid)
+        return std::nullopt;
     std::shared_lock lock(m_impl->mutex);
 
     std::string norm = normalizePath(name);
     OverlayKey key{norm, Locale::Neutral};
 
-    if (m_impl->pendingDeletes.count(key)) return std::nullopt;
+    if (m_impl->pendingDeletes.contains(key))
+        return std::nullopt;
 
     // Check overlay.
     auto it = m_impl->pendingWrites.find(key);
@@ -433,10 +465,12 @@ std::optional<FileInfo> Storage::fileInfo(const std::string& name) const {
 
     // Source archive.
     auto idx = m_impl->hashTable.lookup(name);
-    if (!idx) return std::nullopt;
+    if (!idx)
+        return std::nullopt;
 
     const auto& he = m_impl->hashTable.entry(*idx);
-    if (he.blockIndex >= m_impl->blockTable.count()) return std::nullopt;
+    if (he.blockIndex >= m_impl->blockTable.count())
+        return std::nullopt;
     const auto& be = m_impl->blockTable.entry(he.blockIndex);
 
     FileInfo info;
@@ -449,7 +483,8 @@ std::optional<FileInfo> Storage::fileInfo(const std::string& name) const {
 }
 
 ArchiveInfo Storage::archiveInfo() const {
-    if (!m_impl || !m_impl->isValid) return {};
+    if (!m_impl || !m_impl->isValid)
+        return {};
     std::shared_lock lock(m_impl->mutex);
 
     ArchiveInfo info;
@@ -457,14 +492,14 @@ ArchiveInfo Storage::archiveInfo() const {
     info.hashTableEntries = m_impl->header.hashTableEntries;
     info.blockTableEntries = m_impl->header.blockTableEntries;
     info.sectorSize = m_impl->header.sectorSize();
-    info.archiveSize = (m_impl->header.formatVersion >= 2)
-        ? m_impl->header.archiveSize64
-        : m_impl->header.archiveSize;
+    info.archiveSize = (m_impl->header.formatVersion >= 2) ? m_impl->header.archiveSize64
+                                                           : m_impl->header.archiveSize;
     return info;
 }
 
 std::vector<std::string> Storage::listFiles() const {
-    if (!m_impl || !m_impl->isValid) return {};
+    if (!m_impl || !m_impl->isValid)
+        return {};
     std::shared_lock lock(m_impl->mutex);
 
     // Build normalized delete set.
@@ -479,7 +514,8 @@ std::vector<std::string> Storage::listFiles() const {
     // Source listfile names.
     for (const auto& name : m_impl->sourceListfileNames) {
         std::string norm = normalizePath(name);
-        if (deleteSet.count(norm)) continue;
+        if (deleteSet.contains(norm))
+            continue;
         if (seen.insert(norm).second) {
             result.push_back(name);
         }
@@ -498,7 +534,8 @@ std::vector<std::string> Storage::listFiles() const {
 void Storage::enumerate(std::function<bool(const std::string&)> callback) const {
     auto files = listFiles();
     for (const auto& name : files) {
-        if (!callback(name)) break;
+        if (!callback(name))
+            break;
     }
 }
 
@@ -507,7 +544,8 @@ void Storage::enumerate(std::function<bool(const std::string&)> callback) const 
 // ============================================================================
 
 bool Storage::writeFile(const std::string& name, std::span<const u8> data, WriteOptions opts) {
-    if (!m_impl || !m_impl->isValid) return false;
+    if (!m_impl || !m_impl->isValid)
+        return false;
     std::unique_lock lock(m_impl->mutex);
 
     std::string norm = normalizePath(name);
@@ -517,26 +555,23 @@ bool Storage::writeFile(const std::string& name, std::span<const u8> data, Write
     m_impl->pendingDeletes.erase(key);
 
     // Store in overlay.
-    m_impl->pendingWrites[key] = {
-        name,
-        std::vector<u8>(data.begin(), data.end()),
-        opts
-    };
+    m_impl->pendingWrites[key] = {name, std::vector<u8>(data.begin(), data.end()), opts};
 
     return true;
 }
 
 bool Storage::deleteFile(const std::string& name) {
-    if (!m_impl || !m_impl->isValid) return false;
+    if (!m_impl || !m_impl->isValid)
+        return false;
     std::unique_lock lock(m_impl->mutex);
 
     std::string norm = normalizePath(name);
     OverlayKey key{norm, Locale::Neutral};
 
     // Check if it exists in overlay or source.
-    bool exists = m_impl->pendingWrites.count(key) ||
-                  m_impl->hashTable.lookup(name).has_value();
-    if (!exists) return false;
+    bool exists = m_impl->pendingWrites.contains(key) || m_impl->hashTable.lookup(name).has_value();
+    if (!exists)
+        return false;
 
     // Remove from writes if present.
     m_impl->pendingWrites.erase(key);
@@ -551,13 +586,16 @@ bool Storage::deleteFile(const std::string& name) {
 // ============================================================================
 
 bool Storage::save() {
-    if (!m_impl || !m_impl->isValid) return false;
-    if (m_impl->sourcePath.empty()) return false; // Created via create(), no path.
+    if (!m_impl || !m_impl->isValid)
+        return false;
+    if (m_impl->sourcePath.empty())
+        return false; // Created via create(), no path.
     return save(m_impl->sourcePath);
 }
 
 bool Storage::save(const std::string& path) {
-    if (!m_impl || !m_impl->isValid) return false;
+    if (!m_impl || !m_impl->isValid)
+        return false;
     std::unique_lock lock(m_impl->mutex);
 
     bool isSamePath = (path == m_impl->sourcePath);
@@ -566,13 +604,11 @@ bool Storage::save(const std::string& path) {
     auto entries = m_impl->buildWriteEntries();
 
     // Write the archive.
-    auto archiveData = writeArchive(
-        m_impl->header,
-        entries,
-        m_impl->header.hashTableEntries,
-        m_impl->pool);
+    auto archiveData =
+        writeArchive(m_impl->header, entries, m_impl->header.hashTableEntries, m_impl->pool);
 
-    if (archiveData.empty()) return false;
+    if (archiveData.empty())
+        return false;
 
     // Determine output path.  When overwriting the mapped source, write to a
     // temp file first, then atomically rename after unmapping.
@@ -588,11 +624,11 @@ bool Storage::save(const std::string& path) {
     // Write archive data to disk.
     {
         std::ofstream out(outputPath, std::ios::binary | std::ios::trunc);
-        if (!out) return false;
+        if (!out)
+            return false;
         out.write(reinterpret_cast<const char*>(archiveData.data()),
                   static_cast<std::streamsize>(archiveData.size()));
         if (!out) {
-            // Write failed — clean up partial temp file if created.
             if (useTempFile) {
                 std::error_code ec;
                 std::filesystem::remove(tempPath, ec);
@@ -602,103 +638,23 @@ bool Storage::save(const std::string& path) {
     }
 
     if (useTempFile) {
-        // Unmap the source archive so we can replace the file.
         m_impl->sourceArchive.reset();
 
         std::error_code ec;
         std::filesystem::rename(tempPath, path, ec);
         if (ec) {
-            // Rename failed — try to restore the original mapping.
             m_impl->sourceArchive = storages::common::MappedFile::open(m_impl->sourcePath);
             std::filesystem::remove(tempPath, ec);
             return false;
         }
     }
 
-    auto invalidateAfterOverwriteFailure = [&]() {
-        m_impl->sourceArchive.reset();
-        m_impl->hashTable = HashTable{};
-        m_impl->blockTable = BlockTable{};
-        m_impl->sourceListfileNames.clear();
-        m_impl->isValid = false;
-    };
-
-    // Re-map the new archive.
-    auto newMapping = storages::common::MappedFile::open(path);
-    if (!newMapping) {
-        if (useTempFile) invalidateAfterOverwriteFailure();
+    // Re-open the saved archive as the new source.
+    if (!m_impl->reloadFromDisk(path)) {
+        if (useTempFile)
+            m_impl->invalidate();
         return false;
     }
-
-    // Re-parse header + tables from new archive.
-    auto parseResult = findAndParseHeader(newMapping->data());
-    if (!parseResult) {
-        if (useTempFile) invalidateAfterOverwriteFailure();
-        return false;
-    }
-
-    MpqHeader newHeader = parseResult->header;
-    size_t newArchiveOffset = parseResult->archiveOffset;
-    HashTable newHashTable;
-    BlockTable newBlockTable;
-    std::vector<std::string> newListfileNames;
-
-    auto archiveSpan = newMapping->data();
-
-    // Re-parse tables.
-    u64 htOffset = newArchiveOffset + newHeader.hashTableByteOffset();
-    u64 htSize = static_cast<u64>(newHeader.hashTableEntries) * 16;
-    if (htOffset + htSize > archiveSpan.size()) {
-        if (useTempFile) invalidateAfterOverwriteFailure();
-        return false;
-    }
-    if (!newHashTable.parse(archiveSpan.subspan(htOffset, htSize), newHeader.hashTableEntries)) {
-        if (useTempFile) invalidateAfterOverwriteFailure();
-        return false;
-    }
-
-    u64 btOffset = newArchiveOffset + newHeader.blockTableByteOffset();
-    u64 btSize = static_cast<u64>(newHeader.blockTableEntries) * 16;
-    if (btOffset + btSize > archiveSpan.size()) {
-        if (useTempFile) invalidateAfterOverwriteFailure();
-        return false;
-    }
-    if (!newBlockTable.parse(archiveSpan.subspan(btOffset, btSize), newHeader.blockTableEntries)) {
-        if (useTempFile) invalidateAfterOverwriteFailure();
-        return false;
-    }
-
-    // Re-read (listfile).
-    auto listfileData = [&]() -> std::optional<std::vector<u8>> {
-        auto idx = newHashTable.lookup("(listfile)");
-        if (!idx) return std::nullopt;
-
-        const auto& he = newHashTable.entry(*idx);
-        if (he.blockIndex >= newBlockTable.count()) return std::nullopt;
-
-        return extractFileData(
-            newMapping->data(),
-            newArchiveOffset,
-            newBlockTable.entry(he.blockIndex),
-            newHeader.sectorSize(),
-            0);
-    }();
-    if (listfileData) {
-        newListfileNames = parseListfile(std::span<const u8>(*listfileData));
-    }
-
-    m_impl->header = newHeader;
-    m_impl->archiveOffset = newArchiveOffset;
-    m_impl->sourcePath = path;
-    m_impl->hashTable = std::move(newHashTable);
-    m_impl->blockTable = std::move(newBlockTable);
-    m_impl->sourceArchive = std::move(newMapping);
-    m_impl->sourceListfileNames = std::move(newListfileNames);
-    m_impl->isValid = true;
-
-    // Clear overlay.
-    m_impl->pendingWrites.clear();
-    m_impl->pendingDeletes.clear();
 
     return true;
 }

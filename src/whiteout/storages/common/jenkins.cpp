@@ -17,25 +17,46 @@ namespace whiteout::storages::common {
 
 namespace {
 
-inline u32 rot(u32 x, int k) { return (x << k) | (x >> (32 - k)); }
+inline u32 rot(u32 x, int k) {
+    return (x << k) | (x >> (32 - k));
+}
 
 inline void mix(u32& a, u32& b, u32& c) {
-    a -= c; a ^= rot(c,  4); c += b;
-    b -= a; b ^= rot(a,  6); a += c;
-    c -= b; c ^= rot(b,  8); b += a;
-    a -= c; a ^= rot(c, 16); c += b;
-    b -= a; b ^= rot(a, 19); a += c;
-    c -= b; c ^= rot(b,  4); b += a;
+    a -= c;
+    a ^= rot(c, 4);
+    c += b;
+    b -= a;
+    b ^= rot(a, 6);
+    a += c;
+    c -= b;
+    c ^= rot(b, 8);
+    b += a;
+    a -= c;
+    a ^= rot(c, 16);
+    c += b;
+    b -= a;
+    b ^= rot(a, 19);
+    a += c;
+    c -= b;
+    c ^= rot(b, 4);
+    b += a;
 }
 
 inline void final_(u32& a, u32& b, u32& c) {
-    c ^= b; c -= rot(b, 14);
-    a ^= c; a -= rot(c, 11);
-    b ^= a; b -= rot(a, 25);
-    c ^= b; c -= rot(b, 16);
-    a ^= c; a -= rot(c,  4);
-    b ^= a; b -= rot(a, 14);
-    c ^= b; c -= rot(b, 24);
+    c ^= b;
+    c -= rot(b, 14);
+    a ^= c;
+    a -= rot(c, 11);
+    b ^= a;
+    b -= rot(a, 25);
+    c ^= b;
+    c -= rot(b, 16);
+    a ^= c;
+    a -= rot(c, 4);
+    b ^= a;
+    b -= rot(a, 14);
+    c ^= b;
+    c -= rot(b, 24);
 }
 
 } // anonymous namespace
@@ -64,25 +85,49 @@ void jenkinsHashlittle2(const void* key, size_t length, u32& pc, u32& pb) {
     // Handle the last few bytes (little-endian).
     // All the case statements fall through.
     switch (length) {
-        case 12: c += static_cast<u32>(k[11]) << 24; [[fallthrough]];
-        case 11: c += static_cast<u32>(k[10]) << 16; [[fallthrough]];
-        case 10: c += static_cast<u32>(k[9])  << 8;  [[fallthrough]];
-        case  9: c += static_cast<u32>(k[8]);         [[fallthrough]];
-        case  8: b += static_cast<u32>(k[7])  << 24; [[fallthrough]];
-        case  7: b += static_cast<u32>(k[6])  << 16; [[fallthrough]];
-        case  6: b += static_cast<u32>(k[5])  << 8;  [[fallthrough]];
-        case  5: b += static_cast<u32>(k[4]);         [[fallthrough]];
-        case  4: {
-            u32 k0;
-            std::memcpy(&k0, k, 4);
-            a += k0;
-            break;
-        }
-        case  3: a += static_cast<u32>(k[2]) << 16; [[fallthrough]];
-        case  2: a += static_cast<u32>(k[1]) << 8;  [[fallthrough]];
-        case  1: a += static_cast<u32>(k[0]);
-                 break;
-        case  0: pc = c; pb = b; return; // Nothing to add — return early.
+    case 12:
+        c += static_cast<u32>(k[11]) << 24;
+        [[fallthrough]];
+    case 11:
+        c += static_cast<u32>(k[10]) << 16;
+        [[fallthrough]];
+    case 10:
+        c += static_cast<u32>(k[9]) << 8;
+        [[fallthrough]];
+    case 9:
+        c += static_cast<u32>(k[8]);
+        [[fallthrough]];
+    case 8:
+        b += static_cast<u32>(k[7]) << 24;
+        [[fallthrough]];
+    case 7:
+        b += static_cast<u32>(k[6]) << 16;
+        [[fallthrough]];
+    case 6:
+        b += static_cast<u32>(k[5]) << 8;
+        [[fallthrough]];
+    case 5:
+        b += static_cast<u32>(k[4]);
+        [[fallthrough]];
+    case 4: {
+        u32 k0;
+        std::memcpy(&k0, k, 4);
+        a += k0;
+        break;
+    }
+    case 3:
+        a += static_cast<u32>(k[2]) << 16;
+        [[fallthrough]];
+    case 2:
+        a += static_cast<u32>(k[1]) << 8;
+        [[fallthrough]];
+    case 1:
+        a += static_cast<u32>(k[0]);
+        break;
+    case 0:
+        pc = c;
+        pb = b;
+        return; // Nothing to add — return early.
     }
 
     final_(a, b, c);

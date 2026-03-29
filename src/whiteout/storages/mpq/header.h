@@ -39,9 +39,9 @@ struct MpqHeader {
     // -- V1 fields (32 bytes) --
     u32 magic = kMpqMagic;
     u32 headerSize = 32;
-    u32 archiveSize = 0;      ///< Archive size (V1: 32-bit)
-    u16 formatVersion = 0;    ///< 0 = V1, 1 = V2, 2 = V3, 3 = V4
-    u16 sectorSizeShift = 3;  ///< Sector size = 512 << sectorSizeShift
+    u32 archiveSize = 0;     ///< Archive size (V1: 32-bit)
+    u16 formatVersion = 0;   ///< 0 = V1, 1 = V2, 2 = V3, 3 = V4
+    u16 sectorSizeShift = 3; ///< Sector size = 512 << sectorSizeShift
     u32 hashTableOffset = 0;
     u32 blockTableOffset = 0;
     u32 hashTableEntries = 0;
@@ -88,18 +88,16 @@ struct MpqHeader {
 /// User data block (preceding the main header in some archives).
 struct UserData {
     u32 magic = kMpqUserDataMagic;
-    u32 userDataSize = 0;      ///< Size of the user data block.
-    u32 headerOffset = 0;      ///< Offset to MPQ header from start of user data.
+    u32 userDataSize = 0; ///< Size of the user data block.
+    u32 headerOffset = 0; ///< Offset to MPQ header from start of user data.
     u32 userDataHeaderSize = 0;
-    std::vector<u8> data;      ///< Raw user data content.
+    std::vector<u8> data; ///< Raw user data content.
 };
-
-
 
 /// Result of parsing the archive header.
 struct HeaderParseResult {
     MpqHeader header;
-    size_t archiveOffset = 0;     ///< Byte offset of MPQ header within the file.
+    size_t archiveOffset = 0; ///< Byte offset of MPQ header within the file.
     std::optional<UserData> userData;
 };
 
@@ -110,8 +108,7 @@ struct HeaderParseResult {
 /// Scan a memory-mapped archive for the MPQ header.
 /// Searches at 0x200-byte boundaries. Returns the parsed header and the byte
 /// offset where the archive begins, or nullopt if no valid header is found.
-[[nodiscard]] std::optional<HeaderParseResult>
-findAndParseHeader(std::span<const u8> fileData);
+[[nodiscard]] std::optional<HeaderParseResult> findAndParseHeader(std::span<const u8> fileData);
 
 /// Build a new MPQ header from creation parameters.
 [[nodiscard]] MpqHeader buildHeader(u16 formatVersion, u32 hashTableSize, u16 sectorSizeShift);

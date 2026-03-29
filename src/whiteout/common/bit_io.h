@@ -24,9 +24,73 @@ namespace whiteout {
 
 /// Precomputed bit-masks: BIT_MASK[n] == (1 << n) - 1.
 inline constexpr std::array<u32, 17> BIT_MASK = {{
-    0,     1,     3,     7,     15,    31,    63,    127,  255,
-    511,   1023,  2047,  4095,  8191,  16383, 32767, 65535,
+    0,
+    1,
+    3,
+    7,
+    15,
+    31,
+    63,
+    127,
+    255,
+    511,
+    1023,
+    2047,
+    4095,
+    8191,
+    16383,
+    32767,
+    65535,
 }};
+
+// ============================================================================
+// MSB-first Bit Reader (plain — no byte-stuffing)
+// ============================================================================
+
+/// Reads bits MSB-first from a raw byte stream without any byte-stuffing.
+/// Suitable for BZip2 and other non-JPEG MSB-first bit-packed formats.
+struct PlainMsbBitReader {
+    const u8* data = nullptr;
+    size_t size = 0;
+    size_t bytePos = 0;
+    u32 bitBuf = 0;
+    i32 bitsAvail = 0;
+
+    void init(const u8* d, size_t s, size_t startByte = 0) {
+        data = d;
+        size = s;
+        bytePos = startByte;
+        bitBuf = 0;
+        bitsAvail = 0;
+    }
+
+    void refill() {
+        while (bitsAvail <= 24 && bytePos < size) {
+            bitBuf |= static_cast<u32>(data[bytePos++]) << (24 - bitsAvail);
+            bitsAvail += 8;
+        }
+    }
+
+    u32 peekBits(i32 count) {
+        refill();
+        return (bitBuf >> (32 - count)) & BIT_MASK[count];
+    }
+
+    void consumeBits(i32 count) {
+        bitBuf <<= count;
+        bitsAvail -= count;
+    }
+
+    u32 readBits(i32 count) {
+        u32 val = peekBits(count);
+        consumeBits(count);
+        return val;
+    }
+
+    bool hasData() const {
+        return bytePos < size || bitsAvail > 0;
+    }
+};
 
 // ============================================================================
 // MSB-first Bit Reader (JPEG byte-stuffing aware)
@@ -39,9 +103,9 @@ struct MsbBitReader {
     size_t size = 0;
     size_t bytePos = 0;
 
-    u32 bitBuf = 0;        ///< Buffered bits, MSB-aligned (next bit to read is bit 31).
+    u32 bitBuf = 0; ///< Buffered bits, MSB-aligned (next bit to read is bit 31).
     i32 bitsAvail = 0;
-    u8 pendingMarker = 0;  ///< Non-zero when a real marker (not byte-stuffing) was encountered.
+    u8 pendingMarker = 0; ///< Non-zero when a real marker (not byte-stuffing) was encountered.
 
     void init(const u8* d, size_t s, size_t startOffset);
 
@@ -69,8 +133,8 @@ struct MsbBitReader {
 /// byte-stuffing requirement.
 struct MsbBitWriter {
     std::vector<u8>* out = nullptr;
-    u32 bitBuf = 0; ///< Buffered bits, MSB-aligned.
-    i32 bitsUsed = 0;  ///< Number of valid bits in the buffer (counted from MSB).
+    u32 bitBuf = 0;   ///< Buffered bits, MSB-aligned.
+    i32 bitsUsed = 0; ///< Number of valid bits in the buffer (counted from MSB).
 
     void init(std::vector<u8>* o);
 

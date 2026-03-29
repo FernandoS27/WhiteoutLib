@@ -57,7 +57,8 @@ u32 hashString(const std::string& filename, u32 hashType) {
     for (char ch : filename) {
         // Normalize: uppercase + '/' → '\\'
         unsigned char uc = static_cast<unsigned char>(ch);
-        if (uc == '/') uc = '\\';
+        if (uc == '/')
+            uc = '\\';
         uc = static_cast<unsigned char>(std::toupper(uc));
 
         seed1 = table[hashType * 256 + uc] ^ (seed1 + seed2);
@@ -124,7 +125,8 @@ u32 detectFileKey(const u32* encryptedBlock, u32 sectorSize, u32 fileSize) {
         u32 seed = 0xEEEEEEEE + table[0x400 + keyByte];
         u32 candidateKey = (encrypted0 ^ tableSize) - seed;
 
-        if ((candidateKey & 0xFF) != keyByte) continue;
+        if ((candidateKey & 0xFF) != keyByte)
+            continue;
 
         // Verify with the second u32. The second entry of the sector offset
         // table should be <= sectorSize + tableSize (compressed sector can't

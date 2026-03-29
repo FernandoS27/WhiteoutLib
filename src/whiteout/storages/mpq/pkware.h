@@ -17,14 +17,11 @@ namespace whiteout::storages::mpq {
 /// @param src              Compressed data (without the MPQ compression byte prefix).
 /// @param expectedSize     Expected decompressed size.
 /// @return Decompressed data, or empty vector on failure.
-[[nodiscard]] std::vector<u8> pkwareExplode(
-    std::span<const u8> src,
-    size_t expectedSize);
+[[nodiscard]] std::vector<u8> pkwareExplode(std::span<const u8> src, size_t expectedSize);
 
 /// Compress data using PKware DCL (implode).
 /// @param src Raw data to compress.
 /// @return Compressed data (without the MPQ compression byte prefix), or empty vector on failure.
-[[nodiscard]] std::vector<u8> pkwareImplode(
-    std::span<const u8> src);
+[[nodiscard]] std::vector<u8> pkwareImplode(std::span<const u8> src);
 
 } // namespace whiteout::storages::mpq

@@ -41,7 +41,7 @@ inline constexpr i32 HUFFMAN_FAST_BITS = 9;
 ///
 /// @tparam SymT    Symbol type (u8 for JPEG, u16 for DEFLATE).
 /// @tparam MaxBits Maximum Huffman code length (16 for JPEG, 15 for DEFLATE).
-template<typename SymT, i32 MaxBits>
+template <typename SymT, i32 MaxBits>
 struct HuffmanDecodeBase {
     static constexpr i32 FAST_SIZE = 1 << HUFFMAN_FAST_BITS;
     static constexpr i32 MAX_BITS = MaxBits;

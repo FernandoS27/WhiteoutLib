@@ -73,8 +73,7 @@ void MsbBitReader::handleRestartMarker() {
     if (pendingMarker >= 0xD0 && pendingMarker <= 0xD7) {
         // refill() already consumed the marker bytes — just clear the flag.
         pendingMarker = 0;
-    } else if (pendingMarker == 0 && bytePos + 1 < size &&
-               data[bytePos] == 0xFF &&
+    } else if (pendingMarker == 0 && bytePos + 1 < size && data[bytePos] == 0xFF &&
                data[bytePos + 1] >= 0xD0 && data[bytePos + 1] <= 0xD7) {
         // refill() didn't reach the marker — skip past it manually.
         bytePos += 2;

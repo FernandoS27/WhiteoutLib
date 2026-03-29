@@ -20,7 +20,8 @@ using whiteout::common::span_streambuf;
 // ============================================================================
 
 u32 nextPowerOf2(u32 v) {
-    if (v == 0) return 1;
+    if (v == 0)
+        return 1;
     --v;
     v |= v >> 1;
     v |= v >> 2;
@@ -38,22 +39,29 @@ namespace {
 
 u32 minimumHeaderSizeForVersion(u16 formatVersion) {
     switch (formatVersion) {
-    case 0: return 32;
-    case 1: return 44;
-    case 2: return 68;
-    case 3: return 208;
-    default: return 0;
+    case 0:
+        return 32;
+    case 1:
+        return 44;
+    case 2:
+        return 68;
+    case 3:
+        return 208;
+    default:
+        return 0;
     }
 }
 
 /// Parse the V1-V4 header fields from a BinaryReader positioned at the start
 /// of the magic field.
 std::optional<MpqHeader> parseHeaderFields(BinaryReader& reader, size_t availableBytes) {
-    if (availableBytes < 32) return std::nullopt;
+    if (availableBytes < 32)
+        return std::nullopt;
 
     MpqHeader h{};
     h.magic = reader.read<u32>();
-    if (h.magic != kMpqMagic) return std::nullopt;
+    if (h.magic != kMpqMagic)
+        return std::nullopt;
 
     h.headerSize = reader.read<u32>();
     h.archiveSize = reader.read<u32>();
@@ -65,7 +73,8 @@ std::optional<MpqHeader> parseHeaderFields(BinaryReader& reader, size_t availabl
     h.blockTableEntries = reader.read<u32>();
 
     u32 minimumHeaderSize = minimumHeaderSizeForVersion(h.formatVersion);
-    if (minimumHeaderSize == 0 || h.headerSize < minimumHeaderSize || h.headerSize > availableBytes) {
+    if (minimumHeaderSize == 0 || h.headerSize < minimumHeaderSize ||
+        h.headerSize > availableBytes) {
         return std::nullopt;
     }
 
@@ -93,7 +102,8 @@ std::optional<MpqHeader> parseHeaderFields(BinaryReader& reader, size_t availabl
         h.rawChunkSize = reader.read<u32>();
 
         auto readMd5 = [&](std::array<u8, 16>& dest) {
-            for (auto& b : dest) b = reader.read<u8>();
+            for (auto& b : dest)
+                b = reader.read<u8>();
         };
         readMd5(h.blockTableMd5);
         readMd5(h.hashTableMd5);
@@ -108,9 +118,9 @@ std::optional<MpqHeader> parseHeaderFields(BinaryReader& reader, size_t availabl
 
 } // anonymous namespace
 
-std::optional<HeaderParseResult>
-findAndParseHeader(std::span<const u8> fileData) {
-    if (fileData.size() < 32) return std::nullopt;
+std::optional<HeaderParseResult> findAndParseHeader(std::span<const u8> fileData) {
+    if (fileData.size() < 32)
+        return std::nullopt;
 
     // Scan at 0x200-byte boundaries for the MPQ signature.
     // Also check offset 0 (some archives have the header right at the start).
@@ -122,7 +132,8 @@ findAndParseHeader(std::span<const u8> fileData) {
 
         if (magic == kMpqUserDataMagic && offset == 0) {
             // User data block at offset 0 — parse it and find the real header.
-            if (fileData.size() < offset + 16) continue;
+            if (fileData.size() < offset + 16)
+                continue;
 
             // Clamp ud-reading span to 16 bytes (just the user-data header fields).
             span_streambuf udBuf(fileData.subspan(offset, 16));
@@ -136,7 +147,8 @@ findAndParseHeader(std::span<const u8> fileData) {
             u32 userDataHeaderSize = udReader.read<u32>();
 
             size_t realHeaderOffset = offset + headerOff;
-            if (realHeaderOffset + 32 > fileData.size()) continue;
+            if (realHeaderOffset + 32 > fileData.size())
+                continue;
 
             size_t avail = fileData.size() - realHeaderOffset;
             size_t readSize = std::min<size_t>(avail, 512);
@@ -145,7 +157,8 @@ findAndParseHeader(std::span<const u8> fileData) {
             BinaryReader hdrReaderSmall(hdrStreamSmall);
 
             auto hdr = parseHeaderFields(hdrReaderSmall, avail);
-            if (!hdr) continue;
+            if (!hdr)
+                continue;
 
             HeaderParseResult result;
             result.header = *hdr;
@@ -178,14 +191,14 @@ findAndParseHeader(std::span<const u8> fileData) {
             BinaryReader reader(stream);
 
             auto hdr = parseHeaderFields(reader, avail);
-            if (!hdr) continue;
+            if (!hdr)
+                continue;
 
             HeaderParseResult result;
             result.header = *hdr;
             result.archiveOffset = offset;
             return result;
         }
-
     }
 
     return std::nullopt;
@@ -207,11 +220,21 @@ MpqHeader buildHeader(u16 formatVersion, u32 hashTableSize, u16 sectorSizeShift)
 
     // Header size depends on version.
     switch (formatVersion) {
-    case 0: h.headerSize = 32; break;
-    case 1: h.headerSize = 44; break;
-    case 2: h.headerSize = 68; break;
-    case 3: h.headerSize = 208; break;
-    default: h.headerSize = 32; break;
+    case 0:
+        h.headerSize = 32;
+        break;
+    case 1:
+        h.headerSize = 44;
+        break;
+    case 2:
+        h.headerSize = 68;
+        break;
+    case 3:
+        h.headerSize = 208;
+        break;
+    default:
+        h.headerSize = 32;
+        break;
     }
 
     // Table offsets will be filled by the writer once file data is written.

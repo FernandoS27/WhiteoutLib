@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "writer.h"
 #include "compression.h"
 #include "crypto.h"
+#include "writer.h"
 
 #include <whiteout/interfaces.h>
 
@@ -36,7 +36,8 @@ BlockEntry makeRawCopyBlockEntry(u32 newOffset, const BlockEntry& source) {
 u64 currentFiletime() {
     auto now = std::chrono::system_clock::now();
     auto duration = now.time_since_epoch();
-    auto hundred_ns = std::chrono::duration_cast<std::chrono::duration<u64, std::ratio<1, 10000000>>>(duration);
+    auto hundred_ns =
+        std::chrono::duration_cast<std::chrono::duration<u64, std::ratio<1, 10000000>>>(duration);
     constexpr u64 kWindowsEpochOffset = 116444736000000000ULL;
     return hundred_ns.count() + kWindowsEpochOffset;
 }
@@ -85,56 +86,52 @@ void serializeHeader(std::vector<u8>& archive, const MpqHeader& hdr) {
     };
 
     // V1 base — 32 bytes.
-    w(kMagic,             &hdr.magic,             4);
-    w(kHeaderSize,        &hdr.headerSize,        4);
-    w(kArchiveSize,       &hdr.archiveSize,       4);
-    w(kFormatVersion,     &hdr.formatVersion,     2);
-    w(kSectorSizeShift,   &hdr.sectorSizeShift,   2);
-    w(kHashTableOffset,   &hdr.hashTableOffset,   4);
-    w(kBlockTableOffset,  &hdr.blockTableOffset,  4);
-    w(kHashTableEntries,  &hdr.hashTableEntries,  4);
+    w(kMagic, &hdr.magic, 4);
+    w(kHeaderSize, &hdr.headerSize, 4);
+    w(kArchiveSize, &hdr.archiveSize, 4);
+    w(kFormatVersion, &hdr.formatVersion, 2);
+    w(kSectorSizeShift, &hdr.sectorSizeShift, 2);
+    w(kHashTableOffset, &hdr.hashTableOffset, 4);
+    w(kBlockTableOffset, &hdr.blockTableOffset, 4);
+    w(kHashTableEntries, &hdr.hashTableEntries, 4);
     w(kBlockTableEntries, &hdr.blockTableEntries, 4);
 
     // V2 extension — 44 bytes.
     if (hdr.headerSize >= 44) {
         w(kHiBlockTableOffset, &hdr.hiBlockTableOffset, 8);
-        w(kHashTableOffsetHi,  &hdr.hashTableOffsetHi,  2);
+        w(kHashTableOffsetHi, &hdr.hashTableOffsetHi, 2);
         w(kBlockTableOffsetHi, &hdr.blockTableOffsetHi, 2);
     }
 
     // V3 extension — 68 bytes.
     if (hdr.headerSize >= 68) {
-        w(kArchiveSize64,  &hdr.archiveSize64,  8);
+        w(kArchiveSize64, &hdr.archiveSize64, 8);
         w(kBetTableOffset, &hdr.betTableOffset, 8);
         w(kHetTableOffset, &hdr.hetTableOffset, 8);
     }
 
     // V4 extension — 208 bytes.
     if (hdr.headerSize >= 208) {
-        w(kHashTableSize64,    &hdr.hashTableSize64,    8);
-        w(kBlockTableSize64,   &hdr.blockTableSize64,   8);
+        w(kHashTableSize64, &hdr.hashTableSize64, 8);
+        w(kBlockTableSize64, &hdr.blockTableSize64, 8);
         w(kHiBlockTableSize64, &hdr.hiBlockTableSize64, 8);
-        w(kHetTableSize64,     &hdr.hetTableSize64,     8);
-        w(kBetTableSize64,     &hdr.betTableSize64,     8);
-        w(kRawChunkSize,       &hdr.rawChunkSize,       4);
+        w(kHetTableSize64, &hdr.hetTableSize64, 8);
+        w(kBetTableSize64, &hdr.betTableSize64, 8);
+        w(kRawChunkSize, &hdr.rawChunkSize, 4);
 
-        w(kBlockTableMd5,   hdr.blockTableMd5.data(),   hdr.blockTableMd5.size());
-        w(kHashTableMd5,    hdr.hashTableMd5.data(),    hdr.hashTableMd5.size());
+        w(kBlockTableMd5, hdr.blockTableMd5.data(), hdr.blockTableMd5.size());
+        w(kHashTableMd5, hdr.hashTableMd5.data(), hdr.hashTableMd5.size());
         w(kHiBlockTableMd5, hdr.hiBlockTableMd5.data(), hdr.hiBlockTableMd5.size());
-        w(kBetTableMd5,     hdr.betTableMd5.data(),     hdr.betTableMd5.size());
-        w(kHetTableMd5,     hdr.hetTableMd5.data(),     hdr.hetTableMd5.size());
-        w(kMpqHeaderMd5,    hdr.mpqHeaderMd5.data(),    hdr.mpqHeaderMd5.size());
+        w(kBetTableMd5, hdr.betTableMd5.data(), hdr.betTableMd5.size());
+        w(kHetTableMd5, hdr.hetTableMd5.data(), hdr.hetTableMd5.size());
+        w(kMpqHeaderMd5, hdr.mpqHeaderMd5.data(), hdr.mpqHeaderMd5.size());
     }
 }
 
 } // anonymous namespace
 
-std::vector<u8> writeArchive(
-    const MpqHeader& header,
-    const std::vector<WriteEntry>& entries,
-    u32 hashTableCapacity,
-    interfaces::WorkerPool* pool)
-{
+std::vector<u8> writeArchive(const MpqHeader& header, const std::vector<WriteEntry>& entries,
+                             u32 hashTableCapacity, interfaces::WorkerPool* pool) {
     // Ensure capacity is power of 2.
     u32 htCapacity = nextPowerOf2(hashTableCapacity);
 
@@ -167,168 +164,111 @@ std::vector<u8> writeArchive(
     // Count overlay entries (files that need encoding, not raw-copies).
     size_t overlayCount = 0;
     for (const auto& entry : entries) {
-        if (entry.rawSectors.empty()) ++overlayCount;
+        if (entry.rawSectors.empty())
+            ++overlayCount;
     }
 
-    // --- Parallel file encoding (when pool available and >= 2 overlay files) ---
-    if (pool && overlayCount >= 2) {
-        // Pass 1: Encode all overlay entries in parallel.
-        std::vector<EncodeOptions> overlayOpts(entries.size());
-        std::vector<EncodedFile> encodedFiles(entries.size());
+    // --- Helper: append a single entry (raw-copy or pre-encoded) to the archive ---
+    auto appendEntry = [&](const WriteEntry& entry, EncodedFile* encoded) {
+        u32 fileOffset = static_cast<u32>(archive.size());
+        BlockEntry be;
 
+        if (!entry.rawSectors.empty()) {
+            archive.insert(archive.end(), entry.rawSectors.begin(), entry.rawSectors.end());
+            be = makeRawCopyBlockEntry(fileOffset, entry.sourceBlock);
+        } else {
+            if (encoded->data.empty() && !entry.rawData.empty()) {
+                encoded->data = entry.rawData;
+                encoded->compressedSize = static_cast<u32>(entry.rawData.size());
+                encoded->flags = FileFlag::kExists;
+            }
+            archive.insert(archive.end(), encoded->data.begin(), encoded->data.end());
+            be = makeBlockEntry(fileOffset, *encoded, static_cast<u32>(entry.rawData.size()));
+        }
+
+        u32 blockIndex = blockTable.append(be);
+        (void)hashTable.insert(entry.filename, entry.locale, blockIndex);
+        listfileNames.push_back(entry.filename);
+    };
+
+    // Pre-encode overlay entries (parallel when pool available).
+    std::vector<EncodedFile> encodedFiles(entries.size());
+
+    auto makeEncodeOpts = [&](const WriteEntry& entry) {
+        EncodeOptions opts;
+        opts.compression = entry.compression;
+        opts.encrypt = entry.encrypt;
+        opts.singleUnit = entry.singleUnit;
+        opts.sectorSize = hdr.sectorSize();
+        opts.filename = entry.filename;
+        return opts;
+    };
+
+    if (pool && overlayCount >= 2) {
         for (size_t idx = 0; idx < entries.size(); ++idx) {
             const auto& entry = entries[idx];
-            if (!entry.rawSectors.empty()) continue; // Raw-copy, skip.
-
-            overlayOpts[idx].compression = entry.compression;
-            overlayOpts[idx].encrypt = entry.encrypt;
-            overlayOpts[idx].singleUnit = entry.singleUnit;
-            overlayOpts[idx].sectorSize = hdr.sectorSize();
-            overlayOpts[idx].filename = entry.filename;
+            if (!entry.rawSectors.empty())
+                continue;
 
             interfaces::WorkerTask task;
-            task.fn = [idx, &entries, &overlayOpts, &encodedFiles]() {
-                encodedFiles[idx] = encodeFileData(
-                    std::span<const u8>(entries[idx].rawData), overlayOpts[idx],
-                    nullptr); // nullptr: no nested parallelism to avoid deadlock.
+            task.fn = [idx, &entries, &hdr, &encodedFiles, &makeEncodeOpts]() {
+                encodedFiles[idx] =
+                    encodeFileData(std::span<const u8>(entries[idx].rawData),
+                                   makeEncodeOpts(entries[idx]), nullptr); // No nested parallelism.
             };
             pool->submit(task);
         }
         pool->waitIdle();
-
-        // Pass 2: Assemble archive serially.
+    } else {
         for (size_t idx = 0; idx < entries.size(); ++idx) {
             const auto& entry = entries[idx];
-            u32 fileOffset = static_cast<u32>(archive.size());
-
-            if (!entry.rawSectors.empty()) {
-                archive.insert(archive.end(), entry.rawSectors.begin(), entry.rawSectors.end());
-                BlockEntry be = makeRawCopyBlockEntry(fileOffset, entry.sourceBlock);
-                u32 blockIndex = blockTable.append(be);
-                (void)hashTable.insert(entry.filename, entry.locale, blockIndex);
-            } else {
-                auto& encoded = encodedFiles[idx];
-                if (encoded.data.empty() && !entry.rawData.empty()) {
-                    encoded.data = entry.rawData;
-                    encoded.compressedSize = static_cast<u32>(entry.rawData.size());
-                    encoded.flags = FileFlag::kExists;
-                }
-                archive.insert(archive.end(), encoded.data.begin(), encoded.data.end());
-                BlockEntry be = makeBlockEntry(
-                    fileOffset, encoded, static_cast<u32>(entry.rawData.size()));
-                u32 blockIndex = blockTable.append(be);
-                (void)hashTable.insert(entry.filename, entry.locale, blockIndex);
-            }
-
-            listfileNames.push_back(entry.filename);
-        }
-    } else {
-        // --- Serial file encoding (forwards pool for sector-level parallelism) ---
-        for (const auto& entry : entries) {
-            u32 fileOffset = static_cast<u32>(archive.size());
-
-            if (!entry.rawSectors.empty()) {
-                // Raw copy from source archive — write sectors as-is.
-                archive.insert(archive.end(), entry.rawSectors.begin(), entry.rawSectors.end());
-
-                BlockEntry be = makeRawCopyBlockEntry(fileOffset, entry.sourceBlock);
-                u32 blockIndex = blockTable.append(be);
-                (void)hashTable.insert(entry.filename, entry.locale, blockIndex);
-            } else {
-                // Freshly encoded from overlay data.
-                EncodeOptions opts;
-                opts.compression = entry.compression;
-                opts.encrypt = entry.encrypt;
-                opts.singleUnit = entry.singleUnit;
-                opts.sectorSize = hdr.sectorSize();
-                opts.filename = entry.filename;
-
-                auto encoded = encodeFileData(
-                    std::span<const u8>(entry.rawData), opts, pool);
-
-                if (encoded.data.empty() && !entry.rawData.empty()) {
-                    // Compression failed or returned empty — store uncompressed.
-                    encoded.data = entry.rawData;
-                    encoded.compressedSize = static_cast<u32>(entry.rawData.size());
-                    encoded.flags = FileFlag::kExists;
-                }
-
-                archive.insert(archive.end(), encoded.data.begin(), encoded.data.end());
-
-                BlockEntry be = makeBlockEntry(
-                    fileOffset, encoded, static_cast<u32>(entry.rawData.size()));
-                u32 blockIndex = blockTable.append(be);
-                (void)hashTable.insert(entry.filename, entry.locale, blockIndex);
-            }
-
-            listfileNames.push_back(entry.filename);
+            if (!entry.rawSectors.empty())
+                continue;
+            encodedFiles[idx] =
+                encodeFileData(std::span<const u8>(entry.rawData), makeEncodeOpts(entry), pool);
         }
     }
+
+    // Assemble archive entries serially.
+    for (size_t idx = 0; idx < entries.size(); ++idx) {
+        appendEntry(entries[idx], &encodedFiles[idx]);
+    }
+
+    // --- Helper: encode and append a special file (listfile, attributes) ---
+    auto appendSpecialFile = [&](const std::string& name, std::vector<u8>& rawData) {
+        u32 uncompressedSize = static_cast<u32>(rawData.size());
+        u32 fileOffset = static_cast<u32>(archive.size());
+
+        EncodeOptions opts;
+        opts.compression = CompressionFlag::kZlib;
+        opts.sectorSize = hdr.sectorSize();
+        opts.filename = name;
+
+        auto encoded = encodeFileData(std::span<const u8>(rawData), opts);
+        if (encoded.data.empty() && !rawData.empty()) {
+            encoded.data = std::move(rawData);
+            encoded.compressedSize = static_cast<u32>(encoded.data.size());
+            encoded.flags = FileFlag::kExists;
+        }
+
+        archive.insert(archive.end(), encoded.data.begin(), encoded.data.end());
+        BlockEntry be = makeBlockEntry(fileOffset, encoded, uncompressedSize);
+        u32 blockIndex = blockTable.append(be);
+        (void)hashTable.insert(name, 0, blockIndex);
+    };
 
     // Step 3: Write (listfile).
-    {
-        // Include special files in the listfile per MPQ convention.
-        listfileNames.push_back("(listfile)");
-        listfileNames.push_back("(attributes)");
-
-        auto listfileData = buildListfile(listfileNames);
-        u32 listfileUncompressedSize = static_cast<u32>(listfileData.size());
-        u32 listfileOffset = static_cast<u32>(archive.size());
-
-        EncodeOptions opts;
-        opts.compression = CompressionFlag::kZlib;
-        opts.sectorSize = hdr.sectorSize();
-        opts.filename = "(listfile)";
-
-        auto encoded = encodeFileData(
-            std::span<const u8>(listfileData), opts);
-
-        if (encoded.data.empty() && !listfileData.empty()) {
-            encoded.data = std::move(listfileData);
-            encoded.compressedSize = static_cast<u32>(encoded.data.size());
-            encoded.flags = FileFlag::kExists;
-        }
-
-        archive.insert(archive.end(), encoded.data.begin(), encoded.data.end());
-
-        BlockEntry be = makeBlockEntry(
-            listfileOffset, encoded, listfileUncompressedSize);
-        u32 blockIndex = blockTable.append(be);
-        (void)hashTable.insert("(listfile)", 0, blockIndex);
-    }
+    listfileNames.push_back("(listfile)");
+    listfileNames.push_back("(attributes)");
+    auto listfileData = buildListfile(listfileNames);
+    appendSpecialFile("(listfile)", listfileData);
 
     // Step 4: Write (attributes).
-    {
-        // Build attributes for all files.
-        attrs.crc32s.resize(blockTable.count(), 0);
-        attrs.filetimes.resize(blockTable.count(), currentFiletime());
-        attrs.md5s.resize(blockTable.count(), std::array<u8, 16>{});
-
-        auto attrData = buildAttributes(attrs);
-        u32 attrUncompressedSize = static_cast<u32>(attrData.size());
-        u32 attrOffset = static_cast<u32>(archive.size());
-
-        EncodeOptions opts;
-        opts.compression = CompressionFlag::kZlib;
-        opts.sectorSize = hdr.sectorSize();
-        opts.filename = "(attributes)";
-
-        auto encoded = encodeFileData(
-            std::span<const u8>(attrData), opts);
-
-        if (encoded.data.empty() && !attrData.empty()) {
-            encoded.data = std::move(attrData);
-            encoded.compressedSize = static_cast<u32>(encoded.data.size());
-            encoded.flags = FileFlag::kExists;
-        }
-
-        archive.insert(archive.end(), encoded.data.begin(), encoded.data.end());
-
-        BlockEntry be = makeBlockEntry(
-            attrOffset, encoded, attrUncompressedSize);
-        u32 blockIndex = blockTable.append(be);
-        (void)hashTable.insert("(attributes)", 0, blockIndex);
-    }
+    attrs.crc32s.resize(blockTable.count(), 0);
+    attrs.filetimes.resize(blockTable.count(), currentFiletime());
+    attrs.md5s.resize(blockTable.count(), std::array<u8, 16>{});
+    auto attrData = buildAttributes(attrs);
+    appendSpecialFile("(attributes)", attrData);
 
     // Step 5: Write hash table.
     u32 hashTableOffset = static_cast<u32>(archive.size());

@@ -49,10 +49,21 @@ inline u32 crc32(const u8* data, size_t length) {
 
 inline u32 adler32(std::span<const u8> data) {
     static constexpr u32 MOD = 65521;
+    // Largest n such that 255*n*(n+1)/2 + (n+1)*(MOD-1) fits in u32 ≈ 5552.
+    static constexpr size_t NMAX = 5552;
     u32 a = 1, b = 0;
-    for (size_t i = 0; i < data.size(); ++i) {
-        a = (a + data[i]) % MOD;
-        b = (b + a) % MOD;
+    size_t remaining = data.size();
+    const u8* p = data.data();
+    while (remaining > 0) {
+        size_t block = remaining > NMAX ? NMAX : remaining;
+        remaining -= block;
+        for (size_t i = 0; i < block; ++i) {
+            a += p[i];
+            b += a;
+        }
+        a %= MOD;
+        b %= MOD;
+        p += block;
     }
     return (b << 16) | a;
 }

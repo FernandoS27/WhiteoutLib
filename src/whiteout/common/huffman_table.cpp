@@ -55,8 +55,7 @@ i32 MsbHuffmanTable::decodeSymbol(MsbBitReader& reader) const {
     if (reader.bitsAvail < 16) {
         reader.refill();
     }
-    u32 fastTableIndex =
-        (reader.bitBuf >> (32 - HUFFMAN_FAST_BITS)) & BIT_MASK[HUFFMAN_FAST_BITS];
+    u32 fastTableIndex = (reader.bitBuf >> (32 - HUFFMAN_FAST_BITS)) & BIT_MASK[HUFFMAN_FAST_BITS];
     i32 codeLen = this->fastLen[fastTableIndex];
     if (codeLen > 0) {
         reader.consumeBits(codeLen);
@@ -87,7 +86,8 @@ bool LsbHuffmanTable::build(const u8* codeLengths, i32 count) {
     // Count codes of each length.
     std::array<i32, MAX_BITS + 1> blCount{};
     for (i32 i = 0; i < count; ++i) {
-        if (codeLengths[i] > MAX_BITS) return false;
+        if (codeLengths[i] > MAX_BITS)
+            return false;
         blCount[codeLengths[i]]++;
     }
     blCount[0] = 0;
@@ -136,7 +136,8 @@ bool LsbHuffmanTable::build(const u8* codeLengths, i32 count) {
     // Build fast table with bit-reversed codes (DEFLATE is LSB-first).
     for (i32 i = 0; i < count; ++i) {
         i32 len = codeLengths[i];
-        if (len == 0 || len > HUFFMAN_FAST_BITS) continue;
+        if (len == 0 || len > HUFFMAN_FAST_BITS)
+            continue;
         i32 c = nextCode[len]++;
         // Reverse bits for the fast table.
         i32 rev = 0;

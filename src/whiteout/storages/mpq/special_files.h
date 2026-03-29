@@ -32,8 +32,8 @@ namespace whiteout::storages::mpq {
 
 /// Per-file attributes from `(attributes)`.
 struct FileAttributes {
-    std::vector<u32> crc32s;        ///< CRC32 per block entry.
-    std::vector<u64> filetimes;     ///< FILETIME per block entry.
+    std::vector<u32> crc32s;              ///< CRC32 per block entry.
+    std::vector<u64> filetimes;           ///< FILETIME per block entry.
     std::vector<std::array<u8, 16>> md5s; ///< MD5 per block entry.
 };
 
