@@ -32,5 +32,5 @@ std::optional<GroupedFiles> collectBundle(const std::filesystem::path& m2Path);
 
 GroupedFiles fromFileSystem(const FileSystem& fsys, std::filesystem::path whereTo);
 
-}
-}
+} // namespace m2
+} // namespace whiteout

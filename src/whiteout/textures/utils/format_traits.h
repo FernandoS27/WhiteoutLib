@@ -40,22 +40,22 @@ struct FormatList {
 template <PixelFormat>
 struct FormatTraits; // primary template intentionally undefined
 
-#define WHITEOUT_FORMAT_TRAITS(FMT, TYPE, CH, BPP)                             \
-    template <>                                                                \
-    struct FormatTraits<PixelFormat::FMT> {                                     \
-        using channel_type = TYPE;                                             \
-        static constexpr u32 channels = CH;                                    \
-        static constexpr u32 bytes_per_pixel = BPP;                            \
+#define WHITEOUT_FORMAT_TRAITS(FMT, TYPE, CH, BPP)                                                 \
+    template <>                                                                                    \
+    struct FormatTraits<PixelFormat::FMT> {                                                        \
+        using channel_type = TYPE;                                                                 \
+        static constexpr u32 channels = CH;                                                        \
+        static constexpr u32 bytes_per_pixel = BPP;                                                \
     }
 
-WHITEOUT_FORMAT_TRAITS(R8,      u8,  1,  1);
-WHITEOUT_FORMAT_TRAITS(R16,     u16, 1,  2);
-WHITEOUT_FORMAT_TRAITS(R32F,    f32, 1,  4);
-WHITEOUT_FORMAT_TRAITS(RG8,     u8,  2,  2);
-WHITEOUT_FORMAT_TRAITS(RG16,    u16, 2,  4);
-WHITEOUT_FORMAT_TRAITS(RG32F,   f32, 2,  8);
-WHITEOUT_FORMAT_TRAITS(RGBA8,   u8,  4,  4);
-WHITEOUT_FORMAT_TRAITS(RGBA16,  u16, 4,  8);
+WHITEOUT_FORMAT_TRAITS(R8, u8, 1, 1);
+WHITEOUT_FORMAT_TRAITS(R16, u16, 1, 2);
+WHITEOUT_FORMAT_TRAITS(R32F, f32, 1, 4);
+WHITEOUT_FORMAT_TRAITS(RG8, u8, 2, 2);
+WHITEOUT_FORMAT_TRAITS(RG16, u16, 2, 4);
+WHITEOUT_FORMAT_TRAITS(RG32F, f32, 2, 8);
+WHITEOUT_FORMAT_TRAITS(RGBA8, u8, 4, 4);
+WHITEOUT_FORMAT_TRAITS(RGBA16, u16, 4, 8);
 WHITEOUT_FORMAT_TRAITS(RGBA32F, f32, 4, 16);
 
 #undef WHITEOUT_FORMAT_TRAITS
@@ -64,17 +64,10 @@ WHITEOUT_FORMAT_TRAITS(RGBA32F, f32, 4, 16);
 // Canonical format list — the single source of truth
 // ============================================================================
 
-using UncompressedFormats = FormatList<
-    PixelFormat::R8,
-    PixelFormat::R16,
-    PixelFormat::R32F,
-    PixelFormat::RG8,
-    PixelFormat::RG16,
-    PixelFormat::RG32F,
-    PixelFormat::RGBA8,
-    PixelFormat::RGBA16,
-    PixelFormat::RGBA32F
->;
+using UncompressedFormats =
+    FormatList<PixelFormat::R8, PixelFormat::R16, PixelFormat::R32F, PixelFormat::RG8,
+               PixelFormat::RG16, PixelFormat::RG32F, PixelFormat::RGBA8, PixelFormat::RGBA16,
+               PixelFormat::RGBA32F>;
 
 static constexpr u32 kUncompressedCount = UncompressedFormats::size;
 
@@ -87,8 +80,7 @@ constexpr bool check_contiguity(FormatList<Fmts...>, std::index_sequence<Is...>)
 }
 
 static_assert(
-    check_contiguity(UncompressedFormats{},
-                     std::make_index_sequence<UncompressedFormats::size>{}),
+    check_contiguity(UncompressedFormats{}, std::make_index_sequence<UncompressedFormats::size>{}),
     "PixelFormat enum values must be contiguous starting at 0 and match UncompressedFormats order");
 
 } // namespace detail
@@ -138,9 +130,9 @@ constexpr Dst convert_channel(Src val) {
     // f32 → u16
     else if constexpr (std::is_same_v<Src, f32> && std::is_same_v<Dst, u16>) {
         return static_cast<u16>(std::clamp(val, 0.0f, 1.0f) * 65535.0f + 0.5f);
-    }
-    else {
-        static_assert(!std::is_same_v<Src, Src>, "unsupported channel type pair in convert_channel");
+    } else {
+        static_assert(!std::is_same_v<Src, Src>,
+                      "unsupported channel type pair in convert_channel");
     }
 }
 
@@ -177,17 +169,22 @@ void read_rgba32f(const u8* src, f32* dst) {
     constexpr u32 ch = Traits::channels;
 
     // Read existing channels and convert to float
-    if constexpr (ch >= 1) dst[0] = convert_channel<f32, T>(detail::read_channel<T>(src + 0 * sizeof(T)));
-    if constexpr (ch >= 2) dst[1] = convert_channel<f32, T>(detail::read_channel<T>(src + 1 * sizeof(T)));
+    if constexpr (ch >= 1)
+        dst[0] = convert_channel<f32, T>(detail::read_channel<T>(src + 0 * sizeof(T)));
+    if constexpr (ch >= 2)
+        dst[1] = convert_channel<f32, T>(detail::read_channel<T>(src + 1 * sizeof(T)));
     if constexpr (ch >= 4) {
         dst[2] = convert_channel<f32, T>(detail::read_channel<T>(src + 2 * sizeof(T)));
         dst[3] = convert_channel<f32, T>(detail::read_channel<T>(src + 3 * sizeof(T)));
     }
 
     // Fill defaults for missing channels
-    if constexpr (ch < 2) dst[1] = 0.0f;  // green
-    if constexpr (ch < 4) dst[2] = 0.0f;  // blue
-    if constexpr (ch < 4) dst[3] = 1.0f;  // alpha
+    if constexpr (ch < 2)
+        dst[1] = 0.0f; // green
+    if constexpr (ch < 4)
+        dst[2] = 0.0f; // blue
+    if constexpr (ch < 4)
+        dst[3] = 1.0f; // alpha
 }
 
 /// Read 4 floats (RGBA) from @p src and write one pixel in format @p Fmt to @p dst.
@@ -197,8 +194,10 @@ void write_rgba32f(const f32* src, u8* dst) {
     using T = typename Traits::channel_type;
     constexpr u32 ch = Traits::channels;
 
-    if constexpr (ch >= 1) detail::write_channel<T>(dst + 0 * sizeof(T), convert_channel<T, f32>(src[0]));
-    if constexpr (ch >= 2) detail::write_channel<T>(dst + 1 * sizeof(T), convert_channel<T, f32>(src[1]));
+    if constexpr (ch >= 1)
+        detail::write_channel<T>(dst + 0 * sizeof(T), convert_channel<T, f32>(src[0]));
+    if constexpr (ch >= 2)
+        detail::write_channel<T>(dst + 1 * sizeof(T), convert_channel<T, f32>(src[1]));
     if constexpr (ch >= 4) {
         detail::write_channel<T>(dst + 2 * sizeof(T), convert_channel<T, f32>(src[2]));
         detail::write_channel<T>(dst + 3 * sizeof(T), convert_channel<T, f32>(src[3]));
@@ -229,11 +228,21 @@ void convert_pixel(const u8* src, u8* dst) {
     constexpr u32 common_ch = (src_ch < dst_ch) ? src_ch : dst_ch;
 
     // Copy common channels with conversion
-    if constexpr (common_ch >= 1) detail::write_channel<DstT>(dst + 0 * sizeof(DstT), convert_channel<DstT, SrcT>(detail::read_channel<SrcT>(src + 0 * sizeof(SrcT))));
-    if constexpr (common_ch >= 2) detail::write_channel<DstT>(dst + 1 * sizeof(DstT), convert_channel<DstT, SrcT>(detail::read_channel<SrcT>(src + 1 * sizeof(SrcT))));
+    if constexpr (common_ch >= 1)
+        detail::write_channel<DstT>(
+            dst + 0 * sizeof(DstT),
+            convert_channel<DstT, SrcT>(detail::read_channel<SrcT>(src + 0 * sizeof(SrcT))));
+    if constexpr (common_ch >= 2)
+        detail::write_channel<DstT>(
+            dst + 1 * sizeof(DstT),
+            convert_channel<DstT, SrcT>(detail::read_channel<SrcT>(src + 1 * sizeof(SrcT))));
     if constexpr (common_ch >= 4) {
-        detail::write_channel<DstT>(dst + 2 * sizeof(DstT), convert_channel<DstT, SrcT>(detail::read_channel<SrcT>(src + 2 * sizeof(SrcT))));
-        detail::write_channel<DstT>(dst + 3 * sizeof(DstT), convert_channel<DstT, SrcT>(detail::read_channel<SrcT>(src + 3 * sizeof(SrcT))));
+        detail::write_channel<DstT>(
+            dst + 2 * sizeof(DstT),
+            convert_channel<DstT, SrcT>(detail::read_channel<SrcT>(src + 2 * sizeof(SrcT))));
+        detail::write_channel<DstT>(
+            dst + 3 * sizeof(DstT),
+            convert_channel<DstT, SrcT>(detail::read_channel<SrcT>(src + 3 * sizeof(SrcT))));
     }
 
     // Fill missing destination channels with defaults
@@ -266,8 +275,8 @@ void convert_pixels(const u8* src, u8* dst, u32 count) {
 namespace detail {
 
 template <typename Fn, PixelFormat... Fmts, std::size_t... Is, typename... Args>
-bool dispatch_impl(FormatList<Fmts...>, std::index_sequence<Is...>,
-                   PixelFormat fmt, Args&... args) {
+bool dispatch_impl(FormatList<Fmts...>, std::index_sequence<Is...>, PixelFormat fmt,
+                   Args&... args) {
     bool matched = false;
     // Fold expression: try each format (args passed by lref — safe across fold iterations)
     ((static_cast<u32>(Fmts) == static_cast<u32>(fmt)
@@ -285,9 +294,7 @@ bool dispatch_impl(FormatList<Fmts...>, std::index_sequence<Is...>,
 template <typename Fn, typename... Args>
 bool dispatch_uncompressed(PixelFormat fmt, Args&... args) {
     return detail::dispatch_impl<Fn>(
-        UncompressedFormats{},
-        std::make_index_sequence<UncompressedFormats::size>{},
-        fmt, args...);
+        UncompressedFormats{}, std::make_index_sequence<UncompressedFormats::size>{}, fmt, args...);
 }
 
 // ============================================================================

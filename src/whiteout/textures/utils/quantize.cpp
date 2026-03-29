@@ -108,8 +108,7 @@ inline Lab linear_rgb_to_lab(f64 rl, f64 gl, f64 bl) {
     const f64 fy = xyz_to_lab_f(y / yn);
     const f64 fz = xyz_to_lab_f(z / zn);
 
-    return {static_cast<f32>(116.0 * fy - 16.0),
-            static_cast<f32>(500.0 * (fx - fy)),
+    return {static_cast<f32>(116.0 * fy - 16.0), static_cast<f32>(500.0 * (fx - fy)),
             static_cast<f32>(200.0 * (fy - fz))};
 }
 
@@ -258,8 +257,7 @@ inline Lab colorf_to_lab(const ColorF& c, bool srgb) {
 }
 
 inline ColorF unpack_color(u32 packed) {
-    return {static_cast<f64>((packed >> 16) & 0xFF),
-            static_cast<f64>((packed >> 8) & 0xFF),
+    return {static_cast<f64>((packed >> 16) & 0xFF), static_cast<f64>((packed >> 8) & 0xFF),
             static_cast<f64>(packed & 0xFF)};
 }
 
@@ -272,8 +270,7 @@ inline u32 pack_color(const ColorF& c) {
 
 inline ColorF read_pixel_rgb(const u8* rgba, u32 i) {
     const u32 base = i * 4;
-    return {static_cast<f64>(rgba[base]),
-            static_cast<f64>(rgba[base + 1]),
+    return {static_cast<f64>(rgba[base]), static_cast<f64>(rgba[base + 1]),
             static_cast<f64>(rgba[base + 2])};
 }
 
@@ -437,13 +434,13 @@ void parallel_for_chunks(u32 count, QuantizeContext* ctx, Fn&& fn) {
         for (u32 t = 0; t < nThreads; ++t) {
             const u32 begin = t * chunk;
             const u32 end = std::min(begin + chunk, count);
-            if (begin >= end) break;
+            if (begin >= end)
+                break;
             group.add(1);
-            interfaces::WorkerTask task{
-                [begin, end, &fn, &group]() {
-                    fn(begin, end);
-                    group.done();
-                }};
+            interfaces::WorkerTask task{[begin, end, &fn, &group]() {
+                fn(begin, end);
+                group.done();
+            }};
             ctx->pool->submit(task);
         }
         group.wait();
@@ -482,9 +479,8 @@ void build_histogram(const u8* rgba, u32 pixel_count, Moments& moments) {
         const u8 b8 = rgba[base + 2];
 
         const f64 r = r8, g = g8, b = b8;
-        const u32 bin = idx((r8 >> QUANT_SHIFT) + 1,
-                            (g8 >> QUANT_SHIFT) + 1,
-                            (b8 >> QUANT_SHIFT) + 1);
+        const u32 bin =
+            idx((r8 >> QUANT_SHIFT) + 1, (g8 >> QUANT_SHIFT) + 1, (b8 >> QUANT_SHIFT) + 1);
 
         moments.weight[bin] += 1.0;
         moments.sum_r[bin] += r;
@@ -502,9 +498,8 @@ void build_histogram_range(const u8* rgba, u32 begin, u32 end, Moments& out) {
         const u8 b8 = rgba[base + 2];
 
         const f64 r = r8, g = g8, b = b8;
-        const u32 bin = idx((r8 >> QUANT_SHIFT) + 1,
-                            (g8 >> QUANT_SHIFT) + 1,
-                            (b8 >> QUANT_SHIFT) + 1);
+        const u32 bin =
+            idx((r8 >> QUANT_SHIFT) + 1, (g8 >> QUANT_SHIFT) + 1, (b8 >> QUANT_SHIFT) + 1);
 
         out.weight[bin] += 1.0;
         out.sum_r[bin] += r;
@@ -580,9 +575,15 @@ inline f64 box_sum(const MomentArray& arr, const Box& box) {
 inline f64 half_box_sum(const MomentArray& arr, const Box& box, Axis axis, i32 pos) {
     Box sub = box;
     switch (axis) {
-    case Axis::R: sub.r1 = pos; break;
-    case Axis::G: sub.g1 = pos; break;
-    case Axis::B: sub.b1 = pos; break;
+    case Axis::R:
+        sub.r1 = pos;
+        break;
+    case Axis::G:
+        sub.g1 = pos;
+        break;
+    case Axis::B:
+        sub.b1 = pos;
+        break;
     }
     return box_sum(arr, sub);
 }
@@ -610,9 +611,18 @@ i32 maximize_on_axis(const Moments& moments, const Box& box, Axis axis, f64 tota
                      f64 total_r, f64 total_g, f64 total_b, f64* out_max) {
     i32 lo = 0, hi = 0;
     switch (axis) {
-    case Axis::R: lo = box.r0; hi = box.r1; break;
-    case Axis::G: lo = box.g0; hi = box.g1; break;
-    case Axis::B: lo = box.b0; hi = box.b1; break;
+    case Axis::R:
+        lo = box.r0;
+        hi = box.r1;
+        break;
+    case Axis::G:
+        lo = box.g0;
+        hi = box.g1;
+        break;
+    case Axis::B:
+        lo = box.b0;
+        hi = box.b1;
+        break;
     }
 
     f64 best_score = 0.0;
@@ -668,24 +678,36 @@ bool cut(const Moments& moments, Box& lower, Box& upper) {
     i32 best_pos;
 
     if (score_r >= score_g && score_r >= score_b) {
-        if (pos_r < 0) return false;
+        if (pos_r < 0)
+            return false;
         best_axis = Axis::R;
         best_pos = pos_r;
     } else if (score_g >= score_r && score_g >= score_b) {
-        if (pos_g < 0) return false;
+        if (pos_g < 0)
+            return false;
         best_axis = Axis::G;
         best_pos = pos_g;
     } else {
-        if (pos_b < 0) return false;
+        if (pos_b < 0)
+            return false;
         best_axis = Axis::B;
         best_pos = pos_b;
     }
 
     upper = lower;
     switch (best_axis) {
-    case Axis::R: lower.r1 = best_pos; upper.r0 = best_pos; break;
-    case Axis::G: lower.g1 = best_pos; upper.g0 = best_pos; break;
-    case Axis::B: lower.b1 = best_pos; upper.b0 = best_pos; break;
+    case Axis::R:
+        lower.r1 = best_pos;
+        upper.r0 = best_pos;
+        break;
+    case Axis::G:
+        lower.g1 = best_pos;
+        upper.g0 = best_pos;
+        break;
+    case Axis::B:
+        lower.b1 = best_pos;
+        upper.b0 = best_pos;
+        break;
     }
     lower.vol = (lower.r1 - lower.r0) * (lower.g1 - lower.g0) * (lower.b1 - lower.b0);
     upper.vol = (upper.r1 - upper.r0) * (upper.g1 - upper.g0) * (upper.b1 - upper.b0);
@@ -728,14 +750,14 @@ struct QuantizeState {
     // --- K-means ---
     ToLinearLut lut{false};
     std::vector<ColorF> centroids;
-    LabPalette centroidPal;         // SoA for vectorized nearest search
-    std::vector<Lab> pixelLabs;     // f32 per-pixel Labs (12 B each)
+    LabPalette centroidPal;     // SoA for vectorized nearest search
+    std::vector<Lab> pixelLabs; // f32 per-pixel Labs (12 B each)
     std::vector<u8> assignments;
     u32 kmeansWeightThreshold = 1;
     std::shared_ptr<std::atomic<bool>> kmeansConverged;
 
     // --- Tag volume ---
-    LabPalette palLabels;           // SoA palette Labs for tag build
+    LabPalette palLabels; // SoA palette Labs for tag build
 
     // --- Dither refine ---
     std::vector<ColorF> palColors;
@@ -800,7 +822,8 @@ void sort_palette_hilbert(std::shared_ptr<QuantizeState> state) {
     std::vector<u64> hilbertKeys(colorCount);
     for (u32 i = 0; i < colorCount; ++i) {
         const u32 packed = state->palette[i];
-        hilbertKeys[i] = hilbert_xyz2d((packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF, kOrder);
+        hilbertKeys[i] =
+            hilbert_xyz2d((packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF, kOrder);
     }
 
     std::sort(order.begin(), order.end(),
@@ -951,13 +974,13 @@ void build_quantize_dag(std::shared_ptr<QuantizeState> state, QuantizeContext* c
             for (u32 t = 0; t < nThreads; ++t) {
                 const u32 begin = t * chunk;
                 const u32 end = std::min(begin + chunk, pixelCount);
-                if (begin >= end) continue;
+                if (begin >= end)
+                    continue;
                 group.add(1);
-                interfaces::WorkerTask task{
-                    [&, t, begin, end]() {
-                        build_histogram_range(state->rgba, begin, end, state->threadMoments[t]);
-                        group.done();
-                    }};
+                interfaces::WorkerTask task{[&, t, begin, end]() {
+                    build_histogram_range(state->rgba, begin, end, state->threadMoments[t]);
+                    group.done();
+                }};
                 ctx->pool->submit(task);
             }
             group.wait();
@@ -970,15 +993,12 @@ void build_quantize_dag(std::shared_ptr<QuantizeState> state, QuantizeContext* c
             state->threadMoments.shrink_to_fit();
         });
     } else {
-        submitSingleTask(ctx, [state]() {
-            build_histogram(state->rgba, state->pixelCount, *state->moments);
-        });
+        submitSingleTask(
+            ctx, [state]() { build_histogram(state->rgba, state->pixelCount, *state->moments); });
     }
 
     // -- 3. Prefix sums --
-    submitSingleTask(ctx, [state]() {
-        compute_cumulative_moments(*state->moments);
-    });
+    submitSingleTask(ctx, [state]() { compute_cumulative_moments(*state->moments); });
 
     // -- 4. Box splitting + palette extraction --
     submitSingleTask(ctx, [state]() {
@@ -1027,10 +1047,9 @@ void build_quantize_dag(std::shared_ptr<QuantizeState> state, QuantizeContext* c
         for (u32 i = 0; i < boxCount; ++i) {
             const f64 weight = box_sum(moments.weight, boxes[i]);
             if (weight > 0.0) {
-                state->palette[i] =
-                    pack_color({box_sum(moments.sum_r, boxes[i]) / weight,
-                                box_sum(moments.sum_g, boxes[i]) / weight,
-                                box_sum(moments.sum_b, boxes[i]) / weight});
+                state->palette[i] = pack_color({box_sum(moments.sum_r, boxes[i]) / weight,
+                                                box_sum(moments.sum_g, boxes[i]) / weight,
+                                                box_sum(moments.sum_b, boxes[i]) / weight});
             }
         }
         state->colorCount = boxCount;
@@ -1054,8 +1073,7 @@ void build_quantize_dag(std::shared_ptr<QuantizeState> state, QuantizeContext* c
         state->centroidPal = make_lab_palette(state->centroids.data(), colorCount, state->srgb);
         state->pixelLabs.resize(state->pixelCount);
         state->assignments.resize(state->pixelCount);
-        state->kmeansWeightThreshold =
-            std::max(state->pixelCount / (colorCount * 16u), 1u);
+        state->kmeansWeightThreshold = std::max(state->pixelCount / (colorCount * 16u), 1u);
     });
 
     // 5b. Compute pixel Labs.
@@ -1114,8 +1132,8 @@ void build_quantize_dag(std::shared_ptr<QuantizeState> state, QuantizeContext* c
                 f32 worst_err = -1.0f;
                 u32 worst_px = 0;
                 for (u32 p = 0; p < pc; ++p) {
-                    const f32 err = state->centroidPal.distSq(
-                        state->assignments[p], state->pixelLabs[p]);
+                    const f32 err =
+                        state->centroidPal.distSq(state->assignments[p], state->pixelLabs[p]);
                     if (err > worst_err) {
                         worst_err = err;
                         worst_px = p;
@@ -1155,10 +1173,9 @@ void build_quantize_dag(std::shared_ptr<QuantizeState> state, QuantizeContext* c
                 const i32 ri = static_cast<i32>(s) + 1;
                 for (i32 gi = 1; gi < HIST_SIZE; ++gi) {
                     for (i32 bi = 1; bi < HIST_SIZE; ++bi) {
-                        const u32 lab_idx = static_cast<u32>(
-                            ((ri - 1) * 32 + (gi - 1)) * 32 + (bi - 1));
-                        tag[idx(ri, gi, bi)] =
-                            static_cast<u8>(pal.findNearest(bin_labs[lab_idx]));
+                        const u32 lab_idx =
+                            static_cast<u32>(((ri - 1) * 32 + (gi - 1)) * 32 + (bi - 1));
+                        tag[idx(ri, gi, bi)] = static_cast<u8>(pal.findNearest(bin_labs[lab_idx]));
                     }
                 }
             }
@@ -1170,161 +1187,156 @@ void build_quantize_dag(std::shared_ptr<QuantizeState> state, QuantizeContext* c
                           state->ditherHeight > 0 && state->ditherStrength > 0.0f;
     if (doDither) {
 
-    const u32 ditherPixelCount =
-        std::min(state->ditherWidth * state->ditherHeight, state->pixelCount);
+        const u32 ditherPixelCount =
+            std::min(state->ditherWidth * state->ditherHeight, state->pixelCount);
 
-    // 7a. Allocate dither buffers.
-    submitSingleTask(ctx, [state, ditherPixelCount]() {
-        state->ditherConverged = std::make_shared<std::atomic<bool>>(false);
+        // 7a. Allocate dither buffers.
+        submitSingleTask(ctx, [state, ditherPixelCount]() {
+            state->ditherConverged = std::make_shared<std::atomic<bool>>(false);
 
-        const u32 colorCount = state->colorCount;
-        if (colorCount <= 1) {
-            state->ditherConverged->store(true, std::memory_order_release);
-            return;
-        }
-
-        state->palColors = unpack_palette(state->palette, colorCount);
-        state->ditherParams = make_dither_params(state->ditherStrength);
-        state->ditherOffsets.resize(ditherPixelCount);
-        state->ditherStarveThreshold =
-            std::max(ditherPixelCount / (colorCount * 16u), 1u);
-        state->ditherPrevError = std::numeric_limits<f64>::max();
-        state->ditherLr = 1.0;
-
-        if (state->pixelLabs.size() < ditherPixelCount)
-            state->pixelLabs.resize(ditherPixelCount);
-        if (state->assignments.size() < ditherPixelCount)
-            state->assignments.resize(ditherPixelCount);
-    });
-
-    // 7b. Compute dither offsets + pixel Labs.
-    //     Always (re)compute pixelLabs here: kmeans may have been disabled
-    //     (kmeansIterations == 0), leaving pixelLabs uninitialized.
-    parallel_for_chunks(ditherPixelCount, ctx, [state](u32 begin, u32 end) {
-        if (state->ditherConverged->load(std::memory_order_acquire))
-            return;
-        const auto noise = blueNoiseMap();
-        const u32 w = state->ditherWidth;
-        for (u32 i = begin; i < end; ++i) {
-            state->ditherOffsets[i] = dither_offset(i % w, i / w, noise, state->ditherParams);
-            state->pixelLabs[i] = pixel_to_lab(state->rgba, i, state->lut);
-        }
-    });
-
-    // 7c. Dither iterations.
-    for (u32 iter = 0; iter < state->ditherIterations; ++iter) {
-        // Prepare centroid Labs.
-        submitSingleTask(ctx, [state]() {
-            if (state->ditherConverged->load(std::memory_order_acquire))
-                return;
-            if (state->colorCount <= 1) {
+            const u32 colorCount = state->colorCount;
+            if (colorCount <= 1) {
                 state->ditherConverged->store(true, std::memory_order_release);
                 return;
             }
-            state->centroidPal =
-                make_lab_palette(state->palColors.data(), state->colorCount, state->srgb);
+
+            state->palColors = unpack_palette(state->palette, colorCount);
+            state->ditherParams = make_dither_params(state->ditherStrength);
+            state->ditherOffsets.resize(ditherPixelCount);
+            state->ditherStarveThreshold = std::max(ditherPixelCount / (colorCount * 16u), 1u);
+            state->ditherPrevError = std::numeric_limits<f64>::max();
+            state->ditherLr = 1.0;
+
+            if (state->pixelLabs.size() < ditherPixelCount)
+                state->pixelLabs.resize(ditherPixelCount);
+            if (state->assignments.size() < ditherPixelCount)
+                state->assignments.resize(ditherPixelCount);
         });
 
-        // Assignment with dithering.
+        // 7b. Compute dither offsets + pixel Labs.
+        //     Always (re)compute pixelLabs here: kmeans may have been disabled
+        //     (kmeansIterations == 0), leaving pixelLabs uninitialized.
         parallel_for_chunks(ditherPixelCount, ctx, [state](u32 begin, u32 end) {
             if (state->ditherConverged->load(std::memory_order_acquire))
                 return;
-            const auto& pal = state->centroidPal;
+            const auto noise = blueNoiseMap();
+            const u32 w = state->ditherWidth;
             for (u32 i = begin; i < end; ++i) {
-                const auto px = read_pixel_rgb(state->rgba, i);
-                const f64 d = state->ditherOffsets[i];
-                const auto dithered = clamp_color(px + ColorF{d, d, d});
-                state->assignments[i] =
-                    static_cast<u8>(pal.findNearest(colorf_to_lab(dithered, state->srgb)));
+                state->ditherOffsets[i] = dither_offset(i % w, i / w, noise, state->ditherParams);
+                state->pixelLabs[i] = pixel_to_lab(state->rgba, i, state->lut);
             }
         });
 
-        // Centroid update + convergence.
+        // 7c. Dither iterations.
+        for (u32 iter = 0; iter < state->ditherIterations; ++iter) {
+            // Prepare centroid Labs.
+            submitSingleTask(ctx, [state]() {
+                if (state->ditherConverged->load(std::memory_order_acquire))
+                    return;
+                if (state->colorCount <= 1) {
+                    state->ditherConverged->store(true, std::memory_order_release);
+                    return;
+                }
+                state->centroidPal =
+                    make_lab_palette(state->palColors.data(), state->colorCount, state->srgb);
+            });
+
+            // Assignment with dithering.
+            parallel_for_chunks(ditherPixelCount, ctx, [state](u32 begin, u32 end) {
+                if (state->ditherConverged->load(std::memory_order_acquire))
+                    return;
+                const auto& pal = state->centroidPal;
+                for (u32 i = begin; i < end; ++i) {
+                    const auto px = read_pixel_rgb(state->rgba, i);
+                    const f64 d = state->ditherOffsets[i];
+                    const auto dithered = clamp_color(px + ColorF{d, d, d});
+                    state->assignments[i] =
+                        static_cast<u8>(pal.findNearest(colorf_to_lab(dithered, state->srgb)));
+                }
+            });
+
+            // Centroid update + convergence.
+            submitSingleTask(ctx, [state]() {
+                if (state->ditherConverged->load(std::memory_order_acquire))
+                    return;
+
+                const u32 colorCount = state->colorCount;
+                const u32 pc =
+                    std::min(state->ditherWidth * state->ditherHeight, state->pixelCount);
+
+                std::vector<ColorF> accum(colorCount, ColorF{0, 0, 0});
+                std::vector<u32> counts(colorCount, 0u);
+                f64 totalError = 0.0;
+                for (u32 i = 0; i < pc; ++i) {
+                    const u32 best = state->assignments[i];
+                    totalError += state->centroidPal.distSq(best, state->pixelLabs[i]);
+                    accum[best] += read_pixel_rgb(state->rgba, i);
+                    counts[best]++;
+                }
+
+                if (totalError >= state->ditherPrevError) {
+                    state->ditherConverged->store(true, std::memory_order_release);
+                    return;
+                }
+                state->ditherPrevError = totalError;
+
+                constexpr f64 lr_decay = 0.7;
+                for (u32 c = 0; c < colorCount; ++c) {
+                    if (counts[c] == 0)
+                        continue;
+                    const ColorF target = accum[c] / static_cast<f64>(counts[c]);
+                    state->palColors[c] =
+                        clamp_color(ColorF::lerp(state->palColors[c], target, state->ditherLr));
+                }
+
+                const auto pal = make_lab_palette(state->palColors.data(), colorCount, state->srgb);
+                for (u32 c = 0; c < colorCount; ++c) {
+                    if (counts[c] >= state->ditherStarveThreshold)
+                        continue;
+                    const u32 worst_px = find_worst_error_pixel(
+                        state->pixelLabs.data(), static_cast<u32>(state->pixelLabs.size()), pal);
+                    state->palColors[c] = read_pixel_rgb(state->rgba, worst_px);
+                }
+
+                state->ditherLr *= lr_decay;
+            });
+        }
+
+        // 7d. Pack palette + rebuild tag volume.
         submitSingleTask(ctx, [state]() {
-            if (state->ditherConverged->load(std::memory_order_acquire))
-                return;
-
-            const u32 colorCount = state->colorCount;
-            const u32 pc =
-                std::min(state->ditherWidth * state->ditherHeight, state->pixelCount);
-
-            std::vector<ColorF> accum(colorCount, ColorF{0, 0, 0});
-            std::vector<u32> counts(colorCount, 0u);
-            f64 totalError = 0.0;
-            for (u32 i = 0; i < pc; ++i) {
-                const u32 best = state->assignments[i];
-                totalError += state->centroidPal.distSq(best, state->pixelLabs[i]);
-                accum[best] += read_pixel_rgb(state->rgba, i);
-                counts[best]++;
-            }
-
-            if (totalError >= state->ditherPrevError) {
-                state->ditherConverged->store(true, std::memory_order_release);
-                return;
-            }
-            state->ditherPrevError = totalError;
-
-            constexpr f64 lr_decay = 0.7;
-            for (u32 c = 0; c < colorCount; ++c) {
-                if (counts[c] == 0)
-                    continue;
-                const ColorF target = accum[c] / static_cast<f64>(counts[c]);
-                state->palColors[c] =
-                    clamp_color(ColorF::lerp(state->palColors[c], target, state->ditherLr));
-            }
-
-            const auto pal =
-                make_lab_palette(state->palColors.data(), colorCount, state->srgb);
-            for (u32 c = 0; c < colorCount; ++c) {
-                if (counts[c] >= state->ditherStarveThreshold)
-                    continue;
-                const u32 worst_px = find_worst_error_pixel(
-                    state->pixelLabs.data(), static_cast<u32>(state->pixelLabs.size()), pal);
-                state->palColors[c] = read_pixel_rgb(state->rgba, worst_px);
-            }
-
-            state->ditherLr *= lr_decay;
-        });
-    }
-
-    // 7d. Pack palette + rebuild tag volume.
-    submitSingleTask(ctx, [state]() {
-        if (!state->palColors.empty() && state->colorCount > 1)
-            pack_palette(state->palColors.data(), state->colorCount, state->palette);
-    });
-
-    {
-        submitSingleTask(ctx, [state]() {
-            state->tag.assign(HIST_TOTAL, 0);
-            state->palLabels =
-                make_lab_palette(state->palette, state->colorCount, state->srgb);
+            if (!state->palColors.empty() && state->colorCount > 1)
+                pack_palette(state->palColors.data(), state->colorCount, state->palette);
         });
 
-        const auto& bin_labs = get_bin_center_labs(state->srgb);
-        constexpr u32 rSlices = HIST_SIZE - 1;
-        parallel_for_chunks(rSlices, ctx, [state, &bin_labs](u32 begin, u32 end) {
-            const auto& pal = state->palLabels;
-            auto& tag = state->tag;
-            for (u32 s = begin; s < end; ++s) {
-                const i32 ri = static_cast<i32>(s) + 1;
-                for (i32 gi = 1; gi < HIST_SIZE; ++gi) {
-                    for (i32 bi = 1; bi < HIST_SIZE; ++bi) {
-                        const u32 lab_idx = static_cast<u32>(
-                            ((ri - 1) * 32 + (gi - 1)) * 32 + (bi - 1));
-                        tag[idx(ri, gi, bi)] =
-                            static_cast<u8>(pal.findNearest(bin_labs[lab_idx]));
+        {
+            submitSingleTask(ctx, [state]() {
+                state->tag.assign(HIST_TOTAL, 0);
+                state->palLabels = make_lab_palette(state->palette, state->colorCount, state->srgb);
+            });
+
+            const auto& bin_labs = get_bin_center_labs(state->srgb);
+            constexpr u32 rSlices = HIST_SIZE - 1;
+            parallel_for_chunks(rSlices, ctx, [state, &bin_labs](u32 begin, u32 end) {
+                const auto& pal = state->palLabels;
+                auto& tag = state->tag;
+                for (u32 s = begin; s < end; ++s) {
+                    const i32 ri = static_cast<i32>(s) + 1;
+                    for (i32 gi = 1; gi < HIST_SIZE; ++gi) {
+                        for (i32 bi = 1; bi < HIST_SIZE; ++bi) {
+                            const u32 lab_idx =
+                                static_cast<u32>(((ri - 1) * 32 + (gi - 1)) * 32 + (bi - 1));
+                            tag[idx(ri, gi, bi)] =
+                                static_cast<u8>(pal.findNearest(bin_labs[lab_idx]));
+                        }
                     }
                 }
-            }
-        });
-    }
+            });
+        }
 
     } // end doDither
 
     // -- 8. Hilbert sort --
-    submitSingleTask(ctx, [state]() {
-        sort_palette_hilbert(state);
-    });
+    submitSingleTask(ctx, [state]() { sort_palette_hilbert(state); });
 }
 
 } // anonymous namespace
@@ -1451,8 +1463,7 @@ void QuantizeResult::mapPixels(const u8* rgba, u32 pixel_count, u8* out_indices)
     }
     for (u32 i = 0; i < pixel_count; ++i) {
         const u32 base = i * 4;
-        out_indices[i] = tag_[idx(quantize_channel(rgba[base]),
-                                  quantize_channel(rgba[base + 1]),
+        out_indices[i] = tag_[idx(quantize_channel(rgba[base]), quantize_channel(rgba[base + 1]),
                                   quantize_channel(rgba[base + 2]))];
     }
 }
@@ -1530,24 +1541,23 @@ void QuantizeResult::refineDitherAware(const u8* rgba, u32 width, u32 height, f3
             for (u32 t = 0; t < nThreads; ++t) {
                 const u32 begin = t * chunk;
                 const u32 end = std::min(begin + chunk, pixel_count);
-                if (begin >= end) break;
+                if (begin >= end)
+                    break;
                 group.add(1);
-                interfaces::WorkerTask task{
-                    [&, t, begin, end]() {
-                        f64 local_error = 0.0;
-                        for (u32 i = begin; i < end; ++i) {
-                            const auto px = read_pixel_rgb(rgba, i);
-                            const auto dithered =
-                                clamp_color(px + ColorF{offsets[i], offsets[i], offsets[i]});
-                            const u32 best =
-                                pal_lab.findNearest(colorf_to_lab(dithered, srgb_));
-                            local_error += pal_lab.distSq(best, pixel_labs[i]);
-                            thread_accum[t][best] += px;
-                            thread_counts[t][best]++;
-                        }
-                        thread_errors[t] = local_error;
-                        group.done();
-                    }};
+                interfaces::WorkerTask task{[&, t, begin, end]() {
+                    f64 local_error = 0.0;
+                    for (u32 i = begin; i < end; ++i) {
+                        const auto px = read_pixel_rgb(rgba, i);
+                        const auto dithered =
+                            clamp_color(px + ColorF{offsets[i], offsets[i], offsets[i]});
+                        const u32 best = pal_lab.findNearest(colorf_to_lab(dithered, srgb_));
+                        local_error += pal_lab.distSq(best, pixel_labs[i]);
+                        thread_accum[t][best] += px;
+                        thread_counts[t][best]++;
+                    }
+                    thread_errors[t] = local_error;
+                    group.done();
+                }};
                 pool->submit(task);
             }
             group.wait();

@@ -90,13 +90,13 @@ static constexpr std::array<u8, BLOCK_PIXELS> STD_LUMINANCE_QUANT_NATURAL = {{
 /// so that the values stored in the JPEG file match the standard definition.
 static constexpr std::array<f32, BLOCK_SIZE> AAN_SCALE_FACTORS = {{
     1.0f,
-    SQRT2_F * dct_cos(1),
-    SQRT2_F * dct_cos(2),
-    SQRT2_F * dct_cos(3),
-    SQRT2_F * dct_cos(4),
-    SQRT2_F * dct_cos(5),
-    SQRT2_F * dct_cos(6),
-    SQRT2_F * dct_cos(7),
+    SQRT2_F* dct_cos(1),
+    SQRT2_F* dct_cos(2),
+    SQRT2_F* dct_cos(3),
+    SQRT2_F* dct_cos(4),
+    SQRT2_F* dct_cos(5),
+    SQRT2_F* dct_cos(6),
+    SQRT2_F* dct_cos(7),
 }};
 
 // ============================================================================
@@ -123,8 +123,8 @@ std::array<f32, BLOCK_PIXELS> build_quant_reciprocal_natural(
         const i32 zz = NATURAL_TO_ZIGZAG[nat];
         const i32 row = nat / BLOCK_SIZE;
         const i32 col = nat % BLOCK_SIZE;
-        const f32 divisor = static_cast<f32>(quantTableZigzag[zz]) *
-                            AAN_SCALE_FACTORS[row] * AAN_SCALE_FACTORS[col];
+        const f32 divisor = static_cast<f32>(quantTableZigzag[zz]) * AAN_SCALE_FACTORS[row] *
+                            AAN_SCALE_FACTORS[col];
         reciprocal[nat] = DCT_2D_NORMALISATION / divisor;
     }
     return reciprocal;
@@ -236,8 +236,7 @@ void forward_dct_and_quantise(const u8* inputPixels, u32 inputRowStride,
     // Inner loop reads block[] contiguously; writes scatter via NATURAL_TO_ZIGZAG.
     for (i32 nat = 0; nat < BLOCK_PIXELS; ++nat) {
         const f32 val = block[nat] * quantReciprocalNatural[nat];
-        quantisedCoeffs[NATURAL_TO_ZIGZAG[nat]] =
-            static_cast<i32>(val + std::copysignf(0.5f, val));
+        quantisedCoeffs[NATURAL_TO_ZIGZAG[nat]] = static_cast<i32>(val + std::copysignf(0.5f, val));
     }
 }
 
@@ -255,8 +254,8 @@ struct CategoryMagnitude {
 /// For positive values the magnitude is the value itself.  For negative values
 /// it is the one's-complement encoding (value + (1 << category) - 1).
 CategoryMagnitude compute_category_magnitude(i32 value) {
-    const i32 mask = value >> 31;                                 // 0 or -1
-    const u32 abs = static_cast<u32>((value ^ mask) - mask);     // branchless abs
+    const i32 mask = value >> 31;                            // 0 or -1
+    const u32 abs = static_cast<u32>((value ^ mask) - mask); // branchless abs
     const i32 cat = static_cast<i32>(std::bit_width(abs));
     const u32 mag = static_cast<u32>(value + (mask & ((1 << cat) - 1)));
     return {cat, mag};
@@ -368,8 +367,8 @@ void write_dht(std::vector<u8>& out, u8 tableClass, u8 tableIndex, const u8* len
 /// @param se            Spectral selection end (0 for DC-only, 63 for full AC).
 /// @param ah            Successive approximation high bit.
 /// @param al            Successive approximation low bit.
-void write_sos(std::vector<u8>& out, const u8* compIds, const u8* dcIds,
-               const u8* acIds, u32 count, u8 ss, u8 se, u8 ah, u8 al) {
+void write_sos(std::vector<u8>& out, const u8* compIds, const u8* dcIds, const u8* acIds, u32 count,
+               u8 ss, u8 se, u8 ah, u8 al) {
     write_marker(out, MARKER_SOS);
     write_u16_be(out, static_cast<u16>(6 + count * 2));
     write_u8(out, static_cast<u8>(count));
@@ -385,7 +384,7 @@ void write_sos(std::vector<u8>& out, const u8* compIds, const u8* dcIds,
 /// Write a DRI (Define Restart Interval) marker segment.
 void write_dri(std::vector<u8>& out, u16 restartInterval) {
     write_marker(out, MARKER_DRI);
-    write_u16_be(out, 4);  // Segment length: 2 (length) + 2 (interval).
+    write_u16_be(out, 4); // Segment length: 2 (length) + 2 (interval).
     write_u16_be(out, restartInterval);
 }
 
@@ -421,7 +420,8 @@ void encode_ac_coefficients(BitstreamWriter& writer, const HuffmanEncodeTable& a
                             const std::array<i32, BLOCK_PIXELS>& coeffs) {
     // Find last nonzero AC coefficient (scan from the end).
     i32 lastNonzero = BLOCK_PIXELS - 1;
-    while (lastNonzero > 0 && coeffs[lastNonzero] == 0) --lastNonzero;
+    while (lastNonzero > 0 && coeffs[lastNonzero] == 0)
+        --lastNonzero;
 
     if (lastNonzero == 0) {
         // All AC coefficients are zero — emit EOB.
@@ -432,7 +432,10 @@ void encode_ac_coefficients(BitstreamWriter& writer, const HuffmanEncodeTable& a
 
     i32 consecutiveZeros = 0;
     for (i32 k = 1; k <= lastNonzero; ++k) {
-        if (coeffs[k] == 0) { consecutiveZeros++; continue; }
+        if (coeffs[k] == 0) {
+            consecutiveZeros++;
+            continue;
+        }
 
         // Emit ZRL (zero run length of 16) symbols for runs longer than 15.
         while (consecutiveZeros > 15) {
@@ -511,14 +514,13 @@ struct JpegEncoder {
     /// Encode all MCUs from precomputed coefficient blocks (baseline path).
     /// Entropy coding is inherently serial.
     bool encodeScanDataFromCoeffs(
-        const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>,
-                         MAX_COMPONENTS>& coeffBlocks);
+        const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>& coeffBlocks);
 
     /// FDCT + quantise all blocks for all components into coefficient storage.
-    void buildCoefficientBlocks(const std::array<std::vector<u8>, MAX_COMPONENTS>& buffers,
-                                const std::array<u32, MAX_COMPONENTS>& strides,
-                                std::array<std::vector<std::array<i32, BLOCK_PIXELS>>,
-                                           MAX_COMPONENTS>& coeffBlocks);
+    void buildCoefficientBlocks(
+        const std::array<std::vector<u8>, MAX_COMPONENTS>& buffers,
+        const std::array<u32, MAX_COMPONENTS>& strides,
+        std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>& coeffBlocks);
 
     /// Encode progressive DC first-pass scan (all components interleaved).
     /// @param al  Successive approximation low bit (0 = no SA).
@@ -537,9 +539,8 @@ struct JpegEncoder {
     /// @param se      Spectral selection end.
     /// @param al      Successive approximation low bit (0 = no SA).
     /// @param output  Destination buffer for entropy-coded data.
-    bool encodeProgressiveAcScan(
-        const std::vector<std::array<i32, BLOCK_PIXELS>>& coeffBlocks, u32 compIndex,
-        i32 ss, i32 se, i32 al, std::vector<u8>& output);
+    bool encodeProgressiveAcScan(const std::vector<std::array<i32, BLOCK_PIXELS>>& coeffBlocks,
+                                 u32 compIndex, i32 ss, i32 se, i32 al, std::vector<u8>& output);
 
     /// Encode progressive AC refinement scan for one component.
     /// @param ss      Spectral selection start.
@@ -547,17 +548,15 @@ struct JpegEncoder {
     /// @param al      The bit position to refine.
     /// @param output  Destination buffer for entropy-coded data.
     bool encodeProgressiveAcRefineScan(
-        const std::vector<std::array<i32, BLOCK_PIXELS>>& coeffBlocks, u32 compIndex,
-        i32 ss, i32 se, i32 al, std::vector<u8>& output);
+        const std::vector<std::array<i32, BLOCK_PIXELS>>& coeffBlocks, u32 compIndex, i32 ss,
+        i32 se, i32 al, std::vector<u8>& output);
 
     /// Top-level serial stream writers (called from within a DAG task).
     /// These write all JPEG markers + entropy-coded data to outputBuffer.
     void writeBaselineStream(
-        const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>,
-                         MAX_COMPONENTS>& coeffBlocks);
+        const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>& coeffBlocks);
     void writeProgressiveStream(
-        const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>,
-                         MAX_COMPONENTS>& coeffBlocks);
+        const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>& coeffBlocks);
 };
 
 /// Validate input image and initialise common encoder state (quant table,
@@ -625,8 +624,8 @@ void JpegEncoder::writeAllDhtMarkers() {
 /// whose dimensions are rounded up to the next multiple of 8.  Edge pixels
 /// are replicated to avoid boundary artefacts in the DCT.
 void JpegEncoder::buildComponentBuffers(const Image& image,
-                                            std::array<std::vector<u8>, MAX_COMPONENTS>& buffers,
-                                            std::array<u32, MAX_COMPONENTS>& strides) {
+                                        std::array<std::vector<u8>, MAX_COMPONENTS>& buffers,
+                                        std::array<u32, MAX_COMPONENTS>& strides) {
     u32 paddedWidth = ((imageWidth + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE;
     u32 paddedHeight = ((imageHeight + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE;
 
@@ -641,60 +640,61 @@ void JpegEncoder::buildComponentBuffers(const Image& image,
     const u32 imgH = imageHeight;
     const u8* srcPixels = image.pixels.data();
 
-    parallel_for_blocks(paddedHeight, ctx, [&, paddedWidth, compCnt, imgW, imgH, srcPixels](u32 rowBegin, u32 rowEnd) {
-        for (u32 destY = rowBegin; destY < rowEnd; destY++) {
-            const u32 sourceY = std::min(destY, imgH - 1);
-            const u8* srcRow = srcPixels + sourceY * imgW * compCnt;
+    parallel_for_blocks(
+        paddedHeight, ctx,
+        [&, paddedWidth, compCnt, imgW, imgH, srcPixels](u32 rowBegin, u32 rowEnd) {
+            for (u32 destY = rowBegin; destY < rowEnd; destY++) {
+                const u32 sourceY = std::min(destY, imgH - 1);
+                const u8* srcRow = srcPixels + sourceY * imgW * compCnt;
 
-            if (compCnt == 1) {
-                // Single component: memcpy valid region, memset pad.
-                u8* destRow = buffers[0].data() + destY * paddedWidth;
-                std::memcpy(destRow, srcRow, imgW);
-                if (paddedWidth > imgW) {
-                    std::memset(destRow + imgW, destRow[imgW - 1], paddedWidth - imgW);
-                }
-            } else if (compCnt == 4) {
-                // 4-component (BGRA): deinterleave all 4 in one pass.
-                u8* d0 = buffers[0].data() + destY * paddedWidth;
-                u8* d1 = buffers[1].data() + destY * paddedWidth;
-                u8* d2 = buffers[2].data() + destY * paddedWidth;
-                u8* d3 = buffers[3].data() + destY * paddedWidth;
-                for (u32 x = 0; x < imgW; ++x) {
-                    const u32 srcOff = x * 4;
-                    d0[x] = srcRow[srcOff];
-                    d1[x] = srcRow[srcOff + 1];
-                    d2[x] = srcRow[srcOff + 2];
-                    d3[x] = srcRow[srcOff + 3];
-                }
-                if (paddedWidth > imgW) {
-                    std::memset(d0 + imgW, d0[imgW - 1], paddedWidth - imgW);
-                    std::memset(d1 + imgW, d1[imgW - 1], paddedWidth - imgW);
-                    std::memset(d2 + imgW, d2[imgW - 1], paddedWidth - imgW);
-                    std::memset(d3 + imgW, d3[imgW - 1], paddedWidth - imgW);
-                }
-            } else {
-                for (u32 ci = 0; ci < compCnt; ++ci) {
-                    u8* destRow = buffers[ci].data() + destY * paddedWidth;
-                    // Valid region: extract component from interleaved source.
-                    for (u32 x = 0; x < imgW; ++x) {
-                        destRow[x] = srcRow[x * compCnt + ci];
-                    }
-                    // Pad region: replicate last column.
+                if (compCnt == 1) {
+                    // Single component: memcpy valid region, memset pad.
+                    u8* destRow = buffers[0].data() + destY * paddedWidth;
+                    std::memcpy(destRow, srcRow, imgW);
                     if (paddedWidth > imgW) {
                         std::memset(destRow + imgW, destRow[imgW - 1], paddedWidth - imgW);
                     }
+                } else if (compCnt == 4) {
+                    // 4-component (BGRA): deinterleave all 4 in one pass.
+                    u8* d0 = buffers[0].data() + destY * paddedWidth;
+                    u8* d1 = buffers[1].data() + destY * paddedWidth;
+                    u8* d2 = buffers[2].data() + destY * paddedWidth;
+                    u8* d3 = buffers[3].data() + destY * paddedWidth;
+                    for (u32 x = 0; x < imgW; ++x) {
+                        const u32 srcOff = x * 4;
+                        d0[x] = srcRow[srcOff];
+                        d1[x] = srcRow[srcOff + 1];
+                        d2[x] = srcRow[srcOff + 2];
+                        d3[x] = srcRow[srcOff + 3];
+                    }
+                    if (paddedWidth > imgW) {
+                        std::memset(d0 + imgW, d0[imgW - 1], paddedWidth - imgW);
+                        std::memset(d1 + imgW, d1[imgW - 1], paddedWidth - imgW);
+                        std::memset(d2 + imgW, d2[imgW - 1], paddedWidth - imgW);
+                        std::memset(d3 + imgW, d3[imgW - 1], paddedWidth - imgW);
+                    }
+                } else {
+                    for (u32 ci = 0; ci < compCnt; ++ci) {
+                        u8* destRow = buffers[ci].data() + destY * paddedWidth;
+                        // Valid region: extract component from interleaved source.
+                        for (u32 x = 0; x < imgW; ++x) {
+                            destRow[x] = srcRow[x * compCnt + ci];
+                        }
+                        // Pad region: replicate last column.
+                        if (paddedWidth > imgW) {
+                            std::memset(destRow + imgW, destRow[imgW - 1], paddedWidth - imgW);
+                        }
+                    }
                 }
             }
-        }
-    });
+        });
 }
 
 /// Encode all MCU blocks from precomputed coefficient blocks (baseline path).
 /// Entropy coding is inherently serial — coefficients must be visited in the
 /// same MCU-row, MCU-column, component order for DC differential coding.
 bool JpegEncoder::encodeScanDataFromCoeffs(
-    const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>,
-                     MAX_COMPONENTS>& coeffBlocks) {
+    const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>& coeffBlocks) {
 
     BitstreamWriter writer;
     writer.init(&outputBuffer);
@@ -749,8 +749,8 @@ void JpegEncoder::buildCoefficientBlocks(
             for (u32 c = 0; c < compCnt; c++) {
                 const u8* blockDataPointer =
                     buffers[c].data() + blockPixelY * strides[c] + blockPixelX;
-                forward_dct_and_quantise(blockDataPointer, strides[c],
-                                         coeffBlocks[c][blockIndex], qr);
+                forward_dct_and_quantise(blockDataPointer, strides[c], coeffBlocks[c][blockIndex],
+                                         qr);
             }
         }
     });
@@ -803,8 +803,8 @@ bool JpegEncoder::encodeProgressiveDcRefineScan(
 }
 
 bool JpegEncoder::encodeProgressiveAcScan(
-    const std::vector<std::array<i32, BLOCK_PIXELS>>& coeffBlocks, u32 compIndex,
-    i32 ss, i32 se, i32 al, std::vector<u8>& output) {
+    const std::vector<std::array<i32, BLOCK_PIXELS>>& coeffBlocks, u32 compIndex, i32 ss, i32 se,
+    i32 al, std::vector<u8>& output) {
 
     u8 tblIdx = huffTableIndex(compIndex, componentCount);
     const auto& acTable = acHuffTables[tblIdx];
@@ -828,7 +828,10 @@ bool JpegEncoder::encodeProgressiveAcScan(
         i32 lastNz = ss - 1;
         for (i32 k = se; k >= ss; --k) {
             const i32 absVal = coeffs[k] < 0 ? -coeffs[k] : coeffs[k];
-            if ((absVal >> al) != 0) { lastNz = k; break; }
+            if ((absVal >> al) != 0) {
+                lastNz = k;
+                break;
+            }
         }
 
         if (lastNz < ss) {
@@ -841,7 +844,10 @@ bool JpegEncoder::encodeProgressiveAcScan(
             // Point transform: truncation toward zero (ITU-T T.81 §G.1.2.2).
             const i32 absVal = coeffs[k] < 0 ? -coeffs[k] : coeffs[k];
             const i32 coeff = coeffs[k] < 0 ? -(absVal >> al) : (absVal >> al);
-            if (coeff == 0) { consecutiveZeros++; continue; }
+            if (coeff == 0) {
+                consecutiveZeros++;
+                continue;
+            }
 
             while (consecutiveZeros > 15) {
                 const auto& zrl = acTable.codes[0xF0];
@@ -868,8 +874,8 @@ bool JpegEncoder::encodeProgressiveAcScan(
 }
 
 bool JpegEncoder::encodeProgressiveAcRefineScan(
-    const std::vector<std::array<i32, BLOCK_PIXELS>>& coeffBlocks, u32 compIndex,
-    i32 ss, i32 se, i32 al, std::vector<u8>& output) {
+    const std::vector<std::array<i32, BLOCK_PIXELS>>& coeffBlocks, u32 compIndex, i32 ss, i32 se,
+    i32 al, std::vector<u8>& output) {
 
     u8 tblIdx = huffTableIndex(compIndex, componentCount);
     const auto& acTable = acHuffTables[tblIdx];
@@ -904,7 +910,10 @@ bool JpegEncoder::encodeProgressiveAcRefineScan(
             const i32 absCoeff = coeffs[k] < 0 ? -coeffs[k] : coeffs[k];
             const bool prevNonzero = (absCoeff >> (al + 1)) != 0;
             const bool newNonzero = !prevNonzero && ((absCoeff >> al) & 1) != 0;
-            if (newNonzero) { lastNewNzPos = k; break; }
+            if (newNonzero) {
+                lastNewNzPos = k;
+                break;
+            }
         }
 
         corrCount = 0;
@@ -971,8 +980,7 @@ bool JpegEncoder::encodeProgressiveAcRefineScan(
 }
 
 void JpegEncoder::writeProgressiveStream(
-    const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>,
-                     MAX_COMPONENTS>& coeffBlocks) {
+    const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>& coeffBlocks) {
 
     // --- Successive approximation parameters ---
     // Al=1: first pass encodes top bits, one refinement pass fills bit 0.
@@ -1003,8 +1011,7 @@ void JpegEncoder::writeProgressiveStream(
         const u8 compId = static_cast<u8>(c + 1);
         const u8 dcId = 0;
         for (const auto& band : DEFAULT_AC_BANDS) {
-            write_sos(outputBuffer, &compId, &dcId, &tblIdx, 1,
-                      band.ss, band.se, 0, SA_AL);
+            write_sos(outputBuffer, &compId, &dcId, &tblIdx, 1, band.ss, band.se, 0, SA_AL);
             encodeProgressiveAcScan(coeffBlocks[c], c, band.ss, band.se, SA_AL, outputBuffer);
         }
     }
@@ -1029,8 +1036,7 @@ void JpegEncoder::writeProgressiveStream(
             const u8 compId = static_cast<u8>(c + 1);
             const u8 dcId = 0;
             for (const auto& band : DEFAULT_AC_BANDS) {
-                write_sos(outputBuffer, &compId, &dcId, &tblIdx, 1,
-                          band.ss, band.se, SA_AL, 0);
+                write_sos(outputBuffer, &compId, &dcId, &tblIdx, 1, band.ss, band.se, SA_AL, 0);
                 encodeProgressiveAcRefineScan(coeffBlocks[c], c, band.ss, band.se, 0, outputBuffer);
             }
         }
@@ -1040,8 +1046,7 @@ void JpegEncoder::writeProgressiveStream(
 }
 
 void JpegEncoder::writeBaselineStream(
-    const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>,
-                     MAX_COMPONENTS>& coeffBlocks) {
+    const std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>& coeffBlocks) {
 
     write_soi(outputBuffer);
     write_dqt(outputBuffer, 0, quantTable);
@@ -1074,8 +1079,7 @@ void JpegEncoder::writeBaselineStream(
 using CoeffBlocks = std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>;
 
 std::vector<u8> encode_raw(const Image& image, i32 quality, std::string* out_error,
-                           bool progressive, JpegContext* ctx,
-                           std::vector<u8>* asyncOutput) {
+                           bool progressive, JpegContext* ctx, std::vector<u8>* asyncOutput) {
     auto enc = std::make_shared<JpegEncoder>();
     enc->errorOutput = out_error;
     enc->ctx = ctx;
@@ -1106,12 +1110,13 @@ std::vector<u8> encode_raw(const Image& image, i32 quality, std::string* out_err
 
         // Stage 3: Write header markers (SOI, DQT, SOF0, DHT, DRI, SOS).
         submitSingleTask(ctx, [enc, compBufs]() {
-            for (u32 c = 0; c < enc->componentCount; c++) (*compBufs)[c] = {};
+            for (u32 c = 0; c < enc->componentCount; c++)
+                (*compBufs)[c] = {};
 
             write_soi(enc->outputBuffer);
             write_dqt(enc->outputBuffer, 0, enc->quantTable);
-            write_sof(enc->outputBuffer, MARKER_SOF0, enc->imageWidth,
-                       enc->imageHeight, enc->componentCount);
+            write_sof(enc->outputBuffer, MARKER_SOF0, enc->imageWidth, enc->imageHeight,
+                      enc->componentCount);
             enc->writeAllDhtMarkers();
             write_dri(enc->outputBuffer, static_cast<u16>(enc->mcuColumnsCount));
 
@@ -1127,35 +1132,34 @@ std::vector<u8> encode_raw(const Image& image, i32 quality, std::string* out_err
 
         // Stage 4: Encode each MCU row interval in parallel (on timeline).
         auto intervalBufs = std::make_shared<std::vector<std::vector<u8>>>(nIntervals);
-        parallel_for_blocks(nIntervals, ctx,
-            [enc, coeffs, intervalBufs](u32 begin, u32 end) {
-                for (u32 interval = begin; interval < end; ++interval) {
-                    BitstreamWriter writer;
-                    writer.init(&(*intervalBufs)[interval]);
-                    std::array<i32, MAX_COMPONENTS> dcPreds{};
-                    for (u32 mcuCol = 0; mcuCol < enc->mcuColumnsCount; ++mcuCol) {
-                        u32 blockIdx = interval * enc->mcuColumnsCount + mcuCol;
-                        for (u32 ci = 0; ci < enc->componentCount; ++ci) {
-                            const auto& qc = (*coeffs)[ci][blockIdx];
-                            u8 tblIdx = huffTableIndex(ci, enc->componentCount);
-                            i32 dcDiff = qc[0] - dcPreds[ci];
-                            dcPreds[ci] = qc[0];
-                            encode_dc_coefficient(writer, enc->dcHuffTables[tblIdx], dcDiff);
-                            encode_ac_coefficients(writer, enc->acHuffTables[tblIdx], qc);
-                        }
+        parallel_for_blocks(nIntervals, ctx, [enc, coeffs, intervalBufs](u32 begin, u32 end) {
+            for (u32 interval = begin; interval < end; ++interval) {
+                BitstreamWriter writer;
+                writer.init(&(*intervalBufs)[interval]);
+                std::array<i32, MAX_COMPONENTS> dcPreds{};
+                for (u32 mcuCol = 0; mcuCol < enc->mcuColumnsCount; ++mcuCol) {
+                    u32 blockIdx = interval * enc->mcuColumnsCount + mcuCol;
+                    for (u32 ci = 0; ci < enc->componentCount; ++ci) {
+                        const auto& qc = (*coeffs)[ci][blockIdx];
+                        u8 tblIdx = huffTableIndex(ci, enc->componentCount);
+                        i32 dcDiff = qc[0] - dcPreds[ci];
+                        dcPreds[ci] = qc[0];
+                        encode_dc_coefficient(writer, enc->dcHuffTables[tblIdx], dcDiff);
+                        encode_ac_coefficients(writer, enc->acHuffTables[tblIdx], qc);
                     }
-                    writer.flushWithPadding();
                 }
-            });
+                writer.flushWithPadding();
+            }
+        });
 
         // Stage 5: Concatenate intervals with RST markers + write EOI.
         submitSingleTask(ctx, [enc, intervalBufs, nIntervals]() {
-            enc->outputBuffer.insert(enc->outputBuffer.end(),
-                                     (*intervalBufs)[0].begin(), (*intervalBufs)[0].end());
+            enc->outputBuffer.insert(enc->outputBuffer.end(), (*intervalBufs)[0].begin(),
+                                     (*intervalBufs)[0].end());
             for (u32 i = 1; i < nIntervals; ++i) {
                 write_rst(enc->outputBuffer, i - 1);
-                enc->outputBuffer.insert(enc->outputBuffer.end(),
-                                         (*intervalBufs)[i].begin(), (*intervalBufs)[i].end());
+                enc->outputBuffer.insert(enc->outputBuffer.end(), (*intervalBufs)[i].begin(),
+                                         (*intervalBufs)[i].end());
             }
             write_eoi(enc->outputBuffer);
         });
@@ -1169,12 +1173,13 @@ std::vector<u8> encode_raw(const Image& image, i32 quality, std::string* out_err
 
         // Stage 3: Write markers + DC first pass.
         submitSingleTask(ctx, [enc, compBufs, coeffs]() {
-            for (u32 c = 0; c < enc->componentCount; c++) (*compBufs)[c] = {};
+            for (u32 c = 0; c < enc->componentCount; c++)
+                (*compBufs)[c] = {};
 
             write_soi(enc->outputBuffer);
             write_dqt(enc->outputBuffer, 0, enc->quantTable);
-            write_sof(enc->outputBuffer, MARKER_SOF2, enc->imageWidth,
-                       enc->imageHeight, enc->componentCount);
+            write_sof(enc->outputBuffer, MARKER_SOF2, enc->imageWidth, enc->imageHeight,
+                      enc->componentCount);
             enc->writeAllDhtMarkers();
 
             // DC first pass (serial, interleaved).
@@ -1185,24 +1190,22 @@ std::vector<u8> encode_raw(const Image& image, i32 quality, std::string* out_err
                     dcIds[c] = huffTableIndex(c, enc->componentCount);
                     acIds[c] = 0;
                 }
-                write_sos(enc->outputBuffer, compIds, dcIds, acIds,
-                          enc->componentCount, 0, 0, 0, SA_AL);
+                write_sos(enc->outputBuffer, compIds, dcIds, acIds, enc->componentCount, 0, 0, 0,
+                          SA_AL);
                 enc->encodeProgressiveDcScan(*coeffs, SA_AL);
             }
         });
 
         // Stage 4: Encode AC first-pass scans in parallel (on timeline).
         auto acFirstBufs = std::make_shared<std::vector<std::vector<u8>>>(totalAcScans);
-        parallel_for_tasks(totalAcScans, ctx,
-            [enc, coeffs, acFirstBufs, numBands](u32 scanIdx) {
-                constexpr i32 al = 1; // SA_AL
-                u32 c = scanIdx / numBands;
-                u32 b = scanIdx % numBands;
-                const auto& band = DEFAULT_AC_BANDS[b];
-                enc->encodeProgressiveAcScan(
-                    (*coeffs)[c], c, band.ss, band.se, al,
-                    (*acFirstBufs)[scanIdx]);
-            });
+        parallel_for_tasks(totalAcScans, ctx, [enc, coeffs, acFirstBufs, numBands](u32 scanIdx) {
+            constexpr i32 al = 1; // SA_AL
+            u32 c = scanIdx / numBands;
+            u32 b = scanIdx % numBands;
+            const auto& band = DEFAULT_AC_BANDS[b];
+            enc->encodeProgressiveAcScan((*coeffs)[c], c, band.ss, band.se, al,
+                                         (*acFirstBufs)[scanIdx]);
+        });
 
         // Stage 5: Assemble AC first-pass + DC refinement.
         submitSingleTask(ctx, [enc, coeffs, acFirstBufs, numBands]() {
@@ -1214,8 +1217,8 @@ std::vector<u8> encode_raw(const Image& image, i32 quality, std::string* out_err
                     const auto& band = DEFAULT_AC_BANDS[b];
                     const u8 compId = static_cast<u8>(c + 1);
                     const u8 dcId = 0;
-                    write_sos(enc->outputBuffer, &compId, &dcId, &tblIdx, 1,
-                              band.ss, band.se, 0, SA_AL);
+                    write_sos(enc->outputBuffer, &compId, &dcId, &tblIdx, 1, band.ss, band.se, 0,
+                              SA_AL);
                     enc->outputBuffer.insert(enc->outputBuffer.end(),
                                              (*acFirstBufs)[c * numBands + b].begin(),
                                              (*acFirstBufs)[c * numBands + b].end());
@@ -1230,23 +1233,21 @@ std::vector<u8> encode_raw(const Image& image, i32 quality, std::string* out_err
                     dcIds[c] = huffTableIndex(c, enc->componentCount);
                     acIds[c] = 0;
                 }
-                write_sos(enc->outputBuffer, compIds, dcIds, acIds,
-                          enc->componentCount, 0, 0, SA_AL, 0);
+                write_sos(enc->outputBuffer, compIds, dcIds, acIds, enc->componentCount, 0, 0,
+                          SA_AL, 0);
                 enc->encodeProgressiveDcRefineScan(*coeffs, 0);
             }
         });
 
         // Stage 6: Encode AC refinement scans in parallel (on timeline).
         auto acRefineBufs = std::make_shared<std::vector<std::vector<u8>>>(totalAcScans);
-        parallel_for_tasks(totalAcScans, ctx,
-            [enc, coeffs, acRefineBufs, numBands](u32 scanIdx) {
-                u32 c = scanIdx / numBands;
-                u32 b = scanIdx % numBands;
-                const auto& band = DEFAULT_AC_BANDS[b];
-                enc->encodeProgressiveAcRefineScan(
-                    (*coeffs)[c], c, band.ss, band.se, 0,
-                    (*acRefineBufs)[scanIdx]);
-            });
+        parallel_for_tasks(totalAcScans, ctx, [enc, coeffs, acRefineBufs, numBands](u32 scanIdx) {
+            u32 c = scanIdx / numBands;
+            u32 b = scanIdx % numBands;
+            const auto& band = DEFAULT_AC_BANDS[b];
+            enc->encodeProgressiveAcRefineScan((*coeffs)[c], c, band.ss, band.se, 0,
+                                               (*acRefineBufs)[scanIdx]);
+        });
 
         // Stage 7: Assemble AC refinement + EOI.
         submitSingleTask(ctx, [enc, acRefineBufs, numBands]() {
@@ -1257,8 +1258,8 @@ std::vector<u8> encode_raw(const Image& image, i32 quality, std::string* out_err
                     const auto& band = DEFAULT_AC_BANDS[b];
                     const u8 compId = static_cast<u8>(c + 1);
                     const u8 dcId = 0;
-                    write_sos(enc->outputBuffer, &compId, &dcId, &tblIdx, 1,
-                              band.ss, band.se, SA_AL, 0);
+                    write_sos(enc->outputBuffer, &compId, &dcId, &tblIdx, 1, band.ss, band.se,
+                              SA_AL, 0);
                     enc->outputBuffer.insert(enc->outputBuffer.end(),
                                              (*acRefineBufs)[c * numBands + b].begin(),
                                              (*acRefineBufs)[c * numBands + b].end());
@@ -1283,9 +1284,8 @@ std::vector<u8> encode_raw(const Image& image, i32 quality, std::string* out_err
 
     // --- Optional output transfer for async callers ---
     if (asyncOutput && ctx && ctx->sem) {
-        submitSingleTask(ctx, [enc, asyncOutput]() {
-            *asyncOutput = std::move(enc->outputBuffer);
-        });
+        submitSingleTask(ctx,
+                         [enc, asyncOutput]() { *asyncOutput = std::move(enc->outputBuffer); });
         return {};
     }
 

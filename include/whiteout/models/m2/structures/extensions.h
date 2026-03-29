@@ -15,14 +15,14 @@ struct ParticleEmitterExtension {
 };
 
 struct LodProfile {
-    u16 flags = 0;                                // bit 1: alt particleBoneLod, bit 2: lodBatchCount > 0, bit 3: mirrors lodFlags
-    u16 numLodLevels = 0;                         // SFID_count / numSkinProfiles
-    f32 lodDistance = 0.0f;                        // LOD switch distance: fmaxf(fminf(740/dist, 5), 0.5)
-    std::array<u8, 4> particleBoneLod = {};       // per-LOD particle bone mask index
-    u8  reserved0 = 0;
-    u8  lodFlags = 0;                             // mirrors flags bit 3 (0 or 0x08)
-    u8  lodBatchCount = 0;                        // unknown count, nonzero iff flags & 0x04
-    u8  reserved1 = 0;
+    u16 flags = 0; // bit 1: alt particleBoneLod, bit 2: lodBatchCount > 0, bit 3: mirrors lodFlags
+    u16 numLodLevels = 0;                   // SFID_count / numSkinProfiles
+    f32 lodDistance = 0.0f;                 // LOD switch distance: fmaxf(fminf(740/dist, 5), 0.5)
+    std::array<u8, 4> particleBoneLod = {}; // per-LOD particle bone mask index
+    u8 reserved0 = 0;
+    u8 lodFlags = 0;      // mirrors flags bit 3 (0 or 0x08)
+    u8 lodBatchCount = 0; // unknown count, nonzero iff flags & 0x04
+    u8 reserved1 = 0;
 };
 
 // ── Chunk data types (shared between Model and chunk wrappers) ──────────────
@@ -62,9 +62,9 @@ struct EdgeFadeData {
 };
 
 struct DistanceFadeData {
-    f32 squaredFarDist;   // squared distance at which alpha = 0 (fade-out complete)
-    f32 squaredNearDist;  // squared distance at which alpha = 1 (fully visible)
-    std::array<u32, 2> reserved;      // always 0
+    f32 squaredFarDist;          // squared distance at which alpha = 0 (fade-out complete)
+    f32 squaredNearDist;         // squared distance at which alpha = 1 (fully visible)
+    std::array<u32, 2> reserved; // always 0
 };
 
 struct DetailedLightData {
@@ -96,5 +96,5 @@ struct PhysicsCollision {
     std::vector<i16> flags;
 };
 
-}
-}
+} // namespace m2
+} // namespace whiteout

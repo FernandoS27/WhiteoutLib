@@ -36,11 +36,11 @@
  * @endcode
  */
 
-#include "converter_base.h"
-#include "../mdx/types.h"
-#include "../mdx/structures.h"
 #include "../m2/structures.h"
 #include "../m3/structures.h"
+#include "../mdx/structures.h"
+#include "../mdx/types.h"
+#include "converter_base.h"
 
 namespace whiteout {
 namespace models {

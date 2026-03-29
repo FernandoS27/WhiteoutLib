@@ -3,8 +3,8 @@
 
 #include <whiteout/textures/png/parser.h>
 
-#include "png_internal.h"
 #include "deflate.h"
+#include "png_internal.h"
 
 #include "../io_helpers.h"
 #include "../issue_sink.h"
@@ -29,8 +29,8 @@ private:
     u8 interlaceMethod = 0;
 
     // Palette and transparency.
-    std::vector<u8> palette;   // PLTE: R,G,B triples.
-    std::vector<u8> trnsData;  // tRNS chunk raw data.
+    std::vector<u8> palette;  // PLTE: R,G,B triples.
+    std::vector<u8> trnsData; // tRNS chunk raw data.
 
     /// Number of channels for the raw image (before expansion to RGBA).
     u32 rawChannels() const;
@@ -47,12 +47,18 @@ private:
 
 u32 Parser::Impl::rawChannels() const {
     switch (colorType) {
-    case COLOR_GRAYSCALE: return 1;
-    case COLOR_TRUECOLOR: return 3;
-    case COLOR_INDEXED: return 1;
-    case COLOR_GRAYSCALE_ALPHA: return 2;
-    case COLOR_TRUECOLOR_ALPHA: return 4;
-    default: return 0;
+    case COLOR_GRAYSCALE:
+        return 1;
+    case COLOR_TRUECOLOR:
+        return 3;
+    case COLOR_INDEXED:
+        return 1;
+    case COLOR_GRAYSCALE_ALPHA:
+        return 2;
+    case COLOR_TRUECOLOR_ALPHA:
+        return 4;
+    default:
+        return 0;
     }
 }
 
@@ -319,8 +325,8 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
             // Validate bit depth / color type combinations.
             bool validCombo = false;
             if (colorType == COLOR_GRAYSCALE)
-                validCombo = (bitDepth == 1 || bitDepth == 2 || bitDepth == 4 ||
-                              bitDepth == 8 || bitDepth == 16);
+                validCombo = (bitDepth == 1 || bitDepth == 2 || bitDepth == 4 || bitDepth == 8 ||
+                              bitDepth == 16);
             else if (colorType == COLOR_TRUECOLOR)
                 validCombo = (bitDepth == 8 || bitDepth == 16);
             else if (colorType == COLOR_INDEXED)

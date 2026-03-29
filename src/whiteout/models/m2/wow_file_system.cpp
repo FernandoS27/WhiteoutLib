@@ -23,7 +23,7 @@ std::string zeroPad(int value, int width) {
     return s;
 }
 
-}
+} // namespace
 
 WoWFileSystem::WoWFileSystem(interfaces::VirtualPathFileSystem& pathFs, const std::string& m2Path)
     : m_mode(WoWFileSystemMode::Read), m_pathFs(&pathFs), m_baseStem(extractBaseStem(m2Path)),
@@ -46,11 +46,19 @@ WoWFileSystem::WoWFileSystem(interfaces::CascFileSystem& cascFs, WoWFileSystemMo
     assert(mode == WoWFileSystemMode::Create);
 }
 
-std::span<const u8> WoWFileSystem::getM2Base() const { return m_m2Data; }
+std::span<const u8> WoWFileSystem::getM2Base() const {
+    return m_m2Data;
+}
 
-void WoWFileSystem::setSkinChunk(const SFIDChunk& chunk) { m_sfid = chunk; }
-void WoWFileSystem::setAnimChunk(const AFIDChunk& chunk) { m_afid = chunk; }
-void WoWFileSystem::setSkeletonChunk(const SKIDChunk& chunk) { m_skid = chunk; }
+void WoWFileSystem::setSkinChunk(const SFIDChunk& chunk) {
+    m_sfid = chunk;
+}
+void WoWFileSystem::setAnimChunk(const AFIDChunk& chunk) {
+    m_afid = chunk;
+}
+void WoWFileSystem::setSkeletonChunk(const SKIDChunk& chunk) {
+    m_skid = chunk;
+}
 void WoWFileSystem::setParentSkeletonChunk(const SKPDChunk& chunk) {
     SKIDChunk parentSkid;
     parentSkid.skeletonFileDataId = chunk.parentSkeletonFileId;
@@ -176,10 +184,13 @@ void WoWFileSystem::exploratorySearch() {
     auto entries = m_pathFs->listDirectory(dir.string());
 
     for (const auto& entry : entries) {
-        if (entry.isDirectory) continue;
+        if (entry.isDirectory)
+            continue;
 
-        if (entry.name.size() <= stem.size()) continue;
-        if (entry.name.compare(0, stem.size(), stem) != 0) continue;
+        if (entry.name.size() <= stem.size())
+            continue;
+        if (entry.name.compare(0, stem.size(), stem) != 0)
+            continue;
 
         std::string suffix = entry.name.substr(stem.size());
         std::string fullPath = (dir / entry.name).string();
@@ -194,15 +205,15 @@ void WoWFileSystem::exploratorySearch() {
 
         if (suffix.size() > 5 && suffix.substr(suffix.size() - 5) == ".skin") {
             std::string mid = suffix.substr(0, suffix.size() - 5);
-            if (mid.size() == 2 && std::isdigit(static_cast<unsigned char>(mid[0]))
-                               && std::isdigit(static_cast<unsigned char>(mid[1]))) {
+            if (mid.size() == 2 && std::isdigit(static_cast<unsigned char>(mid[0])) &&
+                std::isdigit(static_cast<unsigned char>(mid[1]))) {
                 u32 skinId = static_cast<u32>(std::stoi(mid));
                 if (!m_skinCache.contains(skinId)) {
                     m_skinCache[skinId] = m_pathFs->readFile(fullPath);
                 }
-            } else if (mid.size() == 6 && mid.substr(0, 4) == "_lod"
-                       && std::isdigit(static_cast<unsigned char>(mid[4]))
-                       && std::isdigit(static_cast<unsigned char>(mid[5]))) {
+            } else if (mid.size() == 6 && mid.substr(0, 4) == "_lod" &&
+                       std::isdigit(static_cast<unsigned char>(mid[4])) &&
+                       std::isdigit(static_cast<unsigned char>(mid[5]))) {
                 u32 lodId = static_cast<u32>(std::stoi(mid.substr(4)));
                 if (!m_lodSkinCache.contains(lodId)) {
                     m_lodSkinCache[lodId] = m_pathFs->readFile(fullPath);
@@ -211,16 +222,18 @@ void WoWFileSystem::exploratorySearch() {
             continue;
         }
 
-        if (suffix.size() == 12 && suffix.substr(suffix.size() - 5) == ".anim"
-            && suffix[4] == '-') {
+        if (suffix.size() == 12 && suffix.substr(suffix.size() - 5) == ".anim" &&
+            suffix[4] == '-') {
 
             std::string animIdStr = suffix.substr(0, 4);
-            std::string subIdStr  = suffix.substr(5, 2);
+            std::string subIdStr = suffix.substr(5, 2);
             bool allDigits = true;
-            for (char c : animIdStr) allDigits &= std::isdigit(static_cast<unsigned char>(c)) != 0;
-            for (char c : subIdStr)  allDigits &= std::isdigit(static_cast<unsigned char>(c)) != 0;
+            for (char c : animIdStr)
+                allDigits &= std::isdigit(static_cast<unsigned char>(c)) != 0;
+            for (char c : subIdStr)
+                allDigits &= std::isdigit(static_cast<unsigned char>(c)) != 0;
             if (allDigits) {
-                u16 animId    = static_cast<u16>(std::stoi(animIdStr));
+                u16 animId = static_cast<u16>(std::stoi(animIdStr));
                 u16 subAnimId = static_cast<u16>(std::stoi(subIdStr));
                 u32 key = animKey(animId, subAnimId);
                 if (!m_animCache.contains(key)) {
@@ -392,5 +405,5 @@ void WoWFileSystem::flush() {
     }
 }
 
-}
-}
+} // namespace m2
+} // namespace whiteout

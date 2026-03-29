@@ -19,5 +19,5 @@ void BinaryWriterVisitor::visit(const AFSBChunk& chunk) {
     writer.write(chunk.boneData);
 }
 
-}
-}
+} // namespace m2
+} // namespace whiteout

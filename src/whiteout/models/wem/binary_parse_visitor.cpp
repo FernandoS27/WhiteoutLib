@@ -32,8 +32,7 @@ void BinaryParseVisitor::read(Model& model) {
 
     if (header.version > kCurrentVersion) {
         issues.push_back("WEM version " + std::to_string(header.version) +
-                          " is newer than supported version " +
-                          std::to_string(kCurrentVersion));
+                         " is newer than supported version " + std::to_string(kCurrentVersion));
     }
 
     // Read index table
@@ -104,8 +103,7 @@ void BinaryParseVisitor::visit(std::string& str) {
     }
 
     if (ref.index >= indexTable.size()) {
-        issues.push_back("String reference index out of bounds: " +
-                         std::to_string(ref.index));
+        issues.push_back("String reference index out of bounds: " + std::to_string(ref.index));
         str.clear();
         return;
     }

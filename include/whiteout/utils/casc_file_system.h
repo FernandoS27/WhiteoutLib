@@ -13,11 +13,11 @@
 #include <string>
 #include <vector>
 
-#include <whiteout/interfaces.h>
 #include <whiteout/common_types.h>
+#include <whiteout/interfaces.h>
 
-namespace whiteout::casc { 
-    class Storage; 
+namespace whiteout::casc {
+class Storage;
 }
 
 namespace whiteout::utils {
@@ -34,8 +34,7 @@ namespace whiteout::utils {
 ///   storage.open("C:/Games/Diablo IV");
 ///   utils::CascFileSystem fs(storage);
 ///   auto data = fs.readFile(12345);
-class CascFileSystem : public interfaces::CascFileSystem
-{
+class CascFileSystem : public interfaces::CascFileSystem {
 public:
     explicit CascFileSystem(const casc::Storage& storage);
     ~CascFileSystem() override;

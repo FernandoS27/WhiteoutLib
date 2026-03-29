@@ -259,9 +259,8 @@ std::optional<Texture> parseD4Impl(std::span<const u8> texData, std::span<const 
     // ---- Detect hi-res mip count -----------------------------------------
     // For cubemaps, serTex contains (mipCount × faceCount) entries in
     // face-major order: all mips for face 0, then all mips for face 1, etc.
-    const u32 entries_per_face =
-        is_cubemap ? static_cast<u32>(ser_tex.size()) / face_count
-                   : static_cast<u32>(ser_tex.size());
+    const u32 entries_per_face = is_cubemap ? static_cast<u32>(ser_tex.size()) / face_count
+                                            : static_cast<u32>(ser_tex.size());
 
     // The payload is always the hi-res payload.  In two-tier textures the
     // serTex array contains hi-res entries followed by low-res entries whose
@@ -299,15 +298,14 @@ std::optional<Texture> parseD4Impl(std::span<const u8> texData, std::span<const 
     }
 
     // ---- Helper: decode one mip from a payload ----------------------------
-    auto decode_mip = [&](u32 mip_idx, u32 ser_idx, u32 face,
-                          std::span<const u8> payload,
+    auto decode_mip = [&](u32 mip_idx, u32 ser_idx, u32 face, std::span<const u8> payload,
                           const char* tier_name) -> bool {
         const u32 mip_width = std::max(full_width >> mip_idx, 1u);
         const u32 mip_height = std::max(full_height >> mip_idx, 1u);
 
         if (ser_idx >= ser_tex.size()) {
-            sink.fail("D4 TEX serTex index out of range for " + std::string(tier_name) +
-                      " mip " + std::to_string(mip_idx));
+            sink.fail("D4 TEX serTex index out of range for " + std::string(tier_name) + " mip " +
+                      std::to_string(mip_idx));
             return false;
         }
 
@@ -320,10 +318,9 @@ std::optional<Texture> parseD4Impl(std::span<const u8> texData, std::span<const 
         const u64 payload_end = static_cast<u64>(payload_offset) + payload_size;
 
         if (payload_end > payload.size()) {
-            sink.fail("D4 TEX " + std::string(tier_name) +
-                      " payload data out of bounds at mip " + std::to_string(mip_idx) +
-                      " (offset " + std::to_string(payload_offset) + " + size " +
-                      std::to_string(payload_size) + " > " +
+            sink.fail("D4 TEX " + std::string(tier_name) + " payload data out of bounds at mip " +
+                      std::to_string(mip_idx) + " (offset " + std::to_string(payload_offset) +
+                      " + size " + std::to_string(payload_size) + " > " +
                       std::to_string(payload.size()) + ")");
             return false;
         }
@@ -345,8 +342,7 @@ std::optional<Texture> parseD4Impl(std::span<const u8> texData, std::span<const 
     // ---- Copy hi-res pixel data --------------------------------------------
     for (u32 face = 0; face < (is_cubemap ? face_count : 1u); ++face) {
         for (u32 mip = 0; mip < hires_mip_count; ++mip) {
-            const u32 ser_idx =
-                is_cubemap ? face * entries_per_face + mip : mip;
+            const u32 ser_idx = is_cubemap ? face * entries_per_face + mip : mip;
             if (!decode_mip(mip, ser_idx, face, payloadData, "hi-res"))
                 return std::nullopt;
         }
@@ -357,8 +353,7 @@ std::optional<Texture> parseD4Impl(std::span<const u8> texData, std::span<const 
         for (u32 lr = 0; lr < lowres_mip_count; ++lr) {
             const u32 mip_idx = hires_mip_count + lr;
             const u32 ser_idx =
-                is_cubemap ? face * entries_per_face + hires_mip_count + lr
-                           : hires_mip_count + lr;
+                is_cubemap ? face * entries_per_face + hires_mip_count + lr : hires_mip_count + lr;
             if (!decode_mip(mip_idx, ser_idx, face, lowResPayloadData, "low-res"))
                 return std::nullopt;
         }

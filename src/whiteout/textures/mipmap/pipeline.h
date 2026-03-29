@@ -112,9 +112,7 @@ void parallelForRows(u32 totalRows, PipelineContext* ctx, RowFn&& fn) {
         ctx->currentValue = ctx->sem->next();
         const auto signalVal = ctx->currentValue;
         interfaces::WorkerTask task;
-        task.fn = [totalRows, fn]() {
-            fn(0u, totalRows);
-        };
+        task.fn = [totalRows, fn]() { fn(0u, totalRows); };
         task.waitSemaphore = ctx->sem;
         task.waitValue = waitVal;
         task.signalSemaphore = ctx->sem;
@@ -174,12 +172,10 @@ void parallelForRows(u32 totalRows, PipelineContext* ctx, RowFn&& fn) {
         for (u32 t = 0; t < tileCount; ++t) {
             const u32 startRow = t * rowsPerTile;
             const u32 endRow = std::min(startRow + rowsPerTile, totalRows);
-            interfaces::WorkerTask task{
-                [startRow, endRow, &fn, &jobGroup]() {
-                    fn(startRow, endRow);
-                    jobGroup.done();
-                }
-            };
+            interfaces::WorkerTask task{[startRow, endRow, &fn, &jobGroup]() {
+                fn(startRow, endRow);
+                jobGroup.done();
+            }};
             ctx->pool->submit(task);
         }
         jobGroup.wait();
@@ -204,8 +200,9 @@ void parallelForRows(u32 totalRows, PipelineContext* ctx, RowFn&& fn) {
 ///     MipImage mip1 = pipe.execute(mip0, mip0.width / 2, mip0.height / 2);
 /// @endcode
 struct MipmapPipeline {
-    std::vector<PoolStage> preProcess; ///< Stages applied to a **copy** of the source before filtering.
-    PoolFilter downsample;             ///< The core downsample filter.
+    std::vector<PoolStage>
+        preProcess;        ///< Stages applied to a **copy** of the source before filtering.
+    PoolFilter downsample; ///< The core downsample filter.
     std::vector<PoolStage> postProcess; ///< Stages applied to the filtered result.
 
     /// Synchronous execution.  @p ctx may be nullptr for single-threaded.
@@ -234,12 +231,9 @@ struct MipmapPipeline {
     /// returned semaphore value.  The caller must wait on that value
     /// before reading *output.
     interfaces::TimelineSemaphore::Value executeAsync(
-        const MipImage& src, u32 targetWidth, u32 targetHeight,
-        interfaces::WorkerPool* pool,
-        interfaces::TimelineSemaphore* sem,
-        interfaces::TimelineSemaphore::Value startValue,
-        MipImage* output) const
-    {
+        const MipImage& src, u32 targetWidth, u32 targetHeight, interfaces::WorkerPool* pool,
+        interfaces::TimelineSemaphore* sem, interfaces::TimelineSemaphore::Value startValue,
+        MipImage* output) const {
         // Safety: shared_ptr<State> is captured by the final copy task's
         // lambda, which waits on the entire pipeline chain.  This keeps both
         // input and result alive for the duration of all preceding tile tasks.
@@ -273,9 +267,7 @@ struct MipmapPipeline {
         const auto signalVal = sem->next();
         ctx.currentValue = signalVal;
         interfaces::WorkerTask copyTask;
-        copyTask.fn = [state, output]() {
-            *output = std::move(state->result);
-        };
+        copyTask.fn = [state, output]() { *output = std::move(state->result); };
         copyTask.waitSemaphore = sem;
         copyTask.waitValue = waitVal;
         copyTask.signalSemaphore = sem;

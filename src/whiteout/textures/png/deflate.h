@@ -10,7 +10,7 @@
 
 namespace whiteout::textures::png {
 
-using ::whiteout::zlib_decompress;
 using ::whiteout::zlib_compress;
+using ::whiteout::zlib_decompress;
 
 } // namespace whiteout::textures::png

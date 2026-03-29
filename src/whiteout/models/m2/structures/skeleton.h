@@ -41,5 +41,5 @@ struct SKPDChunk {
     std::array<u8, 4> reserved1 = {};
 };
 
-}
-}
+} // namespace m2
+} // namespace whiteout

@@ -19,5 +19,5 @@ void BinaryParseVisitor::visit(AFSBChunk& chunk) {
     parse_chunked_vector(chunk.boneData);
 }
 
-}
-}
+} // namespace m2
+} // namespace whiteout

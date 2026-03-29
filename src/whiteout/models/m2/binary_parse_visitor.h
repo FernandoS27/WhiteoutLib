@@ -1,10 +1,10 @@
 
 #pragma once
 
-#include "internal_structures.h"
 #include <whiteout/models/m2/types.h>
 #include "../../common/binary_reader.h"
 #include "../../common/streams.h"
+#include "internal_structures.h"
 #include "traits.h"
 
 #include <type_traits>
@@ -16,7 +16,8 @@ class WoWFileSystem;
 
 class BinaryParseVisitor {
 public:
-    explicit BinaryParseVisitor(common::BinaryReader& reader, WoWFileSystem* wfs = nullptr, i32 maxSize_ = -1);
+    explicit BinaryParseVisitor(common::BinaryReader& reader, WoWFileSystem* wfs = nullptr,
+                                i32 maxSize_ = -1);
 
     template <typename T>
     void read(T& header) {
@@ -30,12 +31,12 @@ public:
         visit(header, file);
     }
 
-    void setVersion(u32 version) { 
-        this->version = version; 
+    void setVersion(u32 version) {
+        this->version = version;
     }
 
-    u32 getVersion() const { 
-        return version; 
+    u32 getVersion() const {
+        return version;
     }
 
 protected:
@@ -268,5 +269,5 @@ void BinaryParseVisitor::visit(ParticleAnimationTrack<T>& track) {
     visit(track.values);
 }
 
-}
-}
+} // namespace m2
+} // namespace whiteout

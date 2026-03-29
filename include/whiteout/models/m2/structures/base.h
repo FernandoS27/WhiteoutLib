@@ -3,8 +3,8 @@
 
 #include "../../../compatibility.h"
 #include "../types.h"
-#include "skin.h"
 #include "extensions.h"
+#include "skin.h"
 
 namespace whiteout {
 namespace m2 {
@@ -21,8 +21,7 @@ enum class GlobalFlag : u32 {
     LoadPhysicsData = 0x00000100,
     NewParticleRecord = 0x00000200,
     Unk_0x400 = 0x00000400,
-    TextureTransformsUsesBoneSequences =
-        0x00000800,
+    TextureTransformsUsesBoneSequences = 0x00000800,
     Unk_0x1000 = 0x00001000,
     ChunkedAnimFiles = 0x00002000,
     UpgradedFormat = 0x00200000,
@@ -227,8 +226,7 @@ inline bool hasFlag(MaterialFlag flags, MaterialFlag flag) {
 
 struct Material {
     u16 flags = 0;
-    u16 blendingMode =
-        0;
+    u16 blendingMode = 0;
 };
 
 struct TextureWeight {
@@ -336,39 +334,49 @@ enum class ParticleBlending : u8 {
 };
 
 enum class ParticleFlag : u32 {
-    None                  = 0,
-    Shaded                = 0x1,        // ~flags & 1 → CParticleMat bit 0 (inverted); lighting enabled by default
-    SortParticles         = 0x2,        // Depth-sorted rendering via s_pq priority queue
-    VelocityOrient        = 0x4,        // Billboard aligns along velocity vector
-    Unshaded              = 0x8,        // Clears lit flag on CParticleMat
-    WorldSpace            = 0x10,       // Particles operate in world space; skips bone matrix transform in CreateParticle/UpdateXform.
-    InheritBoneScale      = 0x20,       // In IBuildVertices: multiplies particle size by m_scaleFactor, which is sqrt(length(boneMatrix column 0)) extracted in UpdateXform. Particles scale proportionally to attached bone
-    InheritVelocity       = 0x40,       // Child emitter inherits parent velocity
-    ImplosionFilter       = 0x80,       // Particles going away from the center (world space or bone matrix if local) are killed.
-    HemisphereUpDirection = 0x100,      // Sets velocity direction to be Z-up in SphereEmitters.
-    NegateSpinRandom      = 0x200,      // Negate spin angle for particles with random bit & 1
-    ClampTailToAge        = 0x400,      // Clamp tail length to min(tailLength, age) in IBuildVertices
-    InheritPosition       = 0x800,      // Child inherits parent position; random emission spacing
-    XYQuad                = 0x1000,     // Use s_quadToView matrix instead of screen-aligned billboard
-    ProjectParticle       = 0x2000,     // Snap particle to terrain via s_projectCallback
-    FollowPosition        = 0x4000,     // Add emitter delta-position to particle when 2*dt < age
-    Squirt                = 0x8000,     // Particle Emitter only emits as bursts particles when emissionRate is animated.
-    ChooseRandomTexture   = 0x10000,    // Random flipbook frame via CRandom::dice_
-    HeadStyle             = 0x20000,    // Controls head particle style bit pattern in SetParticleStyle
-    TailStyle             = 0x40000,    // Controls tail particle style bit pattern in SetParticleStyle
-    UnscaledSizeVariation = 0x80000,    // Independent X/Y scale variation (2 random floats)
-    Unfogged              = 0x100000,   // Sets unfogged flag on CParticleMat
-    RandFlipbookStart     = 0x200000,   // Random starting frame via SetRandFlipBookStart
-    Unk_0x400000          = 0x400000,   // ?
-    CompressedGravity     = 0x800000,   // Gravity is compressed.
-    BoneGeneratorBone     = 0x1000000,  // Select CBoneGeneratorBone (1) vs CBoneGeneratorJoint (0); emitterType 4
-    NoGlobalViewScale     = 0x2000000,  // Skip s_globalViewScale multiplication on emission rate
-    LodIgnoreDistance     = 0x4000000,  // Skip distance-based LOD emissionrate scaling in EmitNewParticles
-    OffsetHeadBySpin      = 0x8000000,  // Offset head particle position along spin rotation axis
-    MultiTexture          = 0x10000000, // Route through multi-texture particle creation path
-    MultitexUseModx4      = 0x20000000, // CParticleMat bit 3; uses Modx4 instead of Modx2 requires MultiTexture
-    MultitexUse3Colors    = 0x40000000, // CParticleMat bit 4; uses 3 colors instead of 2 requires MultiTexture
-    DynamicWind           = 0x80000000, // Enables dynamic wind; SET=dynamic callback, CLEAR=static from M2 data
+    None = 0,
+    Shaded = 0x1,         // ~flags & 1 → CParticleMat bit 0 (inverted); lighting enabled by default
+    SortParticles = 0x2,  // Depth-sorted rendering via s_pq priority queue
+    VelocityOrient = 0x4, // Billboard aligns along velocity vector
+    Unshaded = 0x8,       // Clears lit flag on CParticleMat
+    WorldSpace = 0x10,    // Particles operate in world space; skips bone matrix transform in
+                          // CreateParticle/UpdateXform.
+    InheritBoneScale = 0x20, // In IBuildVertices: multiplies particle size by m_scaleFactor, which
+                             // is sqrt(length(boneMatrix column 0)) extracted in UpdateXform.
+                             // Particles scale proportionally to attached bone
+    InheritVelocity = 0x40,  // Child emitter inherits parent velocity
+    ImplosionFilter = 0x80,  // Particles going away from the center (world space or bone matrix if
+                             // local) are killed.
+    HemisphereUpDirection = 0x100, // Sets velocity direction to be Z-up in SphereEmitters.
+    NegateSpinRandom = 0x200,      // Negate spin angle for particles with random bit & 1
+    ClampTailToAge = 0x400,        // Clamp tail length to min(tailLength, age) in IBuildVertices
+    InheritPosition = 0x800,       // Child inherits parent position; random emission spacing
+    XYQuad = 0x1000,               // Use s_quadToView matrix instead of screen-aligned billboard
+    ProjectParticle = 0x2000,      // Snap particle to terrain via s_projectCallback
+    FollowPosition = 0x4000,       // Add emitter delta-position to particle when 2*dt < age
+    Squirt =
+        0x8000, // Particle Emitter only emits as bursts particles when emissionRate is animated.
+    ChooseRandomTexture = 0x10000,   // Random flipbook frame via CRandom::dice_
+    HeadStyle = 0x20000,             // Controls head particle style bit pattern in SetParticleStyle
+    TailStyle = 0x40000,             // Controls tail particle style bit pattern in SetParticleStyle
+    UnscaledSizeVariation = 0x80000, // Independent X/Y scale variation (2 random floats)
+    Unfogged = 0x100000,             // Sets unfogged flag on CParticleMat
+    RandFlipbookStart = 0x200000,    // Random starting frame via SetRandFlipBookStart
+    Unk_0x400000 = 0x400000,         // ?
+    CompressedGravity = 0x800000,    // Gravity is compressed.
+    BoneGeneratorBone =
+        0x1000000, // Select CBoneGeneratorBone (1) vs CBoneGeneratorJoint (0); emitterType 4
+    NoGlobalViewScale = 0x2000000, // Skip s_globalViewScale multiplication on emission rate
+    LodIgnoreDistance =
+        0x4000000, // Skip distance-based LOD emissionrate scaling in EmitNewParticles
+    OffsetHeadBySpin = 0x8000000, // Offset head particle position along spin rotation axis
+    MultiTexture = 0x10000000,    // Route through multi-texture particle creation path
+    MultitexUseModx4 =
+        0x20000000, // CParticleMat bit 3; uses Modx4 instead of Modx2 requires MultiTexture
+    MultitexUse3Colors =
+        0x40000000, // CParticleMat bit 4; uses 3 colors instead of 2 requires MultiTexture
+    DynamicWind =
+        0x80000000, // Enables dynamic wind; SET=dynamic callback, CLEAR=static from M2 data
 };
 
 struct ParticleEmitter {
@@ -422,7 +430,7 @@ struct ParticleEmitter {
 
     // Twinkle effect, causes twinkling like effects on particles.
     // they scale up and down randomly and are culled based on a thresshole.
-    f32 twinkleSpeed = 0.0f; // blinking speed
+    f32 twinkleSpeed = 0.0f;   // blinking speed
     f32 twinklePercent = 1.0f; // how visible is the particle. 1.0 - 100% time, 0.5 - 50% of time.
     Vector2f twinkleScale = Vector2f(0.0f, 0.0f); // min and max scale variation
 
@@ -456,7 +464,7 @@ struct ParticleEmitter {
 
     std::array<std::array<fixed16_9, 2>, 2> multiTexScrollMid{};
     std::array<std::array<fixed16_9, 2>, 2> multiTexScrollRange{};
-    
+
     std::optional<ParticleEmitterExtension> extension;
 };
 
@@ -468,5 +476,5 @@ struct Event {
     AnimationTrackBase enabled;
 };
 
-}
-}
+} // namespace m2
+} // namespace whiteout

@@ -61,26 +61,26 @@ struct Model {
 
     // ── Chunk extension data ──────────
 
-    std::vector<u32> texture_ids;                            ///< TXID
-    std::optional<LodProfile> lodProfile;                    ///< LDV1
-    std::vector<std::array<u8, 2>> textureCombinerHints;     ///< TXAC
-    std::vector<u16> parentSequenceReplacements;             ///< PABC
-    std::vector<TextureWeight> parentTextureWeights;         ///< PADC
-    std::vector<Extent> parentSequenceBounds;                ///< PSBC
-    std::vector<AnimationTrackBase> parentEventData;         ///< PEDC
-    std::vector<u32> recursiveParticleModelIds;              ///< RPID
-    std::vector<u32> geometryParticleModelIds;               ///< GPID
-    std::optional<WaterfallData> waterData;                  ///< WFV3
-    std::vector<ParticleGeosetData> particleGeosets;         ///< PGD1
-    std::vector<u8> physicsFileData;                         ///< PFDC
-    std::vector<EdgeFadeData> edgeFadeEntries;               ///< EDGF
-    std::vector<DistanceFadeData> nerfEntries;               ///< NERF
-    std::vector<DetailedLightData> detailedLightEntries;     ///< DETL
-    std::vector<DebugOcclusionData> debugOcclusionEntries;   ///< DBOC
-    std::vector<u8> animFrameData;                           ///< AFRA
-    std::optional<PhysicsCollision> physicsCollision;        ///< PCOL
-    std::optional<std::array<u8, 32>> dpivData;              ///< DPIV
-    std::vector<TexturedLightData> texturedLightEntries;     ///< TEXL
+    std::vector<u32> texture_ids;                          ///< TXID
+    std::optional<LodProfile> lodProfile;                  ///< LDV1
+    std::vector<std::array<u8, 2>> textureCombinerHints;   ///< TXAC
+    std::vector<u16> parentSequenceReplacements;           ///< PABC
+    std::vector<TextureWeight> parentTextureWeights;       ///< PADC
+    std::vector<Extent> parentSequenceBounds;              ///< PSBC
+    std::vector<AnimationTrackBase> parentEventData;       ///< PEDC
+    std::vector<u32> recursiveParticleModelIds;            ///< RPID
+    std::vector<u32> geometryParticleModelIds;             ///< GPID
+    std::optional<WaterfallData> waterData;                ///< WFV3
+    std::vector<ParticleGeosetData> particleGeosets;       ///< PGD1
+    std::vector<u8> physicsFileData;                       ///< PFDC
+    std::vector<EdgeFadeData> edgeFadeEntries;             ///< EDGF
+    std::vector<DistanceFadeData> nerfEntries;             ///< NERF
+    std::vector<DetailedLightData> detailedLightEntries;   ///< DETL
+    std::vector<DebugOcclusionData> debugOcclusionEntries; ///< DBOC
+    std::vector<u8> animFrameData;                         ///< AFRA
+    std::optional<PhysicsCollision> physicsCollision;      ///< PCOL
+    std::optional<std::array<u8, 32>> dpivData;            ///< DPIV
+    std::vector<TexturedLightData> texturedLightEntries;   ///< TEXL
 };
 
 enum class Format : u32 {
@@ -90,5 +90,5 @@ enum class Format : u32 {
     Invalid = std::numeric_limits<u32>::max(),
 };
 
-}
-}
+} // namespace m2
+} // namespace whiteout

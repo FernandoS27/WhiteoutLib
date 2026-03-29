@@ -54,8 +54,8 @@ struct SaveOptions {
     BlpAlphaDepth alpha = BlpAlphaDepth::Eight; ///< Alpha bit depth.
     i32 jpegQuality = 75;                       ///< JPEG quality [1-100] (JPEG encoding only).
     bool jpegProgressive = false;               ///< Use progressive (SOF2) JPEG encoding.
-    bool dither = false;                        ///< Blue-noise dithering (Palettized encoding only).
-    f32 ditherStrength = 0.8f;                  ///< Dither strength [0, 1] (0 = off, 1 = full).
+    bool dither = false;       ///< Blue-noise dithering (Palettized encoding only).
+    f32 ditherStrength = 0.8f; ///< Dither strength [0, 1] (0 = off, 1 = full).
 };
 
 } // namespace whiteout::textures::blp

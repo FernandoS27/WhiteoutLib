@@ -42,8 +42,8 @@ struct Reference {
 
 /// File header (32 bytes, always at offset 0).
 struct WEMHeader {
-    u32 magic = 0;       ///< kWoemMagic
-    u32 version = 0;     ///< kCurrentVersion
+    u32 magic = 0;        ///< kWoemMagic
+    u32 version = 0;      ///< kCurrentVersion
     u32 indexOffset = 0;  ///< Byte offset to index table
     u32 indexCount = 0;   ///< Number of IndexEntry records
     Reference modelRef{}; ///< Reference to MODL data

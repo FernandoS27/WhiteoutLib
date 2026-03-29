@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include <memory>
 #include <cstddef>
+#include <memory>
 
 #include "../interfaces.h"
 
@@ -21,8 +21,7 @@ namespace whiteout::utils {
 /// 2. submit N tasks
 /// 3. each task calls done() on completion
 /// 4. wait() to join the group
-class JobGroup
-{
+class JobGroup {
 public:
     /// Construct an empty job group (pending count = 0).
     JobGroup();
@@ -59,7 +58,8 @@ public:
     ///
     /// @param sem Semaphore to signal on completion.
     /// @param value Value to signal on the semaphore.
-    void signalOnComplete(interfaces::TimelineSemaphore* sem, interfaces::TimelineSemaphore::Value value);
+    void signalOnComplete(interfaces::TimelineSemaphore* sem,
+                          interfaces::TimelineSemaphore::Value value);
 
 private:
     struct Impl;

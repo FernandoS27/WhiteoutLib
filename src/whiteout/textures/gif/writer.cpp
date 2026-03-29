@@ -41,9 +41,9 @@ void lzw_compress(const u8* indices, u32 pixel_count, std::vector<u8>& output) {
     // Write the minimum code size byte.
     output.push_back(static_cast<u8>(LZW_MIN_CODE_SIZE));
 
-    const u32 clear_code = 1u << LZW_MIN_CODE_SIZE;   // 256
-    const u32 eoi_code = clear_code + 1;               // 257
-    constexpr u32 MAX_TABLE_SIZE = 4096;               // 12-bit codes max
+    const u32 clear_code = 1u << LZW_MIN_CODE_SIZE; // 256
+    const u32 eoi_code = clear_code + 1;            // 257
+    constexpr u32 MAX_TABLE_SIZE = 4096;            // 12-bit codes max
 
     // --- LZW dictionary ---
     // Hash table: open-addressing with linear probing.
@@ -54,9 +54,7 @@ void lzw_compress(const u8* indices, u32 pixel_count, std::vector<u8>& output) {
     std::vector<u32> hash_keys(HASH_SIZE, EMPTY);
     std::vector<u16> hash_vals(HASH_SIZE);
 
-    auto hash_reset = [&]() {
-        std::fill(hash_keys.begin(), hash_keys.end(), EMPTY);
-    };
+    auto hash_reset = [&]() { std::fill(hash_keys.begin(), hash_keys.end(), EMPTY); };
 
     auto hash_find = [&](u32 key) -> u32 {
         u32 slot = (key * 2654435761u) & HASH_MASK;
@@ -116,7 +114,7 @@ void lzw_compress(const u8* indices, u32 pixel_count, std::vector<u8>& output) {
     // --- Encode ---
     auto init_table = [&](u32& next_code, u32& code_size) {
         hash_reset();
-        next_code = eoi_code + 1; // 258
+        next_code = eoi_code + 1;          // 258
         code_size = LZW_MIN_CODE_SIZE + 1; // 9
     };
 
@@ -170,9 +168,9 @@ void lzw_compress(const u8* indices, u32 pixel_count, std::vector<u8>& output) {
 // ============================================================================
 
 void write_netscape_ext(std::vector<u8>& output, u16 loop_count) {
-    output.push_back(GIF_EXTENSION_INTRODUCER);  // 0x21
+    output.push_back(GIF_EXTENSION_INTRODUCER);        // 0x21
     output.push_back(GIF_APPLICATION_EXTENSION_LABEL); // 0xFF
-    output.push_back(11); // block size
+    output.push_back(11);                              // block size
     // "NETSCAPE2.0"
     const char app[] = "NETSCAPE2.0";
     output.insert(output.end(), app, app + 11);
@@ -254,8 +252,8 @@ std::vector<u8> Writer::Impl::write(const std::vector<Texture>& frames, const Sa
     auto quantizer = wu::Quantizer();
     if (pool)
         quantizer.workerPool(pool);
-    auto quantized = quantizer.quantize(all_rgba.data(),
-                                        static_cast<u32>(pixel_count * frames.size()));
+    auto quantized =
+        quantizer.quantize(all_rgba.data(), static_cast<u32>(pixel_count * frames.size()));
     const u32 color_count = quantized.color_count;
 
     // Build the GIF global color table (always 256 entries = 768 bytes).

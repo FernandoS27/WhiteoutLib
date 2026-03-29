@@ -90,25 +90,25 @@ u32 computeMaxMipCount(u32 w, u32 h, u32 d = 1);
 
 /// Semantic role of a texture in a material.
 enum class TextureKind : u32 {
-    Other,            ///< Unknown or application-specific usage.
-    Diffuse,          ///< Diffuse / base colour (legacy).
-    Normal,           ///< Tangent-space normal map.
-    Specular,         ///< Specular intensity / colour.
+    Other,    ///< Unknown or application-specific usage.
+    Diffuse,  ///< Diffuse / base colour (legacy).
+    Normal,   ///< Tangent-space normal map.
+    Specular, ///< Specular intensity / colour.
     /// @deprecated Use TextureKind::Multikind with per-channel kinds instead.
     /// Set R=AmbientOcclusion, G=Roughness, B=Metalness via setChannelKind().
-    ORM,              ///< ORM packed texture (R=AO, G=Roughness, B=Metalness, A=Unused).
-    Albedo,           ///< PBR base colour (albedo).
-    Roughness,        ///< Roughness (single channel).
-    Metalness,        ///< Metalness (single channel).
-    AmbientOcclusion, ///< Ambient occlusion (single channel).
-    Gloss,            ///< Gloss / smoothness (single channel).
-    Emissive,         ///< Emissive colour / intensity.
-    AlphaMask,        ///< Opacity / alpha mask (single channel, linear).
-    BinaryMask,       ///< Hard binary mask (0 or 1); alpha-coverage-preserving filter.
-    TransparencyMask, ///< Smooth transparency mask; alpha-coverage-preserving, continuous values.
-    BlendMask,        ///< Blend weight mask; alpha-coverage-preserving with soft transitions.
-    Lightmap,         ///< Lightmap or baked light contribution (HDR colour).
-    EnvironmentPBR,   ///< Environment / reflection map (equirectangular, GGX prefiltered).
+    ORM,               ///< ORM packed texture (R=AO, G=Roughness, B=Metalness, A=Unused).
+    Albedo,            ///< PBR base colour (albedo).
+    Roughness,         ///< Roughness (single channel).
+    Metalness,         ///< Metalness (single channel).
+    AmbientOcclusion,  ///< Ambient occlusion (single channel).
+    Gloss,             ///< Gloss / smoothness (single channel).
+    Emissive,          ///< Emissive colour / intensity.
+    AlphaMask,         ///< Opacity / alpha mask (single channel, linear).
+    BinaryMask,        ///< Hard binary mask (0 or 1); alpha-coverage-preserving filter.
+    TransparencyMask,  ///< Smooth transparency mask; alpha-coverage-preserving, continuous values.
+    BlendMask,         ///< Blend weight mask; alpha-coverage-preserving with soft transitions.
+    Lightmap,          ///< Lightmap or baked light contribution (HDR colour).
+    EnvironmentPBR,    ///< Environment / reflection map (equirectangular, GGX prefiltered).
     EnvironmentLegacy, ///< Environment map (equirectangular, spherical Kaiser-filtered).
     /// Packed multi-channel texture where each channel carries a distinct
     /// semantic role.  Use setChannelKind() / channelKind() to assign and
@@ -226,12 +226,11 @@ struct Texture {
      * - Uncompressed → BCn → encode via the appropriate codec.
      *
      * @param new_fmt Target pixel format.
-    * @param pool Optional WorkerPool for parallel BCn encode/decode work.
-    *             Ignored for purely uncompressed-to-uncompressed conversions.
+     * @param pool Optional WorkerPool for parallel BCn encode/decode work.
+     *             Ignored for purely uncompressed-to-uncompressed conversions.
      * @return A new Texture with the converted data.
      */
-    Texture copyAsFormat(PixelFormat new_fmt,
-                    interfaces::WorkerPool* pool = nullptr) const;
+    Texture copyAsFormat(PixelFormat new_fmt, interfaces::WorkerPool* pool = nullptr) const;
 
     /**
      * @brief Swap two channels in-place across all mip levels and array layers.
@@ -329,8 +328,7 @@ struct Texture {
      * @param channels Channels to extract (e.g. {Channel::R, Channel::G}).
      * @return One Texture per requested channel, or std::nullopt on failure.
      */
-    std::optional<std::vector<Texture>> splitChannels(
-        const std::vector<Channel>& channels) const;
+    std::optional<std::vector<Texture>> splitChannels(const std::vector<Channel>& channels) const;
 
     /**
      * @brief Merge single-channel textures into one multi-channel texture.
@@ -346,9 +344,8 @@ struct Texture {
      *                         as @p sources).
      * @return The combined RGBA texture, or std::nullopt on failure.
      */
-    static std::optional<Texture> mergeChannels(
-        const std::vector<Texture>& sources,
-        const std::vector<Channel>& targetChannels);
+    static std::optional<Texture> mergeChannels(const std::vector<Texture>& sources,
+                                                const std::vector<Channel>& targetChannels);
 
     /**
      * @brief Return a copy of a 2-channel normal map expanded to RGBA8.
@@ -362,8 +359,7 @@ struct Texture {
      *             source texture is compressed.
      * @return Expanded RGBA8 texture, or std::nullopt when unsupported.
      */
-    std::optional<Texture> copyFromNormalToRGBA(
-        interfaces::WorkerPool* pool = nullptr) const;
+    std::optional<Texture> copyFromNormalToRGBA(interfaces::WorkerPool* pool = nullptr) const;
 
     // ── Mipmap generation ───────────────────────────────────────────────
 
@@ -397,18 +393,18 @@ struct Texture {
      *
      * The texture must use an uncompressed pixel format.  BCn textures
      * should be decompressed first.  No-op if the texture has ≤ 1 mip.
-    *
-    * @param newMipCount Desired number of mip levels in the output texture.
-    *                    Pass kKeepMipCount (0) to preserve the existing mip
-    *                    count. Must be between 1 and
-    *                    computeMaxMipCount(width, height, depth). When 1,
-    *                    the mip chain is truncated to the base level only
-    *                    and the function returns immediately.
-    * @param pool Optional WorkerPool used to parallelize mip generation
-    *             across mip levels and layers. If null, generation runs
-    *             on the calling thread.
-    * @return std::nullopt on success; std::optional<std::string> with error
-    *         message on failure. No exceptions are thrown.
+     *
+     * @param newMipCount Desired number of mip levels in the output texture.
+     *                    Pass kKeepMipCount (0) to preserve the existing mip
+     *                    count. Must be between 1 and
+     *                    computeMaxMipCount(width, height, depth). When 1,
+     *                    the mip chain is truncated to the base level only
+     *                    and the function returns immediately.
+     * @param pool Optional WorkerPool used to parallelize mip generation
+     *             across mip levels and layers. If null, generation runs
+     *             on the calling thread.
+     * @return std::nullopt on success; std::optional<std::string> with error
+     *         message on failure. No exceptions are thrown.
      */
     std::optional<std::string> generateMipmaps(u32 newMipCount,
                                                interfaces::WorkerPool* pool = nullptr);
@@ -432,8 +428,7 @@ struct Texture {
      * @param pool   Optional WorkerPool for parallel mip generation.
      * @return std::nullopt on success; error message on failure.
      */
-    std::optional<std::string> downscale(u32 levels = 1,
-                                         interfaces::WorkerPool* pool = nullptr);
+    std::optional<std::string> downscale(u32 levels = 1, interfaces::WorkerPool* pool = nullptr);
 
     // ── Factory methods ────────────────────────────────────────────────
 

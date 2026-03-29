@@ -27,13 +27,11 @@ struct BaseFile {
     std::optional<AFIDChunk> afid_chunk = std::nullopt;
     std::optional<BFIDChunk> bfid_chunk = std::nullopt;
     std::optional<SKIDChunk> skid_chunk = std::nullopt;
-    std::optional<TXIDChunk> txid_chunk =
-        std::nullopt;
+    std::optional<TXIDChunk> txid_chunk = std::nullopt;
 
     std::optional<TXACChunk> txac_chunk = std::nullopt;
     std::optional<EXPTChunk> expt_chunk = std::nullopt;
-    std::optional<EXP2Chunk> exp2_chunk =
-        std::nullopt;
+    std::optional<EXP2Chunk> exp2_chunk = std::nullopt;
 
     std::optional<PABCChunk> pabc_chunk = std::nullopt;
     std::optional<PADCChunk> padc_chunk = std::nullopt;
@@ -89,9 +87,7 @@ struct SkeletonFile {
     std::optional<BFIDChunk> bfid_chunk = std::nullopt;
 };
 
-struct PhysicsFile {
-
-};
+struct PhysicsFile {};
 
 enum class FileType {
     Base,
@@ -111,5 +107,5 @@ struct FileSystem {
     std::optional<PhysicsFile> physics = std::nullopt;
 };
 
-}
-}
+} // namespace m2
+} // namespace whiteout

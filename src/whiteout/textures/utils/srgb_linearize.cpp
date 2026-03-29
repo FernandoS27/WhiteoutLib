@@ -47,9 +47,10 @@ const std::array<u8, kLutEntries>& linearToSrgbLUT() {
         std::array<u8, kLutEntries> t{};
         for (u32 i = 0; i < kLutEntries; ++i) {
             const f32 l = static_cast<f32>(i) / kU8Max;
-            const f32 s = (l <= kSrgbInverseCutoff)
-                              ? (l * kSrgbLinearSlope)
-                              : (kSrgbCurveScale * std::pow(l, kSrgbInverseGamma) - kSrgbCurveOffset);
+            const f32 s =
+                (l <= kSrgbInverseCutoff)
+                    ? (l * kSrgbLinearSlope)
+                    : (kSrgbCurveScale * std::pow(l, kSrgbInverseGamma) - kSrgbCurveOffset);
             t[i] = static_cast<u8>(std::clamp(s * kU8Max + kRoundingBias, 0.0f, kU8Max));
         }
         return t;

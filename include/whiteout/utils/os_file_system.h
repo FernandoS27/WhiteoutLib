@@ -7,8 +7,8 @@
 #include <string>
 #include <vector>
 
-#include <whiteout/interfaces.h>
 #include <whiteout/common_types.h>
+#include <whiteout/interfaces.h>
 
 namespace whiteout::utils {
 
@@ -20,8 +20,7 @@ namespace whiteout::utils {
 /// Example:
 ///   utils::OsFileSystem fs("C:/Games/Warcraft III/Data");
 ///   auto data = fs.readFile("units/human/arthas/arthas.mdx");
-class OsFileSystem : public interfaces::VirtualPathFileSystem
-{
+class OsFileSystem : public interfaces::VirtualPathFileSystem {
 public:
     /// Construct with a root directory. The path is stored as-is;
     /// relative paths are resolved from the process working directory.

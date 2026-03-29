@@ -1,10 +1,10 @@
 
 #pragma once
 
-#include "internal_structures.h"
 #include <whiteout/models/m2/types.h>
 #include "../../common/binary_writer.h"
 #include "../../common/streams.h"
+#include "internal_structures.h"
 #include "traits.h"
 
 #include <deque>
@@ -37,8 +37,12 @@ public:
         std::vector<u8> data;
     };
 
-    std::deque<AnimDataBuffer>& getAnimDataBuffers() { return animDataBuffers; }
-    const std::deque<AnimDataBuffer>& getAnimDataBuffers() const { return animDataBuffers; }
+    std::deque<AnimDataBuffer>& getAnimDataBuffers() {
+        return animDataBuffers;
+    }
+    const std::deque<AnimDataBuffer>& getAnimDataBuffers() const {
+        return animDataBuffers;
+    }
 
 protected:
     void start();
@@ -217,7 +221,8 @@ void BinaryWriterVisitor::visit(const ParticleAnimationTrack<T>& track) {
 }
 
 template <typename T>
-void BinaryWriterVisitor::writeVector(const std::vector<T>& array, common::BinaryWriter* dataWriter) {
+void BinaryWriterVisitor::writeVector(const std::vector<T>& array,
+                                      common::BinaryWriter* dataWriter) {
     dataWriter->template write<u32>(static_cast<u32>(array.size()));
     u32 offsetPos = writer.getPosition();
     dataWriter->template write<u32>(0);
@@ -248,5 +253,5 @@ void BinaryWriterVisitor::visit(const std::vector<T>& array) {
     writeVector(array, &writer);
 }
 
-}
-}
+} // namespace m2
+} // namespace whiteout

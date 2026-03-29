@@ -42,7 +42,6 @@ constexpr u32 PHYV_TAG = makeTag("PHYV");
 
 struct PHYSHeader {
     u16 version = 0;
-
 };
 
 struct PHYTEntry {
@@ -99,12 +98,7 @@ struct BDY4Entry {
     u8 unk_2c[4] = {};
 };
 
-enum class ShapeType : i16 {
-    Box = 0,
-    Capsule = 1,
-    Sphere = 2,
-    Polytope = 3
-};
+enum class ShapeType : i16 { Box = 0, Capsule = 1, Sphere = 2, Polytope = 3 };
 
 struct SHAPEntry {
     i16 shapeType = 0;
@@ -306,5 +300,5 @@ struct PHYVEntry {
     f32 unk[6] = {};
 };
 
-}
-}
+} // namespace m2
+} // namespace whiteout

@@ -194,8 +194,8 @@ struct ProgressTrampoline {
     void* userParam;
 };
 
-bool WINAPI progressTrampolineFunc(void* ptrUserParam, CASC_PROGRESS_MSG message,
-                                   LPCSTR szObject, DWORD currentValue, DWORD totalValue) {
+bool WINAPI progressTrampolineFunc(void* ptrUserParam, CASC_PROGRESS_MSG message, LPCSTR szObject,
+                                   DWORD currentValue, DWORD totalValue) {
     auto* trampoline = static_cast<ProgressTrampoline*>(ptrUserParam);
     if (trampoline == nullptr || trampoline->callback == nullptr) {
         return false;
@@ -223,8 +223,8 @@ bool WINAPI progressTrampolineFunc(void* ptrUserParam, CASC_PROGRESS_MSG message
         break;
     }
 
-    return trampoline->callback(trampoline->userParam, msg, szObject, static_cast<u32>(currentValue),
-                                static_cast<u32>(totalValue));
+    return trampoline->callback(trampoline->userParam, msg, szObject,
+                                static_cast<u32>(currentValue), static_cast<u32>(totalValue));
 }
 
 class ScopedFindHandle {

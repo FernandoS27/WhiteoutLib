@@ -49,7 +49,8 @@ ConverterRegistry::ConverterRegistry() : pImpl(std::make_unique<Impl>()) {
 ConverterRegistry::~ConverterRegistry() = default;
 
 void ConverterRegistry::registerConverter(std::shared_ptr<FormatConverter> converter) {
-    if (!converter) return;
+    if (!converter)
+        return;
     auto id = converter->formatId();
     auto it = pImpl->idToIndex.find(id);
     if (it != pImpl->idToIndex.end()) {

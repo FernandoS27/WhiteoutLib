@@ -26,15 +26,15 @@ namespace whiteout::textures::jpeg {
 // Type aliases — keep existing JPEG code compiling without changes.
 // ============================================================================
 
-using BitstreamReader   = ::whiteout::MsbBitReader;
-using BitstreamWriter   = ::whiteout::MsbBitWriter;
-using HuffmanTable      = ::whiteout::MsbHuffmanTable;
-using HuffmanCode       = ::whiteout::HuffmanCode;
+using BitstreamReader = ::whiteout::MsbBitReader;
+using BitstreamWriter = ::whiteout::MsbBitWriter;
+using HuffmanTable = ::whiteout::MsbHuffmanTable;
+using HuffmanCode = ::whiteout::HuffmanCode;
 using HuffmanEncodeTable = ::whiteout::HuffmanEncodeTable;
 
 // Re-export shared constants into the jpeg namespace.
-inline constexpr auto& BIT_MASK          = ::whiteout::BIT_MASK;
-inline constexpr auto  HUFFMAN_FAST_BITS = ::whiteout::HUFFMAN_FAST_BITS;
+inline constexpr auto& BIT_MASK = ::whiteout::BIT_MASK;
+inline constexpr auto HUFFMAN_FAST_BITS = ::whiteout::HUFFMAN_FAST_BITS;
 
 // ============================================================================
 // Standard Huffman Tables (ITU-T T.81, Annex K)
@@ -42,15 +42,56 @@ inline constexpr auto  HUFFMAN_FAST_BITS = ::whiteout::HUFFMAN_FAST_BITS;
 
 /// DC luminance Huffman table (Table K.3).
 inline constexpr std::array<u8, 16> DC_LUMA_COUNTS = {{
-    0, 1, 5, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0,
+    0,
+    1,
+    5,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
 }};
 inline constexpr std::array<u8, 12> DC_LUMA_SYMBOLS = {{
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
 }};
 
 /// AC luminance Huffman table (Table K.5).
 inline constexpr std::array<u8, 16> AC_LUMA_COUNTS = {{
-    0, 2, 1, 3, 3, 2, 4, 3, 5, 5, 4, 4, 0, 0, 1, 0x7D,
+    0,
+    2,
+    1,
+    3,
+    3,
+    2,
+    4,
+    3,
+    5,
+    5,
+    4,
+    4,
+    0,
+    0,
+    1,
+    0x7D,
 }};
 inline constexpr std::array<u8, 162> AC_LUMA_SYMBOLS = {{
     0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12, 0x21, 0x31, 0x41, 0x06, 0x13, 0x51, 0x61,
@@ -68,15 +109,56 @@ inline constexpr std::array<u8, 162> AC_LUMA_SYMBOLS = {{
 
 /// DC chrominance Huffman table (Table K.4).
 inline constexpr std::array<u8, 16> DC_CHROMA_COUNTS = {{
-    0, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0,
+    0,
+    3,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
 }};
 inline constexpr std::array<u8, 12> DC_CHROMA_SYMBOLS = {{
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
 }};
 
 /// AC chrominance Huffman table (Table K.6).
 inline constexpr std::array<u8, 16> AC_CHROMA_COUNTS = {{
-    0, 2, 1, 2, 4, 4, 3, 4, 7, 5, 4, 4, 0, 1, 2, 0x77,
+    0,
+    2,
+    1,
+    2,
+    4,
+    4,
+    3,
+    4,
+    7,
+    5,
+    4,
+    4,
+    0,
+    1,
+    2,
+    0x77,
 }};
 inline constexpr std::array<u8, 162> AC_CHROMA_SYMBOLS = {{
     0x00, 0x01, 0x02, 0x03, 0x11, 0x04, 0x05, 0x21, 0x31, 0x06, 0x12, 0x41, 0x51, 0x07, 0x61,

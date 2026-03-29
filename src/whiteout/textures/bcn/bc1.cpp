@@ -299,8 +299,7 @@ std::optional<Texture> encodeTexture(const Texture& src, bool alpha, std::string
         src, PixelFormat::RGBA8, PixelFormat::BC1, "bc1::encodeTexture",
         [alpha, pool](std::span<const u8> data, u32 w, u32 h) {
             return encode_image_rgba8<8>(
-                data, w, h, [alpha](const u8* b, u8* o) { encode_block(b, o, alpha); },
-                pool);
+                data, w, h, [alpha](const u8* b, u8* o) { encode_block(b, o, alpha); }, pool);
         },
         out_error);
 }

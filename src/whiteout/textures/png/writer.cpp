@@ -3,8 +3,8 @@
 
 #include <whiteout/textures/png/writer.h>
 
-#include "png_internal.h"
 #include "deflate.h"
+#include "png_internal.h"
 
 #include "../io_helpers.h"
 #include "../issue_sink.h"
@@ -20,16 +20,14 @@ public:
 
 private:
     /// Append a PNG chunk (type + data + CRC32) to the output buffer.
-    static void writeChunk(std::vector<u8>& out, u32 chunkType,
-                           const u8* data, u32 length);
+    static void writeChunk(std::vector<u8>& out, u32 chunkType, const u8* data, u32 length);
 
     /// Apply sub-byte-level filter selection per scanline.
     /// Returns filtered image data with filter bytes prepended per row.
     static std::vector<u8> filterScanlines(const u8* rgba, u32 width, u32 height);
 };
 
-void Writer::Impl::writeChunk(std::vector<u8>& out, u32 chunkType,
-                               const u8* data, u32 length) {
+void Writer::Impl::writeChunk(std::vector<u8>& out, u32 chunkType, const u8* data, u32 length) {
     size_t startPos = out.size();
     out.resize(startPos + 12 + length);
 
@@ -81,8 +79,13 @@ std::vector<u8> Writer::Impl::filterScanlines(const u8* rgba, u32 width, u32 hei
 
         u8 bestFilter = FILTER_NONE;
         u64 bestSum = sumNone;
-        if (sumSub < bestSum) { bestFilter = FILTER_SUB; bestSum = sumSub; }
-        if (sumUp < bestSum) { bestFilter = FILTER_UP; }
+        if (sumSub < bestSum) {
+            bestFilter = FILTER_SUB;
+            bestSum = sumSub;
+        }
+        if (sumUp < bestSum) {
+            bestFilter = FILTER_UP;
+        }
 
         out[0] = bestFilter;
         switch (bestFilter) {
@@ -130,11 +133,11 @@ std::vector<u8> Writer::Impl::write(const Texture& texture) {
     u8 ihdr[13];
     writeU32BE(ihdr + 0, width);
     writeU32BE(ihdr + 4, height);
-    ihdr[8] = 8;                        // bit depth
-    ihdr[9] = COLOR_TRUECOLOR_ALPHA;    // color type 6 (RGBA)
-    ihdr[10] = 0;                       // compression method
-    ihdr[11] = 0;                       // filter method
-    ihdr[12] = 0;                       // interlace method (none)
+    ihdr[8] = 8;                     // bit depth
+    ihdr[9] = COLOR_TRUECOLOR_ALPHA; // color type 6 (RGBA)
+    ihdr[10] = 0;                    // compression method
+    ihdr[11] = 0;                    // filter method
+    ihdr[12] = 0;                    // interlace method (none)
     writeChunk(output, CHUNK_IHDR, ihdr, 13);
 
     // Filter the scanlines.
@@ -142,8 +145,8 @@ std::vector<u8> Writer::Impl::write(const Texture& texture) {
 
     // Compress to zlib stream.
     std::string compressError;
-    auto compressed = zlib_compress(
-        std::span<const u8>(filtered.data(), filtered.size()), &compressError);
+    auto compressed =
+        zlib_compress(std::span<const u8>(filtered.data(), filtered.size()), &compressError);
     if (compressed.empty()) {
         fail("Failed to compress PNG data: " + compressError);
         return {};

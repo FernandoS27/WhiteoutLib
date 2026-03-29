@@ -33,7 +33,9 @@
 #include <whiteout/common_types.h>
 #include <whiteout/textures/texture.h>
 
-namespace whiteout::interfaces { class WorkerPool; }
+namespace whiteout::interfaces {
+class WorkerPool;
+}
 
 namespace whiteout::textures::gif {
 
@@ -67,8 +69,8 @@ struct SaveOptions {
 class Writer {
 public:
     enum class WriteMode {
-        Strict,  ///< Throw on any issue.
-        Lenient  ///< Collect issues, return empty data on failure.
+        Strict, ///< Throw on any issue.
+        Lenient ///< Collect issues, return empty data on failure.
     };
 
     explicit Writer(WriteMode writeMode = WriteMode::Lenient,

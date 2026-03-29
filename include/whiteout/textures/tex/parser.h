@@ -81,12 +81,10 @@ public:
                                  const std::string& payloadFilePath);
 
     /// Parse a D4 TEX file from two byte buffers (metadata + pixel payload).
-    std::optional<Texture> parse(std::span<const u8> texData,
-                                 std::span<const u8> payloadData);
+    std::optional<Texture> parse(std::span<const u8> texData, std::span<const u8> payloadData);
 
     /// Parse a D4 TEX file from two byte buffers with metadata extraction.
-    std::optional<Texture> parse(std::span<const u8> texData,
-                                 std::span<const u8> payloadData,
+    std::optional<Texture> parse(std::span<const u8> texData, std::span<const u8> payloadData,
                                  D4TexInfo* outInfo);
 
     /// Parse a D4 TEX with hi-res + low-res payloads from file paths.
@@ -95,10 +93,8 @@ public:
                                  const std::string& lowResPayloadFilePath);
 
     /// Parse a D4 TEX with hi-res + low-res payload byte buffers.
-    std::optional<Texture> parse(std::span<const u8> texData,
-                                 std::span<const u8> hiResPayloadData,
-                                 std::span<const u8> lowResPayloadData,
-                                 D4TexInfo* outInfo);
+    std::optional<Texture> parse(std::span<const u8> texData, std::span<const u8> hiResPayloadData,
+                                 std::span<const u8> lowResPayloadData, D4TexInfo* outInfo);
 
     /// @return true if the last parse produced any issues.
     bool hasIssues() const;

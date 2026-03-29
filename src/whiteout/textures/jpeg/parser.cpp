@@ -104,8 +104,8 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
     if (ctxPtr) {
         // Append colour conversion as a parallel DAG node.
         // asyncImage.pixels (source) will be populated by the preceding DAG nodes.
-        parallel_for_blocks(pixelCount, ctxPtr,
-            [&asyncImage, dest, components, pixelCount](u32 begin, u32 end) {
+        parallel_for_blocks(
+            pixelCount, ctxPtr, [&asyncImage, dest, components, pixelCount](u32 begin, u32 end) {
                 const u8* src = asyncImage.pixels.data();
                 if (components == 1) {
                     for (u32 i = begin; i < end; ++i) {
@@ -146,14 +146,14 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
             }
         } else if (components == 3) {
             for (u32 i = 0; i < pixelCount; ++i) {
-                ycbcr_to_rgb(src[i * 3 + 0], src[i * 3 + 1], src[i * 3 + 2],
-                             dest[i * 4 + 0], dest[i * 4 + 1], dest[i * 4 + 2]);
+                ycbcr_to_rgb(src[i * 3 + 0], src[i * 3 + 1], src[i * 3 + 2], dest[i * 4 + 0],
+                             dest[i * 4 + 1], dest[i * 4 + 2]);
                 dest[i * 4 + 3] = 255;
             }
         } else if (components == 4) {
             for (u32 i = 0; i < pixelCount; ++i) {
-                ycbcr_to_rgb(src[i * 4 + 0], src[i * 4 + 1], src[i * 4 + 2],
-                             dest[i * 4 + 0], dest[i * 4 + 1], dest[i * 4 + 2]);
+                ycbcr_to_rgb(src[i * 4 + 0], src[i * 4 + 1], src[i * 4 + 2], dest[i * 4 + 0],
+                             dest[i * 4 + 1], dest[i * 4 + 2]);
                 dest[i * 4 + 3] = src[i * 4 + 3];
             }
         }

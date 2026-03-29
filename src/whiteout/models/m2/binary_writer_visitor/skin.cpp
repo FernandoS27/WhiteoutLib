@@ -70,5 +70,5 @@ void BinaryWriterVisitor::visit(const SkinFile& file) {
     visit(file.profile);
 }
 
-}
-}
+} // namespace m2
+} // namespace whiteout

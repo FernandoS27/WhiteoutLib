@@ -30,20 +30,20 @@ namespace m3 {
  * intensity, decay, attenuation start/end, and spot-light hot-spot/falloff.
  */
 struct Light {
-    LightType lightType;                  ///< Light type (omni/spot/directional)
-    u16 boneIndex;                        ///< Index into BONE array
-    LightFlag flags = LightFlag::None;    ///< Light flags (shadows, specular, AO, etc.)
-    u32 lodCut;                           ///< LOD cut-off level
-    u32 shadowLodCut;                     ///< Shadow LOD cut-off level
-    AnimRef<Vector3f> diffuseColor;       ///< Animated diffuse color (RGB)
-    AnimRef<f32> intensityMultiplier;     ///< Animated intensity multiplier
-    AnimRef<Vector3f> specularColor;      ///< Animated specular color (RGB)
-    AnimRef<f32> specularMultiplier;      ///< Animated specular multiplier
-    AnimRef<f32> decay;                   ///< Animated distance decay exponent
-    f32 attenuationEnd;                   ///< Attenuation end distance
-    AnimRef<f32> attenuationStart;        ///< Animated attenuation start distance
-    AnimRef<f32> hotSpot;                 ///< Animated spot inner cone angle
-    AnimRef<f32> falloff;                 ///< Animated spot outer cone falloff
+    LightType lightType;               ///< Light type (omni/spot/directional)
+    u16 boneIndex;                     ///< Index into BONE array
+    LightFlag flags = LightFlag::None; ///< Light flags (shadows, specular, AO, etc.)
+    u32 lodCut;                        ///< LOD cut-off level
+    u32 shadowLodCut;                  ///< Shadow LOD cut-off level
+    AnimRef<Vector3f> diffuseColor;    ///< Animated diffuse color (RGB)
+    AnimRef<f32> intensityMultiplier;  ///< Animated intensity multiplier
+    AnimRef<Vector3f> specularColor;   ///< Animated specular color (RGB)
+    AnimRef<f32> specularMultiplier;   ///< Animated specular multiplier
+    AnimRef<f32> decay;                ///< Animated distance decay exponent
+    f32 attenuationEnd;                ///< Attenuation end distance
+    AnimRef<f32> attenuationStart;     ///< Animated attenuation start distance
+    AnimRef<f32> hotSpot;              ///< Animated spot inner cone angle
+    AnimRef<f32> falloff;              ///< Animated spot outer cone falloff
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -54,22 +54,22 @@ struct Light {
  * depth-of-field parameters, and version-dependent bokeh settings.
  */
 struct Camera {
-    u32 boneIndex;                        ///< Index into BONE array
-    std::string name;                     ///< Camera name (Ref<CHAR>)
-    AnimRef<f32> fieldOfView;             ///< Animated FOV in radians (v2+)
-    u32 useVerticalFOV;                   ///< Use vertical FOV (0 or 1, v2+)
-    u32 dofType;                          ///< DOF type (v5 only, default 3)
-    AnimRef<f32> farClip;                 ///< Animated far clip plane (v3+)
-    AnimRef<f32> nearClip;                ///< Animated near clip plane (v3+)
-    AnimRef<f32> shadowClipDistance;      ///< Animated shadow clip distance (v2+)
-    AnimRef<f32> focusDistance;           ///< Animated DOF focal point distance (v2+)
-    AnimRef<f32> farFocusRange;           ///< Animated DOF far focus range (v2+)
-    AnimRef<f32> nearFocusRange;          ///< Animated DOF near focus range (v2+)
-    AnimRef<f32> nearFalloffStart;        ///< Animated near falloff start (v4+)
-    AnimRef<f32> nearFalloffEnd;          ///< Animated near falloff end (v4+)
-    AnimRef<f32> dofAmount;               ///< Animated DOF strength (v2+)
-    AnimRef<f32> bokehFStop;              ///< Animated bokeh f-stop (v5+)
-    AnimRef<f32> bokehMaxCoCDiameter;     ///< Animated bokeh max CoC diameter (v5+)
+    u32 boneIndex;                    ///< Index into BONE array
+    std::string name;                 ///< Camera name (Ref<CHAR>)
+    AnimRef<f32> fieldOfView;         ///< Animated FOV in radians (v2+)
+    u32 useVerticalFOV;               ///< Use vertical FOV (0 or 1, v2+)
+    u32 dofType;                      ///< DOF type (v5 only, default 3)
+    AnimRef<f32> farClip;             ///< Animated far clip plane (v3+)
+    AnimRef<f32> nearClip;            ///< Animated near clip plane (v3+)
+    AnimRef<f32> shadowClipDistance;  ///< Animated shadow clip distance (v2+)
+    AnimRef<f32> focusDistance;       ///< Animated DOF focal point distance (v2+)
+    AnimRef<f32> farFocusRange;       ///< Animated DOF far focus range (v2+)
+    AnimRef<f32> nearFocusRange;      ///< Animated DOF near focus range (v2+)
+    AnimRef<f32> nearFalloffStart;    ///< Animated near falloff start (v4+)
+    AnimRef<f32> nearFalloffEnd;      ///< Animated near falloff end (v4+)
+    AnimRef<f32> dofAmount;           ///< Animated DOF strength (v2+)
+    AnimRef<f32> bokehFStop;          ///< Animated bokeh f-stop (v5+)
+    AnimRef<f32> bokehMaxCoCDiameter; ///< Animated bokeh max CoC diameter (v5+)
     M3_DEFINE_VERSION_ACCESSORS()
 };
 

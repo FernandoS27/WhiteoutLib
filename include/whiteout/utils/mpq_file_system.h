@@ -13,11 +13,11 @@
 #include <string>
 #include <vector>
 
-#include <whiteout/interfaces.h>
 #include <whiteout/common_types.h>
+#include <whiteout/interfaces.h>
 
 namespace whiteout::storages::mpq {
-    class Storage;
+class Storage;
 }
 
 namespace whiteout::utils {
@@ -36,8 +36,7 @@ namespace whiteout::utils {
 ///   auto storage = mpq::Storage::open("War3.mpq");
 ///   utils::MpqFileSystem fs(*storage);
 ///   auto data = fs.readFile("units\\orc\\grunt\\grunt.mdx");
-class MpqFileSystem : public interfaces::VirtualPathFileSystem
-{
+class MpqFileSystem : public interfaces::VirtualPathFileSystem {
 public:
     /// Construct from an existing MPQ storage. The storage is not owned;
     /// it must remain valid for the lifetime of this object.

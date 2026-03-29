@@ -37,8 +37,7 @@ void BinaryWriterVisitor::write(const Model& model) {
 
     // Reserve index slot 1 for model root
     u32 modelRefIdx = static_cast<u32>(indexTable.size());
-    indexTable.emplace_back(
-        IndexEntry{chunkTag<Model>, 0, 1, ChunkTagTraits<Model>::max_version});
+    indexTable.emplace_back(IndexEntry{chunkTag<Model>, 0, 1, ChunkTagTraits<Model>::max_version});
 
     header.modelRef.entries = 1;
     header.modelRef.index = modelRefIdx;

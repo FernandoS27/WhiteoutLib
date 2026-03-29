@@ -108,20 +108,19 @@ std::vector<u8> Writer::Impl::write(const Texture& texture) {
 
     if (ctxPtr) {
         // --- DAG node 1: RGB → Y'CbCr colour conversion (parallel) ---
-        parallel_for_blocks(pixelCount, ctxPtr,
-            [src, &image](u32 begin, u32 end) {
-                for (u32 i = begin; i < end; ++i) {
-                    rgb_to_ycbcr(src[i * 4 + 0], src[i * 4 + 1], src[i * 4 + 2],
-                                 image.pixels[i * 3 + 0], image.pixels[i * 3 + 1],
-                                 image.pixels[i * 3 + 2]);
-                }
-            });
+        parallel_for_blocks(pixelCount, ctxPtr, [src, &image](u32 begin, u32 end) {
+            for (u32 i = begin; i < end; ++i) {
+                rgb_to_ycbcr(src[i * 4 + 0], src[i * 4 + 1], src[i * 4 + 2],
+                             image.pixels[i * 3 + 0], image.pixels[i * 3 + 1],
+                             image.pixels[i * 3 + 2]);
+            }
+        });
 
         // --- DAG nodes 2-4: encode (parallel data prep + serial entropy) ---
         std::vector<u8> encodedOutput;
         std::string encodeError;
-        whiteout::textures::jpeg::encode_raw(image, quality, &encodeError, progressive,
-                                             ctxPtr, &encodedOutput);
+        whiteout::textures::jpeg::encode_raw(image, quality, &encodeError, progressive, ctxPtr,
+                                             &encodedOutput);
 
         // Wait for the entire DAG to complete.
         jctx.sem->wait(jctx.currentValue);
@@ -144,13 +143,12 @@ std::vector<u8> Writer::Impl::write(const Texture& texture) {
     // --- Serial path ---
 
     for (u32 i = 0; i < pixelCount; ++i) {
-        rgb_to_ycbcr(src[i * 4 + 0], src[i * 4 + 1], src[i * 4 + 2],
-                     image.pixels[i * 3 + 0], image.pixels[i * 3 + 1], image.pixels[i * 3 + 2]);
+        rgb_to_ycbcr(src[i * 4 + 0], src[i * 4 + 1], src[i * 4 + 2], image.pixels[i * 3 + 0],
+                     image.pixels[i * 3 + 1], image.pixels[i * 3 + 2]);
     }
 
     std::string encodeError;
-    auto encoded = whiteout::textures::jpeg::encode_raw(image, quality, &encodeError,
-                                                        progressive);
+    auto encoded = whiteout::textures::jpeg::encode_raw(image, quality, &encodeError, progressive);
     if (encoded.empty()) {
         fail("JPEG encode failed: " + encodeError);
         return {};
@@ -166,8 +164,7 @@ std::vector<u8> Writer::Impl::write(const Texture& texture) {
     return output;
 }
 
-Writer::Writer(i32 quality, WriteMode writeMode, interfaces::WorkerPool* pool,
-               bool progressive)
+Writer::Writer(i32 quality, WriteMode writeMode, interfaces::WorkerPool* pool, bool progressive)
     : pImpl(std::make_unique<Impl>()) {
     pImpl->strict_mode = (writeMode == WriteMode::Strict);
     pImpl->quality = std::clamp(quality, 1, 100);

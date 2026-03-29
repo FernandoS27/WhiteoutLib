@@ -4,8 +4,8 @@
 /// @file stages.cpp
 /// @brief Implementation of mipmap pipeline pre/post-processing stages.
 
-#include "stages.h"
 #include "pipeline.h"
+#include "stages.h"
 
 #include <algorithm>
 #include <cmath>
@@ -110,8 +110,12 @@ f32 lookupLut(const f32* lut, f32 value) {
     return lut[lo] + (lut[hi] - lut[lo]) * fraction;
 }
 
-f32 srgbToLinear(f32 value) { return lookupLut(srgbLuts().toLinear, value); }
-f32 linearToSrgb(f32 value) { return lookupLut(srgbLuts().toSrgb, value); }
+f32 srgbToLinear(f32 value) {
+    return lookupLut(srgbLuts().toLinear, value);
+}
+f32 linearToSrgb(f32 value) {
+    return lookupLut(srgbLuts().toSrgb, value);
+}
 
 // ============================================================================
 // Shared constants
@@ -330,23 +334,22 @@ f32 preBlurAlpha(MipImage& img, PipelineContext* ctx) {
         });
 
     // Vertical pass → img
-    parallelForRows(
-        height, ctx,
-        [alphaChannel, width, height, channels, imgData, tmpData, tmp](u32 y0, u32 y1) {
-            for (u32 y = y0; y < y1; ++y) {
-                const u32 aboveY = (y > 0) ? y - 1 : 0;
-                const u32 belowY = (y + 1 < height) ? y + 1 : height - 1;
-                const size_t aboveRow = static_cast<size_t>(aboveY) * width;
-                const size_t currentRow = static_cast<size_t>(y) * width;
-                const size_t belowRow = static_cast<size_t>(belowY) * width;
-                for (u32 x = 0; x < width; ++x) {
-                    imgData[(currentRow + x) * channels + alphaChannel] = std::clamp(
-                        0.25f * tmpData[aboveRow + x] + 0.5f * tmpData[currentRow + x] +
-                            0.25f * tmpData[belowRow + x],
-                        0.0f, 1.0f);
-                }
-            }
-        });
+    parallelForRows(height, ctx,
+                    [alphaChannel, width, height, channels, imgData, tmpData, tmp](u32 y0, u32 y1) {
+                        for (u32 y = y0; y < y1; ++y) {
+                            const u32 aboveY = (y > 0) ? y - 1 : 0;
+                            const u32 belowY = (y + 1 < height) ? y + 1 : height - 1;
+                            const size_t aboveRow = static_cast<size_t>(aboveY) * width;
+                            const size_t currentRow = static_cast<size_t>(y) * width;
+                            const size_t belowRow = static_cast<size_t>(belowY) * width;
+                            for (u32 x = 0; x < width; ++x) {
+                                imgData[(currentRow + x) * channels + alphaChannel] = std::clamp(
+                                    0.25f * tmpData[aboveRow + x] + 0.5f * tmpData[currentRow + x] +
+                                        0.25f * tmpData[belowRow + x],
+                                    0.0f, 1.0f);
+                            }
+                        }
+                    });
 
     return coverageTarget;
 }
@@ -401,32 +404,29 @@ void medianFilter3x3(MipImage& img, PipelineContext* ctx) {
     f32* outData = out->data();
 
     // Compute pass: read from img, write to out.
-    parallelForRows(
-        height, ctx, [width, height, channels, imgData, outData, out](u32 y0, u32 y1) {
-            f32 window[9];
-            for (u32 y = y0; y < y1; ++y) {
-                for (u32 x = 0; x < width; ++x) {
-                    for (u32 c = 0; c < channels; ++c) {
-                        u32 count = 0;
-                        for (i32 dy = -1; dy <= 1; ++dy) {
-                            for (i32 dx = -1; dx <= 1; ++dx) {
-                                const u32 sampleX =
-                                    clampToRange(static_cast<i32>(x) + dx, width);
-                                const u32 sampleY =
-                                    clampToRange(static_cast<i32>(y) + dy, height);
-                                window[count++] =
-                                    imgData[(static_cast<size_t>(sampleY) * width + sampleX) *
-                                                channels +
-                                            c];
-                            }
+    parallelForRows(height, ctx, [width, height, channels, imgData, outData, out](u32 y0, u32 y1) {
+        f32 window[9];
+        for (u32 y = y0; y < y1; ++y) {
+            for (u32 x = 0; x < width; ++x) {
+                for (u32 c = 0; c < channels; ++c) {
+                    u32 count = 0;
+                    for (i32 dy = -1; dy <= 1; ++dy) {
+                        for (i32 dx = -1; dx <= 1; ++dx) {
+                            const u32 sampleX = clampToRange(static_cast<i32>(x) + dx, width);
+                            const u32 sampleY = clampToRange(static_cast<i32>(y) + dy, height);
+                            window[count++] =
+                                imgData[(static_cast<size_t>(sampleY) * width + sampleX) *
+                                            channels +
+                                        c];
                         }
-                        std::nth_element(window, window + count / 2, window + count);
-                        outData[(static_cast<size_t>(y) * width + x) * channels + c] =
-                            window[count / 2];
                     }
+                    std::nth_element(window, window + count / 2, window + count);
+                    outData[(static_cast<size_t>(y) * width + x) * channels + c] =
+                        window[count / 2];
                 }
             }
-        });
+        }
+    });
 
     // Copy-back pass: timeline ordering ensures compute is done first.
     parallelForRows(height, ctx, [width, channels, imgData, outData, out](u32 y0, u32 y1) {
@@ -441,9 +441,9 @@ void bilateralFilter(MipImage& img, PipelineContext* ctx) {
     const u32 height = img.height;
     const u32 channels = img.channels;
 
-    constexpr i32 RADIUS = 2;                                               // 5x5 window
-    constexpr f32 SIGMA_SPATIAL = 1.5f;                                     // spatial sigma
-    constexpr f32 SIGMA_RANGE = 0.1f;                                       // range sigma
+    constexpr i32 RADIUS = 2;           // 5x5 window
+    constexpr f32 SIGMA_SPATIAL = 1.5f; // spatial sigma
+    constexpr f32 SIGMA_RANGE = 0.1f;   // range sigma
     constexpr f32 INV_2_SIGMA_S2 = 1.0f / (2.0f * SIGMA_SPATIAL * SIGMA_SPATIAL);
     constexpr f32 INV_2_SIGMA_R2 = 1.0f / (2.0f * SIGMA_RANGE * SIGMA_RANGE);
     constexpr i32 KERNEL_SIZE = 2 * RADIUS + 1;
@@ -472,11 +472,9 @@ void bilateralFilter(MipImage& img, PipelineContext* ctx) {
                     const f32 centerValue = imgData[centerIdx + c];
 
                     for (i32 dy = -RADIUS; dy <= RADIUS; ++dy) {
-                        const u32 sampleY =
-                            clampToRange(static_cast<i32>(y) + dy, height);
+                        const u32 sampleY = clampToRange(static_cast<i32>(y) + dy, height);
                         for (i32 dx = -RADIUS; dx <= RADIUS; ++dx) {
-                            const u32 sampleX =
-                                clampToRange(static_cast<i32>(x) + dx, width);
+                            const u32 sampleX = clampToRange(static_cast<i32>(x) + dx, width);
 
                             const f32 neighborValue =
                                 imgData[(static_cast<size_t>(sampleY) * width + sampleX) *

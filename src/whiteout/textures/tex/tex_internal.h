@@ -161,7 +161,7 @@ u32 align_up(u32 value, u32 align);
 struct D4FormatMapping {
     PixelFormat format;
     bool is_srgb;
-    u32 block_dim;     // 1 for uncompressed, 4 for BCn
+    u32 block_dim;      // 1 for uncompressed, 4 for BCn
     u32 bytes_per_unit; // per pixel or per 4×4 block
 };
 

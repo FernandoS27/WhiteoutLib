@@ -13,7 +13,7 @@ namespace whiteout {
 namespace interfaces {
 class CascFileSystem;
 class VirtualPathFileSystem;
-}
+} // namespace interfaces
 
 namespace common {
 class BinaryReader;
@@ -25,11 +25,7 @@ using common::BinaryReader;
 
 class Parser {
 public:
-
-    enum class ParseMode {
-        Strict,
-        Lenient
-    };
+    enum class ParseMode { Strict, Lenient };
 
     explicit Parser(ParseMode mode = ParseMode::Lenient);
 
@@ -37,8 +33,7 @@ public:
 
     Model parse(interfaces::VirtualPathFileSystem& fs, const std::string& filePath);
 
-    Model parse(interfaces::CascFileSystem& cascFs,
-                     std::span<const uint8_t> buffer);
+    Model parse(interfaces::CascFileSystem& cascFs, std::span<const uint8_t> buffer);
 
     bool hasIssues() const;
 

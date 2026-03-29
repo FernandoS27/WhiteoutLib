@@ -5,8 +5,8 @@
 
 #include <whiteout/models/wem/structures.h>
 
-#include "chunk_tags.h"
 #include "../../common/binary_reader.h"
+#include "chunk_tags.h"
 
 #include <vector>
 
@@ -23,7 +23,9 @@ public:
     void read(Model& model);
 
     /// Issues encountered during parsing (non-fatal in Lenient mode).
-    const std::vector<std::string>& getIssues() const { return issues; }
+    const std::vector<std::string>& getIssues() const {
+        return issues;
+    }
 
 protected:
     void visit(Model& model);

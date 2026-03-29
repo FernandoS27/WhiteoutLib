@@ -24,10 +24,12 @@
 #include <vector>
 
 #include <whiteout/common_types.h>
-#include <whiteout/textures/writer.h>
 #include <whiteout/textures/texture.h>
+#include <whiteout/textures/writer.h>
 
-namespace whiteout::interfaces { class WorkerPool; }
+namespace whiteout::interfaces {
+class WorkerPool;
+}
 
 namespace whiteout::textures::jpeg {
 
@@ -44,8 +46,7 @@ public:
     };
 
     explicit Writer(i32 quality = 75, WriteMode writeMode = WriteMode::Lenient,
-                    interfaces::WorkerPool* pool = nullptr,
-                    bool progressive = false);
+                    interfaces::WorkerPool* pool = nullptr, bool progressive = false);
     ~Writer();
 
     Writer(const Writer&) = delete;

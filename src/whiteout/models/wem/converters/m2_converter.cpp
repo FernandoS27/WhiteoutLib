@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "whiteout/models/wem/converters.h"
 #include "whiteout/models/m2/writer.h"
+#include "whiteout/models/wem/converters.h"
 
 #include <algorithm>
 #include <cmath>
@@ -36,30 +36,49 @@ m2::Extent convertExtentToM2(const wem::Extent& src) {
 
 BlendMode convertM2BlendMode(u16 bm) {
     switch (bm) {
-    case 0: return BlendMode::Opaque;
-    case 1: return BlendMode::AlphaKey;
-    case 2: return BlendMode::AlphaBlend;
-    case 3: return BlendMode::AdditiveAlpha;
-    case 4: return BlendMode::Additive;
-    case 5: return BlendMode::Modulate;
-    case 6: return BlendMode::Modulate2x;
-    case 7: return BlendMode::BlendAdd;
-    default: return BlendMode::Opaque;
+    case 0:
+        return BlendMode::Opaque;
+    case 1:
+        return BlendMode::AlphaKey;
+    case 2:
+        return BlendMode::AlphaBlend;
+    case 3:
+        return BlendMode::AdditiveAlpha;
+    case 4:
+        return BlendMode::Additive;
+    case 5:
+        return BlendMode::Modulate;
+    case 6:
+        return BlendMode::Modulate2x;
+    case 7:
+        return BlendMode::BlendAdd;
+    default:
+        return BlendMode::Opaque;
     }
 }
 
 u16 convertBlendModeToM2(BlendMode bm) {
     switch (bm) {
-    case BlendMode::Opaque:       return 0;
-    case BlendMode::AlphaKey:     return 1;
-    case BlendMode::AlphaBlend:   return 2;
-    case BlendMode::AdditiveAlpha:return 3;
-    case BlendMode::Additive:     return 4;
-    case BlendMode::Modulate:     return 5;
-    case BlendMode::Modulate2x:   return 6;
-    case BlendMode::BlendAdd:     return 7;
-    case BlendMode::Transparent:  return 1; // closest M2 equivalent
-    default:                      return 0;
+    case BlendMode::Opaque:
+        return 0;
+    case BlendMode::AlphaKey:
+        return 1;
+    case BlendMode::AlphaBlend:
+        return 2;
+    case BlendMode::AdditiveAlpha:
+        return 3;
+    case BlendMode::Additive:
+        return 4;
+    case BlendMode::Modulate:
+        return 5;
+    case BlendMode::Modulate2x:
+        return 6;
+    case BlendMode::BlendAdd:
+        return 7;
+    case BlendMode::Transparent:
+        return 1; // closest M2 equivalent
+    default:
+        return 0;
     }
 }
 
@@ -246,8 +265,8 @@ ConvertResult M2Converter::fromM2(const m2::Model& header) const {
                 }
             }
             if (!batchFound) {
-                issues.push_back("Skin " + std::to_string(si) + " section " +
-                                 std::to_string(ssi) + " has no matching batch");
+                issues.push_back("Skin " + std::to_string(si) + " section " + std::to_string(ssi) +
+                                 " has no matching batch");
             }
 
             mesh.submeshes.push_back(std::move(sub));
@@ -259,10 +278,13 @@ ConvertResult M2Converter::fromM2(const m2::Model& header) const {
             Vector3f maxP = mesh.positions[0];
             f32 maxDistSq = 0;
             for (const auto& p : mesh.positions) {
-                minP = Vector3f(std::min(minP.x, p.x), std::min(minP.y, p.y), std::min(minP.z, p.z));
-                maxP = Vector3f(std::max(maxP.x, p.x), std::max(maxP.y, p.y), std::max(maxP.z, p.z));
+                minP =
+                    Vector3f(std::min(minP.x, p.x), std::min(minP.y, p.y), std::min(minP.z, p.z));
+                maxP =
+                    Vector3f(std::max(maxP.x, p.x), std::max(maxP.y, p.y), std::max(maxP.z, p.z));
                 f32 distSq = p.x * p.x + p.y * p.y + p.z * p.z;
-                if (distSq > maxDistSq) maxDistSq = distSq;
+                if (distSq > maxDistSq)
+                    maxDistSq = distSq;
             }
             mesh.bounds.minimum = minP;
             mesh.bounds.maximum = maxP;
@@ -331,9 +353,12 @@ M2ConvertResult M2Converter::toM2(const Model& wemModel, u32 targetVersion) cons
         for (size_t v = 0; v < mesh.positions.size(); ++v) {
             m2::Vertex vert;
             vert.position = mesh.positions[v];
-            if (v < mesh.normals.size()) vert.normal = mesh.normals[v];
-            if (v < mesh.boneIndices.size()) vert.boneIndices = mesh.boneIndices[v];
-            if (v < mesh.boneWeights.size()) vert.boneWeights = mesh.boneWeights[v];
+            if (v < mesh.normals.size())
+                vert.normal = mesh.normals[v];
+            if (v < mesh.boneIndices.size())
+                vert.boneIndices = mesh.boneIndices[v];
+            if (v < mesh.boneWeights.size())
+                vert.boneWeights = mesh.boneWeights[v];
             if (!mesh.uvSets.empty() && v < mesh.uvSets[0].size())
                 vert.texCoords[0] = mesh.uvSets[0][v];
             if (mesh.uvSets.size() > 1 && v < mesh.uvSets[1].size())
@@ -415,11 +440,21 @@ M2ConvertResult M2Converter::toM2(const Model& wemModel, u32 targetVersion) cons
 // M2Converter — FormatConverter interface
 // ============================================================================
 
-std::string M2Converter::formatId() const { return "m2"; }
-std::string M2Converter::formatName() const { return "World of Warcraft M2"; }
-bool M2Converter::supportsImport() const { return true; }
-bool M2Converter::supportsExport() const { return true; }
-u32 M2Converter::defaultExportVersion() const { return 274; }
+std::string M2Converter::formatId() const {
+    return "m2";
+}
+std::string M2Converter::formatName() const {
+    return "World of Warcraft M2";
+}
+bool M2Converter::supportsImport() const {
+    return true;
+}
+bool M2Converter::supportsExport() const {
+    return true;
+}
+u32 M2Converter::defaultExportVersion() const {
+    return 274;
+}
 
 ExportResult M2Converter::exportToBytes(const Model& model, u32 version) const {
     auto m2Result = toM2(model, version == 0 ? defaultExportVersion() : version);
@@ -432,9 +467,8 @@ ExportResult M2Converter::exportToBytes(const Model& model, u32 version) const {
     auto serResult = writer.write(m2Result.model);
     result.data = std::move(serResult.m2Data);
 
-    result.issues.push_back(
-        "M2 byte-level export writes only the base .m2 file. "
-        "Use toM2() for the full Model including skin profiles.");
+    result.issues.push_back("M2 byte-level export writes only the base .m2 file. "
+                            "Use toM2() for the full Model including skin profiles.");
     return result;
 }
 

@@ -49,8 +49,7 @@ f32 preBlurAlpha(MipImage& img, PipelineContext* ctx = nullptr);
 
 /// Rescale the alpha channel so that coverage matches @p coverageTarget
 /// (typically the value returned by preBlurAlpha).
-void preserveAlphaCoverage(MipImage& img, f32 coverageTarget,
-                           PipelineContext* ctx = nullptr);
+void preserveAlphaCoverage(MipImage& img, f32 coverageTarget, PipelineContext* ctx = nullptr);
 
 /// Compute the fraction of texels whose alpha (last channel) × @p scale
 /// meets or exceeds the 0.5 threshold.

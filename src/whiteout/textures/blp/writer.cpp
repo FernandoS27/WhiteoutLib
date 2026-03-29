@@ -26,8 +26,7 @@ namespace {
 // ============================================================================
 
 wu::QuantizeResult build_optimal_palette(const Texture& texture, u32 mipCount, bool dither,
-                                         f32 dither_strength,
-                                         interfaces::WorkerPool* pool) {
+                                         f32 dither_strength, interfaces::WorkerPool* pool) {
     u64 total_pixels = 0;
     for (u32 mip = 0; mip < mipCount; ++mip) {
         const auto& mip_info = texture.mipLevel(mip);
@@ -259,9 +258,9 @@ std::vector<std::vector<u8>> Writer::Impl::encodeMipPayloads(WriteContext& ctx) 
         case BlpEncoding::JPEG: {
             const bool with_alpha = (ctx.alpha_bits == 8);
             std::string jpeg_error;
-            payloads[mip] = encode_jpeg_mip(source.data(), mip_info.width, mip_info.height,
-                                            with_alpha, ctx.opts.jpegQuality,
-                                            ctx.opts.jpegProgressive, &jpeg_error);
+            payloads[mip] =
+                encode_jpeg_mip(source.data(), mip_info.width, mip_info.height, with_alpha,
+                                ctx.opts.jpegQuality, ctx.opts.jpegProgressive, &jpeg_error);
             if (payloads[mip].empty()) {
                 fail(jpeg_error.empty() ? "JPEG mip encode failed" : jpeg_error);
                 return {};

@@ -55,7 +55,7 @@ std::optional<int> parseBone(std::string_view s) {
     return std::stoi(std::string(s.substr(1, s.size() - 6)));
 }
 
-}
+} // namespace
 
 std::optional<GroupedFiles> collectBundle(const std::filesystem::path& m2Path) {
     using namespace std::filesystem;
@@ -175,5 +175,5 @@ GroupedFiles fromFileSystem(const FileSystem& fsys, std::filesystem::path whereT
     return out;
 }
 
-}
-}
+} // namespace m2
+} // namespace whiteout

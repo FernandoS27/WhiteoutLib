@@ -36,7 +36,8 @@ MipImage extractSlice(const Texture& tex, u32 mip, u32 layer, u32 z) {
     MipImage img(mipLevel.width, mipLevel.height, numChannels);
     if (bpc > 0) {
         const auto srcData = tex.mipData(mip, layer);
-        const size_t sliceElems = static_cast<size_t>(mipLevel.width) * mipLevel.height * numChannels;
+        const size_t sliceElems =
+            static_cast<size_t>(mipLevel.width) * mipLevel.height * numChannels;
         const size_t sliceBytes = sliceElems * bpc;
         unpackToFloat(srcData.data() + z * sliceBytes, img.pixels.data(), sliceElems, bpc);
     }
@@ -50,7 +51,8 @@ void writeSlice(Texture& tex, u32 mip, u32 layer, u32 z, const MipImage& img) {
     const u32 bpc = bytesPerComponent(tex.format());
     if (bpc > 0) {
         auto dstData = tex.mipData(mip, layer);
-        const size_t sliceElems = static_cast<size_t>(mipLevel.width) * mipLevel.height * numChannels;
+        const size_t sliceElems =
+            static_cast<size_t>(mipLevel.width) * mipLevel.height * numChannels;
         const size_t sliceBytes = sliceElems * bpc;
         packFromFloat(img.pixels.data(), dstData.data() + z * sliceBytes, sliceElems, bpc);
     }
@@ -130,18 +132,16 @@ MipmapPipeline pipelineForKind(TextureKind kind, bool srgb) {
                 // submitSingleTask chains through the timeline, and
                 // preBlurAlpha is called with ctx=nullptr so its internal
                 // parallelForRows runs single-threaded — no nested dispatch.
-                submitSingleTask(ctx, [&img, coverage]() {
-                    *coverage = preBlurAlpha(img, nullptr);
-                });
+                submitSingleTask(ctx,
+                                 [&img, coverage]() { *coverage = preBlurAlpha(img, nullptr); });
             } else {
                 *coverage = preBlurAlpha(img, ctx);
             }
         };
         PoolStage post = [coverage](MipImage& img, PipelineContext* ctx) {
             if (ctx && ctx->sem) {
-                submitSingleTask(ctx, [&img, coverage]() {
-                    preserveAlphaCoverage(img, *coverage, nullptr);
-                });
+                submitSingleTask(
+                    ctx, [&img, coverage]() { preserveAlphaCoverage(img, *coverage, nullptr); });
             } else {
                 preserveAlphaCoverage(img, *coverage, ctx);
             }
@@ -212,9 +212,8 @@ MipmapPipeline pipelineForKind(TextureKind kind, bool srgb) {
         PoolStage post = [coverage](MipImage& img, PipelineContext* ctx) {
             clampUnit(img, ctx);
             if (ctx && ctx->sem) {
-                submitSingleTask(ctx, [&img, coverage]() {
-                    preserveAlphaCoverage(img, *coverage, nullptr);
-                });
+                submitSingleTask(
+                    ctx, [&img, coverage]() { preserveAlphaCoverage(img, *coverage, nullptr); });
             } else {
                 preserveAlphaCoverage(img, *coverage, ctx);
             }
@@ -431,8 +430,7 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
                 if (hasError.load(std::memory_order_acquire))
                     break;
 
-                const size_t idx =
-                    static_cast<size_t>(layer) * (mipCount - 1) + (mip - 1);
+                const size_t idx = static_cast<size_t>(layer) * (mipCount - 1) + (mip - 1);
                 auto* sem = sems[idx].get();
 
                 const MipmapPipeline pipeline = pipelineForKind(texKind, texSrgb);
@@ -443,9 +441,9 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
                 sem->signal(startVal);
 
                 // executeAsync submits all pipeline steps as individual tasks.
-                const auto computeDoneVal = pipeline.executeAsync(
-                    originalByLayer[layer], targetLevel.width, targetLevel.height,
-                    pool, sem, startVal, &results[idx]);
+                const auto computeDoneVal =
+                    pipeline.executeAsync(originalByLayer[layer], targetLevel.width,
+                                          targetLevel.height, pool, sem, startVal, &results[idx]);
 
                 // Submit write task.
                 const auto writeDoneVal = sem->next();
@@ -490,8 +488,8 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
                             const f32 zStart = static_cast<f32>(z) * srcDepth / tgtDepth;
                             const f32 zEnd = static_cast<f32>(z + 1) * srcDepth / tgtDepth;
                             const u32 zMin = static_cast<u32>(zStart);
-                            const u32 zMax = std::min(
-                                static_cast<u32>(std::ceil(zEnd)), srcDepth) - 1;
+                            const u32 zMax =
+                                std::min(static_cast<u32>(std::ceil(zEnd)), srcDepth) - 1;
 
                             // Average contributing source slices for Z downsampling.
                             MipImage src = srcSlices[zMin];
@@ -502,8 +500,8 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
                                 scaleImage(src, 1.0f / static_cast<f32>(sliceCount));
 
                             const MipmapPipeline pipeline = pipelineForKind(texKind, texSrgb);
-                            MipImage result = pipeline.execute(
-                                src, targetLevel.width, targetLevel.height);
+                            MipImage result =
+                                pipeline.execute(src, targetLevel.width, targetLevel.height);
 
                             if (needNormalExpansion)
                                 writeSlice(tex, mip, layer, z,
@@ -516,8 +514,8 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
                     submitJob([&, layer, mip, texKind, texSrgb]() {
                         const MipmapPipeline pipeline = pipelineForKind(texKind, texSrgb);
                         const auto& targetLevel = tex.mipLevel(mip, layer);
-                        MipImage mipResult = pipeline.execute(originalByLayer[layer],
-                                                              targetLevel.width, targetLevel.height);
+                        MipImage mipResult = pipeline.execute(
+                            originalByLayer[layer], targetLevel.width, targetLevel.height);
                         if (needNormalExpansion)
                             writeMip(tex, mip, layer,
                                      collapseNormalFromRGBA(mipResult, originalChannelCount));

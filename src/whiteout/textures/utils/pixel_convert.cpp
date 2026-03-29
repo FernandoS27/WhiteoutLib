@@ -38,7 +38,8 @@ const ConversionTable g_table;
 BulkConvertFn get_converter(PixelFormat src, PixelFormat dst) {
     const u32 si = static_cast<u32>(src);
     const u32 di = static_cast<u32>(dst);
-    if (si >= kUncompressedCount || di >= kUncompressedCount) return nullptr;
+    if (si >= kUncompressedCount || di >= kUncompressedCount)
+        return nullptr;
     return g_table.entries[si][di];
 }
 
@@ -52,9 +53,8 @@ struct ToTable {
     ToRGBA32F entries[kUncompressedCount]{};
 
     ToTable() {
-        for_each_format<UncompressedFormats>([this]<PixelFormat Fmt>() {
-            entries[static_cast<u32>(Fmt)] = &read_rgba32f<Fmt>;
-        });
+        for_each_format<UncompressedFormats>(
+            [this]<PixelFormat Fmt>() { entries[static_cast<u32>(Fmt)] = &read_rgba32f<Fmt>; });
     }
 };
 
@@ -62,9 +62,8 @@ struct FromTable {
     FromRGBA32F entries[kUncompressedCount]{};
 
     FromTable() {
-        for_each_format<UncompressedFormats>([this]<PixelFormat Fmt>() {
-            entries[static_cast<u32>(Fmt)] = &write_rgba32f<Fmt>;
-        });
+        for_each_format<UncompressedFormats>(
+            [this]<PixelFormat Fmt>() { entries[static_cast<u32>(Fmt)] = &write_rgba32f<Fmt>; });
     }
 };
 
@@ -75,13 +74,15 @@ const FromTable g_from_table;
 
 ToRGBA32F get_to_rgba32f(PixelFormat fmt) {
     const u32 idx = static_cast<u32>(fmt);
-    if (idx >= kUncompressedCount) return nullptr;
+    if (idx >= kUncompressedCount)
+        return nullptr;
     return g_to_table.entries[idx];
 }
 
 FromRGBA32F get_from_rgba32f(PixelFormat fmt) {
     const u32 idx = static_cast<u32>(fmt);
-    if (idx >= kUncompressedCount) return nullptr;
+    if (idx >= kUncompressedCount)
+        return nullptr;
     return g_from_table.entries[idx];
 }
 

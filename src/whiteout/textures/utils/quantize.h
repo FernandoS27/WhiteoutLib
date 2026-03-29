@@ -84,8 +84,7 @@ struct QuantizeResult {
     /// @param strength     Dither strength in [0, 1], matching mapPixelsDithered().
     /// @param iterations   Number of gradient descent iterations (default 5).
     /// @param pool         Optional WorkerPool for parallel per-pixel work.
-    void refineDitherAware(const u8* rgba, u32 width, u32 height,
-                           f32 strength, u32 iterations = 5,
+    void refineDitherAware(const u8* rgba, u32 width, u32 height, f32 strength, u32 iterations = 5,
                            interfaces::WorkerPool* pool = nullptr);
 
 private:
@@ -148,8 +147,7 @@ public:
     QuantizeResult quantize(const u8* rgba, u32 pixel_count) const;
 
     /// @overload quantize with explicit WorkerPool (overrides the builder setting).
-    QuantizeResult quantize(const u8* rgba, u32 pixel_count,
-                            interfaces::WorkerPool* pool) const;
+    QuantizeResult quantize(const u8* rgba, u32 pixel_count, interfaces::WorkerPool* pool) const;
 
     /// Run quantization asynchronously, returning a timeline value to wait on.
     ///
@@ -168,10 +166,8 @@ public:
     /// @param outResult    Output pointer — written when the pipeline completes.
     /// @return The timeline semaphore value to wait on before reading *outResult.
     interfaces::TimelineSemaphore::Value quantizeAsync(
-        const u8* rgba, u32 pixel_count,
-        interfaces::WorkerPool* pool,
-        interfaces::TimelineSemaphore* sem,
-        interfaces::TimelineSemaphore::Value startValue,
+        const u8* rgba, u32 pixel_count, interfaces::WorkerPool* pool,
+        interfaces::TimelineSemaphore* sem, interfaces::TimelineSemaphore::Value startValue,
         QuantizeResult* outResult) const;
 
 private:

@@ -10,7 +10,7 @@ namespace whiteout {
 namespace interfaces {
 class VirtualPathFileSystem;
 class CascFileSystem;
-}
+} // namespace interfaces
 
 namespace m2 {
 
@@ -46,7 +46,7 @@ struct M2SerializeResult {
     std::vector<SkinFileEntry> skinData;
     std::vector<SkinFileEntry> skinlodData;
     std::optional<SkeletonFileEntry> skeletonData;
-    
+
     std::vector<AnimDataEntry> animData;
 
     void patchSkinFileId(u32 skinId, u32 newId) {
@@ -85,7 +85,6 @@ private:
 
 class Writer {
 public:
-
     explicit Writer(WriteOptions options = {});
 
     ~Writer();
@@ -106,5 +105,5 @@ private:
     std::unique_ptr<Impl> pImpl;
 };
 
-}
-}
+} // namespace m2
+} // namespace whiteout

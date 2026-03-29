@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include <functional>
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -14,8 +14,7 @@
 
 namespace whiteout::interfaces {
 
-class TimelineSemaphore
-{
+class TimelineSemaphore {
 public:
     using Value = u64;
 
@@ -34,8 +33,7 @@ public:
     virtual Value next() noexcept = 0;
 };
 
-struct WorkerTask
-{
+struct WorkerTask {
     std::function<void()> fn;
 
     TimelineSemaphore* waitSemaphore = nullptr;
@@ -45,8 +43,7 @@ struct WorkerTask
     TimelineSemaphore::Value signalValue = 0;
 };
 
-class WorkerPool
-{
+class WorkerPool {
 public:
     virtual ~WorkerPool() = default;
 
@@ -61,7 +58,9 @@ public:
 
     /// Create a timeline semaphore for task dependency management.
     /// Returns nullptr by default; override in concrete pool implementations.
-    virtual std::unique_ptr<TimelineSemaphore> createTimelineSemaphore() { return nullptr; }
+    virtual std::unique_ptr<TimelineSemaphore> createTimelineSemaphore() {
+        return nullptr;
+    }
 };
 
 /// Abstract file system that resolves files by numeric data ID (e.g. CASC).

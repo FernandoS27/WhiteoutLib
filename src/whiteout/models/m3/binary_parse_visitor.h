@@ -7,8 +7,8 @@
 
 #include <whiteout/models/m3/structures.h>
 #include <whiteout/models/m3/types.h>
-#include "inner_structure_types.h"
 #include "../../common/binary_reader.h"
+#include "inner_structure_types.h"
 
 namespace whiteout {
 namespace m3 {

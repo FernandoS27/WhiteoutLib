@@ -168,10 +168,10 @@ struct FindEntry {
 
 /// Progress message types reported during storage open (mirrors CascLib).
 enum class ProgressMessage : u32 {
-    LoadingFile,             ///< Loading a file from disk.
-    LoadingManifest,         ///< Loading a manifest file.
-    DownloadingFile,         ///< Downloading a file from CDN.
-    LoadingIndexes,          ///< Loading CASC index files.
+    LoadingFile,              ///< Loading a file from disk.
+    LoadingManifest,          ///< Loading a manifest file.
+    DownloadingFile,          ///< Downloading a file from CDN.
+    LoadingIndexes,           ///< Loading CASC index files.
     DownloadingArchiveIndexes ///< Downloading archive index files.
 };
 
@@ -182,8 +182,8 @@ enum class ProgressMessage : u32 {
 /// @param current     Current item index (0-based).
 /// @param total       Total items to process (0 if unknown).
 /// @returns true to **cancel** the operation, false to continue.
-using ProgressCallback = bool (*)(void* userParam, ProgressMessage message,
-                                  const char* objectName, u32 current, u32 total);
+using ProgressCallback = bool (*)(void* userParam, ProgressMessage message, const char* objectName,
+                                  u32 current, u32 total);
 
 // ============================================================================
 // Open Options

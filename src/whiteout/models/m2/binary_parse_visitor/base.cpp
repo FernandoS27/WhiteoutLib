@@ -9,7 +9,8 @@ namespace m2 {
 
 using common::BinaryReader;
 
-BinaryParseVisitor::BinaryParseVisitor(common::BinaryReader& reader, WoWFileSystem* wfs, i32 maxSize_)
+BinaryParseVisitor::BinaryParseVisitor(common::BinaryReader& reader, WoWFileSystem* wfs,
+                                       i32 maxSize_)
     : reader(reader), wfs(wfs), maxSize(maxSize_) {}
 
 void BinaryParseVisitor::start() {
@@ -261,8 +262,8 @@ void BinaryParseVisitor::visit(ParticleEmitter& emitter) {
     visit(emitter.splinePoints);
     visit(emitter.enabledIn);
 
-    const bool extendedParticle = (version > 271) ||
-        hasFlag(globalFlags, GlobalFlag::NewParticleRecord);
+    const bool extendedParticle =
+        (version > 271) || hasFlag(globalFlags, GlobalFlag::NewParticleRecord);
     if (extendedParticle) {
         emitter.multiTexScrollMid[0][0] = reader.read<fixed16_9>();
         emitter.multiTexScrollMid[0][1] = reader.read<fixed16_9>();
@@ -369,5 +370,5 @@ void BinaryParseVisitor::visit(AnimationTrackBase& track) {
     visit(track.timestamps);
 }
 
-}
-}
+} // namespace m2
+} // namespace whiteout

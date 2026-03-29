@@ -17,8 +17,7 @@ namespace whiteout::textures::mipmap {
 // Box filter
 // ============================================================================
 
-void boxFilter(const MipImage& src, MipImage& dst,
-               PipelineContext* ctx) {
+void boxFilter(const MipImage& src, MipImage& dst, PipelineContext* ctx) {
     const u32 dstWidth = dst.width;
     const u32 dstHeight = dst.height;
     const u32 numChannels = src.channels;
@@ -62,7 +61,8 @@ void boxFilter(const MipImage& src, MipImage& dst,
                 const u32 srcColMin = static_cast<u32>(srcXStart);
                 const u32 srcColMax = std::min(static_cast<u32>(std::ceil(srcXEnd)), srcW) - 1;
 
-                f32* outPixel = dstData + (static_cast<size_t>(dstY) * dstWidth + dstX) * numChannels;
+                f32* outPixel =
+                    dstData + (static_cast<size_t>(dstY) * dstWidth + dstX) * numChannels;
                 for (u32 c = 0; c < numChannels; ++c)
                     outPixel[c] = 0.0f;
 
@@ -211,8 +211,12 @@ struct WeightTable {
     std::vector<u32> tapCounts; // [sample]
     u32 maxTaps = 0;
 
-    const f32* weightsFor(u32 sample) const { return weights.data() + sample * maxTaps; }
-    const i32* indicesFor(u32 sample) const { return indices.data() + sample * maxTaps; }
+    const f32* weightsFor(u32 sample) const {
+        return weights.data() + sample * maxTaps;
+    }
+    const i32* indicesFor(u32 sample) const {
+        return indices.data() + sample * maxTaps;
+    }
 };
 
 template <typename WeightFn>
@@ -225,10 +229,8 @@ WeightTable precomputeWeights(u32 dstSize, u32 srcSize, f64 ratio, WeightFn buil
     table.tapCounts.resize(dstSize);
     for (u32 i = 0; i < dstSize; ++i) {
         const f64 center = (static_cast<f64>(i) + HALF_PIXEL) * ratio - HALF_PIXEL;
-        table.tapCounts[i] = buildWeights(
-            center, srcSize,
-            table.weights.data() + i * stride,
-            table.indices.data() + i * stride, ratio);
+        table.tapCounts[i] = buildWeights(center, srcSize, table.weights.data() + i * stride,
+                                          table.indices.data() + i * stride, ratio);
     }
     return table;
 }
@@ -240,8 +242,8 @@ WeightTable precomputeWeights(u32 dstSize, u32 srcSize, f64 ratio, WeightFn buil
 /// SIMD packing (e.g. 4-channel pixels map to one 128-bit operation).
 /// NC == 0 is the dynamic fallback for exotic channel counts.
 template <u32 NC, typename WeightFn>
-void separableDownsampleImpl(const MipImage& src, MipImage& dst,
-                              WeightFn buildWeights, PipelineContext* ctx) {
+void separableDownsampleImpl(const MipImage& src, MipImage& dst, WeightFn buildWeights,
+                             PipelineContext* ctx) {
     const u32 dstWidth = dst.width;
     const u32 dstHeight = dst.height;
     const u32 numChannels = NC != 0 ? NC : src.channels;
@@ -251,8 +253,8 @@ void separableDownsampleImpl(const MipImage& src, MipImage& dst,
     // Precompute filter weights for both axes up-front.  This avoids
     // redundant sinc/bessel evaluation inside the tight per-pixel loops
     // and eliminates per-tile heap allocations for weight/index buffers.
-    auto hWeights = std::make_shared<WeightTable>(
-        precomputeWeights(dstWidth, src.width, ratioX, buildWeights));
+    auto hWeights =
+        std::make_shared<WeightTable>(precomputeWeights(dstWidth, src.width, ratioX, buildWeights));
     auto vWeights = std::make_shared<WeightTable>(
         precomputeWeights(dstHeight, src.height, ratioY, buildWeights));
 
@@ -264,30 +266,31 @@ void separableDownsampleImpl(const MipImage& src, MipImage& dst,
     const u32 srcW = src.width;
     const u32 srcH = src.height;
 
-    parallelForRows(srcH, ctx, [srcPixels, srcW, numChannels, dstWidth,
-                                 hWeights, hp](u32 y0, u32 y1) {
-        for (u32 srcY = y0; srcY < y1; ++srcY) {
-            for (u32 dstX = 0; dstX < dstWidth; ++dstX) {
-                const u32 tapCount = hWeights->tapCounts[dstX];
-                const f32* tapW = hWeights->weightsFor(dstX);
-                const i32* tapI = hWeights->indicesFor(dstX);
+    parallelForRows(srcH, ctx,
+                    [srcPixels, srcW, numChannels, dstWidth, hWeights, hp](u32 y0, u32 y1) {
+                        for (u32 srcY = y0; srcY < y1; ++srcY) {
+                            for (u32 dstX = 0; dstX < dstWidth; ++dstX) {
+                                const u32 tapCount = hWeights->tapCounts[dstX];
+                                const f32* tapW = hWeights->weightsFor(dstX);
+                                const i32* tapI = hWeights->indicesFor(dstX);
 
-                f32* outPixel = hp->pixel(dstX, srcY);
-                for (u32 channel = 0; channel < numChannels; ++channel)
-                    outPixel[channel] = 0.0f;
-                for (u32 tap = 0; tap < tapCount; ++tap) {
-                    // Hoist the weight into a local scalar so the compiler
-                    // does not need to reload it through tapW on each channel
-                    // iteration (removes a potential aliasing barrier).
-                    const f32 w = tapW[tap];
-                    const f32* srcPixel =
-                        srcPixels + (static_cast<size_t>(srcY) * srcW + tapI[tap]) * numChannels;
-                    for (u32 channel = 0; channel < numChannels; ++channel)
-                        outPixel[channel] += srcPixel[channel] * w;
-                }
-            }
-        }
-    });
+                                f32* outPixel = hp->pixel(dstX, srcY);
+                                for (u32 channel = 0; channel < numChannels; ++channel)
+                                    outPixel[channel] = 0.0f;
+                                for (u32 tap = 0; tap < tapCount; ++tap) {
+                                    // Hoist the weight into a local scalar so the compiler
+                                    // does not need to reload it through tapW on each channel
+                                    // iteration (removes a potential aliasing barrier).
+                                    const f32 w = tapW[tap];
+                                    const f32* srcPixel =
+                                        srcPixels + (static_cast<size_t>(srcY) * srcW + tapI[tap]) *
+                                                        numChannels;
+                                    for (u32 channel = 0; channel < numChannels; ++channel)
+                                        outPixel[channel] += srcPixel[channel] * w;
+                                }
+                            }
+                        }
+                    });
 
     // Pass 2 — vertical: src.height → dstHeight, keep dstWidth.
     //
@@ -297,8 +300,7 @@ void separableDownsampleImpl(const MipImage& src, MipImage& dst,
     // both srcRow and outRow are sequential — ideal for multiply-accumulate.
     f32* dstData = dst.pixels.data();
 
-    parallelForRows(dstHeight, ctx, [dstWidth, numChannels, vWeights,
-                                      hp, dstData](u32 y0, u32 y1) {
+    parallelForRows(dstHeight, ctx, [dstWidth, numChannels, vWeights, hp, dstData](u32 y0, u32 y1) {
         const size_t rowFloats = static_cast<size_t>(dstWidth) * numChannels;
         const f32* hpData = hp->pixels.data();
         for (u32 dstY = y0; dstY < y1; ++dstY) {
@@ -323,14 +325,24 @@ void separableDownsampleImpl(const MipImage& src, MipImage& dst,
 /// Dispatch to a channel-count-specialized instantiation so the compiler sees
 /// compile-time loop bounds for the 1–4 channel cases.
 template <typename WeightFn>
-void separableDownsample(const MipImage& src, MipImage& dst,
-                         WeightFn buildWeights, PipelineContext* ctx) {
+void separableDownsample(const MipImage& src, MipImage& dst, WeightFn buildWeights,
+                         PipelineContext* ctx) {
     switch (src.channels) {
-        case 1: separableDownsampleImpl<1>(src, dst, buildWeights, ctx); return;
-        case 2: separableDownsampleImpl<2>(src, dst, buildWeights, ctx); return;
-        case 3: separableDownsampleImpl<3>(src, dst, buildWeights, ctx); return;
-        case 4: separableDownsampleImpl<4>(src, dst, buildWeights, ctx); return;
-        default: separableDownsampleImpl<0>(src, dst, buildWeights, ctx); return;
+    case 1:
+        separableDownsampleImpl<1>(src, dst, buildWeights, ctx);
+        return;
+    case 2:
+        separableDownsampleImpl<2>(src, dst, buildWeights, ctx);
+        return;
+    case 3:
+        separableDownsampleImpl<3>(src, dst, buildWeights, ctx);
+        return;
+    case 4:
+        separableDownsampleImpl<4>(src, dst, buildWeights, ctx);
+        return;
+    default:
+        separableDownsampleImpl<0>(src, dst, buildWeights, ctx);
+        return;
     }
 }
 
@@ -342,8 +354,7 @@ void separableDownsample(const MipImage& src, MipImage& dst,
 
 constexpr f64 DEFAULT_KAISER_BETA = 4.0;
 
-void kaiserFilter(const MipImage& src, MipImage& dst, f64 beta,
-                  PipelineContext* ctx) {
+void kaiserFilter(const MipImage& src, MipImage& dst, f64 beta, PipelineContext* ctx) {
     separableDownsample(
         src, dst,
         [beta](f64 center, u32 srcSize, f32* tapWeights, i32* tapIndices, f64 ratio) {
@@ -352,8 +363,7 @@ void kaiserFilter(const MipImage& src, MipImage& dst, f64 beta,
         ctx);
 }
 
-void kaiserFilter(const MipImage& src, MipImage& dst,
-                  PipelineContext* ctx) {
+void kaiserFilter(const MipImage& src, MipImage& dst, PipelineContext* ctx) {
     kaiserFilter(src, dst, DEFAULT_KAISER_BETA, ctx);
 }
 
@@ -367,8 +377,7 @@ MipImage kaiserFilter(const MipImage& src) {
     return kaiserFilter(src, DEFAULT_KAISER_BETA);
 }
 
-void lanczos3Filter(const MipImage& src, MipImage& dst,
-                    PipelineContext* ctx) {
+void lanczos3Filter(const MipImage& src, MipImage& dst, PipelineContext* ctx) {
     separableDownsample(src, dst, buildLanczos3Weights, ctx);
 }
 
@@ -417,9 +426,9 @@ void importanceSampleGGX(f32 xi1, f32 xi2, f32 roughness, f32& hx, f32& hy, f32&
 /// Equirectangular UV → unit direction.
 /// Convention: u ∈ [0,1) maps azimuth [0, 2π), v ∈ [0,1] maps inclination [0 (top), π (bottom)].
 void uvToDir(f32 u, f32 v, f32& dx, f32& dy, f32& dz) {
-    const f32 phi   = u * 2.0f * static_cast<f32>(PI);
+    const f32 phi = u * 2.0f * static_cast<f32>(PI);
     const f32 theta = v * static_cast<f32>(PI);
-    const f32 sinT  = std::sin(theta);
+    const f32 sinT = std::sin(theta);
     dx = sinT * std::cos(phi);
     dy = std::cos(theta);
     dz = sinT * std::sin(phi);
@@ -429,24 +438,27 @@ void uvToDir(f32 u, f32 v, f32& dx, f32& dy, f32& dz) {
 void dirToUV(f32 dx, f32 dy, f32 dz, f32& ou, f32& ov) {
     const f32 phi = std::atan2(dz, dx); // [-π, π]
     ou = phi / (2.0f * static_cast<f32>(PI));
-    if (ou < 0.0f) ou += 1.0f;
+    if (ou < 0.0f)
+        ou += 1.0f;
     ov = std::acos(std::clamp(dy, -1.0f, 1.0f)) / static_cast<f32>(PI);
 }
 
 /// Build a tangent basis (T, B) orthonormal to N.
-void buildTBN(f32 nx, f32 ny, f32 nz,
-              f32& tx, f32& ty, f32& tz,
-              f32& bx, f32& by, f32& bz) {
+void buildTBN(f32 nx, f32 ny, f32 nz, f32& tx, f32& ty, f32& tz, f32& bx, f32& by, f32& bz) {
     // Choose an up vector that is not collinear with N.
     const bool nearPole = std::abs(ny) > 0.999f;
     const f32 ux = nearPole ? 1.0f : 0.0f;
     const f32 uy = nearPole ? 0.0f : 1.0f;
     // T = normalize(up × N)
-    tx = uy * nz;           // uz = 0, so uy*nz - uz*ny = uy*nz
-    ty = -ux * nz;          // uz*nx - ux*nz = -ux*nz
+    tx = uy * nz;  // uz = 0, so uy*nz - uz*ny = uy*nz
+    ty = -ux * nz; // uz*nx - ux*nz = -ux*nz
     tz = ux * ny - uy * nx;
     const f32 tlen = std::sqrt(tx * tx + ty * ty + tz * tz);
-    if (tlen > 1e-7f) { tx /= tlen; ty /= tlen; tz /= tlen; }
+    if (tlen > 1e-7f) {
+        tx /= tlen;
+        ty /= tlen;
+        tz /= tlen;
+    }
     // B = N × T
     bx = ny * tz - nz * ty;
     by = nz * tx - nx * tz;
@@ -458,11 +470,11 @@ void buildTBN(f32 nx, f32 ny, f32 nz,
 void sampleBilinear(const MipImage& img, f32 u, f32 v, f32* result, u32 channels) {
     u -= std::floor(u); // wrap U
     v = std::clamp(v, 0.0f, 1.0f);
-    const f32 px = u * f32(img.width  - 1);
+    const f32 px = u * f32(img.width - 1);
     const f32 py = v * f32(img.height - 1);
     const u32 x0 = u32(px);
     const u32 y0 = u32(py);
-    const u32 x1 = std::min(x0 + 1, img.width  - 1);
+    const u32 x1 = std::min(x0 + 1, img.width - 1);
     const u32 y1 = std::min(y0 + 1, img.height - 1);
     const f32 fx = px - f32(x0);
     const f32 fy = py - f32(y0);
@@ -482,15 +494,14 @@ void sampleBilinear(const MipImage& img, f32 u, f32 v, f32* result, u32 channels
 // reference binds to the *referent*, not the parameter's stack slot.  In the
 // async path the referent is `state->input` (owned by the shared_ptr<State>
 // in executeAsync), which outlives all tile tasks via the timeline chain.
-void environmentPrefilterGGX(const MipImage& src, MipImage& dst,
-                             PipelineContext* ctx) {
+void environmentPrefilterGGX(const MipImage& src, MipImage& dst, PipelineContext* ctx) {
     const u32 dstW = dst.width;
     const u32 dstH = dst.height;
     // Derive roughness from the mip level implied by the downsample ratio.
     const f32 srcLog2 = std::log2(f32(src.width));
-    const f32 roughness = srcLog2 > 0.0f
-        ? std::clamp(std::log2(f32(src.width) / f32(dstW)) / srcLog2, 0.0f, 1.0f)
-        : 0.0f;
+    const f32 roughness =
+        srcLog2 > 0.0f ? std::clamp(std::log2(f32(src.width) / f32(dstW)) / srcLog2, 0.0f, 1.0f)
+                       : 0.0f;
 
     const u32 channels = src.channels;
     f32* dstData = dst.pixels.data();
@@ -563,8 +574,7 @@ void environmentPrefilterGGX(const MipImage& src, MipImage& dst,
 
 // Safety: same `&src` capture reasoning as environmentPrefilterGGX above —
 // the referent is the caller's stable MipImage, not a transient stack slot.
-void sphericalKaiserFilter(const MipImage& src, MipImage& dst,
-                           PipelineContext* ctx) {
+void sphericalKaiserFilter(const MipImage& src, MipImage& dst, PipelineContext* ctx) {
     const u32 dstW = dst.width;
     const u32 dstH = dst.height;
     constexpr f64 SKAISER_BETA = 6.0;
@@ -572,96 +582,94 @@ void sphericalKaiserFilter(const MipImage& src, MipImage& dst,
     const f64 invI0Beta = 1.0 / bessel_I0(SKAISER_BETA);
 
     // Angular support radius in radians: 3 source-texel angular widths.
-    const f64 angularRadius =
-        SKAISER_LOBES * PI / static_cast<f64>(src.height);
+    const f64 angularRadius = SKAISER_LOBES * PI / static_cast<f64>(src.height);
     const f64 cosRadiusCutoff = std::cos(angularRadius);
 
     const u32 channels = src.channels;
     f32* dstData = dst.pixels.data();
 
-    parallelForRows(dstH, ctx, [&src, dstW, dstH, channels, invI0Beta,
-                                  angularRadius, cosRadiusCutoff, dstData](u32 y0, u32 y1) {
-        for (u32 y = y0; y < y1; ++y) {
-            const f32 tv = (static_cast<f32>(y) + 0.5f) / static_cast<f32>(dstH);
-            for (u32 x = 0; x < dstW; ++x) {
-                const f32 tu = (static_cast<f32>(x) + 0.5f) / static_cast<f32>(dstW);
+    parallelForRows(
+        dstH, ctx,
+        [&src, dstW, dstH, channels, invI0Beta, angularRadius, cosRadiusCutoff, dstData](u32 y0,
+                                                                                         u32 y1) {
+            for (u32 y = y0; y < y1; ++y) {
+                const f32 tv = (static_cast<f32>(y) + 0.5f) / static_cast<f32>(dstH);
+                for (u32 x = 0; x < dstW; ++x) {
+                    const f32 tu = (static_cast<f32>(x) + 0.5f) / static_cast<f32>(dstW);
 
-                f32 nx, ny, nz;
-                uvToDir(tu, tv, nx, ny, nz);
+                    f32 nx, ny, nz;
+                    uvToDir(tu, tv, nx, ny, nz);
 
-                const f32 sinThetaN =
-                    std::max(std::sin(tv * static_cast<f32>(PI)), 0.01f);
-                const f32 dvPad = static_cast<f32>(angularRadius / PI);
-                const f32 duPad = std::min(
-                    static_cast<f32>(angularRadius / (PI * static_cast<f64>(sinThetaN))), 0.5f);
+                    const f32 sinThetaN = std::max(std::sin(tv * static_cast<f32>(PI)), 0.01f);
+                    const f32 dvPad = static_cast<f32>(angularRadius / PI);
+                    const f32 duPad = std::min(
+                        static_cast<f32>(angularRadius / (PI * static_cast<f64>(sinThetaN))), 0.5f);
 
-                const u32 srcY0 = static_cast<u32>(
-                    std::max(0.0f, (tv - dvPad) * static_cast<f32>(src.height) - 0.5f));
-                const u32 srcY1 = std::min(
-                    static_cast<u32>((tv + dvPad) * static_cast<f32>(src.height) + 0.5f),
-                    src.height - 1u);
-                const i32 srcX0 =
-                    static_cast<i32>((tu - duPad) * static_cast<f32>(src.width) - 0.5f);
-                const i32 srcX1 =
-                    static_cast<i32>((tu + duPad) * static_cast<f32>(src.width) + 0.5f);
+                    const u32 srcY0 = static_cast<u32>(
+                        std::max(0.0f, (tv - dvPad) * static_cast<f32>(src.height) - 0.5f));
+                    const u32 srcY1 = std::min(
+                        static_cast<u32>((tv + dvPad) * static_cast<f32>(src.height) + 0.5f),
+                        src.height - 1u);
+                    const i32 srcX0 =
+                        static_cast<i32>((tu - duPad) * static_cast<f32>(src.width) - 0.5f);
+                    const i32 srcX1 =
+                        static_cast<i32>((tu + duPad) * static_cast<f32>(src.width) + 0.5f);
 
-                f32 color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-                f64 weightSum = 0.0;
+                    f32 color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+                    f64 weightSum = 0.0;
 
-                for (u32 sy = srcY0; sy <= srcY1; ++sy) {
-                    const f32 sv =
-                        (static_cast<f32>(sy) + 0.5f) / static_cast<f32>(src.height);
-                    const f64 solidAngle = std::sin(static_cast<f64>(sv) * PI);
+                    for (u32 sy = srcY0; sy <= srcY1; ++sy) {
+                        const f32 sv = (static_cast<f32>(sy) + 0.5f) / static_cast<f32>(src.height);
+                        const f64 solidAngle = std::sin(static_cast<f64>(sv) * PI);
 
-                    for (i32 sx = srcX0; sx <= srcX1; ++sx) {
-                        const f32 su =
-                            (static_cast<f32>(sx) + 0.5f) / static_cast<f32>(src.width);
-                        f32 lx, ly, lz;
-                        uvToDir(su, sv, lx, ly, lz);
+                        for (i32 sx = srcX0; sx <= srcX1; ++sx) {
+                            const f32 su =
+                                (static_cast<f32>(sx) + 0.5f) / static_cast<f32>(src.width);
+                            f32 lx, ly, lz;
+                            uvToDir(su, sv, lx, ly, lz);
 
-                        const f32 cosAngle = nx * lx + ny * ly + nz * lz;
-                        if (static_cast<f64>(cosAngle) < cosRadiusCutoff)
-                            continue;
+                            const f32 cosAngle = nx * lx + ny * ly + nz * lz;
+                            if (static_cast<f64>(cosAngle) < cosRadiusCutoff)
+                                continue;
 
-                        const f64 angle = std::acos(
-                            static_cast<f64>(std::clamp(cosAngle, -1.0f, 1.0f)));
-                        const f64 t2 = (angle / angularRadius) * (angle / angularRadius);
-                        const f64 kaiserW = (t2 < 1.0)
-                            ? bessel_I0(SKAISER_BETA * std::sqrt(1.0 - t2)) * invI0Beta
-                            : 0.0;
-                        const f64 weight = kaiserW * solidAngle;
+                            const f64 angle =
+                                std::acos(static_cast<f64>(std::clamp(cosAngle, -1.0f, 1.0f)));
+                            const f64 t2 = (angle / angularRadius) * (angle / angularRadius);
+                            const f64 kaiserW =
+                                (t2 < 1.0)
+                                    ? bessel_I0(SKAISER_BETA * std::sqrt(1.0 - t2)) * invI0Beta
+                                    : 0.0;
+                            const f64 weight = kaiserW * solidAngle;
 
-                        const u32 wrappedSx = static_cast<u32>(
-                            (sx % static_cast<i32>(src.width) + static_cast<i32>(src.width)) %
-                            static_cast<i32>(src.width));
-                        const f32* srcPixel = src.pixel(wrappedSx, sy);
+                            const u32 wrappedSx = static_cast<u32>(
+                                (sx % static_cast<i32>(src.width) + static_cast<i32>(src.width)) %
+                                static_cast<i32>(src.width));
+                            const f32* srcPixel = src.pixel(wrappedSx, sy);
 
+                            for (u32 c = 0; c < channels; ++c)
+                                color[c] += srcPixel[c] * static_cast<f32>(weight);
+                            weightSum += weight;
+                        }
+                    }
+
+                    f32* dstPixel = dstData + (static_cast<size_t>(y) * dstW + x) * channels;
+                    if (weightSum > 0.0) {
+                        const f32 invW = static_cast<f32>(1.0 / weightSum);
                         for (u32 c = 0; c < channels; ++c)
-                            color[c] += srcPixel[c] * static_cast<f32>(weight);
-                        weightSum += weight;
+                            dstPixel[c] = color[c] * invW;
+                    } else {
+                        sampleBilinear(src, tu, tv, dstPixel, channels);
                     }
                 }
-
-                f32* dstPixel =
-                    dstData + (static_cast<size_t>(y) * dstW + x) * channels;
-                if (weightSum > 0.0) {
-                    const f32 invW = static_cast<f32>(1.0 / weightSum);
-                    for (u32 c = 0; c < channels; ++c)
-                        dstPixel[c] = color[c] * invW;
-                } else {
-                    sampleBilinear(src, tu, tv, dstPixel, channels);
-                }
             }
-        }
-    });
+        });
 }
 
 // ============================================================================
 // Max-pool filter (binary mask downsample)
 // ============================================================================
 
-void maxPoolFilter(const MipImage& src, MipImage& dst,
-                   PipelineContext* ctx) {
+void maxPoolFilter(const MipImage& src, MipImage& dst, PipelineContext* ctx) {
     const u32 dstWidth = dst.width;
     const u32 dstHeight = dst.height;
     const u32 numChannels = src.channels;
@@ -683,7 +691,8 @@ void maxPoolFilter(const MipImage& src, MipImage& dst,
                 const u32 srcColMin = static_cast<u32>(srcXStart);
                 const u32 srcColMax = std::min(static_cast<u32>(std::ceil(srcXEnd)), srcW) - 1;
 
-                f32* outPixel = dstData + (static_cast<size_t>(dstY) * dstWidth + dstX) * numChannels;
+                f32* outPixel =
+                    dstData + (static_cast<size_t>(dstY) * dstWidth + dstX) * numChannels;
                 for (u32 c = 0; c < numChannels; ++c)
                     outPixel[c] = 0.0f;
 

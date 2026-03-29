@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "whiteout/models/wem/converters.h"
 #include "whiteout/models/mdx/parser.h"
 #include "whiteout/models/mdx/writer.h"
+#include "whiteout/models/wem/converters.h"
 
 #include <algorithm>
 #include <cmath>
@@ -36,27 +36,43 @@ mdx::Extent convertExtentBack(const wem::Extent& src) {
 
 BlendMode convertFilterMode(mdx::Layer::FilterMode fm) {
     switch (fm) {
-    case mdx::Layer::FilterMode::None:        return BlendMode::Opaque;
-    case mdx::Layer::FilterMode::Transparent: return BlendMode::Transparent;
-    case mdx::Layer::FilterMode::Blend:       return BlendMode::AlphaBlend;
-    case mdx::Layer::FilterMode::Additive:    return BlendMode::Additive;
-    case mdx::Layer::FilterMode::AddAlpha:    return BlendMode::AdditiveAlpha;
-    case mdx::Layer::FilterMode::Modulate:    return BlendMode::Modulate;
-    case mdx::Layer::FilterMode::Modulate2x:  return BlendMode::Modulate2x;
-    default:                                  return BlendMode::Opaque;
+    case mdx::Layer::FilterMode::None:
+        return BlendMode::Opaque;
+    case mdx::Layer::FilterMode::Transparent:
+        return BlendMode::Transparent;
+    case mdx::Layer::FilterMode::Blend:
+        return BlendMode::AlphaBlend;
+    case mdx::Layer::FilterMode::Additive:
+        return BlendMode::Additive;
+    case mdx::Layer::FilterMode::AddAlpha:
+        return BlendMode::AdditiveAlpha;
+    case mdx::Layer::FilterMode::Modulate:
+        return BlendMode::Modulate;
+    case mdx::Layer::FilterMode::Modulate2x:
+        return BlendMode::Modulate2x;
+    default:
+        return BlendMode::Opaque;
     }
 }
 
 mdx::Layer::FilterMode convertBlendModeToFilterMode(BlendMode bm) {
     switch (bm) {
-    case BlendMode::Opaque:       return mdx::Layer::FilterMode::None;
-    case BlendMode::Transparent:  return mdx::Layer::FilterMode::Transparent;
-    case BlendMode::AlphaBlend:   return mdx::Layer::FilterMode::Blend;
-    case BlendMode::Additive:     return mdx::Layer::FilterMode::Additive;
-    case BlendMode::AdditiveAlpha:return mdx::Layer::FilterMode::AddAlpha;
-    case BlendMode::Modulate:     return mdx::Layer::FilterMode::Modulate;
-    case BlendMode::Modulate2x:   return mdx::Layer::FilterMode::Modulate2x;
-    default:                      return mdx::Layer::FilterMode::None;
+    case BlendMode::Opaque:
+        return mdx::Layer::FilterMode::None;
+    case BlendMode::Transparent:
+        return mdx::Layer::FilterMode::Transparent;
+    case BlendMode::AlphaBlend:
+        return mdx::Layer::FilterMode::Blend;
+    case BlendMode::Additive:
+        return mdx::Layer::FilterMode::Additive;
+    case BlendMode::AdditiveAlpha:
+        return mdx::Layer::FilterMode::AddAlpha;
+    case BlendMode::Modulate:
+        return mdx::Layer::FilterMode::Modulate;
+    case BlendMode::Modulate2x:
+        return mdx::Layer::FilterMode::Modulate2x;
+    default:
+        return mdx::Layer::FilterMode::None;
     }
 }
 
@@ -152,13 +168,27 @@ ConvertResult MdxConverter::fromMdx(const mdx::Model& mdxModel) const {
                     slot.uvSetIndex = layer.coordId;
                     slot.alpha = layer.alpha;
                     switch (sub.slot) {
-                    case mdx::Layer::SlotType::DiffuseMap:    slot.semantic = TextureSlotSemantic::Diffuse; break;
-                    case mdx::Layer::SlotType::NormalMap:     slot.semantic = TextureSlotSemantic::Normal; break;
-                    case mdx::Layer::SlotType::ORMMap:        slot.semantic = TextureSlotSemantic::AmbientOcclusion; break;
-                    case mdx::Layer::SlotType::EmissiveMap:   slot.semantic = TextureSlotSemantic::Emissive1; break;
-                    case mdx::Layer::SlotType::TeamColor:     slot.semantic = TextureSlotSemantic::Custom; break;
-                    case mdx::Layer::SlotType::EnvironmentMap:slot.semantic = TextureSlotSemantic::Environment; break;
-                    default:                                  slot.semantic = TextureSlotSemantic::Custom; break;
+                    case mdx::Layer::SlotType::DiffuseMap:
+                        slot.semantic = TextureSlotSemantic::Diffuse;
+                        break;
+                    case mdx::Layer::SlotType::NormalMap:
+                        slot.semantic = TextureSlotSemantic::Normal;
+                        break;
+                    case mdx::Layer::SlotType::ORMMap:
+                        slot.semantic = TextureSlotSemantic::AmbientOcclusion;
+                        break;
+                    case mdx::Layer::SlotType::EmissiveMap:
+                        slot.semantic = TextureSlotSemantic::Emissive1;
+                        break;
+                    case mdx::Layer::SlotType::TeamColor:
+                        slot.semantic = TextureSlotSemantic::Custom;
+                        break;
+                    case mdx::Layer::SlotType::EnvironmentMap:
+                        slot.semantic = TextureSlotSemantic::Environment;
+                        break;
+                    default:
+                        slot.semantic = TextureSlotSemantic::Custom;
+                        break;
                     }
                     wMat.textureSlots.push_back(std::move(slot));
                 }
@@ -220,9 +250,7 @@ ConvertResult MdxConverter::fromMdx(const mdx::Model& mdxModel) const {
     for (size_t gi = 0; gi < mdxModel.geosets.size(); ++gi) {
         const auto& geo = mdxModel.geosets[gi];
         Mesh mesh;
-        mesh.name = geo.lodName.empty()
-            ? "geoset_" + std::to_string(gi)
-            : geo.lodName;
+        mesh.name = geo.lodName.empty() ? "geoset_" + std::to_string(gi) : geo.lodName;
         mesh.lodLevel = geo.lod;
         mesh.bounds = convertExtent(geo.extent);
 
@@ -376,9 +404,11 @@ MdxConvertResult MdxConverter::toMdx(const Model& wemModel, u32 targetVersion) c
                         }
                     }
                 }
-                if (isChild) break;
+                if (isChild)
+                    break;
             }
-            if (isChild) continue;
+            if (isChild)
+                continue;
 
             // Standalone Standard → single-layer MDX material
             mdx::Material mat;
@@ -423,7 +453,8 @@ MdxConvertResult MdxConverter::toMdx(const Model& wemModel, u32 targetVersion) c
                             }
                         }
                     }
-                    if (isChild) break;
+                    if (isChild)
+                        break;
                 }
                 if (!isChild) {
                     wemToMdxMat[mi] = mdxIdx;
@@ -494,11 +525,21 @@ MdxConvertResult MdxConverter::toMdx(const Model& wemModel, u32 targetVersion) c
 // MdxConverter — FormatConverter interface
 // ============================================================================
 
-std::string MdxConverter::formatId() const { return "mdx"; }
-std::string MdxConverter::formatName() const { return "Warcraft III MDX"; }
-bool MdxConverter::supportsImport() const { return true; }
-bool MdxConverter::supportsExport() const { return true; }
-u32 MdxConverter::defaultExportVersion() const { return 800; }
+std::string MdxConverter::formatId() const {
+    return "mdx";
+}
+std::string MdxConverter::formatName() const {
+    return "Warcraft III MDX";
+}
+bool MdxConverter::supportsImport() const {
+    return true;
+}
+bool MdxConverter::supportsExport() const {
+    return true;
+}
+u32 MdxConverter::defaultExportVersion() const {
+    return 800;
+}
 
 ConvertResult MdxConverter::importFromBytes(std::span<const u8> data) const {
     mdx::Parser parser;

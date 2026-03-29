@@ -22,5 +22,5 @@ struct BOMTChunk {
     std::vector<Matrix44f> boneOffsetMatrices;
 };
 
-}
-}
+} // namespace m2
+} // namespace whiteout

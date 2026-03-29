@@ -23,5 +23,5 @@ void BinaryWriterVisitor::visit(const BOMTChunk& chunk) {
     writer.write(chunk.boneOffsetMatrices);
 }
 
-}
-}
+} // namespace m2
+} // namespace whiteout

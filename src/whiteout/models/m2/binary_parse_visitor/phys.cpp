@@ -273,5 +273,5 @@ void BinaryParseVisitor::visit(PHYVEntry& entry) {
     }
 }
 
-}
-}
+} // namespace m2
+} // namespace whiteout

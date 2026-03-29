@@ -23,7 +23,6 @@ enum class WoWFileSystemMode {
 
 class WoWFileSystem {
 public:
-
     WoWFileSystem(interfaces::VirtualPathFileSystem& pathFs, const std::string& m2Path);
 
     WoWFileSystem(interfaces::CascFileSystem& cascFs, std::span<const u8> m2Data);
@@ -35,7 +34,9 @@ public:
 
     std::span<const u8> getM2Base() const;
 
-    WoWFileSystemMode mode() const { return m_mode; }
+    WoWFileSystemMode mode() const {
+        return m_mode;
+    }
 
     void setSkinChunk(const SFIDChunk& chunk);
     void setAnimChunk(const AFIDChunk& chunk);
@@ -113,5 +114,5 @@ private:
     u32 allocateHandle(const std::string& pathHint);
 };
 
-}
-}
+} // namespace m2
+} // namespace whiteout

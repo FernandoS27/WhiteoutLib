@@ -108,7 +108,8 @@ struct ParticleEmitter {
     AnimRef<Vector3f> shapeInner;                    ///< Animated inner shape dimensions
     AnimRef<f32> outerRadius;                        ///< Animated outer radius
     AnimRef<f32> innerRadius;                        ///< Animated inner radius
-    std::vector<u32> shapeRegions;                   ///< Shape region indices (U32_, v14+), which mesh region from div to use
+    std::vector<u32>
+        shapeRegions; ///< Shape region indices (U32_, v14+), which mesh region from div to use
 
     // Randomization
     u32 velocityType = 0;                      ///< Velocity randomization type
@@ -212,8 +213,9 @@ struct ParticleEmitter {
     AnimRef<f32> upperBound; ///< Animated upper bound
 
     // Trails
-    i32 trailLinkIndex = -1;        ///< Linked trail emitter index (-1 = none) aka another particle emitter
-    f32 trailChance = 0.0f;         ///< Trail spawn probability
+    i32 trailLinkIndex =
+        -1;                 ///< Linked trail emitter index (-1 = none) aka another particle emitter
+    f32 trailChance = 0.0f; ///< Trail spawn probability
     AnimRef<f32> trailEmissionRate; ///< Animated trail emission rate
 
     // Splat
@@ -243,9 +245,9 @@ struct ParticleEmitter {
  * Model.copyIndices.
  */
 struct ParticleEmitterCopy {
-    AnimRef<f32> emissionRate;            ///< Overridden emission rate
-    AnimRef<u16> squirtAmount;            ///< Overridden squirt burst count
-    u32 boneIndex;                        ///< Index into BONE array
+    AnimRef<f32> emissionRate; ///< Overridden emission rate
+    AnimRef<u16> squirtAmount; ///< Overridden squirt burst count
+    u32 boneIndex;             ///< Index into BONE array
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -257,26 +259,26 @@ struct ParticleEmitterCopy {
  * variation channels.
  */
 struct SplineRibbon {
-    Vector3f emissionOffset;              ///< Emission point offset from bone
-    Vector3f emissionVector;              ///< Emission direction vector
-    AnimRef<f32> velocity;                ///< Animated base velocity
-    u32 reserved = 0;                     ///< Reserved (always 0)
-    u32 boneIndex = 0;                    ///< Index into BONE array
-    AnimRef<f32> velocityBaseFactor;      ///< Animated base velocity factor
-    AnimRef<f32> velocityEndFactor;       ///< Animated end velocity factor
-    u32 yawType;                          ///< Yaw variation type
-    AnimRef<f32> yawAmplitude;            ///< Yaw variation amplitude
-    AnimRef<f32> yawFrequency;            ///< Yaw variation frequency
-    u32 pitchType;                        ///< Pitch variation type
-    AnimRef<f32> pitchAmplitude;          ///< Pitch variation amplitude
-    AnimRef<f32> pitchFrequency;          ///< Pitch variation frequency
-    u32 velocityType;                     ///< Velocity variation type
-    AnimRef<f32> velocityAmplitude;       ///< Velocity variation amplitude
-    AnimRef<f32> velocityFrequency;       ///< Velocity variation frequency
-    AnimRef<f32> yaw;                     ///< Animated yaw angle
-    AnimRef<f32> pitch;                   ///< Animated pitch angle
-    f32 emissionVectorNormFactor = 0.0f;  ///< Precomputed ≈ 0.01 / |emissionVector|
-    f32 velocityNormFactor = 0.0f;        ///< Precomputed ≈ 0.01 / velocity.initValue
+    Vector3f emissionOffset;             ///< Emission point offset from bone
+    Vector3f emissionVector;             ///< Emission direction vector
+    AnimRef<f32> velocity;               ///< Animated base velocity
+    u32 reserved = 0;                    ///< Reserved (always 0)
+    u32 boneIndex = 0;                   ///< Index into BONE array
+    AnimRef<f32> velocityBaseFactor;     ///< Animated base velocity factor
+    AnimRef<f32> velocityEndFactor;      ///< Animated end velocity factor
+    u32 yawType;                         ///< Yaw variation type
+    AnimRef<f32> yawAmplitude;           ///< Yaw variation amplitude
+    AnimRef<f32> yawFrequency;           ///< Yaw variation frequency
+    u32 pitchType;                       ///< Pitch variation type
+    AnimRef<f32> pitchAmplitude;         ///< Pitch variation amplitude
+    AnimRef<f32> pitchFrequency;         ///< Pitch variation frequency
+    u32 velocityType;                    ///< Velocity variation type
+    AnimRef<f32> velocityAmplitude;      ///< Velocity variation amplitude
+    AnimRef<f32> velocityFrequency;      ///< Velocity variation frequency
+    AnimRef<f32> yaw;                    ///< Animated yaw angle
+    AnimRef<f32> pitch;                  ///< Animated pitch angle
+    f32 emissionVectorNormFactor = 0.0f; ///< Precomputed ≈ 0.01 / |emissionVector|
+    f32 velocityNormFactor = 0.0f;       ///< Precomputed ≈ 0.01 / velocity.initValue
     M3_DEFINE_VERSION_ACCESSORS()
 };
 

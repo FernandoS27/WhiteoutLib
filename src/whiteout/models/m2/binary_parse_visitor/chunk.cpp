@@ -8,7 +8,8 @@ namespace m2 {
 using common::BinaryReader;
 
 void BinaryParseVisitor::visit(TXACChunk& chunk, BaseFile& file) {
-    size_t num_entries = file.header.model.materials.size() + file.header.model.particleEmitters.size();
+    size_t num_entries =
+        file.header.model.materials.size() + file.header.model.particleEmitters.size();
     chunk.entries = reader.read<std::vector<std::array<u8, 2>>>(num_entries);
 }
 
@@ -131,9 +132,7 @@ void BinaryParseVisitor::visit(WFV3Chunk& chunk) {
     visit(chunk.data);
 }
 
-void BinaryParseVisitor::visit(PFDCChunk& chunk) {
-
-}
+void BinaryParseVisitor::visit(PFDCChunk& chunk) {}
 
 void BinaryParseVisitor::visit(EdgeFadeData& entry) {
     entry.value0 = reader.readArray<f32, 2>();
@@ -234,5 +233,5 @@ void BinaryParseVisitor::visit(SKPDChunk& chunk) {
     chunk.reserved1 = reader.readArray<u8, 4>();
 }
 
-}
-}
+} // namespace m2
+} // namespace whiteout

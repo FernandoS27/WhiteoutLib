@@ -39,8 +39,7 @@ public:
     void writeChunkedBone(BinaryWriter& writer, const BoneFile& model);
     void writeChunkedAnim(BinaryWriter& writer, const AnimFile& model);
 
-    void writeViaWfs(WoWFileSystem& wfs, const BaseFile& base,
-                     const std::vector<SkinFile>& skins,
+    void writeViaWfs(WoWFileSystem& wfs, const BaseFile& base, const std::vector<SkinFile>& skins,
                      const std::optional<SkeletonFile>& skeleton);
 };
 
@@ -48,9 +47,13 @@ Writer::Writer(WriteOptions options) : pImpl(std::make_unique<Impl>(std::move(op
 
 Writer::~Writer() = default;
 
-bool Writer::hasIssues() const { return !pImpl->m_issues.empty(); }
+bool Writer::hasIssues() const {
+    return !pImpl->m_issues.empty();
+}
 
-const std::vector<std::string>& Writer::getIssues() const { return pImpl->m_issues; }
+const std::vector<std::string>& Writer::getIssues() const {
+    return pImpl->m_issues;
+}
 
 void Writer::write(interfaces::VirtualPathFileSystem& fs, const std::string& filePath,
                    const Model& model) {
@@ -172,15 +175,14 @@ M2SerializeResult Writer::write(const Model& model) {
             }
         }
 
-        // AFID chunk layout: [AFIDEntry × N] where each entry is {u16 animId, u16 subAnimId, u32 fileDataId}
-        // AFID can live in m2Data or (when skeleton is emitted) in skeletonData.
-        std::vector<u8>& afidBuffer = result.skeletonData.has_value()
-                                          ? result.skeletonData->data
-                                          : result.m2Data;
+        // AFID chunk layout: [AFIDEntry × N] where each entry is {u16 animId, u16 subAnimId, u32
+        // fileDataId} AFID can live in m2Data or (when skeleton is emitted) in skeletonData.
+        std::vector<u8>& afidBuffer =
+            result.skeletonData.has_value() ? result.skeletonData->data : result.m2Data;
         size_t afidData = findChunkDataOffset(afidBuffer, AFID_TAG);
         if (afidData != SIZE_MAX) {
             constexpr size_t kAFIDEntrySize = sizeof(u16) + sizeof(u16) + sizeof(u32); // 8
-            constexpr size_t kFileDataIdOffset = sizeof(u16) + sizeof(u16);             // 4
+            constexpr size_t kFileDataIdOffset = sizeof(u16) + sizeof(u16);            // 4
             for (size_t i = 0; i < result.animData.size(); ++i) {
                 result.animData[i].pathOffset = afidData + i * kAFIDEntrySize + kFileDataIdOffset;
             }
@@ -191,7 +193,7 @@ M2SerializeResult Writer::write(const Model& model) {
 }
 
 void Writer::Impl::decomposeBaseFile(BaseFile& base, std::vector<SkinFile>& skins,
-                                      std::optional<SkeletonFile>& skeleton) {
+                                     std::optional<SkeletonFile>& skeleton) {
     const auto& model = base.header.model;
 
     for (size_t i = 0; i < model.skinProfiles.size(); ++i) {
@@ -445,8 +447,8 @@ std::vector<u8> Writer::Impl::serializeSkeleton(const SkeletonFile& skel) {
 }
 
 void Writer::Impl::writeViaWfs(WoWFileSystem& wfs, const BaseFile& base,
-                                const std::vector<SkinFile>& skins,
-                                const std::optional<SkeletonFile>& skeleton) {
+                               const std::vector<SkinFile>& skins,
+                               const std::optional<SkeletonFile>& skeleton) {
     assert(wfs.mode() == WoWFileSystemMode::Create);
 
     std::vector<u32> skinHandles;
@@ -729,5 +731,5 @@ void Writer::Impl::writeChunkedAnim(BinaryWriter& writer, const AnimFile& model)
     }
 }
 
-}
-}
+} // namespace m2
+} // namespace whiteout

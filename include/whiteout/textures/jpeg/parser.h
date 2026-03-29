@@ -28,7 +28,9 @@
 #include <whiteout/textures/parser.h>
 #include <whiteout/textures/texture.h>
 
-namespace whiteout::interfaces { class WorkerPool; }
+namespace whiteout::interfaces {
+class WorkerPool;
+}
 
 namespace whiteout::textures::jpeg {
 

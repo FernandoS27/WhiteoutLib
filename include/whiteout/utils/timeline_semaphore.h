@@ -15,8 +15,7 @@ namespace whiteout::utils {
 /// the semaphore to advance the counter and block waiting for it to reach a
 /// target value.  next() reserves strictly increasing values so multiple
 /// producers never collide.
-class TimelineSemaphore : public interfaces::TimelineSemaphore
-{
+class TimelineSemaphore : public interfaces::TimelineSemaphore {
 public:
     /// Create a semaphore with an initial completed timeline value.
     ///
@@ -38,12 +37,12 @@ public:
     /// notified.
     ///
     /// @param v Target value to signal.
-    void  signal(Value v) noexcept override;
+    void signal(Value v) noexcept override;
 
     /// Block until the completed value reaches at least @p v.
     ///
     /// @param v Target value to wait for.
-    void  wait(Value v) override;
+    void wait(Value v) override;
 
     /// Reserve and return the next timeline value for future signaling.
     ///

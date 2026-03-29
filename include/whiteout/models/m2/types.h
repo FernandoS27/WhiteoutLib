@@ -89,8 +89,7 @@ enum class InterpolationType : u16 {
 };
 
 struct AnimationTrackBase {
-    InterpolationType interpolationType =
-        InterpolationType::None;
+    InterpolationType interpolationType = InterpolationType::None;
     u16 globalSequenceId = 0xFFFF;
     std::vector<std::vector<u32>> timestamps;
 };
@@ -126,10 +125,8 @@ constexpr u32 makeTag(const char (&str)[N]) {
            (static_cast<u32>(static_cast<u8>(str[3])) << 24);
 }
 
-constexpr u32 MD20_TAG =
-    makeTag("MD20");
-constexpr u32 MD21_TAG =
-    makeTag("MD21");
+constexpr u32 MD20_TAG = makeTag("MD20");
+constexpr u32 MD21_TAG = makeTag("MD21");
 
-}
-}
+} // namespace m2
+} // namespace whiteout

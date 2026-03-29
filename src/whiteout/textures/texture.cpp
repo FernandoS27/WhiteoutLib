@@ -5,9 +5,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cmath>
 #include <cstring>
-#include <cassert>
 #include <limits>
 #include <stdexcept>
 
@@ -365,19 +365,27 @@ u32 format_bytes_per_channel(PixelFormat fmt) {
 
 PixelFormat single_channel_format(PixelFormat fmt) {
     switch (format_bytes_per_channel(fmt)) {
-    case 1:  return PixelFormat::R8;
-    case 2:  return PixelFormat::R16;
-    case 4:  return PixelFormat::R32F;
-    default: return fmt;
+    case 1:
+        return PixelFormat::R8;
+    case 2:
+        return PixelFormat::R16;
+    case 4:
+        return PixelFormat::R32F;
+    default:
+        return fmt;
     }
 }
 
 PixelFormat rgba_format_for(PixelFormat fmt) {
     switch (format_bytes_per_channel(fmt)) {
-    case 1:  return PixelFormat::RGBA8;
-    case 2:  return PixelFormat::RGBA16;
-    case 4:  return PixelFormat::RGBA32F;
-    default: return fmt;
+    case 1:
+        return PixelFormat::RGBA8;
+    case 2:
+        return PixelFormat::RGBA16;
+    case 4:
+        return PixelFormat::RGBA32F;
+    default:
+        return fmt;
     }
 }
 
@@ -503,8 +511,8 @@ std::optional<Texture> copy_normal_to_rgba8(const Texture& src, PixelFormat orig
                 const f32 y_value = rgba[y];
                 const f32 normal_x = x_value * 2.0f - 1.0f;
                 const f32 normal_y = y_value * 2.0f - 1.0f;
-                    const f32 normal_z = std::sqrt(
-                        std::max(0.0f, 1.0f - normal_x * normal_x - normal_y * normal_y));
+                const f32 normal_z =
+                    std::sqrt(std::max(0.0f, 1.0f - normal_x * normal_x - normal_y * normal_y));
                 rgba[0] = x_value;
                 rgba[1] = (flip_y ? 1.0f - y_value : y_value);
                 rgba[2] = (normal_z + 1.0f) * 0.5f;
@@ -528,8 +536,14 @@ struct SwapChannelsOp {
         constexpr u32 ch = FormatTraits<Fmt>::channels;
         constexpr u32 bpp = FormatTraits<Fmt>::bytes_per_pixel;
 
-        if (ai >= ch || bi >= ch) { ok = false; return; }
-        if (ai == bi) { ok = true; return; }
+        if (ai >= ch || bi >= ch) {
+            ok = false;
+            return;
+        }
+        if (ai == bi) {
+            ok = true;
+            return;
+        }
 
         const u32 layers = impl.layerCount();
         const u32 mips = impl.mipCount();
@@ -561,7 +575,10 @@ struct InvertChannelOp {
         constexpr u32 ch = FormatTraits<Fmt>::channels;
         constexpr u32 bpp = FormatTraits<Fmt>::bytes_per_pixel;
 
-        if (ci >= ch) { ok = false; return; }
+        if (ci >= ch) {
+            ok = false;
+            return;
+        }
 
         const u32 layers = impl.layerCount();
         const u32 mips = impl.mipCount();
@@ -594,26 +611,28 @@ struct ExpandNormalOp {
     template <PixelFormat Fmt>
     static void apply(Texture::Impl& impl, u32 ai, u32 bi, u32 ci, bool& ok) {
         using T = typename FormatTraits<Fmt>::channel_type;
-        constexpr u32 ch  = FormatTraits<Fmt>::channels;
+        constexpr u32 ch = FormatTraits<Fmt>::channels;
         constexpr u32 bpp = FormatTraits<Fmt>::bytes_per_pixel;
 
-        if (ai >= ch || bi >= ch || ci >= ch) { ok = false; return; }
+        if (ai >= ch || bi >= ch || ci >= ch) {
+            ok = false;
+            return;
+        }
 
         // UNORM decode/encode constants folded at compile time.
         // For integer types the stored range is [0, numeric_limits::max];
         // for f32 it is the normalised [0, 1] interval, so max is 1.
-        constexpr f32 kTypeMax = std::is_same_v<T, f32>
-            ? 1.0f
-            : static_cast<f32>(std::numeric_limits<T>::max());
-        constexpr f32 kDecodeScale = 2.0f / kTypeMax;  // maps [0, max] → [-1, 1]
-        constexpr f32 kHalfMax     = kTypeMax * 0.5f;  // maps [-1, 1] → [0, max]
+        constexpr f32 kTypeMax =
+            std::is_same_v<T, f32> ? 1.0f : static_cast<f32>(std::numeric_limits<T>::max());
+        constexpr f32 kDecodeScale = 2.0f / kTypeMax; // maps [0, max] → [-1, 1]
+        constexpr f32 kHalfMax = kTypeMax * 0.5f;     // maps [-1, 1] → [0, max]
 
         const u32 x_off = ai * sizeof(T);
         const u32 y_off = bi * sizeof(T);
         const u32 z_off = ci * sizeof(T);
 
         const u32 layers = impl.layerCount();
-        const u32 mips   = impl.mipCount();
+        const u32 mips = impl.mipCount();
 
         // Three float arrays at this chunk size fit comfortably in L1 cache.
         constexpr u32 kChunk = 1024;
@@ -622,11 +641,11 @@ struct ExpandNormalOp {
         for (u32 layer = 0; layer < layers; ++layer) {
             for (u32 mip = 0; mip < mips; ++mip) {
                 const auto& lvl = impl.mips[layer * mips + mip];
-                const u32   pixel_count = lvl.width * lvl.height * lvl.depth;
-                u8*         pixels = impl.data.data() + lvl.offset;
+                const u32 pixel_count = lvl.width * lvl.height * lvl.depth;
+                u8* pixels = impl.data.data() + lvl.offset;
 
                 for (u32 base = 0; base < pixel_count; base += kChunk) {
-                    const u32 n   = std::min(pixel_count - base, kChunk);
+                    const u32 n = std::min(pixel_count - base, kChunk);
                     u8* const row = pixels + static_cast<size_t>(base) * bpp;
 
                     // Phase 1 – gather: deinterleave X and Y into contiguous
@@ -673,7 +692,10 @@ struct FillChannelOp {
         constexpr u32 ch = FormatTraits<Fmt>::channels;
         constexpr u32 bpp = FormatTraits<Fmt>::bytes_per_pixel;
 
-        if (ci >= ch) { ok = false; return; }
+        if (ci >= ch) {
+            ok = false;
+            return;
+        }
 
         const T encoded = convert_channel<T, f32>(value);
 
@@ -687,8 +709,7 @@ struct FillChannelOp {
                 u8* pixels = impl.data.data() + lvl.offset;
 
                 for (u32 px = 0; px < pixel_count; ++px)
-                    std::memcpy(pixels + px * bpp + ci * sizeof(T),
-                                &encoded, sizeof(T));
+                    std::memcpy(pixels + px * bpp + ci * sizeof(T), &encoded, sizeof(T));
             }
         }
         ok = true;
@@ -831,8 +852,7 @@ std::optional<std::vector<Texture>> Texture::splitChannels(
 
                 for (u32 px = 0; px < n; ++px)
                     std::memcpy(d + static_cast<size_t>(px) * bytesPerCh,
-                                s + static_cast<size_t>(px) * srcBpp + ci * bytesPerCh,
-                                bytesPerCh);
+                                s + static_cast<size_t>(px) * srcBpp + ci * bytesPerCh, bytesPerCh);
             }
         }
 
@@ -842,9 +862,8 @@ std::optional<std::vector<Texture>> Texture::splitChannels(
     return result;
 }
 
-std::optional<Texture> Texture::mergeChannels(
-    const std::vector<Texture>& sources,
-    const std::vector<Channel>& targetChannels) {
+std::optional<Texture> Texture::mergeChannels(const std::vector<Texture>& sources,
+                                              const std::vector<Channel>& targetChannels) {
     if (sources.empty() || sources.size() != targetChannels.size())
         return std::nullopt;
 
@@ -860,9 +879,9 @@ std::optional<Texture> Texture::mergeChannels(
     // Validate all sources match.
     for (size_t i = 1; i < sources.size(); ++i) {
         const Texture& s = sources[i];
-        if (s.format() != ref.format() || s.type() != ref.type() ||
-            s.width() != ref.width() || s.height() != ref.height() ||
-            s.depth() != ref.depth() || s.mipCount() != ref.mipCount())
+        if (s.format() != ref.format() || s.type() != ref.type() || s.width() != ref.width() ||
+            s.height() != ref.height() || s.depth() != ref.depth() ||
+            s.mipCount() != ref.mipCount())
             return std::nullopt;
     }
 
@@ -890,8 +909,7 @@ std::optional<Texture> Texture::mergeChannels(
 
                 for (u32 px = 0; px < n; ++px)
                     std::memcpy(d + static_cast<size_t>(px) * dstBpp + ci * bytesPerCh,
-                                s + static_cast<size_t>(px) * bytesPerCh,
-                                bytesPerCh);
+                                s + static_cast<size_t>(px) * bytesPerCh, bytesPerCh);
             }
         }
     }
@@ -903,23 +921,20 @@ std::optional<std::string> Texture::generateMipmaps(interfaces::WorkerPool* pool
     return generateMipmaps(kKeepMipCount, pool);
 }
 
-std::optional<std::string> Texture::generateMipmaps(u32 newMipCount,
-                                                    interfaces::WorkerPool* pool) {
+std::optional<std::string> Texture::generateMipmaps(u32 newMipCount, interfaces::WorkerPool* pool) {
     // Validate and apply the requested mip count.
     const u32 maxMips = computeMaxMipCount(impl_->width, impl_->height, impl_->depth);
 
     if (newMipCount != kKeepMipCount) {
         if (newMipCount > maxMips)
-            return std::string("newMipCount exceeds maximum ("
-                               + std::to_string(maxMips) + ")");
+            return std::string("newMipCount exceeds maximum (" + std::to_string(maxMips) + ")");
 
         if (newMipCount != mipCount()) {
             // Rebuild the mip chain with the new count, preserving mip 0 data.
             const u32 layers = impl_->layerCount();
             std::vector<MipLevel> newMips;
-            const u64 total = build_mip_chain(impl_->format, impl_->width,
-                                              impl_->height, impl_->depth,
-                                              newMipCount, layers, newMips);
+            const u64 total = build_mip_chain(impl_->format, impl_->width, impl_->height,
+                                              impl_->depth, newMipCount, layers, newMips);
 
             std::vector<u8> newData(static_cast<size_t>(total), 0);
 
@@ -928,8 +943,8 @@ std::optional<std::string> Texture::generateMipmaps(u32 newMipCount,
                 const auto& oldMip0 = impl_->mips[layer * mipCount()];
                 const auto& newMip0 = newMips[layer * newMipCount];
                 const size_t copySize = std::min<size_t>(oldMip0.size, newMip0.size);
-                std::memcpy(newData.data() + newMip0.offset,
-                            impl_->data.data() + oldMip0.offset, copySize);
+                std::memcpy(newData.data() + newMip0.offset, impl_->data.data() + oldMip0.offset,
+                            copySize);
             }
 
             impl_->mips = std::move(newMips);
@@ -1015,8 +1030,8 @@ std::optional<std::string> Texture::downscale(u32 levels, interfaces::WorkerPool
 
     const u32 maxMips = computeMaxMipCount(impl_->width, impl_->height, impl_->depth);
     if (levels >= maxMips)
-        return std::string("cannot downscale by " + std::to_string(levels)
-                           + " levels (max " + std::to_string(maxMips - 1) + ")");
+        return std::string("cannot downscale by " + std::to_string(levels) + " levels (max " +
+                           std::to_string(maxMips - 1) + ")");
 
     const u32 currentMips = mipCount();
     const u32 targetMips = std::min(currentMips + levels, maxMips);
@@ -1037,8 +1052,8 @@ std::optional<std::string> Texture::downscale(u32 levels, interfaces::WorkerPool
     const u32 newDepth = newBase.depth;
 
     std::vector<MipLevel> newMips;
-    const u64 newTotal = build_mip_chain(impl_->format, newWidth, newHeight,
-                                         newDepth, newMipCount, layers, newMips);
+    const u64 newTotal =
+        build_mip_chain(impl_->format, newWidth, newHeight, newDepth, newMipCount, layers, newMips);
 
     std::vector<u8> newData(static_cast<size_t>(newTotal), 0);
 
@@ -1047,8 +1062,7 @@ std::optional<std::string> Texture::downscale(u32 levels, interfaces::WorkerPool
             const auto& src = impl_->mips[layer * oldMipCount + mip + levels];
             const auto& dst = newMips[layer * newMipCount + mip];
             const size_t copySize = std::min<size_t>(src.size, dst.size);
-            std::memcpy(newData.data() + dst.offset,
-                        impl_->data.data() + src.offset, copySize);
+            std::memcpy(newData.data() + dst.offset, impl_->data.data() + src.offset, copySize);
         }
     }
 

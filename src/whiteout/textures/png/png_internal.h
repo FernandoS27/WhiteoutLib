@@ -83,8 +83,10 @@ inline u8 paethPredictor(u8 a, u8 b, u8 c) {
     i32 pa = std::abs(p - static_cast<i32>(a));
     i32 pb = std::abs(p - static_cast<i32>(b));
     i32 pc = std::abs(p - static_cast<i32>(c));
-    if (pa <= pb && pa <= pc) return a;
-    if (pb <= pc) return b;
+    if (pa <= pb && pa <= pc)
+        return a;
+    if (pb <= pc)
+        return b;
     return c;
 }
 

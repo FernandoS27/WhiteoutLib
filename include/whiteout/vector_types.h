@@ -17,11 +17,7 @@ namespace whiteout {
 template <typename T, typename BaseType>
 struct VectorMethods {
     using FloatType =
-    typename std::conditional<
-        std::is_floating_point<BaseType>::value,
-        BaseType,
-        f32
-    >::type;
+        typename std::conditional<std::is_floating_point<BaseType>::value, BaseType, f32>::type;
 
     // Component-wise arithmetic
     T& operator+=(const T& other) {
@@ -181,7 +177,8 @@ struct VectorMethods {
         return (current - prev) * s + (next - current) * r;
     }
 
-    static T bezier_lerp(const T& start, const T& outtan, const T& intan, const T& end, FloatType t) {
+    static T bezier_lerp(const T& start, const T& outtan, const T& intan, const T& end,
+                         FloatType t) {
         const auto simple_pow = [](FloatType base, size_t exp) {
             FloatType result = 1.0f;
             for (size_t i = 0; i < exp; i++)

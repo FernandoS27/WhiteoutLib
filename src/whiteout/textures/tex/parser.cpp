@@ -271,14 +271,13 @@ std::optional<Texture> Parser::parse(const std::string& texFilePath,
                        *pImpl);
 }
 
-std::optional<Texture> Parser::parse(std::span<const u8> texData,
-                                     std::span<const u8> payloadData) {
+std::optional<Texture> Parser::parse(std::span<const u8> texData, std::span<const u8> payloadData) {
     pImpl->issues.clear();
     return parseD4Impl(texData, payloadData, {}, nullptr, *pImpl);
 }
 
-std::optional<Texture> Parser::parse(std::span<const u8> texData,
-                                     std::span<const u8> payloadData, D4TexInfo* outInfo) {
+std::optional<Texture> Parser::parse(std::span<const u8> texData, std::span<const u8> payloadData,
+                                     D4TexInfo* outInfo) {
     pImpl->issues.clear();
     return parseD4Impl(texData, payloadData, {}, outInfo, *pImpl);
 }
@@ -302,8 +301,7 @@ std::optional<Texture> Parser::parse(const std::string& texFilePath,
 
 std::optional<Texture> Parser::parse(std::span<const u8> texData,
                                      std::span<const u8> hiResPayloadData,
-                                     std::span<const u8> lowResPayloadData,
-                                     D4TexInfo* outInfo) {
+                                     std::span<const u8> lowResPayloadData, D4TexInfo* outInfo) {
     pImpl->issues.clear();
     return parseD4Impl(texData, hiResPayloadData, lowResPayloadData, outInfo, *pImpl);
 }

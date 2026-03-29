@@ -73,5 +73,5 @@ void BinaryParseVisitor::visit(SkinFile& file) {
     visit(file.profile);
 }
 
-}
-}
+} // namespace m2
+} // namespace whiteout

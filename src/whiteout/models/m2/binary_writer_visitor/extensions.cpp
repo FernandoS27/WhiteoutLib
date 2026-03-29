@@ -18,5 +18,5 @@ void BinaryWriterVisitor::visit(const LodProfile& chunk) {
     writer.write(chunk.reserved1);
 }
 
-}
-}
+} // namespace m2
+} // namespace whiteout

@@ -166,5 +166,5 @@ struct TEXLChunk {
     std::vector<TexturedLightData> texturedLights;
 };
 
-}
-}
+} // namespace m2
+} // namespace whiteout

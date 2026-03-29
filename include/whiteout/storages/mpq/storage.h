@@ -38,11 +38,11 @@
 #include <string>
 #include <vector>
 
-namespace whiteout { namespace interfaces { class WorkerPool; } }
+namespace whiteout::interfaces {
+class WorkerPool;
+} // namespace whiteout::interfaces
 
-namespace whiteout {
-namespace storages {
-namespace mpq {
+namespace whiteout::storages::mpq {
 
 /**
  * @brief RAII wrapper for MPQ archive access
@@ -74,7 +74,7 @@ public:
     /// @param pool  Optional WorkerPool for parallel compress/decompress (non-owning).
     /// @return A valid Storage, or std::nullopt on failure.
     static std::optional<Storage> open(const std::string& path,
-                                        interfaces::WorkerPool* pool = nullptr);
+                                       interfaces::WorkerPool* pool = nullptr);
 
     /// Open an existing MPQ archive with diagnostic output on failure.
     /// @param path  Path to the .mpq file.
@@ -82,11 +82,10 @@ public:
     /// @param pool  Optional WorkerPool for parallel compress/decompress (non-owning).
     /// @return A valid Storage, or std::nullopt on failure.
     static std::optional<Storage> open(const std::string& path, std::string* error,
-                                        interfaces::WorkerPool* pool = nullptr);
+                                       interfaces::WorkerPool* pool = nullptr);
 
     /// Create a new empty archive in memory. No file on disk until save(path).
-    static Storage create(CreateOptions opts = {},
-                           interfaces::WorkerPool* pool = nullptr);
+    static Storage create(CreateOptions opts = {}, interfaces::WorkerPool* pool = nullptr);
 
     /// Release all resources. Same effect as letting the Storage go out of scope.
     void close();
@@ -127,8 +126,7 @@ public:
 
     /// Write or overwrite a file. Data is held in overlay until save().
     /// @return true on success, false if the hash table is full.
-    bool writeFile(const std::string& name, std::span<const u8> data,
-                   WriteOptions opts = {});
+    bool writeFile(const std::string& name, std::span<const u8> data, WriteOptions opts = {});
 
     /// Delete a file from the archive.
     /// @return true if the file was found (in source or overlay), false otherwise.
@@ -149,6 +147,4 @@ private:
     std::unique_ptr<Impl> m_impl;
 };
 
-} // namespace mpq
-} // namespace storages
-} // namespace whiteout
+} // namespace whiteout::storages::mpq

@@ -3,9 +3,9 @@
 
 #pragma once
 
+#include <cstddef>
 #include <functional>
 #include <memory>
-#include <cstddef>
 
 #include "../interfaces.h"
 
@@ -15,8 +15,7 @@ namespace whiteout::utils {
 ///
 /// Tasks are executed by a fixed number of worker threads created at
 /// construction time.
-class SimpleThreadPool : public interfaces::WorkerPool
-{
+class SimpleThreadPool : public interfaces::WorkerPool {
 public:
     /// Create a pool with @p nThreads worker threads.
     ///

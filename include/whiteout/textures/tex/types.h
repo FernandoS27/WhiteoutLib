@@ -116,7 +116,7 @@ struct D4TexInfo {
     std::vector<D4TexFrame> frames; ///< Atlas frame entries.
     bool isTwoTier;                 ///< True when pixel data uses two-tier streaming.
     u32 hiResMipCount;              ///< Number of mip levels in the hi-res payload.
-    u32 lowResMipCount;             ///< Number of mip levels in the low-res payload (0 if single-tier).
+    u32 lowResMipCount; ///< Number of mip levels in the low-res payload (0 if single-tier).
 };
 
 } // namespace whiteout::textures::tex

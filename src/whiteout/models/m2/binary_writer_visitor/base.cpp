@@ -286,8 +286,8 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter) {
     visit(emitter.splinePoints);
     visit(emitter.enabledIn);
 
-    const bool extendedParticle = (version > 271) ||
-        hasFlag(globalFlags, GlobalFlag::NewParticleRecord);
+    const bool extendedParticle =
+        (version > 271) || hasFlag(globalFlags, GlobalFlag::NewParticleRecord);
     if (extendedParticle) {
         writer.write(emitter.multiTexScrollMid[0][0]);
         writer.write(emitter.multiTexScrollMid[0][1]);
@@ -399,5 +399,5 @@ void BinaryWriterVisitor::visit(const std::string& str) {
     });
 }
 
-}
-}
+} // namespace m2
+} // namespace whiteout

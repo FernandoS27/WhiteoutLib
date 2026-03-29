@@ -25,5 +25,5 @@ void BinaryParseVisitor::visit(LodProfile& chunk) {
     chunk.reserved1 = reader.read<u8>();
 }
 
-}
-}
+} // namespace m2
+} // namespace whiteout

@@ -60,5 +60,5 @@ struct SkinProfile {
     std::vector<ShadowBatch> shadowBatches;
 };
 
-}
-}
+} // namespace m2
+} // namespace whiteout

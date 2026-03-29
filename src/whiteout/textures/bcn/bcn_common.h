@@ -303,8 +303,8 @@ void scatter_channel_block(const std::array<u8, 16>& values, u32 width, u32 heig
 // ============================================================================
 
 template <typename TileFn>
-void parallel_for_tiles(u32 blocks_wide, u32 blocks_tall,
-                        interfaces::WorkerPool* pool, TileFn&& tile_fn) {
+void parallel_for_tiles(u32 blocks_wide, u32 blocks_tall, interfaces::WorkerPool* pool,
+                        TileFn&& tile_fn) {
     constexpr u32 kTileBlocks = 16; // 16×16 blocks = 64×64 pixels max
 
     const u32 tiles_wide = (blocks_wide + kTileBlocks - 1) / kTileBlocks;
@@ -333,12 +333,10 @@ void parallel_for_tiles(u32 blocks_wide, u32 blocks_tall,
             const u32 bx1 = std::min(bx0 + kTileBlocks, blocks_wide);
             const u32 by1 = std::min(by0 + kTileBlocks, blocks_tall);
             jobGroup.add(1);
-            interfaces::WorkerTask task{
-                [bx0, by0, bx1, by1, &tile_fn, &jobGroup]() {
-                    tile_fn(bx0, by0, bx1, by1);
-                    jobGroup.done();
-                }
-            };
+            interfaces::WorkerTask task{[bx0, by0, bx1, by1, &tile_fn, &jobGroup]() {
+                tile_fn(bx0, by0, bx1, by1);
+                jobGroup.done();
+            }};
             pool->submit(task);
         }
     }
@@ -367,18 +365,16 @@ std::vector<u8> decode_image_rgba8(std::span<const u8> data, u32 width, u32 heig
 
     std::vector<u8> result(static_cast<size_t>(width) * height * 4, 0);
 
-    parallel_for_tiles(blocks_wide, blocks_tall, pool,
-        [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
-            for (u32 block_y = by0; block_y < by1; ++block_y) {
-                for (u32 block_x = bx0; block_x < bx1; ++block_x) {
-                    std::array<u8, 64> block_pixels{};
-                    decode_block_fn(
-                        data.data() + (block_y * blocks_wide + block_x) * BlockBytes,
-                        block_pixels.data());
-                    scatter_rgba8_block(block_pixels, width, height, block_x, block_y, result);
-                }
+    parallel_for_tiles(blocks_wide, blocks_tall, pool, [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
+        for (u32 block_y = by0; block_y < by1; ++block_y) {
+            for (u32 block_x = bx0; block_x < bx1; ++block_x) {
+                std::array<u8, 64> block_pixels{};
+                decode_block_fn(data.data() + (block_y * blocks_wide + block_x) * BlockBytes,
+                                block_pixels.data());
+                scatter_rgba8_block(block_pixels, width, height, block_x, block_y, result);
             }
-        });
+        }
+    });
 
     return result;
 }
@@ -404,18 +400,16 @@ std::vector<u8> encode_image_rgba8(std::span<const u8> rgba, u32 width, u32 heig
     const u32 blocks_tall = (height + 3) / 4;
     std::vector<u8> result(static_cast<size_t>(blocks_wide) * blocks_tall * BlockBytes);
 
-    parallel_for_tiles(blocks_wide, blocks_tall, pool,
-        [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
-            for (u32 block_y = by0; block_y < by1; ++block_y) {
-                for (u32 block_x = bx0; block_x < bx1; ++block_x) {
-                    std::array<u8, 64> block{};
-                    gather_rgba8_block(rgba, width, block_x, block_y, block);
-                    encode_block_fn(
-                        block.data(),
-                        result.data() + (block_y * blocks_wide + block_x) * BlockBytes);
-                }
+    parallel_for_tiles(blocks_wide, blocks_tall, pool, [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
+        for (u32 block_y = by0; block_y < by1; ++block_y) {
+            for (u32 block_x = bx0; block_x < bx1; ++block_x) {
+                std::array<u8, 64> block{};
+                gather_rgba8_block(rgba, width, block_x, block_y, block);
+                encode_block_fn(block.data(),
+                                result.data() + (block_y * blocks_wide + block_x) * BlockBytes);
             }
-        });
+        }
+    });
 
     return result;
 }

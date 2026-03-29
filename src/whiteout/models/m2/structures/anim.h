@@ -32,5 +32,5 @@ struct AnimProfile {
     bool isChunked = false;
 };
 
-}
-}
+} // namespace m2
+} // namespace whiteout

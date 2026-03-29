@@ -295,13 +295,13 @@ void parallel_for_blocks(u32 count, JpegContext* ctx, Fn&& fn) {
         for (u32 t = 0; t < nThreads; ++t) {
             const u32 begin = t * chunk;
             const u32 end = std::min(begin + chunk, count);
-            if (begin >= end) break;
+            if (begin >= end)
+                break;
             group.add(1);
-            interfaces::WorkerTask task{
-                [begin, end, &fn, &group]() {
-                    fn(begin, end);
-                    group.done();
-                }};
+            interfaces::WorkerTask task{[begin, end, &fn, &group]() {
+                fn(begin, end);
+                group.done();
+            }};
             ctx->pool->submit(task);
         }
         group.wait();
@@ -318,10 +318,12 @@ void parallel_for_tasks(u32 count, JpegContext* ctx, Fn&& fn) {
     if (!ctx || !ctx->pool || ctx->pool->threadCount() <= 1 || count <= 1) {
         if (ctx && ctx->sem) {
             submitSingleTask(ctx, [count, fn = std::forward<Fn>(fn)]() {
-                for (u32 i = 0; i < count; ++i) fn(i);
+                for (u32 i = 0; i < count; ++i)
+                    fn(i);
             });
         } else {
-            for (u32 i = 0; i < count; ++i) fn(i);
+            for (u32 i = 0; i < count; ++i)
+                fn(i);
         }
         return;
     }
@@ -351,11 +353,10 @@ void parallel_for_tasks(u32 count, JpegContext* ctx, Fn&& fn) {
         utils::JobGroup group;
         for (u32 i = 0; i < count; ++i) {
             group.add(1);
-            interfaces::WorkerTask task{
-                [i, &fn, &group]() {
-                    fn(i);
-                    group.done();
-                }};
+            interfaces::WorkerTask task{[i, &fn, &group]() {
+                fn(i);
+                group.done();
+            }};
             ctx->pool->submit(task);
         }
         group.wait();

@@ -35,8 +35,8 @@ namespace m3 {
  * to dispatch to the correct material vector.
  */
 struct MaterialMap {
-    MaterialType materialType;            ///< Material type (1=standard, 2=displacement, etc.)
-    u32 materialIndex;                    ///< Index into the typed material array
+    MaterialType materialType; ///< Material type (1=standard, 2=displacement, etc.)
+    u32 materialIndex;         ///< Index into the typed material array
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -87,7 +87,7 @@ struct TextureLayer {
     Vector3f fresnelTranslation;                            ///< Fresnel UV translation (v25+)
     Vector3f fresnelMask;                                   ///< Fresnel mask vector (v25+)
     Vector2f fresnelRotation;                               ///< Fresnel UV rotation (v25+)
-    u32 uvDensity;                                          ///< UV density hint (v0–v25, absent in v26)
+    u32 uvDensity; ///< UV density hint (v0–v25, absent in v26)
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -99,7 +99,7 @@ struct TextureLayer {
  * per-version extensions for normal-blend and gloss layers.
  */
 struct StandardMaterial {
-    std::string name;                      ///< Material name (Ref<CHAR>)
+    std::string name; ///< Material name (Ref<CHAR>)
     MaterialAdditionalFlag additionalFlags = MaterialAdditionalFlag::None; ///< Additional flags
     MaterialFlag flags = MaterialFlag::None; ///< Material rendering flags
     BlendMode blendMode = BlendMode::Opaque; ///< Alpha blend mode
@@ -166,8 +166,8 @@ struct DisplacementMaterial {
  * index with an animated blend multiplier.
  */
 struct CompositeSection {
-    u32 materialIndex;                    ///< Index into MATM array
-    AnimRef<f32> mapMultiplier;           ///< Animated blend weight
+    u32 materialIndex;          ///< Index into MATM array
+    AnimRef<f32> mapMultiplier; ///< Animated blend weight
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -266,9 +266,9 @@ struct VolumeNoiseMaterial {
  * Material for Zerg creep rendering with a mask map and creep-low parameter.
  */
 struct CreepMaterial {
-    std::string name;                     ///< Material name (Ref<CHAR>)
-    std::optional<TextureLayer> maskMap;  ///< Creep mask texture
-    u32 creepLow;                         ///< Creep low parameter
+    std::string name;                    ///< Material name (Ref<CHAR>)
+    std::optional<TextureLayer> maskMap; ///< Creep mask texture
+    u32 creepLow;                        ///< Creep low parameter
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -315,15 +315,15 @@ struct ReflectionMaterial {
  * size, scale, fade, color, and offset parameters.
  */
 struct SubFlare {
-    u32 index;                            ///< Flare element index
-    f32 position;                         ///< Position along the flare axis (0–1)
-    Vector2f sizeXY;                      ///< Base size (width, height)
-    Vector2f scaleXY;                     ///< Scale multiplier (width, height)
-    Vector2f fadeIn;                      ///< Fade-in range (start, end)
-    Vector2f fadeOut;                     ///< Fade-out range (start, end)
-    ColorBGRA colorAlpha;                 ///< Flare color and alpha
-    u32 faceCenter;                       ///< Whether to face the flare center
-    Vector2f offset;                      ///< Offset from flare center
+    u32 index;            ///< Flare element index
+    f32 position;         ///< Position along the flare axis (0–1)
+    Vector2f sizeXY;      ///< Base size (width, height)
+    Vector2f scaleXY;     ///< Scale multiplier (width, height)
+    Vector2f fadeIn;      ///< Fade-in range (start, end)
+    Vector2f fadeOut;     ///< Fade-out range (start, end)
+    ColorBGRA colorAlpha; ///< Flare color and alpha
+    u32 faceCenter;       ///< Whether to face the flare center
+    Vector2f offset;      ///< Offset from flare center
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -356,25 +356,25 @@ struct LensFlare {
  * animation parameters. Added in MODL v30.
  */
 struct MaterialAddData {
-    std::string keyName;                  ///< Key name (Ref<CHAR>)
-    std::vector<u32> keyHash;             ///< Key hash values (U32_)
-    std::vector<u32> extraHash;           ///< Extra hash values (U32_, v2+)
-    std::string valuePath;                ///< Value file path (Ref<CHAR>)
-    std::vector<std::string> valueData;   ///< Value data strings
-    std::array<Reference, 4> reserved;    ///< Reserved references
-    f32 frequency;                        ///< Animation frequency
-    f32 intensity;                        ///< Effect intensity
-    f32 holdTime;                         ///< Hold time duration
-    u32 randomHash;                       ///< Random seed hash
-    u32 animationType;                    ///< Animation type code
-    u32 padding0;                         ///< Alignment padding
-    i32 loopCount;                        ///< Loop count (-1 = infinite)
-    u32 flags;                            ///< Flags
-    u32 subType;                          ///< Sub-type identifier
-    u32 configA;                          ///< Configuration parameter A
-    u32 configB;                          ///< Configuration parameter B
-    u32 extraId0;                         ///< Extra identifier 0 (v3+)
-    u32 extraId1;                         ///< Extra identifier 1 (v3+)
+    std::string keyName;                ///< Key name (Ref<CHAR>)
+    std::vector<u32> keyHash;           ///< Key hash values (U32_)
+    std::vector<u32> extraHash;         ///< Extra hash values (U32_, v2+)
+    std::string valuePath;              ///< Value file path (Ref<CHAR>)
+    std::vector<std::string> valueData; ///< Value data strings
+    std::array<Reference, 4> reserved;  ///< Reserved references
+    f32 frequency;                      ///< Animation frequency
+    f32 intensity;                      ///< Effect intensity
+    f32 holdTime;                       ///< Hold time duration
+    u32 randomHash;                     ///< Random seed hash
+    u32 animationType;                  ///< Animation type code
+    u32 padding0;                       ///< Alignment padding
+    i32 loopCount;                      ///< Loop count (-1 = infinite)
+    u32 flags;                          ///< Flags
+    u32 subType;                        ///< Sub-type identifier
+    u32 configA;                        ///< Configuration parameter A
+    u32 configB;                        ///< Configuration parameter B
+    u32 extraId0;                       ///< Extra identifier 0 (v3+)
+    u32 extraId1;                       ///< Extra identifier 1 (v3+)
     M3_DEFINE_VERSION_ACCESSORS()
 };
 

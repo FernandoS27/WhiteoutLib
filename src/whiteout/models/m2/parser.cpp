@@ -32,8 +32,7 @@ public:
     void reportIssue(const std::string& message);
 };
 
-Parser::Parser(ParseMode mode) : pImpl(std::make_unique<Impl>(mode)) {
-}
+Parser::Parser(ParseMode mode) : pImpl(std::make_unique<Impl>(mode)) {}
 
 Parser::~Parser() = default;
 
@@ -50,8 +49,7 @@ Model Parser::parse(interfaces::VirtualPathFileSystem& fs, const std::string& fi
     return model;
 }
 
-Model Parser::parse(interfaces::CascFileSystem& cascFs,
-                         std::span<const uint8_t> buffer) {
+Model Parser::parse(interfaces::CascFileSystem& cascFs, std::span<const uint8_t> buffer) {
     pImpl->issues.clear();
 
     WoWFileSystem wfs(cascFs, buffer);
@@ -89,7 +87,8 @@ void Parser::Impl::parse(WoWFileSystem& wfs, Model& result) {
         parseBase(reader, m2, &wfs);
     }
     result = std::move(m2.header.model);
-    const auto readSkinProfile = [&](std::vector<SkinProfile>& profiles, std::span<const u8> skinData, size_t i) {
+    const auto readSkinProfile = [&](std::vector<SkinProfile>& profiles,
+                                     std::span<const u8> skinData, size_t i) {
         try {
             common::span_streambuf sbuf(skinData);
             std::istream in(&sbuf);
@@ -107,12 +106,14 @@ void Parser::Impl::parse(WoWFileSystem& wfs, Model& result) {
         const auto& sfid = *m2.sfid_chunk;
         for (u32 i = 0; i < static_cast<u32>(sfid.skinFileDataIds.size()); ++i) {
             auto skinData = wfs.getSkin(i, false);
-            if (skinData.empty()) continue;
+            if (skinData.empty())
+                continue;
             readSkinProfile(result.skinProfiles, skinData, i);
         }
         for (u32 i = 0; i < static_cast<u32>(sfid.lodSkinFileDataIds.size()); ++i) {
             auto skinData = wfs.getSkin(i, true);
-            if (skinData.empty()) continue;
+            if (skinData.empty())
+                continue;
             readSkinProfile(result.lodProfiles, skinData, i);
         }
     }
@@ -143,7 +144,8 @@ void Parser::Impl::parse(WoWFileSystem& wfs, Model& result) {
 
     if (skeleton) {
         if (skeleton->skpd_chunk) {
-            reportIssue("Parent skeleton reference found, but parent skeleton parsing is not yet implemented");
+            reportIssue("Parent skeleton reference found, but parent skeleton parsing is not yet "
+                        "implemented");
         }
         if (skeleton->skb1_chunk) {
             result.bones = std::move(skeleton->skb1_chunk->bones);
@@ -188,11 +190,17 @@ void Parser::Impl::parse(WoWFileSystem& wfs, Model& result) {
     }
 
     // Merge remaining chunk data into Model
-    if (m2.txac_chunk) result.textureCombinerHints = std::move(m2.txac_chunk->entries);
-    if (m2.pabc_chunk) result.parentSequenceReplacements = std::move(m2.pabc_chunk->replacementParentSequenceLookups);
-    if (m2.padc_chunk) result.parentTextureWeights = std::move(m2.padc_chunk->textureWeights);
-    if (m2.psbc_chunk) result.parentSequenceBounds = std::move(m2.psbc_chunk->parentSequenceBounds);
-    if (m2.pedc_chunk) result.parentEventData = std::move(m2.pedc_chunk->parentEventData);
+    if (m2.txac_chunk)
+        result.textureCombinerHints = std::move(m2.txac_chunk->entries);
+    if (m2.pabc_chunk)
+        result.parentSequenceReplacements =
+            std::move(m2.pabc_chunk->replacementParentSequenceLookups);
+    if (m2.padc_chunk)
+        result.parentTextureWeights = std::move(m2.padc_chunk->textureWeights);
+    if (m2.psbc_chunk)
+        result.parentSequenceBounds = std::move(m2.psbc_chunk->parentSequenceBounds);
+    if (m2.pedc_chunk)
+        result.parentEventData = std::move(m2.pedc_chunk->parentEventData);
     if (m2.rpid_chunk) {
         result.recursiveParticleModelIds.reserve(m2.rpid_chunk->recursiveParticleModels.size());
         for (const auto& e : m2.rpid_chunk->recursiveParticleModels)
@@ -203,14 +211,22 @@ void Parser::Impl::parse(WoWFileSystem& wfs, Model& result) {
         for (const auto& e : m2.gpid_chunk->geometryParticleModels)
             result.geometryParticleModelIds.push_back(e.fileDataId);
     }
-    if (m2.wfv3_chunk) result.waterData = m2.wfv3_chunk->data;
-    if (m2.pgd1_chunk) result.particleGeosets = std::move(m2.pgd1_chunk->particleGeosetData);
-    if (m2.pfdc_chunk) result.physicsFileData = std::move(m2.pfdc_chunk->physicsData);
-    if (m2.edgf_chunk) result.edgeFadeEntries = std::move(m2.edgf_chunk->entries);
-    if (m2.nerf_chunk) result.nerfEntries = std::move(m2.nerf_chunk->entries);
-    if (m2.detl_chunk) result.detailedLightEntries = std::move(m2.detl_chunk->records);
-    if (m2.dboc_chunk) result.debugOcclusionEntries = std::move(m2.dboc_chunk->entries);
-    if (m2.afra_chunk) result.animFrameData = std::move(m2.afra_chunk->data);
+    if (m2.wfv3_chunk)
+        result.waterData = m2.wfv3_chunk->data;
+    if (m2.pgd1_chunk)
+        result.particleGeosets = std::move(m2.pgd1_chunk->particleGeosetData);
+    if (m2.pfdc_chunk)
+        result.physicsFileData = std::move(m2.pfdc_chunk->physicsData);
+    if (m2.edgf_chunk)
+        result.edgeFadeEntries = std::move(m2.edgf_chunk->entries);
+    if (m2.nerf_chunk)
+        result.nerfEntries = std::move(m2.nerf_chunk->entries);
+    if (m2.detl_chunk)
+        result.detailedLightEntries = std::move(m2.detl_chunk->records);
+    if (m2.dboc_chunk)
+        result.debugOcclusionEntries = std::move(m2.dboc_chunk->entries);
+    if (m2.afra_chunk)
+        result.animFrameData = std::move(m2.afra_chunk->data);
     if (m2.pcol_chunk) {
         PhysicsCollision pc;
         pc.vertexPositions = std::move(m2.pcol_chunk->vertexPositions);
@@ -219,8 +235,10 @@ void Parser::Impl::parse(WoWFileSystem& wfs, Model& result) {
         pc.flags = std::move(m2.pcol_chunk->flags);
         result.physicsCollision = std::move(pc);
     }
-    if (m2.dpiv_chunk) result.dpivData = m2.dpiv_chunk->data;
-    if (m2.texl_chunk) result.texturedLightEntries = std::move(m2.texl_chunk->texturedLights);
+    if (m2.dpiv_chunk)
+        result.dpivData = m2.dpiv_chunk->data;
+    if (m2.texl_chunk)
+        result.texturedLightEntries = std::move(m2.texl_chunk->texturedLights);
 }
 
 void Parser::Impl::parseBase(BinaryReader& reader, BaseFile& file, WoWFileSystem* wfs) {
@@ -265,5 +283,5 @@ void Parser::Impl::parseSkin(BinaryReader& reader, SkinFile& skinFile, WoWFileSy
     issues.push_back(error);
 }
 
-}
-}
+} // namespace m2
+} // namespace whiteout

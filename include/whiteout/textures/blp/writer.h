@@ -29,10 +29,12 @@
 
 #include <whiteout/common_types.h>
 #include <whiteout/textures/blp/types.h>
-#include <whiteout/textures/writer.h>
 #include <whiteout/textures/texture.h>
+#include <whiteout/textures/writer.h>
 
-namespace whiteout::interfaces { class WorkerPool; }
+namespace whiteout::interfaces {
+class WorkerPool;
+}
 
 namespace whiteout::textures::blp {
 

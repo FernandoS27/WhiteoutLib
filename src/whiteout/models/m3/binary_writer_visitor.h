@@ -5,8 +5,8 @@
 
 #include <whiteout/models/m3/structures.h>
 #include <whiteout/models/m3/types.h>
-#include "inner_structure_types.h"
 #include "../../common/binary_writer.h"
+#include "inner_structure_types.h"
 
 #include <deque>
 #include <functional>

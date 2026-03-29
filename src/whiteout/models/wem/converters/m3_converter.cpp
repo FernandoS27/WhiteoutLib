@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "whiteout/models/wem/converters.h"
 #include "whiteout/models/m3/parser.h"
 #include "whiteout/models/m3/writer.h"
+#include "whiteout/models/wem/converters.h"
 
 #include <algorithm>
 #include <cmath>
@@ -36,28 +36,45 @@ m3::Extent convertExtentToM3(const wem::Extent& src) {
 
 BlendMode convertM3BlendMode(m3::BlendMode bm) {
     switch (bm) {
-    case m3::BlendMode::Opaque:     return BlendMode::Opaque;
-    case m3::BlendMode::AlphaBlend: return BlendMode::AlphaBlend;
-    case m3::BlendMode::Add:        return BlendMode::Additive;
-    case m3::BlendMode::AlphaAdd:   return BlendMode::AdditiveAlpha;
-    case m3::BlendMode::Mod:        return BlendMode::Modulate;
-    case m3::BlendMode::Mod2x:      return BlendMode::Modulate2x;
-    default:                        return BlendMode::Opaque;
+    case m3::BlendMode::Opaque:
+        return BlendMode::Opaque;
+    case m3::BlendMode::AlphaBlend:
+        return BlendMode::AlphaBlend;
+    case m3::BlendMode::Add:
+        return BlendMode::Additive;
+    case m3::BlendMode::AlphaAdd:
+        return BlendMode::AdditiveAlpha;
+    case m3::BlendMode::Mod:
+        return BlendMode::Modulate;
+    case m3::BlendMode::Mod2x:
+        return BlendMode::Modulate2x;
+    default:
+        return BlendMode::Opaque;
     }
 }
 
 m3::BlendMode convertBlendModeToM3(BlendMode bm) {
     switch (bm) {
-    case BlendMode::Opaque:        return m3::BlendMode::Opaque;
-    case BlendMode::AlphaBlend:    return m3::BlendMode::AlphaBlend;
-    case BlendMode::Additive:      return m3::BlendMode::Add;
-    case BlendMode::AdditiveAlpha: return m3::BlendMode::AlphaAdd;
-    case BlendMode::Modulate:      return m3::BlendMode::Mod;
-    case BlendMode::Modulate2x:    return m3::BlendMode::Mod2x;
-    case BlendMode::AlphaKey:      return m3::BlendMode::AlphaBlend;
-    case BlendMode::BlendAdd:      return m3::BlendMode::Add;
-    case BlendMode::Transparent:   return m3::BlendMode::AlphaBlend;
-    default:                       return m3::BlendMode::Opaque;
+    case BlendMode::Opaque:
+        return m3::BlendMode::Opaque;
+    case BlendMode::AlphaBlend:
+        return m3::BlendMode::AlphaBlend;
+    case BlendMode::Additive:
+        return m3::BlendMode::Add;
+    case BlendMode::AdditiveAlpha:
+        return m3::BlendMode::AlphaAdd;
+    case BlendMode::Modulate:
+        return m3::BlendMode::Mod;
+    case BlendMode::Modulate2x:
+        return m3::BlendMode::Mod2x;
+    case BlendMode::AlphaKey:
+        return m3::BlendMode::AlphaBlend;
+    case BlendMode::BlendAdd:
+        return m3::BlendMode::Add;
+    case BlendMode::Transparent:
+        return m3::BlendMode::AlphaBlend;
+    default:
+        return m3::BlendMode::Opaque;
     }
 }
 
@@ -86,142 +103,222 @@ m3::MaterialFlag convertMaterialFlagsToM3(MaterialFlags mf) {
 
 MaterialClass convertM3MaterialClass(m3::MaterialClass mc) {
     switch (mc) {
-    case m3::MaterialClass::Unit:      return MaterialClass::Unit;
-    case m3::MaterialClass::Building:  return MaterialClass::Building;
-    case m3::MaterialClass::Doodad:    return MaterialClass::Doodad;
-    case m3::MaterialClass::SpecialFX: return MaterialClass::SpecialFX;
-    default:                           return MaterialClass::Unit;
+    case m3::MaterialClass::Unit:
+        return MaterialClass::Unit;
+    case m3::MaterialClass::Building:
+        return MaterialClass::Building;
+    case m3::MaterialClass::Doodad:
+        return MaterialClass::Doodad;
+    case m3::MaterialClass::SpecialFX:
+        return MaterialClass::SpecialFX;
+    default:
+        return MaterialClass::Unit;
     }
 }
 
 m3::MaterialClass convertMaterialClassToM3(MaterialClass mc) {
     switch (mc) {
-    case MaterialClass::Unit:      return m3::MaterialClass::Unit;
-    case MaterialClass::Building:  return m3::MaterialClass::Building;
-    case MaterialClass::Doodad:    return m3::MaterialClass::Doodad;
-    case MaterialClass::SpecialFX: return m3::MaterialClass::SpecialFX;
-    default:                       return m3::MaterialClass::Unit;
+    case MaterialClass::Unit:
+        return m3::MaterialClass::Unit;
+    case MaterialClass::Building:
+        return m3::MaterialClass::Building;
+    case MaterialClass::Doodad:
+        return m3::MaterialClass::Doodad;
+    case MaterialClass::SpecialFX:
+        return m3::MaterialClass::SpecialFX;
+    default:
+        return m3::MaterialClass::Unit;
     }
 }
 
 LayerBlendOp convertM3LayerBlendOp(m3::LayerBlendOp op) {
     switch (op) {
-    case m3::LayerBlendOp::Mod:                  return LayerBlendOp::Mod;
-    case m3::LayerBlendOp::Mod2x:                return LayerBlendOp::Mod2x;
-    case m3::LayerBlendOp::Add:                  return LayerBlendOp::Add;
-    case m3::LayerBlendOp::Lerp:                 return LayerBlendOp::Lerp;
-    case m3::LayerBlendOp::TeamColorEmissiveAdd: return LayerBlendOp::TeamColorEmissiveAdd;
-    case m3::LayerBlendOp::TeamColorDiffuseAdd:  return LayerBlendOp::TeamColorDiffuse;
-    case m3::LayerBlendOp::AddNoAlpha:           return LayerBlendOp::OpNone;
-    default:                                     return LayerBlendOp::Mod;
+    case m3::LayerBlendOp::Mod:
+        return LayerBlendOp::Mod;
+    case m3::LayerBlendOp::Mod2x:
+        return LayerBlendOp::Mod2x;
+    case m3::LayerBlendOp::Add:
+        return LayerBlendOp::Add;
+    case m3::LayerBlendOp::Lerp:
+        return LayerBlendOp::Lerp;
+    case m3::LayerBlendOp::TeamColorEmissiveAdd:
+        return LayerBlendOp::TeamColorEmissiveAdd;
+    case m3::LayerBlendOp::TeamColorDiffuseAdd:
+        return LayerBlendOp::TeamColorDiffuse;
+    case m3::LayerBlendOp::AddNoAlpha:
+        return LayerBlendOp::OpNone;
+    default:
+        return LayerBlendOp::Mod;
     }
 }
 
 m3::LayerBlendOp convertLayerBlendOpToM3(LayerBlendOp op) {
     switch (op) {
-    case LayerBlendOp::Mod:                  return m3::LayerBlendOp::Mod;
-    case LayerBlendOp::Mod2x:                return m3::LayerBlendOp::Mod2x;
-    case LayerBlendOp::Add:                  return m3::LayerBlendOp::Add;
-    case LayerBlendOp::Lerp:                 return m3::LayerBlendOp::Lerp;
-    case LayerBlendOp::TeamColorEmissiveAdd: return m3::LayerBlendOp::TeamColorEmissiveAdd;
-    case LayerBlendOp::TeamColorDiffuse:     return m3::LayerBlendOp::TeamColorDiffuseAdd;
-    case LayerBlendOp::OpNone:               return m3::LayerBlendOp::AddNoAlpha;
-    default:                                 return m3::LayerBlendOp::Mod;
+    case LayerBlendOp::Mod:
+        return m3::LayerBlendOp::Mod;
+    case LayerBlendOp::Mod2x:
+        return m3::LayerBlendOp::Mod2x;
+    case LayerBlendOp::Add:
+        return m3::LayerBlendOp::Add;
+    case LayerBlendOp::Lerp:
+        return m3::LayerBlendOp::Lerp;
+    case LayerBlendOp::TeamColorEmissiveAdd:
+        return m3::LayerBlendOp::TeamColorEmissiveAdd;
+    case LayerBlendOp::TeamColorDiffuse:
+        return m3::LayerBlendOp::TeamColorDiffuseAdd;
+    case LayerBlendOp::OpNone:
+        return m3::LayerBlendOp::AddNoAlpha;
+    default:
+        return m3::LayerBlendOp::Mod;
     }
 }
 
 SpecularMode convertM3SpecularMode(m3::SpecularMode sm) {
     switch (sm) {
-    case m3::SpecularMode::RGB:       return SpecularMode::RGB;
-    case m3::SpecularMode::AlphaOnly: return SpecularMode::AlphaOnly;
-    default:                          return SpecularMode::RGB;
+    case m3::SpecularMode::RGB:
+        return SpecularMode::RGB;
+    case m3::SpecularMode::AlphaOnly:
+        return SpecularMode::AlphaOnly;
+    default:
+        return SpecularMode::RGB;
     }
 }
 
 m3::SpecularMode convertSpecularModeToM3(SpecularMode sm) {
-    return (sm == SpecularMode::AlphaOnly)
-        ? m3::SpecularMode::AlphaOnly : m3::SpecularMode::RGB;
+    return (sm == SpecularMode::AlphaOnly) ? m3::SpecularMode::AlphaOnly : m3::SpecularMode::RGB;
 }
 
 UVMappingMode convertM3UVMapping(m3::UVMappingMode uv) {
     switch (uv) {
-    case m3::UVMappingMode::ExplicitUV0:            return UVMappingMode::ExplicitUV0;
-    case m3::UVMappingMode::ExplicitUV1:            return UVMappingMode::ExplicitUV1;
-    case m3::UVMappingMode::ExplicitUV2:            return UVMappingMode::ExplicitUV2;
-    case m3::UVMappingMode::ExplicitUV3:            return UVMappingMode::ExplicitUV3;
-    case m3::UVMappingMode::ReflectCubicEnvio:      return UVMappingMode::ReflectCubicEnvironment;
-    case m3::UVMappingMode::ReflectSphericalEnvio:  return UVMappingMode::SphericalEnvironment;
-    case m3::UVMappingMode::PlanarLocalX:           return UVMappingMode::PlanarLocalX;
-    case m3::UVMappingMode::PlanarLocalY:           return UVMappingMode::PlanarLocalY;
-    case m3::UVMappingMode::PlanarLocalZ:           return UVMappingMode::PlanarLocalZ;
-    case m3::UVMappingMode::PlanarWorldX:           return UVMappingMode::PlanarWorldX;
-    case m3::UVMappingMode::PlanarWorldY:           return UVMappingMode::PlanarWorldY;
-    case m3::UVMappingMode::PlanarWorldZ:           return UVMappingMode::PlanarWorldZ;
-    case m3::UVMappingMode::TriPlanarLocal:         return UVMappingMode::TriPlanarLocal;
-    case m3::UVMappingMode::TriPlanarWorld:         return UVMappingMode::TriPlanarWorld;
-    default:                                        return UVMappingMode::ExplicitUV0;
+    case m3::UVMappingMode::ExplicitUV0:
+        return UVMappingMode::ExplicitUV0;
+    case m3::UVMappingMode::ExplicitUV1:
+        return UVMappingMode::ExplicitUV1;
+    case m3::UVMappingMode::ExplicitUV2:
+        return UVMappingMode::ExplicitUV2;
+    case m3::UVMappingMode::ExplicitUV3:
+        return UVMappingMode::ExplicitUV3;
+    case m3::UVMappingMode::ReflectCubicEnvio:
+        return UVMappingMode::ReflectCubicEnvironment;
+    case m3::UVMappingMode::ReflectSphericalEnvio:
+        return UVMappingMode::SphericalEnvironment;
+    case m3::UVMappingMode::PlanarLocalX:
+        return UVMappingMode::PlanarLocalX;
+    case m3::UVMappingMode::PlanarLocalY:
+        return UVMappingMode::PlanarLocalY;
+    case m3::UVMappingMode::PlanarLocalZ:
+        return UVMappingMode::PlanarLocalZ;
+    case m3::UVMappingMode::PlanarWorldX:
+        return UVMappingMode::PlanarWorldX;
+    case m3::UVMappingMode::PlanarWorldY:
+        return UVMappingMode::PlanarWorldY;
+    case m3::UVMappingMode::PlanarWorldZ:
+        return UVMappingMode::PlanarWorldZ;
+    case m3::UVMappingMode::TriPlanarLocal:
+        return UVMappingMode::TriPlanarLocal;
+    case m3::UVMappingMode::TriPlanarWorld:
+        return UVMappingMode::TriPlanarWorld;
+    default:
+        return UVMappingMode::ExplicitUV0;
     }
 }
 
 m3::UVMappingMode convertUVMappingToM3(UVMappingMode uv) {
     switch (uv) {
-    case UVMappingMode::ExplicitUV0:              return m3::UVMappingMode::ExplicitUV0;
-    case UVMappingMode::ExplicitUV1:              return m3::UVMappingMode::ExplicitUV1;
-    case UVMappingMode::ExplicitUV2:              return m3::UVMappingMode::ExplicitUV2;
-    case UVMappingMode::ExplicitUV3:              return m3::UVMappingMode::ExplicitUV3;
-    case UVMappingMode::ReflectCubicEnvironment:  return m3::UVMappingMode::ReflectCubicEnvio;
-    case UVMappingMode::SphericalEnvironment:     return m3::UVMappingMode::ReflectSphericalEnvio;
-    case UVMappingMode::PlanarLocalX:             return m3::UVMappingMode::PlanarLocalX;
-    case UVMappingMode::PlanarLocalY:             return m3::UVMappingMode::PlanarLocalY;
-    case UVMappingMode::PlanarLocalZ:             return m3::UVMappingMode::PlanarLocalZ;
-    case UVMappingMode::PlanarWorldX:             return m3::UVMappingMode::PlanarWorldX;
-    case UVMappingMode::PlanarWorldY:             return m3::UVMappingMode::PlanarWorldY;
-    case UVMappingMode::PlanarWorldZ:             return m3::UVMappingMode::PlanarWorldZ;
-    case UVMappingMode::TriPlanarLocal:           return m3::UVMappingMode::TriPlanarLocal;
-    case UVMappingMode::TriPlanarWorld:           return m3::UVMappingMode::TriPlanarWorld;
-    default:                                      return m3::UVMappingMode::ExplicitUV0;
+    case UVMappingMode::ExplicitUV0:
+        return m3::UVMappingMode::ExplicitUV0;
+    case UVMappingMode::ExplicitUV1:
+        return m3::UVMappingMode::ExplicitUV1;
+    case UVMappingMode::ExplicitUV2:
+        return m3::UVMappingMode::ExplicitUV2;
+    case UVMappingMode::ExplicitUV3:
+        return m3::UVMappingMode::ExplicitUV3;
+    case UVMappingMode::ReflectCubicEnvironment:
+        return m3::UVMappingMode::ReflectCubicEnvio;
+    case UVMappingMode::SphericalEnvironment:
+        return m3::UVMappingMode::ReflectSphericalEnvio;
+    case UVMappingMode::PlanarLocalX:
+        return m3::UVMappingMode::PlanarLocalX;
+    case UVMappingMode::PlanarLocalY:
+        return m3::UVMappingMode::PlanarLocalY;
+    case UVMappingMode::PlanarLocalZ:
+        return m3::UVMappingMode::PlanarLocalZ;
+    case UVMappingMode::PlanarWorldX:
+        return m3::UVMappingMode::PlanarWorldX;
+    case UVMappingMode::PlanarWorldY:
+        return m3::UVMappingMode::PlanarWorldY;
+    case UVMappingMode::PlanarWorldZ:
+        return m3::UVMappingMode::PlanarWorldZ;
+    case UVMappingMode::TriPlanarLocal:
+        return m3::UVMappingMode::TriPlanarLocal;
+    case UVMappingMode::TriPlanarWorld:
+        return m3::UVMappingMode::TriPlanarWorld;
+    default:
+        return m3::UVMappingMode::ExplicitUV0;
     }
 }
 
 ColorChannelSelect convertM3ColorChannelSelect(m3::ColorChannelSelect cs) {
     switch (cs) {
-    case m3::ColorChannelSelect::RGB:   return ColorChannelSelect::RGB;
-    case m3::ColorChannelSelect::RGBA:  return ColorChannelSelect::RGBA;
-    case m3::ColorChannelSelect::Alpha: return ColorChannelSelect::Alpha;
-    case m3::ColorChannelSelect::Red:   return ColorChannelSelect::Red;
-    case m3::ColorChannelSelect::Green: return ColorChannelSelect::Green;
-    case m3::ColorChannelSelect::Blue:  return ColorChannelSelect::Blue;
-    default:                            return ColorChannelSelect::RGBA;
+    case m3::ColorChannelSelect::RGB:
+        return ColorChannelSelect::RGB;
+    case m3::ColorChannelSelect::RGBA:
+        return ColorChannelSelect::RGBA;
+    case m3::ColorChannelSelect::Alpha:
+        return ColorChannelSelect::Alpha;
+    case m3::ColorChannelSelect::Red:
+        return ColorChannelSelect::Red;
+    case m3::ColorChannelSelect::Green:
+        return ColorChannelSelect::Green;
+    case m3::ColorChannelSelect::Blue:
+        return ColorChannelSelect::Blue;
+    default:
+        return ColorChannelSelect::RGBA;
     }
 }
 
 m3::ColorChannelSelect convertColorChannelToM3(ColorChannelSelect cs) {
     switch (cs) {
-    case ColorChannelSelect::RGB:   return m3::ColorChannelSelect::RGB;
-    case ColorChannelSelect::RGBA:  return m3::ColorChannelSelect::RGBA;
-    case ColorChannelSelect::Alpha: return m3::ColorChannelSelect::Alpha;
-    case ColorChannelSelect::Red:   return m3::ColorChannelSelect::Red;
-    case ColorChannelSelect::Green: return m3::ColorChannelSelect::Green;
-    case ColorChannelSelect::Blue:  return m3::ColorChannelSelect::Blue;
-    default:                        return m3::ColorChannelSelect::RGBA;
+    case ColorChannelSelect::RGB:
+        return m3::ColorChannelSelect::RGB;
+    case ColorChannelSelect::RGBA:
+        return m3::ColorChannelSelect::RGBA;
+    case ColorChannelSelect::Alpha:
+        return m3::ColorChannelSelect::Alpha;
+    case ColorChannelSelect::Red:
+        return m3::ColorChannelSelect::Red;
+    case ColorChannelSelect::Green:
+        return m3::ColorChannelSelect::Green;
+    case ColorChannelSelect::Blue:
+        return m3::ColorChannelSelect::Blue;
+    default:
+        return m3::ColorChannelSelect::RGBA;
     }
 }
 
 FresnelMode convertM3FresnelMode(m3::FresnelMode fm) {
     switch (fm) {
-    case m3::FresnelMode::None:     return FresnelMode::None;
-    case m3::FresnelMode::Standard: return FresnelMode::Standard;
-    case m3::FresnelMode::Inverted: return FresnelMode::Inverted;
-    default:                        return FresnelMode::None;
+    case m3::FresnelMode::None:
+        return FresnelMode::None;
+    case m3::FresnelMode::Standard:
+        return FresnelMode::Standard;
+    case m3::FresnelMode::Inverted:
+        return FresnelMode::Inverted;
+    default:
+        return FresnelMode::None;
     }
 }
 
 m3::FresnelMode convertFresnelModeToM3(FresnelMode fm) {
     switch (fm) {
-    case FresnelMode::None:     return m3::FresnelMode::None;
-    case FresnelMode::Standard: return m3::FresnelMode::Standard;
-    case FresnelMode::Inverted: return m3::FresnelMode::Inverted;
-    default:                    return m3::FresnelMode::None;
+    case FresnelMode::None:
+        return m3::FresnelMode::None;
+    case FresnelMode::Standard:
+        return m3::FresnelMode::Standard;
+    case FresnelMode::Inverted:
+        return m3::FresnelMode::Inverted;
+    default:
+        return m3::FresnelMode::None;
     }
 }
 
@@ -277,11 +374,21 @@ TextureSlot convertTextureLayer(const m3::TextureLayer& layer, TextureSlotSemant
 
     // Resolve UV set index from mapping mode
     switch (layer.uvMapping) {
-    case m3::UVMappingMode::ExplicitUV0: slot.uvSetIndex = 0; break;
-    case m3::UVMappingMode::ExplicitUV1: slot.uvSetIndex = 1; break;
-    case m3::UVMappingMode::ExplicitUV2: slot.uvSetIndex = 2; break;
-    case m3::UVMappingMode::ExplicitUV3: slot.uvSetIndex = 3; break;
-    default: slot.uvSetIndex = 0; break;
+    case m3::UVMappingMode::ExplicitUV0:
+        slot.uvSetIndex = 0;
+        break;
+    case m3::UVMappingMode::ExplicitUV1:
+        slot.uvSetIndex = 1;
+        break;
+    case m3::UVMappingMode::ExplicitUV2:
+        slot.uvSetIndex = 2;
+        break;
+    case m3::UVMappingMode::ExplicitUV3:
+        slot.uvSetIndex = 3;
+        break;
+    default:
+        slot.uvSetIndex = 0;
+        break;
     }
 
     return slot;
@@ -291,7 +398,8 @@ TextureSlot convertTextureLayer(const m3::TextureLayer& layer, TextureSlotSemant
 void tryAddLayer(const std::optional<m3::TextureLayer>& layer, TextureSlotSemantic semantic,
                  Material& wMat, std::vector<TextureRef>& textures,
                  std::vector<std::string>& issues) {
-    if (!layer.has_value() || layer->texturePath.empty()) return;
+    if (!layer.has_value() || layer->texturePath.empty())
+        return;
 
     // Find or add texture
     u32 texIdx = static_cast<u32>(textures.size());
@@ -362,24 +470,36 @@ ConvertResult M3Converter::fromM3(const m3::Model& m3Model) const {
             wMat.specularMode = convertM3SpecularMode(src.specularMode);
 
             // Add named texture layers
-            tryAddLayer(src.diffuseLayer,          TextureSlotSemantic::Diffuse,            wMat, model.textures, issues);
-            tryAddLayer(src.decalLayer,            TextureSlotSemantic::Decal,              wMat, model.textures, issues);
-            tryAddLayer(src.specularLayer,         TextureSlotSemantic::Specular,           wMat, model.textures, issues);
-            tryAddLayer(src.glossLayer,            TextureSlotSemantic::Gloss,              wMat, model.textures, issues);
-            tryAddLayer(src.emissiveLayer1,        TextureSlotSemantic::Emissive1,          wMat, model.textures, issues);
-            tryAddLayer(src.emissiveLayer2,        TextureSlotSemantic::Emissive2,          wMat, model.textures, issues);
-            tryAddLayer(src.environmentLayer,      TextureSlotSemantic::Environment,        wMat, model.textures, issues);
-            tryAddLayer(src.environmentMaskLayer,  TextureSlotSemantic::EnvironmentMask,    wMat, model.textures, issues);
-            tryAddLayer(src.alphaLayer1,           TextureSlotSemantic::Alpha1,             wMat, model.textures, issues);
-            tryAddLayer(src.alphaLayer2,           TextureSlotSemantic::Alpha2,             wMat, model.textures, issues);
-            tryAddLayer(src.normalLayer,           TextureSlotSemantic::Normal,             wMat, model.textures, issues);
-            tryAddLayer(src.heightLayer,           TextureSlotSemantic::Height,             wMat, model.textures, issues);
-            tryAddLayer(src.lightMapLayer,         TextureSlotSemantic::LightMap,           wMat, model.textures, issues);
-            tryAddLayer(src.ambientOcclusionLayer, TextureSlotSemantic::AmbientOcclusion,   wMat, model.textures, issues);
-            tryAddLayer(src.normalBlend1MaskLayer, TextureSlotSemantic::NormalBlend1Mask,   wMat, model.textures, issues);
-            tryAddLayer(src.normalBlend2MaskLayer, TextureSlotSemantic::NormalBlend2Mask,   wMat, model.textures, issues);
-            tryAddLayer(src.normalBlend1Layer,     TextureSlotSemantic::NormalBlend1,       wMat, model.textures, issues);
-            tryAddLayer(src.normalBlend2Layer,     TextureSlotSemantic::NormalBlend2,       wMat, model.textures, issues);
+            tryAddLayer(src.diffuseLayer, TextureSlotSemantic::Diffuse, wMat, model.textures,
+                        issues);
+            tryAddLayer(src.decalLayer, TextureSlotSemantic::Decal, wMat, model.textures, issues);
+            tryAddLayer(src.specularLayer, TextureSlotSemantic::Specular, wMat, model.textures,
+                        issues);
+            tryAddLayer(src.glossLayer, TextureSlotSemantic::Gloss, wMat, model.textures, issues);
+            tryAddLayer(src.emissiveLayer1, TextureSlotSemantic::Emissive1, wMat, model.textures,
+                        issues);
+            tryAddLayer(src.emissiveLayer2, TextureSlotSemantic::Emissive2, wMat, model.textures,
+                        issues);
+            tryAddLayer(src.environmentLayer, TextureSlotSemantic::Environment, wMat,
+                        model.textures, issues);
+            tryAddLayer(src.environmentMaskLayer, TextureSlotSemantic::EnvironmentMask, wMat,
+                        model.textures, issues);
+            tryAddLayer(src.alphaLayer1, TextureSlotSemantic::Alpha1, wMat, model.textures, issues);
+            tryAddLayer(src.alphaLayer2, TextureSlotSemantic::Alpha2, wMat, model.textures, issues);
+            tryAddLayer(src.normalLayer, TextureSlotSemantic::Normal, wMat, model.textures, issues);
+            tryAddLayer(src.heightLayer, TextureSlotSemantic::Height, wMat, model.textures, issues);
+            tryAddLayer(src.lightMapLayer, TextureSlotSemantic::LightMap, wMat, model.textures,
+                        issues);
+            tryAddLayer(src.ambientOcclusionLayer, TextureSlotSemantic::AmbientOcclusion, wMat,
+                        model.textures, issues);
+            tryAddLayer(src.normalBlend1MaskLayer, TextureSlotSemantic::NormalBlend1Mask, wMat,
+                        model.textures, issues);
+            tryAddLayer(src.normalBlend2MaskLayer, TextureSlotSemantic::NormalBlend2Mask, wMat,
+                        model.textures, issues);
+            tryAddLayer(src.normalBlend1Layer, TextureSlotSemantic::NormalBlend1, wMat,
+                        model.textures, issues);
+            tryAddLayer(src.normalBlend2Layer, TextureSlotSemantic::NormalBlend2, wMat,
+                        model.textures, issues);
 
             model.materials.push_back(std::move(wMat));
         } else if (matMap.materialType == m3::MaterialType::Composite) {
@@ -409,8 +529,7 @@ ConvertResult M3Converter::fromM3(const m3::Model& m3Model) const {
         } else {
             // Unsupported material type (displacement, terrain, volume, etc.)
             issues.push_back("Unsupported M3 material type " +
-                             std::to_string(static_cast<u32>(matMap.materialType)) +
-                             " skipped");
+                             std::to_string(static_cast<u32>(matMap.materialType)) + " skipped");
             Material dummy;
             dummy.name = "unsupported_material_type_" +
                          std::to_string(static_cast<u32>(matMap.materialType));
@@ -453,9 +572,11 @@ ConvertResult M3Converter::fromM3(const m3::Model& m3Model) const {
         // Find the vertex range from regions
         u32 minVertex = UINT32_MAX, maxVertex = 0;
         for (const auto& reg : div.regions) {
-            if (reg.firstVertex < minVertex) minVertex = reg.firstVertex;
+            if (reg.firstVertex < minVertex)
+                minVertex = reg.firstVertex;
             u32 endV = reg.firstVertex + reg.vertexCount;
-            if (endV > maxVertex) maxVertex = endV;
+            if (endV > maxVertex)
+                maxVertex = endV;
         }
         if (minVertex > maxVertex) {
             minVertex = 0;
@@ -472,17 +593,24 @@ ConvertResult M3Converter::fromM3(const m3::Model& m3Model) const {
         for (size_t u = 0; u < numUVs; ++u) {
             mesh.uvSets[u].resize(vertRange);
         }
-        if (hasColors) mesh.vertexColors.resize(vertRange);
+        if (hasColors)
+            mesh.vertexColors.resize(vertRange);
 
         for (u32 v = 0; v < vertRange; ++v) {
             u32 srcIdx = minVertex + v;
-            if (srcIdx < positions.size()) mesh.positions[v] = positions[srcIdx];
-            if (srcIdx < normals.size()) mesh.normals[v] = normals[srcIdx];
-            if (srcIdx < tangents.size()) mesh.tangents[v] = tangents[srcIdx];
-            if (srcIdx < boneIndices.size()) mesh.boneIndices[v] = boneIndices[srcIdx];
-            if (srcIdx < boneWeights.size()) mesh.boneWeights[v] = boneWeights[srcIdx];
+            if (srcIdx < positions.size())
+                mesh.positions[v] = positions[srcIdx];
+            if (srcIdx < normals.size())
+                mesh.normals[v] = normals[srcIdx];
+            if (srcIdx < tangents.size())
+                mesh.tangents[v] = tangents[srcIdx];
+            if (srcIdx < boneIndices.size())
+                mesh.boneIndices[v] = boneIndices[srcIdx];
+            if (srcIdx < boneWeights.size())
+                mesh.boneWeights[v] = boneWeights[srcIdx];
             for (size_t u = 0; u < numUVs; ++u) {
-                if (srcIdx < allUVs[u].size()) mesh.uvSets[u][v] = allUVs[u][srcIdx];
+                if (srcIdx < allUVs[u].size())
+                    mesh.uvSets[u][v] = allUVs[u][srcIdx];
             }
             if (hasColors && srcIdx < vertexColors.size())
                 mesh.vertexColors[v] = vertexColors[srcIdx];
@@ -491,8 +619,8 @@ ConvertResult M3Converter::fromM3(const m3::Model& m3Model) const {
         // Indices: u16 → u32, rebase from global to mesh-local
         mesh.indices.reserve(div.faces.size());
         for (u16 idx : div.faces) {
-            u32 rebased = static_cast<u32>(idx) >= minVertex
-                ? static_cast<u32>(idx) - minVertex : 0;
+            u32 rebased =
+                static_cast<u32>(idx) >= minVertex ? static_cast<u32>(idx) - minVertex : 0;
             mesh.indices.push_back(rebased);
         }
 
@@ -529,10 +657,13 @@ ConvertResult M3Converter::fromM3(const m3::Model& m3Model) const {
             Vector3f maxP = mesh.positions[0];
             f32 maxDistSq = 0;
             for (const auto& p : mesh.positions) {
-                minP = Vector3f(std::min(minP.x, p.x), std::min(minP.y, p.y), std::min(minP.z, p.z));
-                maxP = Vector3f(std::max(maxP.x, p.x), std::max(maxP.y, p.y), std::max(maxP.z, p.z));
+                minP =
+                    Vector3f(std::min(minP.x, p.x), std::min(minP.y, p.y), std::min(minP.z, p.z));
+                maxP =
+                    Vector3f(std::max(maxP.x, p.x), std::max(maxP.y, p.y), std::max(maxP.z, p.z));
                 f32 distSq = p.x * p.x + p.y * p.y + p.z * p.z;
-                if (distSq > maxDistSq) maxDistSq = distSq;
+                if (distSq > maxDistSq)
+                    maxDistSq = distSq;
             }
             mesh.bounds.minimum = minP;
             mesh.bounds.maximum = maxP;
@@ -606,29 +737,67 @@ M3ConvertResult M3Converter::toM3(const Model& wemModel, u32 targetVersion) cons
 
                 // Set wrap flags
                 u32 layerFlags = 0;
-                if (slot.wrapU) layerFlags |= static_cast<u32>(m3::TextureLayerFlag::UVWrapX);
-                if (slot.wrapV) layerFlags |= static_cast<u32>(m3::TextureLayerFlag::UVWrapY);
+                if (slot.wrapU)
+                    layerFlags |= static_cast<u32>(m3::TextureLayerFlag::UVWrapX);
+                if (slot.wrapV)
+                    layerFlags |= static_cast<u32>(m3::TextureLayerFlag::UVWrapY);
                 layer.flags = static_cast<m3::TextureLayerFlag>(layerFlags);
 
                 switch (slot.semantic) {
-                case TextureSlotSemantic::Diffuse:          mat.diffuseLayer = layer; break;
-                case TextureSlotSemantic::Decal:            mat.decalLayer = layer; break;
-                case TextureSlotSemantic::Specular:         mat.specularLayer = layer; break;
-                case TextureSlotSemantic::Gloss:            mat.glossLayer = layer; break;
-                case TextureSlotSemantic::Emissive1:        mat.emissiveLayer1 = layer; break;
-                case TextureSlotSemantic::Emissive2:        mat.emissiveLayer2 = layer; break;
-                case TextureSlotSemantic::Environment:      mat.environmentLayer = layer; break;
-                case TextureSlotSemantic::EnvironmentMask:  mat.environmentMaskLayer = layer; break;
-                case TextureSlotSemantic::Alpha1:           mat.alphaLayer1 = layer; break;
-                case TextureSlotSemantic::Alpha2:           mat.alphaLayer2 = layer; break;
-                case TextureSlotSemantic::Normal:           mat.normalLayer = layer; break;
-                case TextureSlotSemantic::Height:           mat.heightLayer = layer; break;
-                case TextureSlotSemantic::LightMap:         mat.lightMapLayer = layer; break;
-                case TextureSlotSemantic::AmbientOcclusion: mat.ambientOcclusionLayer = layer; break;
-                case TextureSlotSemantic::NormalBlend1Mask: mat.normalBlend1MaskLayer = layer; break;
-                case TextureSlotSemantic::NormalBlend2Mask: mat.normalBlend2MaskLayer = layer; break;
-                case TextureSlotSemantic::NormalBlend1:     mat.normalBlend1Layer = layer; break;
-                case TextureSlotSemantic::NormalBlend2:     mat.normalBlend2Layer = layer; break;
+                case TextureSlotSemantic::Diffuse:
+                    mat.diffuseLayer = layer;
+                    break;
+                case TextureSlotSemantic::Decal:
+                    mat.decalLayer = layer;
+                    break;
+                case TextureSlotSemantic::Specular:
+                    mat.specularLayer = layer;
+                    break;
+                case TextureSlotSemantic::Gloss:
+                    mat.glossLayer = layer;
+                    break;
+                case TextureSlotSemantic::Emissive1:
+                    mat.emissiveLayer1 = layer;
+                    break;
+                case TextureSlotSemantic::Emissive2:
+                    mat.emissiveLayer2 = layer;
+                    break;
+                case TextureSlotSemantic::Environment:
+                    mat.environmentLayer = layer;
+                    break;
+                case TextureSlotSemantic::EnvironmentMask:
+                    mat.environmentMaskLayer = layer;
+                    break;
+                case TextureSlotSemantic::Alpha1:
+                    mat.alphaLayer1 = layer;
+                    break;
+                case TextureSlotSemantic::Alpha2:
+                    mat.alphaLayer2 = layer;
+                    break;
+                case TextureSlotSemantic::Normal:
+                    mat.normalLayer = layer;
+                    break;
+                case TextureSlotSemantic::Height:
+                    mat.heightLayer = layer;
+                    break;
+                case TextureSlotSemantic::LightMap:
+                    mat.lightMapLayer = layer;
+                    break;
+                case TextureSlotSemantic::AmbientOcclusion:
+                    mat.ambientOcclusionLayer = layer;
+                    break;
+                case TextureSlotSemantic::NormalBlend1Mask:
+                    mat.normalBlend1MaskLayer = layer;
+                    break;
+                case TextureSlotSemantic::NormalBlend2Mask:
+                    mat.normalBlend2MaskLayer = layer;
+                    break;
+                case TextureSlotSemantic::NormalBlend1:
+                    mat.normalBlend1Layer = layer;
+                    break;
+                case TextureSlotSemantic::NormalBlend2:
+                    mat.normalBlend2Layer = layer;
+                    break;
                 case TextureSlotSemantic::Custom:
                     // No matching named slot; try diffuse if empty
                     if (!mat.diffuseLayer.has_value()) {
@@ -680,17 +849,25 @@ M3ConvertResult M3Converter::toM3(const Model& wemModel, u32 targetVersion) cons
     bool anyColors = false;
     size_t maxUVs = 0;
     for (const auto& mesh : wemModel.meshes) {
-        if (!mesh.vertexColors.empty()) anyColors = true;
-        if (mesh.uvSets.size() > maxUVs) maxUVs = mesh.uvSets.size();
+        if (!mesh.vertexColors.empty())
+            anyColors = true;
+        if (mesh.uvSets.size() > maxUVs)
+            maxUVs = mesh.uvSets.size();
     }
 
     auto vflags = m3::VertexFormatFlag::None;
-    if (anyColors) vflags = vflags | m3::VertexFormatFlag::VertexColor;
-    if (maxUVs >= 1) vflags = vflags | m3::VertexFormatFlag::UV1;
-    if (maxUVs >= 2) vflags = vflags | m3::VertexFormatFlag::UV2;
-    if (maxUVs >= 3) vflags = vflags | m3::VertexFormatFlag::UV3;
-    if (maxUVs >= 4) vflags = vflags | m3::VertexFormatFlag::UV4;
-    if (maxUVs >= 5) vflags = vflags | m3::VertexFormatFlag::UV5;
+    if (anyColors)
+        vflags = vflags | m3::VertexFormatFlag::VertexColor;
+    if (maxUVs >= 1)
+        vflags = vflags | m3::VertexFormatFlag::UV1;
+    if (maxUVs >= 2)
+        vflags = vflags | m3::VertexFormatFlag::UV2;
+    if (maxUVs >= 3)
+        vflags = vflags | m3::VertexFormatFlag::UV3;
+    if (maxUVs >= 4)
+        vflags = vflags | m3::VertexFormatFlag::UV4;
+    if (maxUVs >= 5)
+        vflags = vflags | m3::VertexFormatFlag::UV5;
     m3.vertices.flags = vflags;
 
     // We must build the raw vertex data blob. M3 vertex layout:
@@ -699,7 +876,8 @@ M3ConvertResult M3Converter::toM3(const Model& wemModel, u32 targetVersion) cons
     // Total stride = 24 + (color ? 4 : 0) + (numUVs * 4) + 4
     size_t stride = 24 + (anyColors ? 4 : 0) + (maxUVs * 4) + 4;
     size_t totalVerts = 0;
-    for (const auto& mesh : wemModel.meshes) totalVerts += mesh.positions.size();
+    for (const auto& mesh : wemModel.meshes)
+        totalVerts += mesh.positions.size();
 
     m3.vertices.data.resize(totalVerts * stride, 0);
 
@@ -742,9 +920,12 @@ M3ConvertResult M3Converter::toM3(const Model& wemModel, u32 targetVersion) cons
             // Normal (packed 3xi8 + sign at offset 20)
             if (v < mesh.normals.size()) {
                 auto n = mesh.normals[v];
-                ptr[20] = static_cast<u8>(static_cast<i8>(std::max(-127.0f, std::min(127.0f, n.x * 127.0f))));
-                ptr[21] = static_cast<u8>(static_cast<i8>(std::max(-127.0f, std::min(127.0f, n.y * 127.0f))));
-                ptr[22] = static_cast<u8>(static_cast<i8>(std::max(-127.0f, std::min(127.0f, n.z * 127.0f))));
+                ptr[20] = static_cast<u8>(
+                    static_cast<i8>(std::max(-127.0f, std::min(127.0f, n.x * 127.0f))));
+                ptr[21] = static_cast<u8>(
+                    static_cast<i8>(std::max(-127.0f, std::min(127.0f, n.y * 127.0f))));
+                ptr[22] = static_cast<u8>(
+                    static_cast<i8>(std::max(-127.0f, std::min(127.0f, n.z * 127.0f))));
                 ptr[23] = 0; // sign byte
             }
 
@@ -771,8 +952,10 @@ M3ConvertResult M3Converter::toM3(const Model& wemModel, u32 targetVersion) cons
             for (size_t u = 0; u < maxUVs; ++u) {
                 if (u < mesh.uvSets.size() && v < mesh.uvSets[u].size()) {
                     Vector2f uv = mesh.uvSets[u][v];
-                    auto uvI16u = static_cast<i16>(std::max(-32768.0f, std::min(32767.0f, uv.x * 2048.0f)));
-                    auto uvI16v = static_cast<i16>(std::max(-32768.0f, std::min(32767.0f, uv.y * 2048.0f)));
+                    auto uvI16u =
+                        static_cast<i16>(std::max(-32768.0f, std::min(32767.0f, uv.x * 2048.0f)));
+                    auto uvI16v =
+                        static_cast<i16>(std::max(-32768.0f, std::min(32767.0f, uv.y * 2048.0f)));
                     auto* ip = reinterpret_cast<i16*>(ptr + off);
                     ip[0] = uvI16u;
                     ip[1] = uvI16v;
@@ -783,9 +966,12 @@ M3ConvertResult M3Converter::toM3(const Model& wemModel, u32 targetVersion) cons
             // Tangent (packed 3xi8 + sign at end of vertex)
             if (v < mesh.tangents.size()) {
                 auto t = mesh.tangents[v];
-                ptr[off + 0] = static_cast<u8>(static_cast<i8>(std::max(-127.0f, std::min(127.0f, t.x * 127.0f))));
-                ptr[off + 1] = static_cast<u8>(static_cast<i8>(std::max(-127.0f, std::min(127.0f, t.y * 127.0f))));
-                ptr[off + 2] = static_cast<u8>(static_cast<i8>(std::max(-127.0f, std::min(127.0f, t.z * 127.0f))));
+                ptr[off + 0] = static_cast<u8>(
+                    static_cast<i8>(std::max(-127.0f, std::min(127.0f, t.x * 127.0f))));
+                ptr[off + 1] = static_cast<u8>(
+                    static_cast<i8>(std::max(-127.0f, std::min(127.0f, t.y * 127.0f))));
+                ptr[off + 2] = static_cast<u8>(
+                    static_cast<i8>(std::max(-127.0f, std::min(127.0f, t.z * 127.0f))));
                 ptr[off + 3] = (t.w >= 0.0f) ? 0 : 0xFF; // bitangent sign
             }
         }
@@ -839,11 +1025,21 @@ M3ConvertResult M3Converter::toM3(const Model& wemModel, u32 targetVersion) cons
 // M3Converter — FormatConverter interface
 // ============================================================================
 
-std::string M3Converter::formatId() const { return "m3"; }
-std::string M3Converter::formatName() const { return "StarCraft II / HotS M3"; }
-bool M3Converter::supportsImport() const { return true; }
-bool M3Converter::supportsExport() const { return true; }
-u32 M3Converter::defaultExportVersion() const { return 30; }
+std::string M3Converter::formatId() const {
+    return "m3";
+}
+std::string M3Converter::formatName() const {
+    return "StarCraft II / HotS M3";
+}
+bool M3Converter::supportsImport() const {
+    return true;
+}
+bool M3Converter::supportsExport() const {
+    return true;
+}
+u32 M3Converter::defaultExportVersion() const {
+    return 30;
+}
 
 ConvertResult M3Converter::importFromBytes(std::span<const u8> data) const {
     m3::Parser parser;

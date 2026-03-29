@@ -270,5 +270,5 @@ void BinaryWriterVisitor::visit(const PHYVEntry& entry) {
     }
 }
 
-}
-}
+} // namespace m2
+} // namespace whiteout

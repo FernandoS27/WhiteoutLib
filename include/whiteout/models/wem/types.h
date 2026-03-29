@@ -46,15 +46,15 @@ struct Extent {
  * @brief Rendering blend mode (superset of MDX filterMode, M2 blendingMode, M3 BlendMode)
  */
 enum class BlendMode : u32 {
-    Opaque,       ///< MDX None(0), M2 Opaque(0), M3 Opaque(0)
-    AlphaKey,     ///< M2 AlphaKey(1)
-    AlphaBlend,   ///< MDX Blend(2), M2 Alpha(2), M3 AlphaBlend(1)
-    Additive,     ///< MDX Additive(3), M2 Add(4), M3 Add(2)
+    Opaque,        ///< MDX None(0), M2 Opaque(0), M3 Opaque(0)
+    AlphaKey,      ///< M2 AlphaKey(1)
+    AlphaBlend,    ///< MDX Blend(2), M2 Alpha(2), M3 AlphaBlend(1)
+    Additive,      ///< MDX Additive(3), M2 Add(4), M3 Add(2)
     AdditiveAlpha, ///< MDX AddAlpha(4), M2 NoAlphaAdd(3), M3 AlphaAdd(3)
-    Modulate,     ///< MDX Modulate(5), M2 Mod(5), M3 Mod(4)
-    Modulate2x,   ///< MDX Modulate2x(6), M2 Mod2x(6), M3 Mod2x(5)
-    BlendAdd,     ///< M2 BlendAdd(7)
-    Transparent,  ///< MDX Transparent(1)
+    Modulate,      ///< MDX Modulate(5), M2 Mod(5), M3 Mod(4)
+    Modulate2x,    ///< MDX Modulate2x(6), M2 Mod2x(6), M3 Mod2x(5)
+    BlendAdd,      ///< M2 BlendAdd(7)
+    Transparent,   ///< MDX Transparent(1)
 };
 
 // ============================================================================
@@ -70,16 +70,16 @@ enum class UVMappingMode : u32 {
     ExplicitUV2,
     ExplicitUV3,
     ExplicitUV4,
-    ReflectCubicEnvironment,   ///< M3 cubic environment map reflection
-    SphericalEnvironment,      ///< MDX SphereEnvMap flag, M3
-    PlanarLocalX,              ///< M3
-    PlanarLocalY,              ///< M3
-    PlanarLocalZ,              ///< M3
-    PlanarWorldX,              ///< M3
-    PlanarWorldY,              ///< M3
-    PlanarWorldZ,              ///< M3
-    TriPlanarLocal,            ///< M3
-    TriPlanarWorld,            ///< M3
+    ReflectCubicEnvironment, ///< M3 cubic environment map reflection
+    SphericalEnvironment,    ///< MDX SphereEnvMap flag, M3
+    PlanarLocalX,            ///< M3
+    PlanarLocalY,            ///< M3
+    PlanarLocalZ,            ///< M3
+    PlanarWorldX,            ///< M3
+    PlanarWorldY,            ///< M3
+    PlanarWorldZ,            ///< M3
+    TriPlanarLocal,          ///< M3
+    TriPlanarWorld,          ///< M3
 };
 
 // ============================================================================
@@ -122,16 +122,16 @@ enum class TextureSlotSemantic : u32 {
  * @brief Bitmask flags for material rendering properties (superset of all formats)
  */
 enum class MaterialFlags : u32 {
-    None             = 0x00,
-    Unlit            = 0x01, ///< MDX Unshaded, M2 Unlit, M3
-    TwoSided         = 0x02, ///< MDX, M2, M3
-    Unfogged         = 0x04, ///< MDX, M2
-    DepthTest        = 0x08, ///< M2
-    DepthWrite       = 0x10, ///< M2
-    NoDepthTest      = 0x20, ///< MDX
-    NoDepthWrite     = 0x40, ///< MDX (NoDepthSet)
+    None = 0x00,
+    Unlit = 0x01,            ///< MDX Unshaded, M2 Unlit, M3
+    TwoSided = 0x02,         ///< MDX, M2, M3
+    Unfogged = 0x04,         ///< MDX, M2
+    DepthTest = 0x08,        ///< M2
+    DepthWrite = 0x10,       ///< M2
+    NoDepthTest = 0x20,      ///< MDX
+    NoDepthWrite = 0x40,     ///< MDX (NoDepthSet)
     NoAlphaComposite = 0x80, ///< M2 (MoP+)
-    SphereEnvMap     = 0x100, ///< MDX
+    SphereEnvMap = 0x100,    ///< MDX
 };
 
 inline MaterialFlags operator|(MaterialFlags lhs, MaterialFlags rhs) {
@@ -168,10 +168,10 @@ inline bool hasFlag(MaterialFlags flags, MaterialFlags flag) {
  * @brief Bitmask flags for submesh properties
  */
 enum class SubmeshFlags : u32 {
-    None             = 0x0,
-    Hidden           = 0x1, ///< M3
-    ClothSimulated   = 0x2, ///< M3
-    ClothInfluenced  = 0x4, ///< M3
+    None = 0x0,
+    Hidden = 0x1,          ///< M3
+    ClothSimulated = 0x2,  ///< M3
+    ClothInfluenced = 0x4, ///< M3
 };
 
 inline SubmeshFlags operator|(SubmeshFlags lhs, SubmeshFlags rhs) {

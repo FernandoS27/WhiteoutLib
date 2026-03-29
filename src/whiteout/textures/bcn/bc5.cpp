@@ -37,20 +37,19 @@ std::vector<u8> decode_image(std::span<const u8> bc5, u32 width, u32 height,
     // Output: 2 bytes per pixel (R, G interleaved)
     std::vector<u8> result(static_cast<size_t>(width) * height * 2, 0);
 
-    parallel_for_tiles(blocks_wide, blocks_tall, pool,
-        [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
-            for (u32 block_y = by0; block_y < by1; ++block_y) {
-                for (u32 block_x = bx0; block_x < bx1; ++block_x) {
-                    std::array<u8, 16> channel0{}, channel1{};
-                    decode_block(bc5.data() + (block_y * blocks_wide + block_x) * 16,
-                                 channel0.data(), channel1.data());
-                    scatter_channel_block(channel0, width, height, block_x, block_y,
-                                          result.data(), 2, 0);
-                    scatter_channel_block(channel1, width, height, block_x, block_y,
-                                          result.data(), 2, 1);
-                }
+    parallel_for_tiles(blocks_wide, blocks_tall, pool, [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
+        for (u32 block_y = by0; block_y < by1; ++block_y) {
+            for (u32 block_x = bx0; block_x < bx1; ++block_x) {
+                std::array<u8, 16> channel0{}, channel1{};
+                decode_block(bc5.data() + (block_y * blocks_wide + block_x) * 16, channel0.data(),
+                             channel1.data());
+                scatter_channel_block(channel0, width, height, block_x, block_y, result.data(), 2,
+                                      0);
+                scatter_channel_block(channel1, width, height, block_x, block_y, result.data(), 2,
+                                      1);
             }
-        });
+        }
+    });
 
     return result;
 }
@@ -61,9 +60,7 @@ std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error,
                                      interfaces::WorkerPool* pool) {
     return transform_texture_impl(
         src, PixelFormat::BC5, PixelFormat::RG8, "bc5::decodeTexture",
-        [pool](std::span<const u8> data, u32 w, u32 h) {
-            return decode_image(data, w, h, pool);
-        },
+        [pool](std::span<const u8> data, u32 w, u32 h) { return decode_image(data, w, h, pool); },
         out_error);
 }
 
@@ -89,19 +86,18 @@ std::vector<u8> encode_image(std::span<const u8> rg8, u32 width, u32 height,
     const u32 blocks_tall = (height + 3) / 4;
     std::vector<u8> result(static_cast<size_t>(blocks_wide) * blocks_tall * 16);
 
-    parallel_for_tiles(blocks_wide, blocks_tall, pool,
-        [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
-            for (u32 block_y = by0; block_y < by1; ++block_y) {
-                for (u32 block_x = bx0; block_x < bx1; ++block_x) {
-                    std::array<u8, 16> block0{}, block1{};
-                    gather_channel_block(rg8, width, height, block_x, block_y, block0, 2, 0);
-                    gather_channel_block(rg8, width, height, block_x, block_y, block1, 2, 1);
+    parallel_for_tiles(blocks_wide, blocks_tall, pool, [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
+        for (u32 block_y = by0; block_y < by1; ++block_y) {
+            for (u32 block_x = bx0; block_x < bx1; ++block_x) {
+                std::array<u8, 16> block0{}, block1{};
+                gather_channel_block(rg8, width, height, block_x, block_y, block0, 2, 0);
+                gather_channel_block(rg8, width, height, block_x, block_y, block1, 2, 1);
 
-                    u32 block_offset = (block_y * blocks_wide + block_x) * 16;
-                    encode_block(block0.data(), block1.data(), result.data() + block_offset);
-                }
+                u32 block_offset = (block_y * blocks_wide + block_x) * 16;
+                encode_block(block0.data(), block1.data(), result.data() + block_offset);
             }
-        });
+        }
+    });
 
     return result;
 }
@@ -112,9 +108,7 @@ std::optional<Texture> encodeTexture(const Texture& src, std::string* out_error,
                                      interfaces::WorkerPool* pool) {
     return transform_texture_impl(
         src, PixelFormat::RG8, PixelFormat::BC5, "bc5::encodeTexture",
-        [pool](std::span<const u8> data, u32 w, u32 h) {
-            return encode_image(data, w, h, pool);
-        },
+        [pool](std::span<const u8> data, u32 w, u32 h) { return encode_image(data, w, h, pool); },
         out_error);
 }
 

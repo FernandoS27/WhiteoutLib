@@ -235,5 +235,5 @@ void BinaryWriterVisitor::visit(const SKPDChunk& chunk) {
     writer.write(chunk.reserved1);
 }
 
-}
-}
+} // namespace m2
+} // namespace whiteout

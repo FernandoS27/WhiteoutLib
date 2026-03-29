@@ -5,8 +5,8 @@
 
 #include <whiteout/models/wem/structures.h>
 
-#include "chunk_tags.h"
 #include "../../common/binary_writer.h"
+#include "chunk_tags.h"
 
 #include <deque>
 #include <functional>

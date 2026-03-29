@@ -4,17 +4,16 @@
 #include "whiteout/utils/simple_thread_pool.h"
 #include "whiteout/utils/timeline_semaphore.h"
 
-#include <vector>
-#include <queue>
-#include <thread>
-#include <mutex>
 #include <condition_variable>
 #include <functional>
+#include <mutex>
+#include <thread>
+#include <vector>
+#include <queue>
 
 namespace whiteout::utils {
 
-struct SimpleThreadPool::Impl
-{
+struct SimpleThreadPool::Impl {
     std::vector<std::thread> workers;
     std::queue<interfaces::WorkerTask> jobs;
     std::mutex mutex;
@@ -23,15 +22,11 @@ struct SimpleThreadPool::Impl
     int pendingCount = 0;
     bool stop = false;
 
-    explicit Impl(size_t nThreads)
-    {
+    explicit Impl(size_t nThreads) {
         workers.reserve(nThreads);
-        for (size_t i = 0; i < nThreads; ++i)
-        {
-            workers.emplace_back([this]
-            {
-                for (;;)
-                {
+        for (size_t i = 0; i < nThreads; ++i) {
+            workers.emplace_back([this] {
+                for (;;) {
                     interfaces::WorkerTask task;
                     {
                         std::unique_lock<std::mutex> lock(mutex);
@@ -42,9 +37,7 @@ struct SimpleThreadPool::Impl
                         jobs.pop();
                     }
 
-                    if (task.waitSemaphore &&
-                        task.waitSemaphore->value() < task.waitValue)
-                    {
+                    if (task.waitSemaphore && task.waitSemaphore->value() < task.waitValue) {
                         {
                             std::unique_lock<std::mutex> lock(mutex);
                             jobs.push(std::move(task));
@@ -72,8 +65,7 @@ struct SimpleThreadPool::Impl
         }
     }
 
-    ~Impl()
-    {
+    ~Impl() {
         {
             std::unique_lock<std::mutex> lock(mutex);
             stop = true;
@@ -84,14 +76,11 @@ struct SimpleThreadPool::Impl
     }
 };
 
-SimpleThreadPool::SimpleThreadPool(size_t nThreads)
-    : m_impl(std::make_unique<Impl>(nThreads))
-{}
+SimpleThreadPool::SimpleThreadPool(size_t nThreads) : m_impl(std::make_unique<Impl>(nThreads)) {}
 
 SimpleThreadPool::~SimpleThreadPool() = default;
 
-void SimpleThreadPool::submit(const interfaces::WorkerTask& task)
-{
+void SimpleThreadPool::submit(const interfaces::WorkerTask& task) {
     {
         std::unique_lock<std::mutex> lock(m_impl->mutex);
         ++m_impl->pendingCount;
@@ -100,19 +89,16 @@ void SimpleThreadPool::submit(const interfaces::WorkerTask& task)
     m_impl->cv.notify_one();
 }
 
-void SimpleThreadPool::waitIdle()
-{
+void SimpleThreadPool::waitIdle() {
     std::unique_lock<std::mutex> lock(m_impl->mutex);
     m_impl->doneCv.wait(lock, [this] { return m_impl->pendingCount == 0; });
 }
 
-size_t SimpleThreadPool::threadCount() const noexcept
-{
+size_t SimpleThreadPool::threadCount() const noexcept {
     return m_impl->workers.size();
 }
 
-std::unique_ptr<interfaces::TimelineSemaphore> SimpleThreadPool::createTimelineSemaphore()
-{
+std::unique_ptr<interfaces::TimelineSemaphore> SimpleThreadPool::createTimelineSemaphore() {
     return std::make_unique<TimelineSemaphore>();
 }
 

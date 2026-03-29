@@ -25,5 +25,5 @@ void BinaryParseVisitor::visit(BOMTChunk& chunk) {
     parse_chunked_vector(chunk.boneOffsetMatrices);
 }
 
-}
-}
+} // namespace m2
+} // namespace whiteout

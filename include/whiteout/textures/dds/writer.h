@@ -21,8 +21,8 @@
 #include <vector>
 
 #include <whiteout/common_types.h>
-#include <whiteout/textures/writer.h>
 #include <whiteout/textures/texture.h>
+#include <whiteout/textures/writer.h>
 
 namespace whiteout::textures::dds {
 

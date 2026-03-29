@@ -526,19 +526,16 @@ std::vector<f32> decode_image(std::span<const u8> bc6h, u32 width, u32 height,
     // Decode into u16 half-float intermediary, then expand to f32.
     std::vector<u16> half_buf(static_cast<size_t>(width) * height * 4, 0);
 
-    parallel_for_tiles(blocks_wide, blocks_tall, pool,
-        [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
-            for (u32 block_y = by0; block_y < by1; ++block_y) {
-                for (u32 block_x = bx0; block_x < bx1; ++block_x) {
-                    std::array<u16, 64> block_pixels{}; // 16 pixels × 4 channels
-                    decode_block(
-                        bc6h.data() + (block_y * blocks_wide + block_x) * 16,
-                        block_pixels.data());
-                    scatter_rgba_block<u16>(block_pixels, width, height, block_x, block_y,
-                                           half_buf);
-                }
+    parallel_for_tiles(blocks_wide, blocks_tall, pool, [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
+        for (u32 block_y = by0; block_y < by1; ++block_y) {
+            for (u32 block_x = bx0; block_x < bx1; ++block_x) {
+                std::array<u16, 64> block_pixels{}; // 16 pixels × 4 channels
+                decode_block(bc6h.data() + (block_y * blocks_wide + block_x) * 16,
+                             block_pixels.data());
+                scatter_rgba_block<u16>(block_pixels, width, height, block_x, block_y, half_buf);
             }
-        });
+        }
+    });
 
     // Convert half-float → float.
     std::vector<f32> result(half_buf.size());
@@ -554,9 +551,7 @@ std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error,
                                      interfaces::WorkerPool* pool) {
     return transform_texture_impl(
         src, PixelFormat::BC6H, PixelFormat::RGBA32F, "bc6h::decodeTexture",
-        [pool](std::span<const u8> data, u32 w, u32 h) {
-            return decode_image(data, w, h, pool);
-        },
+        [pool](std::span<const u8> data, u32 w, u32 h) { return decode_image(data, w, h, pool); },
         out_error);
 }
 
@@ -711,18 +706,15 @@ std::vector<u8> encode_image(std::span<const u16> rgba_f16, u32 width, u32 heigh
     const u32 blocks_tall = (height + 3) / 4;
     std::vector<u8> result(static_cast<size_t>(blocks_wide) * blocks_tall * 16);
 
-    parallel_for_tiles(blocks_wide, blocks_tall, pool,
-        [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
-            for (u32 block_y = by0; block_y < by1; ++block_y) {
-                for (u32 block_x = bx0; block_x < bx1; ++block_x) {
-                    std::array<u16, 64> block{}; // 16 pixels × 4 channels
-                    gather_rgba_block<u16>(rgba_f16, width, block_x, block_y, block);
-                    encode_block(
-                        block.data(),
-                        result.data() + (block_y * blocks_wide + block_x) * 16);
-                }
+    parallel_for_tiles(blocks_wide, blocks_tall, pool, [&](u32 bx0, u32 by0, u32 bx1, u32 by1) {
+        for (u32 block_y = by0; block_y < by1; ++block_y) {
+            for (u32 block_x = bx0; block_x < bx1; ++block_x) {
+                std::array<u16, 64> block{}; // 16 pixels × 4 channels
+                gather_rgba_block<u16>(rgba_f16, width, block_x, block_y, block);
+                encode_block(block.data(), result.data() + (block_y * blocks_wide + block_x) * 16);
             }
-        });
+        }
+    });
 
     return result;
 }

@@ -33,16 +33,16 @@ namespace m3 {
  * within an influence volume shape (sphere, cylinder, box, hemisphere).
  */
 struct Force {
-    ForceType forceType;                  ///< Force influence type (radial/wind/explosion)
-    ForceShape forceShape;                ///< Influence volume shape
-    u32 unknown;                          ///< Unknown field
-    u32 boneIndex;                        ///< Index into BONE array
-    ForceFlag flags = ForceFlag::None;    ///< Force flags (falloff, height gradient, unbounded)
-    u32 localChannels;                    ///< Local channel bitmask
-    AnimRef<f32> strength;                ///< Animated force strength
-    AnimRef<f32> width;                   ///< Animated influence width
-    AnimRef<f32> height;                  ///< Animated influence height
-    AnimRef<f32> length;                  ///< Animated influence length
+    ForceType forceType;               ///< Force influence type (radial/wind/explosion)
+    ForceShape forceShape;             ///< Influence volume shape
+    u32 unknown;                       ///< Unknown field
+    u32 boneIndex;                     ///< Index into BONE array
+    ForceFlag flags = ForceFlag::None; ///< Force flags (falloff, height gradient, unbounded)
+    u32 localChannels;                 ///< Local channel bitmask
+    AnimRef<f32> strength;             ///< Animated force strength
+    AnimRef<f32> width;                ///< Animated influence width
+    AnimRef<f32> height;               ///< Animated influence height
+    AnimRef<f32> length;               ///< Animated influence length
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -53,15 +53,15 @@ struct Force {
  * and angular/axial/radial strength components.
  */
 struct Warp {
-    u32 warpType;                         ///< Warp type
-    u32 boneIndex;                        ///< Index into BONE array
-    u32 unknown;                          ///< Unknown field
-    AnimRef<f32> radius;                  ///< Animated warp radius
-    AnimRef<f32> height;                  ///< Animated warp height
-    AnimRef<f32> strength;                ///< Animated warp strength
-    AnimRef<f32> angular;                 ///< Animated angular component
-    AnimRef<f32> axial;                   ///< Animated axial component
-    AnimRef<f32> radial;                  ///< Animated radial component
+    u32 warpType;          ///< Warp type
+    u32 boneIndex;         ///< Index into BONE array
+    u32 unknown;           ///< Unknown field
+    AnimRef<f32> radius;   ///< Animated warp radius
+    AnimRef<f32> height;   ///< Animated warp height
+    AnimRef<f32> strength; ///< Animated warp strength
+    AnimRef<f32> angular;  ///< Animated angular component
+    AnimRef<f32> axial;    ///< Animated axial component
+    AnimRef<f32> radial;   ///< Animated radial component
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -73,10 +73,10 @@ struct Warp {
  * The nextAroundVertex field chains half-edges into closed per-vertex rings.
  */
 struct ConvexHullHalfEdge {
-    u8 type;                              ///< 0x01 = forward, 0xFF = reverse (twin)
-    u8 faceIndex;                         ///< Face this half-edge borders
-    u8 vertexIndex;                       ///< Target vertex of this half-edge
-    u8 nextAroundVertex;                  ///< Next half-edge around the same vertex
+    u8 type;             ///< 0x01 = forward, 0xFF = reverse (twin)
+    u8 faceIndex;        ///< Face this half-edge borders
+    u8 vertexIndex;      ///< Target vertex of this half-edge
+    u8 nextAroundVertex; ///< Next half-edge around the same vertex
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -121,10 +121,10 @@ struct ConvexHullHalfEdge {
 struct PhysicsMeshBvhNode {
     /// BVH node: octahedral-encoded slab normal + quantized slab bounds (v1, 8 bytes).
     struct Octahedral {
-        i16 octX;                         ///< Octahedral-encoded X (snorm16)
-        i16 octY;                         ///< Octahedral-encoded Y (snorm16)
-        u16 slabMin;                      ///< Quantized bounding-slab min distance
-        u16 slabMax;                      ///< Quantized bounding-slab max distance (0 = leaf sentinel)
+        i16 octX;    ///< Octahedral-encoded X (snorm16)
+        i16 octY;    ///< Octahedral-encoded Y (snorm16)
+        u16 slabMin; ///< Quantized bounding-slab min distance
+        u16 slabMax; ///< Quantized bounding-slab max distance (0 = leaf sentinel)
 
         /// Decode octahedral (octX, octY) to a unit-length slab normal.
         Vector3f decodeNormal() const {
@@ -162,9 +162,8 @@ struct PhysicsMeshBvhNode {
         /// @param tolerance  PHSH meshTolerance (= meshBoundsExtent / 32767).
         f32 projectedStep(const Vector3f& tolerance) const {
             Vector3f n = decodeNormal();
-            return std::abs(n.x) * tolerance.x
-                 + std::abs(n.y) * tolerance.y
-                 + std::abs(n.z) * tolerance.z;
+            return std::abs(n.x) * tolerance.x + std::abs(n.y) * tolerance.y +
+                   std::abs(n.z) * tolerance.z;
         }
 
         /// Dequantize slabMin to a signed slab distance in model-space units.
@@ -189,8 +188,8 @@ struct PhysicsMeshBvhNode {
         }
     };
     union {
-        Vector3f normal{};                ///< Slab normal direction (v0, 12 bytes)
-        Octahedral octahedral;            ///< Packed octahedral normal + slab bounds (v1, 8 bytes)
+        Vector3f normal{};     ///< Slab normal direction (v0, 12 bytes)
+        Octahedral octahedral; ///< Packed octahedral normal + slab bounds (v1, 8 bytes)
     };
     M3_DEFINE_VERSION_ACCESSORS()
 };
@@ -199,14 +198,14 @@ struct PhysicsMeshBvhNode {
  * @brief DMMT — Physics mesh triangle (v0, 28 bytes)
  */
 struct PhysicsMeshTriangle {
-    u32 vertexIndex0;                     ///< First vertex index
-    u32 vertexIndex1;                     ///< Second vertex index
-    u32 vertexIndex2;                     ///< Third vertex index
-    u32 edgeIndex0;                       ///< First edge index
-    u32 edgeIndex1;                       ///< Second edge index
-    u32 edgeIndex2;                       ///< Third edge index
-    u16 reserved;                         ///< Reserved
-    u16 flags;                            ///< Triangle flags
+    u32 vertexIndex0; ///< First vertex index
+    u32 vertexIndex1; ///< Second vertex index
+    u32 vertexIndex2; ///< Third vertex index
+    u32 edgeIndex0;   ///< First edge index
+    u32 edgeIndex1;   ///< Second edge index
+    u32 edgeIndex2;   ///< Third edge index
+    u16 reserved;     ///< Reserved
+    u16 flags;        ///< Triangle flags
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -214,11 +213,11 @@ struct PhysicsMeshTriangle {
  * @brief DMME — Physics mesh edge (v0, 20 bytes)
  */
 struct PhysicsMeshEdge {
-    u32 edgeType;                         ///< Edge type
-    u32 vertexA;                          ///< First vertex index
-    u32 vertexB;                          ///< Second vertex index
-    u32 faceA;                            ///< First adjacent face
-    u32 faceB;                            ///< Second adjacent face
+    u32 edgeType; ///< Edge type
+    u32 vertexA;  ///< First vertex index
+    u32 vertexB;  ///< Second vertex index
+    u32 faceA;    ///< First adjacent face
+    u32 faceB;    ///< Second adjacent face
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -231,7 +230,7 @@ struct PhysicsMeshEdge {
  * (shapeType 4); bytes 184–299 form the mesh section (shapeType 5).
  */
 struct PhysicsShape {
-    Matrix44f transform;                  ///< 4×4 shape transform matrix
+    Matrix44f transform; ///< 4×4 shape transform matrix
 
     // v1: collisionMargin + shapeType at offsets 64-71
     // v2+: shapeType at offset 64
@@ -255,30 +254,31 @@ struct PhysicsShape {
     f32 hullUnknown1;                              ///< Unknown hull parameter 1
 
     // --- Mesh section (binary offsets 184–299, shapeType = 5 only) ---
-    std::vector<PhysicsMeshBvhNode> meshBvhNodes;       ///< BVH tree nodes (DMMN)
+    std::vector<PhysicsMeshBvhNode> meshBvhNodes;      ///< BVH tree nodes (DMMN)
     std::vector<Vector4f> meshVertexPositions;         ///< Vertex positions, w=0 (VEC4)
     std::vector<std::array<u16, 7>> meshFaceIndices16; ///< 16-bit face data (MT16, or empty)
     std::vector<std::array<u32, 7>> meshFaceIndices32; ///< 32-bit face data (MT32, or empty)
     // MT32/MT16 per-entry layout: {v0, v1, v2, adj0, adj1, adj2, flags}
     Vector3f meshBoundsCenter; ///< AABB center in model space (quantization grid origin)
-    Vector3f meshBoundsExtent; ///< AABB half-extents (quantization range: tolerance = extent / 32767)
-    Vector3f meshTolerance;    ///< Per-axis quantization step (= extent / 32767)
-    u32 meshNormalCount;       ///< Number of mesh normals
-    u32 meshVertexCount;       ///< Number of mesh vertices
-    u32 meshFaceIndex16Count;  ///< MT16 face count (0 when MT32)
-    u32 meshFaceIndex32Count;  ///< MT32 face count (0 when MT16)
-    u32 meshUnknown1;          ///< Unknown mesh parameter
-    u32 meshReserved;          ///< Reserved (always 0)
-    u32 meshTreeDepth;         ///< BVH tree height (root-to-leaf path length, 1–12)
-    f32 meshCollisionMargin;   ///< Collision margin (MT16: small float; MT32: 0.0)
+    Vector3f
+        meshBoundsExtent;   ///< AABB half-extents (quantization range: tolerance = extent / 32767)
+    Vector3f meshTolerance; ///< Per-axis quantization step (= extent / 32767)
+    u32 meshNormalCount;    ///< Number of mesh normals
+    u32 meshVertexCount;    ///< Number of mesh vertices
+    u32 meshFaceIndex16Count; ///< MT16 face count (0 when MT32)
+    u32 meshFaceIndex32Count; ///< MT32 face count (0 when MT16)
+    u32 meshUnknown1;         ///< Unknown mesh parameter
+    u32 meshReserved;         ///< Reserved (always 0)
+    u32 meshTreeDepth;        ///< BVH tree height (root-to-leaf path length, 1–12)
+    f32 meshCollisionMargin;  ///< Collision margin (MT16: small float; MT32: 0.0)
 
     /// Deprecated shape data from older versions
     struct {
         struct {
             std::vector<PhysicsMeshBvhNode> meshBvhNodes; ///< v2 only: BVH tree nodes
-            std::vector<Vector3f> meshVertexPositions;      ///< v2 only: vertex positions
-            std::vector<PhysicsMeshTriangle> unknown;       ///< v2 only: triangles
-            std::vector<PhysicsMeshEdge> unknown2;          ///< v2 only: edges
+            std::vector<Vector3f> meshVertexPositions;    ///< v2 only: vertex positions
+            std::vector<PhysicsMeshTriangle> unknown;     ///< v2 only: triangles
+            std::vector<PhysicsMeshEdge> unknown2;        ///< v2 only: edges
         } v2;
         struct {
             std::vector<Vector3f> legacyVertices; ///< v1 only: convex hull / mesh vertices
@@ -331,21 +331,21 @@ struct RigidBody {
  * Connects two rigid bodies with limit, friction, and break-threshold parameters.
  */
 struct PhysicsJoint {
-    u32 jointType;                        ///< Joint type
-    u32 boneIndex1;                       ///< First bone index
-    u32 boneIndex2;                       ///< Second bone index
-    Matrix44f matrixBody1;                ///< Transform for body 1
-    Matrix44f matrixBody2;                ///< Transform for body 2
-    u32 enableLimits;                     ///< Enable angular limits
-    f32 limitMin;                         ///< Minimum limit angle
-    f32 limitMax;                         ///< Maximum limit angle
-    f32 coneAngle;                        ///< Cone constraint angle
-    u32 enableFriction;                   ///< Enable joint friction
-    f32 friction;                         ///< Friction coefficient
-    f32 dampingRatio;                     ///< Damping ratio
-    f32 angularFrequency;                 ///< Angular frequency
-    f32 breakThreshold;                   ///< Force threshold to break joint
-    u8 enableShape;                       ///< Enable shape constraint
+    u32 jointType;         ///< Joint type
+    u32 boneIndex1;        ///< First bone index
+    u32 boneIndex2;        ///< Second bone index
+    Matrix44f matrixBody1; ///< Transform for body 1
+    Matrix44f matrixBody2; ///< Transform for body 2
+    u32 enableLimits;      ///< Enable angular limits
+    f32 limitMin;          ///< Minimum limit angle
+    f32 limitMax;          ///< Maximum limit angle
+    f32 coneAngle;         ///< Cone constraint angle
+    u32 enableFriction;    ///< Enable joint friction
+    f32 friction;          ///< Friction coefficient
+    f32 dampingRatio;      ///< Damping ratio
+    f32 angularFrequency;  ///< Angular frequency
+    f32 breakThreshold;    ///< Force threshold to break joint
+    u8 enableShape;        ///< Enable shape constraint
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -355,11 +355,11 @@ struct PhysicsJoint {
  * Constrains two rigid bodies with break-force threshold.
  */
 struct PhysicsConstraint {
-    std::vector<u16> dependents;          ///< Dependent bone indices (U16_)
-    u16 rigidBody1;                       ///< First rigid body index
-    u16 rigidBody2;                       ///< Second rigid body index
-    Flag flags;                           ///< Constraint flags
-    f32 breakForce;                       ///< Force required to break constraint
+    std::vector<u16> dependents; ///< Dependent bone indices (U16_)
+    u16 rigidBody1;              ///< First rigid body index
+    u16 rigidBody2;              ///< Second rigid body index
+    Flag flags;                  ///< Constraint flags
+    f32 breakForce;              ///< Force required to break constraint
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -369,10 +369,10 @@ struct PhysicsConstraint {
  * Capsule-shaped collider used by cloth simulation.
  */
 struct ClothCollider {
-    Matrix44f transform;                  ///< 4×4 collider transform
-    f32 radius;                           ///< Capsule radius
-    f32 height;                           ///< Capsule height
-    u32 padding;                          ///< Alignment padding
+    Matrix44f transform; ///< 4×4 collider transform
+    f32 radius;          ///< Capsule radius
+    f32 height;          ///< Capsule height
+    u32 padding;         ///< Alignment padding
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -382,10 +382,10 @@ struct ClothCollider {
  * Maps cloth vertices to proxy geometry for collision.
  */
 struct ClothProxy {
-    u32 proxyIndex;                       ///< Proxy mesh index
-    u32 clothIndex;                       ///< Cloth mesh index
-    std::vector<u64> proxyVertices;       ///< Proxy vertex data (U64_)
-    std::vector<u32> proxyWeights;        ///< Proxy blend weights (U32_)
+    u32 proxyIndex;                 ///< Proxy mesh index
+    u32 clothIndex;                 ///< Cloth mesh index
+    std::vector<u64> proxyVertices; ///< Proxy vertex data (U64_)
+    std::vector<u32> proxyWeights;  ///< Proxy blend weights (U32_)
     M3_DEFINE_VERSION_ACCESSORS()
 };
 

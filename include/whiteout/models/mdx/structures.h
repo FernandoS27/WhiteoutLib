@@ -158,7 +158,7 @@ struct Node {
 
     // Animation tracks
     Track<Vector3f> translationTracks; ///< Position animation
-    Track<Quaternion> rotationTracks;    ///< Rotation animation (quaternion XYZW)
+    Track<Quaternion> rotationTracks;  ///< Rotation animation (quaternion XYZW)
     Track<Vector3f> scalingTracks;     ///< Scale animation
 };
 
@@ -201,7 +201,7 @@ inline bool hasFlag(Node::NodeFlag flags, Node::NodeFlag flag) {
  * game code, no known shipped model contains SNEM data.
  */
 struct SoundEmitter {
-    Node node;             ///< Base node data with transform
+    Node node; ///< Base node data with transform
 
     Track<u32> soundTrack; ///< KSEK - sound event track (u32 values)
 };
@@ -489,9 +489,9 @@ struct Helper {
  * can be attached to this model.
  */
 struct Attachment {
-    Node node;             ///< Base node data
-    std::string path;      ///< Path to attached model
-    u32 attachmentId = 0;  ///< Attachment slot ID
+    Node node;            ///< Base node data
+    std::string path;     ///< Path to attached model
+    u32 attachmentId = 0; ///< Attachment slot ID
 
     Track<f32> visibilityTracks; ///< Visibility animation
 };

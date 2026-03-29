@@ -32,15 +32,15 @@ namespace m3 {
  * parameter string. Used for sound cues, spawn effects, etc.
  */
 struct Event {
-    std::string name;                     ///< Event name (Ref<CHAR>)
-    u32 unknown;                          ///< Unknown field
-    u16 boneIndex;                        ///< Index into BONE array
-    u16 padding;                          ///< Alignment padding
-    Matrix44f transform;                  ///< 4×4 transform matrix
-    u32 eventType;                        ///< Engine-specific event type code
-    std::string optionString;             ///< Optional parameter string (Ref<CHAR>)
-    u32 rttChannelIndex;                  ///< RTT channel index
-    u32 extraParameter;                   ///< Extra parameter (v2+)
+    std::string name;         ///< Event name (Ref<CHAR>)
+    u32 unknown;              ///< Unknown field
+    u16 boneIndex;            ///< Index into BONE array
+    u16 padding;              ///< Alignment padding
+    Matrix44f transform;      ///< 4×4 transform matrix
+    u32 eventType;            ///< Engine-specific event type code
+    std::string optionString; ///< Optional parameter string (Ref<CHAR>)
+    u32 rttChannelIndex;      ///< RTT channel index
+    u32 extraParameter;       ///< Extra parameter (v2+)
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -79,14 +79,14 @@ struct Sequence {
  * vectors, quaternions, colors, scalars, flags, and bounding extents.
  */
 struct SubTrackContainer {
-    std::string name;                     ///< Container name (Ref<CHAR>)
-    u16 runsConcurrent;                   ///< Non-zero if runs concurrently
-    u16 animPriority;                     ///< Animation priority level
-    u16 animationStateIndex;              ///< Parent STS_ index
-    u16 padding;                          ///< Alignment padding
-    std::vector<u32> animIds;             ///< Animation IDs (U32_)
-    std::vector<u32> animRefs;            ///< Animation reference indices (U32_)
-    u32 unknown;                          ///< Unknown field
+    std::string name;          ///< Container name (Ref<CHAR>)
+    u16 runsConcurrent;        ///< Non-zero if runs concurrently
+    u16 animPriority;          ///< Animation priority level
+    u16 animationStateIndex;   ///< Parent STS_ index
+    u16 padding;               ///< Alignment padding
+    std::vector<u32> animIds;  ///< Animation IDs (U32_)
+    std::vector<u32> animRefs; ///< Animation reference indices (U32_)
+    u32 unknown;               ///< Unknown field
     // 13 animation data block arrays (each contains AnimBlocks with typed keys)
     std::vector<AnimBlock<Event>> sdev;      ///< Slot 0: SDEV (Event keys)
     std::vector<AnimBlock<Vector2f>> sd2v;   ///< Slot 1: SD2V (Vector2f keys)
@@ -110,8 +110,8 @@ struct SubTrackContainer {
  * Groups sub-track containers by name for organizational purposes.
  */
 struct AnimationGroup {
-    std::string name;                     ///< Group name (Ref<CHAR>)
-    std::vector<u32> subtrackIndices;     ///< Indices into STC_ array (U32_)
+    std::string name;                 ///< Group name (Ref<CHAR>)
+    std::vector<u32> subtrackIndices; ///< Indices into STC_ array (U32_)
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -122,8 +122,8 @@ struct AnimationGroup {
  * 16 bytes of unknown state data.
  */
 struct AnimationState {
-    std::vector<u32> animIds;             ///< Animation IDs (U32_)
-    std::array<u8, 16> unknown;           ///< Unknown state data (16 bytes)
+    std::vector<u32> animIds;   ///< Animation IDs (U32_)
+    std::array<u8, 16> unknown; ///< Unknown state data (16 bytes)
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -134,11 +134,11 @@ struct AnimationState {
  * In practice, always null in observed corpus data.
  */
 struct BoneAnimationSet {
-    Flag flags;                           ///< Flags
-    u16 animationSequenceIndex;           ///< Primary sequence index
-    u16 fallbackSequenceIndex;            ///< Fallback sequence index
-    std::string name;                     ///< Set name (Ref<CHAR>)
-    std::vector<u16> splitItems;          ///< Split item indices (U16_)
+    Flag flags;                  ///< Flags
+    u16 animationSequenceIndex;  ///< Primary sequence index
+    u16 fallbackSequenceIndex;   ///< Fallback sequence index
+    std::string name;            ///< Set name (Ref<CHAR>)
+    std::vector<u16> splitItems; ///< Split item indices (U16_)
     M3_DEFINE_VERSION_ACCESSORS()
 };
 

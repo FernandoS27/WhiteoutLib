@@ -71,8 +71,8 @@ struct AttachmentVolume {
  * Named trigger with associated data indices for gameplay events.
  */
 struct TriggerData {
-    std::vector<u32> dataIndices;         ///< Data index array (U32_)
-    std::string name;                     ///< Trigger name (Ref<CHAR>)
+    std::vector<u32> dataIndices; ///< Data index array (U32_)
+    std::string name;             ///< Trigger name (Ref<CHAR>)
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -83,23 +83,23 @@ struct TriggerData {
  * limits, weights, and an optional main-turret flag.
  */
 struct TurretBehavior {
-    Matrix44f transform;                  ///< 4×4 turret transform
-    Vector4f unknown1;                    ///< Unknown vector 1
-    Vector4f unknown2;                    ///< Unknown vector 2
-    u16 boneIndex;                        ///< Index into BONE array
-    u8 useAsMainTurret;                   ///< Non-zero if this is the main turret
-    u8 turretGroupId;                     ///< Turret group identifier
-    u32 yawLimited;                       ///< Enable yaw limits
-    f32 yawMin;                           ///< Minimum yaw angle (radians)
-    f32 yawMax;                           ///< Maximum yaw angle (radians)
-    f32 yawWeight;                        ///< Yaw rotation weight
-    u32 pitchLimited;                     ///< Enable pitch limits
-    f32 pitchMin;                         ///< Minimum pitch angle (radians)
-    f32 pitchMax;                         ///< Maximum pitch angle (radians)
-    f32 pitchWeight;                      ///< Pitch rotation weight
-    f32 unknown3;                         ///< Unknown field
-    f32 unknown4;                         ///< Unknown field
-    Vector3f mainBoneOffset;              ///< Offset from main bone
+    Matrix44f transform;     ///< 4×4 turret transform
+    Vector4f unknown1;       ///< Unknown vector 1
+    Vector4f unknown2;       ///< Unknown vector 2
+    u16 boneIndex;           ///< Index into BONE array
+    u8 useAsMainTurret;      ///< Non-zero if this is the main turret
+    u8 turretGroupId;        ///< Turret group identifier
+    u32 yawLimited;          ///< Enable yaw limits
+    f32 yawMin;              ///< Minimum yaw angle (radians)
+    f32 yawMax;              ///< Maximum yaw angle (radians)
+    f32 yawWeight;           ///< Yaw rotation weight
+    u32 pitchLimited;        ///< Enable pitch limits
+    f32 pitchMin;            ///< Minimum pitch angle (radians)
+    f32 pitchMax;            ///< Maximum pitch angle (radians)
+    f32 pitchWeight;         ///< Pitch rotation weight
+    f32 unknown3;            ///< Unknown field
+    f32 unknown4;            ///< Unknown field
+    Vector3f mainBoneOffset; ///< Offset from main bone
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -109,12 +109,12 @@ struct TurretBehavior {
  * Makes a bone always face the camera or a specified direction.
  */
 struct BillboardBehavior {
-    std::vector<u16> dependents;          ///< Dependent bone indices (U16_)
-    u16 boneIndex;                        ///< Index into BONE array
-    u8 billboardType;                     ///< Billboard mode type
-    u8 cameraLookAt = 1;                  ///< Camera look-at flag (default: enabled)
-    Quaternion up;                        ///< Up direction quaternion
-    Quaternion forward;                   ///< Forward direction quaternion
+    std::vector<u16> dependents; ///< Dependent bone indices (U16_)
+    u16 boneIndex;               ///< Index into BONE array
+    u8 billboardType;            ///< Billboard mode type
+    u8 cameraLookAt = 1;         ///< Camera look-at flag (default: enabled)
+    Quaternion up;               ///< Up direction quaternion
+    Quaternion forward;          ///< Forward direction quaternion
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -125,13 +125,13 @@ struct BillboardBehavior {
  * and goal threshold for terrain-following or foot-planting.
  */
 struct IKJoint {
-    std::vector<u16> dependents;          ///< Dependent bone indices (U16_)
-    u16 boneIndex1;                       ///< First bone index
-    u16 boneIndex2;                       ///< Second bone index
-    f32 raycastUp;                        ///< Raycast upward distance
-    f32 raycastDown;                      ///< Raycast downward distance
-    f32 maxSpeed;                         ///< Maximum IK solving speed
-    f32 goalThreshold;                    ///< Goal distance threshold
+    std::vector<u16> dependents; ///< Dependent bone indices (U16_)
+    u16 boneIndex1;              ///< First bone index
+    u16 boneIndex2;              ///< Second bone index
+    f32 raycastUp;               ///< Raycast upward distance
+    f32 raycastDown;             ///< Raycast downward distance
+    f32 maxSpeed;                ///< Maximum IK solving speed
+    f32 goalThreshold;           ///< Goal distance threshold
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -142,16 +142,16 @@ struct IKJoint {
  * and search range for target acquisition.
  */
 struct IKTwoJoint {
-    std::vector<u16> dependents;          ///< Dependent bone indices (U16_)
-    u16 boneBase;                         ///< Base bone (e.g. upper arm/thigh)
-    u16 boneTarget;                       ///< Target bone (e.g. forearm/shin)
-    u16 boneEnd;                          ///< End effector bone (e.g. hand/foot)
-    u16 padding;                          ///< Alignment padding
-    Vector3f hingeAxis;                   ///< Hinge rotation axis
-    f32 maxAngleInner;                    ///< Maximum inner angle
-    f32 maxAngleOuter;                    ///< Maximum outer angle
-    f32 searchUp;                         ///< Search range upward
-    f32 searchDown;                       ///< Search range downward
+    std::vector<u16> dependents; ///< Dependent bone indices (U16_)
+    u16 boneBase;                ///< Base bone (e.g. upper arm/thigh)
+    u16 boneTarget;              ///< Target bone (e.g. forearm/shin)
+    u16 boneEnd;                 ///< End effector bone (e.g. hand/foot)
+    u16 padding;                 ///< Alignment padding
+    Vector3f hingeAxis;          ///< Hinge rotation axis
+    f32 maxAngleInner;           ///< Maximum inner angle
+    f32 maxAngleOuter;           ///< Maximum outer angle
+    f32 searchUp;                ///< Search range upward
+    f32 searchDown;              ///< Search range downward
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -162,11 +162,11 @@ struct IKTwoJoint {
  * and vertical search range.
  */
 struct IKCCD {
-    std::vector<u16> dependents;          ///< Dependent bone indices (U16_)
-    u16 boneBase;                         ///< Base bone index
-    u16 boneTarget;                       ///< Target bone index
-    f32 searchUp;                         ///< Search range upward
-    f32 searchDown;                       ///< Search range downward
+    std::vector<u16> dependents; ///< Dependent bone indices (U16_)
+    u16 boneBase;                ///< Base bone index
+    u16 boneTarget;              ///< Target bone index
+    f32 searchUp;                ///< Search range upward
+    f32 searchDown;              ///< Search range downward
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -176,11 +176,11 @@ struct IKCCD {
  * Simple single-bone orientation solver with angle limit and fallback bone.
  */
 struct OneBoneSolver {
-    std::vector<u16> dependents;          ///< Dependent bone indices (U16_)
-    u16 bone;                             ///< Primary bone index
-    u16 boneFallback;                     ///< Fallback bone index
-    Flag flags;                           ///< Solver flags
-    f32 maxAngle;                         ///< Maximum rotation angle
+    std::vector<u16> dependents; ///< Dependent bone indices (U16_)
+    u16 bone;                    ///< Primary bone index
+    u16 boneFallback;            ///< Fallback bone index
+    Flag flags;                  ///< Solver flags
+    f32 maxAngle;                ///< Maximum rotation angle
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -190,7 +190,7 @@ struct OneBoneSolver {
  * Axis-aligned shadow volume defined by a 4×4 transform matrix.
  */
 struct ShadowBox {
-    Matrix44f matrix;                     ///< 4×4 shadow box transform
+    Matrix44f matrix; ///< 4×4 shadow box transform
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -200,8 +200,8 @@ struct ShadowBox {
  * Animated visibility volume bound to a bone, used for culling decisions.
  */
 struct ViewVolume {
-    u32 nodeIndex;                        ///< Index into BONE array
-    AnimRef<Vector3f> size;               ///< Animated half-extents (36 bytes)
+    u32 nodeIndex;          ///< Index into BONE array
+    AnimRef<Vector3f> size; ///< Animated half-extents (36 bytes)
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -212,14 +212,14 @@ struct ViewVolume {
  * actively used by the engine.
  */
 struct TrailingModel {
-    std::vector<Vector3f> vectors;        ///< Control vectors (VEC3)
-    f32 param0;                           ///< Parameter 0 (observed: 5.0)
-    f32 param1;                           ///< Parameter 1 (observed: 1.0)
-    AnimRef<f32> animFloat0;              ///< Animated float 0 (init 0.5)
-    AnimRef<f32> animFloat1;              ///< Animated float 1 (init 1.0)
-    u32 flag;                             ///< Flag (observed: 1)
-    u32 reserved0;                        ///< Reserved
-    u32 reserved1;                        ///< Reserved
+    std::vector<Vector3f> vectors; ///< Control vectors (VEC3)
+    f32 param0;                    ///< Parameter 0 (observed: 5.0)
+    f32 param1;                    ///< Parameter 1 (observed: 1.0)
+    AnimRef<f32> animFloat0;       ///< Animated float 0 (init 0.5)
+    AnimRef<f32> animFloat1;       ///< Animated float 1 (init 1.0)
+    u32 flag;                      ///< Flag (observed: 1)
+    u32 reserved0;                 ///< Reserved
+    u32 reserved1;                 ///< Reserved
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
