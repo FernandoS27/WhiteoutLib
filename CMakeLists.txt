@@ -267,11 +267,15 @@ if(WHITEOUT_ENABLE_MPQ)
 
         # MPQ core
         src/whiteout/storages/mpq/crypto.cpp
-        src/whiteout/storages/mpq/header.cpp
-        src/whiteout/storages/mpq/hash_table.cpp
-        src/whiteout/storages/mpq/block_table.cpp
-        src/whiteout/storages/mpq/compression.cpp
-        src/whiteout/storages/mpq/pkware.cpp
+        src/whiteout/storages/mpq/tables/header.cpp
+        src/whiteout/storages/mpq/tables/hash_table.cpp
+        src/whiteout/storages/mpq/tables/block_table.cpp
+        src/whiteout/storages/mpq/codecs/compression.cpp
+        src/whiteout/storages/mpq/codecs/pkware.cpp
+        src/whiteout/storages/mpq/codecs/sparse.cpp
+        src/whiteout/storages/mpq/codecs/adpcm.cpp
+        src/whiteout/storages/mpq/codecs/huffman.cpp
+        src/whiteout/storages/mpq/codecs/bzip2.cpp
         src/whiteout/storages/mpq/file_data.cpp
         src/whiteout/storages/mpq/special_files.cpp
         src/whiteout/storages/mpq/writer.cpp

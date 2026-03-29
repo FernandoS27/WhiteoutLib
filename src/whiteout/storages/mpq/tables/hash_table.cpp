@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "crypto.h"
+#include "../crypto.h"
 #include "hash_table.h"
 
 #include <algorithm>

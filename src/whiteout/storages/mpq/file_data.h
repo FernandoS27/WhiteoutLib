@@ -8,7 +8,7 @@
 
 #include <whiteout/common_types.h>
 
-#include "block_table.h"
+#include "tables/block_table.h"
 
 #include <span>
 #include <string>

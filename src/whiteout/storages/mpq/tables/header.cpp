@@ -3,8 +3,8 @@
 
 #include "header.h"
 
-#include "../../common/binary_reader.h"
-#include "../../common/streams.h"
+#include "../../../common/binary_reader.h"
+#include "../../../common/streams.h"
 
 #include <algorithm>
 #include <cstring>

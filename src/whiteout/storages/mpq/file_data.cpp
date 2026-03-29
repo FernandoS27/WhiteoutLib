@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "compression.h"
+#include "codecs/compression.h"
 #include "crypto.h"
 #include "file_data.h"
 

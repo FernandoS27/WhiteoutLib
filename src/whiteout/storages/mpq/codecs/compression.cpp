@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "../common/zlib.h"
+#include "../../common/zlib.h"
 #include "adpcm.h"
 #include "bzip2.h"
 #include "compression.h"

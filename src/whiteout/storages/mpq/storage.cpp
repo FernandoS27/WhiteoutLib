@@ -5,11 +5,11 @@
 
 #include "../../storages/common/jenkins.h"
 #include "../../storages/common/mapped_file.h"
-#include "../../storages/mpq/block_table.h"
+#include "../../storages/mpq/tables/block_table.h"
 #include "../../storages/mpq/crypto.h"
 #include "../../storages/mpq/file_data.h"
-#include "../../storages/mpq/hash_table.h"
-#include "../../storages/mpq/header.h"
+#include "../../storages/mpq/tables/hash_table.h"
+#include "../../storages/mpq/tables/header.h"
 #include "../../storages/mpq/special_files.h"
 #include "../../storages/mpq/writer.h"
 

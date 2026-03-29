@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include "block_table.h"
-#include "crypto.h"
+#include "../crypto.h"
 
 #include <cstring>
 
