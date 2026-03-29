@@ -100,7 +100,7 @@ add_library(whiteout_lib
     src/whiteout/textures/jpeg/jpeg_encode.cpp
     src/whiteout/textures/jpeg/parser.cpp
     src/whiteout/textures/jpeg/writer.cpp
-    src/whiteout/textures/png/deflate.cpp
+    src/whiteout/common/deflate.cpp
     src/whiteout/textures/png/parser.cpp
     src/whiteout/textures/png/writer.cpp
 
@@ -252,3 +252,57 @@ if(WHITEOUT_ENABLE_CASC)
 
     endif() # WHITEOUT_BUILD_EXAMPLES
 endif() # WHITEOUT_ENABLE_CASC
+
+# =============================================================================
+# Optional MPQ support
+# =============================================================================
+option(WHITEOUT_ENABLE_MPQ "Enable MPQ archive support" OFF)
+
+if(WHITEOUT_ENABLE_MPQ)
+    add_library(whiteout_mpq
+        # Shared storages/common
+        src/whiteout/storages/common/mapped_file.cpp
+        src/whiteout/storages/common/jenkins.cpp
+        src/whiteout/storages/common/md5.cpp
+
+        # MPQ core
+        src/whiteout/storages/mpq/crypto.cpp
+        src/whiteout/storages/mpq/header.cpp
+        src/whiteout/storages/mpq/hash_table.cpp
+        src/whiteout/storages/mpq/block_table.cpp
+        src/whiteout/storages/mpq/compression.cpp
+        src/whiteout/storages/mpq/pkware.cpp
+        src/whiteout/storages/mpq/file_data.cpp
+        src/whiteout/storages/mpq/special_files.cpp
+        src/whiteout/storages/mpq/writer.cpp
+        src/whiteout/storages/mpq/storage.cpp
+    )
+
+    target_include_directories(whiteout_mpq PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+
+    target_link_libraries(whiteout_mpq
+        PUBLIC whiteout_lib
+    )
+
+    target_compile_definitions(whiteout_mpq PUBLIC WHITEOUT_HAS_MPQ=1)
+
+    if(WHITEOUT_BUILD_EXAMPLES)
+
+    # MPQ Loader Example
+    add_executable(mpq_loader_example
+        examples/mpq_loader_example.cpp
+    )
+
+    target_link_libraries(mpq_loader_example PRIVATE whiteout_mpq)
+
+    # MPQ Explorer Example
+    add_executable(mpq_explorer_example
+        examples/mpq_explorer_example.cpp
+    )
+
+    target_link_libraries(mpq_explorer_example PRIVATE whiteout_mpq)
+
+    endif() # WHITEOUT_BUILD_EXAMPLES
+endif() # WHITEOUT_ENABLE_MPQ

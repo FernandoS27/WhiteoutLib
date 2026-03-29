@@ -12,25 +12,21 @@
 
 #include "deflate.h"
 
-#include "../../common/bit_io.h"
-#include "../../common/huffman_table.h"
-#include "../../common/checksum.h"
+#include "bit_io.h"
+#include "huffman_table.h"
+#include "checksum.h"
 
 #include <algorithm>
 #include <array>
 #include <cstring>
 
-namespace whiteout::textures::png {
+namespace whiteout {
 
-// Aliases for the common types to keep the rest of the file unchanged.
-using BitReader = ::whiteout::LsbBitReader;
-using BitWriter = ::whiteout::LsbBitWriter;
-using HuffTable = ::whiteout::LsbHuffmanTable;
+using BitReader = LsbBitReader;
+using BitWriter = LsbBitWriter;
+using HuffTable = LsbHuffmanTable;
 
 namespace {
-
-// Adler-32 lives in src/whiteout/common/checksum.h.
-using ::whiteout::adler32;
 
 // ============================================================================
 // Huffman Table Builders for DEFLATE Fixed Codes
@@ -104,18 +100,9 @@ struct Inflater {
     bool inflateStored() {
         br.alignToByte();
         if (br.bytePos + 4 > br.size) return error("Truncated stored block header");
-        // Read from the byte stream directly (bit buffer was aligned).
-        // But we may have bytes still in the bit buffer after alignment.
-        // After alignToByte, bitsAvail is a multiple of 8 that was already consumed.
-        // Actually we need to read LEN/NLEN from the bitstream post-alignment.
         u32 len = br.readBits(16);
         u32 nlen = br.readBits(16);
         if ((len ^ nlen) != 0xFFFF) return error("Stored block LEN/NLEN mismatch");
-        // Now read `len` raw bytes. Since we aligned, remaining bits are gone.
-        // But readBits consumed them from the buffer, so now bytePos is advanced.
-        // We need to pull bytes. After reading 32 bits from an aligned stream,
-        // bytePos has been advanced by refill. We should just read from the bit
-        // reader byte-by-byte.
         for (u32 i = 0; i < len; ++i) {
             if (br.bytePos >= br.size && br.bitsAvail < 8)
                 return error("Truncated stored block data");
@@ -210,8 +197,6 @@ struct Inflater {
         if (!litLenTable.build(codeLengths.data(), static_cast<i32>(hlit)))
             return error("Failed to build dynamic literal/length table");
 
-        // Build distance table. If hdist == 1 and the only length is 0, there
-        // are no distance codes (literal-only block). Build a dummy table.
         if (!distTable.build(codeLengths.data() + hlit, static_cast<i32>(hdist)))
             return error("Failed to build dynamic distance table");
 
@@ -259,16 +244,12 @@ u32 reverseBits(u32 value, i32 count) {
 // Encode a literal/length symbol using fixed Huffman codes (RFC 1951 §3.2.6).
 void writeFixedLitLen(BitWriter& bw, i32 sym) {
     if (sym <= 143) {
-        // 0b00110000 .. 0b10111111 → 8 bits, codes 0x30-0xBF
         bw.writeBits(reverseBits(static_cast<u32>(sym + 0x30), 8), 8);
     } else if (sym <= 255) {
-        // 0b110010000 .. 0b111111111 → 9 bits, codes 0x190-0x1FF
         bw.writeBits(reverseBits(static_cast<u32>(sym - 144 + 0x190), 9), 9);
     } else if (sym <= 279) {
-        // 0b0000000 .. 0b0010111 → 7 bits, codes 0x00-0x17
         bw.writeBits(reverseBits(static_cast<u32>(sym - 256), 7), 7);
     } else if (sym <= 287) {
-        // 0b11000000 .. 0b11000111 → 8 bits, codes 0xC0-0xC7
         bw.writeBits(reverseBits(static_cast<u32>(sym - 280 + 0xC0), 8), 8);
     }
 }
@@ -324,8 +305,6 @@ struct Deflater {
         const u8* src = input.data();
         const size_t srcLen = input.size();
 
-        // Hash table: head[hash] = most recent position with that hash.
-        // prev[pos & (WINDOW_SIZE-1)] = previous position in chain.
         std::vector<i32> head(HASH_SIZE, -1);
         std::vector<i32> prev(WINDOW_SIZE, -1);
 
@@ -351,7 +330,6 @@ struct Deflater {
                     u32 dist = static_cast<u32>(pos - static_cast<size_t>(chainPos));
                     if (dist > WINDOW_SIZE) break;
 
-                    // Compare.
                     u32 maxLen = static_cast<u32>(std::min(
                         static_cast<size_t>(MAX_MATCH), srcLen - pos));
                     u32 len = 0;
@@ -368,13 +346,11 @@ struct Deflater {
                     ++chainCount;
                 }
 
-                // Insert current position into hash chain.
                 prev[pos & (WINDOW_SIZE - 1)] = head[h];
                 head[h] = static_cast<i32>(pos);
             }
 
             if (bestLen >= MIN_MATCH) {
-                // Emit length/distance pair.
                 i32 lenCode = lengthToCode(bestLen);
                 writeFixedLitLen(bw, 257 + lenCode);
                 if (LENGTH_TABLE[lenCode].extraBits > 0) {
@@ -389,7 +365,6 @@ struct Deflater {
                                  DISTANCE_TABLE[distCode].extraBits);
                 }
 
-                // Insert skipped positions into the hash chain.
                 for (u32 i = 1; i < bestLen; ++i) {
                     size_t p = pos + i;
                     if (p + MIN_MATCH <= srcLen) {
@@ -400,7 +375,6 @@ struct Deflater {
                 }
                 pos += bestLen;
             } else {
-                // Emit literal.
                 writeFixedLitLen(bw, src[pos]);
                 ++pos;
             }
@@ -493,4 +467,4 @@ std::vector<u8> zlib_compress(std::span<const u8> data, std::string* out_error) 
     return result;
 }
 
-} // namespace whiteout::textures::png
+} // namespace whiteout

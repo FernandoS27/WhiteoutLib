@@ -2,7 +2,7 @@
 
 > **Alpha Stage:** This library is currently in early alpha. A lot of the design is actively being iterated on and may change significantly between versions.
 
-WhiteoutLib is a C++ library for reading and writing 3D model & texture formats used in Blizzard Entertainment games.
+WhiteoutLib is a C++ library for reading and writing 3D model, texture formats & storage formats used in Blizzard Entertainment games.
 It is inspired by StormLib, a library used by older Blizzard games to handle proprietary file formats like BLP, MDX, and MPQ. 
 
 ## Current 3D Format Support
@@ -23,14 +23,12 @@ It is inspired by StormLib, a library used by older Blizzard games to handle pro
 - **Warcraft III & World of Warcraft (`.blp`)**
     Both BLP1 (Warcraft III Classic) & BLP2 (World of Warcraft)
 - **Direct3D Surface (`.dds`)**
-- **Diablo 3 (`.tex`)**
+- **Diablo 3 & 4 (`.tex`)**
 - **Standard formats `.jpeg, .bmp, .png, .tga` and `.gif` for saving only.**
 - **Mipmap generation for PBR & Legacy pipelines, minding texture type and characteristics**
 
-## Planned Support
-- **Diablo 4 (`.tex`)**
-
-## CASC File System Support
+## Current Virtual File System Support
+- **Optional support of MPQ**
 - **Optional support of CASC by wrapping CascLib**
 + Some formats are easier to parse using CASC, like m2 and sno.
 
