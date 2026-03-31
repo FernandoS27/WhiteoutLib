@@ -33,6 +33,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -181,6 +182,11 @@ static void testStorageCrossValidate(const std::string& label, const std::string
     std::cout << "\n================================================================\n";
     std::cout << "Cross-validate (CascLib C API): " << label << "\n";
     std::cout << "  Path: " << path << "\n";
+
+    // TVFS storages (WC3R) should have exact path matches with CascLib.
+    // Non-TVFS storages (D3) use different path generation and won't match.
+    bool isTvfsStorage = (label.find("Warcraft") != std::string::npos ||
+                          label.find("Diablo IV") != std::string::npos);
 
     auto t0 = std::chrono::steady_clock::now();
 
@@ -444,6 +450,83 @@ static void testStorageCrossValidate(const std::string& label, const std::string
     if (md5Checked > 0) {
         check(md5Pass == md5Checked, "MD5/CKey verification (" +
               std::to_string(md5Pass) + "/" + std::to_string(md5Checked) + ")");
+    }
+
+    // --- Path format comparison ---
+    // For TVFS storages (WC3R), verify that our enumerated paths match CascLib's
+    // path format — including container prefixes like "war3.w3mod:" and "_hd.w3mod:".
+    // For non-TVFS storages (D3), this is informational only since the path
+    // generation strategy differs fundamentally.
+    {
+        // Build CascLib path → CKey map for path comparison.
+        std::unordered_map<std::string, std::array<u8, 16>> cascLibByPath;
+        for (auto& [k, p] : cascLibByKey)
+            cascLibByPath.emplace(p, k);
+
+        // Build new API path → CKey map.
+        std::unordered_map<std::string, std::array<u8, 16>> newByPath;
+        for (auto& ne : newEntries)
+            newByPath.emplace(ne.path, ne.cKey);
+
+        // Count CascLib paths found in new API (exact match).
+        size_t pathMatchCount = 0;
+        size_t pathMissCount = 0;
+        size_t pathMissShown = 0;
+        for (auto& [cascPath, cascCKey] : cascLibByPath) {
+            // Skip system entries that don't come from root manifest.
+            if (cascPath == "vfs-root" || cascPath == "ENCODING" ||
+                cascPath == "DOWNLOAD" || cascPath == "INSTALL" ||
+                cascPath == "PATCH" || cascPath == "SIZE" || cascPath == "ROOT")
+                continue;
+            if (cascPath.size() == 32) {
+                bool isHex = true;
+                for (char c : cascPath)
+                    if (!std::isxdigit(static_cast<unsigned char>(c))) { isHex = false; break; }
+                if (isHex) continue;
+            }
+
+            if (newByPath.count(cascPath)) {
+                ++pathMatchCount;
+            } else {
+                ++pathMissCount;
+                if (pathMissShown++ < 10)
+                    std::cout << "    PATH_MISS: CascLib=\"" << cascPath << "\""
+                              << " CKey=" << hexStr(cascCKey) << "\n";
+            }
+        }
+
+        size_t pathTotal = pathMatchCount + pathMissCount;
+        std::cout << "  Path format: " << pathMatchCount << "/" << pathTotal
+                  << " CascLib paths found in new API\n";
+        if (pathMissCount > 0)
+            std::cout << "  Path format mismatches: " << pathMissCount << "\n";
+
+        // Collect container prefixes from both APIs for diagnostic output.
+        std::set<std::string> cascPrefixes, newPrefixes;
+        for (auto& [p, _] : cascLibByPath) {
+            auto pos = p.find(':');
+            if (pos != std::string::npos)
+                cascPrefixes.insert(p.substr(0, pos + 1));
+        }
+        for (auto& ne : newEntries) {
+            auto pos = ne.path.find(':');
+            if (pos != std::string::npos)
+                newPrefixes.insert(ne.path.substr(0, pos + 1));
+        }
+        if (!cascPrefixes.empty() || !newPrefixes.empty()) {
+            std::cout << "  Container prefixes (CascLib):";
+            for (auto& p : cascPrefixes) std::cout << " " << p;
+            std::cout << "\n";
+            std::cout << "  Container prefixes (New API):";
+            for (auto& p : newPrefixes) std::cout << " " << p;
+            std::cout << "\n";
+        }
+
+        check(!isTvfsStorage || pathMissCount == 0, "path format matches CascLib (" +
+              std::to_string(pathMatchCount) + "/" + std::to_string(pathTotal) + ")");
+        if (!isTvfsStorage && pathMissCount > 0) {
+            std::cout << "  INFO: non-TVFS root — path format difference expected\n";
+        }
     }
 
     auto t1 = std::chrono::steady_clock::now();

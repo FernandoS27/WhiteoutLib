@@ -20,4 +20,16 @@ inline std::string toLower(const std::string& s) {
     return r;
 }
 
+/// Normalize a CASC path for lookup: lowercase, '/' → '\\', strip leading/trailing separators.
+inline std::string normalizeCascPath(const std::string& s) {
+    std::string r = s;
+    for (auto& c : r) {
+        if (c == '/') c = '\\';
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    while (!r.empty() && r.front() == '\\') r.erase(r.begin());
+    while (!r.empty() && r.back() == '\\') r.pop_back();
+    return r;
+}
+
 } // namespace whiteout::storages::common

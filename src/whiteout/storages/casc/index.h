@@ -23,6 +23,7 @@ struct IndexEntry {
     u32 archiveIndex = 0;       ///< Archive number (from shmem/CDN config).
     u32 archiveOffset = 0;      ///< Byte offset within data.XXX.
     u32 encodedSize = 0;        ///< BLTE-encoded size.
+    bool directBLTE = false;    ///< True for .index entries: offset points directly to BLTE data.
 };
 
 class IndexTable {
@@ -32,6 +33,14 @@ public:
     /// @param pool    Optional worker pool for parallel .idx parsing.
     static IndexTable load(const std::string& dataDir,
                            interfaces::WorkerPool* pool = nullptr);
+
+    /// Load per-archive .index files from the indices/ subdirectory.
+    /// @param dataDir      Path to the CASC Data directory.
+    /// @param archiveEKeys Ordered list of archive EKeys from the CDN config.
+    /// @param pool         Optional worker pool for parallel parsing.
+    void loadArchiveIndices(const std::string& dataDir,
+                            const std::vector<std::array<u8, 16>>& archiveEKeys,
+                            interfaces::WorkerPool* pool = nullptr);
 
     /// Lookup by EKey (prefix match using first 9 bytes).
     const IndexEntry* find(std::span<const u8> eKeyPrefix) const;

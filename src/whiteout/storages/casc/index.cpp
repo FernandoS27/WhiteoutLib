@@ -186,28 +186,33 @@ IndexTable IndexTable::load(const std::string& dataDir,
                             interfaces::WorkerPool* pool) {
     IndexTable table;
 
-    // Scan for .idx files in data/ or the root directory.
+    // Scan for .idx files in all immediate subdirectories of dataDir.
+    // D4 (fenris) stores indices in both data/ and a product-specific subdirectory,
+    // so we must scan all subdirectories rather than stopping at the first hit.
     std::vector<std::filesystem::path> idxPaths;
-    for (auto& candidate : {dataDir + "/data", dataDir}) {
-        if (!std::filesystem::exists(candidate))
-            continue;
-        for (auto& entry : std::filesystem::directory_iterator(candidate)) {
+    if (std::filesystem::exists(dataDir)) {
+        for (auto& dirEntry : std::filesystem::directory_iterator(dataDir)) {
+            if (!dirEntry.is_directory())
+                continue;
+            for (auto& fileEntry : std::filesystem::directory_iterator(dirEntry.path())) {
+                if (fileEntry.is_regular_file() && fileEntry.path().extension() == ".idx")
+                    idxPaths.push_back(fileEntry.path());
+            }
+        }
+    }
+    // Fallback: check dataDir root (flat layout).
+    if (idxPaths.empty() && std::filesystem::exists(dataDir)) {
+        for (auto& entry : std::filesystem::directory_iterator(dataDir)) {
             if (entry.is_regular_file() && entry.path().extension() == ".idx")
                 idxPaths.push_back(entry.path());
         }
-        if (!idxPaths.empty())
-            break;
     }
 
-    // For each bucket, keep only the highest-version .idx file.
+    // For each (parent directory, bucket) pair, keep only the highest-version .idx file.
     // Filename: {bucket:02x}{version:08x}.idx → 10 hex chars + .idx
-    std::unordered_map<u8, std::filesystem::path> bestPerBucket;
-    for (auto& p : idxPaths) {
-        auto stem = p.stem().string();
-        if (stem.size() < 4)
-            continue;
-
-        // First 2 hex chars = bucket.
+    // Different subdirectories (e.g. data/ vs fenris/) have independent bucket spaces,
+    // so we must resolve best-per-bucket within each directory separately.
+    auto parseBucket = [](const std::string& stem) -> u8 {
         u8 bucket = 0;
         for (int i = 0; i < 2; ++i) {
             char c = stem[i];
@@ -217,16 +222,32 @@ IndexTable IndexTable::load(const std::string& dataDir,
             else if (c >= 'A' && c <= 'F') nibble = u8(c - 'A' + 10);
             bucket = (bucket << 4) | nibble;
         }
+        return bucket;
+    };
 
-        auto it = bestPerBucket.find(bucket);
-        if (it == bestPerBucket.end() || stem > it->second.stem().string())
-            bestPerBucket[bucket] = p;
+    // Group by parent directory.
+    std::unordered_map<std::string, std::vector<std::filesystem::path>> idxByDir;
+    for (auto& p : idxPaths) {
+        auto stem = p.stem().string();
+        if (stem.size() < 4)
+            continue;
+        idxByDir[p.parent_path().string()].push_back(p);
     }
 
-    // Parse each .idx file.
+    // Within each directory, pick the best (highest-version) per bucket.
     std::vector<std::filesystem::path> filesToParse;
-    for (auto& [_, path] : bestPerBucket)
-        filesToParse.push_back(path);
+    for (auto& [dir, paths] : idxByDir) {
+        std::unordered_map<u8, std::filesystem::path> bestPerBucket;
+        for (auto& p : paths) {
+            auto stem = p.stem().string();
+            u8 bucket = parseBucket(stem);
+            auto it = bestPerBucket.find(bucket);
+            if (it == bestPerBucket.end() || stem > it->second.stem().string())
+                bestPerBucket[bucket] = p;
+        }
+        for (auto& [_, path] : bestPerBucket)
+            filesToParse.push_back(path);
+    }
 
     if (pool && filesToParse.size() > 1) {
         // Parallel parse.
@@ -262,6 +283,239 @@ IndexTable IndexTable::load(const std::string& dataDir,
     }
 
     return table;
+}
+
+// ============================================================================
+// Archive Index (.index) file parser — per-archive footer-based format
+// ============================================================================
+
+/// Footer of an archive .index file (last 36 bytes for FooterHashBytes=8).
+/// Layout matches CascLib's FILE_INDEX_FOOTER<0x08>:
+///   TocHash[16], Version(1), Reserved[2], PageSizeKB(1),
+///   OffsetBytes(1), SizeBytes(1), EKeyLength(1), FooterHashBytes(1),
+///   ElementCount[4], FooterHash[8].
+struct ArchiveIndexFooter {
+    u8 pageSizeKB = 0;
+    u8 offsetBytes = 0;
+    u8 sizeBytes = 0;
+    u8 eKeyLength = 0;
+    u8 footerHashBytes = 0;
+    u32 elementCount = 0;
+    size_t pageLength = 0;
+    size_t itemLength = 0;
+    size_t footerLength = 0;
+};
+
+static constexpr size_t kArcIdxFooterSize8 = 36;  // FooterHashBytes=8
+
+static bool parseArchiveIndexFooter(const u8* data, size_t fileSize,
+                                     ArchiveIndexFooter& footer) {
+    if (fileSize < kArcIdxFooterSize8)
+        return false;
+
+    const u8* f = data + fileSize - kArcIdxFooterSize8;
+
+    // Validate: Version == 1, Reserved == {0, 0}, FooterHashBytes == 8.
+    u8 version = f[16];
+    if (version != 1)
+        return false;
+    if (f[17] != 0 || f[18] != 0)
+        return false;
+
+    footer.pageSizeKB = f[19];
+    footer.offsetBytes = f[20];
+    footer.sizeBytes = f[21];
+    footer.eKeyLength = f[22];
+    footer.footerHashBytes = f[23];
+
+    if (footer.footerHashBytes != 8)
+        return false;
+    if (footer.eKeyLength == 0 || footer.eKeyLength > 16)
+        return false;
+    if (footer.offsetBytes == 0 || footer.offsetBytes > 8)
+        return false;
+    if (footer.sizeBytes == 0 || footer.sizeBytes > 8)
+        return false;
+    if (footer.pageSizeKB == 0)
+        return false;
+
+    // ElementCount is 4 bytes LE at offset 24.
+    std::memcpy(&footer.elementCount, f + 24, 4);
+
+    footer.pageLength = size_t(footer.pageSizeKB) << 10;
+    footer.itemLength = footer.eKeyLength + footer.offsetBytes + footer.sizeBytes;
+    footer.footerLength = kArcIdxFooterSize8;
+
+    return true;
+}
+
+/// Read a variable-length big-endian integer (matches CascLib's ConvertBytesToInteger_X).
+static u64 readBEVar(const u8* data, u8 numBytes) {
+    u64 val = 0;
+    for (u8 i = 0; i < numBytes; ++i)
+        val = (val << 8) | data[i];
+    return val;
+}
+
+/// Parse a single .index file and collect entries for the given archive index.
+static void parseArchiveIndexFile(const u8* data, size_t fileSize,
+                                   u32 archiveIndex,
+                                   std::vector<IndexEntry>& entries) {
+    ArchiveIndexFooter footer;
+    if (!parseArchiveIndexFooter(data, fileSize, footer))
+        return;
+
+    if (footer.itemLength == 0 || footer.itemLength > 64)
+        return;
+
+    // File layout: contiguous pages of pageLength bytes, then page hashes,
+    // then footer. Page count = (fileSize - footerLength) / (pageLength + 16).
+    size_t dataSize = fileSize - footer.footerLength;
+    size_t pageCount = dataSize / (footer.pageLength + 16);  // 16 = MD5 hash per page
+    size_t entryDataEnd = pageCount * footer.pageLength;
+
+    entries.reserve(entries.size() + footer.elementCount);
+
+    u32 remaining = footer.elementCount;
+    for (size_t page = 0; page < pageCount && remaining > 0; ++page) {
+        size_t pageStart = page * footer.pageLength;
+        size_t itemsOnPage = (footer.pageLength) / footer.itemLength;
+        size_t count = std::min<size_t>(itemsOnPage, remaining);
+
+        for (size_t i = 0; i < count; ++i) {
+            size_t entryOffset = pageStart + i * footer.itemLength;
+            if (entryOffset + footer.itemLength > entryDataEnd)
+                break;
+
+            const u8* entry = data + entryOffset;
+
+            IndexEntry ie;
+
+            // EKey (eKeyLength bytes).
+            std::memcpy(ie.eKey.data(), entry, std::min<u8>(footer.eKeyLength, 16));
+
+            // Skip zero EKeys.
+            bool allZero = true;
+            for (u8 b = 0; b < footer.eKeyLength && b < 16; ++b) {
+                if (ie.eKey[b] != 0) { allZero = false; break; }
+            }
+            if (allZero)
+                continue;
+
+            // Encoded size (sizeBytes, BE) immediately after EKey.
+            ie.encodedSize = u32(readBEVar(entry + footer.eKeyLength, footer.sizeBytes));
+
+            // Archive offset (offsetBytes, BE) after size.
+            u64 offset = readBEVar(entry + footer.eKeyLength + footer.sizeBytes,
+                                    footer.offsetBytes);
+            ie.archiveOffset = u32(offset);
+            ie.archiveIndex = archiveIndex;
+            ie.directBLTE = true;
+
+            entries.push_back(ie);
+        }
+
+        remaining -= u32(count);
+    }
+}
+
+// ============================================================================
+// IndexTable::loadArchiveIndices
+// ============================================================================
+
+void IndexTable::loadArchiveIndices(const std::string& dataDir,
+                                     const std::vector<std::array<u8, 16>>& archiveEKeys,
+                                     interfaces::WorkerPool* pool) {
+    namespace fs = std::filesystem;
+
+    if (archiveEKeys.empty())
+        return;
+
+    // Search for .index files in indices/ or data/ subdirectories.
+    std::string indicesDir;
+    for (auto& candidate : {dataDir + "/indices", dataDir + "/data"}) {
+        if (fs::exists(candidate) && fs::is_directory(candidate)) {
+            // Check if this directory has .index files.
+            for (auto& entry : fs::directory_iterator(candidate)) {
+                if (entry.is_regular_file() && entry.path().extension() == ".index") {
+                    indicesDir = candidate;
+                    break;
+                }
+            }
+            if (!indicesDir.empty())
+                break;
+        }
+    }
+
+    if (indicesDir.empty())
+        return;
+
+    // Build archive EKey → index mapping.
+    auto toHex = [](const std::array<u8, 16>& key) -> std::string {
+        static constexpr char hex[] = "0123456789abcdef";
+        std::string s;
+        s.reserve(32);
+        for (u8 b : key) {
+            s += hex[b >> 4];
+            s += hex[b & 0xF];
+        }
+        return s;
+    };
+
+    // For each archive, try to find its .index file.
+    struct IndexFileJob {
+        fs::path path;
+        u32 archiveIndex;
+    };
+    std::vector<IndexFileJob> jobs;
+
+    for (size_t i = 0; i < archiveEKeys.size(); ++i) {
+        std::string hexName = toHex(archiveEKeys[i]);
+        fs::path indexPath = fs::path(indicesDir) / (hexName + ".index");
+        if (fs::exists(indexPath))
+            jobs.push_back({indexPath, u32(i)});
+    }
+
+    if (jobs.empty())
+        return;
+
+    size_t prevEntries = m_entries.size();
+
+    if (pool && jobs.size() > 1) {
+        // Parallel parse.
+        utils::JobGroup jobGroup;
+        std::vector<std::vector<IndexEntry>> perFileEntries(jobs.size());
+        jobGroup.add(jobs.size());
+        for (size_t i = 0; i < jobs.size(); ++i) {
+            interfaces::WorkerTask task;
+            task.fn = [&, i]() {
+                auto mf = common::MappedFile::open(jobs[i].path.string());
+                if (mf)
+                    parseArchiveIndexFile(mf->ptr(), mf->size(),
+                                          jobs[i].archiveIndex,
+                                          perFileEntries[i]);
+                jobGroup.done();
+            };
+            pool->submit(task);
+        }
+        jobGroup.wait();
+
+        for (auto& entries : perFileEntries)
+            for (auto& e : entries)
+                m_entries.emplace(eKeyHash(std::span(e.eKey.data(), 9)), e);
+    } else {
+        // Sequential parse.
+        for (auto& job : jobs) {
+            auto mf = common::MappedFile::open(job.path.string());
+            if (!mf) continue;
+
+            std::vector<IndexEntry> entries;
+            parseArchiveIndexFile(mf->ptr(), mf->size(), job.archiveIndex, entries);
+            for (auto& e : entries)
+                m_entries.emplace(eKeyHash(std::span(e.eKey.data(), 9)), e);
+        }
+    }
+
 }
 
 // ============================================================================

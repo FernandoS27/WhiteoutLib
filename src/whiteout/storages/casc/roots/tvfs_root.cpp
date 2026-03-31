@@ -18,7 +18,7 @@ using storages::common::readLE32;
 using storages::common::readBE16;
 using storages::common::readBE32;
 using storages::common::readBEVar;
-using storages::common::toLower;
+using storages::common::normalizeCascPath;
 
 // ---- Constants local to TVFS root parser ----
 
@@ -114,12 +114,30 @@ struct TraversalCtx {
     const TvfsHeader& hdr;
     u32 cftOffsSize;
     std::vector<RootEntry>& entries;
+    const VfsResolver* resolver;                            ///< null when no sub-container resolution.
+    const std::vector<std::array<u8, 16>>* vfsEKeys;       ///< null when no sub-container resolution.
 };
 
 static void traversePathTree(TraversalCtx& ctx, const u8* node, const u8* nodeEnd,
                              const std::string& accumulated, int depth);
 
+/// Forward-declare parsePathTable so sub-container resolution can call it recursively.
+static void parsePathTable(TraversalCtx& ctx, const std::string& pathPrefix = {});
+
+/// Check if an EKey matches any known VFS sub-manifest.
+static bool isVfsSubManifest(const TraversalCtx& ctx, const u8* eKey) {
+    if (!ctx.vfsEKeys) return false;
+    for (auto& vfsEKey : *ctx.vfsEKeys) {
+        if (std::memcmp(vfsEKey.data(), eKey, ctx.hdr.eKeySize) == 0)
+            return true;
+    }
+    return false;
+}
+
 /// Process a leaf node (file entry): resolve VFS → CFT → EKey [+ CKey].
+/// When a single-span entry's EKey matches a VFS sub-manifest, the entry is
+/// treated as a sub-container: a ':' separator is appended to the path and the
+/// sub-manifest is recursively parsed with that prefix (matching CascLib).
 static void processFileEntry(TraversalCtx& ctx, const std::string& path, u32 vfsOffset) {
     auto& hdr = ctx.hdr;
     const u8* vfsBase = ctx.data.data() + hdr.vfsTableOffset;
@@ -136,6 +154,50 @@ static void processFileEntry(TraversalCtx& ctx, const std::string& path, u32 vfs
 
     bool hasCKey = (hdr.flags & kTvfsFlagIncludeCKey) != 0;
 
+    // For single-span entries, check whether this is a VFS sub-container.
+    if (spanCount == 1 && ctx.resolver && ctx.vfsEKeys) {
+        if (vfsPos + spanEntrySize > hdr.vfsTableSize) return;
+
+        u32 cftOffset = readBEVar(vfsBase + vfsPos + 8, ctx.cftOffsSize);
+        u32 cftEntrySize = hasCKey ? (hdr.eKeySize * 2) : hdr.eKeySize;
+        if (cftOffset + cftEntrySize > hdr.cftTableSize) goto normal_entry;
+
+        const u8* eKeyPtr = cftBase + cftOffset;
+
+        if (isVfsSubManifest(ctx, eKeyPtr)) {
+            // This is a VFS sub-container. Build container path with ':'
+            // separator (matches CascLib's convention).
+            std::string containerPath = path + ":";
+
+            // Insert an entry for the container itself.
+            RootEntry containerEntry;
+            containerEntry.path = containerPath;
+            std::memset(containerEntry.eKey.data(), 0, 16);
+            u32 ekCopy = std::min<u32>(hdr.eKeySize, 16);
+            std::memcpy(containerEntry.eKey.data(), eKeyPtr, ekCopy);
+            if (hasCKey) {
+                std::memset(containerEntry.cKey.data(), 0, 16);
+                u32 ckCopy = std::min<u32>(hdr.eKeySize, 16);
+                std::memcpy(containerEntry.cKey.data(), eKeyPtr + hdr.eKeySize, ckCopy);
+            }
+            ctx.entries.push_back(std::move(containerEntry));
+
+            // Resolve the sub-manifest data and recursively parse it.
+            auto subData = (*ctx.resolver)(std::span<const u8>(eKeyPtr, hdr.eKeySize));
+            if (!subData.empty()) {
+                TvfsHeader subHdr;
+                if (parseHeader(subData, subHdr)) {
+                    u32 subCftOffsSize = getCftOffsSize(subHdr.cftTableSize);
+                    TraversalCtx subCtx{subData, subHdr, subCftOffsSize, ctx.entries,
+                                        ctx.resolver, ctx.vfsEKeys};
+                    parsePathTable(subCtx, containerPath);
+                }
+            }
+            return;
+        }
+    }
+
+normal_entry:
     for (u8 s = 0; s < spanCount; ++s) {
         if (vfsPos + spanEntrySize > hdr.vfsTableSize) return;
 
@@ -197,7 +259,7 @@ static void traversePathTree(TraversalCtx& ctx, const u8* node, const u8* nodeEn
 
         // Pre-0x00: path separator before name.
         if (*node == kTvfsPathSeparator) {
-            pathBuf += '/';
+            pathBuf += '\\';
             ++node;
             if (node >= nodeEnd) break;
         }
@@ -240,7 +302,7 @@ static void traversePathTree(TraversalCtx& ctx, const u8* node, const u8* nodeEn
         // (pre-separator was already appended above)
         pathBuf += name;
         if (hasPostSep)
-            pathBuf += '/';
+            pathBuf += '\\';
 
         // --- Process node value ---
         if (hasNodeValue) {
@@ -268,7 +330,7 @@ static void traversePathTree(TraversalCtx& ctx, const u8* node, const u8* nodeEn
 
 /// Entry point: unwrap the optional anonymous root folder, then traverse.
 /// CascLib does this unwrap in ParseDirectoryData before calling ParsePathFileTable.
-static void parsePathTable(TraversalCtx& ctx) {
+static void parsePathTable(TraversalCtx& ctx, const std::string& pathPrefix) {
     const u8* node = ctx.data.data() + ctx.hdr.pathTableOffset;
     const u8* nodeEnd = node + ctx.hdr.pathTableSize;
 
@@ -283,13 +345,13 @@ static void parsePathTable(TraversalCtx& ctx) {
             const u8* childStart = node + 5; // past 0xFF + 4-byte value
             const u8* childEnd = childStart + innerLen;
             if (childEnd > nodeEnd) return;
-            traversePathTree(ctx, childStart, childEnd, {}, 0);
+            traversePathTree(ctx, childStart, childEnd, pathPrefix, 0);
             return;
         }
     }
 
     // No root wrapper — parse directly.
-    traversePathTree(ctx, node, nodeEnd, {}, 0);
+    traversePathTree(ctx, node, nodeEnd, pathPrefix, 0);
 }
 
 } // anonymous namespace
@@ -310,7 +372,32 @@ std::unique_ptr<TvfsRoot> TvfsRoot::parse(
 
     u32 cftOffsSize = getCftOffsSize(hdr.cftTableSize);
 
-    TraversalCtx ctx{data, hdr, cftOffsSize, root->m_entries};
+    TraversalCtx ctx{data, hdr, cftOffsSize, root->m_entries, nullptr, nullptr};
+
+    parsePathTable(ctx);
+
+    if (root->m_entries.empty())
+        return nullptr;
+
+    root->buildIndices(pool);
+    return root;
+}
+
+std::unique_ptr<TvfsRoot> TvfsRoot::parse(
+    std::span<const u8> data,
+    const VfsResolver& resolver,
+    const std::vector<std::array<u8, 16>>& vfsEKeys,
+    interfaces::WorkerPool* pool)
+{
+    TvfsHeader hdr;
+    if (!parseHeader(data, hdr))
+        return nullptr;
+
+    auto root = std::make_unique<TvfsRoot>();
+
+    u32 cftOffsSize = getCftOffsSize(hdr.cftTableSize);
+
+    TraversalCtx ctx{data, hdr, cftOffsSize, root->m_entries, &resolver, &vfsEKeys};
 
     parsePathTable(ctx);
 
@@ -326,12 +413,12 @@ void TvfsRoot::merge(const TvfsRoot& other) {
     m_entries.insert(m_entries.end(), other.m_entries.begin(), other.m_entries.end());
     for (size_t i = base; i < m_entries.size(); ++i) {
         if (!m_entries[i].path.empty())
-            m_byPath.emplace(toLower(m_entries[i].path), i);
+            m_byPath.emplace(normalizeCascPath(m_entries[i].path), i);
     }
 }
 
 std::vector<RootEntry> TvfsRoot::findByPath(const std::string& path) const {
-    auto key = toLower(path);
+    auto key = normalizeCascPath(path);
     std::vector<RootEntry> results;
     auto range = m_byPath.equal_range(key);
     for (auto it = range.first; it != range.second; ++it)
@@ -381,7 +468,7 @@ void TvfsRoot::buildIndices(interfaces::WorkerPool* pool) {
                 size_t end = std::min(start + chunkSize, n);
                 for (size_t i = start; i < end; ++i) {
                     if (!m_entries[i].path.empty())
-                        lowerPaths[i] = toLower(m_entries[i].path);
+                        lowerPaths[i] = normalizeCascPath(m_entries[i].path);
                 }
                 jobGroup.done();
             };
@@ -391,7 +478,7 @@ void TvfsRoot::buildIndices(interfaces::WorkerPool* pool) {
     } else {
         for (size_t i = 0; i < n; ++i) {
             if (!m_entries[i].path.empty())
-                lowerPaths[i] = toLower(m_entries[i].path);
+                lowerPaths[i] = normalizeCascPath(m_entries[i].path);
         }
     }
 

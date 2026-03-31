@@ -82,10 +82,19 @@ if(WHITEOUT_ENABLE_CASC)
         add_executable(casc_cross_validate_test casc_cross_validate_test.cpp)
         target_link_libraries(casc_cross_validate_test PRIVATE whiteout_casc casc_static)
         target_compile_definitions(casc_cross_validate_test PRIVATE WHITEOUT_HAS_CASCLIB_CROSSVAL=1)
+
+        # Diablo IV CASC cross-validation test.
+        add_executable(d4_casc_test ${CMAKE_SOURCE_DIR}/examples/d4_casc_test.cpp)
+        target_link_libraries(d4_casc_test PRIVATE whiteout_casc casc_static)
+        target_compile_definitions(d4_casc_test PRIVATE WHITEOUT_HAS_CASCLIB_CROSSVAL=1)
     else()
         # Build the cross-validate test without CascLib (internal consistency only).
         add_executable(casc_cross_validate_test casc_cross_validate_test.cpp)
         target_link_libraries(casc_cross_validate_test PRIVATE whiteout_casc)
+
+        # Diablo IV CASC test (internal consistency only).
+        add_executable(d4_casc_test ${CMAKE_SOURCE_DIR}/examples/d4_casc_test.cpp)
+        target_link_libraries(d4_casc_test PRIVATE whiteout_casc)
     endif()
 
 endif() # WHITEOUT_ENABLE_CASC

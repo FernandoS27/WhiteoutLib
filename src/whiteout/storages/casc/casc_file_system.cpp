@@ -68,7 +68,7 @@ public:
         // Normalize input prefix.
         std::string prefix = dirPath;
         if (!prefix.empty() && prefix.back() != '/' && prefix.back() != '\\')
-            prefix.push_back('/');
+            prefix.push_back('\\');
 
         // Convert to lowercase for comparison.
         std::string prefixLower = storages::common::toLower(prefix);

@@ -8,6 +8,8 @@
 
 #include "root.h"
 
+#include <array>
+#include <functional>
 #include <span>
 #include <unordered_map>
 #include <vector>
@@ -16,12 +18,30 @@ namespace whiteout::interfaces { class WorkerPool; }
 
 namespace whiteout::storages::casc {
 
+/// Resolver function for VFS sub-manifest data.
+/// Given an EKey (eKeySize bytes), returns the decoded TVFS blob, or empty on failure.
+using VfsResolver = std::function<std::vector<u8>(std::span<const u8> eKey)>;
+
 class TvfsRoot final : public RootManifest {
 public:
-    /// Parse a single TVFS blob.
+    /// Parse a single TVFS blob (no sub-container resolution).
     /// @param data  Raw (BLTE-decoded) TVFS root bytes.
     /// @return Parsed root, or nullptr on failure.
     static std::unique_ptr<TvfsRoot> parse(std::span<const u8> data,
+                                            interfaces::WorkerPool* pool = nullptr);
+
+    /// Parse a TVFS blob with sub-container resolution (WC3 Reforged multi-VFS).
+    /// When a leaf entry's EKey matches a known VFS sub-manifest, the entry is
+    /// treated as a sub-container: a ':' separator is appended to the path and
+    /// the sub-manifest is recursively parsed with that prefix. This matches
+    /// CascLib's path reporting behavior.
+    /// @param data      Raw (BLTE-decoded) TVFS root bytes.
+    /// @param resolver  Resolves VFS sub-manifest EKeys to decoded data.
+    /// @param vfsEKeys  EKeys of known VFS sub-manifests (matched by first eKeySize bytes).
+    /// @param pool      Optional worker pool for parallel index building.
+    static std::unique_ptr<TvfsRoot> parse(std::span<const u8> data,
+                                            const VfsResolver& resolver,
+                                            const std::vector<std::array<u8, 16>>& vfsEKeys,
                                             interfaces::WorkerPool* pool = nullptr);
 
     /// Merge entries from another TvfsRoot into this one.

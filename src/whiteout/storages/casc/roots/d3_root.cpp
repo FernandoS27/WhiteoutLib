@@ -15,7 +15,7 @@
 namespace whiteout::storages::casc {
 
 using storages::common::readLE32;
-using storages::common::toLower;
+using storages::common::normalizeCascPath;
 
 // ---- Constants local to D3 root parser ----
 
@@ -216,7 +216,8 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
     for (auto& ae : assetEntries) {
         RootEntry re;
         re.cKey = ae.cKey;
-        re.path = std::string(getAssetExtension(ae.fileIndex >> 16)) + "/" +
+        re.fileDataId = ae.fileIndex;
+        re.path = std::string(getAssetExtension(ae.fileIndex >> 16)) + "\\" +
                   std::to_string(ae.fileIndex & 0xFFFF);
         root->m_entries.push_back(std::move(re));
     }
@@ -224,7 +225,8 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
     for (auto& aie : assetIdxEntries) {
         RootEntry re;
         re.cKey = aie.cKey;
-        re.path = std::string(getAssetExtension(aie.fileIndex >> 16)) + "/" +
+        re.fileDataId = aie.fileIndex;
+        re.path = std::string(getAssetExtension(aie.fileIndex >> 16)) + "\\" +
                   std::to_string(aie.fileIndex & 0xFFFF) + "." + std::to_string(aie.subIndex);
         root->m_entries.push_back(std::move(re));
     }
@@ -278,12 +280,13 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
             size_t subOffset = 0;
 
             if (parseDirectory(subdirData[si], subOffset, subAssets, subAssetIdx, subNamed)) {
-                std::string prefix = subNe.name.empty() ? "" : (subNe.name + "/");
+                std::string prefix = subNe.name.empty() ? "" : (subNe.name + "\\");
 
                 for (auto& ae : subAssets) {
                     RootEntry re;
                     re.cKey = ae.cKey;
-                    re.path = prefix + getAssetExtension(ae.fileIndex >> 16) + "/" +
+                    re.fileDataId = ae.fileIndex;
+                    re.path = prefix + getAssetExtension(ae.fileIndex >> 16) + "\\" +
                               std::to_string(ae.fileIndex & 0xFFFF);
                     root->m_entries.push_back(std::move(re));
                 }
@@ -291,7 +294,8 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
                 for (auto& aie : subAssetIdx) {
                     RootEntry re;
                     re.cKey = aie.cKey;
-                    re.path = prefix + getAssetExtension(aie.fileIndex >> 16) + "/" +
+                    re.fileDataId = aie.fileIndex;
+                    re.path = prefix + getAssetExtension(aie.fileIndex >> 16) + "\\" +
                               std::to_string(aie.fileIndex & 0xFFFF) + "." +
                               std::to_string(aie.subIndex);
                     root->m_entries.push_back(std::move(re));
@@ -314,7 +318,7 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
 }
 
 std::vector<RootEntry> D3Root::findByPath(const std::string& path) const {
-    auto key = toLower(path);
+    auto key = normalizeCascPath(path);
     std::vector<RootEntry> results;
     auto range = m_byPath.equal_range(key);
     for (auto it = range.first; it != range.second; ++it)
@@ -322,9 +326,12 @@ std::vector<RootEntry> D3Root::findByPath(const std::string& path) const {
     return results;
 }
 
-std::vector<RootEntry> D3Root::findByFileDataId(u32 /*fileDataId*/) const {
-    // D3 does not use FileDataIds.
-    return {};
+std::vector<RootEntry> D3Root::findByFileDataId(u32 fileDataId) const {
+    std::vector<RootEntry> results;
+    auto range = m_byFileDataId.equal_range(fileDataId);
+    for (auto it = range.first; it != range.second; ++it)
+        results.push_back(m_entries[it->second]);
+    return results;
 }
 
 std::vector<RootEntry> D3Root::findByCKey(std::span<const u8, 16> cKey) const {
@@ -365,7 +372,7 @@ void D3Root::buildIndices(interfaces::WorkerPool* pool) {
                 size_t end = std::min(start + chunkSize, n);
                 for (size_t i = start; i < end; ++i) {
                     if (!m_entries[i].path.empty())
-                        lowerPaths[i] = toLower(m_entries[i].path);
+                        lowerPaths[i] = normalizeCascPath(m_entries[i].path);
                 }
                 jobGroup.done();
             };
@@ -375,14 +382,17 @@ void D3Root::buildIndices(interfaces::WorkerPool* pool) {
     } else {
         for (size_t i = 0; i < n; ++i) {
             if (!m_entries[i].path.empty())
-                lowerPaths[i] = toLower(m_entries[i].path);
+                lowerPaths[i] = normalizeCascPath(m_entries[i].path);
         }
     }
 
     m_byPath.reserve(n);
+    m_byFileDataId.reserve(n);
     for (size_t i = 0; i < n; ++i) {
         if (!lowerPaths[i].empty())
             m_byPath.emplace(std::move(lowerPaths[i]), i);
+        if (m_entries[i].fileDataId != kInvalidFileDataId)
+            m_byFileDataId.emplace(m_entries[i].fileDataId, i);
     }
 }
 

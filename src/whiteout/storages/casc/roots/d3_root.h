@@ -45,6 +45,9 @@ private:
     /// Path-based lookup (lowercase normalized).
     std::unordered_multimap<std::string, size_t> m_byPath;
 
+    /// FileDataId-based lookup (fileIndex = SNO ID).
+    std::unordered_multimap<u32, size_t> m_byFileDataId;
+
     void buildIndices(interfaces::WorkerPool* pool = nullptr);
 };
 

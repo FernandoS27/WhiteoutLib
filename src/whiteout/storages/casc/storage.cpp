@@ -13,6 +13,7 @@
 #include "roots/root.h"
 #include "roots/wow_root.h"
 #include "roots/d3_root.h"
+#include "roots/d4_root.h"
 #include "roots/tvfs_root.h"
 #include "writer.h"
 #include "../common/hex.h"
@@ -92,17 +93,17 @@ struct OverlayEntry {
 // Impl
 // ============================================================================
 
-/// Normalize a CASC path: lowercase, forward slashes, strip leading/trailing slashes.
+/// Normalize a CASC path: lowercase, backslashes (CascLib convention), strip leading/trailing separators.
 static std::string normalizePath(const std::string& input) {
     std::string result = input;
     for (auto& c : result) {
-        if (c == '\\') c = '/';
+        if (c == '/') c = '\\';
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     }
-    // Strip leading slashes.
-    while (!result.empty() && result.front() == '/') result.erase(result.begin());
-    // Strip trailing slashes.
-    while (!result.empty() && result.back() == '/') result.pop_back();
+    // Strip leading separators.
+    while (!result.empty() && result.front() == '\\') result.erase(result.begin());
+    // Strip trailing separators.
+    while (!result.empty() && result.back() == '\\') result.pop_back();
     return result;
 }
 
@@ -114,6 +115,7 @@ struct Storage::Impl {
     std::string dataPath;        // basePath + "/Data".
     interfaces::WorkerPool* pool = nullptr;
     u32 localeMask = 0;
+    RootFormat requestedRootFormat = RootFormat::Tvfs; // From CreateOptions.
 
     BuildConfig buildConfig;
     CdnConfig cdnConfig;
@@ -137,6 +139,9 @@ struct Storage::Impl {
     /// Read raw BLTE data from an archive at a given offset.
     /// Handles the 30-byte archive entry header (EKey hash + encoded/decoded sizes + flags).
     std::vector<u8> readRawBlte(u32 archiveIndex, u32 offset, u32 encodedSize) const;
+
+    /// Read raw BLTE data without the archive entry header (.index entries).
+    std::vector<u8> readRawBlteDirect(u32 archiveIndex, u32 offset, u32 encodedSize) const;
 
     /// Full pipeline: CKey → decoded file data.
     std::vector<u8> resolveCKey(std::span<const u8, 16> cKey) const;
@@ -185,6 +190,7 @@ std::vector<u8> Storage::Impl::readRawBlte(u32 archiveIndex, u32 offset, u32 enc
     if (!archive)
         return {};
 
+    // Default: .idx entries have a 30-byte per-entry header before BLTE data.
     u64 dataOffset = u64(offset) + kArchiveEntryHeaderSize;
     if (encodedSize <= kArchiveEntryHeaderSize)
         return {};
@@ -197,6 +203,22 @@ std::vector<u8> Storage::Impl::readRawBlte(u32 archiveIndex, u32 offset, u32 enc
     return std::vector<u8>(ptr, ptr + dataSize);
 }
 
+/// Read raw BLTE data from a data archive (.index variant: no per-entry header).
+std::vector<u8> Storage::Impl::readRawBlteDirect(u32 archiveIndex, u32 offset, u32 encodedSize) const {
+    if (archiveIndex >= dataArchives.size())
+        return {};
+
+    auto& archive = dataArchives[archiveIndex];
+    if (!archive)
+        return {};
+
+    if (u64(offset) + encodedSize > archive.size())
+        return {};
+
+    auto ptr = archive.ptr() + offset;
+    return std::vector<u8>(ptr, ptr + encodedSize);
+}
+
 std::vector<u8> Storage::Impl::resolveCKey(std::span<const u8, 16> cKey) const {
     auto encEntry = encodingTable.findByCKey(cKey);
     if (!encEntry) return {};
@@ -204,12 +226,21 @@ std::vector<u8> Storage::Impl::resolveCKey(std::span<const u8, 16> cKey) const {
     auto idxEntry = indexTable.find(std::span<const u8>(encEntry->eKey.data(), 9));
     if (!idxEntry) return {};
 
-    auto blteData = readRawBlte(idxEntry->archiveIndex, idxEntry->archiveOffset,
-                                idxEntry->encodedSize);
+    auto blteData = idxEntry->directBLTE
+        ? readRawBlteDirect(idxEntry->archiveIndex, idxEntry->archiveOffset, idxEntry->encodedSize)
+        : readRawBlte(idxEntry->archiveIndex, idxEntry->archiveOffset, idxEntry->encodedSize);
     if (blteData.empty()) return {};
 
     auto decoded = blteDecode(blteData, &keyRing, pool);
-    if (!decoded.success) return {};
+    if (!decoded.success) {
+        // Fallback: try the other read method (see resolveEKey comment).
+        blteData = idxEntry->directBLTE
+            ? readRawBlte(idxEntry->archiveIndex, idxEntry->archiveOffset, idxEntry->encodedSize)
+            : readRawBlteDirect(idxEntry->archiveIndex, idxEntry->archiveOffset, idxEntry->encodedSize);
+        if (blteData.empty()) return {};
+        decoded = blteDecode(blteData, &keyRing, pool);
+        if (!decoded.success) return {};
+    }
 
     return std::move(decoded.data);
 }
@@ -219,12 +250,24 @@ std::vector<u8> Storage::Impl::resolveEKey(std::span<const u8, 16> eKey) const {
     auto idxEntry = indexTable.find(std::span<const u8>(eKey.data(), 9));
     if (!idxEntry) return {};
 
-    auto blteData = readRawBlte(idxEntry->archiveIndex, idxEntry->archiveOffset,
-                                idxEntry->encodedSize);
+    auto blteData = idxEntry->directBLTE
+        ? readRawBlteDirect(idxEntry->archiveIndex, idxEntry->archiveOffset, idxEntry->encodedSize)
+        : readRawBlte(idxEntry->archiveIndex, idxEntry->archiveOffset, idxEntry->encodedSize);
     if (blteData.empty()) return {};
 
     auto decoded = blteDecode(blteData, &keyRing, pool);
-    if (!decoded.success) return {};
+    if (!decoded.success) {
+        // Fallback: try the other read method.  D4 .idx entries sometimes
+        // reference data without the 30-byte archive entry header, so the
+        // directBLTE flag from the first index that stored the entry may be
+        // wrong.  Retry with the opposite method before giving up.
+        blteData = idxEntry->directBLTE
+            ? readRawBlte(idxEntry->archiveIndex, idxEntry->archiveOffset, idxEntry->encodedSize)
+            : readRawBlteDirect(idxEntry->archiveIndex, idxEntry->archiveOffset, idxEntry->encodedSize);
+        if (blteData.empty()) return {};
+        decoded = blteDecode(blteData, &keyRing, pool);
+        if (!decoded.success) return {};
+    }
 
     return std::move(decoded.data);
 }
@@ -343,6 +386,16 @@ std::optional<std::vector<u8>> Storage::Impl::readFileResolved(
 
     auto result = resolveRootEntry(entries, localeFlags != 0 ? localeFlags : localeMask);
     if (!result) {
+        // For D4Root, combined meta entries have zero CKeys — their data is
+        // stored in a synthetic cache inside the root itself.
+        if (auto* d4 = dynamic_cast<D4Root*>(root.get())) {
+            for (auto& e : entries) {
+                if (e.fileDataId == kInvalidFileDataId) continue;
+                auto* cached = d4->findCombinedMeta(static_cast<i32>(e.fileDataId));
+                if (cached)
+                    return std::vector<u8>(*cached);
+            }
+        }
         s_lastError = kFileNotFound;
         return std::nullopt;
     }
@@ -520,9 +573,14 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
         impl.cdnConfig = parseCdnConfig(cdnConfigFile->data());
     }
 
-    // Step 4: Load index table.
+    // Step 4: Load index table (.idx bucket files + per-archive .index files).
     progress(ProgressStep::LoadingIndexFiles);
     impl.indexTable = IndexTable::load(dataPath, opts.pool);
+
+    // Also load per-archive .index files if CDN config has archive keys.
+    if (!impl.cdnConfig.archiveEKeys.empty())
+        impl.indexTable.loadArchiveIndices(dataPath, impl.cdnConfig.archiveEKeys, opts.pool);
+
     if (impl.indexTable.entryCount() == 0)
         return setError("No index entries found", kIndexLoadFailed);
 
@@ -576,43 +634,107 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
         return std::move(decoded.data);
     };
 
-    // If a VFS root key is available (WC3 Reforged), parse all VFS manifests and merge.
+    // If a VFS root key is available (WC3 Reforged), parse the TVFS root with
+    // sub-container resolution.  The resolver + known VFS EKeys allow the parser
+    // to recursively descend into sub-manifests and prepend the container prefix
+    // (e.g. "war3.w3mod:"), matching the paths CascLib reports.
     bool hasVfs = false;
     for (auto b : impl.buildConfig.vfsRootCKey) {
         if (b != 0) { hasVfs = true; break; }
     }
     if (hasVfs) {
-        // Parse the vfs-root manifest.
+        // Build the set of known VFS sub-manifest EKeys and a lookup map
+        // for CKey-based fallback resolution.
+        std::vector<std::array<u8, 16>> vfsEKeys;
+        std::unordered_map<u64, std::array<u8, 16>> vfsEKeyToCKey;
+        for (auto& sub : impl.buildConfig.vfsSubManifests) {
+            // Skip the entry that duplicates vfs-root.
+            if (sub.cKey == impl.buildConfig.vfsRootCKey) continue;
+            vfsEKeys.push_back(sub.eKey);
+            // Map first 8 bytes of EKey → CKey for fallback resolution.
+            u64 h = 0;
+            std::memcpy(&h, sub.eKey.data(), 8);
+            vfsEKeyToCKey[h] = sub.cKey;
+        }
+
+        // Resolver: given a truncated EKey (eKeySize bytes), look it up in the
+        // index, read the BLTE archive data, and decode it.
+        // Falls back to CKey-based resolution via encoding table if direct
+        // EKey lookup fails (handles cases where the data is in local archives
+        // but indexed differently).
+        VfsResolver vfsResolver = [&impl, &vfsEKeyToCKey](std::span<const u8> eKey) -> std::vector<u8> {
+            std::array<u8, 16> eKey16{};
+            std::memcpy(eKey16.data(), eKey.data(), std::min(eKey.size(), size_t(16)));
+
+            // Try direct EKey resolution first.
+            auto result = impl.resolveEKey(eKey16);
+            if (!result.empty())
+                return result;
+
+            // Fallback: match EKey to a known VFS sub-manifest and resolve via CKey.
+            u64 h = 0;
+            std::memcpy(&h, eKey.data(), std::min(eKey.size(), size_t(8)));
+            auto it = vfsEKeyToCKey.find(h);
+            if (it != vfsEKeyToCKey.end()) {
+                auto ckResult = impl.resolveCKey(it->second);
+                if (!ckResult.empty())
+                    return ckResult;
+            }
+
+            return {};
+        };
+
+        // Parse the vfs-root manifest with recursive sub-container resolution.
         auto vfsData = impl.resolveCKey(impl.buildConfig.vfsRootCKey);
         std::unique_ptr<TvfsRoot> tvfsRoot;
         if (!vfsData.empty())
-            tvfsRoot = TvfsRoot::parse(vfsData, opts.pool);
+            tvfsRoot = TvfsRoot::parse(vfsData, vfsResolver, vfsEKeys, opts.pool);
 
-        // Parse each vfs-N sub-manifest and merge into the root.
-        for (size_t si = 0; si < impl.buildConfig.vfsSubManifests.size(); ++si) {
-            auto& sub = impl.buildConfig.vfsSubManifests[si];
-            // Skip vfs-1 if it has the same CKey as vfs-root (they're identical).
-            if (sub.cKey == impl.buildConfig.vfsRootCKey) continue;
+        if (tvfsRoot) {
+            // Detect Diablo IV: enhance TVFS with CoreTOC SNO data.
+            bool isFenris = impl.buildConfig.buildUid.starts_with("fenris") ||
+                            impl.buildConfig.buildProduct.starts_with("fenris") ||
+                            impl.buildConfig.buildProduct == "Fenris";
 
-            auto subData = impl.resolveCKey(sub.cKey);
-            if (subData.empty()) {
-                // Fallback: try resolving by EKey.
-                subData = impl.resolveEKey(sub.eKey);
+            if (isFenris) {
+                auto tocEntries = tvfsRoot->findByPath("base:CoreTOC.dat");
+                if (tocEntries.empty())
+                    tocEntries = tvfsRoot->findByPath("base:coretoc.dat");
+
+                std::vector<u8> tocData;
+                for (auto& te : tocEntries) {
+                    if (te.cKey != std::array<u8, 16>{})
+                        tocData = impl.resolveCKey(te.cKey);
+                    if (tocData.empty() && te.eKey != std::array<u8, 16>{})
+                        tocData = impl.resolveEKey(te.eKey);
+                    if (!tocData.empty()) break;
+                }
+
+                if (!tocData.empty()) {
+                    sno::CoreToc coreToc;
+                    if (coreToc.parse(tocData)) {
+                        // Create a file resolver for combined meta loading.
+                        FileResolver resolver = [&impl](const RootEntry& re) -> std::vector<u8> {
+                            std::vector<u8> data;
+                            if (re.cKey != std::array<u8, 16>{})
+                                data = impl.resolveCKey(re.cKey);
+                            if (data.empty() && re.eKey != std::array<u8, 16>{})
+                                data = impl.resolveEKey(re.eKey);
+                            return data;
+                        };
+                        auto d4Root = D4Root::create(
+                            std::move(tvfsRoot), std::move(coreToc),
+                            resolver, opts.pool);
+                        if (d4Root)
+                            impl.root = std::move(d4Root);
+                    }
+                }
             }
-            if (subData.empty()) continue;
 
-            auto subRoot = TvfsRoot::parse(subData, opts.pool);
-            if (!subRoot) continue;
-
-            if (tvfsRoot) {
-                tvfsRoot->merge(*subRoot);
-            } else {
-                tvfsRoot = std::move(subRoot);
-            }
+            // Fallback: use plain TVFS if D4 enhancement didn't apply.
+            if (!impl.root && tvfsRoot)
+                impl.root = std::move(tvfsRoot);
         }
-
-        if (tvfsRoot)
-            impl.root = std::move(tvfsRoot);
     }
 
     // If VFS root didn't work, try rootCKey.
@@ -655,6 +777,7 @@ Storage Storage::create(CreateOptions opts, interfaces::WorkerPool* pool) {
     impl.pool = pool;
     impl.buildConfig.buildProduct = opts.product;
     impl.buildConfig.buildName = opts.version;
+    impl.requestedRootFormat = opts.rootFormat;
     impl.isValid = true; // Valid but empty — writes go to overlay.
     return storage;
 }
@@ -677,7 +800,7 @@ std::optional<std::vector<u8>> Storage::readFile(const std::string& cascPath,
     std::shared_lock lock(m_impl->mutex);
     auto normalized = normalizePath(cascPath);
     OverlayKey key{normalized, std::nullopt};
-    auto entries = m_impl->root ? m_impl->root->findByPath(cascPath) : std::vector<RootEntry>{};
+    auto entries = m_impl->root ? m_impl->root->findByPath(normalized) : std::vector<RootEntry>{};
     return m_impl->readFileResolved(key, entries, localeFlags);
 }
 
@@ -762,7 +885,7 @@ std::vector<BatchReadResult> Storage::readBatch(
         std::vector<RootEntry> entries;
         if (m_impl->root) {
             if (byPath)
-                entries = m_impl->root->findByPath(req.path);
+                entries = m_impl->root->findByPath(normalizePath(req.path));
             else
                 entries = m_impl->root->findByFileDataId(static_cast<u32>(req.fileDataId));
         }
@@ -822,11 +945,23 @@ std::vector<BatchReadResult> Storage::readBatch(
             return;
         }
 
-        blob.blteData = m_impl->readRawBlte(
-            idxEntry->archiveIndex, idxEntry->archiveOffset, idxEntry->encodedSize);
+        blob.blteData = idxEntry->directBLTE
+            ? m_impl->readRawBlteDirect(idxEntry->archiveIndex, idxEntry->archiveOffset, idxEntry->encodedSize)
+            : m_impl->readRawBlte(idxEntry->archiveIndex, idxEntry->archiveOffset, idxEntry->encodedSize);
         if (blob.blteData.empty()) {
             blob.error = "failed to read raw BLTE data from archive";
             return;
+        }
+        // Verify BLTE magic; retry with opposite method if wrong.
+        static constexpr u8 kBlteMagic[4] = {'B','L','T','E'};
+        if (blob.blteData.size() >= 4 &&
+            std::memcmp(blob.blteData.data(), kBlteMagic, 4) != 0) {
+            auto retry = idxEntry->directBLTE
+                ? m_impl->readRawBlte(idxEntry->archiveIndex, idxEntry->archiveOffset, idxEntry->encodedSize)
+                : m_impl->readRawBlteDirect(idxEntry->archiveIndex, idxEntry->archiveOffset, idxEntry->encodedSize);
+            if (!retry.empty() && retry.size() >= 4 &&
+                std::memcmp(retry.data(), kBlteMagic, 4) == 0)
+                blob.blteData = std::move(retry);
         }
         blob.resolved = true;
     };
@@ -899,7 +1034,7 @@ bool Storage::fileExists(const std::string& cascPath) const {
     // Check deletes.
     if (m_impl->pendingDeletes.count(key)) return false;
 
-    return m_impl->root && !m_impl->root->findByPath(cascPath).empty();
+    return m_impl->root && !m_impl->root->findByPath(normalized).empty();
 }
 
 bool Storage::fileExists(i32 fileId) const {
@@ -917,7 +1052,7 @@ std::optional<u64> Storage::fileSize(const std::string& cascPath) const {
     if (!m_impl || !m_impl->isValid) return std::nullopt;
     std::shared_lock lock(m_impl->mutex);
 
-    auto entries = m_impl->root->findByPath(cascPath);
+    auto entries = m_impl->root->findByPath(normalizePath(cascPath));
     if (entries.empty()) return std::nullopt;
 
     auto encEntry = m_impl->resolveEncoding(entries[0]);
@@ -940,7 +1075,7 @@ std::optional<u64> Storage::fileSize(i32 fileId) const {
 std::optional<FileFullInfo> Storage::fileInfo(const std::string& cascPath) const {
     if (!m_impl || !m_impl->isValid) return std::nullopt;
     std::shared_lock lock(m_impl->mutex);
-    return m_impl->fileInfoResolved(m_impl->root->findByPath(cascPath));
+    return m_impl->fileInfoResolved(m_impl->root->findByPath(normalizePath(cascPath)));
 }
 
 std::optional<FileFullInfo> Storage::fileInfo(i32 fileId) const {
@@ -1138,6 +1273,7 @@ bool Storage::save(const std::string& outputPath) {
         u32 archiveIndex;
         u32 archiveOffset;
         u32 encodedSize;
+        bool directBLTE;
     };
     std::vector<PendingRead> pendingReads;
 
@@ -1184,7 +1320,7 @@ bool Storage::save(const std::string& outputPath) {
                 if (idxEntry) {
                     pendingReads.push_back({entries.size(),
                         idxEntry->archiveIndex, idxEntry->archiveOffset,
-                        idxEntry->encodedSize});
+                        idxEntry->encodedSize, idxEntry->directBLTE});
                 }
             }
 
@@ -1199,8 +1335,11 @@ bool Storage::save(const std::string& outputPath) {
             for (auto& pr : pendingReads) {
                 interfaces::WorkerTask task;
                 task.fn = [&, idx = pr.entryIndex, ai = pr.archiveIndex,
-                           ao = pr.archiveOffset, es = pr.encodedSize]() {
-                    entries[idx].encodedBlob = m_impl->readRawBlte(ai, ao, es);
+                           ao = pr.archiveOffset, es = pr.encodedSize,
+                           direct = pr.directBLTE]() {
+                    entries[idx].encodedBlob = direct
+                        ? m_impl->readRawBlteDirect(ai, ao, es)
+                        : m_impl->readRawBlte(ai, ao, es);
                     entries[idx].hasPreEncoded = true;
                     jobGroup.done();
                 };
@@ -1209,8 +1348,9 @@ bool Storage::save(const std::string& outputPath) {
             jobGroup.wait();
         } else {
             for (auto& pr : pendingReads) {
-                entries[pr.entryIndex].encodedBlob = m_impl->readRawBlte(
-                    pr.archiveIndex, pr.archiveOffset, pr.encodedSize);
+                entries[pr.entryIndex].encodedBlob = pr.directBLTE
+                    ? m_impl->readRawBlteDirect(pr.archiveIndex, pr.archiveOffset, pr.encodedSize)
+                    : m_impl->readRawBlte(pr.archiveIndex, pr.archiveOffset, pr.encodedSize);
                 entries[pr.entryIndex].hasPreEncoded = true;
             }
         }
@@ -1230,9 +1370,23 @@ bool Storage::save(const std::string& outputPath) {
     }
 
     // 3. Determine the root format.
-    RootFormat rootFmt = RootFormat::Tvfs; // Default for new storages.
+    RootFormat rootFmt = m_impl->requestedRootFormat;
     if (m_impl->root)
         rootFmt = m_impl->root->format();
+
+    // Auto-assign fileDataIds for new entries when format uses them.
+    if (rootFmt == RootFormat::Wow || rootFmt == RootFormat::Diablo3) {
+        u32 maxId = 0;
+        for (auto& e : entries) {
+            if (e.fileDataId != kInvalidFileDataId && e.fileDataId > maxId)
+                maxId = e.fileDataId;
+        }
+        for (auto& e : entries) {
+            if (e.fileDataId == kInvalidFileDataId) {
+                e.fileDataId = ++maxId;
+            }
+        }
+    }
 
     // 4. Determine writer options.
     WriterOptions writerOpts;
