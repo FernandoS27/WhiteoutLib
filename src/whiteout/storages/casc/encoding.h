@@ -39,16 +39,15 @@ public:
     size_t entryCount() const { return m_entries.size(); }
 
 private:
-    /// Sorted by CKey for binary search.
-    mutable std::vector<EncodingEntry> m_entries;
-    mutable bool m_sorted = false;
+    std::vector<EncodingEntry> m_entries;
 
-    /// Secondary index: first 8 bytes of EKey → index into m_entries.
-    mutable std::unordered_map<u64, size_t> m_eKeyIndex;
-    mutable bool m_eKeyIndexBuilt = false;
+    /// CKey hash index: first 8 bytes of CKey → index into m_entries.
+    /// Built eagerly during parse/insert.
+    std::unordered_map<u64, size_t> m_cKeyIndex;
 
-    void ensureSorted() const;
-    void ensureEKeyIndex() const;
+    /// EKey hash index: first 8 bytes of EKey → index into m_entries.
+    /// Built eagerly during parse/insert.
+    std::unordered_map<u64, size_t> m_eKeyIndex;
 };
 
 } // namespace whiteout::storages::casc

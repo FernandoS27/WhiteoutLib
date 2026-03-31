@@ -90,17 +90,18 @@ EncodingTable EncodingTable::parse(std::span<const u8> data) {
     if (offset > data.size())
         return table;
 
+    // Pre-reserve based on estimated entry count (each entry ~38 bytes).
+    size_t estimatedEntries = cKeyPageCount * (cKeyPageSize / 38);
+    table.m_entries.reserve(estimatedEntries);
+    table.m_cKeyIndex.reserve(estimatedEntries);
+    table.m_eKeyIndex.reserve(estimatedEntries);
+
     // CKey pages follow immediately after the CKey page table.
     // (EKey page table + EKey pages come AFTER the CKey pages.)
     for (u32 page = 0; page < cKeyPageCount; ++page) {
         size_t pageStart = offset + page * cKeyPageSize;
         if (pageStart + 2 > data.size())
             break;
-
-        // First 2 bytes: entry count (BE).
-        // Wait — the entry count is actually the number of entries in this page.
-        // But the actual format uses a variable-length encoding where we read
-        // entries until we exhaust the page.
 
         // Read entries from the page.
         size_t pos = pageStart;
@@ -130,6 +131,14 @@ EncodingTable EncodingTable::parse(std::span<const u8> data) {
             // Take only the first EKey.
             std::memcpy(entry.eKey.data(), data.data() + eKeyOff, eKeySize);
 
+            // Build hash indices eagerly during parse.
+            size_t idx = table.m_entries.size();
+            u64 ckH = 0, ekH = 0;
+            std::memcpy(&ckH, entry.cKey.data(), 8);
+            std::memcpy(&ekH, entry.eKey.data(), 8);
+            table.m_cKeyIndex.emplace(ckH, idx);
+            table.m_eKeyIndex.emplace(ekH, idx);
+
             table.m_entries.push_back(entry);
 
             // Advance past all EKeys.
@@ -137,7 +146,6 @@ EncodingTable EncodingTable::parse(std::span<const u8> data) {
         }
     }
 
-    table.m_sorted = false;
     return table;
 }
 
@@ -146,19 +154,16 @@ EncodingTable EncodingTable::parse(std::span<const u8> data) {
 // ============================================================================
 
 const EncodingEntry* EncodingTable::findByCKey(std::span<const u8, 16> cKey) const {
-    ensureSorted();
+    u64 h = 0;
+    std::memcpy(&h, cKey.data(), 8);
 
-    // Binary search.
-    std::array<u8, 16> searchKey;
-    std::memcpy(searchKey.data(), cKey.data(), 16);
+    auto it = m_cKeyIndex.find(h);
+    if (it == m_cKeyIndex.end())
+        return nullptr;
 
-    auto it = std::lower_bound(m_entries.begin(), m_entries.end(), searchKey,
-                               [](const EncodingEntry& e, const std::array<u8, 16>& key) {
-                                   return cmpKey16(e.cKey, key) < 0;
-                               });
-
-    if (it != m_entries.end() && cmpKey16(it->cKey, searchKey) == 0)
-        return &*it;
+    auto& e = m_entries[it->second];
+    if (std::memcmp(e.cKey.data(), cKey.data(), 16) == 0)
+        return &e;
 
     return nullptr;
 }
@@ -171,8 +176,6 @@ const EncodingEntry* EncodingTable::findByEKey(std::span<const u8, 16> eKey,
                                                 size_t matchBytes) const {
     if (matchBytes == 0) matchBytes = 16;
     if (matchBytes > 16) matchBytes = 16;
-
-    ensureEKeyIndex();
 
     // Look up by first-8-byte hash.
     u64 h = 0;
@@ -195,35 +198,14 @@ const EncodingEntry* EncodingTable::findByEKey(std::span<const u8, 16> eKey,
 // ============================================================================
 
 void EncodingTable::insert(const EncodingEntry& entry) {
+    size_t idx = m_entries.size();
     m_entries.push_back(entry);
-    m_sorted = false;
-    m_eKeyIndexBuilt = false;
-}
 
-// ============================================================================
-// ensureSorted
-// ============================================================================
-
-void EncodingTable::ensureSorted() const {
-    if (m_sorted) return;
-    std::sort(m_entries.begin(), m_entries.end(),
-              [](const EncodingEntry& a, const EncodingEntry& b) {
-                  return cmpKey16(a.cKey, b.cKey) < 0;
-              });
-    m_sorted = true;
-    m_eKeyIndexBuilt = false; // indices shifted after sort
-}
-
-void EncodingTable::ensureEKeyIndex() const {
-    if (m_eKeyIndexBuilt) return;
-    m_eKeyIndex.clear();
-    m_eKeyIndex.reserve(m_entries.size());
-    for (size_t i = 0; i < m_entries.size(); ++i) {
-        u64 h = 0;
-        std::memcpy(&h, m_entries[i].eKey.data(), 8);
-        m_eKeyIndex.emplace(h, i);
-    }
-    m_eKeyIndexBuilt = true;
+    u64 ckH = 0, ekH = 0;
+    std::memcpy(&ckH, entry.cKey.data(), 8);
+    std::memcpy(&ekH, entry.eKey.data(), 8);
+    m_cKeyIndex.emplace(ckH, idx);
+    m_eKeyIndex.emplace(ekH, idx);
 }
 
 // ============================================================================
@@ -231,7 +213,12 @@ void EncodingTable::ensureEKeyIndex() const {
 // ============================================================================
 
 std::vector<u8> EncodingTable::serialize() const {
-    ensureSorted();
+    // Create a sorted copy for serialization (entries must be CKey-ordered).
+    auto sorted = m_entries;
+    std::sort(sorted.begin(), sorted.end(),
+              [](const EncodingEntry& a, const EncodingEntry& b) {
+                  return cmpKey16(a.cKey, b.cKey) < 0;
+              });
 
     constexpr u16 kPageSizeKB = kEncodingPageSizeKB;
     constexpr size_t kPageSize = kEncodingPageSize;
@@ -244,7 +231,7 @@ std::vector<u8> EncodingTable::serialize() const {
     std::vector<PageData> pages;
     {
         PageData current;
-        for (auto& entry : m_entries) {
+        for (auto& entry : sorted) {
             // Entry: keyCount(1) + fileSize(5) + CKey(16) + EKey(16) = 38 bytes.
             constexpr size_t kEntrySize = 1 + 5 + kCKeySize + kEKeySize;
 

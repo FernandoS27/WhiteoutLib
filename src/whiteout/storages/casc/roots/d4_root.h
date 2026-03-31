@@ -11,8 +11,10 @@
 #include <whiteout/sno/core_toc.h>
 
 #include <functional>
+#include <mutex>
 #include <span>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace whiteout::interfaces { class WorkerPool; }
@@ -56,7 +58,8 @@ public:
     RootFormat format() const override { return RootFormat::Diablo4; }
 
     /// Get synthetic SNO data for a combined meta entry by snoId.
-    /// Returns nullptr if the snoId is not in the combined meta cache.
+    /// Lazily loads the combined meta file for the entry's group on first access.
+    /// Returns nullptr if the snoId is not in any combined meta file.
     const std::vector<u8>* findCombinedMeta(i32 snoId) const;
 
 private:
@@ -74,12 +77,31 @@ private:
 
     /// Synthetic SNO blobs for entries extracted from combined meta files.
     /// Key: snoId, Value: complete SNO data (16-byte header + entry data).
-    std::unordered_map<i32, std::vector<u8>> m_combinedMetaCache;
+    /// Populated lazily per-group on first findCombinedMeta() access.
+    mutable std::unordered_map<i32, std::vector<u8>> m_combinedMetaCache;
 
-    /// Load combined meta files and create synthetic entries.
-    void loadCombinedMetas(const FileResolver& resolver);
+    /// Identify combined meta .dat files and register placeholder entries
+    /// for snoIds that live inside them (no file I/O).
+    void registerCombinedMetaPlaceholders();
+
+    /// Lazily load combined meta files for a specific group.
+    void loadGroupCombinedMetas(sno::SnoGroup group) const;
 
     void buildIndices(interfaces::WorkerPool* pool = nullptr);
+
+    // --- Lazy combined meta loading state ---
+
+    FileResolver m_resolver;
+    interfaces::WorkerPool* m_pool = nullptr;
+
+    /// Group → TVFS entry indices of combined meta .dat files.
+    std::unordered_map<sno::SnoGroup, std::vector<size_t>> m_combinedMetaFiles;
+
+    /// Groups whose combined meta files have been fully loaded.
+    mutable std::unordered_set<sno::SnoGroup> m_loadedGroups;
+
+    /// Protects m_combinedMetaCache and m_loadedGroups.
+    mutable std::mutex m_combinedMetaMutex;
 };
 
 } // namespace whiteout::storages::casc

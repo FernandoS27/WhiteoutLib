@@ -254,10 +254,11 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfsRoot,
         }
     }
 
-    // Load combined meta files to create synthetic entries for groups
-    // that bundle their metas (Texture, StringList, etc.).
-    if (resolver)
-        root->loadCombinedMetas(resolver);
+    // Store resolver/pool for lazy combined meta loading and register
+    // placeholder entries for snoIds that live in combined meta files.
+    root->m_resolver = std::move(resolver);
+    root->m_pool = pool;
+    root->registerCombinedMetaPlaceholders();
 
     if (root->m_entries.empty()) return nullptr;
 
@@ -302,124 +303,184 @@ size_t D4Root::entryCount() const {
 }
 
 const std::vector<u8>* D4Root::findCombinedMeta(i32 snoId) const {
-    auto it = m_combinedMetaCache.find(snoId);
-    if (it != m_combinedMetaCache.end())
-        return &it->second;
+    // Fast path: already cached.
+    {
+        std::lock_guard lock(m_combinedMetaMutex);
+        auto it = m_combinedMetaCache.find(snoId);
+        if (it != m_combinedMetaCache.end())
+            return &it->second;
+    }
+
+    // Determine group for this snoId from CoreTOC.
+    auto* tocEntry = m_coreToc.findById(snoId);
+    if (!tocEntry) return nullptr;
+
+    auto group = tocEntry->group;
+
+    // Check if we've already loaded this group (snoId just isn't there).
+    {
+        std::lock_guard lock(m_combinedMetaMutex);
+        if (m_loadedGroups.count(group))
+            return nullptr;
+    }
+
+    // Lazily load all combined meta files for this group.
+    loadGroupCombinedMetas(group);
+
+    // Check cache again after loading.
+    {
+        std::lock_guard lock(m_combinedMetaMutex);
+        auto it = m_combinedMetaCache.find(snoId);
+        if (it != m_combinedMetaCache.end())
+            return &it->second;
+    }
     return nullptr;
 }
 
-void D4Root::loadCombinedMetas(const FileResolver& resolver) {
-    // Find combined meta .dat files among current entries.
-    // These follow the naming pattern: {GroupName}-{Category}-{Language}.dat
-    // e.g. "Texture-Global-Global.dat", "StringList-Text-enUS.dat"
-    std::vector<size_t> combinedIndices;
+void D4Root::registerCombinedMetaPlaceholders() {
+    if (!m_resolver) return;
+
+    // Step 1: Identify combined meta .dat files among TVFS entries.
     for (size_t i = 0; i < m_entries.size(); ++i) {
         const auto& path = m_entries[i].path;
         if (path.size() < 4) continue;
         if (path.compare(path.size() - 4, 4, ".dat") != 0) continue;
 
-        // Extract file name portion.
         std::string fname = path;
         auto sep = fname.find_last_of("\\/:");
         if (sep != std::string::npos) fname = fname.substr(sep + 1);
 
-        // Must have at least 2 dashes.
         int dashes = 0;
         for (char c : fname) if (c == '-') ++dashes;
         if (dashes < 2) continue;
 
-        // Skip encrypted variants.
         if (isEncryptedDatFile(fname)) continue;
 
-        // Must resolve to a known group.
         auto group = groupFromCombinedFileName(path);
         if (group == sno::SnoGroup::None) continue;
 
-        combinedIndices.push_back(i);
+        m_combinedMetaFiles[group].push_back(i);
     }
 
-    if (combinedIndices.empty()) return;
+    if (m_combinedMetaFiles.empty()) return;
 
-    // Collect existing snoIds so we don't create duplicates.
+    // Step 2: Collect snoIds that already have individual TVFS entries.
     std::unordered_set<i32> existingSnoIds;
     for (auto& entry : m_entries) {
         if (entry.fileDataId != kInvalidFileDataId)
             existingSnoIds.insert(static_cast<i32>(entry.fileDataId));
     }
 
-    size_t totalCombinedEntries = 0;
+    // Step 3: For each CoreTOC entry whose group has combined meta files and
+    // whose snoId is NOT already in TVFS, create a placeholder RootEntry.
+    // No file I/O — just path construction from CoreTOC metadata.
+    std::unordered_set<sno::SnoGroup> groupsWithMetas;
+    for (auto& [group, _] : m_combinedMetaFiles)
+        groupsWithMetas.insert(group);
 
-    for (size_t idx : combinedIndices) {
-        auto& re = m_entries[idx];
-        auto group = groupFromCombinedFileName(re.path);
-        if (group == sno::SnoGroup::None) continue;
+    for (auto& tocEntry : m_coreToc.entries()) {
+        if (!groupsWithMetas.count(tocEntry.group)) continue;
+        if (existingSnoIds.count(tocEntry.snoId)) continue;
 
-        // Read the combined meta file from CASC.
-        auto fileData = resolver(re);
-        if (fileData.empty()) continue;
+        const char* groupDir = sno::snoGroupDir(tocEntry.group);
+        const char* ext = sno::snoGroupExtension(tocEntry.group);
 
-        auto shared = std::make_shared<std::vector<u8>>(std::move(fileData));
-        auto entries = parseCombinedMetaFile(shared, group);
-        if (entries.empty()) continue;
+        std::string path = "base:meta\\";
+        if (groupDir) { path += groupDir; path += "\\"; }
+        if (!tocEntry.name.empty()) {
+            path += tocEntry.name;
+        } else {
+            path += std::to_string(tocEntry.snoId);
+        }
+        if (ext) { path += "."; path += ext; }
 
-        const char* groupDir = sno::snoGroupDir(group);
-        const char* ext = sno::snoGroupExtension(group);
+        RootEntry newEntry;
+        newEntry.path = std::move(path);
+        newEntry.fileDataId = static_cast<u32>(tocEntry.snoId);
 
-        // Look up the format hash for this group from CoreTOC.
+        existingSnoIds.insert(tocEntry.snoId);
+        m_entries.push_back(std::move(newEntry));
+    }
+}
+
+void D4Root::loadGroupCombinedMetas(sno::SnoGroup group) const {
+    // Find the TVFS entry indices for this group's .dat files.
+    std::vector<size_t> entryIndices;
+    {
+        std::lock_guard lock(m_combinedMetaMutex);
+        if (m_loadedGroups.count(group)) return;
+        auto it = m_combinedMetaFiles.find(group);
+        if (it == m_combinedMetaFiles.end()) {
+            m_loadedGroups.insert(group);
+            return;
+        }
+        entryIndices = it->second;
+    }
+
+    // Read the combined meta files WITHOUT holding the lock.
+    // Each resolver call is independent: encoding/index lookups are read-only,
+    // archive reads are from memory-mapped files, and BLTE decode is per-blob.
+    struct FileData {
+        std::shared_ptr<std::vector<u8>> data;
+    };
+    std::vector<FileData> fileDataList(entryIndices.size());
+
+    if (m_pool && entryIndices.size() > 1) {
+        utils::JobGroup jobGroup;
+        jobGroup.add(entryIndices.size());
+        for (size_t i = 0; i < entryIndices.size(); ++i) {
+            interfaces::WorkerTask task;
+            task.fn = [&, i]() {
+                auto raw = m_resolver(m_entries[entryIndices[i]]);
+                if (!raw.empty())
+                    fileDataList[i].data = std::make_shared<std::vector<u8>>(std::move(raw));
+                jobGroup.done();
+            };
+            m_pool->submit(task);
+        }
+        jobGroup.wait();
+    } else {
+        for (size_t i = 0; i < entryIndices.size(); ++i) {
+            auto raw = m_resolver(m_entries[entryIndices[i]]);
+            if (!raw.empty())
+                fileDataList[i].data = std::make_shared<std::vector<u8>>(std::move(raw));
+        }
+    }
+
+    // Parse files and populate cache under lock.
+    {
+        std::lock_guard lock(m_combinedMetaMutex);
+        if (m_loadedGroups.count(group)) return; // another thread beat us
+
         u32 formatHash = 0;
         auto& fmtHashes = m_coreToc.formatHashes();
         auto fhIt = fmtHashes.find(static_cast<i32>(group));
         if (fhIt != fmtHashes.end())
             formatHash = fhIt->second;
 
-        for (auto& ce : entries) {
-            // Skip if an individual entry already exists for this snoId.
-            if (existingSnoIds.count(ce.snoId)) continue;
+        for (auto& fd : fileDataList) {
+            if (!fd.data) continue;
 
-            // Build a synthetic SNO blob: 16-byte header + entry data.
-            std::vector<u8> syntheticData(16 + ce.dataSize);
-            u32 magic = kSnoMagic;
-            u32 zero = 0;
-            std::memcpy(syntheticData.data() + 0, &magic, 4);
-            std::memcpy(syntheticData.data() + 4, &formatHash, 4);
-            std::memcpy(syntheticData.data() + 8, &zero, 4);
-            std::memcpy(syntheticData.data() + 12, &zero, 4);
-            std::memcpy(syntheticData.data() + 16,
-                        ce.fileData->data() + ce.dataOffset, ce.dataSize);
+            auto entries = parseCombinedMetaFile(fd.data, group);
+            for (auto& ce : entries) {
+                if (m_combinedMetaCache.count(ce.snoId)) continue;
 
-            // Build an enriched path.
-            std::string path = "base:meta\\";
-            if (groupDir) {
-                path += groupDir;
-                path += "\\";
+                // Build synthetic SNO blob: 16-byte header + entry data.
+                std::vector<u8> syntheticData(16 + ce.dataSize);
+                u32 magic = kSnoMagic;
+                u32 zero = 0;
+                std::memcpy(syntheticData.data() + 0, &magic, 4);
+                std::memcpy(syntheticData.data() + 4, &formatHash, 4);
+                std::memcpy(syntheticData.data() + 8, &zero, 4);
+                std::memcpy(syntheticData.data() + 12, &zero, 4);
+                std::memcpy(syntheticData.data() + 16,
+                            ce.fileData->data() + ce.dataOffset, ce.dataSize);
+
+                m_combinedMetaCache[ce.snoId] = std::move(syntheticData);
             }
-
-            // Look up the name from CoreTOC.
-            auto* tocEntry = m_coreToc.findById(ce.snoId);
-            if (tocEntry && !tocEntry->name.empty()) {
-                path += tocEntry->name;
-            } else {
-                path += std::to_string(ce.snoId);
-            }
-            if (ext) {
-                path += ".";
-                path += ext;
-            }
-
-            // Create a synthetic RootEntry.
-            // The CKey is zero (no real archive backing) — the data comes from
-            // the combined meta cache stored in this root.
-            RootEntry newEntry;
-            newEntry.path = std::move(path);
-            newEntry.fileDataId = static_cast<u32>(ce.snoId);
-
-            // Store the synthetic data in the combined meta cache.
-            m_combinedMetaCache[ce.snoId] = std::move(syntheticData);
-
-            existingSnoIds.insert(ce.snoId);
-            m_entries.push_back(std::move(newEntry));
-            ++totalCombinedEntries;
         }
+
+        m_loadedGroups.insert(group);
     }
 }
 

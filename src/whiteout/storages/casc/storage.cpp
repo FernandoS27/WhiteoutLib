@@ -120,8 +120,8 @@ struct Storage::Impl {
     BuildConfig buildConfig;
     CdnConfig cdnConfig;
     IndexTable indexTable;
-    EncodingTable encodingTable;
-    std::unique_ptr<RootManifest> root;
+    mutable EncodingTable encodingTable;
+    mutable std::unique_ptr<RootManifest> root;
     KeyRing keyRing;
 
     // Memory-mapped data archives: data.000, data.001, etc.
@@ -133,6 +133,11 @@ struct Storage::Impl {
 
     mutable std::shared_mutex mutex;
     bool isValid = false;
+
+    // LoadOnDemand: defer encoding + root loading until first access.
+    bool deferMode = false;
+    mutable std::once_flag deferOnce;
+    mutable bool deferLoadOk = true;
 
     // ---- helpers ----
 
@@ -176,6 +181,15 @@ struct Storage::Impl {
     /// Shared implementation for fileInfo by path or file ID.
     /// Must be called with the shared lock already held.
     std::optional<FileFullInfo> fileInfoResolved(const std::vector<RootEntry>& entries) const;
+
+    /// Lazily load encoding table and root manifest (LoadOnDemand).
+    /// Thread-safe, called before any operation that needs encoding/root.
+    /// Returns true if data is ready, false if deferred load failed.
+    bool ensureLoaded() const;
+
+    /// Load encoding table and root manifest.
+    /// Returns true on success.
+    bool loadEncodingAndRoot() const;
 };
 
 // ============================================================================
@@ -427,6 +441,179 @@ std::optional<FileFullInfo> Storage::Impl::fileInfoResolved(
 }
 
 // ============================================================================
+// Deferred loading (LoadOnDemand)
+// ============================================================================
+
+bool Storage::Impl::ensureLoaded() const {
+    if (!deferMode) return true;
+    std::call_once(deferOnce, [this]() {
+        deferLoadOk = loadEncodingAndRoot();
+    });
+    return deferLoadOk;
+}
+
+bool Storage::Impl::loadEncodingAndRoot() const {
+    // Step 6: Resolve and parse encoding table.
+    auto encodingIdx = indexTable.find(
+        std::span<const u8>(buildConfig.encodingEKey.data(), 9));
+    if (!encodingIdx) {
+        s_lastError = kEncodingNotFound;
+        return false;
+    }
+
+    auto encodingBlte = readRawBlte(encodingIdx->archiveIndex,
+                                     encodingIdx->archiveOffset,
+                                     encodingIdx->encodedSize);
+    if (encodingBlte.empty()) {
+        s_lastError = kEncodingNotFound;
+        return false;
+    }
+
+    auto encodingDecoded = blteDecode(encodingBlte, &keyRing, pool);
+    if (!encodingDecoded.success) {
+        s_lastError = kEncodingDecodeFailed;
+        return false;
+    }
+
+    encodingTable = EncodingTable::parse(encodingDecoded.data);
+    if (encodingTable.entryCount() == 0) {
+        s_lastError = kEncodingDecodeFailed;
+        return false;
+    }
+
+    // Step 7: Resolve and parse root manifest.
+    CKeyResolver ckeyResolver = [this](std::span<const u8, 16> cKey) -> std::vector<u8> {
+        auto encEntry = encodingTable.findByCKey(cKey);
+        if (!encEntry) return {};
+        auto idxEntry = indexTable.find(
+            std::span<const u8>(encEntry->eKey.data(), 9));
+        if (!idxEntry) return {};
+        auto blteData = readRawBlte(idxEntry->archiveIndex,
+                                     idxEntry->archiveOffset,
+                                     idxEntry->encodedSize);
+        if (blteData.empty()) return {};
+        auto decoded = blteDecode(blteData, &keyRing, nullptr);
+        if (!decoded.success) return {};
+        return std::move(decoded.data);
+    };
+
+    bool hasVfs = false;
+    for (auto b : buildConfig.vfsRootCKey) {
+        if (b != 0) { hasVfs = true; break; }
+    }
+    if (hasVfs) {
+        std::vector<std::array<u8, 16>> vfsEKeys;
+        std::unordered_map<u64, std::array<u8, 16>> vfsEKeyToCKey;
+        for (auto& sub : buildConfig.vfsSubManifests) {
+            if (sub.cKey == buildConfig.vfsRootCKey) continue;
+            vfsEKeys.push_back(sub.eKey);
+            u64 h = 0;
+            std::memcpy(&h, sub.eKey.data(), 8);
+            vfsEKeyToCKey[h] = sub.cKey;
+        }
+
+        VfsResolver vfsResolver = [this, &vfsEKeyToCKey](std::span<const u8> eKey) -> std::vector<u8> {
+            std::array<u8, 16> eKey16{};
+            std::memcpy(eKey16.data(), eKey.data(), std::min(eKey.size(), size_t(16)));
+
+            auto result = resolveEKey(eKey16);
+            if (!result.empty())
+                return result;
+
+            u64 h = 0;
+            std::memcpy(&h, eKey.data(), std::min(eKey.size(), size_t(8)));
+            auto it = vfsEKeyToCKey.find(h);
+            if (it != vfsEKeyToCKey.end()) {
+                auto ckResult = resolveCKey(it->second);
+                if (!ckResult.empty())
+                    return ckResult;
+            }
+
+            return {};
+        };
+
+        auto vfsData = resolveCKey(buildConfig.vfsRootCKey);
+        std::unique_ptr<TvfsRoot> tvfsRoot;
+        if (!vfsData.empty())
+            tvfsRoot = TvfsRoot::parse(vfsData, vfsResolver, vfsEKeys, pool);
+
+        if (tvfsRoot) {
+            bool isFenris = buildConfig.buildUid.starts_with("fenris") ||
+                            buildConfig.buildProduct.starts_with("fenris") ||
+                            buildConfig.buildProduct == "Fenris";
+
+            if (isFenris) {
+                auto tocEntries = tvfsRoot->findByPath("base:CoreTOC.dat");
+                if (tocEntries.empty())
+                    tocEntries = tvfsRoot->findByPath("base:coretoc.dat");
+
+                std::vector<u8> tocData;
+                for (auto& te : tocEntries) {
+                    if (te.cKey != std::array<u8, 16>{})
+                        tocData = resolveCKey(te.cKey);
+                    if (tocData.empty() && te.eKey != std::array<u8, 16>{})
+                        tocData = resolveEKey(te.eKey);
+                    if (!tocData.empty()) break;
+                }
+
+                if (!tocData.empty()) {
+                    sno::CoreToc coreToc;
+                    if (coreToc.parse(tocData)) {
+                        FileResolver fileRes = [this](const RootEntry& re) -> std::vector<u8> {
+                            std::vector<u8> data;
+                            if (re.cKey != std::array<u8, 16>{})
+                                data = resolveCKey(re.cKey);
+                            if (data.empty() && re.eKey != std::array<u8, 16>{})
+                                data = resolveEKey(re.eKey);
+                            return data;
+                        };
+                        auto d4Root = D4Root::create(
+                            std::move(tvfsRoot), std::move(coreToc),
+                            fileRes, pool);
+                        if (d4Root)
+                            root = std::move(d4Root);
+                    }
+                }
+            }
+
+            if (!root && tvfsRoot)
+                root = std::move(tvfsRoot);
+        }
+    }
+
+    if (!root) {
+        auto rootData = resolveCKey(buildConfig.rootCKey);
+        if (rootData.empty()) {
+            s_lastError = kRootNotFound;
+            return false;
+        }
+
+        if (rootData.size() >= 4) {
+            u32 magic = u32(rootData[0]) | (u32(rootData[1]) << 8) |
+                        (u32(rootData[2]) << 16) | (u32(rootData[3]) << 24);
+
+            if (magic == RootSignature::kTVFS) {
+                root = TvfsRoot::parse(rootData, pool);
+            } else if (magic == RootSignature::kMFST) {
+                root = WowRoot::parse(rootData, pool);
+            } else if (magic == RootSignature::kD3Root || magic == RootSignature::kD3Dir) {
+                root = D3Root::parse(rootData, ckeyResolver, pool);
+            }
+        }
+
+        if (!root)
+            root = WowRoot::parse(rootData, pool);
+    }
+
+    if (!root) {
+        s_lastError = kRootParseFailed;
+        return false;
+    }
+
+    return true;
+}
+
+// ============================================================================
 // Storage construction / destruction
 // ============================================================================
 
@@ -590,179 +777,20 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     if (!impl.mapArchives(&mapError))
         return setError(mapError, kIndexLoadFailed);
 
-    // Step 6: Resolve and parse encoding table.
+    // Step 6+7: Load encoding table and root manifest.
+    // When LoadOnDemand is set, defer these expensive steps until first use.
+    if (opts.flags & StorageFeatureFlags::LoadOnDemand) {
+        impl.deferMode = true;
+        impl.isValid = true;
+        progress(ProgressStep::Ready);
+        return storage;
+    }
+
     progress(ProgressStep::LoadingEncodingTable);
-
-    auto encodingIdx = impl.indexTable.find(
-        std::span<const u8>(impl.buildConfig.encodingEKey.data(), 9));
-    if (!encodingIdx)
-        return setError("Encoding EKey not found in index", kEncodingNotFound);
-
-    auto encodingBlte = impl.readRawBlte(encodingIdx->archiveIndex,
-                                          encodingIdx->archiveOffset,
-                                          encodingIdx->encodedSize);
-    if (encodingBlte.empty())
-        return setError("Failed to read encoding data from archive", kEncodingNotFound);
-
-    auto encodingDecoded = blteDecode(encodingBlte, &impl.keyRing, opts.pool);
-    if (!encodingDecoded.success)
-        return setError("Encoding BLTE decode failed: " + encodingDecoded.error,
-                        kEncodingDecodeFailed);
-
-    impl.encodingTable = EncodingTable::parse(encodingDecoded.data);
-    if (impl.encodingTable.entryCount() == 0)
-        return setError("Encoding table is empty", kEncodingDecodeFailed);
-
-    // Step 7: Resolve and parse root manifest.
     progress(ProgressStep::LoadingRootManifest);
 
-    // For D3 roots, we need a resolver for sub-directory CKeys.
-    // The resolver avoids inner pool parallelism to prevent contention
-    // when D3Root::parse dispatches resolver calls on the same pool.
-    CKeyResolver resolver = [&impl](std::span<const u8, 16> cKey) -> std::vector<u8> {
-        auto encEntry = impl.encodingTable.findByCKey(cKey);
-        if (!encEntry) return {};
-        auto idxEntry = impl.indexTable.find(
-            std::span<const u8>(encEntry->eKey.data(), 9));
-        if (!idxEntry) return {};
-        auto blteData = impl.readRawBlte(idxEntry->archiveIndex,
-                                          idxEntry->archiveOffset,
-                                          idxEntry->encodedSize);
-        if (blteData.empty()) return {};
-        auto decoded = blteDecode(blteData, &impl.keyRing, nullptr);
-        if (!decoded.success) return {};
-        return std::move(decoded.data);
-    };
-
-    // If a VFS root key is available (WC3 Reforged), parse the TVFS root with
-    // sub-container resolution.  The resolver + known VFS EKeys allow the parser
-    // to recursively descend into sub-manifests and prepend the container prefix
-    // (e.g. "war3.w3mod:"), matching the paths CascLib reports.
-    bool hasVfs = false;
-    for (auto b : impl.buildConfig.vfsRootCKey) {
-        if (b != 0) { hasVfs = true; break; }
-    }
-    if (hasVfs) {
-        // Build the set of known VFS sub-manifest EKeys and a lookup map
-        // for CKey-based fallback resolution.
-        std::vector<std::array<u8, 16>> vfsEKeys;
-        std::unordered_map<u64, std::array<u8, 16>> vfsEKeyToCKey;
-        for (auto& sub : impl.buildConfig.vfsSubManifests) {
-            // Skip the entry that duplicates vfs-root.
-            if (sub.cKey == impl.buildConfig.vfsRootCKey) continue;
-            vfsEKeys.push_back(sub.eKey);
-            // Map first 8 bytes of EKey → CKey for fallback resolution.
-            u64 h = 0;
-            std::memcpy(&h, sub.eKey.data(), 8);
-            vfsEKeyToCKey[h] = sub.cKey;
-        }
-
-        // Resolver: given a truncated EKey (eKeySize bytes), look it up in the
-        // index, read the BLTE archive data, and decode it.
-        // Falls back to CKey-based resolution via encoding table if direct
-        // EKey lookup fails (handles cases where the data is in local archives
-        // but indexed differently).
-        VfsResolver vfsResolver = [&impl, &vfsEKeyToCKey](std::span<const u8> eKey) -> std::vector<u8> {
-            std::array<u8, 16> eKey16{};
-            std::memcpy(eKey16.data(), eKey.data(), std::min(eKey.size(), size_t(16)));
-
-            // Try direct EKey resolution first.
-            auto result = impl.resolveEKey(eKey16);
-            if (!result.empty())
-                return result;
-
-            // Fallback: match EKey to a known VFS sub-manifest and resolve via CKey.
-            u64 h = 0;
-            std::memcpy(&h, eKey.data(), std::min(eKey.size(), size_t(8)));
-            auto it = vfsEKeyToCKey.find(h);
-            if (it != vfsEKeyToCKey.end()) {
-                auto ckResult = impl.resolveCKey(it->second);
-                if (!ckResult.empty())
-                    return ckResult;
-            }
-
-            return {};
-        };
-
-        // Parse the vfs-root manifest with recursive sub-container resolution.
-        auto vfsData = impl.resolveCKey(impl.buildConfig.vfsRootCKey);
-        std::unique_ptr<TvfsRoot> tvfsRoot;
-        if (!vfsData.empty())
-            tvfsRoot = TvfsRoot::parse(vfsData, vfsResolver, vfsEKeys, opts.pool);
-
-        if (tvfsRoot) {
-            // Detect Diablo IV: enhance TVFS with CoreTOC SNO data.
-            bool isFenris = impl.buildConfig.buildUid.starts_with("fenris") ||
-                            impl.buildConfig.buildProduct.starts_with("fenris") ||
-                            impl.buildConfig.buildProduct == "Fenris";
-
-            if (isFenris) {
-                auto tocEntries = tvfsRoot->findByPath("base:CoreTOC.dat");
-                if (tocEntries.empty())
-                    tocEntries = tvfsRoot->findByPath("base:coretoc.dat");
-
-                std::vector<u8> tocData;
-                for (auto& te : tocEntries) {
-                    if (te.cKey != std::array<u8, 16>{})
-                        tocData = impl.resolveCKey(te.cKey);
-                    if (tocData.empty() && te.eKey != std::array<u8, 16>{})
-                        tocData = impl.resolveEKey(te.eKey);
-                    if (!tocData.empty()) break;
-                }
-
-                if (!tocData.empty()) {
-                    sno::CoreToc coreToc;
-                    if (coreToc.parse(tocData)) {
-                        // Create a file resolver for combined meta loading.
-                        FileResolver resolver = [&impl](const RootEntry& re) -> std::vector<u8> {
-                            std::vector<u8> data;
-                            if (re.cKey != std::array<u8, 16>{})
-                                data = impl.resolveCKey(re.cKey);
-                            if (data.empty() && re.eKey != std::array<u8, 16>{})
-                                data = impl.resolveEKey(re.eKey);
-                            return data;
-                        };
-                        auto d4Root = D4Root::create(
-                            std::move(tvfsRoot), std::move(coreToc),
-                            resolver, opts.pool);
-                        if (d4Root)
-                            impl.root = std::move(d4Root);
-                    }
-                }
-            }
-
-            // Fallback: use plain TVFS if D4 enhancement didn't apply.
-            if (!impl.root && tvfsRoot)
-                impl.root = std::move(tvfsRoot);
-        }
-    }
-
-    // If VFS root didn't work, try rootCKey.
-    if (!impl.root) {
-        auto rootData = impl.resolveCKey(impl.buildConfig.rootCKey);
-        if (rootData.empty())
-            return setError("Failed to resolve root file", kRootNotFound);
-
-        if (rootData.size() >= 4) {
-            u32 magic = u32(rootData[0]) | (u32(rootData[1]) << 8) |
-                        (u32(rootData[2]) << 16) | (u32(rootData[3]) << 24);
-
-            if (magic == RootSignature::kTVFS) {
-                impl.root = TvfsRoot::parse(rootData, opts.pool);
-            } else if (magic == RootSignature::kMFST) {
-                impl.root = WowRoot::parse(rootData, opts.pool);
-            } else if (magic == RootSignature::kD3Root || magic == RootSignature::kD3Dir) {
-                impl.root = D3Root::parse(rootData, resolver, opts.pool);
-            }
-        }
-
-        // Try headerless WoW (legacy).
-        if (!impl.root)
-            impl.root = WowRoot::parse(rootData, opts.pool);
-    }
-
-    if (!impl.root)
-        return setError("Failed to parse root manifest", kRootParseFailed);
+    if (!impl.loadEncodingAndRoot())
+        return setError("Failed to load encoding/root", static_cast<ErrorCode>(s_lastError));
 
     // Done.
     progress(ProgressStep::Ready);
@@ -796,6 +824,7 @@ std::optional<std::vector<u8>> Storage::readFile(const std::string& cascPath,
         s_lastError = kNotValid;
         return std::nullopt;
     }
+    if (!m_impl->ensureLoaded()) { s_lastError = kNotValid; return std::nullopt; }
 
     std::shared_lock lock(m_impl->mutex);
     auto normalized = normalizePath(cascPath);
@@ -814,6 +843,7 @@ std::optional<std::vector<u8>> Storage::readFile(i32 fileId,
         s_lastError = kNotValid;
         return std::nullopt;
     }
+    if (!m_impl->ensureLoaded()) { s_lastError = kNotValid; return std::nullopt; }
 
     std::shared_lock lock(m_impl->mutex);
     OverlayKey key{"", static_cast<u32>(fileId)};
@@ -836,6 +866,10 @@ std::vector<BatchReadResult> Storage::readBatch(
 
     if (!m_impl || !m_impl->isValid) {
         for (auto& r : results) r.error = "storage not valid";
+        return results;
+    }
+    if (!m_impl->ensureLoaded()) {
+        for (auto& r : results) r.error = "deferred load failed";
         return results;
     }
 
@@ -1024,6 +1058,7 @@ std::vector<BatchReadResult> Storage::readBatch(
 
 bool Storage::fileExists(const std::string& cascPath) const {
     if (!m_impl || !m_impl->isValid) return false;
+    if (!m_impl->ensureLoaded()) return false;
     std::shared_lock lock(m_impl->mutex);
 
     auto normalized = normalizePath(cascPath);
@@ -1039,6 +1074,7 @@ bool Storage::fileExists(const std::string& cascPath) const {
 
 bool Storage::fileExists(i32 fileId) const {
     if (!m_impl || !m_impl->isValid) return false;
+    if (!m_impl->ensureLoaded()) return false;
     std::shared_lock lock(m_impl->mutex);
 
     OverlayKey key{"", static_cast<u32>(fileId)};
@@ -1050,6 +1086,7 @@ bool Storage::fileExists(i32 fileId) const {
 
 std::optional<u64> Storage::fileSize(const std::string& cascPath) const {
     if (!m_impl || !m_impl->isValid) return std::nullopt;
+    if (!m_impl->ensureLoaded()) return std::nullopt;
     std::shared_lock lock(m_impl->mutex);
 
     auto entries = m_impl->root->findByPath(normalizePath(cascPath));
@@ -1062,6 +1099,7 @@ std::optional<u64> Storage::fileSize(const std::string& cascPath) const {
 
 std::optional<u64> Storage::fileSize(i32 fileId) const {
     if (!m_impl || !m_impl->isValid) return std::nullopt;
+    if (!m_impl->ensureLoaded()) return std::nullopt;
     std::shared_lock lock(m_impl->mutex);
 
     auto entries = m_impl->root->findByFileDataId(static_cast<u32>(fileId));
@@ -1074,12 +1112,14 @@ std::optional<u64> Storage::fileSize(i32 fileId) const {
 
 std::optional<FileFullInfo> Storage::fileInfo(const std::string& cascPath) const {
     if (!m_impl || !m_impl->isValid) return std::nullopt;
+    if (!m_impl->ensureLoaded()) return std::nullopt;
     std::shared_lock lock(m_impl->mutex);
     return m_impl->fileInfoResolved(m_impl->root->findByPath(normalizePath(cascPath)));
 }
 
 std::optional<FileFullInfo> Storage::fileInfo(i32 fileId) const {
     if (!m_impl || !m_impl->isValid) return std::nullopt;
+    if (!m_impl->ensureLoaded()) return std::nullopt;
     std::shared_lock lock(m_impl->mutex);
     return m_impl->fileInfoResolved(
         m_impl->root->findByFileDataId(static_cast<u32>(fileId)));
@@ -1087,6 +1127,7 @@ std::optional<FileFullInfo> Storage::fileInfo(i32 fileId) const {
 
 void Storage::enumerate(std::function<bool(const FindEntry&)> callback) const {
     if (!m_impl || !m_impl->isValid || !callback) return;
+    if (!m_impl->ensureLoaded()) return;
     std::shared_lock lock(m_impl->mutex);
 
     m_impl->root->enumerate([&](const RootEntry& re) -> bool {
@@ -1110,6 +1151,7 @@ void Storage::enumerate(std::function<bool(const FindEntry&)> callback) const {
 std::vector<std::string> Storage::listFiles() const {
     std::vector<std::string> result;
     if (!m_impl || !m_impl->isValid) return result;
+    if (!m_impl->ensureLoaded()) return result;
     std::shared_lock lock(m_impl->mutex);
 
     m_impl->root->enumerate([&](const RootEntry& re) -> bool {
@@ -1131,6 +1173,7 @@ std::vector<FindEntry> Storage::listEntries() const {
 
 std::optional<u32> Storage::totalFileCount() const {
     if (!m_impl || !m_impl->isValid) return std::nullopt;
+    if (!m_impl->ensureLoaded()) return std::nullopt;
     return static_cast<u32>(m_impl->root->entryCount());
 }
 
@@ -1210,6 +1253,7 @@ bool Storage::writeFile(i32 fileId, const std::vector<u8>& data,
 
 bool Storage::deleteFile(const std::string& path) {
     if (!m_impl) { s_lastError = kNotValid; return false; }
+    if (!m_impl->ensureLoaded()) { s_lastError = kNotValid; return false; }
     std::unique_lock lock(m_impl->mutex);
 
     auto normalized = normalizePath(path);
@@ -1231,6 +1275,7 @@ bool Storage::deleteFile(const std::string& path) {
 
 bool Storage::deleteFile(i32 fileId) {
     if (!m_impl) { s_lastError = kNotValid; return false; }
+    if (!m_impl->ensureLoaded()) { s_lastError = kNotValid; return false; }
     std::unique_lock lock(m_impl->mutex);
 
     OverlayKey key{"", static_cast<u32>(fileId)};
@@ -1259,6 +1304,7 @@ bool Storage::save() {
 
 bool Storage::save(const std::string& outputPath) {
     if (!m_impl) { s_lastError = kNotValid; return false; }
+    if (!m_impl->ensureLoaded()) { s_lastError = kNotValid; return false; }
     std::unique_lock lock(m_impl->mutex);
 
     namespace fs = std::filesystem;
