@@ -14,7 +14,7 @@
 #include <cstring>
 #include <vector>
 
-namespace whiteout::storages::mpq {
+namespace whiteout::storages::common {
 namespace {
 
 // ---------------------------------------------------------------------------
@@ -488,4 +488,4 @@ std::vector<u8> lzmaDecompress(std::span<const u8> src, size_t expectedSize) {
     return output.finish();
 }
 
-} // namespace whiteout::storages::mpq
+} // namespace whiteout::storages::common

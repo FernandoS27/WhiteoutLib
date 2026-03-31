@@ -17,6 +17,13 @@
 
 namespace whiteout::storages::common {
 
+/// Advisory access-pattern hint for memory-mapped files.
+enum class AccessHint : u8 {
+    Normal,       ///< Default OS behavior.
+    Sequential,   ///< Hint for sequential access (madvise MADV_SEQUENTIAL / FILE_FLAG_SEQUENTIAL_SCAN).
+    Random,       ///< Hint for random access (madvise MADV_RANDOM / FILE_FLAG_RANDOM_ACCESS).
+};
+
 /// RAII wrapper for a read-only memory-mapped file.
 ///
 /// Movable, non-copyable. Maps the entire file contents into the process
@@ -40,10 +47,20 @@ public:
     ~MappedFile();
 
     /// Open and memory-map a file for reading.
-    /// @param path UTF-8 encoded file path.
+    /// @param path  UTF-8 encoded file path.
+    /// @param hint  Advisory access-pattern hint.
+    /// @param error Optional output for a human-readable error description.
     /// @return The mapped file, or nullopt on failure (file not found,
     ///         zero-length, permission denied, address-space exhaustion, etc.).
-    static std::optional<MappedFile> open(const std::string& path);
+    static std::optional<MappedFile> open(const std::string& path,
+                                          AccessHint hint = AccessHint::Normal,
+                                          std::string* error = nullptr);
+
+    /// Return the path this file was mapped from. Empty if default-constructed.
+    const std::string& path() const noexcept { return m_path; }
+
+    /// Apply advisory hint to an already-opened mapping.
+    void advise(AccessHint hint) const noexcept;
 
     /// View of the mapped region. Empty if invalid.
     std::span<const u8> data() const noexcept;
@@ -66,6 +83,7 @@ public:
 private:
     void release() noexcept;
 
+    std::string m_path;
     const u8* m_data = nullptr;
     size_t m_size = 0;
 

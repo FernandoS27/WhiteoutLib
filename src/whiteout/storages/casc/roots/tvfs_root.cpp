@@ -1,0 +1,405 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) 2026 Fernando Sahmkow
+
+#include "tvfs_root.h"
+#include "../constants.h"
+#include "../../common/byte_order.h"
+#include "../../common/string_utils.h"
+
+#include <whiteout/interfaces.h>
+#include <whiteout/utils/job_group.h>
+
+#include <algorithm>
+#include <cstring>
+
+namespace whiteout::storages::casc {
+
+using storages::common::readLE32;
+using storages::common::readBE16;
+using storages::common::readBE32;
+using storages::common::readBEVar;
+using storages::common::toLower;
+
+// ---- Constants local to TVFS root parser ----
+
+/// TVFS minimum header size.
+static constexpr size_t kTvfsMinHeaderSize = 42;
+
+/// TVFS flag: include CKey in content-file table entries.
+static constexpr u32 kTvfsFlagIncludeCKey = 0x0001;
+
+/// Maximum recursion depth for TVFS path tree traversal.
+static constexpr int kTvfsMaxTraversalDepth = 128;
+
+namespace {
+
+// ============================================================================
+// TVFS header
+// ============================================================================
+
+/// TVFS flags.
+// constexpr u32 kTvfsFlagWriteSupport = 0x0002;
+// constexpr u32 kTvfsFlagPatchSupport = 0x0004;
+// constexpr u32 kTvfsFlagLowescaseManifest = 0x0008;
+
+struct TvfsHeader {
+    u32 signature = 0;
+    u8 formatVersion = 0;
+    u8 headerSize = 0;
+    u8 eKeySize = 0;
+    u8 patchKeySize = 0;
+    u32 flags = 0;            // LE!
+    u32 pathTableOffset = 0;  // BE
+    u32 pathTableSize = 0;    // BE
+    u32 vfsTableOffset = 0;   // BE
+    u32 vfsTableSize = 0;     // BE
+    u32 cftTableOffset = 0;   // BE
+    u32 cftTableSize = 0;     // BE
+    u16 maxDepth = 0;         // BE
+    u32 estTableOffset = 0;   // BE
+    u32 estTableSize = 0;     // BE
+};
+
+/// Minimum header size: sig(4)+ver(1)+hdrSz(1)+eKey(1)+pKey(1)
+///   +flags(4)+6*off/sz(24)+maxDepth(2)+2*est(8) = 46 bytes.
+// kTvfsMinHeaderSize is defined in constants.h.
+
+static bool parseHeader(std::span<const u8> data, TvfsHeader& hdr) {
+    if (data.size() < kTvfsMinHeaderSize) return false;
+
+    const u8* p = data.data();
+    hdr.signature = readLE32(p);
+    if (hdr.signature != RootSignature::kTVFS) return false;
+
+    hdr.formatVersion = p[4];
+    if (hdr.formatVersion != kTvfsFormatVersion) return false;
+
+    hdr.headerSize = p[5];
+    hdr.eKeySize = p[6];
+    hdr.patchKeySize = p[7];
+    hdr.flags = readLE32(p + 8);
+    hdr.pathTableOffset  = readBE32(p + 12);
+    hdr.pathTableSize    = readBE32(p + 16);
+    hdr.vfsTableOffset   = readBE32(p + 20);
+    hdr.vfsTableSize     = readBE32(p + 24);
+    hdr.cftTableOffset   = readBE32(p + 28);
+    hdr.cftTableSize     = readBE32(p + 32);
+    hdr.maxDepth         = readBE16(p + 36);
+    hdr.estTableOffset   = readBE32(p + 38);
+    hdr.estTableSize     = readBE32(p + 42);
+
+    // Sanity check offsets within data.
+    if (hdr.pathTableOffset + hdr.pathTableSize > data.size()) return false;
+    if (hdr.vfsTableOffset + hdr.vfsTableSize > data.size()) return false;
+    if (hdr.cftTableOffset + hdr.cftTableSize > data.size()) return false;
+
+    return true;
+}
+
+/// Determine byte-size of a CFT offset field based on CFT table size.
+static u32 getCftOffsSize(u32 cftTableSize) {
+    if (cftTableSize <= 0xFF) return 1;
+    if (cftTableSize <= 0xFFFF) return 2;
+    if (cftTableSize <= 0xFFFFFF) return 3;
+    return 4;
+}
+
+// ============================================================================
+// Path table traversal
+// ============================================================================
+
+/// Context for recursive path-tree traversal.
+struct TraversalCtx {
+    std::span<const u8> data;
+    const TvfsHeader& hdr;
+    u32 cftOffsSize;
+    std::vector<RootEntry>& entries;
+};
+
+static void traversePathTree(TraversalCtx& ctx, const u8* node, const u8* nodeEnd,
+                             const std::string& accumulated, int depth);
+
+/// Process a leaf node (file entry): resolve VFS → CFT → EKey [+ CKey].
+static void processFileEntry(TraversalCtx& ctx, const std::string& path, u32 vfsOffset) {
+    auto& hdr = ctx.hdr;
+    const u8* vfsBase = ctx.data.data() + hdr.vfsTableOffset;
+    const u8* cftBase = ctx.data.data() + hdr.cftTableOffset;
+
+    if (vfsOffset >= hdr.vfsTableSize) return;
+
+    // VFS entry: SpanCount(u8), then per span: FileOffset(u32 BE) + SpanSize(u32 BE) + CftOffset(var BE).
+    u8 spanCount = vfsBase[vfsOffset];
+    if (spanCount == 0 || spanCount > 224) return;
+
+    size_t vfsPos = vfsOffset + 1;
+    u32 spanEntrySize = 4 + 4 + ctx.cftOffsSize;
+
+    bool hasCKey = (hdr.flags & kTvfsFlagIncludeCKey) != 0;
+
+    for (u8 s = 0; s < spanCount; ++s) {
+        if (vfsPos + spanEntrySize > hdr.vfsTableSize) return;
+
+        // u32 fileOffset = readBE32(vfsBase + vfsPos);
+        // u32 spanSize = readBE32(vfsBase + vfsPos + 4);
+        u32 cftOffset = readBEVar(vfsBase + vfsPos + 8, ctx.cftOffsSize);
+        vfsPos += spanEntrySize;
+
+        // CFT entry: EKey(eKeySize) [+ CKey(eKeySize) if IncludeCKey flag].
+        u32 cftEntrySize = hasCKey ? (hdr.eKeySize * 2) : hdr.eKeySize;
+        if (cftOffset + cftEntrySize > hdr.cftTableSize) continue;
+
+        RootEntry entry;
+        entry.path = path;
+
+        // Store EKey.
+        std::memset(entry.eKey.data(), 0, 16);
+        u32 ekCopy = std::min<u32>(hdr.eKeySize, 16);
+        std::memcpy(entry.eKey.data(), cftBase + cftOffset, ekCopy);
+
+        if (hasCKey) {
+            // CKey follows EKey in CFT.
+            std::memset(entry.cKey.data(), 0, 16);
+            u32 ckCopy = std::min<u32>(hdr.eKeySize, 16);
+            std::memcpy(entry.cKey.data(), cftBase + cftOffset + hdr.eKeySize, ckCopy);
+        }
+        // else: cKey stays zero — resolution must use eKey directly.
+
+        ctx.entries.push_back(std::move(entry));
+    }
+}
+
+/// Recursive prefix-tree traversal.
+///
+/// Matches CascLib's ParsePathFileTable / CapturePathEntry / PathBuffer_AppendNode
+/// semantics exactly:
+///
+/// Each path entry is: [pre-0x00?] [len][name] [post-0x00?] [0xFF nodeValue?]
+///
+/// - Pre-0x00 inserts '/' before the name fragment.
+/// - Post-0x00 inserts '/' after the name fragment.
+/// - After the name, if the next byte is NOT 0x00 and NOT 0xFF (i.e. another
+///   length byte), CascLib treats this as an implicit post-separator.
+/// - Entries WITHOUT a node value (0xFF) are "prefix fragments" — they accumulate
+///   in the path buffer. The buffer is only restored after processing an entry
+///   that DOES have a node value.
+/// - 0xFF + folder nodeValue (bit 31 set): recurse into sub-directory contents.
+/// - 0xFF + file nodeValue (bit 31 clear): leaf file → emit entry.
+///
+/// @param accumulated  Path built so far (prefix fragments + parent path).
+static void traversePathTree(TraversalCtx& ctx, const u8* node, const u8* nodeEnd,
+                             const std::string& accumulated, int depth) {
+    if (depth > kTvfsMaxTraversalDepth) return; // safety limit
+
+    std::string pathBuf = accumulated;
+
+    while (node < nodeEnd) {
+        // --- CapturePathEntry equivalent ---
+
+        // Pre-0x00: path separator before name.
+        if (*node == kTvfsPathSeparator) {
+            pathBuf += '/';
+            ++node;
+            if (node >= nodeEnd) break;
+        }
+
+        // Name fragment: [len][bytes].
+        std::string name;
+        if (node < nodeEnd && *node != kTvfsNodeValueMarker) {
+            u8 nameLen = *node++;
+            if (node + nameLen > nodeEnd) return;
+            if (nameLen > 0) {
+                name.assign(reinterpret_cast<const char*>(node), nameLen);
+                node += nameLen;
+            }
+        }
+
+        // Post-0x00: path separator after name.
+        bool hasPostSep = false;
+        if (node < nodeEnd && *node == kTvfsPathSeparator) {
+            hasPostSep = true;
+            ++node;
+        }
+
+        bool hasNodeValue = false;
+        u32 nodeValue = 0;
+        if (node < nodeEnd) {
+            if (*node == kTvfsNodeValueMarker) {
+                // 0xFF marker: node value follows.
+                ++node;
+                if (node + 4 > nodeEnd) break;
+                nodeValue = readBE32(node);
+                node += 4;
+                hasNodeValue = true;
+            } else if (!hasPostSep) {
+                // Next byte is another name-length → implicit post-separator.
+                hasPostSep = true;
+            }
+        }
+
+        // --- PathBuffer_AppendNode equivalent ---
+        // (pre-separator was already appended above)
+        pathBuf += name;
+        if (hasPostSep)
+            pathBuf += '/';
+
+        // --- Process node value ---
+        if (hasNodeValue) {
+            if (nodeValue & kTvfsFolderNodeBit) {
+                // Folder node: recurse into children.
+                u32 folderDataLen = nodeValue & ~kTvfsFolderNodeBit;
+                if (folderDataLen < 4) break;
+                u32 innerLen = folderDataLen - 4;
+                if (node + innerLen > nodeEnd) break;
+
+                traversePathTree(ctx, node, node + innerLen, pathBuf, depth + 1);
+                node += innerLen;
+            } else {
+                // File node.
+                processFileEntry(ctx, pathBuf, nodeValue);
+            }
+
+            // Restore path buffer to the save-point (undo this entry + any
+            // accumulated prefix fragments since function entry).
+            pathBuf = accumulated;
+        }
+        // No node value → prefix fragment stays in pathBuf for the next entry.
+    }
+}
+
+/// Entry point: unwrap the optional anonymous root folder, then traverse.
+/// CascLib does this unwrap in ParseDirectoryData before calling ParsePathFileTable.
+static void parsePathTable(TraversalCtx& ctx) {
+    const u8* node = ctx.data.data() + ctx.hdr.pathTableOffset;
+    const u8* nodeEnd = node + ctx.hdr.pathTableSize;
+
+    // Most TVFS blobs start with an anonymous root folder: 0xFF + folder nodeValue.
+    if (node < nodeEnd && *node == kTvfsNodeValueMarker) {
+        if (node + 5 > nodeEnd) return;
+        u32 nodeValue = readBE32(node + 1);
+        if (nodeValue & kTvfsFolderNodeBit) {
+            u32 folderDataLen = nodeValue & ~kTvfsFolderNodeBit;
+            if (folderDataLen < 4) return;
+            u32 innerLen = folderDataLen - 4;
+            const u8* childStart = node + 5; // past 0xFF + 4-byte value
+            const u8* childEnd = childStart + innerLen;
+            if (childEnd > nodeEnd) return;
+            traversePathTree(ctx, childStart, childEnd, {}, 0);
+            return;
+        }
+    }
+
+    // No root wrapper — parse directly.
+    traversePathTree(ctx, node, nodeEnd, {}, 0);
+}
+
+} // anonymous namespace
+
+// ============================================================================
+// TvfsRoot public API
+// ============================================================================
+
+std::unique_ptr<TvfsRoot> TvfsRoot::parse(
+    std::span<const u8> data,
+    interfaces::WorkerPool* pool)
+{
+    TvfsHeader hdr;
+    if (!parseHeader(data, hdr))
+        return nullptr;
+
+    auto root = std::make_unique<TvfsRoot>();
+
+    u32 cftOffsSize = getCftOffsSize(hdr.cftTableSize);
+
+    TraversalCtx ctx{data, hdr, cftOffsSize, root->m_entries};
+
+    parsePathTable(ctx);
+
+    if (root->m_entries.empty())
+        return nullptr;
+
+    root->buildIndices(pool);
+    return root;
+}
+
+void TvfsRoot::merge(const TvfsRoot& other) {
+    size_t base = m_entries.size();
+    m_entries.insert(m_entries.end(), other.m_entries.begin(), other.m_entries.end());
+    for (size_t i = base; i < m_entries.size(); ++i) {
+        if (!m_entries[i].path.empty())
+            m_byPath.emplace(toLower(m_entries[i].path), i);
+    }
+}
+
+std::vector<RootEntry> TvfsRoot::findByPath(const std::string& path) const {
+    auto key = toLower(path);
+    std::vector<RootEntry> results;
+    auto range = m_byPath.equal_range(key);
+    for (auto it = range.first; it != range.second; ++it)
+        results.push_back(m_entries[it->second]);
+    return results;
+}
+
+std::vector<RootEntry> TvfsRoot::findByFileDataId(u32 /*fileDataId*/) const {
+    return {};
+}
+
+std::vector<RootEntry> TvfsRoot::findByCKey(std::span<const u8, 16> cKey) const {
+    std::vector<RootEntry> results;
+    for (auto& e : m_entries) {
+        if (std::memcmp(e.cKey.data(), cKey.data(), 16) == 0)
+            results.push_back(e);
+    }
+    return results;
+}
+
+void TvfsRoot::enumerate(std::function<bool(const RootEntry&)> callback) const {
+    for (auto& e : m_entries) {
+        if (!callback(e)) break;
+    }
+}
+
+size_t TvfsRoot::entryCount() const {
+    return m_entries.size();
+}
+
+void TvfsRoot::buildIndices(interfaces::WorkerPool* pool) {
+    size_t n = m_entries.size();
+
+    // Pre-compute lowercase keys in parallel.
+    std::vector<std::string> lowerPaths(n);
+    if (pool && n > 1000) {
+        size_t numThreads = std::max<size_t>(pool->threadCount(), 1);
+        size_t chunkSize = (n + numThreads - 1) / numThreads;
+        size_t chunks = (n + chunkSize - 1) / chunkSize;
+
+        utils::JobGroup jobGroup;
+        jobGroup.add(chunks);
+        for (size_t c = 0; c < chunks; ++c) {
+            interfaces::WorkerTask task;
+            task.fn = [&, c]() {
+                size_t start = c * chunkSize;
+                size_t end = std::min(start + chunkSize, n);
+                for (size_t i = start; i < end; ++i) {
+                    if (!m_entries[i].path.empty())
+                        lowerPaths[i] = toLower(m_entries[i].path);
+                }
+                jobGroup.done();
+            };
+            pool->submit(task);
+        }
+        jobGroup.wait();
+    } else {
+        for (size_t i = 0; i < n; ++i) {
+            if (!m_entries[i].path.empty())
+                lowerPaths[i] = toLower(m_entries[i].path);
+        }
+    }
+
+    m_byPath.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+        if (!lowerPaths[i].empty())
+            m_byPath.emplace(std::move(lowerPaths[i]), i);
+    }
+}
+
+} // namespace whiteout::storages::casc

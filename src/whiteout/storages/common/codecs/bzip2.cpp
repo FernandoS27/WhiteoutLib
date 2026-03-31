@@ -12,7 +12,7 @@
 #include <cstring>
 #include <numeric>
 
-namespace whiteout::storages::mpq {
+namespace whiteout::storages::common {
 
 namespace {
 
@@ -887,4 +887,4 @@ std::vector<u8> bzip2Compress(std::span<const u8> src) {
     return out;
 }
 
-} // namespace whiteout::storages::mpq
+} // namespace whiteout::storages::common

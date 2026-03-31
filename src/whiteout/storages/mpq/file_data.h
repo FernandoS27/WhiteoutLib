@@ -11,8 +11,10 @@
 #include "tables/block_table.h"
 #include "codecs/compression.h"
 
+#include <optional>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace whiteout::interfaces {
@@ -69,5 +71,42 @@ struct EncodeOptions {
 /// Splits into sectors, compresses, optionally encrypts.
 [[nodiscard]] EncodedFile encodeFileData(std::span<const u8> rawData, const EncodeOptions& opts,
                                          interfaces::WorkerPool* pool = nullptr);
+
+// ============================================================================
+// Batch Operations (Flattened Pipeline)
+// ============================================================================
+
+/// Per-sector compression result for the flattened write pipeline.
+struct SectorResult {
+    std::vector<u8> data;  ///< Compressed (or stored) sector data.
+    bool wasCompressed = false; ///< True if compression was effective.
+};
+
+/// Result of batch encoding for the flattened write pipeline.
+struct BatchEncodeResult {
+    std::vector<EncodedFile> files; ///< One per input item.
+};
+
+/// Encode multiple files using a flattened pipeline.
+/// All sector compression tasks are submitted as top-level pool tasks.
+/// Uses timeline semaphores when available, otherwise falls back to the
+/// current parallel-files XOR parallel-sectors strategy.
+[[nodiscard]] BatchEncodeResult encodeBatch(
+    std::span<const std::pair<std::span<const u8>, EncodeOptions>> items,
+    interfaces::WorkerPool* pool);
+
+/// Descriptor for a file to extract in a batch operation.
+struct ExtractFileInfo {
+    BlockEntry block;
+    u32 fileKey = 0;
+};
+
+/// Extract multiple files using a flattened pipeline.
+/// All sector decompression tasks are submitted as top-level pool tasks.
+/// Returns one entry per input file: the decompressed data, or std::nullopt on failure.
+[[nodiscard]] std::vector<std::optional<std::vector<u8>>> extractBatch(
+    std::span<const u8> archiveData, size_t archiveOffset,
+    std::span<const ExtractFileInfo> files, u32 sectorSize,
+    interfaces::WorkerPool* pool);
 
 } // namespace whiteout::storages::mpq

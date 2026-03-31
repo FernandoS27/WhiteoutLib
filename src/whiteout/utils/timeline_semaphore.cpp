@@ -34,7 +34,12 @@ void TimelineSemaphore::signal(Value v) noexcept {
                                                            std::memory_order_relaxed)) {
         /* retry with updated cur */
     }
-    m_impl->cv.notify_all();
+    
+    // Acquire the mutex to prevent lost notifications. 
+    {
+        std::lock_guard<std::mutex> lock(m_impl->mutex);
+        m_impl->cv.notify_all();
+    }
 }
 
 void TimelineSemaphore::wait(Value v) {

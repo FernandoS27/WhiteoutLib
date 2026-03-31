@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 /// @file bzip2.h
-/// @brief Minimal BZip2 decompression for MPQ sectors.
+/// @brief Minimal BZip2 decompression/compression.
 
 #pragma once
 
@@ -11,7 +11,7 @@
 #include <span>
 #include <vector>
 
-namespace whiteout::storages::mpq {
+namespace whiteout::storages::common {
 
 /// Decompress BZip2-compressed data.
 /// @param src          Compressed data (without the MPQ compression byte prefix).
@@ -24,4 +24,4 @@ namespace whiteout::storages::mpq {
 /// @return Compressed data, or empty vector on failure.
 [[nodiscard]] std::vector<u8> bzip2Compress(std::span<const u8> src);
 
-} // namespace whiteout::storages::mpq
+} // namespace whiteout::storages::common

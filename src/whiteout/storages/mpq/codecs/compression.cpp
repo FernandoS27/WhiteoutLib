@@ -2,19 +2,23 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include "../../common/zlib.h"
+#include "../../common/codecs/bzip2.h"
+#include "../../common/codecs/lzma.h"
 #include "adpcm.h"
 
 #include <array>
-#include "bzip2.h"
 #include "compression.h"
 #include "huffman.h"
-#include "lzma.h"
 #include "pkware.h"
 #include "sparse.h"
 
 #include <cstring>
 
 namespace whiteout::storages::mpq {
+
+using storages::common::bzip2Compress;
+using storages::common::bzip2Decompress;
+using storages::common::lzmaDecompress;
 
 // ============================================================================
 // Codec registry — maps compression flags to decompress/compress functions

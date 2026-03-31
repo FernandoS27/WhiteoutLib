@@ -38,7 +38,7 @@ WhiteoutLib/
 │   ├── compatibility.h         #   std::optional/std::span shims for C++11/14
 │   ├── vector_types.h          #   Vector2f/3f/4f, Quaternion, Matrix44f
 │   ├── utils.h                 #   VirtualFileSystem, VertexBuffer, VertexBufferBuilder
-│   ├── casc/storage.h          #   RAII CascLib wrapper (Storage class)
+│   ├── storages/casc/           #   Pure-C++ CASC archive reader/writer (storage.h, types.h)
 │   ├── models/                 #   3D model formats
 │   │   ├── m2/                 #     WoW M2 format (parser.h, writer.h, structures.h, types.h)
 │   │   ├── m3/                 #     SC2 M3 format (same pattern)
@@ -79,7 +79,7 @@ WhiteoutLib/
 │   │   │   ├── blue_noise.h/.cpp#      Void-and-Cluster blue-noise threshold map
 │   │   ├── io_helpers.h        #     File I/O utilities (read_file_bytes, write_file_bytes)
 │   │   └── issue_sink.h        #     Base class for strict/lenient error reporting
-│   └── casc/storage.cpp        #   CascLib C-API bridge
+│   └── storages/casc/           #   Pure-C++ CASC implementation (storage.cpp, writer.cpp, etc.)
 ├── examples/                   # Standalone example programs (one per format)
 ├── docs/                       # File-format specs (BLP, M2, M3, MDX, SNO, CASC)
 └── scripts/                    # Code generators (e.g. gen_sno_defs.py, gen_d3_sno_defs.py)
@@ -285,13 +285,15 @@ This is the most complex module. Key concepts:
 
 ### 4.8 CASC Module — Archive Access
 
-**Public:** `include/whiteout/casc/storage.h`
-**Internal:** `src/whiteout/casc/storage.cpp`
+**Public:** `include/whiteout/storages/casc/storage.h`, `include/whiteout/storages/casc/types.h`
+**Internal:** `src/whiteout/storages/casc/` (storage.cpp, writer.cpp, blte.cpp, config.cpp, index.cpp, encoding.cpp, crypto.cpp, roots/)
 
-- RAII `Storage` class wrapping CascLib's C API.
-- `open(path)` / `openOnline(codeName)` → `readFile(cascPath | fileId)` → `std::optional<std::vector<u8>>`.
-- `enumerate(mask, listFile, callback)` for wildcard file discovery.
-- **Optional build target** (`whiteout_casc`), gated by `WHITEOUT_ENABLE_CASC`.
+- Pure-C++ implementation — no CascLib dependency.
+- `Storage::open(path)` → `readFile(cascPath | fileId)` → `std::optional<std::vector<u8>>`.
+- `enumerate(callback)`, `listFiles()`, `listEntries()` for file discovery.
+- `readBatch()` for parallel I/O with optional `WorkerPool`.
+- Write support: `writeFile()`, `deleteFile()`, `save()`.
+- **Build target** (`whiteout_casc`), gated by `WHITEOUT_ENABLE_CASC`.
 
 ---
 
@@ -392,7 +394,7 @@ std::vector<u8> ddsBytes = dds::write(tex)     // → re-encode as DDS
 | Add new TextureKind pipeline | `src/whiteout/textures/mipmap/generator.cpp` → pipeline selection switch |
 | Add mipmap filter or stage | `src/whiteout/textures/mipmap/filters.h/.cpp` or `stages.h/.cpp` |
 | Fix pixel format conversion | `src/whiteout/textures/utils/pixel_convert.h` or `texture.cpp` |
-| Add CASC features | `src/whiteout/casc/storage.cpp` + `include/whiteout/casc/storage.h` |
+| Add CASC features | `src/whiteout/storages/casc/storage.cpp` + `include/whiteout/storages/casc/storage.h` |
 | Add CoreTOC format variant | `src/whiteout/sno/core_toc.cpp` |
 | Add new example program | New `.cpp` in `examples/`, add `add_executable` + `target_link_libraries` in `CMakeLists.txt` |
 | Change public API | Edit `include/whiteout/` headers (keep C++11 compatible!) |

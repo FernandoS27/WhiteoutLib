@@ -6,6 +6,7 @@
 #include "writer.h"
 
 #include <whiteout/interfaces.h>
+#include <whiteout/utils/job_group.h>
 
 #include <algorithm>
 #include <chrono>
@@ -204,21 +205,25 @@ std::vector<u8> writeArchive(const MpqHeader& header, const std::vector<WriteEnt
         return opts;
     };
 
-    if (pool && overlayCount >= 2) {
-        for (size_t idx = 0; idx < entries.size(); ++idx) {
-            const auto& entry = entries[idx];
-            if (!entry.rawSectors.empty())
-                continue;
+    if (pool && pool->threadCount() > 0 && overlayCount >= 2) {
+        // Build batch items for all overlay entries.
+        std::vector<std::pair<std::span<const u8>, EncodeOptions>> batchItems;
+        std::vector<size_t> batchToEntry;
+        batchItems.reserve(overlayCount);
+        batchToEntry.reserve(overlayCount);
 
-            interfaces::WorkerTask task;
-            task.fn = [idx, &entries, &hdr, &encodedFiles, &makeEncodeOpts]() {
-                encodedFiles[idx] =
-                    encodeFileData(std::span<const u8>(entries[idx].rawData),
-                                   makeEncodeOpts(entries[idx]), nullptr); // No nested parallelism.
-            };
-            pool->submit(task);
+        for (size_t idx = 0; idx < entries.size(); ++idx) {
+            if (!entries[idx].rawSectors.empty())
+                continue;
+            batchItems.emplace_back(std::span<const u8>(entries[idx].rawData),
+                                    makeEncodeOpts(entries[idx]));
+            batchToEntry.push_back(idx);
         }
-        pool->waitIdle();
+
+        auto batchResult = encodeBatch(batchItems, pool);
+        for (size_t b = 0; b < batchResult.files.size(); ++b) {
+            encodedFiles[batchToEntry[b]] = std::move(batchResult.files[b]);
+        }
     } else {
         for (size_t idx = 0; idx < entries.size(); ++idx) {
             const auto& entry = entries[idx];

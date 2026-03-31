@@ -4,7 +4,7 @@
 /// Interactive SNO browser example: opens a CASC storage, loads the CoreTOC,
 /// and presents a menu to open SNO files by name or by numeric SNO ID.
 
-#include <whiteout/casc/storage.h>
+#include <whiteout/storages/casc/storage.h>
 #include <whiteout/sno/core_toc.h>
 #include <whiteout/sno/sno_reader.h>
 #include <whiteout/sno/sno_types.h>
@@ -159,7 +159,7 @@ static whiteout::sno::SnoGroup groupFromCombinedFileName(
 
 /// Enumerate CASC for combined meta files and load them.
 static void loadCombinedMetas(
-    const whiteout::casc::Storage& storage,
+    const whiteout::storages::casc::Storage& storage,
     CombinedMetaCache& cache) {
     using namespace whiteout;
 
@@ -174,15 +174,12 @@ static void loadCombinedMetas(
 
     // Enumerate all .dat files from CASC.
     std::vector<std::string> allDatFiles;
-    for (const char* pattern : {"*.dat", "base:*.dat", "base\\*.dat"}) {
-        if (!allDatFiles.empty())
-            break;
-        storage.enumerate(pattern, "",
-                          [&](const std::string& name) -> bool {
-                              allDatFiles.push_back(name);
-                              return true;
-                          });
-    }
+    storage.enumerate([&](const whiteout::storages::casc::FindEntry& fe) -> bool {
+        if (fe.path.size() >= 4 &&
+            fe.path.compare(fe.path.size() - 4, 4, ".dat") == 0)
+            allDatFiles.push_back(fe.path);
+        return true;
+    });
 
     // Filter for combined meta files from groups known to use them.
     for (auto& name : allDatFiles) {
@@ -669,7 +666,7 @@ static whiteout::sno::SnoGroup snoGroupFromExtension(const std::string& ext) {
 }
 
 /// Try to read an SNO from CASC by its TocEntry, parse it, and print the tree.
-static void openSno(const whiteout::casc::Storage& storage,
+static void openSno(const whiteout::storages::casc::Storage& storage,
                     const whiteout::sno::SnoReader& reader,
                     const whiteout::sno::TocEntry& entry,
                     const CombinedMetaCache& combinedCache = {},
@@ -709,13 +706,12 @@ static void openSno(const whiteout::casc::Storage& storage,
         // Wildcard discovery fallback.
         if (!fileData) {
             std::vector<std::string> hits;
-            std::string pattern =
-                std::string("*") + entry.name + "*";
-            storage.enumerate(pattern, "",
-                              [&](const std::string& fname) -> bool {
-                                  hits.push_back(fname);
-                                  return hits.size() < 50;
-                              });
+            storage.enumerate(
+                [&](const whiteout::storages::casc::FindEntry& fe) -> bool {
+                    if (fe.path.find(entry.name) != std::string::npos)
+                        hits.push_back(fe.path);
+                    return hits.size() < 50;
+                });
             if (!hits.empty()) {
                 std::cout << "  CASC entries matching this asset:\n";
                 for (auto& h : hits)
@@ -770,7 +766,7 @@ static void openSno(const whiteout::casc::Storage& storage,
 
     if (!fileData) {
         std::cerr << "  Could not read SNO from CASC (error "
-                  << whiteout::casc::Storage::lastError() << ").\n";
+                  << whiteout::storages::casc::Storage::lastError() << ").\n";
         return;
     }
 
@@ -844,7 +840,7 @@ static void openSno(const whiteout::casc::Storage& storage,
 // ============================================================================
 
 /// Open an SNO by searching for its name in the CoreTOC.
-static void actionOpenByName(const whiteout::casc::Storage& storage,
+static void actionOpenByName(const whiteout::storages::casc::Storage& storage,
                              const whiteout::sno::SnoReader& reader,
                              const whiteout::sno::CoreToc& toc,
                              const CombinedMetaCache& combinedCache,
@@ -954,7 +950,7 @@ static void actionOpenByName(const whiteout::casc::Storage& storage,
 }
 
 /// Open an SNO by its numeric SNO ID.
-static void actionOpenById(const whiteout::casc::Storage& storage,
+static void actionOpenById(const whiteout::storages::casc::Storage& storage,
                            const whiteout::sno::SnoReader& reader,
                            const whiteout::sno::CoreToc& toc,
                            const CombinedMetaCache& combinedCache,
@@ -995,7 +991,7 @@ static void actionOpenById(const whiteout::casc::Storage& storage,
 
 /// Extract N random SNO files from a chosen group and save them to disk.
 static void actionExtractRandomGroup(
-    const whiteout::casc::Storage& storage,
+    const whiteout::storages::casc::Storage& storage,
     const whiteout::sno::SnoReader& reader,
     const whiteout::sno::CoreToc& toc,
     const CombinedMetaCache& combinedCache,
@@ -1151,7 +1147,7 @@ static void actionExtractRandomGroup(
             failedEntries.push_back(
                 entry.name + " (snoId=" + std::to_string(entry.snoId) +
                 ") — not found in CASC (error " +
-                std::to_string(whiteout::casc::Storage::lastError()) + ")");
+                std::to_string(whiteout::storages::casc::Storage::lastError()) + ")");
             ++failed;
             continue;
         }
@@ -1302,12 +1298,13 @@ int main(int argc, char* argv[]) {
     // 1.  Open the CASC storage.
     // -----------------------------------------------------------------
     std::cout << "Opening CASC storage: " << storagePath << "\n";
-    casc::Storage storage;
-    if (!storage.open(storagePath)) {
+    auto storageOpt = storages::casc::Storage::open(storagePath);
+    if (!storageOpt) {
         std::cerr << "Failed to open CASC storage (error "
-                  << casc::Storage::lastError() << ").\n";
+                  << storages::casc::Storage::lastError() << ").\n";
         return 1;
     }
+    auto& storage = *storageOpt;
     std::cout << "  CASC storage opened successfully.\n";
 
     // -----------------------------------------------------------------
@@ -1332,11 +1329,12 @@ int main(int argc, char* argv[]) {
     // Last resort: wildcard search.
     if (!tocData) {
         std::vector<std::string> tocHits;
-        storage.enumerate("*CoreTOC*", "",
-                          [&](const std::string& fname) -> bool {
-                              tocHits.push_back(fname);
-                              return tocHits.size() < 5;
-                          });
+        storage.enumerate(
+            [&](const storages::casc::FindEntry& fe) -> bool {
+                if (fe.path.find("CoreTOC") != std::string::npos)
+                    tocHits.push_back(fe.path);
+                return tocHits.size() < 5;
+            });
         for (auto& h : tocHits) {
             if (tryToc(h)) {
                 std::cout << "  (discovered at " << h << ")\n";
@@ -1347,7 +1345,7 @@ int main(int argc, char* argv[]) {
 
     if (!tocData) {
         std::cerr << "Failed to read CoreTOC.dat (error "
-                  << casc::Storage::lastError() << ").\n";
+                  << storages::casc::Storage::lastError() << ").\n";
         return 1;
     }
     std::cout << "  Loaded from: " << tocPath << "\n";

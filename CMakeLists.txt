@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(WHITEOUT_ENABLE_CASC "Enable CASC archive support via CascLib" OFF)
 option(WHITEOUT_BUILD_EXAMPLES "Build example programs" OFF)
+option(WHITEOUT_BUILD_TESTS "Build test programs" OFF)
 
 if(MSVC)
     add_compile_options(/FS)
@@ -15,7 +16,7 @@ endif()
 add_library(whiteout_lib
     # Common
     src/whiteout/common_types.cpp
-    # src/whiteout/utils/vertex_buffer.cpp
+    src/whiteout/utils/vertex_buffer.cpp
     src/whiteout/utils/job_group.cpp
     src/whiteout/utils/simple_thread_pool.cpp
     src/whiteout/utils/timeline_semaphore.cpp
@@ -209,48 +210,57 @@ target_link_libraries(m3_to_wem_example PRIVATE whiteout_lib)
 endif() # WHITEOUT_BUILD_EXAMPLES
 
 # =============================================================================
-# Optional CASC support (via CascLib)
 # =============================================================================
-option(WHITEOUT_ENABLE_CASC "Enable CASC archive support via CascLib" ON)
+# New CASC support (pure C++ implementation)
+# =============================================================================
+option(WHITEOUT_ENABLE_CASC "Enable CASC archive support" ON)
 
 if(WHITEOUT_ENABLE_CASC)
-    include(FetchContent)
-    FetchContent_Declare(CascLib
-        GIT_REPOSITORY https://github.com/ladislav-zezula/CascLib.git
-        GIT_TAG        master
+    set(CASC_SOURCES
+        src/whiteout/storages/common/mapped_file.cpp
+        src/whiteout/storages/common/jenkins.cpp
+        src/whiteout/storages/common/md5.cpp
+        src/whiteout/storages/common/codecs/bzip2.cpp
+        src/whiteout/storages/common/codecs/lzma.cpp
+        src/whiteout/storages/casc/crypto.cpp
+        src/whiteout/storages/casc/blte.cpp
+        src/whiteout/storages/casc/config.cpp
+        src/whiteout/storages/casc/index.cpp
+        src/whiteout/storages/casc/encoding.cpp
+        src/whiteout/storages/casc/roots/root.cpp
+        src/whiteout/storages/casc/roots/wow_root.cpp
+        src/whiteout/storages/casc/roots/d3_root.cpp
+        src/whiteout/storages/casc/roots/tvfs_root.cpp
+        src/whiteout/storages/casc/storage.cpp
+        src/whiteout/storages/casc/writer.cpp
+        src/whiteout/storages/casc/casc_file_system.cpp
     )
-    set(CASC_BUILD_SHARED_LIB OFF CACHE BOOL "" FORCE)
-    set(CASC_BUILD_STATIC_LIB ON CACHE BOOL "" FORCE)
-    # CascLib's CMakeLists.txt uses an old cmake_minimum_required version.
-    set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
-    FetchContent_MakeAvailable(CascLib)
 
-    add_library(whiteout_casc
-        src/whiteout/casc/storage.cpp
-        src/whiteout/casc/casc_file_system.cpp
-    )
+    add_library(whiteout_casc STATIC ${CASC_SOURCES})
 
     target_include_directories(whiteout_casc PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
 
-    target_link_libraries(whiteout_casc
-        PUBLIC whiteout_lib
-        PRIVATE casc_static
-    )
+    target_link_libraries(whiteout_casc PUBLIC whiteout_lib)
 
     target_compile_definitions(whiteout_casc PUBLIC WHITEOUT_HAS_CASC=1)
 
     if(WHITEOUT_BUILD_EXAMPLES)
 
-    # Interactive SNO browser example
-    add_executable(sno_browser_example
-        examples/sno_browser_example.cpp
-    )
+    # CASC Storage Loader Example
+    add_executable(casc_loader_example examples/casc_loader_example.cpp)
+    target_link_libraries(casc_loader_example PRIVATE whiteout_casc)
 
+    add_executable(sno_browser_example examples/sno_browser_example.cpp)
     target_link_libraries(sno_browser_example PRIVATE whiteout_casc)
 
+    # CASC Writer Example
+    add_executable(casc_writer_example examples/casc_writer_example.cpp)
+    target_link_libraries(casc_writer_example PRIVATE whiteout_casc)
+
     endif() # WHITEOUT_BUILD_EXAMPLES
+
 endif() # WHITEOUT_ENABLE_CASC
 
 # =============================================================================
@@ -275,8 +285,8 @@ if(WHITEOUT_ENABLE_MPQ)
         src/whiteout/storages/mpq/codecs/sparse.cpp
         src/whiteout/storages/mpq/codecs/adpcm.cpp
         src/whiteout/storages/mpq/codecs/huffman.cpp
-        src/whiteout/storages/mpq/codecs/bzip2.cpp
-        src/whiteout/storages/mpq/codecs/lzma.cpp
+        src/whiteout/storages/common/codecs/bzip2.cpp
+        src/whiteout/storages/common/codecs/lzma.cpp
         src/whiteout/storages/mpq/file_data.cpp
         src/whiteout/storages/mpq/special_files.cpp
         src/whiteout/storages/mpq/writer.cpp
@@ -314,3 +324,10 @@ if(WHITEOUT_ENABLE_MPQ)
 
     endif() # WHITEOUT_BUILD_EXAMPLES
 endif() # WHITEOUT_ENABLE_MPQ
+
+# =============================================================================
+# Tests
+# =============================================================================
+if(WHITEOUT_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()
