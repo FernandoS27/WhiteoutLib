@@ -72,7 +72,6 @@ EncodingTable EncodingTable::parse(std::span<const u8> data) {
     u32 eSpecBlockSize = readBE32(data.data() + 18);
 
     size_t cKeyPageSize = size_t(cKeyPageSizeKB) * 1024;
-    // size_t eKeyPageSize = size_t(eKeyPageSizeKB) * 1024;
 
     size_t offset = kEncodingMinHeaderSize;
 

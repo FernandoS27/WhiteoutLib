@@ -180,6 +180,13 @@ TEST_CASE("Storage Cross Validate", "[casc][cross_validate][corpus]") {
         entries.push_back({"Warcraft III Reforged", corpus + "/Warcraft III"});
     if (std::filesystem::exists(corpus + "/Diablo IV"))
         entries.push_back({"Diablo IV", corpus + "/Diablo IV"});
+    // SC2 and HotS use well-known install paths (not in corpus directory).
+    for (auto& [lbl, dir] : std::vector<std::pair<std::string, std::string>>{
+             {"StarCraft II",       "C:/Program Files (x86)/StarCraft II"},
+             {"Heroes of the Storm", "C:/Program Files (x86)/Heroes of the Storm"}}) {
+        if (std::filesystem::exists(dir + "/.build.info"))
+            entries.push_back({lbl, dir});
+    }
     if (entries.empty()) SKIP("No corpus subdirectories found");
 
     for (auto& [label, path] : entries) {
@@ -190,6 +197,7 @@ TEST_CASE("Storage Cross Validate", "[casc][cross_validate][corpus]") {
 
     // TVFS storages (WC3R) should have exact path matches with CascLib.
     // Non-TVFS storages (D3) use different path generation and won't match.
+    // SC2 and HotS use MFST (WoW-style) root — not TVFS.
     bool isTvfsStorage = (label.find("Warcraft") != std::string::npos ||
                           label.find("Diablo IV") != std::string::npos);
 
@@ -520,8 +528,9 @@ TEST_CASE("Storage Cross Validate", "[casc][cross_validate][corpus]") {
             std::cout << "\n";
         }
 
-        CHECK_FALSE((isTvfsStorage || pathMissCount == 0));
-        if (!isTvfsStorage && pathMissCount > 0) {
+        if (isTvfsStorage) {
+            CHECK(pathMissCount == 0);
+        } else if (pathMissCount > 0) {
             std::cout << "  INFO: non-TVFS root — path format difference expected\n";
         }
     }
@@ -551,6 +560,13 @@ TEST_CASE("Storage Internal", "[casc][cross_validate][corpus]") {
         entries.push_back({"Warcraft III Reforged", corpus + "/Warcraft III"});
     if (std::filesystem::exists(corpus + "/Diablo IV"))
         entries.push_back({"Diablo IV", corpus + "/Diablo IV"});
+    // SC2 and HotS use well-known install paths (not in corpus directory).
+    for (auto& [lbl, dir] : std::vector<std::pair<std::string, std::string>>{
+             {"StarCraft II",       "C:/Program Files (x86)/StarCraft II"},
+             {"Heroes of the Storm", "C:/Program Files (x86)/Heroes of the Storm"}}) {
+        if (std::filesystem::exists(dir + "/.build.info"))
+            entries.push_back({lbl, dir});
+    }
     if (entries.empty()) SKIP("No corpus subdirectories found");
 
     for (auto& [label, path] : entries) {
@@ -562,6 +578,9 @@ TEST_CASE("Storage Internal", "[casc][cross_validate][corpus]") {
     auto t0 = std::chrono::steady_clock::now();
 
     auto storage = new_casc::Storage::open(path);
+    if (!storage) {
+        std::cout << "  FAIL: could not open storage (error " << new_casc::Storage::lastError() << ")\n";
+    }
     REQUIRE(storage.has_value());
 
     auto totalCount = storage->totalFileCount();

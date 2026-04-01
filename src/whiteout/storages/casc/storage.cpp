@@ -15,6 +15,7 @@
 #include "roots/wow_root.h"
 #include "roots/d3_root.h"
 #include "roots/tvfs_root.h"
+#include "roots/mndx_root.h"
 #include "writer.h"
 #include "../common/hex.h"
 #include "../common/mapped_file.h"
@@ -508,6 +509,8 @@ bool Storage::Impl::loadEncodingAndRoot() const {
                 root = WowRoot::parse(rootData, pool);
             } else if (magic == RootSignature::kD3Root || magic == RootSignature::kD3Dir) {
                 root = D3Root::parse(rootData, ckeyResolver, pool);
+            } else if (magic == RootSignature::kMNDX) {
+                root = MndxRoot::parse(rootData, pool);
             }
         }
 
@@ -586,16 +589,20 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     std::string basePath = opts.path;
     std::string dataPath;
 
-    // If path points at Data/ directly, go up one level.
+    // If path points at a data directory directly, go up one level.
     auto leaf = fs::path(basePath).filename().string();
     std::transform(leaf.begin(), leaf.end(), leaf.begin(), ::tolower);
-    if (leaf == "data") {
+    if (leaf == "data" || leaf == "sc2data" || leaf == "heroesdata") {
         dataPath = basePath;
         basePath = fs::path(basePath).parent_path().string();
     } else if (fs::exists(basePath + "/Data")) {
         dataPath = basePath + "/Data";
     } else if (fs::exists(basePath + "/data")) {
         dataPath = basePath + "/data";
+    } else if (fs::exists(basePath + "/SC2Data")) {
+        dataPath = basePath + "/SC2Data";
+    } else if (fs::exists(basePath + "/HeroesData")) {
+        dataPath = basePath + "/HeroesData";
     } else {
         // Maybe basePath IS the data dir (no separate "Data" subdir).
         dataPath = basePath;
@@ -1017,7 +1024,13 @@ void Storage::enumerate(std::function<bool(const FindEntry&)> callback) const {
     if (!m_impl->ensureLoaded()) return;
     std::shared_lock lock(m_impl->mutex);
 
+    // Track CKeys emitted by the root manifest.
+    std::unordered_set<u64> rootKeyHashes;
+
     m_impl->root->enumerate([&](const RootEntry& re) -> bool {
+        if (!isZeroKey(re.cKey))
+            rootKeyHashes.insert(keyHash64(re.cKey));
+
         FindEntry fe;
         fe.cKey = re.cKey;
         fe.localeFlags = re.localeFlags;
@@ -1029,10 +1042,38 @@ void Storage::enumerate(std::function<bool(const FindEntry&)> callback) const {
         if (encEntry) {
             fe.fileSize = encEntry->fileSize;
             fe.cKey = encEntry->cKey; // fill in CKey from encoding if root had only EKey
+            // Track the resolved CKey too (TVFS entries may have zero CKey in root).
+            rootKeyHashes.insert(keyHash64(encEntry->cKey));
         }
 
         return callback(fe);
     });
+
+    // Emit encoding-table orphans (entries not represented in the root manifest).
+    // CascLib does the same, using the hex CKey as the filename.
+    static constexpr char kHex[] = "0123456789abcdef";
+    for (auto& enc : m_impl->encodingTable.entries()) {
+        if (isZeroKey(enc.cKey))
+            continue;
+        if (rootKeyHashes.count(keyHash64(enc.cKey)))
+            continue;
+
+        // Format CKey as 32-character hex string.
+        char hexBuf[33];
+        for (int i = 0; i < 16; ++i) {
+            hexBuf[i * 2]     = kHex[enc.cKey[i] >> 4];
+            hexBuf[i * 2 + 1] = kHex[enc.cKey[i] & 0xF];
+        }
+        hexBuf[32] = '\0';
+
+        FindEntry fe;
+        fe.cKey = enc.cKey;
+        fe.fileSize = enc.fileSize;
+        fe.path = hexBuf;
+
+        if (!callback(fe))
+            break;
+    }
 }
 
 std::vector<std::string> Storage::listFiles() const {

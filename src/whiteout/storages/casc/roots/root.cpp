@@ -5,6 +5,7 @@
 #include "wow_root.h"
 #include "d3_root.h"
 #include "tvfs_root.h"
+#include "mndx_root.h"
 #include "../../common/byte_order.h"
 
 #include <cstring>
@@ -29,6 +30,10 @@ std::unique_ptr<RootManifest> RootManifest::parse(std::span<const u8> data) {
     // D3 root — identified by root or subdirectory signature.
     if (magic == RootSignature::kD3Root || magic == RootSignature::kD3Dir)
         return D3Root::parse(data);
+
+    // MNDX root (StarCraft II, Heroes of the Storm).
+    if (magic == RootSignature::kMNDX)
+        return MndxRoot::parse(data);
 
     // Fallback: try headerless WoW root (legacy, build 18125+).
     auto wowLegacy = WowRoot::parse(data);

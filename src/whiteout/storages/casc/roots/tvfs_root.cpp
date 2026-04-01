@@ -202,8 +202,6 @@ normal_entry:
     for (u8 s = 0; s < spanCount; ++s) {
         if (vfsPos + spanEntrySize > hdr.vfsTableSize) return;
 
-        // u32 fileOffset = readBE32(vfsBase + vfsPos);
-        // u32 spanSize = readBE32(vfsBase + vfsPos + 4);
         u32 cftOffset = readBEVar(vfsBase + vfsPos + 8, ctx.cftOffsSize);
         vfsPos += spanEntrySize;
 
@@ -371,6 +369,13 @@ std::unique_ptr<TvfsRoot> TvfsRoot::parse(
 
     auto root = std::make_unique<TvfsRoot>();
 
+    // Estimate entry count from CFT table size for pre-allocation.
+    // Each CFT entry is eKeySize bytes (or eKeySize*2 with CKeys).
+    if (hdr.eKeySize > 0) {
+        size_t estEntries = hdr.cftTableSize / hdr.eKeySize;
+        root->m_entries.reserve(estEntries);
+    }
+
     u32 cftOffsSize = getCftOffsSize(hdr.cftTableSize);
 
     TraversalCtx ctx{data, hdr, cftOffsSize, root->m_entries, nullptr, nullptr};
@@ -395,6 +400,12 @@ std::unique_ptr<TvfsRoot> TvfsRoot::parse(
         return nullptr;
 
     auto root = std::make_unique<TvfsRoot>();
+
+    // Estimate entry count from CFT table size for pre-allocation.
+    if (hdr.eKeySize > 0) {
+        size_t estEntries = hdr.cftTableSize / hdr.eKeySize;
+        root->m_entries.reserve(estEntries);
+    }
 
     u32 cftOffsSize = getCftOffsSize(hdr.cftTableSize);
 

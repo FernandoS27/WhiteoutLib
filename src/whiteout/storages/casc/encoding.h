@@ -38,6 +38,9 @@ public:
 
     size_t entryCount() const { return m_entries.size(); }
 
+    /// Read-only access to all entries (for orphan enumeration).
+    const std::vector<EncodingEntry>& entries() const { return m_entries; }
+
 private:
     std::vector<EncodingEntry> m_entries;
 

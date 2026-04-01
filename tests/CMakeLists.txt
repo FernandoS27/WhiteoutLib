@@ -77,6 +77,11 @@ if(WHITEOUT_ENABLE_CASC)
     target_include_directories(casc_race_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     catch_discover_tests(casc_race_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
+    # Performance heatmap test — standalone executable with custom main().
+    # Usage: casc_perf_heatmap_test <casc_path> [output_dir]
+    add_executable(casc_perf_heatmap_test casc_perf_heatmap_test.cpp)
+    target_link_libraries(casc_perf_heatmap_test PRIVATE whiteout_casc)
+
     # =========================================================================
     # Optional CascLib cross-validation target
     # Fetches CascLib for byte-identical comparison against the new

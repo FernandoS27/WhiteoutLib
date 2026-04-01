@@ -186,21 +186,46 @@ IndexTable IndexTable::load(const std::string& dataDir,
                             interfaces::WorkerPool* pool) {
     IndexTable table;
 
-    // Scan for .idx files in all immediate subdirectories of dataDir.
-    std::vector<std::filesystem::path> idxPaths;
-    if (std::filesystem::exists(dataDir)) {
-        for (auto& dirEntry : std::filesystem::directory_iterator(dataDir)) {
+    // Scan for .idx files in the primary index subdirectory.
+    // CascLib scans "data/" (or "darch/" for older HOTS builds) under the Data
+    // directory.  Other subdirectories such as the game-specific shmem caches
+    // (e.g. "d3/", "ecache/") use a different entry layout and must NOT be
+    // mixed into the main index—their 8-byte storage-offsets encode archive
+    // indices that don't correspond to local data.XXX archives.
+    namespace fs = std::filesystem;
+    std::vector<fs::path> idxPaths;
+
+    // Try the known primary index directories first (matching CascLib).
+    std::string primaryDir;
+    for (auto& name : {"data", "darch"}) {
+        std::string candidate = dataDir + "/" + name;
+        if (fs::exists(candidate) && fs::is_directory(candidate)) {
+            primaryDir = candidate;
+            break;
+        }
+    }
+
+    if (!primaryDir.empty()) {
+        for (auto& entry : fs::directory_iterator(primaryDir)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".idx")
+                idxPaths.push_back(entry.path());
+        }
+    }
+
+    // Fallback: if no primary directory found, scan all immediate subdirectories.
+    if (idxPaths.empty() && fs::exists(dataDir)) {
+        for (auto& dirEntry : fs::directory_iterator(dataDir)) {
             if (!dirEntry.is_directory())
                 continue;
-            for (auto& fileEntry : std::filesystem::directory_iterator(dirEntry.path())) {
+            for (auto& fileEntry : fs::directory_iterator(dirEntry.path())) {
                 if (fileEntry.is_regular_file() && fileEntry.path().extension() == ".idx")
                     idxPaths.push_back(fileEntry.path());
             }
         }
     }
     // Fallback: check dataDir root (flat layout).
-    if (idxPaths.empty() && std::filesystem::exists(dataDir)) {
-        for (auto& entry : std::filesystem::directory_iterator(dataDir)) {
+    if (idxPaths.empty() && fs::exists(dataDir)) {
+        for (auto& entry : fs::directory_iterator(dataDir)) {
             if (entry.is_regular_file() && entry.path().extension() == ".idx")
                 idxPaths.push_back(entry.path());
         }
@@ -263,6 +288,11 @@ IndexTable IndexTable::load(const std::string& dataDir,
             pool->submit(task);
         }
         jobGroup.wait();
+
+        size_t totalEntries = 0;
+        for (auto& entries : perFileEntries)
+            totalEntries += entries.size();
+        table.m_entries.reserve(totalEntries);
 
         for (auto& entries : perFileEntries)
             for (auto& e : entries)
@@ -497,6 +527,11 @@ void IndexTable::loadArchiveIndices(const std::string& dataDir,
             pool->submit(task);
         }
         jobGroup.wait();
+
+        size_t totalNew = 0;
+        for (auto& entries : perFileEntries)
+            totalNew += entries.size();
+        m_entries.reserve(m_entries.size() + totalNew);
 
         for (auto& entries : perFileEntries)
             for (auto& e : entries)

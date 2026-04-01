@@ -196,8 +196,7 @@ BlteDecodeResult blteDecode(std::span<const u8> blteData,
             return result;
         }
 
-        // Flags (1 byte) + frame count (3 bytes, big-endian)
-        // u8 flags = blteData[hdrStart]; // unused for now
+        // Flags (1 byte) + frame count (3 bytes, big-endian).
         u32 frameCount = (u32(blteData[hdrStart + 1]) << 16) |
                          (u32(blteData[hdrStart + 2]) << 8) |
                          u32(blteData[hdrStart + 3]);

@@ -33,62 +33,59 @@ struct AssetTypeInfo {
     const char* name;
 };
 
-// Subset of known D3 asset types. Index values match the CascLib table.
+// D3 SNO asset types. Indices and extensions match CascLib's D3AssetTypes[].
 static constexpr AssetTypeInfo kAssetTypes[] = {
-    {0x00, "unk", "Unknown"},
     {0x01, "acr", "Actor"},
     {0x02, "adv", "Adventure"},
-    {0x03, "ais", "AiBehavior"},
-    {0x04, "ait", "AiState"},
-    {0x05, "amb", "AmbientSound"},
+    {0x05, "ams", "AmbientSound"},
     {0x06, "ani", "Anim"},
     {0x07, "an2", "Anim2D"},
     {0x08, "ans", "AnimSet"},
     {0x09, "app", "Appearance"},
     {0x0B, "clt", "Cloth"},
-    {0x0C, "con", "Conversation"},
+    {0x0C, "cnv", "Conversation"},
     {0x0E, "efg", "EffectGroup"},
-    {0x10, "enc", "Encounter"},
-    {0x12, "exp", "Explosion"},
+    {0x0F, "enc", "Encounter"},
+    {0x11, "xpl", "Explosion"},
     {0x13, "fnt", "Font"},
     {0x14, "gam", "GameBalance"},
     {0x15, "glo", "Globals"},
     {0x16, "lvl", "LevelArea"},
     {0x17, "lit", "Light"},
     {0x18, "mrk", "MarkerSet"},
-    {0x1A, "mon", "Monster"},
-    {0x1B, "obs", "Observer"},
-    {0x1C, "phy", "Particle"},
-    {0x1D, "phm", "Physics"},
-    {0x1E, "pow", "Power"},
-    {0x20, "qst", "Quest"},
-    {0x21, "rop", "Rope"},
-    {0x22, "scn", "Scene"},
-    {0x23, "scg", "SceneGroup"},
-    {0x25, "shk", "ShaderMap"},
-    {0x26, "shd", "Shaders"},
-    {0x27, "shm", "Shakes"},
-    {0x28, "skl", "SkillKit"},
-    {0x29, "snd", "Sound"},
-    {0x2A, "snb", "SoundBank"},
-    {0x2B, "stl", "StringList"},
-    {0x2C, "srf", "Surface"},
-    {0x2D, "tex", "Textures"},
-    {0x2E, "trl", "Trail"},
-    {0x2F, "ui", "UI"},
-    {0x30, "wth", "Weather"},
-    {0x31, "wrl", "Worlds"},
-    {0x32, "rec", "Recipe"},
-    {0x34, "cnd", "Condition"},
-    {0x36, "act", "Act"},
-    {0x37, "mat", "Material"},
-    {0x39, "qsr", "QuestRange"},
-    {0x3A, "lor", "Lore"},
-    {0x3B, "rev", "Reverb"},
-    {0x3C, "mus", "Music"},
-    {0x3D, "tut", "Tutorial"},
-    {0x3F, "bos", "BossEncounter"},
-    {0x41, "ach", "Achievement"},
+    {0x19, "mon", "Monster"},
+    {0x1A, "obs", "Observer"},
+    {0x1B, "prt", "Particle"},
+    {0x1C, "phy", "Physics"},
+    {0x1D, "pow", "Power"},
+    {0x1F, "qst", "Quest"},
+    {0x20, "rop", "Rope"},
+    {0x21, "scn", "Scene"},
+    {0x22, "scg", "SceneGroup"},
+    {0x24, "shm", "ShaderMap"},
+    {0x25, "shd", "Shaders"},
+    {0x26, "shk", "Shakes"},
+    {0x27, "skl", "SkillKit"},
+    {0x28, "snd", "Sound"},
+    {0x29, "sbk", "SoundBank"},
+    {0x2A, "stl", "StringList"},
+    {0x2B, "srf", "Surface"},
+    {0x2C, "tex", "Textures"},
+    {0x2D, "trl", "Trail"},
+    {0x2E, "ui",  "UI"},
+    {0x2F, "wth", "Weather"},
+    {0x30, "wrl", "Worlds"},
+    {0x31, "rcp", "Recipe"},
+    {0x33, "cnd", "Condition"},
+    {0x38, "act", "Act"},
+    {0x39, "mat", "Material"},
+    {0x3A, "qsr", "QuestRange"},
+    {0x3B, "lor", "Lore"},
+    {0x3C, "rev", "Reverb"},
+    {0x3D, "phm", "PhysMesh"},
+    {0x3E, "mus", "Music"},
+    {0x3F, "tut", "Tutorial"},
+    {0x40, "bos", "BossEncounter"},
     {0x42, "aco", "Accolade"},
 };
 
@@ -232,20 +229,11 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
         root->m_entries.push_back(std::move(re));
     }
 
-    // Named entries from root → they may be sub-directory CKeys or regular files.
+    // Named entries from root are sub-directory references (Base, enUS, Windows, …)
+    // — not actual files. Collect them for sub-directory resolution only.
     std::vector<NamedEntry> subdirEntries;
-    for (auto& ne : namedEntries) {
-        // Heuristic: D3 sub-directories are named entries whose name doesn't contain
-        // a file extension. We resolve them if a resolver is provided.
-        // For now, add all named entries as root entries.
-        RootEntry re;
-        re.cKey = ne.cKey;
-        re.path = ne.name;
-        root->m_entries.push_back(std::move(re));
-
-        // Collect entries that might be sub-directories.
-        if (resolver)
-            subdirEntries.push_back(ne);
+    if (resolver) {
+        subdirEntries = std::move(namedEntries);
     }
 
     // Phase 2: Resolve sub-directories.
@@ -275,6 +263,7 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
             if (subdirData[si].empty()) continue;
 
             auto& subNe = subdirEntries[si];
+
             std::vector<AssetEntry> subAssets;
             std::vector<AssetIdxEntry> subAssetIdx;
             std::vector<NamedEntry> subNamed;

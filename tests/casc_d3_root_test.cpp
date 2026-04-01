@@ -227,7 +227,7 @@ TEST_CASE("Synthetic D3Root", "[casc][d3_root]") {
         // CKey (16 bytes).
         for (int j = 0; j < 16; ++j) buf.push_back(u8(0x10 + i * 0x20 + j));
         // FileIndex (u32): upper 16 = assetType, lower 16 = index.
-        writeLE32(u32(0x2D << 16) | u32(i)); // 0x2D = Textures
+        writeLE32(u32(0x2C << 16) | u32(i)); // 0x2C = Textures
     }
 
     // AssetIdx entries: 1 entry.
@@ -256,15 +256,10 @@ TEST_CASE("Synthetic D3Root", "[casc][d3_root]") {
     auto root = D3Root::parse(buf);
     REQUIRE(root != nullptr);
 
-    CHECK(root->entryCount() == 5);
+    // 3 entries: 2 asset + 1 assetIdx. Named entries are sub-directory
+    // references and are NOT emitted as root entries.
+    CHECK(root->entryCount() == 3);
     CHECK(root->format() == RootFormat::Diablo3);
-
-    // Verify path lookup (case-insensitive).
-    auto found = root->findByPath("coretoc.dat");
-    CHECK_FALSE(found.empty());
-
-    auto found2 = root->findByPath("Packages.dat");
-    CHECK_FALSE(found2.empty());
 
     // Verify asset path.
     auto texEntry = root->findByPath("tex/0");
