@@ -10,6 +10,7 @@
 #include <whiteout/storages/casc/types.h>
 
 #include <array>
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <span>
@@ -35,6 +36,19 @@ struct RootEntry {
     std::string path;                             ///< Resolved path (if available).
 };
 
+/// Select the best matching root entry based on locale/content flags.
+/// Returns nullptr only if @p entries is empty.
+inline const RootEntry* selectBestEntry(const std::vector<RootEntry>& entries,
+                                        u32 localeFlags) {
+    for (auto& e : entries) {
+        if (e.contentFlags & ContentFlags::DoNotLoad) continue;
+        if (localeFlags != 0 && e.localeFlags != 0 && (e.localeFlags & localeFlags) == 0)
+            continue;
+        return &e;
+    }
+    return entries.empty() ? nullptr : &entries[0];
+}
+
 /// Abstract base class for CASC root manifest parsers.
 class RootManifest {
 public:
@@ -46,14 +60,25 @@ public:
     /// Find entries by WoW-style FileDataId (returns empty for non-WoW roots).
     virtual std::vector<RootEntry> findByFileDataId(u32 fileDataId) const = 0;
 
-    /// Find entries by content key.
-    virtual std::vector<RootEntry> findByCKey(std::span<const u8, 16> cKey) const = 0;
+    /// Find entries by content key (linear scan — override for faster lookup).
+    virtual std::vector<RootEntry> findByCKey(std::span<const u8, 16> cKey) const {
+        std::vector<RootEntry> results;
+        for (auto& e : entries()) {
+            if (std::memcmp(e.cKey.data(), cKey.data(), 16) == 0)
+                results.push_back(e);
+        }
+        return results;
+    }
 
     /// Enumerate all entries. Callback returns false to stop.
-    virtual void enumerate(std::function<bool(const RootEntry&)> callback) const = 0;
+    virtual void enumerate(std::function<bool(const RootEntry&)> callback) const {
+        for (auto& e : entries()) {
+            if (!callback(e)) break;
+        }
+    }
 
     /// Total number of root entries.
-    virtual size_t entryCount() const = 0;
+    virtual size_t entryCount() const { return entries().size(); }
 
     /// Which root format this manifest represents.
     virtual RootFormat format() const = 0;
@@ -63,6 +88,10 @@ public:
     /// @param data  Raw root file data.
     /// @return Parsed manifest, or nullptr on failure.
     static std::unique_ptr<RootManifest> parse(std::span<const u8> data);
+
+protected:
+    /// Access the flat entry storage. Subclasses must override this.
+    virtual const std::vector<RootEntry>& entries() const = 0;
 };
 
 // Well-known root format magic signatures.

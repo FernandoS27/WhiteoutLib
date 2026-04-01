@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include "tvfs_root.h"
+#include "root_build_utils.h"
 #include "../constants.h"
 #include "../../common/byte_order.h"
 #include "../../common/string_utils.h"
@@ -430,57 +431,10 @@ std::vector<RootEntry> TvfsRoot::findByFileDataId(u32 /*fileDataId*/) const {
     return {};
 }
 
-std::vector<RootEntry> TvfsRoot::findByCKey(std::span<const u8, 16> cKey) const {
-    std::vector<RootEntry> results;
-    for (auto& e : m_entries) {
-        if (std::memcmp(e.cKey.data(), cKey.data(), 16) == 0)
-            results.push_back(e);
-    }
-    return results;
-}
-
-void TvfsRoot::enumerate(std::function<bool(const RootEntry&)> callback) const {
-    for (auto& e : m_entries) {
-        if (!callback(e)) break;
-    }
-}
-
-size_t TvfsRoot::entryCount() const {
-    return m_entries.size();
-}
-
 void TvfsRoot::buildIndices(interfaces::WorkerPool* pool) {
     size_t n = m_entries.size();
 
-    // Pre-compute lowercase keys in parallel.
-    std::vector<std::string> lowerPaths(n);
-    if (pool && n > 1000) {
-        size_t numThreads = std::max<size_t>(pool->threadCount(), 1);
-        size_t chunkSize = (n + numThreads - 1) / numThreads;
-        size_t chunks = (n + chunkSize - 1) / chunkSize;
-
-        utils::JobGroup jobGroup;
-        jobGroup.add(chunks);
-        for (size_t c = 0; c < chunks; ++c) {
-            interfaces::WorkerTask task;
-            task.fn = [&, c]() {
-                size_t start = c * chunkSize;
-                size_t end = std::min(start + chunkSize, n);
-                for (size_t i = start; i < end; ++i) {
-                    if (!m_entries[i].path.empty())
-                        lowerPaths[i] = normalizeCascPath(m_entries[i].path);
-                }
-                jobGroup.done();
-            };
-            pool->submit(task);
-        }
-        jobGroup.wait();
-    } else {
-        for (size_t i = 0; i < n; ++i) {
-            if (!m_entries[i].path.empty())
-                lowerPaths[i] = normalizeCascPath(m_entries[i].path);
-        }
-    }
+    auto lowerPaths = normalizeEntryPaths(m_entries, pool);
 
     m_byPath.reserve(n);
     for (size_t i = 0; i < n; ++i) {

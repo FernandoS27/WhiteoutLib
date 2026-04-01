@@ -5,6 +5,8 @@
 /// compute MD5 of the decoded data, and verify it matches the recorded CKey.
 /// This validates the entire end-to-end read pipeline.
 
+#include <catch2/catch_all.hpp>
+
 #include <whiteout/storages/casc/storage.h>
 
 // Internal header — we need md5Hash() for verification.
@@ -181,13 +183,13 @@ static TestResult testStorage(const std::string& label, const std::string& path,
     return result;
 }
 
-int main() {
+TEST_CASE("CASC corpus verify", "[casc][corpus]") {
     std::cout << "=== CASC Corpus Test (Phase 4) ===\n";
 
     auto corpus = findCorpus();
     if (corpus.empty()) {
         std::cout << "Corpus directory not found — skipping.\n";
-        return 0;
+        // done
     }
 
     u32 totalPassed = 0, totalFailed = 0, totalSkipped = 0;
@@ -216,5 +218,5 @@ int main() {
     std::cout << "=== Grand total: " << totalPassed << " passed, "
               << totalFailed << " failed, " << totalSkipped << " skipped ===\n";
 
-    return totalFailed > 0 ? 1 : 0;
+    CHECK(totalFailed == 0);
 }

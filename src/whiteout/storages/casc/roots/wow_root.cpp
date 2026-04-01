@@ -260,6 +260,7 @@ std::vector<RootEntry> WowRoot::findByFileDataId(u32 fileDataId) const {
 }
 
 std::vector<RootEntry> WowRoot::findByCKey(std::span<const u8, 16> cKey) const {
+    // WoW root has a special zero-key check before comparison.
     std::vector<RootEntry> results;
     for (auto& e : m_entries) {
         if (e.cKey == std::array<u8, 16>{} ? false :
@@ -267,16 +268,6 @@ std::vector<RootEntry> WowRoot::findByCKey(std::span<const u8, 16> cKey) const {
             results.push_back(e);
     }
     return results;
-}
-
-void WowRoot::enumerate(std::function<bool(const RootEntry&)> callback) const {
-    for (auto& e : m_entries) {
-        if (!callback(e)) break;
-    }
-}
-
-size_t WowRoot::entryCount() const {
-    return m_entries.size();
 }
 
 void WowRoot::buildIndices() {

@@ -1,6 +1,8 @@
 // Wu quantizer test suite — validates correctness, serial-vs-parallel parity,
 // dithering, async, edge cases, and sRGB mode.
 
+#include <catch2/catch_all.hpp>
+
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -12,6 +14,20 @@
 
 #include "../src/whiteout/textures/utils/quantize.h"
 #include <whiteout/utils/simple_thread_pool.h>
+
+#define TEST_FAIL(test, ...) \
+    do { \
+        char _msg[512]; \
+        snprintf(_msg, sizeof(_msg), __VA_ARGS__); \
+        FAIL("TEST " << test << " FAIL: " << _msg); \
+    } while (0)
+
+#define TEST_PASS(test, ...) \
+    do { \
+        (void)test; \
+    } while (0)
+
+
 
 using namespace whiteout;
 using namespace whiteout::textures::wu;
@@ -82,26 +98,13 @@ bool results_equal(const QuantizeResult& a, const QuantizeResult& b) {
     return true;
 }
 
-#define FAIL(test, ...)                 \
-    do {                                \
-        printf("TEST %d FAIL: ", test); \
-        printf(__VA_ARGS__);            \
-        printf("\n");                   \
-        return 1;                       \
-    } while (0)
 
-#define PASS(test, ...)                 \
-    do {                                \
-        printf("TEST %d PASS: ", test); \
-        printf(__VA_ARGS__);            \
-        printf("\n");                   \
-    } while (0)
 
 // ============================================================================
 // Tests
 // ============================================================================
 
-int main() {
+TEST_CASE("Wu quantizer", "[quantize]") {
     printf("=== Wu Quantizer Test Suite ===\n\n");
 
     // ====================================================================
@@ -120,7 +123,7 @@ int main() {
             pixels.data(), 64 * 64);
 
         if (result.color_count < 1)
-            FAIL(1, "color_count = %u", result.color_count);
+            TEST_FAIL(1, "color_count = %u", result.color_count);
 
         // The mapped pixel must round-trip to the original color
         const u8 idx = result.mapPixel(100, 150, 200);
@@ -131,9 +134,9 @@ int main() {
         if (std::abs(static_cast<int>(pr) - 100) > 4 ||
             std::abs(static_cast<int>(pg) - 150) > 4 ||
             std::abs(static_cast<int>(pb) - 200) > 4)
-            FAIL(1, "palette color (%u,%u,%u) too far from (100,150,200)", pr, pg, pb);
+            TEST_FAIL(1, "palette color (%u,%u,%u) too far from (100,150,200)", pr, pg, pb);
 
-        PASS(1, "solid color round-trip");
+        TEST_PASS(1, "solid color round-trip");
     }
 
     // Test 2: 2-color image -> palette has exactly 2 colors
@@ -149,9 +152,9 @@ int main() {
             pixels.data(), 64 * 64);
 
         if (result.color_count != 2)
-            FAIL(2, "expected 2 colors, got %u", result.color_count);
+            TEST_FAIL(2, "expected 2 colors, got %u", result.color_count);
 
-        PASS(2, "2-color image -> exactly 2 palette entries");
+        TEST_PASS(2, "2-color image -> exactly 2 palette entries");
     }
 
     // Test 3: Hash-filled 128x128 -> low MSE with 256 colors + kmeans
@@ -169,9 +172,9 @@ int main() {
         double mse = compute_palette_mse(pixels.data(), pc, indices.data(), result.palette);
 
         if (mse > 400.0)
-            FAIL(3, "MSE=%.2f too high (expected < 400)", mse);
+            TEST_FAIL(3, "MSE=%.2f too high (expected < 400)", mse);
 
-        PASS(3, "128x128 hash image, 256 colors, MSE=%.2f", mse);
+        TEST_PASS(3, "128x128 hash image, 256 colors, MSE=%.2f", mse);
     }
 
     // Test 4: maxColors(16) constrains palette correctly
@@ -181,9 +184,9 @@ int main() {
             pixels.data(), 64 * 64);
 
         if (result.color_count > 16)
-            FAIL(4, "color_count=%u exceeds max 16", result.color_count);
+            TEST_FAIL(4, "color_count=%u exceeds max 16", result.color_count);
 
-        PASS(4, "maxColors(16) -> %u palette entries", result.color_count);
+        TEST_PASS(4, "maxColors(16) -> %u palette entries", result.color_count);
     }
 
     // Test 5: kmeansIterations(0) still produces a valid result
@@ -195,13 +198,13 @@ int main() {
                           .quantize(pixels.data(), 64 * 64);
 
         if (result.color_count == 0)
-            FAIL(5, "color_count=0 with kmeansIterations=0");
+            TEST_FAIL(5, "color_count=0 with kmeansIterations=0");
 
         const u8 idx = result.mapPixel(128, 128, 128);
         if (idx >= result.color_count)
-            FAIL(5, "mapPixel returned %u >= color_count %u", idx, result.color_count);
+            TEST_FAIL(5, "mapPixel returned %u >= color_count %u", idx, result.color_count);
 
-        PASS(5, "kmeansIterations=0 -> %u colors, valid mapPixel", result.color_count);
+        TEST_PASS(5, "kmeansIterations=0 -> %u colors, valid mapPixel", result.color_count);
     }
 
     // Test 6: mapPixels consistency with mapPixel
@@ -221,10 +224,10 @@ int main() {
             const u32 base = i * 4;
             const u8 single = result.mapPixel(pixels[base], pixels[base + 1], pixels[base + 2]);
             if (single != bulk[i])
-                FAIL(6, "pixel %u: mapPixel=%u vs mapPixels=%u", i, single, bulk[i]);
+                TEST_FAIL(6, "pixel %u: mapPixel=%u vs mapPixels=%u", i, single, bulk[i]);
         }
 
-        PASS(6, "mapPixels matches mapPixel for all pixels");
+        TEST_PASS(6, "mapPixels matches mapPixel for all pixels");
     }
 
     // Test 7: Dithered mapping indices stay in range
@@ -242,10 +245,10 @@ int main() {
 
         for (u32 i = 0; i < W * H; ++i) {
             if (dithered[i] >= result.color_count)
-                FAIL(7, "dithered[%u]=%u >= color_count %u", i, dithered[i], result.color_count);
+                TEST_FAIL(7, "dithered[%u]=%u >= color_count %u", i, dithered[i], result.color_count);
         }
 
-        PASS(7, "dithered indices all in range [0, %u)", result.color_count);
+        TEST_PASS(7, "dithered indices all in range [0, %u)", result.color_count);
     }
 
     // Test 8: refineDitherAware does not crash, indices still valid
@@ -264,11 +267,11 @@ int main() {
         result.mapPixels(pixels.data(), W * H, indices.data());
         for (u32 i = 0; i < W * H; ++i) {
             if (indices[i] >= result.color_count)
-                FAIL(8, "after refine: index[%u]=%u >= color_count %u",
+                TEST_FAIL(8, "after refine: index[%u]=%u >= color_count %u",
                      i, indices[i], result.color_count);
         }
 
-        PASS(8, "refineDitherAware: indices valid, %u colors", result.color_count);
+        TEST_PASS(8, "refineDitherAware: indices valid, %u colors", result.color_count);
     }
 
     // Test 9: sRGB mode produces a valid result
@@ -281,13 +284,13 @@ int main() {
                           .quantize(pixels.data(), 64 * 64);
 
         if (result.color_count == 0)
-            FAIL(9, "sRGB mode produced 0 colors");
+            TEST_FAIL(9, "sRGB mode produced 0 colors");
 
         std::vector<u8> indices(64 * 64);
         result.mapPixels(pixels.data(), 64 * 64, indices.data());
         double mse = compute_palette_mse(pixels.data(), 64 * 64, indices.data(), result.palette);
 
-        PASS(9, "sRGB mode -> %u colors, MSE=%.2f", result.color_count, mse);
+        TEST_PASS(9, "sRGB mode -> %u colors, MSE=%.2f", result.color_count, mse);
     }
 
     // Test 10: ditherAware builder mode (kmeans=0)
@@ -302,15 +305,15 @@ int main() {
                           .quantize(pixels.data(), W * H);
 
         if (result.color_count == 0)
-            FAIL(10, "ditherAware + kmeansIterations(0) produced 0 colors");
+            TEST_FAIL(10, "ditherAware + kmeansIterations(0) produced 0 colors");
 
         std::vector<u8> indices(W * H);
         result.mapPixels(pixels.data(), W * H, indices.data());
         for (u32 i = 0; i < W * H; ++i)
             if (indices[i] >= result.color_count)
-                FAIL(10, "index[%u]=%u >= %u", i, indices[i], result.color_count);
+                TEST_FAIL(10, "index[%u]=%u >= %u", i, indices[i], result.color_count);
 
-        PASS(10, "ditherAware + kmeansIterations(0): %u colors, indices valid",
+        TEST_PASS(10, "ditherAware + kmeansIterations(0): %u colors, indices valid",
              result.color_count);
     }
 
@@ -320,14 +323,14 @@ int main() {
         auto result = Quantizer().maxColors(256).kmeansIterations(5).quantize(px, 1);
 
         if (result.color_count < 1)
-            FAIL(11, "1-pixel: color_count=%u", result.color_count);
+            TEST_FAIL(11, "1-pixel: color_count=%u", result.color_count);
 
         u8 idx;
         result.mapPixels(px, 1, &idx);
         if (idx >= result.color_count)
-            FAIL(11, "1-pixel: idx=%u >= %u", idx, result.color_count);
+            TEST_FAIL(11, "1-pixel: idx=%u >= %u", idx, result.color_count);
 
-        PASS(11, "1-pixel image: %u colors", result.color_count);
+        TEST_PASS(11, "1-pixel image: %u colors", result.color_count);
     }
 
     // Test 12: Gradient image — low MSE
@@ -350,9 +353,9 @@ int main() {
         double mse = compute_palette_mse(pixels.data(), W, indices.data(), result.palette);
 
         if (mse > 200.0)
-            FAIL(12, "gradient MSE=%.2f too high", mse);
+            TEST_FAIL(12, "gradient MSE=%.2f too high", mse);
 
-        PASS(12, "256-pixel gradient, MSE=%.2f", mse);
+        TEST_PASS(12, "256-pixel gradient, MSE=%.2f", mse);
     }
 
     // ====================================================================
@@ -381,9 +384,9 @@ int main() {
                             .quantize(pixels.data(), pc, &pool);
 
         if (!results_equal(serial, parallel))
-            FAIL(13, "serial vs parallel results differ");
+            TEST_FAIL(13, "serial vs parallel results differ");
 
-        PASS(13, "serial vs parallel: identical palette+tag (128x128, 256 colors)");
+        TEST_PASS(13, "serial vs parallel: identical palette+tag (128x128, 256 colors)");
     }
 
     // Test 14: Serial vs parallel — identical with maxColors(32)
@@ -402,9 +405,9 @@ int main() {
                             .quantize(pixels.data(), pc, &pool);
 
         if (!results_equal(serial, parallel))
-            FAIL(14, "serial vs parallel differ for 32 colors");
+            TEST_FAIL(14, "serial vs parallel differ for 32 colors");
 
-        PASS(14, "serial vs parallel: identical (64x64, 32 colors)");
+        TEST_PASS(14, "serial vs parallel: identical (64x64, 32 colors)");
     }
 
     // Test 15: Serial vs parallel — sRGB mode parity
@@ -425,9 +428,9 @@ int main() {
                             .quantize(pixels.data(), pc, &pool);
 
         if (!results_equal(serial, parallel))
-            FAIL(15, "serial vs parallel differ in sRGB mode");
+            TEST_FAIL(15, "serial vs parallel differ in sRGB mode");
 
-        PASS(15, "serial vs parallel sRGB: identical");
+        TEST_PASS(15, "serial vs parallel sRGB: identical");
     }
 
     // Test 16: Serial vs parallel — kmeansIterations(0)
@@ -446,9 +449,9 @@ int main() {
                             .quantize(pixels.data(), pc, &pool);
 
         if (!results_equal(serial, parallel))
-            FAIL(16, "serial vs parallel differ with kmeansIterations=0");
+            TEST_FAIL(16, "serial vs parallel differ with kmeansIterations=0");
 
-        PASS(16, "serial vs parallel kmeansIter=0: identical");
+        TEST_PASS(16, "serial vs parallel kmeansIter=0: identical");
     }
 
     // Test 17: Serial vs parallel — ditherAware mode
@@ -470,9 +473,9 @@ int main() {
                             .quantize(pixels.data(), pc, &pool);
 
         if (!results_equal(serial, parallel))
-            FAIL(17, "serial vs parallel differ in ditherAware mode");
+            TEST_FAIL(17, "serial vs parallel differ in ditherAware mode");
 
-        PASS(17, "serial vs parallel ditherAware: identical");
+        TEST_PASS(17, "serial vs parallel ditherAware: identical");
     }
 
     // Test 18: quantizeAsync — result matches synchronous parallel
@@ -498,9 +501,9 @@ int main() {
         sem->wait(endVal);
 
         if (!results_equal(syncResult, asyncResult))
-            FAIL(18, "async vs sync-parallel results differ");
+            TEST_FAIL(18, "async vs sync-parallel results differ");
 
-        PASS(18, "quantizeAsync matches sync-parallel");
+        TEST_PASS(18, "quantizeAsync matches sync-parallel");
     }
 
     // Test 19: Parallel refineDitherAware — indices valid
@@ -519,9 +522,9 @@ int main() {
         result.mapPixels(pixels.data(), W * H, indices.data());
         for (u32 i = 0; i < W * H; ++i)
             if (indices[i] >= result.color_count)
-                FAIL(19, "parallel refine: idx[%u]=%u >= %u", i, indices[i], result.color_count);
+                TEST_FAIL(19, "parallel refine: idx[%u]=%u >= %u", i, indices[i], result.color_count);
 
-        PASS(19, "parallel refineDitherAware: indices valid, %u colors", result.color_count);
+        TEST_PASS(19, "parallel refineDitherAware: indices valid, %u colors", result.color_count);
     }
 
     // Test 20: Serial vs parallel refineDitherAware — identical
@@ -543,9 +546,9 @@ int main() {
         parallel.refineDitherAware(pixels.data(), W, H, 0.5f, 3, &pool);
 
         if (!results_equal(serial, parallel))
-            FAIL(20, "serial vs parallel refineDitherAware differ");
+            TEST_FAIL(20, "serial vs parallel refineDitherAware differ");
 
-        PASS(20, "serial vs parallel refineDitherAware: identical");
+        TEST_PASS(20, "serial vs parallel refineDitherAware: identical");
     }
 
     // ====================================================================
@@ -570,9 +573,9 @@ int main() {
         double mse = compute_palette_mse(pixels.data(), pc, indices.data(), result.palette);
 
         if (mse > 400.0)
-            FAIL(21, "512x512 MSE=%.2f too high", mse);
+            TEST_FAIL(21, "512x512 MSE=%.2f too high", mse);
 
-        PASS(21, "512x512 parallel: %u colors, MSE=%.2f", result.color_count, mse);
+        TEST_PASS(21, "512x512 parallel: %u colors, MSE=%.2f", result.color_count, mse);
     }
 
     // Test 22: 512x512 with ditherAware parallel
@@ -592,9 +595,9 @@ int main() {
 
         for (u32 i = 0; i < pc; ++i)
             if (dithered[i] >= result.color_count)
-                FAIL(22, "512x512 dithered[%u]=%u >= %u", i, dithered[i], result.color_count);
+                TEST_FAIL(22, "512x512 dithered[%u]=%u >= %u", i, dithered[i], result.color_count);
 
-        PASS(22, "512x512 ditherAware parallel: %u colors, dithered indices valid",
+        TEST_PASS(22, "512x512 ditherAware parallel: %u colors, dithered indices valid",
              result.color_count);
     }
 
@@ -615,9 +618,9 @@ int main() {
                             .quantize(pixels.data(), pc, &pool);
 
         if (!results_equal(serial, parallel))
-            FAIL(23, "1024x1024 serial vs parallel differ");
+            TEST_FAIL(23, "1024x1024 serial vs parallel differ");
 
-        PASS(23, "1024x1024 serial vs parallel: identical");
+        TEST_PASS(23, "1024x1024 serial vs parallel: identical");
     }
 
     // ====================================================================
@@ -707,5 +710,4 @@ int main() {
     // ====================================================================
 
     printf("\n=== All quantizer tests passed ===\n");
-    return 0;
-}
+    }

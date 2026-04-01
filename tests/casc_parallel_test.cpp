@@ -7,6 +7,8 @@
 #include <whiteout/storages/casc/storage.h>
 #include <whiteout/interfaces.h>
 
+#include <catch2/catch_test_macros.hpp>
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -29,18 +31,6 @@ using namespace whiteout::storages::casc;
 // Test Framework
 // ============================================================================
 
-static int g_passed = 0;
-static int g_failed = 0;
-
-static void check(bool cond, const std::string& name) {
-    if (cond) {
-        ++g_passed;
-        std::cout << "  PASS: " << name << "\n";
-    } else {
-        ++g_failed;
-        std::cout << "  FAIL: " << name << "\n";
-    }
-}
 
 // ============================================================================
 // TestWorkerPool — real multi-threaded pool
@@ -175,7 +165,20 @@ static std::vector<ReadResult> readFiles(Storage& storage,
 // Test: serial vs parallel produces identical results
 // ============================================================================
 
-static void testSerialVsParallel(const std::string& label, const std::string& path) {
+TEST_CASE("Serial Vs Parallel", "[casc][parallel][corpus]") {
+    auto corpus = findCorpus();
+    if (corpus.empty()) { SKIP("Corpus not found"); }
+
+    struct CorpusEntry { std::string label; std::string path; };
+    std::vector<CorpusEntry> entries;
+    if (std::filesystem::exists(corpus + "/Diablo III"))
+        entries.push_back({"Diablo III", corpus + "/Diablo III"});
+    if (std::filesystem::exists(corpus + "/Warcraft III"))
+        entries.push_back({"Warcraft III Reforged", corpus + "/Warcraft III"});
+    if (entries.empty()) SKIP("No corpus subdirectories found");
+
+    for (auto& [label, path] : entries) {
+    DYNAMIC_SECTION("Parallel: " << label) {
     constexpr size_t kFileCount = 50; // Number of files to compare.
 
     std::cout << "\n[Test: " << label << " serial vs parallel]\n";
@@ -184,8 +187,7 @@ static void testSerialVsParallel(const std::string& label, const std::string& pa
     // --- Serial open & read ---
     auto t0 = std::chrono::steady_clock::now();
     auto serial = Storage::open(path);
-    check(serial.has_value(), "serial open");
-    if (!serial) return;
+    REQUIRE(serial.has_value());
 
     auto paths = collectPaths(*serial, kFileCount);
     std::cout << "  Testing " << paths.size() << " files.\n";
@@ -202,7 +204,7 @@ static void testSerialVsParallel(const std::string& label, const std::string& pa
     size_t serialSuccess = 0;
     for (auto& r : serialResults)
         if (r.success) ++serialSuccess;
-    check(serialSuccess > 0, "serial reads > 0 (" + std::to_string(serialSuccess) + " files)");
+    CHECK(serialSuccess > 0);
 
     serial->close();
 
@@ -211,8 +213,7 @@ static void testSerialVsParallel(const std::string& label, const std::string& pa
 
     auto t2 = std::chrono::steady_clock::now();
     auto parallel = Storage::open(path, &pool);
-    check(parallel.has_value(), "parallel open");
-    if (!parallel) return;
+    REQUIRE(parallel.has_value());
 
     auto parallelResults = readFiles(*parallel, paths);
     auto t3 = std::chrono::steady_clock::now();
@@ -222,10 +223,10 @@ static void testSerialVsParallel(const std::string& label, const std::string& pa
     size_t parallelSuccess = 0;
     for (auto& r : parallelResults)
         if (r.success) ++parallelSuccess;
-    check(parallelSuccess > 0, "parallel reads > 0 (" + std::to_string(parallelSuccess) + " files)");
+    CHECK(parallelSuccess > 0);
 
     // --- Compare results ---
-    check(serialResults.size() == parallelResults.size(), "same result count");
+    CHECK(serialResults.size() == parallelResults.size());
 
     size_t identical = 0;
     size_t mismatches = 0;
@@ -260,36 +261,16 @@ static void testSerialVsParallel(const std::string& label, const std::string& pa
         ++identical;
     }
 
-    check(mismatches == 0,
-          "byte-identical: " + std::to_string(identical) + " identical, " +
-              std::to_string(mismatches) + " mismatches, " +
-              std::to_string(bothSkipped) + " both skipped");
+    CHECK(mismatches == 0);
 
     std::cout << "  Timing: serial=" << serialMs << "ms  parallel=" << parallelMs << "ms\n";
     std::cout << "  Pool submitted " << pool.totalSubmitted() << " tasks.\n";
 
     parallel->close();
+} // DYNAMIC_SECTION
+} // for entries
 }
 
 // ============================================================================
 // main
 // ============================================================================
-
-int main() {
-    std::cout << "=== CASC Parallel Test (Phase 4) ===\n";
-
-    auto corpus = findCorpus();
-    if (corpus.empty()) {
-        std::cout << "Corpus directory not found — skipping.\n";
-        return 0;
-    }
-
-    if (std::filesystem::exists(corpus + "/Diablo III"))
-        testSerialVsParallel("Diablo III", corpus + "/Diablo III");
-
-    if (std::filesystem::exists(corpus + "/Warcraft III"))
-        testSerialVsParallel("Warcraft III Reforged", corpus + "/Warcraft III");
-
-    std::cout << "\n=== Results: " << g_passed << " passed, " << g_failed << " failed ===\n";
-    return g_failed > 0 ? 1 : 0;
-}

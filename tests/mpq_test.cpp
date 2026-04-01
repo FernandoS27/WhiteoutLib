@@ -3,6 +3,8 @@
 
 // MPQ functionality test suite.
 
+#include <catch2/catch_all.hpp>
+
 #include <whiteout/storages/mpq/storage.h>
 
 #include <algorithm>
@@ -113,7 +115,7 @@ void cleanup(const fs::path& tempDir) {
 
 } // anonymous namespace
 
-int main() {
+TEST_CASE("MPQ storage operations", "[mpq]") {
     const std::vector<u8> helloV1{'h', 'e', 'l', 'l', 'o', '\n'};
     const std::vector<u8> helloV2{'g', 'o', 'o', 'd', 'b', 'y', 'e', '\n'};
     const std::vector<u8> singleUnitData = makePatternData(777, 0x31);
@@ -132,11 +134,11 @@ int main() {
         auto storage = mpq::Storage::create();
         if (!expect(static_cast<bool>(storage), 1, "create() returned invalid storage")) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
         if (!expect(!storage.save(), 1, "save() without source path should fail")) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
         pass(1, "create() valid, save() without path rejected");
     }
@@ -160,27 +162,27 @@ int main() {
 
         if (!expect(storage.writeFile("docs\\hello.txt", helloV1), 2, "failed to write hello.txt")) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
         if (!expect(storage.writeFile("data\\single.bin", singleUnitData, singleUnitOpts), 2,
                     "failed to write single-unit file")) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
         if (!expect(storage.writeFile("data\\big.bin", largeCompressed, largeOpts), 2,
                     "failed to write multi-sector file")) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
         if (!expect(storage.writeFile("data\\implode.bin", pkwareData, pkwareOpts), 2,
                     "failed to write PKware file")) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
         if (!expect(storage.writeFile("locale\\greeting.txt", localizedData, localizedOpts), 2,
                     "failed to write localized file")) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
 
         if (!expectContents(storage, "docs\\hello.txt", helloV1, 2) ||
@@ -189,31 +191,31 @@ int main() {
             !expectContents(storage, "data\\implode.bin", pkwareData, 2) ||
             !expectContents(storage, "locale\\greeting.txt", mpq::Locale::German, localizedData, 2)) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
 
         std::string missingError;
         auto missing = storage.readFile("missing\\file.txt", &missingError);
         if (!expect(!missing.has_value(), 2, "missing file unexpectedly read")) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
         if (!expect(!missingError.empty(), 2, "missing file should populate an error message")) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
 
         auto files = storage.listFiles();
         if (!expect(files.size() == 5, 2, "expected 5 overlay files, got %zu", files.size())) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
 
         auto info = storage.fileInfo("docs\\hello.txt");
         if (!expect(info.has_value(), 2, "fileInfo missing for hello.txt") ||
             !expect(info->uncompressedSize == helloV1.size(), 2, "unexpected hello.txt size in fileInfo")) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
 
         pass(2, "overlay read/write/list/fileInfo/missing-file checks passed");
@@ -244,14 +246,14 @@ int main() {
 
         if (!expect(storage.save(archivePath.string()), 3, "save(path) failed")) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
 
         std::string openError;
         auto reopened = mpq::Storage::open(archivePath.string(), &openError);
         if (!expect(reopened.has_value(), 3, "reopen failed: %s", openError.c_str())) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
 
         if (!expectContents(*reopened, "docs\\hello.txt", helloV1, 3) ||
@@ -260,13 +262,13 @@ int main() {
             !expectContents(*reopened, "data\\implode.bin", pkwareData, 3) ||
             !expectContents(*reopened, "locale\\greeting.txt", mpq::Locale::German, localizedData, 3)) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
 
         auto archiveInfo = reopened->archiveInfo();
         if (!expect(archiveInfo.sectorSize == 4096, 3, "unexpected sector size: %u", archiveInfo.sectorSize)) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
 
         pass(3, "save(path)+reopen preserved multiple file modes");
@@ -278,7 +280,7 @@ int main() {
         auto storage = mpq::Storage::open(archivePath.string(), &openError);
         if (!expect(storage.has_value(), 4, "open before overwrite failed: %s", openError.c_str())) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
 
         mpq::WriteOptions encryptedOpts;
@@ -287,47 +289,47 @@ int main() {
 
         if (!expect(storage->writeFile("docs\\hello.txt", helloV2), 4, "overwrite hello.txt failed")) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
         if (!expect(storage->deleteFile("data\\implode.bin"), 4, "delete implode.bin failed")) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
         if (!expect(storage->writeFile("secure\\secret.bin", encryptedData, encryptedOpts), 4,
                     "encrypted write failed")) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
 
         if (!expectContents(*storage, "secure\\secret.bin", encryptedData, 4)) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
         if (!expect(!storage->fileExists("data\\implode.bin"), 4, "deleted file still visible before save")) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
 
         if (!expect(storage->save(), 4, "overwrite save() failed")) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
 
         std::string reopenError;
         auto reopened = mpq::Storage::open(archivePath.string(), &reopenError);
         if (!expect(reopened.has_value(), 4, "reopen after overwrite failed: %s", reopenError.c_str())) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
 
         if (!expectContents(*reopened, "docs\\hello.txt", helloV2, 4) ||
             !expectContents(*reopened, "secure\\secret.bin", encryptedData, 4)) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
         if (!expect(!reopened->fileExists("data\\implode.bin"), 4, "deleted file reappeared after reopen")) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
 
         pass(4, "same-path overwrite save preserved overwrite/delete/encrypted data");
@@ -339,12 +341,11 @@ int main() {
         storage.close();
         if (!expect(!static_cast<bool>(storage), 5, "close() should invalidate storage")) {
             cleanup(tempDir);
-            return 1;
+            FAIL("test failed");
         }
         pass(5, "close() invalidates storage");
     }
 
     cleanup(tempDir);
     std::printf("\n=== All MPQ tests passed ===\n");
-    return 0;
 }

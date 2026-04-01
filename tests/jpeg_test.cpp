@@ -1,4 +1,6 @@
 // JPEG encode/decode round-trip test suite
+#include <catch2/catch_all.hpp>
+
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -56,19 +58,19 @@ RoundTripResult round_trip(const jpeg::Image& img, int quality, bool progressive
     auto encoded = jpeg::encode_raw(img, quality, &err, progressive);
     if (encoded.empty()) {
         printf("%s FAIL: encode error: %s\n", testLabel, err.c_str());
-        exit(1);
+        FAIL("JPEG test failed");
     }
     auto decoded = jpeg::decode_raw(std::span<const u8>{encoded}, &err);
     if (!decoded) {
         printf("%s FAIL: decode error: %s\n", testLabel, err.c_str());
-        exit(1);
+        FAIL("JPEG test failed");
     }
     if (decoded->width != img.width || decoded->height != img.height ||
         decoded->components != img.components) {
         printf("%s FAIL: dimension mismatch (expected %ux%ux%u, got %ux%ux%u)\n",
                testLabel, img.width, img.height, img.components,
                decoded->width, decoded->height, decoded->components);
-        exit(1);
+        FAIL("JPEG test failed");
     }
     return {std::move(*decoded), std::move(encoded)};
 }
@@ -114,7 +116,7 @@ void hash_fill_4comp(int x, int y, u8* out) {
 // Tests
 // ============================================================================
 
-int main() {
+TEST_CASE("JPEG encode decode", "[jpeg]") {
 
     // Test 1: Small solid-color 8x8 image with 4 components
     {
@@ -185,7 +187,7 @@ int main() {
 
         if (count_markers(encoded, 0xC2) == 0) {
             printf("TEST 6 FAIL: SOF2 marker not found in progressive output\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         int maxErr = compute_max_diff(img, decoded);
@@ -193,7 +195,7 @@ int main() {
                encoded.size(), maxErr);
         if (maxErr > 3) {
             printf("TEST 6 FAIL: solid-color max error too high (%d > 3)\n", maxErr);
-            return 1;
+            FAIL("JPEG test failed");
         }
     }
 
@@ -309,7 +311,7 @@ int main() {
         printf("TEST 14: SOS marker count = %d (expected 18 for 4-component, 2-band, SA)\n", sosCount);
         if (sosCount != 18) {
             printf("TEST 14 FAIL: expected 18 SOS markers, got %d\n", sosCount);
-            return 1;
+            FAIL("JPEG test failed");
         }
         printf("TEST 14 PASS\n");
     }
@@ -344,14 +346,14 @@ int main() {
         // 3 components, 2 bands, SA: 1 DC first + 3*2 AC first + 1 DC refine + 3*2 AC refine = 14
         if (scans.size() != 14) {
             printf("TEST 15 FAIL: expected 14 scans, got %zu\n", scans.size());
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         // Scan 0: DC first (Ss=0, Se=0, Ah=0, Al=1), interleaved (Ns=3)
         if (scans[0].ss != 0 || scans[0].se != 0 || scans[0].ah != 0 || scans[0].al != 1 ||
             scans[0].numComponents != 3) {
             printf("TEST 15 FAIL: DC first scan mismatch\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         // Scans 1-6: AC first, bands {1,5} and {6,63} for each component, Ah=0, Al=1
@@ -362,7 +364,7 @@ int main() {
                 s.ah != 0 || s.al != 1 || s.numComponents != 1) {
                 printf("TEST 15 FAIL: AC first scan %d mismatch (Ss=%d Se=%d Ah=%d Al=%d Ns=%d)\n",
                        j, s.ss, s.se, s.ah, s.al, s.numComponents);
-                return 1;
+                FAIL("JPEG test failed");
             }
         }
 
@@ -370,7 +372,7 @@ int main() {
         if (scans[7].ss != 0 || scans[7].se != 0 || scans[7].ah != 1 || scans[7].al != 0 ||
             scans[7].numComponents != 3) {
             printf("TEST 15 FAIL: DC refine scan mismatch\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         // Scans 8-13: AC refine, bands {1,5} and {6,63} for each component, Ah=1, Al=0
@@ -380,7 +382,7 @@ int main() {
                 s.ah != 1 || s.al != 0 || s.numComponents != 1) {
                 printf("TEST 15 FAIL: AC refine scan %d mismatch (Ss=%d Se=%d Ah=%d Al=%d Ns=%d)\n",
                        j, s.ss, s.se, s.ah, s.al, s.numComponents);
-                return 1;
+                FAIL("JPEG test failed");
             }
         }
 
@@ -398,7 +400,7 @@ int main() {
             int dhtCount = count_markers(encoded, 0xC4);
             if (dhtCount != 4) {
                 printf("TEST 16 FAIL: 4-comp DHT count %d, expected 4\n", dhtCount);
-                return 1;
+                FAIL("JPEG test failed");
             }
         }
 
@@ -409,7 +411,7 @@ int main() {
             int dhtCount = count_markers(encoded, 0xC4);
             if (dhtCount != 2) {
                 printf("TEST 16 FAIL: 1-comp DHT count %d, expected 2\n", dhtCount);
-                return 1;
+                FAIL("JPEG test failed");
             }
         }
 
@@ -427,7 +429,7 @@ int main() {
         printf("TEST 17: baseline vs SA-progressive q100, maxDiff=%d\n", maxDiff);
         if (maxDiff > 0) {
             printf("TEST 17 FAIL: SA decomposition should be bit-identical, got maxDiff=%d\n", maxDiff);
-            return 1;
+            FAIL("JPEG test failed");
         }
         printf("TEST 17 PASS\n");
     }
@@ -444,7 +446,7 @@ int main() {
         int dhtCount = count_markers(encoded, 0xC4);
         if (dhtCount != 4) {
             printf("TEST 18 FAIL: baseline 3-comp DHT count %d, expected 4\n", dhtCount);
-            return 1;
+            FAIL("JPEG test failed");
         }
         printf("TEST 18 PASS: baseline 3-comp with chrominance tables, encoded=%zu\n", encoded.size());
     }
@@ -574,7 +576,7 @@ int main() {
         auto serialEncoded = jpeg::encode_raw(img, 75, &err, false);
         if (serialEncoded.empty()) {
             printf("TEST 25 FAIL: serial encode error: %s\n", err.c_str());
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         // Parallel encode via JpegContext
@@ -590,19 +592,19 @@ int main() {
 
         if (parallelEncoded.empty()) {
             printf("TEST 25 FAIL: parallel encode produced empty output\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         // Decode both and compare pixels.
         auto serialDecoded = jpeg::decode_raw(std::span<const u8>{serialEncoded}, &err);
         if (!serialDecoded) {
             printf("TEST 25 FAIL: serial decode error: %s\n", err.c_str());
-            return 1;
+            FAIL("JPEG test failed");
         }
         auto parallelDecoded = jpeg::decode_raw(std::span<const u8>{parallelEncoded}, &err);
         if (!parallelDecoded) {
             printf("TEST 25 FAIL: parallel decode error: %s\n", err.c_str());
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         if (serialDecoded->pixels.size() != parallelDecoded->pixels.size() ||
@@ -611,7 +613,7 @@ int main() {
             printf("TEST 25 FAIL: parallel encode pixels differ from serial "
                    "(serial=%zu bytes, parallel=%zu bytes)\n",
                    serialEncoded.size(), parallelEncoded.size());
-            return 1;
+            FAIL("JPEG test failed");
         }
         printf("TEST 25 PASS: parallel encode_raw pixel-exact match (serial=%zu, parallel=%zu bytes)\n",
                serialEncoded.size(), parallelEncoded.size());
@@ -629,14 +631,14 @@ int main() {
         auto encoded = jpeg::encode_raw(img, 90, &err, false);
         if (encoded.empty()) {
             printf("TEST 26 FAIL: encode error: %s\n", err.c_str());
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         // Serial decode
         auto serialDecoded = jpeg::decode_raw(std::span<const u8>{encoded}, &err);
         if (!serialDecoded) {
             printf("TEST 26 FAIL: serial decode error: %s\n", err.c_str());
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         // Parallel decode via JpegContext
@@ -652,14 +654,14 @@ int main() {
 
         if (parallelDecoded.width == 0) {
             printf("TEST 26 FAIL: parallel decode produced empty output\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         if (serialDecoded->pixels.size() != parallelDecoded.pixels.size() ||
             memcmp(serialDecoded->pixels.data(), parallelDecoded.pixels.data(),
                    serialDecoded->pixels.size()) != 0) {
             printf("TEST 26 FAIL: parallel decode pixels differ from serial\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
         printf("TEST 26 PASS: parallel decode_raw pixel-exact match (%ux%ux%u)\n",
                parallelDecoded.width, parallelDecoded.height, parallelDecoded.components);
@@ -678,7 +680,7 @@ int main() {
         auto serialEncoded = jpeg::encode_raw(img, 85, &err, true);
         if (serialEncoded.empty()) {
             printf("TEST 27 FAIL: serial progressive encode error: %s\n", err.c_str());
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         auto sem = pool.createTimelineSemaphore();
@@ -695,19 +697,19 @@ int main() {
         auto serialDecoded = jpeg::decode_raw(std::span<const u8>{serialEncoded}, &err);
         if (!serialDecoded) {
             printf("TEST 27 FAIL: serial decode error: %s\n", err.c_str());
-            return 1;
+            FAIL("JPEG test failed");
         }
         auto parallelDecoded = jpeg::decode_raw(std::span<const u8>{parallelEncoded}, &err);
         if (!parallelDecoded) {
             printf("TEST 27 FAIL: parallel decode error: %s\n", err.c_str());
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         if (serialDecoded->pixels.size() != parallelDecoded->pixels.size() ||
             memcmp(serialDecoded->pixels.data(), parallelDecoded->pixels.data(),
                    serialDecoded->pixels.size()) != 0) {
             printf("TEST 27 FAIL: parallel progressive encode pixels differ from serial\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
         printf("TEST 27 PASS: parallel progressive encode_raw pixel-exact (serial=%zu, parallel=%zu bytes)\n",
                serialEncoded.size(), parallelEncoded.size());
@@ -720,13 +722,13 @@ int main() {
         auto encoded = jpeg::encode_raw(img, 75, &err, true);
         if (encoded.empty()) {
             printf("TEST 28 FAIL: encode error: %s\n", err.c_str());
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         auto serialDecoded = jpeg::decode_raw(std::span<const u8>{encoded}, &err);
         if (!serialDecoded) {
             printf("TEST 28 FAIL: serial decode error: %s\n", err.c_str());
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         auto sem = pool.createTimelineSemaphore();
@@ -743,7 +745,7 @@ int main() {
             memcmp(serialDecoded->pixels.data(), parallelDecoded.pixels.data(),
                    serialDecoded->pixels.size()) != 0) {
             printf("TEST 28 FAIL: parallel progressive decode differs from serial\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
         printf("TEST 28 PASS: parallel progressive decode_raw pixel-exact (%ux%ux%u)\n",
                parallelDecoded.width, parallelDecoded.height, parallelDecoded.components);
@@ -768,7 +770,7 @@ int main() {
         auto jpegBytes = writerSerial.write(srcTex);
         if (jpegBytes.empty()) {
             printf("TEST 29 FAIL: Writer (serial) produced empty output\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         // Parse with serial parser
@@ -776,7 +778,7 @@ int main() {
         auto serialTex = parserSerial.parse(std::span<const u8>{jpegBytes});
         if (!serialTex) {
             printf("TEST 29 FAIL: serial Parser failed\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         // Parse with parallel parser
@@ -784,7 +786,7 @@ int main() {
         auto parallelTex = parserParallel.parse(std::span<const u8>{jpegBytes});
         if (!parallelTex) {
             printf("TEST 29 FAIL: parallel Parser failed\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         // Compare pixel data
@@ -793,7 +795,7 @@ int main() {
         u32 texSize = 128 * 128 * 4;
         if (memcmp(serialData, parallelData, texSize) != 0) {
             printf("TEST 29 FAIL: parallel Parser pixels differ from serial\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
         printf("TEST 29 PASS: public Parser parallel vs serial pixel-exact (128x128)\n");
     }
@@ -816,14 +818,14 @@ int main() {
         auto serialBytes = writerSerial.write(srcTex);
         if (serialBytes.empty()) {
             printf("TEST 30 FAIL: serial Writer produced empty output\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         jpeg::Writer writerParallel(75, jpeg::Writer::WriteMode::Lenient, &pool);
         auto parallelBytes = writerParallel.write(srcTex);
         if (parallelBytes.empty()) {
             printf("TEST 30 FAIL: parallel Writer produced empty output\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         // Decode both and compare pixels.
@@ -831,19 +833,19 @@ int main() {
         auto serialTex = parser.parse(std::span<const u8>{serialBytes});
         if (!serialTex) {
             printf("TEST 30 FAIL: serial decode failed\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
         auto parallelTex = parser.parse(std::span<const u8>{parallelBytes});
         if (!parallelTex) {
             printf("TEST 30 FAIL: parallel decode failed\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
         u32 texSize = 64 * 64 * 4;
         if (memcmp(serialTex->dataPtr(), parallelTex->dataPtr(), texSize) != 0) {
             printf("TEST 30 FAIL: parallel Writer pixels differ from serial "
                    "(serial=%zu, parallel=%zu)\n",
                    serialBytes.size(), parallelBytes.size());
-            return 1;
+            FAIL("JPEG test failed");
         }
         printf("TEST 30 PASS: public Writer parallel vs serial pixel-exact (serial=%zu, parallel=%zu bytes)\n",
                serialBytes.size(), parallelBytes.size());
@@ -869,7 +871,7 @@ int main() {
         auto jpegBytes = writer.write(srcTex);
         if (jpegBytes.empty()) {
             printf("TEST 31 FAIL: parallel Writer produced empty output\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         // Parallel parse
@@ -877,13 +879,13 @@ int main() {
         auto decoded = parser.parse(std::span<const u8>{jpegBytes});
         if (!decoded) {
             printf("TEST 31 FAIL: parallel Parser failed\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         if (decoded->width() != 256 || decoded->height() != 256) {
             printf("TEST 31 FAIL: dimension mismatch (%ux%u)\n",
                    decoded->width(), decoded->height());
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         // Compare with serial round-trip
@@ -894,7 +896,7 @@ int main() {
         auto serialDecoded = parserS.parse(std::span<const u8>{serialBytes});
         if (!serialDecoded) {
             printf("TEST 31 FAIL: serial round-trip failed\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         const u8* sData = serialDecoded->dataPtr();
@@ -902,7 +904,7 @@ int main() {
         u32 texSize = 256 * 256 * 4;
         if (memcmp(sData, pData, texSize) != 0) {
             printf("TEST 31 FAIL: parallel round-trip pixels differ from serial\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
         printf("TEST 31 PASS: full parallel round-trip 256x256 pixel-exact\n");
     }
@@ -931,7 +933,7 @@ int main() {
 
         if (encoded.empty()) {
             printf("TEST 32 FAIL: parallel encode 512x512 produced empty output\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         // Parallel decode
@@ -948,20 +950,20 @@ int main() {
         if (decoded.width != 512 || decoded.height != 512 || decoded.components != 3) {
             printf("TEST 32 FAIL: decoded dimensions wrong (%ux%ux%u)\n",
                    decoded.width, decoded.height, decoded.components);
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         // Verify against serial decode
         auto serialDecoded = jpeg::decode_raw(std::span<const u8>{encoded}, &err);
         if (!serialDecoded) {
             printf("TEST 32 FAIL: serial decode error: %s\n", err.c_str());
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         if (memcmp(serialDecoded->pixels.data(), decoded.pixels.data(),
                    serialDecoded->pixels.size()) != 0) {
             printf("TEST 32 FAIL: 512x512 parallel decode differs from serial\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
         printf("TEST 32 PASS: 512x512x3 parallel encode+decode pixel-exact (%zu bytes)\n",
                encoded.size());
@@ -993,7 +995,7 @@ int main() {
             memcmp(serialDecoded->pixels.data(), parallelDecoded->pixels.data(),
                    serialDecoded->pixels.size()) != 0) {
             printf("TEST 33 FAIL: grayscale parallel encode pixels differ\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
         printf("TEST 33 PASS: grayscale parallel encode_raw pixel-exact (serial=%zu, parallel=%zu bytes)\n",
                serialEncoded.size(), parallelEncoded.size());
@@ -1029,7 +1031,7 @@ int main() {
                 sd->pixels.size() != pd->pixels.size() ||
                 memcmp(sd->pixels.data(), pd->pixels.data(), sd->pixels.size()) != 0) {
                 printf("TEST 34 (%dx%d) FAIL: parallel encode pixels differ\n", w, h);
-                return 1;
+                FAIL("JPEG test failed");
             }
             printf("TEST 34 (%dx%d): parallel pixel-exact OK\n", w, h);
         }
@@ -1055,7 +1057,7 @@ int main() {
         auto serialEncoded = jpeg::encode_raw(img, 75, &err, false);
         if (serialEncoded.empty()) {
             printf("TEST 35 FAIL: serial encode error: %s\n", err.c_str());
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         auto sem = pool.createTimelineSemaphore();
@@ -1075,7 +1077,7 @@ int main() {
             memcmp(sd->pixels.data(), pd->pixels.data(), sd->pixels.size()) != 0) {
             printf("TEST 35 FAIL: 4K parallel encode pixels differ (serial=%zu, parallel=%zu)\n",
                    serialEncoded.size(), parallelEncoded.size());
-            return 1;
+            FAIL("JPEG test failed");
         }
         printf("TEST 35 PASS: 4096x4096x3 baseline parallel encode pixel-exact (serial=%zu, parallel=%zu bytes)\n",
                serialEncoded.size(), parallelEncoded.size());
@@ -1096,7 +1098,7 @@ int main() {
         auto serialDecoded = jpeg::decode_raw(std::span<const u8>{encoded}, &err);
         if (!serialDecoded) {
             printf("TEST 36 FAIL: serial decode error: %s\n", err.c_str());
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         auto sem = pool.createTimelineSemaphore();
@@ -1113,7 +1115,7 @@ int main() {
             memcmp(serialDecoded->pixels.data(), parallelDecoded.pixels.data(),
                    serialDecoded->pixels.size()) != 0) {
             printf("TEST 36 FAIL: 4K parallel decode differs from serial\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
         printf("TEST 36 PASS: 4096x4096x3 baseline parallel decode pixel-exact\n");
     }
@@ -1132,7 +1134,7 @@ int main() {
         auto serialEncoded = jpeg::encode_raw(img, 85, &err, true);
         if (serialEncoded.empty()) {
             printf("TEST 37 FAIL: serial progressive encode error: %s\n", err.c_str());
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         auto sem = pool.createTimelineSemaphore();
@@ -1151,7 +1153,7 @@ int main() {
             sd->pixels.size() != pd->pixels.size() ||
             memcmp(sd->pixels.data(), pd->pixels.data(), sd->pixels.size()) != 0) {
             printf("TEST 37 FAIL: 4K progressive parallel encode pixels differ\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
         printf("TEST 37 PASS: 4096x4096x4 progressive parallel encode pixel-exact (serial=%zu, parallel=%zu bytes)\n",
                serialEncoded.size(), parallelEncoded.size());
@@ -1173,7 +1175,7 @@ int main() {
         auto serialDecoded = jpeg::decode_raw(std::span<const u8>{encoded}, &err);
         if (!serialDecoded) {
             printf("TEST 38 FAIL: serial progressive decode error: %s\n", err.c_str());
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         auto sem = pool.createTimelineSemaphore();
@@ -1190,7 +1192,7 @@ int main() {
             memcmp(serialDecoded->pixels.data(), parallelDecoded.pixels.data(),
                    serialDecoded->pixels.size()) != 0) {
             printf("TEST 38 FAIL: 4K progressive parallel decode differs\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
         printf("TEST 38 PASS: 4096x4096x4 progressive parallel decode pixel-exact\n");
     }
@@ -1215,14 +1217,14 @@ int main() {
         auto serialBytes = writerS.write(srcTex);
         if (serialBytes.empty()) {
             printf("TEST 39 FAIL: serial Writer 4K produced empty output\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         jpeg::Parser parserS;
         auto serialDecoded = parserS.parse(std::span<const u8>{serialBytes});
         if (!serialDecoded) {
             printf("TEST 39 FAIL: serial Parser 4K failed\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         // Parallel round-trip
@@ -1230,14 +1232,14 @@ int main() {
         auto parallelBytes = writerP.write(srcTex);
         if (parallelBytes.empty()) {
             printf("TEST 39 FAIL: parallel Writer 4K produced empty output\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         jpeg::Parser parserP(jpeg::Parser::ParseMode::Lenient, &pool);
         auto parallelDecoded = parserP.parse(std::span<const u8>{parallelBytes});
         if (!parallelDecoded) {
             printf("TEST 39 FAIL: parallel Parser 4K failed\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         // Verify pixel-exact decoded output (byte-exact encoding not expected
@@ -1247,7 +1249,7 @@ int main() {
         const u8* pData = parallelDecoded->dataPtr();
         if (memcmp(sData, pData, texSize) != 0) {
             printf("TEST 39 FAIL: 4K Parser parallel pixels differ from serial\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
         printf("TEST 39 PASS: 4096x4096 public API parallel round-trip pixel-exact "
                "(serial=%zu, parallel=%zu bytes)\n", serialBytes.size(), parallelBytes.size());
@@ -1263,7 +1265,7 @@ int main() {
         auto serialEncoded = jpeg::encode_raw(img, 90, &err, false);
         if (serialEncoded.empty()) {
             printf("TEST 40 FAIL: serial encode error: %s\n", err.c_str());
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         // Parallel encode
@@ -1279,7 +1281,7 @@ int main() {
 
         if (parallelEncoded.empty()) {
             printf("TEST 40 FAIL: 4K grayscale parallel encode empty\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         // Parallel decode
@@ -1302,14 +1304,14 @@ int main() {
             memcmp(serialDecoded->pixels.data(), parallelEncodedDecoded->pixels.data(),
                    serialDecoded->pixels.size()) != 0) {
             printf("TEST 40 FAIL: 4K grayscale parallel encode pixels differ\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         if (serialDecoded->pixels.size() != parallelDecoded.pixels.size() ||
             memcmp(serialDecoded->pixels.data(), parallelDecoded.pixels.data(),
                    serialDecoded->pixels.size()) != 0) {
             printf("TEST 40 FAIL: 4K grayscale parallel decode differs\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
         printf("TEST 40 PASS: 4096x4096x1 grayscale parallel encode+decode pixel-exact "
                "(serial=%zu, parallel=%zu bytes)\n", serialEncoded.size(), parallelEncoded.size());
@@ -1328,7 +1330,7 @@ int main() {
         auto serialEncoded = jpeg::encode_raw(img, 75, &err, true);
         if (serialEncoded.empty()) {
             printf("TEST 41 FAIL: serial encode error: %s\n", err.c_str());
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         auto sem = pool.createTimelineSemaphore();
@@ -1343,7 +1345,7 @@ int main() {
 
         if (parallelEncoded.empty()) {
             printf("TEST 41 FAIL: parallel encode empty\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         // Verify pixel-exact between serial and parallel encode outputs
@@ -1353,7 +1355,7 @@ int main() {
             sd->pixels.size() != pd->pixels.size() ||
             memcmp(sd->pixels.data(), pd->pixels.data(), sd->pixels.size()) != 0) {
             printf("TEST 41 FAIL: 4000x3000 parallel progressive encode pixels differ\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
 
         // Also verify decode
@@ -1373,7 +1375,7 @@ int main() {
             memcmp(serialDecoded->pixels.data(), parallelDecoded.pixels.data(),
                    serialDecoded->pixels.size()) != 0) {
             printf("TEST 41 FAIL: 4000x3000 parallel progressive decode differs\n");
-            return 1;
+            FAIL("JPEG test failed");
         }
         printf("TEST 41 PASS: 4000x3000x3 progressive parallel encode+decode pixel-exact "
                "(serial=%zu, parallel=%zu bytes)\n", serialEncoded.size(), parallelEncoded.size());
@@ -1580,5 +1582,4 @@ int main() {
     }
 
     printf("\nAll tests passed!\n");
-    return 0;
 }

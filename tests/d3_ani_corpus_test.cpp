@@ -5,6 +5,8 @@
 /// directory, parses it with the SNO type system, and validates key fields
 /// against the ANI_FILE_FORMAT_SPECIFICATION.md.
 
+#include <catch2/catch_all.hpp>
+
 #include <whiteout/sno/sno_reader.h>
 #include <whiteout/sno/sno_types.h>
 #include <whiteout/sno/sno_value.h>
@@ -49,21 +51,16 @@ static whiteout::i16 readI16(const std::vector<whiteout::u8>& buf, size_t off) {
     return v;
 }
 
-int main(int argc, char* argv[]) {
+TEST_CASE("D3 ANI corpus", "[d3][ani][corpus]") {
     using namespace whiteout;
     using namespace whiteout::sno;
 
-    if (argc < 2) {
-        std::cerr << "Usage: d3_ani_corpus_test <path-to-Anim-dir>\n"
-                  << "  e.g. d3_ani_corpus_test Models\\D3\\Anim\n";
-        return 1;
+    // Auto-discover corpus directory
+    fs::path corpusDir;
+    for (auto candidate : {"Corpus/D3/Anim", "../Corpus/D3/Anim", "../../Corpus/D3/Anim"}) {
+        if (fs::is_directory(candidate)) { corpusDir = candidate; break; }
     }
-
-    fs::path corpusDir = argv[1];
-    if (!fs::is_directory(corpusDir)) {
-        std::cerr << "Error: " << corpusDir << " is not a directory.\n";
-        return 1;
-    }
+    if (corpusDir.empty()) SKIP("D3 Anim corpus not found");
 
     SnoReader reader;
 
@@ -587,5 +584,5 @@ int main(int argc, char* argv[]) {
                       lookBad + perFrameBad;
     std::cout << "\nTotal issues: " << totalBad << "\n";
 
-    return totalBad > 0 ? 1 : 0;
+    CHECK(totalBad == 0);
 }

@@ -6,13 +6,15 @@
 // plus the mpqCompress/mpqDecompress integration layer.
 
 // Internal codec headers (not public API — test-only usage).
+#include <catch2/catch_all.hpp>
+
 #include "../src/whiteout/storages/mpq/codecs/compression.h"
 #include "../src/whiteout/storages/mpq/codecs/sparse.h"
 #include "../src/whiteout/storages/mpq/codecs/huffman.h"
-#include "../src/whiteout/storages/mpq/codecs/bzip2.h"
+#include "../src/whiteout/storages/common/codecs/bzip2.h"
 #include "../src/whiteout/storages/mpq/codecs/adpcm.h"
 #include "../src/whiteout/storages/mpq/codecs/pkware.h"
-#include "../src/whiteout/storages/mpq/codecs/lzma.h"
+#include "../src/whiteout/storages/common/codecs/lzma.h"
 #include "../src/whiteout/storages/common/zlib.h"
 
 #include <whiteout/common_types.h>
@@ -27,16 +29,13 @@
 using whiteout::u8;
 using whiteout::u16;
 namespace mpq = whiteout::storages::mpq;
+namespace common = whiteout::storages::common;
 
 // ============================================================================
 // Test harness
 // ============================================================================
-
-static int g_passed = 0;
-static int g_failed = 0;
-
 static void pass(const char* fmt, ...) {
-    g_passed++;
+    
     std::printf("  PASS: ");
     va_list args;
     va_start(args, fmt);
@@ -46,7 +45,7 @@ static void pass(const char* fmt, ...) {
 }
 
 static void fail(const char* fmt, ...) {
-    g_failed++;
+    
     std::printf("  FAIL: ");
     va_list args;
     va_start(args, fmt);
@@ -57,10 +56,10 @@ static void fail(const char* fmt, ...) {
 
 static void expect(bool condition, const char* fmt, ...) {
     if (condition) {
-        g_passed++;
+        
         return;
     }
-    g_failed++;
+    
     std::printf("  FAIL: ");
     va_list args;
     va_start(args, fmt);
@@ -112,7 +111,7 @@ static std::vector<u8> makePcmData(size_t sampleCount, int channelCount) {
 // Sparse codec tests
 // ============================================================================
 
-static void testSparseRoundTrip() {
+TEST_CASE("testSparseRoundTrip", "[mpq][codec]") {
     std::printf("\n=== Sparse Codec Tests ===\n");
 
     // Test with zeros-heavy data (ideal for sparse).
@@ -179,7 +178,7 @@ static void testSparseRoundTrip() {
 // Huffman codec tests
 // ============================================================================
 
-static void testHuffmanRoundTrip() {
+TEST_CASE("testHuffmanRoundTrip", "[mpq][codec]") {
     std::printf("\n=== Huffman Codec Tests ===\n");
 
     // Test with compressible data.
@@ -241,16 +240,16 @@ static void testHuffmanRoundTrip() {
 // BZip2 codec tests
 // ============================================================================
 
-static void testBzip2RoundTrip() {
+TEST_CASE("testBzip2RoundTrip", "[mpq][codec]") {
     std::printf("\n=== BZip2 Codec Tests ===\n");
 
     // Test with compressible data.
     {
         auto data = makeCompressibleData(1024);
-        auto compressed = mpq::bzip2Compress(data);
+        auto compressed = common::bzip2Compress(data);
         expect(!compressed.empty(), "bzip2 compress text: not empty");
         expect(compressed.size() < data.size(), "bzip2 compress text: actually compressed");
-        auto decompressed = mpq::bzip2Decompress(compressed, data.size());
+        auto decompressed = common::bzip2Decompress(compressed, data.size());
         expect(decompressed.size() == data.size(), "bzip2 decompress text: correct size");
         expect(decompressed == data, "bzip2 round-trip text: data matches");
         if (decompressed == data) pass("bzip2 round-trip: 1024 text bytes");
@@ -259,9 +258,9 @@ static void testBzip2RoundTrip() {
     // Test with pattern data.
     {
         auto data = makePatternData(500, 33);
-        auto compressed = mpq::bzip2Compress(data);
+        auto compressed = common::bzip2Compress(data);
         expect(!compressed.empty(), "bzip2 compress pattern: not empty");
-        auto decompressed = mpq::bzip2Decompress(compressed, data.size());
+        auto decompressed = common::bzip2Decompress(compressed, data.size());
         expect(decompressed.size() == data.size(), "bzip2 decompress pattern: correct size");
         expect(decompressed == data, "bzip2 round-trip pattern: data matches");
         if (decompressed == data) pass("bzip2 round-trip: 500 pattern bytes");
@@ -270,9 +269,9 @@ static void testBzip2RoundTrip() {
     // Test with all zeros.
     {
         auto data = makeZeroData(512);
-        auto compressed = mpq::bzip2Compress(data);
+        auto compressed = common::bzip2Compress(data);
         expect(!compressed.empty(), "bzip2 compress zeros: not empty");
-        auto decompressed = mpq::bzip2Decompress(compressed, data.size());
+        auto decompressed = common::bzip2Decompress(compressed, data.size());
         expect(decompressed.size() == data.size(), "bzip2 decompress zeros: correct size");
         expect(decompressed == data, "bzip2 round-trip zeros: data matches");
         if (decompressed == data) pass("bzip2 round-trip: 512 zeros");
@@ -281,9 +280,9 @@ static void testBzip2RoundTrip() {
     // Test with small data.
     {
         std::vector<u8> data = {0x01, 0x02, 0x03, 0x04, 0x05};
-        auto compressed = mpq::bzip2Compress(data);
+        auto compressed = common::bzip2Compress(data);
         expect(!compressed.empty(), "bzip2 compress 5 bytes: not empty");
-        auto decompressed = mpq::bzip2Decompress(compressed, data.size());
+        auto decompressed = common::bzip2Decompress(compressed, data.size());
         expect(decompressed == data, "bzip2 round-trip 5 bytes: data matches");
         if (decompressed == data) pass("bzip2 round-trip: 5 bytes");
     }
@@ -291,9 +290,9 @@ static void testBzip2RoundTrip() {
     // Test larger data.
     {
         auto data = makeCompressibleData(4096);
-        auto compressed = mpq::bzip2Compress(data);
+        auto compressed = common::bzip2Compress(data);
         expect(!compressed.empty(), "bzip2 compress 4096: not empty");
-        auto decompressed = mpq::bzip2Decompress(compressed, data.size());
+        auto decompressed = common::bzip2Decompress(compressed, data.size());
         expect(decompressed.size() == data.size(), "bzip2 decompress 4096: correct size");
         expect(decompressed == data, "bzip2 round-trip 4096: data matches");
         if (decompressed == data) pass("bzip2 round-trip: 4096 bytes");
@@ -304,7 +303,7 @@ static void testBzip2RoundTrip() {
 // ADPCM codec tests
 // ============================================================================
 
-static void testAdpcmRoundTrip() {
+TEST_CASE("testAdpcmRoundTrip", "[mpq][codec]") {
     std::printf("\n=== ADPCM Codec Tests ===\n");
 
     // Note: ADPCM is lossy, so we test that compress→decompress produces
@@ -371,7 +370,7 @@ static void testAdpcmRoundTrip() {
 // PKware codec tests
 // ============================================================================
 
-static void testPkwareRoundTrip() {
+TEST_CASE("testPkwareRoundTrip", "[mpq][codec]") {
     std::printf("\n=== PKware Codec Tests ===\n");
 
     // Test with compressible data.
@@ -412,7 +411,7 @@ static void testPkwareRoundTrip() {
 // Zlib codec tests
 // ============================================================================
 
-static void testZlibRoundTrip() {
+TEST_CASE("testZlibRoundTrip", "[mpq][codec]") {
     std::printf("\n=== Zlib Codec Tests ===\n");
     namespace zlib = whiteout::storages::common;
 
@@ -455,7 +454,7 @@ static void testZlibRoundTrip() {
 // mpqCompress / mpqDecompress integration tests
 // ============================================================================
 
-static void testMpqCompressDecompress() {
+TEST_CASE("testMpqCompressDecompress", "[mpq][codec]") {
     std::printf("\n=== mpqCompress/mpqDecompress Integration Tests ===\n");
 
     auto data = makeCompressibleData(2048);
@@ -570,7 +569,7 @@ static void testMpqCompressDecompress() {
 // LZMA codec tests (decode-only — test vectors generated by Python lzma module)
 // ============================================================================
 
-static void testLzmaDecompress() {
+TEST_CASE("testLzmaDecompress", "[mpq][codec]") {
     std::printf("\n=== LZMA Codec Tests (decode-only) ===\n");
 
     // Test vector 1: "Hello, World!" (13 bytes)
@@ -584,7 +583,7 @@ static void testLzmaDecompress() {
         static const u8 expected[] = {
             'H','e','l','l','o',',',' ','W','o','r','l','d','!'
         };
-        auto result = mpq::lzmaDecompress(compressed, 13);
+        auto result = common::lzmaDecompress(compressed, 13);
         expect(result.size() == 13, "lzma hello: correct size (%zu vs 13)", result.size());
         bool match = (result.size() == 13 && std::memcmp(result.data(), expected, 13) == 0);
         expect(match, "lzma hello: data matches");
@@ -604,7 +603,7 @@ static void testLzmaDecompress() {
         for (size_t i = 0; i < 1024; ++i)
             expected[i] = static_cast<u8>("ABCDEFGH"[i % 8]);
 
-        auto result = mpq::lzmaDecompress(compressed, 1024);
+        auto result = common::lzmaDecompress(compressed, 1024);
         expect(result.size() == 1024, "lzma pattern: correct size (%zu vs 1024)", result.size());
         bool match = (result == expected);
         expect(match, "lzma pattern: data matches");
@@ -619,7 +618,7 @@ static void testLzmaDecompress() {
             0x00, 0x00,
         };
         std::vector<u8> expected(256, 0);
-        auto result = mpq::lzmaDecompress(compressed, 256);
+        auto result = common::lzmaDecompress(compressed, 256);
         expect(result.size() == 256, "lzma zeros: correct size (%zu vs 256)", result.size());
         bool match = (result == expected);
         expect(match, "lzma zeros: data matches");
@@ -628,7 +627,7 @@ static void testLzmaDecompress() {
 
     // Error case: empty input
     {
-        auto result = mpq::lzmaDecompress({}, 100);
+        auto result = common::lzmaDecompress({}, 100);
         expect(result.empty(), "lzma empty input: returns empty");
         if (result.empty()) pass("lzma error: empty input handled");
     }
@@ -636,7 +635,7 @@ static void testLzmaDecompress() {
     // Error case: truncated input (only properties, no stream)
     {
         static const u8 truncated[] = {0x5D, 0x00, 0x00, 0x80, 0x00};
-        auto result = mpq::lzmaDecompress(truncated, 100);
+        auto result = common::lzmaDecompress(truncated, 100);
         expect(result.empty(), "lzma truncated input: returns empty");
         if (result.empty()) pass("lzma error: truncated input handled");
     }
@@ -646,22 +645,3 @@ static void testLzmaDecompress() {
 // Entry point
 // ============================================================================
 
-int main() {
-    std::printf("MPQ Codec Round-Trip Test Suite\n");
-    std::printf("===============================\n");
-
-    testSparseRoundTrip();
-    testHuffmanRoundTrip();
-    testBzip2RoundTrip();
-    testAdpcmRoundTrip();
-    testPkwareRoundTrip();
-    testZlibRoundTrip();
-    testMpqCompressDecompress();
-    testLzmaDecompress();
-
-    std::printf("\n===============================\n");
-    std::printf("Results: %d passed, %d failed\n", g_passed, g_failed);
-    std::printf("===============================\n");
-
-    return g_failed > 0 ? 1 : 0;
-}

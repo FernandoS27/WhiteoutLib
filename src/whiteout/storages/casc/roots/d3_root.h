@@ -33,10 +33,10 @@ public:
     // --- RootManifest interface ---
     std::vector<RootEntry> findByPath(const std::string& path) const override;
     std::vector<RootEntry> findByFileDataId(u32 fileDataId) const override;
-    std::vector<RootEntry> findByCKey(std::span<const u8, 16> cKey) const override;
-    void enumerate(std::function<bool(const RootEntry&)> callback) const override;
-    size_t entryCount() const override;
     RootFormat format() const override { return RootFormat::Diablo3; }
+
+protected:
+    const std::vector<RootEntry>& entries() const override { return m_entries; }
 
 private:
     /// All entries in flat storage.

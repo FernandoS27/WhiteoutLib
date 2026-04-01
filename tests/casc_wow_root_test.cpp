@@ -7,27 +7,15 @@
 #include "../src/whiteout/storages/casc/roots/root.h"
 #include "../src/whiteout/storages/common/jenkins.h"
 
+#include <catch2/catch_test_macros.hpp>
+
 #include <cstring>
-#include <iostream>
 #include <string>
 #include <vector>
 
 using namespace whiteout;
 using namespace whiteout::storages::casc;
 using namespace whiteout::storages::common;
-
-static int g_passed = 0;
-static int g_failed = 0;
-
-static void check(bool condition, const char* name) {
-    if (condition) {
-        std::cout << "  PASS: " << name << "\n";
-        ++g_passed;
-    } else {
-        std::cout << "  FAIL: " << name << "\n";
-        ++g_failed;
-    }
-}
 
 // ============================================================================
 // Binary builder helpers
@@ -239,8 +227,7 @@ static std::vector<u8> buildV3ManifestV2Root(
 // Tests
 // ============================================================================
 
-static void testLegacyParse() {
-    std::cout << "[Test: Legacy (headerless) root parse]\n";
+TEST_CASE("Legacy (headerless) root parse", "[casc][wow_root]") {
 
     std::vector<std::pair<u32, std::array<u8, 16>>> entries = {
         {100, makeCKey(0x10)},
@@ -256,31 +243,24 @@ static void testLegacyParse() {
 
     auto blob = buildLegacyRoot(entries, nameHashes);
     auto root = WowRoot::parse(blob);
-    check(root != nullptr, "Legacy root parsed successfully");
-    if (!root) return;
+    REQUIRE(root != nullptr);
 
-    check(root->entryCount() == 5, "Legacy root has 5 entries");
-    check(root->format() == RootFormat::Wow, "Format is Wow");
+    CHECK(root->entryCount() == 5);
+    CHECK(root->format() == RootFormat::Wow);
 
-    // Lookup by FileDataId.
     auto found = root->findByFileDataId(105);
-    check(!found.empty(), "FileDataId 105 found");
-    if (!found.empty()) {
-        check(found[0].cKey == makeCKey(0x30), "CKey matches for fdid 105");
-        check(found[0].fileDataId == 105, "FileDataId matches");
-    }
+    REQUIRE_FALSE(found.empty());
+    CHECK(found[0].cKey == makeCKey(0x30));
+    CHECK(found[0].fileDataId == 105);
 
-    // Lookup by path.
     auto byPath = root->findByPath("path/file100.txt");
-    check(!byPath.empty(), "Path lookup found");
+    CHECK_FALSE(byPath.empty());
 
-    // Lookup nonexistent.
     auto missing = root->findByFileDataId(999);
-    check(missing.empty(), "Nonexistent fdid returns empty");
+    CHECK(missing.empty());
 }
 
-static void testV2Parse() {
-    std::cout << "[Test: V2 (MFST 30080+) root parse]\n";
+TEST_CASE("V2 (MFST 30080+) root parse", "[casc][wow_root]") {
 
     std::vector<std::pair<u32, std::array<u8, 16>>> entries;
     std::vector<u64> nameHashes;
@@ -291,20 +271,17 @@ static void testV2Parse() {
 
     auto blob = buildV2Root(entries, nameHashes);
     auto root = WowRoot::parse(blob);
-    check(root != nullptr, "V2 root parsed successfully");
-    if (!root) return;
+    REQUIRE(root != nullptr);
 
-    check(root->entryCount() == 10, "V2 root has 10 entries");
+    CHECK(root->entryCount() == 10);
 
-    // Verify all entries retrievable.
     for (u32 i = 0; i < 10; ++i) {
         auto found = root->findByFileDataId(1000 + i * 3);
-        check(!found.empty(), ("FileDataId " + std::to_string(1000 + i * 3) + " found").c_str());
+        CHECK_FALSE(found.empty());
     }
 }
 
-static void testV3Parse() {
-    std::cout << "[Test: V3 (MFST 50893+) root parse]\n";
+TEST_CASE("V3 (MFST 50893+) root parse", "[casc][wow_root]") {
 
     std::vector<std::pair<u32, std::array<u8, 16>>> entries;
     std::vector<u64> nameHashes;
@@ -315,20 +292,16 @@ static void testV3Parse() {
 
     auto blob = buildV3Root(entries, nameHashes);
     auto root = WowRoot::parse(blob);
-    check(root != nullptr, "V3 root parsed successfully");
-    if (!root) return;
+    REQUIRE(root != nullptr);
 
-    check(root->entryCount() == 8, "V3 root has 8 entries");
+    CHECK(root->entryCount() == 8);
 
     auto found = root->findByFileDataId(2004);
-    check(!found.empty(), "V3 FileDataId 2004 found");
-    if (!found.empty()) {
-        check(found[0].cKey == makeCKey(u8(0xA4)), "V3 CKey matches");
-    }
+    REQUIRE_FALSE(found.empty());
+    CHECK(found[0].cKey == makeCKey(u8(0xA4)));
 }
 
-static void testV3ManifestV2Parse() {
-    std::cout << "[Test: V3 manifest version 2 (58221+) root parse]\n";
+TEST_CASE("V3 manifest version 2 (58221+) root parse", "[casc][wow_root]") {
 
     std::vector<std::pair<u32, std::array<u8, 16>>> entries;
     std::vector<u64> nameHashes;
@@ -339,21 +312,16 @@ static void testV3ManifestV2Parse() {
 
     auto blob = buildV3ManifestV2Root(entries, nameHashes, 0xFFFFFFFF, 0x08, 0x00, 0x00);
     auto root = WowRoot::parse(blob);
-    check(root != nullptr, "V3 manifest v2 parsed successfully");
-    if (!root) return;
+    REQUIRE(root != nullptr);
 
-    check(root->entryCount() == 5, "V3 mfst v2 has 5 entries");
+    CHECK(root->entryCount() == 5);
 
-    // contentFlags should be reconstructed from unk fields.
     auto found = root->findByFileDataId(3004);
-    check(!found.empty(), "V3 mfst v2 FileDataId 3004 found");
-    if (!found.empty()) {
-        check(found[0].contentFlags == 0x08, "Content flags reconstructed correctly");
-    }
+    REQUIRE_FALSE(found.empty());
+    CHECK(found[0].contentFlags == 0x08);
 }
 
-static void testMultipleBlocks() {
-    std::cout << "[Test: Multiple blocks in one root]\n";
+TEST_CASE("Multiple blocks in one root", "[casc][wow_root]") {
 
     // Build two blocks manually — legacy format.
     std::vector<u8> buf;
@@ -395,22 +363,20 @@ static void testMultipleBlocks() {
     }
 
     auto root = WowRoot::parse(buf);
-    check(root != nullptr, "Multi-block root parsed");
-    if (!root) return;
+    REQUIRE(root != nullptr);
 
-    check(root->entryCount() == 5, "Total 5 entries across 2 blocks");
+    CHECK(root->entryCount() == 5);
 
-    // Check locale flags.
     auto enUs = root->findByFileDataId(500);
-    check(!enUs.empty() && enUs[0].localeFlags == 0x00000002, "Block 1 has enUS locale");
+    REQUIRE_FALSE(enUs.empty());
+    CHECK(enUs[0].localeFlags == 0x00000002);
 
     auto koKr = root->findByFileDataId(600);
-    check(!koKr.empty() && koKr[0].localeFlags == 0x00000004, "Block 2 has koKR locale");
+    REQUIRE_FALSE(koKr.empty());
+    CHECK(koKr[0].localeFlags == 0x00000004);
 }
 
-static void testNoNameHashBlock() {
-    std::cout << "[Test: Block with NoNameHash flag (v2)]\n";
-
+TEST_CASE("Block with NoNameHash flag (v2)", "[casc][wow_root]") {
     // Build a v2 root where totalFileCount != namedFileCount.
     u32 n = 3;
     std::vector<u8> buf;
@@ -437,25 +403,19 @@ static void testNoNameHashBlock() {
     }
 
     auto root = WowRoot::parse(buf);
-    check(root != nullptr, "NoNameHash root parsed");
-    if (!root) return;
+    REQUIRE(root != nullptr);
 
-    check(root->entryCount() == 3, "NoNameHash root has 3 entries");
+    CHECK(root->entryCount() == 3);
 
-    // Name hash should be 0 for these entries.
     auto found = root->findByFileDataId(11);
-    check(!found.empty(), "FileDataId 11 found");
-    if (!found.empty()) {
-        check(found[0].fileNameHash == 0, "No name hash for NoNameHash entries");
-    }
+    REQUIRE_FALSE(found.empty());
+    CHECK(found[0].fileNameHash == 0);
 
-    // Path lookup should return empty (no name hashes indexed).
     auto byPath = root->findByPath("anything");
-    check(byPath.empty(), "Path lookup returns empty for NoNameHash root");
+    CHECK(byPath.empty());
 }
 
-static void testDeltaEncodedGaps() {
-    std::cout << "[Test: Delta-encoded FileDataIds with gaps]\n";
+TEST_CASE("Delta-encoded FileDataIds with gaps", "[casc][wow_root]") {
 
     // FileDataIds: 10, 15, 100, 101, 500
     // Deltas: 10, (15-10-1)=4, (100-15-1)=84, (101-100-1)=0, (500-101-1)=398
@@ -472,19 +432,16 @@ static void testDeltaEncodedGaps() {
 
     auto blob = buildLegacyRoot(entries, nameHashes);
     auto root = WowRoot::parse(blob);
-    check(root != nullptr, "Gap-delta root parsed");
-    if (!root) return;
+    REQUIRE(root != nullptr);
 
-    // Verify every FileDataId.
     for (auto& [fdid, ckey] : entries) {
         auto found = root->findByFileDataId(fdid);
-        check(!found.empty() && found[0].cKey == ckey,
-              ("FileDataId " + std::to_string(fdid) + " correct CKey").c_str());
+        REQUIRE_FALSE(found.empty());
+        CHECK(found[0].cKey == ckey);
     }
 }
 
-static void testFindByCKey() {
-    std::cout << "[Test: findByCKey]\n";
+TEST_CASE("findByCKey", "[casc][wow_root]") {
 
     std::vector<std::pair<u32, std::array<u8, 16>>> entries = {
         {42, makeCKey(0xF0)},
@@ -496,22 +453,18 @@ static void testFindByCKey() {
 
     auto blob = buildLegacyRoot(entries, nameHashes);
     auto root = WowRoot::parse(blob);
-    check(root != nullptr, "Root parsed for CKey test");
-    if (!root) return;
+    REQUIRE(root != nullptr);
 
     auto ckey = makeCKey(0xF1);
     auto found = root->findByCKey(ckey);
-    check(!found.empty(), "findByCKey found entry");
-    if (!found.empty()) {
-        check(found[0].fileDataId == 43, "CKey maps to correct FileDataId");
-    }
+    REQUIRE_FALSE(found.empty());
+    CHECK(found[0].fileDataId == 43);
 
     auto missing = makeCKey(0xFF);
-    check(root->findByCKey(missing).empty(), "Nonexistent CKey returns empty");
+    CHECK(root->findByCKey(missing).empty());
 }
 
-static void testEnumerate() {
-    std::cout << "[Test: Enumerate all entries]\n";
+TEST_CASE("Enumerate all entries", "[casc][wow_root]") {
 
     std::vector<std::pair<u32, std::array<u8, 16>>> entries;
     std::vector<u64> nameHashes;
@@ -522,24 +475,21 @@ static void testEnumerate() {
 
     auto blob = buildLegacyRoot(entries, nameHashes);
     auto root = WowRoot::parse(blob);
-    check(root != nullptr, "Root parsed for enumerate test");
-    if (!root) return;
+    REQUIRE(root != nullptr);
 
     size_t count = 0;
     root->enumerate([&](const RootEntry&) { ++count; return true; });
-    check(count == 20, "Enumerate visits all 20 entries");
+    CHECK(count == 20);
 
-    // Test early termination.
     size_t partial = 0;
     root->enumerate([&](const RootEntry&) {
         ++partial;
         return partial < 5;
     });
-    check(partial == 5, "Enumerate stops after 5 with early termination");
+    CHECK(partial == 5);
 }
 
-static void testAutoDetection() {
-    std::cout << "[Test: Auto-detection via RootManifest::parse]\n";
+TEST_CASE("Auto-detection via RootManifest::parse", "[casc][wow_root]") {
 
     // Build a v2 root and verify auto-detection routes to WowRoot.
     std::vector<std::pair<u32, std::array<u8, 16>>> entries = {
@@ -549,42 +499,15 @@ static void testAutoDetection() {
 
     auto blob = buildV2Root(entries, nameHashes);
     auto root = RootManifest::parse(blob);
-    check(root != nullptr, "Auto-detect parsed v2 WoW root");
-    if (root) {
-        check(root->format() == RootFormat::Wow, "Auto-detected as Wow format");
-        check(root->entryCount() == 1, "Auto-detected root has 1 entry");
-    }
+    REQUIRE(root != nullptr);
+    CHECK(root->format() == RootFormat::Wow);
+    CHECK(root->entryCount() == 1);
 }
 
-static void testEmptyData() {
-    std::cout << "[Test: Edge cases]\n";
-
-    // Empty data.
+TEST_CASE("WoW root edge cases", "[casc][wow_root]") {
     std::vector<u8> empty;
-    auto r1 = WowRoot::parse(empty);
-    check(r1 == nullptr, "Empty data returns nullptr");
+    CHECK(WowRoot::parse(empty) == nullptr);
 
-    // Too small.
     std::vector<u8> tiny = {0x01, 0x02};
-    auto r2 = WowRoot::parse(tiny);
-    check(r2 == nullptr, "Tiny data returns nullptr");
-}
-
-int main() {
-    std::cout << "=== CASC WoW Root Tests ===\n\n";
-
-    testLegacyParse();
-    testV2Parse();
-    testV3Parse();
-    testV3ManifestV2Parse();
-    testMultipleBlocks();
-    testNoNameHashBlock();
-    testDeltaEncodedGaps();
-    testFindByCKey();
-    testEnumerate();
-    testAutoDetection();
-    testEmptyData();
-
-    std::cout << "\n=== Results: " << g_passed << " passed, " << g_failed << " failed ===\n";
-    return g_failed > 0 ? 1 : 0;
+    CHECK(WowRoot::parse(tiny) == nullptr);
 }

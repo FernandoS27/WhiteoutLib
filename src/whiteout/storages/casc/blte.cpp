@@ -298,6 +298,103 @@ BlteDecodeResult blteDecode(std::span<const u8> blteData,
 }
 
 // ============================================================================
+// BLTE Header Parsing + Single-Frame Decode Helpers
+// ============================================================================
+
+/// Parsed BLTE frame layout for batch decode.
+struct BlteFrameLayout {
+    struct Frame {
+        u32 compressedSize;
+        u32 uncompressedSize;
+    };
+    std::vector<Frame> frames;
+    std::vector<size_t> offsets; ///< Byte offset of each frame's data within the blob.
+    bool valid = false;
+    std::string error;
+};
+
+/// Parse the header and frame table of a BLTE blob, computing frame offsets.
+static BlteFrameLayout parseBlteFrameLayout(std::span<const u8> blob) {
+    BlteFrameLayout layout;
+
+    if (blob.size() < kBlteMinHeaderSize) {
+        layout.error = "data too small for BLTE header";
+        return layout;
+    }
+
+    u32 magic = readBE32(blob.data());
+    if (magic != kBlteMagic) {
+        layout.error = "invalid BLTE magic";
+        return layout;
+    }
+
+    u32 headerSize = readBE32(blob.data() + 4);
+
+    if (headerSize == 0) {
+        // Single frame: entire remainder after 8-byte header.
+        BlteFrameLayout::Frame f;
+        f.compressedSize = u32(blob.size() - kBlteMinHeaderSize);
+        f.uncompressedSize = 0;
+        layout.frames.push_back(f);
+        layout.offsets.push_back(kBlteMinHeaderSize);
+        layout.valid = true;
+        return layout;
+    }
+
+    // Multi-frame header.
+    size_t hdrStart = kBlteMinHeaderSize;
+    if (blob.size() < hdrStart + 4) {
+        layout.error = "truncated BLTE frame table header";
+        return layout;
+    }
+
+    u32 frameCount = (u32(blob[hdrStart + 1]) << 16) |
+                     (u32(blob[hdrStart + 2]) << 8) |
+                     u32(blob[hdrStart + 3]);
+
+    size_t tableStart = hdrStart + 4;
+    size_t tableSize = frameCount * kBlteFrameTableEntrySize;
+
+    if (blob.size() < tableStart + tableSize) {
+        layout.error = "truncated BLTE frame table";
+        return layout;
+    }
+
+    layout.frames.reserve(frameCount);
+    layout.offsets.reserve(frameCount);
+    size_t off = tableStart + tableSize;
+    for (u32 j = 0; j < frameCount; ++j) {
+        const u8* entry = blob.data() + tableStart + j * kBlteFrameTableEntrySize;
+        BlteFrameLayout::Frame f;
+        f.compressedSize = readBE32(entry);
+        f.uncompressedSize = readBE32(entry + 4);
+        layout.frames.push_back(f);
+        layout.offsets.push_back(off);
+        off += f.compressedSize;
+    }
+
+    if (off > blob.size()) {
+        layout.error = "frame data extends past end of BLTE blob";
+        return layout;
+    }
+
+    layout.valid = true;
+    return layout;
+}
+
+/// Decode a single-frame BLTE blob inline (no parallel overhead).
+static BlteBatchResult decodeSingleFrameBlte(
+    std::span<const u8> blob, const BlteFrameLayout& layout, const KeyRing* keys) {
+    BlteBatchResult result;
+    auto payload = blob.subspan(layout.offsets[0], layout.frames[0].compressedSize);
+    auto fr = decodeFramePayload(payload, layout.frames[0].uncompressedSize, keys);
+    result.data = std::move(fr.data);
+    result.success = fr.success;
+    result.error = std::move(fr.error);
+    return result;
+}
+
+// ============================================================================
 // BLTE Batch Decode (DAG pipeline)
 // ============================================================================
 
@@ -338,19 +435,7 @@ std::vector<BlteBatchResult> blteDecodeBatch(
 
     // ---- Full DAG path: per-file timeline semaphore ----
 
-    // Pre-parse all BLTE headers to determine frame layouts.
-    struct FileFrameInfo {
-        struct Frame {
-            u32 compressedSize;
-            u32 uncompressedSize;
-        };
-        std::vector<Frame> frames;
-        std::vector<size_t> offsets; // byte offset of each frame's data
-        bool headerValid = false;
-        std::string headerError;
-    };
-
-    std::vector<FileFrameInfo> fileInfos(entries.size());
+    std::vector<BlteFrameLayout> layouts(entries.size());
     // Per-file semaphores (only for multi-frame files).
     std::vector<std::unique_ptr<interfaces::TimelineSemaphore>> sems(entries.size());
     // Per-file frame results (only for multi-frame files).
@@ -364,89 +449,22 @@ std::vector<BlteBatchResult> blteDecodeBatch(
     // Phase 0: Parse headers and dispatch.
     for (size_t i = 0; i < entries.size(); ++i) {
         auto& blob = entries[i].blteData;
-        auto& fi = fileInfos[i];
+        auto& layout = layouts[i];
 
-        if (blob.size() < kBlteMinHeaderSize) {
-            results[i].error = "data too small for BLTE header";
+        layout = parseBlteFrameLayout(blob);
+        if (!layout.valid) {
+            results[i].error = std::move(layout.error);
             continue;
         }
 
-        u32 magic = readBE32(blob.data());
-        if (magic != kBlteMagic) {
-            results[i].error = "invalid BLTE magic";
-            continue;
-        }
-
-        u32 headerSize = readBE32(blob.data() + 4);
-
-        if (headerSize == 0) {
-            // Single-frame: decode inline immediately.
-            FileFrameInfo::Frame f;
-            f.compressedSize = u32(blob.size() - kBlteMinHeaderSize);
-            f.uncompressedSize = 0;
-            fi.frames.push_back(f);
-            fi.offsets.push_back(kBlteMinHeaderSize);
-            fi.headerValid = true;
-
-            // Decode inline — no DAG overhead for single frames.
-            auto payload = blob.subspan(kBlteMinHeaderSize, f.compressedSize);
-            auto fr = decodeFramePayload(payload, f.uncompressedSize, keys);
-            results[i].data = std::move(fr.data);
-            results[i].success = fr.success;
-            results[i].error = std::move(fr.error);
-            continue;
-        }
-
-        // Multi-frame header.
-        size_t hdrStart = kBlteMinHeaderSize;
-        if (blob.size() < hdrStart + 4) {
-            results[i].error = "truncated BLTE frame table header";
-            continue;
-        }
-
-        u32 frameCount = (u32(blob[hdrStart + 1]) << 16) |
-                         (u32(blob[hdrStart + 2]) << 8) |
-                         u32(blob[hdrStart + 3]);
-
-        size_t tableStart = hdrStart + 4;
-        size_t tableSize = frameCount * kBlteFrameTableEntrySize;
-
-        if (blob.size() < tableStart + tableSize) {
-            results[i].error = "truncated BLTE frame table";
-            continue;
-        }
-
-        fi.frames.reserve(frameCount);
-        fi.offsets.reserve(frameCount);
-        size_t off = tableStart + tableSize;
-        for (u32 j = 0; j < frameCount; ++j) {
-            const u8* entry = blob.data() + tableStart + j * kBlteFrameTableEntrySize;
-            FileFrameInfo::Frame f;
-            f.compressedSize = readBE32(entry);
-            f.uncompressedSize = readBE32(entry + 4);
-            fi.frames.push_back(f);
-            fi.offsets.push_back(off);
-            off += f.compressedSize;
-        }
-
-        if (off > blob.size()) {
-            results[i].error = "frame data extends past end of BLTE blob";
-            continue;
-        }
-
-        fi.headerValid = true;
-
-        if (frameCount <= 1) {
-            // Single frame — decode inline.
-            auto payload = blob.subspan(fi.offsets[0], fi.frames[0].compressedSize);
-            auto fr = decodeFramePayload(payload, fi.frames[0].uncompressedSize, keys);
-            results[i].data = std::move(fr.data);
-            results[i].success = fr.success;
-            results[i].error = std::move(fr.error);
+        // Single frame (or headerSize==0): decode inline, no DAG overhead.
+        if (layout.frames.size() <= 1) {
+            results[i] = decodeSingleFrameBlte(blob, layout, keys);
             continue;
         }
 
         // Multi-frame: set up DAG.
+        u32 frameCount = u32(layout.frames.size());
         sems[i] = pool->createTimelineSemaphore();
         perFileFrameResults[i].resize(frameCount);
         decodeGroups[i] = std::make_shared<utils::JobGroup>();
@@ -460,22 +478,21 @@ std::vector<BlteBatchResult> blteDecodeBatch(
         // Submit frame decode tasks.
         for (u32 j = 0; j < frameCount; ++j) {
             interfaces::WorkerTask task;
-            task.fn = [&entries, &perFileFrameResults, &fileFailed, &fileInfos,
+            task.fn = [&entries, &perFileFrameResults, &fileFailed, &layouts,
                        &decodeGroups, keys, i, j]() {
                 if (fileFailed[i].load(std::memory_order_relaxed)) {
                     decodeGroups[i]->done();
                     return;
                 }
                 auto& blob = entries[i].blteData;
-                auto& fi = fileInfos[i];
-                auto payload = blob.subspan(fi.offsets[j], fi.frames[j].compressedSize);
+                auto& layout = layouts[i];
+                auto payload = blob.subspan(layout.offsets[j], layout.frames[j].compressedSize);
                 perFileFrameResults[i][j] = decodeFramePayload(
-                    payload, fi.frames[j].uncompressedSize, keys);
+                    payload, layout.frames[j].uncompressedSize, keys);
                 if (!perFileFrameResults[i][j].success)
                     fileFailed[i].store(true, std::memory_order_relaxed);
                 decodeGroups[i]->done();
             };
-            // No wait — raw data already available in blteData span.
             pool->submit(task);
         }
 

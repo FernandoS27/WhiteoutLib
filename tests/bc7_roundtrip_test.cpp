@@ -1,5 +1,7 @@
 // BC7 encode/decode round-trip test — exercises all 8 modes at all quality levels.
 // Encodes synthetic RGBA8 textures to BC7, decodes back, and checks PSNR.
+#include <catch2/catch_all.hpp>
+
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -170,7 +172,7 @@ static Texture make_three_bands(u32 w, u32 h) {
 // Main
 // ---------------------------------------------------------------------------
 
-int main() {
+TEST_CASE("BC7 roundtrip quality", "[bc7][roundtrip]") {
     struct TestCase {
         const char* name;
         Texture (*make)(u32, u32);
@@ -277,5 +279,5 @@ int main() {
     }
 
     printf("\n=== BC7 Roundtrip: %d/%d passed, %d failed ===\n", passed, total, failed);
-    return failed > 0 ? 1 : 0;
+    CHECK(failed == 0);
 }

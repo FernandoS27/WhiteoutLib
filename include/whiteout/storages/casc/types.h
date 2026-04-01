@@ -104,7 +104,6 @@ enum class RootFormat : u8 {
     Unknown,  ///< Could not determine format.
     Wow,      ///< World of Warcraft root (FileDataId-based).
     Diablo3,  ///< Diablo III root (hierarchical directory).
-    Diablo4,  ///< Diablo IV root (TVFS + CoreTOC SNO enrichment).
     Tvfs,     ///< TVFS prefix-tree root (WC3 Reforged and general purpose).
 };
 

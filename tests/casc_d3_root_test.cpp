@@ -13,6 +13,8 @@
 #include "../src/whiteout/storages/casc/blte.h"
 #include "../src/whiteout/storages/common/mapped_file.h"
 
+#include <catch2/catch_test_macros.hpp>
+
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -24,18 +26,6 @@ using namespace whiteout;
 using namespace whiteout::storages::casc;
 using namespace whiteout::storages::common;
 
-static int g_passed = 0;
-static int g_failed = 0;
-
-static void check(bool condition, const char* name) {
-    if (condition) {
-        std::cout << "  PASS: " << name << "\n";
-        ++g_passed;
-    } else {
-        std::cout << "  FAIL: " << name << "\n";
-        ++g_failed;
-    }
-}
 
 static std::string findCorpusBase() {
     for (auto& p : {"Corpus/CASC", "../Corpus/CASC", "../../Corpus/CASC",
@@ -92,20 +82,18 @@ static std::vector<u8> resolveCKey(const std::string& dataDir,
     return std::move(decoded.data);
 }
 
-static void testD3Root(const std::string& corpus) {
-    std::cout << "[Test: D3 Root Pipeline]\n";
-
+TEST_CASE("D3Root", "[casc][d3_root][corpus]") {
+    auto corpus = findCorpusBase();
+    if (corpus.empty()) { SKIP("Corpus not found"); }
     std::string gameDir = corpus + "/Diablo III";
     std::string dataDir = gameDir + "/Data";
 
     // Step 1: Read .build.info (lives at game root, not inside Data/).
     auto buildInfoFile = MappedFile::open(gameDir + "/.build.info");
-    check(buildInfoFile.has_value(), "D3 .build.info opens");
-    if (!buildInfoFile) return;
+    REQUIRE(buildInfoFile.has_value());
 
     auto builds = parseBuildInfo(buildInfoFile->data());
-    check(!builds.empty(), "D3 has build info entries");
-    if (builds.empty()) return;
+    REQUIRE_FALSE(builds.empty());
 
     // Find active build.
     const BuildInfo* activeBuild = nullptr;
@@ -132,7 +120,7 @@ static void testD3Root(const std::string& corpus) {
         activeBuild->buildKey[14], activeBuild->buildKey[15]);
 
     auto buildConfigFile = MappedFile::open(configPath);
-    check(buildConfigFile.has_value(), "D3 build config opens");
+    CHECK(buildConfigFile.has_value());
     if (!buildConfigFile) {
         std::cout << "  Path tried: " << configPath << "\n";
         return;
@@ -142,44 +130,39 @@ static void testD3Root(const std::string& corpus) {
 
     // Step 3: Load index table.
     auto indexTable = IndexTable::load(dataDir);
-    check(indexTable.entryCount() > 0, "D3 index loaded");
+    CHECK(indexTable.entryCount() > 0);
 
     // Step 4: Resolve encoding file.
     auto encodingIdx = indexTable.find(std::span<const u8>(buildConfig.encodingEKey.data(), 9));
-    check(encodingIdx != nullptr, "Encoding EKey found in index");
-    if (!encodingIdx) return;
+    REQUIRE(encodingIdx != nullptr);
 
     auto encodingBlte = readArchiveData(dataDir, encodingIdx->archiveIndex,
                                         encodingIdx->archiveOffset, encodingIdx->encodedSize);
-    check(!encodingBlte.empty(), "Encoding archive data read");
-    if (encodingBlte.empty()) return;
+    REQUIRE_FALSE(encodingBlte.empty());
 
     auto encodingDecoded = blteDecode(encodingBlte);
-    check(encodingDecoded.success, "Encoding BLTE decoded");
+    CHECK(encodingDecoded.success);
     if (!encodingDecoded.success) {
         std::cout << "  Error: " << encodingDecoded.error << "\n";
         return;
     }
 
     auto encodingTable = EncodingTable::parse(encodingDecoded.data);
-    check(encodingTable.entryCount() > 0, "Encoding table has entries");
+    CHECK(encodingTable.entryCount() > 0);
 
     // Step 5: Resolve root file.
     auto rootEncEntry = encodingTable.findByCKey(buildConfig.rootCKey);
-    check(rootEncEntry != nullptr, "Root CKey found in encoding table");
-    if (!rootEncEntry) return;
+    REQUIRE(rootEncEntry != nullptr);
 
     auto rootIdx = indexTable.find(std::span<const u8>(rootEncEntry->eKey.data(), 9));
-    check(rootIdx != nullptr, "Root EKey found in index");
-    if (!rootIdx) return;
+    REQUIRE(rootIdx != nullptr);
 
     auto rootBlte = readArchiveData(dataDir, rootIdx->archiveIndex,
                                     rootIdx->archiveOffset, rootIdx->encodedSize);
-    check(!rootBlte.empty(), "Root archive data read");
-    if (rootBlte.empty()) return;
+    REQUIRE_FALSE(rootBlte.empty());
 
     auto rootDecoded = blteDecode(rootBlte);
-    check(rootDecoded.success, "Root BLTE decoded");
+    CHECK(rootDecoded.success);
     if (!rootDecoded.success) {
         std::cout << "  Error: " << rootDecoded.error << "\n";
         return;
@@ -191,19 +174,18 @@ static void testD3Root(const std::string& corpus) {
     };
 
     auto root = D3Root::parse(rootDecoded.data, resolver);
-    check(root != nullptr, "D3 root parsed");
-    if (!root) return;
+    REQUIRE(root != nullptr);
 
     std::cout << "  Root entries: " << root->entryCount() << "\n";
-    check(root->entryCount() > 0, "D3 root has entries");
-    check(root->entryCount() > 100, "D3 root has >100 entries");
-    check(root->format() == RootFormat::Diablo3, "Format is Diablo3");
+    CHECK(root->entryCount() > 0);
+    CHECK(root->entryCount() > 100);
+    CHECK(root->format() == RootFormat::Diablo3);
 
     // Step 7: Auto-detection test.
     auto autoRoot = RootManifest::parse(rootDecoded.data);
-    check(autoRoot != nullptr, "Auto-detection parsed D3 root");
+    CHECK(autoRoot != nullptr);
     if (autoRoot) {
-        check(autoRoot->format() == RootFormat::Diablo3, "Auto-detected as Diablo3");
+        CHECK(autoRoot->format() == RootFormat::Diablo3);
     }
 
     // Step 8: Enumerate and count.
@@ -212,7 +194,7 @@ static void testD3Root(const std::string& corpus) {
         ++enumCount;
         return true;
     });
-    check(enumCount == root->entryCount(), "Enumerate count matches entryCount");
+    CHECK(enumCount == root->entryCount());
 
     // Step 9: Verify some entries have non-empty paths.
     size_t withPath = 0;
@@ -220,14 +202,12 @@ static void testD3Root(const std::string& corpus) {
         if (!e.path.empty()) ++withPath;
         return true;
     });
-    check(withPath > 0, "Some entries have paths");
+    CHECK(withPath > 0);
     std::cout << "  Entries with paths: " << withPath << "\n";
 }
 
 // Synthetic D3 root test (no corpus needed).
-static void testSyntheticD3Root() {
-    std::cout << "[Test: Synthetic D3 root]\n";
-
+TEST_CASE("Synthetic D3Root", "[casc][d3_root]") {
     // Build a minimal D3 root directory with subdirectory signature.
     std::vector<u8> buf;
 
@@ -274,43 +254,26 @@ static void testSyntheticD3Root() {
     }
 
     auto root = D3Root::parse(buf);
-    check(root != nullptr, "Synthetic D3 root parsed");
-    if (!root) return;
+    REQUIRE(root != nullptr);
 
-    check(root->entryCount() == 5, "Synthetic D3 has 5 entries (2 asset + 1 assetidx + 2 named)");
-    check(root->format() == RootFormat::Diablo3, "Format is Diablo3");
+    CHECK(root->entryCount() == 5);
+    CHECK(root->format() == RootFormat::Diablo3);
 
     // Verify path lookup (case-insensitive).
     auto found = root->findByPath("coretoc.dat");
-    check(!found.empty(), "CoreTOC.dat found by path (case-insensitive)");
+    CHECK_FALSE(found.empty());
 
     auto found2 = root->findByPath("Packages.dat");
-    check(!found2.empty(), "Packages.dat found by path");
+    CHECK_FALSE(found2.empty());
 
     // Verify asset path.
     auto texEntry = root->findByPath("tex/0");
-    check(!texEntry.empty(), "tex/0 asset path found");
+    CHECK_FALSE(texEntry.empty());
 
     auto actorEntry = root->findByPath("acr/5.3");
-    check(!actorEntry.empty(), "acr/5.3 assetidx path found");
+    CHECK_FALSE(actorEntry.empty());
 
     // FileDataId should return empty for D3.
     auto byFdid = root->findByFileDataId(100);
-    check(byFdid.empty(), "findByFileDataId returns empty for D3");
-}
-
-int main() {
-    std::cout << "=== CASC D3 Root Tests ===\n\n";
-
-    testSyntheticD3Root();
-
-    auto corpus = findCorpusBase();
-    if (!corpus.empty()) {
-        testD3Root(corpus);
-    } else {
-        std::cout << "WARNING: Corpus not found, skipping corpus-dependent tests.\n";
-    }
-
-    std::cout << "\n=== Results: " << g_passed << " passed, " << g_failed << " failed ===\n";
-    return g_failed > 0 ? 1 : 0;
+    CHECK(byFdid.empty());
 }

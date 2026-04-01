@@ -25,6 +25,8 @@
 // Internal helper for MD5 verification.
 #include "../src/whiteout/storages/common/md5.h"
 
+#include <catch2/catch_test_macros.hpp>
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -48,18 +50,6 @@ namespace new_casc = whiteout::storages::casc;
 // Test Framework
 // ============================================================================
 
-static int g_passed = 0;
-static int g_failed = 0;
-
-static void check(bool cond, const std::string& name) {
-    if (cond) {
-        ++g_passed;
-        std::cout << "  PASS: " << name << "\n";
-    } else {
-        ++g_failed;
-        std::cout << "  FAIL: " << name << "\n";
-    }
-}
 
 static std::string hexStr(const std::array<u8, 16>& key) {
     static const char hex[] = "0123456789abcdef";
@@ -178,7 +168,22 @@ static std::optional<std::vector<u8>> cascLibReadFile(HANDLE hStorage, const std
 ///
 /// This avoids path-format incompatibilities (D3 synthetic paths vs CascLib
 /// human-readable paths, WC3R colon-separated sub-modules vs forward-slash).
-static void testStorageCrossValidate(const std::string& label, const std::string& path) {
+TEST_CASE("Storage Cross Validate", "[casc][cross_validate][corpus]") {
+    auto corpus = findCorpus();
+    if (corpus.empty()) { SKIP("Corpus not found"); }
+
+    struct CorpusEntry { std::string label; std::string path; };
+    std::vector<CorpusEntry> entries;
+    if (std::filesystem::exists(corpus + "/Diablo III"))
+        entries.push_back({"Diablo III", corpus + "/Diablo III"});
+    if (std::filesystem::exists(corpus + "/Warcraft III"))
+        entries.push_back({"Warcraft III Reforged", corpus + "/Warcraft III"});
+    if (std::filesystem::exists(corpus + "/Diablo IV"))
+        entries.push_back({"Diablo IV", corpus + "/Diablo IV"});
+    if (entries.empty()) SKIP("No corpus subdirectories found");
+
+    for (auto& [label, path] : entries) {
+    DYNAMIC_SECTION("Cross-validate: " << label) {
     std::cout << "\n================================================================\n";
     std::cout << "Cross-validate (CascLib C API): " << label << "\n";
     std::cout << "  Path: " << path << "\n";
@@ -192,12 +197,11 @@ static void testStorageCrossValidate(const std::string& label, const std::string
 
     // --- Open with both APIs ---
     auto newStorage = new_casc::Storage::open(path);
-    check(newStorage.has_value(), "new API opens");
-    if (!newStorage) return;
+    REQUIRE(newStorage.has_value());
 
     ScopedCascStorage oldStorage;
     bool oldOpened = CascOpenStorage(path.c_str(), CASC_LOCALE_ALL, &oldStorage.h);
-    check(oldOpened, "CascLib opens");
+    CHECK(oldOpened);
     if (!oldOpened) return;
 
     // --- Build CKey → CascLib path lookup from CascLib enumeration ---
@@ -398,9 +402,8 @@ static void testStorageCrossValidate(const std::string& label, const std::string
     std::cout << "  NewMD5Fail: " << newMd5Fail
               << "  OldMD5Fail: " << oldMd5Fail << "\n";
 
-    check(matched > 0, "found shared CKeys (" + std::to_string(matched) + ")");
-    check(mismatch == 0, "zero true mismatches (" + std::to_string(bytesMatch) +
-                         "/" + std::to_string(compared) + " validated)");
+    CHECK(matched > 0);
+    CHECK(mismatch == 0);
 
     // New API MD5 verification: ensures readFile returns correct data.
     // TVFS storages may have path aliasing where the enumerated CKey doesn't match
@@ -410,24 +413,20 @@ static void testStorageCrossValidate(const std::string& label, const std::string
     if (newMd5Fail > 0) {
         double aliasRate = static_cast<double>(newMd5Fail) / static_cast<double>(compared);
         if (aliasRate > 0.5) {
-            check(false, "new API MD5 matches CKey (>50% alias rate: " +
-                         std::to_string(newMd5Fail) + "/" + std::to_string(compared) + ")");
+            CHECK(false);
         } else {
             std::cout << "  WARN: " << newMd5Fail << "/" << compared
                       << " CKey/path aliases (TVFS trie prefix path collisions)\n";
         }
     } else {
-        check(true, "new API MD5 always matches CKey");
+        CHECK(true);
     }
 
     // Allow a small number of new-fail entries (encrypted files etc.) but flag
     // if the new API fails on a large fraction.
     if (compared > 0) {
         double failRate = static_cast<double>(newFail) / static_cast<double>(matched);
-        check(failRate < 0.05,
-              "new API failure rate < 5% (" + std::to_string(newFail) + "/" +
-              std::to_string(matched) + " = " +
-              std::to_string(static_cast<int>(failRate * 100)) + "%)");
+        CHECK(failRate < 0.05);
     }
 
     // --- MD5 spot-check on matched files ---
@@ -448,8 +447,7 @@ static void testStorageCrossValidate(const std::string& label, const std::string
     }
 
     if (md5Checked > 0) {
-        check(md5Pass == md5Checked, "MD5/CKey verification (" +
-              std::to_string(md5Pass) + "/" + std::to_string(md5Checked) + ")");
+        CHECK(md5Pass == md5Checked);
     }
 
     // --- Path format comparison ---
@@ -522,8 +520,7 @@ static void testStorageCrossValidate(const std::string& label, const std::string
             std::cout << "\n";
         }
 
-        check(!isTvfsStorage || pathMissCount == 0, "path format matches CascLib (" +
-              std::to_string(pathMatchCount) + "/" + std::to_string(pathTotal) + ")");
+        CHECK_FALSE((isTvfsStorage || pathMissCount == 0));
         if (!isTvfsStorage && pathMissCount > 0) {
             std::cout << "  INFO: non-TVFS root — path format difference expected\n";
         }
@@ -532,6 +529,8 @@ static void testStorageCrossValidate(const std::string& label, const std::string
     auto t1 = std::chrono::steady_clock::now();
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
     std::cout << "  Completed in " << ms << " ms.\n";
+} // DYNAMIC_SECTION
+} // for entries
 }
 
 #endif // WHITEOUT_HAS_CASCLIB_CROSSVAL
@@ -540,7 +539,22 @@ static void testStorageCrossValidate(const std::string& label, const std::string
 // Internal pipeline consistency (fallback when CascLib is not available)
 // ============================================================================
 
-static void testStorageInternal(const std::string& label, const std::string& path) {
+TEST_CASE("Storage Internal", "[casc][cross_validate][corpus]") {
+    auto corpus = findCorpus();
+    if (corpus.empty()) { SKIP("Corpus not found"); }
+
+    struct CorpusEntry { std::string label; std::string path; };
+    std::vector<CorpusEntry> entries;
+    if (std::filesystem::exists(corpus + "/Diablo III"))
+        entries.push_back({"Diablo III", corpus + "/Diablo III"});
+    if (std::filesystem::exists(corpus + "/Warcraft III"))
+        entries.push_back({"Warcraft III Reforged", corpus + "/Warcraft III"});
+    if (std::filesystem::exists(corpus + "/Diablo IV"))
+        entries.push_back({"Diablo IV", corpus + "/Diablo IV"});
+    if (entries.empty()) SKIP("No corpus subdirectories found");
+
+    for (auto& [label, path] : entries) {
+    DYNAMIC_SECTION("Internal: " << label) {
     std::cout << "\n================================================================\n";
     std::cout << "Cross-validate (internal): " << label << "\n";
     std::cout << "  Path: " << path << "\n";
@@ -548,11 +562,10 @@ static void testStorageInternal(const std::string& label, const std::string& pat
     auto t0 = std::chrono::steady_clock::now();
 
     auto storage = new_casc::Storage::open(path);
-    check(storage.has_value(), "storage opens");
-    if (!storage) return;
+    REQUIRE(storage.has_value());
 
     auto totalCount = storage->totalFileCount();
-    check(totalCount.has_value(), "totalFileCount available");
+    CHECK(totalCount.has_value());
     if (totalCount) std::cout << "  Root entries: " << *totalCount << "\n";
 
     // --- Test 1: Enumerate and verify fileInfo() consistency ---
@@ -586,10 +599,7 @@ static void testStorageInternal(const std::string& label, const std::string& pat
             ++infoMatch;
     }
 
-    check(infoMatch > 0,
-          "enumerate/fileInfo CKey consistent (" + std::to_string(infoMatch) +
-          "/" + std::to_string(infoChecked) +
-          " match, " + std::to_string(infoMissing) + " no info)");
+    CHECK(infoMatch > 0);
 
     // --- Test 2: Read + MD5 for entries with CKeys ---
     size_t md5Checked = 0;
@@ -629,10 +639,7 @@ static void testStorageInternal(const std::string& label, const std::string& pat
     }
 
     if (md5Checked > 0) {
-        check(md5Mismatch == 0,
-              "read+MD5 verification (" + std::to_string(md5Match) + "/" +
-              std::to_string(md5Checked) + " pass, " +
-              std::to_string(md5Skipped) + " skip)");
+        CHECK(md5Mismatch == 0);
     } else {
         std::cout << "  SKIP: no CKey entries for MD5 verification (TVFS storage).\n";
     }
@@ -647,9 +654,7 @@ static void testStorageInternal(const std::string& label, const std::string& pat
             ++existsMatch;
     }
 
-    check(existsMatch > 0,
-          "fileExists consistent (" + std::to_string(existsMatch) +
-          "/" + std::to_string(existsChecked) + " exist)");
+    CHECK(existsMatch > 0);
 
     // --- Test 4: fileSize matches actual read ---
     size_t sizeChecked = 0;
@@ -671,16 +676,12 @@ static void testStorageInternal(const std::string& label, const std::string& pat
     }
 
     if (sizeChecked > 0) {
-        check(sizeMatch == sizeChecked,
-              "fileSize matches actual read (" + std::to_string(sizeMatch) +
-              "/" + std::to_string(sizeChecked) +
-              ", " + std::to_string(sizeSkipped) + " unreadable)");
+        CHECK(sizeMatch == sizeChecked);
     }
 
     // --- Test 5: listFiles returns paths that exist ---
     auto allFiles = storage->listFiles();
-    check(!allFiles.empty(), "listFiles non-empty (" +
-          std::to_string(allFiles.size()) + " paths)");
+    CHECK_FALSE(allFiles.empty());
 
     size_t listChecked = 0;
     size_t listExist = 0;
@@ -690,57 +691,15 @@ static void testStorageInternal(const std::string& label, const std::string& pat
             ++listExist;
     }
 
-    check(listExist == listChecked,
-          "listFiles paths exist (" + std::to_string(listExist) +
-          "/" + std::to_string(listChecked) + ")");
+    CHECK(listExist == listChecked);
 
     // --- Test 6: bogus paths ---
-    check(!storage->fileExists("this/path/does/not/exist/ever.xxx"),
-          "bogus path doesn't exist");
-    check(!storage->readFile("this/path/does/not/exist/ever.xxx").has_value(),
-          "bogus path read returns nullopt");
+    CHECK_FALSE(storage->fileExists("this/path/does/not/exist/ever.xxx"));
+    CHECK_FALSE(storage->readFile("this/path/does/not/exist/ever.xxx").has_value());
 
     auto t1 = std::chrono::steady_clock::now();
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
     std::cout << "  Completed in " << ms << " ms.\n";
-}
-
-// ============================================================================
-// main
-// ============================================================================
-
-int main() {
-    std::cout << "=== CASC Cross-Validate Test (Phase 4) ===\n";
-
-#if defined(WHITEOUT_HAS_CASCLIB_CROSSVAL)
-    std::cout << "Mode: CascLib C API cross-validation (byte-identical comparison)\n";
-#else
-    std::cout << "Mode: Internal pipeline consistency (no CascLib)\n";
-    std::cout << "  Hint: rebuild with -DWHITEOUT_ENABLE_CASCLIB_CROSSVAL=ON for full cross-validation.\n";
-#endif
-
-    auto corpus = findCorpus();
-    if (corpus.empty()) {
-        std::cout << "Corpus directory not found — skipping.\n";
-        return 0;
-    }
-
-    if (std::filesystem::exists(corpus + "/Diablo III")) {
-#if defined(WHITEOUT_HAS_CASCLIB_CROSSVAL)
-        testStorageCrossValidate("Diablo III", corpus + "/Diablo III");
-#else
-        testStorageInternal("Diablo III", corpus + "/Diablo III");
-#endif
-    }
-
-    if (std::filesystem::exists(corpus + "/Warcraft III")) {
-#if defined(WHITEOUT_HAS_CASCLIB_CROSSVAL)
-        testStorageCrossValidate("Warcraft III Reforged", corpus + "/Warcraft III");
-#else
-        testStorageInternal("Warcraft III Reforged", corpus + "/Warcraft III");
-#endif
-    }
-
-    std::cout << "\n=== Results: " << g_passed << " passed, " << g_failed << " failed ===\n";
-    return g_failed > 0 ? 1 : 0;
+} // DYNAMIC_SECTION
+} // for entries
 }

@@ -6,8 +6,9 @@
 #include "../src/whiteout/storages/casc/blte.h"
 #include "../src/whiteout/storages/casc/crypto.h"
 
+#include <catch2/catch_test_macros.hpp>
+
 #include <cstring>
-#include <iostream>
 #include <numeric>
 #include <string>
 #include <vector>
@@ -15,68 +16,50 @@
 using namespace whiteout;
 using namespace whiteout::storages::casc;
 
-static int g_passed = 0;
-static int g_failed = 0;
-
-static void check(bool condition, const char* name) {
-    if (condition) {
-        std::cout << "  PASS: " << name << "\n";
-        ++g_passed;
-    } else {
-        std::cout << "  FAIL: " << name << "\n";
-        ++g_failed;
-    }
-}
-
 // ============================================================================
 // Round-Trip Tests
 // ============================================================================
 
-static void testRoundTripEmpty() {
-    std::cout << "[Test: Round-trip empty data]\n";
+TEST_CASE("BLTE round-trip empty data", "[casc][blte]") {
     std::vector<u8> empty;
     auto encoded = blteEncode(empty);
-    check(!encoded.empty(), "Encoding empty data produces non-empty BLTE blob");
+    CHECK_FALSE(encoded.empty());
 
     auto result = blteDecode(encoded);
-    check(result.success, "Decode succeeds");
-    check(result.data.empty(), "Decoded data is empty");
+    CHECK(result.success);
+    CHECK(result.data.empty());
 }
 
-static void testRoundTripOneByte() {
-    std::cout << "[Test: Round-trip 1 byte]\n";
+TEST_CASE("BLTE round-trip 1 byte", "[casc][blte]") {
     std::vector<u8> data = {0x42};
     auto encoded = blteEncode(data);
     auto result = blteDecode(encoded);
-    check(result.success, "Decode succeeds");
-    check(result.data == data, "Decoded data matches original");
+    CHECK(result.success);
+    CHECK(result.data == data);
 }
 
-static void testRoundTrip64K() {
-    std::cout << "[Test: Round-trip 64KB]\n";
+TEST_CASE("BLTE round-trip 64KB", "[casc][blte]") {
     std::vector<u8> data(65536);
     std::iota(data.begin(), data.end(), u8(0));
 
     auto encoded = blteEncode(data);
     auto result = blteDecode(encoded);
-    check(result.success, "Decode succeeds");
-    check(result.data == data, "Decoded data matches original (64KB)");
+    CHECK(result.success);
+    CHECK(result.data == data);
 }
 
-static void testRoundTrip1MB() {
-    std::cout << "[Test: Round-trip 1MB (multi-frame)]\n";
+TEST_CASE("BLTE round-trip 1MB multi-frame", "[casc][blte]") {
     std::vector<u8> data(1024 * 1024);
     for (size_t i = 0; i < data.size(); ++i)
         data[i] = static_cast<u8>(i * 37 + 13);
 
     auto encoded = blteEncode(data);
     auto result = blteDecode(encoded);
-    check(result.success, "Decode succeeds");
-    check(result.data == data, "Decoded data matches original (1MB)");
+    CHECK(result.success);
+    CHECK(result.data == data);
 }
 
-static void testRoundTripRaw() {
-    std::cout << "[Test: Round-trip with compression disabled]\n";
+TEST_CASE("BLTE round-trip raw mode", "[casc][blte]") {
     std::vector<u8> data(200);
     std::iota(data.begin(), data.end(), u8(0));
 
@@ -84,63 +67,41 @@ static void testRoundTripRaw() {
     opts.compress = false;
     auto encoded = blteEncode(data, opts);
     auto result = blteDecode(encoded);
-    check(result.success, "Decode succeeds (raw mode)");
-    check(result.data == data, "Decoded data matches original (raw mode)");
+    CHECK(result.success);
+    CHECK(result.data == data);
 }
 
-static void testRoundTripSmallFrames() {
-    std::cout << "[Test: Round-trip with small frame size]\n";
+TEST_CASE("BLTE round-trip small frames", "[casc][blte]") {
     std::vector<u8> data(500);
     for (size_t i = 0; i < data.size(); ++i)
         data[i] = static_cast<u8>(i ^ 0xAA);
 
     BlteEncodeOptions opts;
-    opts.frameSize = 100; // Small frames → many frames.
+    opts.frameSize = 100;
     auto encoded = blteEncode(data, opts);
     auto result = blteDecode(encoded);
-    check(result.success, "Decode succeeds (small frames)");
-    check(result.data == data, "Decoded data matches original (small frames)");
+    CHECK(result.success);
+    CHECK(result.data == data);
 }
 
 // ============================================================================
 // Error/Edge Cases
 // ============================================================================
 
-static void testDecodeEmpty() {
-    std::cout << "[Test: Decode empty input]\n";
+TEST_CASE("BLTE decode empty input", "[casc][blte]") {
     auto result = blteDecode({});
-    check(!result.success, "Decode fails on empty input");
-    check(!result.error.empty(), "Error message is non-empty");
+    CHECK_FALSE(result.success);
+    CHECK_FALSE(result.error.empty());
 }
 
-static void testDecodeGarbage() {
-    std::cout << "[Test: Decode garbage data]\n";
+TEST_CASE("BLTE decode garbage data", "[casc][blte]") {
     std::vector<u8> garbage = {0x01, 0x02, 0x03, 0x04};
     auto result = blteDecode(garbage);
-    check(!result.success, "Decode fails on garbage data");
+    CHECK_FALSE(result.success);
 }
 
-static void testDecodeTruncated() {
-    std::cout << "[Test: Decode truncated BLTE]\n";
-    // BLTE magic + a few bytes — not enough for a full container.
+TEST_CASE("BLTE decode truncated", "[casc][blte]") {
     std::vector<u8> truncated = {'B', 'L', 'T', 'E', 0x00, 0x00};
     auto result = blteDecode(truncated);
-    check(!result.success, "Decode fails on truncated data");
-}
-
-int main() {
-    std::cout << "=== CASC BLTE Tests ===\n\n";
-
-    testRoundTripEmpty();
-    testRoundTripOneByte();
-    testRoundTrip64K();
-    testRoundTrip1MB();
-    testRoundTripRaw();
-    testRoundTripSmallFrames();
-    testDecodeEmpty();
-    testDecodeGarbage();
-    testDecodeTruncated();
-
-    std::cout << "\n=== Results: " << g_passed << " passed, " << g_failed << " failed ===\n";
-    return g_failed > 0 ? 1 : 0;
+    CHECK_FALSE(result.success);
 }

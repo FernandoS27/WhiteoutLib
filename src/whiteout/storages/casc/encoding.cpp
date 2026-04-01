@@ -3,6 +3,7 @@
 
 #include "encoding.h"
 #include "constants.h"
+#include "key_utils.h"
 #include "../common/byte_order.h"
 #include "../common/md5.h"
 
@@ -133,11 +134,8 @@ EncodingTable EncodingTable::parse(std::span<const u8> data) {
 
             // Build hash indices eagerly during parse.
             size_t idx = table.m_entries.size();
-            u64 ckH = 0, ekH = 0;
-            std::memcpy(&ckH, entry.cKey.data(), 8);
-            std::memcpy(&ekH, entry.eKey.data(), 8);
-            table.m_cKeyIndex.emplace(ckH, idx);
-            table.m_eKeyIndex.emplace(ekH, idx);
+            table.m_cKeyIndex.emplace(keyHash64(entry.cKey), idx);
+            table.m_eKeyIndex.emplace(keyHash64(entry.eKey), idx);
 
             table.m_entries.push_back(entry);
 
@@ -154,10 +152,7 @@ EncodingTable EncodingTable::parse(std::span<const u8> data) {
 // ============================================================================
 
 const EncodingEntry* EncodingTable::findByCKey(std::span<const u8, 16> cKey) const {
-    u64 h = 0;
-    std::memcpy(&h, cKey.data(), 8);
-
-    auto it = m_cKeyIndex.find(h);
+    auto it = m_cKeyIndex.find(keyHash64(cKey.data()));
     if (it == m_cKeyIndex.end())
         return nullptr;
 
@@ -178,10 +173,7 @@ const EncodingEntry* EncodingTable::findByEKey(std::span<const u8, 16> eKey,
     if (matchBytes > 16) matchBytes = 16;
 
     // Look up by first-8-byte hash.
-    u64 h = 0;
-    std::memcpy(&h, eKey.data(), std::min(matchBytes, size_t(8)));
-
-    auto it = m_eKeyIndex.find(h);
+    auto it = m_eKeyIndex.find(keyHash64(eKey.data()));
     if (it == m_eKeyIndex.end())
         return nullptr;
 
@@ -201,11 +193,8 @@ void EncodingTable::insert(const EncodingEntry& entry) {
     size_t idx = m_entries.size();
     m_entries.push_back(entry);
 
-    u64 ckH = 0, ekH = 0;
-    std::memcpy(&ckH, entry.cKey.data(), 8);
-    std::memcpy(&ekH, entry.eKey.data(), 8);
-    m_cKeyIndex.emplace(ckH, idx);
-    m_eKeyIndex.emplace(ekH, idx);
+    m_cKeyIndex.emplace(keyHash64(entry.cKey), idx);
+    m_eKeyIndex.emplace(keyHash64(entry.eKey), idx);
 }
 
 // ============================================================================

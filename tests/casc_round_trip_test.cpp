@@ -6,6 +6,8 @@
 
 #include <whiteout/storages/casc/storage.h>
 
+#include <catch2/catch_test_macros.hpp>
+
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -15,18 +17,6 @@
 using namespace whiteout;
 using namespace whiteout::storages::casc;
 
-static int s_pass = 0;
-static int s_fail = 0;
-
-static void check(bool cond, const char* msg) {
-    if (cond) {
-        std::printf("  PASS: %s\n", msg);
-        ++s_pass;
-    } else {
-        std::printf("  FAIL: %s\n", msg);
-        ++s_fail;
-    }
-}
 
 /// Generate test data of a given size.
 static std::vector<u8> makeTestData(size_t size, u8 seed = 0) {
@@ -46,7 +36,7 @@ static void cleanDir(const std::string& path) {
 // Test 1: Create → write files → save → reopen → read back
 // ============================================================================
 
-static void testCreateWriteSaveRead() {
+TEST_CASE("Create Write Save Read", "[casc][round_trip]") {
     std::printf("\n[Test: Create → write → save → read]\n");
 
     const std::string testDir = "test_casc_roundtrip_1";
@@ -57,7 +47,7 @@ static void testCreateWriteSaveRead() {
     createOpts.product = "test";
     createOpts.version = "1.0.0";
     auto storage = Storage::create(createOpts);
-    check(static_cast<bool>(storage), "create() returns valid storage");
+    CHECK(static_cast<bool>(storage));
 
     // Write several test files.
     auto data1 = makeTestData(1024, 0x11);
@@ -65,37 +55,37 @@ static void testCreateWriteSaveRead() {
     auto data3 = makeTestData(1, 0x33);       // Tiny file.
     auto data4 = makeTestData(0);             // Empty file.
 
-    check(storage.writeFile("dir/file1.txt", data1), "writeFile file1");
-    check(storage.writeFile("dir/file2.bin", data2), "writeFile file2");
-    check(storage.writeFile("tiny.dat", data3), "writeFile tiny");
-    check(storage.writeFile("empty.dat", data4), "writeFile empty");
+    CHECK(storage.writeFile("dir/file1.txt", data1));
+    CHECK(storage.writeFile("dir/file2.bin", data2));
+    CHECK(storage.writeFile("tiny.dat", data3));
+    CHECK(storage.writeFile("empty.dat", data4));
 
     // Read from overlay (before save).
     auto overlay1 = storage.readFile("dir/file1.txt");
-    check(overlay1.has_value() && *overlay1 == data1, "read from overlay before save");
+    CHECK((overlay1.has_value() && *overlay1 == data1));
 
     // fileExists checks overlay.
-    check(storage.fileExists("dir/file1.txt"), "fileExists on overlay file");
+    CHECK(storage.fileExists("dir/file1.txt"));
 
     // Save to disk.
-    check(storage.save(testDir), "save() succeeds");
+    CHECK(storage.save(testDir));
 
     // Reopen from disk.
     auto reopened = Storage::open(testDir);
-    check(reopened.has_value(), "reopen saved storage");
+    CHECK(reopened.has_value());
 
     if (reopened) {
         auto read1 = reopened->readFile("dir/file1.txt");
-        check(read1.has_value() && *read1 == data1, "read file1 after reopen");
+        CHECK((read1.has_value() && *read1 == data1));
 
         auto read2 = reopened->readFile("dir/file2.bin");
-        check(read2.has_value() && *read2 == data2, "read file2 after reopen");
+        CHECK((read2.has_value() && *read2 == data2));
 
         auto read3 = reopened->readFile("tiny.dat");
-        check(read3.has_value() && *read3 == data3, "read tiny after reopen");
+        CHECK((read3.has_value() && *read3 == data3));
 
         auto read4 = reopened->readFile("empty.dat");
-        check(read4.has_value() && *read4 == data4, "read empty after reopen");
+        CHECK((read4.has_value() && *read4 == data4));
     }
 
     // Leave test dir for debugging when tests fail.
@@ -106,38 +96,38 @@ static void testCreateWriteSaveRead() {
 // Test 2: Overlay correctness — write, overwrite, delete, read
 // ============================================================================
 
-static void testOverlayCorrectness() {
+TEST_CASE("Overlay Correctness", "[casc][round_trip]") {
     std::printf("\n[Test: Overlay correctness]\n");
 
     auto storage = Storage::create();
-    check(static_cast<bool>(storage), "create() valid");
+    CHECK(static_cast<bool>(storage));
 
     auto original = makeTestData(100, 0xAA);
     auto updated = makeTestData(200, 0xBB);
 
     // Write original.
-    check(storage.writeFile("test.dat", original), "write original");
+    CHECK(storage.writeFile("test.dat", original));
     auto r1 = storage.readFile("test.dat");
-    check(r1.has_value() && *r1 == original, "read original from overlay");
+    CHECK((r1.has_value() && *r1 == original));
 
     // Overwrite.
-    check(storage.writeFile("test.dat", updated), "overwrite");
+    CHECK(storage.writeFile("test.dat", updated));
     auto r2 = storage.readFile("test.dat");
-    check(r2.has_value() && *r2 == updated, "read updated from overlay");
+    CHECK((r2.has_value() && *r2 == updated));
 
     // Delete (from overlay — no source, so should fail).
     // Actually, delete checks if file exists in source — for a created storage with no source,
     // the overlay write IS the source for read purposes but deleteFile checks root manifest.
     // So this tests that we can't delete something that only exists in overlay without a root.
     // This is by design — you write and save, then delete after.
-    check(storage.fileExists("test.dat"), "fileExists before delete still true (overlay)");
+    CHECK(storage.fileExists("test.dat"));
 }
 
 // ============================================================================
 // Test 3: Modify existing storage — add, delete, save, verify
 // ============================================================================
 
-static void testModifyExisting() {
+TEST_CASE("Modify Existing", "[casc][round_trip]") {
     std::printf("\n[Test: Modify existing storage]\n");
 
     const std::string testDir = "test_casc_roundtrip_3";
@@ -153,12 +143,12 @@ static void testModifyExisting() {
         storage.writeFile("keep.dat", orig1);
         storage.writeFile("delete_me.dat", orig2);
         storage.writeFile("replace_me.dat", orig3);
-        check(storage.save(testDir), "initial save");
+        CHECK(storage.save(testDir));
     }
 
     // Reopen and modify.
     auto storage = Storage::open(testDir);
-    check(storage.has_value(), "reopen for modification");
+    CHECK(storage.has_value());
 
     if (!storage) {
         cleanDir(testDir);
@@ -168,47 +158,47 @@ static void testModifyExisting() {
     // Verify existing files.
     auto keepData = makeTestData(512, 0x01);
     auto readKeep = storage->readFile("keep.dat");
-    check(readKeep.has_value() && *readKeep == keepData, "existing keep.dat readable");
+    CHECK((readKeep.has_value() && *readKeep == keepData));
 
     // Add a new file.
     auto newData = makeTestData(300, 0x04);
-    check(storage->writeFile("new_file.dat", newData), "write new file");
+    CHECK(storage->writeFile("new_file.dat", newData));
 
     // Delete an existing file.
-    check(storage->deleteFile("delete_me.dat"), "delete existing file");
-    check(!storage->fileExists("delete_me.dat"), "deleted file no longer exists");
+    CHECK(storage->deleteFile("delete_me.dat"));
+    CHECK_FALSE(storage->fileExists("delete_me.dat"));
 
     // Replace an existing file.
     auto replacedData = makeTestData(999, 0x05);
-    check(storage->writeFile("replace_me.dat", replacedData), "replace existing file");
+    CHECK(storage->writeFile("replace_me.dat", replacedData));
 
     // Verify overlay reads.
     auto readNew = storage->readFile("new_file.dat");
-    check(readNew.has_value() && *readNew == newData, "read new file from overlay");
+    CHECK((readNew.has_value() && *readNew == newData));
 
     auto readReplaced = storage->readFile("replace_me.dat");
-    check(readReplaced.has_value() && *readReplaced == replacedData, "read replaced file from overlay");
+    CHECK((readReplaced.has_value() && *readReplaced == replacedData));
 
     // Save modifications.
     const std::string modifiedDir = "test_casc_roundtrip_3_mod";
     cleanDir(modifiedDir);
-    check(storage->save(modifiedDir), "save modifications");
+    CHECK(storage->save(modifiedDir));
 
     // Reopen modified storage and verify.
     auto modified = Storage::open(modifiedDir);
-    check(modified.has_value(), "reopen modified storage");
+    CHECK(modified.has_value());
 
     if (modified) {
         auto r1 = modified->readFile("keep.dat");
-        check(r1.has_value() && *r1 == keepData, "keep.dat preserved after modification");
+        CHECK((r1.has_value() && *r1 == keepData));
 
-        check(!modified->fileExists("delete_me.dat"), "delete_me.dat gone after save");
+        CHECK_FALSE(modified->fileExists("delete_me.dat"));
 
         auto r3 = modified->readFile("replace_me.dat");
-        check(r3.has_value() && *r3 == replacedData, "replace_me.dat has new content");
+        CHECK((r3.has_value() && *r3 == replacedData));
 
         auto r4 = modified->readFile("new_file.dat");
-        check(r4.has_value() && *r4 == newData, "new_file.dat added");
+        CHECK((r4.has_value() && *r4 == newData));
     }
 
     cleanDir(testDir);
@@ -219,7 +209,7 @@ static void testModifyExisting() {
 // Test 4: Large file round-trip (multi-frame BLTE)
 // ============================================================================
 
-static void testLargeFile() {
+TEST_CASE("Large File", "[casc][round_trip]") {
     std::printf("\n[Test: Large file round-trip]\n");
 
     const std::string testDir = "test_casc_roundtrip_4";
@@ -229,18 +219,18 @@ static void testLargeFile() {
 
     // 1 MB file — will span multiple BLTE frames (64 KB each).
     auto largeData = makeTestData(1024 * 1024, 0xFF);
-    check(storage.writeFile("large.bin", largeData), "write large file");
-    check(storage.save(testDir), "save large file");
+    CHECK(storage.writeFile("large.bin", largeData));
+    CHECK(storage.save(testDir));
 
     auto reopened = Storage::open(testDir);
-    check(reopened.has_value(), "reopen storage with large file");
+    CHECK(reopened.has_value());
 
     if (reopened) {
         auto read = reopened->readFile("large.bin");
-        check(read.has_value(), "read large file");
+        CHECK(read.has_value());
         if (read) {
-            check(read->size() == largeData.size(), "large file size matches");
-            check(*read == largeData, "large file content matches");
+            CHECK(read->size() == largeData.size());
+            CHECK(*read == largeData);
         }
     }
 
@@ -251,7 +241,7 @@ static void testLargeFile() {
 // Test 5: Multiple saves (save, modify, save again)
 // ============================================================================
 
-static void testMultipleSaves() {
+TEST_CASE("Multiple Saves", "[casc][round_trip]") {
     std::printf("\n[Test: Multiple saves]\n");
 
     const std::string testDir = "test_casc_roundtrip_5";
@@ -261,29 +251,29 @@ static void testMultipleSaves() {
     {
         auto storage = Storage::create();
         storage.writeFile("file_v1.dat", makeTestData(100, 0x01));
-        check(storage.save(testDir), "first save");
+        CHECK(storage.save(testDir));
     }
 
     // Second save (modify).
     {
         auto storage = Storage::open(testDir);
-        check(storage.has_value(), "reopen for second save");
+        CHECK(storage.has_value());
         if (storage) {
             storage->writeFile("file_v2.dat", makeTestData(200, 0x02));
-            check(storage->save(testDir), "second save (in-place)");
+            CHECK(storage->save(testDir));
         }
     }
 
     // Verify both files present.
     {
         auto storage = Storage::open(testDir);
-        check(storage.has_value(), "reopen after two saves");
+        CHECK(storage.has_value());
         if (storage) {
             auto r1 = storage->readFile("file_v1.dat");
-            check(r1.has_value() && *r1 == makeTestData(100, 0x01), "file_v1 preserved");
+            CHECK((r1.has_value() && *r1 == makeTestData(100, 0x01)));
 
             auto r2 = storage->readFile("file_v2.dat");
-            check(r2.has_value() && *r2 == makeTestData(200, 0x02), "file_v2 added");
+            CHECK((r2.has_value() && *r2 == makeTestData(200, 0x02)));
         }
     }
 
@@ -293,16 +283,3 @@ static void testMultipleSaves() {
 // ============================================================================
 // Main
 // ============================================================================
-
-int main() {
-    std::printf("=== CASC Round-Trip Tests ===\n");
-
-    testCreateWriteSaveRead();
-    testOverlayCorrectness();
-    testModifyExisting();
-    testLargeFile();
-    testMultipleSaves();
-
-    std::printf("\n=== Results: %d passed, %d failed ===\n", s_pass, s_fail);
-    return s_fail > 0 ? 1 : 0;
-}

@@ -25,6 +25,8 @@
 //   - 1-thread pool (maximum contention for semaphore flattened path)
 //   - threadCount == 0 graceful fallback
 
+#include <catch2/catch_all.hpp>
+
 #include <whiteout/interfaces.h>
 #include <whiteout/storages/mpq/storage.h>
 #include <whiteout/utils/simple_thread_pool.h>
@@ -110,36 +112,31 @@ private:
 // ============================================================================
 
 namespace {
-
-int g_passed = 0;
-int g_failed = 0;
-const char* g_runLabel = "";
-
 bool fail(int testNumber, const char* fmt, ...) {
-    std::printf("[%s] TEST %d FAIL: ", g_runLabel, testNumber);
+    std::printf("TEST %d FAIL: ", testNumber);
     va_list args;
     va_start(args, fmt);
     std::vprintf(fmt, args);
     va_end(args);
     std::printf("\n");
-    ++g_failed;
+    
     return false;
 }
 
 bool pass(int testNumber, const char* fmt, ...) {
-    std::printf("[%s] TEST %d PASS: ", g_runLabel, testNumber);
+    std::printf("TEST %d PASS: ", testNumber);
     va_list args;
     va_start(args, fmt);
     std::vprintf(fmt, args);
     va_end(args);
     std::printf("\n");
-    ++g_passed;
+    
     return true;
 }
 
 bool expect(bool condition, int testNumber, const char* fmt, ...) {
     if (condition) return true;
-    std::printf("[%s] TEST %d FAIL: ", g_runLabel, testNumber);
+    std::printf("TEST %d FAIL: ", testNumber);
     va_list args;
     va_start(args, fmt);
     std::vprintf(fmt, args);
@@ -1420,107 +1417,96 @@ bool test20_extract_all_single_unit(whiteout::interfaces::WorkerPool* pool) {
 // Test Runner
 // ============================================================================
 
-int main() {
-    using Clock = std::chrono::steady_clock;
-    auto t0 = Clock::now();
 
-    std::printf("=== MPQ Pipeline Race Condition Tests ===\n\n");
+// Catch2 test cases
 
-    // --- Serial baseline ---
-    std::printf("--- Serial (no pool) ---\n");
-    g_runLabel = "serial";
-    test1_encode_batch_serial();
-
-    // --- Zero-thread pool ---
-    std::printf("\n--- Zero-thread pool ---\n");
-    g_runLabel = "zero-thr";
-    test8_zero_thread_pool();
-
-    // --- No-semaphore pool at varying thread counts ---
-    for (size_t tc : {1, 2, 4, 8}) {
-        char label[32];
-        std::snprintf(label, sizeof(label), "no-sem/%zu", tc);
-        std::printf("\n--- No-semaphore pool (%zu threads) ---\n", tc);
-        g_runLabel = label;
-        test2_encode_batch_no_semaphore(tc);
-        test6_extract_batch_no_semaphore(tc);
-    }
-
-    // --- Semaphore pool at varying thread counts ---
-    for (size_t tc : {1, 2, 4, 8}) {
-        char label[32];
-        std::snprintf(label, sizeof(label), "sem/%zu", tc);
-        std::printf("\n--- Semaphore pool (%zu threads) ---\n", tc);
-        g_runLabel = label;
-        test3_encode_batch_with_semaphores(tc);
-        test5_extract_batch_with_semaphores(tc);
-        test13_extract_batch_encrypted(tc);
-        test14_serial_parallel_byte_equality(tc);
-        test17_extract_serial_parallel_equality(tc);
-        test19_tiny_sector_size(tc);
-    }
-
-    // --- Mixed file tests (all pool modes) ---
-    std::printf("\n--- Mixed file tests ---\n");
-    {
-        g_runLabel = "mixed/null";
-        test4_encode_batch_mixed(nullptr);
-        test7_extract_batch_mixed(nullptr);
-        test11_write_archive_integration(nullptr);
-        test16_pkware_batch(nullptr);
-        test18_all_empty_batch(nullptr);
-        test20_extract_all_single_unit(nullptr);
-    }
-    {
-        NoSemaphorePool noSemPool(4);
-        g_runLabel = "mixed/nosem";
-        test4_encode_batch_mixed(&noSemPool);
-        test7_extract_batch_mixed(&noSemPool);
-        test11_write_archive_integration(&noSemPool);
-        test16_pkware_batch(&noSemPool);
-        test18_all_empty_batch(&noSemPool);
-        test20_extract_all_single_unit(&noSemPool);
-    }
-    {
-        whiteout::utils::SimpleThreadPool semPool(4);
-        g_runLabel = "mixed/sem";
-        test4_encode_batch_mixed(&semPool);
-        test7_extract_batch_mixed(&semPool);
-        test11_write_archive_integration(&semPool);
-        test16_pkware_batch(&semPool);
-        test18_all_empty_batch(&semPool);
-        test20_extract_all_single_unit(&semPool);
-    }
-
-    // --- 1-thread deadlock stress ---
-    std::printf("\n--- 1-thread deadlock stress ---\n");
-    g_runLabel = "1-thr";
-    test9_single_thread_stress();
-
-    // --- Iteration stress ---
-    std::printf("\n--- Iteration stress ---\n");
-    for (size_t tc : {1, 2, 4}) {
-        char label[32];
-        std::snprintf(label, sizeof(label), "iter/%zu", tc);
-        g_runLabel = label;
-        test10_iteration_stress(tc);
-    }
-
-    // --- Massive batch stress ---
-    std::printf("\n--- Massive batch stress ---\n");
-    for (size_t tc : {2, 4, 8}) {
-        char label[32];
-        std::snprintf(label, sizeof(label), "massive/%zu", tc);
-        g_runLabel = label;
-        test12_massive_batch(tc);
-    }
-
-    // --- Concurrent batch calls ---
-    std::printf("\n--- Concurrent batch calls ---\n");
-    g_runLabel = "concurrent";
-    test15_concurrent_batch_calls();
-
-    auto elapsed = std::chrono::duration<double>(Clock::now() - t0).count();
-    std::printf("\n=== Results: %d passed, %d failed (%.1fs) ===\n", g_passed, g_failed, elapsed);
-    return g_failed > 0 ? 1 : 0;
+TEST_CASE("test1 encode batch serial", "[mpq][race]") {
+    REQUIRE(test1_encode_batch_serial());
 }
+
+TEST_CASE("test2 encode batch no semaphore", "[mpq][race]") {
+    auto n = GENERATE(1, 2, 4);
+    REQUIRE(test2_encode_batch_no_semaphore(n));
+}
+
+TEST_CASE("test3 encode batch with semaphores", "[mpq][race]") {
+    auto n = GENERATE(1, 2, 4);
+    REQUIRE(test3_encode_batch_with_semaphores(n));
+}
+
+TEST_CASE("test4 encode batch mixed", "[mpq][race]") {
+    REQUIRE(test4_encode_batch_mixed(nullptr));
+}
+
+TEST_CASE("test5 extract batch with semaphores", "[mpq][race]") {
+    auto n = GENERATE(1, 2, 4);
+    REQUIRE(test5_extract_batch_with_semaphores(n));
+}
+
+TEST_CASE("test6 extract batch no semaphore", "[mpq][race]") {
+    auto n = GENERATE(1, 2, 4);
+    REQUIRE(test6_extract_batch_no_semaphore(n));
+}
+
+TEST_CASE("test7 extract batch mixed", "[mpq][race]") {
+    REQUIRE(test7_extract_batch_mixed(nullptr));
+}
+
+TEST_CASE("test8 zero thread pool", "[mpq][race]") {
+    REQUIRE(test8_zero_thread_pool());
+}
+
+TEST_CASE("test9 single thread stress", "[mpq][race]") {
+    REQUIRE(test9_single_thread_stress());
+}
+
+TEST_CASE("test10 iteration stress", "[mpq][race]") {
+    auto n = GENERATE(1, 2, 4);
+    REQUIRE(test10_iteration_stress(n));
+}
+
+TEST_CASE("test11 write archive integration", "[mpq][race]") {
+    REQUIRE(test11_write_archive_integration(nullptr));
+}
+
+TEST_CASE("test12 massive batch", "[mpq][race]") {
+    auto n = GENERATE(1, 2, 4);
+    REQUIRE(test12_massive_batch(n));
+}
+
+TEST_CASE("test13 extract batch encrypted", "[mpq][race]") {
+    auto n = GENERATE(1, 2, 4);
+    REQUIRE(test13_extract_batch_encrypted(n));
+}
+
+TEST_CASE("test14 serial parallel byte equality", "[mpq][race]") {
+    auto n = GENERATE(1, 2, 4);
+    REQUIRE(test14_serial_parallel_byte_equality(n));
+}
+
+TEST_CASE("test15 concurrent batch calls", "[mpq][race]") {
+    REQUIRE(test15_concurrent_batch_calls());
+}
+
+TEST_CASE("test16 pkware batch", "[mpq][race]") {
+    REQUIRE(test16_pkware_batch(nullptr));
+}
+
+TEST_CASE("test17 extract serial parallel equality", "[mpq][race]") {
+    auto n = GENERATE(1, 2, 4);
+    REQUIRE(test17_extract_serial_parallel_equality(n));
+}
+
+TEST_CASE("test18 all empty batch", "[mpq][race]") {
+    REQUIRE(test18_all_empty_batch(nullptr));
+}
+
+TEST_CASE("test19 tiny sector size", "[mpq][race]") {
+    auto n = GENERATE(1, 2, 4);
+    REQUIRE(test19_tiny_sector_size(n));
+}
+
+TEST_CASE("test20 extract all single unit", "[mpq][race]") {
+    REQUIRE(test20_extract_all_single_unit(nullptr));
+}
+

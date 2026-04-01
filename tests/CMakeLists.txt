@@ -1,59 +1,81 @@
 # =============================================================================
-# Tests
+# Tests — Catch2 v3
 # =============================================================================
 
-# VertexBufferBuilder Test
-add_executable(vertex_buffer_test vertex_buffer_test.cpp)
-target_link_libraries(vertex_buffer_test PRIVATE whiteout_lib)
+include(FetchContent)
+FetchContent_Declare(
+    Catch2
+    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+    GIT_TAG        v3.7.1
+)
+FetchContent_MakeAvailable(Catch2)
+list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
+include(Catch)
 
-# MappedFile Test
+# Helper: define a test executable linked to Catch2 + a whiteout target, and
+# auto-register it with CTest.
+function(whiteout_add_test TARGET SOURCE)
+    cmake_parse_arguments(ARG "" "LINK" "" ${ARGN})
+    if(NOT ARG_LINK)
+        set(ARG_LINK whiteout_lib)
+    endif()
+    add_executable(${TARGET} ${SOURCE})
+    target_link_libraries(${TARGET} PRIVATE ${ARG_LINK} Catch2::Catch2WithMain)
+    catch_discover_tests(${TARGET} WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+endfunction()
+
+# =============================================================================
+# Core Tests
+# =============================================================================
+
+whiteout_add_test(vertex_buffer_test vertex_buffer_test.cpp)
+
 add_executable(mapped_file_test
     mapped_file_test.cpp
     ${CMAKE_SOURCE_DIR}/src/whiteout/storages/common/mapped_file.cpp
 )
-target_link_libraries(mapped_file_test PRIVATE whiteout_lib)
+target_link_libraries(mapped_file_test PRIVATE whiteout_lib Catch2::Catch2WithMain)
+catch_discover_tests(mapped_file_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+# Texture Tests
+whiteout_add_test(bc2_test bc2_test.cpp)
+whiteout_add_test(bc7_roundtrip_test bc7_roundtrip_test.cpp)
+whiteout_add_test(bc7_block_decode_test bc7_block_decode_test.cpp)
+whiteout_add_test(blp0_test blp0_test.cpp)
+whiteout_add_test(jpeg_test jpeg_test.cpp)
+whiteout_add_test(quantize_test quantize_test.cpp)
+
+# Model Tests
+whiteout_add_test(m2_corpus_test m2_corpus_test.cpp)
+whiteout_add_test(m2_diag_test m2_diag_test.cpp)
+
+# SNO / Diablo Tests
+whiteout_add_test(d3_ani_corpus_test d3_ani_corpus_test.cpp)
+whiteout_add_test(d3_app_corpus_test d3_app_corpus_test.cpp)
+whiteout_add_test(d4_sno_diag_test d4_sno_diag_test.cpp)
+whiteout_add_test(d4_tex_corpus_test d4_tex_corpus_test.cpp)
 
 # =============================================================================
 # CASC Tests
 # =============================================================================
 if(WHITEOUT_ENABLE_CASC)
 
-    add_executable(casc_crypto_test casc_crypto_test.cpp)
-    target_link_libraries(casc_crypto_test PRIVATE whiteout_casc)
-
-    add_executable(casc_blte_test casc_blte_test.cpp)
-    target_link_libraries(casc_blte_test PRIVATE whiteout_casc)
-
-    add_executable(casc_config_test casc_config_test.cpp)
-    target_link_libraries(casc_config_test PRIVATE whiteout_casc)
-
-    add_executable(casc_index_test casc_index_test.cpp)
-    target_link_libraries(casc_index_test PRIVATE whiteout_casc)
-
-    add_executable(casc_encoding_test casc_encoding_test.cpp)
-    target_link_libraries(casc_encoding_test PRIVATE whiteout_casc)
-
-    add_executable(casc_wow_root_test casc_wow_root_test.cpp)
-    target_link_libraries(casc_wow_root_test PRIVATE whiteout_casc)
-
-    add_executable(casc_d3_root_test casc_d3_root_test.cpp)
-    target_link_libraries(casc_d3_root_test PRIVATE whiteout_casc)
-
-    add_executable(casc_tvfs_root_test casc_tvfs_root_test.cpp)
-    target_link_libraries(casc_tvfs_root_test PRIVATE whiteout_casc)
-
-    add_executable(casc_corpus_test casc_corpus_test.cpp)
-    target_link_libraries(casc_corpus_test PRIVATE whiteout_casc)
-
-    add_executable(casc_parallel_test casc_parallel_test.cpp)
-    target_link_libraries(casc_parallel_test PRIVATE whiteout_casc)
-
-    add_executable(casc_round_trip_test casc_round_trip_test.cpp)
-    target_link_libraries(casc_round_trip_test PRIVATE whiteout_casc)
+    whiteout_add_test(casc_crypto_test casc_crypto_test.cpp LINK whiteout_casc)
+    whiteout_add_test(casc_blte_test casc_blte_test.cpp LINK whiteout_casc)
+    whiteout_add_test(casc_config_test casc_config_test.cpp LINK whiteout_casc)
+    whiteout_add_test(casc_index_test casc_index_test.cpp LINK whiteout_casc)
+    whiteout_add_test(casc_encoding_test casc_encoding_test.cpp LINK whiteout_casc)
+    whiteout_add_test(casc_wow_root_test casc_wow_root_test.cpp LINK whiteout_casc)
+    whiteout_add_test(casc_d3_root_test casc_d3_root_test.cpp LINK whiteout_casc)
+    whiteout_add_test(casc_tvfs_root_test casc_tvfs_root_test.cpp LINK whiteout_casc)
+    whiteout_add_test(casc_corpus_test casc_corpus_test.cpp LINK whiteout_casc)
+    whiteout_add_test(casc_parallel_test casc_parallel_test.cpp LINK whiteout_casc)
+    whiteout_add_test(casc_round_trip_test casc_round_trip_test.cpp LINK whiteout_casc)
 
     add_executable(casc_race_test casc_race_test.cpp)
-    target_link_libraries(casc_race_test PRIVATE whiteout_casc)
+    target_link_libraries(casc_race_test PRIVATE whiteout_casc Catch2::Catch2WithMain)
     target_include_directories(casc_race_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    catch_discover_tests(casc_race_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
     # =========================================================================
     # Optional CascLib cross-validation target
@@ -80,21 +102,16 @@ if(WHITEOUT_ENABLE_CASC)
 
         # Cross-validate test: links new pure-C++ module and CascLib C API directly.
         add_executable(casc_cross_validate_test casc_cross_validate_test.cpp)
-        target_link_libraries(casc_cross_validate_test PRIVATE whiteout_casc casc_static)
+        target_link_libraries(casc_cross_validate_test PRIVATE whiteout_casc casc_static Catch2::Catch2WithMain)
         target_compile_definitions(casc_cross_validate_test PRIVATE WHITEOUT_HAS_CASCLIB_CROSSVAL=1)
+        catch_discover_tests(casc_cross_validate_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
-        # Diablo IV CASC cross-validation test.
-        add_executable(d4_casc_test ${CMAKE_SOURCE_DIR}/examples/d4_casc_test.cpp)
-        target_link_libraries(d4_casc_test PRIVATE whiteout_casc casc_static)
-        target_compile_definitions(d4_casc_test PRIVATE WHITEOUT_HAS_CASCLIB_CROSSVAL=1)
     else()
         # Build the cross-validate test without CascLib (internal consistency only).
         add_executable(casc_cross_validate_test casc_cross_validate_test.cpp)
-        target_link_libraries(casc_cross_validate_test PRIVATE whiteout_casc)
+        target_link_libraries(casc_cross_validate_test PRIVATE whiteout_casc Catch2::Catch2WithMain)
+        catch_discover_tests(casc_cross_validate_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
-        # Diablo IV CASC test (internal consistency only).
-        add_executable(d4_casc_test ${CMAKE_SOURCE_DIR}/examples/d4_casc_test.cpp)
-        target_link_libraries(d4_casc_test PRIVATE whiteout_casc)
     endif()
 
 endif() # WHITEOUT_ENABLE_CASC
@@ -105,10 +122,21 @@ endif() # WHITEOUT_ENABLE_CASC
 if(WHITEOUT_ENABLE_MPQ)
 
     add_executable(mpq_race_test mpq_race_test.cpp)
-    target_link_libraries(mpq_race_test PRIVATE whiteout_mpq)
+    target_link_libraries(mpq_race_test PRIVATE whiteout_mpq Catch2::Catch2WithMain)
     target_include_directories(mpq_race_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    catch_discover_tests(mpq_race_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
-    add_executable(mpq_corpus_test mpq_corpus_test.cpp)
-    target_link_libraries(mpq_corpus_test PRIVATE whiteout_mpq)
+    whiteout_add_test(mpq_corpus_test mpq_corpus_test.cpp LINK whiteout_mpq)
+    whiteout_add_test(mpq_test mpq_test.cpp LINK whiteout_mpq)
+
+    add_executable(mpq_codec_test mpq_codec_test.cpp)
+    target_link_libraries(mpq_codec_test PRIVATE whiteout_mpq Catch2::Catch2WithMain)
+    target_include_directories(mpq_codec_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    catch_discover_tests(mpq_codec_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+    add_executable(mpq_parallel_test mpq_parallel_test.cpp)
+    target_link_libraries(mpq_parallel_test PRIVATE whiteout_mpq Catch2::Catch2WithMain)
+    target_include_directories(mpq_parallel_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    catch_discover_tests(mpq_parallel_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 endif() # WHITEOUT_ENABLE_MPQ

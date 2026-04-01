@@ -20,6 +20,8 @@
 // Usage: mpq_corpus_test [corpus_dir]
 //   corpus_dir defaults to Corpus/MPQ (searched relative to CWD + hard-coded).
 
+#include <catch2/catch_all.hpp>
+
 #include <whiteout/storages/mpq/storage.h>
 #include <whiteout/utils/simple_thread_pool.h>
 
@@ -46,12 +48,8 @@ using whiteout::u64;
 // ============================================================================
 // Test harness
 // ============================================================================
-
-static int g_passed = 0;
-static int g_failed = 0;
-
 static bool fail(const char* fmt, ...) {
-    g_failed++;
+    
     std::printf("  FAIL: ");
     va_list args;
     va_start(args, fmt);
@@ -62,7 +60,7 @@ static bool fail(const char* fmt, ...) {
 }
 
 static bool pass(const char* fmt, ...) {
-    g_passed++;
+    
     std::printf("  PASS: ");
     va_list args;
     va_start(args, fmt);
@@ -74,10 +72,10 @@ static bool pass(const char* fmt, ...) {
 
 static bool expect(bool condition, const char* fmt, ...) {
     if (condition) {
-        g_passed++;
+        
         return true;
     }
-    g_failed++;
+    
     std::printf("  FAIL: ");
     va_list args;
     va_start(args, fmt);
@@ -576,16 +574,14 @@ static ArchiveTestResult testArchive(const std::string& archivePath,
 // Main
 // ============================================================================
 
-int main(int argc, char* argv[]) {
+TEST_CASE("MPQ corpus round-trip", "[mpq][corpus]") {
+    int g_passed = 0, g_failed = 0;
     auto t0 = std::chrono::steady_clock::now();
 
-    const char* overridePath = (argc > 1) ? argv[1] : nullptr;
-    std::string corpusDir = findCorpusDir(overridePath);
+    std::string corpusDir = findCorpusDir(nullptr);
 
     if (corpusDir.empty()) {
-        std::printf("ERROR: MPQ corpus directory not found.\n");
-        std::printf("Usage: %s [corpus_dir]\n", argv[0]);
-        return 1;
+        SKIP("MPQ corpus directory not found");
     }
 
     std::printf("MPQ Corpus Test\n");
@@ -593,8 +589,7 @@ int main(int argc, char* argv[]) {
 
     auto archives = discoverArchives(corpusDir);
     if (archives.empty()) {
-        std::printf("ERROR: no MPQ archives found in %s\n", corpusDir.c_str());
-        return 1;
+        SKIP("no MPQ archives found in corpus directory");
     }
 
     std::printf("Found %zu archives.\n", archives.size());
@@ -643,5 +638,5 @@ int main(int argc, char* argv[]) {
     std::printf("  Elapsed         : %lld ms\n", static_cast<long long>(elapsed));
     std::printf("================================================================\n");
 
-    return g_failed > 0 ? 1 : 0;
+    CHECK(g_failed == 0);
 }

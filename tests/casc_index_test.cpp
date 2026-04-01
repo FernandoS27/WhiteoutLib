@@ -5,25 +5,13 @@
 
 #include "../src/whiteout/storages/casc/index.h"
 
+#include <catch2/catch_test_macros.hpp>
+
 #include <filesystem>
-#include <iostream>
 #include <string>
 
 using namespace whiteout;
 using namespace whiteout::storages::casc;
-
-static int g_passed = 0;
-static int g_failed = 0;
-
-static void check(bool condition, const char* name) {
-    if (condition) {
-        std::cout << "  PASS: " << name << "\n";
-        ++g_passed;
-    } else {
-        std::cout << "  FAIL: " << name << "\n";
-        ++g_failed;
-    }
-}
 
 static std::string findCorpusBase() {
     for (auto& p : {"Corpus/CASC", "../Corpus/CASC", "../../Corpus/CASC",
@@ -34,37 +22,35 @@ static std::string findCorpusBase() {
     return "";
 }
 
-// ============================================================================
-// Tests
-// ============================================================================
+TEST_CASE("Load D3 .idx files", "[casc][index][corpus]") {
+    auto corpus = findCorpusBase();
+    if (corpus.empty()) { SKIP("Corpus not found"); }
 
-static void testLoadD3(const std::string& corpus) {
-    std::cout << "[Test: Load D3 .idx files]\n";
     auto table = IndexTable::load(corpus + "/Diablo III/Data");
-    std::cout << "  D3 entry count: " << table.entryCount() << "\n";
-    check(table.entryCount() > 0, "D3 index has entries");
-    check(table.entryCount() > 1000, "D3 index has >1000 entries");
+    CHECK(table.entryCount() > 0);
+    CHECK(table.entryCount() > 1000);
 }
 
-static void testLoadWC3(const std::string& corpus) {
-    std::cout << "[Test: Load WC3 .idx files]\n";
+TEST_CASE("Load WC3 .idx files", "[casc][index][corpus]") {
+    auto corpus = findCorpusBase();
+    if (corpus.empty()) { SKIP("Corpus not found"); }
+
     auto table = IndexTable::load(corpus + "/Warcraft III/Data");
-    std::cout << "  WC3 entry count: " << table.entryCount() << "\n";
-    check(table.entryCount() > 0, "WC3 index has entries");
-    check(table.entryCount() > 1000, "WC3 index has >1000 entries");
+    CHECK(table.entryCount() > 0);
+    CHECK(table.entryCount() > 1000);
 }
 
-static void testNotFoundLookup(const std::string& corpus) {
-    std::cout << "[Test: Lookup nonexistent EKey]\n";
+TEST_CASE("Index lookup nonexistent EKey", "[casc][index][corpus]") {
+    auto corpus = findCorpusBase();
+    if (corpus.empty()) { SKIP("Corpus not found"); }
+
     auto table = IndexTable::load(corpus + "/Warcraft III/Data");
     std::array<u8, 9> fakeKey{};
     fakeKey.fill(0xFF);
-    auto entry = table.find(fakeKey);
-    check(entry == nullptr, "Nonexistent EKey returns nullptr");
+    CHECK(table.find(fakeKey) == nullptr);
 }
 
-static void testInsertAndFind() {
-    std::cout << "[Test: Insert and find]\n";
+TEST_CASE("Index insert and find", "[casc][index]") {
     IndexTable table;
     IndexEntry entry;
     entry.eKey = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09};
@@ -73,22 +59,18 @@ static void testInsertAndFind() {
     entry.encodedSize = 6789;
     table.insert(entry);
 
-    check(table.entryCount() == 1, "Entry count is 1 after insert");
+    CHECK(table.entryCount() == 1);
 
     auto found = table.find(std::span<const u8>(entry.eKey.data(), 9));
-    check(found != nullptr, "Inserted entry found");
-    if (found) {
-        check(found->archiveIndex == 42, "Archive index matches");
-        check(found->archiveOffset == 12345, "Archive offset matches");
-        check(found->encodedSize == 6789, "Encoded size matches");
-    }
+    REQUIRE(found != nullptr);
+    CHECK(found->archiveIndex == 42);
+    CHECK(found->archiveOffset == 12345);
+    CHECK(found->encodedSize == 6789);
 }
 
-static void testRoundTrip() {
-    std::cout << "[Test: Serialize round-trip]\n";
+TEST_CASE("Index serialize round-trip", "[casc][index]") {
     IndexTable table;
 
-    // Insert several entries
     for (u32 i = 0; i < 10; ++i) {
         IndexEntry entry;
         entry.eKey[0] = u8(i);
@@ -100,29 +82,8 @@ static void testRoundTrip() {
         table.insert(entry);
     }
 
-    check(table.entryCount() == 10, "10 entries inserted");
+    CHECK(table.entryCount() == 10);
 
     auto serialized = table.serialize();
-    check(!serialized.empty(), "Serialization produces output");
-}
-
-int main() {
-    std::cout << "=== CASC Index Tests ===\n\n";
-
-    auto corpus = findCorpusBase();
-    if (corpus.empty()) {
-        std::cout << "WARNING: Corpus not found, skipping corpus-dependent tests.\n";
-    }
-
-    if (!corpus.empty()) {
-        testLoadD3(corpus);
-        testLoadWC3(corpus);
-        testNotFoundLookup(corpus);
-    }
-
-    testInsertAndFind();
-    testRoundTrip();
-
-    std::cout << "\n=== Results: " << g_passed << " passed, " << g_failed << " failed ===\n";
-    return g_failed > 0 ? 1 : 0;
+    CHECK_FALSE(serialized.empty());
 }

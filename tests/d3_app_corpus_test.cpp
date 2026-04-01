@@ -5,6 +5,8 @@
 /// directory, parses it with the SNO type system, and validates key header
 /// fields against the APP_FILE_FORMAT_SPECIFICATION.md.
 
+#include <catch2/catch_all.hpp>
+
 #include <whiteout/sno/sno_reader.h>
 #include <whiteout/sno/sno_types.h>
 #include <whiteout/sno/sno_value.h>
@@ -40,21 +42,16 @@ static float readF32(const std::vector<whiteout::u8>& buf, size_t off) {
     return v;
 }
 
-int main(int argc, char* argv[]) {
+TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
     using namespace whiteout;
     using namespace whiteout::sno;
 
-    if (argc < 2) {
-        std::cerr << "Usage: d3_app_corpus_test <path-to-Appearances-dir>\n"
-                  << "  e.g. d3_app_corpus_test Models\\D3\\Appearances\n";
-        return 1;
+    // Auto-discover corpus directory
+    fs::path corpusDir;
+    for (auto candidate : {"Corpus/D3/Appearances", "../Corpus/D3/Appearances", "../../Corpus/D3/Appearances"}) {
+        if (fs::is_directory(candidate)) { corpusDir = candidate; break; }
     }
-
-    fs::path corpusDir = argv[1];
-    if (!fs::is_directory(corpusDir)) {
-        std::cerr << "Error: " << corpusDir << " is not a directory.\n";
-        return 1;
-    }
+    if (corpusDir.empty()) SKIP("D3 Appearances corpus not found");
 
     SnoReader reader;
 
@@ -565,9 +562,9 @@ int main(int argc, char* argv[]) {
 
     if (allGood) {
         std::cout << "\n*** ALL TESTS PASSED ***\n";
-        return 0;
+        // done
     } else {
         std::cout << "\n*** SOME TESTS FAILED ***\n";
-        return 1;
+        FAIL("corpus test failed");
     }
 }

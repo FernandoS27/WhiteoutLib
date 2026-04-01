@@ -1,4 +1,6 @@
 // Quick BC2 encode/decode round-trip test
+#include <catch2/catch_all.hpp>
+
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -679,83 +681,45 @@ bool test_bc2_blp_mipmaps() {
     return all_match;
 }
 
-int main() {
-    bool all_ok = true;
 
-    all_ok &= test_bc2_solid_alpha();
-    all_ok &= test_bc2_block_level();
-    all_ok &= test_bc2_roundtrip(4, 4, "4x4");
-    all_ok &= test_bc2_roundtrip(8, 8, "8x8");
-    all_ok &= test_bc2_roundtrip(16, 16, "16x16");
-    all_ok &= test_bc2_roundtrip(64, 64, "64x64");
-    all_ok &= test_bc2_roundtrip(100, 100, "100x100");
-    all_ok &= test_bc2_dds_roundtrip();
-    all_ok &= test_bc2_blp_roundtrip();
-    all_ok &= test_bc2_copy_as_format();
-    all_ok &= test_bc2_blp_from_rgba8();
-    all_ok &= test_bc2_blp_infer_encoding();
-    all_ok &= test_bc2_blp_header();
-    all_ok &= test_bc2_blp_mipmaps();
+// ============================================================================
+// Catch2 test cases
+// ============================================================================
 
-    // Test with a real DDS file if available
-    {
-        std::string err;
-        auto tex = load_dds_file("../Models/TexSimple/chickenFeather.dds", &err);
-        if (tex) {
-            printf("\nreal_dds: loaded chickenFeather.dds: format=%d %ux%u\n",
-                   (int)tex->format(), tex->width(), tex->height());
+TEST_CASE("BC2 solid alpha", "[bc2]") { REQUIRE(test_bc2_solid_alpha()); }
+TEST_CASE("BC2 block level", "[bc2]") { REQUIRE(test_bc2_block_level()); }
+TEST_CASE("BC2 roundtrip 4x4", "[bc2]") { REQUIRE(test_bc2_roundtrip(4, 4, "4x4")); }
+TEST_CASE("BC2 roundtrip 8x8", "[bc2]") { REQUIRE(test_bc2_roundtrip(8, 8, "8x8")); }
+TEST_CASE("BC2 roundtrip 16x16", "[bc2]") { REQUIRE(test_bc2_roundtrip(16, 16, "16x16")); }
+TEST_CASE("BC2 roundtrip 64x64", "[bc2]") { REQUIRE(test_bc2_roundtrip(64, 64, "64x64")); }
+TEST_CASE("BC2 roundtrip 100x100", "[bc2]") { REQUIRE(test_bc2_roundtrip(100, 100, "100x100")); }
+TEST_CASE("BC2 DDS roundtrip", "[bc2]") { REQUIRE(test_bc2_dds_roundtrip()); }
+TEST_CASE("BC2 BLP roundtrip", "[bc2]") { REQUIRE(test_bc2_blp_roundtrip()); }
+TEST_CASE("BC2 copy as format", "[bc2]") { REQUIRE(test_bc2_copy_as_format()); }
+TEST_CASE("BC2 BLP from RGBA8", "[bc2]") { REQUIRE(test_bc2_blp_from_rgba8()); }
+TEST_CASE("BC2 BLP infer encoding", "[bc2]") { REQUIRE(test_bc2_blp_infer_encoding()); }
+TEST_CASE("BC2 BLP header", "[bc2]") { REQUIRE(test_bc2_blp_header()); }
+TEST_CASE("BC2 BLP mipmaps", "[bc2]") { REQUIRE(test_bc2_blp_mipmaps()); }
 
-            // Convert to RGBA8 first if needed
-            Texture rgba = tex->copyAsFormat(PixelFormat::RGBA8);
-            printf("real_dds: converted to RGBA8\n");
+TEST_CASE("BC2 real DDS file", "[bc2][corpus]") {
+    std::string err;
+    auto tex = load_dds_file("../Models/TexSimple/chickenFeather.dds", &err);
+    if (!tex) SKIP("chickenFeather.dds not found");
 
-            // Encode to BC2
-            Texture bc2 = rgba.copyAsFormat(PixelFormat::BC2);
-            printf("real_dds: encoded to BC2, data size=%zu\n", bc2.mipData(0).size());
+    Texture rgba = tex->copyAsFormat(PixelFormat::RGBA8);
+    Texture bc2 = rgba.copyAsFormat(PixelFormat::BC2);
+    REQUIRE(bc2.mipData(0).size() > 0);
 
-            // Save as BLP
-            blp::SaveOptions blp_opts;
-            blp_opts.version = blp::BlpVersion::BLP2;
-            blp_opts.encoding = blp::BlpEncoding::DXT;
-            bool saved = save_blp_file(bc2, "test_real_bc2.blp", blp_opts, &err);
-            printf("real_dds: BLP save=%s %s\n", saved ? "OK" : "FAIL", err.c_str());
+    blp::SaveOptions blp_opts;
+    blp_opts.version = blp::BlpVersion::BLP2;
+    blp_opts.encoding = blp::BlpEncoding::DXT;
+    REQUIRE(save_blp_file(bc2, "test_real_bc2.blp", blp_opts, &err));
 
-            if (saved) {
-                auto loaded = load_blp_file("test_real_bc2.blp", &err);
-                if (loaded) {
-                    printf("real_dds: BLP load: format=%d %ux%u\n",
-                           (int)loaded->format(), loaded->width(), loaded->height());
+    auto loaded = load_blp_file("test_real_bc2.blp", &err);
+    REQUIRE(loaded.has_value());
 
-                    auto orig = bc2.mipData(0);
-                    auto rld = loaded->mipData(0);
-                    bool match = (orig.size() == rld.size()) &&
-                                 std::memcmp(orig.data(), rld.data(), orig.size()) == 0;
-                    printf("real_dds: raw BC2 data match after BLP round-trip = %s\n",
-                           match ? "true" : "false");
-                    if (!match) {
-                        printf("real_dds: sizes: orig=%zu loaded=%zu\n", orig.size(), rld.size());
-                        // Show first differences
-                        int shown = 0;
-                        for (size_t i = 0; i < std::min(orig.size(), rld.size()) && shown < 5; ++i) {
-                            if (orig[i] != rld[i]) {
-                                printf("  byte %zu: orig=%02X loaded=%02X\n", i, orig[i], rld[i]);
-                                shown++;
-                            }
-                        }
-                        all_ok = false;
-                    }
-                } else {
-                    printf("real_dds: BLP load failed: %s\n", err.c_str());
-                    all_ok = false;
-                }
-            } else {
-                all_ok = false;
-            }
-        } else {
-            printf("\nreal_dds: skipped (chickenFeather.dds not found: %s)\n", err.c_str());
-        }
-    }
-
-    printf("\n%s\n", all_ok ? "All tests passed!" : "SOME TESTS FAILED!");
-    return all_ok ? 0 : 1;
+    auto orig = bc2.mipData(0);
+    auto rld = loaded->mipData(0);
+    CHECK(orig.size() == rld.size());
+    CHECK(std::memcmp(orig.data(), rld.data(), orig.size()) == 0);
 }

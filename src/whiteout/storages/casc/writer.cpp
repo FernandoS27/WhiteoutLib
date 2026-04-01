@@ -394,7 +394,6 @@ bool writeStorage(const std::string& outputDir,
     switch (opts.rootFormat) {
         case RootFormat::Tvfs:    rootRaw = serializeTvfsRoot(entries); break;
         case RootFormat::Diablo3: rootRaw = serializeD3Root(entries);   break;
-        case RootFormat::Diablo4: rootRaw = serializeTvfsRoot(entries); break; // D4 uses TVFS on-disk.
         case RootFormat::Wow:     rootRaw = serializeWowRoot(entries);  break;
         default:                  rootRaw = serializeTvfsRoot(entries); break;
     }

@@ -5,6 +5,8 @@
 // parses each, and reports success/failure/issue statistics.
 // Optionally performs round-trip (parse → write → re-parse) validation.
 
+#include <catch2/catch_all.hpp>
+
 #include <whiteout/models/m2/m2.h>
 #include <whiteout/utils/os_file_system.h>
 #include <filesystem>
@@ -139,33 +141,22 @@ struct FileResult {
     size_t skinProfiles = 0;
 };
 
-int main(int argc, char* argv[]) {
+TEST_CASE("M2 corpus parse", "[m2][corpus]") {
 #ifdef _WIN32
     _set_se_translator(sehTranslator);
     SymInitialize(GetCurrentProcess(), NULL, TRUE);
 #endif
 
-    if (argc < 2) {
-        std::cout << "Usage: " << argv[0] << " <corpus_directory> [--round-trip] [--verbose] [--stop-on-error]" << std::endl;
-        std::cout << "\nParses all .m2 files in the given directory and reports statistics." << std::endl;
-        std::cout << "\nOptions:" << std::endl;
-        std::cout << "  --round-trip     Also test write → re-parse (slower)" << std::endl;
-        std::cout << "  --verbose        Print per-file details" << std::endl;
-        std::cout << "  --stop-on-error  Stop on first hard parse error" << std::endl;
-        return 1;
+    // Auto-discover corpus directory
+    std::string corpusDir;
+    for (auto candidate : {"Corpus/M2", "../Corpus/M2", "../../Corpus/M2"}) {
+        if (fs::is_directory(candidate)) { corpusDir = candidate; break; }
     }
+    if (corpusDir.empty()) SKIP("M2 corpus not found");
 
-    std::string corpusDir = argv[1];
     bool doRoundTrip = false;
     bool verbose = false;
     bool stopOnError = false;
-
-    for (int i = 2; i < argc; ++i) {
-        std::string arg = argv[i];
-        if (arg == "--round-trip") doRoundTrip = true;
-        else if (arg == "--verbose") verbose = true;
-        else if (arg == "--stop-on-error") stopOnError = true;
-    }
 
     // Collect all .m2 files
     std::vector<fs::path> m2Files;
@@ -383,5 +374,5 @@ int main(int argc, char* argv[]) {
     SymCleanup(GetCurrentProcess());
 #endif
 
-    return (parseFail == 0) ? 0 : 1;
+    CHECK(parseFail == 0);
 }

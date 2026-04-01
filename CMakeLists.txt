@@ -8,6 +8,10 @@ option(WHITEOUT_ENABLE_CASC "Enable CASC archive support via CascLib" OFF)
 option(WHITEOUT_BUILD_EXAMPLES "Build example programs" OFF)
 option(WHITEOUT_BUILD_TESTS "Build test programs" OFF)
 
+if(WHITEOUT_BUILD_TESTS)
+    enable_testing()
+endif()
+
 if(MSVC)
     add_compile_options(/FS)
 endif()
@@ -230,7 +234,6 @@ if(WHITEOUT_ENABLE_CASC)
         src/whiteout/storages/casc/roots/root.cpp
         src/whiteout/storages/casc/roots/wow_root.cpp
         src/whiteout/storages/casc/roots/d3_root.cpp
-        src/whiteout/storages/casc/roots/d4_root.cpp
         src/whiteout/storages/casc/roots/tvfs_root.cpp
         src/whiteout/storages/casc/storage.cpp
         src/whiteout/storages/casc/writer.cpp
@@ -252,14 +255,6 @@ if(WHITEOUT_ENABLE_CASC)
     # CASC Storage Loader Example
     add_executable(casc_loader_example examples/casc_loader_example.cpp)
     target_link_libraries(casc_loader_example PRIVATE whiteout_casc)
-
-    # D4 Root Enrichment Diagnostic
-    add_executable(d4_enrich_diag examples/d4_enrich_diag.cpp)
-    target_link_libraries(d4_enrich_diag PRIVATE whiteout_casc)
-
-    # D4 TOC Diagnostic
-    add_executable(d4_toc_diag examples/d4_toc_diag.cpp)
-    target_link_libraries(d4_toc_diag PRIVATE whiteout_casc)
 
     add_executable(sno_browser_example examples/sno_browser_example.cpp)
     target_link_libraries(sno_browser_example PRIVATE whiteout_casc)

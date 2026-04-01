@@ -187,8 +187,6 @@ IndexTable IndexTable::load(const std::string& dataDir,
     IndexTable table;
 
     // Scan for .idx files in all immediate subdirectories of dataDir.
-    // D4 (fenris) stores indices in both data/ and a product-specific subdirectory,
-    // so we must scan all subdirectories rather than stopping at the first hit.
     std::vector<std::filesystem::path> idxPaths;
     if (std::filesystem::exists(dataDir)) {
         for (auto& dirEntry : std::filesystem::directory_iterator(dataDir)) {
@@ -210,7 +208,7 @@ IndexTable IndexTable::load(const std::string& dataDir,
 
     // For each (parent directory, bucket) pair, keep only the highest-version .idx file.
     // Filename: {bucket:02x}{version:08x}.idx → 10 hex chars + .idx
-    // Different subdirectories (e.g. data/ vs fenris/) have independent bucket spaces,
+    // Different subdirectories may have independent bucket spaces,
     // so we must resolve best-per-bucket within each directory separately.
     auto parseBucket = [](const std::string& stem) -> u8 {
         u8 bucket = 0;

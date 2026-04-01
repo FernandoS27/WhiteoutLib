@@ -14,6 +14,8 @@
 // Additionally, stress tests hammer the pipeline at varying thread counts
 // (1, 2, 4, 8) to surface races that only appear under specific scheduling.
 
+#include <catch2/catch_all.hpp>
+
 #include <whiteout/interfaces.h>
 #include <whiteout/storages/casc/storage.h>
 #include <whiteout/utils/simple_thread_pool.h>
@@ -96,36 +98,31 @@ private:
 // ============================================================================
 
 namespace {
-
-int g_passed = 0;
-int g_failed = 0;
 int g_skipped = 0;
-const char* g_runLabel = "";
-
 bool fail(int testNumber, const char* fmt, ...) {
-    std::printf("[%s] TEST %d FAIL: ", g_runLabel, testNumber);
+    std::printf("[test] TEST %d FAIL: ", testNumber);
     va_list args;
     va_start(args, fmt);
     std::vprintf(fmt, args);
     va_end(args);
     std::printf("\n");
-    ++g_failed;
+    
     return false;
 }
 
 bool pass(int testNumber, const char* fmt, ...) {
-    std::printf("[%s] TEST %d PASS: ", g_runLabel, testNumber);
+    std::printf("[test] TEST %d PASS: ", testNumber);
     va_list args;
     va_start(args, fmt);
     std::vprintf(fmt, args);
     va_end(args);
     std::printf("\n");
-    ++g_passed;
+    
     return true;
 }
 
 bool skip(int testNumber, const char* fmt, ...) {
-    std::printf("[%s] TEST %d SKIP: ", g_runLabel, testNumber);
+    std::printf("[test] TEST %d SKIP: ", testNumber);
     va_list args;
     va_start(args, fmt);
     std::vprintf(fmt, args);
@@ -137,7 +134,7 @@ bool skip(int testNumber, const char* fmt, ...) {
 
 bool expect(bool condition, int testNumber, const char* fmt, ...) {
     if (condition) return true;
-    std::printf("[%s] TEST %d FAIL: ", g_runLabel, testNumber);
+    std::printf("[test] TEST %d FAIL: ", testNumber);
     va_list args;
     va_start(args, fmt);
     std::vprintf(fmt, args);
@@ -1140,90 +1137,114 @@ bool test20_real_corpus_wc3(const std::string& corpusBase) {
 // Main
 // ============================================================================
 
-int main() {
-    std::printf("=== CASC Batch & DAG Race Condition Test Suite ===\n\n");
 
-    // Find corpus.
-    std::string corpusBase;
-    for (auto candidate : {"Corpus/CASC", "../Corpus/CASC", "../../Corpus/CASC",
-                            "C:/Projects/WhiteoutLib/Corpus/CASC"}) {
-        if (fs::exists(candidate)) {
-            corpusBase = candidate;
-            break;
-        }
-    }
+// ============================================================================
+// Catch2 test cases
+// ============================================================================
 
-    // --- BLTE batch tests (synthetic data, no corpus needed) ---
-
-    g_runLabel = "blte-batch";
-    std::printf("--- BLTE Batch Decode Tests ---\n");
-
-    test1_blte_batch_serial();
-
-    for (size_t tc : {1, 2, 4, 8}) {
-        test2_blte_batch_no_semaphore(tc);
-    }
-
-    for (size_t tc : {1, 2, 4, 8}) {
-        test3_blte_batch_full_dag(tc);
-    }
-
-    test4_blte_batch_mixed();
-    test5_blte_batch_single_thread();
-    test11_zero_thread_pool();
-    test12_single_thread_stress();
-    test13_iteration_stress();
-    test14_serial_parallel_equality();
-    test16_massive_batch();
-    test17_encrypted_batch();
-
-    // --- readBatch tests (require corpus) ---
-
-    g_runLabel = "readBatch";
-    std::printf("\n--- readBatch Tests ---\n");
-
-    if (corpusBase.empty()) {
-        std::printf("  CASC corpus not found — readBatch tests will be skipped.\n");
-        std::printf("  Expected at: Corpus/CASC/{D3,WC3}/\n\n");
-    }
-
-    // Pick first available sub-corpus for generic readBatch tests.
-    std::string genericCorpus;
-    if (!corpusBase.empty()) {
-        for (auto sub : {"Diablo III", "Warcraft III", "D3", "d3", "WC3", "wc3", "WoW", "wow"}) {
-            std::string p = corpusBase + "/" + sub;
-            if (fs::exists(p)) {
-                genericCorpus = p;
-                break;
-            }
-        }
-    }
-
-    test6_readBatch_serial(genericCorpus);
-
-    for (size_t tc : {2, 4}) {
-        test7_readBatch_no_semaphore(genericCorpus, tc);
-    }
-
-    for (size_t tc : {2, 4, 8}) {
-        test8_readBatch_full_dag(genericCorpus, tc);
-    }
-
-    test9_readBatch_mixed_valid_invalid(genericCorpus);
-    test10_readBatch_empty();
-    test15_concurrent_readBatch(genericCorpus);
-    test18_readBatch_vs_individual(genericCorpus);
-
-    // Real corpus tests.
-    g_runLabel = "corpus";
-    std::printf("\n--- Real Corpus Tests ---\n");
-
-    test19_real_corpus_d3(corpusBase);
-    test20_real_corpus_wc3(corpusBase);
-
-    // --- Summary ---
-    std::printf("\n=== Summary: %d passed, %d failed, %d skipped ===\n",
-                g_passed, g_failed, g_skipped);
-
-    return g_failed > 0 ? 1 : 0;
+static std::string findCascCorpus() {
+    for (auto& p : {"Corpus/CASC/D3", "../../Corpus/CASC/D3", "../Corpus/CASC/D3"})
+        if (std::filesystem::exists(p)) return p;
+    return "";
 }
+
+TEST_CASE("test1 blte batch serial", "[casc][race]") {
+    REQUIRE(test1_blte_batch_serial());
+}
+
+TEST_CASE("test2 blte batch no semaphore", "[casc][race]") {
+    auto threads = GENERATE(1, 2, 4);
+    REQUIRE(test2_blte_batch_no_semaphore(threads));
+}
+
+TEST_CASE("test3 blte batch full dag", "[casc][race]") {
+    auto threads = GENERATE(1, 2, 4);
+    REQUIRE(test3_blte_batch_full_dag(threads));
+}
+
+TEST_CASE("test4 blte batch mixed", "[casc][race]") {
+    REQUIRE(test4_blte_batch_mixed());
+}
+
+TEST_CASE("test5 blte batch single thread", "[casc][race]") {
+    REQUIRE(test5_blte_batch_single_thread());
+}
+
+TEST_CASE("test6 readBatch serial", "[casc][race][corpus]") {
+    auto corpus = findCascCorpus();
+    if (corpus.empty()) SKIP("CASC corpus not found");
+    REQUIRE(test6_readBatch_serial(corpus));
+}
+
+TEST_CASE("test7 readBatch no semaphore", "[casc][race][corpus]") {
+    auto corpus = findCascCorpus();
+    if (corpus.empty()) SKIP("CASC corpus not found");
+    auto threads = GENERATE(1, 2, 4);
+    REQUIRE(test7_readBatch_no_semaphore(corpus, threads));
+}
+
+TEST_CASE("test8 readBatch full dag", "[casc][race][corpus]") {
+    auto corpus = findCascCorpus();
+    if (corpus.empty()) SKIP("CASC corpus not found");
+    auto threads = GENERATE(1, 2, 4);
+    REQUIRE(test8_readBatch_full_dag(corpus, threads));
+}
+
+TEST_CASE("test9 readBatch mixed valid invalid", "[casc][race][corpus]") {
+    auto corpus = findCascCorpus();
+    if (corpus.empty()) SKIP("CASC corpus not found");
+    REQUIRE(test9_readBatch_mixed_valid_invalid(corpus));
+}
+
+TEST_CASE("test10 readBatch empty", "[casc][race]") {
+    REQUIRE(test10_readBatch_empty());
+}
+
+TEST_CASE("test11 zero thread pool", "[casc][race]") {
+    REQUIRE(test11_zero_thread_pool());
+}
+
+TEST_CASE("test12 single thread stress", "[casc][race]") {
+    REQUIRE(test12_single_thread_stress());
+}
+
+TEST_CASE("test13 iteration stress", "[casc][race]") {
+    REQUIRE(test13_iteration_stress());
+}
+
+TEST_CASE("test14 serial parallel equality", "[casc][race]") {
+    REQUIRE(test14_serial_parallel_equality());
+}
+
+TEST_CASE("test15 concurrent readBatch", "[casc][race][corpus]") {
+    auto corpus = findCascCorpus();
+    if (corpus.empty()) SKIP("CASC corpus not found");
+    REQUIRE(test15_concurrent_readBatch(corpus));
+}
+
+TEST_CASE("test16 massive batch", "[casc][race]") {
+    REQUIRE(test16_massive_batch());
+}
+
+TEST_CASE("test17 encrypted batch", "[casc][race]") {
+    REQUIRE(test17_encrypted_batch());
+}
+
+TEST_CASE("test18 readBatch vs individual", "[casc][race][corpus]") {
+    auto corpus = findCascCorpus();
+    if (corpus.empty()) SKIP("CASC corpus not found");
+    REQUIRE(test18_readBatch_vs_individual(corpus));
+}
+
+TEST_CASE("test19 real corpus d3", "[casc][race][corpus]") {
+    auto corpus = findCascCorpus();
+    if (corpus.empty()) SKIP("CASC corpus not found");
+    REQUIRE(test19_real_corpus_d3(corpus));
+}
+
+TEST_CASE("test20 real corpus wc3", "[casc][race][corpus]") {
+    auto corpus = findCascCorpus();
+    if (corpus.empty()) SKIP("CASC corpus not found");
+    REQUIRE(test20_real_corpus_wc3(corpus));
+}
+

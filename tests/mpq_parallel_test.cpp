@@ -15,6 +15,8 @@
 //   6.  Edge cases:    Thresholds, single-unit, encrypted, small files
 //   7.  Correctness:   Pool actually executes tasks on worker threads (parallel run only)
 
+#include <catch2/catch_all.hpp>
+
 #include <whiteout/storages/mpq/storage.h>
 #include <whiteout/interfaces.h>
 
@@ -160,36 +162,31 @@ private:
 // ============================================================================
 
 namespace {
-
-int g_passed = 0;
-int g_failed = 0;
-const char* g_runLabel = "serial";
-
 bool fail(int testNumber, const char* fmt, ...) {
-    std::printf("[%s] TEST %d FAIL: ", g_runLabel, testNumber);
+    std::printf("TEST %d FAIL: ", testNumber);
     va_list args;
     va_start(args, fmt);
     std::vprintf(fmt, args);
     va_end(args);
     std::printf("\n");
-    ++g_failed;
+    
     return false;
 }
 
 bool pass(int testNumber, const char* fmt, ...) {
-    std::printf("[%s] TEST %d PASS: ", g_runLabel, testNumber);
+    std::printf("TEST %d PASS: ", testNumber);
     va_list args;
     va_start(args, fmt);
     std::vprintf(fmt, args);
     va_end(args);
     std::printf("\n");
-    ++g_passed;
+    
     return true;
 }
 
 bool expect(bool condition, int testNumber, const char* fmt, ...) {
     if (condition) return true;
-    std::printf("[%s] TEST %d FAIL: ", g_runLabel, testNumber);
+    std::printf("TEST %d FAIL: ", testNumber);
     va_list args;
     va_start(args, fmt);
     std::vprintf(fmt, args);
@@ -545,7 +542,7 @@ bool test9_write_archive_parallel(const fs::path& tempDir, TestWorkerPool* pool)
         mpq::WriteEntry we;
         we.filename = "file" + std::to_string(i) + ".dat";
         we.rawData = data;
-        we.compression = 0x02;
+        we.compression = mpq::CompressionFlag::kZlib;
         we.encrypt = false;
         we.singleUnit = false;
         entries.push_back(std::move(we));
@@ -604,7 +601,7 @@ bool test10_write_archive_single_file_fallback(const fs::path& tempDir, TestWork
     mpq::WriteEntry we;
     we.filename = "onlyone.dat";
     we.rawData = largeData;
-    we.compression = 0x02;
+    we.compression = mpq::CompressionFlag::kZlib;
     we.singleUnit = false;
     std::vector<mpq::WriteEntry> entries = {std::move(we)};
 
@@ -738,7 +735,7 @@ bool test12_pkware_compression_parallel(TestWorkerPool* pool) {
     auto rawData = makeCompressibleData(40000);
 
     mpq::EncodeOptions opts;
-    opts.compression = 0x08; // PKware
+    opts.compression = mpq::CompressionFlag::kPKware; // PKware
     opts.encrypt = false;
     opts.singleUnit = false;
     opts.sectorSize = 4096;
@@ -776,7 +773,7 @@ bool test13_tasks_run_on_worker_threads(TestWorkerPool* pool) {
     auto rawData = makeCompressibleData(200000);
 
     mpq::EncodeOptions opts;
-    opts.compression = 0x02;
+    opts.compression = mpq::CompressionFlag::kZlib;
     opts.encrypt = false;
     opts.singleUnit = false;
     opts.sectorSize = 4096;
@@ -885,7 +882,7 @@ bool test16_incompressible_data(TestWorkerPool* pool) {
     auto rawData = makePatternData(30000, 0xFF);
 
     mpq::EncodeOptions opts;
-    opts.compression = 0x02;
+    opts.compression = mpq::CompressionFlag::kZlib;
     opts.encrypt = false;
     opts.singleUnit = false;
     opts.sectorSize = 4096;
@@ -918,52 +915,85 @@ bool test16_incompressible_data(TestWorkerPool* pool) {
 // Test Runner
 // ============================================================================
 
-static void runSuite(const fs::path& tempDir, TestWorkerPool* pool) {
-    fs::create_directories(tempDir);
-
-    // Plumbing tests.
-    if (!test1_plumbing_open_create(tempDir, pool)) ++g_failed;
-
-    // Encode tests (encodeFileData).
-    if (!test2_encode_serial_equivalence(pool)) ++g_failed;
-    if (!test3_encode_encrypted_equivalence(pool)) ++g_failed;
-    if (!test4_encode_single_unit_serial(pool)) ++g_failed;
-    if (!test5_encode_below_threshold(pool)) ++g_failed;
-
-    // Extract tests (extractFileData).
-    if (!test6_extract_parallel_roundtrip(pool)) ++g_failed;
-    if (!test7_extract_encrypted_roundtrip(pool)) ++g_failed;
-    if (!test8_extract_below_threshold(pool)) ++g_failed;
-
-    // Writer tests (writeArchive).
-    if (!test9_write_archive_parallel(tempDir, pool)) ++g_failed;
-    if (!test10_write_archive_single_file_fallback(tempDir, pool)) ++g_failed;
-
-    // End-to-end tests.
-    if (!test11_end_to_end_with_pool(tempDir, pool)) ++g_failed;
-    if (!test14_overwrite_save_with_pool(tempDir, pool)) ++g_failed;
-
-    // Algorithm / edge case tests.
-    if (!test12_pkware_compression_parallel(pool)) ++g_failed;
-    if (!test13_tasks_run_on_worker_threads(pool)) ++g_failed;
-    if (!test15_many_small_files(tempDir, pool)) ++g_failed;
-    if (!test16_incompressible_data(pool)) ++g_failed;
+TEST_CASE("test1 plumbing open create serial", "[mpq][parallel]") {
+    auto tempDir = std::filesystem::temp_directory_path() / "whiteout_mpq_test";
+    std::filesystem::create_directories(tempDir);
+    REQUIRE(test1_plumbing_open_create(tempDir, nullptr));
+    std::filesystem::remove_all(tempDir);
 }
 
-int main() {
-    fs::path baseDir = fs::temp_directory_path() / "whiteout_mpq_parallel_test";
-    cleanup(baseDir);
-
-    std::printf("=== Serial run (pool = nullptr) ===\n\n");
-    g_runLabel = "serial";
-    runSuite(baseDir / "serial", nullptr);
-
-    std::printf("\n=== Parallel run (pool = 4 threads) ===\n\n");
-    TestWorkerPool pool(4);
-    g_runLabel = "parallel";
-    runSuite(baseDir / "parallel", &pool);
-
-    cleanup(baseDir);
-    std::printf("\n=== Results: %d passed, %d failed ===\n", g_passed, g_failed);
-    return g_failed > 0 ? 1 : 0;
+TEST_CASE("test2 encode serial equivalence", "[mpq][parallel]") {
+    REQUIRE(test2_encode_serial_equivalence(nullptr));
 }
+
+TEST_CASE("test3 encode encrypted equivalence", "[mpq][parallel]") {
+    REQUIRE(test3_encode_encrypted_equivalence(nullptr));
+}
+
+TEST_CASE("test4 encode single unit serial", "[mpq][parallel]") {
+    REQUIRE(test4_encode_single_unit_serial(nullptr));
+}
+
+TEST_CASE("test5 encode below threshold", "[mpq][parallel]") {
+    REQUIRE(test5_encode_below_threshold(nullptr));
+}
+
+TEST_CASE("test6 extract parallel roundtrip", "[mpq][parallel]") {
+    REQUIRE(test6_extract_parallel_roundtrip(nullptr));
+}
+
+TEST_CASE("test7 extract encrypted roundtrip", "[mpq][parallel]") {
+    REQUIRE(test7_extract_encrypted_roundtrip(nullptr));
+}
+
+TEST_CASE("test8 extract below threshold", "[mpq][parallel]") {
+    REQUIRE(test8_extract_below_threshold(nullptr));
+}
+
+TEST_CASE("test9 write archive parallel serial", "[mpq][parallel]") {
+    auto tempDir = std::filesystem::temp_directory_path() / "whiteout_mpq_test";
+    std::filesystem::create_directories(tempDir);
+    REQUIRE(test9_write_archive_parallel(tempDir, nullptr));
+    std::filesystem::remove_all(tempDir);
+}
+
+TEST_CASE("test10 write archive single file fallback serial", "[mpq][parallel]") {
+    auto tempDir = std::filesystem::temp_directory_path() / "whiteout_mpq_test";
+    std::filesystem::create_directories(tempDir);
+    REQUIRE(test10_write_archive_single_file_fallback(tempDir, nullptr));
+    std::filesystem::remove_all(tempDir);
+}
+
+TEST_CASE("test11 end to end with pool serial", "[mpq][parallel]") {
+    auto tempDir = std::filesystem::temp_directory_path() / "whiteout_mpq_test";
+    std::filesystem::create_directories(tempDir);
+    REQUIRE(test11_end_to_end_with_pool(tempDir, nullptr));
+    std::filesystem::remove_all(tempDir);
+}
+
+TEST_CASE("test12 pkware compression parallel", "[mpq][parallel]") {
+    REQUIRE(test12_pkware_compression_parallel(nullptr));
+}
+
+TEST_CASE("test13 tasks run on worker threads", "[mpq][parallel]") {
+    REQUIRE(test13_tasks_run_on_worker_threads(nullptr));
+}
+
+TEST_CASE("test14 overwrite save with pool serial", "[mpq][parallel]") {
+    auto tempDir = std::filesystem::temp_directory_path() / "whiteout_mpq_test";
+    std::filesystem::create_directories(tempDir);
+    REQUIRE(test14_overwrite_save_with_pool(tempDir, nullptr));
+    std::filesystem::remove_all(tempDir);
+}
+
+TEST_CASE("test15 many small files serial", "[mpq][parallel]") {
+    auto tempDir = std::filesystem::temp_directory_path() / "whiteout_mpq_test";
+    std::filesystem::create_directories(tempDir);
+    REQUIRE(test15_many_small_files(tempDir, nullptr));
+    std::filesystem::remove_all(tempDir);
+}
+
+TEST_CASE("test16 incompressible data", "[mpq][parallel]") {
+    REQUIRE(test16_incompressible_data(nullptr));
+}
+

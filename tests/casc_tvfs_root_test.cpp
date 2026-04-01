@@ -11,6 +11,8 @@
 #include "../src/whiteout/storages/casc/blte.h"
 #include "../src/whiteout/storages/common/mapped_file.h"
 
+#include <catch2/catch_test_macros.hpp>
+
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -22,18 +24,6 @@ using namespace whiteout;
 using namespace whiteout::storages::casc;
 using namespace whiteout::storages::common;
 
-static int g_passed = 0;
-static int g_failed = 0;
-
-static void check(bool condition, const char* name) {
-    if (condition) {
-        std::cout << "  PASS: " << name << "\n";
-        ++g_passed;
-    } else {
-        std::cout << "  FAIL: " << name << "\n";
-        ++g_failed;
-    }
-}
 
 static std::string findCorpusBase() {
     for (auto& p : {"Corpus/CASC", "../Corpus/CASC", "../../Corpus/CASC",
@@ -86,20 +76,18 @@ static std::vector<u8> resolveCKey(const std::string& dataDir,
     return std::move(decoded.data);
 }
 
-static void testTvfsRoot(const std::string& corpus) {
-    std::cout << "[Test: TVFS Root Pipeline (WC3)]\n";
-
+TEST_CASE("Tvfs Root", "[casc][tvfs_root][corpus]") {
+    auto corpus = findCorpusBase();
+    if (corpus.empty()) { SKIP("Corpus not found"); }
     std::string gameDir = corpus + "/Warcraft III";
     std::string dataDir = gameDir + "/Data";
 
     // Step 1: Read .build.info (lives at game root, not inside Data/).
     auto buildInfoFile = MappedFile::open(gameDir + "/.build.info");
-    check(buildInfoFile.has_value(), "WC3 .build.info opens");
-    if (!buildInfoFile) return;
+    REQUIRE(buildInfoFile.has_value());
 
     auto builds = parseBuildInfo(buildInfoFile->data());
-    check(!builds.empty(), "WC3 has build info entries");
-    if (builds.empty()) return;
+    REQUIRE_FALSE(builds.empty());
 
     const BuildInfo* activeBuild = nullptr;
     for (auto& b : builds) {
@@ -124,7 +112,7 @@ static void testTvfsRoot(const std::string& corpus) {
         activeBuild->buildKey[14], activeBuild->buildKey[15]);
 
     auto buildConfigFile = MappedFile::open(configPath);
-    check(buildConfigFile.has_value(), "WC3 build config opens");
+    CHECK(buildConfigFile.has_value());
     if (!buildConfigFile) {
         std::cout << "  Path tried: " << configPath << "\n";
         return;
@@ -147,20 +135,18 @@ static void testTvfsRoot(const std::string& corpus) {
     // Step 3: Load index table.
     auto indexTable = IndexTable::load(dataDir);
     std::cout << "  Index entries: " << indexTable.entryCount() << "\n";
-    check(indexTable.entryCount() > 0, "WC3 index loaded");
+    CHECK(indexTable.entryCount() > 0);
 
     // Step 4: Resolve encoding + root.
     auto encodingIdx = indexTable.find(std::span<const u8>(buildConfig.encodingEKey.data(), 9));
-    check(encodingIdx != nullptr, "Encoding EKey found in index");
-    if (!encodingIdx) return;
+    REQUIRE(encodingIdx != nullptr);
 
     auto encodingBlte = readArchiveData(dataDir, encodingIdx->archiveIndex,
                                         encodingIdx->archiveOffset, encodingIdx->encodedSize);
-    check(!encodingBlte.empty(), "Encoding archive data read");
-    if (encodingBlte.empty()) return;
+    REQUIRE_FALSE(encodingBlte.empty());
 
     auto encodingDecoded = blteDecode(encodingBlte);
-    check(encodingDecoded.success, "Encoding BLTE decoded");
+    CHECK(encodingDecoded.success);
     if (!encodingDecoded.success) {
         std::cout << "  Error: " << encodingDecoded.error << "\n";
         return;
@@ -168,7 +154,7 @@ static void testTvfsRoot(const std::string& corpus) {
 
     auto encodingTable = EncodingTable::parse(encodingDecoded.data);
     std::cout << "  Encoding entries: " << encodingTable.entryCount() << "\n";
-    check(encodingTable.entryCount() > 0, "Encoding table has entries");
+    CHECK(encodingTable.entryCount() > 0);
 
     // Try resolving root via encoding, or directly via EKey if VFS root has direct EKey.
     const IndexEntry* rootIdx = nullptr;
@@ -181,16 +167,14 @@ static void testTvfsRoot(const std::string& corpus) {
             rootIdx = indexTable.find(std::span<const u8>(rootEncEntry->eKey.data(), 9));
     }
 
-    check(rootIdx != nullptr, "Root found in index");
-    if (!rootIdx) return;
+    REQUIRE(rootIdx != nullptr);
 
     auto rootBlte = readArchiveData(dataDir, rootIdx->archiveIndex,
                                     rootIdx->archiveOffset, rootIdx->encodedSize);
-    check(!rootBlte.empty(), "Root archive data read");
-    if (rootBlte.empty()) return;
+    REQUIRE_FALSE(rootBlte.empty());
 
     auto rootDecoded = blteDecode(rootBlte);
-    check(rootDecoded.success, "Root BLTE decoded");
+    CHECK(rootDecoded.success);
     if (!rootDecoded.success) {
         std::cout << "  Error: " << rootDecoded.error << "\n";
         return;
@@ -205,12 +189,12 @@ static void testTvfsRoot(const std::string& corpus) {
 
     // Step 5: Parse TVFS root.
     auto root = TvfsRoot::parse(rootDecoded.data);
-    check(root != nullptr, "TVFS root parsed");
+    CHECK(root != nullptr);
     if (!root) {
         // If TVFS fails, try auto-detection.
         std::cout << "  Note: Direct TVFS parse failed, trying auto-detection...\n";
         auto autoRoot = RootManifest::parse(rootDecoded.data);
-        check(autoRoot != nullptr, "Auto-detection found a root format");
+        CHECK(autoRoot != nullptr);
         if (autoRoot) {
             std::cout << "  Auto-detected format: " << int(autoRoot->format()) << "\n";
             std::cout << "  Auto-detected entries: " << autoRoot->entryCount() << "\n";
@@ -219,14 +203,14 @@ static void testTvfsRoot(const std::string& corpus) {
     }
 
     std::cout << "  TVFS entries: " << root->entryCount() << "\n";
-    check(root->entryCount() > 0, "TVFS root has entries");
-    check(root->format() == RootFormat::Tvfs, "Format is Tvfs");
+    CHECK(root->entryCount() > 0);
+    CHECK(root->format() == RootFormat::Tvfs);
 
     // Step 6: Auto-detection test.
     auto autoRoot = RootManifest::parse(rootDecoded.data);
-    check(autoRoot != nullptr, "Auto-detection parsed TVFS root");
+    CHECK(autoRoot != nullptr);
     if (autoRoot) {
-        check(autoRoot->format() == RootFormat::Tvfs, "Auto-detected as Tvfs");
+        CHECK(autoRoot->format() == RootFormat::Tvfs);
     }
 
     // Step 7: Enumerate.
@@ -235,7 +219,7 @@ static void testTvfsRoot(const std::string& corpus) {
         ++enumCount;
         return true;
     });
-    check(enumCount == root->entryCount(), "Enumerate count matches entryCount");
+    CHECK(enumCount == root->entryCount());
 
     // Step 8: Print some sample paths.
     int printed = 0;
@@ -246,13 +230,11 @@ static void testTvfsRoot(const std::string& corpus) {
         }
         return printed < 10;
     });
-    check(printed > 0, "Found entries with paths");
+    CHECK(printed > 0);
 }
 
 // Synthetic TVFS test.
-static void testSyntheticTvfs() {
-    std::cout << "[Test: Synthetic TVFS root]\n";
-
+TEST_CASE("Synthetic Tvfs", "[casc][tvfs_root]") {
     // Build a minimal TVFS blob.
     // This is complex — we'll build a tiny prefix tree with one file.
     std::vector<u8> buf;
@@ -357,40 +339,23 @@ static void testSyntheticTvfs() {
     buf.insert(buf.end(), cftTable.begin(), cftTable.end());
 
     auto root = TvfsRoot::parse(buf);
-    check(root != nullptr, "Synthetic TVFS root parsed");
-    if (!root) return;
+    REQUIRE(root != nullptr);
 
-    check(root->entryCount() >= 1, "Synthetic TVFS has entries");
-    check(root->format() == RootFormat::Tvfs, "Format is Tvfs");
+    CHECK(root->entryCount() >= 1);
+    CHECK(root->format() == RootFormat::Tvfs);
 
     // Look up the file.
     auto found = root->findByPath("test.txt");
-    check(!found.empty(), "test.txt found by path");
+    CHECK_FALSE(found.empty());
 
     // Case-insensitive.
     auto foundUpper = root->findByPath("TEST.TXT");
-    check(!foundUpper.empty(), "TEST.TXT found (case-insensitive)");
+    CHECK_FALSE(foundUpper.empty());
 
     // Auto-detection.
     auto autoRoot = RootManifest::parse(buf);
-    check(autoRoot != nullptr, "Auto-detection parsed synthetic TVFS");
+    CHECK(autoRoot != nullptr);
     if (autoRoot) {
-        check(autoRoot->format() == RootFormat::Tvfs, "Auto-detected as Tvfs");
+        CHECK(autoRoot->format() == RootFormat::Tvfs);
     }
-}
-
-int main() {
-    std::cout << "=== CASC TVFS Root Tests ===\n\n";
-
-    testSyntheticTvfs();
-
-    auto corpus = findCorpusBase();
-    if (!corpus.empty()) {
-        testTvfsRoot(corpus);
-    } else {
-        std::cout << "WARNING: Corpus not found, skipping corpus-dependent tests.\n";
-    }
-
-    std::cout << "\n=== Results: " << g_passed << " passed, " << g_failed << " failed ===\n";
-    return g_failed > 0 ? 1 : 0;
 }
