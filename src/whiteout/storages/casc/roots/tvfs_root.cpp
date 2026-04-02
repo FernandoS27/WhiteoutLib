@@ -78,6 +78,11 @@ static bool parseHeader(std::span<const u8> data, TvfsHeader& hdr) {
     hdr.headerSize = p[5];
     hdr.eKeySize = p[6];
     hdr.patchKeySize = p[7];
+
+    // CascLib enforces eKeySize == 9 (ERROR_BAD_FORMAT otherwise).
+    // All known TVFS manifests use 9-byte eKeys matching CDN index key size.
+    if (hdr.eKeySize != 9) return false;
+
     hdr.flags = readLE32(p + 8);
     hdr.pathTableOffset  = readBE32(p + 12);
     hdr.pathTableSize    = readBE32(p + 16);

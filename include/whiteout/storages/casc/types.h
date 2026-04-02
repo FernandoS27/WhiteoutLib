@@ -26,6 +26,7 @@
 
 namespace whiteout::interfaces {
 class WorkerPool;
+class HttpHandler;
 } // namespace whiteout::interfaces
 
 namespace whiteout::storages::casc {
@@ -230,5 +231,86 @@ struct BatchReadResult {
     bool success = false;                         ///< True if the file was read successfully.
     std::string error;                            ///< Diagnostic message (empty on success).
 };
+
+// ============================================================================
+// Online Storage Types
+// ============================================================================
+
+/// CDN server endpoint.
+struct CdnServer {
+    std::string host;       ///< e.g. "level3.blizzard.com"
+    std::string path;       ///< e.g. "tpr/wow"
+    std::string configPath; ///< e.g. "tpr/configs" (for product configs)
+};
+
+/// Options for opening an online CASC storage.
+struct OnlineOpenOptions {
+    /// Product code (e.g. "wow", "hero", "w3", "d3", "fenris").
+    std::string product;
+
+    /// Region for version lookup (e.g. "us", "eu", "kr", "cn", "tw").
+    std::string region = "us";
+
+    /// Optional: force a specific build key (hex MD5).
+    /// If empty, the latest active version is used.
+    std::string buildKey;
+
+    /// HTTP handler — REQUIRED.  Must be thread-safe.
+    interfaces::HttpHandler* http = nullptr;
+
+    /// Optional local cache directory.
+    /// When set, fetched config/index/encoding/root data is written to disk
+    /// and reused on subsequent opens.  Archive data segments are also cached.
+    /// When empty, everything lives in memory only.
+    std::string cacheDir;
+
+    /// Locale filter (0 = accept all).
+    u32 localeMask = LocaleMasks::None;
+
+    /// Feature flags (e.g. LoadOnDemand).
+    u32 flags = StorageFeatureFlags::None;
+
+    /// Progress callback.
+    ProgressCallback progressCallback = nullptr;
+
+    /// Optional worker pool for parallel I/O.
+    interfaces::WorkerPool* pool = nullptr;
+
+    /// Per-host concurrency limit for HTTP requests (default 8).
+    /// Ignored when HttpCapability::Http2Multiplexing is reported.
+    u32 maxConnectionsPerHost = 8;
+
+    /// Maximum in-memory cache size in bytes (default 256 MB).
+    size_t memoryCacheSize = 256 * 1024 * 1024;
+
+    // ── Direct-config mode ───────────────────────────────────────────
+    // If the user already has versions/cdns/config data (e.g. from Ribbit),
+    // they can supply it directly to skip the initial HTTP lookups.
+
+    /// Pre-fetched CDN server list.  Overrides the cdns endpoint query.
+    std::vector<CdnServer> cdnServers;
+
+    /// Build config key to use (hex).  Together with cdnServers,
+    /// skips the versions endpoint query.
+    std::string directBuildConfigKey;
+
+    /// CDN config key to use (hex).  Together with directBuildConfigKey,
+    /// skips the versions endpoint query.
+    std::string directCdnConfigKey;
+};
+
+// ============================================================================
+// Error Codes
+// ============================================================================
+
+namespace CascError {
+static constexpr u32 None                  = 0x00;
+static constexpr u32 HttpRequestFailed     = 0x10;
+static constexpr u32 CdnServerUnavailable  = 0x11;
+static constexpr u32 RemoteFileNotFound    = 0x12;
+static constexpr u32 VersionInfoNotFound   = 0x13;
+static constexpr u32 CdnInfoNotFound       = 0x14;
+static constexpr u32 NoHttpHandler         = 0x15;
+} // namespace CascError
 
 } // namespace whiteout::storages::casc

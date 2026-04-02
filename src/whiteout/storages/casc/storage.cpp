@@ -243,7 +243,8 @@ std::vector<u8> Storage::Impl::readBlteFromIndex(const IndexEntry& idx) const {
 }
 
 std::vector<u8> Storage::Impl::resolveCKey(std::span<const u8, 16> cKey) const {
-    auto encEntry = encodingTable.findByCKey(cKey);
+    // Use 9-byte matching: TVFS roots truncate cKeys to eKeySize (9) bytes.
+    auto encEntry = encodingTable.findByCKey(cKey, 9);
     if (!encEntry) return {};
 
     auto idxEntry = indexTable.find(eKeyTrunc(encEntry->eKey));
@@ -282,19 +283,23 @@ std::optional<std::vector<u8>> Storage::Impl::resolveRootEntry(
     // Verify the entry can be located in the index.
     const IndexEntry* idxEntry = nullptr;
     if (!isZeroKey(best->cKey)) {
-        auto encEntry = encodingTable.findByCKey(best->cKey);
+        auto encEntry = encodingTable.findByCKey(best->cKey, 9);
         if (encEntry)
             idxEntry = indexTable.find(eKeyTrunc(encEntry->eKey));
-    } else if (!isZeroKey(best->eKey)) {
+    }
+    if (!idxEntry && !isZeroKey(best->eKey)) {
         idxEntry = indexTable.find(eKeyTrunc(best->eKey));
     }
     if (!idxEntry) return std::nullopt;
 
-    // Resolve the data. TVFS entries may have only an EKey (cKey is zeroed).
+    // Resolve the data. Try cKey path first, fallback to eKey.
+    // TVFS entries have truncated cKeys that fail encoding-table lookup,
+    // so the eKey fallback is essential for those entries.
     std::vector<u8> data;
     if (!isZeroKey(best->cKey)) {
         data = resolveCKey(best->cKey);
-    } else {
+    }
+    if (data.empty() && !isZeroKey(best->eKey)) {
         data = resolveEKey(best->eKey);
     }
     // Return data even if empty (valid empty file).
@@ -302,14 +307,13 @@ std::optional<std::vector<u8>> Storage::Impl::resolveRootEntry(
 }
 
 const EncodingEntry* Storage::Impl::resolveEncoding(const RootEntry& re) const {
+    // TVFS roots truncate both cKey and eKey to eKeySize (9) bytes, zero-
+    // padded to 16. Use truncated matching for both paths.
     if (!isZeroKey(re.cKey)) {
-        auto enc = encodingTable.findByCKey(re.cKey);
+        auto enc = encodingTable.findByCKey(re.cKey, 9);
         if (enc) return enc;
     }
     if (!isZeroKey(re.eKey)) {
-        // EKey-only entries (TVFS) use 9-byte truncated keys.
-        // Always compare exactly 9 bytes to avoid false matches
-        // when the key contains embedded zeros.
         return encodingTable.findByEKey(re.eKey, 9);
     }
     return nullptr;
@@ -874,10 +878,11 @@ std::vector<BatchReadResult> Storage::readBatch(
         // Resolve CKey or EKey → index → raw BLTE.
         const IndexEntry* idxEntry = nullptr;
         if (!isZeroKey(best->cKey)) {
-            auto encEntry = m_impl->encodingTable.findByCKey(best->cKey);
+            auto encEntry = m_impl->encodingTable.findByCKey(best->cKey, 9);
             if (encEntry)
                 idxEntry = m_impl->indexTable.find(eKeyTrunc(encEntry->eKey));
-        } else if (!isZeroKey(best->eKey)) {
+        }
+        if (!idxEntry && !isZeroKey(best->eKey)) {
             idxEntry = m_impl->indexTable.find(eKeyTrunc(best->eKey));
         }
 

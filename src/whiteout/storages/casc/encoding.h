@@ -27,7 +27,8 @@ public:
     /// Parse an ENCODING manifest (already BLTE-decoded).
     static EncodingTable parse(std::span<const u8> data);
 
-    const EncodingEntry* findByCKey(std::span<const u8, 16> cKey) const;
+    /// Find by CKey. matchBytes=0 means compare all 16 bytes.
+    const EncodingEntry* findByCKey(std::span<const u8, 16> cKey, size_t matchBytes = 0) const;
     /// Find by EKey. matchBytes=0 means compare all 16 bytes.
     const EncodingEntry* findByEKey(std::span<const u8, 16> eKey, size_t matchBytes = 0) const;
 

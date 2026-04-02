@@ -61,40 +61,53 @@ static std::array<u8, 16> parseHex16(std::string_view hex) {
 // .build.info
 // ============================================================================
 
-std::vector<BuildInfo> parseBuildInfo(std::span<const u8> data) {
-    if (data.empty()) return {};
+// ── TSV table parser (shared) ─────────────────────────────────────
+
+TsvTable parseTsv(std::span<const u8> data) {
+    TsvTable table;
+    if (data.empty()) return table;
 
     std::string_view text(reinterpret_cast<const char*>(data.data()), data.size());
     auto lines = splitLines(text);
-    if (lines.size() < 2) return {};
+    if (lines.size() < 2) return table;
 
     // Parse header: "ColumnName!TYPE:SIZE|ColumnName!TYPE:SIZE|..."
     auto headerCols = split(lines[0], '|');
-
-    struct ColInfo {
-        std::string_view name;
-        std::string_view type; // STRING, DEC, HEX
-    };
-    std::vector<ColInfo> columns;
     for (auto& col : headerCols) {
-        ColInfo ci;
-        auto bang = col.find('!');
+        auto trimmed = trim(col);
+        auto bang = trimmed.find('!');
         if (bang != std::string_view::npos) {
-            ci.name = col.substr(0, bang);
-            auto typeStr = col.substr(bang + 1);
-            auto colon = typeStr.find(':');
-            ci.type = (colon != std::string_view::npos) ? typeStr.substr(0, colon) : typeStr;
+            table.columns.emplace_back(trimmed.substr(0, bang));
         } else {
-            ci.name = col;
-            ci.type = "STRING";
+            table.columns.emplace_back(trimmed);
         }
-        columns.push_back(ci);
     }
 
-    // Find column indices for the fields we care about
-    auto findCol = [&](std::string_view name) -> int {
-        for (size_t i = 0; i < columns.size(); ++i)
-            if (columns[i].name == name) return int(i);
+    // Parse data rows
+    for (size_t row = 1; row < lines.size(); ++row) {
+        auto line = trim(lines[row]);
+        if (line.empty()) continue;
+
+        auto fields = split(line, '|');
+        std::vector<std::string> rowData;
+        rowData.reserve(fields.size());
+        for (auto& f : fields)
+            rowData.emplace_back(trim(f));
+        table.rows.push_back(std::move(rowData));
+    }
+
+    return table;
+}
+
+// ── .build.info parser ─────────────────────────────────────
+
+std::vector<BuildInfo> parseBuildInfo(std::span<const u8> data) {
+    auto table = parseTsv(data);
+    if (table.columns.empty()) return {};
+
+    auto findCol = [&](const std::string& name) -> int {
+        for (size_t i = 0; i < table.columns.size(); ++i)
+            if (table.columns[i] == name) return int(i);
         return -1;
     };
 
@@ -107,15 +120,11 @@ std::vector<BuildInfo> parseBuildInfo(std::span<const u8> data) {
     int iProduct = findCol("Product");
 
     std::vector<BuildInfo> results;
-    for (size_t row = 1; row < lines.size(); ++row) {
-        auto line = trim(lines[row]);
-        if (line.empty()) continue;
-
-        auto fields = split(line, '|');
+    for (auto& row : table.rows) {
         BuildInfo info;
 
         auto getField = [&](int idx) -> std::string_view {
-            if (idx >= 0 && size_t(idx) < fields.size()) return trim(fields[idx]);
+            if (idx >= 0 && size_t(idx) < row.size()) return row[idx];
             return {};
         };
 
@@ -291,6 +300,114 @@ ShmemInfo parseShmem(std::span<const u8> data) {
     std::memcpy(&info.version, data.data(), 4);
     std::memcpy(&info.archiveCount, data.data() + 4, 4);
     return info;
+}
+
+// ============================================================================
+// Versions / CDNs endpoint parsers
+// ============================================================================
+
+std::vector<VersionInfo> parseVersionsResponse(std::span<const u8> data) {
+    auto table = parseTsv(data);
+    if (table.columns.empty()) return {};
+
+    auto findCol = [&](const std::string& name) -> int {
+        for (size_t i = 0; i < table.columns.size(); ++i)
+            if (table.columns[i] == name) return int(i);
+        return -1;
+    };
+
+    int iRegion = findCol("Region");
+    int iBuildConfig = findCol("BuildConfig");
+    int iCdnConfig = findCol("CDNConfig");
+    int iKeyRing = findCol("KeyRing");
+    int iBuildId = findCol("BuildId");
+    int iVersion = findCol("VersionsName");
+    int iProdCfg = findCol("ProductConfig");
+
+    std::vector<VersionInfo> results;
+    for (auto& row : table.rows) {
+        VersionInfo vi;
+
+        auto getField = [&](int idx) -> std::string_view {
+            if (idx >= 0 && size_t(idx) < row.size()) return row[idx];
+            return {};
+        };
+
+        if (iRegion >= 0) vi.region = std::string(getField(iRegion));
+        if (iBuildConfig >= 0) vi.buildConfigKey = parseHex16(getField(iBuildConfig));
+        if (iCdnConfig >= 0) vi.cdnConfigKey = parseHex16(getField(iCdnConfig));
+        if (iKeyRing >= 0) vi.keyRing = parseHex16(getField(iKeyRing));
+        if (iBuildId >= 0) {
+            auto f = getField(iBuildId);
+            std::from_chars(f.data(), f.data() + f.size(), vi.buildId);
+        }
+        if (iVersion >= 0) vi.versionName = std::string(getField(iVersion));
+        if (iProdCfg >= 0) vi.productConfig = std::string(getField(iProdCfg));
+
+        results.push_back(std::move(vi));
+    }
+
+    return results;
+}
+
+std::vector<CdnInfo> parseCdnsResponse(std::span<const u8> data) {
+    auto table = parseTsv(data);
+    if (table.columns.empty()) return {};
+
+    auto findCol = [&](const std::string& name) -> int {
+        for (size_t i = 0; i < table.columns.size(); ++i)
+            if (table.columns[i] == name) return int(i);
+        return -1;
+    };
+
+    int iName = findCol("Name");
+    int iPath = findCol("Path");
+    int iHosts = findCol("Hosts");
+    int iServers = findCol("Servers");
+    int iConfigPath = findCol("ConfigPath");
+
+    std::vector<CdnInfo> results;
+    for (auto& row : table.rows) {
+        CdnInfo ci;
+
+        auto getField = [&](int idx) -> std::string_view {
+            if (idx >= 0 && size_t(idx) < row.size()) return row[idx];
+            return {};
+        };
+
+        if (iName >= 0) ci.region = std::string(getField(iName));
+        if (iPath >= 0) ci.path = std::string(getField(iPath));
+        if (iConfigPath >= 0) ci.configPath = std::string(getField(iConfigPath));
+
+        // Hosts are space-separated; Servers field has full URLs.
+        // Prefer Hosts if available, parse Servers as fallback.
+        auto hostsField = getField(iHosts);
+        if (!hostsField.empty()) {
+            auto parts = split(hostsField, ' ');
+            for (auto& p : parts) {
+                auto h = trim(p);
+                if (!h.empty())
+                    ci.hosts.emplace_back(h);
+            }
+        } else {
+            auto serversField = getField(iServers);
+            if (!serversField.empty()) {
+                auto parts = split(serversField, ' ');
+                for (auto& p : parts) {
+                    auto sv = trim(p);
+                    // Strip "https://" prefix to get bare host.
+                    if (sv.substr(0, 8) == "https://") sv.remove_prefix(8);
+                    else if (sv.substr(0, 7) == "http://") sv.remove_prefix(7);
+                    if (!sv.empty())
+                        ci.hosts.emplace_back(sv);
+                }
+            }
+        }
+
+        results.push_back(std::move(ci));
+    }
+
+    return results;
 }
 
 } // namespace whiteout::storages::casc

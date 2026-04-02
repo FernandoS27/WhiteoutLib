@@ -25,6 +25,7 @@ add_library(whiteout_lib
     src/whiteout/utils/simple_thread_pool.cpp
     src/whiteout/utils/timeline_semaphore.cpp
     src/whiteout/utils/os_file_system.cpp
+    src/whiteout/utils/simple_http_handler.cpp
     src/whiteout/vector_types.cpp
     src/whiteout/common/bit_io.cpp
     src/whiteout/common/huffman_table.cpp
@@ -239,6 +240,11 @@ if(WHITEOUT_ENABLE_CASC)
         src/whiteout/storages/casc/storage.cpp
         src/whiteout/storages/casc/writer.cpp
         src/whiteout/storages/casc/casc_file_system.cpp
+        src/whiteout/storages/casc/cdn_cache.cpp
+        src/whiteout/storages/casc/cdn_fetcher.cpp
+        src/whiteout/storages/casc/online_index.cpp
+        src/whiteout/storages/casc/memory_cache.cpp
+        src/whiteout/storages/casc/online_storage.cpp
     )
 
     add_library(whiteout_casc STATIC ${CASC_SOURCES})

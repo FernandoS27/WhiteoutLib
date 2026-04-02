@@ -71,6 +71,12 @@ if(WHITEOUT_ENABLE_CASC)
     whiteout_add_test(casc_corpus_test casc_corpus_test.cpp LINK whiteout_casc)
     whiteout_add_test(casc_parallel_test casc_parallel_test.cpp LINK whiteout_casc)
     whiteout_add_test(casc_round_trip_test casc_round_trip_test.cpp LINK whiteout_casc)
+    whiteout_add_test(online_storage_test online_storage_test.cpp LINK whiteout_casc)
+
+    add_executable(online_cross_validate_test online_cross_validate_test.cpp)
+    target_link_libraries(online_cross_validate_test PRIVATE whiteout_casc Catch2::Catch2WithMain)
+    target_include_directories(online_cross_validate_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    catch_discover_tests(online_cross_validate_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
     add_executable(casc_race_test casc_race_test.cpp)
     target_link_libraries(casc_race_test PRIVATE whiteout_casc Catch2::Catch2WithMain)

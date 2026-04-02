@@ -150,13 +150,17 @@ EncodingTable EncodingTable::parse(std::span<const u8> data) {
 // findByCKey
 // ============================================================================
 
-const EncodingEntry* EncodingTable::findByCKey(std::span<const u8, 16> cKey) const {
+const EncodingEntry* EncodingTable::findByCKey(std::span<const u8, 16> cKey,
+                                                size_t matchBytes) const {
+    if (matchBytes == 0) matchBytes = 16;
+    if (matchBytes > 16) matchBytes = 16;
+
     auto it = m_cKeyIndex.find(keyHash64(cKey.data()));
     if (it == m_cKeyIndex.end())
         return nullptr;
 
     auto& e = m_entries[it->second];
-    if (std::memcmp(e.cKey.data(), cKey.data(), 16) == 0)
+    if (std::memcmp(e.cKey.data(), cKey.data(), matchBytes) == 0)
         return &e;
 
     return nullptr;

@@ -86,4 +86,44 @@ struct ShmemInfo {
 /// Parse the shmem binary file.
 ShmemInfo parseShmem(std::span<const u8> data);
 
+// ============================================================================
+// TSV Table (shared parser)
+// ============================================================================
+
+/// Generic TSV table: column names + row data.
+struct TsvTable {
+    std::vector<std::string> columns;
+    std::vector<std::vector<std::string>> rows;
+};
+
+/// Parse a TSV table with typed column headers (e.g. "Col!TYPE:SIZE|...").
+TsvTable parseTsv(std::span<const u8> data);
+
+// ============================================================================
+// Online: Versions / CDNs Endpoint Responses
+// ============================================================================
+
+struct VersionInfo {
+    std::string region;
+    std::array<u8, 16> buildConfigKey{};
+    std::array<u8, 16> cdnConfigKey{};
+    std::array<u8, 16> keyRing{};
+    u32 buildId = 0;
+    std::string versionName;
+    std::string productConfig;
+};
+
+struct CdnInfo {
+    std::string region;
+    std::string path;
+    std::vector<std::string> hosts;
+    std::string configPath;
+};
+
+/// Parse `/v2/products/{product}/versions` TSV response.
+std::vector<VersionInfo> parseVersionsResponse(std::span<const u8> data);
+
+/// Parse `/v2/products/{product}/cdns` TSV response.
+std::vector<CdnInfo> parseCdnsResponse(std::span<const u8> data);
+
 } // namespace whiteout::storages::casc
