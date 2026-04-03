@@ -8,9 +8,12 @@
 #include "../../common/string_utils.h"
 
 #include <whiteout/interfaces.h>
+#include <whiteout/sno/core_toc.h>
+#include <whiteout/sno/sno_types.h>
 #include <whiteout/utils/job_group.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 
 namespace whiteout::storages::casc {
@@ -96,7 +99,50 @@ static const char* getAssetExtension(u32 assetIndex) {
     return nullptr;
 }
 
-/// Build the directory prefix for an asset entry's generated path.
+static const char* getAssetDirName(u32 assetIndex) {
+    for (auto& t : kAssetTypes) {
+        if (t.index == assetIndex) return t.name;
+    }
+    return nullptr;
+}
+
+/// Build a CascLib-compatible path for an asset entry using CoreTOC.
+/// Returns empty string if the CoreTOC does not contain the entry.
+static std::string buildAssetPath(const std::string& prefix, u32 fileIndex,
+                                  const sno::CoreToc* coreToc) {
+    if (!coreToc) return {};
+
+    auto* tocEntry = coreToc->findById(static_cast<i32>(fileIndex));
+    if (!tocEntry || tocEntry->name.empty()) return {};
+
+    auto group = static_cast<u32>(tocEntry->group);
+    const char* dirName = getAssetDirName(group);
+    const char* ext = getAssetExtension(group);
+    if (!dirName || !ext) return {};
+
+    return prefix + dirName + "\\" + tocEntry->name + "." + ext;
+}
+
+/// Build a CascLib-compatible path for an assetIdx entry using CoreTOC.
+/// SubIndex entries get a subfolder: Dir\Name\NNNN.ext
+static std::string buildAssetIdxPath(const std::string& prefix, u32 fileIndex,
+                                     u32 subIndex, const sno::CoreToc* coreToc) {
+    if (!coreToc) return {};
+
+    auto* tocEntry = coreToc->findById(static_cast<i32>(fileIndex));
+    if (!tocEntry || tocEntry->name.empty()) return {};
+
+    auto group = static_cast<u32>(tocEntry->group);
+    const char* dirName = getAssetDirName(group);
+    const char* ext = getAssetExtension(group);
+    if (!dirName || !ext) return {};
+
+    char subBuf[16];
+    std::snprintf(subBuf, sizeof(subBuf), "%04u", subIndex);
+    return prefix + dirName + "\\" + tocEntry->name + "\\" + subBuf + "." + ext;
+}
+
+/// Build the directory prefix for an asset entry's generated path (fallback).
 /// Known groups get their 3-letter extension; unknown groups get "unk_NN"
 /// (decimal group ID) so that different unknown groups don't collide.
 static std::string getGroupDir(u32 fileIndex) {
@@ -104,6 +150,17 @@ static std::string getGroupDir(u32 fileIndex) {
     auto ext = getAssetExtension(group);
     if (ext) return ext;
     return "unk_" + std::to_string(group);
+}
+
+/// Build a fallback numeric path when CoreTOC is not available.
+static std::string buildFallbackAssetPath(const std::string& prefix, u32 fileIndex) {
+    return prefix + getGroupDir(fileIndex) + "\\" + std::to_string(fileIndex);
+}
+
+static std::string buildFallbackAssetIdxPath(const std::string& prefix, u32 fileIndex,
+                                             u32 subIndex) {
+    return prefix + getGroupDir(fileIndex) + "\\" +
+           std::to_string(fileIndex) + "." + std::to_string(subIndex);
 }
 
 // ============================================================================
@@ -211,7 +268,7 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
 
     auto root = std::make_unique<D3Root>();
 
-    // Phase 1: Parse the root directory for named entries (including sub-dir CKeys).
+    // Phase 1: Parse the root directory for named entries (sub-dir CKeys).
     std::vector<AssetEntry> assetEntries;
     std::vector<AssetIdxEntry> assetIdxEntries;
     std::vector<NamedEntry> namedEntries;
@@ -220,24 +277,17 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
     if (!parseDirectory(data, offset, assetEntries, assetIdxEntries, namedEntries))
         return nullptr;
 
-    // Asset entries from root directory → flat entries with generated paths.
-    for (auto& ae : assetEntries) {
-        RootEntry re;
-        re.cKey = ae.cKey;
-        re.fileDataId = ae.fileIndex;
-        re.path = getGroupDir(ae.fileIndex) + "\\" +
-                  std::to_string(ae.fileIndex & 0xFFFF);
-        root->m_entries.push_back(std::move(re));
-    }
+    // Collect root-level asset entries for later path generation.
+    // CascLib resolves these AFTER loading CoreTOC in Phase 2.
+    struct PendingAsset { AssetEntry ae; std::string prefix; };
+    struct PendingAssetIdx { AssetIdxEntry aie; std::string prefix; };
+    std::vector<PendingAsset> pendingAssets;
+    std::vector<PendingAssetIdx> pendingAssetIdx;
 
-    for (auto& aie : assetIdxEntries) {
-        RootEntry re;
-        re.cKey = aie.cKey;
-        re.fileDataId = aie.fileIndex;
-        re.path = getGroupDir(aie.fileIndex) + "\\" +
-                  std::to_string(aie.fileIndex & 0xFFFF) + "." + std::to_string(aie.subIndex);
-        root->m_entries.push_back(std::move(re));
-    }
+    for (auto& ae : assetEntries)
+        pendingAssets.push_back({ae, {}});
+    for (auto& aie : assetIdxEntries)
+        pendingAssetIdx.push_back({aie, {}});
 
     // Named entries from root are sub-directory references (Base, enUS, Windows, …)
     // — not actual files. Collect them for sub-directory resolution only.
@@ -245,6 +295,10 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
     if (resolver) {
         subdirEntries = std::move(namedEntries);
     }
+
+    // CoreTOC CKey — look for it among sub-directory named entries.
+    std::array<u8, 16> coreTocCKey{};
+    bool haveCoreTocCKey = false;
 
     // Phase 2: Resolve sub-directories.
     if (resolver && !subdirEntries.empty()) {
@@ -282,26 +336,20 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
             if (parseDirectory(subdirData[si], subOffset, subAssets, subAssetIdx, subNamed)) {
                 std::string prefix = subNe.name.empty() ? "" : (subNe.name + "\\");
 
-                for (auto& ae : subAssets) {
-                    RootEntry re;
-                    re.cKey = ae.cKey;
-                    re.fileDataId = ae.fileIndex;
-                    re.path = prefix + getGroupDir(ae.fileIndex) + "\\" +
-                              std::to_string(ae.fileIndex & 0xFFFF);
-                    root->m_entries.push_back(std::move(re));
-                }
+                // Save asset entries for Phase 3 (after CoreTOC resolution).
+                for (auto& ae : subAssets)
+                    pendingAssets.push_back({ae, prefix});
+                for (auto& aie : subAssetIdx)
+                    pendingAssetIdx.push_back({aie, prefix});
 
-                for (auto& aie : subAssetIdx) {
-                    RootEntry re;
-                    re.cKey = aie.cKey;
-                    re.fileDataId = aie.fileIndex;
-                    re.path = prefix + getGroupDir(aie.fileIndex) + "\\" +
-                              std::to_string(aie.fileIndex & 0xFFFF) + "." +
-                              std::to_string(aie.subIndex);
-                    root->m_entries.push_back(std::move(re));
-                }
-
+                // Named entries are real files — add them directly.
                 for (auto& sn : subNamed) {
+                    // Look for CoreTOC.dat in the "Base" sub-directory.
+                    if (!haveCoreTocCKey && sn.name == "CoreTOC.dat") {
+                        coreTocCKey = sn.cKey;
+                        haveCoreTocCKey = true;
+                    }
+
                     RootEntry re;
                     re.cKey = sn.cKey;
                     re.path = prefix + sn.name;
@@ -309,6 +357,44 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
                 }
             }
         }
+    }
+
+    // Phase 3: Resolve CoreTOC and build CascLib-compatible paths.
+    sno::CoreToc coreToc;
+    bool haveCoreToc = false;
+    if (haveCoreTocCKey && resolver) {
+        auto tocData = resolver(coreTocCKey);
+        if (!tocData.empty()) {
+            haveCoreToc = coreToc.parse(tocData);
+        }
+    }
+
+    const sno::CoreToc* tocPtr = haveCoreToc ? &coreToc : nullptr;
+
+    for (auto& pa : pendingAssets) {
+        RootEntry re;
+        re.cKey = pa.ae.cKey;
+        re.fileDataId = pa.ae.fileIndex;
+
+        auto path = buildAssetPath(pa.prefix, pa.ae.fileIndex, tocPtr);
+        re.path = path.empty()
+            ? buildFallbackAssetPath(pa.prefix, pa.ae.fileIndex)
+            : std::move(path);
+        root->m_entries.push_back(std::move(re));
+    }
+
+    for (auto& pia : pendingAssetIdx) {
+        RootEntry re;
+        re.cKey = pia.aie.cKey;
+        re.fileDataId = pia.aie.fileIndex;
+
+        auto path = buildAssetIdxPath(pia.prefix, pia.aie.fileIndex,
+                                      pia.aie.subIndex, tocPtr);
+        re.path = path.empty()
+            ? buildFallbackAssetIdxPath(pia.prefix, pia.aie.fileIndex,
+                                        pia.aie.subIndex)
+            : std::move(path);
+        root->m_entries.push_back(std::move(re));
     }
 
     if (!root->m_entries.empty())

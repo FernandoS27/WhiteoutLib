@@ -198,12 +198,66 @@ TEST_CASE("D3Root", "[casc][d3_root][corpus]") {
 
     // Step 9: Verify some entries have non-empty paths.
     size_t withPath = 0;
+    size_t withNamedPath = 0; // paths that look CascLib-compatible (contain a '.')
     root->enumerate([&](const RootEntry& e) {
-        if (!e.path.empty()) ++withPath;
+        if (!e.path.empty()) {
+            ++withPath;
+            // CascLib-compatible paths have extensions: Actor\SomeName.acr
+            if (e.path.find('.') != std::string::npos)
+                ++withNamedPath;
+        }
         return true;
     });
     CHECK(withPath > 0);
+    CHECK(withNamedPath > 0);
     std::cout << "  Entries with paths: " << withPath << "\n";
+    std::cout << "  Entries with named paths (CoreTOC-resolved): " << withNamedPath << "\n";
+
+    // Step 10: Verify CascLib-compatible path structure.
+    // Asset paths should follow: [SubDir\]GroupDir\Name.ext
+    // Note: enumerateUnder compares against raw e.path (case-sensitive).
+    size_t actorCount = 0;
+    root->enumerateUnder("Base\\Actor\\", [&](const RootEntry&) {
+        ++actorCount;
+        return true;
+    });
+    size_t texturesCount = 0;
+    root->enumerateUnder("Base\\Textures\\", [&](const RootEntry&) {
+        ++texturesCount;
+        return true;
+    });
+    std::cout << "  Actor entries under Base\\Actor\\: " << actorCount << "\n";
+    std::cout << "  Texture entries under Base\\Textures\\: " << texturesCount << "\n";
+    // D3 should have many assets in these well-known directories.
+    CHECK(actorCount > 0);
+    CHECK(texturesCount > 0);
+
+    // Print a few example paths for visual inspection.
+    size_t printed = 0;
+    std::cout << "  Sample asset paths:\n";
+    root->enumerateUnder("Base\\Actor\\", [&](const RootEntry& e) {
+        if (printed < 5) {
+            std::cout << "    " << e.path << "\n";
+            ++printed;
+        }
+        return printed < 5;
+    });
+    printed = 0;
+    root->enumerateUnder("Base\\Textures\\", [&](const RootEntry& e) {
+        if (printed < 5) {
+            std::cout << "    " << e.path << "\n";
+            ++printed;
+        }
+        return printed < 5;
+    });
+    printed = 0;
+    root->enumerateUnder("Base\\SoundBank\\", [&](const RootEntry& e) {
+        if (printed < 5) {
+            std::cout << "    " << e.path << "\n";
+            ++printed;
+        }
+        return printed < 5;
+    });
 }
 
 // Synthetic D3 root test (no corpus needed).
@@ -257,18 +311,26 @@ TEST_CASE("Synthetic D3Root", "[casc][d3_root]") {
     REQUIRE(root != nullptr);
 
     // 3 entries: 2 asset + 1 assetIdx. Named entries are sub-directory
-    // references and are NOT emitted as root entries.
+    // references and are NOT emitted as root entries (without a resolver
+    // they can't be resolved for CoreTOC loading).
     CHECK(root->entryCount() == 3);
     CHECK(root->format() == RootFormat::Diablo3);
 
-    // Verify asset path.
-    auto texEntry = root->findByPath("tex/0");
+    // Verify asset paths — without a resolver/CoreTOC, paths use the numeric fallback:
+    //   getGroupDir(fileIndex) + "\" + fileIndex
+    // where getGroupDir extracts group from upper 16 bits of the fileIndex.
+    // FileIndex = 0x2C << 16 | 0 = 2883584 → group 0x2C = "tex"
+    auto texEntry = root->findByPath("tex/2883584");
     CHECK_FALSE(texEntry.empty());
 
-    auto actorEntry = root->findByPath("acr/5.3");
+    // FileIndex = 0x01 << 16 | 5 = 65541, subIndex = 3 → group 0x01 = "acr"
+    auto actorEntry = root->findByPath("acr/65541.3");
     CHECK_FALSE(actorEntry.empty());
 
-    // FileDataId should return empty for D3.
-    auto byFdid = root->findByFileDataId(100);
-    CHECK(byFdid.empty());
+    // FileDataId lookup should find the asset entries by fileIndex.
+    auto byFdid = root->findByFileDataId(u32(0x2C << 16) | 0);
+    CHECK_FALSE(byFdid.empty());
+
+    auto byFdid2 = root->findByFileDataId(100);
+    CHECK(byFdid2.empty());
 }
