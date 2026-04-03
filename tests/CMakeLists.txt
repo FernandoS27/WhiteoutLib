@@ -94,6 +94,12 @@ if(WHITEOUT_ENABLE_CASC)
     add_executable(casc_perf_crossref_test casc_perf_crossref_test.cpp)
     target_link_libraries(casc_perf_crossref_test PRIVATE whiteout_casc)
 
+    # Online performance cross-reference test — standalone executable with custom main().
+    # Benchmarks OnlineStorage (CDN-backed) read performance.
+    # Usage: online_perf_crossref_test <product> [options]
+    add_executable(online_perf_crossref_test online_perf_crossref_test.cpp)
+    target_link_libraries(online_perf_crossref_test PRIVATE whiteout_casc)
+
     # =========================================================================
     # Optional CascLib cross-validation target
     # Fetches CascLib for byte-identical comparison against the new
@@ -126,6 +132,10 @@ if(WHITEOUT_ENABLE_CASC)
         # Performance cross-reference with CascLib comparison.
         target_link_libraries(casc_perf_crossref_test PRIVATE casc_static)
         target_compile_definitions(casc_perf_crossref_test PRIVATE WHITEOUT_HAS_CASCLIB_CROSSVAL=1)
+
+        # Online performance cross-reference with CascLib comparison.
+        target_link_libraries(online_perf_crossref_test PRIVATE casc_static)
+        target_compile_definitions(online_perf_crossref_test PRIVATE WHITEOUT_HAS_CASCLIB_CROSSVAL=1)
 
     else()
         # Build the cross-validate test without CascLib (internal consistency only).

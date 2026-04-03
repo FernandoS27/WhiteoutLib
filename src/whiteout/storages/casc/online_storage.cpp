@@ -114,6 +114,14 @@ struct OnlineStorage::Impl {
 // ── Resolution ─────────────────────────────────────────────────────
 
 std::vector<u8> OnlineStorage::Impl::resolveCKey(std::span<const u8, 16> cKey) const {
+    // Memory cache lookup (keyed by cKey — content-addressable).
+    std::array<u8, 16> cKey16{};
+    std::memcpy(cKey16.data(), cKey.data(), 16);
+    if (memCache) {
+        if (auto cached = memCache->get(cKey16))
+            return std::move(*cached);
+    }
+
     // Use 9-byte matching: TVFS roots truncate cKeys to eKeySize (9) bytes.
     // With 72 bits of MD5, false-positive risk is negligible (~10^-12).
     auto encEntry = encodingTable.findByCKey(cKey, kEKeyTruncSize);
@@ -135,10 +143,21 @@ std::vector<u8> OnlineStorage::Impl::resolveCKey(std::span<const u8, 16> cKey) c
 
     auto decoded = blteDecode(blteData, &keyRing, pool);
     if (!decoded.success) return {};
+
+    if (memCache)
+        memCache->put(cKey16, decoded.data);
     return std::move(decoded.data);
 }
 
 std::vector<u8> OnlineStorage::Impl::resolveEKey(std::span<const u8, 16> eKey) const {
+    // Memory cache lookup (keyed by eKey).
+    std::array<u8, 16> eKey16{};
+    std::memcpy(eKey16.data(), eKey.data(), 16);
+    if (memCache) {
+        if (auto cached = memCache->get(eKey16))
+            return std::move(*cached);
+    }
+
     auto idxEntry = onlineIndex.find(eKeyTrunc(eKey));
     std::vector<u8> blteData;
     if (idxEntry) {
@@ -146,14 +165,15 @@ std::vector<u8> OnlineStorage::Impl::resolveEKey(std::span<const u8, 16> eKey) c
                                           idxEntry->archiveOffset,
                                           idxEntry->encodedSize);
     } else {
-        std::array<u8, 16> eKey16{};
-        std::memcpy(eKey16.data(), eKey.data(), 16);
         blteData = dataSource->fetchBlte(eKey16);
     }
     if (blteData.empty()) return {};
 
     auto decoded = blteDecode(blteData, &keyRing, pool);
     if (!decoded.success) return {};
+
+    if (memCache)
+        memCache->put(eKey16, decoded.data);
     return std::move(decoded.data);
 }
 
@@ -976,7 +996,7 @@ std::vector<BatchReadResult> OnlineStorage::readBatch(
 
     if (toResolve.empty()) return results;
 
-    // Phase 1: Resolve root entry → fetch BLTE blob.
+    // Phase 1: Resolve root entry → fetch BLTE blob (parallel async).
     struct ResolvedBlob {
         std::vector<u8> blteData;
         bool resolved = false;
@@ -984,14 +1004,25 @@ std::vector<BatchReadResult> OnlineStorage::readBatch(
     };
     std::vector<ResolvedBlob> resolvedBlobs(toResolve.size());
 
-    auto resolveOne = [&](size_t idx) {
+    // Pass 1 (CPU-only): resolve each request to fetch parameters.
+    struct FetchParams {
+        bool needsFetch = false;
+        bool useArchive = false;          // true = archive range, false = loose eKey
+        u32 archiveIndex = 0;
+        u64 archiveOffset = 0;
+        u32 encodedSize = 0;
+        std::array<u8, 16> eKey{};
+    };
+    std::vector<FetchParams> fetchParams(toResolve.size());
+
+    for (size_t idx = 0; idx < toResolve.size(); ++idx) {
         auto& work = toResolve[idx];
         auto& blob = resolvedBlobs[idx];
+        auto& fp = fetchParams[idx];
 
         const RootEntry* best = selectBestEntry(work.rootEntries, work.localeFlags);
-        if (!best) { blob.error = "no matching root entry"; return; }
+        if (!best) { blob.error = "no matching root entry"; continue; }
 
-        // Resolve CKey/EKey → index → fetch BLTE data from CDN.
         const OnlineIndexTable::Entry* idxEntry = nullptr;
         std::array<u8, 16> eKey{};
 
@@ -1008,23 +1039,70 @@ std::vector<BatchReadResult> OnlineStorage::readBatch(
         }
 
         if (idxEntry) {
-            blob.blteData = m_impl->dataSource->fetchBlte(
-                idxEntry->archiveIndex, idxEntry->archiveOffset, idxEntry->encodedSize);
+            fp.needsFetch = true;
+            fp.useArchive = true;
+            fp.archiveIndex = idxEntry->archiveIndex;
+            fp.archiveOffset = idxEntry->archiveOffset;
+            fp.encodedSize = idxEntry->encodedSize;
         } else if (!isZeroKey(eKey)) {
-            blob.blteData = m_impl->dataSource->fetchBlte(eKey);
-        }
-
-        if (blob.blteData.empty()) {
+            fp.needsFetch = true;
+            fp.useArchive = false;
+            fp.eKey = eKey;
+        } else {
             blob.error = "failed to fetch BLTE data from CDN";
-            return;
         }
-        blob.resolved = true;
-    };
+    }
 
-    // Serial resolution (CDN fetches are inherently network-bound;
-    // parallel resolution is done at the HTTP layer via async callbacks).
-    for (size_t idx = 0; idx < toResolve.size(); ++idx)
-        resolveOne(idx);
+    // Pass 2: Dispatch all fetches concurrently via async HTTP.
+    struct WaitState {
+        std::atomic<size_t> completed{0};
+        size_t total = 0;
+        std::mutex mtx;
+        std::condition_variable cv;
+    };
+    auto state = std::make_shared<WaitState>();
+
+    // Count how many async fetches we'll issue.
+    for (size_t idx = 0; idx < toResolve.size(); ++idx) {
+        if (fetchParams[idx].needsFetch)
+            ++state->total;
+    }
+
+    if (state->total > 0) {
+        auto makeCallback = [&resolvedBlobs, state](size_t idx) {
+            return [&resolvedBlobs, state, idx](std::optional<std::vector<u8>> data) {
+                if (data && !data->empty()) {
+                    resolvedBlobs[idx].blteData = std::move(*data);
+                    resolvedBlobs[idx].resolved = true;
+                } else {
+                    resolvedBlobs[idx].error = "failed to fetch BLTE data from CDN";
+                }
+                if (state->completed.fetch_add(1, std::memory_order_acq_rel) + 1 >= state->total) {
+                    std::lock_guard<std::mutex> lk(state->mtx);
+                    state->cv.notify_one();
+                }
+            };
+        };
+
+        for (size_t idx = 0; idx < toResolve.size(); ++idx) {
+            auto& fp = fetchParams[idx];
+            if (!fp.needsFetch) continue;
+
+            if (fp.useArchive) {
+                m_impl->dataSource->fetchBlteAsync(
+                    fp.archiveIndex, fp.archiveOffset, fp.encodedSize,
+                    makeCallback(idx));
+            } else {
+                m_impl->dataSource->fetchBlteAsync(fp.eKey, makeCallback(idx));
+            }
+        }
+
+        // Wait for all async fetches to complete.
+        std::unique_lock<std::mutex> lk(state->mtx);
+        state->cv.wait_for(lk, std::chrono::seconds(120), [&] {
+            return state->completed.load(std::memory_order_acquire) >= state->total;
+        });
+    }
 
     // Phase 2: Batch BLTE decode.
     std::vector<BlteBatchEntry> batchEntries;
@@ -1107,6 +1185,9 @@ std::optional<std::array<u8, 16>> OnlineStorage::findEncryptionKey(u64 keyName) 
 
 void OnlineStorage::flushCache() {
     // CdnCache writes are synchronous (write-through), so nothing to flush.
+    // Clear in-memory decoded-data cache.
+    if (m_impl && m_impl->memCache)
+        m_impl->memCache->clear();
 }
 
 bool OnlineStorage::prefetch() {

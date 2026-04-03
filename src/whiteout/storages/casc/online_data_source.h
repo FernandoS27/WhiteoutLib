@@ -46,6 +46,25 @@ public:
         return data.value_or(std::vector<u8>{});
     }
 
+    // ── Async variants (non-blocking, callback-based) ────────────
+
+    using FetchCallback = CdnFetcher::FetchCallback;
+
+    void fetchBlteAsync(const std::array<u8, 16>& eKey, FetchCallback callback) {
+        auto keyHex = storages::common::hexEncode16(eKey);
+        m_fetcher->fetchAsync("data", keyHex, std::move(callback));
+    }
+
+    void fetchBlteAsync(u32 archiveIndex, u64 offset, u32 encodedSize,
+                        FetchCallback callback) {
+        if (!m_archiveEKeys || archiveIndex >= m_archiveEKeys->size()) {
+            callback(std::nullopt);
+            return;
+        }
+        auto archiveKeyHex = storages::common::hexEncode16((*m_archiveEKeys)[archiveIndex]);
+        m_fetcher->fetchRangeAsync(archiveKeyHex, offset, encodedSize, std::move(callback));
+    }
+
 private:
     CdnFetcher* m_fetcher;
     const OnlineIndexTable* m_archiveIndex;
