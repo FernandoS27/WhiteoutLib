@@ -65,7 +65,7 @@ public:
     std::optional<FileFullInfo> fileInfo(const std::string& cascPath) const;
     std::optional<FileFullInfo> fileInfo(i32 fileId) const;
 
-    void enumerate(std::function<bool(const FindEntry&)> callback) const;
+    void enumerate(std::function<bool(const EnumerateEntry&)> callback) const;
     std::vector<std::string> listFiles() const;
     std::vector<FindEntry> listEntries() const;
     std::optional<u32> totalFileCount() const;

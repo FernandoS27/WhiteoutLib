@@ -93,6 +93,7 @@ static constexpr std::array<i32, 19> CL_CODE_ORDER = {{
 struct Inflater {
     BitReader br;
     std::vector<u8> output;
+    size_t outPos = 0; ///< Current write position within output.
     std::string* errorOut;
 
     bool error(const char* msg) {
@@ -101,58 +102,197 @@ struct Inflater {
         return false;
     }
 
+    /// Ensure at least @p n bytes are available at outPos.
+    void ensureSpace(size_t n) {
+        size_t needed = outPos + n;
+        if (needed > output.size()) {
+            // Grow by at least 2x to amortize reallocations.
+            size_t newCap = output.size() * 2;
+            if (newCap < needed) newCap = needed;
+            if (newCap < 4096) newCap = 4096;
+            output.resize(newCap);
+        }
+    }
+
     bool inflateStored() {
         br.alignToByte();
-        if (br.bytePos + 4 > br.size)
-            return error("Truncated stored block header");
+        // After alignToByte, the bit buffer may still hold pre-fetched whole
+        // bytes (from the 64-bit bulk refill). readBits() consumes from the
+        // buffer, but bytePos has already been advanced past those bytes.
+        // We read LEN/NLEN through the bit reader, then rewind bytePos to
+        // account for any remaining buffered bytes before the bulk memcpy.
         u32 len = br.readBits(16);
         u32 nlen = br.readBits(16);
         if ((len ^ nlen) != 0xFFFF)
             return error("Stored block LEN/NLEN mismatch");
-        for (u32 i = 0; i < len; ++i) {
-            if (br.bytePos >= br.size && br.bitsAvail < 8)
-                return error("Truncated stored block data");
-            output.push_back(static_cast<u8>(br.readBits(8)));
-        }
+        // Rewind bytePos to the logical stream position (after LEN/NLEN).
+        br.bytePos -= static_cast<size_t>(br.bitsAvail / 8);
+        br.bitsAvail = 0;
+        br.bitBuf = 0;
+        // Bulk copy stored block data.
+        if (br.bytePos + len > br.size)
+            return error("Truncated stored block data");
+        ensureSpace(len);
+        std::memcpy(output.data() + outPos, br.data + br.bytePos, len);
+        outPos += len;
+        br.bytePos += len;
         return true;
     }
 
     bool inflateBlock(const HuffTable& litLen, const HuffTable& dist) {
+        // Cache output state locally.
+        u8* outBuf = output.data();
+        size_t outCap = output.size();
+        size_t wp = outPos;
+
+        // Cache ALL bit-reader state in locals to eliminate member-access overhead.
+        u64 bits = br.bitBuf;
+        i32 bitsLeft = br.bitsAvail;
+        const u8* brData = br.data;
+        size_t brPos = br.bytePos;
+        size_t brSize = br.size;
+
+        // Raw table pointers for fast Huffman lookup (avoids std::array bounds).
+        constexpr u32 FAST_MASK = HuffTable::FAST_SIZE - 1;
+        const u16* llSym = litLen.fastSymbol.data();
+        const u8* llLen = litLen.fastLen.data();
+        const u16* dSym = dist.fastSymbol.data();
+        const u8* dLen = dist.fastLen.data();
+
         for (;;) {
-            i32 sym = litLen.decode(br);
-            if (sym < 0)
-                return error("Invalid literal/length code");
+            // ---- Single refill per iteration ----
+            // After refill, bitsLeft >= 56. Worst-case consumption per
+            // iteration is 48 bits (15 litLen + 5 lenExtra + 15 dist + 13 distExtra),
+            // so one refill always suffices for the entire iteration.
+            if (bitsLeft <= 56) {
+                if (brPos + 8 <= brSize) {
+                    u64 next = 0;
+                    std::memcpy(&next, brData + brPos, 8);
+                    bits |= next << bitsLeft;
+                    i32 consume = (64 - bitsLeft) >> 3;
+                    brPos += consume;
+                    bitsLeft += consume * 8;
+                } else {
+                    while (bitsLeft <= 56 && brPos < brSize) {
+                        bits |= static_cast<u64>(brData[brPos++]) << bitsLeft;
+                        bitsLeft += 8;
+                    }
+                }
+            }
+
+            // ---- Decode literal/length symbol (inlined fast path) ----
+            i32 sym;
+            {
+                u32 peek = static_cast<u32>(bits) & FAST_MASK;
+                u8 codeLen = llLen[peek];
+                if (codeLen) {
+                    sym = llSym[peek];
+                    bits >>= codeLen;
+                    bitsLeft -= codeLen;
+                } else {
+                    // Slow path (~1% of codes): sync state, call full decode.
+                    br.bitBuf = bits;
+                    br.bitsAvail = bitsLeft;
+                    br.bytePos = brPos;
+                    sym = litLen.decode(br);
+                    bits = br.bitBuf;
+                    bitsLeft = br.bitsAvail;
+                    brPos = br.bytePos;
+                }
+            }
+
+            // ---- Literal ----
             if (sym < 256) {
-                output.push_back(static_cast<u8>(sym));
-            } else if (sym == 256) {
-                return true; // End of block.
-            } else {
-                // Length code.
+                if (sym < 0)
+                    return error("Invalid literal/length code");
+                if (wp >= outCap) {
+                    outPos = wp;
+                    ensureSpace(4096);
+                    outBuf = output.data();
+                    outCap = output.size();
+                }
+                outBuf[wp++] = static_cast<u8>(sym);
+                continue;
+            }
+
+            // ---- End of block ----
+            if (sym == 256) {
+                outPos = wp;
+                br.bitBuf = bits;
+                br.bitsAvail = bitsLeft;
+                br.bytePos = brPos;
+                return true;
+            }
+
+            // ---- Length/Distance back-reference ----
+            {
                 i32 lenIdx = sym - 257;
                 if (lenIdx < 0 || lenIdx >= 29)
                     return error("Invalid length code");
                 u32 length = LENGTH_TABLE[lenIdx].base;
-                if (LENGTH_TABLE[lenIdx].extraBits > 0) {
-                    length += br.readBits(LENGTH_TABLE[lenIdx].extraBits);
+                u32 lenExtra = LENGTH_TABLE[lenIdx].extraBits;
+                if (lenExtra) {
+                    length += static_cast<u32>(bits) & ((1u << lenExtra) - 1);
+                    bits >>= lenExtra;
+                    bitsLeft -= lenExtra;
                 }
 
-                // Distance code.
-                i32 distSym = dist.decode(br);
+                // Distance decode (inlined fast path, no refill needed —
+                // we still have at least 56 - 20 = 36 bits, enough for any
+                // distance code (max 15) + extra (max 13) = 28 bits).
+                i32 distSym;
+                {
+                    u32 dPeek = static_cast<u32>(bits) & FAST_MASK;
+                    u8 dCodeLen = dLen[dPeek];
+                    if (dCodeLen) {
+                        distSym = dSym[dPeek];
+                        bits >>= dCodeLen;
+                        bitsLeft -= dCodeLen;
+                    } else {
+                        br.bitBuf = bits;
+                        br.bitsAvail = bitsLeft;
+                        br.bytePos = brPos;
+                        distSym = dist.decode(br);
+                        bits = br.bitBuf;
+                        bitsLeft = br.bitsAvail;
+                        brPos = br.bytePos;
+                    }
+                }
                 if (distSym < 0 || distSym >= 30)
                     return error("Invalid distance code");
+
                 u32 distance = DISTANCE_TABLE[distSym].base;
-                if (DISTANCE_TABLE[distSym].extraBits > 0) {
-                    distance += br.readBits(DISTANCE_TABLE[distSym].extraBits);
+                u32 distExtra = DISTANCE_TABLE[distSym].extraBits;
+                if (distExtra) {
+                    distance += static_cast<u32>(bits) & ((1u << distExtra) - 1);
+                    bits >>= distExtra;
+                    bitsLeft -= distExtra;
                 }
 
-                if (distance > output.size())
+                if (distance > wp)
                     return error("Distance exceeds output buffer");
 
-                // Copy from back-reference.
-                size_t srcPos = output.size() - distance;
-                for (u32 i = 0; i < length; ++i) {
-                    output.push_back(output[srcPos + i]);
+                outPos = wp;
+                ensureSpace(length);
+                outBuf = output.data();
+                outCap = output.size();
+                u8* dst = outBuf + wp;
+                const u8* src = outBuf + wp - distance;
+                if (distance >= length) {
+                    std::memcpy(dst, src, length);
+                } else if (distance == 1) {
+                    std::memset(dst, src[0], length);
+                } else {
+                    size_t copied = distance;
+                    std::memcpy(dst, src, distance);
+                    while (copied < length) {
+                        size_t chunk = copied;
+                        if (chunk > length - copied) chunk = length - copied;
+                        std::memcpy(dst + copied, dst, chunk);
+                        copied += chunk;
+                    }
                 }
+                wp += length;
             }
         }
     }
@@ -427,7 +567,8 @@ struct Deflater {
 // Public API
 // ============================================================================
 
-std::vector<u8> zlib_decompress(std::span<const u8> data, std::string* out_error) {
+std::vector<u8> zlib_decompress(std::span<const u8> data, std::string* out_error,
+                                size_t expectedSize) {
     if (data.size() < 6) {
         if (out_error)
             *out_error = "Zlib data too short";
@@ -461,11 +602,17 @@ std::vector<u8> zlib_decompress(std::span<const u8> data, std::string* out_error
 
     Inflater inflater;
     inflater.errorOut = out_error;
-    inflater.output.reserve(data.size() * 4); // Rough estimate.
+    // Pre-size to expectedSize when known, so the inner loop rarely re-allocates.
+    size_t initSize = expectedSize > 0 ? expectedSize : data.size() * 4;
+    if (initSize < 4096) initSize = 4096;
+    inflater.output.resize(initSize);
 
     if (!inflater.run(data.data() + deflateStart, deflateEnd - deflateStart)) {
         return {};
     }
+
+    // Trim to actual decompressed size.
+    inflater.output.resize(inflater.outPos);
 
     // Verify Adler-32.
     u32 stored = (static_cast<u32>(data[data.size() - 4]) << 24) |

@@ -31,12 +31,16 @@ public:
                                          interfaces::WorkerPool* pool = nullptr);
 
     // --- RootManifest interface ---
-    std::vector<RootEntry> findByPath(const std::string& path) const override;
-    std::vector<RootEntry> findByFileDataId(u32 fileDataId) const override;
+    std::vector<const RootEntry*> findByPath(const std::string& path) const override;
+    std::vector<const RootEntry*> findByNormalizedPath(const std::string& normalizedPath) const override;
+    bool hasPath(const std::string& normalizedPath) const override;
+    std::vector<const RootEntry*> findByFileDataId(u32 fileDataId) const override;
+    bool hasFileDataId(u32 fileDataId) const override;
     RootFormat format() const override { return RootFormat::Diablo3; }
 
 protected:
     const std::vector<RootEntry>& entries() const override { return m_entries; }
+    std::vector<RootEntry>& mutableEntries() override { return m_entries; }
 
 private:
     /// All entries in flat storage.

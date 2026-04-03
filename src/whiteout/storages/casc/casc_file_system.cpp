@@ -73,15 +73,15 @@ public:
         // Convert to lowercase for comparison.
         std::string prefixLower = storages::common::toLower(prefix);
 
-        m_storage.enumerate([&](const FindEntry& fe) {
+        m_storage.enumerate([&](const EnumerateEntry& fe) {
             // Lowercase the entry path.
-            std::string pathLower = storages::common::toLower(fe.path);
+            std::string pathLower = storages::common::toLower(std::string(fe.path));
 
             if (pathLower.size() <= prefixLower.size()) return true;
             if (pathLower.substr(0, prefixLower.size()) != prefixLower) return true;
 
             // Extract the immediate child name.
-            auto rest = fe.path.substr(prefix.size());
+            auto rest = std::string(fe.path.substr(prefix.size()));
             auto sep = rest.find_first_of("/\\");
             std::string childName;
             bool isDir = false;

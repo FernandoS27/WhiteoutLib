@@ -27,9 +27,14 @@ inline std::string normalizeCascPath(const std::string& s) {
         if (c == '/') c = '\\';
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     }
-    while (!r.empty() && r.front() == '\\') r.erase(r.begin());
-    while (!r.empty() && r.back() == '\\') r.pop_back();
-    return r;
+    // Strip leading separators without O(n²) erase(begin).
+    size_t start = 0;
+    while (start < r.size() && r[start] == '\\') ++start;
+    // Strip trailing separators.
+    size_t end = r.size();
+    while (end > start && r[end - 1] == '\\') --end;
+    if (start == 0 && end == r.size()) return r;
+    return r.substr(start, end - start);
 }
 
 } // namespace whiteout::storages::common

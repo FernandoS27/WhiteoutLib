@@ -88,6 +88,12 @@ if(WHITEOUT_ENABLE_CASC)
     add_executable(casc_perf_heatmap_test casc_perf_heatmap_test.cpp)
     target_link_libraries(casc_perf_heatmap_test PRIVATE whiteout_casc)
 
+    # Performance cross-reference test — standalone executable with custom main().
+    # Compares WhiteoutLib CASC against CascLib for every measurable operation.
+    # Usage: casc_perf_crossref_test <casc_path> [output_csv]
+    add_executable(casc_perf_crossref_test casc_perf_crossref_test.cpp)
+    target_link_libraries(casc_perf_crossref_test PRIVATE whiteout_casc)
+
     # =========================================================================
     # Optional CascLib cross-validation target
     # Fetches CascLib for byte-identical comparison against the new
@@ -116,6 +122,10 @@ if(WHITEOUT_ENABLE_CASC)
         target_link_libraries(casc_cross_validate_test PRIVATE whiteout_casc casc_static Catch2::Catch2WithMain)
         target_compile_definitions(casc_cross_validate_test PRIVATE WHITEOUT_HAS_CASCLIB_CROSSVAL=1)
         catch_discover_tests(casc_cross_validate_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+        # Performance cross-reference with CascLib comparison.
+        target_link_libraries(casc_perf_crossref_test PRIVATE casc_static)
+        target_compile_definitions(casc_perf_crossref_test PRIVATE WHITEOUT_HAS_CASCLIB_CROSSVAL=1)
 
     else()
         # Build the cross-validate test without CascLib (internal consistency only).

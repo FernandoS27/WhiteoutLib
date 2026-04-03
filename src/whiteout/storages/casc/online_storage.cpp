@@ -102,10 +102,10 @@ struct OnlineStorage::Impl {
     std::vector<u8> resolveCKey(std::span<const u8, 16> cKey) const;
     std::vector<u8> resolveEKey(std::span<const u8, 16> eKey) const;
     std::optional<std::vector<u8>> resolveRootEntry(
-        const std::vector<RootEntry>& entries, u32 localeFlags) const;
+        const std::vector<const RootEntry*>& entries, u32 localeFlags) const;
     const EncodingEntry* resolveEncoding(const RootEntry& re) const;
     std::optional<FileFullInfo> fileInfoResolved(
-        const std::vector<RootEntry>& entries) const;
+        const std::vector<const RootEntry*>& entries) const;
 
     bool ensureLoaded() const;
     bool loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBlte = {}) const;
@@ -158,7 +158,7 @@ std::vector<u8> OnlineStorage::Impl::resolveEKey(std::span<const u8, 16> eKey) c
 }
 
 std::optional<std::vector<u8>> OnlineStorage::Impl::resolveRootEntry(
-    const std::vector<RootEntry>& entries, u32 localeFlags) const {
+    const std::vector<const RootEntry*>& entries, u32 localeFlags) const {
     if (entries.empty()) return std::nullopt;
 
     const RootEntry* best = selectBestEntry(entries, localeFlags);
@@ -191,19 +191,19 @@ const EncodingEntry* OnlineStorage::Impl::resolveEncoding(const RootEntry& re) c
 }
 
 std::optional<FileFullInfo> OnlineStorage::Impl::fileInfoResolved(
-    const std::vector<RootEntry>& entries) const {
+    const std::vector<const RootEntry*>& entries) const {
     if (entries.empty()) return std::nullopt;
 
-    auto& re = entries[0];
+    auto* re = entries[0];
     FileFullInfo info;
-    info.cKey = re.cKey;
-    info.eKey = re.eKey;
-    info.localeFlags = re.localeFlags;
-    info.contentFlags = re.contentFlags;
-    info.fileDataId = static_cast<i32>(re.fileDataId);
-    info.path = re.path;
+    info.cKey = re->cKey;
+    info.eKey = re->eKey;
+    info.localeFlags = re->localeFlags;
+    info.contentFlags = re->contentFlags;
+    info.fileDataId = static_cast<i32>(re->fileDataId);
+    info.path = re->path;
 
-    auto encEntry = resolveEncoding(re);
+    auto encEntry = resolveEncoding(*re);
     if (encEntry) {
         info.fileSize = encEntry->fileSize;
         info.cKey = encEntry->cKey;
@@ -794,7 +794,7 @@ std::optional<u64> OnlineStorage::fileSize(const std::string& cascPath) const {
 
     auto entries = m_impl->root->findByPath(normalizeCascPath(cascPath));
     if (entries.empty()) return std::nullopt;
-    auto encEntry = m_impl->resolveEncoding(entries[0]);
+    auto encEntry = m_impl->resolveEncoding(*entries[0]);
     if (!encEntry) return std::nullopt;
     return encEntry->fileSize;
 }
@@ -806,7 +806,7 @@ std::optional<u64> OnlineStorage::fileSize(i32 fileId) const {
 
     auto entries = m_impl->root->findByFileDataId(static_cast<u32>(fileId));
     if (entries.empty()) return std::nullopt;
-    auto encEntry = m_impl->resolveEncoding(entries[0]);
+    auto encEntry = m_impl->resolveEncoding(*entries[0]);
     if (!encEntry) return std::nullopt;
     return encEntry->fileSize;
 }
@@ -831,18 +831,18 @@ std::optional<FileFullInfo> OnlineStorage::fileInfo(i32 fileId) const {
 // enumerate / listFiles / listEntries / totalFileCount
 // ============================================================================
 
-void OnlineStorage::enumerate(std::function<bool(const FindEntry&)> callback) const {
+void OnlineStorage::enumerate(std::function<bool(const EnumerateEntry&)> callback) const {
     if (!m_impl || !m_impl->isValid || !callback) return;
     if (!m_impl->ensureLoaded()) return;
     std::shared_lock lock(m_impl->mutex);
 
     std::unordered_set<u64> rootKeyHashes;
 
+    EnumerateEntry fe;
     m_impl->root->enumerate([&](const RootEntry& re) -> bool {
         if (!isZeroKey(re.cKey))
             rootKeyHashes.insert(keyHash64(re.cKey));
 
-        FindEntry fe;
         fe.cKey = re.cKey;
         fe.localeFlags = re.localeFlags;
         fe.contentFlags = re.contentFlags;
@@ -861,21 +861,23 @@ void OnlineStorage::enumerate(std::function<bool(const FindEntry&)> callback) co
 
     // Emit encoding-table orphans.
     static constexpr char kHex[] = "0123456789abcdef";
+    char hexBuf[33];
     for (auto& enc : m_impl->encodingTable.entries()) {
         if (isZeroKey(enc.cKey)) continue;
         if (rootKeyHashes.count(keyHash64(enc.cKey))) continue;
 
-        char hexBuf[33];
         for (int i = 0; i < 16; ++i) {
             hexBuf[i * 2]     = kHex[enc.cKey[i] >> 4];
             hexBuf[i * 2 + 1] = kHex[enc.cKey[i] & 0xF];
         }
         hexBuf[32] = '\0';
 
-        FindEntry fe;
         fe.cKey = enc.cKey;
         fe.fileSize = enc.fileSize;
-        fe.path = hexBuf;
+        fe.localeFlags = 0;
+        fe.contentFlags = 0;
+        fe.fileDataId = kInvalidId;
+        fe.path = std::string_view(hexBuf, 32);
 
         if (!callback(fe)) break;
     }
@@ -896,8 +898,14 @@ std::vector<std::string> OnlineStorage::listFiles() const {
 
 std::vector<FindEntry> OnlineStorage::listEntries() const {
     std::vector<FindEntry> result;
-    enumerate([&](const FindEntry& fe) {
-        result.push_back(fe);
+    enumerate([&](const EnumerateEntry& fe) {
+        FindEntry& out = result.emplace_back();
+        out.cKey = fe.cKey;
+        out.fileSize = fe.fileSize;
+        out.localeFlags = fe.localeFlags;
+        out.contentFlags = fe.contentFlags;
+        out.fileDataId = fe.fileDataId;
+        out.path = std::string(fe.path);
         return true;
     });
     return result;
@@ -933,7 +941,7 @@ std::vector<BatchReadResult> OnlineStorage::readBatch(
     // Phase 0: Root lookup.
     struct ResolveWork {
         size_t requestIndex;
-        std::vector<RootEntry> rootEntries;
+        std::vector<const RootEntry*> rootEntries;
         u32 localeFlags;
     };
     std::vector<ResolveWork> toResolve;
@@ -949,7 +957,7 @@ std::vector<BatchReadResult> OnlineStorage::readBatch(
             continue;
         }
 
-        std::vector<RootEntry> entries;
+        std::vector<const RootEntry*> entries;
         if (m_impl->root) {
             if (byPath)
                 entries = m_impl->root->findByPath(normalizeCascPath(req.path));

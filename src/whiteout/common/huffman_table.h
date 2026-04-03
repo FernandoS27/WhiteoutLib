@@ -93,7 +93,25 @@ struct LsbHuffmanTable : HuffmanDecodeBase<u16, 15> {
     bool build(const u8* codeLengths, i32 count);
 
     /// Decode one symbol. Returns -1 on error.
-    i32 decode(LsbBitReader& br) const;
+    /// Defined inline for maximum performance in tight inflate loops.
+    i32 decode(LsbBitReader& br) const {
+        br.refill();
+        u32 peek = static_cast<u32>(br.bitBuf) & (FAST_SIZE - 1);
+        if (fastLen[peek] != 0) {
+            br.bitBuf >>= fastLen[peek];
+            br.bitsAvail -= fastLen[peek];
+            return fastSymbol[peek];
+        }
+        // Slow path: bit-by-bit.
+        u32 c = 0;
+        for (i32 len = 1; len <= MAX_BITS; ++len) {
+            c = (c << 1) | br.readBits(1);
+            if (c < maxcode[len]) {
+                return lookupSlow(c, len);
+            }
+        }
+        return -1;
+    }
 };
 
 // ============================================================================

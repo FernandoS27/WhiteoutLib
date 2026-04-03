@@ -22,11 +22,7 @@ namespace whiteout::storages::common {
 /// @param expectedSize  Hint for output reservation (0 = no hint).
 /// @return Decompressed bytes, or empty vector on failure.
 inline std::vector<u8> zlibDecompress(std::span<const u8> src, size_t expectedSize = 0) {
-    // Delegate to the relocated DEFLATE codec in common/deflate.h.
-    // expectedSize is used only as a reservation hint — the codec handles
-    // all sizing internally.
-    (void)expectedSize;
-    return ::whiteout::zlib_decompress(src);
+    return ::whiteout::zlib_decompress(src, nullptr, expectedSize);
 }
 
 /// Compress data into a zlib-wrapped DEFLATE stream.

@@ -152,7 +152,7 @@ openOnlineW3(utils::SimpleHttpHandler& http, utils::SimpleThreadPool& pool,
 }
 
 /// Return true if path looks like a directory/namespace entry.
-static bool isDirectoryEntry(const std::string& path) {
+static bool isDirectoryEntry(std::string_view path) {
     return !path.empty() &&
            (path.back() == ':' || path.back() == '\\' || path.back() == '/');
 }
@@ -576,7 +576,7 @@ TEST_CASE("Online WoW: metadata and enumerate",
     size_t withId = 0;
     size_t withPath = 0;
 
-    store->enumerate([&](const offline::FindEntry& fe) {
+    store->enumerate([&](const offline::EnumerateEntry& fe) {
         ++enumCount;
         if (fe.cKey != kZeroKey) ++withCKey;
         if (fe.fileDataId > 0) ++withId;
@@ -586,7 +586,7 @@ TEST_CASE("Online WoW: metadata and enumerate",
             std::cout << "    entry[" << enumCount << "]: id=" << fe.fileDataId
                       << " cKey=" << (fe.cKey != kZeroKey ? "yes" : "ZERO")
                       << " size=" << fe.fileSize
-                      << " path=" << (fe.path.empty() ? "(empty)"
+                      << " path=" << (fe.path.empty() ? std::string_view("(empty)")
                                                       : fe.path.substr(0, 60))
                       << "\n";
         }
@@ -621,9 +621,9 @@ TEST_CASE("Online WoW: read files by path",
     std::vector<std::string> allPaths;
     allPaths.reserve(2000);
 
-    store->enumerate([&](const offline::FindEntry& fe) {
+    store->enumerate([&](const offline::EnumerateEntry& fe) {
         if (!fe.path.empty() && !isDirectoryEntry(fe.path))
-            allPaths.push_back(fe.path);
+            allPaths.push_back(std::string(fe.path));
         return allPaths.size() < 2000;
     });
 
@@ -735,9 +735,9 @@ TEST_CASE("Online WoW: fileInfo vs enumerate consistency",
     std::vector<EnumEntry> entries;
     entries.reserve(500);
 
-    store->enumerate([&](const offline::FindEntry& fe) {
+    store->enumerate([&](const offline::EnumerateEntry& fe) {
         if (!fe.path.empty() && !isDirectoryEntry(fe.path))
-            entries.push_back({fe.path, fe.cKey, fe.fileSize});
+            entries.push_back({std::string(fe.path), fe.cKey, fe.fileSize});
         return entries.size() < 500;
     });
 
@@ -792,9 +792,9 @@ TEST_CASE("Online WoW: readFile vs readBatch agreement",
     std::vector<std::string> paths;
     paths.reserve(200);
 
-    store->enumerate([&](const offline::FindEntry& fe) {
+    store->enumerate([&](const offline::EnumerateEntry& fe) {
         if (!fe.path.empty() && !isDirectoryEntry(fe.path))
-            paths.push_back(fe.path);
+            paths.push_back(std::string(fe.path));
         return paths.size() < 200;
     });
     REQUIRE(paths.size() > 0);
@@ -921,10 +921,10 @@ TEST_CASE("TVFS diagnostic: eKey resolution trace",
     std::vector<DiagEntry> entries;
     entries.reserve(50000);
 
-    store->enumerate([&](const offline::FindEntry& fe) {
+    store->enumerate([&](const offline::EnumerateEntry& fe) {
         if (!fe.path.empty() && !isDirectoryEntry(fe.path)) {
             DiagEntry de;
-            de.path = fe.path;
+            de.path = std::string(fe.path);
             de.cKey = fe.cKey;
             de.fileSize = fe.fileSize;
             entries.push_back(std::move(de));

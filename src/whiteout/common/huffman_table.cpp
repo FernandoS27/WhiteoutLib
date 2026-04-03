@@ -161,28 +161,6 @@ bool LsbHuffmanTable::build(const u8* codeLengths, i32 count) {
 }
 
 // ============================================================================
-// LsbHuffmanTable::decode (DEFLATE-style)
-// ============================================================================
-
-i32 LsbHuffmanTable::decode(LsbBitReader& br) const {
-    br.refill();
-    u32 peek = br.peekBits(HUFFMAN_FAST_BITS);
-    if (fastLen[peek] != 0) {
-        br.consumeBits(fastLen[peek]);
-        return fastSymbol[peek];
-    }
-    // Slow path: bit-by-bit.
-    u32 c = 0;
-    for (i32 len = 1; len <= MAX_BITS; ++len) {
-        c = (c << 1) | br.readBits(1);
-        if (c < maxcode[len]) {
-            return lookupSlow(c, len);
-        }
-    }
-    return -1;
-}
-
-// ============================================================================
 // HuffmanEncodeTable::build
 // ============================================================================
 

@@ -240,32 +240,36 @@ std::unique_ptr<WowRoot> WowRoot::parse(std::span<const u8> data,
     return root;
 }
 
-std::vector<RootEntry> WowRoot::findByPath(const std::string& path) const {
+std::vector<const RootEntry*> WowRoot::findByPath(const std::string& path) const {
     auto hash = common::jenkinsHash(path);
     u64 combined = u64(hash.pc) | (u64(hash.pb) << 32);
 
-    std::vector<RootEntry> results;
+    std::vector<const RootEntry*> results;
     auto range = m_byNameHash.equal_range(combined);
     for (auto it = range.first; it != range.second; ++it)
-        results.push_back(m_entries[it->second]);
+        results.push_back(&m_entries[it->second]);
     return results;
 }
 
-std::vector<RootEntry> WowRoot::findByFileDataId(u32 fileDataId) const {
-    std::vector<RootEntry> results;
+std::vector<const RootEntry*> WowRoot::findByFileDataId(u32 fileDataId) const {
+    std::vector<const RootEntry*> results;
     auto range = m_byFileDataId.equal_range(fileDataId);
     for (auto it = range.first; it != range.second; ++it)
-        results.push_back(m_entries[it->second]);
+        results.push_back(&m_entries[it->second]);
     return results;
 }
 
-std::vector<RootEntry> WowRoot::findByCKey(std::span<const u8, 16> cKey) const {
+bool WowRoot::hasFileDataId(u32 fileDataId) const {
+    return m_byFileDataId.find(fileDataId) != m_byFileDataId.end();
+}
+
+std::vector<const RootEntry*> WowRoot::findByCKey(std::span<const u8, 16> cKey) const {
     // WoW root has a special zero-key check before comparison.
-    std::vector<RootEntry> results;
+    std::vector<const RootEntry*> results;
     for (auto& e : m_entries) {
         if (e.cKey == std::array<u8, 16>{} ? false :
             std::memcmp(e.cKey.data(), cKey.data(), 16) == 0)
-            results.push_back(e);
+            results.push_back(&e);
     }
     return results;
 }

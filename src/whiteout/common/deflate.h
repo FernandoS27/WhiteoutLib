@@ -17,8 +17,10 @@
 namespace whiteout {
 
 /// Decompress a zlib-wrapped DEFLATE stream.
+/// @param expectedSize Hint for output buffer reservation (0 = use default heuristic).
 /// @return decompressed bytes, or empty vector on failure.
-std::vector<u8> zlib_decompress(std::span<const u8> data, std::string* out_error = nullptr);
+std::vector<u8> zlib_decompress(std::span<const u8> data, std::string* out_error = nullptr,
+                                size_t expectedSize = 0);
 
 /// Compress data into a zlib-wrapped DEFLATE stream.
 /// Uses fixed Huffman codes with LZ77 matching for a reasonable size/speed trade-off.

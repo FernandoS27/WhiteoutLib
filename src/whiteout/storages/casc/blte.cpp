@@ -4,6 +4,7 @@
 #include "blte.h"
 #include "crypto.h"
 #include "../common/byte_order.h"
+#include "../common/inflate_fast.h"
 #include "../common/md5.h"
 #include "../common/zlib.h"
 
@@ -76,7 +77,7 @@ static FrameDecodeResult decodeFramePayload(std::span<const u8> payload,
         break;
     }
     case BlteFrameMode::kZlib: {
-        result.data = storages::common::zlibDecompress(inner, expectedUncompressedSize);
+        result.data = storages::common::zlibInflateFast(inner, expectedUncompressedSize);
         if (result.data.empty() && expectedUncompressedSize > 0) {
             result.error = "zlib decompression failed";
         } else {
@@ -280,15 +281,32 @@ BlteDecodeResult blteDecode(std::span<const u8> blteData,
         }
 
     } else {
-        // Sequential decode
-        for (size_t i = 0; i < frames.size(); ++i) {
-            auto payload = blteData.subspan(offsets[i], frames[i].compressedSize);
-            auto fr = decodeFramePayload(payload, frames[i].uncompressedSize, keys);
+        // Sequential decode.
+        if (frames.size() == 1) {
+            // Single-frame fast path: move directly instead of copying.
+            auto payload = blteData.subspan(offsets[0], frames[0].compressedSize);
+            auto fr = decodeFramePayload(payload, frames[0].uncompressedSize, keys);
             if (!fr.success) {
-                result.error = "frame " + std::to_string(i) + ": " + fr.error;
+                result.error = "frame 0: " + fr.error;
                 return result;
             }
-            result.data.insert(result.data.end(), fr.data.begin(), fr.data.end());
+            result.data = std::move(fr.data);
+        } else {
+            // Multi-frame: pre-reserve total uncompressed size if known.
+            size_t totalUncompressed = 0;
+            for (auto& f : frames)
+                totalUncompressed += f.uncompressedSize;
+            if (totalUncompressed > 0)
+                result.data.reserve(totalUncompressed);
+            for (size_t i = 0; i < frames.size(); ++i) {
+                auto payload = blteData.subspan(offsets[i], frames[i].compressedSize);
+                auto fr = decodeFramePayload(payload, frames[i].uncompressedSize, keys);
+                if (!fr.success) {
+                    result.error = "frame " + std::to_string(i) + ": " + fr.error;
+                    return result;
+                }
+                result.data.insert(result.data.end(), fr.data.begin(), fr.data.end());
+            }
         }
     }
 

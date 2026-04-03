@@ -12,9 +12,10 @@
 #include <array>
 #include <span>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
+
+#include "flat_hash_map.h"
 
 namespace whiteout::storages::casc {
 
@@ -58,7 +59,7 @@ private:
     /// Hash key derived from first 9 bytes of EKey.
     static u64 eKeyHash(std::span<const u8> eKey);
 
-    std::unordered_map<u64, IndexEntry> m_entries;
+    FlatHashMap<IndexEntry> m_entries;
 };
 
 } // namespace whiteout::storages::casc

@@ -90,10 +90,10 @@ static TestResult testStorage(const std::string& label, const std::string& path,
         i32 fileDataId;
     };
     std::vector<Entry> entries;
-    storage->enumerate([&](const FindEntry& fe) {
+    storage->enumerate([&](const EnumerateEntry& fe) {
         Entry e;
         e.cKey = fe.cKey;
-        e.path = fe.path;
+        e.path = std::string(fe.path);
         e.fileDataId = fe.fileDataId;
         entries.push_back(std::move(e));
         return true;

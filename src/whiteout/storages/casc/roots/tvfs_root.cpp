@@ -32,6 +32,39 @@ static constexpr u32 kTvfsFlagIncludeCKey = 0x0001;
 /// Maximum recursion depth for TVFS path tree traversal.
 static constexpr int kTvfsMaxTraversalDepth = 128;
 
+/// End-of-chain sentinel for m_chainNext.
+static constexpr u32 kNoChain = UINT32_MAX;
+
+// ---- FNV-1a string hashing with MurmurHash3 finalizer ----
+
+/// FNV-1a 64-bit hash of a byte range.
+static u64 fnv1a64(const char* data, size_t len) {
+    u64 h = 14695981039346656037ULL;
+    for (size_t i = 0; i < len; ++i) {
+        h ^= static_cast<u64>(static_cast<u8>(data[i]));
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+/// MurmurHash3 64-bit finalizer — mixes bits so low bits are well-distributed
+/// for power-of-2 masking in FlatHashMap.
+static u64 mixBits(u64 h) {
+    h ^= h >> 33;
+    h *= 0xff51afd7ed558ccdULL;
+    h ^= h >> 33;
+    h *= 0xc4ceb9fe1a85ec53ULL;
+    h ^= h >> 33;
+    return h;
+}
+
+/// Hash a path string for use as FlatHashMap key.
+/// Guaranteed non-zero (FlatHashMap uses 0 as empty sentinel).
+static u64 pathHash64(const std::string& s) {
+    u64 h = mixBits(fnv1a64(s.data(), s.size()));
+    return h == 0 ? 1 : h;
+}
+
 namespace {
 
 // ============================================================================
@@ -268,13 +301,18 @@ static void traversePathTree(TraversalCtx& ctx, const u8* node, const u8* nodeEn
             if (node >= nodeEnd) break;
         }
 
-        // Name fragment: [len][bytes].
+        // Name fragment: [len][bytes].  Lowercase in-place so the path is
+        // already normalized for lookup (avoids a post-pass over all entries).
         std::string name;
         if (node < nodeEnd && *node != kTvfsNodeValueMarker) {
             u8 nameLen = *node++;
             if (node + nameLen > nodeEnd) return;
             if (nameLen > 0) {
                 name.assign(reinterpret_cast<const char*>(node), nameLen);
+                for (auto& c : name) {
+                    if (c == '/') c = '\\';
+                    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                }
                 node += nameLen;
             }
         }
@@ -320,8 +358,18 @@ static void traversePathTree(TraversalCtx& ctx, const u8* node, const u8* nodeEn
                 traversePathTree(ctx, node, node + innerLen, pathBuf, depth + 1);
                 node += innerLen;
             } else {
-                // File node.
-                processFileEntry(ctx, pathBuf, nodeValue);
+                // File node — strip leading/trailing separators that the TVFS
+                // format's pre-0x00 (sibling boundary) and post-0x00 (before
+                // 0xFF) can leave. normalizeCascPath would do this, but we
+                // skip it in preNormalized mode.
+                size_t s = 0;
+                while (s < pathBuf.size() && pathBuf[s] == '\\') ++s;
+                size_t e = pathBuf.size();
+                while (e > s && pathBuf[e - 1] == '\\') --e;
+                if (s > 0 || e < pathBuf.size())
+                    processFileEntry(ctx, pathBuf.substr(s, e - s), nodeValue);
+                else
+                    processFileEntry(ctx, pathBuf, nodeValue);
             }
 
             // Restore path buffer to the save-point (undo this entry + any
@@ -361,6 +409,121 @@ static void parsePathTable(TraversalCtx& ctx, const std::string& pathPrefix) {
 } // anonymous namespace
 
 // ============================================================================
+// Path trie helpers (flat-array trie for prefix enumeration)
+// ============================================================================
+
+namespace {
+
+/// Find a child by segment using binary search (children must be sorted).
+static const PathTrieNode::Child* trieFindChild(const PathTrieNode& node,
+                                                  std::string_view segment) {
+    auto it = std::lower_bound(
+        node.children.begin(), node.children.end(), segment,
+        [](const PathTrieNode::Child& c, std::string_view s) { return c.segment < s; });
+    if (it != node.children.end() && it->segment == segment)
+        return &*it;
+    return nullptr;
+}
+
+/// Walk the trie to the node matching a normalized prefix path.
+/// Returns the node index, or UINT32_MAX if not found.
+static u32 trieWalkTo(const std::vector<PathTrieNode>& nodes,
+                       const std::string& normalizedPrefix) {
+    if (nodes.empty()) return UINT32_MAX;
+    if (normalizedPrefix.empty()) return 0; // root
+
+    u32 cur = 0;
+    size_t pos = 0;
+    while (pos < normalizedPrefix.size()) {
+        size_t sep = normalizedPrefix.find('\\', pos);
+        std::string_view segment;
+        if (sep == std::string::npos) {
+            segment = std::string_view(normalizedPrefix).substr(pos);
+            pos = normalizedPrefix.size();
+        } else {
+            segment = std::string_view(normalizedPrefix).substr(pos, sep - pos);
+            pos = sep + 1;
+        }
+        if (segment.empty()) continue;
+
+        auto* child = trieFindChild(nodes[cur], segment);
+        if (!child) return UINT32_MAX;
+        cur = child->nodeIndex;
+    }
+    return cur;
+}
+
+/// DFS enumeration from a trie node, invoking callback for every entry.
+/// Returns false if callback requested early stop.
+static bool trieDfs(const std::vector<PathTrieNode>& nodes, u32 nodeIdx,
+                    const std::vector<RootEntry>& entries,
+                    std::function<bool(const RootEntry&)>& callback) {
+    const auto& node = nodes[nodeIdx];
+    for (u32 idx : node.entryIndices) {
+        if (!callback(entries[idx])) return false;
+    }
+    for (const auto& child : node.children) {
+        if (!trieDfs(nodes, child.nodeIndex, entries, callback)) return false;
+    }
+    return true;
+}
+
+/// Insert a path into the trie, creating nodes as needed.
+/// Children are unsorted during building; call trieSortAll() when done.
+static void trieInsert(std::vector<PathTrieNode>& nodes,
+                        const std::string& path, u32 entryIndex) {
+    u32 cur = 0; // root
+    size_t pos = 0;
+    while (pos < path.size()) {
+        size_t sep = path.find('\\', pos);
+        std::string_view segment;
+        if (sep == std::string::npos) {
+            segment = std::string_view(path).substr(pos);
+            pos = path.size();
+        } else {
+            segment = std::string_view(path).substr(pos, sep - pos);
+            pos = sep + 1;
+        }
+        if (segment.empty()) continue;
+
+        // Linear scan during building (children unsorted).
+        auto& children = nodes[cur].children;
+        u32 found = UINT32_MAX;
+        for (size_t i = 0; i < children.size(); ++i) {
+            if (children[i].segment == segment) {
+                found = children[i].nodeIndex;
+                break;
+            }
+        }
+        if (found == UINT32_MAX) {
+            u32 newIdx = static_cast<u32>(nodes.size());
+            // Save segment before push_back may invalidate references.
+            std::string segStr(segment);
+            nodes.emplace_back();
+            // Re-acquire children ref after potential reallocation.
+            nodes[cur].children.push_back({std::move(segStr), newIdx});
+            cur = newIdx;
+        } else {
+            cur = found;
+        }
+    }
+    nodes[cur].entryIndices.push_back(entryIndex);
+}
+
+/// Recursively sort all children arrays for binary search.
+static void trieSortAll(std::vector<PathTrieNode>& nodes, u32 nodeIdx = 0) {
+    auto& children = nodes[nodeIdx].children;
+    std::sort(children.begin(), children.end(),
+              [](const PathTrieNode::Child& a, const PathTrieNode::Child& b) {
+                  return a.segment < b.segment;
+              });
+    for (auto& c : children)
+        trieSortAll(nodes, c.nodeIndex);
+}
+
+} // anonymous namespace (trie helpers)
+
+// ============================================================================
 // TvfsRoot public API
 // ============================================================================
 
@@ -390,7 +553,7 @@ std::unique_ptr<TvfsRoot> TvfsRoot::parse(
     if (root->m_entries.empty())
         return nullptr;
 
-    root->buildIndices(pool);
+    root->buildIndices(pool, /*preNormalized=*/true);
     return root;
 }
 
@@ -415,48 +578,128 @@ std::unique_ptr<TvfsRoot> TvfsRoot::parse(
     u32 cftOffsSize = getCftOffsSize(hdr.cftTableSize);
 
     TraversalCtx ctx{data, hdr, cftOffsSize, root->m_entries, &resolver, &vfsEKeys};
-
     parsePathTable(ctx);
 
     if (root->m_entries.empty())
         return nullptr;
-
-    root->buildIndices(pool);
+    root->buildIndices(pool, /*preNormalized=*/true);
     return root;
 }
 
 void TvfsRoot::merge(const TvfsRoot& other) {
     size_t base = m_entries.size();
     m_entries.insert(m_entries.end(), other.m_entries.begin(), other.m_entries.end());
+    m_chainNext.resize(m_entries.size(), kNoChain);
     for (size_t i = base; i < m_entries.size(); ++i) {
-        if (!m_entries[i].path.empty())
-            m_byPath.emplace(normalizeCascPath(m_entries[i].path), i);
+        if (m_entries[i].path.empty()) continue;
+        auto normalized = normalizeCascPath(m_entries[i].path);
+        m_entries[i].path = normalized;
+        u64 h = pathHash64(normalized);
+        auto* head = m_byPathMap.find(h);
+        if (head) {
+            m_chainNext[i] = *head;
+            m_byPathMap.insertOrAssign(h, static_cast<u32>(i));
+        } else {
+            m_byPathMap.emplace(h, static_cast<u32>(i));
+        }
     }
+    m_trie.clear(); // invalidate — rebuilt lazily on next enumerateUnder()
 }
 
-std::vector<RootEntry> TvfsRoot::findByPath(const std::string& path) const {
+std::vector<const RootEntry*> TvfsRoot::findByPath(const std::string& path) const {
     auto key = normalizeCascPath(path);
-    std::vector<RootEntry> results;
-    auto range = m_byPath.equal_range(key);
-    for (auto it = range.first; it != range.second; ++it)
-        results.push_back(m_entries[it->second]);
+    return findByNormalizedPath(key);
+}
+
+std::vector<const RootEntry*> TvfsRoot::findByNormalizedPath(const std::string& normalizedPath) const {
+    std::vector<const RootEntry*> results;
+    u64 h = pathHash64(normalizedPath);
+    auto* head = m_byPathMap.find(h);
+    if (!head) return results;
+    for (u32 idx = *head; idx != kNoChain; idx = m_chainNext[idx]) {
+        if (m_entries[idx].path == normalizedPath)
+            results.push_back(&m_entries[idx]);
+    }
     return results;
 }
 
-std::vector<RootEntry> TvfsRoot::findByFileDataId(u32 /*fileDataId*/) const {
+bool TvfsRoot::hasPath(const std::string& normalizedPath) const {
+    u64 h = pathHash64(normalizedPath);
+    auto* head = m_byPathMap.find(h);
+    if (!head) return false;
+    for (u32 idx = *head; idx != kNoChain; idx = m_chainNext[idx]) {
+        if (m_entries[idx].path == normalizedPath)
+            return true;
+    }
+    return false;
+}
+
+std::vector<const RootEntry*> TvfsRoot::findByFileDataId(u32 /*fileDataId*/) const {
     return {};
 }
 
-void TvfsRoot::buildIndices(interfaces::WorkerPool* pool) {
+void TvfsRoot::enumerateUnder(const std::string& normalizedPrefix,
+                               std::function<bool(const RootEntry&)> callback) const {
+    if (!callback) return;
+    ensureTrie();
+    u32 startNode = trieWalkTo(m_trie, normalizedPrefix);
+    if (startNode == UINT32_MAX) return;
+    trieDfs(m_trie, startNode, m_entries, callback);
+}
+
+void TvfsRoot::buildIndices(interfaces::WorkerPool* pool, bool preNormalized) {
     size_t n = m_entries.size();
+    m_chainNext.assign(n, kNoChain);
+    m_byPathMap.reserve(n);
 
-    auto lowerPaths = normalizeEntryPaths(m_entries, pool);
+    if (preNormalized) {
+        // Paths were already lowercased, '/' → '\\', and stripped of leading/
+        // trailing separators during traversal.
+        for (size_t i = 0; i < n; ++i) {
+            if (m_entries[i].path.empty()) continue;
+            u64 h = pathHash64(m_entries[i].path);
+            auto* head = m_byPathMap.find(h);
+            if (head) {
+                m_chainNext[i] = *head;
+                m_byPathMap.insertOrAssign(h, static_cast<u32>(i));
+            } else {
+                m_byPathMap.emplace(h, static_cast<u32>(i));
+            }
+        }
+    } else {
+        auto lowerPaths = normalizeEntryPaths(m_entries, pool);
+        // Overwrite entry paths with normalized versions so chain verification
+        // can compare against m_entries[i].path directly.
+        for (size_t i = 0; i < n; ++i)
+            m_entries[i].path = std::move(lowerPaths[i]);
 
-    m_byPath.reserve(n);
-    for (size_t i = 0; i < n; ++i) {
-        if (!lowerPaths[i].empty())
-            m_byPath.emplace(std::move(lowerPaths[i]), i);
+        for (size_t i = 0; i < n; ++i) {
+            if (m_entries[i].path.empty()) continue;
+            u64 h = pathHash64(m_entries[i].path);
+            auto* head = m_byPathMap.find(h);
+            if (head) {
+                m_chainNext[i] = *head;
+                m_byPathMap.insertOrAssign(h, static_cast<u32>(i));
+            } else {
+                m_byPathMap.emplace(h, static_cast<u32>(i));
+            }
+        }
     }
+
+    // Trie is built lazily on first enumerateUnder() call.
+    m_trie.clear();
+}
+
+void TvfsRoot::ensureTrie() const {
+    if (!m_trie.empty()) return;
+    size_t n = m_entries.size();
+    m_trie.reserve(n / 4);
+    m_trie.emplace_back();
+    for (size_t i = 0; i < n; ++i) {
+        if (!m_entries[i].path.empty())
+            trieInsert(m_trie, m_entries[i].path, static_cast<u32>(i));
+    }
+    trieSortAll(m_trie);
 }
 
 } // namespace whiteout::storages::casc

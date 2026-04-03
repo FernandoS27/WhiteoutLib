@@ -250,8 +250,8 @@ TEST_CASE("Legacy (headerless) root parse", "[casc][wow_root]") {
 
     auto found = root->findByFileDataId(105);
     REQUIRE_FALSE(found.empty());
-    CHECK(found[0].cKey == makeCKey(0x30));
-    CHECK(found[0].fileDataId == 105);
+    CHECK(found[0]->cKey == makeCKey(0x30));
+    CHECK(found[0]->fileDataId == 105);
 
     auto byPath = root->findByPath("path/file100.txt");
     CHECK_FALSE(byPath.empty());
@@ -298,7 +298,7 @@ TEST_CASE("V3 (MFST 50893+) root parse", "[casc][wow_root]") {
 
     auto found = root->findByFileDataId(2004);
     REQUIRE_FALSE(found.empty());
-    CHECK(found[0].cKey == makeCKey(u8(0xA4)));
+    CHECK(found[0]->cKey == makeCKey(u8(0xA4)));
 }
 
 TEST_CASE("V3 manifest version 2 (58221+) root parse", "[casc][wow_root]") {
@@ -318,7 +318,7 @@ TEST_CASE("V3 manifest version 2 (58221+) root parse", "[casc][wow_root]") {
 
     auto found = root->findByFileDataId(3004);
     REQUIRE_FALSE(found.empty());
-    CHECK(found[0].contentFlags == 0x08);
+    CHECK(found[0]->contentFlags == 0x08);
 }
 
 TEST_CASE("Multiple blocks in one root", "[casc][wow_root]") {
@@ -369,11 +369,11 @@ TEST_CASE("Multiple blocks in one root", "[casc][wow_root]") {
 
     auto enUs = root->findByFileDataId(500);
     REQUIRE_FALSE(enUs.empty());
-    CHECK(enUs[0].localeFlags == 0x00000002);
+    CHECK(enUs[0]->localeFlags == 0x00000002);
 
     auto koKr = root->findByFileDataId(600);
     REQUIRE_FALSE(koKr.empty());
-    CHECK(koKr[0].localeFlags == 0x00000004);
+    CHECK(koKr[0]->localeFlags == 0x00000004);
 }
 
 TEST_CASE("Block with NoNameHash flag (v2)", "[casc][wow_root]") {
@@ -409,7 +409,7 @@ TEST_CASE("Block with NoNameHash flag (v2)", "[casc][wow_root]") {
 
     auto found = root->findByFileDataId(11);
     REQUIRE_FALSE(found.empty());
-    CHECK(found[0].fileNameHash == 0);
+    CHECK(found[0]->fileNameHash == 0);
 
     auto byPath = root->findByPath("anything");
     CHECK(byPath.empty());
@@ -437,7 +437,7 @@ TEST_CASE("Delta-encoded FileDataIds with gaps", "[casc][wow_root]") {
     for (auto& [fdid, ckey] : entries) {
         auto found = root->findByFileDataId(fdid);
         REQUIRE_FALSE(found.empty());
-        CHECK(found[0].cKey == ckey);
+        CHECK(found[0]->cKey == ckey);
     }
 }
 
@@ -458,7 +458,7 @@ TEST_CASE("findByCKey", "[casc][wow_root]") {
     auto ckey = makeCKey(0xF1);
     auto found = root->findByCKey(ckey);
     REQUIRE_FALSE(found.empty());
-    CHECK(found[0].fileDataId == 43);
+    CHECK(found[0]->fileDataId == 43);
 
     auto missing = makeCKey(0xFF);
     CHECK(root->findByCKey(missing).empty());

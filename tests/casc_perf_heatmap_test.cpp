@@ -448,8 +448,8 @@ static void runPerfTest(const std::string& cascPath, const std::string& outputDi
         i32 fileDataId;
     };
     std::vector<Entry> entries;
-    storage->enumerate([&](const FindEntry& fe) {
-        entries.push_back({fe.path, fe.fileDataId});
+    storage->enumerate([&](const EnumerateEntry& fe) {
+        entries.push_back({std::string(fe.path), fe.fileDataId});
         return true;
     });
 

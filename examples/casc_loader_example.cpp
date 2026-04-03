@@ -80,10 +80,10 @@ static void testStorage(const std::string& label, const std::string& path) {
     // Enumerate first 10 entries.
     std::cout << "  First 10 entries:\n";
     size_t n = 0;
-    storage->enumerate([&](const FindEntry& fe) {
+    storage->enumerate([&](const EnumerateEntry& fe) {
         if (n < 10) {
             std::cout << "    [" << n << "] "
-                      << (fe.path.empty() ? "(id:" + std::to_string(fe.fileDataId) + ")" : fe.path)
+                      << (fe.path.empty() ? "(id:" + std::to_string(fe.fileDataId) + ")" : std::string(fe.path))
                       << "  size=" << fe.fileSize
                       << "  CKey=" << hexStr(fe.cKey) << "\n";
         }

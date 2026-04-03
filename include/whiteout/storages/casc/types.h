@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace whiteout::interfaces {
@@ -164,6 +165,18 @@ struct FindEntry {
     u32 contentFlags = 0;
     i32 fileDataId = kInvalidId;
     std::string path;
+};
+
+/// Lightweight view entry for enumerate callbacks.
+/// All fields are valid only within the callback scope — the path is a view
+/// into internal storage and must not be retained beyond the callback return.
+struct EnumerateEntry {
+    std::array<u8, 16> cKey{};
+    u64 fileSize = 0;
+    u32 localeFlags = 0;
+    u32 contentFlags = 0;
+    i32 fileDataId = kInvalidId;
+    std::string_view path;
 };
 
 // ============================================================================

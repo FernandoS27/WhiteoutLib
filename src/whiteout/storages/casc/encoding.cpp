@@ -7,6 +7,8 @@
 #include "../common/byte_order.h"
 #include "../common/md5.h"
 
+#include <whiteout/utils/job_group.h>
+
 #include <algorithm>
 #include <cstring>
 
@@ -47,7 +49,8 @@ static int cmpKey16(const std::array<u8, 16>& a, const std::array<u8, 16>& b) {
 // EncodingTable::parse
 // ============================================================================
 
-EncodingTable EncodingTable::parse(std::span<const u8> data) {
+EncodingTable EncodingTable::parse(std::span<const u8> data,
+                                   interfaces::WorkerPool* pool) {
     EncodingTable table;
 
     // Minimum header: magic(2) + version + sizes + counts.
@@ -93,11 +96,8 @@ EncodingTable EncodingTable::parse(std::span<const u8> data) {
     // Pre-reserve based on estimated entry count (each entry ~38 bytes).
     size_t estimatedEntries = cKeyPageCount * (cKeyPageSize / 38);
     table.m_entries.reserve(estimatedEntries);
-    table.m_cKeyIndex.reserve(estimatedEntries);
-    table.m_eKeyIndex.reserve(estimatedEntries);
 
-    // CKey pages follow immediately after the CKey page table.
-    // (EKey page table + EKey pages come AFTER the CKey pages.)
+    // --- Phase 1: Parse all entries from pages (no hash map inserts) ---
     for (u32 page = 0; page < cKeyPageCount; ++page) {
         size_t pageStart = offset + page * cKeyPageSize;
         if (pageStart + 2 > data.size())
@@ -131,15 +131,41 @@ EncodingTable EncodingTable::parse(std::span<const u8> data) {
             // Take only the first EKey.
             std::memcpy(entry.eKey.data(), data.data() + eKeyOff, eKeySize);
 
-            // Build hash indices eagerly during parse.
-            size_t idx = table.m_entries.size();
-            table.m_cKeyIndex.emplace(keyHash64(entry.cKey), idx);
-            table.m_eKeyIndex.emplace(keyHash64(entry.eKey), idx);
-
             table.m_entries.push_back(entry);
 
             // Advance past all EKeys.
             pos = eKeyOff + size_t(keyCount) * eKeySize;
+        }
+    }
+
+    // --- Phase 2: Build hash indices ---
+    size_t n = table.m_entries.size();
+    table.m_cKeyIndex.reserve(n);
+    table.m_eKeyIndex.reserve(n);
+
+    if (pool) {
+        // Build CKey and EKey indices in parallel.
+        utils::JobGroup jobGroup;
+        jobGroup.add(2);
+        interfaces::WorkerTask ckeyTask;
+        ckeyTask.fn = [&]() {
+            for (size_t i = 0; i < n; ++i)
+                table.m_cKeyIndex.emplace(keyHash64(table.m_entries[i].cKey), i);
+            jobGroup.done();
+        };
+        interfaces::WorkerTask ekeyTask;
+        ekeyTask.fn = [&]() {
+            for (size_t i = 0; i < n; ++i)
+                table.m_eKeyIndex.emplace(keyHash64(table.m_entries[i].eKey), i);
+            jobGroup.done();
+        };
+        pool->submit(ckeyTask);
+        pool->submit(ekeyTask);
+        jobGroup.wait();
+    } else {
+        for (size_t i = 0; i < n; ++i) {
+            table.m_cKeyIndex.emplace(keyHash64(table.m_entries[i].cKey), i);
+            table.m_eKeyIndex.emplace(keyHash64(table.m_entries[i].eKey), i);
         }
     }
 
@@ -155,11 +181,11 @@ const EncodingEntry* EncodingTable::findByCKey(std::span<const u8, 16> cKey,
     if (matchBytes == 0) matchBytes = 16;
     if (matchBytes > 16) matchBytes = 16;
 
-    auto it = m_cKeyIndex.find(keyHash64(cKey.data()));
-    if (it == m_cKeyIndex.end())
+    auto* idxPtr = m_cKeyIndex.find(keyHash64(cKey.data()));
+    if (!idxPtr)
         return nullptr;
 
-    auto& e = m_entries[it->second];
+    auto& e = m_entries[*idxPtr];
     if (std::memcmp(e.cKey.data(), cKey.data(), matchBytes) == 0)
         return &e;
 
@@ -176,11 +202,11 @@ const EncodingEntry* EncodingTable::findByEKey(std::span<const u8, 16> eKey,
     if (matchBytes > 16) matchBytes = 16;
 
     // Look up by first-8-byte hash.
-    auto it = m_eKeyIndex.find(keyHash64(eKey.data()));
-    if (it == m_eKeyIndex.end())
+    auto* idxPtr = m_eKeyIndex.find(keyHash64(eKey.data()));
+    if (!idxPtr)
         return nullptr;
 
-    auto& e = m_entries[it->second];
+    auto& e = m_entries[*idxPtr];
     // Verify full prefix match (handles collisions and matchBytes > 8).
     if (std::memcmp(e.eKey.data(), eKey.data(), matchBytes) == 0)
         return &e;

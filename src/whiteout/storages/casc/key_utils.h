@@ -30,14 +30,19 @@ inline std::span<const u8> eKeyTrunc(std::span<const u8, 16> key) {
     return std::span<const u8>(key.data(), kEKeyTruncSize);
 }
 
-/// Extract the first 8 bytes of a 16-byte key as a u64 hash for hash-map lookups.
+/// Fold a 16-byte key into a u64 hash for hash-map lookups.
+/// Uses the first 9 bytes (72 bits) instead of 8 to reduce collision probability.
+/// Must use exactly 9 bytes because TVFS roots truncate keys to 9 bytes (zero-
+/// padded to 16), and lookups must produce the same hash for both truncated and
+/// full keys. The 9th byte is folded into the top byte of the u64.
 inline u64 keyHash64(const u8* key) {
     u64 h = 0;
     std::memcpy(&h, key, 8);
+    h ^= static_cast<u64>(key[8]) << 56;
     return h;
 }
 
-/// Extract the first 8 bytes of a 16-byte key as a u64 hash for hash-map lookups.
+/// Fold a 16-byte key into a u64 hash for hash-map lookups.
 inline u64 keyHash64(const std::array<u8, 16>& key) {
     return keyHash64(key.data());
 }

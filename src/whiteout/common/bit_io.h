@@ -150,11 +150,13 @@ struct MsbBitWriter {
 // ============================================================================
 
 /// Reads bits LSB-first from a raw byte stream (no byte-stuffing).
+/// Uses a 64-bit accumulator so that up to 57 bits are available after
+/// a single refill, reducing refill frequency in tight decode loops.
 struct LsbBitReader {
     const u8* data = nullptr;
     size_t size = 0;
     size_t bytePos = 0;
-    u32 bitBuf = 0;
+    u64 bitBuf = 0;
     i32 bitsAvail = 0;
 
     void init(const u8* d, size_t s, size_t startByte) {
@@ -165,24 +167,37 @@ struct LsbBitReader {
         bitsAvail = 0;
     }
 
+    /// Bulk-refill: load up to 7 bytes at once so bitsAvail >= 56.
     void refill() {
-        while (bitsAvail <= 24 && bytePos < size) {
-            bitBuf |= static_cast<u32>(data[bytePos++]) << bitsAvail;
-            bitsAvail += 8;
+        if (bitsAvail > 56) return; // Already have enough bits.
+        // Fast path: if at least 8 bytes remain, load a full u64 and mask in.
+        if (bytePos + 8 <= size) {
+            u64 next = 0;
+            std::memcpy(&next, data + bytePos, 8); // unaligned load
+            bitBuf |= next << bitsAvail;
+            i32 consume = (64 - bitsAvail) >> 3; // whole bytes that fit
+            bytePos += consume;
+            bitsAvail += consume * 8;
+        } else {
+            // Tail: byte-at-a-time.
+            while (bitsAvail <= 56 && bytePos < size) {
+                bitBuf |= static_cast<u64>(data[bytePos++]) << bitsAvail;
+                bitsAvail += 8;
+            }
         }
     }
 
     u32 readBits(i32 count) {
-        refill();
-        u32 val = bitBuf & ((1u << count) - 1);
+        if (bitsAvail < count) refill();
+        u32 val = static_cast<u32>(bitBuf) & ((1u << count) - 1);
         bitBuf >>= count;
         bitsAvail -= count;
         return val;
     }
 
     u32 peekBits(i32 count) {
-        refill();
-        return bitBuf & ((1u << count) - 1);
+        if (bitsAvail < count) refill();
+        return static_cast<u32>(bitBuf) & ((1u << count) - 1);
     }
 
     void consumeBits(i32 count) {

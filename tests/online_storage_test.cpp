@@ -126,7 +126,7 @@ TEST_CASE("OnlineStorage W3 open succeeds", "[online][casc][network][w3]") {
     {
         u32 count = 0;
         u32 withPath = 0;
-        storage->enumerate([&](const FindEntry& fe) {
+        storage->enumerate([&](const EnumerateEntry& fe) {
             ++count;
             if (!fe.path.empty()) ++withPath;
             return count < 100; // stop after 100
@@ -233,7 +233,7 @@ TEST_CASE("OnlineStorage S1 open succeeds", "[online][casc][network][s1]") {
     i32 readableId = -1;
     {
         i32 targetId = -1;
-        storage->enumerate([&](const FindEntry& fe) {
+        storage->enumerate([&](const EnumerateEntry& fe) {
             if (fe.fileDataId > 0) {
                 targetId = fe.fileDataId;
                 return false;

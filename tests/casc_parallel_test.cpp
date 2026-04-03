@@ -128,10 +128,10 @@ static std::string findCorpus() {
 /// Collect the first N readable file paths from storage.
 static std::vector<std::string> collectPaths(Storage& storage, size_t maxCount) {
     std::vector<std::string> paths;
-    storage.enumerate([&](const FindEntry& fe) {
+    storage.enumerate([&](const EnumerateEntry& fe) {
         if (paths.size() >= maxCount) return false;
         if (!fe.path.empty())
-            paths.push_back(fe.path);
+            paths.push_back(std::string(fe.path));
         return true;
     });
     return paths;

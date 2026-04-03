@@ -1309,16 +1309,24 @@ std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
     return root;
 }
 
-std::vector<RootEntry> MndxRoot::findByPath(const std::string& path) const {
+std::vector<const RootEntry*> MndxRoot::findByPath(const std::string& path) const {
     auto key = normalizeCascPath(path);
-    std::vector<RootEntry> results;
-    auto range = m_byPath.equal_range(key);
+    return findByNormalizedPath(key);
+}
+
+std::vector<const RootEntry*> MndxRoot::findByNormalizedPath(const std::string& normalizedPath) const {
+    std::vector<const RootEntry*> results;
+    auto range = m_byPath.equal_range(normalizedPath);
     for (auto it = range.first; it != range.second; ++it)
-        results.push_back(m_entries[it->second]);
+        results.push_back(&m_entries[it->second]);
     return results;
 }
 
-std::vector<RootEntry> MndxRoot::findByFileDataId(u32 /*fileDataId*/) const {
+bool MndxRoot::hasPath(const std::string& normalizedPath) const {
+    return m_byPath.find(normalizedPath) != m_byPath.end();
+}
+
+std::vector<const RootEntry*> MndxRoot::findByFileDataId(u32 /*fileDataId*/) const {
     // MNDX roots don't use FileDataId.
     return {};
 }

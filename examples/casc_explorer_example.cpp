@@ -491,7 +491,7 @@ static void cmdEntries(casc::Storage& storage) {
     }
 
     size_t n = 0;
-    storage.enumerate([&](const casc::FindEntry& fe) {
+    storage.enumerate([&](const casc::EnumerateEntry& fe) {
         std::cout << "  [" << n << "] ";
         if (!fe.path.empty())
             std::cout << fe.path;

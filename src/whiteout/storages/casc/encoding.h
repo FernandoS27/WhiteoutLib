@@ -7,12 +7,14 @@
 #pragma once
 
 #include <whiteout/common_types.h>
+#include <whiteout/interfaces.h>
 
 #include <array>
 #include <span>
 #include <string>
-#include <unordered_map>
 #include <vector>
+
+#include "flat_hash_map.h"
 
 namespace whiteout::storages::casc {
 
@@ -25,7 +27,9 @@ struct EncodingEntry {
 class EncodingTable {
 public:
     /// Parse an ENCODING manifest (already BLTE-decoded).
-    static EncodingTable parse(std::span<const u8> data);
+    /// @param pool Optional worker pool for parallel index building.
+    static EncodingTable parse(std::span<const u8> data,
+                               interfaces::WorkerPool* pool = nullptr);
 
     /// Find by CKey. matchBytes=0 means compare all 16 bytes.
     const EncodingEntry* findByCKey(std::span<const u8, 16> cKey, size_t matchBytes = 0) const;
@@ -46,12 +50,10 @@ private:
     std::vector<EncodingEntry> m_entries;
 
     /// CKey hash index: first 8 bytes of CKey → index into m_entries.
-    /// Built eagerly during parse/insert.
-    std::unordered_map<u64, size_t> m_cKeyIndex;
+    FlatHashMap<size_t> m_cKeyIndex;
 
     /// EKey hash index: first 8 bytes of EKey → index into m_entries.
-    /// Built eagerly during parse/insert.
-    std::unordered_map<u64, size_t> m_eKeyIndex;
+    FlatHashMap<size_t> m_eKeyIndex;
 };
 
 } // namespace whiteout::storages::casc

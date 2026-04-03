@@ -425,9 +425,9 @@ bool test6_readBatch_serial(const std::string& corpusPath) {
 
     // Collect some file paths.
     std::vector<std::string> paths;
-    storage->enumerate([&](const casc::FindEntry& fe) {
+    storage->enumerate([&](const casc::EnumerateEntry& fe) {
         if (paths.size() >= 20) return false;
-        if (!fe.path.empty()) paths.push_back(fe.path);
+        if (!fe.path.empty()) paths.push_back(std::string(fe.path));
         return true;
     });
 
@@ -487,9 +487,9 @@ bool test7_readBatch_no_semaphore(const std::string& corpusPath, size_t numThrea
     if (!serial) return skip(T, "serial open failed");
 
     std::vector<std::string> paths;
-    storage->enumerate([&](const casc::FindEntry& fe) {
+    storage->enumerate([&](const casc::EnumerateEntry& fe) {
         if (paths.size() >= 30) return false;
-        if (!fe.path.empty()) paths.push_back(fe.path);
+        if (!fe.path.empty()) paths.push_back(std::string(fe.path));
         return true;
     });
     if (paths.empty()) return skip(T, "no files in corpus");
@@ -534,9 +534,9 @@ bool test8_readBatch_full_dag(const std::string& corpusPath, size_t numThreads) 
     if (!serial) return skip(T, "serial open failed");
 
     std::vector<std::string> paths;
-    storage->enumerate([&](const casc::FindEntry& fe) {
+    storage->enumerate([&](const casc::EnumerateEntry& fe) {
         if (paths.size() >= 50) return false;
-        if (!fe.path.empty()) paths.push_back(fe.path);
+        if (!fe.path.empty()) paths.push_back(std::string(fe.path));
         return true;
     });
     if (paths.empty()) return skip(T, "no files in corpus");
@@ -580,9 +580,9 @@ bool test9_readBatch_mixed_valid_invalid(const std::string& corpusPath) {
     std::vector<std::string> validPaths;
     {
         std::vector<std::string> candidates;
-        storage->enumerate([&](const casc::FindEntry& fe) {
+        storage->enumerate([&](const casc::EnumerateEntry& fe) {
             if (candidates.size() >= 30) return false;
-            if (!fe.path.empty()) candidates.push_back(fe.path);
+            if (!fe.path.empty()) candidates.push_back(std::string(fe.path));
             return true;
         });
         for (auto& p : candidates) {
@@ -790,9 +790,9 @@ bool test15_concurrent_readBatch(const std::string& corpusPath) {
 
     // Collect paths.
     std::vector<std::string> allPaths;
-    serial->enumerate([&](const casc::FindEntry& fe) {
+    serial->enumerate([&](const casc::EnumerateEntry& fe) {
         if (allPaths.size() >= 40) return false;
-        if (!fe.path.empty()) allPaths.push_back(fe.path);
+        if (!fe.path.empty()) allPaths.push_back(std::string(fe.path));
         return true;
     });
     if (allPaths.size() < 16)
@@ -960,9 +960,9 @@ bool test18_readBatch_vs_individual(const std::string& corpusPath) {
     if (!storage) return skip(T, "corpus not found at %s", corpusPath.c_str());
 
     std::vector<std::string> paths;
-    storage->enumerate([&](const casc::FindEntry& fe) {
+    storage->enumerate([&](const casc::EnumerateEntry& fe) {
         if (paths.size() >= 30) return false;
-        if (!fe.path.empty()) paths.push_back(fe.path);
+        if (!fe.path.empty()) paths.push_back(std::string(fe.path));
         return true;
     });
     if (paths.empty()) return skip(T, "no files in corpus");
@@ -1024,9 +1024,9 @@ bool test19_real_corpus_d3(const std::string& corpusBase) {
 
     // Enumerate candidates, then filter to actually-readable files.
     std::vector<std::string> candidates;
-    serial->enumerate([&](const casc::FindEntry& fe) {
+    serial->enumerate([&](const casc::EnumerateEntry& fe) {
         if (candidates.size() >= 200) return false;
-        if (!fe.path.empty()) candidates.push_back(fe.path);
+        if (!fe.path.empty()) candidates.push_back(std::string(fe.path));
         return true;
     });
     std::vector<std::string> paths;
@@ -1087,9 +1087,9 @@ bool test20_real_corpus_wc3(const std::string& corpusBase) {
 
     // Enumerate candidates, then filter to actually-readable files.
     std::vector<std::string> candidates;
-    serial->enumerate([&](const casc::FindEntry& fe) {
+    serial->enumerate([&](const casc::EnumerateEntry& fe) {
         if (candidates.size() >= 200) return false;
-        if (!fe.path.empty()) candidates.push_back(fe.path);
+        if (!fe.path.empty()) candidates.push_back(std::string(fe.path));
         return true;
     });
     std::vector<std::string> paths;

@@ -239,10 +239,10 @@ TEST_CASE("Storage Cross Validate", "[casc][cross_validate][corpus]") {
     std::vector<NewEntry> newEntries;
     size_t zeroCKeyCount = 0;
 
-    newStorage->enumerate([&](const new_casc::FindEntry& fe) {
+    newStorage->enumerate([&](const new_casc::EnumerateEntry& fe) {
         if (fe.path.empty()) return true;
         if (fe.cKey != zeroKey) {
-            newEntries.push_back({fe.cKey, fe.path});
+            newEntries.push_back({fe.cKey, std::string(fe.path)});
         } else {
             ++zeroCKeyCount;
         }
@@ -594,9 +594,15 @@ TEST_CASE("Storage Internal", "[casc][cross_validate][corpus]") {
     constexpr size_t sampleLimit = 200;
 
     std::vector<new_casc::FindEntry> sampleEntries;
-    storage->enumerate([&](const new_casc::FindEntry& fe) {
+    storage->enumerate([&](const new_casc::EnumerateEntry& fe) {
         if (sampleEntries.size() >= sampleLimit) return false;
-        sampleEntries.push_back(fe);
+        new_casc::FindEntry& out = sampleEntries.emplace_back();
+        out.cKey = fe.cKey;
+        out.fileSize = fe.fileSize;
+        out.localeFlags = fe.localeFlags;
+        out.contentFlags = fe.contentFlags;
+        out.fileDataId = fe.fileDataId;
+        out.path = std::string(fe.path);
         return true;
     });
 
@@ -628,11 +634,18 @@ TEST_CASE("Storage Internal", "[casc][cross_validate][corpus]") {
     constexpr size_t md5Limit = 100;
 
     std::vector<new_casc::FindEntry> cKeyEntries;
-    storage->enumerate([&](const new_casc::FindEntry& fe) {
+    storage->enumerate([&](const new_casc::EnumerateEntry& fe) {
         if (cKeyEntries.size() >= md5Limit) return false;
         static constexpr std::array<u8, 16> zero{};
-        if (fe.cKey != zero && !fe.path.empty())
-            cKeyEntries.push_back(fe);
+        if (fe.cKey != zero && !fe.path.empty()) {
+            new_casc::FindEntry& out = cKeyEntries.emplace_back();
+            out.cKey = fe.cKey;
+            out.fileSize = fe.fileSize;
+            out.localeFlags = fe.localeFlags;
+            out.contentFlags = fe.contentFlags;
+            out.fileDataId = fe.fileDataId;
+            out.path = std::string(fe.path);
+        }
         return true;
     });
 

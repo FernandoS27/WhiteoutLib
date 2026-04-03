@@ -150,8 +150,26 @@ public:
     /**
      * @brief Enumerate all entries in the root manifest.
      * @param callback Invoked for each entry; return false to stop.
+     *        The EnumerateEntry is a view — its path field is valid only
+     *        during the callback invocation.
      */
-    void enumerate(std::function<bool(const FindEntry&)> callback) const;
+    void enumerate(std::function<bool(const EnumerateEntry&)> callback) const;
+
+    /**
+     * @brief Enumerate entries whose path matches a wildcard mask.
+     *
+     * Supports CascLib-compatible wildcard patterns:
+     * - `*` matches zero or more characters (including path separators)
+     * - `?` matches exactly one character
+     * - All other characters are matched literally (case-insensitive)
+     *
+     * The mask `"*"` is equivalent to the no-mask overload.
+     *
+     * @param mask    Wildcard pattern (e.g. `"*.dds"`, `"data\\global\\*"`).
+     * @param callback Invoked for each matching entry; return false to stop.
+     */
+    void enumerate(const std::string& mask,
+                   std::function<bool(const EnumerateEntry&)> callback) const;
 
     /// @return All known file paths.
     std::vector<std::string> listFiles() const;

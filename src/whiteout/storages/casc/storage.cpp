@@ -126,18 +126,26 @@ struct Storage::Impl {
     mutable std::once_flag deferOnce;
     mutable bool deferLoadOk = true;
 
+    // Pre-built bitvector: m_encodingReferenced[i] = true iff encoding entry i
+    // is referenced by at least one root entry.  Built during loadEncodingAndRoot().
+    // Used by enumerate() for orphan detection without a per-call hash set.
+    mutable std::vector<bool> m_encodingReferenced;
+
     // ---- helpers ----
 
     /// Read raw BLTE data from an archive at a given offset.
+    /// Returns a span into the memory-mapped archive (zero-copy).
     /// Handles the 30-byte archive entry header (EKey hash + encoded/decoded sizes + flags).
-    std::vector<u8> readRawBlte(u32 archiveIndex, u32 offset, u32 encodedSize) const;
+    std::span<const u8> readRawBlte(u32 archiveIndex, u32 offset, u32 encodedSize) const;
 
     /// Read raw BLTE data without the archive entry header (.index entries).
-    std::vector<u8> readRawBlteDirect(u32 archiveIndex, u32 offset, u32 encodedSize) const;
+    /// Returns a span into the memory-mapped archive (zero-copy).
+    std::span<const u8> readRawBlteDirect(u32 archiveIndex, u32 offset, u32 encodedSize) const;
 
     /// Read raw BLTE data for an index entry, with automatic fallback
     /// if the directBLTE flag turns out to be wrong.
-    std::vector<u8> readBlteFromIndex(const IndexEntry& idx) const;
+    /// Returns a span into the memory-mapped archive (zero-copy).
+    std::span<const u8> readBlteFromIndex(const IndexEntry& idx) const;
 
     /// Full pipeline: CKey → decoded file data.
     std::vector<u8> resolveCKey(std::span<const u8, 16> cKey) const;
@@ -146,7 +154,7 @@ struct Storage::Impl {
     std::vector<u8> resolveEKey(std::span<const u8, 16> eKey) const;
 
     /// Full pipeline: RootEntry → decoded file data (applies locale filter).
-    std::optional<std::vector<u8>> resolveRootEntry(const std::vector<RootEntry>& entries,
+    std::optional<std::vector<u8>> resolveRootEntry(const std::vector<const RootEntry*>& entries,
                                                      u32 localeFlags) const;
 
     /// Resolve encoding entry from a RootEntry (tries CKey first, then EKey).
@@ -166,12 +174,12 @@ struct Storage::Impl {
     /// Must be called with the shared lock already held.
     std::optional<std::vector<u8>> readFileResolved(
         const OverlayKey& key,
-        const std::vector<RootEntry>& entries,
+        const std::vector<const RootEntry*>& entries,
         u32 localeFlags) const;
 
     /// Shared implementation for fileInfo by path or file ID.
     /// Must be called with the shared lock already held.
-    std::optional<FileFullInfo> fileInfoResolved(const std::vector<RootEntry>& entries) const;
+    std::optional<FileFullInfo> fileInfoResolved(const std::vector<const RootEntry*>& entries) const;
 
     /// Lazily load encoding table and root manifest (LoadOnDemand).
     /// Thread-safe, called before any operation that needs encoding/root.
@@ -187,7 +195,7 @@ struct Storage::Impl {
 // Impl helpers
 // ============================================================================
 
-std::vector<u8> Storage::Impl::readRawBlte(u32 archiveIndex, u32 offset, u32 encodedSize) const {
+std::span<const u8> Storage::Impl::readRawBlte(u32 archiveIndex, u32 offset, u32 encodedSize) const {
     if (archiveIndex >= dataArchives.size())
         return {};
 
@@ -205,11 +213,11 @@ std::vector<u8> Storage::Impl::readRawBlte(u32 archiveIndex, u32 offset, u32 enc
         return {};
 
     auto ptr = archive.ptr() + dataOffset;
-    return std::vector<u8>(ptr, ptr + dataSize);
+    return std::span<const u8>(ptr, dataSize);
 }
 
 /// Read raw BLTE data from a data archive (.index variant: no per-entry header).
-std::vector<u8> Storage::Impl::readRawBlteDirect(u32 archiveIndex, u32 offset, u32 encodedSize) const {
+std::span<const u8> Storage::Impl::readRawBlteDirect(u32 archiveIndex, u32 offset, u32 encodedSize) const {
     if (archiveIndex >= dataArchives.size())
         return {};
 
@@ -221,10 +229,10 @@ std::vector<u8> Storage::Impl::readRawBlteDirect(u32 archiveIndex, u32 offset, u
         return {};
 
     auto ptr = archive.ptr() + offset;
-    return std::vector<u8>(ptr, ptr + encodedSize);
+    return std::span<const u8>(ptr, encodedSize);
 }
 
-std::vector<u8> Storage::Impl::readBlteFromIndex(const IndexEntry& idx) const {
+std::span<const u8> Storage::Impl::readBlteFromIndex(const IndexEntry& idx) const {
     auto blteData = idx.directBLTE
         ? readRawBlteDirect(idx.archiveIndex, idx.archiveOffset, idx.encodedSize)
         : readRawBlte(idx.archiveIndex, idx.archiveOffset, idx.encodedSize);
@@ -236,7 +244,7 @@ std::vector<u8> Storage::Impl::readBlteFromIndex(const IndexEntry& idx) const {
             auto retry = idx.directBLTE
                 ? readRawBlte(idx.archiveIndex, idx.archiveOffset, idx.encodedSize)
                 : readRawBlteDirect(idx.archiveIndex, idx.archiveOffset, idx.encodedSize);
-            if (!retry.empty()) blteData = std::move(retry);
+            if (!retry.empty()) blteData = retry;
         }
     }
     return blteData;
@@ -274,13 +282,13 @@ std::vector<u8> Storage::Impl::resolveEKey(std::span<const u8, 16> eKey) const {
 }
 
 std::optional<std::vector<u8>> Storage::Impl::resolveRootEntry(
-    const std::vector<RootEntry>& entries, u32 localeFlags) const {
+    const std::vector<const RootEntry*>& entries, u32 localeFlags) const {
     if (entries.empty()) return std::nullopt;
 
     const RootEntry* best = selectBestEntry(entries, localeFlags);
     if (!best) return std::nullopt;
 
-    // Verify the entry can be located in the index.
+    // Resolve CKey or EKey → index entry in a single pass (no duplicate lookups).
     const IndexEntry* idxEntry = nullptr;
     if (!isZeroKey(best->cKey)) {
         auto encEntry = encodingTable.findByCKey(best->cKey, 9);
@@ -292,18 +300,14 @@ std::optional<std::vector<u8>> Storage::Impl::resolveRootEntry(
     }
     if (!idxEntry) return std::nullopt;
 
-    // Resolve the data. Try cKey path first, fallback to eKey.
-    // TVFS entries have truncated cKeys that fail encoding-table lookup,
-    // so the eKey fallback is essential for those entries.
-    std::vector<u8> data;
-    if (!isZeroKey(best->cKey)) {
-        data = resolveCKey(best->cKey);
-    }
-    if (data.empty() && !isZeroKey(best->eKey)) {
-        data = resolveEKey(best->eKey);
-    }
-    // Return data even if empty (valid empty file).
-    return data;
+    // Read and decode BLTE data directly from the already-resolved index entry.
+    auto blteData = readBlteFromIndex(*idxEntry);
+    if (blteData.empty()) return std::nullopt;
+
+    auto decoded = blteDecode(blteData, &keyRing, pool);
+    if (!decoded.success) return std::nullopt;
+
+    return std::move(decoded.data);
 }
 
 const EncodingEntry* Storage::Impl::resolveEncoding(const RootEntry& re) const {
@@ -360,7 +364,7 @@ bool Storage::Impl::mapArchives(std::string* error) {
 
 std::optional<std::vector<u8>> Storage::Impl::readFileResolved(
     const OverlayKey& key,
-    const std::vector<RootEntry>& entries,
+    const std::vector<const RootEntry*>& entries,
     u32 localeFlags) const {
 
     // Check overlay first.
@@ -387,25 +391,28 @@ std::optional<std::vector<u8>> Storage::Impl::readFileResolved(
 }
 
 std::optional<FileFullInfo> Storage::Impl::fileInfoResolved(
-    const std::vector<RootEntry>& entries) const {
+    const std::vector<const RootEntry*>& entries) const {
 
     if (entries.empty()) return std::nullopt;
 
-    auto& re = entries[0];
+    auto* re = entries[0];
     FileFullInfo info;
-    info.cKey = re.cKey;
-    info.localeFlags = re.localeFlags;
-    info.contentFlags = re.contentFlags;
-    info.fileDataId = static_cast<i32>(re.fileDataId);
-    info.path = re.path;
+    info.cKey = re->cKey;
+    info.localeFlags = re->localeFlags;
+    info.contentFlags = re->contentFlags;
+    info.fileDataId = static_cast<i32>(re->fileDataId);
+    info.path = re->path;
+    info.fileSize = re->fileSize; // pre-resolved during load
 
-    auto encEntry = resolveEncoding(re);
+    auto encEntry = resolveEncoding(*re);
     if (encEntry) {
         info.eKey = encEntry->eKey;
-        info.fileSize = encEntry->fileSize;
-        info.cKey = encEntry->cKey;
+        if (info.fileSize == 0)
+            info.fileSize = encEntry->fileSize;
+        if (isZeroKey(info.cKey))
+            info.cKey = encEntry->cKey;
     } else {
-        info.eKey = re.eKey;
+        info.eKey = re->eKey;
     }
     return info;
 }
@@ -444,7 +451,7 @@ bool Storage::Impl::loadEncodingAndRoot() const {
         return false;
     }
 
-    encodingTable = EncodingTable::parse(encodingDecoded.data);
+    encodingTable = EncodingTable::parse(encodingDecoded.data, pool);
     if (encodingTable.entryCount() == 0) {
         s_lastError = kEncodingDecodeFailed;
         return false;
@@ -468,32 +475,72 @@ bool Storage::Impl::loadEncodingAndRoot() const {
             vfsEKeyToCKey[keyHash64(sub.eKey)] = sub.cKey;
         }
 
-        VfsResolver vfsResolver = [this, &vfsEKeyToCKey](std::span<const u8> eKey) -> std::vector<u8> {
-            std::array<u8, 16> eKey16{};
-            std::memcpy(eKey16.data(), eKey.data(), std::min(eKey.size(), size_t(16)));
+        // Pre-fetch all VFS sub-manifests in parallel so the resolver
+        // during tree traversal is a cheap cache lookup instead of I/O.
+        std::unordered_map<u64, std::vector<u8>> vfsCache;
+        auto vfsData = resolveCKey(buildConfig.vfsRootCKey);
 
-            auto result = resolveEKey(eKey16);
-            if (!result.empty())
-                return result;
-
-            auto it = vfsEKeyToCKey.find(keyHash64(eKey.data()));
-            if (it != vfsEKeyToCKey.end()) {
-                auto ckResult = resolveCKey(it->second);
-                if (!ckResult.empty())
-                    return ckResult;
+        // Resolve sub-manifests in parallel if pool available.
+        if (pool && vfsEKeys.size() > 1) {
+            struct SubResult {
+                u64 hash;
+                std::vector<u8> data;
+            };
+            std::vector<SubResult> results(vfsEKeys.size());
+            utils::JobGroup jobGroup;
+            jobGroup.add(vfsEKeys.size());
+            for (size_t i = 0; i < vfsEKeys.size(); ++i) {
+                interfaces::WorkerTask task;
+                task.fn = [&, i]() {
+                    std::array<u8, 16> eKey16{};
+                    std::memcpy(eKey16.data(), vfsEKeys[i].data(),
+                                std::min(size_t(16), vfsEKeys[i].size()));
+                    results[i].hash = keyHash64(eKey16);
+                    results[i].data = resolveEKey(eKey16);
+                    if (results[i].data.empty()) {
+                        auto cIt = vfsEKeyToCKey.find(results[i].hash);
+                        if (cIt != vfsEKeyToCKey.end())
+                            results[i].data = resolveCKey(cIt->second);
+                    }
+                    jobGroup.done();
+                };
+                pool->submit(task);
             }
+            jobGroup.wait();
+            for (auto& r : results) {
+                if (!r.data.empty())
+                    vfsCache.emplace(r.hash, std::move(r.data));
+            }
+        } else {
+            for (auto& ek : vfsEKeys) {
+                std::array<u8, 16> eKey16{};
+                std::memcpy(eKey16.data(), ek.data(), std::min(size_t(16), ek.size()));
+                u64 h = keyHash64(eKey16);
+                auto data = resolveEKey(eKey16);
+                if (data.empty()) {
+                    auto cIt = vfsEKeyToCKey.find(h);
+                    if (cIt != vfsEKeyToCKey.end())
+                        data = resolveCKey(cIt->second);
+                }
+                if (!data.empty())
+                    vfsCache.emplace(h, std::move(data));
+            }
+        }
 
+        // Resolver that returns from the pre-fetched cache.
+        VfsResolver vfsResolver = [&vfsCache](std::span<const u8> eKey) -> std::vector<u8> {
+            u64 h = keyHash64(eKey.data());
+            auto it = vfsCache.find(h);
+            if (it != vfsCache.end())
+                return it->second;  // copy — sub-manifest may be needed multiple times
             return {};
         };
 
-        auto vfsData = resolveCKey(buildConfig.vfsRootCKey);
         std::unique_ptr<TvfsRoot> tvfsRoot;
         if (!vfsData.empty())
             tvfsRoot = TvfsRoot::parse(vfsData, vfsResolver, vfsEKeys, pool);
-
-        if (tvfsRoot) {
+        if (tvfsRoot)
             root = std::move(tvfsRoot);
-        }
     }
 
     if (!root) {
@@ -526,6 +573,25 @@ bool Storage::Impl::loadEncodingAndRoot() const {
         s_lastError = kRootParseFailed;
         return false;
     }
+
+    // Pre-resolve file sizes (and fill in zero CKeys) from the encoding table.
+    // Also build a bitvector marking which encoding entries are referenced by root,
+    // so enumerate() can detect orphans without a per-call hash set.
+    m_encodingReferenced.assign(encodingTable.entryCount(), false);
+    const auto* encBase = encodingTable.entries().data();
+    root->resolveEntries([this, encBase](RootEntry& e) {
+        const EncodingEntry* enc = nullptr;
+        if (!isZeroKey(e.cKey))
+            enc = encodingTable.findByCKey(e.cKey, 9);
+        if (!enc && !isZeroKey(e.eKey))
+            enc = encodingTable.findByEKey(e.eKey, 9);
+        if (enc) {
+            e.fileSize = enc->fileSize;
+            if (isZeroKey(e.cKey))
+                e.cKey = enc->cKey;
+            m_encodingReferenced[static_cast<size_t>(enc - encBase)] = true;
+        }
+    });
 
     return true;
 }
@@ -750,7 +816,7 @@ std::optional<std::vector<u8>> Storage::readFile(const std::string& cascPath,
     std::shared_lock lock(m_impl->mutex);
     auto normalized = normalizeCascPath(cascPath);
     OverlayKey key{normalized, std::nullopt};
-    auto entries = m_impl->root ? m_impl->root->findByPath(normalized) : std::vector<RootEntry>{};
+    auto entries = m_impl->root ? m_impl->root->findByNormalizedPath(normalized) : std::vector<const RootEntry*>{};
     return m_impl->readFileResolved(key, entries, localeFlags);
 }
 
@@ -769,7 +835,7 @@ std::optional<std::vector<u8>> Storage::readFile(i32 fileId,
     std::shared_lock lock(m_impl->mutex);
     OverlayKey key{"", static_cast<u32>(fileId)};
     auto entries = m_impl->root ? m_impl->root->findByFileDataId(static_cast<u32>(fileId))
-                                : std::vector<RootEntry>{};
+                                : std::vector<const RootEntry*>{};
     return m_impl->readFileResolved(key, entries, localeFlags);
 }
 
@@ -800,7 +866,7 @@ std::vector<BatchReadResult> Storage::readBatch(
     // Determine which requests need BLTE resolution.
     struct ResolveWork {
         size_t requestIndex;         // Index into requests/results arrays.
-        std::vector<RootEntry> rootEntries;
+        std::vector<const RootEntry*> rootEntries;
         u32 localeFlags;
     };
     std::vector<ResolveWork> toResolve;
@@ -837,10 +903,10 @@ std::vector<BatchReadResult> Storage::readBatch(
         }
 
         // Root lookup.
-        std::vector<RootEntry> entries;
+        std::vector<const RootEntry*> entries;
         if (m_impl->root) {
             if (byPath)
-                entries = m_impl->root->findByPath(normalizeCascPath(req.path));
+                entries = m_impl->root->findByNormalizedPath(normalizeCascPath(req.path));
             else
                 entries = m_impl->root->findByFileDataId(static_cast<u32>(req.fileDataId));
         }
@@ -861,7 +927,7 @@ std::vector<BatchReadResult> Storage::readBatch(
     // through encoding + index tables, read raw BLTE blob.
     // Each slot writes to its own resolvedBlob — no cross-slot sharing.
     struct ResolvedBlob {
-        std::vector<u8> blteData;
+        std::span<const u8> blteData;
         bool resolved = false;
         std::string error;
     };
@@ -961,14 +1027,15 @@ bool Storage::fileExists(const std::string& cascPath) const {
     std::shared_lock lock(m_impl->mutex);
 
     auto normalized = normalizeCascPath(cascPath);
-    OverlayKey key{normalized, std::nullopt};
 
-    // Check overlay writes.
-    if (m_impl->pendingWrites.count(key)) return true;
-    // Check deletes.
-    if (m_impl->pendingDeletes.count(key)) return false;
+    // Fast path: skip overlay checks when there are no pending writes/deletes.
+    if (!m_impl->pendingWrites.empty() || !m_impl->pendingDeletes.empty()) {
+        OverlayKey key{normalized, std::nullopt};
+        if (m_impl->pendingWrites.count(key)) return true;
+        if (m_impl->pendingDeletes.count(key)) return false;
+    }
 
-    return m_impl->root && !m_impl->root->findByPath(normalized).empty();
+    return m_impl->root && m_impl->root->hasPath(normalized);
 }
 
 bool Storage::fileExists(i32 fileId) const {
@@ -976,11 +1043,14 @@ bool Storage::fileExists(i32 fileId) const {
     if (!m_impl->ensureLoaded()) return false;
     std::shared_lock lock(m_impl->mutex);
 
-    OverlayKey key{"", static_cast<u32>(fileId)};
-    if (m_impl->pendingWrites.count(key)) return true;
-    if (m_impl->pendingDeletes.count(key)) return false;
+    // Fast path: skip overlay checks when there are no pending writes/deletes.
+    if (!m_impl->pendingWrites.empty() || !m_impl->pendingDeletes.empty()) {
+        OverlayKey key{"", static_cast<u32>(fileId)};
+        if (m_impl->pendingWrites.count(key)) return true;
+        if (m_impl->pendingDeletes.count(key)) return false;
+    }
 
-    return m_impl->root && !m_impl->root->findByFileDataId(static_cast<u32>(fileId)).empty();
+    return m_impl->root && m_impl->root->hasFileDataId(static_cast<u32>(fileId));
 }
 
 std::optional<u64> Storage::fileSize(const std::string& cascPath) const {
@@ -988,10 +1058,15 @@ std::optional<u64> Storage::fileSize(const std::string& cascPath) const {
     if (!m_impl->ensureLoaded()) return std::nullopt;
     std::shared_lock lock(m_impl->mutex);
 
-    auto entries = m_impl->root->findByPath(normalizeCascPath(cascPath));
+    auto entries = m_impl->root->findByNormalizedPath(normalizeCascPath(cascPath));
     if (entries.empty()) return std::nullopt;
 
-    auto encEntry = m_impl->resolveEncoding(entries[0]);
+    // fileSize is pre-resolved during load.
+    if (entries[0]->fileSize > 0)
+        return entries[0]->fileSize;
+
+    // Fallback for entries not resolved at load time.
+    auto encEntry = m_impl->resolveEncoding(*entries[0]);
     if (!encEntry) return std::nullopt;
     return encEntry->fileSize;
 }
@@ -1004,7 +1079,12 @@ std::optional<u64> Storage::fileSize(i32 fileId) const {
     auto entries = m_impl->root->findByFileDataId(static_cast<u32>(fileId));
     if (entries.empty()) return std::nullopt;
 
-    auto encEntry = m_impl->resolveEncoding(entries[0]);
+    // fileSize is pre-resolved during load.
+    if (entries[0]->fileSize > 0)
+        return entries[0]->fileSize;
+
+    // Fallback for entries not resolved at load time.
+    auto encEntry = m_impl->resolveEncoding(*entries[0]);
     if (!encEntry) return std::nullopt;
     return encEntry->fileSize;
 }
@@ -1013,7 +1093,7 @@ std::optional<FileFullInfo> Storage::fileInfo(const std::string& cascPath) const
     if (!m_impl || !m_impl->isValid) return std::nullopt;
     if (!m_impl->ensureLoaded()) return std::nullopt;
     std::shared_lock lock(m_impl->mutex);
-    return m_impl->fileInfoResolved(m_impl->root->findByPath(normalizeCascPath(cascPath)));
+    return m_impl->fileInfoResolved(m_impl->root->findByNormalizedPath(normalizeCascPath(cascPath)));
 }
 
 std::optional<FileFullInfo> Storage::fileInfo(i32 fileId) const {
@@ -1024,60 +1104,246 @@ std::optional<FileFullInfo> Storage::fileInfo(i32 fileId) const {
         m_impl->root->findByFileDataId(static_cast<u32>(fileId)));
 }
 
-void Storage::enumerate(std::function<bool(const FindEntry&)> callback) const {
+void Storage::enumerate(std::function<bool(const EnumerateEntry&)> callback) const {
     if (!m_impl || !m_impl->isValid || !callback) return;
     if (!m_impl->ensureLoaded()) return;
     std::shared_lock lock(m_impl->mutex);
 
-    // Track CKeys emitted by the root manifest.
-    std::unordered_set<u64> rootKeyHashes;
-
+    EnumerateEntry fe;
     m_impl->root->enumerate([&](const RootEntry& re) -> bool {
-        if (!isZeroKey(re.cKey))
-            rootKeyHashes.insert(keyHash64(re.cKey));
-
-        FindEntry fe;
-        fe.cKey = re.cKey;
+        fe.cKey = re.cKey;           // pre-resolved during load (zero CKeys filled in)
+        fe.fileSize = re.fileSize;   // pre-resolved during load
         fe.localeFlags = re.localeFlags;
         fe.contentFlags = re.contentFlags;
         fe.fileDataId = static_cast<i32>(re.fileDataId);
-        fe.path = re.path;
-
-        auto encEntry = m_impl->resolveEncoding(re);
-        if (encEntry) {
-            fe.fileSize = encEntry->fileSize;
-            fe.cKey = encEntry->cKey; // fill in CKey from encoding if root had only EKey
-            // Track the resolved CKey too (TVFS entries may have zero CKey in root).
-            rootKeyHashes.insert(keyHash64(encEntry->cKey));
-        }
+        fe.path = re.path;          // string_view — zero copy
 
         return callback(fe);
     });
 
     // Emit encoding-table orphans (entries not represented in the root manifest).
-    // CascLib does the same, using the hex CKey as the filename.
+    // Uses pre-built bitvector from loadEncodingAndRoot() instead of per-call hash set.
     static constexpr char kHex[] = "0123456789abcdef";
-    for (auto& enc : m_impl->encodingTable.entries()) {
+    const auto& encEntries = m_impl->encodingTable.entries();
+    char hexBuf[33];
+    for (size_t i = 0; i < encEntries.size(); ++i) {
+        auto& enc = encEntries[i];
         if (isZeroKey(enc.cKey))
             continue;
-        if (rootKeyHashes.count(keyHash64(enc.cKey)))
+        if (m_impl->m_encodingReferenced[i])
             continue;
 
         // Format CKey as 32-character hex string.
-        char hexBuf[33];
-        for (int i = 0; i < 16; ++i) {
-            hexBuf[i * 2]     = kHex[enc.cKey[i] >> 4];
-            hexBuf[i * 2 + 1] = kHex[enc.cKey[i] & 0xF];
+        for (int j = 0; j < 16; ++j) {
+            hexBuf[j * 2]     = kHex[enc.cKey[j] >> 4];
+            hexBuf[j * 2 + 1] = kHex[enc.cKey[j] & 0xF];
         }
         hexBuf[32] = '\0';
 
-        FindEntry fe;
         fe.cKey = enc.cKey;
         fe.fileSize = enc.fileSize;
-        fe.path = hexBuf;
+        fe.localeFlags = 0;
+        fe.contentFlags = 0;
+        fe.fileDataId = kInvalidId;
+        fe.path = std::string_view(hexBuf, 32);
 
         if (!callback(fe))
             break;
+    }
+}
+
+// ── Wildcard matcher (CascLib-compatible: * and ? only, case-insensitive) ──
+
+namespace {
+
+/// Lowercase + normalize slashes for a single character.
+inline char normChar(char ch) noexcept {
+    if (ch == '/') return '\\';
+    return (ch >= 'A' && ch <= 'Z') ? static_cast<char>(ch + 32) : ch;
+}
+
+/// Pre-normalize a mask string: lowercase, '/' → '\\'.
+static std::string normalizeMask(const std::string& mask) {
+    std::string r;
+    r.reserve(mask.size());
+    for (char c : mask) r.push_back(normChar(c));
+    return r;
+}
+
+/// Match @p pat (already normalized) against @p str (may have mixed case/slashes)
+/// where `*` matches zero-or-more characters and `?` matches exactly one character.
+static bool wildcardMatch(std::string_view pat, std::string_view str) noexcept {
+    size_t pi = 0, si = 0;
+    size_t starPat = std::string_view::npos;
+    size_t starStr = 0;
+
+    while (si < str.size()) {
+        if (pi < pat.size() && (pat[pi] == '?' || pat[pi] == normChar(str[si]))) {
+            ++pi;
+            ++si;
+        } else if (pi < pat.size() && pat[pi] == '*') {
+            starPat = pi++;
+            starStr = si;
+        } else if (starPat != std::string_view::npos) {
+            pi = starPat + 1;
+            si = ++starStr;
+        } else {
+            return false;
+        }
+    }
+
+    while (pi < pat.size() && pat[pi] == '*') ++pi;
+    return pi == pat.size();
+}
+
+/// Return true if @p mask is the trivial "match-all" pattern.
+static bool isTrivialMask(std::string_view mask) noexcept {
+    for (char ch : mask) {
+        if (ch != '*') return false;
+    }
+    return true; // empty or all-stars = match everything
+}
+
+/// Extract the literal prefix from a mask — the portion before the first
+/// wildcard ('*' or '?'). Returns an empty view if the mask starts with a
+/// wildcard. The prefix is truncated to the last path separator so it
+/// represents a complete directory path suitable for enumerateUnder().
+static std::string_view extractPrefix(std::string_view mask) noexcept {
+    // Find first wildcard character.
+    size_t wild = 0;
+    while (wild < mask.size() && mask[wild] != '*' && mask[wild] != '?')
+        ++wild;
+    if (wild == 0) return {};
+    // Truncate to last path separator (we need a complete directory component).
+    size_t lastSep = mask.rfind('\\', wild - 1);
+    if (lastSep == std::string_view::npos) return {};
+    return mask.substr(0, lastSep + 1); // includes trailing backslash
+}
+
+/// Check if @p mask is a pure suffix pattern: exactly one leading '*' followed
+/// by a literal suffix (no other wildcards). If so, returns the suffix
+/// (including the leading dot if present). Otherwise returns an empty view.
+static std::string_view extractPureSuffix(std::string_view mask) noexcept {
+    if (mask.size() < 2 || mask[0] != '*') return {};
+    // Check that the rest has no wildcards.
+    for (size_t i = 1; i < mask.size(); ++i) {
+        if (mask[i] == '*' || mask[i] == '?') return {};
+    }
+    return mask.substr(1); // e.g. ".dds"
+}
+
+/// Case-insensitive suffix check (characters already normalized).
+static bool endsWithNorm(std::string_view str, std::string_view suffix) noexcept {
+    if (str.size() < suffix.size()) return false;
+    size_t off = str.size() - suffix.size();
+    for (size_t i = 0; i < suffix.size(); ++i) {
+        if (normChar(str[off + i]) != suffix[i]) return false;
+    }
+    return true;
+}
+
+} // anonymous namespace
+
+void Storage::enumerate(const std::string& mask,
+                        std::function<bool(const EnumerateEntry&)> callback) const {
+    if (!callback) return;
+    if (!m_impl || !m_impl->isValid) return;
+    if (!m_impl->ensureLoaded()) return;
+
+    // Fast path: "*" or empty mask → delegate to the unfiltered overload.
+    if (mask.empty() || isTrivialMask(mask)) {
+        enumerate(std::move(callback));
+        return;
+    }
+
+    // Pre-normalize the mask once (lowercase + slash normalization).
+    std::string normMask = normalizeMask(mask);
+
+    std::shared_lock lock(m_impl->mutex);
+
+    // ── Strategy selection ────────────────────────────────────────────
+    //
+    // 1. Pure suffix pattern (e.g. "*.dds"): fast endsWith check.
+    // 2. Has literal prefix (e.g. "campaigns\\*.ogg"): narrow via
+    //    root->enumerateUnder(prefix), then apply wildcard/suffix on
+    //    the narrowed set.
+    // 3. General pattern: full scan + wildcardMatch.
+
+    std::string_view pureSuffix = extractPureSuffix(normMask);
+    std::string_view prefix = extractPrefix(normMask);
+    // Strip trailing backslash for enumerateUnder (it expects directory name
+    // without trailing separator).
+    std::string prefixDir;
+    if (!prefix.empty())
+        prefixDir = std::string(prefix.substr(0, prefix.size() - 1));
+
+    // Build the enumerate-and-filter lambda that applies the chosen match
+    // strategy to each root entry.
+    EnumerateEntry fe;
+    auto rootCallback = [&](const RootEntry& re) -> bool {
+        // Quick prefix rejection: if the pattern has a literal prefix, entries
+        // that don't start with it can be skipped without full wildcardMatch.
+        // Both prefix (from mask) and path may use mixed '/' and '\\', so
+        // compare via normChar() for separator equivalence.
+        if (!prefix.empty()) {
+            if (re.path.size() < prefix.size()) return true;
+            for (size_t i = 0; i < prefix.size(); ++i) {
+                if (normChar(re.path[i]) != prefix[i]) return true;
+            }
+        }
+
+        // Apply wildcard filter.
+        bool match;
+        if (!pureSuffix.empty()) {
+            match = endsWithNorm(re.path, pureSuffix);
+        } else {
+            match = wildcardMatch(normMask, re.path);
+        }
+        if (!match) return true;
+
+        fe.cKey = re.cKey;
+        fe.fileSize = re.fileSize;
+        fe.localeFlags = re.localeFlags;
+        fe.contentFlags = re.contentFlags;
+        fe.fileDataId = static_cast<i32>(re.fileDataId);
+        fe.path = re.path;
+        return callback(fe);
+    };
+
+    // Full scan — prefix rejection + wildcard/suffix is already fast.
+    m_impl->root->enumerate(rootCallback);
+
+    // Orphan entries (encoding-table entries without root paths) have
+    // 32-char hex-string paths. Skip the orphan phase entirely when the
+    // pattern cannot possibly match a hex string (suffix patterns with a
+    // dot, prefix patterns, etc.). For general patterns, still check.
+    bool canMatchOrphan = pureSuffix.empty() && prefix.empty();
+    if (!canMatchOrphan) return;
+
+    static constexpr char kHex[] = "0123456789abcdef";
+    const auto& encEntries = m_impl->encodingTable.entries();
+    char hexBuf[33];
+    for (size_t i = 0; i < encEntries.size(); ++i) {
+        auto& enc = encEntries[i];
+        if (isZeroKey(enc.cKey)) continue;
+        if (m_impl->m_encodingReferenced[i]) continue;
+
+        for (int j = 0; j < 16; ++j) {
+            hexBuf[j * 2]     = kHex[enc.cKey[j] >> 4];
+            hexBuf[j * 2 + 1] = kHex[enc.cKey[j] & 0xF];
+        }
+        hexBuf[32] = '\0';
+
+        std::string_view hexPath(hexBuf, 32);
+        if (!wildcardMatch(normMask, hexPath)) continue;
+
+        fe.cKey = enc.cKey;
+        fe.fileSize = enc.fileSize;
+        fe.localeFlags = 0;
+        fe.contentFlags = 0;
+        fe.fileDataId = kInvalidId;
+        fe.path = hexPath;
+        if (!callback(fe)) break;
     }
 }
 
@@ -1097,8 +1363,14 @@ std::vector<std::string> Storage::listFiles() const {
 
 std::vector<FindEntry> Storage::listEntries() const {
     std::vector<FindEntry> result;
-    enumerate([&](const FindEntry& fe) {
-        result.push_back(fe);
+    enumerate([&](const EnumerateEntry& fe) {
+        FindEntry& out = result.emplace_back();
+        out.cKey = fe.cKey;
+        out.fileSize = fe.fileSize;
+        out.localeFlags = fe.localeFlags;
+        out.contentFlags = fe.contentFlags;
+        out.fileDataId = fe.fileDataId;
+        out.path = std::string(fe.path);
         return true;
     });
     return result;
@@ -1196,7 +1468,7 @@ bool Storage::deleteFile(const std::string& path) {
     m_impl->pendingWrites.erase(key);
 
     // Check if the file exists in source or overlay.
-    bool existsInSource = m_impl->root && !m_impl->root->findByPath(normalized).empty();
+    bool existsInSource = m_impl->root && m_impl->root->hasPath(normalized);
     if (!existsInSource) {
         s_lastError = kFileNotFound;
         return false;
@@ -1216,7 +1488,7 @@ bool Storage::deleteFile(i32 fileId) {
     m_impl->pendingWrites.erase(key);
 
     bool existsInSource = m_impl->root &&
-                          !m_impl->root->findByFileDataId(static_cast<u32>(fileId)).empty();
+                          m_impl->root->hasFileDataId(static_cast<u32>(fileId));
     if (!existsInSource) {
         s_lastError = kFileNotFound;
         return false;
@@ -1315,9 +1587,10 @@ bool Storage::save(const std::string& outputPath) {
                 task.fn = [&, idx = pr.entryIndex, ai = pr.archiveIndex,
                            ao = pr.archiveOffset, es = pr.encodedSize,
                            direct = pr.directBLTE]() {
-                    entries[idx].encodedBlob = direct
+                    auto span = direct
                         ? m_impl->readRawBlteDirect(ai, ao, es)
                         : m_impl->readRawBlte(ai, ao, es);
+                    entries[idx].encodedBlob.assign(span.begin(), span.end());
                     entries[idx].hasPreEncoded = true;
                     jobGroup.done();
                 };
@@ -1326,9 +1599,10 @@ bool Storage::save(const std::string& outputPath) {
             jobGroup.wait();
         } else {
             for (auto& pr : pendingReads) {
-                entries[pr.entryIndex].encodedBlob = pr.directBLTE
+                auto span = pr.directBLTE
                     ? m_impl->readRawBlteDirect(pr.archiveIndex, pr.archiveOffset, pr.encodedSize)
                     : m_impl->readRawBlte(pr.archiveIndex, pr.archiveOffset, pr.encodedSize);
+                entries[pr.entryIndex].encodedBlob.assign(span.begin(), span.end());
                 entries[pr.entryIndex].hasPreEncoded = true;
             }
         }

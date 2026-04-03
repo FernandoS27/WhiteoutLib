@@ -171,10 +171,15 @@ static void parseIdxFile(const u8* data, size_t fileSize,
 // ============================================================================
 
 u64 IndexTable::eKeyHash(std::span<const u8> eKey) {
-    // Use first 8 bytes of EKey as a u64 hash key.
+    // XOR-fold all bytes of the truncated EKey (typically 9 bytes) into a u64.
+    // Loading the first 8 bytes as the base and XOR-ing the remaining byte(s)
+    // ensures byte 9 participates in the hash, preventing collisions between
+    // entries that differ only in the last byte.
     u64 h = 0;
     size_t len = std::min(eKey.size(), size_t(8));
     std::memcpy(&h, eKey.data(), len);
+    for (size_t i = 8; i < eKey.size(); ++i)
+        h ^= static_cast<u64>(eKey[i]) << ((i - 8) * 8);
     return h;
 }
 
@@ -296,7 +301,7 @@ IndexTable IndexTable::load(const std::string& dataDir,
 
         for (auto& entries : perFileEntries)
             for (auto& e : entries)
-                table.m_entries[eKeyHash(std::span(e.eKey.data(), 9))] = e;
+                table.m_entries.insertOrAssign(eKeyHash(std::span(e.eKey.data(), 9)), e);
     } else {
         // Sequential parse.
         for (auto& path : filesToParse) {
@@ -306,7 +311,7 @@ IndexTable IndexTable::load(const std::string& dataDir,
             std::vector<IndexEntry> entries;
             parseIdxFile(mf->ptr(), mf->size(), entries);
             for (auto& e : entries)
-                table.m_entries[eKeyHash(std::span(e.eKey.data(), 9))] = e;
+                table.m_entries.insertOrAssign(eKeyHash(std::span(e.eKey.data(), 9)), e);
         }
     }
 
@@ -557,16 +562,16 @@ void IndexTable::loadArchiveIndices(const std::string& dataDir,
 
 const IndexEntry* IndexTable::find(std::span<const u8> eKeyPrefix) const {
     u64 h = eKeyHash(eKeyPrefix);
-    auto it = m_entries.find(h);
-    if (it == m_entries.end())
+    auto* ptr = m_entries.find(h);
+    if (!ptr)
         return nullptr;
 
     // Verify that the prefix actually matches (collision check).
     size_t cmpLen = std::min(eKeyPrefix.size(), size_t(9));
-    if (std::memcmp(it->second.eKey.data(), eKeyPrefix.data(), cmpLen) != 0)
+    if (std::memcmp(ptr->eKey.data(), eKeyPrefix.data(), cmpLen) != 0)
         return nullptr;
 
-    return &it->second;
+    return ptr;
 }
 
 // ============================================================================
@@ -575,7 +580,7 @@ const IndexEntry* IndexTable::find(std::span<const u8> eKeyPrefix) const {
 
 void IndexTable::insert(const IndexEntry& entry) {
     u64 h = eKeyHash(std::span(entry.eKey.data(), 9));
-    m_entries[h] = entry;
+    m_entries.insertOrAssign(h, entry);
 }
 
 // ============================================================================
@@ -586,10 +591,10 @@ std::vector<std::pair<std::string, std::vector<u8>>> IndexTable::serialize() con
     // Group entries by bucket (first nibble of EKey).
     std::vector<std::vector<const IndexEntry*>> buckets(kIdxNumBuckets);
 
-    for (auto& [_, entry] : m_entries) {
+    m_entries.forEach([&buckets](u64 /*key*/, const IndexEntry& entry) {
         u8 bucket = (entry.eKey[0] >> 4) & 0x0F;
         buckets[bucket].push_back(&entry);
-    }
+    });
 
     std::vector<std::pair<std::string, std::vector<u8>>> result;
 

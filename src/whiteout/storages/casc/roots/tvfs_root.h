@@ -7,11 +7,12 @@
 #pragma once
 
 #include "root.h"
+#include "../flat_hash_map.h"
 
 #include <array>
 #include <functional>
 #include <span>
-#include <unordered_map>
+#include <string>
 #include <vector>
 
 namespace whiteout::interfaces { class WorkerPool; }
@@ -21,6 +22,17 @@ namespace whiteout::storages::casc {
 /// Resolver function for VFS sub-manifest data.
 /// Given an EKey (eKeySize bytes), returns the decoded TVFS blob, or empty on failure.
 using VfsResolver = std::function<std::vector<u8>(std::span<const u8> eKey)>;
+
+/// Flat-array path trie node for prefix-based enumeration of TVFS entries.
+/// Children are sorted by segment for binary-search traversal and ordered DFS.
+struct PathTrieNode {
+    struct Child {
+        std::string segment;
+        u32 nodeIndex;          ///< Index into the flat trie node array.
+    };
+    std::vector<Child> children;
+    std::vector<u32> entryIndices;  ///< Entries at exactly this path (leaf).
+};
 
 class TvfsRoot final : public RootManifest {
 public:
@@ -48,20 +60,37 @@ public:
     void merge(const TvfsRoot& other);
 
     // --- RootManifest interface ---
-    std::vector<RootEntry> findByPath(const std::string& path) const override;
-    std::vector<RootEntry> findByFileDataId(u32 fileDataId) const override;
+    std::vector<const RootEntry*> findByPath(const std::string& path) const override;
+    std::vector<const RootEntry*> findByNormalizedPath(const std::string& normalizedPath) const override;
+    bool hasPath(const std::string& normalizedPath) const override;
+    std::vector<const RootEntry*> findByFileDataId(u32 fileDataId) const override;
     RootFormat format() const override { return RootFormat::Tvfs; }
+
+    /// Enumerate all entries whose path starts with @p normalizedPrefix (directory-scoped).
+    /// The prefix should be a normalized path (lowercase, backslash-separated).
+    /// Use an empty prefix to enumerate everything.  Callback returns false to stop.
+    void enumerateUnder(const std::string& normalizedPrefix,
+                        std::function<bool(const RootEntry&)> callback) const override;
 
 protected:
     const std::vector<RootEntry>& entries() const override { return m_entries; }
+    std::vector<RootEntry>& mutableEntries() override { return m_entries; }
 
 private:
     std::vector<RootEntry> m_entries;
 
-    /// Path-based index (lowercase normalized).
-    std::unordered_multimap<std::string, size_t> m_byPath;
+    /// Hash-map index for O(1) exact path lookup.
+    /// Keys are FNV-1a hashes of normalized paths; values are head indices
+    /// into m_entries.  Entries sharing the same path hash are chained via
+    /// m_chainNext (singly-linked list, UINT32_MAX = end).
+    FlatHashMap<u32> m_byPathMap;
+    std::vector<u32> m_chainNext;  ///< Parallel to m_entries; links same-hash entries.
 
-    void buildIndices(interfaces::WorkerPool* pool = nullptr);
+    /// Flat-array trie for prefix enumeration (lazy-built on first use).
+    mutable std::vector<PathTrieNode> m_trie;
+
+    void buildIndices(interfaces::WorkerPool* pool = nullptr, bool preNormalized = false);
+    void ensureTrie() const;
 };
 
 } // namespace whiteout::storages::casc

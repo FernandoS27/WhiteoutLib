@@ -174,10 +174,10 @@ static void loadCombinedMetas(
 
     // Enumerate all .dat files from CASC.
     std::vector<std::string> allDatFiles;
-    storage.enumerate([&](const whiteout::storages::casc::FindEntry& fe) -> bool {
+    storage.enumerate([&](const whiteout::storages::casc::EnumerateEntry& fe) -> bool {
         if (fe.path.size() >= 4 &&
             fe.path.compare(fe.path.size() - 4, 4, ".dat") == 0)
-            allDatFiles.push_back(fe.path);
+            allDatFiles.push_back(std::string(fe.path));
         return true;
     });
 
@@ -707,9 +707,9 @@ static void openSno(const whiteout::storages::casc::Storage& storage,
         if (!fileData) {
             std::vector<std::string> hits;
             storage.enumerate(
-                [&](const whiteout::storages::casc::FindEntry& fe) -> bool {
-                    if (fe.path.find(entry.name) != std::string::npos)
-                        hits.push_back(fe.path);
+                [&](const whiteout::storages::casc::EnumerateEntry& fe) -> bool {
+                    if (fe.path.find(entry.name) != std::string_view::npos)
+                        hits.push_back(std::string(fe.path));
                     return hits.size() < 50;
                 });
             if (!hits.empty()) {
@@ -1330,9 +1330,9 @@ int main(int argc, char* argv[]) {
     if (!tocData) {
         std::vector<std::string> tocHits;
         storage.enumerate(
-            [&](const storages::casc::FindEntry& fe) -> bool {
-                if (fe.path.find("CoreTOC") != std::string::npos)
-                    tocHits.push_back(fe.path);
+            [&](const storages::casc::EnumerateEntry& fe) -> bool {
+                if (fe.path.find("CoreTOC") != std::string_view::npos)
+                    tocHits.push_back(std::string(fe.path));
                 return tocHits.size() < 5;
             });
         for (auto& h : tocHits) {
