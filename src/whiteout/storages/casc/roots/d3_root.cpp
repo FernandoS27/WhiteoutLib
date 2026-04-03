@@ -93,7 +93,17 @@ static const char* getAssetExtension(u32 assetIndex) {
     for (auto& t : kAssetTypes) {
         if (t.index == assetIndex) return t.extension;
     }
-    return "unk";
+    return nullptr;
+}
+
+/// Build the directory prefix for an asset entry's generated path.
+/// Known groups get their 3-letter extension; unknown groups get "unk_NN"
+/// (decimal group ID) so that different unknown groups don't collide.
+static std::string getGroupDir(u32 fileIndex) {
+    u32 group = fileIndex >> 16;
+    auto ext = getAssetExtension(group);
+    if (ext) return ext;
+    return "unk_" + std::to_string(group);
 }
 
 // ============================================================================
@@ -215,7 +225,7 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
         RootEntry re;
         re.cKey = ae.cKey;
         re.fileDataId = ae.fileIndex;
-        re.path = std::string(getAssetExtension(ae.fileIndex >> 16)) + "\\" +
+        re.path = getGroupDir(ae.fileIndex) + "\\" +
                   std::to_string(ae.fileIndex & 0xFFFF);
         root->m_entries.push_back(std::move(re));
     }
@@ -224,7 +234,7 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
         RootEntry re;
         re.cKey = aie.cKey;
         re.fileDataId = aie.fileIndex;
-        re.path = std::string(getAssetExtension(aie.fileIndex >> 16)) + "\\" +
+        re.path = getGroupDir(aie.fileIndex) + "\\" +
                   std::to_string(aie.fileIndex & 0xFFFF) + "." + std::to_string(aie.subIndex);
         root->m_entries.push_back(std::move(re));
     }
@@ -276,7 +286,7 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
                     RootEntry re;
                     re.cKey = ae.cKey;
                     re.fileDataId = ae.fileIndex;
-                    re.path = prefix + getAssetExtension(ae.fileIndex >> 16) + "\\" +
+                    re.path = prefix + getGroupDir(ae.fileIndex) + "\\" +
                               std::to_string(ae.fileIndex & 0xFFFF);
                     root->m_entries.push_back(std::move(re));
                 }
@@ -285,7 +295,7 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
                     RootEntry re;
                     re.cKey = aie.cKey;
                     re.fileDataId = aie.fileIndex;
-                    re.path = prefix + getAssetExtension(aie.fileIndex >> 16) + "\\" +
+                    re.path = prefix + getGroupDir(aie.fileIndex) + "\\" +
                               std::to_string(aie.fileIndex & 0xFFFF) + "." +
                               std::to_string(aie.subIndex);
                     root->m_entries.push_back(std::move(re));
@@ -301,9 +311,8 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
         }
     }
 
-    if (root->m_entries.empty()) return nullptr;
-
-    root->buildIndices(pool);
+    if (!root->m_entries.empty())
+        root->buildIndices(pool);
     return root;
 }
 

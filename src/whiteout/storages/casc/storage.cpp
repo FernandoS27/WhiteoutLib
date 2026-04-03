@@ -148,10 +148,10 @@ struct Storage::Impl {
     std::span<const u8> readBlteFromIndex(const IndexEntry& idx) const;
 
     /// Full pipeline: CKey → decoded file data.
-    std::vector<u8> resolveCKey(std::span<const u8, 16> cKey) const;
+    std::vector<u8> resolveCKey(std::span<const u8, 16> cKey, interfaces::WorkerPool* poolToUse = nullptr) const;
 
     /// Full pipeline: EKey → decoded file data (skips encoding lookup).
-    std::vector<u8> resolveEKey(std::span<const u8, 16> eKey) const;
+    std::vector<u8> resolveEKey(std::span<const u8, 16> eKey, interfaces::WorkerPool* poolToUse = nullptr) const;
 
     /// Full pipeline: RootEntry → decoded file data (applies locale filter).
     std::optional<std::vector<u8>> resolveRootEntry(const std::vector<const RootEntry*>& entries,
@@ -250,7 +250,7 @@ std::span<const u8> Storage::Impl::readBlteFromIndex(const IndexEntry& idx) cons
     return blteData;
 }
 
-std::vector<u8> Storage::Impl::resolveCKey(std::span<const u8, 16> cKey) const {
+std::vector<u8> Storage::Impl::resolveCKey(std::span<const u8, 16> cKey, interfaces::WorkerPool* poolToUse) const {
     // Use 9-byte matching: TVFS roots truncate cKeys to eKeySize (9) bytes.
     auto encEntry = encodingTable.findByCKey(cKey, 9);
     if (!encEntry) return {};
@@ -261,21 +261,26 @@ std::vector<u8> Storage::Impl::resolveCKey(std::span<const u8, 16> cKey) const {
     auto blteData = readBlteFromIndex(*idxEntry);
     if (blteData.empty()) return {};
 
-    auto decoded = blteDecode(blteData, &keyRing, pool);
+    // Decode without pool — resolveCKey may be called from within pool tasks
+    // (VFS sub-manifest resolution, D3 sub-directory resolution), so passing
+    // the pool here would cause nested-pool deadlock when all threads block
+    // on inner BLTE frame-decode jobs that can never run.
+    auto decoded = blteDecode(blteData, &keyRing, poolToUse);
     if (!decoded.success) return {};
 
     return std::move(decoded.data);
 }
 
 /// Resolve directly from an EKey (skip encoding table, used by TVFS entries).
-std::vector<u8> Storage::Impl::resolveEKey(std::span<const u8, 16> eKey) const {
+std::vector<u8> Storage::Impl::resolveEKey(std::span<const u8, 16> eKey, interfaces::WorkerPool* poolToUse) const {
     auto idxEntry = indexTable.find(eKeyTrunc(eKey));
     if (!idxEntry) return {};
 
     auto blteData = readBlteFromIndex(*idxEntry);
     if (blteData.empty()) return {};
 
-    auto decoded = blteDecode(blteData, &keyRing, pool);
+    // Decode without pool — see resolveCKey comment about nested-pool deadlock.
+    auto decoded = blteDecode(blteData, &keyRing, poolToUse);
     if (!decoded.success) return {};
 
     return std::move(decoded.data);
@@ -459,7 +464,7 @@ bool Storage::Impl::loadEncodingAndRoot() const {
 
     // Step 7: Resolve and parse root manifest.
     CKeyResolver ckeyResolver = [this](std::span<const u8, 16> cKey) -> std::vector<u8> {
-        return resolveCKey(cKey);
+        return resolveCKey(cKey, pool);
     };
 
     bool hasVfs = false;
@@ -478,7 +483,7 @@ bool Storage::Impl::loadEncodingAndRoot() const {
         // Pre-fetch all VFS sub-manifests in parallel so the resolver
         // during tree traversal is a cheap cache lookup instead of I/O.
         std::unordered_map<u64, std::vector<u8>> vfsCache;
-        auto vfsData = resolveCKey(buildConfig.vfsRootCKey);
+        auto vfsData = resolveCKey(buildConfig.vfsRootCKey, pool);
 
         // Resolve sub-manifests in parallel if pool available.
         if (pool && vfsEKeys.size() > 1) {

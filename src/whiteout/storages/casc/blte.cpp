@@ -77,7 +77,13 @@ static FrameDecodeResult decodeFramePayload(std::span<const u8> payload,
         break;
     }
     case BlteFrameMode::kZlib: {
-        result.data = storages::common::zlibInflateFast(inner, expectedUncompressedSize);
+        // Use the fast inflater when the expected size is known (multi-frame);
+        // fall back to the general-purpose codec when unknown (single-frame
+        // with headerSize=0) to avoid buffer-overrun from the heuristic.
+        if (expectedUncompressedSize > 0)
+            result.data = storages::common::zlibInflateFast(inner, expectedUncompressedSize);
+        else
+            result.data = storages::common::zlibDecompress(inner);
         if (result.data.empty() && expectedUncompressedSize > 0) {
             result.error = "zlib decompression failed";
         } else {
