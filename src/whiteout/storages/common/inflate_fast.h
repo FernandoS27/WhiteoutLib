@@ -9,6 +9,10 @@
 ///   - When expectedSize is known (always for BLTE), pre-allocates output
 ///     exactly and eliminates all capacity checks from the hot loop.
 ///   - Uses 11-bit Huffman fast LUT (covers more codes without slow path).
+///   - Packed u32 Huffman LUT (cache-line aligned, single access per lookup).
+///   - Split fast/careful inflate loops (unconditional refill in hot path).
+///   - 8-byte wide back-reference copies (compiler emits wide MOV pairs).
+///   - Fixed-size symbol arrays (zero heap allocation during decompression).
 ///   - Stack-allocates dynamic Huffman code lengths (no heap per-block).
 ///
 /// Internal header — not part of the public include path.
@@ -78,25 +82,58 @@ struct BitReader {
 };
 
 // ============================================================================
-// Huffman Table — 11-bit fast LUT, LSB-first
+// Huffman Table — packed u32 fast LUT, cache-line aligned
 // ============================================================================
 
 inline constexpr i32 HUFF_FAST_BITS = 11;
 inline constexpr i32 HUFF_FAST_SIZE = 1 << HUFF_FAST_BITS;
 inline constexpr i32 HUFF_MAX_BITS = 15;
+inline constexpr i32 MAX_SYMBOLS = 320; // 288 lit/len + 32 dist
 
 struct HuffTable {
-    std::array<u16, HUFF_FAST_SIZE> fastSymbol{};
-    std::array<u8, HUFF_FAST_SIZE> fastLen{};
+    // Packed entry: bits [15:0] = symbol, bits [23:16] = code length.
+    // Length 0 → slow path.  Single contiguous array halves cache footprint
+    // vs separate symbol/length arrays (one lookup instead of two).
+    alignas(64) std::array<u32, HUFF_FAST_SIZE> fast{};
 
     std::array<u32, HUFF_MAX_BITS + 2> maxcode{};
     std::array<i32, HUFF_MAX_BITS + 1> indexDelta{};
-    std::vector<u16> symbols;
+    std::array<u16, MAX_SYMBOLS> symbols{};
 
     i32 lookupSlow(u32 code, i32 codeLength) const {
         i32 idx = static_cast<i32>(code) + indexDelta[codeLength];
-        if (idx >= 0 && idx < static_cast<i32>(symbols.size()))
+        if (idx >= 0 && idx < MAX_SYMBOLS) [[likely]]
             return static_cast<i32>(symbols[idx]);
+        return -1;
+    }
+
+    /// Slow-path decode operating directly on the caller's local bit
+    /// variables, avoiding save/restore overhead through BitReader.
+    i32 decodeSlow(u64& bits, i32& bitsLeft,
+                   const u8* brData, size_t& brPos, size_t brSize) const {
+        if (bitsLeft < HUFF_MAX_BITS) {
+            if (brPos + 8 <= brSize) {
+                u64 next = 0;
+                std::memcpy(&next, brData + brPos, 8);
+                bits |= next << bitsLeft;
+                i32 consume = (64 - bitsLeft) >> 3;
+                brPos += consume;
+                bitsLeft += consume * 8;
+            } else {
+                while (bitsLeft < HUFF_MAX_BITS && brPos < brSize) {
+                    bits |= static_cast<u64>(brData[brPos++]) << bitsLeft;
+                    bitsLeft += 8;
+                }
+            }
+        }
+        u32 c = 0;
+        for (i32 len = 1; len <= HUFF_MAX_BITS; ++len) {
+            c = (c << 1) | (static_cast<u32>(bits) & 1);
+            bits >>= 1;
+            bitsLeft -= 1;
+            if (c < maxcode[len])
+                return lookupSlow(c, len);
+        }
         return -1;
     }
 
@@ -118,11 +155,9 @@ struct HuffTable {
             firstCode[bits] = code;
         }
 
-        symbols.resize(count);
-        fastLen.fill(0);
-        fastSymbol.fill(0);
+        symbols.fill(0xFFFF);
+        fast.fill(0);
 
-        std::vector<u16> sortedSymbols(count, 0xFFFF);
         std::array<i32, HUFF_MAX_BITS + 1> counters{};
         std::array<i32, HUFF_MAX_BITS + 1> firstSymIdx{};
         {
@@ -135,11 +170,9 @@ struct HuffTable {
         }
         for (i32 i = 0; i < count; ++i) {
             i32 len = codeLengths[i];
-            if (len > 0) {
-                sortedSymbols[counters[len]++] = static_cast<u16>(i);
-            }
+            if (len > 0)
+                symbols[counters[len]++] = static_cast<u16>(i);
         }
-        symbols = sortedSymbols;
 
         for (i32 bits = 1; bits <= HUFF_MAX_BITS; ++bits) {
             maxcode[bits] = firstCode[bits] + blCount[bits];
@@ -155,10 +188,11 @@ struct HuffTable {
             i32 rev = 0;
             for (i32 b = 0; b < len; ++b)
                 rev |= ((c >> (len - 1 - b)) & 1) << b;
-            for (i32 fill = rev; fill < HUFF_FAST_SIZE; fill += (1 << len)) {
-                fastSymbol[fill] = static_cast<u16>(i);
-                fastLen[fill] = static_cast<u8>(len);
-            }
+            // Build packed fast entry: symbol | (codeLength << 16).
+            u32 packed = static_cast<u32>(static_cast<u16>(i))
+                       | (static_cast<u32>(len) << 16);
+            for (i32 fill = rev; fill < HUFF_FAST_SIZE; fill += (1 << len))
+                fast[fill] = packed;
         }
         for (i32 i = 0; i < count; ++i) {
             i32 len = codeLengths[i];
@@ -171,10 +205,12 @@ struct HuffTable {
     i32 decode(BitReader& br) const {
         br.refill();
         u32 peek = static_cast<u32>(br.bitBuf) & (HUFF_FAST_SIZE - 1);
-        if (fastLen[peek] != 0) {
-            br.bitBuf >>= fastLen[peek];
-            br.bitsAvail -= fastLen[peek];
-            return fastSymbol[peek];
+        u32 entry = fast[peek];
+        u8 codeLen = static_cast<u8>(entry >> 16);
+        if (codeLen != 0) [[likely]] {
+            br.bitBuf >>= codeLen;
+            br.bitsAvail -= codeLen;
+            return static_cast<i32>(static_cast<u16>(entry));
         }
         u32 c = 0;
         for (i32 len = 1; len <= HUFF_MAX_BITS; ++len) {
@@ -272,8 +308,8 @@ struct Inflater {
     }
 
     bool inflateBlock(const HuffTable& litLen, const HuffTable& dist) {
-        u8* outBuf = output;
-        const size_t outCap = outSize; // Fixed — never reallocates.
+        u8* const outBuf = output;
+        const size_t outCap = outSize;
         size_t wp = outPos;
 
         u64 bits = br.bitBuf;
@@ -283,13 +319,142 @@ struct Inflater {
         const size_t brSize = br.size;
 
         constexpr u32 FAST_MASK = HUFF_FAST_SIZE - 1;
-        const u16* llSym = litLen.fastSymbol.data();
-        const u8* llLen = litLen.fastLen.data();
-        const u16* dSym = dist.fastSymbol.data();
-        const u8* dLen = dist.fastLen.data();
+        const u32* llFast = litLen.fast.data();
+        const u32* dFast = dist.fast.data();
 
+        // Safety margins for the fast inner loop.
+        // Input:  8 bytes for unconditional 64-bit refill.
+        // Output: 258 bytes for max match length without bounds checks.
+        const size_t brSafeEnd = brSize >= 8 ? brSize - 8 : 0;
+        const size_t wpSafeEnd = outCap >= 258 ? outCap - 258 : 0;
+
+        // ==============================================================
+        // FAST LOOP — runs while input/output safety margins hold.
+        // Unconditional 8-byte refill + no output bounds checks let the
+        // compiler emit tight, branch-prediction-friendly machine code.
+        // ==============================================================
+        while (brPos <= brSafeEnd && wp <= wpSafeEnd) [[likely]] {
+            // 64-bit refill — the outer while-condition guarantees
+            // brPos + 8 <= brSize, so we skip that check here.
+            // Guard on bitsLeft <= 56 prevents UB from shifting u64 by >= 64.
+            if (bitsLeft <= 56) {
+                u64 next;
+                std::memcpy(&next, brData + brPos, 8);
+                bits |= next << bitsLeft;
+                i32 consume = (64 - bitsLeft) >> 3;
+                brPos += consume;
+                bitsLeft += consume * 8;
+            }
+
+            // Decode literal/length (single packed table lookup).
+            i32 sym;
+            {
+                u32 entry = llFast[static_cast<u32>(bits) & FAST_MASK];
+                u8 codeLen = static_cast<u8>(entry >> 16);
+                if (codeLen) [[likely]] {
+                    sym = static_cast<i32>(static_cast<u16>(entry));
+                    bits >>= codeLen;
+                    bitsLeft -= codeLen;
+                } else {
+                    sym = litLen.decodeSlow(bits, bitsLeft, brData, brPos, brSize);
+                }
+            }
+
+            if (sym < 256) [[likely]] {
+                if (sym < 0) [[unlikely]]
+                    return false;
+                outBuf[wp++] = static_cast<u8>(sym);
+                continue;
+            }
+
+            if (sym == 256) [[unlikely]] {
+                outPos = wp;
+                br.bitBuf = bits;
+                br.bitsAvail = bitsLeft;
+                br.bytePos = brPos;
+                return true;
+            }
+
+            // Length/distance back-reference.
+            {
+                i32 lenIdx = sym - 257;
+                if (lenIdx < 0 || lenIdx >= 29) [[unlikely]]
+                    return false;
+                u32 length = LENGTH_TABLE[lenIdx].base;
+                u32 lenExtra = LENGTH_TABLE[lenIdx].extraBits;
+                if (lenExtra) {
+                    length += static_cast<u32>(bits) & ((1u << lenExtra) - 1);
+                    bits >>= lenExtra;
+                    bitsLeft -= lenExtra;
+                }
+
+                // Distance decode (single packed table lookup).
+                i32 distSym;
+                {
+                    u32 dEntry = dFast[static_cast<u32>(bits) & FAST_MASK];
+                    u8 dCodeLen = static_cast<u8>(dEntry >> 16);
+                    if (dCodeLen) [[likely]] {
+                        distSym = static_cast<i32>(static_cast<u16>(dEntry));
+                        bits >>= dCodeLen;
+                        bitsLeft -= dCodeLen;
+                    } else {
+                        distSym = dist.decodeSlow(bits, bitsLeft, brData, brPos, brSize);
+                    }
+                }
+                if (distSym < 0 || distSym >= 30) [[unlikely]]
+                    return false;
+
+                u32 distance = DISTANCE_TABLE[distSym].base;
+                u32 distExtra = DISTANCE_TABLE[distSym].extraBits;
+                if (distExtra) {
+                    distance += static_cast<u32>(bits) & ((1u << distExtra) - 1);
+                    bits >>= distExtra;
+                    bitsLeft -= distExtra;
+                }
+
+                if (distance > wp) [[unlikely]]
+                    return false;
+
+                u8* dst = outBuf + wp;
+                const u8* src = outBuf + wp - distance;
+                wp += length;
+
+                if (distance >= length) {
+                    std::memcpy(dst, src, length);
+                } else if (distance == 1) {
+                    std::memset(dst, src[0], length);
+                } else if (distance >= 8) {
+                    // 8-byte-wide chunk copies for overlapping matches.
+                    // Each load reads fully within already-written output
+                    // (distance >= 8), so no stale-data hazard.  Compiler
+                    // can emit MOV/MOVQ pairs, enabling ILP on the copy.
+                    u32 rem = length;
+                    while (rem >= 8) {
+                        std::memcpy(dst, src, 8);
+                        dst += 8;
+                        src += 8;
+                        rem -= 8;
+                    }
+                    if (rem)
+                        std::memcpy(dst, src, rem);
+                } else {
+                    // Short overlap (distance 2-7): doubling copy.
+                    size_t copied = distance;
+                    std::memcpy(dst, src, distance);
+                    while (copied < length) {
+                        size_t chunk = copied < length - copied ? copied : length - copied;
+                        std::memcpy(dst + copied, dst, chunk);
+                        copied += chunk;
+                    }
+                }
+            }
+        }
+
+        // ==============================================================
+        // CAREFUL LOOP — handles remaining data near buffer boundaries.
+        // Same decode logic with full bounds checking on input/output.
+        // ==============================================================
         for (;;) {
-            // Single refill per iteration — worst case 48 bits consumed.
             if (bitsLeft <= 56) {
                 if (brPos + 8 <= brSize) {
                     u64 next = 0;
@@ -306,35 +471,28 @@ struct Inflater {
                 }
             }
 
-            // Decode literal/length symbol (inlined 11-bit fast path).
             i32 sym;
             {
-                u32 peek = static_cast<u32>(bits) & FAST_MASK;
-                u8 codeLen = llLen[peek];
-                if (codeLen) {
-                    sym = llSym[peek];
+                u32 entry = llFast[static_cast<u32>(bits) & FAST_MASK];
+                u8 codeLen = static_cast<u8>(entry >> 16);
+                if (codeLen) [[likely]] {
+                    sym = static_cast<i32>(static_cast<u16>(entry));
                     bits >>= codeLen;
                     bitsLeft -= codeLen;
                 } else {
-                    br.bitBuf = bits;
-                    br.bitsAvail = bitsLeft;
-                    br.bytePos = brPos;
-                    sym = litLen.decode(br);
-                    bits = br.bitBuf;
-                    bitsLeft = br.bitsAvail;
-                    brPos = br.bytePos;
+                    sym = litLen.decodeSlow(bits, bitsLeft, brData, brPos, brSize);
                 }
             }
 
-            // Literal byte.
-            if (sym < 256) {
-                if (sym < 0)
+            if (sym < 256) [[likely]] {
+                if (sym < 0) [[unlikely]]
+                    return false;
+                if (wp >= outCap) [[unlikely]]
                     return false;
                 outBuf[wp++] = static_cast<u8>(sym);
                 continue;
             }
 
-            // End of block.
             if (sym == 256) {
                 outPos = wp;
                 br.bitBuf = bits;
@@ -343,10 +501,9 @@ struct Inflater {
                 return true;
             }
 
-            // Length/distance back-reference.
             {
                 i32 lenIdx = sym - 257;
-                if (lenIdx < 0 || lenIdx >= 29)
+                if (lenIdx < 0 || lenIdx >= 29) [[unlikely]]
                     return false;
                 u32 length = LENGTH_TABLE[lenIdx].base;
                 u32 lenExtra = LENGTH_TABLE[lenIdx].extraBits;
@@ -356,26 +513,19 @@ struct Inflater {
                     bitsLeft -= lenExtra;
                 }
 
-                // Distance decode (inlined fast path).
                 i32 distSym;
                 {
-                    u32 dPeek = static_cast<u32>(bits) & FAST_MASK;
-                    u8 dCodeLen = dLen[dPeek];
-                    if (dCodeLen) {
-                        distSym = dSym[dPeek];
+                    u32 dEntry = dFast[static_cast<u32>(bits) & FAST_MASK];
+                    u8 dCodeLen = static_cast<u8>(dEntry >> 16);
+                    if (dCodeLen) [[likely]] {
+                        distSym = static_cast<i32>(static_cast<u16>(dEntry));
                         bits >>= dCodeLen;
                         bitsLeft -= dCodeLen;
                     } else {
-                        br.bitBuf = bits;
-                        br.bitsAvail = bitsLeft;
-                        br.bytePos = brPos;
-                        distSym = dist.decode(br);
-                        bits = br.bitBuf;
-                        bitsLeft = br.bitsAvail;
-                        brPos = br.bytePos;
+                        distSym = dist.decodeSlow(bits, bitsLeft, brData, brPos, brSize);
                     }
                 }
-                if (distSym < 0 || distSym >= 30)
+                if (distSym < 0 || distSym >= 30) [[unlikely]]
                     return false;
 
                 u32 distance = DISTANCE_TABLE[distSym].base;
@@ -386,26 +536,38 @@ struct Inflater {
                     bitsLeft -= distExtra;
                 }
 
-                if (distance > wp)
+                if (distance > wp) [[unlikely]]
+                    return false;
+                if (wp + length > outCap) [[unlikely]]
                     return false;
 
                 u8* dst = outBuf + wp;
                 const u8* src = outBuf + wp - distance;
+                wp += length;
+
                 if (distance >= length) {
                     std::memcpy(dst, src, length);
                 } else if (distance == 1) {
                     std::memset(dst, src[0], length);
+                } else if (distance >= 8) {
+                    u32 rem = length;
+                    while (rem >= 8) {
+                        std::memcpy(dst, src, 8);
+                        dst += 8;
+                        src += 8;
+                        rem -= 8;
+                    }
+                    if (rem)
+                        std::memcpy(dst, src, rem);
                 } else {
                     size_t copied = distance;
                     std::memcpy(dst, src, distance);
                     while (copied < length) {
-                        size_t chunk = copied;
-                        if (chunk > length - copied) chunk = length - copied;
+                        size_t chunk = copied < length - copied ? copied : length - copied;
                         std::memcpy(dst + copied, dst, chunk);
                         copied += chunk;
                     }
                 }
-                wp += length;
             }
         }
     }

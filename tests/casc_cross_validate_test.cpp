@@ -199,8 +199,10 @@ TEST_CASE("Storage Cross Validate", "[casc][cross_validate][corpus]") {
     // TVFS storages (WC3R) should have exact path matches with CascLib.
     // Non-TVFS storages (D3) use different path generation and won't match.
     // SC2 and HotS use MFST (WoW-style) root — not TVFS.
-    bool isTvfsStorage = (label.find("Warcraft") != std::string::npos ||
-                          label.find("Diablo IV") != std::string::npos);
+    // D4 uses TVFS but D4Root enriches paths with human-readable group/name/ext
+    // from CoreTOC, so exact path matching with CascLib is not expected.
+    bool isTvfsStorage = (label.find("Warcraft") != std::string::npos);
+    bool isEnrichedTvfs = (label.find("Diablo IV") != std::string::npos);
 
     auto t0 = std::chrono::steady_clock::now();
 
@@ -531,6 +533,9 @@ TEST_CASE("Storage Cross Validate", "[casc][cross_validate][corpus]") {
 
         if (isTvfsStorage) {
             CHECK(pathMissCount == 0);
+        } else if (isEnrichedTvfs) {
+            std::cout << "  INFO: D4Root enriches TVFS paths with CoreTOC names — "
+                      << pathMissCount << " path format differences expected\n";
         } else if (pathMissCount > 0) {
             std::cout << "  INFO: non-TVFS root — path format difference expected\n";
         }

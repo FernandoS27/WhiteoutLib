@@ -29,6 +29,8 @@ endfunction()
 # =============================================================================
 
 whiteout_add_test(vertex_buffer_test vertex_buffer_test.cpp)
+whiteout_add_test(deflate_test deflate_test.cpp)
+target_include_directories(deflate_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 add_executable(mapped_file_test
     mapped_file_test.cpp
