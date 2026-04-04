@@ -242,6 +242,10 @@ public:
     /// @overload Persist to a specific output path.
     bool save(const std::string& path);
 
+    /// Clear the in-memory decoded-data cache (container cache).
+    /// Has no effect if no cache was configured via OpenOptions::memoryCacheSize.
+    void flushCache();
+
     /// @return Last error code (thread-local).
     static u32 lastError() noexcept;
 

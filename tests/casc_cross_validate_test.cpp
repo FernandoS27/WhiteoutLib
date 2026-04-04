@@ -180,8 +180,9 @@ TEST_CASE("Storage Cross Validate", "[casc][cross_validate][corpus]") {
         entries.push_back({"Warcraft III Reforged", corpus + "/Warcraft III"});
     if (std::filesystem::exists(corpus + "/Diablo IV"))
         entries.push_back({"Diablo IV", corpus + "/Diablo IV"});
-    // SC2 and HotS use well-known install paths (not in corpus directory).
+    // SC2, HotS, and D4 use well-known install paths (not in corpus directory).
     for (auto& [lbl, dir] : std::vector<std::pair<std::string, std::string>>{
+             {"Diablo IV",           "C:/Program Files (x86)/Diablo IV"},
              {"StarCraft II",       "C:/Program Files (x86)/StarCraft II"},
              {"Heroes of the Storm", "C:/Program Files (x86)/Heroes of the Storm"}}) {
         if (std::filesystem::exists(dir + "/.build.info"))
@@ -560,8 +561,9 @@ TEST_CASE("Storage Internal", "[casc][cross_validate][corpus]") {
         entries.push_back({"Warcraft III Reforged", corpus + "/Warcraft III"});
     if (std::filesystem::exists(corpus + "/Diablo IV"))
         entries.push_back({"Diablo IV", corpus + "/Diablo IV"});
-    // SC2 and HotS use well-known install paths (not in corpus directory).
+    // SC2, HotS, and D4 use well-known install paths (not in corpus directory).
     for (auto& [lbl, dir] : std::vector<std::pair<std::string, std::string>>{
+             {"Diablo IV",           "C:/Program Files (x86)/Diablo IV"},
              {"StarCraft II",       "C:/Program Files (x86)/StarCraft II"},
              {"Heroes of the Storm", "C:/Program Files (x86)/Heroes of the Storm"}}) {
         if (std::filesystem::exists(dir + "/.build.info"))

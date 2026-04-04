@@ -61,6 +61,10 @@ static constexpr u32 ruRU    = 0x00002000;
 static constexpr u32 ptBR    = 0x00004000;
 static constexpr u32 itIT    = 0x00008000;
 static constexpr u32 ptPT    = 0x00010000;
+static constexpr u32 jaJP    = 0x00020000;
+static constexpr u32 plPL    = 0x00040000;
+static constexpr u32 thTH    = 0x00080000;
+static constexpr u32 trTR    = 0x00100000;
 } // namespace LocaleMasks
 
 // ============================================================================
@@ -106,6 +110,7 @@ enum class RootFormat : u8 {
     Unknown,  ///< Could not determine format.
     Wow,      ///< World of Warcraft root (FileDataId-based).
     Diablo3,  ///< Diablo III root (hierarchical directory).
+    Diablo4,  ///< Diablo IV root (TVFS enriched with CoreTOC paths).
     Tvfs,     ///< TVFS prefix-tree root (WC3 Reforged and general purpose).
     Mndx,     ///< MNDX trie-based root (StarCraft II, Heroes of the Storm).
 };
@@ -208,6 +213,11 @@ struct OpenOptions {
     u32 flags = StorageFeatureFlags::None;       ///< Feature flags.
     ProgressCallback progressCallback = nullptr; ///< Optional progress callback.
     interfaces::WorkerPool* pool = nullptr;      ///< Optional worker pool for parallel I/O.
+
+    /// Maximum in-memory cache size in bytes for decoded containers (default 0 = disabled).
+    /// When non-zero, decoded container data (e.g. D4 combined meta archives) is cached
+    /// in memory to avoid redundant BLTE decodes when reading multiple sub-entries.
+    size_t memoryCacheSize = 0;
 };
 
 /// Options for creating a new empty CASC storage.

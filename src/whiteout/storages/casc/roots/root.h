@@ -35,6 +35,15 @@ struct RootEntry {
     u32 contentFlags = 0;
     u64 fileSize = 0;                             ///< Cached uncompressed size (resolved from encoding).
     std::string path;                             ///< Resolved path (if available).
+
+    /// Container sub-entry support.  When containerOffset != 0 this entry
+    /// refers to a slice of a larger container file (e.g. D4 combined meta).
+    /// The storage layer will decode the full container, then return
+    /// headerPrefix[0..headerSize) + decoded[containerOffset..+containerSize).
+    u64 containerOffset = 0;    ///< Byte offset within the decoded container (0 = whole file).
+    u32 containerSize = 0;      ///< Size of the sub-entry within the container.
+    u8  headerSize = 0;         ///< Number of valid bytes in headerPrefix (0–16).
+    std::array<u8, 16> headerPrefix{}; ///< Prepended to the extracted data (e.g. synthetic SNO header).
 };
 
 /// Select the best matching root entry based on locale/content flags.

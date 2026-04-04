@@ -16,7 +16,9 @@
 #include "roots/d3_root.h"
 #include "roots/tvfs_root.h"
 #include "roots/mndx_root.h"
+#include "roots/d4_root.h"
 #include "writer.h"
+#include "memory_cache.h"
 #include "../common/hex.h"
 #include "../common/mapped_file.h"
 #include "../common/md5.h"
@@ -120,6 +122,9 @@ struct Storage::Impl {
 
     mutable std::shared_mutex mutex;
     bool isValid = false;
+
+    // Optional decoded-data cache for container sub-entries (e.g. D4 combined metas).
+    mutable std::unique_ptr<MemoryCache> memCache;
 
     // LoadOnDemand: defer encoding + root loading until first access.
     bool deferMode = false;
@@ -293,6 +298,24 @@ std::optional<std::vector<u8>> Storage::Impl::resolveRootEntry(
     const RootEntry* best = selectBestEntry(entries, localeFlags);
     if (!best) return std::nullopt;
 
+    // Container sub-entry: try the in-memory decoded-data cache first.
+    if (best->containerOffset != 0 && memCache) {
+        std::array<u8, 16> cacheKey = !isZeroKey(best->eKey) ? best->eKey : best->cKey;
+        if (auto cached = memCache->view(cacheKey)) {
+            auto off = static_cast<size_t>(best->containerOffset);
+            auto sz  = static_cast<size_t>(best->containerSize);
+            if (off + sz <= cached->size()) {
+                size_t hdrSz = best->headerSize;
+                std::vector<u8> result(hdrSz + sz);
+                if (hdrSz > 0)
+                    std::memcpy(result.data(), best->headerPrefix.data(), hdrSz);
+                std::memcpy(result.data() + hdrSz, cached->data().data() + off, sz);
+                return result;
+            }
+            // Cached data too small — stale entry, fall through to re-decode.
+        }
+    }
+
     // Resolve CKey or EKey → index entry in a single pass (no duplicate lookups).
     const IndexEntry* idxEntry = nullptr;
     if (!isZeroKey(best->cKey)) {
@@ -311,6 +334,26 @@ std::optional<std::vector<u8>> Storage::Impl::resolveRootEntry(
 
     auto decoded = blteDecode(blteData, &keyRing, pool);
     if (!decoded.success) return std::nullopt;
+
+    // If this is a container sub-entry, cache the full decoded container
+    // and slice the requested sub-entry from it.
+    if (best->containerOffset != 0) {
+        auto off = static_cast<size_t>(best->containerOffset);
+        auto sz  = static_cast<size_t>(best->containerSize);
+        if (off + sz > decoded.data.size()) return std::nullopt;
+
+        if (memCache) {
+            std::array<u8, 16> cacheKey = !isZeroKey(best->eKey) ? best->eKey : best->cKey;
+            memCache->put(cacheKey, decoded.data);
+        }
+
+        size_t hdrSz = best->headerSize;
+        std::vector<u8> result(hdrSz + sz);
+        if (hdrSz > 0)
+            std::memcpy(result.data(), best->headerPrefix.data(), hdrSz);
+        std::memcpy(result.data() + hdrSz, decoded.data.data() + off, sz);
+        return result;
+    }
 
     return std::move(decoded.data);
 }
@@ -544,8 +587,22 @@ bool Storage::Impl::loadEncodingAndRoot() const {
         std::unique_ptr<TvfsRoot> tvfsRoot;
         if (!vfsData.empty())
             tvfsRoot = TvfsRoot::parse(vfsData, vfsResolver, vfsEKeys, pool);
-        if (tvfsRoot)
-            root = std::move(tvfsRoot);
+        if (tvfsRoot) {
+            // Try D4 enrichment: if the TVFS tree contains Base:CoreTOC.dat,
+            // wrap it in a D4Root for human-readable SNO paths.
+            if (tvfsRoot->hasPath("base:coretoc.dat")) {
+                EKeyReader eKeyReader = [this](std::span<const u8, 16> eKey) -> std::vector<u8> {
+                    return resolveEKey(eKey);
+                };
+                auto d4Root = D4Root::create(std::move(tvfsRoot), eKeyReader, pool);
+                if (d4Root)
+                    root = std::move(d4Root);
+                // If D4 enrichment fails, tvfsRoot was consumed — fall through
+                // to re-parse below.
+            } else {
+                root = std::move(tvfsRoot);
+            }
+        }
     }
 
     if (!root) {
@@ -560,7 +617,17 @@ bool Storage::Impl::loadEncodingAndRoot() const {
                         (u32(rootData[2]) << 16) | (u32(rootData[3]) << 24);
 
             if (magic == RootSignature::kTVFS) {
-                root = TvfsRoot::parse(rootData, pool);
+                auto tvfsPlain = TvfsRoot::parse(rootData, pool);
+                if (tvfsPlain && tvfsPlain->hasPath("base:coretoc.dat")) {
+                    EKeyReader eKeyReader = [this](std::span<const u8, 16> eKey) -> std::vector<u8> {
+                        return resolveEKey(eKey);
+                    };
+                    auto d4Root = D4Root::create(std::move(tvfsPlain), eKeyReader, pool);
+                    if (d4Root)
+                        root = std::move(d4Root);
+                } else if (tvfsPlain) {
+                    root = std::move(tvfsPlain);
+                }
             } else if (magic == RootSignature::kMFST) {
                 root = WowRoot::parse(rootData, pool);
             } else if (magic == RootSignature::kD3Root || magic == RootSignature::kD3Dir) {
@@ -597,6 +664,13 @@ bool Storage::Impl::loadEncodingAndRoot() const {
             m_encodingReferenced[static_cast<size_t>(enc - encBase)] = true;
         }
     });
+
+    // D4 combined-meta containers benefit heavily from caching the decoded
+    // archive so that sub-entry reads don't re-decode the same BLTE blob.
+    // Ensure a minimum 64 MB cache when a D4Root is active.
+    constexpr size_t kD4MinCacheSize = 64 * 1024 * 1024;
+    if (root->format() == RootFormat::Diablo4 && !memCache)
+        memCache = std::make_unique<MemoryCache>(kD4MinCacheSize);
 
     return true;
 }
@@ -738,6 +812,9 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     impl.pool = opts.pool;
     impl.localeMask = opts.localeMask;
 
+    if (opts.memoryCacheSize > 0)
+        impl.memCache = std::make_unique<MemoryCache>(opts.memoryCacheSize);
+
     auto buildConfigPath = impl.configPath(activeBuild->buildKey);
     auto buildConfigFile = storages::common::MappedFile::open(buildConfigPath);
     if (!buildConfigFile)
@@ -873,6 +950,7 @@ std::vector<BatchReadResult> Storage::readBatch(
         size_t requestIndex;         // Index into requests/results arrays.
         std::vector<const RootEntry*> rootEntries;
         u32 localeFlags;
+        bool cachedResult = false;   // True if resolved from the memory cache.
     };
     std::vector<ResolveWork> toResolve;
     toResolve.reserve(requests.size());
@@ -928,6 +1006,33 @@ std::vector<BatchReadResult> Storage::readBatch(
     if (toResolve.empty())
         return results;
 
+    // Phase 0.5: Container cache lookup.
+    // For container sub-entries, check the memory cache for the full decoded
+    // container.  Resolved entries are flagged and skipped in later phases.
+    if (m_impl->memCache) {
+        for (auto& work : toResolve) {
+            const RootEntry* best = selectBestEntry(work.rootEntries, work.localeFlags);
+            if (!best || best->containerOffset == 0) continue;
+
+            std::array<u8, 16> cacheKey = !isZeroKey(best->eKey) ? best->eKey : best->cKey;
+            auto cached = m_impl->memCache->view(cacheKey);
+            if (!cached) continue;
+
+            auto off = static_cast<size_t>(best->containerOffset);
+            auto sz  = static_cast<size_t>(best->containerSize);
+            if (off + sz > cached->size()) continue;  // Stale, re-decode.
+
+            size_t hdrSz = best->headerSize;
+            std::vector<u8> sliced(hdrSz + sz);
+            if (hdrSz > 0)
+                std::memcpy(sliced.data(), best->headerPrefix.data(), hdrSz);
+            std::memcpy(sliced.data() + hdrSz, cached->data().data() + off, sz);
+            results[work.requestIndex].data = std::move(sliced);
+            results[work.requestIndex].success = true;
+            work.cachedResult = true;
+        }
+    }
+
     // Phase 1: Resolution — for each pending request, resolve root entry
     // through encoding + index tables, read raw BLTE blob.
     // Each slot writes to its own resolvedBlob — no cross-slot sharing.
@@ -941,6 +1046,8 @@ std::vector<BatchReadResult> Storage::readBatch(
     auto resolveOne = [&](size_t idx) {
         auto& work = toResolve[idx];
         auto& blob = resolvedBlobs[idx];
+
+        if (work.cachedResult) return;  // Already resolved from memory cache.
 
         // Select best locale match.
         const RootEntry* best = selectBestEntry(work.rootEntries, work.localeFlags);
@@ -998,6 +1105,7 @@ std::vector<BatchReadResult> Storage::readBatch(
     batchToResolveIdx.reserve(toResolve.size());
 
     for (size_t idx = 0; idx < toResolve.size(); ++idx) {
+        if (toResolve[idx].cachedResult) continue;  // Already resolved from cache.
         if (!resolvedBlobs[idx].resolved) {
             // Resolution failed — propagate error to result.
             results[toResolve[idx].requestIndex].error = std::move(resolvedBlobs[idx].error);
@@ -1013,13 +1121,47 @@ std::vector<BatchReadResult> Storage::readBatch(
         auto decoded = blteDecodeBatch(batchEntries, &m_impl->keyRing, m_impl->pool);
 
         // Phase 3: Map decode results back to output.
+        // Apply container sub-entry slicing when the root entry specifies it.
         for (size_t d = 0; d < decoded.size(); ++d) {
             size_t resolveIdx = batchToResolveIdx[d];
             size_t requestIdx = toResolve[resolveIdx].requestIndex;
-            results[requestIdx].data = std::move(decoded[d].data);
-            results[requestIdx].success = decoded[d].success;
-            if (!decoded[d].success && !decoded[d].error.empty())
-                results[requestIdx].error = std::move(decoded[d].error);
+
+            if (!decoded[d].success) {
+                results[requestIdx].success = false;
+                if (!decoded[d].error.empty())
+                    results[requestIdx].error = std::move(decoded[d].error);
+                continue;
+            }
+
+            // Check if this entry requires container slicing.
+            const RootEntry* best = selectBestEntry(
+                toResolve[resolveIdx].rootEntries,
+                toResolve[resolveIdx].localeFlags);
+            if (best && best->containerOffset != 0) {
+                auto off = static_cast<size_t>(best->containerOffset);
+                auto sz  = static_cast<size_t>(best->containerSize);
+                if (off + sz <= decoded[d].data.size()) {
+                    // Cache the full decoded container for future sub-entry lookups.
+                    if (m_impl->memCache) {
+                        std::array<u8, 16> cacheKey = !isZeroKey(best->eKey) ? best->eKey : best->cKey;
+                        m_impl->memCache->put(cacheKey, decoded[d].data);
+                    }
+
+                    size_t hdrSz = best->headerSize;
+                    std::vector<u8> sliced(hdrSz + sz);
+                    if (hdrSz > 0)
+                        std::memcpy(sliced.data(), best->headerPrefix.data(), hdrSz);
+                    std::memcpy(sliced.data() + hdrSz, decoded[d].data.data() + off, sz);
+                    results[requestIdx].data = std::move(sliced);
+                } else {
+                    results[requestIdx].error = "container sub-entry out of bounds";
+                    results[requestIdx].success = false;
+                    continue;
+                }
+            } else {
+                results[requestIdx].data = std::move(decoded[d].data);
+            }
+            results[requestIdx].success = true;
         }
     }
 
@@ -1728,6 +1870,11 @@ bool Storage::save(const std::string& outputPath) {
 
 u32 Storage::lastError() noexcept {
     return s_lastError;
+}
+
+void Storage::flushCache() {
+    if (m_impl && m_impl->memCache)
+        m_impl->memCache->clear();
 }
 
 } // namespace whiteout::storages::casc

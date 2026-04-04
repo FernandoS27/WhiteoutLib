@@ -16,264 +16,10 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <memory>
 #include <numeric>
 #include <random>
 #include <sstream>
 #include <string>
-#include <unordered_map>
-
-// ============================================================================
-// Combined meta file support
-// ============================================================================
-
-/// Signature of D4 combined meta files (e.g. Texture-Global-Global.dat).
-static constexpr whiteout::u32 kCombinedMetaMagic = 0x44CF00F5;
-
-/// Cache of SNO entries extracted from combined meta files.
-/// Some D4 SNO groups (notably Texture and StringList) store their meta data
-/// in combined files rather than individual per-asset files.  The combined
-/// file bundles all entries for a group into one blob.
-struct CombinedMetaCache {
-    /// Index entry: where within a combined file a particular SNO lives.
-    struct Entry {
-        std::shared_ptr<std::vector<whiteout::u8>> fileData;
-        size_t dataOffset;
-        size_t dataSize;
-        whiteout::sno::SnoGroup group;
-    };
-
-    /// snoId -> combined-meta entry.
-    std::unordered_map<whiteout::i32, Entry> entries;
-};
-
-/// Parse a single combined meta file and add its entries to the cache.
-/// @param data      Raw bytes of the combined meta file.
-/// @param group     The SNO group this file belongs to.
-/// @param cache     Output cache to populate.
-static bool parseCombinedMetaFile(
-    std::shared_ptr<std::vector<whiteout::u8>> data,
-    whiteout::sno::SnoGroup group,
-    CombinedMetaCache& cache) {
-    using namespace whiteout;
-
-    const auto& buf = *data;
-    if (buf.size() < 8)
-        return false;
-
-    u32 sig = 0;
-    std::memcpy(&sig, buf.data(), 4);
-    if (sig != kCombinedMetaMagic)
-        return false;
-
-    u32 fileCount = 0;
-    std::memcpy(&fileCount, buf.data() + 4, 4);
-
-    // Sanity-check: header must at least contain the index.
-    size_t indexEnd = 8 + static_cast<size_t>(fileCount) * 8;
-    if (indexEnd > buf.size())
-        return false;
-
-    // Read the per-entry index: (snoId: i32, size: u32) pairs.
-    struct IndexEntry {
-        i32 snoId;
-        u32 size;
-    };
-    std::vector<IndexEntry> index(fileCount);
-    for (u32 i = 0; i < fileCount; ++i) {
-        size_t off = 8 + static_cast<size_t>(i) * 8;
-        std::memcpy(&index[i].snoId, buf.data() + off, 4);
-        std::memcpy(&index[i].size, buf.data() + off + 4, 4);
-    }
-
-    // Walk the data section.  Each entry is 8-byte aligned, and textures
-    // (group 44) have an extra 8-byte gap before each entry.
-    const bool isTexture = (group == sno::SnoGroup::Texture);
-    constexpr size_t alignment = 8;
-    size_t pos = indexEnd;
-
-    for (u32 i = 0; i < fileCount; ++i) {
-        // Align to 8 bytes.
-        pos = (pos + alignment - 1) & ~(alignment - 1);
-
-        // Textures have an extra 8-byte skip.
-        if (isTexture)
-            pos += 8;
-
-        if (pos + index[i].size > buf.size())
-            break; // truncated file
-
-        // Verify that the first 4 bytes at `pos` match the expected snoId.
-        i32 check = 0;
-        std::memcpy(&check, buf.data() + pos, 4);
-        if (check != index[i].snoId) {
-            // Alignment mismatch — skip this entry.
-            pos += index[i].size;
-            continue;
-        }
-
-        CombinedMetaCache::Entry entry;
-        entry.fileData   = data;
-        entry.dataOffset = pos;
-        entry.dataSize   = index[i].size;
-        entry.group      = group;
-
-        cache.entries[index[i].snoId] = entry;
-
-        pos += index[i].size;
-    }
-
-    return true;
-}
-
-/// Try to resolve the SnoGroup from a combined meta file name.
-/// Combined meta files follow the naming pattern:
-///   {GroupName}-{Category}-{Language}[-{extra}].dat
-/// e.g. "Texture-Global-Global.dat", "StringList-Text-enUS.dat".
-static whiteout::sno::SnoGroup groupFromCombinedFileName(
-    const std::string& fileName) {
-    using namespace whiteout::sno;
-
-    // Extract just the file name (strip any path prefix).
-    // Handle both regular path separators and CASC virtual prefixes (e.g. "base:").
-    std::string name = fileName;
-    auto sep = name.find_last_of("\\/:"); // also strip "base:" etc.
-    if (sep != std::string::npos)
-        name = name.substr(sep + 1);
-
-    // The group name is everything before the first dash.
-    auto dash = name.find('-');
-    if (dash == std::string::npos)
-        return SnoGroup::None;
-    std::string groupStr = name.substr(0, dash);
-
-    // Match against known group names.
-    for (int gid = -1; gid <= 180; ++gid) {
-        auto g = static_cast<SnoGroup>(gid);
-        const char* gname = snoGroupName(g);
-        if (gname && groupStr == gname)
-            return g;
-    }
-    return SnoGroup::None;
-}
-
-/// Enumerate CASC for combined meta files and load them.
-static void loadCombinedMetas(
-    const whiteout::storages::casc::Storage& storage,
-    CombinedMetaCache& cache) {
-    using namespace whiteout;
-
-    // Collect candidate combined meta file paths from CASC.
-    // Combined metas follow the naming pattern:
-    //   {GroupName}-{Category}-{Language}.dat
-    // e.g. "Texture-Base-Global.dat", "StringList-Text-enUS.dat"
-    // Files with a hex-hash suffix (e.g. "-0x1234abcd.dat") are encrypted
-    // differential patches that CascLib cannot read without TACT keys, so
-    // we skip them.
-    std::vector<std::string> combinedFiles;
-
-    // Enumerate all .dat files from CASC.
-    std::vector<std::string> allDatFiles;
-    storage.enumerate([&](const whiteout::storages::casc::EnumerateEntry& fe) -> bool {
-        if (fe.path.size() >= 4 &&
-            fe.path.compare(fe.path.size() - 4, 4, ".dat") == 0)
-            allDatFiles.push_back(std::string(fe.path));
-        return true;
-    });
-
-    // Filter for combined meta files from groups known to use them.
-    for (auto& name : allDatFiles) {
-        // Extract file name portion (strip path/CASC prefixes).
-        std::string fname = name;
-        auto sep = fname.find_last_of("\\/:");
-        if (sep != std::string::npos)
-            fname = fname.substr(sep + 1);
-
-        // Must have at least 2 dashes (Group-Category-Language).
-        int dashes = 0;
-        for (char c : fname)
-            if (c == '-') ++dashes;
-        if (dashes < 2)
-            continue;
-
-        // Skip encrypted patch variants: files ending in -0x<hex>.dat
-        // These have a TACT key hash suffix and require decryption keys.
-        {
-            auto dot = fname.rfind('.');
-            std::string base = (dot != std::string::npos) ? fname.substr(0, dot) : fname;
-            auto lastDash = base.rfind('-');
-            if (lastDash != std::string::npos) {
-                std::string suffix = base.substr(lastDash + 1);
-                if (suffix.size() > 2 && suffix[0] == '0' && suffix[1] == 'x')
-                    continue;
-            }
-        }
-
-        // Must resolve to a known SNO group.
-        auto group = groupFromCombinedFileName(name);
-        if (group != sno::SnoGroup::None)
-            combinedFiles.push_back(name);
-    }
-
-    if (combinedFiles.empty()) {
-        std::cout << "  (no combined meta files found)\n";
-        return;
-    }
-
-    int loaded = 0;
-    for (auto& path : combinedFiles) {
-        auto fileData = storage.readFile(path);
-        if (!fileData || fileData->empty())
-            continue;
-
-        auto group = groupFromCombinedFileName(path);
-        if (group == sno::SnoGroup::None)
-            continue;
-
-        auto shared = std::make_shared<std::vector<u8>>(std::move(*fileData));
-        if (parseCombinedMetaFile(shared, group, cache)) {
-            const char* gname = sno::snoGroupName(group);
-            std::cout << "  Loaded combined meta: " << path
-                      << " (" << (gname ? gname : "?") << ", "
-                      << shared->size() << " bytes)\n";
-            ++loaded;
-        }
-    }
-
-    if (loaded > 0)
-        std::cout << "  Combined meta cache: " << cache.entries.size()
-                  << " entries from " << loaded << " file(s).\n";
-    else
-        std::cout << "  (found " << combinedFiles.size()
-                  << " candidate files but none parsed as combined metas)\n";
-}
-
-/// Build a synthetic SNO file (with DEADBEEF header) from combined meta data.
-/// Combined meta entries lack the 16-byte SNO header, so we prepend one.
-static std::vector<whiteout::u8> buildSnoFromCombinedEntry(
-    const CombinedMetaCache::Entry& entry,
-    whiteout::u32 formatHash) {
-    using namespace whiteout;
-
-    // The final buffer: 16-byte header + entry data.
-    std::vector<u8> result(16 + entry.dataSize);
-
-    // Write synthetic header.
-    u32 magic = sno::kSnoMagic; // 0xDEADBEEF
-    u32 unk08 = 0;
-    u32 unk0C = 0;
-    std::memcpy(result.data() + 0, &magic, 4);
-    std::memcpy(result.data() + 4, &formatHash, 4);
-    std::memcpy(result.data() + 8, &unk08, 4);
-    std::memcpy(result.data() + 12, &unk0C, 4);
-
-    // Copy entry data (starts with snoId).
-    std::memcpy(result.data() + 16,
-                entry.fileData->data() + entry.dataOffset,
-                entry.dataSize);
-
-    return result;
-}
 
 // ============================================================================
 // Pretty-print helpers
@@ -669,7 +415,6 @@ static whiteout::sno::SnoGroup snoGroupFromExtension(const std::string& ext) {
 static void openSno(const whiteout::storages::casc::Storage& storage,
                     const whiteout::sno::SnoReader& reader,
                     const whiteout::sno::TocEntry& entry,
-                    const CombinedMetaCache& combinedCache = {},
                     bool isD3 = false) {
     using namespace whiteout::sno;
 
@@ -739,29 +484,12 @@ static void openSno(const whiteout::storages::casc::Storage& storage,
             }
         }
     } else {
-        // D4: try named path, then numeric snoId.
+        // D4: try enriched colon-separated path, then numeric snoId.
         if (groupDir && groupExt) {
-            trySnoPath(std::string("Base\\meta\\") + groupDir + "\\" +
+            trySnoPath(std::string("base:meta\\") + groupDir + "\\" +
                        entry.name + "." + groupExt);
         }
         trySnoPath("base:meta\\" + std::to_string(entry.snoId));
-    }
-
-    // Fallback: try combined meta cache (for Texture, StringList, etc.).
-    if (!fileData && !isD3) {
-        auto it = combinedCache.entries.find(entry.snoId);
-        if (it != combinedCache.entries.end()) {
-            // Resolve the format hash for this group.
-            whiteout::u32 fmtHash = 0;
-            auto fhIt = reader.groupFormatHashes().find(
-                static_cast<whiteout::i32>(entry.group));
-            if (fhIt != reader.groupFormatHashes().end())
-                fmtHash = fhIt->second;
-
-            auto synth = buildSnoFromCombinedEntry(it->second, fmtHash);
-            fileData = std::move(synth);
-            snoPath = "(combined meta)";
-        }
     }
 
     if (!fileData) {
@@ -843,7 +571,6 @@ static void openSno(const whiteout::storages::casc::Storage& storage,
 static void actionOpenByName(const whiteout::storages::casc::Storage& storage,
                              const whiteout::sno::SnoReader& reader,
                              const whiteout::sno::CoreToc& toc,
-                             const CombinedMetaCache& combinedCache,
                              bool isD3 = false) {
     using namespace whiteout::sno;
 
@@ -909,7 +636,7 @@ static void actionOpenByName(const whiteout::storages::casc::Storage& storage,
     }
 
     if (matches.size() == 1) {
-        openSno(storage, reader, *matches[0], combinedCache, isD3);
+        openSno(storage, reader, *matches[0], isD3);
         return;
     }
 
@@ -945,15 +672,13 @@ static void actionOpenByName(const whiteout::storages::casc::Storage& storage,
         return;
     }
 
-    openSno(storage, reader, *matches[static_cast<size_t>(idx - 1)],
-             combinedCache, isD3);
+    openSno(storage, reader, *matches[static_cast<size_t>(idx - 1)], isD3);
 }
 
 /// Open an SNO by its numeric SNO ID.
 static void actionOpenById(const whiteout::storages::casc::Storage& storage,
                            const whiteout::sno::SnoReader& reader,
                            const whiteout::sno::CoreToc& toc,
-                           const CombinedMetaCache& combinedCache,
                            bool isD3 = false) {
     std::cout << "Enter SNO ID: ";
     std::string input;
@@ -986,7 +711,7 @@ static void actionOpenById(const whiteout::storages::casc::Storage& storage,
         return;
     }
 
-    openSno(storage, reader, *entry, combinedCache, isD3);
+    openSno(storage, reader, *entry, isD3);
 }
 
 /// Extract N random SNO files from a chosen group and save them to disk.
@@ -994,7 +719,6 @@ static void actionExtractRandomGroup(
     const whiteout::storages::casc::Storage& storage,
     const whiteout::sno::SnoReader& reader,
     const whiteout::sno::CoreToc& toc,
-    const CombinedMetaCache& combinedCache,
     bool isD3) {
     using namespace whiteout::sno;
 
@@ -1123,24 +847,12 @@ static void actionExtractRandomGroup(
                 tryRead(relPath);
             }
         } else {
+            // D4: try enriched colon-separated path, then numeric snoId.
             if (groupDir && groupExt) {
-                tryRead(std::string("Base\\meta\\") + groupDir + "\\" +
+                tryRead(std::string("base:meta\\") + groupDir + "\\" +
                         entry.name + "." + groupExt);
             }
             tryRead("base:meta\\" + std::to_string(entry.snoId));
-        }
-
-        // Fallback: combined meta cache.
-        if (!fileData && !isD3) {
-            auto it = combinedCache.entries.find(entry.snoId);
-            if (it != combinedCache.entries.end()) {
-                whiteout::u32 fmtHash = 0;
-                auto fhIt = reader.groupFormatHashes().find(
-                    static_cast<whiteout::i32>(entry.group));
-                if (fhIt != reader.groupFormatHashes().end())
-                    fmtHash = fhIt->second;
-                fileData = buildSnoFromCombinedEntry(it->second, fmtHash);
-            }
         }
 
         if (!fileData || fileData->empty()) {
@@ -1388,15 +1100,6 @@ int main(int argc, char* argv[]) {
     reader.setFormatHashes(toc.formatHashes());
 
     // -----------------------------------------------------------------
-    // 3b. Load combined meta files (for Texture, StringList, etc.).
-    // -----------------------------------------------------------------
-    CombinedMetaCache combinedCache;
-    if (!isD3) {
-        std::cout << "\nLoading combined meta files ...\n";
-        loadCombinedMetas(storage, combinedCache);
-    }
-
-    // -----------------------------------------------------------------
     // 4.  Interactive menu loop.
     // -----------------------------------------------------------------
     std::cout << "\n";
@@ -1414,11 +1117,11 @@ int main(int argc, char* argv[]) {
         choice = trim(choice);
 
         if (choice == "1") {
-            actionOpenByName(storage, reader, toc, combinedCache, isD3);
+            actionOpenByName(storage, reader, toc, isD3);
         } else if (choice == "2") {
-            actionOpenById(storage, reader, toc, combinedCache, isD3);
+            actionOpenById(storage, reader, toc, isD3);
         } else if (choice == "3") {
-            actionExtractRandomGroup(storage, reader, toc, combinedCache, isD3);
+            actionExtractRandomGroup(storage, reader, toc, isD3);
         } else if (choice == "4" || choice == "exit" || choice == "quit") {
             std::cout << "Bye.\n";
             break;

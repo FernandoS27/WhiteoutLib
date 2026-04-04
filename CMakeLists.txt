@@ -237,6 +237,7 @@ if(WHITEOUT_ENABLE_CASC)
         src/whiteout/storages/casc/roots/d3_root.cpp
         src/whiteout/storages/casc/roots/tvfs_root.cpp
         src/whiteout/storages/casc/roots/mndx_root.cpp
+        src/whiteout/storages/casc/roots/d4_root.cpp
         src/whiteout/storages/casc/storage.cpp
         src/whiteout/storages/casc/writer.cpp
         src/whiteout/storages/casc/casc_file_system.cpp
