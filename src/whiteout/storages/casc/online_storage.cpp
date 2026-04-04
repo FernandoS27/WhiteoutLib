@@ -22,6 +22,10 @@
 #include "roots/tvfs_root.h"
 #include "roots/mndx_root.h"
 #include "roots/d4_root.h"
+#include "roots/ow_root.h"
+#include "roots/s1_root.h"
+#include "roots/generic_root.h"
+#include "roots/install_root.h"
 #include "../common/hex.h"
 #include "../common/string_utils.h"
 
@@ -499,10 +503,37 @@ bool OnlineStorage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEnco
             } else if (magic == RootSignature::kMNDX) {
                 root = MndxRoot::parse(rootData, pool);
             }
+
+            // Overwatch text root (starts with '#').
+            if (!root && !rootData.empty() && rootData[0] == '#') {
+                root = OwRoot::parse(rootData, ckeyResolver, pool);
+            }
+
+            // S1 / Agent text root (pipe-delimited path|ckey lines).
+            if (!root && S1Root::looksLikeS1Root(rootData)) {
+                root = S1Root::parse(rootData, pool);
+            }
         }
 
         if (!root)
             root = WowRoot::parse(rootData, pool);
+
+        // Fallback: some products (Hearthstone, Diablo Immortal, BNA, etc.)
+        // ship an opaque root (e.g. an executable) with no parseable manifest.
+        // Try the install manifest first — it maps file names → CKeys.
+        if (!root && !isZeroKey(buildConfig.installCKey)) {
+            auto installData = resolveCKey(buildConfig.installCKey);
+            if (!installData.empty()) {
+                auto installRoot = InstallRoot::parse(installData, pool);
+                if (installRoot)
+                    root = std::move(installRoot);
+            }
+        }
+
+        // Final fallback: empty root — files can still be accessed via
+        // CKey/EKey through the encoding table.
+        if (!root)
+            root = GenericRoot::create();
     }
 
     if (!root) {

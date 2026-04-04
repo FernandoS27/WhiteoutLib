@@ -113,6 +113,8 @@ enum class RootFormat : u8 {
     Diablo4,  ///< Diablo IV root (TVFS enriched with CoreTOC paths).
     Tvfs,     ///< TVFS prefix-tree root (WC3 Reforged and general purpose).
     Mndx,     ///< MNDX trie-based root (StarCraft II, Heroes of the Storm).
+    Overwatch,///< Overwatch root (text manifest + CMF content manifests).
+    Agent,   ///< Agent/S1 text root (SC:R, Hearthstone, etc.).
 };
 
 // ============================================================================

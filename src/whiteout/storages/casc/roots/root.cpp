@@ -6,6 +6,9 @@
 #include "d3_root.h"
 #include "tvfs_root.h"
 #include "mndx_root.h"
+#include "ow_root.h"
+#include "s1_root.h"
+#include "generic_root.h"
 #include "../../common/byte_order.h"
 
 #include <cstring>
@@ -35,11 +38,20 @@ std::unique_ptr<RootManifest> RootManifest::parse(std::span<const u8> data) {
     if (magic == RootSignature::kMNDX)
         return MndxRoot::parse(data);
 
+    // Overwatch text root (starts with '#').
+    if (data[0] == '#')
+        return OwRoot::parse(data);
+
+    // S1 / Agent text root (pipe-delimited path|ckey lines).
+    if (S1Root::looksLikeS1Root(data))
+        return S1Root::parse(data);
+
     // Fallback: try headerless WoW root (legacy, build 18125+).
     auto wowLegacy = WowRoot::parse(data);
     if (wowLegacy) return wowLegacy;
 
-    return nullptr;
+    // Last resort: generic (empty) root for products with opaque root data.
+    return GenericRoot::create();
 }
 
 } // namespace whiteout::storages::casc

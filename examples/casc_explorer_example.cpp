@@ -4,7 +4,9 @@
 /// Interactive CASC archive explorer: open a CASC storage, browse its contents,
 /// read or extract files, add/delete files, and save modifications.
 
+#include <whiteout/storages/casc/online_storage.h>
 #include <whiteout/storages/casc/storage.h>
+#include <whiteout/utils/simple_http_handler.h>
 #include <whiteout/utils/simple_thread_pool.h>
 
 #include <algorithm>
@@ -17,6 +19,7 @@
 #include <map>
 #include <string>
 #include <thread>
+#include <variant>
 #include <vector>
 
 namespace casc = whiteout::storages::casc;
@@ -133,7 +136,8 @@ static std::string formatLocaleFlags(whiteout::u32 flags) {
 // Commands
 // ============================================================================
 
-static void cmdInfo(casc::Storage& storage) {
+template<typename S>
+static void cmdInfo(S& storage) {
     auto prod = storage.product();
     auto count = storage.totalFileCount();
 
@@ -148,7 +152,8 @@ static void cmdInfo(casc::Storage& storage) {
         std::cout << "    Total files:  " << *count << "\n";
 }
 
-static void cmdList(casc::Storage& storage, const std::string& pattern) {
+template<typename S>
+static void cmdList(S& storage, const std::string& pattern) {
     auto files = storage.listFiles();
 
     std::vector<std::string> matched;
@@ -181,7 +186,8 @@ static void cmdList(casc::Storage& storage, const std::string& pattern) {
     std::cout << "\n  " << matched.size() << " file(s) matched.\n";
 }
 
-static void cmdFileInfo(casc::Storage& storage) {
+template<typename S>
+static void cmdFileInfo(S& storage) {
     std::cout << "  Filename: ";
     std::string name;
     if (!readLine(name) || name.empty()) return;
@@ -203,7 +209,8 @@ static void cmdFileInfo(casc::Storage& storage) {
         std::cout << "    FileDataId:     " << info->fileDataId << "\n";
 }
 
-static void cmdExtract(casc::Storage& storage) {
+template<typename S>
+static void cmdExtract(S& storage) {
     std::cout << "  Filename (or * for all, or wildcard pattern): ";
     std::string pattern;
     if (!readLine(pattern) || pattern.empty()) return;
@@ -270,7 +277,8 @@ static void cmdExtract(casc::Storage& storage) {
     std::cout << ".\n  Output: " << std::filesystem::absolute(outDir).string() << "\n";
 }
 
-static void cmdRead(casc::Storage& storage) {
+template<typename S>
+static void cmdRead(S& storage) {
     std::cout << "  Filename: ";
     std::string name;
     if (!readLine(name) || name.empty()) return;
@@ -314,7 +322,8 @@ static void cmdRead(casc::Storage& storage) {
         std::cout << "    ... (" << (data->size() - dumpLen) << " more bytes)\n";
 }
 
-static void cmdReadById(casc::Storage& storage) {
+template<typename S>
+static void cmdReadById(S& storage) {
     std::cout << "  FileDataId: ";
     std::string idStr;
     if (!readLine(idStr) || idStr.empty()) return;
@@ -434,7 +443,8 @@ static void cmdSave(casc::Storage& storage) {
         std::cout << "  Save failed.\n";
 }
 
-static void cmdStats(casc::Storage& storage) {
+template<typename S>
+static void cmdStats(S& storage) {
     auto entries = storage.listEntries();
 
     std::map<std::string, size_t> extCounts;
@@ -470,7 +480,8 @@ static void cmdStats(casc::Storage& storage) {
               << "\n    Total size:     " << formatSize(totalSize) << "\n";
 }
 
-static void cmdKeys(casc::Storage& storage) {
+template<typename S>
+static void cmdKeys(S& storage) {
     std::cout << "  Load encryption keys from file (path): ";
     std::string keyPath;
     if (!readLine(keyPath) || keyPath.empty()) return;
@@ -481,7 +492,8 @@ static void cmdKeys(casc::Storage& storage) {
         std::cout << "  Failed to import keys from: " << keyPath << "\n";
 }
 
-static void cmdEntries(casc::Storage& storage) {
+template<typename S>
+static void cmdEntries(S& storage) {
     std::cout << "  Show first N entries [default 20]: ";
     std::string nStr;
     readLine(nStr);
@@ -523,46 +535,177 @@ int main(int argc, char* argv[]) {
     whiteout::utils::SimpleThreadPool pool(numThreads);
     std::cout << "Thread pool: " << numThreads << " workers.\n\n";
 
-    // Get storage path from argv or prompt.
-    std::string storagePath;
+    // Determine storage mode.
+    enum class Mode { Local, Online };
+    Mode mode = Mode::Local;
+    bool modeFromArgs = false;
+    std::string localPath;
+    std::string product, region = "us";
+
     if (argc >= 2) {
-        storagePath = argv[1];
-    } else {
-        std::cout << "Enter path to CASC data directory (or 'new' to create empty storage): ";
-        if (!readLine(storagePath) || storagePath.empty()) {
+        std::string arg1 = argv[1];
+        if (arg1 == "online" || arg1 == "Online" || arg1 == "ONLINE") {
+            mode = Mode::Online;
+            modeFromArgs = true;
+            if (argc >= 3) product = argv[2];
+            if (argc >= 4) region = argv[3];
+        } else {
+            mode = Mode::Local;
+            localPath = arg1;
+            modeFromArgs = true;
+        }
+    }
+
+    if (!modeFromArgs) {
+        std::cout << "Storage mode:\n"
+                  << "  1. Local   (open from disk)\n"
+                  << "  2. Online  (connect to Blizzard CDN)\n"
+                  << "> ";
+        std::string choice;
+        if (!readLine(choice) || choice.empty()) {
             std::cout << "Bye.\n";
             return 0;
         }
+        if (choice == "2" || choice == "online")
+            mode = Mode::Online;
+        else
+            mode = Mode::Local;
     }
 
-    // Open or create.
-    std::optional<casc::Storage> storage;
+    // Keep the HTTP handler alive for the lifetime of the program.
+    std::unique_ptr<whiteout::utils::SimpleHttpHandler> httpHandler;
 
-    if (storagePath == "new" || storagePath == "NEW") {
-        std::cout << "Creating new empty storage.\n";
-        storage.emplace(casc::Storage::create({}, &pool));
+    using StorageVariant = std::variant<casc::Storage, casc::OnlineStorage>;
+    std::optional<StorageVariant> storage;
+
+    if (mode == Mode::Local) {
+        // --- Local storage ---
+        if (localPath.empty()) {
+            std::cout << "Enter path to CASC data directory (or 'new' to create empty storage): ";
+            if (!readLine(localPath) || localPath.empty()) {
+                std::cout << "Bye.\n";
+                return 0;
+            }
+        }
+
+        if (localPath == "new" || localPath == "NEW") {
+            std::cout << "Creating new empty storage.\n";
+            storage.emplace(casc::Storage::create({}, &pool));
+        } else {
+            if (!std::filesystem::exists(localPath)) {
+                std::cerr << "Path not found: " << localPath << "\n";
+                return 1;
+            }
+            localPath = std::filesystem::absolute(localPath).string();
+            std::cout << "Opening: " << localPath << " ...\n";
+
+            std::string openError;
+            auto local = casc::Storage::open(localPath, &openError, &pool);
+            if (!openError.empty())
+                std::cerr << "  Error: " << openError << "\n";
+
+            if (!local || !*local) {
+                std::cerr << "Failed to open CASC storage.\n";
+                std::cerr << "  lastError = " << casc::Storage::lastError() << "\n";
+                return 1;
+            }
+            storage.emplace(std::move(*local));
+        }
     } else {
-        if (!std::filesystem::exists(storagePath)) {
-            std::cerr << "Path not found: " << storagePath << "\n";
+        // --- Online storage ---
+        if (product.empty()) {
+            std::cout << "\n  Available products:\n\n"
+                      << "    World of Warcraft:\n"
+                      << "      wow              WoW (retail)\n"
+                      << "      wowt             WoW (PTR)\n"
+                      << "      wow_beta         WoW (beta)\n"
+                      << "      wow_classic      WoW Classic\n"
+                      << "      wow_classic_era  WoW Classic Era\n"
+                      << "\n"
+                      << "    Diablo:\n"
+                      << "      d3               Diablo III\n"
+                      << "      d3t              Diablo III (test)\n"
+                      << "      d3cn             Diablo III (China)\n"
+                      << "      fenris           Diablo IV\n"
+                      << "      fenrist          Diablo IV (test)\n"
+                      << "      anbs             Diablo Immortal (PC)\n"
+                      << "\n"
+                      << "    Overwatch:\n"
+                      << "      pro              Overwatch (retail)\n"
+                      << "      proc             Overwatch (China)\n"
+                      << "      prot             Overwatch (test)\n"
+                      << "\n"
+                      << "    StarCraft:\n"
+                      << "      s1               StarCraft Remastered\n"
+                      << "      s1a              StarCraft: Anthology\n"
+                      << "      s2               StarCraft II\n"
+                      << "      s2t              StarCraft II (test)\n"
+                      << "\n"
+                      << "    Other:\n"
+                      << "      hero             Heroes of the Storm\n"
+                      << "      herot            Heroes of the Storm (test)\n"
+                      << "      hsb              Hearthstone\n"
+                      << "      w3               Warcraft III: Reforged\n"
+                      << "      w3t              Warcraft III: Reforged (test)\n"
+                      << "      rtro             Blizzard Arcade Collection\n"
+                      << "      osi              Diablo II: Resurrected\n"
+                      << "      d2r              Diablo II: Resurrected (alt)\n"
+                      << "\n"
+                      << "    Agents / Misc:\n"
+                      << "      agent            Battle.net Agent\n"
+                      << "      bna              Battle.net App\n"
+                      << "      catalogs         Catalogs\n"
+                      << "\n"
+                      << "  Product code: ";
+            if (!readLine(product) || product.empty()) {
+                std::cout << "Bye.\n";
+                return 0;
+            }
+        }
+
+        if (region == "us" && !modeFromArgs) {
+            std::cout << "Region [us]: ";
+            std::string r;
+            readLine(r);
+            if (!r.empty()) region = r;
+        }
+
+        std::string cacheDir;
+        std::cout << "Cache directory (Enter to skip): ";
+        readLine(cacheDir);
+
+        httpHandler = std::make_unique<whiteout::utils::SimpleHttpHandler>(numThreads);
+
+        casc::OnlineOpenOptions opts;
+        opts.product = product;
+        opts.region = region;
+        opts.http = httpHandler.get();
+        opts.pool = &pool;
+        if (!cacheDir.empty())
+            opts.cacheDir = cacheDir;
+
+        std::cout << "Connecting to " << region << " CDN for '" << product << "' ...\n";
+
+        auto online = casc::OnlineStorage::open(opts);
+        if (!online || !*online) {
+            std::cerr << "Failed to open online CASC storage.\n";
+            std::cerr << "  lastError = " << casc::OnlineStorage::lastError() << "\n";
             return 1;
         }
-        storagePath = std::filesystem::absolute(storagePath).string();
-        std::cout << "Opening: " << storagePath << " ...\n";
-
-        std::string openError;
-        storage = casc::Storage::open(storagePath, &openError, &pool);
-        if (!openError.empty())
-            std::cerr << "  Error: " << openError << "\n";
+        storage.emplace(std::move(*online));
     }
 
-    if (!storage || !*storage) {
+    // Verify the storage is valid.
+    bool valid = std::visit([](const auto& s) -> bool { return static_cast<bool>(s); }, *storage);
+    if (!valid) {
         std::cerr << "Failed to open CASC storage.\n";
-        std::cerr << "  lastError = " << casc::Storage::lastError() << "\n";
         return 1;
     }
 
     std::cout << "Storage ready.\n";
-    cmdInfo(*storage);
+    std::visit([](auto& s) { cmdInfo(s); }, *storage);
+
+    const bool isOnline = (mode == Mode::Online);
 
     // --- Interactive loop ---
     while (true) {
@@ -573,9 +716,9 @@ int main(int argc, char* argv[]) {
                   << "  4.  read             Read & hex-dump a file (by path)\n"
                   << "  5.  readid           Read & hex-dump a file (by FileDataId)\n"
                   << "  6.  extract          Extract files to disk\n"
-                  << "  7.  add              Add a file from disk\n"
-                  << "  8.  delete           Delete a file\n"
-                  << "  9.  save             Save storage\n"
+                  << "  7.  add              Add a file from disk" << (isOnline ? " (local only)" : "") << "\n"
+                  << "  8.  delete           Delete a file" << (isOnline ? " (local only)" : "") << "\n"
+                  << "  9.  save             Save storage" << (isOnline ? " (local only)" : "") << "\n"
                   << "  10. stats            File extension statistics\n"
                   << "  11. entries          Browse raw entries\n"
                   << "  12. keys             Import encryption keys\n"
@@ -603,32 +746,49 @@ int main(int argc, char* argv[]) {
 
         if (cmd == "0" || cmd == "quit" || cmd == "q" || cmd == "exit")
             break;
-        else if (cmd == "1" || cmd == "list" || cmd == "ls")
-            cmdList(*storage, arg);
-        else if (cmd == "2" || cmd == "info")
-            cmdInfo(*storage);
-        else if (cmd == "3" || cmd == "file")
-            cmdFileInfo(*storage);
-        else if (cmd == "4" || cmd == "read" || cmd == "hex")
-            cmdRead(*storage);
-        else if (cmd == "5" || cmd == "readid")
-            cmdReadById(*storage);
-        else if (cmd == "6" || cmd == "extract")
-            cmdExtract(*storage);
-        else if (cmd == "7" || cmd == "add")
-            cmdAdd(*storage);
-        else if (cmd == "8" || cmd == "delete" || cmd == "del" || cmd == "rm")
-            cmdDelete(*storage);
-        else if (cmd == "9" || cmd == "save")
-            cmdSave(*storage);
-        else if (cmd == "10" || cmd == "stats")
-            cmdStats(*storage);
-        else if (cmd == "11" || cmd == "entries")
-            cmdEntries(*storage);
-        else if (cmd == "12" || cmd == "keys")
-            cmdKeys(*storage);
-        else
-            std::cout << "  Unknown command. Try 'list', 'read', 'extract', etc.\n";
+
+        std::visit([&](auto& s) {
+            using S = std::decay_t<decltype(s)>;
+
+            if (cmd == "1" || cmd == "list" || cmd == "ls")
+                cmdList(s, arg);
+            else if (cmd == "2" || cmd == "info")
+                cmdInfo(s);
+            else if (cmd == "3" || cmd == "file")
+                cmdFileInfo(s);
+            else if (cmd == "4" || cmd == "read" || cmd == "hex")
+                cmdRead(s);
+            else if (cmd == "5" || cmd == "readid")
+                cmdReadById(s);
+            else if (cmd == "6" || cmd == "extract")
+                cmdExtract(s);
+            else if (cmd == "7" || cmd == "add") {
+                if constexpr (std::is_same_v<S, casc::Storage>)
+                    cmdAdd(s);
+                else
+                    std::cout << "  Not available in online mode.\n";
+            }
+            else if (cmd == "8" || cmd == "delete" || cmd == "del" || cmd == "rm") {
+                if constexpr (std::is_same_v<S, casc::Storage>)
+                    cmdDelete(s);
+                else
+                    std::cout << "  Not available in online mode.\n";
+            }
+            else if (cmd == "9" || cmd == "save") {
+                if constexpr (std::is_same_v<S, casc::Storage>)
+                    cmdSave(s);
+                else
+                    std::cout << "  Not available in online mode.\n";
+            }
+            else if (cmd == "10" || cmd == "stats")
+                cmdStats(s);
+            else if (cmd == "11" || cmd == "entries")
+                cmdEntries(s);
+            else if (cmd == "12" || cmd == "keys")
+                cmdKeys(s);
+            else
+                std::cout << "  Unknown command. Try 'list', 'read', 'extract', etc.\n";
+        }, *storage);
     }
 
     std::cout << "Bye.\n";
