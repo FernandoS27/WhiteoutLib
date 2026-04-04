@@ -57,6 +57,13 @@ whiteout_add_test(d3_app_corpus_test d3_app_corpus_test.cpp)
 whiteout_add_test(d4_sno_diag_test d4_sno_diag_test.cpp)
 whiteout_add_test(d4_tex_corpus_test d4_tex_corpus_test.cpp)
 
+# MDL Tests
+whiteout_add_test(mdl_parser_test mdl_parser_test.cpp)
+target_include_directories(mdl_parser_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+whiteout_add_test(mdl_converter_test mdl_converter_test.cpp)
+target_include_directories(mdl_converter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 # =============================================================================
 # CASC Tests
 # =============================================================================
@@ -70,6 +77,7 @@ if(WHITEOUT_ENABLE_CASC)
     whiteout_add_test(casc_wow_root_test casc_wow_root_test.cpp LINK whiteout_casc)
     whiteout_add_test(casc_d3_root_test casc_d3_root_test.cpp LINK whiteout_casc)
     whiteout_add_test(casc_tvfs_root_test casc_tvfs_root_test.cpp LINK whiteout_casc)
+    whiteout_add_test(casc_ow_root_test casc_ow_root_test.cpp LINK whiteout_casc)
     whiteout_add_test(casc_corpus_test casc_corpus_test.cpp LINK whiteout_casc)
     whiteout_add_test(casc_parallel_test casc_parallel_test.cpp LINK whiteout_casc)
     whiteout_add_test(casc_round_trip_test casc_round_trip_test.cpp LINK whiteout_casc)

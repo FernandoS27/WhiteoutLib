@@ -61,7 +61,7 @@ public:
      * @param mdx MDX file data to write
      * @throws std::runtime_error If file cannot be created or written
      */
-    void write(const std::string& filePath, const Model& mdx);
+    void write(const std::string& filePath, const Model& mdlx);
 
     /**
      * @brief Write an MDX model to a byte buffer

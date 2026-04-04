@@ -45,6 +45,14 @@ using common::BinaryReader;
 // ============================================================================
 
 /**
+ * @brief Source format selector for buffer-based parsing.
+ */
+enum class MDLXFormat {
+    MDX, ///< Binary MDX format
+    MDL  ///< Text MDL format
+};
+
+/**
  * @brief Parser for MDX model files
  *
  * The Parser reads binary MDX files and converts them into the Model
@@ -83,19 +91,24 @@ public:
 
     /**
      * @brief Parse an MDX file from disk
-     * @param filePath Path to the MDX file
+     *
+     * The format is detected from the file extension: `.mdl` for text MDL
+     * format, `.mdx` (or any other extension) for binary MDX format.
+     *
+     * @param filePath Path to the MDX/MDL file
      * @return Parsed MDX file data
      * @throws std::runtime_error If file cannot be opened or parsing fails in strict mode
      */
     Model parse(const std::string& filePath);
 
     /**
-     * @brief Parse an MDX file from memory buffer
-     * @param buffer Memory buffer containing MDX data
+     * @brief Parse an MDX/MDL file from memory buffer
+     * @param buffer Memory buffer containing MDX/MDL data
+     * @param format Source format (MDX binary or MDL text)
      * @return Parsed MDX file data
      * @throws std::runtime_error If parsing fails in strict mode
      */
-    Model parse(std::span<const u8> buffer);
+    Model parse(std::span<const u8> buffer, MDLXFormat format = MDLXFormat::MDX);
 
     /**
      * @brief Check if parsing encountered any issues

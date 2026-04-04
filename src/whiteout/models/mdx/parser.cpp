@@ -4,7 +4,9 @@
 #include <whiteout/models/mdx/parser.h>
 #include "../../common/binary_reader.h"
 #include "../../common/streams.h"
+#include "mdl_converter.h"
 
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <stdexcept>
@@ -155,6 +157,27 @@ Parser::Parser(ParseMode parseMode, UpgradeMode upgradeMode) : pImpl(std::make_u
 Parser::~Parser() = default;
 
 Model Parser::parse(const std::string& filePath) {
+    // Detect format from file extension
+    auto dotPos = filePath.rfind('.');
+    if (dotPos != std::string::npos) {
+        std::string ext = filePath.substr(dotPos);
+        std::transform(ext.begin(), ext.end(), ext.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
+        if (ext == ".mdl") {
+            // Read entire file as text
+            std::ifstream file(filePath, std::ios::ate);
+            if (!file.is_open()) {
+                throw std::runtime_error("Failed to open file: " + filePath);
+            }
+            auto size = file.tellg();
+            file.seekg(0);
+            std::string source(static_cast<size_t>(size), '\0');
+            file.read(source.data(), size);
+            Model model = convertMdlToModel(source, pImpl->issues);
+            return model;
+        }
+    }
+
     std::ifstream file;
     file.open(filePath, std::ios::binary);
     if (!file.is_open()) {
@@ -164,7 +187,13 @@ Model Parser::parse(const std::string& filePath) {
     return pImpl->parse(reader);
 }
 
-Model Parser::parse(std::span<const u8> buffer) {
+Model Parser::parse(std::span<const u8> buffer, MDLXFormat format) {
+    if (format == MDLXFormat::MDL) {
+        std::string_view source(reinterpret_cast<const char*>(buffer.data()), buffer.size());
+        Model model = convertMdlToModel(source, pImpl->issues);
+        return model;
+    }
+
     common::span_streambuf streambuf(buffer);
     std::istream in(&streambuf);
     BinaryReader reader(in);
