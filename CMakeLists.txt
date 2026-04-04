@@ -36,6 +36,7 @@ add_library(whiteout_lib
     src/whiteout/models/mdx/mdl_tokenizer.cpp
     src/whiteout/models/mdx/mdl_parser.cpp
     src/whiteout/models/mdx/mdl_converter.cpp
+    src/whiteout/models/mdx/mdl_writer.cpp
 
     # M2
     src/whiteout/models/m2/parser.cpp

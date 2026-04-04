@@ -8,6 +8,7 @@
 #include <whiteout/models/mdx/writer.h>
 #include "../../common/binary_writer.h"
 #include "../../common/streams.h"
+#include "mdl_writer.h"
 
 namespace whiteout {
 namespace mdx {
@@ -206,6 +207,23 @@ Writer::Writer() : pImpl(std::make_unique<Impl>()) {}
 Writer::~Writer() = default;
 
 void Writer::write(const std::string& filePath, const Model& mdx) {
+    // Detect MDL text format from extension
+    bool isMdl = false;
+    if (filePath.size() >= 4) {
+        auto ext = filePath.substr(filePath.size() - 4);
+        isMdl = (ext == ".mdl" || ext == ".MDL" || ext == ".Mdl");
+    }
+
+    if (isMdl) {
+        std::string text = writeModelToMdl(mdx);
+        std::ofstream file(filePath, std::ios::binary);
+        if (!file.is_open()) {
+            throw std::runtime_error("Failed to open file: " + filePath);
+        }
+        file.write(text.data(), static_cast<std::streamsize>(text.size()));
+        return;
+    }
+
     std::ofstream file;
     file.open(filePath, std::ios::binary);
     if (!file.is_open()) {
@@ -216,7 +234,12 @@ void Writer::write(const std::string& filePath, const Model& mdx) {
     pImpl->write(writer, mdx);
 }
 
-std::vector<u8> Writer::write(const Model& mdx) {
+std::vector<u8> Writer::write(const Model& mdx, MDLXFormat format) {
+    if (format == MDLXFormat::MDL) {
+        std::string text = writeModelToMdl(mdx);
+        return std::vector<u8>(text.begin(), text.end());
+    }
+
     std::vector<u8> buffer;
     buffer.reserve(1 * 1024 * 1024); // Reserve 1MB to avoid frequent reallocations
     common::vector_streambuf streambuf(buffer);

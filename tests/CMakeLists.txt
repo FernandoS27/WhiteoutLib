@@ -64,6 +64,9 @@ target_include_directories(mdl_parser_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(mdl_converter_test mdl_converter_test.cpp)
 target_include_directories(mdl_converter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+whiteout_add_test(mdl_writer_test mdl_writer_test.cpp)
+target_include_directories(mdl_writer_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 # =============================================================================
 # CASC Tests
 # =============================================================================
