@@ -13,12 +13,12 @@
 #pragma once
 
 #include "root.h"
+#include "common/entry_index.h"
 #include "tvfs_root.h"
 
 #include <memory>
 #include <span>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace whiteout::interfaces { class WorkerPool; }
@@ -63,7 +63,7 @@ private:
     std::vector<RootEntry> m_entries;
 
     /// Normalized path → index into m_entries.
-    std::unordered_multimap<std::string, size_t> m_byPath;
+    EntryIndex<std::string> m_byPath;
 
     void buildIndex(interfaces::WorkerPool* pool);
 };

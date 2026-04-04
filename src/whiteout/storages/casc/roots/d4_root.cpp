@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include "d4_root.h"
-#include "root_build_utils.h"
+#include "common/root_build_utils.h"
 #include "../../common/byte_order.h"
 #include "../../common/string_utils.h"
 
@@ -690,16 +690,11 @@ std::vector<const RootEntry*> D4Root::findByPath(const std::string& path) const 
 }
 
 std::vector<const RootEntry*> D4Root::findByNormalizedPath(const std::string& normalizedPath) const {
-    std::vector<const RootEntry*> results;
-    auto range = m_byPath.equal_range(normalizedPath);
-    for (auto it = range.first; it != range.second; ++it) {
-        results.push_back(&m_entries[it->second]);
-    }
-    return results;
+    return m_byPath.findAll(m_entries, normalizedPath);
 }
 
 bool D4Root::hasPath(const std::string& normalizedPath) const {
-    return m_byPath.find(normalizedPath) != m_byPath.end();
+    return m_byPath.contains(normalizedPath);
 }
 
 std::vector<const RootEntry*> D4Root::findByFileDataId(u32 /*fileDataId*/) const {

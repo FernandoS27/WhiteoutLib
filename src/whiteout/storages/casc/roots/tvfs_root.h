@@ -7,6 +7,7 @@
 #pragma once
 
 #include "root.h"
+#include "common/path_trie.h"
 #include "../flat_hash_map.h"
 
 #include <array>
@@ -22,17 +23,6 @@ namespace whiteout::storages::casc {
 /// Resolver function for VFS sub-manifest data.
 /// Given an EKey (eKeySize bytes), returns the decoded TVFS blob, or empty on failure.
 using VfsResolver = std::function<std::vector<u8>(std::span<const u8> eKey)>;
-
-/// Flat-array path trie node for prefix-based enumeration of TVFS entries.
-/// Children are sorted by segment for binary-search traversal and ordered DFS.
-struct PathTrieNode {
-    struct Child {
-        std::string segment;
-        u32 nodeIndex;          ///< Index into the flat trie node array.
-    };
-    std::vector<Child> children;
-    std::vector<u32> entryIndices;  ///< Entries at exactly this path (leaf).
-};
 
 class TvfsRoot final : public RootManifest {
 public:
@@ -64,6 +54,7 @@ public:
     std::vector<const RootEntry*> findByNormalizedPath(const std::string& normalizedPath) const override;
     bool hasPath(const std::string& normalizedPath) const override;
     std::vector<const RootEntry*> findByFileDataId(u32 fileDataId) const override;
+    bool hasFileDataId(u32) const override { return false; }
     RootFormat format() const override { return RootFormat::Tvfs; }
 
     /// Enumerate all entries whose path starts with @p normalizedPrefix (directory-scoped).

@@ -243,24 +243,15 @@ std::unique_ptr<WowRoot> WowRoot::parse(std::span<const u8> data,
 std::vector<const RootEntry*> WowRoot::findByPath(const std::string& path) const {
     auto hash = common::jenkinsHash(path);
     u64 combined = u64(hash.pc) | (u64(hash.pb) << 32);
-
-    std::vector<const RootEntry*> results;
-    auto range = m_byNameHash.equal_range(combined);
-    for (auto it = range.first; it != range.second; ++it)
-        results.push_back(&m_entries[it->second]);
-    return results;
+    return m_byNameHash.findAll(m_entries, combined);
 }
 
 std::vector<const RootEntry*> WowRoot::findByFileDataId(u32 fileDataId) const {
-    std::vector<const RootEntry*> results;
-    auto range = m_byFileDataId.equal_range(fileDataId);
-    for (auto it = range.first; it != range.second; ++it)
-        results.push_back(&m_entries[it->second]);
-    return results;
+    return m_byFileDataId.findAll(m_entries, fileDataId);
 }
 
 bool WowRoot::hasFileDataId(u32 fileDataId) const {
-    return m_byFileDataId.find(fileDataId) != m_byFileDataId.end();
+    return m_byFileDataId.contains(fileDataId);
 }
 
 std::vector<const RootEntry*> WowRoot::findByCKey(std::span<const u8, 16> cKey) const {

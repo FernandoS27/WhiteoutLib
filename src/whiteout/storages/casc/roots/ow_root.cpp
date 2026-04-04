@@ -4,6 +4,7 @@
 #include "ow_root.h"
 
 #include "../../common/byte_order.h"
+#include "../../common/string_utils.h"
 
 #include <algorithm>
 #include <cctype>
@@ -70,22 +71,6 @@ static bool parseHexKey(std::string_view hex, std::array<u8, 16>& out) {
 static void toLowerInPlace(std::string& s) {
     for (auto& c : s)
         c = char(std::tolower(static_cast<unsigned char>(c)));
-}
-
-/// Normalize a path: lowercase, forward slashes to backslashes, strip leading/trailing separators.
-static std::string normalizePath(std::string_view path) {
-    std::string result(path);
-    for (auto& c : result) {
-        if (c == '/') c = '\\';
-        c = char(std::tolower(static_cast<unsigned char>(c)));
-    }
-    // Strip leading separators.
-    while (!result.empty() && result.front() == '\\')
-        result.erase(result.begin());
-    // Strip trailing separators.
-    while (!result.empty() && result.back() == '\\')
-        result.pop_back();
-    return result;
 }
 
 // ============================================================================
@@ -357,7 +342,7 @@ std::unique_ptr<OwRoot> OwRoot::fromManifestEntries(
     for (auto& mf : root->m_manifestEntries) {
         RootEntry re;
         re.cKey = mf.md5;
-        re.path = normalizePath(mf.fileName);
+        re.path = storages::common::normalizeCascPath(mf.fileName);
         root->m_entries.push_back(std::move(re));
     }
 
@@ -374,7 +359,7 @@ std::unique_ptr<OwRoot> OwRoot::fromManifestEntries(
             auto cmfData = resolver(mf.md5);
             if (cmfData.empty()) continue;
 
-            std::string cmfName = normalizePath(mf.fileName);
+            std::string cmfName = storages::common::normalizeCascPath(mf.fileName);
             // Strip .cmf extension for prefix.
             if (cmfName.size() > 4)
                 cmfName = cmfName.substr(0, cmfName.size() - 4);
@@ -388,12 +373,8 @@ std::unique_ptr<OwRoot> OwRoot::fromManifestEntries(
 }
 
 std::vector<const RootEntry*> OwRoot::findByPath(const std::string& path) const {
-    auto normalizedPath = normalizePath(path);
-    std::vector<const RootEntry*> results;
-    auto range = m_byPath.equal_range(normalizedPath);
-    for (auto it = range.first; it != range.second; ++it)
-        results.push_back(&m_entries[it->second]);
-    return results;
+    auto normalizedPath = storages::common::normalizeCascPath(path);
+    return m_byPath.findAll(m_entries, normalizedPath);
 }
 
 std::vector<const RootEntry*> OwRoot::findByFileDataId(u32 /*fileDataId*/) const {
@@ -402,11 +383,7 @@ std::vector<const RootEntry*> OwRoot::findByFileDataId(u32 /*fileDataId*/) const
 }
 
 std::vector<const RootEntry*> OwRoot::findByGuid(u64 guid) const {
-    std::vector<const RootEntry*> results;
-    auto range = m_byGuid.equal_range(guid);
-    for (auto it = range.first; it != range.second; ++it)
-        results.push_back(&m_entries[it->second]);
-    return results;
+    return m_byGuid.findAll(m_entries, guid);
 }
 
 void OwRoot::buildIndices() {

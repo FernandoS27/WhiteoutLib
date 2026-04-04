@@ -25,6 +25,11 @@ namespace whiteout::storages::casc {
 /// Invalid file-data-ID sentinel.
 constexpr u32 kInvalidFileDataId = 0xFFFFFFFF;
 
+/// Callback to resolve a content key (CKey) to raw file data.
+/// Used by root parsers that need to fetch sub-resources during parsing
+/// (e.g. D3 sub-directories, Overwatch CMF files).
+using CKeyResolver = std::function<std::vector<u8>(std::span<const u8, 16> cKey)>;
+
 /// A single entry from a root manifest.
 struct RootEntry {
     std::array<u8, 16> cKey{};

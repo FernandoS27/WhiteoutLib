@@ -7,10 +7,9 @@
 #pragma once
 
 #include "root.h"
+#include "common/entry_index.h"
 
-#include <optional>
 #include <span>
-#include <unordered_map>
 #include <vector>
 
 namespace whiteout::interfaces { class WorkerPool; }
@@ -41,10 +40,10 @@ private:
     std::vector<RootEntry> m_entries;
 
     /// Dual index: FileDataId → indices into m_entries.
-    std::unordered_multimap<u32, size_t> m_byFileDataId;
+    EntryIndex<u32> m_byFileDataId;
 
     /// Dual index: JenkinsHash(name) → indices into m_entries.
-    std::unordered_multimap<u64, size_t> m_byNameHash;
+    EntryIndex<u64> m_byNameHash;
 
     void buildIndices();
 };

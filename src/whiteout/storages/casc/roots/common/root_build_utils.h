@@ -6,8 +6,10 @@
 /// Internal header — not part of the public include path.
 #pragma once
 
-#include "root.h"
-#include "../../common/string_utils.h"
+#include "../root.h"
+#include "entry_index.h"
+#include "../../../common/jenkins.h"
+#include "../../../common/string_utils.h"
 
 #include <whiteout/interfaces.h>
 #include <whiteout/utils/job_group.h>
@@ -59,6 +61,50 @@ inline std::vector<std::string> normalizeEntryPaths(
     }
 
     return result;
+}
+
+/// Look up entries by path, trying exact-path index first, then falling
+/// back to Jenkins hash lookup.  Used by roots that maintain both a
+/// normalised-path index and a Jenkins-hash index (S1, Install).
+inline std::vector<const RootEntry*> findByPathOrHash(
+    const std::string& path,
+    const std::vector<RootEntry>& entries,
+    const EntryIndex<std::string>& byPath,
+    const EntryIndex<u64>& byNameHash) {
+
+    using storages::common::normalizePath;
+    using storages::common::jenkinsHash;
+
+    auto normalized = normalizePath(path);
+    auto results = byPath.findAll(entries, normalized);
+    if (!results.empty()) return results;
+
+    auto hash = jenkinsHash(path);
+    u64 combined = u64(hash.pc) | (u64(hash.pb) << 32);
+    return byNameHash.findAll(entries, combined);
+}
+
+/// Build both a normalised-path index and a Jenkins-hash index from entries.
+/// Used by roots that maintain dual-index lookup (S1, Install).
+inline void buildPathAndHashIndex(
+    EntryIndex<std::string>& byPath,
+    EntryIndex<u64>& byNameHash,
+    const std::vector<RootEntry>& entries) {
+
+    using storages::common::normalizePath;
+
+    byNameHash.clear();
+    byPath.clear();
+    byNameHash.reserve(entries.size());
+    byPath.reserve(entries.size());
+
+    for (size_t i = 0; i < entries.size(); ++i) {
+        auto& e = entries[i];
+        if (e.fileNameHash != 0)
+            byNameHash.emplace(e.fileNameHash, i);
+        if (!e.path.empty())
+            byPath.emplace(normalizePath(e.path), i);
+    }
 }
 
 } // namespace whiteout::storages::casc

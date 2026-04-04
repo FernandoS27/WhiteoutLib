@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include "s1_root.h"
+#include "common/root_build_utils.h"
 #include "../../common/hex.h"
 #include "../../common/jenkins.h"
 
@@ -15,7 +16,6 @@ namespace whiteout::storages::casc {
 
 using storages::common::hexDecode16;
 using storages::common::jenkinsHash;
-using storages::common::normalizePath;
 
 // ── Locale flag mapping ─────────────────────────────────────────────────────
 
@@ -174,27 +174,7 @@ std::unique_ptr<S1Root> S1Root::parse(std::span<const u8> data,
 // ── Lookup ──────────────────────────────────────────────────────────────────
 
 std::vector<const RootEntry*> S1Root::findByPath(const std::string& path) const {
-    // Try direct path lookup first.
-    auto normalized = normalizePath(path);
-    {
-        auto range = m_byPath.equal_range(normalized);
-        if (range.first != range.second) {
-            std::vector<const RootEntry*> results;
-            for (auto it = range.first; it != range.second; ++it)
-                results.push_back(&m_entries[it->second]);
-            return results;
-        }
-    }
-
-    // Fall back to Jenkins hash lookup.
-    auto hash = jenkinsHash(path);
-    u64 combined = u64(hash.pc) | (u64(hash.pb) << 32);
-
-    std::vector<const RootEntry*> results;
-    auto range = m_byNameHash.equal_range(combined);
-    for (auto it = range.first; it != range.second; ++it)
-        results.push_back(&m_entries[it->second]);
-    return results;
+    return findByPathOrHash(path, m_entries, m_byPath, m_byNameHash);
 }
 
 std::vector<const RootEntry*> S1Root::findByFileDataId(u32 /*fileDataId*/) const {
@@ -204,18 +184,7 @@ std::vector<const RootEntry*> S1Root::findByFileDataId(u32 /*fileDataId*/) const
 // ── Index building ──────────────────────────────────────────────────────────
 
 void S1Root::buildIndices() {
-    m_byNameHash.clear();
-    m_byPath.clear();
-    m_byNameHash.reserve(m_entries.size());
-    m_byPath.reserve(m_entries.size());
-
-    for (size_t i = 0; i < m_entries.size(); ++i) {
-        auto& e = m_entries[i];
-        if (e.fileNameHash != 0)
-            m_byNameHash.emplace(e.fileNameHash, i);
-        if (!e.path.empty())
-            m_byPath.emplace(normalizePath(e.path), i);
-    }
+    buildPathAndHashIndex(m_byPath, m_byNameHash, m_entries);
 }
 
 } // namespace whiteout::storages::casc

@@ -7,9 +7,9 @@
 #pragma once
 
 #include "root.h"
+#include "common/entry_index.h"
 
 #include <span>
-#include <unordered_map>
 #include <vector>
 
 namespace whiteout::interfaces { class WorkerPool; }
@@ -30,6 +30,7 @@ public:
     std::vector<const RootEntry*> findByNormalizedPath(const std::string& normalizedPath) const override;
     bool hasPath(const std::string& normalizedPath) const override;
     std::vector<const RootEntry*> findByFileDataId(u32 fileDataId) const override;
+    bool hasFileDataId(u32) const override { return false; }
     RootFormat format() const override { return RootFormat::Mndx; }
 
 protected:
@@ -38,7 +39,7 @@ protected:
 
 private:
     std::vector<RootEntry> m_entries;
-    std::unordered_multimap<std::string, size_t> m_byPath;
+    EntryIndex<std::string> m_byPath;
 
     void buildIndices();
 };

@@ -12,17 +12,14 @@
 #pragma once
 
 #include "root.h"
+#include "common/entry_index.h"
 
 #include <span>
-#include <unordered_map>
 #include <vector>
 
 namespace whiteout::interfaces { class WorkerPool; }
 
 namespace whiteout::storages::casc {
-
-/// Callback to resolve a CKey to raw file data (for fetching CMF files).
-using CKeyResolver = std::function<std::vector<u8>(std::span<const u8, 16> cKey)>;
 
 /// A single entry from the Overwatch text root manifest.
 struct OwRootFileEntry {
@@ -75,6 +72,7 @@ public:
     // --- RootManifest interface ---
     std::vector<const RootEntry*> findByPath(const std::string& path) const override;
     std::vector<const RootEntry*> findByFileDataId(u32 fileDataId) const override;
+    bool hasFileDataId(u32) const override { return false; }
 
     /// Find entries by 64-bit Overwatch GUID.
     std::vector<const RootEntry*> findByGuid(u64 guid) const;
@@ -96,10 +94,10 @@ private:
     std::vector<OwRootFileEntry> m_manifestEntries;
 
     /// GUID-based lookup (GUID stored in fileNameHash field).
-    std::unordered_multimap<u64, size_t> m_byGuid;
+    EntryIndex<u64> m_byGuid;
 
     /// Path-based lookup (for manifest file entries).
-    std::unordered_multimap<std::string, size_t> m_byPath;
+    EntryIndex<std::string> m_byPath;
 
     void buildIndices();
 };

@@ -7,17 +7,14 @@
 #pragma once
 
 #include "root.h"
+#include "common/entry_index.h"
 
 #include <span>
-#include <unordered_map>
 #include <vector>
 
 namespace whiteout::interfaces { class WorkerPool; }
 
 namespace whiteout::storages::casc {
-
-/// Callback to resolve a CKey to raw file data (for sub-directory resolution).
-using CKeyResolver = std::function<std::vector<u8>(std::span<const u8, 16> cKey)>;
 
 class D3Root final : public RootManifest {
 public:
@@ -47,10 +44,10 @@ private:
     std::vector<RootEntry> m_entries;
 
     /// Path-based lookup (lowercase normalized).
-    std::unordered_multimap<std::string, size_t> m_byPath;
+    EntryIndex<std::string> m_byPath;
 
     /// FileDataId-based lookup (fileIndex = SNO ID).
-    std::unordered_multimap<u32, size_t> m_byFileDataId;
+    EntryIndex<u32> m_byFileDataId;
 
     void buildIndices(interfaces::WorkerPool* pool = nullptr);
 };

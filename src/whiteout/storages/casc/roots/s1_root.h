@@ -11,9 +11,9 @@
 #pragma once
 
 #include "root.h"
+#include "common/entry_index.h"
 
 #include <span>
-#include <unordered_map>
 #include <vector>
 
 namespace whiteout::interfaces { class WorkerPool; }
@@ -37,6 +37,7 @@ public:
     // --- RootManifest interface ---
     std::vector<const RootEntry*> findByPath(const std::string& path) const override;
     std::vector<const RootEntry*> findByFileDataId(u32 fileDataId) const override;
+    bool hasFileDataId(u32) const override { return false; }
 
     RootFormat format() const override { return RootFormat::Agent; }
 
@@ -48,10 +49,10 @@ private:
     std::vector<RootEntry> m_entries;
 
     /// Path-based lookup via Jenkins hash (fileNameHash).
-    std::unordered_multimap<u64, size_t> m_byNameHash;
+    EntryIndex<u64> m_byNameHash;
 
     /// Path string-based lookup for exact path queries.
-    std::unordered_multimap<std::string, size_t> m_byPath;
+    EntryIndex<std::string> m_byPath;
 
     void buildIndices();
 };
