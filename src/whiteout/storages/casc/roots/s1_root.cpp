@@ -177,7 +177,7 @@ std::vector<const RootEntry*> S1Root::findByPath(const std::string& path) const 
     return findByPathOrHash(path, m_entries, m_byPath, m_byNameHash);
 }
 
-std::vector<const RootEntry*> S1Root::findByFileDataId(u32 /*fileDataId*/) const {
+std::vector<const RootEntry*> S1Root::findByFileDataId(u32 /*fileDataId*/, FileIdHint /*hint*/) const {
     return {}; // S1 root does not use FileDataId.
 }
 

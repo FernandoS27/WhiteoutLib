@@ -29,6 +29,8 @@
 
 #include <whiteout/storages/casc/storage.h>
 #include <whiteout/interfaces.h>
+#include <whiteout/sno/core_toc.h>
+#include <whiteout/sno/sno_types.h>
 #include <whiteout/utils/job_group.h>
 
 #include <algorithm>
@@ -84,9 +86,10 @@ enum ErrorCode : u32 {
 struct OverlayKey {
     std::string path;               ///< Normalized, lowercase, forward-slash.
     std::optional<u32> fileDataId;  ///< For WoW-style writes.
+    FileIdHint hint = FileIdHint::None; ///< Sub-type hint for FileDataId lookups.
 
     bool operator==(const OverlayKey& o) const {
-        return path == o.path && fileDataId == o.fileDataId;
+        return path == o.path && fileDataId == o.fileDataId && hint == o.hint;
     }
 };
 
@@ -95,6 +98,7 @@ struct OverlayKeyHash {
         size_t h = std::hash<std::string>{}(k.path);
         if (k.fileDataId)
             h ^= std::hash<u32>{}(*k.fileDataId) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<u8>{}(static_cast<u8>(k.hint)) + 0x517cc1b7 + (h << 6) + (h >> 2);
         return h;
     }
 };
@@ -140,10 +144,28 @@ struct OnlineState {
 };
 
 /// Write overlay (pending writes/deletes, flushed on save).
+/// A reserved file-ID entry, created by reserveFileId().
+struct FileIdReservation {
+    std::string name;               ///< Original name passed by the caller.
+    std::string enrichedPath;       ///< Full root path for the entry.
+    sno::SnoGroup snoGroup = sno::SnoGroup::None;  ///< D3/D4: SNO group.
+    std::string snoName;            ///< D3/D4: asset name (without extension).
+    i32 snoId = 0;                  ///< D3/D4: allocated SNO ID.
+};
+
 struct WriteOverlay {
     std::unordered_map<OverlayKey, OverlayEntry, OverlayKeyHash> pendingWrites;
     std::unordered_set<OverlayKey, OverlayKeyHash> pendingDeletes;
     RootFormat requestedRootFormat = RootFormat::Tvfs;
+
+    /// File-ID reservations: fileDataId → reservation details.
+    std::unordered_map<u32, FileIdReservation> reservedFileIds;
+
+    /// CoreTOC state for D3/D4 formats (lazily initialised on first reservation).
+    std::unique_ptr<sno::CoreToc> coreToc;
+
+    /// Next file-data-ID to allocate (0 = not yet initialised).
+    u32 nextFileDataId = 0;
 };
 
 // ============================================================================
@@ -153,6 +175,9 @@ struct WriteOverlay {
 struct Storage::Impl {
     interfaces::WorkerPool* pool = nullptr;
     u32 localeMask = 0;
+
+    /// External listfile data (caller-owned, must outlive Storage).
+    std::span<const u8> listfileData;
 
     BuildConfig buildConfig;
     CdnConfig cdnConfig;

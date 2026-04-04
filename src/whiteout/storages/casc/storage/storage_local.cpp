@@ -228,6 +228,7 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     auto& impl = *implPtr;
     impl.pool = opts.pool;
     impl.localeMask = opts.localeMask;
+    impl.listfileData = opts.listfile;
 
     impl.localState = std::make_unique<LocalState>();
     impl.localState->basePath = basePath;

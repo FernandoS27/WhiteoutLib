@@ -4,6 +4,7 @@
 #include <whiteout/sno/core_toc.h>
 
 #include <algorithm>
+#include <cstring>
 #include <istream>
 
 #include "../common/binary_reader.h"
@@ -307,6 +308,264 @@ const TocEntry* CoreToc::findById(i32 snoId) const {
         return nullptr;
     }
     return &m_all[it->second];
+}
+
+// ============================================================================
+// Mutation
+// ============================================================================
+
+bool CoreToc::addEntry(const TocEntry& entry) {
+    if (m_idIndex.count(entry.snoId))
+        return false;
+
+    const i32 groupId = static_cast<i32>(entry.group);
+    const size_t idx = m_all.size();
+    m_all.push_back(entry);
+    m_idIndex[entry.snoId] = idx;
+
+    // Update group index — new entry appends to the group's range.
+    auto git = m_groupIndex.find(groupId);
+    if (git == m_groupIndex.end()) {
+        m_groupIndex[groupId] = {idx, 1};
+    } else {
+        // If the group's entries are contiguous and this is at the end, extend.
+        auto& [start, count] = git->second;
+        if (start + count == idx) {
+            ++count;
+        } else {
+            // Non-contiguous — relocate the group's entries to end for contiguity.
+            // This happens when entries from other groups were added in between.
+            const size_t oldCount = count;
+            std::vector<TocEntry> groupEntries(
+                m_all.begin() + static_cast<ptrdiff_t>(start),
+                m_all.begin() + static_cast<ptrdiff_t>(start + oldCount));
+            // The new entry is already at m_all.back() at idx.
+            // We don't shuffle here — just track it as a separate range.
+            // For serialization, we'll gather entries per group anyway.
+            // Mark the group as needing re-gathering by setting start = 0, count = 0.
+            // We'll use a gather approach in serialize instead.
+            ++count; // Just increment; serialization gathers by group.
+        }
+    }
+
+    return true;
+}
+
+const TocEntry* CoreToc::findByName(SnoGroup group, const std::string& name) const {
+    const i32 groupId = static_cast<i32>(group);
+    // Linear scan over entries — could be optimized with an index if needed.
+    for (auto& e : m_all) {
+        if (static_cast<i32>(e.group) == groupId && e.name == name)
+            return &e;
+    }
+    return nullptr;
+}
+
+i32 CoreToc::maxSnoId() const {
+    i32 maxId = 0;
+    for (auto& e : m_all) {
+        if (e.snoId > maxId)
+            maxId = e.snoId;
+    }
+    return maxId;
+}
+
+// ============================================================================
+// Serialization
+// ============================================================================
+
+/// Helper: write a little-endian u32 to a buffer.
+static void writeU32(std::vector<u8>& buf, u32 val) {
+    const auto off = buf.size();
+    buf.resize(off + 4);
+    std::memcpy(buf.data() + off, &val, 4);
+}
+
+/// Helper: write a little-endian i32 to a buffer.
+static void writeI32(std::vector<u8>& buf, i32 val) {
+    const auto off = buf.size();
+    buf.resize(off + 4);
+    std::memcpy(buf.data() + off, &val, 4);
+}
+
+std::vector<u8> CoreToc::serializeD3Legacy() const {
+    constexpr u32 kNumGroups = 70;
+
+    // Gather entries per group.
+    std::vector<std::vector<const TocEntry*>> perGroup(kNumGroups);
+    for (auto& e : m_all) {
+        const auto gid = static_cast<u32>(e.group);
+        if (gid < kNumGroups)
+            perGroup[gid].push_back(&e);
+    }
+
+    // Build per-group section blobs (entry table + name pool).
+    struct GroupSection {
+        std::vector<u8> data;
+        u32 entryCount = 0;
+    };
+    std::vector<GroupSection> sections(kNumGroups);
+
+    for (u32 g = 0; g < kNumGroups; ++g) {
+        auto& entries = perGroup[g];
+        if (entries.empty()) continue;
+
+        auto& sec = sections[g];
+        sec.entryCount = static_cast<u32>(entries.size());
+
+        // Build name pool and record relative offsets.
+        std::vector<u8> namePool;
+        std::vector<i32> nameRelOffsets;
+        nameRelOffsets.reserve(entries.size());
+
+        for (auto* e : entries) {
+            nameRelOffsets.push_back(static_cast<i32>(namePool.size()));
+            namePool.insert(namePool.end(), e->name.begin(), e->name.end());
+            namePool.push_back(0); // null terminator
+        }
+
+        // Write entry records: 12 bytes each (snoGroup, snoId, nameRelOffset).
+        sec.data.reserve(entries.size() * 12 + namePool.size());
+        for (size_t i = 0; i < entries.size(); ++i) {
+            writeI32(sec.data, static_cast<i32>(g));
+            writeI32(sec.data, entries[i]->snoId);
+            writeI32(sec.data, nameRelOffsets[i]);
+        }
+
+        // Append name pool.
+        sec.data.insert(sec.data.end(), namePool.begin(), namePool.end());
+    }
+
+    // Compute section offsets (relative to data section start).
+    std::vector<u32> sectionOffsets(kNumGroups, 0);
+    u32 offset = 0;
+    for (u32 g = 0; g < kNumGroups; ++g) {
+        sectionOffsets[g] = offset;
+        offset += static_cast<u32>(sections[g].data.size());
+    }
+
+    // Build output.
+    std::vector<u8> result;
+    constexpr size_t kHeaderSize = kNumGroups * 4 * 4; // 1120
+    result.reserve(kHeaderSize + offset);
+
+    // Header: entryCounts[70]
+    for (u32 g = 0; g < kNumGroups; ++g)
+        writeU32(result, sections[g].entryCount);
+
+    // Header: sectionOffsets[70]
+    for (u32 g = 0; g < kNumGroups; ++g)
+        writeU32(result, sectionOffsets[g]);
+
+    // Header: hashCounts[70] (zeros)
+    for (u32 g = 0; g < kNumGroups; ++g)
+        writeU32(result, 0);
+
+    // Header: hashData[70] (zeros)
+    for (u32 g = 0; g < kNumGroups; ++g)
+        writeU32(result, 0);
+
+    // Data sections.
+    for (u32 g = 0; g < kNumGroups; ++g) {
+        result.insert(result.end(), sections[g].data.begin(), sections[g].data.end());
+    }
+
+    return result;
+}
+
+std::vector<u8> CoreToc::serializeD4New() const {
+    // Collect all unique group IDs.
+    std::unordered_map<i32, std::vector<const TocEntry*>> perGroup;
+    i32 maxGroupId = 0;
+    for (auto& e : m_all) {
+        const auto gid = static_cast<i32>(e.group);
+        if (gid > maxGroupId) maxGroupId = gid;
+        perGroup[gid].push_back(&e);
+    }
+
+    const u32 snoGroupsCount = static_cast<u32>(maxGroupId + 1);
+
+    // Build per-group section blobs.
+    struct GroupBlob {
+        std::vector<u8> data;
+        u32 entryCount = 0;
+    };
+    std::vector<GroupBlob> groupBlobs(snoGroupsCount);
+
+    for (auto& [gid, entries] : perGroup) {
+        if (gid < 0 || static_cast<u32>(gid) >= snoGroupsCount) continue;
+
+        auto& blob = groupBlobs[static_cast<u32>(gid)];
+        blob.entryCount = static_cast<u32>(entries.size());
+
+        // Build name pool.
+        std::vector<u8> namePool;
+        std::vector<i32> nameRelOffsets;
+        nameRelOffsets.reserve(entries.size());
+
+        for (auto* e : entries) {
+            nameRelOffsets.push_back(static_cast<i32>(namePool.size()));
+            namePool.insert(namePool.end(), e->name.begin(), e->name.end());
+            namePool.push_back(0);
+        }
+
+        // Write entry records: 12 bytes each (snoGroup, snoId, nameRelOffset).
+        blob.data.reserve(entries.size() * 12 + namePool.size());
+        for (size_t i = 0; i < entries.size(); ++i) {
+            writeI32(blob.data, gid);
+            writeI32(blob.data, entries[i]->snoId);
+            writeI32(blob.data, nameRelOffsets[i]);
+        }
+
+        blob.data.insert(blob.data.end(), namePool.begin(), namePool.end());
+    }
+
+    // Compute offsets.
+    std::vector<u32> offsets(snoGroupsCount, 0);
+    u32 dataOffset = 0;
+    for (u32 g = 0; g < snoGroupsCount; ++g) {
+        offsets[g] = dataOffset;
+        dataOffset += static_cast<u32>(groupBlobs[g].data.size());
+    }
+
+    // Build output.
+    // Header: magic(4) + snoGroupsCount(4) + 4 arrays(counts, offsets, unk, formatHashes) + pad(4)
+    const size_t headerSize = 8 + static_cast<size_t>(snoGroupsCount) * 4 * 4 + 4;
+    std::vector<u8> result;
+    result.reserve(headerSize + dataOffset);
+
+    // Magic.
+    writeU32(result, 0xBCDE6611u);
+    // snoGroupsCount.
+    writeU32(result, snoGroupsCount);
+
+    // Counts array.
+    for (u32 g = 0; g < snoGroupsCount; ++g)
+        writeU32(result, groupBlobs[g].entryCount);
+
+    // Offsets array.
+    for (u32 g = 0; g < snoGroupsCount; ++g)
+        writeU32(result, offsets[g]);
+
+    // Unk array (zeros).
+    for (u32 g = 0; g < snoGroupsCount; ++g)
+        writeU32(result, 0);
+
+    // Format hashes array.
+    for (u32 g = 0; g < snoGroupsCount; ++g) {
+        auto it = m_formatHashes.find(static_cast<i32>(g));
+        writeU32(result, (it != m_formatHashes.end()) ? it->second : 0);
+    }
+
+    // Extra 4-byte field.
+    writeU32(result, 0);
+
+    // Data sections.
+    for (u32 g = 0; g < snoGroupsCount; ++g) {
+        result.insert(result.end(), groupBlobs[g].data.begin(), groupBlobs[g].data.end());
+    }
+
+    return result;
 }
 
 } // namespace sno

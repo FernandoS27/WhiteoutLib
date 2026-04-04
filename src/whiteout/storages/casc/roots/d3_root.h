@@ -31,8 +31,8 @@ public:
     std::vector<const RootEntry*> findByPath(const std::string& path) const override;
     std::vector<const RootEntry*> findByNormalizedPath(const std::string& normalizedPath) const override;
     bool hasPath(const std::string& normalizedPath) const override;
-    std::vector<const RootEntry*> findByFileDataId(u32 fileDataId) const override;
-    bool hasFileDataId(u32 fileDataId) const override;
+    std::vector<const RootEntry*> findByFileDataId(u32 fileDataId, FileIdHint hint = FileIdHint::None) const override;
+    bool hasFileDataId(u32 fileDataId, FileIdHint hint = FileIdHint::None) const override;
     RootFormat format() const override { return RootFormat::Diablo3; }
 
 protected:

@@ -44,7 +44,7 @@ public:
     std::vector<const RootEntry*> findByPath(const std::string& path) const override;
     std::vector<const RootEntry*> findByNormalizedPath(const std::string& normalizedPath) const override;
     bool hasPath(const std::string& normalizedPath) const override;
-    std::vector<const RootEntry*> findByFileDataId(u32 fileDataId) const override;
+    std::vector<const RootEntry*> findByFileDataId(u32 fileDataId, FileIdHint hint = FileIdHint::None) const override;
     RootFormat format() const override { return RootFormat::Diablo4; }
 
     void enumerateUnder(const std::string& normalizedPrefix,
@@ -64,6 +64,9 @@ private:
 
     /// Normalized path → index into m_entries.
     EntryIndex<std::string> m_byPath;
+
+    /// snoId (stored as fileDataId) → index into m_entries.
+    EntryIndex<u32> m_bySnoId;
 
     void buildIndex(interfaces::WorkerPool* pool);
 };

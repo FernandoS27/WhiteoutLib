@@ -10,6 +10,7 @@
 #include "../roots/root.h"
 #include "../../common/byte_order.h"
 #include "../../common/hex.h"
+#include "../../common/jenkins.h"
 #include "../../common/md5.h"
 
 #include <whiteout/common_types.h>
@@ -282,22 +283,32 @@ static std::vector<u8> serializeD3Root(const std::vector<WriteEntry>& entries) {
 // ============================================================================
 
 static std::vector<u8> serializeWowRoot(const std::vector<WriteEntry>& entries) {
-    // MFST root format: magic (4 bytes) + totalFileCount (u32) + namedFileCount (u32)
-    // Then locale blocks: each is localeFlags(u32) + contentFlags(u32) + entryCount(u32)
-    //   + fileDataIds (delta-encoded u32[]) + CKeys (16 bytes * entryCount).
+    // MFST root format (v1 header):
+    //   magic(4) + totalFileCount(4) + namedFileCount(4)
+    // Followed by one locale block:
+    //   Block header: numRecords(4) + contentFlags(4) + localeFlags(4)
+    //   Delta-encoded fileDataIds (i32[numRecords])
+    //   CKeys (16 * numRecords bytes)
+    //   NameHashes (8 * numRecords bytes) — if paths available
 
     std::vector<u8> result;
 
+    // Count entries that have paths (for name hashes).
+    u32 namedCount = 0;
+    for (auto& e : entries)
+        if (!e.path.empty()) ++namedCount;
+
     pushLE32(result, RootSignature::kMFST);
     pushLE32(result, static_cast<u32>(entries.size())); // total file count.
-    pushLE32(result, 0); // named file count (we use FileDataId only).
+    pushLE32(result, namedCount);                       // named file count.
 
     if (!entries.empty()) {
-        // Single locale block with all entries.
-        pushLE32(result, kWowLocaleAll); // locale flags (ALL).
-        pushLE32(result, 0);          // content flags.
-        // No further header fields for MFST v1. Entries follow:
-        // FileDataId deltas + CKeys.
+        const bool writingNameHashes = (namedCount > 0);
+
+        // Block header.
+        pushLE32(result, static_cast<u32>(entries.size())); // numRecords.
+        pushLE32(result, writingNameHashes ? 0u : ContentFlags::NoNameHash); // contentFlags.
+        pushLE32(result, kWowLocaleAll);                    // localeFlags.
 
         // Sort by fileDataId for delta encoding.
         std::vector<size_t> order(entries.size());
@@ -307,17 +318,30 @@ static std::vector<u8> serializeWowRoot(const std::vector<WriteEntry>& entries) 
         });
 
         // Delta-encoded fileDataIds.
+        // Parser decodes: fdi += delta; ids[i] = fdi; fdi++ (implicit +1).
         u32 prevId = 0;
         for (auto idx : order) {
             u32 id = entries[idx].fileDataId;
-            u32 delta = id - prevId;
-            pushLE32(result, delta);
-            prevId = id;
+            pushLE32(result, id - prevId);
+            prevId = id + 1; // account for implicit +1 in parser.
         }
 
         // CKeys.
         for (auto idx : order) {
             result.insert(result.end(), entries[idx].cKey.begin(), entries[idx].cKey.end());
+        }
+
+        // Name hashes (Jenkins).
+        if (writingNameHashes) {
+            for (auto idx : order) {
+                u64 combined = 0;
+                if (!entries[idx].path.empty()) {
+                    auto h = storages::common::jenkinsHash(entries[idx].path);
+                    combined = u64(h.pc) | (u64(h.pb) << 32);
+                }
+                for (int b = 0; b < 8; ++b)
+                    result.push_back(static_cast<u8>(combined >> (b * 8)));
+            }
         }
     }
 

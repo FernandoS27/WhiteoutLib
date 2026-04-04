@@ -26,8 +26,8 @@ public:
 
     // --- RootManifest interface ---
     std::vector<const RootEntry*> findByPath(const std::string& path) const override;
-    std::vector<const RootEntry*> findByFileDataId(u32 fileDataId) const override;
-    bool hasFileDataId(u32 fileDataId) const override;
+    std::vector<const RootEntry*> findByFileDataId(u32 fileDataId, FileIdHint hint = FileIdHint::None) const override;
+    bool hasFileDataId(u32 fileDataId, FileIdHint hint = FileIdHint::None) const override;
     std::vector<const RootEntry*> findByCKey(std::span<const u8, 16> cKey) const override;
     RootFormat format() const override { return RootFormat::Wow; }
 

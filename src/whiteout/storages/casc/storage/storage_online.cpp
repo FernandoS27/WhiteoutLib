@@ -135,6 +135,7 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
     auto& impl = *implPtr;
     impl.pool = opts.pool;
     impl.localeMask = opts.localeMask;
+    impl.listfileData = opts.listfile;
 
     impl.onlineState = std::make_unique<OnlineState>();
     impl.onlineState->http = opts.http;

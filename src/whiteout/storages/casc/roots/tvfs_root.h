@@ -53,8 +53,8 @@ public:
     std::vector<const RootEntry*> findByPath(const std::string& path) const override;
     std::vector<const RootEntry*> findByNormalizedPath(const std::string& normalizedPath) const override;
     bool hasPath(const std::string& normalizedPath) const override;
-    std::vector<const RootEntry*> findByFileDataId(u32 fileDataId) const override;
-    bool hasFileDataId(u32) const override { return false; }
+    std::vector<const RootEntry*> findByFileDataId(u32 fileDataId, FileIdHint hint = FileIdHint::None) const override;
+    bool hasFileDataId(u32, FileIdHint = FileIdHint::None) const override { return false; }
     RootFormat format() const override { return RootFormat::Tvfs; }
 
     /// Enumerate all entries whose path starts with @p normalizedPrefix (directory-scoped).

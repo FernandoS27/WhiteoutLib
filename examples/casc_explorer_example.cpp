@@ -535,6 +535,48 @@ int main(int argc, char* argv[]) {
     whiteout::utils::SimpleThreadPool pool(numThreads);
     std::cout << "Thread pool: " << numThreads << " workers.\n\n";
 
+    // Pre-scan for --listfile <path> (can appear anywhere in args).
+    std::string listfilePath;
+    std::vector<uint8_t> listfileData;
+    {
+        std::vector<std::string> filteredArgs;
+        for (int i = 1; i < argc; ++i) {
+            std::string a = argv[i];
+            if (a == "--listfile" && i + 1 < argc) {
+                listfilePath = argv[++i];
+            } else {
+                filteredArgs.push_back(std::move(a));
+            }
+        }
+
+        // Load listfile.
+        if (!listfilePath.empty()) {
+            std::ifstream lf(listfilePath, std::ios::binary | std::ios::ate);
+            if (!lf) {
+                std::cerr << "Failed to open listfile: " << listfilePath << "\n";
+                return 1;
+            }
+            auto sz = lf.tellg();
+            lf.seekg(0);
+            listfileData.resize(static_cast<size_t>(sz));
+            lf.read(reinterpret_cast<char*>(listfileData.data()), sz);
+            std::cout << "Listfile loaded: " << listfilePath
+                      << " (" << listfileData.size() << " bytes)\n";
+        }
+
+        // Rebuild argc/argv from filtered args for positional parsing below.
+        // (We just re-use the filteredArgs vector directly.)
+        argc = static_cast<int>(filteredArgs.size()) + 1;  // +1 for program name
+        // Store as static to keep pointers valid.
+        static std::vector<std::string> s_args;
+        s_args = std::move(filteredArgs);
+        static std::vector<char*> s_argv;
+        s_argv.clear();
+        s_argv.push_back(argv[0]);
+        for (auto& a : s_args) s_argv.push_back(a.data());
+        argv = s_argv.data();
+    }
+
     // Determine storage mode.
     enum class Mode { Local, Online };
     Mode mode = Mode::Local;
@@ -599,10 +641,13 @@ int main(int argc, char* argv[]) {
             localPath = std::filesystem::absolute(localPath).string();
             std::cout << "Opening: " << localPath << " ...\n";
 
-            std::string openError;
-            auto local = casc::StorageWritable::open(localPath, &openError, &pool);
-            if (!openError.empty())
-                std::cerr << "  Error: " << openError << "\n";
+            casc::OpenOptions openOpts;
+            openOpts.path = localPath;
+            openOpts.pool = &pool;
+            if (!listfileData.empty())
+                openOpts.listfile = listfileData;
+
+            auto local = casc::StorageWritable::open(openOpts);
 
             if (!local || !*local) {
                 std::cerr << "Failed to open CASC storage.\n";
@@ -683,6 +728,8 @@ int main(int argc, char* argv[]) {
         opts.pool = &pool;
         if (!cacheDir.empty())
             opts.cacheDir = cacheDir;
+        if (!listfileData.empty())
+            opts.listfile = listfileData;
 
         std::cout << "Connecting to " << region << " CDN for '" << product << "' ...\n";
 

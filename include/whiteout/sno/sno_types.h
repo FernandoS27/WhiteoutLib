@@ -197,6 +197,10 @@ const char* snoGroupDirD3(SnoGroup group);
 /// Returns nullptr for unknown groups.
 const char* snoGroupExtension(SnoGroup group);
 
+/// Look up an SnoGroup by its file extension (e.g. "app" → SnoGroup::Appearance).
+/// Returns SnoGroup::None if no match is found.
+SnoGroup snoGroupFromExtension(const char* ext);
+
 /// SNO file header magic number.
 constexpr u32 kSnoMagic = 0xDEADBEEF;
 

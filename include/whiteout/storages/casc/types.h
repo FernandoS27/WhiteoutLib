@@ -21,6 +21,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -108,13 +109,30 @@ static constexpr u32 LoadOnDemand  = 0x00000001; ///< Defer encoding/root loadin
 /// Root manifest format.
 enum class RootFormat : u8 {
     Unknown,  ///< Could not determine format.
-    Wow,      ///< World of Warcraft root (FileDataId-based).
+    Wow,      ///< World of Warcraft root (FileDataId-based, legacy MFST).
+    WowTvfs,  ///< World of Warcraft root (FileDataId-based, TVFS-backed, 11.x+).
     Diablo3,  ///< Diablo III root (hierarchical directory).
     Diablo4,  ///< Diablo IV root (TVFS enriched with CoreTOC paths).
     Tvfs,     ///< TVFS prefix-tree root (WC3 Reforged and general purpose).
     Mndx,     ///< MNDX trie-based root (StarCraft II, Heroes of the Storm).
     Overwatch,///< Overwatch root (text manifest + CMF content manifests).
     Agent,   ///< Agent/S1 text root (SC:R, Hearthstone, etc.).
+};
+
+// ============================================================================
+// File ID Hint
+// ============================================================================
+
+/// Hint for disambiguating FileDataId-based lookups.
+/// In Diablo IV, a single SNO ID can map to multiple entries (child, meta,
+/// payload, etc.).  The hint tells the root which variant to return.
+/// Roots that don't use sub-types (e.g. WoW) ignore the hint.
+enum class FileIdHint : u8 {
+    None,      ///< Default — return the primary entry (child/main content).
+    Meta,      ///< Metadata entry.
+    Payload,   ///< Full-resolution payload.
+    Paylow,    ///< Low-resolution payload.
+    Paymed,    ///< Medium-resolution payload.
 };
 
 // ============================================================================
@@ -220,6 +238,12 @@ struct OpenOptions {
     /// When non-zero, decoded container data (e.g. D4 combined meta archives) is cached
     /// in memory to avoid redundant BLTE decodes when reading multiple sub-entries.
     size_t memoryCacheSize = 0;
+
+    /// Optional external listfile (e.g. community-listfile.csv).
+    /// Format: "FileDataId;path\n" per line.  When provided, roots that lack
+    /// human-readable paths (e.g. WoW TVFS) use it to enrich entries.
+    /// The caller must keep the underlying data alive for the lifetime of the Storage.
+    std::span<const u8> listfile;
 };
 
 /// Options for creating a new empty CASC storage.
@@ -246,6 +270,7 @@ struct WriteOptions {
 struct BatchReadRequest {
     std::string path;                             ///< CASC path (mutually exclusive with fileDataId).
     i32 fileDataId = kInvalidId;                  ///< WoW-style FileDataId.
+    FileIdHint fileIdHint = FileIdHint::None;     ///< Sub-type hint for FileDataId lookups.
     u32 localeFlags = LocaleMasks::None;          ///< Locale filter (0 = accept all).
     u32 openFlags = 0;                            ///< FileOpenFlags.
 };
@@ -322,6 +347,12 @@ struct OnlineOpenOptions {
     /// CDN config key to use (hex).  Together with directBuildConfigKey,
     /// skips the versions endpoint query.
     std::string directCdnConfigKey;
+
+    /// Optional external listfile (e.g. community-listfile.csv).
+    /// Format: "FileDataId;path\n" per line.  When provided, roots that lack
+    /// human-readable paths (e.g. WoW TVFS) use it to enrich entries.
+    /// The caller must keep the underlying data alive for the lifetime of the Storage.
+    std::span<const u8> listfile;
 };
 
 // ============================================================================

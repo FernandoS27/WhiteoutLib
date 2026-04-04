@@ -142,27 +142,29 @@ public:
                                             u32 localeFlags, u32 openFlags = 0) const;
 
     /// @overload Read a file by WoW-style FileDataId.
-    std::optional<std::vector<u8>> readFile(i32 fileId) const;
+    std::optional<std::vector<u8>> readFile(i32 fileId,
+                                            FileIdHint hint = FileIdHint::None) const;
 
     /// @overload Read a file by FileDataId with locale and open flags.
-    std::optional<std::vector<u8>> readFile(i32 fileId,
-                                            u32 localeFlags, u32 openFlags = 0) const;
+    std::optional<std::vector<u8>> readFile(i32 fileId, u32 localeFlags,
+                                            u32 openFlags = 0,
+                                            FileIdHint hint = FileIdHint::None) const;
 
     /// @return True if the path resolves to a known file.
     bool fileExists(const std::string& cascPath) const;
 
     /// @overload Check existence by FileDataId.
-    bool fileExists(i32 fileId) const;
+    bool fileExists(i32 fileId, FileIdHint hint = FileIdHint::None) const;
 
     /// @return Uncompressed file size, or std::nullopt if not found.
     std::optional<u64> fileSize(const std::string& cascPath) const;
     /// @overload
-    std::optional<u64> fileSize(i32 fileId) const;
+    std::optional<u64> fileSize(i32 fileId, FileIdHint hint = FileIdHint::None) const;
 
     /// @return Full metadata for the file, or std::nullopt if not found.
     std::optional<FileFullInfo> fileInfo(const std::string& cascPath) const;
     /// @overload
-    std::optional<FileFullInfo> fileInfo(i32 fileId) const;
+    std::optional<FileFullInfo> fileInfo(i32 fileId, FileIdHint hint = FileIdHint::None) const;
 
     /**
      * @brief Enumerate all entries in the root manifest.

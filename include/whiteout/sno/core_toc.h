@@ -87,6 +87,27 @@ public:
         return m_formatHashes;
     }
 
+    // ── Mutation ──────────────────────────────────────────────────────
+
+    /// Add an entry to the TOC. Updates all internal indices.
+    /// Returns false if an entry with the same snoId already exists.
+    bool addEntry(const TocEntry& entry);
+
+    /// Find an entry by group + name (case-sensitive).
+    /// Returns nullptr if not found.
+    const TocEntry* findByName(SnoGroup group, const std::string& name) const;
+
+    /// Return the maximum snoId across all entries, or 0 if empty.
+    i32 maxSnoId() const;
+
+    // ── Serialization ─────────────────────────────────────────────────
+
+    /// Serialize to D3 Legacy CoreTOC binary format.
+    std::vector<u8> serializeD3Legacy() const;
+
+    /// Serialize to D4 New CoreTOC binary format (magic 0xBCDE6611).
+    std::vector<u8> serializeD4New() const;
+
 private:
     std::vector<TocEntry> m_all;
 

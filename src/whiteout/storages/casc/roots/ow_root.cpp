@@ -377,7 +377,7 @@ std::vector<const RootEntry*> OwRoot::findByPath(const std::string& path) const 
     return m_byPath.findAll(m_entries, normalizedPath);
 }
 
-std::vector<const RootEntry*> OwRoot::findByFileDataId(u32 /*fileDataId*/) const {
+std::vector<const RootEntry*> OwRoot::findByFileDataId(u32 /*fileDataId*/, FileIdHint /*hint*/) const {
     // Overwatch does not use FileDataIds.
     return {};
 }

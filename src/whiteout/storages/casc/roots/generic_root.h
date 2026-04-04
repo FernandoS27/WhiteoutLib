@@ -25,7 +25,7 @@ public:
     }
 
     std::vector<const RootEntry*> findByPath(const std::string&) const override { return {}; }
-    std::vector<const RootEntry*> findByFileDataId(u32) const override { return {}; }
+    std::vector<const RootEntry*> findByFileDataId(u32, FileIdHint = FileIdHint::None) const override { return {}; }
 
     RootFormat format() const override { return RootFormat::Unknown; }
 

@@ -521,7 +521,7 @@ bool TvfsRoot::hasPath(const std::string& normalizedPath) const {
     return false;
 }
 
-std::vector<const RootEntry*> TvfsRoot::findByFileDataId(u32 /*fileDataId*/) const {
+std::vector<const RootEntry*> TvfsRoot::findByFileDataId(u32 /*fileDataId*/, FileIdHint /*hint*/) const {
     return {};
 }
 

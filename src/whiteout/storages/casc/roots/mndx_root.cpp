@@ -1322,7 +1322,7 @@ bool MndxRoot::hasPath(const std::string& normalizedPath) const {
     return m_byPath.contains(normalizedPath);
 }
 
-std::vector<const RootEntry*> MndxRoot::findByFileDataId(u32 /*fileDataId*/) const {
+std::vector<const RootEntry*> MndxRoot::findByFileDataId(u32 /*fileDataId*/, FileIdHint /*hint*/) const {
     // MNDX roots don't use FileDataId.
     return {};
 }

@@ -26,9 +26,16 @@ public:
         return data.value_or(std::vector<u8>{});
     }
 
-    std::optional<u32> reserveFileId(const std::string& /*path*/) override {
-        // Phase 5.
-        return std::nullopt;
+    std::optional<u32> reserveFileId(const std::string& path) override {
+        if (!m_writable) return std::nullopt;
+        auto id = m_writable->reserveFileId(path);
+        if (!id) {
+            auto filedesc = m_storage.fileInfo(path);
+            if (filedesc) {
+                return static_cast<u32>(filedesc->fileDataId);
+            }
+        }
+        return id;
     }
 
     bool writeFile(u32 fileId, const std::vector<u8>& data) override {

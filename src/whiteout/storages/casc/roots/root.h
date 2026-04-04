@@ -87,12 +87,14 @@ public:
 
     /// Check whether any entry exists for a FileDataId.
     /// Default scans findByFileDataId but subclasses can override for O(1).
-    virtual bool hasFileDataId(u32 fileDataId) const {
-        return !findByFileDataId(fileDataId).empty();
+    virtual bool hasFileDataId(u32 fileDataId, FileIdHint hint = FileIdHint::None) const {
+        return !findByFileDataId(fileDataId, hint).empty();
     }
 
     /// Find entries by WoW-style FileDataId (returns empty for non-WoW roots).
-    virtual std::vector<const RootEntry*> findByFileDataId(u32 fileDataId) const = 0;
+    /// @param hint Sub-type hint (used by D4 to select child/meta/payload/etc.).
+    virtual std::vector<const RootEntry*> findByFileDataId(
+        u32 fileDataId, FileIdHint hint = FileIdHint::None) const = 0;
 
     /// Find entries by content key (linear scan — override for faster lookup).
     virtual std::vector<const RootEntry*> findByCKey(std::span<const u8, 16> cKey) const {

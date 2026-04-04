@@ -78,6 +78,28 @@ public:
     // ── Write operations ─────────────────────────────────────────────
 
     /**
+     * @brief Reserve a file-data-ID for a named asset.
+     *
+     * Allocates the next available file-data-ID and associates it with
+     * @p name.  The interpretation of @p name depends on the root format:
+     *
+     * - **WoW / WoWTvfs**: @p name is a full CASC path
+     *   (e.g. `"Base\\creatures\\beast\\beast.m2"`).
+     * - **Diablo 3 / Diablo 4 / TVFS**: @p name is `"asset_name.ext"`, where
+     *   the extension determines the SNO group.  A CoreTOC entry is created
+     *   automatically.
+     *
+     * Returns @c std::nullopt if the name already exists in the root or in
+     * a previous reservation.
+     *
+     * @code
+     * auto id = storage.reserveFileId("my_beast.app");
+     * if (id) storage.writeFile(*id, data);
+     * @endcode
+     */
+    std::optional<u32> reserveFileId(const std::string& name);
+
+    /**
      * @brief Write a file by path.
      *
      * Data is stored in an in-memory overlay until save() is called.
@@ -92,12 +114,12 @@ public:
 
     /// @overload Write a file by FileDataId.
     bool writeFile(i32 fileId, const std::vector<u8>& data,
-                   WriteOptions opts = {});
+                   WriteOptions opts = {}, FileIdHint hint = FileIdHint::None);
 
     /// Mark a file for deletion (effective on next save).
     bool deleteFile(const std::string& path);
     /// @overload
-    bool deleteFile(i32 fileId);
+    bool deleteFile(i32 fileId, FileIdHint hint = FileIdHint::None);
 
     /// Persist all pending changes to disk (writes to the original location).
     bool save();

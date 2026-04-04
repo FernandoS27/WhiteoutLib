@@ -145,7 +145,7 @@ std::vector<const RootEntry*> InstallRoot::findByPath(const std::string& path) c
     return findByPathOrHash(path, m_entries, m_byPath, m_byNameHash);
 }
 
-std::vector<const RootEntry*> InstallRoot::findByFileDataId(u32 /*fileDataId*/) const {
+std::vector<const RootEntry*> InstallRoot::findByFileDataId(u32 /*fileDataId*/, FileIdHint /*hint*/) const {
     return {}; // Install manifest does not use FileDataId.
 }
 

@@ -474,6 +474,9 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs,
             return;
         }
 
+        // In D4, the snoId serves as the fileDataId.
+        dst.fileDataId = static_cast<u32>(parsed.snoId);
+
         // Look up in CoreTOC.
         const sno::TocEntry* toc = coreToc.findById(parsed.snoId);
         if (!toc || toc->name.empty()) {
@@ -551,7 +554,7 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs,
                 RootEntry alias;
                 alias.cKey = sharedEntry.cKey;
                 alias.eKey = sharedEntry.eKey;
-                alias.fileDataId = sharedEntry.fileDataId;
+                alias.fileDataId = static_cast<u32>(snoId);
                 alias.fileNameHash = sharedEntry.fileNameHash;
                 alias.localeFlags = sharedEntry.localeFlags;
                 alias.contentFlags = sharedEntry.contentFlags;
@@ -642,7 +645,7 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs,
                 RootEntry virtEntry;
                 virtEntry.cKey = cand.cKey;
                 virtEntry.eKey = cand.eKey;
-                virtEntry.fileDataId = cand.fileDataId;
+                virtEntry.fileDataId = static_cast<u32>(cm.snoId);
                 virtEntry.fileNameHash = cand.fileNameHash;
                 virtEntry.localeFlags = cand.localeFlags;
                 virtEntry.contentFlags = cand.contentFlags;
@@ -673,9 +676,13 @@ void D4Root::buildIndex(interfaces::WorkerPool* pool) {
     auto normalized = normalizeEntryPaths(m_entries, pool);
 
     m_byPath.reserve(m_entries.size());
+    m_bySnoId.reserve(m_entries.size());
     for (size_t i = 0; i < m_entries.size(); ++i) {
         if (!normalized[i].empty()) {
             m_byPath.emplace(std::move(normalized[i]), i);
+        }
+        if (m_entries[i].fileDataId != kInvalidFileDataId) {
+            m_bySnoId.emplace(m_entries[i].fileDataId, i);
         }
     }
 }
@@ -697,9 +704,43 @@ bool D4Root::hasPath(const std::string& normalizedPath) const {
     return m_byPath.contains(normalizedPath);
 }
 
-std::vector<const RootEntry*> D4Root::findByFileDataId(u32 /*fileDataId*/) const {
-    // D4 doesn't use WoW-style FileDataIds.
-    return {};
+/// Map a FileIdHint to the expected D4 subfolder name.
+/// Returns empty string_view for None (meaning: return "child" subfolder).
+static std::string_view hintToSubfolder(FileIdHint hint) {
+    switch (hint) {
+    case FileIdHint::None:    return "child";
+    case FileIdHint::Meta:    return "meta";
+    case FileIdHint::Payload: return "payload";
+    case FileIdHint::Paylow:  return "paylow";
+    case FileIdHint::Paymed:  return "paymed";
+    }
+    return "child";
+}
+
+/// Extract the subfolder segment from an enriched D4 path.
+/// Enriched paths have the form: <folder>:<subfolder>\<rest>
+static std::string_view extractSubfolder(std::string_view path) {
+    auto colonPos = path.find(':');
+    if (colonPos == std::string_view::npos) return {};
+    auto rest = path.substr(colonPos + 1);
+    auto bsPos = rest.find('\\');
+    if (bsPos == std::string_view::npos) return rest;
+    return rest.substr(0, bsPos);
+}
+
+std::vector<const RootEntry*> D4Root::findByFileDataId(u32 fileDataId, FileIdHint hint) const {
+    // In D4, fileDataId == snoId.  Use the snoId index, then filter by
+    // the subfolder implied by the hint.
+    auto all = m_bySnoId.findAll(m_entries, fileDataId);
+    if (all.empty() || hint == FileIdHint::None) return all;
+
+    auto targetSub = hintToSubfolder(hint);
+    std::vector<const RootEntry*> filtered;
+    for (auto* e : all) {
+        if (extractSubfolder(e->path) == targetSub)
+            filtered.push_back(e);
+    }
+    return filtered;
 }
 
 void D4Root::enumerateUnder(const std::string& normalizedPrefix,

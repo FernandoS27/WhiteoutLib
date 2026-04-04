@@ -11,13 +11,16 @@
 #include "../roots/tvfs_root.h"
 #include "../roots/mndx_root.h"
 #include "../roots/d4_root.h"
+#include "../roots/wow_tvfs_root.h"
 #include "../roots/ow_root.h"
 #include "../roots/s1_root.h"
 #include "../roots/generic_root.h"
 #include "../roots/install_root.h"
 
+#include <algorithm>
 #include <cctype>
 #include <sstream>
+#include <string_view>
 
 namespace whiteout::storages::casc {
 
@@ -28,6 +31,84 @@ namespace whiteout::storages::casc {
 thread_local u32 s_lastError = 0;
 
 using storages::common::normalizeCascPath;
+
+// ============================================================================
+// Product-based TVFS decorator classification
+// ============================================================================
+
+/// Which decorator to apply on top of a plain TvfsRoot.
+enum class TvfsDecorator : u8 {
+    None,     ///< Plain TVFS (WC3 Reforged, etc.)
+    Diablo4,  ///< D4Root — enrich with CoreTOC paths.
+    WowTvfs,  ///< WowTvfsRoot — extract FileDataId/locale/content from encoded paths.
+};
+
+/// Classify the TVFS decorator from the build config product identifiers.
+/// Uses buildUid (CDN product code) first, then buildProduct (display name).
+/// Falls back to TvfsDecorator::None if neither matches a known product.
+static TvfsDecorator classifyTvfsProduct(const BuildConfig& cfg) {
+    // --- Check buildUid (CDN product code, e.g. "wow", "fenris") ---
+    if (!cfg.buildUid.empty()) {
+        std::string uid = cfg.buildUid;
+        std::transform(uid.begin(), uid.end(), uid.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+        // D4 family: fenris, fenrist, fenrisdev, etc.
+        if (uid.starts_with("fenris"))
+            return TvfsDecorator::Diablo4;
+
+        // WoW family: wow, wowt, wow_beta, wow_classic, wow_classic_era, wowlivetest, etc.
+        if (uid.starts_with("wow"))
+            return TvfsDecorator::WowTvfs;
+    }
+
+    // --- Fallback: check buildProduct (display name, e.g. "WoW", "Fenris") ---
+    if (!cfg.buildProduct.empty()) {
+        std::string prod = cfg.buildProduct;
+        std::transform(prod.begin(), prod.end(), prod.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+        if (prod.starts_with("fenris") || prod.find("diablo iv") != std::string::npos ||
+            prod.find("diablo4") != std::string::npos)
+            return TvfsDecorator::Diablo4;
+
+        if (prod.starts_with("wow") || prod.find("world of warcraft") != std::string::npos)
+            return TvfsDecorator::WowTvfs;
+    }
+
+    return TvfsDecorator::None;
+}
+
+/// Apply the appropriate TVFS decorator based on build config product info.
+/// Takes ownership of @p tvfs and returns the decorated root, or the plain
+/// TvfsRoot if no decorator applies or decoration fails.
+static std::unique_ptr<RootManifest> decorateTvfsRoot(
+    std::unique_ptr<TvfsRoot> tvfs,
+    TvfsDecorator hint,
+    const std::function<std::vector<u8>(std::span<const u8, 16>)>& eKeyReader,
+    interfaces::WorkerPool* pool,
+    std::span<const u8> listfile = {})
+{
+    if (!tvfs) return nullptr;
+
+    switch (hint) {
+    case TvfsDecorator::Diablo4: {
+        auto d4 = D4Root::create(std::move(tvfs), eKeyReader, pool);
+        if (d4) return d4;
+        // D4Root::create consumes tvfs on success but returns nullptr on failure;
+        // tvfs is moved-from, so we can't fall back — return nullptr.
+        return nullptr;
+    }
+    case TvfsDecorator::WowTvfs: {
+        auto wow = WowTvfsRoot::create(std::move(tvfs), pool, listfile);
+        if (wow) return wow;
+        return nullptr;
+    }
+    case TvfsDecorator::None:
+    default:
+        return tvfs;
+    }
+}
 
 // ============================================================================
 // Resolution helpers — delegate to backend
@@ -381,16 +462,11 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
         if (!vfsData.empty()) {
             auto tvfsRoot = TvfsRoot::parse(vfsData, vfsResolver, vfsEKeys, pool);
             if (tvfsRoot) {
-                if (tvfsRoot->hasPath("base:coretoc.dat")) {
-                    EKeyReader eKeyReader = [this](std::span<const u8, 16> eKey) -> std::vector<u8> {
-                        return resolveEKey(eKey);
-                    };
-                    auto d4Root = D4Root::create(std::move(tvfsRoot), eKeyReader, pool);
-                    if (d4Root)
-                        root = std::move(d4Root);
-                } else {
-                    root = std::move(tvfsRoot);
-                }
+                EKeyReader eKeyReader = [this](std::span<const u8, 16> eKey) -> std::vector<u8> {
+                    return resolveEKey(eKey);
+                };
+                auto hint = classifyTvfsProduct(buildConfig);
+                root = decorateTvfsRoot(std::move(tvfsRoot), hint, eKeyReader, pool, listfileData);
             }
         }
     }
@@ -408,15 +484,12 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
 
             if (magic == RootSignature::kTVFS) {
                 auto tvfsPlain = TvfsRoot::parse(rootData, pool);
-                if (tvfsPlain && tvfsPlain->hasPath("base:coretoc.dat")) {
+                if (tvfsPlain) {
                     EKeyReader eKeyReader = [this](std::span<const u8, 16> eKey) -> std::vector<u8> {
                         return resolveEKey(eKey);
                     };
-                    auto d4Root = D4Root::create(std::move(tvfsPlain), eKeyReader, pool);
-                    if (d4Root)
-                        root = std::move(d4Root);
-                } else if (tvfsPlain) {
-                    root = std::move(tvfsPlain);
+                    auto hint = classifyTvfsProduct(buildConfig);
+                    root = decorateTvfsRoot(std::move(tvfsPlain), hint, eKeyReader, pool, listfileData);
                 }
             } else if (magic == RootSignature::kMFST) {
                 root = WowRoot::parse(rootData, pool);
@@ -576,18 +649,19 @@ std::optional<std::vector<u8>> Storage::readFile(const std::string& cascPath,
     return m_impl->readFileResolved(key, entries, localeFlags);
 }
 
-std::optional<std::vector<u8>> Storage::readFile(i32 fileId) const {
-    return readFile(fileId, 0, 0);
+std::optional<std::vector<u8>> Storage::readFile(i32 fileId, FileIdHint hint) const {
+    return readFile(fileId, 0, 0, hint);
 }
 
 std::optional<std::vector<u8>> Storage::readFile(i32 fileId,
-                                                  u32 localeFlags, u32 /*openFlags*/) const {
+                                                  u32 localeFlags, u32 /*openFlags*/,
+                                                  FileIdHint hint) const {
     if (!m_impl || !m_impl->isValid) { s_lastError = kNotValid; return std::nullopt; }
     if (!m_impl->ensureLoaded()) { s_lastError = kNotValid; return std::nullopt; }
 
     std::shared_lock lock(m_impl->mutex);
-    OverlayKey key{"", static_cast<u32>(fileId)};
-    auto entries = m_impl->root ? m_impl->root->findByFileDataId(static_cast<u32>(fileId))
+    OverlayKey key{"", static_cast<u32>(fileId), hint};
+    auto entries = m_impl->root ? m_impl->root->findByFileDataId(static_cast<u32>(fileId), hint)
                                 : std::vector<const RootEntry*>{};
     return m_impl->readFileResolved(key, entries, localeFlags);
 }
@@ -633,7 +707,7 @@ std::vector<BatchReadResult> Storage::readBatch(
             if (byPath)
                 oKey = {normalizeCascPath(req.path), std::nullopt};
             else
-                oKey = {"", static_cast<u32>(req.fileDataId)};
+                oKey = {"", static_cast<u32>(req.fileDataId), req.fileIdHint};
 
             if (auto it = m_impl->writeOverlay->pendingWrites.find(oKey);
                 it != m_impl->writeOverlay->pendingWrites.end()) {
@@ -653,7 +727,7 @@ std::vector<BatchReadResult> Storage::readBatch(
             if (byPath)
                 entries = m_impl->root->findByNormalizedPath(normalizeCascPath(req.path));
             else
-                entries = m_impl->root->findByFileDataId(static_cast<u32>(req.fileDataId));
+                entries = m_impl->root->findByFileDataId(static_cast<u32>(req.fileDataId), req.fileIdHint);
         }
 
         if (entries.empty()) {
@@ -938,18 +1012,18 @@ bool Storage::fileExists(const std::string& cascPath) const {
     return m_impl->root && m_impl->root->hasPath(normalized);
 }
 
-bool Storage::fileExists(i32 fileId) const {
+bool Storage::fileExists(i32 fileId, FileIdHint hint) const {
     if (!m_impl || !m_impl->isValid) return false;
     if (!m_impl->ensureLoaded()) return false;
     std::shared_lock lock(m_impl->mutex);
 
     if (m_impl->writeOverlay) {
-        OverlayKey key{"", static_cast<u32>(fileId)};
+        OverlayKey key{"", static_cast<u32>(fileId), hint};
         if (m_impl->writeOverlay->pendingWrites.count(key)) return true;
         if (m_impl->writeOverlay->pendingDeletes.count(key)) return false;
     }
 
-    return m_impl->root && m_impl->root->hasFileDataId(static_cast<u32>(fileId));
+    return m_impl->root && m_impl->root->hasFileDataId(static_cast<u32>(fileId), hint);
 }
 
 // ============================================================================
@@ -970,12 +1044,12 @@ std::optional<u64> Storage::fileSize(const std::string& cascPath) const {
     return encEntry->fileSize;
 }
 
-std::optional<u64> Storage::fileSize(i32 fileId) const {
+std::optional<u64> Storage::fileSize(i32 fileId, FileIdHint hint) const {
     if (!m_impl || !m_impl->isValid) return std::nullopt;
     if (!m_impl->ensureLoaded()) return std::nullopt;
     std::shared_lock lock(m_impl->mutex);
 
-    auto entries = m_impl->root->findByFileDataId(static_cast<u32>(fileId));
+    auto entries = m_impl->root->findByFileDataId(static_cast<u32>(fileId), hint);
     if (entries.empty()) return std::nullopt;
     if (entries[0]->fileSize > 0) return entries[0]->fileSize;
 
@@ -996,12 +1070,12 @@ std::optional<FileFullInfo> Storage::fileInfo(const std::string& cascPath) const
         m_impl->root->findByNormalizedPath(normalizeCascPath(cascPath)));
 }
 
-std::optional<FileFullInfo> Storage::fileInfo(i32 fileId) const {
+std::optional<FileFullInfo> Storage::fileInfo(i32 fileId, FileIdHint hint) const {
     if (!m_impl || !m_impl->isValid) return std::nullopt;
     if (!m_impl->ensureLoaded()) return std::nullopt;
     std::shared_lock lock(m_impl->mutex);
     return m_impl->fileInfoResolved(
-        m_impl->root->findByFileDataId(static_cast<u32>(fileId)));
+        m_impl->root->findByFileDataId(static_cast<u32>(fileId), hint));
 }
 
 // ============================================================================

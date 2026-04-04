@@ -71,8 +71,8 @@ public:
 
     // --- RootManifest interface ---
     std::vector<const RootEntry*> findByPath(const std::string& path) const override;
-    std::vector<const RootEntry*> findByFileDataId(u32 fileDataId) const override;
-    bool hasFileDataId(u32) const override { return false; }
+    std::vector<const RootEntry*> findByFileDataId(u32 fileDataId, FileIdHint hint = FileIdHint::None) const override;
+    bool hasFileDataId(u32, FileIdHint = FileIdHint::None) const override { return false; }
 
     /// Find entries by 64-bit Overwatch GUID.
     std::vector<const RootEntry*> findByGuid(u64 guid) const;

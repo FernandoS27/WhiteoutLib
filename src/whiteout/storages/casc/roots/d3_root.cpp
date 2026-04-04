@@ -415,11 +415,11 @@ bool D3Root::hasPath(const std::string& normalizedPath) const {
     return m_byPath.contains(normalizedPath);
 }
 
-std::vector<const RootEntry*> D3Root::findByFileDataId(u32 fileDataId) const {
+std::vector<const RootEntry*> D3Root::findByFileDataId(u32 fileDataId, FileIdHint /*hint*/) const {
     return m_byFileDataId.findAll(m_entries, fileDataId);
 }
 
-bool D3Root::hasFileDataId(u32 fileDataId) const {
+bool D3Root::hasFileDataId(u32 fileDataId, FileIdHint /*hint*/) const {
     return m_byFileDataId.contains(fileDataId);
 }
 

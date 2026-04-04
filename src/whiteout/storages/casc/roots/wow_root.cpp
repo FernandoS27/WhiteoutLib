@@ -246,11 +246,11 @@ std::vector<const RootEntry*> WowRoot::findByPath(const std::string& path) const
     return m_byNameHash.findAll(m_entries, combined);
 }
 
-std::vector<const RootEntry*> WowRoot::findByFileDataId(u32 fileDataId) const {
+std::vector<const RootEntry*> WowRoot::findByFileDataId(u32 fileDataId, FileIdHint /*hint*/) const {
     return m_byFileDataId.findAll(m_entries, fileDataId);
 }
 
-bool WowRoot::hasFileDataId(u32 fileDataId) const {
+bool WowRoot::hasFileDataId(u32 fileDataId, FileIdHint /*hint*/) const {
     return m_byFileDataId.contains(fileDataId);
 }
 
