@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include "online_index.h"
-#include "../common/hex.h"
-#include "key_utils.h"
+#include "../../common/hex.h"
+#include "../storage/key_utils.h"
 
 #include <algorithm>
 #include <atomic>

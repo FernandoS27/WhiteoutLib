@@ -2,15 +2,15 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include "writer.h"
-#include "blte.h"
-#include "config.h"
+#include "../codec/blte.h"
+#include "../tables/config.h"
 #include "constants.h"
-#include "encoding.h"
-#include "index.h"
-#include "roots/root.h"
-#include "../common/byte_order.h"
-#include "../common/hex.h"
-#include "../common/md5.h"
+#include "../tables/encoding.h"
+#include "../tables/index.h"
+#include "../roots/root.h"
+#include "../../common/byte_order.h"
+#include "../../common/hex.h"
+#include "../../common/md5.h"
 
 #include <whiteout/common_types.h>
 #include <whiteout/utils/job_group.h>

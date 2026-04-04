@@ -6,10 +6,10 @@
 /// Internal header — not part of the public include path.
 #pragma once
 
-#include "data_source.h"
+#include "../storage/data_source.h"
 #include "cdn_fetcher.h"
 #include "online_index.h"
-#include "../common/hex.h"
+#include "../../common/hex.h"
 
 #include <vector>
 
@@ -17,7 +17,7 @@ namespace whiteout::storages::casc {
 
 /// Fetches BLTE blobs from CDN archives via CdnFetcher + OnlineIndexTable.
 ///
-/// @warning All pointer parameters must outlive this object. In OnlineStorage::Impl,
+/// @warning All pointer parameters must outlive this object. In Storage::Impl,
 /// this is ensured by declaring dataSource *after* fetcher/onlineIndex/cdnConfig
 /// (members are destroyed in reverse declaration order).
 class OnlineDataSource : public DataSource {
@@ -44,6 +44,18 @@ public:
         auto archiveKeyHex = storages::common::hexEncode16((*m_archiveEKeys)[archiveIndex]);
         auto data = m_fetcher->fetchRange(archiveKeyHex, offset, encodedSize);
         return data.value_or(std::vector<u8>{});
+    }
+
+    std::optional<IndexLocation> findInIndex(
+        std::span<const u8> eKeyPrefix) const override {
+        auto entry = m_archiveIndex->find(eKeyPrefix);
+        if (!entry) return std::nullopt;
+        return IndexLocation{
+            entry->archiveIndex,
+            entry->archiveOffset,
+            entry->encodedSize,
+            false, // Online archives have no per-entry header to skip.
+        };
     }
 
     // ── Async variants (non-blocking, callback-based) ────────────

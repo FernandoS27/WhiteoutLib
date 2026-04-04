@@ -3,10 +3,10 @@
 
 #include "blte.h"
 #include "crypto.h"
-#include "../common/byte_order.h"
-#include "../common/inflate_fast.h"
-#include "../common/md5.h"
-#include "../common/zlib.h"
+#include "../../common/byte_order.h"
+#include "../../common/inflate_fast.h"
+#include "../../common/md5.h"
+#include "../../common/zlib.h"
 
 #include <whiteout/interfaces.h>
 #include <whiteout/utils/job_group.h>

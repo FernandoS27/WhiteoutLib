@@ -5,6 +5,7 @@
 /// @brief CASC write support round-trip tests.
 
 #include <whiteout/storages/casc/storage.h>
+#include <whiteout/storages/casc/storage_writable.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -46,7 +47,7 @@ TEST_CASE("Create Write Save Read", "[casc][round_trip]") {
     CreateOptions createOpts;
     createOpts.product = "test";
     createOpts.version = "1.0.0";
-    auto storage = Storage::create(createOpts);
+    auto storage = StorageWritable::create(createOpts);
     CHECK(static_cast<bool>(storage));
 
     // Write several test files.
@@ -99,7 +100,7 @@ TEST_CASE("Create Write Save Read", "[casc][round_trip]") {
 TEST_CASE("Overlay Correctness", "[casc][round_trip]") {
     std::printf("\n[Test: Overlay correctness]\n");
 
-    auto storage = Storage::create();
+    auto storage = StorageWritable::create();
     CHECK(static_cast<bool>(storage));
 
     auto original = makeTestData(100, 0xAA);
@@ -135,7 +136,7 @@ TEST_CASE("Modify Existing", "[casc][round_trip]") {
 
     // Create and save an initial storage.
     {
-        auto storage = Storage::create();
+        auto storage = StorageWritable::create();
         auto orig1 = makeTestData(512, 0x01);
         auto orig2 = makeTestData(256, 0x02);
         auto orig3 = makeTestData(128, 0x03);
@@ -147,7 +148,7 @@ TEST_CASE("Modify Existing", "[casc][round_trip]") {
     }
 
     // Reopen and modify.
-    auto storage = Storage::open(testDir);
+    auto storage = StorageWritable::open(testDir);
     CHECK(storage.has_value());
 
     if (!storage) {
@@ -215,7 +216,7 @@ TEST_CASE("Large File", "[casc][round_trip]") {
     const std::string testDir = "test_casc_roundtrip_4";
     cleanDir(testDir);
 
-    auto storage = Storage::create();
+    auto storage = StorageWritable::create();
 
     // 1 MB file — will span multiple BLTE frames (64 KB each).
     auto largeData = makeTestData(1024 * 1024, 0xFF);
@@ -249,14 +250,14 @@ TEST_CASE("Multiple Saves", "[casc][round_trip]") {
 
     // First save.
     {
-        auto storage = Storage::create();
+        auto storage = StorageWritable::create();
         storage.writeFile("file_v1.dat", makeTestData(100, 0x01));
         CHECK(storage.save(testDir));
     }
 
     // Second save (modify).
     {
-        auto storage = Storage::open(testDir);
+        auto storage = StorageWritable::open(testDir);
         CHECK(storage.has_value());
         if (storage) {
             storage->writeFile("file_v2.dat", makeTestData(200, 0x02));

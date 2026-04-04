@@ -108,7 +108,7 @@ if(WHITEOUT_ENABLE_CASC)
     target_link_libraries(casc_perf_crossref_test PRIVATE whiteout_casc)
 
     # Online performance cross-reference test — standalone executable with custom main().
-    # Benchmarks OnlineStorage (CDN-backed) read performance.
+    # Benchmarks Storage::openOnline (CDN-backed) read performance.
     # Usage: online_perf_crossref_test <product> [options]
     add_executable(online_perf_crossref_test online_perf_crossref_test.cpp)
     target_link_libraries(online_perf_crossref_test PRIVATE whiteout_casc)

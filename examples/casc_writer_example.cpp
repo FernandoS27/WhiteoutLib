@@ -5,6 +5,7 @@
 /// @brief Demonstrates CASC storage creation, modification, and persistence.
 
 #include <whiteout/storages/casc/storage.h>
+#include <whiteout/storages/casc/storage_writable.h>
 
 #include <cstdio>
 #include <filesystem>
@@ -47,7 +48,7 @@ int main() {
         CreateOptions opts;
         opts.product = "myproduct";
         opts.version = "1.0.0";
-        auto storage = Storage::create(opts);
+        auto storage = StorageWritable::create(opts);
         check(static_cast<bool>(storage), "Storage::create() succeeds");
 
         // Write some files.
@@ -102,7 +103,7 @@ int main() {
 
     std::printf("\n[Demo 3: Modify existing storage]\n");
     {
-        auto storage = Storage::open(testDir);
+        auto storage = StorageWritable::open(testDir);
         check(storage.has_value(), "open for modification");
 
         if (storage) {

@@ -4,8 +4,8 @@
 /// Interactive CASC archive explorer: open a CASC storage, browse its contents,
 /// read or extract files, add/delete files, and save modifications.
 
-#include <whiteout/storages/casc/online_storage.h>
 #include <whiteout/storages/casc/storage.h>
+#include <whiteout/storages/casc/storage_writable.h>
 #include <whiteout/utils/simple_http_handler.h>
 #include <whiteout/utils/simple_thread_pool.h>
 
@@ -373,7 +373,7 @@ static void cmdReadById(S& storage) {
         std::cout << "    ... (" << (data->size() - dumpLen) << " more bytes)\n";
 }
 
-static void cmdAdd(casc::Storage& storage) {
+static void cmdAdd(casc::StorageWritable& storage) {
     std::cout << "  Path to file on disk: ";
     std::string diskPath;
     if (!readLine(diskPath) || diskPath.empty()) return;
@@ -415,7 +415,7 @@ static void cmdAdd(casc::Storage& storage) {
               << ") to overlay. Use 'save' to persist.\n";
 }
 
-static void cmdDelete(casc::Storage& storage) {
+static void cmdDelete(casc::StorageWritable& storage) {
     std::cout << "  Filename to delete: ";
     std::string name;
     if (!readLine(name) || name.empty()) return;
@@ -426,7 +426,7 @@ static void cmdDelete(casc::Storage& storage) {
         std::cout << "  File not found: " << name << "\n";
 }
 
-static void cmdSave(casc::Storage& storage) {
+static void cmdSave(casc::StorageWritable& storage) {
     std::cout << "  Save to [Enter = original location, or specify path]: ";
     std::string savePath;
     readLine(savePath);
@@ -575,7 +575,7 @@ int main(int argc, char* argv[]) {
     // Keep the HTTP handler alive for the lifetime of the program.
     std::unique_ptr<whiteout::utils::SimpleHttpHandler> httpHandler;
 
-    using StorageVariant = std::variant<casc::Storage, casc::OnlineStorage>;
+    using StorageVariant = std::variant<casc::StorageWritable, casc::Storage>;
     std::optional<StorageVariant> storage;
 
     if (mode == Mode::Local) {
@@ -590,7 +590,7 @@ int main(int argc, char* argv[]) {
 
         if (localPath == "new" || localPath == "NEW") {
             std::cout << "Creating new empty storage.\n";
-            storage.emplace(casc::Storage::create({}, &pool));
+            storage.emplace(casc::StorageWritable::create({}, &pool));
         } else {
             if (!std::filesystem::exists(localPath)) {
                 std::cerr << "Path not found: " << localPath << "\n";
@@ -600,7 +600,7 @@ int main(int argc, char* argv[]) {
             std::cout << "Opening: " << localPath << " ...\n";
 
             std::string openError;
-            auto local = casc::Storage::open(localPath, &openError, &pool);
+            auto local = casc::StorageWritable::open(localPath, &openError, &pool);
             if (!openError.empty())
                 std::cerr << "  Error: " << openError << "\n";
 
@@ -686,10 +686,10 @@ int main(int argc, char* argv[]) {
 
         std::cout << "Connecting to " << region << " CDN for '" << product << "' ...\n";
 
-        auto online = casc::OnlineStorage::open(opts);
+        auto online = casc::Storage::openOnline(opts);
         if (!online || !*online) {
             std::cerr << "Failed to open online CASC storage.\n";
-            std::cerr << "  lastError = " << casc::OnlineStorage::lastError() << "\n";
+            std::cerr << "  lastError = " << casc::Storage::lastError() << "\n";
             return 1;
         }
         storage.emplace(std::move(*online));
@@ -763,19 +763,19 @@ int main(int argc, char* argv[]) {
             else if (cmd == "6" || cmd == "extract")
                 cmdExtract(s);
             else if (cmd == "7" || cmd == "add") {
-                if constexpr (std::is_same_v<S, casc::Storage>)
+                if constexpr (std::is_same_v<S, casc::StorageWritable>)
                     cmdAdd(s);
                 else
                     std::cout << "  Not available in online mode.\n";
             }
             else if (cmd == "8" || cmd == "delete" || cmd == "del" || cmd == "rm") {
-                if constexpr (std::is_same_v<S, casc::Storage>)
+                if constexpr (std::is_same_v<S, casc::StorageWritable>)
                     cmdDelete(s);
                 else
                     std::cout << "  Not available in online mode.\n";
             }
             else if (cmd == "9" || cmd == "save") {
-                if constexpr (std::is_same_v<S, casc::Storage>)
+                if constexpr (std::is_same_v<S, casc::StorageWritable>)
                     cmdSave(s);
                 else
                     std::cout << "  Not available in online mode.\n";

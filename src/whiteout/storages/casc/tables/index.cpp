@@ -2,9 +2,9 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include "index.h"
-#include "../common/bit_reader.h"
-#include "../common/md5.h"
-#include "../common/mapped_file.h"
+#include "../../common/bit_reader.h"
+#include "../../common/md5.h"
+#include "../../common/mapped_file.h"
 
 #include <whiteout/utils/job_group.h>
 

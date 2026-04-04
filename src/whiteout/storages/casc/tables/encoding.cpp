@@ -2,10 +2,10 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include "encoding.h"
-#include "constants.h"
-#include "key_utils.h"
-#include "../common/byte_order.h"
-#include "../common/md5.h"
+#include "../storage/constants.h"
+#include "../storage/key_utils.h"
+#include "../../common/byte_order.h"
+#include "../../common/md5.h"
 
 #include <whiteout/utils/job_group.h>
 

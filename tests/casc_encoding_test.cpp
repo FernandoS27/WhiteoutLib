@@ -3,7 +3,7 @@
 
 /// casc_encoding_test: Validates CASC ENCODING table parse/serialize round-trip.
 
-#include "../src/whiteout/storages/casc/encoding.h"
+#include "../src/whiteout/storages/casc/tables/encoding.h"
 
 #include <catch2/catch_test_macros.hpp>
 

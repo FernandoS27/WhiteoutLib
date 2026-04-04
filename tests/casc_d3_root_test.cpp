@@ -7,10 +7,10 @@
 
 #include "../src/whiteout/storages/casc/roots/d3_root.h"
 #include "../src/whiteout/storages/casc/roots/root.h"
-#include "../src/whiteout/storages/casc/config.h"
-#include "../src/whiteout/storages/casc/encoding.h"
-#include "../src/whiteout/storages/casc/index.h"
-#include "../src/whiteout/storages/casc/blte.h"
+#include "../src/whiteout/storages/casc/tables/config.h"
+#include "../src/whiteout/storages/casc/tables/encoding.h"
+#include "../src/whiteout/storages/casc/tables/index.h"
+#include "../src/whiteout/storages/casc/codec/blte.h"
 #include "../src/whiteout/storages/common/mapped_file.h"
 
 #include <catch2/catch_test_macros.hpp>

@@ -18,12 +18,13 @@
 
 #include <whiteout/interfaces.h>
 #include <whiteout/storages/casc/storage.h>
+#include <whiteout/storages/casc/storage_writable.h>
 #include <whiteout/utils/simple_thread_pool.h>
 #include <whiteout/utils/timeline_semaphore.h>
 
 // Internal headers — test exercises internals directly.
-#include "whiteout/storages/casc/blte.h"
-#include "whiteout/storages/casc/crypto.h"
+#include "whiteout/storages/casc/codec/blte.h"
+#include "whiteout/storages/casc/codec/crypto.h"
 
 #include <algorithm>
 #include <atomic>
@@ -631,7 +632,7 @@ bool test9_readBatch_mixed_valid_invalid(const std::string& corpusPath) {
 bool test10_readBatch_empty() {
     constexpr int T = 10;
 
-    auto storage = casc::Storage::create();
+    auto storage = casc::StorageWritable::create();
     std::vector<casc::BatchReadRequest> requests;
     auto results = storage.readBatch(requests);
 

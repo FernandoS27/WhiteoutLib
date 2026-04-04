@@ -3,8 +3,8 @@
 
 /// casc_blte_test: Validates BLTE encode/decode round-trip and edge cases.
 
-#include "../src/whiteout/storages/casc/blte.h"
-#include "../src/whiteout/storages/casc/crypto.h"
+#include "../src/whiteout/storages/casc/codec/blte.h"
+#include "../src/whiteout/storages/casc/codec/crypto.h"
 
 #include <catch2/catch_test_macros.hpp>
 

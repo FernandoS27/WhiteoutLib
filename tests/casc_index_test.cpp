@@ -3,7 +3,7 @@
 
 /// casc_index_test: Validates CASC .idx file parsing against real corpus data.
 
-#include "../src/whiteout/storages/casc/index.h"
+#include "../src/whiteout/storages/casc/tables/index.h"
 
 #include <catch2/catch_test_macros.hpp>
 

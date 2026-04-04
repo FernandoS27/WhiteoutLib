@@ -3,7 +3,7 @@
 
 #include "tvfs_root.h"
 #include "common/root_build_utils.h"
-#include "../constants.h"
+#include "../storage/constants.h"
 #include "../../common/byte_order.h"
 #include "../../common/string_utils.h"
 

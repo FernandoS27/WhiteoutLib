@@ -3,7 +3,7 @@
 
 /// casc_config_test: Validates CASC config file parsing against real corpus data.
 
-#include "../src/whiteout/storages/casc/config.h"
+#include "../src/whiteout/storages/casc/tables/config.h"
 
 #include <catch2/catch_test_macros.hpp>
 

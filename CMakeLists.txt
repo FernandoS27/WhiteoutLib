@@ -231,11 +231,11 @@ if(WHITEOUT_ENABLE_CASC)
         src/whiteout/storages/common/md5.cpp
         src/whiteout/storages/common/codecs/bzip2.cpp
         src/whiteout/storages/common/codecs/lzma.cpp
-        src/whiteout/storages/casc/crypto.cpp
-        src/whiteout/storages/casc/blte.cpp
-        src/whiteout/storages/casc/config.cpp
-        src/whiteout/storages/casc/index.cpp
-        src/whiteout/storages/casc/encoding.cpp
+        src/whiteout/storages/casc/codec/crypto.cpp
+        src/whiteout/storages/casc/codec/blte.cpp
+        src/whiteout/storages/casc/tables/config.cpp
+        src/whiteout/storages/casc/tables/index.cpp
+        src/whiteout/storages/casc/tables/encoding.cpp
         src/whiteout/storages/casc/roots/root.cpp
         src/whiteout/storages/casc/roots/wow_root.cpp
         src/whiteout/storages/casc/roots/d3_root.cpp
@@ -245,14 +245,17 @@ if(WHITEOUT_ENABLE_CASC)
         src/whiteout/storages/casc/roots/ow_root.cpp
         src/whiteout/storages/casc/roots/s1_root.cpp
         src/whiteout/storages/casc/roots/install_root.cpp
-        src/whiteout/storages/casc/storage.cpp
-        src/whiteout/storages/casc/writer.cpp
-        src/whiteout/storages/casc/casc_file_system.cpp
-        src/whiteout/storages/casc/cdn_cache.cpp
-        src/whiteout/storages/casc/cdn_fetcher.cpp
-        src/whiteout/storages/casc/online_index.cpp
-        src/whiteout/storages/casc/memory_cache.cpp
-        src/whiteout/storages/casc/online_storage.cpp
+        src/whiteout/storages/casc/storage/storage_backend_impl.cpp
+        src/whiteout/storages/casc/storage/storage_core.cpp
+        src/whiteout/storages/casc/storage/storage_local.cpp
+        src/whiteout/storages/casc/storage/storage_online.cpp
+        src/whiteout/storages/casc/storage/storage_writable.cpp
+        src/whiteout/storages/casc/storage/writer.cpp
+        src/whiteout/storages/casc/storage/casc_file_system.cpp
+        src/whiteout/storages/casc/cdn/cdn_cache.cpp
+        src/whiteout/storages/casc/cdn/cdn_fetcher.cpp
+        src/whiteout/storages/casc/cdn/online_index.cpp
+        src/whiteout/storages/casc/cdn/memory_cache.cpp
     )
 
     add_library(whiteout_casc STATIC ${CASC_SOURCES})

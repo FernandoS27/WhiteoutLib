@@ -3,7 +3,7 @@
 
 /// casc_crypto_test: Validates Salsa20, ARC4, and KeyRing implementations.
 
-#include "../src/whiteout/storages/casc/crypto.h"
+#include "../src/whiteout/storages/casc/codec/crypto.h"
 
 #include <catch2/catch_test_macros.hpp>
 

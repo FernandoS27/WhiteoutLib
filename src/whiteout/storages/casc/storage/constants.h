@@ -9,7 +9,7 @@
 #pragma once
 
 #include <whiteout/common_types.h>
-#include "../common/hex.h"
+#include "../../common/hex.h"
 
 #include <array>
 #include <string>

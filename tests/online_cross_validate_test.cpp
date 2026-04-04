@@ -4,7 +4,7 @@
 /// Online–Offline CASC cross-validation test.
 ///
 /// Opens a local CASC corpus via Storage (pure-C++ offline reader) and the
-/// same product via OnlineStorage (CDN reader), then compares:
+/// same product via Storage::openOnline (CDN reader), then compares:
 ///   1. Metadata consistency (product name, totalFileCount)
 ///   2. listFiles path overlap
 ///   3. fileExists consistency
@@ -14,7 +14,7 @@
 ///      reads don't work)
 ///
 /// Same-build mode is preferred: build config key and CDN config key are
-/// extracted from the local .build.info and passed to OnlineStorage via
+/// extracted from the local .build.info and passed to Storage::openOnline via
 /// directBuildConfigKey / directCdnConfigKey.
 ///
 /// Products tested:
@@ -29,17 +29,14 @@
 // Offline pure-C++ CASC API.
 #include <whiteout/storages/casc/storage.h>
 
-// Online (CDN) CASC API.
-#include <whiteout/storages/casc/online_storage.h>
-
-// HTTP + thread pool for OnlineStorage.
+// HTTP + thread pool for Storage::openOnline.
 #include <whiteout/utils/simple_http_handler.h>
 #include <whiteout/utils/simple_thread_pool.h>
 
 // Internal helpers.
 #include "../src/whiteout/storages/common/md5.h"
 #include "../src/whiteout/storages/common/hex.h"
-#include "../src/whiteout/storages/casc/config.h"
+#include "../src/whiteout/storages/casc/tables/config.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -118,7 +115,7 @@ static std::pair<std::string, std::string> extractBuildKeys(const std::string& c
 
 /// Open online storage for W3, trying same-build mode first, then latest.
 /// Returns {storage, sameBuild}.
-static std::pair<std::optional<online::OnlineStorage>, bool>
+static std::pair<std::optional<online::Storage>, bool>
 openOnlineW3(utils::SimpleHttpHandler& http, utils::SimpleThreadPool& pool,
              const std::string& buildKeyHex = {},
              const std::string& cdnKeyHex = {}) {
@@ -133,11 +130,11 @@ openOnlineW3(utils::SimpleHttpHandler& http, utils::SimpleThreadPool& pool,
         opts.directBuildConfigKey = buildKeyHex;
         opts.directCdnConfigKey = cdnKeyHex;
 
-        auto store = online::OnlineStorage::open(opts);
+        auto store = online::Storage::openOnline(opts);
         if (store) return {std::move(store), true};
 
         std::cout << "  Same-build mode failed (error "
-                  << online::OnlineStorage::lastError()
+                  << online::Storage::lastError()
                   << ") — trying latest build\n";
     }
 
@@ -148,7 +145,7 @@ openOnlineW3(utils::SimpleHttpHandler& http, utils::SimpleThreadPool& pool,
     opts.pool = &pool;
     opts.localeMask = offline::LocaleMasks::enUS;
     opts.memoryCacheSize = 64 * 1024 * 1024;
-    return {online::OnlineStorage::open(opts), false};
+    return {online::Storage::openOnline(opts), false};
 }
 
 /// Return true if path looks like a directory/namespace entry.
@@ -530,7 +527,7 @@ TEST_CASE("Online vs Offline: W3 content cross-validation",
 // ############################################################################
 
 /// Open online WoW storage (latest build).
-static std::optional<online::OnlineStorage>
+static std::optional<online::Storage>
 openOnlineWoW(utils::SimpleHttpHandler& http, utils::SimpleThreadPool& pool) {
     online::OnlineOpenOptions opts;
     opts.product = "wow";
@@ -539,7 +536,7 @@ openOnlineWoW(utils::SimpleHttpHandler& http, utils::SimpleThreadPool& pool) {
     opts.pool = &pool;
     opts.localeMask = offline::LocaleMasks::enUS;
     opts.memoryCacheSize = 128 * 1024 * 1024;
-    return online::OnlineStorage::open(opts);
+    return online::Storage::openOnline(opts);
 }
 
 // ============================================================================
@@ -553,7 +550,7 @@ TEST_CASE("Online WoW: metadata and enumerate",
 
     auto store = openOnlineWoW(http, pool);
     if (!store) {
-        WARN("WoW CDN unavailable (error " << online::OnlineStorage::lastError() << ")");
+        WARN("WoW CDN unavailable (error " << online::Storage::lastError() << ")");
         SKIP("WoW CDN unavailable");
     }
     REQUIRE(*store);
@@ -897,14 +894,14 @@ TEST_CASE("TVFS diagnostic: eKey resolution trace",
         productLabel = "W3 (latest)";
     }
 
-    auto store = online::OnlineStorage::open(opts);
+    auto store = online::Storage::openOnline(opts);
     if (!store) {
         // Fallback to WoW.
         opts = {};
         opts.product = "wow";
         opts.http = &http;
         opts.pool = &pool;
-        store = online::OnlineStorage::open(opts);
+        store = online::Storage::openOnline(opts);
         productLabel = "WoW (latest)";
     }
     if (!store) SKIP("No TVFS product available on CDN");

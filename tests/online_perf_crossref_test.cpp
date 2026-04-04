@@ -3,7 +3,7 @@
 
 /// Online CASC performance cross-reference test.
 ///
-/// Benchmarks OnlineStorage (CDN-backed) against CascLib's C API for every
+/// Benchmarks Storage::openOnline (CDN-backed) against CascLib's C API for every
 /// measurable read-only operation, reporting per-operation timings and
 /// speedup ratios.  Network latency is the dominant factor; the test
 /// measures end-to-end wall time including HTTP round-trips.
@@ -22,7 +22,7 @@
 ///   --sample <n>       Max sample size for per-file benchmarks (default: 200)
 ///   --http-threads <n> Number of HTTP worker threads (default: 4)
 ///   --pool-threads <n> Number of WorkerPool threads (default: hardware_concurrency)
-///   --cache-dir <d>    Local cache directory for OnlineStorage
+///   --cache-dir <d>    Local cache directory for Storage::openOnline
 ///   --cache-size <mb>  In-memory cache size in MB (default: 256)
 ///   --help, -h         Show this help
 ///
@@ -46,7 +46,7 @@
 ///  17.  Total file count
 ///  18.  Cache flush
 
-#include <whiteout/storages/casc/online_storage.h>
+#include <whiteout/storages/casc/storage.h>
 #include <whiteout/utils/simple_http_handler.h>
 #include <whiteout/utils/simple_thread_pool.h>
 
@@ -538,7 +538,7 @@ static void runOnlinePerfCrossRef(const PerfConfig& cfg) {
     // ==================================================================
     // 1. Storage Open (cold — no cache)
     // ==================================================================
-    std::cout << "\n--- Benchmark 1: OnlineStorage Open (cold) ---\n";
+    std::cout << "\n--- Benchmark 1: Storage::openOnline (cold) ---\n";
 
     constexpr int kOpenTrials = 3;
     double woOpenBestUs = 1e18;
@@ -549,7 +549,7 @@ static void runOnlinePerfCrossRef(const PerfConfig& cfg) {
         opts.cacheDir.clear();
 
         auto t0 = Clock::now();
-        auto s = OnlineStorage::open(opts);
+        auto s = Storage::openOnline(opts);
         auto t1 = Clock::now();
         double us = std::chrono::duration<double, std::micro>(t1 - t0).count();
         if (s) woOpenBestUs = std::min(woOpenBestUs, us);
@@ -560,7 +560,7 @@ static void runOnlinePerfCrossRef(const PerfConfig& cfg) {
 
     {
         BenchResult r;
-        r.operation = "OnlineStorage::open (cold)";
+        r.operation = "Storage::openOnline (cold)";
         r.whiteoutUs = woOpenBestUs;
         r.iterations = 1;
         results.push_back(r);
@@ -570,14 +570,14 @@ static void runOnlinePerfCrossRef(const PerfConfig& cfg) {
     // 1b. Storage Open (warm — with cache dir, if configured)
     // ==================================================================
     if (!cfg.cacheDir.empty()) {
-        std::cout << "\n--- Benchmark 1b: OnlineStorage Open (warm, cached) ---\n";
+        std::cout << "\n--- Benchmark 1b: Storage::openOnline (warm, cached) ---\n";
 
         double woWarmBestUs = 1e18;
         for (int trial = 0; trial < kOpenTrials; ++trial) {
             auto opts = makeOpts();
 
             auto t0 = Clock::now();
-            auto s = OnlineStorage::open(opts);
+            auto s = Storage::openOnline(opts);
             auto t1 = Clock::now();
             double us = std::chrono::duration<double, std::micro>(t1 - t0).count();
             if (s) woWarmBestUs = std::min(woWarmBestUs, us);
@@ -587,17 +587,17 @@ static void runOnlinePerfCrossRef(const PerfConfig& cfg) {
         }
 
         BenchResult r;
-        r.operation = "OnlineStorage::open (warm)";
+        r.operation = "Storage::openOnline (warm)";
         r.whiteoutUs = woWarmBestUs;
         r.iterations = 1;
         results.push_back(r);
     }
 
     // Open persistent handle for the remaining benchmarks.
-    auto woStorage = OnlineStorage::open(makeOpts());
+    auto woStorage = Storage::openOnline(makeOpts());
     if (!woStorage) {
-        std::cerr << "FATAL: could not open OnlineStorage (error "
-                  << OnlineStorage::lastError() << ")\n";
+        std::cerr << "FATAL: could not open Storage online (error "
+                  << Storage::lastError() << ")\n";
         return;
     }
 
@@ -612,7 +612,7 @@ static void runOnlinePerfCrossRef(const PerfConfig& cfg) {
     // CascLib doesn't have a native online/CDN mode — it opens local storages.
     // For cross-reference, we'd need a local CASC corpus of the same product.
     // We skip CascLib benchmarks here; they're covered by casc_perf_crossref_test.
-    // This test focuses on OnlineStorage-specific CDN performance.
+    // This test focuses on Storage::openOnline-specific CDN performance.
     std::cout << "\n  NOTE: CascLib comparison is limited for online mode.\n"
               << "  CascLib operates on local storage; direct CDN comparison\n"
               << "  is not apples-to-apples. Use casc_perf_crossref_test for\n"
@@ -1305,7 +1305,7 @@ static void runOnlinePerfCrossRef(const PerfConfig& cfg) {
             if (!cfg.cacheDir.empty())
                 sweepOpts.cacheDir = cfg.cacheDir;
 
-            auto sweepStorage = OnlineStorage::open(sweepOpts);
+            auto sweepStorage = Storage::openOnline(sweepOpts);
             if (!sweepStorage) {
                 std::cout << std::left << std::setw(16) << nHttp
                           << "  OPEN FAILED\n";
@@ -1385,7 +1385,7 @@ int main(int argc, char* argv[]) {
                       << "  --sample <n>        Max sample size for per-file benchmarks (default: 200)\n"
                       << "  --http-threads <n>  Number of HTTP worker threads (default: 4)\n"
                       << "  --pool-threads <n>  Number of WorkerPool threads (default: hardware_concurrency)\n"
-                      << "  --cache-dir <d>     Local cache directory for OnlineStorage\n"
+                      << "  --cache-dir <d>     Local cache directory for Storage::openOnline\n"
                       << "  --cache-size <mb>   In-memory cache size in MB (default: 256)\n"
                       << "\n"
                       << "Operations benchmarked:\n"

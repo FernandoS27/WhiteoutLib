@@ -3,22 +3,23 @@
 
 /**
  * @file storage.h
- * @brief CASC archive storage access and manipulation
+ * @brief Unified CASC archive read access (local & online)
  *
  * This file defines:
- * - Storage class (PImpl) for opening, reading, and writing CASC archives
- *   used by Blizzard games (WoW, Diablo III, WC3 Reforged, and others)
+ * - Storage class (PImpl) for reading CASC archives from local disk or CDN
  * - File read / query / enumerate operations (thread-safe, shared lock)
  * - TACT encryption key management
  * - Batch read interface with optional parallel I/O via WorkerPool
- * - Write overlay with deferred persist-to-disk
+ *
+ * For write operations (writeFile, deleteFile, save), see StorageWritable
+ * in <whiteout/storages/casc/storage_writable.h>.
  *
  * @example Basic usage
  * @code
  * auto storage = casc::Storage::open("C:/Games/Diablo III/Data");
  * if (storage) {
  *     auto data = storage->readFile("data/global/excel/items.txt");
- *     storage->enumerate([](const FindEntry& e) { return true; });
+ *     storage->enumerate([](const EnumerateEntry& e) { return true; });
  * }
  * @endcode
  */
@@ -47,22 +48,23 @@ class WorkerPool;
 
 namespace whiteout::storages::casc {
 
+class StorageWritable;
+
 /**
- * @brief RAII wrapper for CASC archive access
+ * @brief Unified read-only CASC storage (local disk or CDN)
  *
- * Storage is the primary entry point for reading and writing CASC archives.
- * Use the static factory methods (`open`, `create`) to obtain an instance,
- * then read files by path or FileDataId, enumerate entries, or stage writes.
+ * Storage is the primary entry point for reading CASC archives.
+ * Use `open()` for local disk, `openOnline()` for CDN-backed access.
+ * The same public read API works identically regardless of backing store.
  *
- * All public methods are thread-safe: read operations acquire a shared
- * lock; write and persist operations acquire an exclusive lock.
+ * All public methods are thread-safe: read operations acquire a shared lock.
  *
  * Uses the PImpl (Pointer to Implementation) idiom to hide internals.
+ *
+ * @see StorageWritable for write + persist operations.
  */
 class Storage {
 public:
-    /// Default constructor — creates an empty (invalid) storage.
-    Storage();
     /// Destructor (defined in .cpp for incomplete type).
     ~Storage();
 
@@ -74,7 +76,7 @@ public:
     /// Move assignment.
     Storage& operator=(Storage&& other) noexcept;
 
-    // ── Construction ─────────────────────────────────────────────────
+    // ── Local construction ───────────────────────────────────────────
 
     /**
      * @brief Open an existing local CASC storage.
@@ -97,23 +99,38 @@ public:
     /// @overload Open with full options.
     static std::optional<Storage> open(const OpenOptions& opts);
 
+    // ── Online construction ──────────────────────────────────────────
+
     /**
-     * @brief Create a new empty storage in memory.
+     * @brief Open a CDN-backed CASC storage.
      *
-     * No file is written to disk until save() is called.
+     * Fetches data from Blizzard CDN servers on demand.
+     * HTTP transport is user-supplied via OnlineOpenOptions::http.
      *
-     * @param opts Creation options (product name, version, root format).
-     * @param pool Optional WorkerPool for parallel I/O.
-     * @return A valid empty Storage ready for writeFile() calls.
+     * @param opts Online open options (product, region, http handler, etc.).
+     * @return A valid Storage, or std::nullopt on failure.
      */
-    static Storage create(CreateOptions opts = {},
-                          interfaces::WorkerPool* pool = nullptr);
+    static std::optional<Storage> openOnline(const OnlineOpenOptions& opts);
 
     /// Release all resources and invalidate the storage.
     void close();
 
     /// @return True if the storage is open and valid.
     explicit operator bool() const noexcept;
+
+    // ── Capability queries ───────────────────────────────────────────
+
+    /// @return True if this storage reads from local disk.
+    bool isLocal() const noexcept;
+
+    /// @return True if this storage reads from CDN.
+    bool isOnline() const noexcept;
+
+    /// @return True if this storage has a write overlay (StorageWritable).
+    bool isWritable() const noexcept;
+
+    /// @return The root manifest format, or RootFormat::Unknown.
+    RootFormat rootFormat() const noexcept;
 
     // ── Read operations ──────────────────────────────────────────────
 
@@ -213,44 +230,31 @@ public:
     /// @return The encryption key for @p keyName, or std::nullopt if not found.
     std::optional<std::array<u8, 16>> findEncryptionKey(u64 keyName) const;
 
-    // ── Write operations ─────────────────────────────────────────────
-
-    /**
-     * @brief Write a file by path.
-     *
-     * Data is stored in an in-memory overlay until save() is called.
-     *
-     * @param path CASC path for the new or updated file.
-     * @param data File contents.
-     * @param opts Write options (locale, content flags, compression).
-     * @return True on success.
-     */
-    bool writeFile(const std::string& path, const std::vector<u8>& data,
-                   WriteOptions opts = {});
-
-    /// @overload Write a file by FileDataId.
-    bool writeFile(i32 fileId, const std::vector<u8>& data,
-                   WriteOptions opts = {});
-
-    /// Mark a file for deletion (effective on next save).
-    bool deleteFile(const std::string& path);
-    /// @overload
-    bool deleteFile(i32 fileId);
-
-    /// Persist all pending changes to disk.
-    bool save();
-    /// @overload Persist to a specific output path.
-    bool save(const std::string& path);
+    // ── Cache ────────────────────────────────────────────────────────
 
     /// Clear the in-memory decoded-data cache (container cache).
-    /// Has no effect if no cache was configured via OpenOptions::memoryCacheSize.
     void flushCache();
+
+    /// Prefetch the encoding table and root manifest into memory.
+    /// Useful for LoadOnDemand mode.
+    bool prefetch();
 
     /// @return Last error code (thread-local).
     static u32 lastError() noexcept;
 
-private:
-    struct Impl;
+    /// @cond INTERNAL
+    struct Impl;  // defined in storage_impl.h (internal)
+    /// @endcond
+
+protected:
+    friend class StorageWritable;
+
+    /// Default constructor — creates an empty (invalid) storage.
+    Storage();
+
+    /// Protected constructor for use by StorageWritable and factories.
+    explicit Storage(std::unique_ptr<Impl> impl);
+
     std::unique_ptr<Impl> m_impl;
 };
 

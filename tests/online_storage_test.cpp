@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-/// online_storage_test: Validates CDN-backed OnlineStorage against live
+/// online_storage_test: Validates CDN-backed Storage::openOnline against live
 /// Blizzard CDN servers using SimpleHttpHandler.
 ///
 /// These tests hit the real network.  They are tagged [online] so they can be
@@ -15,7 +15,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
-#include <whiteout/storages/casc/online_storage.h>
+#include <whiteout/storages/casc/storage.h>
 #include <whiteout/utils/simple_http_handler.h>
 #include <whiteout/utils/simple_thread_pool.h>
 
@@ -42,7 +42,7 @@ static std::string hexStr(const std::array<u8, 16>& key) {
     return s;
 }
 
-/// Create a standard OnlineOpenOptions object for a given product.
+/// Create a standard OnlineOpenOptions for a given product.
 static OnlineOpenOptions makeOpts(interfaces::HttpHandler* http,
                                   interfaces::WorkerPool* pool,
                                   const std::string& product,
@@ -61,33 +61,33 @@ static OnlineOpenOptions makeOpts(interfaces::HttpHandler* http,
 // Section 1: Basic open / close
 // ============================================================================
 
-TEST_CASE("OnlineStorage open fails without HttpHandler", "[online][casc]") {
+TEST_CASE("Storage openOnline fails without HttpHandler", "[online][casc]") {
     OnlineOpenOptions opts;
     opts.product = "w3";
     opts.region = "us";
     // opts.http is null
-    auto storage = OnlineStorage::open(opts);
+    auto storage = Storage::openOnline(opts);
     REQUIRE_FALSE(storage.has_value());
-    CHECK(OnlineStorage::lastError() == CascError::NoHttpHandler);
+    CHECK(Storage::lastError() == CascError::NoHttpHandler);
 }
 
-TEST_CASE("OnlineStorage open fails with empty product", "[online][casc][network]") {
+TEST_CASE("Storage openOnline fails with empty product", "[online][casc][network]") {
     utils::SimpleHttpHandler http(2);
     OnlineOpenOptions opts;
     opts.product = "";
     opts.region = "us";
     opts.http = &http;
 
-    auto storage = OnlineStorage::open(opts);
+    auto storage = Storage::openOnline(opts);
     // Should fail during CDN discovery (empty product → invalid URL → HTTP failure)
     REQUIRE_FALSE(storage.has_value());
 }
 
-TEST_CASE("OnlineStorage open with invalid product", "[online][casc][network]") {
+TEST_CASE("Storage openOnline with invalid product", "[online][casc][network]") {
     utils::SimpleHttpHandler http(2);
     auto opts = makeOpts(&http, nullptr, "totally_nonexistent_product_xyz");
 
-    auto storage = OnlineStorage::open(opts);
+    auto storage = Storage::openOnline(opts);
     REQUIRE_FALSE(storage.has_value());
 }
 
@@ -95,14 +95,14 @@ TEST_CASE("OnlineStorage open with invalid product", "[online][casc][network]") 
 // Section 2: Live CDN tests (Warcraft III Reforged — TVFS root)
 // ============================================================================
 
-TEST_CASE("OnlineStorage W3 open succeeds", "[online][casc][network][w3]") {
+TEST_CASE("Storage openOnline W3 open succeeds", "[online][casc][network][w3]") {
     utils::SimpleHttpHandler http(4);
     utils::SimpleThreadPool pool(4);
     auto opts = makeOpts(&http, &pool, "w3");
 
-    auto storage = OnlineStorage::open(opts);
+    auto storage = Storage::openOnline(opts);
     if (!storage) {
-        WARN("W3 open failed (error " << OnlineStorage::lastError()
+        WARN("W3 open failed (error " << Storage::lastError()
              << ") — CDN may be unavailable");
         SKIP("CDN unavailable");
     }
@@ -203,14 +203,14 @@ TEST_CASE("OnlineStorage W3 open succeeds", "[online][casc][network][w3]") {
 // Section 3: Live CDN tests (StarCraft 1 Remastered — WoW root format)
 // ============================================================================
 
-TEST_CASE("OnlineStorage S1 open succeeds", "[online][casc][network][s1]") {
+TEST_CASE("Storage openOnline S1 open succeeds", "[online][casc][network][s1]") {
     utils::SimpleHttpHandler http(4);
     utils::SimpleThreadPool pool(4);
     auto opts = makeOpts(&http, &pool, "s1");
 
-    auto storage = OnlineStorage::open(opts);
+    auto storage = Storage::openOnline(opts);
     if (!storage) {
-        WARN("S1 open failed (error " << OnlineStorage::lastError()
+        WARN("S1 open failed (error " << Storage::lastError()
              << ") — CDN may be unavailable");
         SKIP("CDN unavailable");
     }
@@ -265,7 +265,7 @@ TEST_CASE("OnlineStorage S1 open succeeds", "[online][casc][network][s1]") {
 // Section 4: Encryption key management
 // ============================================================================
 
-TEST_CASE("OnlineStorage encryption key management", "[online][casc]") {
+TEST_CASE("Storage openOnline encryption key management", "[online][casc]") {
     utils::SimpleHttpHandler http(2);
     OnlineOpenOptions opts;
     opts.product = "w3";
@@ -273,7 +273,7 @@ TEST_CASE("OnlineStorage encryption key management", "[online][casc]") {
     opts.http = &http;
     opts.flags = StorageFeatureFlags::LoadOnDemand; // avoid full load
 
-    auto storage = OnlineStorage::open(opts);
+    auto storage = Storage::openOnline(opts);
     if (!storage) { SKIP("CDN unavailable"); }
 
     // Add and retrieve a key.
@@ -298,13 +298,13 @@ TEST_CASE("OnlineStorage encryption key management", "[online][casc]") {
 // Section 5: Prefetch / LoadOnDemand
 // ============================================================================
 
-TEST_CASE("OnlineStorage LoadOnDemand defers encoding load", "[online][casc][network][w3]") {
+TEST_CASE("Storage openOnline LoadOnDemand defers encoding load", "[online][casc][network][w3]") {
     utils::SimpleHttpHandler http(4);
     utils::SimpleThreadPool pool(4);
     auto opts = makeOpts(&http, &pool, "w3");
     opts.flags = StorageFeatureFlags::LoadOnDemand;
 
-    auto storage = OnlineStorage::open(opts);
+    auto storage = Storage::openOnline(opts);
     if (!storage) { SKIP("CDN unavailable"); }
     REQUIRE(*storage);
 

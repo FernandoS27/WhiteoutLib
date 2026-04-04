@@ -8,7 +8,7 @@
 
 #include "root.h"
 #include "common/path_trie.h"
-#include "../flat_hash_map.h"
+#include "../tables/flat_hash_map.h"
 
 #include <array>
 #include <functional>

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include "config.h"
-#include "../common/hex.h"
+#include "../../common/hex.h"
 
 #include <algorithm>
 #include <charconv>
