@@ -26,6 +26,7 @@ add_library(whiteout_lib
     src/whiteout/utils/timeline_semaphore.cpp
     src/whiteout/utils/os_file_system.cpp
     src/whiteout/utils/simple_http_handler.cpp
+    src/whiteout/utils/blizzard_game_finder.cpp
     src/whiteout/vector_types.cpp
     src/whiteout/common/bit_io.cpp
     src/whiteout/common/huffman_table.cpp
@@ -194,6 +195,13 @@ add_executable(wem_round_trip_example
 )
 
 target_link_libraries(wem_round_trip_example PRIVATE whiteout_lib)
+
+# Blizzard Game Finder Example
+add_executable(game_finder_example
+    examples/game_finder_example.cpp
+)
+
+target_link_libraries(game_finder_example PRIVATE whiteout_lib)
 
 # MDX to WEM Converter Example
 add_executable(mdx_to_wem_example
