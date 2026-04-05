@@ -27,6 +27,7 @@ add_library(whiteout_lib
     src/whiteout/utils/os_file_system.cpp
     src/whiteout/utils/simple_http_handler.cpp
     src/whiteout/utils/blizzard_game_finder.cpp
+    src/whiteout/utils/cdn_product_finder.cpp
     src/whiteout/vector_types.cpp
     src/whiteout/common/bit_io.cpp
     src/whiteout/common/huffman_table.cpp
@@ -260,11 +261,11 @@ if(WHITEOUT_ENABLE_CASC)
         src/whiteout/storages/casc/storage/storage_online.cpp
         src/whiteout/storages/casc/storage/storage_writable.cpp
         src/whiteout/storages/casc/storage/writer.cpp
-        src/whiteout/storages/casc/storage/casc_file_system.cpp
         src/whiteout/storages/casc/cdn/cdn_cache.cpp
         src/whiteout/storages/casc/cdn/cdn_fetcher.cpp
         src/whiteout/storages/casc/cdn/online_index.cpp
         src/whiteout/storages/casc/cdn/memory_cache.cpp
+        src/whiteout/utils/casc_file_system.cpp
     )
 
     add_library(whiteout_casc STATIC ${CASC_SOURCES})

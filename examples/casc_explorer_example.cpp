@@ -6,6 +6,8 @@
 
 #include <whiteout/storages/casc/storage.h>
 #include <whiteout/storages/casc/storage_writable.h>
+#include <whiteout/utils/blizzard_game_finder.h>
+#include <whiteout/utils/cdn_product_finder.h>
 #include <whiteout/utils/simple_http_handler.h>
 #include <whiteout/utils/simple_thread_pool.h>
 
@@ -623,10 +625,36 @@ int main(int argc, char* argv[]) {
     if (mode == Mode::Local) {
         // --- Local storage ---
         if (localPath.empty()) {
-            std::cout << "Enter path to CASC data directory (or 'new' to create empty storage): ";
+            // Scan for installed Blizzard games.
+            auto games = whiteout::utils::findBlizzardGames();
+            if (!games.empty()) {
+                std::cout << "\n  Installed Blizzard games:\n\n";
+                for (size_t i = 0; i < games.size(); ++i) {
+                    std::cout << "    " << (i + 1) << ". " << games[i].name
+                              << "\n       " << games[i].path << "\n";
+                }
+                std::cout << "\n  Enter a number to select a game,\n"
+                          << "  or type a path (or 'new' to create empty storage): ";
+            } else {
+                std::cout << "  No installed Blizzard games found.\n"
+                          << "  Enter path to CASC data directory (or 'new' to create empty storage): ";
+            }
             if (!readLine(localPath) || localPath.empty()) {
                 std::cout << "Bye.\n";
                 return 0;
+            }
+            // Check if input is a numeric selection.
+            bool isNumber = !localPath.empty() &&
+                std::all_of(localPath.begin(), localPath.end(),
+                            [](char c) { return std::isdigit(static_cast<unsigned char>(c)); });
+            if (isNumber) {
+                size_t idx = std::stoul(localPath);
+                if (idx >= 1 && idx <= games.size()) {
+                    localPath = games[idx - 1].path;
+                } else {
+                    std::cerr << "Invalid selection.\n";
+                    return 1;
+                }
             }
         }
 
@@ -658,57 +686,63 @@ int main(int argc, char* argv[]) {
         }
     } else {
         // --- Online storage ---
+        httpHandler = std::make_unique<whiteout::utils::SimpleHttpHandler>(numThreads);
+
         if (product.empty()) {
-            std::cout << "\n  Available products:\n\n"
-                      << "    World of Warcraft:\n"
-                      << "      wow              WoW (retail)\n"
-                      << "      wowt             WoW (PTR)\n"
-                      << "      wow_beta         WoW (beta)\n"
-                      << "      wow_classic      WoW Classic\n"
-                      << "      wow_classic_era  WoW Classic Era\n"
-                      << "\n"
-                      << "    Diablo:\n"
-                      << "      d3               Diablo III\n"
-                      << "      d3t              Diablo III (test)\n"
-                      << "      d3cn             Diablo III (China)\n"
-                      << "      fenris           Diablo IV\n"
-                      << "      fenrist          Diablo IV (test)\n"
-                      << "      anbs             Diablo Immortal (PC)\n"
-                      << "\n"
-                      << "    Overwatch:\n"
-                      << "      pro              Overwatch (retail)\n"
-                      << "      proc             Overwatch (China)\n"
-                      << "      prot             Overwatch (test)\n"
-                      << "\n"
-                      << "    StarCraft:\n"
-                      << "      s1               StarCraft Remastered\n"
-                      << "      s1a              StarCraft: Anthology\n"
-                      << "      s2               StarCraft II\n"
-                      << "      s2t              StarCraft II (test)\n"
-                      << "\n"
-                      << "    Other:\n"
-                      << "      hero             Heroes of the Storm\n"
-                      << "      herot            Heroes of the Storm (test)\n"
-                      << "      hsb              Hearthstone\n"
-                      << "      w3               Warcraft III: Reforged\n"
-                      << "      w3t              Warcraft III: Reforged (test)\n"
-                      << "      rtro             Blizzard Arcade Collection\n"
-                      << "      osi              Diablo II: Resurrected\n"
-                      << "      d2r              Diablo II: Resurrected (alt)\n"
-                      << "\n"
-                      << "    Agents / Misc:\n"
-                      << "      agent            Battle.net Agent\n"
-                      << "      bna              Battle.net App\n"
-                      << "      catalogs         Catalogs\n"
-                      << "\n"
-                      << "  Product code: ";
-            if (!readLine(product) || product.empty()) {
-                std::cout << "Bye.\n";
-                return 0;
+            if (region == "us" && !modeFromArgs) {
+                std::cout << "Region [us]: ";
+                std::string r;
+                readLine(r);
+                if (!r.empty()) region = r;
+            }
+
+            std::cout << "\nFetching product list from " << region << " CDN ...\n";
+            whiteout::utils::CdnProductFinderOptions findOpts;
+            findOpts.http = httpHandler.get();
+            findOpts.region = region;
+            auto cdnProducts = whiteout::utils::findCdnProducts(findOpts);
+
+            if (cdnProducts.empty()) {
+                std::cerr << "Failed to retrieve product list from CDN.\n"
+                          << "Enter product code manually: ";
+                if (!readLine(product) || product.empty()) {
+                    std::cout << "Bye.\n";
+                    return 0;
+                }
+            } else {
+                std::cout << "\n  Available products (" << cdnProducts.size() << "):\n\n";
+                for (size_t i = 0; i < cdnProducts.size(); ++i) {
+                    std::cout << "    " << std::setw(3) << std::right << (i + 1) << ". "
+                              << cdnProducts[i].product;
+                    if (cdnProducts[i].seqn)
+                        std::cout << "  (seqn " << cdnProducts[i].seqn << ")";
+                    std::cout << "\n";
+                }
+                std::cout << "\n  Enter a number or product code: ";
+                std::string input;
+                if (!readLine(input) || input.empty()) {
+                    std::cout << "Bye.\n";
+                    return 0;
+                }
+                // Check if numeric selection.
+                bool isNumber = std::all_of(input.begin(), input.end(),
+                    [](char c) { return std::isdigit(static_cast<unsigned char>(c)); });
+                if (isNumber) {
+                    size_t idx = std::stoul(input);
+                    if (idx >= 1 && idx <= cdnProducts.size())
+                        product = cdnProducts[idx - 1].product;
+                    else {
+                        std::cerr << "Invalid selection.\n";
+                        return 1;
+                    }
+                } else {
+                    product = input;
+                }
             }
         }
 
-        if (region == "us" && !modeFromArgs) {
+        // If product was given via args but region wasn't customized, offer to change it.
+        if (modeFromArgs && region == "us" && argc < 4) {
             std::cout << "Region [us]: ";
             std::string r;
             readLine(r);
@@ -718,8 +752,6 @@ int main(int argc, char* argv[]) {
         std::string cacheDir;
         std::cout << "Cache directory (Enter to skip): ";
         readLine(cacheDir);
-
-        httpHandler = std::make_unique<whiteout::utils::SimpleHttpHandler>(numThreads);
 
         casc::OnlineOpenOptions opts;
         opts.product = product;

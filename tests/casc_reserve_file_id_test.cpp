@@ -395,3 +395,159 @@ TEST_CASE("Reserve FileId Mixed With Path Writes", "[casc][reserve_file_id]") {
 
     cleanDir(testDir);
 }
+
+// ============================================================================
+// WowTvfs root format: same as WoW but uses TVFS serialization (11.x+)
+// ============================================================================
+
+TEST_CASE("Reserve FileId WowTvfs", "[casc][reserve_file_id]") {
+    std::printf("\n[Test: reserveFileId — WowTvfs root format]\n");
+
+    const std::string testDir = "test_casc_reserve_wowtvfs";
+    cleanDir(testDir);
+
+    CreateOptions opts;
+    opts.product = "wow";
+    opts.version = "1.0.0";
+    opts.rootFormat = RootFormat::WowTvfs;
+    auto storage = StorageWritable::create(opts);
+    REQUIRE(static_cast<bool>(storage));
+
+    // Reserve a file ID for a WoW path (same semantics as WoW format).
+    auto id = storage.reserveFileId("world\\maps\\azeroth\\terrain.adt");
+    REQUIRE(id.has_value());
+    CHECK(*id > 0);
+
+    // Write data using the reserved ID.
+    auto data = makeTestData(512, 0x42);
+    CHECK(storage.writeFile(static_cast<i32>(*id), data));
+
+    // Save to disk.
+    CHECK(storage.save(testDir));
+
+    // Reopen and verify.
+    auto reopened = StorageWritable::open(testDir);
+    REQUIRE(reopened.has_value());
+
+    // Should be readable by path.
+    auto readByPath = reopened->readFile("world\\maps\\azeroth\\terrain.adt");
+    CHECK((readByPath.has_value() && *readByPath == data));
+
+    cleanDir(testDir);
+}
+
+// ============================================================================
+// WowTvfs: duplicate name returns nullopt
+// ============================================================================
+
+TEST_CASE("Reserve FileId WowTvfs Duplicate", "[casc][reserve_file_id]") {
+    std::printf("\n[Test: reserveFileId — WowTvfs duplicate rejection]\n");
+
+    CreateOptions opts;
+    opts.rootFormat = RootFormat::WowTvfs;
+    auto storage = StorageWritable::create(opts);
+    REQUIRE(static_cast<bool>(storage));
+
+    auto id1 = storage.reserveFileId("dir\\file.dat");
+    REQUIRE(id1.has_value());
+
+    // Same name again — should return nullopt.
+    auto id2 = storage.reserveFileId("dir\\file.dat");
+    CHECK_FALSE(id2.has_value());
+}
+
+// ============================================================================
+// WowTvfs: two different names get distinct IDs
+// ============================================================================
+
+TEST_CASE("Reserve FileId WowTvfs Distinct IDs", "[casc][reserve_file_id]") {
+    std::printf("\n[Test: reserveFileId — WowTvfs distinct IDs]\n");
+
+    CreateOptions opts;
+    opts.rootFormat = RootFormat::WowTvfs;
+    auto storage = StorageWritable::create(opts);
+    REQUIRE(static_cast<bool>(storage));
+
+    auto id1 = storage.reserveFileId("file_a.dat");
+    auto id2 = storage.reserveFileId("file_b.dat");
+
+    REQUIRE(id1.has_value());
+    REQUIRE(id2.has_value());
+    CHECK(*id1 != *id2);
+}
+
+// ============================================================================
+// WowTvfs + path writes coexist
+// ============================================================================
+
+TEST_CASE("Reserve FileId WowTvfs Mixed With Path Writes", "[casc][reserve_file_id]") {
+    std::printf("\n[Test: reserveFileId — WowTvfs mixed with path-based writes]\n");
+
+    const std::string testDir = "test_casc_reserve_wowtvfs_mixed";
+    cleanDir(testDir);
+
+    CreateOptions opts;
+    opts.rootFormat = RootFormat::WowTvfs;
+    auto storage = StorageWritable::create(opts);
+    REQUIRE(static_cast<bool>(storage));
+
+    // Path-based write.
+    auto pathData = makeTestData(128, 0xAA);
+    CHECK(storage.writeFile("some\\normal\\file.dat", pathData));
+
+    // Reserve-based write.
+    auto id = storage.reserveFileId("another\\reserved\\file.m2");
+    REQUIRE(id.has_value());
+    auto idData = makeTestData(256, 0xBB);
+    CHECK(storage.writeFile(static_cast<i32>(*id), idData));
+
+    CHECK(storage.save(testDir));
+
+    auto reopened = StorageWritable::open(testDir);
+    REQUIRE(reopened.has_value());
+
+    auto r1 = reopened->readFile("some\\normal\\file.dat");
+    CHECK((r1.has_value() && *r1 == pathData));
+
+    auto r2 = reopened->readFile("another\\reserved\\file.m2");
+    CHECK((r2.has_value() && *r2 == idData));
+
+    cleanDir(testDir);
+}
+
+// ============================================================================
+// D4: duplicate SNO name returns nullopt
+// ============================================================================
+
+TEST_CASE("Reserve FileId D4 Duplicate", "[casc][reserve_file_id]") {
+    std::printf("\n[Test: reserveFileId — D4 duplicate rejection]\n");
+
+    CreateOptions opts;
+    opts.rootFormat = RootFormat::Diablo4;
+    auto storage = StorageWritable::create(opts);
+    REQUIRE(static_cast<bool>(storage));
+
+    auto id1 = storage.reserveFileId("my_beast.app");
+    REQUIRE(id1.has_value());
+
+    // Same name again — should return nullopt.
+    auto id2 = storage.reserveFileId("my_beast.app");
+    CHECK_FALSE(id2.has_value());
+}
+
+// ============================================================================
+// D4: unknown extension returns nullopt
+// ============================================================================
+
+TEST_CASE("Reserve FileId D4 Unknown Extension", "[casc][reserve_file_id]") {
+    std::printf("\n[Test: reserveFileId — D4 unknown extension]\n");
+
+    CreateOptions opts;
+    opts.rootFormat = RootFormat::Diablo4;
+    auto storage = StorageWritable::create(opts);
+    REQUIRE(static_cast<bool>(storage));
+
+    // ".xyz" is not a known SNO extension.
+    auto id = storage.reserveFileId("some_file.xyz");
+    CHECK_FALSE(id.has_value());
+}

@@ -7,10 +7,12 @@
 #include "storage_backend_impl.h"
 #include "constants.h"
 #include "../../common/md5.h"
+#include "../../common/jenkins.h"
 
 #include <whiteout/storages/casc/storage_writable.h>
 
 #include <filesystem>
+#include <unordered_set>
 
 namespace whiteout::storages::casc {
 
@@ -331,11 +333,37 @@ bool StorageWritable::save(const std::string& outputPath) {
     };
     std::vector<PendingRead> pendingReads;
 
+    // Precompute Jenkins hashes for pending writes/deletes so we can match
+    // existing WoW root entries that have fileNameHash but empty path.
+    std::unordered_set<u64> pendingWriteHashes;
+    std::unordered_set<u64> pendingDeleteHashes;
+    for (auto& [key, _] : m_impl->writeOverlay->pendingWrites) {
+        if (!key.path.empty()) {
+            auto h = storages::common::jenkinsHash(key.path);
+            pendingWriteHashes.insert(u64(h.pc) | (u64(h.pb) << 32));
+        }
+    }
+    for (auto& key : m_impl->writeOverlay->pendingDeletes) {
+        if (!key.path.empty()) {
+            auto h = storages::common::jenkinsHash(key.path);
+            pendingDeleteHashes.insert(u64(h.pc) | (u64(h.pb) << 32));
+        }
+    }
+
     if (m_impl->root) {
         m_impl->root->enumerate([&](const RootEntry& re) -> bool {
             OverlayKey pathKey{storages::common::normalizeCascPath(re.path), std::nullopt};
             if (m_impl->writeOverlay->pendingDeletes.count(pathKey))
                 return true;
+
+            // For WoW root entries with no path but a valid Jenkins hash,
+            // check if the hash matches any pending write/delete path.
+            if (re.path.empty() && re.fileNameHash != 0) {
+                if (pendingDeleteHashes.count(re.fileNameHash))
+                    return true;
+                if (pendingWriteHashes.count(re.fileNameHash))
+                    return true;
+            }
 
             if (re.fileDataId != kInvalidFileDataId) {
                 OverlayKey idKey{"", re.fileDataId};
@@ -356,6 +384,7 @@ bool StorageWritable::save(const std::string& outputPath) {
             we.path = re.path;
             we.cKey = re.cKey;
             we.fileDataId = re.fileDataId;
+            we.fileNameHash = re.fileNameHash;
             we.localeFlags = re.localeFlags;
             we.contentFlags = re.contentFlags;
 
@@ -500,8 +529,10 @@ bool StorageWritable::save(const std::string& outputPath) {
         }
     }
 
-    // Auto-assign fileDataIds for formats that use them.
-    if (rootFmt == RootFormat::Wow || rootFmt == RootFormat::Diablo3) {
+    // Auto-assign fileDataIds for WoW format (all entries need one).
+    // D3 entries keep their original fileDataId (asset entries have it from
+    // the root; named entries should stay at kInvalidFileDataId).
+    if (rootFmt == RootFormat::Wow) {
         u32 maxId = 0;
         for (auto& e : entries) {
             if (e.fileDataId != kInvalidFileDataId && e.fileDataId > maxId)

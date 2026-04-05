@@ -20,6 +20,7 @@ namespace whiteout::storages::casc {
 struct WriteEntry {
     std::string path;                       // File path in the root manifest.
     u32 fileDataId = 0xFFFFFFFF;            // WoW-style FileDataId (0xFFFFFFFF = unused).
+    u64 fileNameHash = 0;                   // Jenkins hash from WoW root (preserved on re-serialize).
     u32 localeFlags = 0;                    // Locale mask.
     u32 contentFlags = 0;                   // Content flags.
 

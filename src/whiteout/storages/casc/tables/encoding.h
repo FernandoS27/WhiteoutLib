@@ -22,6 +22,7 @@ struct EncodingEntry {
     std::array<u8, 16> cKey{};
     std::array<u8, 16> eKey{};  ///< Primary EKey (first encoding key).
     u64 fileSize = 0;           ///< Uncompressed file size.
+    std::string eSpec;          ///< BLTE encoding specification (e.g. "z", "n", "b:{65536*=z}").
 };
 
 class EncodingTable {

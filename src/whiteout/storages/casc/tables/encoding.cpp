@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <numeric>
 
 namespace whiteout::storages::casc {
 
@@ -231,7 +232,7 @@ void EncodingTable::insert(const EncodingEntry& entry) {
 // ============================================================================
 
 std::vector<u8> EncodingTable::serialize() const {
-    // Create a sorted copy for serialization (entries must be CKey-ordered).
+    // Create a sorted copy for serialization (CKey pages require CKey order).
     auto sorted = m_entries;
     std::sort(sorted.begin(), sorted.end(),
               [](const EncodingEntry& a, const EncodingEntry& b) {
@@ -241,12 +242,38 @@ std::vector<u8> EncodingTable::serialize() const {
     constexpr u16 kPageSizeKB = kEncodingPageSizeKB;
     constexpr size_t kPageSize = kEncodingPageSize;
 
-    // Build CKey pages.
+    // --- Build ESpec string pool ---
+    // Unique null-terminated strings. espec_index is a 0-based ordinal
+    // counting strings (not byte offset) per wowdev.wiki convention.
+    std::vector<u8> eSpecPool;
+    // Map: eSpec string → ordinal index.
+    std::vector<std::pair<std::string, u32>> eSpecMap;
+    auto getESpecIndex = [&](const std::string& spec) -> u32 {
+        for (auto& [s, idx] : eSpecMap) {
+            if (s == spec) return idx;
+        }
+        u32 idx = static_cast<u32>(eSpecMap.size());
+        eSpecMap.push_back({spec, idx});
+        eSpecPool.insert(eSpecPool.end(), spec.begin(), spec.end());
+        eSpecPool.push_back(0); // null terminator
+        return idx;
+    };
+
+    // Pre-populate indices for all entries.
+    std::vector<u32> sortedESpecIndices;
+    sortedESpecIndices.reserve(sorted.size());
+    for (auto& entry : sorted) {
+        sortedESpecIndices.push_back(
+            entry.eSpec.empty() ? getESpecIndex("n") : getESpecIndex(entry.eSpec));
+    }
+    u32 eSpecBlockSize = static_cast<u32>(eSpecPool.size());
+
+    // --- Build CKey pages (CEKeyPageTable) ---
     struct PageData {
         std::vector<u8> data;
-        std::array<u8, 16> firstCKey{};
+        std::array<u8, 16> firstKey{};
     };
-    std::vector<PageData> pages;
+    std::vector<PageData> cKeyPages;
     {
         PageData current;
         for (auto& entry : sorted) {
@@ -254,50 +281,88 @@ std::vector<u8> EncodingTable::serialize() const {
             constexpr size_t kEntrySize = 1 + 5 + kCKeySize + kEKeySize;
 
             if (current.data.size() + kEntrySize > kPageSize) {
-                // Pad page to kPageSize.
                 current.data.resize(kPageSize, 0);
-                pages.push_back(std::move(current));
+                cKeyPages.push_back(std::move(current));
                 current = PageData{};
             }
 
             if (current.data.empty())
-                current.firstCKey = entry.cKey;
+                current.firstKey = entry.cKey;
 
-            // keyCount = 1.
-            current.data.push_back(1);
-            // fileSize (40-bit BE).
+            current.data.push_back(1); // keyCount = 1
             size_t off = current.data.size();
             current.data.resize(off + 5);
             writeBE40(current.data.data() + off, entry.fileSize);
-            // CKey.
             current.data.insert(current.data.end(), entry.cKey.begin(), entry.cKey.end());
-            // EKey.
             current.data.insert(current.data.end(), entry.eKey.begin(), entry.eKey.end());
         }
-
         if (!current.data.empty()) {
-            current.data.resize(kPageSize, 0); // Pad last page.
-            pages.push_back(std::move(current));
+            current.data.resize(kPageSize, 0);
+            cKeyPages.push_back(std::move(current));
         }
     }
 
-    u32 cKeyPageCount = u32(pages.size());
-    u32 eKeyPageCount = 0; // We don't write EKey pages for now.
-    u32 eSpecBlockSize = 0;
+    // --- Build EKey pages (EKeySpecPageTable) ---
+    // Entries sorted by EKey: eKey(16) + espec_index(4 BE) + file_size(5 BE) = 25 bytes.
+    // Create EKey-sorted index.
+    std::vector<size_t> eKeySortOrder(sorted.size());
+    std::iota(eKeySortOrder.begin(), eKeySortOrder.end(), 0);
+    std::sort(eKeySortOrder.begin(), eKeySortOrder.end(),
+              [&](size_t a, size_t b) {
+                  return cmpKey16(sorted[a].eKey, sorted[b].eKey) < 0;
+              });
 
-    // Calculate total size.
+    std::vector<PageData> eKeyPages;
+    {
+        PageData current;
+        for (size_t idx : eKeySortOrder) {
+            auto& entry = sorted[idx];
+            u32 specIdx = sortedESpecIndices[idx];
+
+            // EKey page entry: eKey(16) + espec_index(4 BE) + file_size(5 BE) = 25 bytes.
+            constexpr size_t kEKeyEntrySize = kEKeySize + 4 + 5;
+
+            if (current.data.size() + kEKeyEntrySize > kPageSize) {
+                current.data.resize(kPageSize, 0);
+                eKeyPages.push_back(std::move(current));
+                current = PageData{};
+            }
+
+            if (current.data.empty())
+                current.firstKey = entry.eKey;
+
+            current.data.insert(current.data.end(), entry.eKey.begin(), entry.eKey.end());
+            size_t off = current.data.size();
+            current.data.resize(off + 4);
+            writeBE32(current.data.data() + off, specIdx);
+            off = current.data.size();
+            current.data.resize(off + 5);
+            writeBE40(current.data.data() + off, entry.fileSize);
+        }
+        if (!current.data.empty()) {
+            current.data.resize(kPageSize, 0);
+            eKeyPages.push_back(std::move(current));
+        }
+    }
+
+    u32 cKeyPageCount = static_cast<u32>(cKeyPages.size());
+    u32 eKeyPageCount = static_cast<u32>(eKeyPages.size());
+
+    // --- Calculate total size ---
     size_t headerSize = kEncodingMinHeaderSize;
-    size_t cKeyPageTableSize = cKeyPageCount * (kCKeySize + 16);
-    size_t eKeyPageTableSize = 0;
+    size_t cKeyPageTableSize = cKeyPageCount * (kCKeySize + 16); // firstCKey + MD5
+    size_t eKeyPageTableSize = eKeyPageCount * (kEKeySize + 16); // firstEKey + MD5
     size_t cKeyPagesSize = cKeyPageCount * kPageSize;
+    size_t eKeyPagesSize = eKeyPageCount * kPageSize;
 
-    size_t totalSize = headerSize + eSpecBlockSize + cKeyPageTableSize +
-                       eKeyPageTableSize + cKeyPagesSize;
+    size_t totalSize = headerSize + eSpecBlockSize +
+                       cKeyPageTableSize + cKeyPagesSize +
+                       eKeyPageTableSize + eKeyPagesSize;
 
     std::vector<u8> output(totalSize, 0);
     size_t pos = 0;
 
-    // Header.
+    // --- Header (22 bytes) ---
     output[pos++] = kEncodingMagic0;
     output[pos++] = kEncodingMagic1;
     output[pos++] = kEncodingVersion;
@@ -310,19 +375,36 @@ std::vector<u8> EncodingTable::serialize() const {
     output[pos++] = 0; // padding
     writeBE32(output.data() + pos, eSpecBlockSize); pos += 4;
 
-    // ESpec block (empty).
+    // --- ESpec string pool ---
+    std::memcpy(output.data() + pos, eSpecPool.data(), eSpecPool.size());
+    pos += eSpecBlockSize;
 
-    // CKey page table: firstCKey + MD5 of page.
-    for (auto& page : pages) {
-        std::memcpy(output.data() + pos, page.firstCKey.data(), kCKeySize);
+    // --- CKey page table: firstCKey(16) + MD5(page)(16) ---
+    for (auto& page : cKeyPages) {
+        std::memcpy(output.data() + pos, page.firstKey.data(), kCKeySize);
         pos += kCKeySize;
         auto hash = common::md5Hash(std::span(page.data.data(), page.data.size()));
         std::memcpy(output.data() + pos, hash.data(), 16);
         pos += 16;
     }
 
-    // CKey pages.
-    for (auto& page : pages) {
+    // --- CKey pages ---
+    for (auto& page : cKeyPages) {
+        std::memcpy(output.data() + pos, page.data.data(), page.data.size());
+        pos += kPageSize;
+    }
+
+    // --- EKey page table: firstEKey(16) + MD5(page)(16) ---
+    for (auto& page : eKeyPages) {
+        std::memcpy(output.data() + pos, page.firstKey.data(), kEKeySize);
+        pos += kEKeySize;
+        auto hash = common::md5Hash(std::span(page.data.data(), page.data.size()));
+        std::memcpy(output.data() + pos, hash.data(), 16);
+        pos += 16;
+    }
+
+    // --- EKey pages ---
+    for (auto& page : eKeyPages) {
         std::memcpy(output.data() + pos, page.data.data(), page.data.size());
         pos += kPageSize;
     }

@@ -117,37 +117,139 @@ static bool writeFileString(const std::string& path, const std::string& content)
 }
 
 // ============================================================================
+// ESpec helper
+// ============================================================================
+
+/// Build an ESpec string describing the BLTE encoding recipe for a file.
+/// The result matches the wowdev.wiki BLTE ESpec grammar:
+///   single-frame compressed  → "z"
+///   single-frame raw         → "n"
+///   multi-frame compressed   → "b:{frameSize*=z}"
+///   multi-frame raw          → "b:{frameSize*=n}"
+static std::string buildESpec(bool compress, u64 fileSize, u32 frameSize) {
+    if (fileSize == 0 || fileSize <= frameSize) {
+        return compress ? "z" : "n";
+    }
+    // Multi-frame block encoding.
+    if (compress)
+        return "b:{" + std::to_string(frameSize) + "*=z}";
+    else
+        return "b:{" + std::to_string(frameSize) + "*=n}";
+}
+
+/// Compute variable-width offset field size for a given table size.
+/// Mirrors getCftOffsSize() in the TVFS parser.
+static u32 getOffsFieldSize(u32 tableSize) {
+    if (tableSize <= 0xFF)     return 1;
+    if (tableSize <= 0xFFFF)   return 2;
+    if (tableSize <= 0xFFFFFF) return 3;
+    return 4;
+}
+
+// ============================================================================
 // TVFS Root Serialization
 // ============================================================================
 
-/// Build a minimal TVFS root manifest from entries.
+/// Build a TVFS root manifest from entries with INCLUDE_CKEY and WRITE_SUPPORT.
 /// This produces a flat TVFS blob (no prefix compression for simplicity).
-static std::vector<u8> serializeTvfsRoot(const std::vector<WriteEntry>& entries) {
+/// Includes CKey in CFT entries and an EST (Encoding Specifier Table) that
+/// records the BLTE ESpec string for each file.
+static std::vector<u8> serializeTvfsRoot(const std::vector<WriteEntry>& entries,
+                                          u32 blteFrameSize) {
     // TVFS root format matching the real parser:
     //   Header (46 bytes): mixed LE/BE fields
     //   Path table: prefix-trie encoded (we use flat single-level)
     //   VFS table: span entries mapping paths → CFT regions
-    //   CFT table: EKey (eKeySize bytes) per file entry
+    //   CFT table: EKey(eKeySize) + CKey(eKeySize) per file entry
+    //   EST table: ESpec string pool + per-entry offset indices
 
     constexpr u8 kFormatVersion = kTvfsFormatVersion;
     constexpr u8 kEKeySizeTvfs = 9;
     constexpr u8 kPatchKeySize = 0;
-    constexpr u32 kFlags = 0; // no CKey in CFT for simplicity
+    // INCLUDE_CKEY (0x0001): store CKey alongside EKey in CFT entries.
+    // WRITE_SUPPORT (0x0002): EST table present with ESpec encoding info.
+    constexpr u32 kFlags = 0x0003;
 
     // --- Build CFT (Content-File Table) ---
-    // Each entry: EKey (kEKeySize bytes). No file size or CKey.
-    constexpr u32 kCftEntrySize = kEKeySizeTvfs;
+    // Each entry: EKey(eKeySize) + CKey(eKeySize).
+    constexpr u32 kCftEntrySize = kEKeySizeTvfs * 2;
     std::vector<u8> cft;
     cft.reserve(entries.size() * kCftEntrySize);
     for (auto& e : entries) {
         for (u32 i = 0; i < kEKeySizeTvfs; ++i)
             cft.push_back(e.eKey[i]);
+        for (u32 i = 0; i < kEKeySizeTvfs; ++i)
+            cft.push_back(e.cKey[i]);
     }
 
     // Determine CFT offset field size (for VFS table entries).
-    u32 cftOffsSize = 1;
-    if (cft.size() > 0xFFFF) cftOffsSize = 4;
-    else if (cft.size() > 0xFF) cftOffsSize = 2;
+    u32 cftOffsSize = getOffsFieldSize(static_cast<u32>(cft.size()));
+
+    // --- Build EST (Encoding Specifier Table) ---
+    // Layout: [string pool: null-terminated ESpec strings] +
+    //         [per-CFT-entry offset into string pool (estOffsSize bytes, BE)].
+    //
+    // The string pool contains unique ESpec strings. Each CFT entry has a
+    // variable-width BE offset into this pool identifying its ESpec.
+    // estOffsSize is computed from the total EST table size, matching
+    // CascLib's GetOffsetFieldSize(EstTableSize) convention.
+
+    // Collect unique ESpec strings and assign pool offsets.
+    std::vector<std::string> uniqueESpecs;
+    std::vector<u32> entryPoolOffsets;
+    entryPoolOffsets.reserve(entries.size());
+    {
+        // Map ESpec string → byte offset in the string pool.
+        struct SpecEntry { u32 poolOffset; };
+        std::vector<std::pair<std::string, SpecEntry>> specMap;
+
+        u32 poolPos = 0;
+        for (auto& e : entries) {
+            std::string spec = buildESpec(e.compress, e.fileSize, blteFrameSize);
+
+            // Linear search is fine — typically 1-3 unique strings.
+            u32 offset = UINT32_MAX;
+            for (auto& [s, se] : specMap) {
+                if (s == spec) { offset = se.poolOffset; break; }
+            }
+            if (offset == UINT32_MAX) {
+                offset = poolPos;
+                specMap.push_back({spec, {poolPos}});
+                uniqueESpecs.push_back(spec);
+                poolPos += static_cast<u32>(spec.size() + 1); // +1 for '\0'
+            }
+            entryPoolOffsets.push_back(offset);
+        }
+    }
+
+    // Build string pool blob.
+    std::vector<u8> estStringPool;
+    for (auto& s : uniqueESpecs) {
+        estStringPool.insert(estStringPool.end(), s.begin(), s.end());
+        estStringPool.push_back(0); // null terminator
+    }
+
+    // Determine estOffsSize iteratively: estOffsSize must be consistent with
+    // total EST table size (estTableSize = poolSize + numEntries * estOffsSize).
+    u32 poolSize = static_cast<u32>(estStringPool.size());
+    u32 numEntries = static_cast<u32>(entries.size());
+    u32 estOffsSize = 1;
+    for (int iter = 0; iter < 4; ++iter) {
+        u32 total = poolSize + numEntries * estOffsSize;
+        u32 needed = getOffsFieldSize(total);
+        if (needed <= estOffsSize) break;
+        estOffsSize = needed;
+    }
+    u32 estTableSize = poolSize + numEntries * estOffsSize;
+
+    // Build complete EST blob: string pool + offset index.
+    std::vector<u8> est;
+    est.reserve(estTableSize);
+    est.insert(est.end(), estStringPool.begin(), estStringPool.end());
+    for (auto offset : entryPoolOffsets) {
+        for (int b = static_cast<int>(estOffsSize) - 1; b >= 0; --b)
+            est.push_back(static_cast<u8>((offset >> (b * 8)) & 0xFF));
+    }
 
     // --- Build VFS table ---
     // Each file gets one VFS entry: spanCount(1) + FileOffset(4 BE) + SpanSize(4 BE) + CftOffset(var BE).
@@ -165,19 +267,8 @@ static std::vector<u8> serializeTvfsRoot(const std::vector<WriteEntry>& entries)
     }
 
     // --- Build path table ---
-    // For each file: encode path as flat trie entry.
-    // Format for each entry:
-    //   [len(u8)][name_bytes...]   — name fragment with length prefix
-    //   0x00                       — path boundary marker (present before 0xFF)
-    //   0xFF                       — node value marker
-    //   nodeValue (u32 BE)         — VFS offset (bit 31 = 0 → file node)
-    //
-    // For paths with directories like "dir/file.txt":
-    //   We create nested folder nodes. For simplicity, emit full paths as single
-    //   top-level folder entries.
-    //
-    // Actually: the simplest valid structure is an anonymous root folder containing
-    // all file nodes. Each file node has the full path as its name.
+    // Simplest valid structure: anonymous root folder containing all file nodes,
+    // each with the full path as its name.
 
     // Build inner path table content (file nodes within root folder).
     std::vector<u8> innerPathTable;
@@ -220,10 +311,11 @@ static std::vector<u8> serializeTvfsRoot(const std::vector<WriteEntry>& entries)
     u32 vfsTableSize = static_cast<u32>(vfs.size());
     u32 cftTableOffset = vfsTableOffset + vfsTableSize;
     u32 cftTableSize = static_cast<u32>(cft.size());
+    u32 estTableOffset = cftTableOffset + cftTableSize;
 
     // --- Build header ---
     std::vector<u8> result;
-    result.reserve(kTvfsHeaderSize + pathTableSize + vfsTableSize + cftTableSize);
+    result.reserve(kTvfsHeaderSize + pathTableSize + vfsTableSize + cftTableSize + estTableSize);
 
     pushLE32(result, RootSignature::kTVFS); // offset 0: magic (LE)
     result.push_back(kFormatVersion);       // offset 4: formatVersion (u8)
@@ -238,42 +330,94 @@ static std::vector<u8> serializeTvfsRoot(const std::vector<WriteEntry>& entries)
     pushBE32(result, cftTableOffset);       // offset 28: cftTableOffset (BE)
     pushBE32(result, cftTableSize);         // offset 32: cftTableSize (BE)
     pushBE16(result, 1);                    // offset 36: maxDepth (BE)
-    pushBE32(result, 0);                    // offset 38: estTableOffset (BE)
-    pushBE32(result, 0);                    // offset 42: estTableSize (BE)
+    pushBE32(result, estTableOffset);       // offset 38: estTableOffset (BE)
+    pushBE32(result, estTableSize);         // offset 42: estTableSize (BE)
 
     // --- Append sections ---
     result.insert(result.end(), pathTable.begin(), pathTable.end());
     result.insert(result.end(), vfs.begin(), vfs.end());
     result.insert(result.end(), cft.begin(), cft.end());
+    result.insert(result.end(), est.begin(), est.end());
 
     return result;
 }
 
 // ============================================================================
-// D3 Root Serialization (minimal)
+// D3 Root Serialization (two-level hierarchy)
 // ============================================================================
 
-static std::vector<u8> serializeD3Root(const std::vector<WriteEntry>& entries) {
-    // D3 root is a flat directory format. Single directory block containing all entries.
-    // Format: magic (u32 LE = 0x8007D0C4) + u32 field1 + u32 field2 + u32 entryCount
-    //       + entries (each: CKey(16) + snoId(u32) + fileIndex(u32)).
-    // For simplicity, assign sequential snoIds.
+/// Result of D3 root serialization.  The D3 root format uses a two-level
+/// hierarchy: the root blob (kD3Root) references a subdirectory blob (kD3Dir)
+/// that actually contains the file entries.  Both blobs must be stored in the
+/// CASC archive and encoding table.
+struct D3RootBlobs {
+    std::vector<u8> rootData;    ///< Root blob (kD3Root + one "Base" named entry).
+    std::vector<u8> subdirData;  ///< Subdirectory blob (kD3Dir + named entries for files).
+    std::array<u8, 16> subdirCKey{}; ///< Content key of subdirData.
+};
 
-    std::vector<u8> result;
+static D3RootBlobs serializeD3Root(const std::vector<WriteEntry>& entries) {
+    D3RootBlobs result;
 
-    pushLE32(result, RootSignature::kD3Root);
-    pushLE32(result, 0); // field1 (locale or flags).
-    pushLE32(result, 0); // field2.
-    pushLE32(result, static_cast<u32>(entries.size()));
-
+    // Partition entries into asset entries (have a fileIndex / fileDataId)
+    // and named entries (path-only, no SNO fileIndex).
+    // AssetIdx entries are not distinguishable from asset entries in WriteEntry
+    // (subIndex is not preserved), so they are written as 0 assetIdx entries;
+    // entries that originally were assetIdx are emitted as regular asset
+    // entries here, which is acceptable for re-serialization.
+    std::vector<size_t> assetIndices, namedIndices;
     for (size_t i = 0; i < entries.size(); ++i) {
-        // CKey (16 bytes).
-        result.insert(result.end(), entries[i].cKey.begin(), entries[i].cKey.end());
-        // SNO ID (u32 LE) — use index as placeholder.
-        pushLE32(result, static_cast<u32>(i));
-        // File index (u32 LE).
-        pushLE32(result, static_cast<u32>(i));
+        if (entries[i].fileDataId != 0xFFFFFFFF)
+            assetIndices.push_back(i);
+        else
+            namedIndices.push_back(i);
     }
+
+
+    // Step 1: Build the "Base" subdirectory blob (kD3Dir).
+    // Format:
+    //   [u32 LE: kD3Dir signature]
+    //   [u32 LE: assetCount]
+    //   For each asset entry: [CKey(16)] [fileIndex(4)]
+    //   [u32 LE: assetIdxCount = 0]
+    //   [u32 LE: namedCount]
+    //   For each named entry: [CKey(16)] [null-terminated path string]
+    auto& subdir = result.subdirData;
+    pushLE32(subdir, RootSignature::kD3Dir);
+
+    // Asset entries.
+    pushLE32(subdir, static_cast<u32>(assetIndices.size()));
+    for (auto idx : assetIndices) {
+        subdir.insert(subdir.end(), entries[idx].cKey.begin(), entries[idx].cKey.end());
+        pushLE32(subdir, entries[idx].fileDataId);
+    }
+
+    // AssetIdx entries (not preserved — subIndex lost during enumeration).
+    pushLE32(subdir, 0);
+
+    // Named entries.
+    pushLE32(subdir, static_cast<u32>(namedIndices.size()));
+    for (auto idx : namedIndices) {
+        subdir.insert(subdir.end(), entries[idx].cKey.begin(), entries[idx].cKey.end());
+        subdir.insert(subdir.end(), entries[idx].path.begin(), entries[idx].path.end());
+        subdir.push_back(0); // null terminator
+    }
+
+    result.subdirCKey = storages::common::md5Hash(subdir);
+
+    // Step 2: Build the root blob (kD3Root) referencing the subdirectory.
+    // Use an empty name for the subdirectory so the parser doesn't prepend
+    // a prefix to the file paths (prefix = "" when name is empty).
+    // Format:
+    //   [u32 LE: kD3Root signature]
+    //   [u32 LE: namedCount = 1]
+    //   [CKey(16): subdirectory content key]
+    //   [null-terminated string: ""]
+    auto& root = result.rootData;
+    pushLE32(root, RootSignature::kD3Root);
+    pushLE32(root, 1); // one subdirectory entry.
+    root.insert(root.end(), result.subdirCKey.begin(), result.subdirCKey.end());
+    root.push_back(0); // empty string + null terminator
 
     return result;
 }
@@ -293,10 +437,10 @@ static std::vector<u8> serializeWowRoot(const std::vector<WriteEntry>& entries) 
 
     std::vector<u8> result;
 
-    // Count entries that have paths (for name hashes).
+    // Count entries that have paths or preserved hashes (for name hashes).
     u32 namedCount = 0;
     for (auto& e : entries)
-        if (!e.path.empty()) ++namedCount;
+        if (!e.path.empty() || e.fileNameHash != 0) ++namedCount;
 
     pushLE32(result, RootSignature::kMFST);
     pushLE32(result, static_cast<u32>(entries.size())); // total file count.
@@ -338,6 +482,10 @@ static std::vector<u8> serializeWowRoot(const std::vector<WriteEntry>& entries) 
                 if (!entries[idx].path.empty()) {
                     auto h = storages::common::jenkinsHash(entries[idx].path);
                     combined = u64(h.pc) | (u64(h.pb) << 32);
+                } else if (entries[idx].fileNameHash != 0) {
+                    // Preserve original Jenkins hash from WoW root entries that
+                    // have no path string (hash-only lookup).
+                    combined = entries[idx].fileNameHash;
                 }
                 for (int b = 0; b < 8; ++b)
                     result.push_back(static_cast<u8>(combined >> (b * 8)));
@@ -414,12 +562,23 @@ bool writeStorage(const std::string& outputDir,
     // Step 2: Build root manifest (before encoding, since root entry goes into encoding table).
     // -----------------------------------------------------------------------
 
+    // D3 root produces an extra subdirectory blob that must also go into the
+    // encoding table and archives.
+    std::vector<u8> d3SubdirBlte;
+    std::array<u8, 16> d3SubdirEKey{};
+    std::vector<u8> d3SubdirRaw;
+
     std::vector<u8> rootRaw;
     switch (opts.rootFormat) {
-        case RootFormat::Tvfs:    rootRaw = serializeTvfsRoot(entries); break;
-        case RootFormat::Diablo3: rootRaw = serializeD3Root(entries);   break;
+        case RootFormat::Tvfs:    rootRaw = serializeTvfsRoot(entries, opts.blteFrameSize); break;
+        case RootFormat::Diablo3: {
+            auto d3 = serializeD3Root(entries);
+            rootRaw = std::move(d3.rootData);
+            d3SubdirRaw = std::move(d3.subdirData);
+            break;
+        }
         case RootFormat::Wow:     rootRaw = serializeWowRoot(entries);  break;
-        default:                  rootRaw = serializeTvfsRoot(entries); break;
+        default:                  rootRaw = serializeTvfsRoot(entries, opts.blteFrameSize); break;
     }
 
     auto rootCKey = storages::common::md5Hash(rootRaw);
@@ -429,6 +588,13 @@ bool writeStorage(const std::string& outputDir,
     blteOpts.compress = true;
     auto rootBlte = blteEncode(rootRaw, blteOpts, pool);
     auto rootEKey = storages::common::md5Hash(rootBlte);
+
+    // BLTE-encode D3 subdirectory blob if present.
+    if (!d3SubdirRaw.empty()) {
+        auto d3SubdirCKey = storages::common::md5Hash(d3SubdirRaw);
+        d3SubdirBlte = blteEncode(d3SubdirRaw, blteOpts, pool);
+        d3SubdirEKey = storages::common::md5Hash(d3SubdirBlte);
+    }
 
     // -----------------------------------------------------------------------
     // Step 3: Build encoding table (includes file entries + root entry).
@@ -442,7 +608,18 @@ bool writeStorage(const std::string& outputDir,
         ee.cKey = entry.cKey;
         ee.eKey = entry.eKey;
         ee.fileSize = entry.fileSize;
+        ee.eSpec = buildESpec(entry.compress, entry.fileSize, opts.blteFrameSize);
         encodingTable.insert(ee);
+    }
+
+    // Add D3 subdirectory blob to encoding table (resolver must find it by CKey).
+    if (!d3SubdirRaw.empty()) {
+        EncodingEntry subdirEnc;
+        subdirEnc.cKey = storages::common::md5Hash(d3SubdirRaw);
+        subdirEnc.eKey = d3SubdirEKey;
+        subdirEnc.fileSize = d3SubdirRaw.size();
+        subdirEnc.eSpec = buildESpec(true, d3SubdirRaw.size(), opts.blteFrameSize);
+        encodingTable.insert(subdirEnc);
     }
 
     // Add root to encoding table so resolveCKey(rootCKey) works.
@@ -451,6 +628,7 @@ bool writeStorage(const std::string& outputDir,
         rootEnc.cKey = rootCKey;
         rootEnc.eKey = rootEKey;
         rootEnc.fileSize = rootRaw.size();
+        rootEnc.eSpec = buildESpec(true, rootRaw.size(), opts.blteFrameSize);
         encodingTable.insert(rootEnc);
     }
 
@@ -485,6 +663,10 @@ bool writeStorage(const std::string& outputDir,
 
     // Root blob.
     blobs.push_back({rootEKey, std::move(rootBlte), static_cast<u32>(rootRaw.size())});
+    // D3 subdirectory blob (if present).
+    if (!d3SubdirBlte.empty()) {
+        blobs.push_back({d3SubdirEKey, std::move(d3SubdirBlte), static_cast<u32>(d3SubdirRaw.size())});
+    }
     // Encoding blob.
     blobs.push_back({encodingEKey, std::move(encodingBlte), static_cast<u32>(encodingRaw.size())});
 

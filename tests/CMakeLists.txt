@@ -85,6 +85,7 @@ if(WHITEOUT_ENABLE_CASC)
     whiteout_add_test(casc_parallel_test casc_parallel_test.cpp LINK whiteout_casc)
     whiteout_add_test(casc_round_trip_test casc_round_trip_test.cpp LINK whiteout_casc)
     whiteout_add_test(casc_reserve_file_id_test casc_reserve_file_id_test.cpp LINK whiteout_casc)
+    whiteout_add_test(casc_write_health_test casc_write_health_test.cpp LINK whiteout_casc)
     whiteout_add_test(online_storage_test online_storage_test.cpp LINK whiteout_casc)
 
     add_executable(online_cross_validate_test online_cross_validate_test.cpp)

@@ -100,9 +100,13 @@ static std::unique_ptr<RootManifest> decorateTvfsRoot(
         return nullptr;
     }
     case TvfsDecorator::WowTvfs: {
-        auto wow = WowTvfsRoot::create(std::move(tvfs), pool, listfile);
-        if (wow) return wow;
-        return nullptr;
+        if (WowTvfsRoot::looksLikeWowTvfs(*tvfs)) {
+            auto wow = WowTvfsRoot::create(std::move(tvfs), pool, listfile);
+            if (wow) return wow;
+            return nullptr; // moved-from, can't recover
+        }
+        // Entries aren't hex-encoded WoW paths — return as plain TVFS.
+        return tvfs;
     }
     case TvfsDecorator::None:
     default:
