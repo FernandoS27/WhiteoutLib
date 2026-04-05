@@ -93,8 +93,10 @@ struct BenchResult {
     std::string sizeCategory;     // "" or "small"/"medium"/"large"
     double whiteoutUs  = 0.0;     // total microseconds (WhiteoutLib)
     double cascLibUs   = 0.0;     // total microseconds (CascLib), 0 if unavailable
-    u32    iterations  = 0;       // how many times the operation ran
-    u64    bytesTotal  = 0;       // total bytes processed (for throughput ops)
+    u32    iterations  = 0;       // how many times WhiteoutLib operation succeeded
+    u32    clIterations = 0;      // how many times CascLib operation succeeded (0 = same as iterations)
+    u64    bytesTotal  = 0;       // total bytes processed by WhiteoutLib
+    u64    clBytesTotal = 0;      // total bytes processed by CascLib (0 = same as bytesTotal)
     bool   hasCascLib  = false;   // whether CascLib data is present
 };
 
@@ -176,21 +178,23 @@ static void printResultsTable(const std::vector<BenchResult>& results) {
         double woPerIter = (r.iterations > 0)
             ? r.whiteoutUs / static_cast<double>(r.iterations)
             : r.whiteoutUs;
-        double clPerIter = (r.iterations > 0 && r.hasCascLib)
-            ? r.cascLibUs / static_cast<double>(r.iterations)
+        u32 clIters = (r.clIterations > 0) ? r.clIterations : r.iterations;
+        double clPerIter = (clIters > 0 && r.hasCascLib)
+            ? r.cascLibUs / static_cast<double>(clIters)
             : 0.0;
 
-        double speedup = (r.hasCascLib && r.cascLibUs > 0.0)
-            ? r.cascLibUs / r.whiteoutUs
+        double speedup = (r.hasCascLib && clPerIter > 0.0 && woPerIter > 0.0)
+            ? clPerIter / woPerIter
             : 0.0;
 
-        // Throughput in MB/s
+        // Throughput in MB/s (each side uses its own byte count)
+        u64 clBytes = (r.clBytesTotal > 0) ? r.clBytesTotal : r.bytesTotal;
         double woThroughput = 0.0, clThroughput = 0.0;
         if (r.bytesTotal > 0 && r.whiteoutUs > 0.0)
             woThroughput = (static_cast<double>(r.bytesTotal) / (1024.0 * 1024.0))
                          / (r.whiteoutUs / 1e6);
-        if (r.bytesTotal > 0 && r.hasCascLib && r.cascLibUs > 0.0)
-            clThroughput = (static_cast<double>(r.bytesTotal) / (1024.0 * 1024.0))
+        if (clBytes > 0 && r.hasCascLib && r.cascLibUs > 0.0)
+            clThroughput = (static_cast<double>(clBytes) / (1024.0 * 1024.0))
                          / (r.cascLibUs / 1e6);
 
         std::cout << std::left << std::setw(36) << label
@@ -235,30 +239,33 @@ static void writeResultsCsv(const std::string& path, const std::vector<BenchResu
         std::cerr << "WARNING: could not write " << path << "\n";
         return;
     }
-    f << "operation,sizeCategory,iterations,whiteoutTotalUs,cascLibTotalUs,"
-         "whiteoutPerIterUs,cascLibPerIterUs,speedup,bytesTotal,"
+    f << "operation,sizeCategory,woIterations,clIterations,whiteoutTotalUs,cascLibTotalUs,"
+         "whiteoutPerIterUs,cascLibPerIterUs,speedup,woBytesTotal,clBytesTotal,"
          "whiteoutMBs,cascLibMBs\n";
 
     for (auto& r : results) {
         double woPerIter = (r.iterations > 0)
             ? r.whiteoutUs / static_cast<double>(r.iterations)
             : r.whiteoutUs;
-        double clPerIter = (r.iterations > 0 && r.hasCascLib)
-            ? r.cascLibUs / static_cast<double>(r.iterations)
+        u32 clIters = (r.clIterations > 0) ? r.clIterations : r.iterations;
+        double clPerIter = (clIters > 0 && r.hasCascLib)
+            ? r.cascLibUs / static_cast<double>(clIters)
             : 0.0;
-        double speedup = (r.hasCascLib && r.cascLibUs > 0.0)
-            ? r.cascLibUs / r.whiteoutUs : 0.0;
+        double speedup = (r.hasCascLib && clPerIter > 0.0 && woPerIter > 0.0)
+            ? clPerIter / woPerIter : 0.0;
+        u64 clBytes = (r.clBytesTotal > 0) ? r.clBytesTotal : r.bytesTotal;
         double woMBs = 0.0, clMBs = 0.0;
         if (r.bytesTotal > 0 && r.whiteoutUs > 0.0)
             woMBs = (static_cast<double>(r.bytesTotal) / (1024.0 * 1024.0))
                   / (r.whiteoutUs / 1e6);
-        if (r.bytesTotal > 0 && r.hasCascLib && r.cascLibUs > 0.0)
-            clMBs = (static_cast<double>(r.bytesTotal) / (1024.0 * 1024.0))
+        if (clBytes > 0 && r.hasCascLib && r.cascLibUs > 0.0)
+            clMBs = (static_cast<double>(clBytes) / (1024.0 * 1024.0))
                   / (r.cascLibUs / 1e6);
 
         f << r.operation << ","
           << r.sizeCategory << ","
           << r.iterations << ","
+          << clIters << ","
           << std::fixed << std::setprecision(1)
           << r.whiteoutUs << ","
           << (r.hasCascLib ? r.cascLibUs : 0.0) << ","
@@ -266,6 +273,7 @@ static void writeResultsCsv(const std::string& path, const std::vector<BenchResu
           << clPerIter << ","
           << std::setprecision(3) << speedup << ","
           << r.bytesTotal << ","
+          << clBytes << ","
           << std::setprecision(1) << woMBs << ","
           << clMBs << "\n";
     }
@@ -804,9 +812,14 @@ static void runPerfCrossRef(const std::string& cascPath,
         });
         std::cout << "  [CL] " << clHits << "/" << idEntries.size()
                   << " exist, " << std::fixed << std::setprecision(1)
-                  << (clUs / 1000.0) << " ms\n";
-        r.cascLibUs = clUs;
-        r.hasCascLib = true;
+                  << (clUs / 1000.0) << " ms";
+        if (clHits == 0) {
+            std::cout << " (not supported by CascLib for this root — skipping comparison)";
+        } else {
+            r.cascLibUs = clUs;
+            r.hasCascLib = true;
+        }
+        std::cout << "\n";
 #endif
         results.push_back(r);
     }
@@ -878,9 +891,14 @@ static void runPerfCrossRef(const std::string& cascPath,
         });
         std::cout << "  [CL] " << clHits << "/" << idEntries.size()
                   << " resolved, " << std::fixed << std::setprecision(1)
-                  << (clUs / 1000.0) << " ms\n";
-        r.cascLibUs = clUs;
-        r.hasCascLib = true;
+                  << (clUs / 1000.0) << " ms";
+        if (clHits == 0) {
+            std::cout << " (not supported by CascLib for this root — skipping comparison)";
+        } else {
+            r.cascLibUs = clUs;
+            r.hasCascLib = true;
+        }
+        std::cout << "\n";
 #endif
         results.push_back(r);
     }
@@ -977,6 +995,8 @@ static void runPerfCrossRef(const std::string& cascPath,
         r.bytesTotal = woBytes;
 #if defined(WHITEOUT_HAS_CASCLIB_CROSSVAL)
         r.cascLibUs = clTotalUs;
+        r.clIterations = clOk;
+        r.clBytesTotal = clBytes;
         r.hasCascLib = true;
 #endif
         results.push_back(r);
@@ -1047,6 +1067,8 @@ static void runPerfCrossRef(const std::string& cascPath,
         r.bytesTotal = woBytes;
 #if defined(WHITEOUT_HAS_CASCLIB_CROSSVAL)
         r.cascLibUs = clTotalUs;
+        r.clIterations = clOk;
+        r.clBytesTotal = clBytes;
         r.hasCascLib = true;
 #endif
         results.push_back(r);
@@ -1145,6 +1167,8 @@ static void runPerfCrossRef(const std::string& cascPath,
             r.bytesTotal = woBytes;
 #if defined(WHITEOUT_HAS_CASCLIB_CROSSVAL)
             r.cascLibUs = clTotalUs;
+            r.clIterations = static_cast<u32>(clLatencies.size());
+            r.clBytesTotal = clBytes;
             r.hasCascLib = true;
 #endif
             results.push_back(r);
@@ -1252,6 +1276,8 @@ static void runPerfCrossRef(const std::string& cascPath,
                   << (clUs / 1000.0) << " ms, "
                   << (clBytes / (1024 * 1024)) << " MB\n";
         r.cascLibUs = clUs;
+        r.clIterations = clOk;
+        r.clBytesTotal = clBytes;
         r.hasCascLib = true;
 #endif
         results.push_back(r);
@@ -1292,6 +1318,8 @@ static void runPerfCrossRef(const std::string& cascPath,
         for (auto& prev : results) {
             if (prev.operation == "batch_sequential_read" && prev.hasCascLib) {
                 r.cascLibUs = prev.cascLibUs;
+                r.clIterations = prev.clIterations;
+                r.clBytesTotal = prev.clBytesTotal;
                 r.hasCascLib = true;
                 break;
             }
@@ -1343,6 +1371,8 @@ static void runPerfCrossRef(const std::string& cascPath,
         for (auto& prev : results) {
             if (prev.operation == "batch_sequential_read" && prev.hasCascLib) {
                 r.cascLibUs = prev.cascLibUs;
+                r.clIterations = prev.clIterations;
+                r.clBytesTotal = prev.clBytesTotal;
                 r.hasCascLib = true;
                 break;
             }
@@ -1420,6 +1450,8 @@ static void runPerfCrossRef(const std::string& cascPath,
             r.bytesTotal = woBytes;
 #if defined(WHITEOUT_HAS_CASCLIB_CROSSVAL)
             r.cascLibUs = clTotalUs;
+            r.clIterations = static_cast<u32>(clLatencies.size());
+            r.clBytesTotal = clBytes;
             r.hasCascLib = true;
 #endif
             results.push_back(r);
@@ -1481,6 +1513,8 @@ static void runPerfCrossRef(const std::string& cascPath,
             for (auto& prev : results) {
                 if (prev.operation == "repeated_read (hot)" && prev.hasCascLib) {
                     r.cascLibUs = prev.cascLibUs;
+                    r.clIterations = prev.clIterations;
+                    r.clBytesTotal = prev.clBytesTotal;
                     r.hasCascLib = true;
                     break;
                 }
@@ -1541,7 +1575,13 @@ static void runPerfCrossRef(const std::string& cascPath,
         int faster = 0, slower = 0, comparable = 0;
         for (auto& r : results) {
             if (!r.hasCascLib || r.cascLibUs <= 0.0 || r.whiteoutUs <= 0.0) continue;
-            double speedup = r.cascLibUs / r.whiteoutUs;
+            u32 clIters = (r.clIterations > 0) ? r.clIterations : r.iterations;
+            double woPerIter = (r.iterations > 0)
+                ? r.whiteoutUs / static_cast<double>(r.iterations) : r.whiteoutUs;
+            double clPerIter = (clIters > 0)
+                ? r.cascLibUs / static_cast<double>(clIters) : r.cascLibUs;
+            if (woPerIter <= 0.0 || clPerIter <= 0.0) continue;
+            double speedup = clPerIter / woPerIter;
             if (speedup >= 1.05) ++faster;
             else if (speedup <= 0.95) ++slower;
             else ++comparable;
@@ -1553,7 +1593,13 @@ static void runPerfCrossRef(const std::string& cascPath,
             std::cout << "\nOperations where CascLib is faster (>5%):\n";
             for (auto& r : results) {
                 if (!r.hasCascLib || r.cascLibUs <= 0.0 || r.whiteoutUs <= 0.0) continue;
-                double speedup = r.cascLibUs / r.whiteoutUs;
+                u32 clIters = (r.clIterations > 0) ? r.clIterations : r.iterations;
+                double woPerIter = (r.iterations > 0)
+                    ? r.whiteoutUs / static_cast<double>(r.iterations) : r.whiteoutUs;
+                double clPerIter = (clIters > 0)
+                    ? r.cascLibUs / static_cast<double>(clIters) : r.cascLibUs;
+                if (woPerIter <= 0.0 || clPerIter <= 0.0) continue;
+                double speedup = clPerIter / woPerIter;
                 if (speedup <= 0.95) {
                     std::string label = r.operation;
                     if (!r.sizeCategory.empty()) label += " [" + r.sizeCategory + "]";
