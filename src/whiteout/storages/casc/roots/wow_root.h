@@ -19,10 +19,14 @@ namespace whiteout::storages::casc {
 class WowRoot final : public RootManifest {
 public:
     /// Parse a WoW root file (auto-detects header version).
-    /// @param data  Raw (BLTE-decoded) root manifest bytes.
+    /// @param data     Raw (BLTE-decoded) root manifest bytes.
+    /// @param pool     Optional worker pool for parallel operations.
+    /// @param listfile Optional external listfile (FileDataId;path per line).
+    ///                 When provided, entries are enriched with human-readable paths.
     /// @return Parsed root, or nullptr on failure.
     static std::unique_ptr<WowRoot> parse(std::span<const u8> data,
-                                          interfaces::WorkerPool* pool = nullptr);
+                                          interfaces::WorkerPool* pool = nullptr,
+                                          std::span<const u8> listfile = {});
 
     // --- RootManifest interface ---
     std::vector<const RootEntry*> findByPath(const std::string& path) const override;

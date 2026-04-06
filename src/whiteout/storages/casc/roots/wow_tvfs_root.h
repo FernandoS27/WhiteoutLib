@@ -68,9 +68,6 @@ private:
     EntryIndex<std::string> m_byPath;
 
     void buildIndex(interfaces::WorkerPool* pool);
-
-    /// Parse a listfile CSV (FileDataId;path per line) into a FileDataId → path map.
-    static std::unordered_map<u32, std::string> parseListfile(std::span<const u8> data);
 };
 
 } // namespace whiteout::storages::casc

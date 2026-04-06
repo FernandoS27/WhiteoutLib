@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include "wow_root.h"
+#include "common/listfile_parser.h"
 
 #include "../../common/byte_order.h"
 #include "../../common/jenkins.h"
@@ -221,7 +222,8 @@ static bool parseBlocks(std::span<const u8> data, const WowRootHeader& header,
 // ============================================================================
 
 std::unique_ptr<WowRoot> WowRoot::parse(std::span<const u8> data,
-                                        interfaces::WorkerPool* /*pool*/) {
+                                        interfaces::WorkerPool* /*pool*/,
+                                        std::span<const u8> listfile) {
     if (data.size() < 12) return nullptr;
 
     WowRootHeader header;
@@ -235,6 +237,20 @@ std::unique_ptr<WowRoot> WowRoot::parse(std::span<const u8> data,
     auto root = std::make_unique<WowRoot>();
     if (!parseBlocks(data, header, root->m_entries))
         return nullptr;
+
+    // Enrich entries with human-readable paths from listfile.
+    if (!listfile.empty()) {
+        auto pathMap = parseListfile(listfile);
+        if (!pathMap.empty()) {
+            for (auto& entry : root->m_entries) {
+                if (entry.fileDataId == kInvalidFileDataId)
+                    continue;
+                auto it = pathMap.find(entry.fileDataId);
+                if (it != pathMap.end())
+                    entry.path = it->second;
+            }
+        }
+    }
 
     root->buildIndices();
     return root;

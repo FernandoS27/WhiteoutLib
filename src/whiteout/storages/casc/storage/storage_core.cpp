@@ -496,7 +496,7 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
                     root = decorateTvfsRoot(std::move(tvfsPlain), hint, eKeyReader, pool, listfileData);
                 }
             } else if (magic == RootSignature::kMFST) {
-                root = WowRoot::parse(rootData, pool);
+                root = WowRoot::parse(rootData, pool, listfileData);
             } else if (magic == RootSignature::kD3Root || magic == RootSignature::kD3Dir) {
                 root = D3Root::parse(rootData, ckeyResolver, pool);
             } else if (magic == RootSignature::kMNDX) {
@@ -515,7 +515,7 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
         }
 
         if (!root)
-            root = WowRoot::parse(rootData, pool);
+            root = WowRoot::parse(rootData, pool, listfileData);
 
         // Fallback: try install manifest.
         if (!root && !isZeroKey(buildConfig.installCKey)) {

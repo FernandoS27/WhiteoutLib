@@ -19,6 +19,7 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <random>
 #include <string>
 #include <thread>
 #include <variant>
@@ -271,6 +272,248 @@ static void cmdExtract(S& storage) {
         totalBytes += data->size();
         ++extracted;
     }
+
+    std::cout << "  Done! Extracted " << extracted << " file(s), "
+              << formatSize(totalBytes) << " total";
+    if (failed > 0)
+        std::cout << " (" << failed << " failed)";
+    std::cout << ".\n  Output: " << std::filesystem::absolute(outDir).string() << "\n";
+}
+
+/// Case-insensitive check whether `text` ends with `suffix`.
+static bool endsWithCI(const std::string& text, const std::string& suffix) {
+    if (suffix.size() > text.size()) return false;
+    for (size_t i = 0; i < suffix.size(); ++i) {
+        if (std::tolower(static_cast<unsigned char>(text[text.size() - suffix.size() + i])) !=
+            std::tolower(static_cast<unsigned char>(suffix[i])))
+            return false;
+    }
+    return true;
+}
+
+/// Extract a file to disk, creating directories as needed.
+/// Returns (success, bytes_written).
+static std::pair<bool, uint64_t> extractFile(
+    const std::string& name, const std::vector<uint8_t>& data, const std::string& outDir)
+{
+    std::string safeName = name;
+    for (char& c : safeName) {
+        if (c == '\\') c = '/';
+        // Replace characters that are invalid in Windows file paths.
+        if (c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|')
+            c = '_';
+    }
+
+    try {
+        auto dest = std::filesystem::path(outDir) / safeName;
+        std::filesystem::create_directories(dest.parent_path());
+
+        std::ofstream out(dest, std::ios::binary);
+        if (!out) return {false, 0};
+
+        out.write(reinterpret_cast<const char*>(data.data()),
+                  static_cast<std::streamsize>(data.size()));
+        return {true, data.size()};
+    } catch (...) {
+        return {false, 0};
+    }
+}
+
+template<typename S>
+static void cmdSample(S& storage) {
+    std::cout << "  File extension to sample (e.g. .m2, .blp, .mdx): ";
+    std::string ext;
+    if (!readLine(ext) || ext.empty()) return;
+    if (ext.front() != '.') ext.insert(ext.begin(), '.');
+
+    std::cout << "  Number of files to extract: ";
+    std::string countStr;
+    if (!readLine(countStr) || countStr.empty()) return;
+    size_t count = 0;
+    try { count = std::stoul(countStr); } catch (...) {
+        std::cout << "  Invalid number.\n";
+        return;
+    }
+    if (count == 0) return;
+
+    std::cout << "  Also extract companion files? (y/n) [n]: ";
+    std::string companionStr;
+    readLine(companionStr);
+    bool withCompanions = (!companionStr.empty() &&
+        (companionStr[0] == 'y' || companionStr[0] == 'Y'));
+
+    std::cout << "  Output directory: ";
+    std::string outDir;
+    if (!readLine(outDir) || outDir.empty()) {
+        std::cout << "  No output directory specified.\n";
+        return;
+    }
+
+    // Collect all files matching the extension.
+    auto allFiles = storage.listFiles();
+    std::vector<std::string> candidates;
+    for (const auto& f : allFiles) {
+        if (endsWithCI(f, ext))
+            candidates.push_back(f);
+    }
+
+    if (candidates.empty()) {
+        std::cout << "  No files found with extension '" << ext << "'.\n";
+        return;
+    }
+
+    // Random sample.
+    count = std::min(count, candidates.size());
+    {
+        std::mt19937 rng(std::random_device{}());
+        // Fisher-Yates partial shuffle: move `count` random elements to front.
+        for (size_t i = 0; i < count; ++i) {
+            std::uniform_int_distribution<size_t> dist(i, candidates.size() - 1);
+            std::swap(candidates[i], candidates[dist(rng)]);
+        }
+        candidates.resize(count);
+    }
+
+    // Collect companion files if requested.
+    std::vector<std::string> toExtract = candidates;
+
+    if (withCompanions) {
+        // For each sampled file, find companions:
+        //   same directory + filename starts with the stem of the sampled file.
+        // E.g. "dir/goblin.m2" -> stem = "goblin", dir = "dir/"
+        //   matches: "dir/goblin.skel", "dir/goblin01.skin", "dir/goblin0016_002.anim"
+        //   rejects: "dir/gobli01.skin" (stem doesn't match)
+
+        // Normalize all paths to forward-slash for consistent matching.
+        std::vector<std::string> allNorm;
+        allNorm.reserve(allFiles.size());
+        for (auto f : allFiles) {
+            for (char& c : f) if (c == '\\') c = '/';
+            allNorm.push_back(std::move(f));
+        }
+
+        // Sort for efficient prefix scanning.
+        std::sort(allNorm.begin(), allNorm.end());
+
+        for (const auto& primary : candidates) {
+            std::string norm = primary;
+            for (char& c : norm) if (c == '\\') c = '/';
+
+            // Find directory and stem.
+            auto lastSlash = norm.rfind('/');
+            std::string dir = (lastSlash != std::string::npos) ? norm.substr(0, lastSlash + 1) : "";
+            std::string baseName = (lastSlash != std::string::npos) ? norm.substr(lastSlash + 1) : norm;
+            auto dotPos = baseName.rfind('.');
+            std::string stem = (dotPos != std::string::npos) ? baseName.substr(0, dotPos) : baseName;
+
+            if (stem.empty()) continue;
+
+            // Build the prefix to search for: dir + stem
+            std::string prefix = dir + stem;
+
+            // Binary search to the first file >= prefix in sorted allNorm.
+            auto it = std::lower_bound(allNorm.begin(), allNorm.end(), prefix,
+                [](const std::string& a, const std::string& b) {
+                    // Case-insensitive compare.
+                    size_t len = std::min(a.size(), b.size());
+                    for (size_t i = 0; i < len; ++i) {
+                        char ca = std::tolower(static_cast<unsigned char>(a[i]));
+                        char cb = std::tolower(static_cast<unsigned char>(b[i]));
+                        if (ca != cb) return ca < cb;
+                    }
+                    return a.size() < b.size();
+                });
+
+            for (; it != allNorm.end(); ++it) {
+                const auto& f = *it;
+                // Must still be in the same directory and start with stem.
+                if (f.size() < prefix.size()) break;
+
+                // Case-insensitive prefix check.
+                bool prefixMatch = true;
+                for (size_t i = 0; i < prefix.size(); ++i) {
+                    if (std::tolower(static_cast<unsigned char>(f[i])) !=
+                        std::tolower(static_cast<unsigned char>(prefix[i]))) {
+                        prefixMatch = false;
+                        break;
+                    }
+                }
+                if (!prefixMatch) break;
+
+                // After the prefix, the next char must NOT be '/' (must stay in same dir).
+                // Also, if there IS a next char, it must not be a letter (to avoid
+                // "goblin.m2" matching "goblinFemale.m2"). It can be a digit, dot,
+                // or underscore — which covers suffixes like "01.skin", ".skel",
+                // "0016_002.anim".
+                if (f.size() > prefix.size()) {
+                    char next = f[prefix.size()];
+                    if (next == '/' || next == '\\') break; // entering subdirectory
+                    if (std::isalpha(static_cast<unsigned char>(next))) continue; // different name
+                }
+
+                // Skip the primary file itself.
+                if (endsWithCI(f, ext) &&
+                    f.size() == norm.size()) {
+                    bool same = true;
+                    for (size_t i = 0; i < f.size(); ++i) {
+                        if (std::tolower(static_cast<unsigned char>(f[i])) !=
+                            std::tolower(static_cast<unsigned char>(norm[i]))) {
+                            same = false;
+                            break;
+                        }
+                    }
+                    if (same) continue;
+                }
+
+                toExtract.push_back(f);
+            }
+        }
+
+        // Deduplicate.
+        std::sort(toExtract.begin(), toExtract.end());
+        toExtract.erase(std::unique(toExtract.begin(), toExtract.end()), toExtract.end());
+    }
+
+    std::cout << "  Extracting " << count << " '" << ext << "' file(s)";
+    if (withCompanions)
+        std::cout << " + " << (toExtract.size() - count) << " companion(s)";
+    std::cout << " (" << toExtract.size() << " total) ...\n" << std::flush;
+
+    std::filesystem::create_directories(outDir);
+    size_t extracted = 0, failed = 0;
+    uint64_t totalBytes = 0;
+
+    for (size_t i = 0; i < toExtract.size(); ++i) {
+        const auto& name = toExtract[i];
+
+        // Print progress every 50 files.
+        if (i % 50 == 0)
+            std::cout << "    [" << i << "/" << toExtract.size() << "] ..." << std::flush;
+
+        try {
+            auto data = storage.readFile(name);
+            if (!data) {
+                ++failed;
+                continue;
+            }
+
+            auto [ok, bytes] = extractFile(name, *data, outDir);
+            if (!ok) {
+                std::cerr << "\n    FAILED to write: " << name << "\n";
+                ++failed;
+                continue;
+            }
+            totalBytes += bytes;
+            ++extracted;
+        } catch (const std::exception& e) {
+            std::cerr << "\n    EXCEPTION on '" << name << "': " << e.what() << "\n";
+            ++failed;
+        } catch (...) {
+            std::cerr << "\n    UNKNOWN EXCEPTION on '" << name << "'\n";
+            ++failed;
+        }
+    }
+    std::cout << "\n";
 
     std::cout << "  Done! Extracted " << extracted << " file(s), "
               << formatSize(totalBytes) << " total";
@@ -667,6 +910,27 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
             localPath = std::filesystem::absolute(localPath).string();
+
+            // Prompt for listfile if not provided via --listfile.
+            if (listfileData.empty()) {
+                std::cout << "Listfile path (Enter to skip): ";
+                std::string lfPath;
+                readLine(lfPath);
+                if (!lfPath.empty()) {
+                    std::ifstream lf(lfPath, std::ios::binary | std::ios::ate);
+                    if (!lf) {
+                        std::cerr << "Failed to open listfile: " << lfPath << "\n";
+                        return 1;
+                    }
+                    auto sz = lf.tellg();
+                    lf.seekg(0);
+                    listfileData.resize(static_cast<size_t>(sz));
+                    lf.read(reinterpret_cast<char*>(listfileData.data()), sz);
+                    std::cout << "Listfile loaded: " << lfPath
+                              << " (" << listfileData.size() << " bytes)\n";
+                }
+            }
+
             std::cout << "Opening: " << localPath << " ...\n";
 
             casc::OpenOptions openOpts;
@@ -753,6 +1017,26 @@ int main(int argc, char* argv[]) {
         std::cout << "Cache directory (Enter to skip): ";
         readLine(cacheDir);
 
+        // Prompt for listfile if not provided via --listfile.
+        if (listfileData.empty()) {
+            std::cout << "Listfile path (Enter to skip): ";
+            std::string lfPath;
+            readLine(lfPath);
+            if (!lfPath.empty()) {
+                std::ifstream lf(lfPath, std::ios::binary | std::ios::ate);
+                if (!lf) {
+                    std::cerr << "Failed to open listfile: " << lfPath << "\n";
+                    return 1;
+                }
+                auto sz = lf.tellg();
+                lf.seekg(0);
+                listfileData.resize(static_cast<size_t>(sz));
+                lf.read(reinterpret_cast<char*>(listfileData.data()), sz);
+                std::cout << "Listfile loaded: " << lfPath
+                          << " (" << listfileData.size() << " bytes)\n";
+            }
+        }
+
         casc::OnlineOpenOptions opts;
         opts.product = product;
         opts.region = region;
@@ -801,6 +1085,7 @@ int main(int argc, char* argv[]) {
                   << "  10. stats            File extension statistics\n"
                   << "  11. entries          Browse raw entries\n"
                   << "  12. keys             Import encryption keys\n"
+                  << "  13. sample           Extract random files by extension\n"
                   << "  0.  quit\n"
                   << "> ";
 
@@ -865,6 +1150,8 @@ int main(int argc, char* argv[]) {
                 cmdEntries(s);
             else if (cmd == "12" || cmd == "keys")
                 cmdKeys(s);
+            else if (cmd == "13" || cmd == "sample")
+                cmdSample(s);
             else
                 std::cout << "  Unknown command. Try 'list', 'read', 'extract', etc.\n";
         }, *storage);
