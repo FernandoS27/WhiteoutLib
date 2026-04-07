@@ -661,14 +661,19 @@ std::vector<u8> blteEncode(std::span<const u8> rawData,
         //   flags(1) + frameCount(3) +
         //   frameCount * kBlteFrameTableEntrySize
         //   + frame data
+        //
+        // CascLib's ParseBlteHeader expects:
+        //   headerSize = 0x0C + frameCount * sizeof(BLTE_FRAME)
+        // i.e. headerSize covers the entire range [byte 0 .. end of frame
+        // table], including the magic and headerSize fields themselves.
         u32 tableSize = u32(frameCount) * kBlteFrameTableEntrySize;
-        u32 headerSize = 4 + tableSize; // flags+count(4) + table
+        u32 headerSize = 0x0C + tableSize; // magic(4)+headerSize(4)+flags+count(4)+table
 
         size_t totalFrameData = 0;
         for (auto& ef : encodedFrames)
             totalFrameData += ef.data.size();
 
-        output.resize(kBlteMinHeaderSize + headerSize + totalFrameData);
+        output.resize(headerSize + totalFrameData);
 
         // Magic + header size
         writeBE32(output.data(), kBlteMagic);
@@ -691,7 +696,7 @@ std::vector<u8> blteEncode(std::span<const u8> rawData,
         }
 
         // Frame data
-        u8* dest = output.data() + kBlteMinHeaderSize + headerSize;
+        u8* dest = output.data() + headerSize;
         for (auto& ef : encodedFrames) {
             std::memcpy(dest, ef.data.data(), ef.data.size());
             dest += ef.data.size();

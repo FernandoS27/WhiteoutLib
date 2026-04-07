@@ -86,6 +86,7 @@ if(WHITEOUT_ENABLE_CASC)
     whiteout_add_test(casc_round_trip_test casc_round_trip_test.cpp LINK whiteout_casc)
     whiteout_add_test(casc_reserve_file_id_test casc_reserve_file_id_test.cpp LINK whiteout_casc)
     whiteout_add_test(casc_write_health_test casc_write_health_test.cpp LINK whiteout_casc)
+    whiteout_add_test(casc_writer_accuracy_test casc_writer_accuracy_test.cpp LINK whiteout_casc)
     whiteout_add_test(online_storage_test online_storage_test.cpp LINK whiteout_casc)
 
     add_executable(online_cross_validate_test online_cross_validate_test.cpp)
@@ -143,6 +144,12 @@ if(WHITEOUT_ENABLE_CASC)
         target_link_libraries(casc_cross_validate_test PRIVATE whiteout_casc casc_static Catch2::Catch2WithMain)
         target_compile_definitions(casc_cross_validate_test PRIVATE WHITEOUT_HAS_CASCLIB_CROSSVAL=1)
         catch_discover_tests(casc_cross_validate_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+        # CascLib interop test: write with WhiteoutLib, read with CascLib.
+        add_executable(casc_casclib_interop_test casc_casclib_interop_test.cpp)
+        target_link_libraries(casc_casclib_interop_test PRIVATE whiteout_casc casc_static Catch2::Catch2WithMain)
+        target_compile_definitions(casc_casclib_interop_test PRIVATE WHITEOUT_HAS_CASCLIB_CROSSVAL=1)
+        catch_discover_tests(casc_casclib_interop_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
         # Performance cross-reference with CascLib comparison.
         target_link_libraries(casc_perf_crossref_test PRIVATE casc_static)

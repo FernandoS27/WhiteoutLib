@@ -21,7 +21,7 @@ namespace whiteout::storages::casc {
 // ============================================================================
 
 /// Size of the per-entry header prepended to each BLTE blob in a data archive.
-/// Layout: EKey(16) + encodedSize(4 BE) + decodedSize(4 BE) + reserved(6) = 30 bytes.
+/// Layout: EKey(16 reversed) + encodedSize(4 LE) + flags(2) + checksum(8) = 30 bytes.
 static constexpr u32 kArchiveEntryHeaderSize = 30;
 
 // ============================================================================

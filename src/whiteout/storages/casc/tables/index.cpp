@@ -3,6 +3,7 @@
 
 #include "index.h"
 #include "../../common/bit_reader.h"
+#include "../../common/jenkins.h"
 #include "../../common/md5.h"
 #include "../../common/mapped_file.h"
 
@@ -599,9 +600,6 @@ std::vector<std::pair<std::string, std::vector<u8>>> IndexTable::serialize() con
     std::vector<std::pair<std::string, std::vector<u8>>> result;
 
     for (int b = 0; b < kIdxNumBuckets; ++b) {
-        if (buckets[b].empty())
-            continue;
-
         // Sort entries by EKey for consistent output.
         std::sort(buckets[b].begin(), buckets[b].end(),
                   [](const IndexEntry* a, const IndexEntry* b) {
@@ -617,6 +615,12 @@ std::vector<std::pair<std::string, std::vector<u8>>> IndexTable::serialize() con
 
         size_t numEntries = buckets[b].size();
         u32 dataSize = u32(numEntries * kEntrySize);
+
+        // CascLib's CaptureGuardedBlock2 rejects BlockSize=0.  For empty
+        // buckets we write BlockSize=1 so the guarded-block is accepted, but
+        // 1/18=0 entries are processed (hash stays 0, LoadIndexItems loops 0
+        // times).  This lets CascLib load all 16 buckets without hitting a gap.
+        u32 guardedBlockSize = (dataSize > 0) ? dataSize : 1;
 
         // Build idx file: header area + entry data + padding to 4096
         // Layout: [headerDataSize:4][headerHash:4][headerFields:16][padding:8]
@@ -644,8 +648,8 @@ std::vector<std::pair<std::string, std::vector<u8>>> IndexTable::serialize() con
         file[14] = kEKeyLen;
         file[15] = kHighBits;
 
-        // Segment size at offset 32.
-        std::memcpy(file.data() + 32, &dataSize, 4);
+        // Segment size at offset 32 (GuardedBlock2.BlockSize).
+        std::memcpy(file.data() + 32, &guardedBlockSize, 4);
 
         // Write entries.
         for (size_t i = 0; i < numEntries; ++i) {
@@ -663,16 +667,27 @@ std::vector<std::pair<std::string, std::vector<u8>>> IndexTable::serialize() con
             std::memcpy(dst + kEKeyLen + kOffsetLen, &e.encodedSize, kSizeLen);
         }
 
-        // Compute and write inner checksum (first 4 bytes of MD5 of header fields).
-        // Hash the 12 bytes of header fields after the checksum slot (offset 8..19).
-        auto headerMd5 = common::md5Hash(std::span(file.data() + 8, 12));
-        std::memcpy(file.data() + 4, headerMd5.data(), 4);
+        // Compute and write inner checksum (Jenkins hashlittle of header data block).
+        // GuardedBlock1: hashlittle(offset 8, headerDataSize, initval=0).
+        {
+            u32 pc = 0, pb = 0;
+            common::jenkinsHashlittle2(file.data() + 8, headerDataSize, pc, pb);
+            std::memcpy(file.data() + 4, &pc, 4);
+        }
 
-        // Segment hash at offset 36 (first 4 bytes of MD5 of entry data).
+        // Segment hash at offset 36 (Jenkins hashlittle2 accumulated per-entry).
+        // GuardedBlock2: for each entry, hashlittle2(entry, entryLen, &pc, &pb); store pc.
+        {
+            u32 pc = 0, pb = 0;
+            for (size_t i = 0; i < numEntries; ++i) {
+                common::jenkinsHashlittle2(file.data() + entryDataStart + i * kEntrySize,
+                                           kEntrySize, pc, pb);
+            }
+            std::memcpy(file.data() + 36, &pc, 4);
+        }
+
+        // Footer hash (last 16 bytes): MD5 of entry data (used by archive index validation).
         auto dataMd5 = common::md5Hash(std::span(file.data() + entryDataStart, dataSize));
-        std::memcpy(file.data() + 36, dataMd5.data(), 4);
-
-        // Footer hash (last 16 bytes): MD5 of entry data.
         std::memcpy(file.data() + padded - 16, dataMd5.data(), 16);
 
         // Filename: {bucket:02x}00000001.idx

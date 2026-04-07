@@ -296,9 +296,9 @@ ShmemInfo parseShmem(std::span<const u8> data) {
     ShmemInfo info;
     if (data.size() < 8) return info;
 
-    // Shmem is a small binary struct — first u32 is version, second u32 is archive count.
-    std::memcpy(&info.version, data.data(), 4);
-    std::memcpy(&info.archiveCount, data.data() + 4, 4);
+    // Shmem layout: archiveCount(4 LE) + version(4 LE).
+    std::memcpy(&info.archiveCount, data.data(), 4);
+    std::memcpy(&info.version, data.data() + 4, 4);
     return info;
 }
 

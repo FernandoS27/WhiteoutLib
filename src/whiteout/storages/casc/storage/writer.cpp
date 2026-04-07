@@ -25,6 +25,7 @@
 namespace whiteout::storages::casc {
 
 using storages::common::writeBE32;
+using storages::common::writeLE32;
 using storages::common::pushBE16;
 using storages::common::pushBE32;
 using storages::common::pushLE32;
@@ -46,27 +47,41 @@ static constexpr u8 kShmemVersion = 7;
 // ============================================================================
 
 /// Build a 30-byte archive entry header.
-/// Layout: EKey hash (16 bytes) + encoded size (u32 BE) + decoded size (u32 BE)
-///       + checksum bytes (6 bytes, zeroed for simplicity).
+/// Layout per CASC reference: EKey(16 reversed) + encodedSize(4 LE) + flags(2) + checksum(8).
+/// Key bytes are reversed (big-endian key → little-endian storage order) per
+/// cas::MakeFileHeader convention.
+/// The checksum is MD5(header[0:22] + LE32(archiveOffset)), first 8 bytes.
 static std::array<u8, kArchiveEntryHeaderSize> makeArchiveEntryHeader(
-    const std::array<u8, 16>& eKey, u32 encodedSize, u32 decodedSize) {
+    const std::array<u8, 16>& eKey, u32 encodedSize, u32 archiveOffset) {
     std::array<u8, kArchiveEntryHeaderSize> hdr{};
-    std::memcpy(hdr.data(), eKey.data(), 16);
-    writeBE32(hdr.data() + 16, encodedSize);
-    writeBE32(hdr.data() + 20, decodedSize);
-    // Bytes 24–29: reserved/checksum — zero-filled.
+    // Key bytes stored in reversed order per MakeFileHeader.
+    for (int i = 0; i < 16; ++i)
+        hdr[i] = eKey[15 - i];
+    writeLE32(hdr.data() + 16, encodedSize);
+    // Bytes 20–21: flags (channel byte + reserved) — zero for data channel.
+    hdr[20] = 0;
+    hdr[21] = 0;
+    // Bytes 22–29: header checksum = first 8 bytes of MD5(header[0:22] + LE32(offset)).
+    storages::common::MD5 hasher;
+    hasher.update(hdr.data(), 22);
+    u8 offsetLE[4];
+    writeLE32(offsetLE, archiveOffset);
+    hasher.update(offsetLE, 4);
+    auto hash = hasher.finalize();
+    std::memcpy(hdr.data() + 22, hash.data(), 8);
     return hdr;
 }
 
 /// Generate `.build.info` content.
 static std::string generateBuildInfo(const std::array<u8, 16>& buildKey,
+                                     const std::array<u8, 16>& cdnKey,
                                      const std::string& product,
                                      const std::string& version) {
     std::string content;
     content += "Branch!STRING:0|Active!DEC:1|Build Key!HEX:16|"
                "CDN Key!HEX:16|Version!STRING:0|Product!STRING:0\n";
     // Single build row.
-    content += "master|1|" + hexEncode16(buildKey) + "|" + hexEncode16(buildKey) +
+    content += "master|1|" + hexEncode16(buildKey) + "|" + hexEncode16(cdnKey) +
                "|" + version + "|" + product + "\n";
     return content;
 }
@@ -75,14 +90,23 @@ static std::string generateBuildInfo(const std::array<u8, 16>& buildKey,
 static std::string generateBuildConfig(const std::array<u8, 16>& rootCKey,
                                        const std::array<u8, 16>& encodingCKey,
                                        const std::array<u8, 16>& encodingEKey,
-                                       u64 encodingSize,
+                                       u64 encodingDecodedSize,
+                                       u64 encodingEncodedSize,
+                                       const std::array<u8, 16>& downloadCKey,
+                                       const std::array<u8, 16>& downloadEKey,
+                                       u64 downloadDecodedSize,
+                                       u64 downloadEncodedSize,
                                        const std::string& product,
                                        const std::string& version) {
     std::string content;
     content += "# Build Configuration\n";
     content += "root = " + hexEncode16(rootCKey) + "\n";
     content += "encoding = " + hexEncode16(encodingCKey) + " " + hexEncode16(encodingEKey) + "\n";
-    content += "encoding-size = " + std::to_string(encodingSize) + "\n";
+    content += "encoding-size = " + std::to_string(encodingDecodedSize) + " " +
+               std::to_string(encodingEncodedSize) + "\n";
+    content += "download = " + hexEncode16(downloadCKey) + " " + hexEncode16(downloadEKey) + "\n";
+    content += "download-size = " + std::to_string(downloadDecodedSize) + " " +
+               std::to_string(downloadEncodedSize) + "\n";
     content += "build-name = " + version + "\n";
     content += "build-product = " + product + "\n";
     content += "build-uid = " + product + "\n";
@@ -165,7 +189,7 @@ static std::vector<u8> serializeTvfsRoot(const std::vector<WriteEntry>& entries,
 
     constexpr u8 kFormatVersion = kTvfsFormatVersion;
     constexpr u8 kEKeySizeTvfs = 9;
-    constexpr u8 kPatchKeySize = 0;
+    constexpr u8 kPatchKeySize = 9;
     // INCLUDE_CKEY (0x0001): store CKey alongside EKey in CFT entries.
     // WRITE_SUPPORT (0x0002): EST table present with ESpec encoding info.
     constexpr u32 kFlags = 0x0003;
@@ -274,8 +298,6 @@ static std::vector<u8> serializeTvfsRoot(const std::vector<WriteEntry>& entries,
     std::vector<u8> innerPathTable;
     u32 vfsOffset = 0;
     for (size_t i = 0; i < entries.size(); ++i) {
-        if (i > 0) innerPathTable.push_back(kTvfsPathSeparator); // sibling separator
-
         auto& path = entries[i].path;
         // Write name as single fragment: [len][bytes...]
         // Paths can be >255 chars, but for simplicity limit to 255.
@@ -284,8 +306,9 @@ static std::vector<u8> serializeTvfsRoot(const std::vector<WriteEntry>& entries,
         for (u8 j = 0; j < nameLen; ++j)
             innerPathTable.push_back(static_cast<u8>(path[j]));
 
-        // Path boundary + node value marker.
-        innerPathTable.push_back(kTvfsPathSeparator);
+        // Node value marker (no path separators — CascLib interprets 0x00
+        // as '/' prefix/postfix on the resolved path, which would corrupt
+        // the filename).
         innerPathTable.push_back(kTvfsNodeValueMarker);
 
         // File node value: VFS offset (bit 31 = 0).
@@ -408,15 +431,27 @@ static D3RootBlobs serializeD3Root(const std::vector<WriteEntry>& entries) {
     // Step 2: Build the root blob (kD3Root) referencing the subdirectory.
     // Use an empty name for the subdirectory so the parser doesn't prepend
     // a prefix to the file paths (prefix = "" when name is empty).
+    //
+    // CascLib rejects root blobs <= 32 bytes (MD5_STRING_SIZE) as a heuristic
+    // to skip ROOT files that are plain MD5 hash strings.  A single named
+    // entry with an empty name produces only 25 bytes, so we emit a second
+    // dummy entry (all-zero CKey, empty name).  CascLib's D3 root handler
+    // calls FindCKeyEntry_CKey for each named entry and silently skips
+    // entries whose CKey is not found in the encoding table.
+    //
     // Format:
     //   [u32 LE: kD3Root signature]
-    //   [u32 LE: namedCount = 1]
-    //   [CKey(16): subdirectory content key]
-    //   [null-terminated string: ""]
+    //   [u32 LE: namedCount = 2]
+    //   [CKey(16): subdirectory content key] [null-terminated string: ""]
+    //   [CKey(16): 0x00...00 (dummy)]        [null-terminated string: ""]
     auto& root = result.rootData;
     pushLE32(root, RootSignature::kD3Root);
-    pushLE32(root, 1); // one subdirectory entry.
+    pushLE32(root, 2); // two subdirectory entries (real + dummy).
+    // Real subdirectory entry.
     root.insert(root.end(), result.subdirCKey.begin(), result.subdirCKey.end());
+    root.push_back(0); // empty string + null terminator
+    // Dummy entry — CKey not in encoding table, so CascLib skips it.
+    root.insert(root.end(), 16, 0); // all-zero CKey.
     root.push_back(0); // empty string + null terminator
 
     return result;
@@ -632,12 +667,37 @@ bool writeStorage(const std::string& outputDir,
         encodingTable.insert(rootEnc);
     }
 
+    // Build a minimal DOWNLOAD manifest (required by CascLib).
+    // FILE_DOWNLOAD_HEADER: 'DL' + version 1 + EKeyLen 16 + no checksum + 0 entries + 0 tags.
+    std::vector<u8> downloadRaw(16, 0);
+    downloadRaw[0] = 'D';
+    downloadRaw[1] = 'L';
+    downloadRaw[2] = 1;   // Version
+    downloadRaw[3] = 16;  // EKeyLength
+    // Bytes 4-15: zero (EntryHasChecksum=0, EntryCount=0, TagCount=0, padding)
+
+    auto downloadCKey = storages::common::md5Hash(downloadRaw);
+    auto downloadBlte = blteEncode(downloadRaw, blteOpts, pool);
+    auto downloadEKey = storages::common::md5Hash(downloadBlte);
+    u64 downloadEncodedSize = downloadBlte.size();
+
+    // Add download manifest to encoding table.
+    {
+        EncodingEntry dlEnc;
+        dlEnc.cKey = downloadCKey;
+        dlEnc.eKey = downloadEKey;
+        dlEnc.fileSize = downloadRaw.size();
+        dlEnc.eSpec = buildESpec(true, downloadRaw.size(), opts.blteFrameSize);
+        encodingTable.insert(dlEnc);
+    }
+
     // Serialize encoding table → BLTE-encode → get encoding CKey/EKey.
     auto encodingRaw = encodingTable.serialize();
     auto encodingCKey = storages::common::md5Hash(encodingRaw);
 
     auto encodingBlte = blteEncode(encodingRaw, blteOpts, pool);
     auto encodingEKey = storages::common::md5Hash(encodingBlte);
+    u64 encodingEncodedSize = encodingBlte.size();
 
     // -----------------------------------------------------------------------
     // Step 4: Write archive files (data.000, data.001, ...).
@@ -646,7 +706,6 @@ bool writeStorage(const std::string& outputDir,
     struct ArchiveBlob {
         std::array<u8, 16> eKey;
         std::vector<u8> encodedData;
-        u32 decodedSize;
     };
 
     // Gather all blobs to write: file entries + root + encoding.
@@ -657,18 +716,19 @@ bool writeStorage(const std::string& outputDir,
         ArchiveBlob ab;
         ab.eKey = entry.eKey;
         ab.encodedData = std::move(entry.encodedBlob);
-        ab.decodedSize = static_cast<u32>(entry.fileSize);
         blobs.push_back(std::move(ab));
     }
 
     // Root blob.
-    blobs.push_back({rootEKey, std::move(rootBlte), static_cast<u32>(rootRaw.size())});
+    blobs.push_back({rootEKey, std::move(rootBlte)});
     // D3 subdirectory blob (if present).
     if (!d3SubdirBlte.empty()) {
-        blobs.push_back({d3SubdirEKey, std::move(d3SubdirBlte), static_cast<u32>(d3SubdirRaw.size())});
+        blobs.push_back({d3SubdirEKey, std::move(d3SubdirBlte)});
     }
+    // Download manifest blob.
+    blobs.push_back({downloadEKey, std::move(downloadBlte)});
     // Encoding blob.
-    blobs.push_back({encodingEKey, std::move(encodingBlte), static_cast<u32>(encodingRaw.size())});
+    blobs.push_back({encodingEKey, std::move(encodingBlte)});
 
     // Split into archives.
     IndexTable indexTable;
@@ -715,7 +775,7 @@ bool writeStorage(const std::string& outputDir,
 
         // Write archive entry header + data.
         auto hdr = makeArchiveEntryHeader(blob.eKey, static_cast<u32>(blob.encodedData.size()),
-                                          blob.decodedSize);
+                                          archiveOffset);
         currentArchive.insert(currentArchive.end(), hdr.begin(), hdr.end());
         currentArchive.insert(currentArchive.end(), blob.encodedData.begin(), blob.encodedData.end());
 
@@ -745,7 +805,10 @@ bool writeStorage(const std::string& outputDir,
 
     // Build config.
     auto buildConfigStr = generateBuildConfig(rootCKey, encodingCKey, encodingEKey,
-                                              encodingRaw.size(), opts.product, opts.version);
+                                              encodingRaw.size(), encodingEncodedSize,
+                                              downloadCKey, downloadEKey,
+                                              downloadRaw.size(), downloadEncodedSize,
+                                              opts.product, opts.version);
     std::vector<u8> buildConfigBytes(buildConfigStr.begin(), buildConfigStr.end());
     auto buildKey = storages::common::md5Hash(buildConfigBytes);
 
@@ -765,7 +828,7 @@ bool writeStorage(const std::string& outputDir,
     // Step 7: Write .build.info.
     // -----------------------------------------------------------------------
 
-    auto buildInfoStr = generateBuildInfo(buildKey, opts.product, opts.version);
+    auto buildInfoStr = generateBuildInfo(buildKey, cdnKey, opts.product, opts.version);
     if (!writeFileString(outputDir + "/.build.info", buildInfoStr))
         return false;
 

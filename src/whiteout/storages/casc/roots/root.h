@@ -159,7 +159,7 @@ protected:
 
 // Well-known root format magic signatures.
 namespace RootSignature {
-    constexpr u32 kMFST   = 0x5453464D; ///< 'MFST' (WoW root, build 30080+).
+    constexpr u32 kMFST   = 0x4D465354; ///< 'TSFM' WoW root signature (build 30080+).
     constexpr u32 kTVFS   = 0x53465654; ///< 'TVFS' (WC3 Reforged / TVFS root).
     constexpr u32 kMNDX   = 0x58444E4D; ///< 'MNDX' (SC2, HotS trie-based root).
     constexpr u32 kD3Root     = 0x8007D0C4; ///< Diablo 3 root directory signature.
