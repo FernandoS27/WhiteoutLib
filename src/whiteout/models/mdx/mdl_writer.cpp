@@ -173,7 +173,7 @@ private:
 
         openBlock(name + " " + std::to_string(track.keyCount));
         line(std::string(interpName(track.interpolationType)) + ",");
-        if (track.globalSequenceId != 0) {
+        if (track.globalSequenceId != 0xFFFFFFFF) {
             line("GlobalSeqId " + std::to_string(track.globalSequenceId) + ",");
         }
 
@@ -371,8 +371,32 @@ private:
         if (mdx::hasFlag(layer.shadingFlags, Layer::ShadingFlag::NoDepthSet))
             line("NoDepthSet,");
 
-        // TextureID — track or static
-        if (layer.textureIdTracks.isUsed && layer.textureIdTracks.keyCount > 0) {
+        // ShaderTypeId (Reforged HD/SD flag)
+        if (m_model.version >= 1100) {
+            line("ShaderTypeId " + std::to_string(layer.is_hd ? 1 : 0) + ",");
+        }
+
+        // TextureID / sub-texture slots
+        if (layer.is_hd && !layer.subTextures.empty()) {
+            for (const auto& subTex : layer.subTextures) {
+                const char* slotName = "TextureID";
+                switch (subTex.slot) {
+                    case Layer::SlotType::DiffuseMap: slotName = "TextureID"; break;
+                    case Layer::SlotType::NormalMap: slotName = "NormalTextureID"; break;
+                    case Layer::SlotType::ORMMap: slotName = "ORMTextureID"; break;
+                    case Layer::SlotType::EmissiveMap: slotName = "EmissiveTextureID"; break;
+                    case Layer::SlotType::TeamColor: slotName = "TeamColorTextureID"; break;
+                    case Layer::SlotType::EnvironmentMap: slotName = "ReflectionsTextureID"; break;
+                    default: slotName = "TextureID"; break;
+                }
+                if (subTex.tracks.isUsed && subTex.tracks.keyCount > 0) {
+                    writeTrackOrStatic<u32>(slotName, subTex.tracks, subTex.textureId);
+                } else {
+                    line("static " + std::string(slotName) + " " +
+                         std::to_string(subTex.textureId) + ",");
+                }
+            }
+        } else if (layer.textureIdTracks.isUsed && layer.textureIdTracks.keyCount > 0) {
             // Check for static case
             if (layer.textureIdTracks.keyCount == 1 &&
                 layer.textureIdTracks.interpolationType == InterpolationType::None) {

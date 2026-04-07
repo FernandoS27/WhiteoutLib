@@ -521,12 +521,47 @@ void convertMaterials(const MdlNode& block, Model& model) {
                         layer.shadingFlags =
                             layer.shadingFlags | Layer::ShadingFlag::NoDepthSet;
 
-                    // TextureID (static or animated)
-                    layer.textureIdTracks = getTrack<u32>(*layerNode, "TextureID");
-                    if (auto* p = findProp(*layerNode, "TextureID")) {
-                        if (!p->values.empty() && p->values[0].isNumber())
-                            layer.textureId =
-                                static_cast<u32>(p->values[0].asNumber());
+                    // ShaderTypeId (Reforged HD/SD flag)
+                    layer.is_hd = (u32Prop(*layerNode, "ShaderTypeId") == 1);
+
+                    // TextureID / sub-texture slots
+                    if (layer.is_hd) {
+                        auto readSubTex = [&](const char* name,
+                                              Layer::SlotType slot) {
+                            if (auto* p = findProp(*layerNode, name)) {
+                                Layer::SubTexture sub;
+                                if (!p->values.empty() &&
+                                    p->values[0].isNumber())
+                                    sub.textureId = static_cast<u32>(
+                                        p->values[0].asNumber());
+                                sub.slot = slot;
+                                sub.tracks =
+                                    getTrack<u32>(*layerNode, name);
+                                layer.subTextures.push_back(sub);
+                            }
+                        };
+                        readSubTex("TextureID",
+                                   Layer::SlotType::DiffuseMap);
+                        readSubTex("NormalTextureID",
+                                   Layer::SlotType::NormalMap);
+                        readSubTex("ORMTextureID",
+                                   Layer::SlotType::ORMMap);
+                        readSubTex("EmissiveTextureID",
+                                   Layer::SlotType::EmissiveMap);
+                        readSubTex("TeamColorTextureID",
+                                   Layer::SlotType::TeamColor);
+                        readSubTex("ReflectionsTextureID",
+                                   Layer::SlotType::EnvironmentMap);
+                    } else {
+                        // SD: regular TextureID
+                        layer.textureIdTracks =
+                            getTrack<u32>(*layerNode, "TextureID");
+                        if (auto* p = findProp(*layerNode, "TextureID")) {
+                            if (!p->values.empty() &&
+                                p->values[0].isNumber())
+                                layer.textureId = static_cast<u32>(
+                                    p->values[0].asNumber());
+                        }
                     }
 
                     layer.alpha = floatProp(*layerNode, "Alpha", 1.0f);
