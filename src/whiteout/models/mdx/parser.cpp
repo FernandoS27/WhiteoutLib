@@ -468,6 +468,15 @@ Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 chunkSize, Model&
     // Upgrade older versions to newer format
     if (upgradeMode == UpgradeMode::UpgradeOldVersions && mdx.version < 1100) {
         if (is_hd) {
+            static constexpr Layer::SlotType kHdSlotOrder[] = {
+                Layer::SlotType::DiffuseMap,
+                Layer::SlotType::NormalMap,
+                Layer::SlotType::ORMMap,
+                Layer::SlotType::EmissiveMap,
+                Layer::SlotType::TeamColor,
+                Layer::SlotType::EnvironmentMap,
+            };
+
             // Convert to HD layer format
             std::vector<Layer> hdLayers;
             hdLayers.resize(1);
@@ -475,10 +484,11 @@ Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 chunkSize, Model&
 
             hdLayers[0].textureId = 0;
             hdLayers[0].textureIdTracks = Track<u32>();
-            for (auto& layer : mat.layers) {
+            for (size_t i = 0; i < mat.layers.size(); i++) {
+                auto& layer = mat.layers[i];
                 Layer::SubTexture subTex;
                 subTex.textureId = layer.textureId;
-                subTex.slot = Layer::SlotType::DiffuseMap;
+                subTex.slot = (i < 6) ? kHdSlotOrder[i] : Layer::SlotType::DiffuseMap;
                 subTex.tracks = std::move(layer.textureIdTracks);
                 hdLayers[0].subTextures.push_back(subTex);
             }
