@@ -154,14 +154,14 @@ void Writer::Impl::write(BinaryWriter& writer, const Model& mdx) {
         writeSEQS(writer, mdx);
     if (!mdx.globalSequences.empty())
         writeGLBS(writer, mdx);
+    if (!mdx.materials.empty())
+        writeMTLS(writer, mdx);
     if (!mdx.textures.empty())
         writeTEXS(writer, mdx);
     if (!mdx.sounds.empty())
         writeSNDS(writer, mdx);
     if (!mdx.soundEmitters.empty())
         writeSNEM(writer, mdx);
-    if (!mdx.materials.empty())
-        writeMTLS(writer, mdx);
     if (!mdx.textureAnimations.empty())
         writeTXAN(writer, mdx);
     if (!mdx.geosets.empty())
