@@ -138,7 +138,7 @@ ConvertResult MdxConverter::fromMdx(const mdx::Model& mdxModel) const {
     for (const auto& tex : mdxModel.textures) {
         TextureRef ref;
         ref.path = tex.fileName;
-        ref.flags = tex.flags;
+        ref.flags = static_cast<u32>(tex.flags);
         ref.replaceableId = tex.replaceableId;
         model.textures.push_back(std::move(ref));
     }
@@ -351,7 +351,7 @@ MdxConvertResult MdxConverter::toMdx(const Model& wemModel, u32 targetVersion) c
     for (const auto& ref : wemModel.textures) {
         mdx::Texture tex;
         tex.fileName = ref.path;
-        tex.flags = ref.flags;
+        tex.flags = static_cast<mdx::Texture::Flag>(ref.flags);
         tex.replaceableId = ref.replaceableId;
         mdx.textures.push_back(std::move(tex));
     }

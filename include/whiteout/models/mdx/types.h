@@ -268,9 +268,11 @@ struct Track {
         T outTan{};    ///< Outgoing tangent for curve interpolation
     };
 
+    static constexpr u32 kNoGlobalSequence = 0xFFFFFFFF; ///< Sentinel value for no global sequence
+
     bool isUsed = false; ///< Whether this track contains animation data
     InterpolationType interpolationType = InterpolationType::None; ///< Interpolation type
-    u32 globalSequenceId = 0;  ///< Global sequence ID if applicable
+    u32 globalSequenceId = kNoGlobalSequence;  ///< Global sequence ID if applicable
     size_t keyCount = 0;       ///< Number of keyframes
     std::vector<u8> keys_data; ///< Raw keyframe data
 

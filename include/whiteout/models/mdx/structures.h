@@ -24,6 +24,28 @@
 namespace whiteout {
 namespace mdx {
 
+// Helper macro: defines bitwise operators and a hasFlag overload for a scoped
+// flag enum backed by u32. Must be invoked at the same scope as the enum.
+#define WHITEOUT_MDX_DEFINE_FLAG_OPERATORS(EnumType)                                                \
+    inline EnumType operator|(EnumType lhs, EnumType rhs) {                                        \
+        return static_cast<EnumType>(static_cast<u32>(lhs) | static_cast<u32>(rhs));               \
+    }                                                                                              \
+    inline EnumType operator&(EnumType lhs, EnumType rhs) {                                        \
+        return static_cast<EnumType>(static_cast<u32>(lhs) & static_cast<u32>(rhs));               \
+    }                                                                                              \
+    inline EnumType& operator|=(EnumType& lhs, EnumType rhs) {                                     \
+        lhs = lhs | rhs;                                                                           \
+        return lhs;                                                                                \
+    }                                                                                              \
+    inline EnumType& operator&=(EnumType& lhs, EnumType rhs) {                                     \
+        lhs = lhs & rhs;                                                                           \
+        return lhs;                                                                                \
+    }                                                                                              \
+    inline EnumType operator~(EnumType v) { return static_cast<EnumType>(~static_cast<u32>(v)); }  \
+    inline bool hasFlag(EnumType flags, EnumType flag) {                                           \
+        return (static_cast<u32>(flags) & static_cast<u32>(flag)) != 0;                            \
+    }
+
 // ============================================================================
 // Sequence
 // ============================================================================
@@ -35,15 +57,25 @@ namespace mdx {
  * Examples: "Stand", "Walk", "Attack", "Death"
  */
 struct Sequence {
-    std::string name;      ///< Sequence name (e.g., "Stand", "Walk")
-    u32 intervalStart = 0; ///< Starting frame number
-    u32 intervalEnd = 0;   ///< Ending frame number (exclusive)
-    f32 moveSpeed = 0.0f;  ///< Movement speed during this animation
-    u32 flags = 0;         ///< Flags (0x1 = non-looping)
-    f32 rarity = 0.0f;     ///< Rarity factor for variation sequences
-    u32 syncPoint = 0;     ///< Sync point for blending
-    Extent extent;         ///< Bounding volume for this sequence
+    /**
+     * @brief Sequence playback flags
+     */
+    enum class Flag : u32 {
+        None = 0x0,
+        NonLooping = 0x1, ///< Sequence plays once instead of looping
+    };
+
+    std::string name;        ///< Sequence name (e.g., "Stand", "Walk")
+    u32 intervalStart = 0;   ///< Starting frame number
+    u32 intervalEnd = 0;     ///< Ending frame number (exclusive)
+    f32 moveSpeed = 0.0f;    ///< Movement speed during this animation
+    Flag flags = Flag::None; ///< Playback flags
+    f32 rarity = 0.0f;       ///< Rarity factor for variation sequences
+    u32 syncPoint = 0;       ///< Sync point for blending
+    Extent extent;           ///< Bounding volume for this sequence
 };
+
+WHITEOUT_MDX_DEFINE_FLAG_OPERATORS(Sequence::Flag)
 
 // ============================================================================
 // Texture
@@ -55,11 +87,22 @@ struct Sequence {
  * Defines a texture file path and its properties.
  */
 struct Texture {
+    /**
+     * @brief Texture wrap flags
+     */
+    enum class Flag : u32 {
+        None = 0x0,
+        WrapWidth = 0x1,  ///< Wrap texture horizontally
+        WrapHeight = 0x2, ///< Wrap texture vertically
+    };
+
     u32 replaceableId =
         0; ///< Replaceable texture ID (0 = not replaceable, 1 = team color, 2 = team glow, etc.)
-    std::string fileName; ///< Path to texture file (BLP, DDS or TGA)
-    u32 flags = 0;        ///< Texture flags (0x1 = wrap width, 0x2 = wrap height)
+    std::string fileName;    ///< Path to texture file (BLP, DDS or TGA)
+    Flag flags = Flag::None; ///< Texture wrap flags
 };
+
+WHITEOUT_MDX_DEFINE_FLAG_OPERATORS(Texture::Flag)
 
 // ============================================================================
 // Sound (Deprecated)
@@ -162,32 +205,7 @@ struct Node {
     Track<Vector3f> scalingTracks;     ///< Scale animation
 };
 
-inline Node::NodeFlag operator|(Node::NodeFlag lhs, Node::NodeFlag rhs) {
-    return static_cast<Node::NodeFlag>(static_cast<u32>(lhs) | static_cast<u32>(rhs));
-}
-
-inline Node::NodeFlag operator&(Node::NodeFlag lhs, Node::NodeFlag rhs) {
-    return static_cast<Node::NodeFlag>(static_cast<u32>(lhs) & static_cast<u32>(rhs));
-}
-
-inline Node::NodeFlag operator|=(Node::NodeFlag& lhs, Node::NodeFlag rhs) {
-    lhs = lhs | rhs;
-    return lhs;
-}
-
-inline Node::NodeFlag operator&=(Node::NodeFlag& lhs, Node::NodeFlag rhs) {
-    lhs = lhs & rhs;
-    return lhs;
-}
-
-inline Node::NodeFlag operator~(Node::NodeFlag flag) {
-    return static_cast<Node::NodeFlag>(~static_cast<u32>(flag));
-}
-
-// Helper to check if a flag is set
-inline bool hasFlag(Node::NodeFlag flags, Node::NodeFlag flag) {
-    return (static_cast<u32>(flags) & static_cast<u32>(flag)) != 0;
-}
+WHITEOUT_MDX_DEFINE_FLAG_OPERATORS(Node::NodeFlag)
 
 // ============================================================================
 // Sound Emitter (Deprecated)
@@ -290,32 +308,7 @@ struct Layer {
     Track<f32> fresnelTeamColorTracks;  ///< Fresnel team color animation
 };
 
-inline Layer::ShadingFlag operator|(Layer::ShadingFlag lhs, Layer::ShadingFlag rhs) {
-    return static_cast<Layer::ShadingFlag>(static_cast<u32>(lhs) | static_cast<u32>(rhs));
-}
-
-inline Layer::ShadingFlag operator&(Layer::ShadingFlag lhs, Layer::ShadingFlag rhs) {
-    return static_cast<Layer::ShadingFlag>(static_cast<u32>(lhs) & static_cast<u32>(rhs));
-}
-
-inline Layer::ShadingFlag operator|=(Layer::ShadingFlag& lhs, Layer::ShadingFlag rhs) {
-    lhs = lhs | rhs;
-    return lhs;
-}
-
-inline Layer::ShadingFlag operator&=(Layer::ShadingFlag& lhs, Layer::ShadingFlag rhs) {
-    lhs = lhs & rhs;
-    return lhs;
-}
-
-inline Layer::ShadingFlag operator~(Layer::ShadingFlag flag) {
-    return static_cast<Layer::ShadingFlag>(~static_cast<u32>(flag));
-}
-
-// Helper to check if a flag is set
-inline bool hasFlag(Layer::ShadingFlag flags, Layer::ShadingFlag flag) {
-    return (static_cast<u32>(flags) & static_cast<u32>(flag)) != 0;
-}
+WHITEOUT_MDX_DEFINE_FLAG_OPERATORS(Layer::ShadingFlag)
 
 // ============================================================================
 // Material
@@ -328,11 +321,24 @@ inline bool hasFlag(Layer::ShadingFlag flags, Layer::ShadingFlag flag) {
  * layers that specify textures and blending modes.
  */
 struct Material {
+    /**
+     * @brief Material-level flags
+     */
+    enum class Flag : u32 {
+        None = 0x0,
+        ConstantColor = 0x1,  ///< Use constant color (no per-vertex tinting)
+        TwoSided = 0x2,       ///< Render both sides of polygons
+        SortPrimitives = 0x10, ///< Sort triangles by depth for correct transparency
+        FullResolution = 0x20, ///< Force full-resolution textures
+    };
+
     u32 priorityPlane = 0;     ///< Rendering priority (higher = render last)
-    u32 flags = 0;             ///< Material flags
+    Flag flags = Flag::None;   ///< Material flags
     std::string shader;        ///< Shader name (Reforged)
     std::vector<Layer> layers; ///< Rendering layers
 };
+
+WHITEOUT_MDX_DEFINE_FLAG_OPERATORS(Material::Flag)
 
 // ============================================================================
 // Texture Animation
@@ -396,14 +402,25 @@ struct Geoset {
  * Geoset animations control the visibility and color tinting of meshes.
  */
 struct GeosetAnimation {
+    /**
+     * @brief Geoset animation flags
+     */
+    enum class Flag : u32 {
+        None = 0x0,
+        DropShadow = 0x1, ///< Geoset casts a drop shadow
+        Color = 0x2,      ///< Use the per-geoset color/alpha values (else inherit)
+    };
+
     f32 alpha = 1.0f;                   ///< Base alpha value
-    u32 flags = 0;                      ///< Animation flags
+    Flag flags = Flag::None;            ///< Animation flags
     Vector3f color = Vector3f(1, 1, 1); ///< Base color tint
     u32 geosetId = 0;                   ///< Target geoset index
 
     Track<f32> alphaTracks;      ///< Alpha animation
     Track<Vector3f> colorTracks; ///< Color animation
 };
+
+WHITEOUT_MDX_DEFINE_FLAG_OPERATORS(GeosetAnimation::Flag)
 
 // ============================================================================
 // Bone

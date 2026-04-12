@@ -84,6 +84,7 @@ struct MdlAnimTrack {
     std::string name;
     u32 count = 0;
     std::string interpolation; // "Linear", "Hermite", "Bezier", "DontInterp", or "" for EventTrack
+    u32 globalSequenceId = 0xFFFFFFFF; ///< 0xFFFFFFFF if track is not driven by a global sequence
     std::vector<MdlKeyframe> keyframes;
 };
 

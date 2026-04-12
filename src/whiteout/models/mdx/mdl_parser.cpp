@@ -388,6 +388,15 @@ private:
             }
         }
 
+        // Optional: GlobalSeqId N,
+        if (m_ts.check(MdlTokenType::Identifier) && m_ts.peek().text == "GlobalSeqId") {
+            m_ts.advance();
+            if (m_ts.check(MdlTokenType::Number)) {
+                track.globalSequenceId = static_cast<u32>(toNumber(m_ts.advance().text));
+            }
+            m_ts.match(MdlTokenType::Comma);
+        }
+
         // Parse keyframes
         while (!m_ts.atEnd() && !m_ts.check(MdlTokenType::CloseBrace)) {
             if (m_ts.check(MdlTokenType::Number)) {

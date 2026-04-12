@@ -353,7 +353,7 @@ void Parser::Impl::parseSEQS(BinaryReader& reader, u32 size, Model& mdx) {
         seq.intervalStart = reader.read<u32>();
         seq.intervalEnd = reader.read<u32>();
         seq.moveSpeed = reader.read<f32>();
-        seq.flags = reader.read<u32>();
+        seq.flags = reader.read<Sequence::Flag>();
         seq.rarity = reader.read<f32>();
         seq.syncPoint = reader.read<u32>();
         seq.extent = reader.read<Extent>();
@@ -372,7 +372,7 @@ void Parser::Impl::parseTEXS(BinaryReader& reader, u32 size, Model& mdx) {
     for (u32 i = 0; i < count; i++) {
         mdx.textures[i].replaceableId = reader.read<u32>();
         mdx.textures[i].fileName = reader.readString(260);
-        mdx.textures[i].flags = reader.read<u32>();
+        mdx.textures[i].flags = reader.read<Texture::Flag>();
     }
 }
 
@@ -449,7 +449,7 @@ Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 chunkSize, Model&
 
     [[maybe_unused]] u32 inclusiveSize = reader.read<u32>();
     mat.priorityPlane = reader.read<u32>();
-    mat.flags = reader.read<u32>();
+    mat.flags = reader.read<Material::Flag>();
 
     if (mdx.version > 800 && mdx.version < 1100) {
         mat.shader = reader.readString(80);
@@ -791,7 +791,7 @@ void Parser::Impl::parseGEOA(BinaryReader& reader, u32 size, Model& mdx) {
         GeosetAnimation anim;
         u32 inclusiveSize = reader.read<u32>();
         anim.alpha = reader.read<f32>();
-        anim.flags = reader.read<u32>();
+        anim.flags = reader.read<GeosetAnimation::Flag>();
         anim.color = reader.read<Vector3f>();
         anim.geosetId = reader.read<u32>();
 

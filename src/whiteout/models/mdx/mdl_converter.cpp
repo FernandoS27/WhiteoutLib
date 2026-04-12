@@ -222,11 +222,11 @@ Vector4f convertValue<Vector4f>(const MdlValue& v) {
 // Build a Track<T> from an MdlAnimTrack. Also handles "static PROP value" properties
 // that become a single-key track with no interpolation.
 template <typename T>
-Track<T> buildTrack(const MdlAnimTrack& atrack, u32 globalSeqId = 0) {
+Track<T> buildTrack(const MdlAnimTrack& atrack) {
     Track<T> track;
     track.isUsed = true;
     track.interpolationType = parseInterpolation(atrack.interpolation);
-    track.globalSequenceId = globalSeqId;
+    track.globalSequenceId = atrack.globalSequenceId;
     track.keyCount = static_cast<u32>(atrack.keyframes.size());
 
     bool smooth = isSmoothInterpolation(track.interpolationType);
@@ -253,7 +253,7 @@ Track<T> buildStaticTrack(const T& value) {
     Track<T> track;
     track.isUsed = true;
     track.interpolationType = InterpolationType::None;
-    track.globalSequenceId = 0;
+    track.globalSequenceId = 0xFFFFFFFF;
     track.keyCount = 1;
     u32 frame = 0;
     pushBytes(track.keys_data, frame);
@@ -264,9 +264,9 @@ Track<T> buildStaticTrack(const T& value) {
 // Try to get a Track<T> from a node. Looks for an anim track first,
 // then falls back to a static property of the same name.
 template <typename T>
-Track<T> getTrack(const MdlNode& node, std::string_view name, u32 globalSeqId = 0) {
+Track<T> getTrack(const MdlNode& node, std::string_view name) {
     if (auto* t = findTrack(node, name)) {
-        return buildTrack<T>(*t, globalSeqId);
+        return buildTrack<T>(*t);
     }
     // Check for static property
     if (auto* p = findProp(node, name)) {
@@ -419,7 +419,7 @@ void convertSequences(const MdlNode& block, Model& model) {
             }
             seq.moveSpeed = floatProp(*anim, "MoveSpeed");
             seq.rarity = floatProp(*anim, "Rarity");
-            if (hasFlag(*anim, "NonLooping")) seq.flags |= 0x1;
+            if (hasFlag(*anim, "NonLooping")) seq.flags |= Sequence::Flag::NonLooping;
             seq.extent = parseExtent(*anim);
             model.sequences.push_back(std::move(seq));
         }
@@ -451,8 +451,8 @@ void convertTextures(const MdlNode& block, Model& model) {
             Texture tex;
             tex.fileName = stringProp(*bitmap, "Image");
             tex.replaceableId = u32Prop(*bitmap, "ReplaceableId");
-            if (hasFlag(*bitmap, "WrapWidth")) tex.flags |= 0x1;
-            if (hasFlag(*bitmap, "WrapHeight")) tex.flags |= 0x2;
+            if (hasFlag(*bitmap, "WrapWidth")) tex.flags |= Texture::Flag::WrapWidth;
+            if (hasFlag(*bitmap, "WrapHeight")) tex.flags |= Texture::Flag::WrapHeight;
             model.textures.push_back(std::move(tex));
         }
     }
@@ -464,14 +464,14 @@ void convertMaterials(const MdlNode& block, Model& model) {
             if (matNode->name != "Material") continue;
             Material mat;
             mat.priorityPlane = u32Prop(*matNode, "PriorityPlane");
-            mat.flags = u32Prop(*matNode, "Flags");
+            mat.flags = static_cast<Material::Flag>(u32Prop(*matNode, "Flags"));
             mat.shader = stringProp(*matNode, "Shader");
 
             // Flags
-            if (hasFlag(*matNode, "ConstantColor")) mat.flags |= 0x1;
-            if (hasFlag(*matNode, "SortPrimitives")) mat.flags |= 0x10;
-            if (hasFlag(*matNode, "FullResolution")) mat.flags |= 0x20;
-            if (hasFlag(*matNode, "TwoSided")) mat.flags |= 0x2;
+            if (hasFlag(*matNode, "ConstantColor")) mat.flags |= Material::Flag::ConstantColor;
+            if (hasFlag(*matNode, "SortPrimitives")) mat.flags |= Material::Flag::SortPrimitives;
+            if (hasFlag(*matNode, "FullResolution")) mat.flags |= Material::Flag::FullResolution;
+            if (hasFlag(*matNode, "TwoSided")) mat.flags |= Material::Flag::TwoSided;
 
             // Parse layers
             for (auto& mc : matNode->children) {
@@ -770,22 +770,22 @@ void convertGeosetAnim(const MdlNode& block, Model& model) {
     GeosetAnimation ga;
     ga.alpha = floatProp(block, "Alpha", 1.0f);
     ga.geosetId = u32Prop(block, "GeosetId");
-    ga.flags = u32Prop(block, "Flags");
+    ga.flags = static_cast<GeosetAnimation::Flag>(u32Prop(block, "Flags"));
 
     // DropShadow flag
-    if (hasFlag(block, "DropShadow")) ga.flags |= 0x1;
+    if (hasFlag(block, "DropShadow")) ga.flags |= GeosetAnimation::Flag::DropShadow;
 
     // Color
     if (auto* p = findProp(block, "Color")) {
         if (p->isStatic && !p->values.empty() && p->values[0].isArray()) {
             ga.color = valueToVec3(p->values[0]);
-            ga.flags |= 0x2; // has color
+            ga.flags |= GeosetAnimation::Flag::Color;
         }
     }
 
     ga.alphaTracks = getTrack<f32>(block, "Alpha");
     ga.colorTracks = getTrack<Vector3f>(block, "Color");
-    if (ga.colorTracks.isUsed) ga.flags |= 0x2;
+    if (ga.colorTracks.isUsed) ga.flags |= GeosetAnimation::Flag::Color;
 
     model.geosetAnimations.push_back(std::move(ga));
 }

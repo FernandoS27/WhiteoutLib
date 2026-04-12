@@ -60,7 +60,7 @@ void printSequences(const whiteout::mdx::Model& mdx) {
         std::cout << "\nSequence " << i << ": " << seq.name << std::endl;
         std::cout << "  Interval: " << seq.intervalStart << " - " << seq.intervalEnd << std::endl;
         std::cout << "  Move Speed: " << seq.moveSpeed << std::endl;
-        std::cout << "  Flags: " << seq.flags << std::endl;
+        std::cout << "  Flags: " << static_cast<whiteout::u32>(seq.flags) << std::endl;
         std::cout << "  Rarity: " << seq.rarity << std::endl;
     }
 }
@@ -77,7 +77,7 @@ void printTextures(const whiteout::mdx::Model& mdx) {
         std::cout << "\nTexture " << i << std::endl;
         std::cout << "  Replaceable ID: " << tex.replaceableId << std::endl;
         std::cout << "  File: " << tex.fileName << std::endl;
-        std::cout << "  Flags: " << tex.flags << std::endl;
+        std::cout << "  Flags: " << static_cast<whiteout::u32>(tex.flags) << std::endl;
     }
 }
 

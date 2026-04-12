@@ -283,7 +283,7 @@ private:
             openBlock("Anim " + quoted(seq.name));
             line("Interval { " + std::to_string(seq.intervalStart) + ", " +
                  std::to_string(seq.intervalEnd) + " },");
-            if (seq.flags & 0x1) line("NonLooping,");
+            if (mdx::hasFlag(seq.flags, Sequence::Flag::NonLooping)) line("NonLooping,");
             if (seq.moveSpeed != 0.0f)
                 line("MoveSpeed " + fmtFloat(seq.moveSpeed) + ",");
             if (seq.rarity != 0.0f)
@@ -311,8 +311,8 @@ private:
             line("Image " + quoted(tex.fileName) + ",");
             if (tex.replaceableId != 0)
                 line("ReplaceableId " + std::to_string(tex.replaceableId) + ",");
-            if (tex.flags & 0x1) line("WrapWidth,");
-            if (tex.flags & 0x2) line("WrapHeight,");
+            if (mdx::hasFlag(tex.flags, Texture::Flag::WrapWidth)) line("WrapWidth,");
+            if (mdx::hasFlag(tex.flags, Texture::Flag::WrapHeight)) line("WrapHeight,");
             closeBlock();
         }
         closeBlock();
@@ -326,10 +326,10 @@ private:
             if (mat.priorityPlane != 0)
                 line("PriorityPlane " + std::to_string(mat.priorityPlane) + ",");
             // Material flags as identifiers
-            if (mat.flags & 0x1) line("ConstantColor,");
-            if (mat.flags & 0x10) line("SortPrimitives,");
-            if (mat.flags & 0x20) line("FullResolution,");
-            if (mat.flags & 0x2) line("TwoSided,");
+            if (mdx::hasFlag(mat.flags, Material::Flag::ConstantColor)) line("ConstantColor,");
+            if (mdx::hasFlag(mat.flags, Material::Flag::SortPrimitives)) line("SortPrimitives,");
+            if (mdx::hasFlag(mat.flags, Material::Flag::FullResolution)) line("FullResolution,");
+            if (mdx::hasFlag(mat.flags, Material::Flag::TwoSided)) line("TwoSided,");
             if (!mat.shader.empty())
                 line("Shader " + quoted(mat.shader) + ",");
 
@@ -618,14 +618,14 @@ private:
             line("static Alpha " + fmtFloat(ga.alpha) + ",");
         }
 
-        if (ga.flags & 0x1) line("DropShadow,");
+        if (mdx::hasFlag(ga.flags, GeosetAnimation::Flag::DropShadow)) line("DropShadow,");
 
         line("GeosetId " + std::to_string(ga.geosetId) + ",");
 
         // Color
         if (ga.colorTracks.isUsed) {
             writeTrackOrStatic<Vector3f>("Color", ga.colorTracks, ga.color);
-        } else if (ga.flags & 0x2) {
+        } else if (mdx::hasFlag(ga.flags, GeosetAnimation::Flag::Color)) {
             line("static Color " + fmtVec3(ga.color) + ",");
         }
 
