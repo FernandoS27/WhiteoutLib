@@ -3,6 +3,7 @@
 
 #include <whiteout/vector_types.h>
 
+#include <algorithm>
 #include <cmath>
 
 namespace whiteout {
