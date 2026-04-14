@@ -270,8 +270,8 @@ Quaternion Quaternion::slerp(const Quaternion& a, const Quaternion& b, f32 t) {
 
 Quaternion Quaternion::squad(const Quaternion& start, const Quaternion& outtan,
                              const Quaternion& inttan, const Quaternion& end, f32 t) {
-    Quaternion slerp1 = slerp(start, outtan, t);
-    Quaternion slerp2 = slerp(inttan, end, t);
+    Quaternion slerp1 = slerp(start, end, t);
+    Quaternion slerp2 = slerp(outtan, inttan, t);
     return slerp(slerp1, slerp2, 2 * t * (1 - t));
 }
 
