@@ -221,6 +221,7 @@ std::pair<Quaternion, Quaternion> Quaternion::tcb_tangents(
 Quaternion Quaternion::slerp(const Quaternion& a, const Quaternion& b, f32 t) {
     // Compute the cosine of the angle between the two quaternions
     f32 d = a.dot(b);
+    d = std::clamp(d, -1.0f, 1.0f);
 
     // If the dot product is negative, slerp won't take the shorter path.
     // Fix by reversing one quaternion.
@@ -236,22 +237,34 @@ Quaternion Quaternion::slerp(const Quaternion& a, const Quaternion& b, f32 t) {
     const f32 DOT_THRESHOLD = 0.9995f;
     if (d > DOT_THRESHOLD) {
         // If the quaternions are close, use linear interpolation
-        return Quaternion(a.x + t * (end.x - a.x), a.y + t * (end.y - a.y), a.z + t * (end.z - a.z),
-                          a.w + t * (end.w - a.w));
+        Quaternion result = Quaternion(
+            a.x + t * (end.x - a.x),
+            a.y + t * (end.y - a.y),
+            a.z + t * (end.z - a.z),
+            a.w + t * (end.w - a.w)
+        );
+        return result.normalized();
     }
 
     // Calculate the angle between the quaternions
     f32 theta_0 = std::acos(d); // angle between input quaternions
     f32 theta = theta_0 * t;    // angle between a and result
+
     f32 sin_theta = std::sin(theta);
     f32 sin_theta_0 = std::sin(theta_0);
 
-    f32 s0 =
-        std::cos(theta) - d * sin_theta / sin_theta_0; // == sin(theta_0 - theta) / sin(theta_0)
+    if (sin_theta_0 < 1e-6f)
+        return a;
+
+    f32 s0 = std::sin(theta_0 - theta) / sin_theta_0;
     f32 s1 = sin_theta / sin_theta_0;
 
-    return Quaternion((a.x * s0) + (end.x * s1), (a.y * s0) + (end.y * s1),
-                      (a.z * s0) + (end.z * s1), (a.w * s0) + (end.w * s1));
+    return Quaternion(
+        a.x * s0 + end.x * s1,
+        a.y * s0 + end.y * s1,
+        a.z * s0 + end.z * s1,
+        a.w * s0 + end.w * s1
+    );
 }
 
 Quaternion Quaternion::squad(const Quaternion& start, const Quaternion& outtan,
