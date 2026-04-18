@@ -1336,12 +1336,11 @@ void Parser::Impl::parseEVTS(BinaryReader& reader, u32 size, Model& mdx) {
         // Read KEVT chunk
         u32 kevtTag = reader.read<u32>();
         u32 trackCount = reader.read<u32>();
+        evt.globalSequenceId = reader.read<u32>();
 
         for (u32 i = 0; i < trackCount; i++) {
             evt.eventTrackTimes.push_back(reader.read<u32>());
         }
-
-        evt.globalSequenceId = reader.read<u32>();
 
         mdx.eventObjects.push_back(evt);
 

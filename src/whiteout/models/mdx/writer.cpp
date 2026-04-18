@@ -760,8 +760,8 @@ void Writer::Impl::writeEventObject(BinaryWriter& writer, const EventObject& evt
 
     writer.write(KEVT_TAG);
     writer.write(static_cast<u32>(evt.eventTrackTimes.size()));
-    writer.write(evt.eventTrackTimes);
     writer.write(evt.globalSequenceId);
+    writer.write(evt.eventTrackTimes);
 }
 
 void Writer::Impl::writeCAMS(BinaryWriter& writer, const Model& mdx) {
