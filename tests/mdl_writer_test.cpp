@@ -90,7 +90,7 @@ TEST_CASE("mdl_write_sequences", "[mdl_writer]") {
     seq.intervalStart = 0;
     seq.intervalEnd = 3333;
     seq.moveSpeed = 0.0f;
-    seq.flags = 0x1; // NonLooping
+    seq.flags = Sequence::Flag::NonLooping;
     seq.rarity = 0.0f;
     seq.extent.boundsRadius = 100.0f;
     model.sequences.push_back(seq);
@@ -113,7 +113,7 @@ TEST_CASE("mdl_write_sequences", "[mdl_writer]") {
     REQUIRE(rt.sequences.size() == 2);
     CHECK(rt.sequences[0].name == "Stand");
     CHECK(rt.sequences[0].intervalEnd == 3333);
-    CHECK(rt.sequences[0].flags & 0x1);
+    CHECK(hasFlag(rt.sequences[0].flags, Sequence::Flag::NonLooping));
     CHECK(rt.sequences[1].moveSpeed == 270.0f);
 }
 
@@ -140,7 +140,7 @@ TEST_CASE("mdl_write_textures", "[mdl_writer]") {
     Texture tex;
     tex.fileName = "Textures\\Armor.blp";
     tex.replaceableId = 0;
-    tex.flags = 0x3; // WrapWidth | WrapHeight
+    tex.flags = Texture::Flag::WrapWidth | Texture::Flag::WrapHeight;
     model.textures.push_back(tex);
 
     Texture tex2;
@@ -158,7 +158,7 @@ TEST_CASE("mdl_write_textures", "[mdl_writer]") {
     auto rt = parseMdl(mdl);
     REQUIRE(rt.textures.size() == 2);
     CHECK(rt.textures[0].fileName == "Textures\\Armor.blp");
-    CHECK(rt.textures[0].flags == 0x3);
+    CHECK(rt.textures[0].flags == (Texture::Flag::WrapWidth | Texture::Flag::WrapHeight));
     CHECK(rt.textures[1].replaceableId == 1);
 }
 
@@ -232,7 +232,7 @@ TEST_CASE("mdl_write_geoset_anim", "[mdl_writer]") {
     GeosetAnimation ga;
     ga.alpha = 0.5f;
     ga.geosetId = 0;
-    ga.flags = 0x1; // DropShadow
+    ga.flags = GeosetAnimation::Flag::DropShadow;
     model.geosetAnimations.push_back(ga);
 
     std::string mdl = writeModelToMdl(model);
@@ -243,7 +243,7 @@ TEST_CASE("mdl_write_geoset_anim", "[mdl_writer]") {
     auto rt = parseMdl(mdl);
     REQUIRE(rt.geosetAnimations.size() == 1);
     CHECK(approx(rt.geosetAnimations[0].alpha, 0.5f));
-    CHECK(rt.geosetAnimations[0].flags & 0x1);
+    CHECK(hasFlag(rt.geosetAnimations[0].flags, GeosetAnimation::Flag::DropShadow));
 }
 
 TEST_CASE("mdl_write_bone", "[mdl_writer]") {

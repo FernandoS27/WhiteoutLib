@@ -453,7 +453,7 @@ Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 chunkSize, Model&
 
     if (mdx.version > 800 && mdx.version < 1100) {
         mat.shader = reader.readString(80);
-        is_hd = !mat.shader.empty();
+        is_hd = mat.shader == "Shader_HD_DefaultUnit" || mat.shader == "Shader_HD_Crystal";
     }
 
     // Read LAYS chunk
@@ -492,7 +492,15 @@ Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 chunkSize, Model&
                 subTex.tracks = std::move(layer.textureIdTracks);
                 hdLayers[0].subTextures.push_back(subTex);
             }
-            hdLayers[0].is_hd = true;
+            if (mat.shader == "Shader_SD_FixedFunction") {
+                hdLayers[0].shader = Layer::ShaderType::SDOnHD;
+            } else if (mat.shader == "Shader_HD_DefaultUnit") {
+                hdLayers[0].shader = Layer::ShaderType::HD;
+            } else if (mat.shader == "Shader_HD_Crystal") {
+                hdLayers[0].shader = Layer::ShaderType::Crystal;
+            } else {
+                hdLayers[0].shader = Layer::ShaderType::SD; // Unknown shader, set to 0
+            }
 
             mat.layers = std::move(hdLayers);
         } else {
@@ -533,8 +541,7 @@ Layer Parser::Impl::parseLayer(BinaryReader& reader, Model& mdx) {
 
     if (mdx.version >= 1100) {
         layer.textureId = 0;
-        const auto is_hd = reader.read<u32>();
-        layer.is_hd = is_hd != 0;
+        layer.shader = reader.read<Layer::ShaderType>();
         const auto num_textures = reader.read<u32>();
         for (u32 i = 0; i < num_textures; i++) {
             Layer::SubTexture subTex;

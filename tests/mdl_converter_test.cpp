@@ -102,7 +102,7 @@ Sequences 2 {
     CHECK(approx(model.sequences[0].extent.boundsRadius, 80.0f));
     CHECK(model.sequences[1].name == "Walk");
     CHECK(model.sequences[1].intervalStart == 3334);
-    CHECK((model.sequences[1].flags & 0x1) != 0); // NonLooping
+    CHECK(hasFlag(model.sequences[1].flags, Sequence::Flag::NonLooping));
     CHECK(approx(model.sequences[1].moveSpeed, 270.0f));
 }
 
@@ -124,8 +124,8 @@ Textures 2 {
     REQUIRE(issues.empty());
     REQUIRE(model.textures.size() == 2);
     CHECK(model.textures[0].fileName == "Textures\\Diffuse.blp");
-    CHECK((model.textures[0].flags & 0x1) != 0); // WrapWidth
-    CHECK((model.textures[0].flags & 0x2) != 0); // WrapHeight
+    CHECK(hasFlag(model.textures[0].flags, Texture::Flag::WrapWidth));
+    CHECK(hasFlag(model.textures[0].flags, Texture::Flag::WrapHeight));
     CHECK(model.textures[1].replaceableId == 1);
 }
 

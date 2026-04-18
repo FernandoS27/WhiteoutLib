@@ -375,7 +375,7 @@ void Writer::Impl::writeLayer(BinaryWriter& writer, const Layer& layer, const Mo
     }
 
     if (mdx.version >= 1100) {
-        writer.write(layer.is_hd ? 1 : 0);
+        writer.write(layer.shader);
         writer.write(static_cast<u32>(layer.subTextures.size()));
 
         for (const auto& subTex : layer.subTextures) {

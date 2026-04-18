@@ -249,6 +249,38 @@ struct Layer {
         Count,
     };
 
+    // For MDX < 1100 only a tiny subset is authorable. 
+    // For MDX >= 1100 the layer's shaderIdMDL
+    // is a raw uint32, so any of these values can appear on disk.
+    enum class ShaderType : u32 {
+        SD                      = 0,
+        HD                      = 1,
+        SDOnHD                  = 2,
+        Terrain                 = 3,
+        Water                   = 4,
+        Fog                     = 5,
+        Foliage                 = 6,
+        FoliagePush             = 7,
+        Sprite                  = 8,
+        DebugTexture            = 9,
+        DepthOfField            = 10,
+        BloomCombine            = 11,
+        BloomExtract            = 12,
+        GaussianBlur            = 13,
+        Tonemap                 = 14,
+        Movie                   = 15,
+        FFXCMAAEdge0            = 16,
+        FFXCMAAEdge1            = 17,
+        FFXCMAAEdgeCombine      = 18,
+        FFXCMAAProcessAndApply  = 19,
+        PopcornFX               = 20,
+        ConeIndicator           = 21,
+        CliffBlightMiscTerrain  = 22,
+        Distortion              = 23,
+        Crystal                 = 24,
+        Imgui                   = 25,
+    };
+    
     /**
      * @brief Shader and rendering flags
      */
@@ -296,8 +328,9 @@ struct Layer {
     f32 fresnelOpacity = 0.0f;                 ///< Fresnel effect opacity
     f32 fresnelTeamColor = 0.0f;               ///< Fresnel team color factor
 
-    bool is_hd = false;                  ///< True if using Reforged HD shading
-    std::vector<SubTexture> subTextures; ///< Multi-texture support (version 1200+)
+    ShaderType shader = ShaderType::SD;   ///< Shader to use for this layer
+    bool is_hd = false;                   ///< True if using Reforged HD shading
+    std::vector<SubTexture> subTextures;  ///< Multi-texture support (version 1200+)
 
     // Animation tracks
     Track<u32> textureIdTracks;         ///< Texture ID animation (versions 800-1100)
