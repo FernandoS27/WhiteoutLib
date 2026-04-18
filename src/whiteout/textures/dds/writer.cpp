@@ -28,7 +28,9 @@ std::vector<u8> Writer::Impl::write(const Texture& texture) {
         return {};
     }
 
-    const bool use_dx10 = needs_dx10_header(texture.format()) || texture.isSrgb();
+    const bool is_array = texture.type() == TextureType::Texture2DArray ||
+                          texture.type() == TextureType::TextureCubeArray;
+    const bool use_dx10 = needs_dx10_header(texture.format()) || texture.isSrgb() || is_array;
 
     const size_t header_size = 4 + sizeof(DDS_HEADER) + (use_dx10 ? sizeof(DDS_HEADER_DXT10) : 0);
     const size_t total_size = header_size + static_cast<size_t>(texture.dataSize());
@@ -67,16 +69,30 @@ std::vector<u8> Writer::Impl::write(const Texture& texture) {
 
     header.caps |= DDSCAPS_TEXTURE;
 
-    if (texture.type() == TextureType::TextureCube) {
+    if (texture.type() == TextureType::TextureCube ||
+        texture.type() == TextureType::TextureCubeArray) {
         header.caps |= DDSCAPS_COMPLEX;
         header.caps2 |= DDSCAPS2_CUBEMAP_ALL_FACES;
     } else if (texture.type() == TextureType::Texture3D) {
         header.flags |= DDSD_DEPTH;
         header.caps |= DDSCAPS_COMPLEX;
         header.caps2 |= DDSCAPS2_VOLUME;
+    } else if (texture.type() == TextureType::Texture2DArray) {
+        header.caps |= DDSCAPS_COMPLEX;
     }
 
-    fill_legacy_pixelformat(header.ddspf, texture.format());
+    if (use_dx10) {
+        // When we emit a DX10 extended header the pixel-format block must
+        // advertise the "DX10" FourCC so the parser knows to read the
+        // extra 20 bytes before pixel data. Otherwise it would treat those
+        // 20 bytes as the start of the first mip.
+        std::memset(&header.ddspf, 0, sizeof(header.ddspf));
+        header.ddspf.size = 32;
+        header.ddspf.flags = DDPF_FOURCC;
+        header.ddspf.fourCC = make_fourcc('D', 'X', '1', '0');
+    } else {
+        fill_legacy_pixelformat(header.ddspf, texture.format());
+    }
 
     std::memcpy(output.data() + offset, &header, sizeof(DDS_HEADER));
     offset += sizeof(DDS_HEADER);
@@ -88,13 +104,27 @@ std::vector<u8> Writer::Impl::write(const Texture& texture) {
         dx10_header.arraySize = 1;
         dx10_header.miscFlags2 = 0;
 
-        if (texture.type() == TextureType::TextureCube) {
+        switch (texture.type()) {
+        case TextureType::TextureCube:
             dx10_header.resourceDimension = D3D10_RESOURCE_DIMENSION_TEXTURE2D;
             dx10_header.miscFlag = DDS_RESOURCE_MISC_TEXTURECUBE;
-        } else if (texture.type() == TextureType::Texture3D) {
-            dx10_header.resourceDimension = D3D10_RESOURCE_DIMENSION_TEXTURE3D;
-        } else {
+            break;
+        case TextureType::TextureCubeArray:
             dx10_header.resourceDimension = D3D10_RESOURCE_DIMENSION_TEXTURE2D;
+            dx10_header.miscFlag = DDS_RESOURCE_MISC_TEXTURECUBE;
+            dx10_header.arraySize = texture.arraySize();
+            break;
+        case TextureType::Texture3D:
+            dx10_header.resourceDimension = D3D10_RESOURCE_DIMENSION_TEXTURE3D;
+            break;
+        case TextureType::Texture2DArray:
+            dx10_header.resourceDimension = D3D10_RESOURCE_DIMENSION_TEXTURE2D;
+            dx10_header.arraySize = texture.arraySize();
+            break;
+        case TextureType::Texture2D:
+        default:
+            dx10_header.resourceDimension = D3D10_RESOURCE_DIMENSION_TEXTURE2D;
+            break;
         }
 
         std::memcpy(output.data() + offset, &dx10_header, sizeof(DDS_HEADER_DXT10));

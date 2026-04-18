@@ -127,9 +127,11 @@ enum class TextureKind : u32 {
 
 /// Dimensionality / topology of a texture resource.
 enum class TextureType : u32 {
-    Texture2D,   ///< Standard 2D image (1 layer).
-    Texture3D,   ///< Volume texture (depth > 1, depth halves each mip).
-    TextureCube, ///< Cube map (6 square layers, one per face).
+    Texture2D,        ///< Standard 2D image (1 layer).
+    Texture3D,        ///< Volume texture (depth > 1, depth halves each mip).
+    TextureCube,      ///< Cube map (6 square layers, one per face).
+    Texture2DArray,   ///< Array of 2D images (arraySize layers).
+    TextureCubeArray, ///< Array of cube maps (6 × arraySize layers).
 };
 
 // ============================================================================
@@ -462,6 +464,29 @@ struct Texture {
      */
     static Texture createCube(PixelFormat fmt, u32 size, u32 mipCount = 0);
 
+    /**
+     * @brief Create a 2D texture array.
+     * @param fmt       Pixel format.
+     * @param width     Width in pixels.
+     * @param height    Height in pixels.
+     * @param arraySize Number of array slices (must be ≥ 1).
+     * @param mipCount  Number of mip levels (0 = auto-compute full chain).
+     * @return A zero-filled Texture with @p arraySize layers.
+     */
+    static Texture create2DArray(PixelFormat fmt, u32 width, u32 height, u32 arraySize,
+                                 u32 mipCount = 0);
+
+    /**
+     * @brief Create a cube-map texture array.
+     * @param fmt       Pixel format.
+     * @param size      Face edge length in pixels (faces are square).
+     * @param arraySize Number of cube-map entries in the array (must be ≥ 1).
+     *                  The final layer count is 6 × @p arraySize.
+     * @param mipCount  Number of mip levels (0 = auto-compute full chain).
+     * @return A zero-filled Texture with 6 × arraySize layers.
+     */
+    static Texture createCubeArray(PixelFormat fmt, u32 size, u32 arraySize, u32 mipCount = 0);
+
     // ── Accessors ──────────────────────────────────────────────────────
 
     /// @return The texture dimensionality / topology.
@@ -519,8 +544,17 @@ struct Texture {
     /// @return Base mip depth (1 for 2D / cube textures).
     u32 depth() const;
 
-    /// @return Number of array layers (6 for cube maps, 1 otherwise).
+    /// @return Number of array layers.
+    ///         - Texture2D / Texture3D: 1.
+    ///         - TextureCube: 6.
+    ///         - Texture2DArray: arraySize().
+    ///         - TextureCubeArray: 6 × arraySize().
     u32 layerCount() const;
+
+    /// @return Number of array slices (1 for non-array textures). For a
+    ///         TextureCubeArray, this is the number of cube-maps in the array
+    ///         (the layer count is 6 × this value).
+    u32 arraySize() const;
 
     /// @return Number of mip levels per layer.
     u32 mipCount() const;

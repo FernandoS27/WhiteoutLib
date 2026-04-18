@@ -91,6 +91,15 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
                                ? dx10_header.resourceDimension == D3D10_RESOURCE_DIMENSION_TEXTURE3D
                                : (header.caps2 & DDSCAPS2_VOLUME) != 0;
 
+    // arraySize counts cube-maps for cube arrays, 2D slices for 2D arrays.
+    // Legacy headers have no array concept; DX10 stores 1 for non-array textures.
+    const u32 array_size = has_dx10_header ? std::max(dx10_header.arraySize, 1u) : 1u;
+
+    if (is_volume && array_size > 1) {
+        fail("3D texture arrays are not supported");
+        return std::nullopt;
+    }
+
     Texture texture;
     if (is_cubemap) {
         if (width != height) {
@@ -98,9 +107,15 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
                  std::to_string(height));
             return std::nullopt;
         }
-        texture = Texture::createCube(*pixel_format, width, mipCount);
+        if (array_size > 1) {
+            texture = Texture::createCubeArray(*pixel_format, width, array_size, mipCount);
+        } else {
+            texture = Texture::createCube(*pixel_format, width, mipCount);
+        }
     } else if (is_volume) {
         texture = Texture::create3D(*pixel_format, width, height, depth, mipCount);
+    } else if (array_size > 1) {
+        texture = Texture::create2DArray(*pixel_format, width, height, array_size, mipCount);
     } else {
         texture = Texture::create2D(*pixel_format, width, height, mipCount);
     }

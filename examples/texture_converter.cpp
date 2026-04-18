@@ -318,9 +318,11 @@ const char* TextureConverter::pixelFormatName(PixelFormat fmt) {
 
 const char* TextureConverter::textureTypeName(TextureType type) {
     switch (type) {
-    case TextureType::Texture2D:   return "2D";
-    case TextureType::Texture3D:   return "3D";
-    case TextureType::TextureCube: return "Cube";
+    case TextureType::Texture2D:        return "2D";
+    case TextureType::Texture3D:        return "3D";
+    case TextureType::TextureCube:      return "Cube";
+    case TextureType::Texture2DArray:   return "2DArray";
+    case TextureType::TextureCubeArray: return "CubeArray";
     }
     return "Unknown";
 }

@@ -99,17 +99,30 @@ struct Texture::Impl {
     u32 width = 0;
     u32 height = 0;
     u32 depth = 1;
+    // Number of array slices (cube-maps for TextureCubeArray,
+    // 2D images for Texture2DArray). 1 for non-array types.
+    u32 arraySize = 1;
 
     std::vector<MipLevel> mips;
 
     std::vector<u8> data;
 
     u32 layerCount() const {
-        return type == TextureType::TextureCube ? 6u : 1u;
+        switch (type) {
+        case TextureType::TextureCube:
+            return 6u;
+        case TextureType::Texture2DArray:
+            return arraySize;
+        case TextureType::TextureCubeArray:
+            return 6u * arraySize;
+        default:
+            return 1u;
+        }
     }
 
     u32 mipCount() const {
-        return static_cast<u32>(mips.size()) / layerCount();
+        const u32 layers = layerCount();
+        return layers == 0 ? 0u : static_cast<u32>(mips.size()) / layers;
     }
 };
 
@@ -229,6 +242,50 @@ Texture Texture::createCube(PixelFormat fmt, u32 size, u32 mipCount) {
     return tex;
 }
 
+Texture Texture::create2DArray(PixelFormat fmt, u32 width, u32 height, u32 arraySize,
+                               u32 mipCount) {
+    assert(width > 0 && height > 0 && arraySize > 0);
+
+    if (mipCount == 0) {
+        mipCount = computeMaxMipCount(width, height, 1);
+    }
+
+    Texture tex;
+    tex.impl_->type = TextureType::Texture2DArray;
+    tex.impl_->format = fmt;
+    tex.impl_->width = width;
+    tex.impl_->height = height;
+    tex.impl_->depth = 1;
+    tex.impl_->arraySize = arraySize;
+
+    const u64 total =
+        build_mip_chain(fmt, width, height, 1, mipCount, arraySize, tex.impl_->mips);
+    tex.impl_->data.resize(static_cast<size_t>(total), 0);
+    return tex;
+}
+
+Texture Texture::createCubeArray(PixelFormat fmt, u32 size, u32 arraySize, u32 mipCount) {
+    assert(size > 0 && arraySize > 0);
+
+    if (mipCount == 0) {
+        mipCount = computeMaxMipCount(size, size, 1);
+    }
+
+    Texture tex;
+    tex.impl_->type = TextureType::TextureCubeArray;
+    tex.impl_->format = fmt;
+    tex.impl_->width = size;
+    tex.impl_->height = size;
+    tex.impl_->depth = 1;
+    tex.impl_->arraySize = arraySize;
+
+    const u32 totalLayers = 6u * arraySize;
+    const u64 total =
+        build_mip_chain(fmt, size, size, 1, mipCount, totalLayers, tex.impl_->mips);
+    tex.impl_->data.resize(static_cast<size_t>(total), 0);
+    return tex;
+}
+
 TextureType Texture::type() const {
     return impl_->type;
 }
@@ -286,6 +343,10 @@ u32 Texture::depth() const {
 
 u32 Texture::layerCount() const {
     return impl_->layerCount();
+}
+
+u32 Texture::arraySize() const {
+    return impl_->arraySize;
 }
 
 u32 Texture::mipCount() const {
@@ -407,6 +468,11 @@ Texture make_texture_like(const Texture& src, PixelFormat new_fmt) {
         return Texture::create3D(new_fmt, src.width(), src.height(), src.depth(), src.mipCount());
     case TextureType::TextureCube:
         return Texture::createCube(new_fmt, src.width(), src.mipCount());
+    case TextureType::Texture2DArray:
+        return Texture::create2DArray(new_fmt, src.width(), src.height(), src.arraySize(),
+                                      src.mipCount());
+    case TextureType::TextureCubeArray:
+        return Texture::createCubeArray(new_fmt, src.width(), src.arraySize(), src.mipCount());
     }
     return {};
 }

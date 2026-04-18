@@ -36,6 +36,11 @@ Texture make_texture_like(const Texture& src, PixelFormat format) {
         return Texture::create3D(format, src.width(), src.height(), src.depth(), src.mipCount());
     case TextureType::TextureCube:
         return Texture::createCube(format, src.width(), src.mipCount());
+    case TextureType::Texture2DArray:
+        return Texture::create2DArray(format, src.width(), src.height(), src.arraySize(),
+                                      src.mipCount());
+    case TextureType::TextureCubeArray:
+        return Texture::createCubeArray(format, src.width(), src.arraySize(), src.mipCount());
     }
     return {}; // unreachable
 }
