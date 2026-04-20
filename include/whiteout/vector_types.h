@@ -697,6 +697,19 @@ struct Matrix44f : public MatrixMethods<Matrix44f, 4, 4> {
         r.data[3][2] = -zaxis.dot(eye); r.data[3][3] = 1.0f;
         return r;
     }
+
+    static Matrix44f look_at_lh(const Vector3f& eye, const Vector3f& target, const Vector3f& up) {
+        Vector3f zaxis = (target - eye).normalized();  // LH: forward = +Z
+        Vector3f xaxis = cross(up, zaxis).normalized();
+        Vector3f yaxis = cross(zaxis, xaxis);
+        Matrix44f r{};
+        r.data[0][0] = xaxis.x; r.data[0][1] = yaxis.x; r.data[0][2] = zaxis.x; r.data[0][3] = 0.0f;
+        r.data[1][0] = xaxis.y; r.data[1][1] = yaxis.y; r.data[1][2] = zaxis.y; r.data[1][3] = 0.0f;
+        r.data[2][0] = xaxis.z; r.data[2][1] = yaxis.z; r.data[2][2] = zaxis.z; r.data[2][3] = 0.0f;
+        r.data[3][0] = -xaxis.dot(eye); r.data[3][1] = -yaxis.dot(eye);
+        r.data[3][2] = -zaxis.dot(eye); r.data[3][3] = 1.0f;
+        return r;
+    }
     static Matrix44f perspective_fov_rh(f32 fovY, f32 aspect, f32 nearZ, f32 farZ) {
         const f32 yScale = 1.0f / std::tan(fovY * 0.5f);
         const f32 xScale = yScale / aspect;
@@ -707,6 +720,45 @@ struct Matrix44f : public MatrixMethods<Matrix44f, 4, 4> {
         r.data[2][2] = fRange;
         r.data[2][3] = -1.0f;
         r.data[3][2] = fRange * nearZ;
+        return r;
+    }
+    static Matrix44f perspective_fov_lh(f32 fovY, f32 aspect, f32 nearZ, f32 farZ) {
+        const f32 yScale = 1.0f / std::tan(fovY * 0.5f);
+        const f32 xScale = yScale / aspect;
+        const f32 fRange = farZ / (farZ - nearZ);
+        Matrix44f r{};
+        r.data[0][0] = xScale;
+        r.data[1][1] = yScale;
+        r.data[2][2] = fRange;
+        r.data[2][3] = 1.0f;                  // LH: +Z forward, w_clip = +z_view
+        r.data[3][2] = -fRange * nearZ;
+        return r;
+    }
+    static Matrix44f look_at_lh_sgcompat(const Vector3f& eye, const Vector3f& target, const Vector3f& up) {
+        Vector3f zaxis = (target - eye).normalized();   // forward = target - eye
+        Vector3f xaxis = cross(zaxis, up).normalized(); // SgCompat: zv × up (not up × zv)
+        Vector3f yaxis = cross(xaxis, zaxis);           // SgCompat: xv × zv (not zv × xv)
+        Matrix44f r{};
+        r.data[0][0] = xaxis.x; r.data[0][1] = yaxis.x; r.data[0][2] = zaxis.x; r.data[0][3] = 0.0f;
+        r.data[1][0] = xaxis.y; r.data[1][1] = yaxis.y; r.data[1][2] = zaxis.y; r.data[1][3] = 0.0f;
+        r.data[2][0] = xaxis.z; r.data[2][1] = yaxis.z; r.data[2][2] = zaxis.z; r.data[2][3] = 0.0f;
+        r.data[3][0] = -xaxis.dot(eye); r.data[3][1] = -yaxis.dot(eye);
+        r.data[3][2] = -zaxis.dot(eye); r.data[3][3] = 1.0f;
+        return r;
+    }
+    static Matrix44f perspective_diag_sgcompat(f32 fovDiagonal, f32 aspect, f32 nearZ, f32 farZ) {
+        const f32 invDiag = 1.0f / std::sqrt(aspect * aspect + 1.0f);
+        const f32 halfTan = std::tan(0.5f * fovDiagonal * invDiag);
+        const f32 xScale  = 1.0f / (halfTan * aspect);
+        const f32 yScale  = 1.0f / halfTan;
+        const f32 zScale  = farZ / (farZ - nearZ);
+        const f32 zOffset = -nearZ * farZ / (farZ - nearZ);
+        Matrix44f r{};
+        r.data[0][0] = xScale;
+        r.data[1][1] = yScale;
+        r.data[2][2] = zScale;
+        r.data[2][3] = 1.0f;      // LH: w_clip = +view.z
+        r.data[3][2] = zOffset;
         return r;
     }
     static Matrix44f orthographic_rh(f32 width, f32 height, f32 nearZ, f32 farZ) {
