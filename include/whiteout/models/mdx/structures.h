@@ -166,8 +166,8 @@ struct Node {
     enum class NodeFlag : u32 {
         None = 0x0,
         DontInheritTranslation = 0x1, ///< Don't inherit parent translation
-        DontInheritRotation = 0x2,    ///< Don't inherit parent rotation
-        DontInheritScaling = 0x4,     ///< Don't inherit parent scaling
+        DontInheritScaling = 0x2,     ///< Don't inherit parent scaling
+        DontInheritRotation = 0x4,    ///< Don't inherit parent rotation
         Billboarded = 0x8,            ///< Always face camera
         BillboardedLockX = 0x10,      ///< Billboard but lock X axis
         BillboardedLockY = 0x20,      ///< Billboard but lock Y axis
