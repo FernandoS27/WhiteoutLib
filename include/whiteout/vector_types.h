@@ -555,6 +555,11 @@ struct Quaternion : public VectorMethods<Quaternion, f32> {
     constexpr Quaternion(f32 x_, f32 y_, f32 z_, f32 w_) : x(x_), y(y_), z(z_), w(w_) {}
 };
 
+enum class MatrixLayout {
+    RowMajor,
+    ColumnMajor
+};
+
 template <typename T, size_t Rows, size_t Cols>
 struct MatrixMethods {
     constexpr static size_t rows = Rows;
@@ -655,7 +660,7 @@ struct Matrix44f : public MatrixMethods<Matrix44f, 4, 4> {
     static Matrix44f scaling(const Vector3f& s);
     static Matrix44f compose(const Vector3f& translation, const Quaternion& rotation,
                              const Vector3f& scale);
-    static Matrix44f inverse(const Matrix44f& m);
+    static Matrix44f inverse(const Matrix44f& m, MatrixLayout layout = MatrixLayout::RowMajor);
 
     static Matrix44f rotation_x(f32 angle) {
         const f32 c = std::cos(angle), s = std::sin(angle);
