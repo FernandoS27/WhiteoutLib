@@ -5,6 +5,7 @@
 
 #include "../../common/binary_writer.h"
 #include "../../common/streams.h"
+#include "../../common/unicode_path.h"
 
 #include "binary_writer_visitor.h"
 
@@ -38,8 +39,7 @@ Writer::Writer() : pImpl(std::make_unique<Impl>()) {}
 Writer::~Writer() = default;
 
 bool Writer::write(const std::string& filePath, const Model& model) {
-    std::ofstream file;
-    file.open(filePath, std::ios::binary);
+    auto file = common::open_ofstream(filePath, std::ios::binary);
     if (!file.is_open()) {
         throw std::runtime_error("Failed to open file: " + filePath);
     }

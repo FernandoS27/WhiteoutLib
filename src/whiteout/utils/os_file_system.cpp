@@ -13,10 +13,10 @@ namespace whiteout::utils {
 struct OsFileSystem::Impl {
     fs::path root;
 
-    explicit Impl(std::string rootPath) : root(std::move(rootPath)) {}
+    explicit Impl(std::string rootPath) : root(fs::u8path(rootPath)) {}
 
     fs::path resolve(const std::string& path) const {
-        return root / path;
+        return root / fs::u8path(path);
     }
 };
 

@@ -313,3 +313,220 @@ TEST_CASE("TextureCubeArray copyAsFormat preserves array layout",
     CHECK(dst.format() == PixelFormat::RGBA16);
     CHECK(dst.mipCount() == src.mipCount());
 }
+
+// ============================================================================
+// Large textures — exercises full mip chain + multi-layer DDS round-trip at
+// sizes representative of real game/engine assets.
+// ============================================================================
+
+TEST_CASE("DDS round-trip: 1024x1024 Texture2DArray RGBA8 full mip chain",
+          "[texture][array][dds][large]") {
+    const std::string path = "test_tex2darray_1024_rgba8.dds";
+    constexpr u32 kSize = 1024;
+    constexpr u32 kSlices = 4;
+
+    Texture src = Texture::create2DArray(PixelFormat::RGBA8, kSize, kSize, kSlices);
+
+    // 1024 → 1 takes 11 mip levels.
+    REQUIRE(src.mipCount() == 11);
+    REQUIRE(src.mipCount() == computeMaxMipCount(kSize, kSize));
+    REQUIRE(src.layerCount() == kSlices);
+
+    fill_texture(src);
+
+    std::string err;
+    REQUIRE(save_dds_file(src, path, &err));
+    auto loaded = load_dds_file(path, &err);
+    REQUIRE(loaded.has_value());
+
+    CHECK(loaded->type() == TextureType::Texture2DArray);
+    CHECK(loaded->format() == PixelFormat::RGBA8);
+    CHECK(loaded->width() == kSize);
+    CHECK(loaded->height() == kSize);
+    CHECK(loaded->arraySize() == kSlices);
+    CHECK(loaded->layerCount() == kSlices);
+    CHECK(loaded->mipCount() == 11);
+    CHECK(loaded->dataSize() == src.dataSize());
+    CHECK(textures_data_equal(*loaded, src));
+
+    // Spot-check every (layer, mip) pair matches byte-for-byte.
+    for (u32 layer = 0; layer < kSlices; ++layer) {
+        for (u32 mip = 0; mip < 11; ++mip) {
+            auto src_span = src.mipData(mip, layer);
+            auto dst_span = loaded->mipData(mip, layer);
+            REQUIRE(src_span.size() == dst_span.size());
+            CHECK(std::memcmp(src_span.data(), dst_span.data(), src_span.size()) == 0);
+        }
+    }
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST_CASE("DDS round-trip: 1024x1024 Texture2DArray BC3 full mip chain",
+          "[texture][array][dds][large]") {
+    const std::string path = "test_tex2darray_1024_bc3.dds";
+    constexpr u32 kSize = 1024;
+    constexpr u32 kSlices = 6;
+
+    Texture src = Texture::create2DArray(PixelFormat::BC3, kSize, kSize, kSlices);
+
+    REQUIRE(src.mipCount() == 11);
+    REQUIRE(src.layerCount() == kSlices);
+
+    fill_texture(src);
+
+    std::string err;
+    REQUIRE(save_dds_file(src, path, &err));
+    auto loaded = load_dds_file(path, &err);
+    REQUIRE(loaded.has_value());
+
+    CHECK(loaded->type() == TextureType::Texture2DArray);
+    CHECK(loaded->format() == PixelFormat::BC3);
+    CHECK(loaded->arraySize() == kSlices);
+    CHECK(loaded->mipCount() == 11);
+    CHECK(textures_data_equal(*loaded, src));
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST_CASE("DDS round-trip: 1024x1024 TextureCube BC7 sRGB full mip chain",
+          "[texture][dds][large]") {
+    // Single cubemap — not an array — but exercises the large multi-face
+    // BCn + sRGB path that array tests also rely on.
+    const std::string path = "test_texcube_1024_bc7.dds";
+    constexpr u32 kSize = 1024;
+
+    Texture src = Texture::createCube(PixelFormat::BC7, kSize);
+    src.setSrgb(true);
+
+    REQUIRE(src.mipCount() == 11);
+    REQUIRE(src.layerCount() == 6);
+
+    fill_texture(src);
+
+    std::string err;
+    REQUIRE(save_dds_file(src, path, &err));
+    auto loaded = load_dds_file(path, &err);
+    REQUIRE(loaded.has_value());
+
+    CHECK(loaded->type() == TextureType::TextureCube);
+    CHECK(loaded->format() == PixelFormat::BC7);
+    CHECK(loaded->isSrgb());
+    CHECK(loaded->arraySize() == 1);
+    CHECK(loaded->layerCount() == 6);
+    CHECK(loaded->mipCount() == 11);
+    CHECK(textures_data_equal(*loaded, src));
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST_CASE("DDS round-trip: 512x512 TextureCubeArray RGBA8 full mip chain",
+          "[texture][array][dds][large]") {
+    const std::string path = "test_texcubearray_512_rgba8.dds";
+    constexpr u32 kFace = 512;
+    constexpr u32 kCubes = 3;
+
+    Texture src = Texture::createCubeArray(PixelFormat::RGBA8, kFace, kCubes);
+
+    REQUIRE(src.mipCount() == 10); // 512 → 1 = 10 levels
+    REQUIRE(src.arraySize() == kCubes);
+    REQUIRE(src.layerCount() == 6 * kCubes); // 18
+
+    fill_texture(src);
+
+    std::string err;
+    REQUIRE(save_dds_file(src, path, &err));
+    auto loaded = load_dds_file(path, &err);
+    REQUIRE(loaded.has_value());
+
+    CHECK(loaded->type() == TextureType::TextureCubeArray);
+    CHECK(loaded->format() == PixelFormat::RGBA8);
+    CHECK(loaded->width() == kFace);
+    CHECK(loaded->arraySize() == kCubes);
+    CHECK(loaded->layerCount() == 6 * kCubes);
+    CHECK(loaded->mipCount() == 10);
+    CHECK(loaded->dataSize() == src.dataSize());
+    CHECK(textures_data_equal(*loaded, src));
+
+    // Verify every face of every cube-map matches at every mip.
+    for (u32 cube = 0; cube < kCubes; ++cube) {
+        for (u32 face = 0; face < 6; ++face) {
+            const u32 layer = cube * 6 + face;
+            for (u32 mip = 0; mip < 10; ++mip) {
+                auto s = src.mipData(mip, layer);
+                auto d = loaded->mipData(mip, layer);
+                REQUIRE(s.size() == d.size());
+                CHECK(std::memcmp(s.data(), d.data(), s.size()) == 0);
+            }
+        }
+    }
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST_CASE("DDS round-trip: 512x512 TextureCubeArray BC3 full mip chain",
+          "[texture][array][dds][large]") {
+    const std::string path = "test_texcubearray_512_bc3.dds";
+    constexpr u32 kFace = 512;
+    constexpr u32 kCubes = 2;
+
+    Texture src = Texture::createCubeArray(PixelFormat::BC3, kFace, kCubes);
+
+    REQUIRE(src.mipCount() == 10);
+    REQUIRE(src.layerCount() == 6 * kCubes);
+
+    fill_texture(src);
+
+    std::string err;
+    REQUIRE(save_dds_file(src, path, &err));
+    auto loaded = load_dds_file(path, &err);
+    REQUIRE(loaded.has_value());
+
+    CHECK(loaded->type() == TextureType::TextureCubeArray);
+    CHECK(loaded->format() == PixelFormat::BC3);
+    CHECK(loaded->arraySize() == kCubes);
+    CHECK(loaded->layerCount() == 12);
+    CHECK(loaded->mipCount() == 10);
+    CHECK(textures_data_equal(*loaded, src));
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST_CASE("Mip chain sizes halve correctly in large array texture",
+          "[texture][array][large]") {
+    // Guards the mip-layout arithmetic for array textures at a realistic size.
+    constexpr u32 kSize = 1024;
+    constexpr u32 kSlices = 4;
+
+    Texture tex = Texture::create2DArray(PixelFormat::RGBA8, kSize, kSize, kSlices);
+
+    for (u32 layer = 0; layer < kSlices; ++layer) {
+        u32 expected_w = kSize;
+        u32 expected_h = kSize;
+        for (u32 mip = 0; mip < tex.mipCount(); ++mip) {
+            const auto& lvl = tex.mipLevel(mip, layer);
+            CHECK(lvl.width == expected_w);
+            CHECK(lvl.height == expected_h);
+            CHECK(lvl.size == static_cast<u64>(expected_w) * expected_h * 4);
+            expected_w = std::max(expected_w >> 1, 1u);
+            expected_h = std::max(expected_h >> 1, 1u);
+        }
+    }
+
+    // Offsets within the buffer must be strictly increasing and
+    // contiguous across layers and mips.
+    u64 running = 0;
+    for (u32 layer = 0; layer < kSlices; ++layer) {
+        for (u32 mip = 0; mip < tex.mipCount(); ++mip) {
+            const auto& lvl = tex.mipLevel(mip, layer);
+            CHECK(lvl.offset == running);
+            running += lvl.size;
+        }
+    }
+    CHECK(running == tex.dataSize());
+}

@@ -16,6 +16,7 @@
 
 #include <whiteout/common_types.h>
 
+#include "../common/unicode_path.h"
 #include "issue_sink.h"
 
 namespace whiteout::textures {
@@ -23,8 +24,7 @@ namespace whiteout::textures {
 /// Read an entire binary file into a byte vector.
 /// Returns std::nullopt in lenient mode on failure, or throws in strict mode.
 inline std::optional<std::vector<u8>> read_file_bytes(const std::string& path, IssueSink& sink) {
-    std::ifstream file;
-    file.open(path, std::ios::binary | std::ios::ate);
+    auto file = ::whiteout::common::open_ifstream(path, std::ios::binary | std::ios::ate);
     if (!file.is_open()) {
         sink.fail("Failed to open file: " + path);
         return std::nullopt;
@@ -52,8 +52,7 @@ inline std::optional<std::vector<u8>> read_file_bytes(const std::string& path, I
 /// Write a byte vector to a binary file.
 /// Returns false in lenient mode on failure, or throws in strict mode.
 inline bool write_file_bytes(const std::string& path, std::span<const u8> data, IssueSink& sink) {
-    std::ofstream file;
-    file.open(path, std::ios::binary);
+    auto file = ::whiteout::common::open_ofstream(path, std::ios::binary);
     if (!file.is_open()) {
         sink.fail("Failed to open file for writing: " + path);
         return false;

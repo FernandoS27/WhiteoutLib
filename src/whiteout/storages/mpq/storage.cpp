@@ -12,6 +12,7 @@
 #include "../../storages/mpq/tables/header.h"
 #include "../../storages/mpq/special_files.h"
 #include "../../storages/mpq/writer.h"
+#include "../../common/unicode_path.h"
 
 #include <whiteout/interfaces.h>
 
@@ -623,7 +624,7 @@ bool Storage::save(const std::string& path) {
 
     // Write archive data to disk.
     {
-        std::ofstream out(outputPath, std::ios::binary | std::ios::trunc);
+        auto out = whiteout::common::open_ofstream(outputPath, std::ios::binary | std::ios::trunc);
         if (!out)
             return false;
         out.write(reinterpret_cast<const char*>(archiveData.data()),

@@ -471,3 +471,24 @@ TEST_CASE("CascLib reads storage with large file", "[casc][casclib_interop]") {
     validateWithCascLib(testDir, RootFormat::Tvfs, files, false);
 #endif
 }
+
+TEST_CASE("CascLib reads Overwatch storage", "[casc][casclib_interop]") {
+#if !defined(WHITEOUT_HAS_CASCLIB_CROSSVAL)
+    SKIP("CascLib cross-validation not enabled (pass -DWHITEOUT_ENABLE_CASCLIB_CROSSVAL=ON)");
+#else
+    // Overwatch uses a text-based CSV root file.  CascLib's
+    // RootHandler_CreateOverwatch parses pipe-delimited CSV with FILENAME and
+    // MD5 columns, then scans for .cmf/.apm files in Manifest/ or
+    // TactManifest/ directories.
+    //
+    // We test:
+    //  1. Basic file paths are enumerable and readable via CascLib.
+    //  2. Paths with subdirectories resolve correctly.
+    //  3. File content round-trips exactly.
+    //
+    // File paths must NOT start with "Manifest/" or "TactManifest/" to avoid
+    // triggering CascLib's CMF/APM sub-parsing on our synthetic test data.
+    auto files = buildTestFiles();
+    validateWithCascLib("test_casclib_ow", RootFormat::Overwatch, files, false);
+#endif
+}

@@ -9,6 +9,7 @@
 #include <cstring>
 #include <fstream>
 #include <stdexcept>
+#include "../../common/unicode_path.h"
 #include "../io_helpers.h"
 #include "../issue_sink.h"
 
@@ -235,8 +236,7 @@ Parser::FileKind Parser::detectKind(std::span<const u8> buffer) const {
 }
 
 Parser::FileKind Parser::detectKind(const std::string& filePath) const {
-    std::ifstream file;
-    file.open(filePath, std::ios::binary | std::ios::ate);
+    auto file = ::whiteout::common::open_ifstream(filePath, std::ios::binary | std::ios::ate);
     if (!file.is_open())
         return FileKind::Unknown;
 

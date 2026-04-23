@@ -32,6 +32,9 @@ whiteout_add_test(vertex_buffer_test vertex_buffer_test.cpp)
 whiteout_add_test(deflate_test deflate_test.cpp)
 target_include_directories(deflate_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+whiteout_add_test(unicode_path_test unicode_path_test.cpp)
+target_include_directories(unicode_path_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 add_executable(mapped_file_test
     mapped_file_test.cpp
     ${CMAKE_SOURCE_DIR}/src/whiteout/storages/common/mapped_file.cpp
@@ -46,6 +49,7 @@ whiteout_add_test(bc7_block_decode_test bc7_block_decode_test.cpp)
 whiteout_add_test(blp0_test blp0_test.cpp)
 whiteout_add_test(jpeg_test jpeg_test.cpp)
 whiteout_add_test(quantize_test quantize_test.cpp)
+whiteout_add_test(texture_array_test texture_array_test.cpp)
 
 # Model Tests
 whiteout_add_test(m2_corpus_test m2_corpus_test.cpp)
@@ -150,6 +154,13 @@ if(WHITEOUT_ENABLE_CASC)
         target_link_libraries(casc_casclib_interop_test PRIVATE whiteout_casc casc_static Catch2::Catch2WithMain)
         target_compile_definitions(casc_casclib_interop_test PRIVATE WHITEOUT_HAS_CASCLIB_CROSSVAL=1)
         catch_discover_tests(casc_casclib_interop_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+        # Overwatch online cross-validation: compare enumerated paths from
+        # WhiteoutLib (Storage::openOnline) vs CascLib (CascOpenOnlineStorage).
+        add_executable(casc_ow_online_crossval_test casc_ow_online_crossval_test.cpp)
+        target_link_libraries(casc_ow_online_crossval_test PRIVATE whiteout_casc casc_static Catch2::Catch2WithMain)
+        target_compile_definitions(casc_ow_online_crossval_test PRIVATE WHITEOUT_HAS_CASCLIB_CROSSVAL=1)
+        catch_discover_tests(casc_ow_online_crossval_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
         # Performance cross-reference with CascLib comparison.
         target_link_libraries(casc_perf_crossref_test PRIVATE casc_static)

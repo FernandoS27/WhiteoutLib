@@ -4,6 +4,7 @@
 #include <whiteout/models/mdx/parser.h>
 #include "../../common/binary_reader.h"
 #include "../../common/streams.h"
+#include "../../common/unicode_path.h"
 #include "mdl_converter.h"
 
 #include <algorithm>
@@ -165,7 +166,7 @@ Model Parser::parse(const std::string& filePath) {
                        [](unsigned char c) { return std::tolower(c); });
         if (ext == ".mdl") {
             // Read entire file as text
-            std::ifstream file(filePath, std::ios::ate);
+            auto file = common::open_ifstream(filePath, std::ios::ate);
             if (!file.is_open()) {
                 throw std::runtime_error("Failed to open file: " + filePath);
             }
@@ -178,8 +179,7 @@ Model Parser::parse(const std::string& filePath) {
         }
     }
 
-    std::ifstream file;
-    file.open(filePath, std::ios::binary);
+    auto file = common::open_ifstream(filePath, std::ios::binary);
     if (!file.is_open()) {
         throw std::runtime_error("Failed to open file: " + filePath);
     }

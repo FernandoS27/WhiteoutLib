@@ -12,6 +12,7 @@
 #include "../../common/hex.h"
 #include "../../common/jenkins.h"
 #include "../../common/md5.h"
+#include "../../../common/unicode_path.h"
 
 #include <whiteout/common_types.h>
 #include <whiteout/utils/job_group.h>
@@ -130,7 +131,7 @@ static std::string generateCdnConfig(const std::vector<std::array<u8, 16>>& arch
 static bool writeFileBytes(const std::string& path, const void* data, size_t size) {
     namespace fs = std::filesystem;
     fs::create_directories(fs::path(path).parent_path());
-    std::ofstream ofs(path, std::ios::binary);
+    auto ofs = whiteout::common::open_ofstream(path, std::ios::binary);
     if (!ofs) return false;
     ofs.write(static_cast<const char*>(data), static_cast<std::streamsize>(size));
     return ofs.good();
@@ -532,6 +533,51 @@ static std::vector<u8> serializeWowRoot(const std::vector<WriteEntry>& entries) 
 }
 
 // ============================================================================
+// Overwatch Root Serialization (text CSV)
+// ============================================================================
+
+/// Build an Overwatch-style text root manifest from entries.
+/// CascLib parses this as pipe-delimited CSV with `#`-prefixed header.
+/// Columns: FILEID|MD5|CHUNK_ID|PRIORITY|MPRIORITY|FILENAME|INSTALLPATH
+/// CascLib uses the FILENAME and MD5 columns to insert entries into its tree.
+static std::vector<u8> serializeOwRoot(const std::vector<WriteEntry>& entries) {
+    static constexpr char kHexUpper[] = "0123456789ABCDEF";
+
+    std::string csv;
+    csv += "#FILEID|MD5|CHUNK_ID|PRIORITY|MPRIORITY|FILENAME|INSTALLPATH\n";
+
+    for (auto& e : entries) {
+        if (e.path.empty()) continue;
+
+        // Encode CKey as uppercase hex (32 chars).
+        std::string ckeyHex;
+        ckeyHex.reserve(32);
+        for (auto b : e.cKey) {
+            ckeyHex.push_back(kHexUpper[b >> 4]);
+            ckeyHex.push_back(kHexUpper[b & 0xF]);
+        }
+
+        // Extract basename from path.
+        std::string basename = e.path;
+        auto pos = basename.find_last_of("/\\");
+        if (pos != std::string::npos)
+            basename = basename.substr(pos + 1);
+
+        // FILEID|MD5|CHUNK_ID|PRIORITY|MPRIORITY|FILENAME|INSTALLPATH
+        csv += e.path;
+        csv += '|';
+        csv += ckeyHex;
+        csv += "|0|0|255|";
+        csv += e.path;
+        csv += '|';
+        csv += basename;
+        csv += '\n';
+    }
+
+    return std::vector<u8>(csv.begin(), csv.end());
+}
+
+// ============================================================================
 // writeStorage
 // ============================================================================
 
@@ -612,8 +658,9 @@ bool writeStorage(const std::string& outputDir,
             d3SubdirRaw = std::move(d3.subdirData);
             break;
         }
-        case RootFormat::Wow:     rootRaw = serializeWowRoot(entries);  break;
-        default:                  rootRaw = serializeTvfsRoot(entries, opts.blteFrameSize); break;
+        case RootFormat::Wow:       rootRaw = serializeWowRoot(entries);  break;
+        case RootFormat::Overwatch: rootRaw = serializeOwRoot(entries);  break;
+        default:                    rootRaw = serializeTvfsRoot(entries, opts.blteFrameSize); break;
     }
 
     auto rootCKey = storages::common::md5Hash(rootRaw);

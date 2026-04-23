@@ -4,6 +4,7 @@
 #include <whiteout/models/m3/parser.h>
 #include "../../common/binary_reader.h"
 #include "../../common/streams.h"
+#include "../../common/unicode_path.h"
 #include "binary_parse_visitor.h"
 
 #include <fstream>
@@ -65,7 +66,7 @@ Parser::Parser(ParseMode mode) : pImpl(std::make_unique<Impl>()) {
 Parser::~Parser() = default;
 
 Model Parser::parse(const std::string& filePath) {
-    std::ifstream file(filePath, std::ios::binary);
+    auto file = common::open_ifstream(filePath, std::ios::binary);
     if (!file.is_open()) {
         throw std::runtime_error("Failed to open M3 file: " + filePath);
     }

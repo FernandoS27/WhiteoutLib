@@ -3,6 +3,8 @@
 
 #include "cdn_cache.h"
 
+#include "../../../common/unicode_path.h"
+
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -40,7 +42,7 @@ std::optional<std::vector<u8>> CdnCache::readFileBytes(const std::string& path) 
     std::error_code ec;
     if (!fs::exists(path, ec)) return std::nullopt;
 
-    std::ifstream f(path, std::ios::binary | std::ios::ate);
+    auto f = whiteout::common::open_ifstream(path, std::ios::binary | std::ios::ate);
     if (!f) return std::nullopt;
 
     auto sz = f.tellg();
@@ -60,7 +62,7 @@ void CdnCache::writeFileBytes(const std::string& path, std::span<const u8> data)
     // Write to temp file, then rename for atomicity.
     std::string tmpPath = path + ".tmp";
     {
-        std::ofstream f(tmpPath, std::ios::binary);
+        auto f = whiteout::common::open_ofstream(tmpPath, std::ios::binary);
         if (!f) return;
         f.write(reinterpret_cast<const char*>(data.data()),
                 static_cast<std::streamsize>(data.size()));

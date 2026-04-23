@@ -3,6 +3,7 @@
 
 #include "crypto.h"
 #include "../../common/hex.h"
+#include "../../../common/unicode_path.h"
 
 #include <algorithm>
 #include <cstring>
@@ -59,7 +60,7 @@ bool KeyRing::importFromString(const std::string& keyList) {
 }
 
 bool KeyRing::importFromFile(const std::string& path) {
-    std::ifstream file(path);
+    auto file = whiteout::common::open_ifstream(path);
     if (!file.is_open())
         return false;
     std::string content((std::istreambuf_iterator<char>(file)),
