@@ -292,9 +292,12 @@ static bool endsWithCI(const std::string& text, const std::string& suffix) {
 }
 
 /// Extract a file to disk, creating directories as needed.
+/// If flat=true, the file is written directly into outDir with no subdirectory
+/// structure; collisions are resolved by appending "_N" before the extension.
 /// Returns (success, bytes_written).
 static std::pair<bool, uint64_t> extractFile(
-    const std::string& name, const std::vector<uint8_t>& data, const std::string& outDir)
+    const std::string& name, const std::vector<uint8_t>& data, const std::string& outDir,
+    bool flat = false)
 {
     std::string safeName = name;
     for (char& c : safeName) {
@@ -305,8 +308,26 @@ static std::pair<bool, uint64_t> extractFile(
     }
 
     try {
-        auto dest = std::filesystem::path(outDir) / safeName;
-        std::filesystem::create_directories(dest.parent_path());
+        std::filesystem::path dest;
+        if (flat) {
+            // Use only the filename component.
+            std::string baseName = std::filesystem::path(safeName).filename().string();
+            dest = std::filesystem::path(outDir) / baseName;
+
+            // Resolve collisions: if the dest already exists, append _1, _2, ...
+            if (std::filesystem::exists(dest)) {
+                auto stem = dest.stem().string();
+                auto ext  = dest.extension().string();
+                for (int n = 1; ; ++n) {
+                    dest = std::filesystem::path(outDir) / (stem + "_" + std::to_string(n) + ext);
+                    if (!std::filesystem::exists(dest))
+                        break;
+                }
+            }
+        } else {
+            dest = std::filesystem::path(outDir) / safeName;
+            std::filesystem::create_directories(dest.parent_path());
+        }
 
         std::ofstream out(dest, std::ios::binary);
         if (!out) return {false, 0};
@@ -341,6 +362,12 @@ static void cmdSample(S& storage) {
     readLine(companionStr);
     bool withCompanions = (!companionStr.empty() &&
         (companionStr[0] == 'y' || companionStr[0] == 'Y'));
+
+    std::cout << "  Flat extraction (no subdirectories)? (y/n) [n]: ";
+    std::string flatStr;
+    readLine(flatStr);
+    bool flatExtract = (!flatStr.empty() &&
+        (flatStr[0] == 'y' || flatStr[0] == 'Y'));
 
     std::cout << "  Output directory: ";
     std::string outDir;
@@ -497,7 +524,7 @@ static void cmdSample(S& storage) {
                 continue;
             }
 
-            auto [ok, bytes] = extractFile(name, *data, outDir);
+            auto [ok, bytes] = extractFile(name, *data, outDir, flatExtract);
             if (!ok) {
                 std::cerr << "\n    FAILED to write: " << name << "\n";
                 ++failed;

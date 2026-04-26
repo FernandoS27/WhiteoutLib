@@ -6,6 +6,7 @@
 #include <array>
 #include <cstring>
 #include <istream>
+#include <memory>
 #include <string>
 #include <vector>
 #include <whiteout/common_types.h>
@@ -17,6 +18,13 @@ namespace common {
 class BinaryReader {
 public:
     BinaryReader(std::istream& inputStream) : file(inputStream) {
+        file.seekg(0, std::ios::end);
+        fileSize = file.tellg();
+        file.seekg(0, std::ios::beg);
+    }
+
+    explicit BinaryReader(std::streambuf& buf)
+        : ownedStream_(std::make_unique<std::istream>(&buf)), file(*ownedStream_) {
         file.seekg(0, std::ios::end);
         fileSize = file.tellg();
         file.seekg(0, std::ios::beg);
@@ -105,6 +113,7 @@ public:
     }
 
 private:
+    std::unique_ptr<std::istream> ownedStream_;
     std::istream& file;
     u32 fileSize = 0;
 };

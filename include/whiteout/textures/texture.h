@@ -613,8 +613,13 @@ struct Texture {
      */
     void setData(std::vector<u8> new_data);
 
-private:
+    // Impl is exposed as a public forward declaration so free helper functions
+    // in texture.cpp (channel-op dispatch structs in an anonymous namespace)
+    // can name the type. The definition stays in texture.cpp, so external
+    // translation units still cannot access its internals.
     struct Impl;
+
+private:
     std::unique_ptr<Impl> impl_;
 };
 
