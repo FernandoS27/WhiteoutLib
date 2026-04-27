@@ -105,7 +105,7 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
         // Append colour conversion as a parallel DAG node.
         // asyncImage.pixels (source) will be populated by the preceding DAG nodes.
         parallel_for_blocks(
-            pixelCount, ctxPtr, [&asyncImage, dest, components, pixelCount](u32 begin, u32 end) {
+            pixelCount, ctxPtr, [&asyncImage, dest, components](u32 begin, u32 end) {
                 const u8* src = asyncImage.pixels.data();
                 if (components == 1) {
                     for (u32 i = begin; i < end; ++i) {

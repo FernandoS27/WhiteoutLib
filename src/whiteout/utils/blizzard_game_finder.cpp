@@ -375,7 +375,7 @@ static void scanSteamLibraries(const std::string& steamRoot,
 
 #ifdef _WIN32
 
-static std::wstring toWide(const std::string& s) {
+[[maybe_unused]] static std::wstring toWide(const std::string& s) {
     if (s.empty()) return {};
     int len = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
     std::wstring w(static_cast<size_t>(len), L'\0');

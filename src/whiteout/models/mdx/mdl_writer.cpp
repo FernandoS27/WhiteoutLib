@@ -201,7 +201,7 @@ private:
     // Write a track or a static value for properties that can be either.
     // If the track has exactly 1 key with frame 0 and None interpolation, write static.
     template <typename T>
-    void writeTrackOrStatic(const std::string& name, const Track<T>& track, const T& staticVal) {
+    void writeTrackOrStatic(const std::string& name, const Track<T>& track, const T& /*staticVal*/) {
         if (!track.isUsed) return;
 
         // Check if it's effectively a static value

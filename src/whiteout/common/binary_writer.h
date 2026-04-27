@@ -62,7 +62,7 @@ public:
 
     // Get current position
     u32 getPosition() {
-        return file.tellp();
+        return static_cast<u32>(file.tellp());
     }
 
     // Set position

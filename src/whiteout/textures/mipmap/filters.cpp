@@ -267,7 +267,7 @@ void separableDownsampleImpl(const MipImage& src, MipImage& dst, WeightFn buildW
     const u32 srcH = src.height;
 
     parallelForRows(srcH, ctx,
-                    [srcPixels, srcW, numChannels, dstWidth, hWeights, hp](u32 y0, u32 y1) {
+                    [=](u32 y0, u32 y1) {
                         for (u32 srcY = y0; srcY < y1; ++srcY) {
                             for (u32 dstX = 0; dstX < dstWidth; ++dstX) {
                                 const u32 tapCount = hWeights->tapCounts[dstX];
@@ -300,7 +300,7 @@ void separableDownsampleImpl(const MipImage& src, MipImage& dst, WeightFn buildW
     // both srcRow and outRow are sequential — ideal for multiply-accumulate.
     f32* dstData = dst.pixels.data();
 
-    parallelForRows(dstHeight, ctx, [dstWidth, numChannels, vWeights, hp, dstData](u32 y0, u32 y1) {
+    parallelForRows(dstHeight, ctx, [=](u32 y0, u32 y1) {
         const size_t rowFloats = static_cast<size_t>(dstWidth) * numChannels;
         const f32* hpData = hp->pixels.data();
         for (u32 dstY = y0; dstY < y1; ++dstY) {

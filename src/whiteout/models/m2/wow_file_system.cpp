@@ -334,7 +334,7 @@ void WoWFileSystem::writeAnimFile(u32 handle, std::vector<u8> data) {
     m_animCache[handle] = std::move(data);
 }
 
-void WoWFileSystem::writeSkeletonFile(u32 handle, std::vector<u8> data) {
+void WoWFileSystem::writeSkeletonFile([[maybe_unused]] u32 handle, std::vector<u8> data) {
     assert(m_mode == WoWFileSystemMode::Create);
     assert(handle == m_registeredSkelId && "writeSkeletonFile: handle mismatch");
     m_skelCache = std::move(data);

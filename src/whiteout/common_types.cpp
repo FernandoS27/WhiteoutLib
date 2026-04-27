@@ -8,7 +8,6 @@
 namespace whiteout {
 
 namespace {
-constexpr u32 F32_SIGN_MASK = 0x80000000u;
 constexpr u32 F32_EXPONENT_MASK = 0x7F800000u;
 constexpr u32 F32_MANTISSA_MASK = 0x007FFFFFu;
 constexpr i32 F32_EXPONENT_BIAS = 127;
@@ -16,7 +15,6 @@ constexpr u32 F32_IMPLICIT_BIT = 0x00800000u;
 constexpr u32 F32_MANTISSA_BITS = 23;
 
 constexpr u16 F16_SIGN_MASK = 0x8000u;
-constexpr u16 F16_EXPONENT_MASK = 0x7C00u;
 constexpr u16 F16_MANTISSA_MASK = 0x03FFu;
 constexpr i32 F16_EXPONENT_BIAS = 15;
 constexpr u32 F16_MANTISSA_BITS = 10;

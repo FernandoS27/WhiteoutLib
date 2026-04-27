@@ -74,7 +74,7 @@ public:
         u32 size; ///< Chunk data size in bytes
     };
 
-    void writeChunkHeader(BinaryWriter& writer, u32 tag, u32 size);
+    void writeChunkHeader(BinaryWriter& writer, u32 tag, size_t size);
 
     void write(BinaryWriter& writer, const Model& mdx);
 
@@ -138,9 +138,9 @@ public:
     void writeNodeTracks(BinaryWriter& writer, const Node& node);
 };
 
-void Writer::Impl::writeChunkHeader(BinaryWriter& writer, u32 tag, u32 size) {
+void Writer::Impl::writeChunkHeader(BinaryWriter& writer, u32 tag, size_t size) {
     writer.write(tag);
-    writer.write(size);
+    writer.write(static_cast<u32>(size));
 }
 
 void Writer::Impl::write(BinaryWriter& writer, const Model& mdx) {
@@ -270,7 +270,7 @@ void Writer::Impl::writeMODL(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeSEQS(BinaryWriter& writer, const Model& mdx) {
-    u32 size = mdx.sequences.size() * 132;
+    size_t size = mdx.sequences.size() * 132;
     writeChunkHeader(writer, SEQS_TAG, size);
 
     for (const auto& seq : mdx.sequences) {
@@ -286,13 +286,13 @@ void Writer::Impl::writeSEQS(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeGLBS(BinaryWriter& writer, const Model& mdx) {
-    u32 size = mdx.globalSequences.size() * 4;
+    size_t size = mdx.globalSequences.size() * 4;
     writeChunkHeader(writer, GLBS_TAG, size);
     writer.write(mdx.globalSequences);
 }
 
 void Writer::Impl::writeTEXS(BinaryWriter& writer, const Model& mdx) {
-    u32 size = mdx.textures.size() * 268;
+    size_t size = mdx.textures.size() * 268;
     writeChunkHeader(writer, TEXS_TAG, size);
 
     for (const auto& tex : mdx.textures) {
@@ -303,7 +303,7 @@ void Writer::Impl::writeTEXS(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeSNDS(BinaryWriter& writer, const Model& mdx) {
-    u32 size = mdx.sounds.size() * 56;
+    size_t size = mdx.sounds.size() * 56;
     writeChunkHeader(writer, SNDS_TAG, size);
 
     for (const auto& snd : mdx.sounds) {
@@ -614,7 +614,7 @@ void Writer::Impl::writeAttachment(BinaryWriter& writer, const Attachment& att) 
 }
 
 void Writer::Impl::writePIVT(BinaryWriter& writer, const Model& mdx) {
-    u32 size = mdx.pivotPoints.size() * 12;
+    size_t size = mdx.pivotPoints.size() * 12;
     writeChunkHeader(writer, PIVT_TAG, size);
     writer.write(mdx.pivotPoints);
 }
@@ -808,7 +808,7 @@ void Writer::Impl::writeCollisionShape(BinaryWriter& writer, const CollisionShap
 }
 
 void Writer::Impl::writeBPOS(BinaryWriter& writer, const Model& mdx) {
-    u32 size = 4 + mdx.bindPoses.size() * 48; // count + matrices
+    size_t size = 4 + mdx.bindPoses.size() * 48; // count + matrices
     writeChunkHeader(writer, BPOS_TAG, size);
 
     writer.write(static_cast<u32>(mdx.bindPoses.size()));
@@ -820,7 +820,7 @@ void Writer::Impl::writeBPOS(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeFFX(BinaryWriter& writer, const Model& mdx) {
-    u32 size = mdx.faceEffects.size() * 340;
+    size_t size = mdx.faceEffects.size() * 340;
     writeChunkHeader(writer, FAFX_TAG, size);
 
     for (const auto& fx : mdx.faceEffects) {

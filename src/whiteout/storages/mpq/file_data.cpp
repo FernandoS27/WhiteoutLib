@@ -489,7 +489,7 @@ BatchEncodeResult encodeBatch(std::span<const std::pair<std::span<const u8>, Enc
         if (rawData.empty() || opts.singleUnit || numSectors <= 1) {
             state.completeDone = state.sem->next();
             interfaces::WorkerTask task;
-            task.fn = [i, &items, &result, &failed, &states]() {
+            task.fn = [i, &items, &result, &failed]() {
                 try {
                     if (!failed.load(std::memory_order_acquire))
                         result.files[i] =
@@ -717,7 +717,7 @@ std::vector<std::optional<std::vector<u8>>> extractBatch(
         if (block.isSingleUnit()) {
             state.completeDone = state.sem->next();
             interfaces::WorkerTask task;
-            task.fn = [i, &files, &results, &states, fileSpan]() {
+            task.fn = [i, &files, &results, fileSpan]() {
                 try {
                     const auto& block = files[i].block;
                     u32 fileKey = files[i].fileKey;

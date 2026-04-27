@@ -48,8 +48,8 @@ private:
 
     // Hash table: typeHash → index into m_types
     static constexpr size_t kHashBuckets = 8192;
-    u32 m_hashTable[kHashBuckets] = {}; // stores index+1, 0 = empty
-    u32 m_hashNext[1] = {};             // placeholder — actual memory is m_types-sized
+    [[maybe_unused]] u32 m_hashTable[kHashBuckets] = {}; // stores index+1, 0 = empty
+    [[maybe_unused]] u32 m_hashNext[1] = {};             // placeholder — actual memory is m_types-sized
     // We use the static arrays directly and build a simple open-addressing table.
     u32* m_hashLookup = nullptr; // typeHash → dense index (allocated in ctor)
 };

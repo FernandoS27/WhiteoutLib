@@ -69,9 +69,9 @@ EncodingTable EncodingTable::parse(std::span<const u8> data,
     u8 cKeySize = data[3]; // Typically 16.
     u8 eKeySize = data[4]; // Typically 16.
     u16 cKeyPageSizeKB = readBE16(data.data() + 5);
-    u16 eKeyPageSizeKB = readBE16(data.data() + 7);
+    [[maybe_unused]] u16 eKeyPageSizeKB = readBE16(data.data() + 7);
     u32 cKeyPageCount = readBE32(data.data() + 9);
-    u32 eKeyPageCount = readBE32(data.data() + 13);
+    [[maybe_unused]] u32 eKeyPageCount = readBE32(data.data() + 13);
     // u8 padding at offset 17.
     u32 eSpecBlockSize = readBE32(data.data() + 18);
 
@@ -88,7 +88,7 @@ EncodingTable EncodingTable::parse(std::span<const u8> data,
     // CKey page table: cKeyPageCount entries, each = firstCKey(cKeySize) + pageMD5(16).
     size_t cKeyPageTableEntrySize = cKeySize + 16;
     size_t cKeyPageTableSize = cKeyPageCount * cKeyPageTableEntrySize;
-    size_t cKeyPageTableStart = offset;
+    [[maybe_unused]] size_t cKeyPageTableStart = offset;
     offset += cKeyPageTableSize;
 
     if (offset > data.size())

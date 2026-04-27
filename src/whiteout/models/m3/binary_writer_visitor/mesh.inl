@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-void BinaryWriterVisitor::visit(const VertexBuffer& value, u32 version) {
+void BinaryWriterVisitor::visit(const VertexBuffer& value, u32 /*version*/) {
     writer.write(value.flags);
     visit(value.data);
 }

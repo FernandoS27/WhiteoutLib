@@ -27,7 +27,7 @@ using storages::common::normalizeCascPath;
 
 /// Known D4 root-level folder prefixes (before locale expansion).
 /// D4 CASC has:  Base, Speech, Text  (and locale variants like enUS_Base, etc.)
-static constexpr std::string_view kRootFolders[] = {"base", "speech", "text"};
+[[maybe_unused]] static constexpr std::string_view kRootFolders[] = {"base", "speech", "text"};
 
 /// Known D4 sub-folder names within each root folder.
 static constexpr std::string_view kSubFolders[] = {"child", "meta", "payload", "paylow", "paymed"};
@@ -604,7 +604,7 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs,
             cand.eKey = entry.eKey;
             cand.cKey = entry.cKey;
             cand.fileDataId = entry.fileDataId;
-            cand.fileNameHash = entry.fileNameHash;
+            cand.fileNameHash = static_cast<u32>(entry.fileNameHash);
             cand.localeFlags = localeFromCombinedFileName(entry.path);
             cand.contentFlags = entry.contentFlags;
             candidates.push_back(std::move(cand));

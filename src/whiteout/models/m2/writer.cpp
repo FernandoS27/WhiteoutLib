@@ -508,6 +508,8 @@ void Writer::Impl::writeBase(BinaryWriter& writer, const BaseFile& model) {
     case Format::LegionMD21:
         writeChunkedBase(writer, model);
         break;
+    case Format::Invalid:
+        break;
     }
 }
 

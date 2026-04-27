@@ -165,7 +165,7 @@ struct Bz2Decoder {
         }
 
         // Block CRC (32 bits) — we skip verification for simplicity.
-        u32 blockCrc = br.readBits(32);
+        [[maybe_unused]] u32 blockCrc = br.readBits(32);
 
         // Randomized flag (1 bit) — must be 0 in modern bzip2.
         u32 blockRandomised = br.readBits(1);

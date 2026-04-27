@@ -564,7 +564,7 @@ static SnoValue readBasicType(ReadCtx& ctx, u32 typeHash, const u32 typeHashes[3
             return SnoValue(SnoObject{});
 
         size_t doff = static_cast<size_t>(dataOffset);
-        i32 drem = dataSize;
+        [[maybe_unused]] i32 drem = dataSize;
 
         i32 dataCount = readAt<i32>(reader, doff);
         doff += 4;

@@ -38,7 +38,7 @@ void BinaryWriterVisitor::write(const Model& model) {
     indexTable.emplace_back(ChunkTagTraits<Model>::value, 0, 1,
                             detail::getStructureVersion(model)); // Placeholder for model reference entry
     header.modelRef.entries = 1;
-    header.modelRef.index = modelRefIndex;
+    header.modelRef.index = static_cast<u32>(modelRefIndex);
 
     write_header();
     deferredWrites.push_back([this, &model, modelRefIndex]() {
@@ -58,7 +58,7 @@ void BinaryWriterVisitor::write(const Model& model) {
     const u32 currentOffset = writer.getPosition();
     writer.setPosition(0);
     header.indexOffset = currentOffset;
-    header.indexCount = indexTable.size();
+    header.indexCount = static_cast<u32>(indexTable.size());
     write_header();
     writer.setPosition(currentOffset);
     writer.write(indexTable);
@@ -179,12 +179,13 @@ void BinaryWriterVisitor::visit(const std::string& str) {
         auto new_entry_index = indexTable.size();
         auto version = detail::getStructureVersion(str);
         const auto currentOffset = writer.getPosition();
-        indexTable.emplace_back(ChunkTagTraits<char>::value, currentOffset, str.size(), version);
+        indexTable.emplace_back(ChunkTagTraits<char>::value, currentOffset,
+                                static_cast<u32>(str.size()), version);
         auto& entry = indexTable[new_entry_index];
         writer.setPosition(ref_position);
         Reference ref = {};
-        ref.entries = str.size();
-        ref.index = new_entry_index;
+        ref.entries = static_cast<u32>(str.size());
+        ref.index = static_cast<u32>(new_entry_index);
         writer.write(ref);
         writer.setPosition(entry.offset);
         writer.writeString(str);

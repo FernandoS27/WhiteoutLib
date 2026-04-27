@@ -61,7 +61,7 @@ inline u8 classify(char c) {
 }
 
 inline bool isDigit(char c)    { return (classify(c) & CC_DIGIT) != 0; }
-inline bool isAlpha(char c)    { return (classify(c) & CC_ALPHA) != 0; }
+[[maybe_unused]] inline bool isAlpha(char c)    { return (classify(c) & CC_ALPHA) != 0; }
 inline bool isAlphaNum(char c) { return (classify(c) & (CC_ALPHA | CC_DIGIT)) != 0; }
 
 } // anonymous namespace

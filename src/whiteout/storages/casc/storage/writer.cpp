@@ -673,7 +673,7 @@ bool writeStorage(const std::string& outputDir,
 
     // BLTE-encode D3 subdirectory blob if present.
     if (!d3SubdirRaw.empty()) {
-        auto d3SubdirCKey = storages::common::md5Hash(d3SubdirRaw);
+        [[maybe_unused]] auto d3SubdirCKey = storages::common::md5Hash(d3SubdirRaw);
         d3SubdirBlte = blteEncode(d3SubdirRaw, blteOpts, pool);
         d3SubdirEKey = storages::common::md5Hash(d3SubdirBlte);
     }

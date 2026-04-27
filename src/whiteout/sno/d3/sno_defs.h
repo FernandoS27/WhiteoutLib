@@ -36,7 +36,7 @@ private:
     const SnoTypeDef* m_types = nullptr;
     size_t m_typeCount = 0;
     const SnoFieldDef* m_fields = nullptr;
-    size_t m_fieldCount = 0;
+    [[maybe_unused]] size_t m_fieldCount = 0;
     const char* const* m_typeNames = nullptr;
     const char* const* m_fieldNames = nullptr;
     size_t m_fieldNameCount = 0;

@@ -13,13 +13,13 @@ void BinaryParseVisitor::visit(TXACChunk& chunk, BaseFile& file) {
     chunk.entries = reader.read<std::vector<std::array<u8, 2>>>(num_entries);
 }
 
-void BinaryParseVisitor::visit(PFIDChunk& chunk, BaseFile& file) {
+void BinaryParseVisitor::visit(PFIDChunk& chunk, BaseFile& /*file*/) {
     chunk.physFileDataId = reader.read<u32>();
 }
 
 void BinaryParseVisitor::visit(SFIDChunk& chunk, BaseFile& file) {
     chunk.skinFileDataIds = reader.read<std::vector<u32>>(file.header.model.numSkinProfiles);
-    u32 remainingBytes = maxSize - chunk.skinFileDataIds.size() * sizeof(u32);
+    u32 remainingBytes = maxSize - static_cast<u32>(chunk.skinFileDataIds.size() * sizeof(u32));
     if (remainingBytes > 0) {
         chunk.lodSkinFileDataIds = reader.read<std::vector<u32>>(remainingBytes / sizeof(u32));
     }
@@ -132,7 +132,7 @@ void BinaryParseVisitor::visit(WFV3Chunk& chunk) {
     visit(chunk.data);
 }
 
-void BinaryParseVisitor::visit(PFDCChunk& chunk) {}
+void BinaryParseVisitor::visit(PFDCChunk& /*chunk*/) {}
 
 void BinaryParseVisitor::visit(EdgeFadeData& entry) {
     entry.value0 = reader.readArray<f32, 2>();

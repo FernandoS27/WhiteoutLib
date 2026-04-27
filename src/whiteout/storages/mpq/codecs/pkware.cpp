@@ -217,7 +217,7 @@ std::vector<u8> pkwareExplode(std::span<const u8> src, size_t expectedSize) {
     if (dictSizeBits < 4 || dictSizeBits > 6)
         return {};
 
-    u32 dictSize = 1u << dictSizeBits;
+    [[maybe_unused]] u32 dictSize = 1u << dictSizeBits;
 
     ExplodeBitReader br(src.data() + 2, src.size() - 2);
     std::vector<u8> output;

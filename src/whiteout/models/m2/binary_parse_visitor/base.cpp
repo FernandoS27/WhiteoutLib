@@ -39,11 +39,11 @@ void BinaryParseVisitor::visit(Sequence& seq) {
             ChunkParser chunkParser(ChunkParser::ParseMode::Lenient);
             common::span_streambuf sbuf(animData);
             std::istream in(&sbuf);
-            BinaryReader reader(in);
+            BinaryReader animReader(in);
             AnimFile animFile;
             animFile.animId = seq.id;
             animFile.variant = seq.variationIndex;
-            chunkParser.parseChunkedAnim(reader, animFile, wfs, true);
+            chunkParser.parseChunkedAnim(animReader, animFile, wfs, true);
             animProfiles.emplace_back(std::move(animFile.profile));
             auto& profile = animProfiles.back();
             if (profile.afm2_chunk) {

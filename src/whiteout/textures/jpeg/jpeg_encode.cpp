@@ -1017,7 +1017,7 @@ void JpegEncoder::writeProgressiveStream(
     }
 
     // --- Refinement passes (only when SA_AL > 0) ---
-    if (SA_AL > 0) {
+    if constexpr (SA_AL > 0) {
         // DC refinement: all components, Ss=0, Se=0, Ah=SA_AL, Al=0
         {
             u8 compIds[MAX_COMPONENTS], dcIds[MAX_COMPONENTS], acIds[MAX_COMPONENTS];
@@ -1198,7 +1198,7 @@ std::vector<u8> encode_raw(const Image& image, i32 quality, std::string* out_err
 
         // Stage 4: Encode AC first-pass scans in parallel (on timeline).
         auto acFirstBufs = std::make_shared<std::vector<std::vector<u8>>>(totalAcScans);
-        parallel_for_tasks(totalAcScans, ctx, [enc, coeffs, acFirstBufs, numBands](u32 scanIdx) {
+        parallel_for_tasks(totalAcScans, ctx, [=](u32 scanIdx) {
             constexpr i32 al = 1; // SA_AL
             u32 c = scanIdx / numBands;
             u32 b = scanIdx % numBands;
@@ -1208,7 +1208,7 @@ std::vector<u8> encode_raw(const Image& image, i32 quality, std::string* out_err
         });
 
         // Stage 5: Assemble AC first-pass + DC refinement.
-        submitSingleTask(ctx, [enc, coeffs, acFirstBufs, numBands]() {
+        submitSingleTask(ctx, [=]() {
             constexpr i32 SA_AL = 1;
             // Assemble AC first-pass scan data with SOS markers.
             for (u32 c = 0; c < enc->componentCount; ++c) {
@@ -1241,7 +1241,7 @@ std::vector<u8> encode_raw(const Image& image, i32 quality, std::string* out_err
 
         // Stage 6: Encode AC refinement scans in parallel (on timeline).
         auto acRefineBufs = std::make_shared<std::vector<std::vector<u8>>>(totalAcScans);
-        parallel_for_tasks(totalAcScans, ctx, [enc, coeffs, acRefineBufs, numBands](u32 scanIdx) {
+        parallel_for_tasks(totalAcScans, ctx, [=](u32 scanIdx) {
             u32 c = scanIdx / numBands;
             u32 b = scanIdx % numBands;
             const auto& band = DEFAULT_AC_BANDS[b];
@@ -1250,7 +1250,7 @@ std::vector<u8> encode_raw(const Image& image, i32 quality, std::string* out_err
         });
 
         // Stage 7: Assemble AC refinement + EOI.
-        submitSingleTask(ctx, [enc, acRefineBufs, numBands]() {
+        submitSingleTask(ctx, [=]() {
             constexpr i32 SA_AL = 1;
             for (u32 c = 0; c < enc->componentCount; ++c) {
                 u8 tblIdx = huffTableIndex(c, enc->componentCount);

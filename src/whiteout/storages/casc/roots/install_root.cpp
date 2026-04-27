@@ -56,7 +56,7 @@ std::unique_ptr<InstallRoot> InstallRoot::parse(std::span<const u8> data,
     // Validate magic: 'IN' (0x49, 0x4E).
     if (data[0] != 'I' || data[1] != 'N') return nullptr;
 
-    u8 version = data[2];
+    [[maybe_unused]] u8 version = data[2];
     u8 hashSize = data[3];
     u16 numTags = readBE16(data.data() + 4);
     u32 numFiles = readBE32(data.data() + 6);

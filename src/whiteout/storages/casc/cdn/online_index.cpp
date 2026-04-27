@@ -53,7 +53,7 @@ struct CdnIndexFooter {
 };
 #pragma pack(pop)
 
-static constexpr size_t kMinFooterSize = sizeof(CdnIndexFooter); // 12 bytes minimum
+[[maybe_unused]] static constexpr size_t kMinFooterSize = sizeof(CdnIndexFooter); // 12 bytes minimum
 
 } // anonymous namespace
 
@@ -112,7 +112,7 @@ OnlineIndexTable OnlineIndexTable::parse(std::span<const u8> data, u32 archiveIn
     // Validate: tocHash(hashBytes) sits before the TOC.
     size_t tocEnd = footerStart - hashBytes; // after tocHash
     if (tocEnd < tocSize) return table;
-    size_t tocStart = tocEnd - tocSize;
+    [[maybe_unused]] size_t tocStart = tocEnd - tocSize;
 
     // Data blocks start at beginning of file.
     size_t dataStart = 0;
@@ -274,7 +274,7 @@ OnlineIndexTable OnlineIndexTable::loadAll(
     }
 
     // Merge all per-archive tables.
-    size_t okCount = 0;
+    [[maybe_unused]] size_t okCount = 0;
     for (auto& r : results) {
         if (r.ok) {
             combined.merge(r.table);

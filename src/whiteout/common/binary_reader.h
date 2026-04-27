@@ -19,14 +19,14 @@ class BinaryReader {
 public:
     BinaryReader(std::istream& inputStream) : file(inputStream) {
         file.seekg(0, std::ios::end);
-        fileSize = file.tellg();
+        fileSize = static_cast<u32>(file.tellg());
         file.seekg(0, std::ios::beg);
     }
 
     explicit BinaryReader(std::streambuf& buf)
         : ownedStream_(std::make_unique<std::istream>(&buf)), file(*ownedStream_) {
         file.seekg(0, std::ios::end);
-        fileSize = file.tellg();
+        fileSize = static_cast<u32>(file.tellg());
         file.seekg(0, std::ios::beg);
     }
 
@@ -83,7 +83,7 @@ public:
 
     // Get current position
     u32 getPosition() const {
-        return file.tellg();
+        return static_cast<u32>(file.tellg());
     }
 
     // Set position
@@ -103,7 +103,7 @@ public:
 
     // Get remaining bytes
     u32 getRemainingBytes() {
-        u32 current = file.tellg();
+        u32 current = static_cast<u32>(file.tellg());
         return fileSize - current;
     }
 

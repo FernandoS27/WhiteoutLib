@@ -43,7 +43,7 @@ static u32 val_u32(const sno::SnoValue* v, u32 fallback = 0) {
     }
 }
 
-static i32 val_i32(const sno::SnoValue* v, i32 fallback = 0) {
+[[maybe_unused]] static i32 val_i32(const sno::SnoValue* v, i32 fallback = 0) {
     if (!v)
         return fallback;
     switch (v->type()) {

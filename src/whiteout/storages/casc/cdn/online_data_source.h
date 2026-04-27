@@ -80,7 +80,7 @@ public:
 private:
     CdnFetcher* m_fetcher;
     const OnlineIndexTable* m_archiveIndex;
-    const OnlineIndexTable* m_looseIndex;
+    [[maybe_unused]] const OnlineIndexTable* m_looseIndex;
     const std::vector<std::array<u8, 16>>* m_archiveEKeys;
 };
 

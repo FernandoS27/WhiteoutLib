@@ -31,8 +31,8 @@ public:
         visit(header, file);
     }
 
-    void setVersion(u32 version) {
-        this->version = version;
+    void setVersion(u32 v) {
+        version = v;
     }
 
     u32 getVersion() const {

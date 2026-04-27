@@ -131,7 +131,7 @@ void decode_block(const u8* block, u16* out) {
     u32 b0 = block[0] & 0x1F; // first 5 bits
 
     u32 mode_id;
-    u32 mode_bits;
+    [[maybe_unused]] u32 mode_bits;
 
     u32 two_lsb = b0 & 3;
     if (two_lsb == 0) {

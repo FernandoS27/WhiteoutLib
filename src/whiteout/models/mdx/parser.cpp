@@ -143,7 +143,7 @@ void Parser::Impl::SkipUnknownTrack(BinaryReader& reader, u32 tag, u32 trackCoun
     size_t keySize = (isSmoothInterpolation(static_cast<InterpolationType>(interpolationType)))
                          ? sizeof(typename Track<u32>::TangentKey)
                          : sizeof(typename Track<u32>::Key);
-    reader.skip(trackCount * keySize);
+    reader.skip(static_cast<u32>(trackCount * keySize));
 }
 
 // ============================================================================
@@ -163,7 +163,7 @@ Model Parser::parse(const std::string& filePath) {
     if (dotPos != std::string::npos) {
         std::string ext = filePath.substr(dotPos);
         std::transform(ext.begin(), ext.end(), ext.begin(),
-                       [](unsigned char c) { return std::tolower(c); });
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         if (ext == ".mdl") {
             // Read entire file as text
             auto file = common::open_ifstream(filePath, std::ios::ate);
@@ -332,11 +332,11 @@ Parser::Impl::ChunkHeader Parser::Impl::readChunkHeader(BinaryReader& reader) {
     return {tag, size};
 }
 
-void Parser::Impl::parseVERS(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseVERS(BinaryReader& reader, u32 /*size*/, Model& mdx) {
     mdx.version = reader.read<u32>();
 }
 
-void Parser::Impl::parseMODL(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseMODL(BinaryReader& reader, u32 /*size*/, Model& mdx) {
     mdx.modelName = reader.readString(80);
     mdx.animationFileName = reader.readString(260);
     mdx.modelExtent = reader.read<Extent>();
@@ -396,13 +396,13 @@ void Parser::Impl::parseSNEM(BinaryReader& reader, u32 size, Model& mdx) {
     while (totalRead < size) {
         u32 posBefore = reader.getPosition();
         SoundEmitter snem = parseSoundEmitter(reader, size - totalRead);
-        snem.node.nodeFamilyId = mdx.soundEmitters.size();
+        snem.node.nodeFamilyId = static_cast<u32>(mdx.soundEmitters.size());
         mdx.soundEmitters.push_back(snem);
         totalRead += reader.getPosition() - posBefore;
     }
 }
 
-SoundEmitter Parser::Impl::parseSoundEmitter(BinaryReader& reader, u32 maxSize) {
+SoundEmitter Parser::Impl::parseSoundEmitter(BinaryReader& reader, u32 /*maxSize*/) {
     SoundEmitter snem;
     u32 startPos = reader.getPosition();
 
@@ -442,9 +442,9 @@ void Parser::Impl::parseMTLS(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 chunkSize, Model& mdx) {
+Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 /*chunkSize*/, Model& mdx) {
     Material mat;
-    u32 startPos = reader.getPosition();
+    [[maybe_unused]] u32 startPos = reader.getPosition();
     bool is_hd = false;
 
     [[maybe_unused]] u32 inclusiveSize = reader.read<u32>();
@@ -457,7 +457,7 @@ Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 chunkSize, Model&
     }
 
     // Read LAYS chunk
-    u32 laysTag = reader.read<u32>();
+    [[maybe_unused]] u32 laysTag = reader.read<u32>();
     u32 layerCount = reader.read<u32>();
 
     mat.layers.resize(layerCount);
@@ -548,7 +548,7 @@ Layer Parser::Impl::parseLayer(BinaryReader& reader, Model& mdx) {
             subTex.textureId = reader.read<u32>();
             subTex.slot = static_cast<Layer::SlotType>(reader.read<u32>());
 
-            u32 startPos = reader.getPosition();
+            u32 subTexStart = reader.getPosition();
             u32 peek_tag = reader.read<u32>();
             if (peek_tag == KMTF_TAG) {
                 u32 trackCount = reader.read<u32>();
@@ -557,7 +557,7 @@ Layer Parser::Impl::parseLayer(BinaryReader& reader, Model& mdx) {
                 subTex.tracks =
                     readTrackChunk<u32>(reader, trackCount, interpolationType, globalSequenceId);
             } else {
-                reader.setPosition(startPos);
+                reader.setPosition(subTexStart);
             }
             layer.subTextures.push_back(subTex);
         }
@@ -565,7 +565,7 @@ Layer Parser::Impl::parseLayer(BinaryReader& reader, Model& mdx) {
 
     const u32 endPos = startPos + inclusiveSize;
     while (reader.getPosition() < endPos) {
-        u32 currentPos = reader.getPosition();
+        [[maybe_unused]] u32 currentPos = reader.getPosition();
 
         u32 trackTag = reader.read<u32>();
         u32 trackCount = reader.read<u32>();
@@ -623,7 +623,7 @@ void Parser::Impl::parseTXAN(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-TextureAnimation Parser::Impl::parseTextureAnimation(BinaryReader& reader, u32 maxSize) {
+TextureAnimation Parser::Impl::parseTextureAnimation(BinaryReader& reader, u32 /*maxSize*/) {
     TextureAnimation anim;
     u32 startPos = reader.getPosition();
 
@@ -670,49 +670,49 @@ void Parser::Impl::parseGEOS(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-Geoset Parser::Impl::parseGeoset(BinaryReader& reader, u32 maxSize, Model& mdx) {
+Geoset Parser::Impl::parseGeoset(BinaryReader& reader, u32 /*maxSize*/, Model& mdx) {
     Geoset geoset;
     u32 startPos = reader.getPosition();
 
     u32 inclusiveSize = reader.read<u32>();
 
     // Parse VRTX - vertex positions
-    u32 vrtxTag = reader.read<u32>();
+    [[maybe_unused]] u32 vrtxTag = reader.read<u32>();
     u32 vertexCount = reader.read<u32>();
     geoset.vertexPositions = reader.read<std::vector<Vector3f>>(vertexCount);
 
     // Parse NRMS - normals
-    u32 nrmsTag = reader.read<u32>();
+    [[maybe_unused]] u32 nrmsTag = reader.read<u32>();
     u32 normalCount = reader.read<u32>();
     geoset.vertexNormals = reader.read<std::vector<Vector3f>>(normalCount);
 
     // Parse PTYP - face type groups
-    u32 ptypTag = reader.read<u32>();
+    [[maybe_unused]] u32 ptypTag = reader.read<u32>();
     u32 faceTypeGroupCount = reader.read<u32>();
     geoset.faceTypeGroups = reader.read<std::vector<u32>>(faceTypeGroupCount);
 
     // Parse PCNT - face groups
-    u32 pcntTag = reader.read<u32>();
+    [[maybe_unused]] u32 pcntTag = reader.read<u32>();
     u32 faceGroupCount = reader.read<u32>();
     geoset.faceGroups = reader.read<std::vector<u32>>(faceGroupCount);
 
     // Parse PVTX - face indices
-    u32 pvtxTag = reader.read<u32>();
+    [[maybe_unused]] u32 pvtxTag = reader.read<u32>();
     u32 faceCount = reader.read<u32>();
     geoset.faces = reader.read<std::vector<u16>>(faceCount);
 
     // Parse GNDX - vertex groups
-    u32 gndxTag = reader.read<u32>();
+    [[maybe_unused]] u32 gndxTag = reader.read<u32>();
     u32 vertexGroupCount = reader.read<u32>();
     geoset.vertexGroups = reader.read<std::vector<u8>>(vertexGroupCount);
 
     // Parse MTGC - matrix groups
-    u32 mtgcTag = reader.read<u32>();
+    [[maybe_unused]] u32 mtgcTag = reader.read<u32>();
     u32 matrixGroupCount = reader.read<u32>();
     geoset.matrixGroups = reader.read<std::vector<u32>>(matrixGroupCount);
 
     // Parse MATS - matrix indices
-    u32 matsTag = reader.read<u32>();
+    [[maybe_unused]] u32 matsTag = reader.read<u32>();
     u32 matrixIndexCount = reader.read<u32>();
     geoset.matrixIndices = reader.read<std::vector<u32>>(matrixIndexCount);
 
@@ -752,7 +752,7 @@ Geoset Parser::Impl::parseGeoset(BinaryReader& reader, u32 maxSize, Model& mdx) 
 
             geoset.textureCoordinateSets.resize(uvSetCount);
             for (u32 i = 0; i < uvSetCount; i++) {
-                u32 uvbsTag = reader.read<u32>();
+                [[maybe_unused]] u32 uvbsTag = reader.read<u32>();
                 u32 uvCount = reader.read<u32>();
                 geoset.textureCoordinateSets[i] = reader.read<std::vector<Vector2f>>(uvCount);
             }
@@ -843,8 +843,8 @@ void Parser::Impl::parseBONE(BinaryReader& reader, u32 size, Model& mdx) {
         bone.geosetAnimationId = reader.read<u32>();
 
         bone.node.type = Node::NodeType::Bone; // Set node type to Bone
-        bone.node.nodeFamilyId =
-            mdx.bones.size(); // Assign a unique family ID based on current bone count
+        bone.node.nodeFamilyId = static_cast<u32>(
+            mdx.bones.size()); // Assign a unique family ID based on current bone count
 
         mdx.bones.push_back(bone);
 
@@ -855,8 +855,8 @@ void Parser::Impl::parseBONE(BinaryReader& reader, u32 size, Model& mdx) {
 
 Node Parser::Impl::parseNode(BinaryReader& reader) {
     Node node;
-    u32 startPos = reader.getPosition();
-    u32 nodeSize = reader.read<u32>();
+    [[maybe_unused]] u32 startPos = reader.getPosition();
+    [[maybe_unused]] u32 nodeSize = reader.read<u32>();
 
     node.name = reader.readString(80);
     node.objectId = reader.read<u32>();
@@ -910,14 +910,14 @@ void Parser::Impl::parseLITE(BinaryReader& reader, u32 size, Model& mdx) {
         u32 posBefore = reader.getPosition();
         Light light = parseLight(reader, size - totalRead, mdx);
         light.node.type = Node::NodeType::Light; // Set node type to Light
-        light.node.nodeFamilyId =
-            mdx.lights.size(); // Assign a unique family ID based on current light count
+        light.node.nodeFamilyId = static_cast<u32>(
+            mdx.lights.size()); // Assign a unique family ID based on current light count
         mdx.lights.push_back(light);
         totalRead += reader.getPosition() - posBefore;
     }
 }
 
-Light Parser::Impl::parseLight(BinaryReader& reader, u32 maxSize, Model& mdx) {
+Light Parser::Impl::parseLight(BinaryReader& reader, u32 /*maxSize*/, Model& mdx) {
     Light light;
     u32 startPos = reader.getPosition();
 
@@ -992,8 +992,8 @@ void Parser::Impl::parseHELP(BinaryReader& reader, u32 size, Model& mdx) {
         helper.node = parseNode(reader);
 
         helper.node.type = Node::NodeType::Helper; // Set node type to Helper
-        helper.node.nodeFamilyId =
-            mdx.helpers.size(); // Assign a unique family ID based on current helper count
+        helper.node.nodeFamilyId = static_cast<u32>(
+            mdx.helpers.size()); // Assign a unique family ID based on current helper count
 
         mdx.helpers.push_back(helper);
 
@@ -1010,15 +1010,15 @@ void Parser::Impl::parseATCH(BinaryReader& reader, u32 size, Model& mdx) {
         Attachment att = parseAttachment(reader, size - totalRead);
 
         att.node.type = Node::NodeType::Attachment; // Set node type to Attachment
-        att.node.nodeFamilyId =
-            mdx.attachments.size(); // Assign a unique family ID based on current attachment count
+        att.node.nodeFamilyId = static_cast<u32>(
+            mdx.attachments.size()); // Assign a unique family ID based on current attachment count
 
         mdx.attachments.push_back(att);
         totalRead += reader.getPosition() - posBefore;
     }
 }
 
-Attachment Parser::Impl::parseAttachment(BinaryReader& reader, u32 maxSize) {
+Attachment Parser::Impl::parseAttachment(BinaryReader& reader, u32 /*maxSize*/) {
     Attachment att;
     u32 startPos = reader.getPosition();
 
@@ -1065,16 +1065,16 @@ void Parser::Impl::parsePREM(BinaryReader& reader, u32 size, Model& mdx) {
         u32 posBefore = reader.getPosition();
         ParticleEmitter pem = parseParticleEmitter(reader, size - totalRead);
         pem.node.type = Node::NodeType::ParticleEmitter; // Set node type to ParticleEmitter
-        pem.node.nodeFamilyId =
+        pem.node.nodeFamilyId = static_cast<u32>(
             mdx.particleEmitters
-                .size(); // Assign a unique family ID based on current particle emitter count
+                .size()); // Assign a unique family ID based on current particle emitter count
 
         mdx.particleEmitters.push_back(pem);
         totalRead += reader.getPosition() - posBefore;
     }
 }
 
-ParticleEmitter Parser::Impl::parseParticleEmitter(BinaryReader& reader, u32 maxSize) {
+ParticleEmitter Parser::Impl::parseParticleEmitter(BinaryReader& reader, u32 /*maxSize*/) {
     ParticleEmitter pem;
     u32 startPos = reader.getPosition();
 
@@ -1141,16 +1141,16 @@ void Parser::Impl::parsePRE2(BinaryReader& reader, u32 size, Model& mdx) {
         u32 posBefore = reader.getPosition();
         ParticleEmitter2 pem2 = parseParticleEmitter2(reader, size - totalRead);
         pem2.node.type = Node::NodeType::ParticleEmitter2; // Set node type to ParticleEmitter2
-        pem2.node.nodeFamilyId =
+        pem2.node.nodeFamilyId = static_cast<u32>(
             mdx.particleEmitters2
-                .size(); // Assign a unique family ID based on current particle emitter count
+                .size()); // Assign a unique family ID based on current particle emitter count
 
         mdx.particleEmitters2.push_back(pem2);
         totalRead += reader.getPosition() - posBefore;
     }
 }
 
-ParticleEmitter2 Parser::Impl::parseParticleEmitter2(BinaryReader& reader, u32 maxSize) {
+ParticleEmitter2 Parser::Impl::parseParticleEmitter2(BinaryReader& reader, u32 /*maxSize*/) {
     ParticleEmitter2 pem2;
     u32 startPos = reader.getPosition();
 
@@ -1258,16 +1258,16 @@ void Parser::Impl::parseRIBB(BinaryReader& reader, u32 size, Model& mdx) {
         u32 posBefore = reader.getPosition();
         RibbonEmitter ribb = parseRibbonEmitter(reader, size - totalRead);
         ribb.node.type = Node::NodeType::RibbonEmitter; // Set node type to RibbonEmitter
-        ribb.node.nodeFamilyId =
+        ribb.node.nodeFamilyId = static_cast<u32>(
             mdx.ribbonEmitters
-                .size(); // Assign a unique family ID based on current ribbon emitter count
+                .size()); // Assign a unique family ID based on current ribbon emitter count
 
         mdx.ribbonEmitters.push_back(ribb);
         totalRead += reader.getPosition() - posBefore;
     }
 }
 
-RibbonEmitter Parser::Impl::parseRibbonEmitter(BinaryReader& reader, u32 maxSize) {
+RibbonEmitter Parser::Impl::parseRibbonEmitter(BinaryReader& reader, u32 /*maxSize*/) {
     RibbonEmitter ribb;
     u32 startPos = reader.getPosition();
 
@@ -1336,12 +1336,12 @@ void Parser::Impl::parseEVTS(BinaryReader& reader, u32 size, Model& mdx) {
         EventObject evt;
         evt.node = parseNode(reader);
         evt.node.type = Node::NodeType::EventObject; // Set node type to EventObject
-        evt.node.nodeFamilyId =
+        evt.node.nodeFamilyId = static_cast<u32>(
             mdx.eventObjects
-                .size(); // Assign a unique family ID based on current event object count
+                .size()); // Assign a unique family ID based on current event object count
 
         // Read KEVT chunk
-        u32 kevtTag = reader.read<u32>();
+        [[maybe_unused]] u32 kevtTag = reader.read<u32>();
         u32 trackCount = reader.read<u32>();
         evt.globalSequenceId = reader.read<u32>();
 
@@ -1367,7 +1367,7 @@ void Parser::Impl::parseCAMS(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-Camera Parser::Impl::parseCamera(BinaryReader& reader, u32 maxSize) {
+Camera Parser::Impl::parseCamera(BinaryReader& reader, u32 /*maxSize*/) {
     Camera cam;
     u32 startPos = reader.getPosition();
 
@@ -1417,9 +1417,9 @@ void Parser::Impl::parseCLID(BinaryReader& reader, u32 size, Model& mdx) {
 
         CollisionShape shape = parseCollisionShape(reader);
         shape.node.type = Node::NodeType::CollisionShape; // Set node type to CollisionShape
-        shape.node.nodeFamilyId =
+        shape.node.nodeFamilyId = static_cast<u32>(
             mdx.collisionShapes
-                .size(); // Assign a unique family ID based on current collision shape count
+                .size()); // Assign a unique family ID based on current collision shape count
         mdx.collisionShapes.push_back(shape);
 
         u32 endPos = reader.getPosition();
@@ -1435,7 +1435,7 @@ CollisionShape Parser::Impl::parseCollisionShape(BinaryReader& reader) {
 
     constexpr std::array<size_t, 4> shapeVertexCounts = {2, 2, 1, 2};
 
-    u32 vertexCount = shapeVertexCounts[type_index];
+    u32 vertexCount = static_cast<u32>(shapeVertexCounts[type_index]);
 
     shape.vertices.resize(vertexCount);
     for (u32 i = 0; i < vertexCount; i++) {
@@ -1450,7 +1450,7 @@ CollisionShape Parser::Impl::parseCollisionShape(BinaryReader& reader) {
     return shape;
 }
 
-void Parser::Impl::parseBPOS(BinaryReader& reader, u32 size, Model& mdx) {
+void Parser::Impl::parseBPOS(BinaryReader& reader, u32 /*size*/, Model& mdx) {
     u32 count = reader.read<u32>();
     mdx.bindPoses.resize(count);
 
@@ -1481,9 +1481,9 @@ void Parser::Impl::parseCORN(BinaryReader& reader, u32 size, Model& mdx) {
         u32 inclusiveSize = reader.read<u32>();
         corn.node = parseNode(reader);
         corn.node.type = Node::NodeType::CornEmitter; // Set node type to CornEmitter
-        corn.node.nodeFamilyId =
+        corn.node.nodeFamilyId = static_cast<u32>(
             mdx.cornEmitters
-                .size(); // Assign a unique family ID based on current corn emitter count
+                .size()); // Assign a unique family ID based on current corn emitter count
 
         corn.lifeSpan = reader.read<f32>();
         corn.emissionRate = reader.read<f32>();

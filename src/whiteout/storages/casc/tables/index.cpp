@@ -513,7 +513,7 @@ void IndexTable::loadArchiveIndices(const std::string& dataDir,
     if (jobs.empty())
         return;
 
-    size_t prevEntries = m_entries.size();
+    [[maybe_unused]] size_t prevEntries = m_entries.size();
 
     if (pool && jobs.size() > 1) {
         // Parallel parse.

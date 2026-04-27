@@ -312,7 +312,7 @@ void BinaryWriterVisitor::visit(const Event& event) {
 
 void BinaryWriterVisitor::visit(const MD20Header& md20) {
     version = md20.version;
-    const auto& header = md20.model;
+    [[maybe_unused]] const auto& header = md20.model;
 
     writer.write(md20.magic);
     writer.write(md20.version);

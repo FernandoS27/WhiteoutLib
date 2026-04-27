@@ -347,7 +347,7 @@ m3::RegionFlag convertSubmeshFlagsToM3(SubmeshFlags sf) {
 
 // Convert an M3 TextureLayer to a WEM TextureSlot
 TextureSlot convertTextureLayer(const m3::TextureLayer& layer, TextureSlotSemantic semantic,
-                                u32 textureIndex, std::vector<std::string>& issues) {
+                                u32 textureIndex, std::vector<std::string>& /*issues*/) {
     TextureSlot slot;
     slot.semantic = semantic;
     slot.textureIndex = textureIndex;
@@ -680,7 +680,7 @@ ConvertResult M3Converter::fromM3(const m3::Model& m3Model) const {
 // toM3
 // ============================================================================
 
-M3ConvertResult M3Converter::toM3(const Model& wemModel, u32 targetVersion) const {
+M3ConvertResult M3Converter::toM3(const Model& wemModel, u32 /*targetVersion*/) const {
     M3ConvertResult result;
     auto& m3 = result.model;
     auto& issues = result.issues;
@@ -799,6 +799,9 @@ M3ConvertResult M3Converter::toM3(const Model& wemModel, u32 targetVersion) cons
                     mat.normalBlend2Layer = layer;
                     break;
                 case TextureSlotSemantic::Custom:
+                case TextureSlotSemantic::Roughness:
+                case TextureSlotSemantic::Metalness:
+                case TextureSlotSemantic::ORM:
                     // No matching named slot; try diffuse if empty
                     if (!mat.diffuseLayer.has_value()) {
                         mat.diffuseLayer = layer;

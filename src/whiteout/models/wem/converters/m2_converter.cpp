@@ -233,7 +233,7 @@ ConvertResult M2Converter::fromM2(const m2::Model& header) const {
 
                     // Resolve texture from combo table and attach to material
                     if (batch.textureComboIndex < header.textureCombos.size()) {
-                        u16 texIdx = header.textureCombos[batch.textureComboIndex];
+                        [[maybe_unused]] u16 texIdx = header.textureCombos[batch.textureComboIndex];
                         if (sub.materialIndex < model.materials.size()) {
                             auto& mat = model.materials[sub.materialIndex];
                             // Only add if not already populated
@@ -301,7 +301,7 @@ ConvertResult M2Converter::fromM2(const m2::Model& header) const {
 // toM2
 // ============================================================================
 
-M2ConvertResult M2Converter::toM2(const Model& wemModel, u32 targetVersion) const {
+M2ConvertResult M2Converter::toM2(const Model& wemModel, u32 /*targetVersion*/) const {
     M2ConvertResult result;
     auto& header = result.model;
     auto& issues = result.issues;

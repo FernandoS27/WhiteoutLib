@@ -529,7 +529,7 @@ Texture convert_uncompressed(const Texture& src, PixelFormat new_fmt) {
     return dst;
 }
 
-std::optional<Texture> copy_normal_to_rgba8(const Texture& src, PixelFormat orig_fmt) {
+[[maybe_unused]] std::optional<Texture> copy_normal_to_rgba8(const Texture& src, PixelFormat orig_fmt) {
     const bool is_rg = is_rg_normal_format(src.format());
     const bool is_rgba = is_rgba_normal_format(src.format());
     if (!is_rg && !is_rgba)

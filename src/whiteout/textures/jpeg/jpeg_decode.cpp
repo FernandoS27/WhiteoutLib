@@ -282,9 +282,9 @@ struct JpegDecoder {
                                   i32& dcPrediction);
     bool decodeProgressiveDcRefine(std::array<i32, BLOCK_PIXELS>& coeffs);
     bool decodeProgressiveAcFirst(BitstreamReader& bs, std::array<i32, BLOCK_PIXELS>& coeffs,
-                                  const HuffmanTable& acTable, u32& eobRun, u8 ss, u8 se, u8 al);
+                                  const HuffmanTable& acTable, u32& eobRunRef, u8 ss, u8 se, u8 al);
     bool decodeProgressiveAcRefine(BitstreamReader& bs, std::array<i32, BLOCK_PIXELS>& coeffs,
-                                   const HuffmanTable& acTable, u32& eobRun, u8 ss, u8 se, u8 al);
+                                   const HuffmanTable& acTable, u32& eobRunRef, u8 ss, u8 se, u8 al);
     bool finalizeProgressiveImage();
 
     /// Combined dequantize + IDCT + interleave for the no-subsampling case.
@@ -1036,10 +1036,10 @@ bool JpegDecoder::decodeProgressiveDcRefine(std::array<i32, BLOCK_PIXELS>& coeff
 /// Ss>0, Ah=0 — initial AC coefficients in range [Ss, Se] with point transform Al.
 bool JpegDecoder::decodeProgressiveAcFirst(BitstreamReader& bs,
                                            std::array<i32, BLOCK_PIXELS>& coeffs,
-                                           const HuffmanTable& acTable, u32& eobRun, u8 ss, u8 se,
+                                           const HuffmanTable& acTable, u32& eobRunRef, u8 ss, u8 se,
                                            u8 al) {
-    if (eobRun > 0) {
-        --eobRun;
+    if (eobRunRef > 0) {
+        --eobRunRef;
         return true;
     }
 
@@ -1057,11 +1057,11 @@ bool JpegDecoder::decodeProgressiveAcFirst(BitstreamReader& bs,
                 continue;
             }
             // EOBn: End of band for 2^runLength blocks.
-            eobRun = (1u << runLength);
+            eobRunRef = (1u << runLength);
             if (runLength > 0) {
-                eobRun += bs.readBits(runLength);
+                eobRunRef += bs.readBits(runLength);
             }
-            --eobRun; // Current block counts as one.
+            --eobRunRef; // Current block counts as one.
             return true;
         }
 
@@ -1095,19 +1095,19 @@ inline void applyRefinementBit(BitstreamReader& bs, i32& coeff, i32 correctionBi
 ///  - EOBRUN mechanism skips remaining zero positions.
 bool JpegDecoder::decodeProgressiveAcRefine(BitstreamReader& bs,
                                             std::array<i32, BLOCK_PIXELS>& coeffs,
-                                            const HuffmanTable& acTable, u32& eobRun, u8 ss, u8 se,
+                                            const HuffmanTable& acTable, u32& eobRunRef, u8 ss, u8 se,
                                             u8 al) {
     i32 k = ss;
     i32 correctionBit = 1 << al;
 
-    if (eobRun > 0) {
+    if (eobRunRef > 0) {
         // In an EOB run: just refine existing nonzero coefficients.
         for (; k <= se; ++k) {
             if (coeffs[k] != 0) {
                 applyRefinementBit(bs, coeffs[k], correctionBit);
             }
         }
-        --eobRun;
+        --eobRunRef;
         return true;
     }
 
@@ -1123,9 +1123,9 @@ bool JpegDecoder::decodeProgressiveAcRefine(BitstreamReader& bs,
         if (category == 0) {
             if (runLength < 15) {
                 // EOBn.
-                eobRun = (1u << runLength);
+                eobRunRef = (1u << runLength);
                 if (runLength > 0) {
-                    eobRun += bs.readBits(runLength);
+                    eobRunRef += bs.readBits(runLength);
                 }
                 // Refine remaining nonzero coefficients in this block, then done.
                 for (; k <= se; ++k) {
@@ -1133,7 +1133,7 @@ bool JpegDecoder::decodeProgressiveAcRefine(BitstreamReader& bs,
                         applyRefinementBit(bs, coeffs[k], correctionBit);
                     }
                 }
-                --eobRun;
+                --eobRunRef;
                 return true;
             }
             // runLength == 15: ZRL with no new nonzero — skip 16 zero positions.

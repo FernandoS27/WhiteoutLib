@@ -3,10 +3,19 @@ project(WhiteoutLib VERSION 1.0.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Determine if we're built as a subproject (using add_subdirectory)
+# or if this is the master project.
+set(WHITEOUT_MASTER_PROJECT OFF)
+if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+    set(WHITEOUT_MASTER_PROJECT ON)
+endif()
 
 option(WHITEOUT_ENABLE_CASC "Enable CASC archive support via CascLib" OFF)
 option(WHITEOUT_BUILD_EXAMPLES "Build example programs" OFF)
 option(WHITEOUT_BUILD_TESTS "Build test programs" OFF)
+option(WHITEOUT_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ${WHITEOUT_MASTER_PROJECT})
 
 if(WHITEOUT_BUILD_TESTS)
     enable_testing()
@@ -14,6 +23,71 @@ endif()
 
 if(MSVC)
     add_compile_options(/FS)
+endif()
+
+# =============================================================================
+# Strict-warning interface library (modelled after Kepler3D).
+# Only WhiteoutLib's own targets link this — externals (Catch2, CascLib) keep
+# their own warning posture.
+# =============================================================================
+add_library(whiteout_strict_flags INTERFACE)
+
+if(MSVC)
+    # cl.exe and clang-cl both use MSVC-style flags here.
+    target_compile_options(whiteout_strict_flags INTERFACE
+        /W4
+        /w34263 # Non-virtual member function hides base class virtual function
+        /w44265 # Class has virtual functions, but destructor is not virtual
+        /w34456 # Declaration of 'var' hides previous local declaration
+        /w34457 # Declaration of 'var' hides function parameter
+        /w34458 # Declaration of 'var' hides class member
+        /w34459 # Declaration of 'var' hides global definition
+        /w34946 # Reinterpret-cast between related types
+        /wd4201 # Anonymous struct/union — used intentionally in vector_types
+        /wd4592 # Symbol will be dynamically initialized (implementation limitation)
+        /wd4702 # Unreachable code — constexpr-if false positives in templates
+        /permissive- # Stricter C++ standards conformance
+        /Zc:throwingNew # Assumes new never returns null
+        /Zc:inline      # Omits inline functions from object-file output
+        # Treat <angle-bracket> includes as external (system headers) and
+        # silence warnings emanating from them — STL internals trigger
+        # template-instantiation noise we can't fix in our code.
+        /external:W0
+        /external:anglebrackets
+    )
+    target_compile_definitions(whiteout_strict_flags INTERFACE
+        NOMINMAX
+        # MSVC STL warns on these but the alternatives are no safer.
+        _CRT_SECURE_NO_WARNINGS
+        _SILENCE_CXX20_U8PATH_DEPRECATION_WARNING
+    )
+
+    if(WHITEOUT_WARNINGS_AS_ERRORS)
+        target_compile_options(whiteout_strict_flags INTERFACE /WX)
+    endif()
+
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        # clang-cl driver — accept MSVC flags but trim noise from extra args
+        # propagated through the build system.
+        target_compile_options(whiteout_strict_flags INTERFACE
+            -Qunused-arguments
+            -Wno-missing-braces
+        )
+    endif()
+else()
+    target_compile_options(whiteout_strict_flags INTERFACE
+        -Wall
+        -Wextra
+        -Wcast-qual
+        -pedantic
+        -pedantic-errors
+        -Wfatal-errors
+        -Wno-missing-braces
+    )
+
+    if(WHITEOUT_WARNINGS_AS_ERRORS)
+        target_compile_options(whiteout_strict_flags INTERFACE -Werror)
+    endif()
 endif()
 
 # Whiteout Library
@@ -130,6 +204,8 @@ add_library(whiteout_lib
 target_include_directories(whiteout_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+
+target_link_libraries(whiteout_lib PRIVATE whiteout_strict_flags)
 
 if(WHITEOUT_BUILD_EXAMPLES)
 
@@ -275,6 +351,7 @@ if(WHITEOUT_ENABLE_CASC)
     )
 
     target_link_libraries(whiteout_casc PUBLIC whiteout_lib)
+    target_link_libraries(whiteout_casc PRIVATE whiteout_strict_flags)
 
     target_compile_definitions(whiteout_casc PUBLIC WHITEOUT_HAS_CASC=1)
 
@@ -339,6 +416,7 @@ if(WHITEOUT_ENABLE_MPQ)
     target_link_libraries(whiteout_mpq
         PUBLIC whiteout_lib
     )
+    target_link_libraries(whiteout_mpq PRIVATE whiteout_strict_flags)
 
     target_compile_definitions(whiteout_mpq PUBLIC WHITEOUT_HAS_MPQ=1)
 

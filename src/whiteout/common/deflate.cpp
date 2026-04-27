@@ -629,7 +629,7 @@ std::vector<u8> zlib_decompress(std::span<const u8> data, std::string* out_error
     return std::move(inflater.output);
 }
 
-std::vector<u8> zlib_compress(std::span<const u8> data, std::string* out_error) {
+std::vector<u8> zlib_compress(std::span<const u8> data, std::string* /*out_error*/) {
     Deflater deflater;
     deflater.run(data);
 

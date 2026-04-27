@@ -32,7 +32,7 @@ static constexpr u32 kMarFullNames    = 2;
 
 static constexpr u32 kMndxLastCKeyEntry = 0x80000000;
 static constexpr u32 kCKeySize           = 16;
-static constexpr u32 kMndxCKeyEntrySize  = 24; // Flags(4) + CKey(16) + ContentSize(4)
+[[maybe_unused]] static constexpr u32 kMndxCKeyEntrySize  = 24; // Flags(4) + CKey(16) + ContentSize(4)
 
 static constexpr u32 kSearchInitializing = 0;
 static constexpr u32 kSearchSearching    = 2;
@@ -1153,14 +1153,14 @@ static_assert(sizeof(MndxCKeyEntry) == 24, "MndxCKeyEntry must be 24 bytes");
 // ============================================================================
 
 std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
-                                           interfaces::WorkerPool* pool) {
+                                           interfaces::WorkerPool* /*pool*/) {
     ensureBitPosTable();
 
     if (data.size() < sizeof(MndxHeader))
         return nullptr;
 
     const u8* ptr = data.data();
-    const u8* end = ptr + data.size();
+    [[maybe_unused]] const u8* end = ptr + data.size();
 
     // Read and validate header.
     MndxHeader header;

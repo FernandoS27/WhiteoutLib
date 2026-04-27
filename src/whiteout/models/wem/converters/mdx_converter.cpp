@@ -206,7 +206,7 @@ ConvertResult MdxConverter::fromMdx(const mdx::Model& mdxModel) const {
         } else {
             // Multi-layer → Composite material wrapping per-layer Standards
             // First, create one Standard per layer
-            u32 baseIdx = static_cast<u32>(model.materials.size());
+            [[maybe_unused]] u32 baseIdx = static_cast<u32>(model.materials.size());
             std::vector<CompositeSection> sections;
             sections.reserve(mat.layers.size());
 
