@@ -39,19 +39,30 @@ bool LocalState::mapArchives(std::string* error) {
     }
 
     dataArchives.resize(maxIndex + 1);
+    bool sawSharingViolation = false;
+    std::string firstFailure;
     for (u32 i = 0; i <= maxIndex; ++i) {
         char archiveName[32];
         std::snprintf(archiveName, sizeof(archiveName), "data/data.%03u", i);
         std::string path = dataPath + "/" + archiveName;
         if (fs::exists(path)) {
+            std::string mapErr;
             auto mapped = storages::common::MappedFile::open(
-                path, storages::common::AccessHint::Random);
+                path, storages::common::AccessHint::Random, &mapErr);
             if (mapped) {
                 dataArchives[i] = std::move(*mapped);
+            } else if (firstFailure.empty()) {
+                firstFailure = "Failed to map '" + path + "': " + mapErr;
+                if (storages::common::isSharingViolation(mapErr))
+                    sawSharingViolation = true;
             }
         }
     }
 
+    if (!firstFailure.empty() && error)
+        *error = firstFailure;
+    if (sawSharingViolation)
+        s_lastError = kSharingViolation;
     return true;
 }
 
@@ -138,11 +149,12 @@ std::optional<Storage> Storage::open(const std::string& path, u32 localeMask,
     return open(opts);
 }
 
-std::optional<Storage> Storage::open(const std::string& path, std::string* /*error*/,
+std::optional<Storage> Storage::open(const std::string& path, std::string* error,
                                      interfaces::WorkerPool* pool) {
     OpenOptions opts;
     opts.path = path;
     opts.pool = pool;
+    opts.errorOut = error;
     return open(opts);
 }
 
@@ -189,20 +201,36 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     else if (fs::exists(dataPath + "/.build.info"))
         buildInfoPath = dataPath + "/.build.info";
 
+    auto reportFileError = [&](const std::string& filePath, const std::string& sysErr,
+                               u32 errorCode) {
+        if (storages::common::isSharingViolation(sysErr))
+            s_lastError = kSharingViolation;
+        else
+            s_lastError = errorCode;
+        if (opts.errorOut)
+            *opts.errorOut = "Failed to read '" + filePath + "': " + sysErr;
+    };
+
     if (buildInfoPath.empty()) {
         s_lastError = kBuildInfoNotFound;
+        if (opts.errorOut)
+            *opts.errorOut = "'.build.info' not found under '" + basePath +
+                             "' or '" + dataPath + "'";
         return std::nullopt;
     }
 
-    auto buildInfoFile = storages::common::MappedFile::open(buildInfoPath);
+    std::string sysErr;
+    auto buildInfoFile = storages::common::readFileFully(buildInfoPath, &sysErr);
     if (!buildInfoFile) {
-        s_lastError = kBuildInfoNotFound;
+        reportFileError(buildInfoPath, sysErr, kBuildInfoNotFound);
         return std::nullopt;
     }
 
-    auto builds = parseBuildInfo(buildInfoFile->data());
+    auto builds = parseBuildInfo(*buildInfoFile);
     if (builds.empty()) {
         s_lastError = kBuildInfoNotFound;
+        if (opts.errorOut)
+            *opts.errorOut = "'.build.info' parsed empty: " + buildInfoPath;
         return std::nullopt;
     }
 
@@ -239,18 +267,19 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
 
     // Step 3: Parse build config.
     auto buildConfigPath = impl.localState->configPath(activeBuild->buildKey);
-    auto buildConfigFile = storages::common::MappedFile::open(buildConfigPath);
+    sysErr.clear();
+    auto buildConfigFile = storages::common::readFileFully(buildConfigPath, &sysErr);
     if (!buildConfigFile) {
-        s_lastError = kBuildConfigNotFound;
+        reportFileError(buildConfigPath, sysErr, kBuildConfigNotFound);
         return std::nullopt;
     }
-    impl.buildConfig = parseBuildConfig(buildConfigFile->data());
+    impl.buildConfig = parseBuildConfig(*buildConfigFile);
 
     // Step 4: Parse CDN config (optional).
     auto cdnConfigPath = impl.localState->configPath(activeBuild->cdnKey);
-    auto cdnConfigFile = storages::common::MappedFile::open(cdnConfigPath);
+    auto cdnConfigFile = storages::common::readFileFully(cdnConfigPath);
     if (cdnConfigFile) {
-        impl.cdnConfig = parseCdnConfig(cdnConfigFile->data());
+        impl.cdnConfig = parseCdnConfig(*cdnConfigFile);
     }
 
     // Step 5: Load index table.
@@ -271,8 +300,16 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     std::string mapError;
     if (!impl.localState->mapArchives(&mapError)) {
         s_lastError = kIndexLoadFailed;
+        if (opts.errorOut)
+            *opts.errorOut = mapError;
         return std::nullopt;
     }
+    // mapArchives may report a per-file failure (and set s_lastError = kSharingViolation)
+    // even when it returns true (it returns true as long as at least the directory exists).
+    // Surface the first such failure to errorOut so the caller can see which archive
+    // is locked, even if other archives mapped successfully.
+    if (!mapError.empty() && opts.errorOut && opts.errorOut->empty())
+        *opts.errorOut = mapError;
 
     // Step 7: Create LocalDataSource.
     impl.localState->dataSource = std::make_unique<LocalDataSource>(

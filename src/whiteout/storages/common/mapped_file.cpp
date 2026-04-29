@@ -27,18 +27,9 @@ namespace whiteout::storages::common {
 // ============================================================================
 
 MappedFile::MappedFile(MappedFile&& other) noexcept
-    : m_path(std::move(other.m_path)), m_data(other.m_data), m_size(other.m_size)
-#ifdef _WIN32
-      ,
-      m_fileHandle(other.m_fileHandle), m_mappingHandle(other.m_mappingHandle)
-#endif
-{
+    : m_path(std::move(other.m_path)), m_data(other.m_data), m_size(other.m_size) {
     other.m_data = nullptr;
     other.m_size = 0;
-#ifdef _WIN32
-    other.m_fileHandle = nullptr;
-    other.m_mappingHandle = nullptr;
-#endif
 }
 
 MappedFile& MappedFile::operator=(MappedFile&& other) noexcept {
@@ -47,12 +38,6 @@ MappedFile& MappedFile::operator=(MappedFile&& other) noexcept {
         m_path = std::move(other.m_path);
         m_data = other.m_data;
         m_size = other.m_size;
-#ifdef _WIN32
-        m_fileHandle = other.m_fileHandle;
-        m_mappingHandle = other.m_mappingHandle;
-        other.m_fileHandle = nullptr;
-        other.m_mappingHandle = nullptr;
-#endif
         other.m_data = nullptr;
         other.m_size = 0;
     }
@@ -69,12 +54,6 @@ void MappedFile::release() noexcept {
 
 #ifdef _WIN32
     UnmapViewOfFile(m_data);
-    if (m_mappingHandle)
-        CloseHandle(m_mappingHandle);
-    if (m_fileHandle)
-        CloseHandle(m_fileHandle);
-    m_mappingHandle = nullptr;
-    m_fileHandle = nullptr;
 #else
     munmap(const_cast<u8*>(m_data), m_size);
 #endif
@@ -113,11 +92,14 @@ std::string lastErrorString() {
     // Trim trailing newline.
     while (!msg.empty() && (msg.back() == '\n' || msg.back() == '\r'))
         msg.pop_back();
-    return msg;
+    // Prepend a parseable, locale-independent code marker so callers can
+    // detect sharing violations etc. without depending on the localized text.
+    return "[Win32 error " + std::to_string(err) + "] " + msg;
 }
 #else
 std::string lastErrorString() {
-    return strerror(errno);
+    int err = errno;
+    return "[errno " + std::to_string(err) + "] " + strerror(err);
 }
 #endif
 
@@ -161,8 +143,10 @@ std::optional<MappedFile> MappedFile::open(const std::string& path, AccessHint h
     default: break;
     }
 
-    // Open file for reading.
-    HANDLE hFile = CreateFileW(widePath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+    constexpr DWORD kReadAccess = FILE_READ_DATA | FILE_READ_ATTRIBUTES;
+    constexpr DWORD kShareAll =
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+    HANDLE hFile = CreateFileW(widePath.c_str(), kReadAccess, kShareAll, nullptr,
                                OPEN_EXISTING, flagsAndAttrs, nullptr);
     if (hFile == INVALID_HANDLE_VALUE) {
         setError(error, "CreateFileW failed: " + lastErrorString());
@@ -196,12 +180,15 @@ std::optional<MappedFile> MappedFile::open(const std::string& path, AccessHint h
         return std::nullopt;
     }
 
+    // Close the section and file handles now that the view is mapped —
+    // the OS keeps the underlying file alive until UnmapViewOfFile.
+    CloseHandle(hMapping);
+    CloseHandle(hFile);
+
     MappedFile result;
     result.m_path = path;
     result.m_data = static_cast<const u8*>(viewPtr);
     result.m_size = static_cast<size_t>(fileSize.QuadPart);
-    result.m_fileHandle = hFile;
-    result.m_mappingHandle = hMapping;
     return result;
 }
 
@@ -209,6 +196,59 @@ void MappedFile::advise(AccessHint /*hint*/) const noexcept {
     // On Windows, the access hint is applied at CreateFile time.
     // Changing it after the fact requires remapping, which is not worth it.
     // This is a no-op for already-opened mappings.
+}
+
+std::optional<std::vector<u8>> readFileFully(const std::string& path,
+                                             std::string* error) {
+    if (path.empty()) {
+        setError(error, "Empty path");
+        return std::nullopt;
+    }
+
+    int wideLen =
+        MultiByteToWideChar(CP_UTF8, 0, path.c_str(), static_cast<int>(path.size()), nullptr, 0);
+    if (wideLen <= 0) {
+        setError(error, "Failed to convert path to wide string");
+        return std::nullopt;
+    }
+    std::wstring widePath(static_cast<size_t>(wideLen), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), static_cast<int>(path.size()), widePath.data(),
+                        wideLen);
+
+    constexpr DWORD kReadAccess = FILE_READ_DATA | FILE_READ_ATTRIBUTES;
+    constexpr DWORD kShareAll = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+    HANDLE hFile = CreateFileW(widePath.c_str(), kReadAccess, kShareAll, nullptr, OPEN_EXISTING,
+                               FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        setError(error, "CreateFileW failed: " + lastErrorString());
+        return std::nullopt;
+    }
+
+    LARGE_INTEGER fileSize;
+    if (!GetFileSizeEx(hFile, &fileSize) || fileSize.QuadPart == 0) {
+        std::string reason =
+            fileSize.QuadPart == 0 ? "File is empty" : "GetFileSizeEx failed: " + lastErrorString();
+        setError(error, reason);
+        CloseHandle(hFile);
+        return std::nullopt;
+    }
+
+    std::vector<u8> buffer(static_cast<size_t>(fileSize.QuadPart));
+    size_t totalRead = 0;
+    while (totalRead < buffer.size()) {
+        size_t remaining = buffer.size() - totalRead;
+        DWORD chunk = remaining > (1u << 30) ? (1u << 30) : static_cast<DWORD>(remaining);
+        DWORD got = 0;
+        if (!ReadFile(hFile, buffer.data() + totalRead, chunk, &got, nullptr) || got == 0) {
+            setError(error, "ReadFile failed: " + lastErrorString());
+            CloseHandle(hFile);
+            return std::nullopt;
+        }
+        totalRead += got;
+    }
+
+    CloseHandle(hFile);
+    return buffer;
 }
 
 #else // POSIX
@@ -271,6 +311,50 @@ void MappedFile::advise(AccessHint hint) const noexcept {
     default: break;
     }
     madvise(const_cast<u8*>(m_data), m_size, advice);
+}
+
+std::optional<std::vector<u8>> readFileFully(const std::string& path,
+                                             std::string* error) {
+    if (path.empty()) {
+        setError(error, "Empty path");
+        return std::nullopt;
+    }
+
+    int fd = ::open(path.c_str(), O_RDONLY);
+    if (fd < 0) {
+        setError(error, "open() failed: " + lastErrorString());
+        return std::nullopt;
+    }
+
+    struct stat st;
+    if (fstat(fd, &st) != 0 || st.st_size == 0) {
+        std::string reason =
+            st.st_size == 0 ? "File is empty" : "fstat() failed: " + lastErrorString();
+        setError(error, reason);
+        ::close(fd);
+        return std::nullopt;
+    }
+
+    auto fileSize = static_cast<size_t>(st.st_size);
+    std::vector<u8> buffer(fileSize);
+    size_t totalRead = 0;
+    while (totalRead < fileSize) {
+        ssize_t n = ::read(fd, buffer.data() + totalRead, fileSize - totalRead);
+        if (n < 0) {
+            if (errno == EINTR)
+                continue;
+            setError(error, "read() failed: " + lastErrorString());
+            ::close(fd);
+            return std::nullopt;
+        }
+        if (n == 0)
+            break; // unexpected early EOF
+        totalRead += static_cast<size_t>(n);
+    }
+    buffer.resize(totalRead);
+
+    ::close(fd);
+    return buffer;
 }
 
 #endif

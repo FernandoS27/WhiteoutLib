@@ -12,6 +12,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
 #include <whiteout/common_types.h>
 
@@ -86,12 +87,46 @@ private:
     std::string m_path;
     const u8* m_data = nullptr;
     size_t m_size = 0;
-
-#ifdef _WIN32
-    void* m_fileHandle = nullptr;    // HANDLE to the file
-    void* m_mappingHandle = nullptr; // HANDLE to the file mapping object
-#endif
-    // On POSIX, only m_data and m_size are needed (munmap).
+    // No file or mapping handles are retained. On Windows the file
+    // handle and section handle are closed immediately after
+    // MapViewOfFile so we hold no share-mode contention against
+    // third-party tools (e.g. WC3 World Editor) that may open the same
+    // archive — the OS keeps the file alive until UnmapViewOfFile. On
+    // POSIX, ::close() runs right after mmap() for the same reason.
 };
+
+/// True if @p errorMsg (as produced by MappedFile::open / readFileFully)
+/// describes a Windows sharing violation or POSIX equivalent — i.e. another
+/// process holds the file with a share mode that denies our read access.
+inline bool isSharingViolation(const std::string& errorMsg) noexcept {
+#ifdef _WIN32
+    // ERROR_SHARING_VIOLATION = 32, ERROR_LOCK_VIOLATION = 33.
+    return errorMsg.find("[Win32 error 32]") != std::string::npos ||
+           errorMsg.find("[Win32 error 33]") != std::string::npos;
+#else
+    // Best effort on POSIX (advisory locks may surface as EAGAIN/EACCES).
+    return errorMsg.find("[errno 11]") != std::string::npos ||
+           errorMsg.find("[errno 13]") != std::string::npos;
+#endif
+}
+
+/// Read the entire contents of a file into a heap buffer (RAM-only).
+///
+/// Opens the file with maximally permissive read sharing
+/// (FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE on Windows),
+/// reads its full contents, and closes the OS handle before returning.
+/// No file handles or memory mappings are retained — the returned vector
+/// is the only reference to the data.
+///
+/// Use this for small configuration files that are parsed once and the
+/// raw bytes discarded. For large archives accessed throughout the
+/// process lifetime, prefer MappedFile::open().
+///
+/// @param path  UTF-8 encoded file path.
+/// @param error Optional output for a human-readable error description.
+/// @return File contents, or nullopt on failure (file not found, empty,
+///         permission denied, read error).
+std::optional<std::vector<u8>> readFileFully(const std::string& path,
+                                             std::string* error = nullptr);
 
 } // namespace whiteout::storages::common

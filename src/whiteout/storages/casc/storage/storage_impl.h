@@ -67,6 +67,7 @@ enum ErrorCode : u32 {
     kNotValid = 13,
     kArchiveReadFailed = 14,
     kWriteFailed = 15,
+    kSharingViolation = 16,
 
     // Online-specific (aligned with CascError public constants).
     kHttpRequestFailed    = CascError::HttpRequestFailed,    // 0x10

@@ -244,6 +244,12 @@ struct OpenOptions {
     /// human-readable paths (e.g. WoW TVFS) use it to enrich entries.
     /// The caller must keep the underlying data alive for the lifetime of the Storage.
     std::span<const u8> listfile;
+
+    /// Optional output for a human-readable diagnostic on open failure.
+    /// On error this is populated with the failing file's path and the
+    /// underlying OS error message — useful for diagnosing sharing
+    /// violations from third-party tools holding files exclusively.
+    std::string* errorOut = nullptr;
 };
 
 /// Options for creating a new empty CASC storage.
