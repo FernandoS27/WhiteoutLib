@@ -407,7 +407,10 @@ bool Parser::Impl::readBlp0Header(ParseContext& ctx) {
         ctx.encoding = BlpEncoding::JPEG;
         ctx.jpeg_header = ctx.buffer.data() + jpeg_hdr_data_off;
         ctx.jpeg_header_size = jpeg_hdr_size;
-        ctx.jpeg_alpha_opaque = (header.alphaBitDepth != 8);
+        // Treat any non-zero alphaBitDepth as having alpha. WC3 model textures
+        // sometimes use non-standard values (e.g. 9) where the JPEG still carries
+        // a meaningful alpha component.
+        ctx.jpeg_alpha_opaque = (header.alphaBitDepth == 0);
     } else {
         // Palettized (CONTENT_DIRECT) path
         static constexpr size_t PALETTE_SIZE = 256 * 4;
@@ -501,7 +504,10 @@ bool Parser::Impl::readBlp1Header(ParseContext& ctx) {
         ctx.encoding = BlpEncoding::JPEG;
         ctx.jpeg_header = ctx.buffer.data() + jpeg_hdr_data_off;
         ctx.jpeg_header_size = jpeg_hdr_size;
-        ctx.jpeg_alpha_opaque = (header.alphaBitDepth != 8);
+        // Treat any non-zero alphaBitDepth as having alpha. WC3 model textures
+        // sometimes use non-standard values (e.g. 9) where the JPEG still carries
+        // a meaningful alpha component.
+        ctx.jpeg_alpha_opaque = (header.alphaBitDepth == 0);
     } else {
         // Palettized (CONTENT_DIRECT) path
         static constexpr size_t PALETTE_OFFSET = sizeof(BLP1Header) + sizeof(MipmapLocator);
