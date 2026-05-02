@@ -3,109 +3,42 @@
 
 #include "wow_tvfs_root.h"
 #include "common/listfile_parser.h"
+#include "common/wow_tvfs_path.h"
 #include "../../common/string_utils.h"
 
 #include <whiteout/interfaces.h>
 #include <whiteout/utils/job_group.h>
 
 #include <algorithm>
-#include <charconv>
 #include <cstring>
-#include <string_view>
 
 namespace whiteout::storages::casc {
-
-// ============================================================================
-// Hex parsing helpers
-// ============================================================================
-
-namespace {
-
-/// Parse a single hex digit (uppercase or lowercase).  Returns 0xFF on failure.
-inline u8 hexDigit(char c) {
-    if (c >= '0' && c <= '9') return static_cast<u8>(c - '0');
-    if (c >= 'a' && c <= 'f') return static_cast<u8>(c - 'a' + 10);
-    if (c >= 'A' && c <= 'F') return static_cast<u8>(c - 'A' + 10);
-    return 0xFF;
-}
-
-/// Parse @p len hex characters from @p s into a u32 (big-endian digit order).
-/// Returns false if any character is not a valid hex digit.
-inline bool parseHexU32(const char* s, size_t len, u32& out) {
-    out = 0;
-    for (size_t i = 0; i < len; ++i) {
-        u8 d = hexDigit(s[i]);
-        if (d == 0xFF) return false;
-        out = (out << 4) | d;
-    }
-    return true;
-}
-
-/// Parse 32 hex characters into a 16-byte key.
-/// Returns false if any character is not a valid hex digit.
-inline bool parseHexKey(const char* s, std::array<u8, 16>& out) {
-    for (int i = 0; i < 16; ++i) {
-        u8 hi = hexDigit(s[i * 2]);
-        u8 lo = hexDigit(s[i * 2 + 1]);
-        if (hi == 0xFF || lo == 0xFF) return false;
-        out[static_cast<size_t>(i)] = static_cast<u8>((hi << 4) | lo);
-    }
-    return true;
-}
-
-/// Expected path length: 8(locale) + 4(content) + 1('/') + 8(fdid) + 32(ckey) = 53.
-static constexpr size_t kWowTvfsPathLen = 53;
-
-/// Check whether a single path matches the WoW TVFS encoded format.
-inline bool isWowTvfsPath(std::string_view path) {
-    if (path.size() != kWowTvfsPathLen) return false;
-    if (path[12] != '/') return false;
-    // Quick validation: first 12 chars and positions 13-52 should be hex.
-    for (size_t i = 0; i < 12; ++i)
-        if (hexDigit(path[i]) == 0xFF) return false;
-    for (size_t i = 13; i < 53; ++i)
-        if (hexDigit(path[i]) == 0xFF) return false;
-    return true;
-}
-
-/// Parse an encoded WoW TVFS path into its components.
-/// Assumes isWowTvfsPath() already returned true.
-struct WowTvfsPathInfo {
-    u32 localeFlags;
-    u32 contentFlags;
-    u32 fileDataId;
-    std::array<u8, 16> cKey;
-};
-
-inline bool parseWowTvfsPath(std::string_view path, WowTvfsPathInfo& info) {
-    const char* s = path.data();
-    if (!parseHexU32(s, 8, info.localeFlags)) return false;
-    if (!parseHexU32(s + 8, 4, info.contentFlags)) return false;
-    if (!parseHexU32(s + 13, 8, info.fileDataId)) return false;
-    if (!parseHexKey(s + 21, info.cKey)) return false;
-    return true;
-}
-
-} // anonymous namespace
 
 // ============================================================================
 // WowTvfsRoot — detection
 // ============================================================================
 
 bool WowTvfsRoot::looksLikeWowTvfs(const TvfsRoot& tvfs) {
-    // Sample up to 16 entries.  If all of them match the 53-char hex pattern,
-    // this is very likely a WoW TVFS root.
-    size_t checked = 0;
+    // Walk entries until we either confirm enough encoded leaves or scan
+    // through enough non-matches to give up. WoW retail vfs-roots reference
+    // sub-manifests via container entries (paths ending in `:`) which always
+    // appear before the recursively-parsed leaves — they never match the
+    // encoded pattern, so a "first-N entries" sample at the start of the
+    // enumeration may see only containers. Scanning until we find a few
+    // matches (or hit a wide non-match cap) handles that.
+    constexpr size_t kRequiredMatches = 4;
+    constexpr size_t kMaxNonMatches = 4096;
     size_t matched = 0;
+    size_t nonMatches = 0;
     tvfs.enumerate([&](const RootEntry& e) {
-        if (checked >= 16) return false; // stop
-        ++checked;
-        if (isWowTvfsPath(e.path))
-            ++matched;
+        if (wow_tvfs_path::matches(e.path)) {
+            if (++matched >= kRequiredMatches) return false; // confirmed
+        } else if (++nonMatches >= kMaxNonMatches) {
+            return false; // give up
+        }
         return true;
     });
-    // Require at least 1 entry and all sampled entries must match.
-    return checked > 0 && matched == checked;
+    return matched >= kRequiredMatches;
 }
 
 // ============================================================================
@@ -137,7 +70,19 @@ std::unique_ptr<WowTvfsRoot> WowTvfsRoot::create(std::unique_ptr<TvfsRoot> tvfs,
     const size_t entryCount = tvfsEntryPtrs.size();
     result->m_entries.resize(entryCount);
 
+    const bool haveListfile = !listfilePaths.empty();
+
     // Parse each encoded TVFS path to extract locale/content flags, FileDataId, and CKey.
+    //
+    // Path resolution policy:
+    //   - With a listfile: only entries whose decoded FileDataId is found in
+    //     the listfile keep a path; everything else (sub-manifest containers,
+    //     paths that don't decode, FDIDs missing from the listfile) gets an
+    //     empty path so listFiles()/enumerate() filter them out. This matches
+    //     the user expectation that a listfile-loaded session only surfaces
+    //     human-readable filenames, not the raw 53-char hex encoding.
+    //   - Without a listfile: surface src.path so the encoded TVFS form is
+    //     still queryable.
     auto enrichEntry = [&](size_t i) {
         auto& dst = result->m_entries[i];
         const auto& src = *tvfsEntryPtrs[i];
@@ -146,36 +91,31 @@ std::unique_ptr<WowTvfsRoot> WowTvfsRoot::create(std::unique_ptr<TvfsRoot> tvfs,
         dst.eKey = src.eKey;
         dst.fileSize = src.fileSize;
 
-        if (!isWowTvfsPath(src.path)) {
-            // Non-matching entry — keep original TVFS fields.
+        wow_tvfs_path::Info info;
+        const bool decoded = wow_tvfs_path::tryDecode(src.path, info);
+
+        if (decoded) {
+            dst.cKey = info.cKey;
+            dst.localeFlags = info.localeFlags;
+            dst.contentFlags = info.contentFlags;
+            dst.fileDataId = info.fileDataId;
+        } else {
             dst.cKey = src.cKey;
             dst.localeFlags = src.localeFlags;
             dst.contentFlags = src.contentFlags;
             dst.fileDataId = src.fileDataId;
-            dst.path = src.path;
-            return;
         }
 
-        WowTvfsPathInfo info{};
-        if (!parseWowTvfsPath(src.path, info)) {
-            dst.cKey = src.cKey;
-            dst.localeFlags = src.localeFlags;
-            dst.contentFlags = src.contentFlags;
-            dst.fileDataId = src.fileDataId;
+        if (haveListfile) {
+            if (decoded) {
+                auto it = listfilePaths.find(info.fileDataId);
+                if (it != listfilePaths.end())
+                    dst.path = it->second;
+                // else: leave empty so listFiles() hides hashed entries.
+            }
+            // Non-decoded entries (containers, etc.) also stay path-less.
+        } else {
             dst.path = src.path;
-            return;
-        }
-
-        dst.cKey = info.cKey;
-        dst.localeFlags = info.localeFlags;
-        dst.contentFlags = info.contentFlags;
-        dst.fileDataId = info.fileDataId;
-
-        // Enrich with human-readable path from listfile if available.
-        if (!listfilePaths.empty()) {
-            auto it = listfilePaths.find(info.fileDataId);
-            if (it != listfilePaths.end())
-                dst.path = it->second;
         }
     };
 
