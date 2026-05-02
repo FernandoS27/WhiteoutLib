@@ -4,6 +4,7 @@
 #include "cdn_fetcher.h"
 
 #include <condition_variable>
+#include <memory>
 #include <mutex>
 
 namespace whiteout::storages::casc {
@@ -27,26 +28,43 @@ bool CdnFetcher::supportsHttp2() const {
 }
 
 // ── Synchronous helpers (block via condition_variable) ─────────────
+//
+// NOTE: The synchronization state is heap-allocated via shared_ptr so that
+// the callback always holds a valid reference even if the calling function
+// times out and its stack frame is reused before the HTTP worker fires.
+// Capturing local variables by reference ([&]) is unsafe here because the
+// SimpleHttpHandler queue may be backed up (e.g. 300+ archive-index fetches
+// for WoW are in-flight) and a 60-second timeout can expire while the request
+// is still pending — after which the loop variable storage is destroyed and
+// potentially reused.
 
-std::optional<std::vector<u8>> CdnFetcher::fetchUrl(const std::string& url) {
+namespace {
+
+struct SyncState {
     std::mutex mtx;
     std::condition_variable cv;
     bool done = false;
     interfaces::HttpResponse result;
+};
 
-    m_http->getAsync(url, [&](interfaces::HttpResponse resp) {
-        std::lock_guard<std::mutex> lk(mtx);
-        result = std::move(resp);
-        done = true;
-        cv.notify_one();
+} // anonymous namespace
+
+std::optional<std::vector<u8>> CdnFetcher::fetchUrl(const std::string& url) {
+    auto sync = std::make_shared<SyncState>();
+
+    m_http->getAsync(url, [sync](interfaces::HttpResponse resp) {
+        std::lock_guard<std::mutex> lk(sync->mtx);
+        sync->result = std::move(resp);
+        sync->done = true;
+        sync->cv.notify_one();
     });
 
-    std::unique_lock<std::mutex> lk(mtx);
-    if (!cv.wait_for(lk, std::chrono::seconds(60), [&] { return done; }))
+    std::unique_lock<std::mutex> lk(sync->mtx);
+    if (!sync->cv.wait_for(lk, std::chrono::seconds(60), [&] { return sync->done; }))
         return std::nullopt; // Timeout — HttpHandler did not invoke callback.
 
-    if (result.statusCode == 200)
-        return std::move(result.body);
+    if (sync->result.statusCode == 200)
+        return std::move(sync->result.body);
     return std::nullopt;
 }
 
@@ -60,29 +78,26 @@ std::optional<std::vector<u8>> CdnFetcher::fetchWithFailover(
         auto url = buildUrl(m_servers[idx], pathType, keyHex);
         if (url.empty()) continue;
 
-        std::mutex mtx;
-        std::condition_variable cv;
-        bool done = false;
-        interfaces::HttpResponse result;
+        auto sync = std::make_shared<SyncState>();
 
-        m_http->getAsync(url, [&](interfaces::HttpResponse resp) {
-            std::lock_guard<std::mutex> lk(mtx);
-            result = std::move(resp);
-            done = true;
-            cv.notify_one();
+        m_http->getAsync(url, [sync](interfaces::HttpResponse resp) {
+            std::lock_guard<std::mutex> lk(sync->mtx);
+            sync->result = std::move(resp);
+            sync->done = true;
+            sync->cv.notify_one();
         });
 
-        std::unique_lock<std::mutex> lk(mtx);
-        if (!cv.wait_for(lk, std::chrono::seconds(60), [&] { return done; }))
+        std::unique_lock<std::mutex> lk(sync->mtx);
+        if (!sync->cv.wait_for(lk, std::chrono::seconds(60), [&] { return sync->done; }))
             continue; // Timeout — try next server.
 
-        if (result.statusCode == 200) {
+        if (sync->result.statusCode == 200) {
             // Remember this server as the last-good one.
             m_currentCdn.store(idx, std::memory_order_relaxed);
-            return std::move(result.body);
+            return std::move(sync->result.body);
         }
         // On 404, don't failover — the file doesn't exist.
-        if (result.statusCode == 404)
+        if (sync->result.statusCode == 404)
             return std::nullopt;
         // On other errors (5xx, transport failure), try next server.
     }
@@ -120,31 +135,28 @@ std::optional<std::vector<u8>> CdnFetcher::fetchRange(
         auto url = buildUrl(m_servers[idx], "data", archiveKeyHex);
         if (url.empty()) continue;
 
-        std::mutex mtx;
-        std::condition_variable cv;
-        bool done = false;
-        interfaces::HttpResponse result;
+        auto sync = std::make_shared<SyncState>();
 
         m_http->getRangeAsync(url, offset, offset + size - 1,
-                              [&](interfaces::HttpResponse resp) {
-            std::lock_guard<std::mutex> lk(mtx);
-            result = std::move(resp);
-            done = true;
-            cv.notify_one();
+                              [sync](interfaces::HttpResponse resp) {
+            std::lock_guard<std::mutex> lk(sync->mtx);
+            sync->result = std::move(resp);
+            sync->done = true;
+            sync->cv.notify_one();
         });
 
-        std::unique_lock<std::mutex> lk(mtx);
-        if (!cv.wait_for(lk, std::chrono::seconds(60), [&] { return done; }))
+        std::unique_lock<std::mutex> lk(sync->mtx);
+        if (!sync->cv.wait_for(lk, std::chrono::seconds(60), [&] { return sync->done; }))
             continue; // Timeout — try next server.
 
-        if (result.statusCode == 200 || result.statusCode == 206) {
+        if (sync->result.statusCode == 200 || sync->result.statusCode == 206) {
             m_currentCdn.store(idx, std::memory_order_relaxed);
             if (m_cache) {
-                m_cache->writeRange(archiveKeyHex, offset, size, result.body);
+                m_cache->writeRange(archiveKeyHex, offset, size, sync->result.body);
             }
-            return std::move(result.body);
+            return std::move(sync->result.body);
         }
-        if (result.statusCode == 404)
+        if (sync->result.statusCode == 404)
             return std::nullopt;
     }
     return std::nullopt;
