@@ -10,8 +10,113 @@
 
 #include <filesystem>
 #include <fstream>
+#include <unordered_set>
 
 namespace whiteout::storages::casc {
+
+namespace {
+
+std::vector<std::filesystem::path> scanLocalConfigs(const std::string& dataPath) {
+    namespace fs = std::filesystem;
+    std::vector<fs::path> out;
+
+    fs::path configRoot = fs::path(dataPath) / "config";
+    std::error_code ec;
+    if (!fs::exists(configRoot, ec) || !fs::is_directory(configRoot, ec))
+        return out;
+
+    auto isHex32 = [](const std::string& s) {
+        if (s.size() != 32) return false;
+        for (char c : s) {
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+                  (c >= 'A' && c <= 'F')))
+                return false;
+        }
+        return true;
+    };
+
+    for (auto& xx : fs::directory_iterator(configRoot, ec)) {
+        if (!xx.is_directory()) continue;
+        for (auto& yy : fs::directory_iterator(xx.path(), ec)) {
+            if (!yy.is_directory()) continue;
+            for (auto& f : fs::directory_iterator(yy.path(), ec)) {
+                if (!f.is_regular_file()) continue;
+                if (!isHex32(f.path().filename().string())) continue;
+                out.push_back(f.path());
+            }
+        }
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+bool keyNonZero(const std::array<u8, 16>& key) {
+    for (u8 b : key) if (b) return true;
+    return false;
+}
+
+std::optional<BuildConfig> findConsistentBuildConfig(
+    const std::string& dataPath, const IndexTable& indexTable) {
+
+    for (auto& path : scanLocalConfigs(dataPath)) {
+        auto data = storages::common::readFileFully(path.string());
+        if (!data) continue;
+
+        auto cfg = parseBuildConfig(*data);
+        if (!keyNonZero(cfg.encodingEKey)) continue;
+
+        if (indexTable.find(std::span(cfg.encodingEKey.data(), 9)))
+            return cfg;
+    }
+    return std::nullopt;
+}
+
+std::optional<CdnConfig> findConsistentCdnConfig(const std::string& dataPath) {
+    namespace fs = std::filesystem;
+
+    fs::path indicesRoot = fs::path(dataPath) / "indices";
+    std::error_code ec;
+    if (!fs::exists(indicesRoot, ec) || !fs::is_directory(indicesRoot, ec))
+        return std::nullopt;
+
+    std::unordered_set<std::string> localArchives;
+    for (auto& e : fs::directory_iterator(indicesRoot, ec)) {
+        if (e.is_regular_file() && e.path().extension() == ".index")
+            localArchives.insert(e.path().stem().string());
+    }
+    if (localArchives.empty()) return std::nullopt;
+
+    auto toHex = [](const std::array<u8, 16>& key) {
+        static constexpr char hex[] = "0123456789abcdef";
+        std::string s;
+        s.reserve(32);
+        for (u8 b : key) { s += hex[b >> 4]; s += hex[b & 0xF]; }
+        return s;
+    };
+
+    std::optional<CdnConfig> best;
+    size_t bestOverlap = 0;
+
+    for (auto& path : scanLocalConfigs(dataPath)) {
+        auto data = storages::common::readFileFully(path.string());
+        if (!data) continue;
+
+        auto cfg = parseCdnConfig(*data);
+        if (cfg.archiveEKeys.empty()) continue;  // not a CDN config
+
+        size_t overlap = 0;
+        for (auto& k : cfg.archiveEKeys)
+            if (localArchives.count(toHex(k))) ++overlap;
+
+        if (overlap > bestOverlap) {
+            bestOverlap = overlap;
+            best = std::move(cfg);
+        }
+    }
+    return best;
+}
+
+} // namespace
 
 // ============================================================================
 // LocalState helpers
@@ -265,35 +370,50 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     if (opts.memoryCacheSize > 0)
         impl.memCache = std::make_unique<MemoryCache>(opts.memoryCacheSize);
 
-    // Step 3: Parse build config.
+    // Step 3: Load the basic index table up-front so build config fallback
+    // can validate candidates against it.
+    progress(ProgressStep::LoadingIndexFiles);
+    impl.localState->indexTable = IndexTable::load(dataPath, opts.pool);
+
+    if (impl.localState->indexTable.entryCount() == 0) {
+        s_lastError = kIndexLoadFailed;
+        if (opts.errorOut)
+            *opts.errorOut = "No usable .idx files under '" + dataPath + "/data'";
+        return std::nullopt;
+    }
+
+    // Step 4: Parse build config; if the active key's file is missing, fall
+    // back to any local build config consistent with the index.
     auto buildConfigPath = impl.localState->configPath(activeBuild->buildKey);
     sysErr.clear();
     auto buildConfigFile = storages::common::readFileFully(buildConfigPath, &sysErr);
-    if (!buildConfigFile) {
-        reportFileError(buildConfigPath, sysErr, kBuildConfigNotFound);
-        return std::nullopt;
+    if (buildConfigFile) {
+        impl.buildConfig = parseBuildConfig(*buildConfigFile);
+    } else {
+        auto fallback = findConsistentBuildConfig(dataPath,
+                                                   impl.localState->indexTable);
+        if (!fallback) {
+            reportFileError(buildConfigPath, sysErr, kBuildConfigNotFound);
+            return std::nullopt;
+        }
+        impl.buildConfig = std::move(*fallback);
     }
-    impl.buildConfig = parseBuildConfig(*buildConfigFile);
 
-    // Step 4: Parse CDN config (optional).
+    // Step 5: Parse CDN config; on miss, pick the local CDN config whose
+    // archive list overlaps best with indices/.
     auto cdnConfigPath = impl.localState->configPath(activeBuild->cdnKey);
     auto cdnConfigFile = storages::common::readFileFully(cdnConfigPath);
     if (cdnConfigFile) {
         impl.cdnConfig = parseCdnConfig(*cdnConfigFile);
+    } else {
+        auto fallback = findConsistentCdnConfig(dataPath);
+        if (fallback)
+            impl.cdnConfig = std::move(*fallback);
     }
-
-    // Step 5: Load index table.
-    progress(ProgressStep::LoadingIndexFiles);
-    impl.localState->indexTable = IndexTable::load(dataPath, opts.pool);
 
     if (!impl.cdnConfig.archiveEKeys.empty())
         impl.localState->indexTable.loadArchiveIndices(
             dataPath, impl.cdnConfig.archiveEKeys, opts.pool);
-
-    if (impl.localState->indexTable.entryCount() == 0) {
-        s_lastError = kIndexLoadFailed;
-        return std::nullopt;
-    }
 
     // Step 6: Memory-map data archives.
     progress(ProgressStep::MappingArchives);
