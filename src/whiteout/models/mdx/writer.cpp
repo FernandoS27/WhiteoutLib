@@ -838,7 +838,7 @@ void Writer::Impl::writeFFX(BinaryWriter& writer, const Model& mdx) {
     writeChunkHeader(writer, FAFX_TAG, size);
 
     for (const auto& fx : mdx.faceEffects) {
-        writer.writeString(fx.target, 80);
+        writer.writeString(fx.name, 80);
         writer.writeString(fx.path, 260);
     }
 }
@@ -861,16 +861,16 @@ void Writer::Impl::writeCornEmitter(BinaryWriter& writer, const CornEmitter& cor
     writer.write(corn.color.x);
     writer.write(corn.color.y);
     writer.write(corn.color.z);
-    writer.write(corn.color.w);
+    writer.write(corn.alpha);
     writer.write(corn.replaceableId);
     writer.writeString(corn.path, 260);
     writer.writeString(corn.animVisibilityGuide, 260);
 
-    writeTrackChunk(writer, KPPA_TAG, corn.lifeSpanTracks);
-    writeTrackChunk(writer, KPPC_TAG, corn.colorTracks);
+    writeTrackChunk(writer, KPPL_TAG, corn.lifeSpanTracks);
     writeTrackChunk(writer, KPPE_TAG, corn.emissionRateTracks);
-    writeTrackChunk(writer, KPPL_TAG, corn.lifeSpanVariationTracks);
     writeTrackChunk(writer, KPPS_TAG, corn.speedTracks);
+    writeTrackChunk(writer, KPPC_TAG, corn.colorTracks);
+    writeTrackChunk(writer, KPPA_TAG, corn.alphaTracks);
     writeTrackChunk(writer, KPPV_TAG, corn.visibilityTracks);
 }
 

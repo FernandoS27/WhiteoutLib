@@ -333,26 +333,22 @@ private:
                 line("PriorityPlane " + std::to_string(mat.priorityPlane) + ",");
 
             if (m_format == MdlFormat::Hiveworkshop) {
-                // HiveWorkshop names: TwoSided / ConstantColor / SortPrimitives /
-                // FullResolution. The engine-only flags Unfogged (0x4) and
-                // SortPrimsNearZ (0x8) have no canonical HiveWorkshop name and
-                // are skipped to avoid producing tokens HW tools would reject.
+                // HiveWorkshop tools don't recognize the Unfogged / SortPrimsNearZ
+                // material flags, so we skip them in this dialect.
                 if (mdx::hasFlag(mat.flags, Material::Flag::ConstantColor))   line("ConstantColor,");
                 if (mdx::hasFlag(mat.flags, Material::Flag::SortPrimsFarZ))   line("SortPrimitives,");
                 if (mdx::hasFlag(mat.flags, Material::Flag::FullResolution))  line("FullResolution,");
                 if (mdx::hasFlag(mat.flags, Material::Flag::TwoSided))        line("TwoSided,");
-                // HiveWorkshop emits the per-material Shader directive.
                 if (!mat.shader.empty())
                     line("Shader " + quoted(mat.shader) + ",");
             } else {
-                // Engine MDL canonical names
+                // Warcraft III dialect: Shader is emitted per-layer (below).
                 if (mdx::hasFlag(mat.flags, Material::Flag::ConstantColor))   line("ConstantColor,");
                 if (mdx::hasFlag(mat.flags, Material::Flag::TwoSided))        line("TwoSided,");
                 if (mdx::hasFlag(mat.flags, Material::Flag::Unfogged))        line("Unfogged,");
                 if (mdx::hasFlag(mat.flags, Material::Flag::SortPrimsNearZ))  line("SortPrimsNearZ,");
                 if (mdx::hasFlag(mat.flags, Material::Flag::SortPrimsFarZ))   line("SortPrimsFarZ,");
                 if (mdx::hasFlag(mat.flags, Material::Flag::FullResolution))  line("FullResolution,");
-                // Engine writer emits Shader per-layer, not per-material.
             }
 
             for (auto& layer : mat.layers) {
@@ -417,8 +413,7 @@ private:
             if (shaderName && layer.shader != Layer::ShaderType::SD)
                 line(std::string("Shader \"") + shaderName + "\",");
         } else {
-            // HiveWorkshop convention: `ShaderTypeId 1,` flags an HD layer for
-            // versions >= 1100. Only emitted on Reforged-era models.
+            // HiveWorkshop dialect uses `ShaderTypeId N,` (Reforged-era only).
             if (m_model.version >= 1100) {
                 line("ShaderTypeId " + std::to_string(static_cast<u32>(layer.shader)) + ",");
             }
@@ -447,9 +442,8 @@ private:
                     subTex.tracks.isUsed && subTex.tracks.keyCount > 0;
 
                 if (m_format == MdlFormat::WarcraftIII) {
-                    // Engine MDL form: `static TextureID id <= slot,` for
-                    // static; animated flipbooks have no slot suffix per
-                    // engine grammar (IReadFlipbook @ 0x140b793e0).
+                    // Warcraft III dialect: `static TextureID id <= slot,` for
+                    // static textures; animated flipbooks carry no slot suffix.
                     if (animated) {
                         writeTrack<u32>("TextureID", subTex.tracks);
                     } else {
@@ -1059,36 +1053,38 @@ private:
             openBlock("ParticleEmitterPopcorn " + quoted(ce.node.name));
             writeNodeFields(ce.node);
 
-            if (ce.lifeSpanTracks.isUsed) {
-                writeTrackOrStatic<f32>("LifeSpan", ce.lifeSpanTracks, ce.lifeSpan);
-            } else {
-                line("static LifeSpan " + fmtFloat(ce.lifeSpan) + ",");
-            }
+            // PopcornFX-specific flag names (bits 0x20000 / 0x40000 differ from PE2).
+            if (mdx::hasFlag(ce.node.flags, Node::NodeFlag::SortPrimitives))
+                line("SortPrimsFarZ,");
+            if (mdx::hasFlag(ce.node.flags, Node::NodeFlag::Unshaded))
+                line("Unshaded,");
+            if (mdx::hasFlag(ce.node.flags, Node::NodeFlag::PopcornUnfogged))
+                line("Unfogged,");
+            if (mdx::hasFlag(ce.node.flags, Node::NodeFlag::PopcornScaling))
+                line("PopcornScaling,");
 
-            if (ce.emissionRateTracks.isUsed) {
-                writeTrackOrStatic<f32>("EmissionRate", ce.emissionRateTracks, ce.emissionRate);
-            } else {
-                line("static EmissionRate " + fmtFloat(ce.emissionRate) + ",");
-            }
-
-            if (ce.speedTracks.isUsed) {
-                writeTrackOrStatic<f32>("Speed", ce.speedTracks, ce.speed);
-            } else {
-                line("static Speed " + fmtFloat(ce.speed) + ",");
-            }
+            // Each field emits either the animated track or a `static` fallback.
+            auto trackOrStaticF32 = [&](const std::string& name, const Track<f32>& track,
+                                        f32 def) {
+                if (track.isUsed) writeTrackOrStatic<f32>(name, track, def);
+                else              line("static " + name + " " + fmtFloat(def) + ",");
+            };
+            trackOrStaticF32("LifeSpan",     ce.lifeSpanTracks,     ce.lifeSpan);
+            trackOrStaticF32("EmissionRate", ce.emissionRateTracks, ce.emissionRate);
+            trackOrStaticF32("Speed",        ce.speedTracks,        ce.speed);
+            if (ce.colorTracks.isUsed)
+                writeTrackOrStatic<Vector3f>("Color", ce.colorTracks, ce.color);
+            else
+                line("static Color " + fmtVec3(ce.color) + ",");
+            trackOrStaticF32("Alpha", ce.alphaTracks, ce.alpha);
+            writeTrack<f32>("Visibility", ce.visibilityTracks);
 
             if (ce.replaceableId != 0)
                 line("ReplaceableId " + std::to_string(ce.replaceableId) + ",");
-
-            line("Path " + quoted(ce.path) + ",");
+            if (!ce.path.empty())
+                line("Path " + quoted(ce.path) + ",");
             if (!ce.animVisibilityGuide.empty())
                 line("AnimVisibilityGuide " + quoted(ce.animVisibilityGuide) + ",");
-
-            if (ce.colorTracks.isUsed) {
-                writeTrack<Vector4f>("Color", ce.colorTracks);
-            }
-
-            writeTrack<f32>("Visibility", ce.visibilityTracks);
 
             closeBlock();
         }
@@ -1162,7 +1158,7 @@ private:
 
     void writeFaceEffects() {
         for (auto& fe : m_model.faceEffects) {
-            openBlock("FaceFX " + quoted(fe.target));
+            openBlock("FaceFX " + quoted(fe.name));
             line("Path " + quoted(fe.path) + ",");
             closeBlock();
         }

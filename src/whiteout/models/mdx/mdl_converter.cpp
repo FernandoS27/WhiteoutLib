@@ -362,10 +362,19 @@ Node parseNodeFields(const MdlNode& block, Node::NodeType type) {
         node.flags = node.flags | Node::NodeFlag::Unshaded;
     if (hasFlag(block, "SortPrimsFarZ"))
         node.flags = node.flags | Node::NodeFlag::SortPrimitives;
-    if (hasFlag(block, "LineEmitter"))
-        node.flags = node.flags | Node::NodeFlag::LineEmitter;
-    if (hasFlag(block, "Unfogged"))
-        node.flags = node.flags | Node::NodeFlag::Unfogged;
+    // Bits 0x20000 / 0x40000 carry different meanings for Popcorn emitters
+    // than for the other emitter types, so we branch on the node kind.
+    if (type == Node::NodeType::CornEmitter) {
+        if (hasFlag(block, "Unfogged"))
+            node.flags = node.flags | Node::NodeFlag::PopcornUnfogged;
+        if (hasFlag(block, "PopcornScaling"))
+            node.flags = node.flags | Node::NodeFlag::PopcornScaling;
+    } else {
+        if (hasFlag(block, "LineEmitter"))
+            node.flags = node.flags | Node::NodeFlag::LineEmitter;     // 0x20000
+        if (hasFlag(block, "Unfogged"))
+            node.flags = node.flags | Node::NodeFlag::Unfogged;        // 0x40000
+    }
     if (hasFlag(block, "ModelSpace"))
         node.flags = node.flags | Node::NodeFlag::ModelSpace;
     if (hasFlag(block, "XYQuad"))
@@ -465,7 +474,7 @@ void convertMaterials(const MdlNode& block, Model& model) {
             mat.flags = static_cast<Material::Flag>(u32Prop(*matNode, "Flags"));
             mat.shader = stringProp(*matNode, "Shader");
 
-            // Flags -- accept both HiveWorkshop and engine token names
+            // Flags -- accept both HiveWorkshop and Warcraft III dialect names
             if (hasFlag(*matNode, "ConstantColor"))   mat.flags |= Material::Flag::ConstantColor;
             if (hasFlag(*matNode, "TwoSided"))        mat.flags |= Material::Flag::TwoSided;
             if (hasFlag(*matNode, "Unfogged"))        mat.flags |= Material::Flag::Unfogged;
@@ -501,7 +510,7 @@ void convertMaterials(const MdlNode& block, Model& model) {
                         }
                     }
 
-                    // Shading flags -- accept both HiveWorkshop and engine token names
+                    // Shading flags -- accept both HiveWorkshop and Warcraft III dialect names
                     layer.shadingFlags = Layer::ShadingFlag::None;
                     if (hasFlag(*layerNode, "Unshaded"))
                         layer.shadingFlags |= Layer::ShadingFlag::Unshaded;
@@ -522,10 +531,7 @@ void convertMaterials(const MdlNode& block, Model& model) {
                     if (hasFlag(*layerNode, "Unlit"))
                         layer.shadingFlags |= Layer::ShadingFlag::Unlit;
 
-                    // Per-layer Shader directive (engine MDL: `Shader "name",`)
-                    // Maps to ShaderType enum via the engine's s_shaderNames table
-                    //   0  Shader_SD_Legacy, 1 Shader_HD_DefaultUnit,
-                    //   2  Shader_SD_FixedFunction, 24 Shader_HD_Crystal
+                    // Per-layer `Shader "name",` directive maps to ShaderType.
                     if (auto* p = findProp(*layerNode, "Shader")) {
                         if (!p->values.empty() && p->values[0].isString()) {
                             const auto& name = p->values[0].asString();
@@ -604,7 +610,7 @@ void convertMaterials(const MdlNode& block, Model& model) {
                         auto* prop = std::get_if<MdlProperty>(&mc2);
                         if (!prop) continue;
 
-                        // Engine slot form: `static TextureID N <= S,`
+                        // Warcraft III slot form: `static TextureID N <= S,`
                         if (prop->name == "TextureID" && prop->slot.has_value()) {
                             Layer::SubTexture sub;
                             if (!prop->values.empty() && prop->values[0].isNumber())
@@ -652,9 +658,7 @@ void convertMaterials(const MdlNode& block, Model& model) {
                     // Plain `TextureID` (no slot suffix, no named-slot equivalent).
                     // Two MDL forms feed in here:
                     //   - MdlProperty:  `TextureID 5,` / `static TextureID 5,`
-                    //   - MdlAnimTrack: `TextureID 5 { Linear, 0:5, 100:6 },`
-                    // The animated form is required for engine MDL flipbook textures
-                    // (engine writes `TextureID N {...}` and assigns the result to slot 0).
+                    //   - MdlAnimTrack: `TextureID 5 { Linear, 0:5, 100:6 },` (animated flipbook)
                     {
                         const MdlProperty*  plainProp  = findStaticProp(*layerNode, "TextureID");
                         const MdlAnimTrack* plainTrack = findAnimTrackByName(*layerNode, "TextureID");
@@ -1245,9 +1249,9 @@ void convertCollisionShape(const MdlNode& block, Model& model) {
 
 void convertFaceEffect(const MdlNode& block, Model& model) {
     FaceEffect fe;
-    // FaceFX "Node" { Path "...", }
+    // FaceFX "Name" { Path "...", }
     if (!block.headerParams.empty() && block.headerParams[0].isString()) {
-        fe.target = block.headerParams[0].asString();
+        fe.name = block.headerParams[0].asString();
     }
     fe.path = stringProp(block, "Path");
     model.faceEffects.push_back(std::move(fe));
@@ -1257,23 +1261,23 @@ void convertCornEmitter(const MdlNode& block, Model& model) {
     CornEmitter ce;
     ce.node = parseNodeFields(block, Node::NodeType::CornEmitter);
 
+    // Static defaults (each may also be present as an animated track below).
     ce.lifeSpan = getFloatOrStatic(block, "LifeSpan");
     ce.emissionRate = getFloatOrStatic(block, "EmissionRate");
     ce.speed = getFloatOrStatic(block, "Speed");
+    ce.alpha = getFloatOrStatic(block, "Alpha");
+    ce.color = vec3Prop(block, "Color", Vector3f(1, 1, 1));
     ce.replaceableId = u32Prop(block, "ReplaceableId");
     ce.path = stringProp(block, "Path");
     ce.animVisibilityGuide = stringProp(block, "AnimVisibilityGuide");
 
-    ce.lifeSpanTracks = getTrack<f32>(block, "LifeSpan");
+    // Animation tracks. Color and Alpha are separate sections in MDL.
+    ce.lifeSpanTracks     = getTrack<f32>(block, "LifeSpan");
     ce.emissionRateTracks = getTrack<f32>(block, "EmissionRate");
-    ce.speedTracks = getTrack<f32>(block, "Speed");
-    ce.visibilityTracks = getTrack<f32>(block, "Visibility");
-    ce.colorTracks = getTrack<Vector4f>(block, "Color");
-
-    // Alpha track (maps to color alpha component in some cases)
-    // For CornEmitter, Alpha is a standalone track
-    auto alphaTrack = getTrack<f32>(block, "Alpha");
-    // Store alpha info if needed (the binary format stores it within the color track)
+    ce.speedTracks        = getTrack<f32>(block, "Speed");
+    ce.colorTracks        = getTrack<Vector3f>(block, "Color");
+    ce.alphaTracks        = getTrack<f32>(block, "Alpha");
+    ce.visibilityTracks   = getTrack<f32>(block, "Visibility");
 
     model.cornEmitters.push_back(std::move(ce));
 }

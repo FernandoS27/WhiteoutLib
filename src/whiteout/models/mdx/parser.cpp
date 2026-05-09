@@ -493,7 +493,7 @@ Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 /*chunkSize*/, Mo
             is_hd && mdx.version >= 900 && mat.layers.size() == 6;
 
         if (engineHdMerge) {
-            // Engine slot mapping uses TEX_SEMANTIC enum: layer index == slot value.
+            // For HD-collapsed layers, layer index is the slot value.
             static constexpr Layer::SlotType kHdSlotOrder[] = {
                 Layer::SlotType::DiffuseMap,
                 Layer::SlotType::NormalMap,
@@ -528,15 +528,15 @@ Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 /*chunkSize*/, Mo
                 hdLayers[0].shader = Layer::ShaderType::SD; // Unknown shader, set to 0
             }
 
-            // Engine propagates Material.TwoSided (0x2) into Layer.
+            // Material-level TwoSided propagates onto the merged layer.
             if (hasFlag(mat.flags, Material::Flag::TwoSided)) {
                 hdLayers[0].shadingFlags |= Layer::ShadingFlag::TwoSided;
             }
 
             mat.layers = std::move(hdLayers);
         } else {
-            // Non-HD path: seed subTextures[0] for each layer so the writer can
-            // emit the unified v1100 layout consistently.
+            // Non-HD path: seed subTextures[0] for each layer so the writer
+            // can emit the unified v1100 layout consistently.
             for (auto& layer : mat.layers) {
                 Layer::SubTexture subTex;
                 subTex.textureId = layer.textureId;
@@ -1498,7 +1498,7 @@ void Parser::Impl::parseFAFX(BinaryReader& reader, u32 size, Model& mdx) {
     mdx.faceEffects.resize(count);
 
     for (u32 i = 0; i < count; i++) {
-        mdx.faceEffects[i].target = reader.readString(80);
+        mdx.faceEffects[i].name = reader.readString(80);
         mdx.faceEffects[i].path = reader.readString(260);
     }
 }
@@ -1520,12 +1520,12 @@ void Parser::Impl::parseCORN(BinaryReader& reader, u32 size, Model& mdx) {
         corn.lifeSpan = reader.read<f32>();
         corn.emissionRate = reader.read<f32>();
         corn.speed = reader.read<f32>();
-        corn.color = reader.read<Vector4f>();
+        corn.color = reader.read<Vector3f>();
+        corn.alpha = reader.read<f32>();
         corn.replaceableId = reader.read<u32>();
         corn.path = reader.readString(260);
         corn.animVisibilityGuide = reader.readString(260);
 
-        // Parse animation tracks (KPPA, KPPC, KPPE, KPPL, KPPS, KPPV)
         u32 endPos = startPos + inclusiveSize;
         while (reader.getPosition() < endPos) {
             u32 trackTag = reader.read<u32>();
@@ -1534,24 +1534,24 @@ void Parser::Impl::parseCORN(BinaryReader& reader, u32 size, Model& mdx) {
             u32 globalSequenceId = reader.read<u32>();
 
             switch (trackTag) {
-            case KPPA_TAG: // KPPA - lifeSpan
+            case KPPL_TAG: // lifespan
                 corn.lifeSpanTracks =
                     readTrackChunk<f32>(reader, trackCount, interpolationType, globalSequenceId);
                 break;
-            case KPPC_TAG: // KPPC - color
-                corn.colorTracks = readTrackChunk<Vector4f>(reader, trackCount, interpolationType,
-                                                            globalSequenceId);
-                break;
-            case KPPE_TAG: // KPPE - emissionRate
+            case KPPE_TAG: // emission rate
                 corn.emissionRateTracks =
                     readTrackChunk<f32>(reader, trackCount, interpolationType, globalSequenceId);
                 break;
-            case KPPL_TAG: // KPPL - lifeSpanVariation (reading as float)
-                corn.lifeSpanVariationTracks =
+            case KPPS_TAG: // speed
+                corn.speedTracks =
                     readTrackChunk<f32>(reader, trackCount, interpolationType, globalSequenceId);
                 break;
-            case KPPS_TAG: // KPPS - speed
-                corn.speedTracks =
+            case KPPC_TAG: // color
+                corn.colorTracks = readTrackChunk<Vector3f>(reader, trackCount, interpolationType,
+                                                            globalSequenceId);
+                break;
+            case KPPA_TAG: // alpha
+                corn.alphaTracks =
                     readTrackChunk<f32>(reader, trackCount, interpolationType, globalSequenceId);
                 break;
             case KPPV_TAG: // KPPV - visibility

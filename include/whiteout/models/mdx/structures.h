@@ -180,12 +180,17 @@ struct Node {
         ParticleEmitter = 0x1000,     ///< This is a particle emitter
         CollisionShape = 0x2000,      ///< This is a collision shape
         RibbonEmitter = 0x4000,       ///< This is a ribbon emitter
-        Unshaded = 0x8000,            ///< Unshaded (PE2) / EmitterUsesMdl (PE)
+        // Bits 0x8000..0x40000 carry different meanings depending on node type.
+        // Aliases below give each context its own readable name.
+        Unshaded = 0x8000,            ///< Unshaded (PE2/Popcorn) / EmitterUsesMdl (PE)
         EmitterUsesMdl = 0x8000,      ///< Particle emitter uses MDL model
-        SortPrimitives = 0x10000,     ///< Sort primitives (PE2 only)
+        SortPrimitives = 0x10000,     ///< Sort primitives (PE2/Popcorn)
+        SortPrimsFarZ = 0x10000,      ///< Alias of SortPrimitives
         EmitterUsesTga = 0x10000,     ///< Particle emitter uses TGA (PE only)
-        LineEmitter = 0x20000,        ///< Line-shaped emitter
-        Unfogged = 0x40000,           ///< Not affected by fog
+        LineEmitter = 0x20000,        ///< Line-shaped emitter (PE2)
+        PopcornUnfogged = 0x20000,    ///< Unfogged (Popcorn emitter)
+        Unfogged = 0x40000,           ///< Not affected by fog (PE2)
+        PopcornScaling = 0x40000,     ///< Particle scaling (Popcorn emitter)
         ModelSpace = 0x80000,         ///< Use model space coordinates
         XYQuad = 0x100000             ///< XY quad billboarding
     };
@@ -732,11 +737,11 @@ struct CollisionShape {
 /**
  * @brief Facial animation effect (Reforged)
  *
- * Face effects define facial animation paths for character portraits.
+ * Holds a name and a path to the FaceFX setup file used for a character's face.
  */
 struct FaceEffect {
-    std::string target; ///< Target facial bone/node
-    std::string path;   ///< Path to facial animation data
+    std::string name; ///< Section name
+    std::string path; ///< Path to facial animation data
 };
 
 // ============================================================================
@@ -747,24 +752,27 @@ struct FaceEffect {
  * @brief PopcornFX particle emitter (Reforged)
  *
  * Advanced particle system using PopcornFX technology in Warcraft III: Reforged.
+ * Color (RGB) and alpha are stored as separate fields with independent
+ * animation tracks.
  */
 struct CornEmitter {
     Node node;                             ///< Base node data
-    f32 lifeSpan = 0.0f;                   ///< Particle lifetime
-    f32 emissionRate = 0.0f;               ///< Emission rate
-    f32 speed = 0.0f;                      ///< Particle speed
-    Vector4f color = Vector4f(1, 1, 1, 1); ///< Particle color (RGBA)
+    f32 lifeSpan = 0.0f;                   ///< Particle lifetime (default)
+    f32 emissionRate = 0.0f;               ///< Emission rate (default)
+    f32 speed = 0.0f;                      ///< Particle speed (default)
+    Vector3f color = Vector3f(1, 1, 1);    ///< Particle color (RGB)
+    f32 alpha = 1.0f;                      ///< Particle alpha (default)
     u32 replaceableId = 0;                 ///< Replaceable texture ID
     std::string path;                      ///< Path to PopcornFX effect
     std::string animVisibilityGuide;       ///< Animation visibility guide
 
     // Animation tracks
-    Track<f32> lifeSpanTracks;          ///< Lifespan animation
-    Track<Vector4f> colorTracks;        ///< Color animation
-    Track<f32> emissionRateTracks;      ///< Emission rate animation
-    Track<f32> lifeSpanVariationTracks; ///< Lifespan variation animation
-    Track<f32> speedTracks;             ///< Speed animation
-    Track<f32> visibilityTracks;        ///< Visibility animation
+    Track<f32> lifeSpanTracks;       ///< Lifespan animation
+    Track<f32> emissionRateTracks;   ///< Emission rate animation
+    Track<f32> speedTracks;          ///< Speed animation
+    Track<Vector3f> colorTracks;     ///< Color animation
+    Track<f32> alphaTracks;          ///< Alpha animation
+    Track<f32> visibilityTracks;     ///< Visibility animation
 };
 
 } // namespace mdx

@@ -420,7 +420,7 @@ FaceFX "face" {
 )", issues);
     REQUIRE(issues.empty());
     REQUIRE(model.faceEffects.size() == 1);
-    CHECK(model.faceEffects[0].target == "face");
+    CHECK(model.faceEffects[0].name == "face");
     CHECK(model.faceEffects[0].path == "fx_data\\face.fx");
 }
 

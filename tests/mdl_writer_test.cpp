@@ -548,7 +548,7 @@ TEST_CASE("mdl_write_face_effect", "[mdl_writer]") {
     model.version = 1000;
 
     FaceEffect fe;
-    fe.target = "Face";
+    fe.name = "Face";
     fe.path = "war3mapImported\\face.facefx";
     model.faceEffects.push_back(fe);
 
@@ -558,7 +558,7 @@ TEST_CASE("mdl_write_face_effect", "[mdl_writer]") {
 
     auto rt = parseMdl(mdl);
     REQUIRE(rt.faceEffects.size() == 1);
-    CHECK(rt.faceEffects[0].target == "Face");
+    CHECK(rt.faceEffects[0].name == "Face");
     CHECK(rt.faceEffects[0].path == "war3mapImported\\face.facefx");
 }
 
