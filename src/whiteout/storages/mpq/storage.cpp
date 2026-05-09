@@ -112,9 +112,10 @@ std::optional<ParsedArchive> parseMappedArchive(const std::string& path,
     if (lfIdx) {
         const auto& he = pa.hashTable.entry(*lfIdx);
         if (he.blockIndex < pa.blockTable.count()) {
-            auto lfData =
-                extractFileData(mappedFile->data(), pa.archiveOffset,
-                                pa.blockTable.entry(he.blockIndex), pa.header.sectorSize(), 0);
+            const auto& be = pa.blockTable.entry(he.blockIndex);
+            u32 fileKey = be.isEncrypted() ? deriveFileKey("(listfile)", be) : 0;
+            auto lfData = extractFileData(mappedFile->data(), pa.archiveOffset, be,
+                                          pa.header.sectorSize(), fileKey);
             if (!lfData.empty())
                 pa.listfileNames = parseListfile(std::span<const u8>(lfData));
         }
