@@ -125,6 +125,15 @@ void MdlTokenizer::run() {
             m_tokens.push_back({MdlTokenType::Semicolon, {m_cursor, 1}, m_line, col});
             ++m_cursor;
             continue;
+        case '<':
+            // Engine MDL HD-texture slot designator: "<=" appears between
+            // textureId and slot in `static TextureID 5 <= 1,`.
+            if (m_cursor + 1 < m_end && m_cursor[1] == '=') {
+                m_tokens.push_back({MdlTokenType::LessEqual, {m_cursor, 2}, m_line, col});
+                m_cursor += 2;
+                continue;
+            }
+            break; // fall through to error path
         default:
             break;
         }

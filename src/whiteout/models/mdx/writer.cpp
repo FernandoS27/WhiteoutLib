@@ -59,8 +59,22 @@ static void writeTrackChunk(BinaryWriter& writer, u32 tag, const Track<T>& track
     writer.write(static_cast<u32>(track.interpolationType));
     writer.write(track.globalSequenceId);
 
-    // Write track data
-    writer.write(track.keys_data);
+    // The in-memory layout splits timestamps from key-value data, but the on-disk
+    // layout interleaves them per keyframe -- mirror Parser::Impl::readTrackChunk:
+    //   non-smooth: { u32 timestamp, T value }                * keyCount
+    //   smooth:     { u32 timestamp, T value, T inTan, T outTan } * keyCount
+    const size_t keyComponents = isSmoothInterpolation(track.interpolationType) ? 3 : 1;
+    const size_t valueStride = keyComponents * sizeof(T);
+    const size_t stride = sizeof(u32) + valueStride;
+
+    std::vector<u8> buffer(track.keyCount * stride);
+    for (size_t i = 0; i < track.keyCount; ++i) {
+        std::memcpy(buffer.data() + i * stride, &track.timestamps[i], sizeof(u32));
+        std::memcpy(buffer.data() + i * stride + sizeof(u32),
+                    &track.keys_data[i * keyComponents], valueStride);
+    }
+    writer.writeBytes(reinterpret_cast<const char*>(buffer.data()),
+                      static_cast<u32>(buffer.size()));
 }
 
 // ============================================================================
@@ -207,7 +221,7 @@ Writer::Writer() : pImpl(std::make_unique<Impl>()) {}
 
 Writer::~Writer() = default;
 
-void Writer::write(const std::string& filePath, const Model& mdx) {
+void Writer::write(const std::string& filePath, const Model& mdx, MdlFormat mdlFormat) {
     // Detect MDL text format from extension
     bool isMdl = false;
     if (filePath.size() >= 4) {
@@ -216,7 +230,7 @@ void Writer::write(const std::string& filePath, const Model& mdx) {
     }
 
     if (isMdl) {
-        std::string text = writeModelToMdl(mdx);
+        std::string text = writeModelToMdl(mdx, mdlFormat);
         auto file = common::open_ofstream(filePath, std::ios::binary);
         if (!file.is_open()) {
             throw std::runtime_error("Failed to open file: " + filePath);
@@ -234,9 +248,9 @@ void Writer::write(const std::string& filePath, const Model& mdx) {
     pImpl->write(writer, mdx);
 }
 
-std::vector<u8> Writer::write(const Model& mdx, MDLXFormat format) {
+std::vector<u8> Writer::write(const Model& mdx, MDLXFormat format, MdlFormat mdlFormat) {
     if (format == MDLXFormat::MDL) {
-        std::string text = writeModelToMdl(mdx);
+        std::string text = writeModelToMdl(mdx, mdlFormat);
         return std::vector<u8>(text.begin(), text.end());
     }
 

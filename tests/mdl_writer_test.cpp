@@ -601,17 +601,9 @@ TEST_CASE("mdl_write_animated_track", "[mdl_writer]") {
     tr.globalSequenceId = 0;
     tr.keyCount = 2;
 
-    // Key 1: frame 0, value (0,0,0)
-    auto pushKey = [](std::vector<u8>& buf, u32 frame, Vector3f val) {
-        auto pushBytes = [&](const auto& v) {
-            const u8* p = reinterpret_cast<const u8*>(&v);
-            buf.insert(buf.end(), p, p + sizeof(v));
-        };
-        pushBytes(frame);
-        pushBytes(val);
-    };
-    pushKey(tr.keys_data, 0, Vector3f(0, 0, 0));
-    pushKey(tr.keys_data, 1000, Vector3f(10, 20, 30));
+    // Track stores timestamps and values in separate vectors.
+    tr.timestamps = {0, 1000};
+    tr.keys_data  = {Vector3f(0, 0, 0), Vector3f(10, 20, 30)};
 
     model.bones.push_back(bone);
 
@@ -627,13 +619,14 @@ TEST_CASE("mdl_write_animated_track", "[mdl_writer]") {
     CHECK(rtTr.isUsed);
     CHECK(rtTr.interpolationType == InterpolationType::Linear);
     CHECK(rtTr.keyCount == 2);
-    auto keys = rtTr.keys();
-    REQUIRE(keys.size() == 2);
-    CHECK(keys[0].frame == 0);
-    CHECK(approx(keys[0].value.x, 0.0f));
-    CHECK(keys[1].frame == 1000);
-    CHECK(approx(keys[1].value.x, 10.0f));
-    CHECK(approx(keys[1].value.z, 30.0f));
+    auto values = rtTr.keys();
+    REQUIRE(values.size() == 2);
+    REQUIRE(rtTr.timestamps.size() == 2);
+    CHECK(rtTr.timestamps[0] == 0);
+    CHECK(approx(values[0].x, 0.0f));
+    CHECK(rtTr.timestamps[1] == 1000);
+    CHECK(approx(values[1].x, 10.0f));
+    CHECK(approx(values[1].z, 30.0f));
 }
 
 TEST_CASE("mdl_write_hermite_track", "[mdl_writer]") {
@@ -654,20 +647,14 @@ TEST_CASE("mdl_write_hermite_track", "[mdl_writer]") {
     tr.globalSequenceId = 0;
     tr.keyCount = 1;
 
-    // Tangent key: frame, value, inTan, outTan
-    auto pushTangentKey = [](std::vector<u8>& buf, u32 frame, Vector3f val, Vector3f inTan,
-                             Vector3f outTan) {
-        auto pushBytes = [&](const auto& v) {
-            const u8* p = reinterpret_cast<const u8*>(&v);
-            buf.insert(buf.end(), p, p + sizeof(v));
-        };
-        pushBytes(frame);
-        pushBytes(val);
-        pushBytes(inTan);
-        pushBytes(outTan);
+    // Smooth track: timestamps separate; keys_data holds value+inTan+outTan
+    // per keyframe (3 components per key).
+    tr.timestamps = {500};
+    tr.keys_data  = {
+        Vector3f(1, 2, 3),
+        Vector3f(0.1f, 0.2f, 0.3f),
+        Vector3f(0.4f, 0.5f, 0.6f),
     };
-    pushTangentKey(tr.keys_data, 500, Vector3f(1, 2, 3), Vector3f(0.1f, 0.2f, 0.3f),
-                   Vector3f(0.4f, 0.5f, 0.6f));
 
     model.bones.push_back(bone);
 
@@ -683,7 +670,8 @@ TEST_CASE("mdl_write_hermite_track", "[mdl_writer]") {
     CHECK(rtTr.interpolationType == InterpolationType::Hermite);
     auto tkeys = rtTr.tangentKeys();
     REQUIRE(tkeys.size() == 1);
-    CHECK(tkeys[0].frame == 500);
+    REQUIRE(rtTr.timestamps.size() == 1);
+    CHECK(rtTr.timestamps[0] == 500);
     CHECK(approx(tkeys[0].value.x, 1.0f));
     CHECK(approx(tkeys[0].inTan.x, 0.1f));
     CHECK(approx(tkeys[0].outTan.z, 0.6f));

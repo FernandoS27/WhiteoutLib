@@ -5,6 +5,7 @@
 
 #include <whiteout/common_types.h>
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -72,6 +73,9 @@ struct MdlProperty {
     std::string name;
     std::vector<MdlValue> values;
     bool isStatic = false;
+    /// Engine-style slot designator from "<= N" suffix (HD-texture sub-slot
+    /// in `static TextureID 5 <= 1,`). Set only when explicitly written.
+    std::optional<i32> slot;
 };
 
 // ─── Animation Track ─────────────────────────────────────────────────────────

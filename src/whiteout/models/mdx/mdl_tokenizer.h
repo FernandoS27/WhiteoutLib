@@ -24,6 +24,7 @@ enum class MdlTokenType : u8 {
     Colon,        // :
     Semicolon,    // ;
     Dot,          // . (standalone, not part of a number)
+    LessEqual,    // <= (engine MDL HD-texture slot designator: "TextureID 5 <= 1,")
     EndOfFile,
     Error,
 };

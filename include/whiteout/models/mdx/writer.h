@@ -40,6 +40,30 @@ namespace mdx {
 using common::BinaryWriter;
 
 // ============================================================================
+// MDL text dialect selector
+// ============================================================================
+
+/**
+ * @brief Selects which MDL text dialect Writer / writeModelToMdl emits.
+ *
+ * Only affects the .mdl text output path; MDX binary is unchanged.
+ */
+enum class MdlFormat {
+    /// Engine-faithful dialect — matches what Warcraft III's MDL writer
+    /// produces. HD layers use a per-layer `Shader "name",` directive
+    /// and `static TextureID id <= slot,` for sub-textures. Files written
+    /// in this dialect parse cleanly through the in-game MDL reader.
+    /// (Default.)
+    WarcraftIII,
+    /// HiveWorkshop community dialect — uses `ShaderTypeId N,` to mark
+    /// HD layers and named slot properties (`NormalTextureID`,
+    /// `ORMTextureID`, `EmissiveTextureID`, `TeamColorTextureID`,
+    /// `ReflectionsTextureID`). Compatible with HiveWorkshop tools
+    /// (Retera Model Studio, Magos, MdlVis, etc.).
+    Hiveworkshop,
+};
+
+// ============================================================================
 // MDX Writer
 // ============================================================================
 
@@ -69,19 +93,25 @@ public:
      * The format is detected from the file extension: `.mdl` for text MDL
      * format, `.mdx` (or any other extension) for binary MDX format.
      *
-     * @param filePath Path where the file should be written
-     * @param mdlx Model data to write
+     * @param filePath  Path where the file should be written
+     * @param mdlx      Model data to write
+     * @param mdlFormat MDL text dialect (only used when writing .mdl);
+     *                  defaults to WarcraftIII (engine-faithful).
      * @throws std::runtime_error If file cannot be created or written
      */
-    void write(const std::string& filePath, const Model& mdlx);
+    void write(const std::string& filePath, const Model& mdlx,
+               MdlFormat mdlFormat = MdlFormat::WarcraftIII);
 
     /**
      * @brief Write a model to a byte buffer
-     * @param mdx Model data to write
-     * @param format Output format (MDX binary or MDL text, defaults to MDX)
+     * @param mdx       Model data to write
+     * @param format    Output format (MDX binary or MDL text, defaults to MDX)
+     * @param mdlFormat MDL text dialect (only used when format == MDL);
+     *                  defaults to WarcraftIII (engine-faithful).
      * @return Vector containing the binary MDX data or UTF-8 MDL text
      */
-    std::vector<u8> write(const Model& mdx, MDLXFormat format = MDLXFormat::MDX);
+    std::vector<u8> write(const Model& mdx, MDLXFormat format = MDLXFormat::MDX,
+                          MdlFormat mdlFormat = MdlFormat::WarcraftIII);
 
 private:
     class Impl;

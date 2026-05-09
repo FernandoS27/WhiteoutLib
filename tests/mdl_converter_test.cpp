@@ -177,14 +177,16 @@ Bone "bone_root" {
     CHECK(model.bones[0].node.translationTracks.keyCount == 2);
     CHECK(model.bones[0].node.translationTracks.interpolationType ==
           InterpolationType::Linear);
-    // Verify key data
-    auto keys = model.bones[0].node.translationTracks.keys();
-    REQUIRE(keys.size() == 2);
-    CHECK(keys[0].frame == 0);
-    CHECK(approx(keys[0].value.x, 0.0f));
-    CHECK(keys[1].frame == 1000);
-    CHECK(approx(keys[1].value.x, 10.0f));
-    CHECK(approx(keys[1].value.z, 30.0f));
+    // Verify key data (timestamps and values are stored separately).
+    auto& tr = model.bones[0].node.translationTracks;
+    auto values = tr.keys();
+    REQUIRE(values.size() == 2);
+    REQUIRE(tr.timestamps.size() == 2);
+    CHECK(tr.timestamps[0] == 0);
+    CHECK(approx(values[0].x, 0.0f));
+    CHECK(tr.timestamps[1] == 1000);
+    CHECK(approx(values[1].x, 10.0f));
+    CHECK(approx(values[1].z, 30.0f));
 }
 
 TEST_CASE("bone_with_hermite_tangents", "[mdl_converter]") {
@@ -216,7 +218,8 @@ Bone "bone_arm" {
     CHECK(rot.keyCount == 2);
     auto tkeys = rot.tangentKeys();
     REQUIRE(tkeys.size() == 2);
-    CHECK(tkeys[0].frame == 0);
+    REQUIRE(rot.timestamps.size() == 2);
+    CHECK(rot.timestamps[0] == 0);
     CHECK(approx(tkeys[0].value.w, 1.0f));
     CHECK(approx(tkeys[1].value.y, 0.707f));
 }

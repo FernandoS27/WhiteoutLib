@@ -18,25 +18,6 @@ namespace mdx {
 
 using common::BinaryReader;
 
-namespace {
-
-template <typename T>
-Track<T> readTrackChunk(BinaryReader& reader, u32 trackCount, u32 interpolationType,
-                        u32 globalSequenceId) {
-    Track<T> track;
-    track.isUsed = true;
-    track.interpolationType = static_cast<InterpolationType>(interpolationType);
-    track.globalSequenceId = globalSequenceId;
-    track.keyCount = trackCount;
-    size_t keySize = (isSmoothInterpolation(track.interpolationType))
-                         ? sizeof(typename Track<T>::TangentKey)
-                         : sizeof(typename Track<T>::Key);
-    track.keys_data = reader.read<std::vector<u8>>(trackCount * keySize);
-    return track;
-}
-
-} // namespace
-
 // ============================================================================
 // ParserImpl - Implementation class using PImpl idiom
 // ============================================================================
@@ -120,7 +101,43 @@ public:
     template <typename T>
     std::vector<Track<T>> parseTracks(BinaryReader& reader, u32 tag, u32 interpolationType,
                                       u32 trackCount);
+
+    template <typename T>
+    Track<T> readTrackChunk(BinaryReader& reader, u32 trackCount, u32 interpolationType,
+                            u32 globalSequenceId);
+
+    std::vector<u8> key_buffer; // Temporary buffer for reading track data
 };
+
+template <typename T>
+Track<T> Parser::Impl::readTrackChunk(BinaryReader& reader, u32 trackCount, u32 interpolationType,
+                        u32 globalSequenceId) {
+    Track<T> track;
+    track.isUsed = true;
+    track.interpolationType = static_cast<InterpolationType>(interpolationType);
+    track.globalSequenceId = globalSequenceId;
+    track.keyCount = trackCount;
+
+    size_t stride = sizeof(u32) + sizeof(T);
+    size_t keyStride = sizeof(T);
+    size_t key_components = 1;
+    track.timestamps.resize(trackCount);
+    if (isSmoothInterpolation(track.interpolationType)) {
+        stride += 2 * sizeof(T); // Add tangents for Hermite/Bezier
+        keyStride += 2 * sizeof(T);
+        key_components = 3; // Value + inTan + outTan
+    }
+    track.keys_data.resize((trackCount * keyStride) / sizeof(T));
+    key_buffer.resize(trackCount * stride);
+    reader.readBytes(reinterpret_cast<char*>(key_buffer.data()),
+                     static_cast<u32>(trackCount * stride));
+    for (size_t i = 0; i < trackCount; ++i) {
+        std::memcpy(&track.timestamps[i], key_buffer.data() + i * stride, sizeof(u32));
+        std::memcpy(&track.keys_data[i * key_components],
+                    key_buffer.data() + i * stride + sizeof(u32), keyStride);
+    }
+    return track;
+}
 
 void Parser::Impl::SkipUnknownChunk(BinaryReader& reader, u32 tag, u32 size) {
     std::string error =
@@ -140,10 +157,15 @@ void Parser::Impl::SkipUnknownTrack(BinaryReader& reader, u32 tag, u32 trackCoun
         throw std::runtime_error(error);
     }
     issues.push_back(error);
-    size_t keySize = (isSmoothInterpolation(static_cast<InterpolationType>(interpolationType)))
-                         ? sizeof(typename Track<u32>::TangentKey)
-                         : sizeof(typename Track<u32>::Key);
-    reader.skip(static_cast<u32>(trackCount * keySize));
+    // Conservative per-keyframe size: timestamp (u32) + value(u32) [+ 2*u32 tangents].
+    // We don't know the actual T for an unknown track, so this assumes a 4-byte
+    // value -- matches the prior behavior; large-typed unknown tracks (Vector3f,
+    // Quaternion, ...) would still mis-skip just as before.
+    const bool smooth =
+        isSmoothInterpolation(static_cast<InterpolationType>(interpolationType));
+    size_t bytesPerKey = sizeof(u32) + sizeof(u32);
+    if (smooth) bytesPerKey += 2 * sizeof(u32);
+    reader.skip(static_cast<u32>(trackCount * bytesPerKey));
 }
 
 // ============================================================================
@@ -320,7 +342,7 @@ Model Parser::Impl::parse(BinaryReader& reader) {
             break;
         }
     }
-    if (upgradeMode == UpgradeMode::UpgradeOldVersions && mdx.version < CurrentVersion) {
+    if (upgradeMode == UpgradeMode::UpgradeOldVersions && mdx.version < CurrentVersion && mdx.version > 800) {
         mdx.version = CurrentVersion;
     }
     return mdx;
@@ -451,7 +473,7 @@ Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 /*chunkSize*/, Mo
     mat.priorityPlane = reader.read<u32>();
     mat.flags = reader.read<Material::Flag>();
 
-    if (mdx.version > 800 && mdx.version < 1100) {
+    if (mdx.version >= 900 && mdx.version < 1100) {
         mat.shader = reader.readString(80);
         is_hd = mat.shader == "Shader_HD_DefaultUnit" || mat.shader == "Shader_HD_Crystal";
     }
@@ -465,9 +487,13 @@ Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 /*chunkSize*/, Mo
         mat.layers[i] = parseLayer(reader, mdx);
     }
 
-    // Upgrade older versions to newer format
+    // Upgrade older versions to newer format.
     if (upgradeMode == UpgradeMode::UpgradeOldVersions && mdx.version < 1100) {
-        if (is_hd) {
+        const bool engineHdMerge =
+            is_hd && mdx.version >= 900 && mat.layers.size() == 6;
+
+        if (engineHdMerge) {
+            // Engine slot mapping uses TEX_SEMANTIC enum: layer index == slot value.
             static constexpr Layer::SlotType kHdSlotOrder[] = {
                 Layer::SlotType::DiffuseMap,
                 Layer::SlotType::NormalMap,
@@ -488,7 +514,7 @@ Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 /*chunkSize*/, Mo
                 auto& layer = mat.layers[i];
                 Layer::SubTexture subTex;
                 subTex.textureId = layer.textureId;
-                subTex.slot = (i < 6) ? kHdSlotOrder[i] : Layer::SlotType::DiffuseMap;
+                subTex.slot = kHdSlotOrder[i];
                 subTex.tracks = std::move(layer.textureIdTracks);
                 hdLayers[0].subTextures.push_back(subTex);
             }
@@ -502,9 +528,15 @@ Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 /*chunkSize*/, Mo
                 hdLayers[0].shader = Layer::ShaderType::SD; // Unknown shader, set to 0
             }
 
+            // Engine propagates Material.TwoSided (0x2) into Layer.
+            if (hasFlag(mat.flags, Material::Flag::TwoSided)) {
+                hdLayers[0].shadingFlags |= Layer::ShadingFlag::TwoSided;
+            }
+
             mat.layers = std::move(hdLayers);
         } else {
-            // For non-HD materials, ensure textureId is set correctly
+            // Non-HD path: seed subTextures[0] for each layer so the writer can
+            // emit the unified v1100 layout consistently.
             for (auto& layer : mat.layers) {
                 Layer::SubTexture subTex;
                 subTex.textureId = layer.textureId;

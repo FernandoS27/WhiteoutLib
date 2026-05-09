@@ -22,7 +22,8 @@ namespace {
 
 class MdlTextWriter {
 public:
-    MdlTextWriter(const Model& model) : m_model(model) {}
+    MdlTextWriter(const Model& model, MdlFormat format)
+        : m_model(model), m_format(format) {}
 
     std::string write() {
         writeVersion();
@@ -53,6 +54,7 @@ public:
 
 private:
     const Model& m_model;
+    MdlFormat m_format;
     std::ostringstream m_out;
     int m_indent = 0;
 
@@ -177,21 +179,24 @@ private:
             line("GlobalSeqId " + std::to_string(track.globalSequenceId) + ",");
         }
 
+        // Timestamps and key values live in separate vectors after the
+        // split-timestamp refactor. Index both by keyframe number i.
         if (smooth) {
-            auto keys = const_cast<Track<T>&>(track).tangentKeys();
-            for (size_t i = 0; i < keys.size(); ++i) {
-                auto& k = keys[i];
-                line(std::to_string(k.frame) + ": " + fmtTrackValue(k.value) + ",");
+            auto tkeys = const_cast<Track<T>&>(track).tangentKeys();
+            for (size_t i = 0; i < track.keyCount; ++i) {
+                const auto& k = tkeys[i];
+                line(std::to_string(track.timestamps[i]) + ": " +
+                     fmtTrackValue(k.value) + ",");
                 indent();
                 line("InTan " + fmtTrackValue(k.inTan) + ",");
                 line("OutTan " + fmtTrackValue(k.outTan) + ",");
                 dedent();
             }
         } else {
-            auto keys = const_cast<Track<T>&>(track).keys();
-            for (size_t i = 0; i < keys.size(); ++i) {
-                auto& k = keys[i];
-                line(std::to_string(k.frame) + ": " + fmtTrackValue(k.value) + ",");
+            auto values = const_cast<Track<T>&>(track).keys();
+            for (size_t i = 0; i < track.keyCount; ++i) {
+                line(std::to_string(track.timestamps[i]) + ": " +
+                     fmtTrackValue(values[i]) + ",");
             }
         }
 
@@ -205,10 +210,11 @@ private:
         if (!track.isUsed) return;
 
         // Check if it's effectively a static value
-        if (track.keyCount == 1 && track.interpolationType == InterpolationType::None) {
-            auto keys = const_cast<Track<T>&>(track).keys();
-            if (keys.size() == 1 && keys[0].frame == 0) {
-                line("static " + name + " " + fmtTrackValue(keys[0].value) + ",");
+        if (track.keyCount == 1 && track.interpolationType == InterpolationType::None &&
+            !track.timestamps.empty() && track.timestamps[0] == 0) {
+            auto values = const_cast<Track<T>&>(track).keys();
+            if (!values.empty()) {
+                line("static " + name + " " + fmtTrackValue(values[0]) + ",");
                 return;
             }
         }
@@ -325,13 +331,29 @@ private:
             openBlock("Material");
             if (mat.priorityPlane != 0)
                 line("PriorityPlane " + std::to_string(mat.priorityPlane) + ",");
-            // Material flags as identifiers
-            if (mdx::hasFlag(mat.flags, Material::Flag::ConstantColor)) line("ConstantColor,");
-            if (mdx::hasFlag(mat.flags, Material::Flag::SortPrimitives)) line("SortPrimitives,");
-            if (mdx::hasFlag(mat.flags, Material::Flag::FullResolution)) line("FullResolution,");
-            if (mdx::hasFlag(mat.flags, Material::Flag::TwoSided)) line("TwoSided,");
-            if (!mat.shader.empty())
-                line("Shader " + quoted(mat.shader) + ",");
+
+            if (m_format == MdlFormat::Hiveworkshop) {
+                // HiveWorkshop names: TwoSided / ConstantColor / SortPrimitives /
+                // FullResolution. The engine-only flags Unfogged (0x4) and
+                // SortPrimsNearZ (0x8) have no canonical HiveWorkshop name and
+                // are skipped to avoid producing tokens HW tools would reject.
+                if (mdx::hasFlag(mat.flags, Material::Flag::ConstantColor))   line("ConstantColor,");
+                if (mdx::hasFlag(mat.flags, Material::Flag::SortPrimsFarZ))   line("SortPrimitives,");
+                if (mdx::hasFlag(mat.flags, Material::Flag::FullResolution))  line("FullResolution,");
+                if (mdx::hasFlag(mat.flags, Material::Flag::TwoSided))        line("TwoSided,");
+                // HiveWorkshop emits the per-material Shader directive.
+                if (!mat.shader.empty())
+                    line("Shader " + quoted(mat.shader) + ",");
+            } else {
+                // Engine MDL canonical names
+                if (mdx::hasFlag(mat.flags, Material::Flag::ConstantColor))   line("ConstantColor,");
+                if (mdx::hasFlag(mat.flags, Material::Flag::TwoSided))        line("TwoSided,");
+                if (mdx::hasFlag(mat.flags, Material::Flag::Unfogged))        line("Unfogged,");
+                if (mdx::hasFlag(mat.flags, Material::Flag::SortPrimsNearZ))  line("SortPrimsNearZ,");
+                if (mdx::hasFlag(mat.flags, Material::Flag::SortPrimsFarZ))   line("SortPrimsFarZ,");
+                if (mdx::hasFlag(mat.flags, Material::Flag::FullResolution))  line("FullResolution,");
+                // Engine writer emits Shader per-layer, not per-material.
+            }
 
             for (auto& layer : mat.layers) {
                 writeLayer(layer);
@@ -357,7 +379,8 @@ private:
         }
         line(std::string("FilterMode ") + fmName + ",");
 
-        // Shading flags
+        // Shading flags. Names that exist in both dialects: Unshaded,
+        // SphereEnvMap, TwoSided, Unfogged, NoDepthTest, NoDepthSet.
         if (mdx::hasFlag(layer.shadingFlags, Layer::ShadingFlag::Unshaded))
             line("Unshaded,");
         if (mdx::hasFlag(layer.shadingFlags, Layer::ShadingFlag::SphereEnvMap))
@@ -370,47 +393,107 @@ private:
             line("NoDepthTest,");
         if (mdx::hasFlag(layer.shadingFlags, Layer::ShadingFlag::NoDepthSet))
             line("NoDepthSet,");
-
-        // ShaderTypeId (Reforged HD/SD flag)
-        if (m_model.version >= 1100) {
-            line("ShaderTypeId " + std::to_string(layer.is_hd ? 1 : 0) + ",");
+        // Engine-only flag names: WrapWidth, WrapHeight, Unlit.
+        // HiveWorkshop tools don't recognize these tokens, so we skip them.
+        if (m_format == MdlFormat::WarcraftIII) {
+            if (mdx::hasFlag(layer.shadingFlags, Layer::ShadingFlag::WrapWidth))
+                line("WrapWidth,");
+            if (mdx::hasFlag(layer.shadingFlags, Layer::ShadingFlag::WrapHeight))
+                line("WrapHeight,");
+            if (mdx::hasFlag(layer.shadingFlags, Layer::ShadingFlag::Unlit))
+                line("Unlit,");
         }
 
-        // TextureID / sub-texture slots
-        if (layer.is_hd && !layer.subTextures.empty()) {
+        // Shader / shader-type marker
+        if (m_format == MdlFormat::WarcraftIII) {
+            const char* shaderName = nullptr;
+            switch (layer.shader) {
+                case Layer::ShaderType::SD:      shaderName = "Shader_SD_Legacy"; break;
+                case Layer::ShaderType::HD:      shaderName = "Shader_HD_DefaultUnit"; break;
+                case Layer::ShaderType::SDOnHD:  shaderName = "Shader_SD_FixedFunction"; break;
+                case Layer::ShaderType::Crystal: shaderName = "Shader_HD_Crystal"; break;
+                default: break;
+            }
+            if (shaderName && layer.shader != Layer::ShaderType::SD)
+                line(std::string("Shader \"") + shaderName + "\",");
+        } else {
+            // HiveWorkshop convention: `ShaderTypeId 1,` flags an HD layer for
+            // versions >= 1100. Only emitted on Reforged-era models.
+            if (m_model.version >= 1100) {
+                line("ShaderTypeId " + std::to_string(static_cast<u32>(layer.shader)) + ",");
+            }
+        }
+
+        // Texture(s)
+        auto writeStaticTexEngine = [&](u32 texId, u32 slot) {
+            line("static TextureID " + std::to_string(texId) +
+                 " <= " + std::to_string(slot) + ",");
+        };
+        auto slotName = [](Layer::SlotType slot) -> const char* {
+            switch (slot) {
+                case Layer::SlotType::DiffuseMap:     return "TextureID";
+                case Layer::SlotType::NormalMap:      return "NormalTextureID";
+                case Layer::SlotType::ORMMap:         return "ORMTextureID";
+                case Layer::SlotType::EmissiveMap:    return "EmissiveTextureID";
+                case Layer::SlotType::TeamColor:      return "TeamColorTextureID";
+                case Layer::SlotType::EnvironmentMap: return "ReflectionsTextureID";
+                default:                              return "TextureID";
+            }
+        };
+
+        if (!layer.subTextures.empty()) {
             for (const auto& subTex : layer.subTextures) {
-                const char* slotName = "TextureID";
-                switch (subTex.slot) {
-                    case Layer::SlotType::DiffuseMap: slotName = "TextureID"; break;
-                    case Layer::SlotType::NormalMap: slotName = "NormalTextureID"; break;
-                    case Layer::SlotType::ORMMap: slotName = "ORMTextureID"; break;
-                    case Layer::SlotType::EmissiveMap: slotName = "EmissiveTextureID"; break;
-                    case Layer::SlotType::TeamColor: slotName = "TeamColorTextureID"; break;
-                    case Layer::SlotType::EnvironmentMap: slotName = "ReflectionsTextureID"; break;
-                    default: slotName = "TextureID"; break;
-                }
-                if (subTex.tracks.isUsed && subTex.tracks.keyCount > 0) {
-                    writeTrackOrStatic<u32>(slotName, subTex.tracks, subTex.textureId);
+                const bool animated =
+                    subTex.tracks.isUsed && subTex.tracks.keyCount > 0;
+
+                if (m_format == MdlFormat::WarcraftIII) {
+                    // Engine MDL form: `static TextureID id <= slot,` for
+                    // static; animated flipbooks have no slot suffix per
+                    // engine grammar (IReadFlipbook @ 0x140b793e0).
+                    if (animated) {
+                        writeTrack<u32>("TextureID", subTex.tracks);
+                    } else {
+                        writeStaticTexEngine(subTex.textureId,
+                                             static_cast<u32>(subTex.slot));
+                    }
                 } else {
-                    line("static " + std::string(slotName) + " " +
-                         std::to_string(subTex.textureId) + ",");
+                    // HiveWorkshop: named-slot properties. The single-key
+                    // static-track collapse is handled by writeTrackOrStatic.
+                    const char* name = slotName(subTex.slot);
+                    if (animated) {
+                        writeTrackOrStatic<u32>(name, subTex.tracks, subTex.textureId);
+                    } else {
+                        line("static " + std::string(name) + " " +
+                             std::to_string(subTex.textureId) + ",");
+                    }
                 }
             }
         } else if (layer.textureIdTracks.isUsed && layer.textureIdTracks.keyCount > 0) {
-            // Check for static case
-            if (layer.textureIdTracks.keyCount == 1 &&
-                layer.textureIdTracks.interpolationType == InterpolationType::None) {
-                auto keys = const_cast<Track<u32>&>(layer.textureIdTracks).keys();
-                if (keys.size() == 1 && keys[0].frame == 0) {
-                    line("static TextureID " + std::to_string(keys[0].value) + ",");
+            // Single-key static-form tracks collapse to `static TextureID N,`;
+            // multi-key tracks write the animated form.
+            const auto& tids = layer.textureIdTracks;
+            if (tids.keyCount == 1 &&
+                tids.interpolationType == InterpolationType::None &&
+                !tids.timestamps.empty() && tids.timestamps[0] == 0) {
+                auto values = const_cast<Track<u32>&>(tids).keys();
+                if (!values.empty()) {
+                    if (m_format == MdlFormat::WarcraftIII) {
+                        writeStaticTexEngine(values[0], 0);
+                    } else {
+                        line("static TextureID " + std::to_string(values[0]) + ",");
+                    }
                 } else {
-                    writeTrack<u32>("TextureID", layer.textureIdTracks);
+                    writeTrack<u32>("TextureID", tids);
                 }
             } else {
-                writeTrack<u32>("TextureID", layer.textureIdTracks);
+                writeTrack<u32>("TextureID", tids);
             }
         } else {
-            line("static TextureID " + std::to_string(layer.textureId) + ",");
+            if (m_format == MdlFormat::WarcraftIII) {
+                writeStaticTexEngine(layer.textureId, 0);
+            } else {
+                line("static TextureID " + std::to_string(layer.textureId) + ",");
+            }
         }
 
         if (layer.textureAnimationId != 0 && layer.textureAnimationId != 0xFFFFFFFF)
@@ -1109,8 +1192,8 @@ private:
 // Public API
 // ============================================================================
 
-std::string writeModelToMdl(const Model& model) {
-    MdlTextWriter writer(model);
+std::string writeModelToMdl(const Model& model, MdlFormat format) {
+    MdlTextWriter writer(model, format);
     return writer.write();
 }
 

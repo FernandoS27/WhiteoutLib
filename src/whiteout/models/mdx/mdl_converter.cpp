@@ -183,13 +183,6 @@ Vector4f valueToVec4(const MdlValue& v) {
 // Track conversion: MdlAnimTrack → Track<T>
 // ============================================================================
 
-// Helper: write a value of type T into a byte buffer
-template <typename T>
-void pushBytes(std::vector<u8>& buf, const T& val) {
-    const u8* ptr = reinterpret_cast<const u8*>(&val);
-    buf.insert(buf.end(), ptr, ptr + sizeof(T));
-}
-
 // Convert an MdlValue to a typed value T.  Specializations below.
 template <typename T>
 T convertValue(const MdlValue& v);
@@ -221,26 +214,32 @@ Vector4f convertValue<Vector4f>(const MdlValue& v) {
 
 // Build a Track<T> from an MdlAnimTrack. Also handles "static PROP value" properties
 // that become a single-key track with no interpolation.
+//
+// In-memory layout (post split-timestamp refactor):
+//   timestamps : one u32 per keyframe
+//   keys_data  : keyCount values for non-smooth, keyCount * 3 for smooth
+//                (laid out as [value, inTan, outTan, value, ...])
 template <typename T>
 Track<T> buildTrack(const MdlAnimTrack& atrack) {
     Track<T> track;
     track.isUsed = true;
     track.interpolationType = parseInterpolation(atrack.interpolation);
     track.globalSequenceId = atrack.globalSequenceId;
-    track.keyCount = static_cast<u32>(atrack.keyframes.size());
+    track.keyCount = atrack.keyframes.size();
 
-    bool smooth = isSmoothInterpolation(track.interpolationType);
+    const bool smooth = isSmoothInterpolation(track.interpolationType);
+
+    track.timestamps.reserve(track.keyCount);
+    track.keys_data.reserve(track.keyCount * (smooth ? 3 : 1));
 
     for (auto& kf : atrack.keyframes) {
-        u32 frame = static_cast<u32>(kf.time);
-        T value = convertValue<T>(kf.value);
-        pushBytes(track.keys_data, frame);
-        pushBytes(track.keys_data, value);
+        track.timestamps.push_back(static_cast<u32>(kf.time));
+        track.keys_data.push_back(convertValue<T>(kf.value));
         if (smooth) {
-            T inTan = kf.hasTangents ? convertValue<T>(kf.inTan) : T{};
-            T outTan = kf.hasTangents ? convertValue<T>(kf.outTan) : T{};
-            pushBytes(track.keys_data, inTan);
-            pushBytes(track.keys_data, outTan);
+            // Smooth tracks always carry 3 components per key on the in-memory
+            // side; default missing tangents to a zero-initialized T.
+            track.keys_data.push_back(kf.hasTangents ? convertValue<T>(kf.inTan) : T{});
+            track.keys_data.push_back(kf.hasTangents ? convertValue<T>(kf.outTan) : T{});
         }
     }
 
@@ -255,9 +254,8 @@ Track<T> buildStaticTrack(const T& value) {
     track.interpolationType = InterpolationType::None;
     track.globalSequenceId = 0xFFFFFFFF;
     track.keyCount = 1;
-    u32 frame = 0;
-    pushBytes(track.keys_data, frame);
-    pushBytes(track.keys_data, value);
+    track.timestamps.push_back(0);
+    track.keys_data.push_back(value);
     return track;
 }
 
@@ -467,11 +465,14 @@ void convertMaterials(const MdlNode& block, Model& model) {
             mat.flags = static_cast<Material::Flag>(u32Prop(*matNode, "Flags"));
             mat.shader = stringProp(*matNode, "Shader");
 
-            // Flags
-            if (hasFlag(*matNode, "ConstantColor")) mat.flags |= Material::Flag::ConstantColor;
-            if (hasFlag(*matNode, "SortPrimitives")) mat.flags |= Material::Flag::SortPrimitives;
-            if (hasFlag(*matNode, "FullResolution")) mat.flags |= Material::Flag::FullResolution;
-            if (hasFlag(*matNode, "TwoSided")) mat.flags |= Material::Flag::TwoSided;
+            // Flags -- accept both HiveWorkshop and engine token names
+            if (hasFlag(*matNode, "ConstantColor"))   mat.flags |= Material::Flag::ConstantColor;
+            if (hasFlag(*matNode, "TwoSided"))        mat.flags |= Material::Flag::TwoSided;
+            if (hasFlag(*matNode, "Unfogged"))        mat.flags |= Material::Flag::Unfogged;
+            if (hasFlag(*matNode, "SortPrimsNearZ"))  mat.flags |= Material::Flag::SortPrimsNearZ;
+            if (hasFlag(*matNode, "SortPrimsFarZ"))   mat.flags |= Material::Flag::SortPrimsFarZ;
+            if (hasFlag(*matNode, "SortPrimitives"))  mat.flags |= Material::Flag::SortPrimsFarZ;
+            if (hasFlag(*matNode, "FullResolution"))  mat.flags |= Material::Flag::FullResolution;
 
             // Parse layers
             for (auto& mc : matNode->children) {
@@ -500,67 +501,191 @@ void convertMaterials(const MdlNode& block, Model& model) {
                         }
                     }
 
-                    // Shading flags
+                    // Shading flags -- accept both HiveWorkshop and engine token names
                     layer.shadingFlags = Layer::ShadingFlag::None;
                     if (hasFlag(*layerNode, "Unshaded"))
-                        layer.shadingFlags =
-                            layer.shadingFlags | Layer::ShadingFlag::Unshaded;
+                        layer.shadingFlags |= Layer::ShadingFlag::Unshaded;
                     if (hasFlag(*layerNode, "SphereEnvMap"))
-                        layer.shadingFlags =
-                            layer.shadingFlags | Layer::ShadingFlag::SphereEnvMap;
+                        layer.shadingFlags |= Layer::ShadingFlag::SphereEnvMap;
+                    if (hasFlag(*layerNode, "WrapWidth"))
+                        layer.shadingFlags |= Layer::ShadingFlag::WrapWidth;
+                    if (hasFlag(*layerNode, "WrapHeight"))
+                        layer.shadingFlags |= Layer::ShadingFlag::WrapHeight;
                     if (hasFlag(*layerNode, "TwoSided"))
-                        layer.shadingFlags =
-                            layer.shadingFlags | Layer::ShadingFlag::TwoSided;
+                        layer.shadingFlags |= Layer::ShadingFlag::TwoSided;
                     if (hasFlag(*layerNode, "Unfogged"))
-                        layer.shadingFlags =
-                            layer.shadingFlags | Layer::ShadingFlag::Unfogged;
+                        layer.shadingFlags |= Layer::ShadingFlag::Unfogged;
                     if (hasFlag(*layerNode, "NoDepthTest"))
-                        layer.shadingFlags =
-                            layer.shadingFlags | Layer::ShadingFlag::NoDepthTest;
+                        layer.shadingFlags |= Layer::ShadingFlag::NoDepthTest;
                     if (hasFlag(*layerNode, "NoDepthSet"))
-                        layer.shadingFlags =
-                            layer.shadingFlags | Layer::ShadingFlag::NoDepthSet;
+                        layer.shadingFlags |= Layer::ShadingFlag::NoDepthSet;
+                    if (hasFlag(*layerNode, "Unlit"))
+                        layer.shadingFlags |= Layer::ShadingFlag::Unlit;
 
-                    // ShaderTypeId (Reforged HD/SD flag)
-                    layer.is_hd = (u32Prop(*layerNode, "ShaderTypeId") == 1);
+                    // Per-layer Shader directive (engine MDL: `Shader "name",`)
+                    // Maps to ShaderType enum via the engine's s_shaderNames table
+                    //   0  Shader_SD_Legacy, 1 Shader_HD_DefaultUnit,
+                    //   2  Shader_SD_FixedFunction, 24 Shader_HD_Crystal
+                    if (auto* p = findProp(*layerNode, "Shader")) {
+                        if (!p->values.empty() && p->values[0].isString()) {
+                            const auto& name = p->values[0].asString();
+                            if (name == "Shader_SD_Legacy")
+                                layer.shader = Layer::ShaderType::SD;
+                            else if (name == "Shader_HD_DefaultUnit")
+                                layer.shader = Layer::ShaderType::HD;
+                            else if (name == "Shader_SD_FixedFunction")
+                                layer.shader = Layer::ShaderType::SDOnHD;
+                            else if (name == "Shader_HD_Crystal")
+                                layer.shader = Layer::ShaderType::Crystal;
+                            // Unknown shader names: leave as default
+                        }
+                    }
+                    // HiveWorkshop fallback: `ShaderTypeId 1,` for HD detection
+                    if (auto* p = findProp(*layerNode, "ShaderTypeId")) {
+                        if (!p->values.empty() && p->values[0].isNumber() &&
+                            static_cast<u32>(p->values[0].asNumber()) == 1) {
+                            layer.shader = Layer::ShaderType::HD;
+                        }
+                    }
+                    layer.is_hd = (layer.shader == Layer::ShaderType::HD ||
+                                   layer.shader == Layer::ShaderType::Crystal);
 
-                    // TextureID / sub-texture slots
-                    if (layer.is_hd) {
-                        auto readSubTex = [&](const char* name,
-                                              Layer::SlotType slot) {
-                            if (auto* p = findProp(*layerNode, name)) {
-                                Layer::SubTexture sub;
-                                if (!p->values.empty() &&
-                                    p->values[0].isNumber())
-                                    sub.textureId = static_cast<u32>(
-                                        p->values[0].asNumber());
-                                sub.slot = slot;
-                                sub.tracks =
-                                    getTrack<u32>(*layerNode, name);
-                                layer.subTextures.push_back(sub);
+                    // Texture parsing -- accept both engine and HiveWorkshop styles:
+                    //   Engine:       `static TextureID 5 <= 1,`  (slot designator)
+                    //   HiveWorkshop: `NormalTextureID 5,` / `ORMTextureID 5,` ...
+                    // Both produce entries in layer.subTextures. Plain `TextureID 5,`
+                    // without a slot suffix falls back to legacy layer.textureId.
+                    auto slotForName = [](const std::string& n) -> Layer::SlotType {
+                        if (n == "NormalTextureID")        return Layer::SlotType::NormalMap;
+                        if (n == "ORMTextureID")           return Layer::SlotType::ORMMap;
+                        if (n == "EmissiveTextureID")      return Layer::SlotType::EmissiveMap;
+                        if (n == "TeamColorTextureID")     return Layer::SlotType::TeamColor;
+                        if (n == "ReflectionsTextureID")   return Layer::SlotType::EnvironmentMap;
+                        return Layer::SlotType::Unknown;
+                    };
+
+                    // Helpers for the texture walk below.
+                    // findStaticProp:  match property by name, ignoring slot-form props
+                    // findAnimTrack:   match an MdlAnimTrack child by name
+                    auto findStaticProp =
+                        [](const MdlNode& n, const std::string& name) -> const MdlProperty* {
+                        for (auto& c : n.children) {
+                            if (auto* p = std::get_if<MdlProperty>(&c)) {
+                                if (p->name == name && !p->slot.has_value()) return p;
                             }
-                        };
-                        readSubTex("TextureID",
-                                   Layer::SlotType::DiffuseMap);
-                        readSubTex("NormalTextureID",
-                                   Layer::SlotType::NormalMap);
-                        readSubTex("ORMTextureID",
-                                   Layer::SlotType::ORMMap);
-                        readSubTex("EmissiveTextureID",
-                                   Layer::SlotType::EmissiveMap);
-                        readSubTex("TeamColorTextureID",
-                                   Layer::SlotType::TeamColor);
-                        readSubTex("ReflectionsTextureID",
-                                   Layer::SlotType::EnvironmentMap);
-                    } else {
-                        // SD: regular TextureID
-                        layer.textureIdTracks =
-                            getTrack<u32>(*layerNode, "TextureID");
-                        if (auto* p = findProp(*layerNode, "TextureID")) {
-                            if (!p->values.empty() &&
-                                p->values[0].isNumber())
-                                layer.textureId = static_cast<u32>(
-                                    p->values[0].asNumber());
+                        }
+                        return nullptr;
+                    };
+                    auto findAnimTrackByName =
+                        [](const MdlNode& n, const std::string& name) -> const MdlAnimTrack* {
+                        for (auto& c : n.children) {
+                            if (auto* t = std::get_if<MdlAnimTrack>(&c)) {
+                                if (t->name == name) return t;
+                            }
+                        }
+                        return nullptr;
+                    };
+
+                    // Build a Track<u32> from either the animated form or a single
+                    // static-property keyframe; nullptr/missing -> empty track.
+                    auto resolveTexTrack =
+                        [&](const std::string& name, u32 staticVal) -> Track<u32> {
+                        if (auto* t = findAnimTrackByName(*layerNode, name)) {
+                            return buildTrack<u32>(*t);
+                        }
+                        if (auto* p = findStaticProp(*layerNode, name); p && p->isStatic) {
+                            return buildStaticTrack<u32>(staticVal);
+                        }
+                        return Track<u32>{};
+                    };
+
+                    bool sawSlotForm = false;
+                    for (auto& mc2 : layerNode->children) {
+                        auto* prop = std::get_if<MdlProperty>(&mc2);
+                        if (!prop) continue;
+
+                        // Engine slot form: `static TextureID N <= S,`
+                        if (prop->name == "TextureID" && prop->slot.has_value()) {
+                            Layer::SubTexture sub;
+                            if (!prop->values.empty() && prop->values[0].isNumber())
+                                sub.textureId = static_cast<u32>(prop->values[0].asNumber());
+                            sub.slot = static_cast<Layer::SlotType>(prop->slot.value());
+                            layer.subTextures.push_back(std::move(sub));
+                            sawSlotForm = true;
+                            continue;
+                        }
+                        // HiveWorkshop named-slot form (handles both static and animated)
+                        Layer::SlotType namedSlot = slotForName(prop->name);
+                        if (namedSlot != Layer::SlotType::Unknown) {
+                            Layer::SubTexture sub;
+                            if (!prop->values.empty() && prop->values[0].isNumber())
+                                sub.textureId = static_cast<u32>(prop->values[0].asNumber());
+                            sub.slot = namedSlot;
+                            sub.tracks = resolveTexTrack(prop->name, sub.textureId);
+                            layer.subTextures.push_back(std::move(sub));
+                            sawSlotForm = true;
+                        }
+                    }
+                    // Animated HiveWorkshop named slots without a matching static prop
+                    // (e.g. `NormalTextureID 5 { Linear, ... },` with no separate
+                    // `NormalTextureID 5,`) are parsed as MdlAnimTrack children, so
+                    // also walk those:
+                    for (auto& mc2 : layerNode->children) {
+                        auto* track = std::get_if<MdlAnimTrack>(&mc2);
+                        if (!track) continue;
+                        Layer::SlotType namedSlot = slotForName(track->name);
+                        if (namedSlot == Layer::SlotType::Unknown) continue;
+                        // Skip if a static prop with the same name was already added above.
+                        bool already = false;
+                        for (auto& s : layer.subTextures) {
+                            if (s.slot == namedSlot && s.tracks.isUsed) { already = true; break; }
+                        }
+                        if (already) continue;
+
+                        Layer::SubTexture sub;
+                        sub.slot = namedSlot;
+                        sub.tracks = buildTrack<u32>(*track);
+                        layer.subTextures.push_back(std::move(sub));
+                        sawSlotForm = true;
+                    }
+
+                    // Plain `TextureID` (no slot suffix, no named-slot equivalent).
+                    // Two MDL forms feed in here:
+                    //   - MdlProperty:  `TextureID 5,` / `static TextureID 5,`
+                    //   - MdlAnimTrack: `TextureID 5 { Linear, 0:5, 100:6 },`
+                    // The animated form is required for engine MDL flipbook textures
+                    // (engine writes `TextureID N {...}` and assigns the result to slot 0).
+                    {
+                        const MdlProperty*  plainProp  = findStaticProp(*layerNode, "TextureID");
+                        const MdlAnimTrack* plainTrack = findAnimTrackByName(*layerNode, "TextureID");
+
+                        if (plainProp || plainTrack) {
+                            u32 texId = 0;
+                            if (plainProp && !plainProp->values.empty() &&
+                                plainProp->values[0].isNumber())
+                                texId = static_cast<u32>(plainProp->values[0].asNumber());
+
+                            Track<u32> tracks;
+                            if (plainTrack) {
+                                tracks = buildTrack<u32>(*plainTrack);
+                            } else if (plainProp && plainProp->isStatic) {
+                                tracks = buildStaticTrack<u32>(texId);
+                            }
+
+                            if (sawSlotForm) {
+                                // Multi-slot layer: engine puts an animated-only
+                                // TextureID into slot 0, and a HiveWorkshop diffuse
+                                // is also slot 0 by convention.
+                                Layer::SubTexture sub;
+                                sub.textureId = texId;
+                                sub.slot = Layer::SlotType::DiffuseMap;
+                                sub.tracks = std::move(tracks);
+                                layer.subTextures.push_back(std::move(sub));
+                            } else {
+                                // Legacy single-texture (SD) layer
+                                layer.textureId = texId;
+                                layer.textureIdTracks = std::move(tracks);
+                            }
                         }
                     }
 

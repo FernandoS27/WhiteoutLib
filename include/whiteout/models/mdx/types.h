@@ -248,21 +248,12 @@ constexpr bool isSmoothInterpolation(InterpolationType t) {
  */
 template <typename T>
 struct Track {
-    /**
-     * @brief Simple keyframe with frame number and value
-     * Used for linear and no interpolation.
-     */
-    struct Key {
-        u32 frame = 0; ///< Frame number in the animation
-        T value{};     ///< Value at this frame
-    };
 
     /**
      * @brief Keyframe with tangent information for smooth curves
      * Used for Hermite and Bezier interpolation.
      */
     struct TangentKey {
-        u32 frame = 0; ///< Frame number in the animation
         T value{};     ///< Value at this frame
         T inTan{};     ///< Incoming tangent for curve interpolation
         T outTan{};    ///< Outgoing tangent for curve interpolation
@@ -274,15 +265,16 @@ struct Track {
     InterpolationType interpolationType = InterpolationType::None; ///< Interpolation type
     u32 globalSequenceId = kNoGlobalSequence;  ///< Global sequence ID if applicable
     size_t keyCount = 0;       ///< Number of keyframes
-    std::vector<u8> keys_data; ///< Raw keyframe data
+    std::vector<u32> timestamps; ///< Keyframe timestamps (in frames)
+    std::vector<T> keys_data; ///< Raw keyframe data
 
     /**
      * @brief Get keyframes as a span (for linear/no interpolation)
      * @return Span of Key structures
      */
-    std::span<Key> keys() {
-        return std::span<Key>(reinterpret_cast<Key*>(keys_data.data()),
-                              keys_data.size() / sizeof(Key));
+    std::span<T> keys() {
+        return std::span<T>(reinterpret_cast<T*>(keys_data.data()),
+                              keys_data.size());
     }
 
     /**
@@ -291,7 +283,7 @@ struct Track {
      */
     std::span<TangentKey> tangentKeys() {
         return std::span<TangentKey>(reinterpret_cast<TangentKey*>(keys_data.data()),
-                                     keys_data.size() / sizeof(TangentKey));
+                                     (sizeof(T) * keys_data.size()) / sizeof(TangentKey));
     }
 };
 

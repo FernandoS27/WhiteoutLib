@@ -288,12 +288,13 @@ struct Layer {
         None = 0,
         Unshaded = 0x1,     ///< Not affected by lighting
         SphereEnvMap = 0x2, ///< Spherical environment mapping
-        Unknown1 = 0x4,     ///< Unknown flag
-        Unknown2 = 0x8,     ///< Unknown flag
+        WrapWidth = 0x4,    ///< Texture U-wrap
+        WrapHeight = 0x8,   ///< Texture V-wrap
         TwoSided = 0x10,    ///< Render both sides of polygons
         Unfogged = 0x20,    ///< Not affected by fog
         NoDepthTest = 0x40, ///< Disable depth testing
         NoDepthSet = 0x80,  ///< Don't write to depth buffer
+        Unlit = 0x100,      ///< Reforged: bypass lighting pipeline
     };
 
     enum class SlotType : u32 {
@@ -359,9 +360,12 @@ struct Material {
      */
     enum class Flag : u32 {
         None = 0x0,
-        ConstantColor = 0x1,  ///< Use constant color (no per-vertex tinting)
-        TwoSided = 0x2,       ///< Render both sides of polygons
-        SortPrimitives = 0x10, ///< Sort triangles by depth for correct transparency
+        ConstantColor = 0x1,   ///< Use constant color (no per-vertex tinting)
+        TwoSided = 0x2,        ///< Render both sides of polygons
+        Unfogged = 0x4,        ///< Not affected by fog
+        SortPrimsNearZ = 0x8,  ///< Sort by near-Z
+        SortPrimsFarZ = 0x10,  ///< Sort by far-Z; alias: SortPrimitives
+        SortPrimitives = 0x10, ///< Legacy alias for SortPrimsFarZ (HiveWorkshop name)
         FullResolution = 0x20, ///< Force full-resolution textures
     };
 

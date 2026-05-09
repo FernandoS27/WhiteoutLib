@@ -302,11 +302,25 @@ private:
         // which indicates we've left the property's value context and
         // reached the next entry in the parent block.
         while (!m_ts.atEnd() && !m_ts.check(MdlTokenType::Comma) &&
-               !m_ts.check(MdlTokenType::CloseBrace)) {
+               !m_ts.check(MdlTokenType::CloseBrace) &&
+               !m_ts.check(MdlTokenType::LessEqual)) {
             prop.values.push_back(parseValue());
             if (m_ts.check(MdlTokenType::Identifier) || m_ts.check(MdlTokenType::OpenBrace) ||
                 m_ts.check(MdlTokenType::Number)) {
                 break;
+            }
+        }
+
+        // Engine MDL HD-texture slot suffix: "TextureID 5 <= 1,"
+        if (m_ts.check(MdlTokenType::LessEqual)) {
+            m_ts.advance(); // consume "<="
+            if (m_ts.check(MdlTokenType::Number)) {
+                prop.slot = static_cast<i32>(toNumber(m_ts.advance().text));
+            } else {
+                auto& t = m_ts.peek();
+                m_errors.push_back({"expected slot number after '<=', got '" +
+                                        std::string(t.text) + "'",
+                                    t.line, t.column});
             }
         }
 
