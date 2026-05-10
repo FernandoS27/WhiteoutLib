@@ -1,4 +1,4 @@
-﻿import { Whiteout } from "../../package/index.js";
+﻿import { Whiteout } from "../../packages/js-ts/index.js";
 const wo = await Whiteout();
 const M = wo.module;
 const tr = new M.MdxTrackQuaternion();

@@ -11,7 +11,7 @@ from typing import Optional
 from clang import cindex
 from clang.cindex import CursorKind, TypeKind as CXTypeKind
 
-from .annotations import parse as parse_annotations, is_bound
+from .annotations import parse as parse_annotations, is_bound, extract_doc
 from .ir import (
     BindClass, BindConstant, BindConstructor, BindEnum, BindEnumValue,
     BindField, BindMethod, BindMethodParam, BindModule, ModuleConfig,
@@ -391,6 +391,7 @@ def collect_methods(cursor, bind_class, known_classes, known_enums,
             is_static=chosen.is_static_method(),
             bytes_in=bytes_in,
             bytes_out=bytes_out,
+            doc=extract_doc(chosen.raw_comment),
         ))
 
     # Non-default constructors. Skip:
@@ -552,10 +553,12 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
             cpp_qualifier=qual,
             cpp_namespace=ns,
             js_name=ann.get('js_name') or js_name_for_enum(qual, config.js_prefix),
+            doc=extract_doc(cursor.raw_comment),
             values=[
                 BindEnumValue(
                     js_name=v.spelling,
                     cpp_qualifier=f'{qual}::{v.spelling}',
+                    doc=extract_doc(v.raw_comment),
                 )
                 for v in cursor.get_children()
                 if v.kind == CursorKind.ENUM_CONSTANT_DECL
@@ -570,6 +573,7 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
             cpp_namespace=ns,
             js_name=ann.get('js_name') or js_name_for_class(qual, config.js_prefix),
             is_value_object='value_object' in ann,
+            doc=extract_doc(cursor.raw_comment),
         )
 
         # `fields=x;y;z` on the class annotation overrides AST inspection.
@@ -621,6 +625,7 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
                         cpp_name=member.spelling,
                         type=tref,
                         array_with_view=bool(field_ann.get('array_with_view')),
+                        doc=extract_doc(member.raw_comment),
                     ))
                 elif member.kind in (CursorKind.UNION_DECL, CursorKind.STRUCT_DECL) \
                         and not member.spelling:
@@ -643,6 +648,7 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
             js_name=ann.get('js_name') or (config.js_prefix + cursor.spelling),
             cpp_expr=ann.get('cpp_expr', qual),
             cpp_type='u32',
+            doc=extract_doc(cursor.raw_comment),
         ))
 
     module.vector_types = list(vector_types.values())

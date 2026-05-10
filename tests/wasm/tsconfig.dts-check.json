@@ -10,8 +10,8 @@
         "allowSyntheticDefaultImports": true
     },
     "include": [
-        "../../package/types/*.d.ts",
-        "../../package/index.d.ts",
+        "../../packages/js-ts/types/*.d.ts",
+        "../../packages/js-ts/index.d.ts",
         "dts-smoke.ts"
     ]
 }

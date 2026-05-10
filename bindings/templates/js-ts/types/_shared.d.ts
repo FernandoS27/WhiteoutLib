@@ -16,13 +16,18 @@ export class EmbindObject {
 
 /** Embind-bound `std::vector<T>`. List-like; mutate via `push_back`/
  *  `set`, read via `get`. Vector property access copies — see the
- *  read-modify-write pattern in the README. */
+ *  read-modify-write pattern in the README.
+ *
+ *  Supports `for (const x of vec) ...` — the iterator yields by-value
+ *  copies (Embind semantics), so mutating the yielded element does NOT
+ *  write back to the C++ vector. Use `vec.set(i, ...)` for that. */
 export interface EmbindVector<T> extends EmbindObject {
     size(): number;
     get(index: number): T;
     set(index: number, value: T): void;
     push_back(value: T): void;
     resize(n: number, value: T): void;
+    [Symbol.iterator](): IterableIterator<T>;
 }
 
 /** Buffer-friendly vector: layout-compatible with a flat scalar array

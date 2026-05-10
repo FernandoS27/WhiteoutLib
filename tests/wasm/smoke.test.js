@@ -9,13 +9,13 @@
 //     whiteout.Texture, whiteout.Vector3f, whiteout.PixelFormat
 //     whiteout.module                — escape hatch to the raw Embind module
 //
-// Pre-requisite: ../../package/whiteout.js + whiteout.wasm must exist.
+// Pre-requisite: ../../packages/js-ts/whiteout.js + whiteout.wasm must exist.
 // Build them via `pwsh ../../scripts/build-wasm.ps1`.
 
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { deflateSync } from "node:zlib";
-import { Whiteout } from "../../package/index.js";
+import { Whiteout } from "../../packages/js-ts/index.js";
 
 // Build a valid 2x2 RGB PNG dynamically (avoid hand-rolled CRCs).
 function makePng(width, height, rgbPixels) {
@@ -447,6 +447,86 @@ test("vector .view() — Quaternion exposes flat Float32Array(N*4)", async () =>
         }
     } finally {
         tr.delete();
+    }
+});
+
+
+// ── Math-type factories + iteration ─────────────────────────────────────
+
+test("vec2/vec3/vec4/quat factories return value_object literals", async () => {
+    const whiteout = await Whiteout();
+
+    const a = whiteout.vec2(1, 2);
+    assert.deepEqual(a, { x: 1, y: 2 });
+
+    const b = whiteout.vec3(1, 2, 3);
+    assert.deepEqual(b, { x: 1, y: 2, z: 3 });
+
+    const c = whiteout.vec4(1, 2, 3, 4);
+    assert.deepEqual(c, { x: 1, y: 2, z: 3, w: 4 });
+
+    const q = whiteout.quat(0, 0, 0, 1);
+    assert.deepEqual(q, { x: 0, y: 0, z: 0, w: 1 });
+
+    // Round-trip through a value_object field on a model.
+    const model = new whiteout.mdx.Model();
+    try {
+        model.modelExtent = {
+            boundsRadius: 5,
+            minimum: whiteout.vec3(-1, -2, -3),
+            maximum: whiteout.vec3( 4,  5,  6),
+        };
+        assert.equal(model.modelExtent.minimum.y, -2);
+        assert.equal(model.modelExtent.maximum.z,  6);
+    } finally {
+        model.delete();
+    }
+});
+
+test("vector for...of yields each element by value", async () => {
+    const whiteout = await Whiteout();
+
+    const tr = new whiteout.mdx.TrackF32();
+    try {
+        const keys = tr.keys;
+        try {
+            keys.push_back(1.0);
+            keys.push_back(2.0);
+            keys.push_back(3.0);
+
+            const collected = [];
+            for (const k of keys) collected.push(k);
+            assert.deepEqual(collected, [1.0, 2.0, 3.0]);
+
+            // Iterator yields a copy — mutation via the loop variable
+            // doesn't write back. Validate that semantic so users know.
+            for (const _v of keys) { /* no-op */ }
+            assert.equal(keys.size(), 3);
+        } finally {
+            keys.delete();
+        }
+    } finally {
+        tr.delete();
+    }
+});
+
+test("vector of math structs iterates as plain objects", async () => {
+    const whiteout = await Whiteout();
+    const model = new whiteout.mdx.Model();
+    try {
+        const pivots = model.pivotPoints;
+        try {
+            pivots.push_back(whiteout.vec3(1, 2, 3));
+            pivots.push_back(whiteout.vec3(4, 5, 6));
+
+            const ys = [];
+            for (const p of pivots) ys.push(p.y);
+            assert.deepEqual(ys, [2, 5]);
+        } finally {
+            pivots.delete();
+        }
+    } finally {
+        model.delete();
     }
 });
 

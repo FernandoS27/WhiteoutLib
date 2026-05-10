@@ -122,6 +122,13 @@ export interface WhiteoutAPI {
     Quaternion:  new () => Quaternion;
     InMemoryFileSystem: InMemoryFileSystemConstructor;
 
+    /** Math-type factories — sugar for the value_object literal pattern.
+     *  `whiteout.vec3(1, 2, 3)` is equivalent to `{ x: 1, y: 2, z: 3 }`. */
+    vec2(x: number, y: number): Vector2f;
+    vec3(x: number, y: number, z: number): Vector3f;
+    vec4(x: number, y: number, z: number, w: number): Vector4f;
+    quat(x: number, y: number, z: number, w: number): Quaternion;
+
     // ── Per-format facades ───────────────────────────────────────────────
     blp:  BlpFormat;
     dds:  DdsFormat;

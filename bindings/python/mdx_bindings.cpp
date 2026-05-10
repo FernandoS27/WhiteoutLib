@@ -17,6 +17,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -141,8 +142,11 @@ void bindTrack(py::module_& m, const char* name) {
 
 } // namespace
 void bind_mdx(py::module_& m) {
+    // Sentinel value
     m.attr("NO_GLOBAL_SEQUENCE") = static_cast<whiteout::u32>(whiteout::mdx::Track<whiteout::f32>::kNoGlobalSequence);
+    // Value indicating no parent node
     m.attr("NO_PARENT") = static_cast<whiteout::u32>(whiteout::mdx::Node::NO_PARENT);
+    // Bone affects all geosets
     m.attr("MULTIPLE_GEOSETS") = static_cast<whiteout::u32>(whiteout::mdx::Bone::MULTIPLE_GEOSETS);
 
     py::enum_<whiteout::mdx::InterpolationType>(m, "InterpolationType")
@@ -152,70 +156,70 @@ void bind_mdx(py::module_& m) {
         .value("BEZIER", whiteout::mdx::InterpolationType::Bezier)
     ;
 
-    py::enum_<whiteout::mdx::Sequence::Flag>(m, "SequenceFlag")
+    py::enum_<whiteout::mdx::Sequence::Flag>(m, "SequenceFlag", R"doc(Sequence playback flags)doc")
         .value("NONE", whiteout::mdx::Sequence::Flag::None)
-        .value("NON_LOOPING", whiteout::mdx::Sequence::Flag::NonLooping)
+        .value("NON_LOOPING", whiteout::mdx::Sequence::Flag::NonLooping, R"doc(Sequence plays once instead of looping)doc")
     ;
 
-    py::enum_<whiteout::mdx::Texture::Flag>(m, "TextureFlag")
+    py::enum_<whiteout::mdx::Texture::Flag>(m, "TextureFlag", R"doc(Texture wrap flags)doc")
         .value("NONE", whiteout::mdx::Texture::Flag::None)
-        .value("WRAP_WIDTH", whiteout::mdx::Texture::Flag::WrapWidth)
-        .value("WRAP_HEIGHT", whiteout::mdx::Texture::Flag::WrapHeight)
+        .value("WRAP_WIDTH", whiteout::mdx::Texture::Flag::WrapWidth, R"doc(Wrap texture horizontally)doc")
+        .value("WRAP_HEIGHT", whiteout::mdx::Texture::Flag::WrapHeight, R"doc(Wrap texture vertically)doc")
     ;
 
-    py::enum_<whiteout::mdx::Node::NodeType>(m, "NodeType")
-        .value("BONE", whiteout::mdx::Node::NodeType::Bone)
-        .value("LIGHT", whiteout::mdx::Node::NodeType::Light)
-        .value("HELPER", whiteout::mdx::Node::NodeType::Helper)
-        .value("ATTACHMENT", whiteout::mdx::Node::NodeType::Attachment)
-        .value("PARTICLE_EMITTER", whiteout::mdx::Node::NodeType::ParticleEmitter)
-        .value("PARTICLE_EMITTER2", whiteout::mdx::Node::NodeType::ParticleEmitter2)
-        .value("RIBBON_EMITTER", whiteout::mdx::Node::NodeType::RibbonEmitter)
-        .value("EVENT_OBJECT", whiteout::mdx::Node::NodeType::EventObject)
-        .value("CAMERA", whiteout::mdx::Node::NodeType::Camera)
-        .value("COLLISION_SHAPE", whiteout::mdx::Node::NodeType::CollisionShape)
-        .value("FACE_EFFECT", whiteout::mdx::Node::NodeType::FaceEffect)
-        .value("CORN_EMITTER", whiteout::mdx::Node::NodeType::CornEmitter)
+    py::enum_<whiteout::mdx::Node::NodeType>(m, "NodeType", R"doc(Type of node in the hierarchy)doc")
+        .value("BONE", whiteout::mdx::Node::NodeType::Bone, R"doc(Skeleton bone)doc")
+        .value("LIGHT", whiteout::mdx::Node::NodeType::Light, R"doc(Light source)doc")
+        .value("HELPER", whiteout::mdx::Node::NodeType::Helper, R"doc(Helper/attachment point)doc")
+        .value("ATTACHMENT", whiteout::mdx::Node::NodeType::Attachment, R"doc(Equipment attachment)doc")
+        .value("PARTICLE_EMITTER", whiteout::mdx::Node::NodeType::ParticleEmitter, R"doc(Particle emitter v1)doc")
+        .value("PARTICLE_EMITTER2", whiteout::mdx::Node::NodeType::ParticleEmitter2, R"doc(Particle emitter v2)doc")
+        .value("RIBBON_EMITTER", whiteout::mdx::Node::NodeType::RibbonEmitter, R"doc(Ribbon trail emitter)doc")
+        .value("EVENT_OBJECT", whiteout::mdx::Node::NodeType::EventObject, R"doc(Event trigger)doc")
+        .value("CAMERA", whiteout::mdx::Node::NodeType::Camera, R"doc(Camera)doc")
+        .value("COLLISION_SHAPE", whiteout::mdx::Node::NodeType::CollisionShape, R"doc(Collision volume)doc")
+        .value("FACE_EFFECT", whiteout::mdx::Node::NodeType::FaceEffect, R"doc(Face effect (Reforged))doc")
+        .value("CORN_EMITTER", whiteout::mdx::Node::NodeType::CornEmitter, R"doc(PopcornFX emitter (Reforged))doc")
     ;
 
-    py::enum_<whiteout::mdx::Node::NodeFlag>(m, "NodeFlag")
+    py::enum_<whiteout::mdx::Node::NodeFlag>(m, "NodeFlag", R"doc(Flags controlling node behavior and rendering)doc")
         .value("NONE", whiteout::mdx::Node::NodeFlag::None)
-        .value("DONT_INHERIT_TRANSLATION", whiteout::mdx::Node::NodeFlag::DontInheritTranslation)
-        .value("DONT_INHERIT_SCALING", whiteout::mdx::Node::NodeFlag::DontInheritScaling)
-        .value("DONT_INHERIT_ROTATION", whiteout::mdx::Node::NodeFlag::DontInheritRotation)
-        .value("BILLBOARDED", whiteout::mdx::Node::NodeFlag::Billboarded)
-        .value("BILLBOARDED_LOCK_X", whiteout::mdx::Node::NodeFlag::BillboardedLockX)
-        .value("BILLBOARDED_LOCK_Y", whiteout::mdx::Node::NodeFlag::BillboardedLockY)
-        .value("BILLBOARDED_LOCK_Z", whiteout::mdx::Node::NodeFlag::BillboardedLockZ)
-        .value("CAMERA_ANCHORED", whiteout::mdx::Node::NodeFlag::CameraAnchored)
-        .value("BONE", whiteout::mdx::Node::NodeFlag::Bone)
-        .value("LIGHT", whiteout::mdx::Node::NodeFlag::Light)
-        .value("EVENT_OBJECT", whiteout::mdx::Node::NodeFlag::EventObject)
-        .value("ATTACHMENT", whiteout::mdx::Node::NodeFlag::Attachment)
-        .value("PARTICLE_EMITTER", whiteout::mdx::Node::NodeFlag::ParticleEmitter)
-        .value("COLLISION_SHAPE", whiteout::mdx::Node::NodeFlag::CollisionShape)
-        .value("RIBBON_EMITTER", whiteout::mdx::Node::NodeFlag::RibbonEmitter)
-        .value("UNSHADED", whiteout::mdx::Node::NodeFlag::Unshaded)
-        .value("EMITTER_USES_MDL", whiteout::mdx::Node::NodeFlag::EmitterUsesMdl)
-        .value("SORT_PRIMITIVES", whiteout::mdx::Node::NodeFlag::SortPrimitives)
-        .value("SORT_PRIMS_FAR_Z", whiteout::mdx::Node::NodeFlag::SortPrimsFarZ)
-        .value("EMITTER_USES_TGA", whiteout::mdx::Node::NodeFlag::EmitterUsesTga)
-        .value("LINE_EMITTER", whiteout::mdx::Node::NodeFlag::LineEmitter)
-        .value("POPCORN_UNFOGGED", whiteout::mdx::Node::NodeFlag::PopcornUnfogged)
-        .value("UNFOGGED", whiteout::mdx::Node::NodeFlag::Unfogged)
-        .value("POPCORN_SCALING", whiteout::mdx::Node::NodeFlag::PopcornScaling)
-        .value("MODEL_SPACE", whiteout::mdx::Node::NodeFlag::ModelSpace)
-        .value("XY_QUAD", whiteout::mdx::Node::NodeFlag::XYQuad)
+        .value("DONT_INHERIT_TRANSLATION", whiteout::mdx::Node::NodeFlag::DontInheritTranslation, R"doc(Don't inherit parent translation)doc")
+        .value("DONT_INHERIT_SCALING", whiteout::mdx::Node::NodeFlag::DontInheritScaling, R"doc(Don't inherit parent scaling)doc")
+        .value("DONT_INHERIT_ROTATION", whiteout::mdx::Node::NodeFlag::DontInheritRotation, R"doc(Don't inherit parent rotation)doc")
+        .value("BILLBOARDED", whiteout::mdx::Node::NodeFlag::Billboarded, R"doc(Always face camera)doc")
+        .value("BILLBOARDED_LOCK_X", whiteout::mdx::Node::NodeFlag::BillboardedLockX, R"doc(Billboard but lock X axis)doc")
+        .value("BILLBOARDED_LOCK_Y", whiteout::mdx::Node::NodeFlag::BillboardedLockY, R"doc(Billboard but lock Y axis)doc")
+        .value("BILLBOARDED_LOCK_Z", whiteout::mdx::Node::NodeFlag::BillboardedLockZ, R"doc(Billboard but lock Z axis)doc")
+        .value("CAMERA_ANCHORED", whiteout::mdx::Node::NodeFlag::CameraAnchored, R"doc(Anchored to camera)doc")
+        .value("BONE", whiteout::mdx::Node::NodeFlag::Bone, R"doc(This is a bone)doc")
+        .value("LIGHT", whiteout::mdx::Node::NodeFlag::Light, R"doc(This is a light)doc")
+        .value("EVENT_OBJECT", whiteout::mdx::Node::NodeFlag::EventObject, R"doc(This is an event object)doc")
+        .value("ATTACHMENT", whiteout::mdx::Node::NodeFlag::Attachment, R"doc(This is an attachment)doc")
+        .value("PARTICLE_EMITTER", whiteout::mdx::Node::NodeFlag::ParticleEmitter, R"doc(This is a particle emitter)doc")
+        .value("COLLISION_SHAPE", whiteout::mdx::Node::NodeFlag::CollisionShape, R"doc(This is a collision shape)doc")
+        .value("RIBBON_EMITTER", whiteout::mdx::Node::NodeFlag::RibbonEmitter, R"doc(This is a ribbon emitter)doc")
+        .value("UNSHADED", whiteout::mdx::Node::NodeFlag::Unshaded, R"doc(Unshaded (PE2/Popcorn) / EmitterUsesMdl (PE))doc")
+        .value("EMITTER_USES_MDL", whiteout::mdx::Node::NodeFlag::EmitterUsesMdl, R"doc(Particle emitter uses MDL model)doc")
+        .value("SORT_PRIMITIVES", whiteout::mdx::Node::NodeFlag::SortPrimitives, R"doc(Sort primitives (PE2/Popcorn))doc")
+        .value("SORT_PRIMS_FAR_Z", whiteout::mdx::Node::NodeFlag::SortPrimsFarZ, R"doc(Alias of SortPrimitives)doc")
+        .value("EMITTER_USES_TGA", whiteout::mdx::Node::NodeFlag::EmitterUsesTga, R"doc(Particle emitter uses TGA (PE only))doc")
+        .value("LINE_EMITTER", whiteout::mdx::Node::NodeFlag::LineEmitter, R"doc(Line-shaped emitter (PE2))doc")
+        .value("POPCORN_UNFOGGED", whiteout::mdx::Node::NodeFlag::PopcornUnfogged, R"doc(Unfogged (Popcorn emitter))doc")
+        .value("UNFOGGED", whiteout::mdx::Node::NodeFlag::Unfogged, R"doc(Not affected by fog (PE2))doc")
+        .value("POPCORN_SCALING", whiteout::mdx::Node::NodeFlag::PopcornScaling, R"doc(Particle scaling (Popcorn emitter))doc")
+        .value("MODEL_SPACE", whiteout::mdx::Node::NodeFlag::ModelSpace, R"doc(Use model space coordinates)doc")
+        .value("XY_QUAD", whiteout::mdx::Node::NodeFlag::XYQuad, R"doc(XY quad billboarding)doc")
     ;
 
-    py::enum_<whiteout::mdx::Layer::FilterMode>(m, "LayerFilterMode")
-        .value("NONE", whiteout::mdx::Layer::FilterMode::None)
-        .value("TRANSPARENT", whiteout::mdx::Layer::FilterMode::Transparent)
-        .value("BLEND", whiteout::mdx::Layer::FilterMode::Blend)
-        .value("ADDITIVE", whiteout::mdx::Layer::FilterMode::Additive)
-        .value("ADD_ALPHA", whiteout::mdx::Layer::FilterMode::AddAlpha)
-        .value("MODULATE", whiteout::mdx::Layer::FilterMode::Modulate)
-        .value("MODULATE2X", whiteout::mdx::Layer::FilterMode::Modulate2x)
+    py::enum_<whiteout::mdx::Layer::FilterMode>(m, "LayerFilterMode", R"doc(Blending/filter mode for the layer)doc")
+        .value("NONE", whiteout::mdx::Layer::FilterMode::None, R"doc(No blending)doc")
+        .value("TRANSPARENT", whiteout::mdx::Layer::FilterMode::Transparent, R"doc(Alpha test transparency)doc")
+        .value("BLEND", whiteout::mdx::Layer::FilterMode::Blend, R"doc(Alpha blending)doc")
+        .value("ADDITIVE", whiteout::mdx::Layer::FilterMode::Additive, R"doc(Additive blending)doc")
+        .value("ADD_ALPHA", whiteout::mdx::Layer::FilterMode::AddAlpha, R"doc(Additive alpha blending)doc")
+        .value("MODULATE", whiteout::mdx::Layer::FilterMode::Modulate, R"doc(Modulate (multiply) blending)doc")
+        .value("MODULATE2X", whiteout::mdx::Layer::FilterMode::Modulate2x, R"doc(Modulate 2x (brighten))doc")
         .value("COUNT", whiteout::mdx::Layer::FilterMode::Count)
     ;
 
@@ -248,17 +252,17 @@ void bind_mdx(py::module_& m) {
         .value("IMGUI", whiteout::mdx::Layer::ShaderType::Imgui)
     ;
 
-    py::enum_<whiteout::mdx::Layer::ShadingFlag>(m, "LayerShadingFlag")
+    py::enum_<whiteout::mdx::Layer::ShadingFlag>(m, "LayerShadingFlag", R"doc(Shader and rendering flags)doc")
         .value("NONE", whiteout::mdx::Layer::ShadingFlag::None)
-        .value("UNSHADED", whiteout::mdx::Layer::ShadingFlag::Unshaded)
-        .value("SPHERE_ENV_MAP", whiteout::mdx::Layer::ShadingFlag::SphereEnvMap)
-        .value("WRAP_WIDTH", whiteout::mdx::Layer::ShadingFlag::WrapWidth)
-        .value("WRAP_HEIGHT", whiteout::mdx::Layer::ShadingFlag::WrapHeight)
-        .value("TWO_SIDED", whiteout::mdx::Layer::ShadingFlag::TwoSided)
-        .value("UNFOGGED", whiteout::mdx::Layer::ShadingFlag::Unfogged)
-        .value("NO_DEPTH_TEST", whiteout::mdx::Layer::ShadingFlag::NoDepthTest)
-        .value("NO_DEPTH_SET", whiteout::mdx::Layer::ShadingFlag::NoDepthSet)
-        .value("UNLIT", whiteout::mdx::Layer::ShadingFlag::Unlit)
+        .value("UNSHADED", whiteout::mdx::Layer::ShadingFlag::Unshaded, R"doc(Not affected by lighting)doc")
+        .value("SPHERE_ENV_MAP", whiteout::mdx::Layer::ShadingFlag::SphereEnvMap, R"doc(Spherical environment mapping)doc")
+        .value("WRAP_WIDTH", whiteout::mdx::Layer::ShadingFlag::WrapWidth, R"doc(Texture U-wrap)doc")
+        .value("WRAP_HEIGHT", whiteout::mdx::Layer::ShadingFlag::WrapHeight, R"doc(Texture V-wrap)doc")
+        .value("TWO_SIDED", whiteout::mdx::Layer::ShadingFlag::TwoSided, R"doc(Render both sides of polygons)doc")
+        .value("UNFOGGED", whiteout::mdx::Layer::ShadingFlag::Unfogged, R"doc(Not affected by fog)doc")
+        .value("NO_DEPTH_TEST", whiteout::mdx::Layer::ShadingFlag::NoDepthTest, R"doc(Disable depth testing)doc")
+        .value("NO_DEPTH_SET", whiteout::mdx::Layer::ShadingFlag::NoDepthSet, R"doc(Don't write to depth buffer)doc")
+        .value("UNLIT", whiteout::mdx::Layer::ShadingFlag::Unlit, R"doc(Reforged: bypass lighting pipeline)doc")
     ;
 
     py::enum_<whiteout::mdx::Layer::SlotType>(m, "LayerSlotType")
@@ -271,27 +275,27 @@ void bind_mdx(py::module_& m) {
         .value("UNKNOWN", whiteout::mdx::Layer::SlotType::Unknown)
     ;
 
-    py::enum_<whiteout::mdx::Material::Flag>(m, "MaterialFlag")
+    py::enum_<whiteout::mdx::Material::Flag>(m, "MaterialFlag", R"doc(Material-level flags)doc")
         .value("NONE", whiteout::mdx::Material::Flag::None)
-        .value("CONSTANT_COLOR", whiteout::mdx::Material::Flag::ConstantColor)
-        .value("TWO_SIDED", whiteout::mdx::Material::Flag::TwoSided)
-        .value("UNFOGGED", whiteout::mdx::Material::Flag::Unfogged)
-        .value("SORT_PRIMS_NEAR_Z", whiteout::mdx::Material::Flag::SortPrimsNearZ)
-        .value("SORT_PRIMS_FAR_Z", whiteout::mdx::Material::Flag::SortPrimsFarZ)
-        .value("SORT_PRIMITIVES", whiteout::mdx::Material::Flag::SortPrimitives)
-        .value("FULL_RESOLUTION", whiteout::mdx::Material::Flag::FullResolution)
+        .value("CONSTANT_COLOR", whiteout::mdx::Material::Flag::ConstantColor, R"doc(Use constant color (no per-vertex tinting))doc")
+        .value("TWO_SIDED", whiteout::mdx::Material::Flag::TwoSided, R"doc(Render both sides of polygons)doc")
+        .value("UNFOGGED", whiteout::mdx::Material::Flag::Unfogged, R"doc(Not affected by fog)doc")
+        .value("SORT_PRIMS_NEAR_Z", whiteout::mdx::Material::Flag::SortPrimsNearZ, R"doc(Sort by near-Z)doc")
+        .value("SORT_PRIMS_FAR_Z", whiteout::mdx::Material::Flag::SortPrimsFarZ, R"doc(Sort by far-Z; alias: SortPrimitives)doc")
+        .value("SORT_PRIMITIVES", whiteout::mdx::Material::Flag::SortPrimitives, R"doc(Legacy alias for SortPrimsFarZ (HiveWorkshop name))doc")
+        .value("FULL_RESOLUTION", whiteout::mdx::Material::Flag::FullResolution, R"doc(Force full-resolution textures)doc")
     ;
 
-    py::enum_<whiteout::mdx::GeosetAnimation::Flag>(m, "GeosetAnimationFlag")
+    py::enum_<whiteout::mdx::GeosetAnimation::Flag>(m, "GeosetAnimationFlag", R"doc(Geoset animation flags)doc")
         .value("NONE", whiteout::mdx::GeosetAnimation::Flag::None)
-        .value("DROP_SHADOW", whiteout::mdx::GeosetAnimation::Flag::DropShadow)
-        .value("COLOR", whiteout::mdx::GeosetAnimation::Flag::Color)
+        .value("DROP_SHADOW", whiteout::mdx::GeosetAnimation::Flag::DropShadow, R"doc(Geoset casts a drop shadow)doc")
+        .value("COLOR", whiteout::mdx::GeosetAnimation::Flag::Color, R"doc(Use the per-geoset color/alpha values (else inherit))doc")
     ;
 
-    py::enum_<whiteout::mdx::Light::LightType>(m, "LightType")
-        .value("OMNI", whiteout::mdx::Light::LightType::Omni)
-        .value("DIRECTIONAL", whiteout::mdx::Light::LightType::Directional)
-        .value("AMBIENT", whiteout::mdx::Light::LightType::Ambient)
+    py::enum_<whiteout::mdx::Light::LightType>(m, "LightType", R"doc(Type of light source)doc")
+        .value("OMNI", whiteout::mdx::Light::LightType::Omni, R"doc(Point light (radiates in all directions))doc")
+        .value("DIRECTIONAL", whiteout::mdx::Light::LightType::Directional, R"doc(Directional light (like sunlight))doc")
+        .value("AMBIENT", whiteout::mdx::Light::LightType::Ambient, R"doc(Ambient light (affects everything equally))doc")
     ;
 
     py::enum_<whiteout::mdx::CollisionShape::ShapeType>(m, "CollisionShapeShapeType")
@@ -303,12 +307,33 @@ void bind_mdx(py::module_& m) {
 
     py::class_<whiteout::Vector2f>(m, "Vector2f")
         .def(py::init<>())
+        .def(py::init([](whiteout::f32 x, whiteout::f32 y) {
+            return whiteout::Vector2f{x, y};
+        }), py::arg("x"), py::arg("y"))
+        .def("__repr__", [](const whiteout::Vector2f& self) {
+            std::ostringstream oss;
+            oss << "Vector2f(";
+            oss << "x=" << self.x << ", ";
+            oss << "y=" << self.y << ")";
+            return oss.str();
+        })
         .def_readwrite("x", &whiteout::Vector2f::x)
         .def_readwrite("y", &whiteout::Vector2f::y)
     ;
 
     py::class_<whiteout::Vector3f>(m, "Vector3f")
         .def(py::init<>())
+        .def(py::init([](whiteout::f32 x, whiteout::f32 y, whiteout::f32 z) {
+            return whiteout::Vector3f{x, y, z};
+        }), py::arg("x"), py::arg("y"), py::arg("z"))
+        .def("__repr__", [](const whiteout::Vector3f& self) {
+            std::ostringstream oss;
+            oss << "Vector3f(";
+            oss << "x=" << self.x << ", ";
+            oss << "y=" << self.y << ", ";
+            oss << "z=" << self.z << ")";
+            return oss.str();
+        })
         .def_readwrite("x", &whiteout::Vector3f::x)
         .def_readwrite("y", &whiteout::Vector3f::y)
         .def_readwrite("z", &whiteout::Vector3f::z)
@@ -316,6 +341,18 @@ void bind_mdx(py::module_& m) {
 
     py::class_<whiteout::Vector4f>(m, "Vector4f")
         .def(py::init<>())
+        .def(py::init([](whiteout::f32 x, whiteout::f32 y, whiteout::f32 z, whiteout::f32 w) {
+            return whiteout::Vector4f{x, y, z, w};
+        }), py::arg("x"), py::arg("y"), py::arg("z"), py::arg("w"))
+        .def("__repr__", [](const whiteout::Vector4f& self) {
+            std::ostringstream oss;
+            oss << "Vector4f(";
+            oss << "x=" << self.x << ", ";
+            oss << "y=" << self.y << ", ";
+            oss << "z=" << self.z << ", ";
+            oss << "w=" << self.w << ")";
+            return oss.str();
+        })
         .def_readwrite("x", &whiteout::Vector4f::x)
         .def_readwrite("y", &whiteout::Vector4f::y)
         .def_readwrite("z", &whiteout::Vector4f::z)
@@ -324,6 +361,18 @@ void bind_mdx(py::module_& m) {
 
     py::class_<whiteout::Quaternion>(m, "Quaternion")
         .def(py::init<>())
+        .def(py::init([](whiteout::f32 x, whiteout::f32 y, whiteout::f32 z, whiteout::f32 w) {
+            return whiteout::Quaternion{x, y, z, w};
+        }), py::arg("x"), py::arg("y"), py::arg("z"), py::arg("w"))
+        .def("__repr__", [](const whiteout::Quaternion& self) {
+            std::ostringstream oss;
+            oss << "Quaternion(";
+            oss << "x=" << self.x << ", ";
+            oss << "y=" << self.y << ", ";
+            oss << "z=" << self.z << ", ";
+            oss << "w=" << self.w << ")";
+            return oss.str();
+        })
         .def_readwrite("x", &whiteout::Quaternion::x)
         .def_readwrite("y", &whiteout::Quaternion::y)
         .def_readwrite("z", &whiteout::Quaternion::z)
@@ -342,261 +391,301 @@ void bind_mdx(py::module_& m) {
     bindTrack<whiteout::Quaternion>(m, "TrackQuaternion");
     bindTrack<whiteout::Vector3f>(m, "TrackVector3f");
 
-    py::class_<whiteout::mdx::Model>(m, "Model")
+    py::class_<whiteout::mdx::Model>(m, "Model", R"doc(Complete MDX model file structure
+
+This structure represents an entire MDX model, including all geometry, materials, animations, and metadata. It can represent models from Warcraft III Classic (version 800) through Reforged (version 1200).
+
+The structure is organized into chunks, each containing a specific type of data. Not all chunks are required - optional chunks can have empty vectors.)doc")
         .def(py::init<>())
-        .def_readwrite("version", &whiteout::mdx::Model::version)
-        .def_readwrite("model_name", &whiteout::mdx::Model::modelName)
-        .def_readwrite("animation_file_name", &whiteout::mdx::Model::animationFileName)
-        .def_readwrite("model_extent", &whiteout::mdx::Model::modelExtent)
-        .def_readwrite("blend_time", &whiteout::mdx::Model::blendTime)
-        .def_readwrite("global_sequences", &whiteout::mdx::Model::globalSequences)
-        .def_readwrite("sequences", &whiteout::mdx::Model::sequences)
-        .def_readwrite("textures", &whiteout::mdx::Model::textures)
-        .def_readwrite("sounds", &whiteout::mdx::Model::sounds)
-        .def_readwrite("sound_emitters", &whiteout::mdx::Model::soundEmitters)
-        .def_readwrite("materials", &whiteout::mdx::Model::materials)
-        .def_readwrite("texture_animations", &whiteout::mdx::Model::textureAnimations)
-        .def_readwrite("geosets", &whiteout::mdx::Model::geosets)
-        .def_readwrite("geoset_animations", &whiteout::mdx::Model::geosetAnimations)
-        .def_readwrite("bones", &whiteout::mdx::Model::bones)
-        .def_readwrite("helpers", &whiteout::mdx::Model::helpers)
-        .def_readwrite("attachments", &whiteout::mdx::Model::attachments)
-        .def_readwrite("pivot_points", &whiteout::mdx::Model::pivotPoints)
-        .def_readwrite("lights", &whiteout::mdx::Model::lights)
-        .def_readwrite("particle_emitters", &whiteout::mdx::Model::particleEmitters)
-        .def_readwrite("particle_emitters2", &whiteout::mdx::Model::particleEmitters2)
-        .def_readwrite("ribbon_emitters", &whiteout::mdx::Model::ribbonEmitters)
-        .def_readwrite("corn_emitters", &whiteout::mdx::Model::cornEmitters)
-        .def_readwrite("event_objects", &whiteout::mdx::Model::eventObjects)
-        .def_readwrite("cameras", &whiteout::mdx::Model::cameras)
-        .def_readwrite("collision_shapes", &whiteout::mdx::Model::collisionShapes)
-        .def_readwrite("face_effects", &whiteout::mdx::Model::faceEffects)
+        .def_readwrite("version", &whiteout::mdx::Model::version, R"doc(MDX version: 800 (Classic), 900, 1000, 1100, 1200 (Reforged))doc")
+        .def_readwrite("model_name", &whiteout::mdx::Model::modelName, R"doc(Name of the model)doc")
+        .def_readwrite("animation_file_name", &whiteout::mdx::Model::animationFileName, R"doc(Path to external animation file (rarely used))doc")
+        .def_readwrite("model_extent", &whiteout::mdx::Model::modelExtent, R"doc(Bounding volume for the entire model)doc")
+        .def_readwrite("blend_time", &whiteout::mdx::Model::blendTime, R"doc(Time in milliseconds to blend between animations)doc")
+        .def_readwrite("global_sequences", &whiteout::mdx::Model::globalSequences, R"doc(Global looping animation durations)doc")
+        .def_readwrite("sequences", &whiteout::mdx::Model::sequences, R"doc(Named animation sequences)doc")
+        .def_readwrite("textures", &whiteout::mdx::Model::textures, R"doc(Texture paths and settings)doc")
+        .def_readwrite("sounds", &whiteout::mdx::Model::sounds, R"doc(Sounds (deprecated))doc")
+        .def_readwrite("sound_emitters", &whiteout::mdx::Model::soundEmitters, R"doc(Sound emitters (deprecated))doc")
+        .def_readwrite("materials", &whiteout::mdx::Model::materials, R"doc(Material definitions)doc")
+        .def_readwrite("texture_animations", &whiteout::mdx::Model::textureAnimations, R"doc(UV animation data)doc")
+        .def_readwrite("geosets", &whiteout::mdx::Model::geosets, R"doc(Mesh geometry)doc")
+        .def_readwrite("geoset_animations", &whiteout::mdx::Model::geosetAnimations, R"doc(Mesh visibility/color animation)doc")
+        .def_readwrite("bones", &whiteout::mdx::Model::bones, R"doc(Skeleton bones)doc")
+        .def_readwrite("helpers", &whiteout::mdx::Model::helpers, R"doc(Helper/attachment nodes)doc")
+        .def_readwrite("attachments", &whiteout::mdx::Model::attachments, R"doc(Equipment attachment points)doc")
+        .def_readwrite("pivot_points", &whiteout::mdx::Model::pivotPoints, R"doc(Pivot points for nodes)doc")
+        .def_readwrite("lights", &whiteout::mdx::Model::lights, R"doc(Light sources)doc")
+        .def_readwrite("particle_emitters", &whiteout::mdx::Model::particleEmitters, R"doc(Particle emitters v1)doc")
+        .def_readwrite("particle_emitters2", &whiteout::mdx::Model::particleEmitters2, R"doc(Particle emitters v2)doc")
+        .def_readwrite("ribbon_emitters", &whiteout::mdx::Model::ribbonEmitters, R"doc(Ribbon trail effects)doc")
+        .def_readwrite("corn_emitters", &whiteout::mdx::Model::cornEmitters, R"doc(PopcornFX emitters (Reforged))doc")
+        .def_readwrite("event_objects", &whiteout::mdx::Model::eventObjects, R"doc(Animation event triggers)doc")
+        .def_readwrite("cameras", &whiteout::mdx::Model::cameras, R"doc(Camera definitions)doc")
+        .def_readwrite("collision_shapes", &whiteout::mdx::Model::collisionShapes, R"doc(Collision geometry)doc")
+        .def_readwrite("face_effects", &whiteout::mdx::Model::faceEffects, R"doc(Facial effects (Reforged))doc")
     ;
 
-    py::class_<whiteout::mdx::Sequence>(m, "Sequence")
+    py::class_<whiteout::mdx::Sequence>(m, "Sequence", R"doc(Animation sequence definition
+
+Sequences define named animation clips with specific frame ranges. Examples: "Stand", "Walk", "Attack", "Death")doc")
         .def(py::init<>())
-        .def_readwrite("name", &whiteout::mdx::Sequence::name)
-        .def_readwrite("interval_start", &whiteout::mdx::Sequence::intervalStart)
-        .def_readwrite("interval_end", &whiteout::mdx::Sequence::intervalEnd)
-        .def_readwrite("move_speed", &whiteout::mdx::Sequence::moveSpeed)
-        .def_readwrite("flags", &whiteout::mdx::Sequence::flags)
-        .def_readwrite("rarity", &whiteout::mdx::Sequence::rarity)
-        .def_readwrite("sync_point", &whiteout::mdx::Sequence::syncPoint)
-        .def_readwrite("extent", &whiteout::mdx::Sequence::extent)
+        .def_readwrite("name", &whiteout::mdx::Sequence::name, R"doc(Sequence name (e.g., "Stand", "Walk"))doc")
+        .def_readwrite("interval_start", &whiteout::mdx::Sequence::intervalStart, R"doc(Starting frame number)doc")
+        .def_readwrite("interval_end", &whiteout::mdx::Sequence::intervalEnd, R"doc(Ending frame number (exclusive))doc")
+        .def_readwrite("move_speed", &whiteout::mdx::Sequence::moveSpeed, R"doc(Movement speed during this animation)doc")
+        .def_readwrite("flags", &whiteout::mdx::Sequence::flags, R"doc(Playback flags)doc")
+        .def_readwrite("rarity", &whiteout::mdx::Sequence::rarity, R"doc(Rarity factor for variation sequences)doc")
+        .def_readwrite("sync_point", &whiteout::mdx::Sequence::syncPoint, R"doc(Sync point for blending)doc")
+        .def_readwrite("extent", &whiteout::mdx::Sequence::extent, R"doc(Bounding volume for this sequence)doc")
     ;
 
-    py::class_<whiteout::mdx::Texture>(m, "Texture")
+    py::class_<whiteout::mdx::Texture>(m, "Texture", R"doc(Texture definition
+
+Defines a texture file path and its properties.)doc")
         .def(py::init<>())
         .def_readwrite("replaceable_id", &whiteout::mdx::Texture::replaceableId)
-        .def_readwrite("file_name", &whiteout::mdx::Texture::fileName)
-        .def_readwrite("flags", &whiteout::mdx::Texture::flags)
+        .def_readwrite("file_name", &whiteout::mdx::Texture::fileName, R"doc(Path to texture file (BLP, DDS or TGA))doc")
+        .def_readwrite("flags", &whiteout::mdx::Texture::flags, R"doc(Texture wrap flags)doc")
     ;
 
-    py::class_<whiteout::mdx::Sound>(m, "Sound")
+    py::class_<whiteout::mdx::Sound>(m, "Sound", R"doc(Sound definition (deprecated, not used in shipped models)
+
+Sounds define audio file paths and playback properties. While readers for this chunk exist in the internal game code, no known shipped model contains SNDS data.
+
+Binary layout: 56 bytes per entry)doc")
         .def(py::init<>())
-        .def_readwrite("sound_file", &whiteout::mdx::Sound::soundFile)
-        .def_readwrite("maximum_distance", &whiteout::mdx::Sound::maximumDistance)
-        .def_readwrite("minimum_distance", &whiteout::mdx::Sound::minimumDistance)
-        .def_readwrite("sound_channel", &whiteout::mdx::Sound::soundChannel)
+        .def_readwrite("sound_file", &whiteout::mdx::Sound::soundFile, R"doc(Path to sound file (44 bytes, null-terminated))doc")
+        .def_readwrite("maximum_distance", &whiteout::mdx::Sound::maximumDistance, R"doc(Maximum audible distance)doc")
+        .def_readwrite("minimum_distance", &whiteout::mdx::Sound::minimumDistance, R"doc(Minimum distance (full volume))doc")
+        .def_readwrite("sound_channel", &whiteout::mdx::Sound::soundChannel, R"doc(Sound channel identifier)doc")
     ;
 
-    py::class_<whiteout::mdx::Node>(m, "Node")
+    py::class_<whiteout::mdx::Node>(m, "Node", R"doc(Base node in the model hierarchy
+
+Nodes form the skeleton and attachment system of the model. Each node can have a parent creating a transformation hierarchy. Nodes can be: - Bones (for skeletal animation) - Helpers (attachment points) - Lights - Particle emitters - And other special objects
+
+Nodes contain transformation animation tracks (translation, rotation, scaling).)doc")
         .def(py::init<>())
-        .def_readwrite("name", &whiteout::mdx::Node::name)
-        .def_readwrite("object_id", &whiteout::mdx::Node::objectId)
-        .def_readwrite("parent_id", &whiteout::mdx::Node::parentId)
-        .def_readwrite("flags", &whiteout::mdx::Node::flags)
-        .def_readwrite("type", &whiteout::mdx::Node::type)
-        .def_readwrite("node_family_id", &whiteout::mdx::Node::nodeFamilyId)
-        .def_readwrite("translation_tracks", &whiteout::mdx::Node::translationTracks)
-        .def_readwrite("rotation_tracks", &whiteout::mdx::Node::rotationTracks)
-        .def_readwrite("scaling_tracks", &whiteout::mdx::Node::scalingTracks)
+        .def_readwrite("name", &whiteout::mdx::Node::name, R"doc(Node name (for debugging/reference))doc")
+        .def_readwrite("object_id", &whiteout::mdx::Node::objectId, R"doc(Unique ID for this node)doc")
+        .def_readwrite("parent_id", &whiteout::mdx::Node::parentId, R"doc(Parent node ID or NO_PARENT)doc")
+        .def_readwrite("flags", &whiteout::mdx::Node::flags, R"doc(Combination of NodeFlag values)doc")
+        .def_readwrite("type", &whiteout::mdx::Node::type, R"doc(Type of this node)doc")
+        .def_readwrite("node_family_id", &whiteout::mdx::Node::nodeFamilyId, R"doc(Used to link related nodes of the same type)doc")
+        .def_readwrite("translation_tracks", &whiteout::mdx::Node::translationTracks, R"doc(Position animation)doc")
+        .def_readwrite("rotation_tracks", &whiteout::mdx::Node::rotationTracks, R"doc(Rotation animation (quaternion XYZW))doc")
+        .def_readwrite("scaling_tracks", &whiteout::mdx::Node::scalingTracks, R"doc(Scale animation)doc")
     ;
 
-    py::class_<whiteout::mdx::SoundEmitter>(m, "SoundEmitter")
+    py::class_<whiteout::mdx::SoundEmitter>(m, "SoundEmitter", R"doc(Sound emitter attached to the model hierarchy (deprecated)
+
+Sound emitters are positioned nodes that can emit sounds at specific animation frames via KSEK tracks. While readers exist in the internal game code, no known shipped model contains SNEM data.)doc")
         .def(py::init<>())
-        .def_readwrite("node", &whiteout::mdx::SoundEmitter::node)
-        .def_readwrite("sound_track", &whiteout::mdx::SoundEmitter::soundTrack)
+        .def_readwrite("node", &whiteout::mdx::SoundEmitter::node, R"doc(Base node data with transform)doc")
+        .def_readwrite("sound_track", &whiteout::mdx::SoundEmitter::soundTrack, R"doc(KSEK - sound event track (u32 values))doc")
     ;
 
-    py::class_<whiteout::mdx::Layer>(m, "Layer")
+    py::class_<whiteout::mdx::Layer>(m, "Layer", R"doc(Material rendering layer
+
+Materials can have multiple layers, each with its own texture and blending mode. Layers control how textures are combined and rendered.)doc")
         .def(py::init<>())
-        .def_readwrite("filter_mode", &whiteout::mdx::Layer::filterMode)
-        .def_readwrite("shading_flags", &whiteout::mdx::Layer::shadingFlags)
-        .def_readwrite("texture_id", &whiteout::mdx::Layer::textureId)
-        .def_readwrite("texture_animation_id", &whiteout::mdx::Layer::textureAnimationId)
-        .def_readwrite("coord_id", &whiteout::mdx::Layer::coordId)
-        .def_readwrite("alpha", &whiteout::mdx::Layer::alpha)
-        .def_readwrite("emissive_gain", &whiteout::mdx::Layer::emissiveGain)
-        .def_readwrite("fresnel_color", &whiteout::mdx::Layer::fresnelColor)
-        .def_readwrite("fresnel_opacity", &whiteout::mdx::Layer::fresnelOpacity)
-        .def_readwrite("fresnel_team_color", &whiteout::mdx::Layer::fresnelTeamColor)
-        .def_readwrite("shader", &whiteout::mdx::Layer::shader)
-        .def_readwrite("is_hd", &whiteout::mdx::Layer::is_hd)
-        .def_readwrite("sub_textures", &whiteout::mdx::Layer::subTextures)
-        .def_readwrite("texture_id_tracks", &whiteout::mdx::Layer::textureIdTracks)
-        .def_readwrite("alpha_tracks", &whiteout::mdx::Layer::alphaTracks)
-        .def_readwrite("emissive_gain_tracks", &whiteout::mdx::Layer::emissiveGainTracks)
-        .def_readwrite("fresnel_color_tracks", &whiteout::mdx::Layer::fresnelColorTracks)
-        .def_readwrite("fresnel_alpha_tracks", &whiteout::mdx::Layer::fresnelAlphaTracks)
-        .def_readwrite("fresnel_team_color_tracks", &whiteout::mdx::Layer::fresnelTeamColorTracks)
+        .def_readwrite("filter_mode", &whiteout::mdx::Layer::filterMode, R"doc(Blending mode)doc")
+        .def_readwrite("shading_flags", &whiteout::mdx::Layer::shadingFlags, R"doc(Rendering flags)doc")
+        .def_readwrite("texture_id", &whiteout::mdx::Layer::textureId, R"doc(Texture index (versions 800-1100))doc")
+        .def_readwrite("texture_animation_id", &whiteout::mdx::Layer::textureAnimationId, R"doc(Texture animation index)doc")
+        .def_readwrite("coord_id", &whiteout::mdx::Layer::coordId, R"doc(Texture coordinate set index)doc")
+        .def_readwrite("alpha", &whiteout::mdx::Layer::alpha, R"doc(Layer opacity)doc")
+        .def_readwrite("emissive_gain", &whiteout::mdx::Layer::emissiveGain, R"doc(Emissive light intensity)doc")
+        .def_readwrite("fresnel_color", &whiteout::mdx::Layer::fresnelColor, R"doc(Fresnel effect color)doc")
+        .def_readwrite("fresnel_opacity", &whiteout::mdx::Layer::fresnelOpacity, R"doc(Fresnel effect opacity)doc")
+        .def_readwrite("fresnel_team_color", &whiteout::mdx::Layer::fresnelTeamColor, R"doc(Fresnel team color factor)doc")
+        .def_readwrite("shader", &whiteout::mdx::Layer::shader, R"doc(Shader to use for this layer)doc")
+        .def_readwrite("is_hd", &whiteout::mdx::Layer::is_hd, R"doc(True if using Reforged HD shading)doc")
+        .def_readwrite("sub_textures", &whiteout::mdx::Layer::subTextures, R"doc(Multi-texture support (version 1200+))doc")
+        .def_readwrite("texture_id_tracks", &whiteout::mdx::Layer::textureIdTracks, R"doc(Texture ID animation (versions 800-1100))doc")
+        .def_readwrite("alpha_tracks", &whiteout::mdx::Layer::alphaTracks, R"doc(Alpha animation)doc")
+        .def_readwrite("emissive_gain_tracks", &whiteout::mdx::Layer::emissiveGainTracks, R"doc(Emissive gain animation)doc")
+        .def_readwrite("fresnel_color_tracks", &whiteout::mdx::Layer::fresnelColorTracks, R"doc(Fresnel color animation)doc")
+        .def_readwrite("fresnel_alpha_tracks", &whiteout::mdx::Layer::fresnelAlphaTracks, R"doc(Fresnel alpha animation)doc")
+        .def_readwrite("fresnel_team_color_tracks", &whiteout::mdx::Layer::fresnelTeamColorTracks, R"doc(Fresnel team color animation)doc")
     ;
 
-    py::class_<whiteout::mdx::Layer::SubTexture>(m, "LayerSubTexture")
+    py::class_<whiteout::mdx::Layer::SubTexture>(m, "LayerSubTexture", R"doc(Sub-texture definition (Reforged multi-texture))doc")
         .def(py::init<>())
-        .def_readwrite("texture_id", &whiteout::mdx::Layer::SubTexture::textureId)
-        .def_readwrite("slot", &whiteout::mdx::Layer::SubTexture::slot)
-        .def_readwrite("tracks", &whiteout::mdx::Layer::SubTexture::tracks)
+        .def_readwrite("texture_id", &whiteout::mdx::Layer::SubTexture::textureId, R"doc(Index into texture array)doc")
+        .def_readwrite("slot", &whiteout::mdx::Layer::SubTexture::slot, R"doc(Texture slot number)doc")
+        .def_readwrite("tracks", &whiteout::mdx::Layer::SubTexture::tracks, R"doc(Texture ID animation)doc")
     ;
 
-    py::class_<whiteout::mdx::Material>(m, "Material")
+    py::class_<whiteout::mdx::Material>(m, "Material", R"doc(Material definition with rendering properties
+
+Materials define how surfaces are rendered. Each material contains one or more layers that specify textures and blending modes.)doc")
         .def(py::init<>())
-        .def_readwrite("priority_plane", &whiteout::mdx::Material::priorityPlane)
-        .def_readwrite("flags", &whiteout::mdx::Material::flags)
-        .def_readwrite("shader", &whiteout::mdx::Material::shader)
-        .def_readwrite("layers", &whiteout::mdx::Material::layers)
+        .def_readwrite("priority_plane", &whiteout::mdx::Material::priorityPlane, R"doc(Rendering priority (higher = render last))doc")
+        .def_readwrite("flags", &whiteout::mdx::Material::flags, R"doc(Material flags)doc")
+        .def_readwrite("shader", &whiteout::mdx::Material::shader, R"doc(Shader name (Reforged))doc")
+        .def_readwrite("layers", &whiteout::mdx::Material::layers, R"doc(Rendering layers)doc")
     ;
 
-    py::class_<whiteout::mdx::TextureAnimation>(m, "TextureAnimation")
+    py::class_<whiteout::mdx::TextureAnimation>(m, "TextureAnimation", R"doc(UV coordinate animation
+
+Texture animations transform UV coordinates over time, creating effects like scrolling water, rotating symbols, etc.)doc")
         .def(py::init<>())
-        .def_readwrite("translation_tracks", &whiteout::mdx::TextureAnimation::translationTracks)
-        .def_readwrite("rotation_tracks", &whiteout::mdx::TextureAnimation::rotationTracks)
-        .def_readwrite("scaling_tracks", &whiteout::mdx::TextureAnimation::scalingTracks)
+        .def_readwrite("translation_tracks", &whiteout::mdx::TextureAnimation::translationTracks, R"doc(UV translation animation)doc")
+        .def_readwrite("rotation_tracks", &whiteout::mdx::TextureAnimation::rotationTracks, R"doc(UV rotation animation (quaternion XYZW))doc")
+        .def_readwrite("scaling_tracks", &whiteout::mdx::TextureAnimation::scalingTracks, R"doc(UV scaling animation)doc")
     ;
 
-    py::class_<whiteout::mdx::Geoset>(m, "Geoset")
+    py::class_<whiteout::mdx::Geoset>(m, "Geoset", R"doc(Mesh geometry
+
+A geoset is a complete mesh with vertices, normals, faces, and skinning data. Models can have multiple geosets with different materials or LOD levels.)doc")
         .def(py::init<>())
-        .def_readwrite("vertex_positions", &whiteout::mdx::Geoset::vertexPositions)
-        .def_readwrite("vertex_normals", &whiteout::mdx::Geoset::vertexNormals)
-        .def_readwrite("face_type_groups", &whiteout::mdx::Geoset::faceTypeGroups)
-        .def_readwrite("face_groups", &whiteout::mdx::Geoset::faceGroups)
-        .def_readwrite("faces", &whiteout::mdx::Geoset::faces)
-        .def_readwrite("vertex_groups", &whiteout::mdx::Geoset::vertexGroups)
+        .def_readwrite("vertex_positions", &whiteout::mdx::Geoset::vertexPositions, R"doc(Vertex positions)doc")
+        .def_readwrite("vertex_normals", &whiteout::mdx::Geoset::vertexNormals, R"doc(Vertex normals)doc")
+        .def_readwrite("face_type_groups", &whiteout::mdx::Geoset::faceTypeGroups, R"doc(Face type groups (4 = triangles))doc")
+        .def_readwrite("face_groups", &whiteout::mdx::Geoset::faceGroups, R"doc(Number of indices per group)doc")
+        .def_readwrite("faces", &whiteout::mdx::Geoset::faces, R"doc(Vertex indices (triangles))doc")
+        .def_readwrite("vertex_groups", &whiteout::mdx::Geoset::vertexGroups, R"doc(Bone groups per vertex)doc")
         .def("vertex_groups_view",
             [](const whiteout::mdx::Geoset& self) {
                 return py::memoryview::from_memory(
                     static_cast<const void*>(self.vertexGroups.data()),
                     static_cast<py::ssize_t>(self.vertexGroups.size()));
             })
-        .def_readwrite("matrix_groups", &whiteout::mdx::Geoset::matrixGroups)
-        .def_readwrite("matrix_indices", &whiteout::mdx::Geoset::matrixIndices)
-        .def_readwrite("material_id", &whiteout::mdx::Geoset::materialId)
-        .def_readwrite("selection_group", &whiteout::mdx::Geoset::selectionGroup)
-        .def_readwrite("selection_flags", &whiteout::mdx::Geoset::selectionFlags)
-        .def_readwrite("lod", &whiteout::mdx::Geoset::lod)
-        .def_readwrite("lod_name", &whiteout::mdx::Geoset::lodName)
-        .def_readwrite("extent", &whiteout::mdx::Geoset::extent)
-        .def_readwrite("sequence_extents", &whiteout::mdx::Geoset::sequenceExtents)
-        .def_readwrite("tangents", &whiteout::mdx::Geoset::tangents)
-        .def_readwrite("skin_data", &whiteout::mdx::Geoset::skinData)
+        .def_readwrite("matrix_groups", &whiteout::mdx::Geoset::matrixGroups, R"doc(Number of matrices per group)doc")
+        .def_readwrite("matrix_indices", &whiteout::mdx::Geoset::matrixIndices, R"doc(Bone indices)doc")
+        .def_readwrite("material_id", &whiteout::mdx::Geoset::materialId, R"doc(Material index)doc")
+        .def_readwrite("selection_group", &whiteout::mdx::Geoset::selectionGroup, R"doc(Selection group (for editor))doc")
+        .def_readwrite("selection_flags", &whiteout::mdx::Geoset::selectionFlags, R"doc(Selection flags)doc")
+        .def_readwrite("lod", &whiteout::mdx::Geoset::lod, R"doc(Level of detail index)doc")
+        .def_readwrite("lod_name", &whiteout::mdx::Geoset::lodName, R"doc(LOD name)doc")
+        .def_readwrite("extent", &whiteout::mdx::Geoset::extent, R"doc(Bounding volume)doc")
+        .def_readwrite("sequence_extents", &whiteout::mdx::Geoset::sequenceExtents, R"doc(Per-sequence bounding volumes)doc")
+        .def_readwrite("tangents", &whiteout::mdx::Geoset::tangents, R"doc(Tangent vectors (for normal mapping))doc")
+        .def_readwrite("skin_data", &whiteout::mdx::Geoset::skinData, R"doc(Bone indices and weights)doc")
         .def("skin_data_view",
             [](const whiteout::mdx::Geoset& self) {
                 return py::memoryview::from_memory(
                     static_cast<const void*>(self.skinData.data()),
                     static_cast<py::ssize_t>(self.skinData.size()));
             })
-        .def_readwrite("texture_coordinate_sets", &whiteout::mdx::Geoset::textureCoordinateSets)
+        .def_readwrite("texture_coordinate_sets", &whiteout::mdx::Geoset::textureCoordinateSets, R"doc(UV coordinates (multiple sets))doc")
     ;
 
-    py::class_<whiteout::mdx::GeosetAnimation>(m, "GeosetAnimation")
+    py::class_<whiteout::mdx::GeosetAnimation>(m, "GeosetAnimation", R"doc(Geoset visibility and color animation
+
+Geoset animations control the visibility and color tinting of meshes.)doc")
         .def(py::init<>())
-        .def_readwrite("alpha", &whiteout::mdx::GeosetAnimation::alpha)
-        .def_readwrite("flags", &whiteout::mdx::GeosetAnimation::flags)
-        .def_readwrite("color", &whiteout::mdx::GeosetAnimation::color)
-        .def_readwrite("geoset_id", &whiteout::mdx::GeosetAnimation::geosetId)
-        .def_readwrite("alpha_tracks", &whiteout::mdx::GeosetAnimation::alphaTracks)
-        .def_readwrite("color_tracks", &whiteout::mdx::GeosetAnimation::colorTracks)
+        .def_readwrite("alpha", &whiteout::mdx::GeosetAnimation::alpha, R"doc(Base alpha value)doc")
+        .def_readwrite("flags", &whiteout::mdx::GeosetAnimation::flags, R"doc(Animation flags)doc")
+        .def_readwrite("color", &whiteout::mdx::GeosetAnimation::color, R"doc(Base color tint)doc")
+        .def_readwrite("geoset_id", &whiteout::mdx::GeosetAnimation::geosetId, R"doc(Target geoset index)doc")
+        .def_readwrite("alpha_tracks", &whiteout::mdx::GeosetAnimation::alphaTracks, R"doc(Alpha animation)doc")
+        .def_readwrite("color_tracks", &whiteout::mdx::GeosetAnimation::colorTracks, R"doc(Color animation)doc")
     ;
 
-    py::class_<whiteout::mdx::Bone>(m, "Bone")
+    py::class_<whiteout::mdx::Bone>(m, "Bone", R"doc(Skeleton bone for skinned animation
+
+Bones  form the skeleton that deforms mesh geometry. Each bone is a node in the hierarchy and can affect one or more geosets.)doc")
         .def(py::init<>())
-        .def_readwrite("node", &whiteout::mdx::Bone::node)
-        .def_readwrite("geoset_id", &whiteout::mdx::Bone::geosetId)
-        .def_readwrite("geoset_animation_id", &whiteout::mdx::Bone::geosetAnimationId)
+        .def_readwrite("node", &whiteout::mdx::Bone::node, R"doc(Base node data with transform)doc")
+        .def_readwrite("geoset_id", &whiteout::mdx::Bone::geosetId, R"doc(Geoset this bone affects)doc")
+        .def_readwrite("geoset_animation_id", &whiteout::mdx::Bone::geosetAnimationId, R"doc(Geoset animation index)doc")
     ;
 
-    py::class_<whiteout::mdx::Light>(m, "Light")
+    py::class_<whiteout::mdx::Light>(m, "Light", R"doc(Light source
+
+Lights can be attached to bones to move with animations. They affect how the model is rendered in the game engine.)doc")
         .def(py::init<>())
-        .def_readwrite("node", &whiteout::mdx::Light::node)
-        .def_readwrite("type", &whiteout::mdx::Light::type)
-        .def_readwrite("attenuation_start", &whiteout::mdx::Light::attenuationStart)
-        .def_readwrite("attenuation_end", &whiteout::mdx::Light::attenuationEnd)
-        .def_readwrite("color", &whiteout::mdx::Light::color)
-        .def_readwrite("intensity", &whiteout::mdx::Light::intensity)
-        .def_readwrite("ambient_color", &whiteout::mdx::Light::ambientColor)
-        .def_readwrite("ambient_intensity", &whiteout::mdx::Light::ambientIntensity)
-        .def_readwrite("shadow_intensity", &whiteout::mdx::Light::shadowIntensity)
-        .def_readwrite("attenuation_start_tracks", &whiteout::mdx::Light::attenuationStartTracks)
-        .def_readwrite("attenuation_end_tracks", &whiteout::mdx::Light::attenuationEndTracks)
-        .def_readwrite("color_tracks", &whiteout::mdx::Light::colorTracks)
-        .def_readwrite("intensity_tracks", &whiteout::mdx::Light::intensityTracks)
-        .def_readwrite("ambient_intensity_tracks", &whiteout::mdx::Light::ambientIntensityTracks)
-        .def_readwrite("ambient_color_tracks", &whiteout::mdx::Light::ambientColorTracks)
-        .def_readwrite("visibility_tracks", &whiteout::mdx::Light::visibilityTracks)
-        .def_readwrite("shadow_intensity_tracks", &whiteout::mdx::Light::shadowIntensityTracks)
+        .def_readwrite("node", &whiteout::mdx::Light::node, R"doc(Base node data)doc")
+        .def_readwrite("type", &whiteout::mdx::Light::type, R"doc(Type of light)doc")
+        .def_readwrite("attenuation_start", &whiteout::mdx::Light::attenuationStart, R"doc(Distance where attenuation begins)doc")
+        .def_readwrite("attenuation_end", &whiteout::mdx::Light::attenuationEnd, R"doc(Distance where light reaches zero)doc")
+        .def_readwrite("color", &whiteout::mdx::Light::color, R"doc(Light color (RGB))doc")
+        .def_readwrite("intensity", &whiteout::mdx::Light::intensity, R"doc(Light intensity)doc")
+        .def_readwrite("ambient_color", &whiteout::mdx::Light::ambientColor, R"doc(Ambient light color)doc")
+        .def_readwrite("ambient_intensity", &whiteout::mdx::Light::ambientIntensity, R"doc(Ambient intensity)doc")
+        .def_readwrite("shadow_intensity", &whiteout::mdx::Light::shadowIntensity, R"doc(Shadow darkness (Reforged))doc")
+        .def_readwrite("attenuation_start_tracks", &whiteout::mdx::Light::attenuationStartTracks, R"doc(Attenuation start animation)doc")
+        .def_readwrite("attenuation_end_tracks", &whiteout::mdx::Light::attenuationEndTracks, R"doc(Attenuation end animation)doc")
+        .def_readwrite("color_tracks", &whiteout::mdx::Light::colorTracks, R"doc(Color animation)doc")
+        .def_readwrite("intensity_tracks", &whiteout::mdx::Light::intensityTracks, R"doc(Intensity animation)doc")
+        .def_readwrite("ambient_intensity_tracks", &whiteout::mdx::Light::ambientIntensityTracks, R"doc(Ambient intensity animation)doc")
+        .def_readwrite("ambient_color_tracks", &whiteout::mdx::Light::ambientColorTracks, R"doc(Ambient color animation)doc")
+        .def_readwrite("visibility_tracks", &whiteout::mdx::Light::visibilityTracks, R"doc(Visibility animation)doc")
+        .def_readwrite("shadow_intensity_tracks", &whiteout::mdx::Light::shadowIntensityTracks, R"doc(Shadow intensity animation (Reforged))doc")
     ;
 
-    py::class_<whiteout::mdx::Helper>(m, "Helper")
+    py::class_<whiteout::mdx::Helper>(m, "Helper", R"doc(Helper node (attachment point)
+
+Helpers are simple nodes used as attachment points for effects, weapons, or other objects. They don't render anything themselves.)doc")
         .def(py::init<>())
-        .def_readwrite("node", &whiteout::mdx::Helper::node)
+        .def_readwrite("node", &whiteout::mdx::Helper::node, R"doc(Base node data with transform)doc")
     ;
 
-    py::class_<whiteout::mdx::Attachment>(m, "Attachment")
+    py::class_<whiteout::mdx::Attachment>(m, "Attachment", R"doc(Attachment point for external models
+
+Attachments define points where other models (like weapons or shields) can be attached to this model.)doc")
         .def(py::init<>())
-        .def_readwrite("node", &whiteout::mdx::Attachment::node)
-        .def_readwrite("path", &whiteout::mdx::Attachment::path)
-        .def_readwrite("attachment_id", &whiteout::mdx::Attachment::attachmentId)
-        .def_readwrite("visibility_tracks", &whiteout::mdx::Attachment::visibilityTracks)
+        .def_readwrite("node", &whiteout::mdx::Attachment::node, R"doc(Base node data)doc")
+        .def_readwrite("path", &whiteout::mdx::Attachment::path, R"doc(Path to attached model)doc")
+        .def_readwrite("attachment_id", &whiteout::mdx::Attachment::attachmentId, R"doc(Attachment slot ID)doc")
+        .def_readwrite("visibility_tracks", &whiteout::mdx::Attachment::visibilityTracks, R"doc(Visibility animation)doc")
     ;
 
-    py::class_<whiteout::mdx::ParticleEmitter>(m, "ParticleEmitter")
+    py::class_<whiteout::mdx::ParticleEmitter>(m, "ParticleEmitter", R"doc(Particle emitter version 1 (uses external model)
+
+Legacy particle emitter that spawns copies of an external model file. Used for effects like footprints, blood splatter, etc.)doc")
         .def(py::init<>())
-        .def_readwrite("node", &whiteout::mdx::ParticleEmitter::node)
-        .def_readwrite("emission_rate", &whiteout::mdx::ParticleEmitter::emissionRate)
-        .def_readwrite("gravity", &whiteout::mdx::ParticleEmitter::gravity)
-        .def_readwrite("longitude", &whiteout::mdx::ParticleEmitter::longitude)
-        .def_readwrite("latitude", &whiteout::mdx::ParticleEmitter::latitude)
-        .def_readwrite("spawn_model_file_name", &whiteout::mdx::ParticleEmitter::spawnModelFileName)
-        .def_readwrite("lifespan", &whiteout::mdx::ParticleEmitter::lifespan)
-        .def_readwrite("initial_velocity", &whiteout::mdx::ParticleEmitter::initialVelocity)
-        .def_readwrite("emission_rate_tracks", &whiteout::mdx::ParticleEmitter::emissionRateTracks)
-        .def_readwrite("gravity_tracks", &whiteout::mdx::ParticleEmitter::gravityTracks)
-        .def_readwrite("longitude_tracks", &whiteout::mdx::ParticleEmitter::longitudeTracks)
-        .def_readwrite("latitude_tracks", &whiteout::mdx::ParticleEmitter::latitudeTracks)
-        .def_readwrite("lifespan_tracks", &whiteout::mdx::ParticleEmitter::lifespanTracks)
-        .def_readwrite("speed_tracks", &whiteout::mdx::ParticleEmitter::speedTracks)
-        .def_readwrite("visibility_tracks", &whiteout::mdx::ParticleEmitter::visibilityTracks)
+        .def_readwrite("node", &whiteout::mdx::ParticleEmitter::node, R"doc(Base node data)doc")
+        .def_readwrite("emission_rate", &whiteout::mdx::ParticleEmitter::emissionRate, R"doc(Particles per second)doc")
+        .def_readwrite("gravity", &whiteout::mdx::ParticleEmitter::gravity, R"doc(Gravity force)doc")
+        .def_readwrite("longitude", &whiteout::mdx::ParticleEmitter::longitude, R"doc(Emission longitude angle)doc")
+        .def_readwrite("latitude", &whiteout::mdx::ParticleEmitter::latitude, R"doc(Emission latitude angle)doc")
+        .def_readwrite("spawn_model_file_name", &whiteout::mdx::ParticleEmitter::spawnModelFileName, R"doc(Model to spawn as particles)doc")
+        .def_readwrite("lifespan", &whiteout::mdx::ParticleEmitter::lifespan, R"doc(Particle lifetime in seconds)doc")
+        .def_readwrite("initial_velocity", &whiteout::mdx::ParticleEmitter::initialVelocity, R"doc(Initial particle speed)doc")
+        .def_readwrite("emission_rate_tracks", &whiteout::mdx::ParticleEmitter::emissionRateTracks, R"doc(Emission rate animation)doc")
+        .def_readwrite("gravity_tracks", &whiteout::mdx::ParticleEmitter::gravityTracks, R"doc(Gravity animation)doc")
+        .def_readwrite("longitude_tracks", &whiteout::mdx::ParticleEmitter::longitudeTracks, R"doc(Longitude animation)doc")
+        .def_readwrite("latitude_tracks", &whiteout::mdx::ParticleEmitter::latitudeTracks, R"doc(Latitude animation)doc")
+        .def_readwrite("lifespan_tracks", &whiteout::mdx::ParticleEmitter::lifespanTracks, R"doc(Lifespan animation)doc")
+        .def_readwrite("speed_tracks", &whiteout::mdx::ParticleEmitter::speedTracks, R"doc(Speed animation)doc")
+        .def_readwrite("visibility_tracks", &whiteout::mdx::ParticleEmitter::visibilityTracks, R"doc(Visibility animation)doc")
     ;
 
-    py::class_<whiteout::mdx::ParticleEmitter2>(m, "ParticleEmitter2")
+    py::class_<whiteout::mdx::ParticleEmitter2>(m, "ParticleEmitter2", R"doc(Particle emitter version 2 (sprite-based)
+
+More advanced particle system that uses sprite textures. Supports various particle shapes, blending modes, and animation over the particle lifetime. Used for fire, smoke, magic effects, etc.)doc")
         .def(py::init<>())
-        .def_readwrite("node", &whiteout::mdx::ParticleEmitter2::node)
-        .def_readwrite("speed", &whiteout::mdx::ParticleEmitter2::speed)
-        .def_readwrite("variation", &whiteout::mdx::ParticleEmitter2::variation)
-        .def_readwrite("latitude", &whiteout::mdx::ParticleEmitter2::latitude)
-        .def_readwrite("gravity", &whiteout::mdx::ParticleEmitter2::gravity)
-        .def_readwrite("lifespan", &whiteout::mdx::ParticleEmitter2::lifespan)
-        .def_readwrite("emission_rate", &whiteout::mdx::ParticleEmitter2::emissionRate)
-        .def_readwrite("length", &whiteout::mdx::ParticleEmitter2::length)
-        .def_readwrite("width", &whiteout::mdx::ParticleEmitter2::width)
-        .def_readwrite("filter_mode", &whiteout::mdx::ParticleEmitter2::filterMode)
-        .def_readwrite("rows", &whiteout::mdx::ParticleEmitter2::rows)
-        .def_readwrite("columns", &whiteout::mdx::ParticleEmitter2::columns)
-        .def_readwrite("head_or_tail", &whiteout::mdx::ParticleEmitter2::headOrTail)
-        .def_readwrite("tail_length", &whiteout::mdx::ParticleEmitter2::tailLength)
-        .def_readwrite("time", &whiteout::mdx::ParticleEmitter2::time)
-        .def_readwrite("texture_id", &whiteout::mdx::ParticleEmitter2::textureId)
-        .def_readwrite("squirt", &whiteout::mdx::ParticleEmitter2::squirt)
-        .def_readwrite("priority_plane", &whiteout::mdx::ParticleEmitter2::priorityPlane)
-        .def_readwrite("replaceable_id", &whiteout::mdx::ParticleEmitter2::replaceableId)
-        .def_readwrite("speed_tracks", &whiteout::mdx::ParticleEmitter2::speedTracks)
-        .def_readwrite("variation_tracks", &whiteout::mdx::ParticleEmitter2::variationTracks)
-        .def_readwrite("latitude_tracks", &whiteout::mdx::ParticleEmitter2::latitudeTracks)
-        .def_readwrite("gravity_tracks", &whiteout::mdx::ParticleEmitter2::gravityTracks)
-        .def_readwrite("emission_rate_tracks", &whiteout::mdx::ParticleEmitter2::emissionRateTracks)
-        .def_readwrite("length_tracks", &whiteout::mdx::ParticleEmitter2::lengthTracks)
-        .def_readwrite("width_tracks", &whiteout::mdx::ParticleEmitter2::widthTracks)
-        .def_readwrite("visibility_tracks", &whiteout::mdx::ParticleEmitter2::visibilityTracks)
+        .def_readwrite("node", &whiteout::mdx::ParticleEmitter2::node, R"doc(Base node data)doc")
+        .def_readwrite("speed", &whiteout::mdx::ParticleEmitter2::speed, R"doc(Particle speed)doc")
+        .def_readwrite("variation", &whiteout::mdx::ParticleEmitter2::variation, R"doc(Speed variation (randomness))doc")
+        .def_readwrite("latitude", &whiteout::mdx::ParticleEmitter2::latitude, R"doc(Emission cone latitude)doc")
+        .def_readwrite("gravity", &whiteout::mdx::ParticleEmitter2::gravity, R"doc(Gravity acceleration)doc")
+        .def_readwrite("lifespan", &whiteout::mdx::ParticleEmitter2::lifespan, R"doc(Particle lifetime in seconds)doc")
+        .def_readwrite("emission_rate", &whiteout::mdx::ParticleEmitter2::emissionRate, R"doc(Particles per second)doc")
+        .def_readwrite("length", &whiteout::mdx::ParticleEmitter2::length, R"doc(Particle length (for tail effect))doc")
+        .def_readwrite("width", &whiteout::mdx::ParticleEmitter2::width, R"doc(Particle width)doc")
+        .def_readwrite("filter_mode", &whiteout::mdx::ParticleEmitter2::filterMode, R"doc(Blending mode)doc")
+        .def_readwrite("rows", &whiteout::mdx::ParticleEmitter2::rows, R"doc(Texture atlas rows)doc")
+        .def_readwrite("columns", &whiteout::mdx::ParticleEmitter2::columns, R"doc(Texture atlas columns)doc")
+        .def_readwrite("head_or_tail", &whiteout::mdx::ParticleEmitter2::headOrTail, R"doc(Head/tail flags)doc")
+        .def_readwrite("tail_length", &whiteout::mdx::ParticleEmitter2::tailLength, R"doc(Tail particle length)doc")
+        .def_readwrite("time", &whiteout::mdx::ParticleEmitter2::time, R"doc(Middle time for segment animation)doc")
+        .def_readwrite("texture_id", &whiteout::mdx::ParticleEmitter2::textureId, R"doc(Texture index)doc")
+        .def_readwrite("squirt", &whiteout::mdx::ParticleEmitter2::squirt, R"doc(Squirt flag (burst mode))doc")
+        .def_readwrite("priority_plane", &whiteout::mdx::ParticleEmitter2::priorityPlane, R"doc(Rendering priority)doc")
+        .def_readwrite("replaceable_id", &whiteout::mdx::ParticleEmitter2::replaceableId, R"doc(Replaceable texture ID)doc")
+        .def_readwrite("speed_tracks", &whiteout::mdx::ParticleEmitter2::speedTracks, R"doc(Speed animation)doc")
+        .def_readwrite("variation_tracks", &whiteout::mdx::ParticleEmitter2::variationTracks, R"doc(Variation animation)doc")
+        .def_readwrite("latitude_tracks", &whiteout::mdx::ParticleEmitter2::latitudeTracks, R"doc(Latitude animation)doc")
+        .def_readwrite("gravity_tracks", &whiteout::mdx::ParticleEmitter2::gravityTracks, R"doc(Gravity animation)doc")
+        .def_readwrite("emission_rate_tracks", &whiteout::mdx::ParticleEmitter2::emissionRateTracks, R"doc(Emission rate animation)doc")
+        .def_readwrite("length_tracks", &whiteout::mdx::ParticleEmitter2::lengthTracks, R"doc(Length animation)doc")
+        .def_readwrite("width_tracks", &whiteout::mdx::ParticleEmitter2::widthTracks, R"doc(Width animation)doc")
+        .def_readwrite("visibility_tracks", &whiteout::mdx::ParticleEmitter2::visibilityTracks, R"doc(Visibility animation)doc")
         .def("get_segment_color",
             [](const whiteout::mdx::ParticleEmitter2& self) {
                 return std::vector<whiteout::Vector3f>(self.segmentColor.begin(), self.segmentColor.end());
@@ -676,79 +765,91 @@ void bind_mdx(py::module_& m) {
             })
     ;
 
-    py::class_<whiteout::mdx::RibbonEmitter>(m, "RibbonEmitter")
+    py::class_<whiteout::mdx::RibbonEmitter>(m, "RibbonEmitter", R"doc(Ribbon/trail emitter
+
+Creates ribbon trails that follow the emitter's movement, like sword trails, missile contrails, etc.)doc")
         .def(py::init<>())
-        .def_readwrite("node", &whiteout::mdx::RibbonEmitter::node)
-        .def_readwrite("height_above", &whiteout::mdx::RibbonEmitter::heightAbove)
-        .def_readwrite("height_below", &whiteout::mdx::RibbonEmitter::heightBelow)
-        .def_readwrite("alpha", &whiteout::mdx::RibbonEmitter::alpha)
-        .def_readwrite("color", &whiteout::mdx::RibbonEmitter::color)
-        .def_readwrite("lifespan", &whiteout::mdx::RibbonEmitter::lifespan)
-        .def_readwrite("texture_slot", &whiteout::mdx::RibbonEmitter::textureSlot)
-        .def_readwrite("emission_rate", &whiteout::mdx::RibbonEmitter::emissionRate)
-        .def_readwrite("rows", &whiteout::mdx::RibbonEmitter::rows)
-        .def_readwrite("columns", &whiteout::mdx::RibbonEmitter::columns)
-        .def_readwrite("material_id", &whiteout::mdx::RibbonEmitter::materialId)
-        .def_readwrite("gravity", &whiteout::mdx::RibbonEmitter::gravity)
-        .def_readwrite("height_above_tracks", &whiteout::mdx::RibbonEmitter::heightAboveTracks)
-        .def_readwrite("height_below_tracks", &whiteout::mdx::RibbonEmitter::heightBelowTracks)
-        .def_readwrite("alpha_tracks", &whiteout::mdx::RibbonEmitter::alphaTracks)
-        .def_readwrite("color_tracks", &whiteout::mdx::RibbonEmitter::colorTracks)
-        .def_readwrite("texture_slot_tracks", &whiteout::mdx::RibbonEmitter::textureSlotTracks)
-        .def_readwrite("visibility_tracks", &whiteout::mdx::RibbonEmitter::visibilityTracks)
+        .def_readwrite("node", &whiteout::mdx::RibbonEmitter::node, R"doc(Base node data)doc")
+        .def_readwrite("height_above", &whiteout::mdx::RibbonEmitter::heightAbove, R"doc(Height above attachment point)doc")
+        .def_readwrite("height_below", &whiteout::mdx::RibbonEmitter::heightBelow, R"doc(Height below attachment point)doc")
+        .def_readwrite("alpha", &whiteout::mdx::RibbonEmitter::alpha, R"doc(Ribbon opacity)doc")
+        .def_readwrite("color", &whiteout::mdx::RibbonEmitter::color, R"doc(Ribbon color)doc")
+        .def_readwrite("lifespan", &whiteout::mdx::RibbonEmitter::lifespan, R"doc(Ribbon segment lifetime)doc")
+        .def_readwrite("texture_slot", &whiteout::mdx::RibbonEmitter::textureSlot, R"doc(Texture slot in material)doc")
+        .def_readwrite("emission_rate", &whiteout::mdx::RibbonEmitter::emissionRate, R"doc(Emission rate)doc")
+        .def_readwrite("rows", &whiteout::mdx::RibbonEmitter::rows, R"doc(Texture atlas rows)doc")
+        .def_readwrite("columns", &whiteout::mdx::RibbonEmitter::columns, R"doc(Texture atlas columns)doc")
+        .def_readwrite("material_id", &whiteout::mdx::RibbonEmitter::materialId, R"doc(Material index)doc")
+        .def_readwrite("gravity", &whiteout::mdx::RibbonEmitter::gravity, R"doc(Gravity effect)doc")
+        .def_readwrite("height_above_tracks", &whiteout::mdx::RibbonEmitter::heightAboveTracks, R"doc(Height above animation)doc")
+        .def_readwrite("height_below_tracks", &whiteout::mdx::RibbonEmitter::heightBelowTracks, R"doc(Height below animation)doc")
+        .def_readwrite("alpha_tracks", &whiteout::mdx::RibbonEmitter::alphaTracks, R"doc(Alpha animation)doc")
+        .def_readwrite("color_tracks", &whiteout::mdx::RibbonEmitter::colorTracks, R"doc(Color animation)doc")
+        .def_readwrite("texture_slot_tracks", &whiteout::mdx::RibbonEmitter::textureSlotTracks, R"doc(Texture slot animation)doc")
+        .def_readwrite("visibility_tracks", &whiteout::mdx::RibbonEmitter::visibilityTracks, R"doc(Visibility animation)doc")
     ;
 
-    py::class_<whiteout::mdx::EventObject>(m, "EventObject")
+    py::class_<whiteout::mdx::EventObject>(m, "EventObject", R"doc(Animation event trigger
+
+Event objects fire events at specific animation frames, used to trigger sounds, spawn effects, etc. synchronized with animations.)doc")
         .def(py::init<>())
-        .def_readwrite("node", &whiteout::mdx::EventObject::node)
-        .def_readwrite("global_sequence_id", &whiteout::mdx::EventObject::globalSequenceId)
-        .def_readwrite("event_track_times", &whiteout::mdx::EventObject::eventTrackTimes)
+        .def_readwrite("node", &whiteout::mdx::EventObject::node, R"doc(Base node data)doc")
+        .def_readwrite("global_sequence_id", &whiteout::mdx::EventObject::globalSequenceId, R"doc(Global sequence if looping)doc")
+        .def_readwrite("event_track_times", &whiteout::mdx::EventObject::eventTrackTimes, R"doc(Frame numbers when events fire)doc")
     ;
 
-    py::class_<whiteout::mdx::Camera>(m, "Camera")
+    py::class_<whiteout::mdx::Camera>(m, "Camera", R"doc(Camera definition
+
+Cameras define viewpoints that can be used for portrait renders or in-game cutscenes.)doc")
         .def(py::init<>())
-        .def_readwrite("name", &whiteout::mdx::Camera::name)
-        .def_readwrite("position", &whiteout::mdx::Camera::position)
-        .def_readwrite("field_of_view", &whiteout::mdx::Camera::fieldOfView)
-        .def_readwrite("far_clipping_plane", &whiteout::mdx::Camera::farClippingPlane)
-        .def_readwrite("near_clipping_plane", &whiteout::mdx::Camera::nearClippingPlane)
-        .def_readwrite("target_position", &whiteout::mdx::Camera::targetPosition)
-        .def_readwrite("position_tracks", &whiteout::mdx::Camera::positionTracks)
-        .def_readwrite("target_rotation_tracks", &whiteout::mdx::Camera::targetRotationTracks)
-        .def_readwrite("target_position_tracks", &whiteout::mdx::Camera::targetPositionTracks)
+        .def_readwrite("name", &whiteout::mdx::Camera::name, R"doc(Camera name)doc")
+        .def_readwrite("position", &whiteout::mdx::Camera::position, R"doc(Camera position)doc")
+        .def_readwrite("field_of_view", &whiteout::mdx::Camera::fieldOfView, R"doc(Field of view angle in radians)doc")
+        .def_readwrite("far_clipping_plane", &whiteout::mdx::Camera::farClippingPlane, R"doc(Far clipping distance)doc")
+        .def_readwrite("near_clipping_plane", &whiteout::mdx::Camera::nearClippingPlane, R"doc(Near clipping distance)doc")
+        .def_readwrite("target_position", &whiteout::mdx::Camera::targetPosition, R"doc(Look-at target position)doc")
+        .def_readwrite("position_tracks", &whiteout::mdx::Camera::positionTracks, R"doc(Position animation)doc")
+        .def_readwrite("target_rotation_tracks", &whiteout::mdx::Camera::targetRotationTracks, R"doc(Target rotation animation)doc")
+        .def_readwrite("target_position_tracks", &whiteout::mdx::Camera::targetPositionTracks, R"doc(Target position animation)doc")
     ;
 
-    py::class_<whiteout::mdx::CollisionShape>(m, "CollisionShape")
+    py::class_<whiteout::mdx::CollisionShape>(m, "CollisionShape", R"doc(Collision volume for physics
+
+Collision shapes define simplified geometry for collision detection.)doc")
         .def(py::init<>())
-        .def_readwrite("node", &whiteout::mdx::CollisionShape::node)
-        .def_readwrite("type", &whiteout::mdx::CollisionShape::type)
-        .def_readwrite("vertices", &whiteout::mdx::CollisionShape::vertices)
-        .def_readwrite("radius", &whiteout::mdx::CollisionShape::radius)
+        .def_readwrite("node", &whiteout::mdx::CollisionShape::node, R"doc(Base node data)doc")
+        .def_readwrite("type", &whiteout::mdx::CollisionShape::type, R"doc(Shape type)doc")
+        .def_readwrite("vertices", &whiteout::mdx::CollisionShape::vertices, R"doc(Shape vertices (box only))doc")
+        .def_readwrite("radius", &whiteout::mdx::CollisionShape::radius, R"doc(Radius (sphere/cylinder only))doc")
     ;
 
-    py::class_<whiteout::mdx::FaceEffect>(m, "FaceEffect")
+    py::class_<whiteout::mdx::FaceEffect>(m, "FaceEffect", R"doc(Facial animation effect (Reforged)
+
+Holds a name and a path to the FaceFX setup file used for a character's face.)doc")
         .def(py::init<>())
-        .def_readwrite("name", &whiteout::mdx::FaceEffect::name)
-        .def_readwrite("path", &whiteout::mdx::FaceEffect::path)
+        .def_readwrite("name", &whiteout::mdx::FaceEffect::name, R"doc(Section name)doc")
+        .def_readwrite("path", &whiteout::mdx::FaceEffect::path, R"doc(Path to facial animation data)doc")
     ;
 
-    py::class_<whiteout::mdx::CornEmitter>(m, "CornEmitter")
+    py::class_<whiteout::mdx::CornEmitter>(m, "CornEmitter", R"doc(PopcornFX particle emitter (Reforged)
+
+Advanced particle system using PopcornFX technology in Warcraft III: Reforged. Color (RGB) and alpha are stored as separate fields with independent animation tracks.)doc")
         .def(py::init<>())
-        .def_readwrite("node", &whiteout::mdx::CornEmitter::node)
-        .def_readwrite("life_span", &whiteout::mdx::CornEmitter::lifeSpan)
-        .def_readwrite("emission_rate", &whiteout::mdx::CornEmitter::emissionRate)
-        .def_readwrite("speed", &whiteout::mdx::CornEmitter::speed)
-        .def_readwrite("color", &whiteout::mdx::CornEmitter::color)
-        .def_readwrite("alpha", &whiteout::mdx::CornEmitter::alpha)
-        .def_readwrite("replaceable_id", &whiteout::mdx::CornEmitter::replaceableId)
-        .def_readwrite("path", &whiteout::mdx::CornEmitter::path)
-        .def_readwrite("anim_visibility_guide", &whiteout::mdx::CornEmitter::animVisibilityGuide)
-        .def_readwrite("life_span_tracks", &whiteout::mdx::CornEmitter::lifeSpanTracks)
-        .def_readwrite("emission_rate_tracks", &whiteout::mdx::CornEmitter::emissionRateTracks)
-        .def_readwrite("speed_tracks", &whiteout::mdx::CornEmitter::speedTracks)
-        .def_readwrite("color_tracks", &whiteout::mdx::CornEmitter::colorTracks)
-        .def_readwrite("alpha_tracks", &whiteout::mdx::CornEmitter::alphaTracks)
-        .def_readwrite("visibility_tracks", &whiteout::mdx::CornEmitter::visibilityTracks)
+        .def_readwrite("node", &whiteout::mdx::CornEmitter::node, R"doc(Base node data)doc")
+        .def_readwrite("life_span", &whiteout::mdx::CornEmitter::lifeSpan, R"doc(Particle lifetime (default))doc")
+        .def_readwrite("emission_rate", &whiteout::mdx::CornEmitter::emissionRate, R"doc(Emission rate (default))doc")
+        .def_readwrite("speed", &whiteout::mdx::CornEmitter::speed, R"doc(Particle speed (default))doc")
+        .def_readwrite("color", &whiteout::mdx::CornEmitter::color, R"doc(Particle color (RGB))doc")
+        .def_readwrite("alpha", &whiteout::mdx::CornEmitter::alpha, R"doc(Particle alpha (default))doc")
+        .def_readwrite("replaceable_id", &whiteout::mdx::CornEmitter::replaceableId, R"doc(Replaceable texture ID)doc")
+        .def_readwrite("path", &whiteout::mdx::CornEmitter::path, R"doc(Path to PopcornFX effect)doc")
+        .def_readwrite("anim_visibility_guide", &whiteout::mdx::CornEmitter::animVisibilityGuide, R"doc(Animation visibility guide)doc")
+        .def_readwrite("life_span_tracks", &whiteout::mdx::CornEmitter::lifeSpanTracks, R"doc(Lifespan animation)doc")
+        .def_readwrite("emission_rate_tracks", &whiteout::mdx::CornEmitter::emissionRateTracks, R"doc(Emission rate animation)doc")
+        .def_readwrite("speed_tracks", &whiteout::mdx::CornEmitter::speedTracks, R"doc(Speed animation)doc")
+        .def_readwrite("color_tracks", &whiteout::mdx::CornEmitter::colorTracks, R"doc(Color animation)doc")
+        .def_readwrite("alpha_tracks", &whiteout::mdx::CornEmitter::alphaTracks, R"doc(Alpha animation)doc")
+        .def_readwrite("visibility_tracks", &whiteout::mdx::CornEmitter::visibilityTracks, R"doc(Visibility animation)doc")
     ;
 
     py::bind_vector<std::vector<std::vector<whiteout::Vector2f>>>(m, "VectorVectorVector2f");

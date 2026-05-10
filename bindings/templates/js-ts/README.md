@@ -144,6 +144,31 @@ const pivot = model.pivotPoints.get(0);   // {x, y, z} — no .delete()
 console.log(pivot.x, pivot.y, pivot.z);
 ```
 
+The facade exposes `vec2`/`vec3`/`vec4`/`quat` as terse factories:
+
+```js
+model.modelExtent = {
+    boundsRadius: 42,
+    minimum: whiteout.vec3(-1, -2, -3),
+    maximum: whiteout.vec3( 4,  5,  6),
+};
+const q = whiteout.quat(0, 0, 0, 1);   // identity rotation
+```
+
+## Iterating vector fields
+
+Every vector field supports `for (const x of vec)`:
+
+```js
+for (const bone of model.bones) {
+    console.log(bone.node.name);
+}
+```
+
+The iterator yields **copies** (Embind semantics). Mutating the loop
+variable does NOT write back — use `vec.set(i, value)` or the
+read-modify-write pattern below.
+
 ## Combining flag enums
 
 Embind enums wrap their numeric value behind `.value`; bitwise operators on

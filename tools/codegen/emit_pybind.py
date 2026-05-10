@@ -121,6 +121,7 @@ HEADER = '''// SPDX-License-Identifier: BSD-3-Clause
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -235,6 +236,15 @@ _PY_RESERVED = {
 }
 
 
+def _cpp_string_lit(s: str) -> str:
+    """Render `s` as a C++ raw string literal, suitable as a docstring arg."""
+    if not s:
+        return '""'
+    # R"doc(...)doc" can carry any byte except the literal sequence )doc"
+    # (which our extracted comments will never contain).
+    return f'R"doc({s})doc"'
+
+
 def _py_enum_value_name(name: str) -> str:
     """Enum members follow PEP 8: UPPER_SNAKE_CASE. Reserved word collisions
     (None/True/False) are also handled here as a side-effect of upper-casing."""
@@ -245,7 +255,12 @@ def _py_enum_value_name(name: str) -> str:
 def _emit_enum(out: StringIO, e: BindEnum, ns: str, prefix: str):
     py_name = _py_name(e.js_name, prefix)
     use_ns = e.cpp_namespace or ns
-    out.write(f'    py::enum_<{_qualified(e.cpp_qualifier, use_ns)}>(m, "{py_name}")\n')
+    if e.doc:
+        out.write(f'    py::enum_<{_qualified(e.cpp_qualifier, use_ns)}>'
+                  f'(m, "{py_name}", {_cpp_string_lit(e.doc)})\n')
+    else:
+        out.write(f'    py::enum_<{_qualified(e.cpp_qualifier, use_ns)}>'
+                  f'(m, "{py_name}")\n')
     seen = set()
     for v in e.values:
         py = _py_enum_value_name(v.js_name)
@@ -255,13 +270,20 @@ def _emit_enum(out: StringIO, e: BindEnum, ns: str, prefix: str):
             # pybind11 errors on duplicates, so keep the first one.
             continue
         seen.add(py)
-        out.write(f'        .value("{py}", {_qualified(v.cpp_qualifier, use_ns)})\n')
+        if v.doc:
+            out.write(f'        .value("{py}", '
+                      f'{_qualified(v.cpp_qualifier, use_ns)}, '
+                      f'{_cpp_string_lit(v.doc)})\n')
+        else:
+            out.write(f'        .value("{py}", '
+                      f'{_qualified(v.cpp_qualifier, use_ns)})\n')
     out.write('    ;\n\n')
 
 
 def _emit_method(out: StringIO, m, cls_qual: str, ns: str):
     """Emit one pybind11 .def(...) line for a class method."""
     py_name = to_snake_case(m.name)
+    doc_arg = f', {_cpp_string_lit(m.doc)}' if m.doc else ''
     if m.bytes_in or m.bytes_out:
         out.write(f'        .def("{py_name}",\n')
         out.write(f'            []({cls_qual}& self')
@@ -288,9 +310,17 @@ def _emit_method(out: StringIO, m, cls_qual: str, ns: str):
             out.write(f'                {call};\n')
         else:
             out.write(f'                return {call};\n')
-        out.write('            })\n')
+        out.write(f'            }}{doc_arg})\n')
     else:
-        out.write(f'        .def("{py_name}", &{cls_qual}::{m.cpp_name})\n')
+        out.write(f'        .def("{py_name}", &{cls_qual}::{m.cpp_name}{doc_arg})\n')
+
+
+def _is_pod_value_object(c: BindClass) -> bool:
+    """A value_object whose fields are all primitives — eligible for a
+    positional-args ctor and a clean `__repr__`."""
+    if not c.is_value_object or not c.fields:
+        return False
+    return all(f.type.kind == TypeKind.PRIMITIVE for f in c.fields)
 
 
 def _emit_class(out: StringIO, c: BindClass, ns: str, prefix: str):
@@ -303,8 +333,48 @@ def _emit_class(out: StringIO, c: BindClass, ns: str, prefix: str):
 
     py_name = _py_name(c.js_name, prefix)
 
-    out.write(f'    py::class_<{cpp_qual}>(m, "{py_name}")\n')
+    if c.doc:
+        out.write(f'    py::class_<{cpp_qual}>(m, "{py_name}", '
+                  f'{_cpp_string_lit(c.doc)})\n')
+    else:
+        out.write(f'    py::class_<{cpp_qual}>(m, "{py_name}")\n')
     out.write('        .def(py::init<>())\n')
+
+    # POD value_objects: positional + keyword constructor and `__repr__`.
+    # Use aggregate init through a lambda so this works whether or not the
+    # underlying C++ type has a matching numeric constructor.
+    if _is_pod_value_object(c):
+        params = ', '.join(
+            f'{_cpp_type(f.type, ns)} {to_snake_case(f.name)}'
+            for f in c.fields
+        )
+        body = ', '.join(to_snake_case(f.name) for f in c.fields)
+        py_args = ', '.join(
+            f'py::arg("{to_snake_case(f.name)}")' for f in c.fields
+        )
+        out.write(f'        .def(py::init([]({params}) {{\n')
+        out.write(f'            return {cpp_qual}{{{body}}};\n')
+        out.write(f'        }}), {py_args})\n')
+
+        # __repr__: ClassName(field1=val1, field2=val2, ...)
+        out.write(f'        .def("__repr__", [](const {cpp_qual}& self) {{\n')
+        out.write(f'            std::ostringstream oss;\n')
+        out.write(f'            oss << "{py_name}(";\n')
+        for i, f in enumerate(c.fields):
+            sep = '", "' if i < len(c.fields) - 1 else '")"'
+            py_field = to_snake_case(f.name)
+            # u8 streams as a character — cast small ints to int so the repr
+            # shows the numeric value (e.g. "ColorBGRA(b=255, ...)").
+            short_t = _short_name(f.type.cpp_text)
+            if short_t in ('u8', 'i8'):
+                out.write(f'            oss << "{py_field}=" '
+                          f'<< static_cast<int>(self.{f.cpp_name}) << {sep};\n')
+            else:
+                out.write(f'            oss << "{py_field}=" '
+                          f'<< self.{f.cpp_name} << {sep};\n')
+        out.write(f'            return oss.str();\n')
+        out.write(f'        }})\n')
+
     for ctor in c.constructors:
         sig = ', '.join(_cpp_type(p.type, ns) for p in ctor.params)
         out.write(f'        .def(py::init<{sig}>())\n')
@@ -315,7 +385,13 @@ def _emit_class(out: StringIO, c: BindClass, ns: str, prefix: str):
             array_helpers.append(f)
             continue
         py_field = to_snake_case(f.name)
-        out.write(f'        .def_readwrite("{py_field}", &{cpp_qual}::{f.cpp_name})\n')
+        if f.doc:
+            out.write(f'        .def_readwrite("{py_field}", '
+                      f'&{cpp_qual}::{f.cpp_name}, '
+                      f'{_cpp_string_lit(f.doc)})\n')
+        else:
+            out.write(f'        .def_readwrite("{py_field}", '
+                      f'&{cpp_qual}::{f.cpp_name})\n')
         if f.array_with_view:
             # For vector<u8> fields, expose a memoryview accessor that
             # zero-copies the underlying buffer. The user must copy out
@@ -414,6 +490,8 @@ def emit(module: BindModule) -> str:
             # Drop the module prefix and rewrite as PEP 8 UPPER_SNAKE_CASE
             # (Python convention for module-level constants).
             py_const = to_upper_snake(_py_name(c.js_name, prefix))
+            if c.doc:
+                buf.write(f'    // {c.doc}\n')
             buf.write(f'    m.attr("{py_const}") = static_cast<{cast_t}>({expr});\n')
         buf.write('\n')
 

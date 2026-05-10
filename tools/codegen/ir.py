@@ -41,6 +41,7 @@ class BindField:
     cpp_name: str            # raw C++ field name
     type: TypeRef
     array_with_view: bool = False   # vector<u8>: also emit *View() helper
+    doc: str = ''            # extracted from C++ /// comment
 
 
 @dataclass
@@ -64,12 +65,14 @@ class BindMethod:
     # When True, the return type is `std::vector<u8>` and should be wrapped
     # in backend-specific vector-to-bytes glue.
     bytes_out: bool = False
+    doc: str = ''
 
 
 @dataclass
 class BindEnumValue:
     js_name: str
     cpp_qualifier: str       # "Layer::ShaderType::HD"
+    doc: str = ''
 
 
 @dataclass
@@ -78,6 +81,7 @@ class BindEnum:
     js_name: str             # "MdxLayerShaderType" or "MdxInterpolationType"
     values: list[BindEnumValue] = field(default_factory=list)
     cpp_namespace: str = ''  # full namespace, e.g. "whiteout::textures::blp"
+    doc: str = ''
 
 
 @dataclass
@@ -95,6 +99,7 @@ class BindClass:
     methods: list[BindMethod] = field(default_factory=list)
     constructors: list[BindConstructor] = field(default_factory=list)
     cpp_namespace: str = ''  # full namespace, e.g. "whiteout::textures::blp"
+    doc: str = ''
 
 
 @dataclass
@@ -102,6 +107,7 @@ class BindConstant:
     js_name: str             # "MdxNoParent"
     cpp_expr: str            # "Node::NO_PARENT"
     cpp_type: str = 'u32'
+    doc: str = ''
 
 
 @dataclass
@@ -130,7 +136,8 @@ class ModuleConfig:
     headers: list[str]               # paths relative to repo root
     output_path: str                 # Embind output (path relative to repo root)
     pybind_output_path: str = ''     # pybind11 output (defaults to bindings/python/<name>_bindings.cpp)
-    dts_output_path: str = ''        # TypeScript .d.ts output (defaults to package/types/<name>.d.ts)
+    dts_output_path: str = ''        # TypeScript .d.ts output (defaults to packages/js-ts/types/<name>.d.ts)
+    pyi_output_path: str = ''        # Python .pyi stub (defaults to packages/python/whiteout-stubs/<name>.pyi)
     include_dirs: list[str] = field(default_factory=list)
     # JS names of vector containers already registered elsewhere (e.g. by a
     # hand-written bindings file). The codegen will discover the same C++

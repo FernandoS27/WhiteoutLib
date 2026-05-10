@@ -19,9 +19,9 @@ import sys
 import zlib
 from pathlib import Path
 
-# bindings/python/whiteout.<plat>.pyd is staged next to this directory's
-# parent — make it importable without an install step.
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'bindings' / 'python'))
+# packages/python/whiteout.<plat>.pyd is staged here by build-python.ps1.
+# Adding it to sys.path lets us `import whiteout` without a pip install.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'packages' / 'python'))
 
 import whiteout as w
 
@@ -108,6 +108,28 @@ def test_mdx_full_type_tree_roundtrip():
     assert parsed.sequences[0].interval_end == 33
     assert len(parsed.bones) == 1
     assert parsed.bones[0].node.name == "Bone_Root"
+
+
+def test_value_object_ctor_and_repr():
+    """value_object types (Vector*, Quaternion) accept positional + kwargs
+    constructors, and repr() formats them as `Type(field=value, ...)`."""
+    v = w.Vector3f(1.0, 2.0, 3.0)
+    assert (v.x, v.y, v.z) == (1.0, 2.0, 3.0)
+    assert repr(v) == "Vector3f(x=1, y=2, z=3)"
+
+    v2 = w.Vector3f(x=10, y=20, z=30)
+    assert (v2.x, v2.y, v2.z) == (10.0, 20.0, 30.0)
+
+    q = w.Quaternion(0.0, 0.0, 0.0, 1.0)
+    assert (q.x, q.y, q.z, q.w) == (0.0, 0.0, 0.0, 1.0)
+    assert repr(q) == "Quaternion(x=0, y=0, z=0, w=1)"
+
+    v4 = w.Vector4f(1.5, 2.5, 3.5, 4.5)
+    assert v4.x == 1.5
+
+    # The default ctor still exists.
+    empty = w.Vector3f()
+    assert (empty.x, empty.y, empty.z) == (0.0, 0.0, 0.0)
 
 
 def test_mdx_track_quaternion():

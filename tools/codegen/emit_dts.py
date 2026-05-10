@@ -3,8 +3,9 @@
 """IR -> TypeScript ambient declarations.
 
 Produces one `.d.ts` per module describing the JS-facing surface for
-TypeScript callers. The aggregator (`package/index.d.ts`) imports these
-and bolts on the WhiteoutAPI interface.
+TypeScript callers. The aggregator (`packages/js-ts/index.d.ts`, copied
+in from `bindings/templates/js-ts/`) imports these and bolts on the
+WhiteoutAPI interface.
 
 Naming mirrors the JS facade:
     whiteout.mdx.Bone, whiteout.mdx.NoParent, whiteout.mdx.NodeFlag.Bone
@@ -208,6 +209,31 @@ HEADER_PREFIX = '''// SPDX-License-Identifier: BSD-3-Clause
 
 '''
 
+
+def _emit_jsdoc(buf: StringIO, doc: str, indent: str = ''):
+    """Emit a JSDoc block for `doc`. Single-line docs collapse to `/** ... */`;
+    multi-line docs become a `/**\\n * line\\n */` block. Empty `doc` is a no-op."""
+    if not doc:
+        return
+    # `*/` would close the JSDoc block early — defang it.
+    doc = doc.replace('*/', '*\\/')
+    lines: list[str] = []
+    for para in doc.split('\n\n'):
+        if lines:
+            lines.append('')   # paragraph break -> blank `*` line
+        for ln in para.splitlines():
+            lines.append(ln)
+    if len(lines) == 1:
+        buf.write(f'{indent}/** {lines[0]} */\n')
+        return
+    buf.write(f'{indent}/**\n')
+    for ln in lines:
+        if ln:
+            buf.write(f'{indent} * {ln}\n')
+        else:
+            buf.write(f'{indent} *\n')
+    buf.write(f'{indent} */\n')
+
 # Order shared imports for stable, readable output.
 _IMPORT_ORDER = [
     'EmbindObject', 'EmbindVector', 'EmbindBufferVector',
@@ -222,6 +248,7 @@ def _emit_constants(buf: StringIO, module: BindModule):
     buf.write('// ── Sentinel constants ─────────────────────────────────────────────\n')
     for c in module.constants:
         name = _strip_prefix(c.js_name, module.js_prefix)
+        _emit_jsdoc(buf, c.doc)
         buf.write(f'export const {name}: number;\n')
     buf.write('\n')
 
@@ -229,12 +256,14 @@ def _emit_constants(buf: StringIO, module: BindModule):
 def _emit_enum(buf: StringIO, e: BindEnum, ctx: _NameContext):
     js = _strip_prefix(e.js_name, ctx.prefix)
     ctx.uses.add('EnumValue')
+    _emit_jsdoc(buf, e.doc)
     buf.write(f'export const {js}: {{\n')
     seen = set()
     for v in e.values:
         if v.js_name in seen:
             continue
         seen.add(v.js_name)
+        _emit_jsdoc(buf, v.doc, indent='    ')
         buf.write(f'    readonly {v.js_name}: EnumValue;\n')
     buf.write('};\n\n')
 
@@ -243,8 +272,10 @@ def _emit_value_object(buf: StringIO, c: BindClass, ctx: _NameContext):
     name = _strip_prefix(c.js_name, ctx.prefix)
     if name in _SHARED_MATH:
         return  # declared in _shared.d.ts
+    _emit_jsdoc(buf, c.doc)
     buf.write(f'export interface {name} {{\n')
     for f in c.fields:
+        _emit_jsdoc(buf, f.doc, indent='    ')
         buf.write(f'    {f.name}: {_ts_type(f.type, ctx)};\n')
     buf.write('}\n\n')
 
@@ -253,6 +284,7 @@ def _emit_class(buf: StringIO, c: BindClass, ctx: _NameContext):
     name = _strip_prefix(c.js_name, ctx.prefix)
     ctx.uses.add('EmbindObject')
 
+    _emit_jsdoc(buf, c.doc)
     buf.write(f'export class {name} extends EmbindObject {{\n')
     buf.write('    constructor();\n')
     for ctor in c.constructors:
@@ -266,6 +298,7 @@ def _emit_class(buf: StringIO, c: BindClass, ctx: _NameContext):
             array_fields.append(f)
             continue
         ts_type = _ts_type(f.type, ctx)
+        _emit_jsdoc(buf, f.doc, indent='    ')
         buf.write(f'    {f.name}: {ts_type};\n')
         if f.array_with_view:
             buf.write(f'    {f.name}View(): Uint8Array;\n')
@@ -274,6 +307,7 @@ def _emit_class(buf: StringIO, c: BindClass, ctx: _NameContext):
         elem = _ts_type(f.type.element, ctx)
         title = f.name[0].upper() + f.name[1:]
         ctx.uses.add('EmbindVector')
+        _emit_jsdoc(buf, f.doc, indent='    ')
         buf.write(f'    get{title}(): EmbindVector<{elem}>;\n')
         buf.write(f'    set{title}(values: EmbindVector<{elem}>): void;\n')
 
@@ -297,6 +331,7 @@ def _emit_class(buf: StringIO, c: BindClass, ctx: _NameContext):
             ret = 'void'
         else:
             ret = _ts_type(m.return_type, ctx)
+        _emit_jsdoc(buf, m.doc, indent='    ')
         buf.write(f'    {m.name}({params}): {ret};\n')
 
     buf.write('}\n\n')

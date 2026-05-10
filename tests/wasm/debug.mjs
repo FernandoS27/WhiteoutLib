@@ -1,4 +1,4 @@
-﻿import { Whiteout } from "../../package/index.js";
+﻿import { Whiteout } from "../../packages/js-ts/index.js";
 const wo = await Whiteout();
 const ONE_PIXEL_RED_PNG = new Uint8Array([
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,

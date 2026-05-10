@@ -17,6 +17,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -721,25 +722,25 @@ void bind_m2(py::module_& m) {
         .def_readwrite("ribbon_emitters", &whiteout::m2::Model::ribbonEmitters)
         .def_readwrite("particle_emitters", &whiteout::m2::Model::particleEmitters)
         .def_readwrite("texture_combiner_combos", &whiteout::m2::Model::textureCombinerCombos)
-        .def_readwrite("texture_ids", &whiteout::m2::Model::texture_ids)
-        .def_readwrite("lod_profile", &whiteout::m2::Model::lodProfile)
-        .def_readwrite("parent_sequence_replacements", &whiteout::m2::Model::parentSequenceReplacements)
-        .def_readwrite("parent_texture_weights", &whiteout::m2::Model::parentTextureWeights)
-        .def_readwrite("parent_sequence_bounds", &whiteout::m2::Model::parentSequenceBounds)
-        .def_readwrite("parent_event_data", &whiteout::m2::Model::parentEventData)
-        .def_readwrite("recursive_particle_model_ids", &whiteout::m2::Model::recursiveParticleModelIds)
-        .def_readwrite("geometry_particle_model_ids", &whiteout::m2::Model::geometryParticleModelIds)
-        .def_readwrite("water_data", &whiteout::m2::Model::waterData)
-        .def_readwrite("particle_geosets", &whiteout::m2::Model::particleGeosets)
-        .def_readwrite("physics_file_data", &whiteout::m2::Model::physicsFileData)
-        .def_readwrite("edge_fade_entries", &whiteout::m2::Model::edgeFadeEntries)
-        .def_readwrite("nerf_entries", &whiteout::m2::Model::nerfEntries)
-        .def_readwrite("detailed_light_entries", &whiteout::m2::Model::detailedLightEntries)
-        .def_readwrite("debug_occlusion_entries", &whiteout::m2::Model::debugOcclusionEntries)
-        .def_readwrite("anim_frame_data", &whiteout::m2::Model::animFrameData)
-        .def_readwrite("physics_collision", &whiteout::m2::Model::physicsCollision)
-        .def_readwrite("dpiv_data", &whiteout::m2::Model::dpivData)
-        .def_readwrite("textured_light_entries", &whiteout::m2::Model::texturedLightEntries)
+        .def_readwrite("texture_ids", &whiteout::m2::Model::texture_ids, R"doc(TXID)doc")
+        .def_readwrite("lod_profile", &whiteout::m2::Model::lodProfile, R"doc(LDV1)doc")
+        .def_readwrite("parent_sequence_replacements", &whiteout::m2::Model::parentSequenceReplacements, R"doc(PABC)doc")
+        .def_readwrite("parent_texture_weights", &whiteout::m2::Model::parentTextureWeights, R"doc(PADC)doc")
+        .def_readwrite("parent_sequence_bounds", &whiteout::m2::Model::parentSequenceBounds, R"doc(PSBC)doc")
+        .def_readwrite("parent_event_data", &whiteout::m2::Model::parentEventData, R"doc(PEDC)doc")
+        .def_readwrite("recursive_particle_model_ids", &whiteout::m2::Model::recursiveParticleModelIds, R"doc(RPID)doc")
+        .def_readwrite("geometry_particle_model_ids", &whiteout::m2::Model::geometryParticleModelIds, R"doc(GPID)doc")
+        .def_readwrite("water_data", &whiteout::m2::Model::waterData, R"doc(WFV3)doc")
+        .def_readwrite("particle_geosets", &whiteout::m2::Model::particleGeosets, R"doc(PGD1)doc")
+        .def_readwrite("physics_file_data", &whiteout::m2::Model::physicsFileData, R"doc(PFDC)doc")
+        .def_readwrite("edge_fade_entries", &whiteout::m2::Model::edgeFadeEntries, R"doc(EDGF)doc")
+        .def_readwrite("nerf_entries", &whiteout::m2::Model::nerfEntries, R"doc(NERF)doc")
+        .def_readwrite("detailed_light_entries", &whiteout::m2::Model::detailedLightEntries, R"doc(DETL)doc")
+        .def_readwrite("debug_occlusion_entries", &whiteout::m2::Model::debugOcclusionEntries, R"doc(DBOC)doc")
+        .def_readwrite("anim_frame_data", &whiteout::m2::Model::animFrameData, R"doc(AFRA)doc")
+        .def_readwrite("physics_collision", &whiteout::m2::Model::physicsCollision, R"doc(PCOL)doc")
+        .def_readwrite("dpiv_data", &whiteout::m2::Model::dpivData, R"doc(DPIV)doc")
+        .def_readwrite("textured_light_entries", &whiteout::m2::Model::texturedLightEntries, R"doc(TEXL)doc")
     ;
 
     py::bind_vector<std::vector<whiteout::i16>>(m, "VectorI16", py::buffer_protocol());

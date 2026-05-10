@@ -36,12 +36,19 @@ _ANNOTATION_RE = re.compile(r'@bind\b\s*:?\s*(?P<rest>[^\n@—]*?)(?=\n|@|—|--
 
 
 def _strip_glyphs(line: str) -> str:
-    """Drop leading comment glyphs and surrounding whitespace from one line."""
+    """Drop leading + trailing comment glyphs and surrounding whitespace.
+
+    Handles both line-style (`///`, `//`) and single-line block-style
+    (`/** ... */`, `/* ... */`) comments without leaving a stray `*/`
+    that would close a generated JSDoc/docstring prematurely.
+    """
     s = line.strip()
     for glyph in ('///<', '///', '/**', '/*', '*/', '*', '//'):
         if s.startswith(glyph):
             s = s[len(glyph):].lstrip()
             break
+    if s.endswith('*/'):
+        s = s[:-2].rstrip()
     return s.rstrip()
 
 
@@ -74,3 +81,51 @@ def parse(raw_comment: Optional[str]) -> dict[str, Any]:
 
 def is_bound(annotations: dict[str, Any]) -> bool:
     return bool(annotations.get('_present'))
+
+
+# Leading doxygen tags to scrub. `@brief` we drop entirely (the description
+# IS the brief); `@note` / `@warning` we keep so the prose flows naturally.
+_DOXY_DROP_RE = re.compile(r'^\s*@brief\s+', re.IGNORECASE)
+
+
+def extract_doc(raw_comment: Optional[str]) -> str:
+    """Return the human-readable description from a doc comment.
+
+    - Strips C++ comment glyphs (`///`, `///<`, `/**`, `* `, etc.).
+    - Removes any `@bind ...` annotation on the same line (everything
+      before the `—` / `--` separator, or the whole `@bind ...` clause
+      if no separator).
+    - Drops a leading `@brief ` tag.
+    - Joins consecutive non-empty lines with spaces; preserves blank
+      lines between paragraphs.
+
+    Returns '' for empty / annotation-only comments.
+    """
+    if not raw_comment:
+        return ''
+    paragraphs: list[list[str]] = [[]]
+    for line in raw_comment.splitlines():
+        s = _strip_glyphs(line)
+        if '@bind' in s:
+            bind_idx = s.find('@bind')
+            sep_idx = -1
+            sep_len = 0
+            for sep in ('—', '--'):
+                idx = s.find(sep)
+                if idx > bind_idx:
+                    sep_idx = idx
+                    sep_len = len(sep)
+                    break
+            if sep_idx >= 0:
+                s = s[sep_idx + sep_len:].strip()
+            else:
+                s = s[:bind_idx].strip()
+        if not s:
+            if paragraphs[-1]:
+                paragraphs.append([])
+            continue
+        paragraphs[-1].append(s)
+
+    out_paras = [' '.join(p).strip() for p in paragraphs if p]
+    out_paras = [_DOXY_DROP_RE.sub('', p) for p in out_paras]
+    return '\n\n'.join(p for p in out_paras if p)

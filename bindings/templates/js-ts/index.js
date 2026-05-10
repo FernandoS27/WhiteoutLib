@@ -62,6 +62,27 @@ function call(M, fn) {
     try { return fn(); } catch (e) { rethrow(M, e); }
 }
 
+// Patch `[Symbol.iterator]` onto every Embind-bound vector class so callers
+// can write `for (const x of vec) ...`. Embind's own surface only exposes
+// indexed access (`size`/`get`); this generator yields copies, matching
+// Embind's read-by-copy semantics — mutation through the iterator value
+// does NOT write back to the C++ vector.
+function patchVectorIteration(M) {
+    for (const key of Object.keys(M)) {
+        if (!key.startsWith("Vector")) continue;
+        const cls = M[key];
+        const proto = cls?.prototype;
+        if (!proto || typeof proto.size !== "function" || typeof proto.get !== "function") {
+            continue;
+        }
+        if (proto[Symbol.iterator]) continue;   // already patched / native
+        proto[Symbol.iterator] = function* () {
+            const n = this.size();
+            for (let i = 0; i < n; i++) yield this.get(i);
+        };
+    }
+}
+
 // Auto-populate `target` with every Embind export whose name starts with
 // `prefix`, with the prefix stripped. Used to build the per-format
 // namespaces (`whiteout.mdx`, `whiteout.m2`, `whiteout.m3`) from the auto-generated bindings.
@@ -104,6 +125,7 @@ function makeTextureFormat(M, prefix) {
 
 export async function Whiteout() {
     const M = await instantiate();
+    patchVectorIteration(M);
 
     // ── Per-format model namespaces ───────────────────────────────────────
     // Each starts with hand-written convenience methods (parse/write etc.),
@@ -205,6 +227,15 @@ export async function Whiteout() {
         Vector4f: M.Vector4f,
         Quaternion: M.Quaternion,
         InMemoryFileSystem: M.InMemoryFileSystem,
+
+        // ── Math-type factories ────────────────────────────────────────────
+        // Vector2f/3f/4f and Quaternion are Embind value_object types —
+        // they pass as plain JS literals. These factories are syntactic
+        // sugar so callers don't have to spell the field names.
+        vec2: (x, y)       => ({ x, y }),
+        vec3: (x, y, z)    => ({ x, y, z }),
+        vec4: (x, y, z, w) => ({ x, y, z, w }),
+        quat: (x, y, z, w) => ({ x, y, z, w }),
 
         // ── Texture format facades (parse/write helpers + raw classes) ────
         blp:  makeTextureFormat(M, "Blp"),

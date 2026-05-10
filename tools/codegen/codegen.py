@@ -17,7 +17,9 @@ def _load_module_config(name: str):
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description='Generate Embind/pybind11 bindings from C++ headers.')
     p.add_argument('module', help='Module name under tools/codegen/modules/ (e.g. "mdx")')
-    p.add_argument('--backend', choices=['embind', 'pybind11', 'dts'], default='embind')
+    p.add_argument('--backend',
+                   choices=['embind', 'pybind11', 'dts', 'pyi'],
+                   default='embind')
     p.add_argument('--repo-root', default=Path(__file__).resolve().parents[2],
                    type=lambda s: Path(s).resolve(),
                    help='Repository root (defaults to autodetect)')
@@ -36,9 +38,16 @@ def main(argv: list[str] | None = None) -> int:
     elif args.backend == 'pybind11':
         from tools.codegen import emit_pybind as emitter
         out_rel = config.pybind_output_path or f'bindings/python/{config.name}_bindings.cpp'
+    elif args.backend == 'pyi':
+        from tools.codegen import emit_pyi as emitter
+        # PEP 561 stub package alongside the .pyd extension. Lives inside
+        # the publishable Python distribution at packages/python/.
+        out_rel = (config.pyi_output_path
+                   or f'packages/python/whiteout-stubs/{config.name}.pyi')
     else:  # dts
         from tools.codegen import emit_dts as emitter
-        out_rel = config.dts_output_path or f'package/types/{config.name}.d.ts'
+        out_rel = (config.dts_output_path
+                   or f'packages/js-ts/types/{config.name}.d.ts')
     text = emitter.emit(module)
 
     if args.stdout:

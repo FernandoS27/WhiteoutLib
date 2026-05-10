@@ -1,0 +1,174 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Python package build configuration.
+#
+# Why at the repo root: scikit-build-core requires `cmake.source-dir` to
+# stay inside the pyproject directory — the PEP 517 build frontend
+# isolates the source tree to a temp dir, so `../..` would resolve
+# against that temp dir and miss the cmake project. Same convention
+# numpy/scipy/pillow/etc. use for binary-extension projects.
+#
+# Run from the repo root:
+#
+#   pip install .                                          # source build
+#   python -m build --outdir packages/python/dist          # local sdist+wheel
+#   cibuildwheel                                           # CI (see GH Actions)
+#
+# All build outputs land in packages/python/dist/, never the repo root.
+# Generated C++ bindings (bindings/python/*_bindings.cpp) and Python
+# type stubs are produced by the cmake build so source installs are
+# reproducible.
+
+[build-system]
+requires = [
+    "scikit-build-core>=0.10",
+    "pybind11>=2.10",
+    "libclang>=14",          # codegen reads C++ headers via libclang
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "whiteout"
+version = "0.1.0"
+description = "Pure-C++ parsers/writers for Blizzard model and texture formats (MDX, M2, M3, BLP, DDS, PNG, JPEG, BMP, TGA), with a numpy-friendly Python surface."
+readme = "bindings/python/README.md"
+requires-python = ">=3.9"
+license = "BSD-3-Clause"
+authors = [
+    { name = "Fernando Sahmkow", email = "fsahmkow27@gmail.com" },
+]
+keywords = ["wow", "warcraft", "starcraft", "mdx", "m2", "m3", "blp", "models", "textures"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: C++",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Games/Entertainment",
+    "Operating System :: OS Independent",
+    "Typing :: Typed",
+]
+dependencies = [
+    "numpy>=1.20",
+]
+
+[project.urls]
+Homepage = "https://github.com/Sahmkow/WhiteoutLib"
+Issues   = "https://github.com/Sahmkow/WhiteoutLib/issues"
+
+
+# ── scikit-build-core: drive the existing CMakeLists ─────────────────────
+
+[tool.scikit-build]
+# Drives the top-level CMakeLists.txt at the repo root. scikit-build-core
+# treats this as both the cmake source AND the sdist root.
+cmake.source-dir = "."
+build.targets    = ["whiteout"]
+cmake.args = [
+    "-DWHITEOUT_BUILD_PYTHON_BINDINGS=ON",
+    "-DWHITEOUT_ENABLE_CASC=OFF",
+    "-DWHITEOUT_ENABLE_MPQ=OFF",
+    "-DWHITEOUT_BUILD_EXAMPLES=OFF",
+    "-DWHITEOUT_BUILD_TESTS=OFF",
+    "-DWHITEOUT_BUILD_PYTHON_WHEEL=ON",  # toggles the install() rules
+]
+build.verbose = false
+logging.level = "INFO"
+
+# Wheel layout: scikit-build-core takes whatever cmake `install()` puts in
+# CMAKE_INSTALL_PREFIX and ships it under site-packages/. Our cmake install
+# rules drop the .pyd at root and the stub package at whiteout-stubs/.
+wheel.exclude = ["*.cpp", "*.h", "CMakeLists.txt"]
+
+# sdist contains everything needed to rebuild from source on the user's
+# machine (no committed pre-built binaries).
+sdist.include = [
+    "bindings/templates/python/**/*",
+    "bindings/python/*.cpp",
+    "bindings/python/CMakeLists.txt",
+    "bindings/wasm/**/*",            # wasm bindings for completeness
+    "include/whiteout/**/*.h",
+    "src/**/*",
+    "third_party/**/*",
+    "tools/codegen/**/*.py",
+    "CMakeLists.txt",
+    "LICENSE",
+]
+sdist.exclude = [
+    "build",
+    "build/**",
+    "build-*",
+    "build-*/**",
+    "*.log",
+    "packages",
+    "packages/**",
+    "tests",
+    "tests/**",
+    ".github",
+    ".github/**",
+    ".vscode",
+    ".vs",
+    ".claude",
+    ".claude/**",
+    ".mcp.json",
+    ".clang-format",
+    "*.pyd",
+    "*.so",
+    "*.pyc",
+    "__pycache__",
+    "docs",
+    "docs/**",
+    "examples",
+    "examples/**",
+    "scripts",
+    "scripts/**",
+    "node_modules",
+    "node_modules/**",
+    "*.sln",
+    "*.vcxproj",
+    "*.vcxproj.filters",
+    "vcpkg_installed",
+    "vcpkg_installed/**",
+    "Corpus",
+    "Corpus/**",
+    "test_*.blp",
+    "test_*.dds",
+]
+
+
+# ── cibuildwheel: per-platform wheels in CI ──────────────────────────────
+# Triggered by .github/workflows/wheels.yml on tag pushes / manual dispatch.
+
+[tool.cibuildwheel]
+build = [
+    "cp39-*", "cp310-*", "cp311-*", "cp312-*", "cp313-*", "cp314-*",
+]
+# PyPy and musllinux are skipped — they'd need separate libclang wheels and
+# the audience is small. Add later if requested.
+skip = [
+    "pp*",
+    "*-musllinux_*",
+    "cp36-*", "cp37-*", "cp38-*",
+]
+build-frontend = "build"
+test-command   = 'python -c "import whiteout; print(whiteout.__file__); v=whiteout.Vector3f(1,2,3); assert repr(v)==\"Vector3f(x=1, y=2, z=3)\""'
+
+[tool.cibuildwheel.linux]
+archs = ["x86_64", "aarch64"]
+# manylinux_2_28 ships GCC 12 (C++20), libclang available.
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+before-all = "yum install -y cmake clang clang-devel"
+
+[tool.cibuildwheel.macos]
+archs = ["x86_64", "arm64"]
+# Match the C++20 deployment floor; macOS 11 is the earliest with full
+# C++20 support in the SDK.
+environment = { MACOSX_DEPLOYMENT_TARGET = "11.0" }
+
+[tool.cibuildwheel.windows]
+archs = ["AMD64"]

@@ -12,8 +12,8 @@
 import type {
     WhiteoutAPI, MdxNamespace, M2Namespace, M3Namespace,
     Vector3f, Quaternion, Texture, EnumValue,
-} from "../../package/index";
-import type * as mdx from "../../package/types/mdx";
+} from "../../packages/js-ts/index";
+import type * as mdx from "../../packages/js-ts/types/mdx";
 
 
 // ── 1. Constructing types feels natural ────────────────────────────────

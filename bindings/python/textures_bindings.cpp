@@ -17,6 +17,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -45,94 +46,100 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
 namespace py = pybind11;
 
 void bind_textures(py::module_& m) {
-    py::enum_<whiteout::textures::PixelFormat>(m, "PixelFormat")
-        .value("R8", whiteout::textures::PixelFormat::R8)
-        .value("R16", whiteout::textures::PixelFormat::R16)
-        .value("R32_F", whiteout::textures::PixelFormat::R32F)
-        .value("RG8", whiteout::textures::PixelFormat::RG8)
-        .value("RG16", whiteout::textures::PixelFormat::RG16)
-        .value("RG32_F", whiteout::textures::PixelFormat::RG32F)
-        .value("RGBA8", whiteout::textures::PixelFormat::RGBA8)
-        .value("RGBA16", whiteout::textures::PixelFormat::RGBA16)
-        .value("RGBA32_F", whiteout::textures::PixelFormat::RGBA32F)
-        .value("BC1", whiteout::textures::PixelFormat::BC1)
-        .value("BC2", whiteout::textures::PixelFormat::BC2)
-        .value("BC3", whiteout::textures::PixelFormat::BC3)
-        .value("BC4", whiteout::textures::PixelFormat::BC4)
-        .value("BC5", whiteout::textures::PixelFormat::BC5)
-        .value("BC6_H", whiteout::textures::PixelFormat::BC6H)
-        .value("BC7", whiteout::textures::PixelFormat::BC7)
+    py::enum_<whiteout::textures::PixelFormat>(m, "PixelFormat", R"doc(GPU pixel / block-compression format.
+
+Uncompressed formats store one pixel per "block"; BCn formats store a 4×4 pixel tile per block.)doc")
+        .value("R8", whiteout::textures::PixelFormat::R8, R"doc(8-bit single channel (1 byte per pixel).)doc")
+        .value("R16", whiteout::textures::PixelFormat::R16, R"doc(16-bit single channel UNORM (2 bytes per pixel).)doc")
+        .value("R32_F", whiteout::textures::PixelFormat::R32F, R"doc(Single-precision single channel (4 bytes per pixel).)doc")
+        .value("RG8", whiteout::textures::PixelFormat::RG8, R"doc(8-bit dual channel (2 bytes per pixel).)doc")
+        .value("RG16", whiteout::textures::PixelFormat::RG16, R"doc(16-bit dual channel UNORM (4 bytes per pixel).)doc")
+        .value("RG32_F", whiteout::textures::PixelFormat::RG32F, R"doc(Single-precision dual channel (8 bytes per pixel).)doc")
+        .value("RGBA8", whiteout::textures::PixelFormat::RGBA8, R"doc(8-bit RGBA (4 bytes per pixel).)doc")
+        .value("RGBA16", whiteout::textures::PixelFormat::RGBA16, R"doc(16-bit RGBA UNORM (8 bytes per pixel).)doc")
+        .value("RGBA32_F", whiteout::textures::PixelFormat::RGBA32F, R"doc(Single-precision RGBA (16 bytes per pixel).)doc")
+        .value("BC1", whiteout::textures::PixelFormat::BC1, R"doc(DXT1 – 8 bytes per 4×4 block (RGB + optional 1-bit alpha).)doc")
+        .value("BC2", whiteout::textures::PixelFormat::BC2, R"doc(DXT3 – 16 bytes per 4×4 block (explicit 4-bit alpha).)doc")
+        .value("BC3", whiteout::textures::PixelFormat::BC3, R"doc(DXT5 – 16 bytes per 4×4 block (interpolated alpha).)doc")
+        .value("BC4", whiteout::textures::PixelFormat::BC4, R"doc(Single-channel – 8 bytes per 4×4 block.)doc")
+        .value("BC5", whiteout::textures::PixelFormat::BC5, R"doc(Dual-channel – 16 bytes per 4×4 block.)doc")
+        .value("BC6_H", whiteout::textures::PixelFormat::BC6H, R"doc(HDR RGB – 16 bytes per 4×4 block (half-float output).)doc")
+        .value("BC7", whiteout::textures::PixelFormat::BC7, R"doc(High-quality RGBA – 16 bytes per 4×4 block.)doc")
     ;
 
-    py::enum_<whiteout::textures::TextureType>(m, "TextureType")
-        .value("TEXTURE2_D", whiteout::textures::TextureType::Texture2D)
-        .value("TEXTURE3_D", whiteout::textures::TextureType::Texture3D)
-        .value("TEXTURE_CUBE", whiteout::textures::TextureType::TextureCube)
-        .value("TEXTURE2_D_ARRAY", whiteout::textures::TextureType::Texture2DArray)
-        .value("TEXTURE_CUBE_ARRAY", whiteout::textures::TextureType::TextureCubeArray)
+    py::enum_<whiteout::textures::TextureType>(m, "TextureType", R"doc(Dimensionality / topology of a texture resource.)doc")
+        .value("TEXTURE2_D", whiteout::textures::TextureType::Texture2D, R"doc(Standard 2D image (1 layer).)doc")
+        .value("TEXTURE3_D", whiteout::textures::TextureType::Texture3D, R"doc(Volume texture (depth > 1, depth halves each mip).)doc")
+        .value("TEXTURE_CUBE", whiteout::textures::TextureType::TextureCube, R"doc(Cube map (6 square layers, one per face).)doc")
+        .value("TEXTURE2_D_ARRAY", whiteout::textures::TextureType::Texture2DArray, R"doc(Array of 2D images (arraySize layers).)doc")
+        .value("TEXTURE_CUBE_ARRAY", whiteout::textures::TextureType::TextureCubeArray, R"doc(Array of cube maps (6 × arraySize layers).)doc")
     ;
 
-    py::enum_<whiteout::textures::blp::Parser::ParseMode>(m, "BlpParseMode")
-        .value("STRICT", whiteout::textures::blp::Parser::ParseMode::Strict)
-        .value("LENIENT", whiteout::textures::blp::Parser::ParseMode::Lenient)
+    py::enum_<whiteout::textures::blp::Parser::ParseMode>(m, "BlpParseMode", R"doc(Parsing strictness mode)doc")
+        .value("STRICT", whiteout::textures::blp::Parser::ParseMode::Strict, R"doc(Throw exceptions on invalid data)doc")
+        .value("LENIENT", whiteout::textures::blp::Parser::ParseMode::Lenient, R"doc(Try to recover from errors and log issues (recommended))doc")
     ;
 
-    py::enum_<whiteout::textures::blp::Writer::WriteMode>(m, "BlpWriteMode")
-        .value("STRICT", whiteout::textures::blp::Writer::WriteMode::Strict)
-        .value("LENIENT", whiteout::textures::blp::Writer::WriteMode::Lenient)
+    py::enum_<whiteout::textures::blp::Writer::WriteMode>(m, "BlpWriteMode", R"doc(Writing strictness mode)doc")
+        .value("STRICT", whiteout::textures::blp::Writer::WriteMode::Strict, R"doc(Throw exceptions on encoding errors)doc")
+        .value("LENIENT", whiteout::textures::blp::Writer::WriteMode::Lenient, R"doc(Log issues and return empty result on errors (recommended))doc")
     ;
 
     py::enum_<whiteout::textures::png::Parser::ParseMode>(m, "PngParseMode")
-        .value("STRICT", whiteout::textures::png::Parser::ParseMode::Strict)
-        .value("LENIENT", whiteout::textures::png::Parser::ParseMode::Lenient)
+        .value("STRICT", whiteout::textures::png::Parser::ParseMode::Strict, R"doc(Throw on any issue.)doc")
+        .value("LENIENT", whiteout::textures::png::Parser::ParseMode::Lenient, R"doc(Collect issues, return nullopt on failure.)doc")
     ;
 
     py::enum_<whiteout::textures::png::Writer::WriteMode>(m, "PngWriteMode")
-        .value("STRICT", whiteout::textures::png::Writer::WriteMode::Strict)
-        .value("LENIENT", whiteout::textures::png::Writer::WriteMode::Lenient)
+        .value("STRICT", whiteout::textures::png::Writer::WriteMode::Strict, R"doc(Throw on any issue.)doc")
+        .value("LENIENT", whiteout::textures::png::Writer::WriteMode::Lenient, R"doc(Collect issues, return empty data on failure.)doc")
     ;
 
     py::enum_<whiteout::textures::jpeg::Parser::ParseMode>(m, "JpegParseMode")
-        .value("STRICT", whiteout::textures::jpeg::Parser::ParseMode::Strict)
-        .value("LENIENT", whiteout::textures::jpeg::Parser::ParseMode::Lenient)
+        .value("STRICT", whiteout::textures::jpeg::Parser::ParseMode::Strict, R"doc(Throw on any issue.)doc")
+        .value("LENIENT", whiteout::textures::jpeg::Parser::ParseMode::Lenient, R"doc(Collect issues, return nullopt on failure.)doc")
     ;
 
     py::enum_<whiteout::textures::jpeg::Writer::WriteMode>(m, "JpegWriteMode")
-        .value("STRICT", whiteout::textures::jpeg::Writer::WriteMode::Strict)
-        .value("LENIENT", whiteout::textures::jpeg::Writer::WriteMode::Lenient)
+        .value("STRICT", whiteout::textures::jpeg::Writer::WriteMode::Strict, R"doc(Throw on any issue.)doc")
+        .value("LENIENT", whiteout::textures::jpeg::Writer::WriteMode::Lenient, R"doc(Collect issues, return empty data on failure.)doc")
     ;
 
     py::enum_<whiteout::textures::dds::Parser::ParseMode>(m, "DdsParseMode")
-        .value("STRICT", whiteout::textures::dds::Parser::ParseMode::Strict)
-        .value("LENIENT", whiteout::textures::dds::Parser::ParseMode::Lenient)
+        .value("STRICT", whiteout::textures::dds::Parser::ParseMode::Strict, R"doc(Throw on any issue.)doc")
+        .value("LENIENT", whiteout::textures::dds::Parser::ParseMode::Lenient, R"doc(Collect issues, return nullopt on failure.)doc")
     ;
 
     py::enum_<whiteout::textures::dds::Writer::WriteMode>(m, "DdsWriteMode")
-        .value("STRICT", whiteout::textures::dds::Writer::WriteMode::Strict)
-        .value("LENIENT", whiteout::textures::dds::Writer::WriteMode::Lenient)
+        .value("STRICT", whiteout::textures::dds::Writer::WriteMode::Strict, R"doc(Throw on any issue.)doc")
+        .value("LENIENT", whiteout::textures::dds::Writer::WriteMode::Lenient, R"doc(Collect issues, return empty data on failure.)doc")
     ;
 
     py::enum_<whiteout::textures::bmp::Parser::ParseMode>(m, "BmpParseMode")
-        .value("STRICT", whiteout::textures::bmp::Parser::ParseMode::Strict)
-        .value("LENIENT", whiteout::textures::bmp::Parser::ParseMode::Lenient)
+        .value("STRICT", whiteout::textures::bmp::Parser::ParseMode::Strict, R"doc(Throw on any issue.)doc")
+        .value("LENIENT", whiteout::textures::bmp::Parser::ParseMode::Lenient, R"doc(Collect issues, return nullopt on failure.)doc")
     ;
 
     py::enum_<whiteout::textures::bmp::Writer::WriteMode>(m, "BmpWriteMode")
-        .value("STRICT", whiteout::textures::bmp::Writer::WriteMode::Strict)
-        .value("LENIENT", whiteout::textures::bmp::Writer::WriteMode::Lenient)
+        .value("STRICT", whiteout::textures::bmp::Writer::WriteMode::Strict, R"doc(Throw on any issue.)doc")
+        .value("LENIENT", whiteout::textures::bmp::Writer::WriteMode::Lenient, R"doc(Collect issues, return empty data on failure.)doc")
     ;
 
     py::enum_<whiteout::textures::tga::Parser::ParseMode>(m, "TgaParseMode")
-        .value("STRICT", whiteout::textures::tga::Parser::ParseMode::Strict)
-        .value("LENIENT", whiteout::textures::tga::Parser::ParseMode::Lenient)
+        .value("STRICT", whiteout::textures::tga::Parser::ParseMode::Strict, R"doc(Throw on any issue.)doc")
+        .value("LENIENT", whiteout::textures::tga::Parser::ParseMode::Lenient, R"doc(Collect issues, return nullopt on failure.)doc")
     ;
 
     py::enum_<whiteout::textures::tga::Writer::WriteMode>(m, "TgaWriteMode")
-        .value("STRICT", whiteout::textures::tga::Writer::WriteMode::Strict)
-        .value("LENIENT", whiteout::textures::tga::Writer::WriteMode::Lenient)
+        .value("STRICT", whiteout::textures::tga::Writer::WriteMode::Strict, R"doc(Throw on any issue.)doc")
+        .value("LENIENT", whiteout::textures::tga::Writer::WriteMode::Lenient, R"doc(Collect issues, return empty data on failure.)doc")
     ;
 
-    py::class_<whiteout::textures::blp::Parser>(m, "BlpParser")
+    py::class_<whiteout::textures::blp::Parser>(m, "BlpParser", R"doc(Parser for BLP texture files
+
+The Parser reads binary BLP files and converts them into the Texture structure. It supports multiple parsing modes and can handle both BLP1 (Warcraft III) and BLP2 (World of Warcraft) variants.
+
+Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.)doc")
         .def(py::init<>())
         .def(py::init<whiteout::textures::blp::Parser::ParseMode>())
         .def("parse",
@@ -142,23 +149,27 @@ void bind_textures(py::module_& m) {
                 auto __r = self.parse(buffer);
                 if (!__r) throw std::runtime_error("parse returned no value");
                 return std::move(*__r);
-            })
-        .def("has_issues", &whiteout::textures::blp::Parser::hasIssues)
-        .def("get_issues", &whiteout::textures::blp::Parser::getIssues)
+            }, R"doc(Parse a BLP file from memory buffer @param buffer Memory buffer containing BLP data @return Parsed texture data, or std::nullopt on failure (in Lenient mode) @throws std::runtime_error If parsing fails in strict mode)doc")
+        .def("has_issues", &whiteout::textures::blp::Parser::hasIssues, R"doc(Check if parsing encountered any issues @return True if there were warnings or recoverable errors)doc")
+        .def("get_issues", &whiteout::textures::blp::Parser::getIssues, R"doc(Get list of issues encountered during parsing @return Vector of issue description strings)doc")
     ;
 
-    py::class_<whiteout::textures::blp::Writer>(m, "BlpWriter")
+    py::class_<whiteout::textures::blp::Writer>(m, "BlpWriter", R"doc(Writer for BLP texture files
+
+The Writer takes a Texture and encodes it into BLP1 or BLP2 binary format. It supports palettized, JPEG, DXT, and BGRA encodings.
+
+Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.)doc")
         .def(py::init<>())
         .def("write",
             [](whiteout::textures::blp::Writer& self, whiteout::textures::Texture texture) {
                 auto __v = self.write(texture);
                 return py::bytes(reinterpret_cast<const char*>(__v.data()), __v.size());
-            })
-        .def("has_issues", &whiteout::textures::blp::Writer::hasIssues)
-        .def("get_issues", &whiteout::textures::blp::Writer::getIssues)
+            }, R"doc(Write a BLP file to a byte buffer with default options)doc")
+        .def("has_issues", &whiteout::textures::blp::Writer::hasIssues, R"doc(Check if writing encountered any issues @return True if there were warnings or recoverable errors)doc")
+        .def("get_issues", &whiteout::textures::blp::Writer::getIssues, R"doc(Get list of issues encountered during writing @return Vector of issue description strings)doc")
     ;
 
-    py::class_<whiteout::textures::png::Parser>(m, "PngParser")
+    py::class_<whiteout::textures::png::Parser>(m, "PngParser", R"doc(Reads a PNG file or byte buffer and decodes it into a Texture.)doc")
         .def(py::init<>())
         .def(py::init<whiteout::textures::png::Parser::ParseMode>())
         .def("parse",
@@ -168,24 +179,24 @@ void bind_textures(py::module_& m) {
                 auto __r = self.parse(buffer);
                 if (!__r) throw std::runtime_error("parse returned no value");
                 return std::move(*__r);
-            })
-        .def("has_issues", &whiteout::textures::png::Parser::hasIssues)
-        .def("get_issues", &whiteout::textures::png::Parser::getIssues)
+            }, R"doc(Parse a PNG byte buffer.)doc")
+        .def("has_issues", &whiteout::textures::png::Parser::hasIssues, R"doc(@return true if the last parse produced any issues.)doc")
+        .def("get_issues", &whiteout::textures::png::Parser::getIssues, R"doc(@return accumulated issues from the last parse call.)doc")
     ;
 
-    py::class_<whiteout::textures::png::Writer>(m, "PngWriter")
+    py::class_<whiteout::textures::png::Writer>(m, "PngWriter", R"doc(Encodes a Texture into PNG format.)doc")
         .def(py::init<>())
         .def(py::init<whiteout::textures::png::Writer::WriteMode>())
         .def("write",
             [](whiteout::textures::png::Writer& self, whiteout::textures::Texture texture) {
                 auto __v = self.write(texture);
                 return py::bytes(reinterpret_cast<const char*>(__v.data()), __v.size());
-            })
-        .def("has_issues", &whiteout::textures::png::Writer::hasIssues)
-        .def("get_issues", &whiteout::textures::png::Writer::getIssues)
+            }, R"doc(Serialize the texture to a PNG byte buffer.)doc")
+        .def("has_issues", &whiteout::textures::png::Writer::hasIssues, R"doc(@return true if the last write produced any issues.)doc")
+        .def("get_issues", &whiteout::textures::png::Writer::getIssues, R"doc(@return accumulated issues from the last write call.)doc")
     ;
 
-    py::class_<whiteout::textures::jpeg::Parser>(m, "JpegParser")
+    py::class_<whiteout::textures::jpeg::Parser>(m, "JpegParser", R"doc(Reads a JPEG file or byte buffer and decodes it into a Texture.)doc")
         .def(py::init<>())
         .def("parse",
             [](whiteout::textures::jpeg::Parser& self, py::bytes __py_bytes) {
@@ -194,23 +205,23 @@ void bind_textures(py::module_& m) {
                 auto __r = self.parse(buffer);
                 if (!__r) throw std::runtime_error("parse returned no value");
                 return std::move(*__r);
-            })
-        .def("has_issues", &whiteout::textures::jpeg::Parser::hasIssues)
-        .def("get_issues", &whiteout::textures::jpeg::Parser::getIssues)
+            }, R"doc(Parse a JPEG byte buffer.)doc")
+        .def("has_issues", &whiteout::textures::jpeg::Parser::hasIssues, R"doc(@return true if the last parse produced any issues.)doc")
+        .def("get_issues", &whiteout::textures::jpeg::Parser::getIssues, R"doc(@return accumulated issues from the last parse call.)doc")
     ;
 
-    py::class_<whiteout::textures::jpeg::Writer>(m, "JpegWriter")
+    py::class_<whiteout::textures::jpeg::Writer>(m, "JpegWriter", R"doc(Encodes a Texture into JPEG format.)doc")
         .def(py::init<>())
         .def("write",
             [](whiteout::textures::jpeg::Writer& self, whiteout::textures::Texture texture) {
                 auto __v = self.write(texture);
                 return py::bytes(reinterpret_cast<const char*>(__v.data()), __v.size());
-            })
-        .def("has_issues", &whiteout::textures::jpeg::Writer::hasIssues)
-        .def("get_issues", &whiteout::textures::jpeg::Writer::getIssues)
+            }, R"doc(Serialize the texture to a JPEG byte buffer.)doc")
+        .def("has_issues", &whiteout::textures::jpeg::Writer::hasIssues, R"doc(@return true if the last write produced any issues.)doc")
+        .def("get_issues", &whiteout::textures::jpeg::Writer::getIssues, R"doc(@return accumulated issues from the last write call.)doc")
     ;
 
-    py::class_<whiteout::textures::dds::Parser>(m, "DdsParser")
+    py::class_<whiteout::textures::dds::Parser>(m, "DdsParser", R"doc(Reads a DDS file or byte buffer and decodes it into a Texture.)doc")
         .def(py::init<>())
         .def(py::init<whiteout::textures::dds::Parser::ParseMode>())
         .def("parse",
@@ -220,24 +231,24 @@ void bind_textures(py::module_& m) {
                 auto __r = self.parse(buffer);
                 if (!__r) throw std::runtime_error("parse returned no value");
                 return std::move(*__r);
-            })
-        .def("has_issues", &whiteout::textures::dds::Parser::hasIssues)
-        .def("get_issues", &whiteout::textures::dds::Parser::getIssues)
+            }, R"doc(Parse a DDS byte buffer.)doc")
+        .def("has_issues", &whiteout::textures::dds::Parser::hasIssues, R"doc(@return true if the last parse produced any issues.)doc")
+        .def("get_issues", &whiteout::textures::dds::Parser::getIssues, R"doc(@return accumulated issues from the last parse call.)doc")
     ;
 
-    py::class_<whiteout::textures::dds::Writer>(m, "DdsWriter")
+    py::class_<whiteout::textures::dds::Writer>(m, "DdsWriter", R"doc(Encodes a Texture into DDS format.)doc")
         .def(py::init<>())
         .def(py::init<whiteout::textures::dds::Writer::WriteMode>())
         .def("write",
             [](whiteout::textures::dds::Writer& self, whiteout::textures::Texture texture) {
                 auto __v = self.write(texture);
                 return py::bytes(reinterpret_cast<const char*>(__v.data()), __v.size());
-            })
-        .def("has_issues", &whiteout::textures::dds::Writer::hasIssues)
-        .def("get_issues", &whiteout::textures::dds::Writer::getIssues)
+            }, R"doc(Serialize the texture to a DDS byte buffer.)doc")
+        .def("has_issues", &whiteout::textures::dds::Writer::hasIssues, R"doc(@return true if the last write produced any issues.)doc")
+        .def("get_issues", &whiteout::textures::dds::Writer::getIssues, R"doc(@return accumulated issues from the last write call.)doc")
     ;
 
-    py::class_<whiteout::textures::bmp::Parser>(m, "BmpParser")
+    py::class_<whiteout::textures::bmp::Parser>(m, "BmpParser", R"doc(Reads a BMP file or byte buffer and decodes it into a Texture.)doc")
         .def(py::init<>())
         .def(py::init<whiteout::textures::bmp::Parser::ParseMode>())
         .def("parse",
@@ -247,24 +258,24 @@ void bind_textures(py::module_& m) {
                 auto __r = self.parse(buffer);
                 if (!__r) throw std::runtime_error("parse returned no value");
                 return std::move(*__r);
-            })
-        .def("has_issues", &whiteout::textures::bmp::Parser::hasIssues)
-        .def("get_issues", &whiteout::textures::bmp::Parser::getIssues)
+            }, R"doc(Parse a BMP byte buffer.)doc")
+        .def("has_issues", &whiteout::textures::bmp::Parser::hasIssues, R"doc(@return true if the last parse produced any issues.)doc")
+        .def("get_issues", &whiteout::textures::bmp::Parser::getIssues, R"doc(@return accumulated issues from the last parse call.)doc")
     ;
 
-    py::class_<whiteout::textures::bmp::Writer>(m, "BmpWriter")
+    py::class_<whiteout::textures::bmp::Writer>(m, "BmpWriter", R"doc(Encodes a Texture into BMP format.)doc")
         .def(py::init<>())
         .def(py::init<whiteout::textures::bmp::Writer::WriteMode>())
         .def("write",
             [](whiteout::textures::bmp::Writer& self, whiteout::textures::Texture texture) {
                 auto __v = self.write(texture);
                 return py::bytes(reinterpret_cast<const char*>(__v.data()), __v.size());
-            })
-        .def("has_issues", &whiteout::textures::bmp::Writer::hasIssues)
-        .def("get_issues", &whiteout::textures::bmp::Writer::getIssues)
+            }, R"doc(Serialize the texture to a BMP byte buffer.)doc")
+        .def("has_issues", &whiteout::textures::bmp::Writer::hasIssues, R"doc(@return true if the last write produced any issues.)doc")
+        .def("get_issues", &whiteout::textures::bmp::Writer::getIssues, R"doc(@return accumulated issues from the last write call.)doc")
     ;
 
-    py::class_<whiteout::textures::tga::Parser>(m, "TgaParser")
+    py::class_<whiteout::textures::tga::Parser>(m, "TgaParser", R"doc(Reads a TGA file or byte buffer and decodes it into a Texture.)doc")
         .def(py::init<>())
         .def(py::init<whiteout::textures::tga::Parser::ParseMode>())
         .def("parse",
@@ -274,21 +285,21 @@ void bind_textures(py::module_& m) {
                 auto __r = self.parse(buffer);
                 if (!__r) throw std::runtime_error("parse returned no value");
                 return std::move(*__r);
-            })
-        .def("has_issues", &whiteout::textures::tga::Parser::hasIssues)
-        .def("get_issues", &whiteout::textures::tga::Parser::getIssues)
+            }, R"doc(Parse a TGA byte buffer.)doc")
+        .def("has_issues", &whiteout::textures::tga::Parser::hasIssues, R"doc(@return true if the last parse produced any issues.)doc")
+        .def("get_issues", &whiteout::textures::tga::Parser::getIssues, R"doc(@return accumulated issues from the last parse call.)doc")
     ;
 
-    py::class_<whiteout::textures::tga::Writer>(m, "TgaWriter")
+    py::class_<whiteout::textures::tga::Writer>(m, "TgaWriter", R"doc(Encodes a Texture into TGA format.)doc")
         .def(py::init<>())
         .def(py::init<whiteout::textures::tga::Writer::WriteMode>())
         .def("write",
             [](whiteout::textures::tga::Writer& self, whiteout::textures::Texture texture) {
                 auto __v = self.write(texture);
                 return py::bytes(reinterpret_cast<const char*>(__v.data()), __v.size());
-            })
-        .def("has_issues", &whiteout::textures::tga::Writer::hasIssues)
-        .def("get_issues", &whiteout::textures::tga::Writer::getIssues)
+            }, R"doc(Serialize the texture to a TGA byte buffer.)doc")
+        .def("has_issues", &whiteout::textures::tga::Writer::hasIssues, R"doc(@return true if the last write produced any issues.)doc")
+        .def("get_issues", &whiteout::textures::tga::Writer::getIssues, R"doc(@return accumulated issues from the last write call.)doc")
     ;
 
 

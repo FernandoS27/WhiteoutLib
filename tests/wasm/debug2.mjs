@@ -1,4 +1,4 @@
-﻿import { Whiteout } from "../../package/index.js";
+﻿import { Whiteout } from "../../packages/js-ts/index.js";
 import { createHash } from "node:crypto";
 import { deflateSync } from "node:zlib";
 
