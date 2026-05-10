@@ -38,6 +38,7 @@ namespace textures {
 ///
 /// Uncompressed formats store one pixel per "block"; BCn formats store a
 /// 4×4 pixel tile per block.
+/// @bind
 enum class PixelFormat : u32 {
     R8,      ///< 8-bit single channel (1 byte per pixel).
     R16,     ///< 16-bit single channel UNORM (2 bytes per pixel).
@@ -126,6 +127,7 @@ enum class TextureKind : u32 {
 // ============================================================================
 
 /// Dimensionality / topology of a texture resource.
+/// @bind
 enum class TextureType : u32 {
     Texture2D,        ///< Standard 2D image (1 layer).
     Texture3D,        ///< Volume texture (depth > 1, depth halves each mip).

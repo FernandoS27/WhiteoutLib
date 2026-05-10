@@ -50,11 +50,13 @@ namespace whiteout::textures::blp {
  *
  * Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
  */
+/// @bind methods=buffer_only, js_name=BlpWriter
 class Writer : public textures::Writer {
 public:
     /**
      * @brief Writing strictness mode
      */
+    /// @bind js_name=BlpWriteMode
     enum class WriteMode {
         Strict, ///< Throw exceptions on encoding errors
         Lenient ///< Log issues and return empty result on errors (recommended)

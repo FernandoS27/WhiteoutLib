@@ -49,11 +49,13 @@ namespace whiteout::textures::blp {
  *
  * Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
  */
+/// @bind methods=buffer_only, js_name=BlpParser
 class Parser : public textures::Parser {
 public:
     /**
      * @brief Parsing strictness mode
      */
+    /// @bind js_name=BlpParseMode
     enum class ParseMode {
         Strict, ///< Throw exceptions on invalid data
         Lenient ///< Try to recover from errors and log issues (recommended)

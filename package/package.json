@@ -1,0 +1,28 @@
+{
+  "name": "whiteout-wasm",
+  "version": "0.1.0",
+  "description": "WebAssembly build of WhiteoutLib - parsers/writers for Blizzard model and texture formats (MDX, M2, M3, WEM, BLP, DDS, PNG, JPEG, BMP, TGA).",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js"
+    },
+    "./whiteout.wasm": "./whiteout.wasm"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "whiteout.js",
+    "whiteout.wasm",
+    "whiteout.d.ts",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test ../tests/wasm"
+  },
+  "license": "BSD-3-Clause",
+  "author": "Fernando Sahmkow"
+}

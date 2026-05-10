@@ -61,6 +61,7 @@ struct ColorBGRA {
     }
 };
 
+/// @bind value_object
 struct Extent {
     Vector3f minimum;
     Vector3f maximum;

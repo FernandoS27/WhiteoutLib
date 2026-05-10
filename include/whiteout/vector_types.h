@@ -237,6 +237,7 @@ struct Vector2 : public VectorMethods<Vector2<T>, T> {
     constexpr Vector2(T x_, T y_) : x(x_), y(y_) {}
 };
 
+/// @bind value_object, fields=x;y
 using Vector2f = Vector2<f32>;
 using Vector2i = Vector2<i32>;
 using Vector2u = Vector2<u32>;
@@ -294,6 +295,7 @@ struct Vector3 : public VectorMethods<Vector3<T>, T> {
     constexpr Vector3(T x_, const Vector2<T>& yz_) : x(x_), y(yz_.x), z(yz_.y) {}
 };
 
+/// @bind value_object, fields=x;y;z
 using Vector3f = Vector3<f32>;
 using Vector3d = Vector3<f64>;
 using Vector3i = Vector3<i32>;
@@ -507,10 +509,12 @@ struct Vector4 : public VectorMethods<Vector4<T>, T> {
     constexpr Vector4(T x_, const Vector3<T>& yzw_) : x(x_), y(yzw_.x), z(yzw_.y), w(yzw_.z) {}
 };
 
+/// @bind value_object, fields=x;y;z;w
 using Vector4f = Vector4<f32>;
 using Vector4i = Vector4<i32>;
 using Vector4u = Vector4<u32>;
 
+/// @bind value_object, fields=x;y;z;w
 struct Quaternion : public VectorMethods<Quaternion, f32> {
     union {
         struct {

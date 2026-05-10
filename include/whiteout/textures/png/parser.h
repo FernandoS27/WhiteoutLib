@@ -35,8 +35,10 @@ namespace whiteout::textures::png {
 // ============================================================================
 
 /// Reads a PNG file or byte buffer and decodes it into a Texture.
+/// @bind methods=buffer_only, js_name=PngParser
 class Parser : public textures::Parser {
 public:
+    /// @bind js_name=PngParseMode
     enum class ParseMode {
         Strict, ///< Throw on any issue.
         Lenient ///< Collect issues, return nullopt on failure.

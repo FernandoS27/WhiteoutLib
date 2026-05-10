@@ -427,6 +427,14 @@ bool Parser::Impl::readBlp0Header(ParseContext& ctx) {
 }
 
 bool Parser::Impl::loadBlp0ExternalMips(ParseContext& ctx, const std::string& filePath) {
+#ifdef __EMSCRIPTEN__
+    // BLP0 sibling-file mips require disk access to .b00..b15 files next to
+    // the .blp. The WASM build has no real filesystem; callers must use
+    // buffer-based parse() with inline mips instead.
+    (void)ctx;
+    (void)filePath;
+    return fail("BLP0 external mip files are not supported in the WASM build");
+#else
     namespace fs = std::filesystem;
 
     const fs::path blpPath(filePath);
@@ -461,6 +469,7 @@ bool Parser::Impl::loadBlp0ExternalMips(ParseContext& ctx, const std::string& fi
     }
 
     return true;
+#endif
 }
 
 bool Parser::Impl::readBlp1Header(ParseContext& ctx) {

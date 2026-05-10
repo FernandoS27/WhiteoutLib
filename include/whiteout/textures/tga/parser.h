@@ -35,8 +35,10 @@ namespace whiteout::textures::tga {
 // ============================================================================
 
 /// Reads a TGA file or byte buffer and decodes it into a Texture.
+/// @bind methods=buffer_only, js_name=TgaParser
 class Parser : public textures::Parser {
 public:
+    /// @bind js_name=TgaParseMode
     enum class ParseMode {
         Strict, ///< Throw on any issue.
         Lenient ///< Collect issues, return nullopt on failure.

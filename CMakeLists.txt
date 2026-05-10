@@ -16,6 +16,19 @@ option(WHITEOUT_ENABLE_CASC "Enable CASC archive support via CascLib" OFF)
 option(WHITEOUT_BUILD_EXAMPLES "Build example programs" OFF)
 option(WHITEOUT_BUILD_TESTS "Build test programs" OFF)
 option(WHITEOUT_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ${WHITEOUT_MASTER_PROJECT})
+option(WHITEOUT_BUILD_WASM_BINDINGS "Build Emscripten/Embind JavaScript bindings" ${EMSCRIPTEN})
+option(WHITEOUT_BUILD_PYTHON_BINDINGS "Build native Python bindings via pybind11" OFF)
+
+if(EMSCRIPTEN)
+    # WASM build covers models + textures only. Storage, networking, disk
+    # discovery, and threading utilities are excluded from the source list
+    # below; CASC/MPQ subprojects are forced off.
+    set(WHITEOUT_ENABLE_CASC OFF CACHE BOOL "" FORCE)
+    set(WHITEOUT_ENABLE_MPQ OFF CACHE BOOL "" FORCE)
+    set(WHITEOUT_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(WHITEOUT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(WHITEOUT_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
+endif()
 
 if(WHITEOUT_BUILD_TESTS)
     enable_testing()
@@ -83,6 +96,10 @@ else()
         -pedantic-errors
         -Wfatal-errors
         -Wno-missing-braces
+        # Mirror MSVC's /wd4201 — vector_types and texture internals use
+        # anonymous structs/unions intentionally for .x/.y/.z accessors.
+        -Wno-gnu-anonymous-struct
+        -Wno-nested-anon-types
     )
 
     if(WHITEOUT_WARNINGS_AS_ERRORS)
@@ -96,12 +113,7 @@ add_library(whiteout_lib
     src/whiteout/common_types.cpp
     src/whiteout/utils/vertex_buffer.cpp
     src/whiteout/utils/job_group.cpp
-    src/whiteout/utils/simple_thread_pool.cpp
     src/whiteout/utils/timeline_semaphore.cpp
-    src/whiteout/utils/os_file_system.cpp
-    src/whiteout/utils/simple_http_handler.cpp
-    src/whiteout/utils/blizzard_game_finder.cpp
-    src/whiteout/utils/cdn_product_finder.cpp
     src/whiteout/vector_types.cpp
     src/whiteout/common/bit_io.cpp
     src/whiteout/common/huffman_table.cpp
@@ -201,11 +213,32 @@ add_library(whiteout_lib
     src/whiteout/sno/d3/sno_defs.cpp
 )
 
+if(NOT EMSCRIPTEN)
+    # Host-only helpers: native threading, disk I/O, OS discovery, HTTP.
+    # Models and textures only depend on these via abstract interfaces, so
+    # the WASM build provides its own implementations in bindings/wasm/.
+    target_sources(whiteout_lib PRIVATE
+        src/whiteout/utils/simple_thread_pool.cpp
+        src/whiteout/utils/os_file_system.cpp
+        src/whiteout/utils/simple_http_handler.cpp
+        src/whiteout/utils/blizzard_game_finder.cpp
+        src/whiteout/utils/cdn_product_finder.cpp
+    )
+endif()
+
 target_include_directories(whiteout_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
 target_link_libraries(whiteout_lib PRIVATE whiteout_strict_flags)
+
+if(WHITEOUT_BUILD_WASM_BINDINGS)
+    add_subdirectory(bindings/wasm)
+endif()
+
+if(WHITEOUT_BUILD_PYTHON_BINDINGS)
+    add_subdirectory(bindings/python)
+endif()
 
 if(WHITEOUT_BUILD_EXAMPLES)
 

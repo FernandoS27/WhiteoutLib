@@ -38,8 +38,10 @@ namespace whiteout::textures::jpeg {
 // ============================================================================
 
 /// Encodes a Texture into JPEG format.
+/// @bind methods=buffer_only, js_name=JpegWriter
 class Writer : public textures::Writer {
 public:
+    /// @bind js_name=JpegWriteMode
     enum class WriteMode {
         Strict, ///< Throw on any issue.
         Lenient ///< Collect issues, return empty data on failure.

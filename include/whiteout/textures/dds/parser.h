@@ -34,8 +34,10 @@ namespace whiteout::textures::dds {
 // ============================================================================
 
 /// Reads a DDS file or byte buffer and decodes it into a Texture.
+/// @bind methods=buffer_only, js_name=DdsParser
 class Parser : public textures::Parser {
 public:
+    /// @bind js_name=DdsParseMode
     enum class ParseMode {
         Strict, ///< Throw on any issue.
         Lenient ///< Collect issues, return nullopt on failure.

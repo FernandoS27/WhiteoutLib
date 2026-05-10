@@ -34,6 +34,7 @@ namespace mdx {
 // Extent Type
 // ============================================================================
 
+/// @bind value_object
 struct Extent {
     f32 boundsRadius;
     Vector3f minimum;
@@ -246,6 +247,7 @@ constexpr bool isSmoothInterpolation(InterpolationType t) {
  *
  * @tparam T The value type (f32, Vector3f, Vector4f, u32, etc.)
  */
+/// @bind track_template, instantiate=f32;u32;Vector3f;Vector4f;Quaternion
 template <typename T>
 struct Track {
 
@@ -259,7 +261,7 @@ struct Track {
         T outTan{};    ///< Outgoing tangent for curve interpolation
     };
 
-    static constexpr u32 kNoGlobalSequence = 0xFFFFFFFF; ///< Sentinel value for no global sequence
+    static constexpr u32 kNoGlobalSequence = 0xFFFFFFFF; ///< @bind js_name=MdxNoGlobalSequence, cpp_expr=whiteout::mdx::Track<whiteout::f32>::kNoGlobalSequence — Sentinel value
 
     bool isUsed = false; ///< Whether this track contains animation data
     InterpolationType interpolationType = InterpolationType::None; ///< Interpolation type
@@ -349,7 +351,7 @@ struct Model {
     std::vector<FaceEffect> faceEffects;         ///< Facial effects (Reforged)
 
     // Reforged skinning (version > 800)
-    std::vector<std::array<f32, 12>> bindPoses; ///< Bind pose matrices (3x4 each)
+    std::vector<std::array<f32, 12>> bindPoses; ///< @bind skip — Bind pose matrices (3x4 each)
 };
 
 } // namespace mdx

@@ -145,6 +145,7 @@ struct ColorBGR {
  *
  * Used throughout M3 for model bounds, collision bounds, and per-region extents.
  */
+/// @bind value_object
 struct Extent {
     Vector3f min{};    ///< AABB minimum corner
     Vector3f max{};    ///< AABB maximum corner

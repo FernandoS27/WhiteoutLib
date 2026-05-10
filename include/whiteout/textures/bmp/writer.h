@@ -32,8 +32,10 @@ namespace whiteout::textures::bmp {
 // ============================================================================
 
 /// Encodes a Texture into BMP format.
+/// @bind methods=buffer_only, js_name=BmpWriter
 class Writer : public textures::Writer {
 public:
+    /// @bind js_name=BmpWriteMode
     enum class WriteMode {
         Strict, ///< Throw on any issue.
         Lenient ///< Collect issues, return empty data on failure.

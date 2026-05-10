@@ -1,5 +1,5 @@
 # Build directories
-build/
+build*/
 scripts/
 Corpus/
 
@@ -14,9 +14,17 @@ Corpus/
 __pycache__/
 .venv/
 venv/
+*.pyd
+*.pyc
 
 # Dependencies
 vcpkg_installed/
+
+# WASM/JS bindings — staged into package/ from build-wasm/wasm-dist/
+node_modules/
+package/whiteout.js
+package/whiteout.wasm
+package/whiteout.d.ts
 
 # OS
 .DS_Store

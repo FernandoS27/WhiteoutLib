@@ -32,8 +32,10 @@ namespace whiteout::textures::png {
 // ============================================================================
 
 /// Encodes a Texture into PNG format.
+/// @bind methods=buffer_only, js_name=PngWriter
 class Writer : public textures::Writer {
 public:
+    /// @bind js_name=PngWriteMode
     enum class WriteMode {
         Strict, ///< Throw on any issue.
         Lenient ///< Collect issues, return empty data on failure.

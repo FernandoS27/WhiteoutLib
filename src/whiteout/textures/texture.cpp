@@ -379,12 +379,12 @@ u8* Texture::dataPtr() {
 
 std::span<const u8> Texture::mipData(u32 mip, u32 layer) const {
     const auto& m = mipLevel(mip, layer);
-    return {impl_->data.data() + m.offset, m.size};
+    return {impl_->data.data() + m.offset, static_cast<size_t>(m.size)};
 }
 
 std::span<u8> Texture::mipData(u32 mip, u32 layer) {
     const auto& m = mipLevel(mip, layer);
-    return {impl_->data.data() + m.offset, m.size};
+    return {impl_->data.data() + m.offset, static_cast<size_t>(m.size)};
 }
 
 std::vector<u8> Texture::takeData() {

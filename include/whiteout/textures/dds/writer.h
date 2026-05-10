@@ -31,8 +31,10 @@ namespace whiteout::textures::dds {
 // ============================================================================
 
 /// Encodes a Texture into DDS format.
+/// @bind methods=buffer_only, js_name=DdsWriter
 class Writer : public textures::Writer {
 public:
+    /// @bind js_name=DdsWriteMode
     enum class WriteMode {
         Strict, ///< Throw on any issue.
         Lenient ///< Collect issues, return empty data on failure.

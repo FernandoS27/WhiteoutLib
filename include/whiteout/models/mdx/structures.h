@@ -60,6 +60,7 @@ struct Sequence {
     /**
      * @brief Sequence playback flags
      */
+    /// @bind
     enum class Flag : u32 {
         None = 0x0,
         NonLooping = 0x1, ///< Sequence plays once instead of looping
@@ -90,6 +91,7 @@ struct Texture {
     /**
      * @brief Texture wrap flags
      */
+    /// @bind
     enum class Flag : u32 {
         None = 0x0,
         WrapWidth = 0x1,  ///< Wrap texture horizontally
@@ -145,6 +147,7 @@ struct Node {
     /**
      * @brief Type of node in the hierarchy
      */
+    /// @bind
     enum class NodeType : u32 {
         Bone,             ///< Skeleton bone
         Light,            ///< Light source
@@ -163,6 +166,7 @@ struct Node {
     /**
      * @brief Flags controlling node behavior and rendering
      */
+    /// @bind
     enum class NodeFlag : u32 {
         None = 0x0,
         DontInheritTranslation = 0x1, ///< Don't inherit parent translation
@@ -195,7 +199,7 @@ struct Node {
         XYQuad = 0x100000             ///< XY quad billboarding
     };
 
-    static constexpr u32 NO_PARENT = 0xFFFFFFFF; ///< Value indicating no parent node
+    static constexpr u32 NO_PARENT = 0xFFFFFFFF; ///< @bind js_name=MdxNoParent — Value indicating no parent node
 
     std::string name;                 ///< Node name (for debugging/reference)
     u32 objectId = 0;                 ///< Unique ID for this node
@@ -243,6 +247,7 @@ struct Layer {
     /**
      * @brief Blending/filter mode for the layer
      */
+    /// @bind
     enum class FilterMode : u32 {
         None = 0,        ///< No blending
         Transparent = 1, ///< Alpha test transparency
@@ -254,9 +259,10 @@ struct Layer {
         Count,
     };
 
-    // For MDX < 1100 only a tiny subset is authorable. 
+    // For MDX < 1100 only a tiny subset is authorable.
     // For MDX >= 1100 the layer's shaderIdMDL
     // is a raw uint32, so any of these values can appear on disk.
+    /// @bind
     enum class ShaderType : u32 {
         SD                      = 0,
         HD                      = 1,
@@ -289,6 +295,7 @@ struct Layer {
     /**
      * @brief Shader and rendering flags
      */
+    /// @bind
     enum class ShadingFlag : u32 {
         None = 0,
         Unshaded = 0x1,     ///< Not affected by lighting
@@ -302,6 +309,7 @@ struct Layer {
         Unlit = 0x100,      ///< Reforged: bypass lighting pipeline
     };
 
+    /// @bind
     enum class SlotType : u32 {
         DiffuseMap = 0,
         NormalMap = 1,
@@ -315,6 +323,7 @@ struct Layer {
     /**
      * @brief Sub-texture definition (Reforged multi-texture)
      */
+    /// @bind
     struct SubTexture {
         u32 textureId = 0;                    ///< Index into texture array
         SlotType slot = SlotType::DiffuseMap; ///< Texture slot number
@@ -335,7 +344,7 @@ struct Layer {
     f32 fresnelTeamColor = 0.0f;               ///< Fresnel team color factor
 
     ShaderType shader = ShaderType::SD;   ///< Shader to use for this layer
-    bool is_hd = false;                   ///< True if using Reforged HD shading
+    bool is_hd = false;                   ///< @bind rename=isHd — True if using Reforged HD shading
     std::vector<SubTexture> subTextures;  ///< Multi-texture support (version 1200+)
 
     // Animation tracks
@@ -363,6 +372,7 @@ struct Material {
     /**
      * @brief Material-level flags
      */
+    /// @bind
     enum class Flag : u32 {
         None = 0x0,
         ConstantColor = 0x1,   ///< Use constant color (no per-vertex tinting)
@@ -414,7 +424,7 @@ struct Geoset {
     std::vector<u32> faceTypeGroups;       ///< Face type groups (4 = triangles)
     std::vector<u32> faceGroups;           ///< Number of indices per group
     std::vector<u16> faces;                ///< Vertex indices (triangles)
-    std::vector<u8> vertexGroups;          ///< Bone groups per vertex
+    std::vector<u8> vertexGroups;          ///< @bind array_with_view — Bone groups per vertex
     std::vector<u32> matrixGroups;         ///< Number of matrices per group
     std::vector<u32> matrixIndices;        ///< Bone indices
 
@@ -429,7 +439,7 @@ struct Geoset {
     std::vector<Extent> sequenceExtents; ///< Per-sequence bounding volumes
 
     std::vector<Vector4f> tangents; ///< Tangent vectors (for normal mapping)
-    std::vector<u8> skinData;       ///< Bone indices and weights
+    std::vector<u8> skinData;       ///< @bind array_with_view — Bone indices and weights
 
     std::vector<std::vector<Vector2f>> textureCoordinateSets; ///< UV coordinates (multiple sets)
 };
@@ -447,6 +457,7 @@ struct GeosetAnimation {
     /**
      * @brief Geoset animation flags
      */
+    /// @bind
     enum class Flag : u32 {
         None = 0x0,
         DropShadow = 0x1, ///< Geoset casts a drop shadow
@@ -475,7 +486,7 @@ WHITEOUT_MDX_DEFINE_FLAG_OPERATORS(GeosetAnimation::Flag)
  * in the hierarchy and can affect one or more geosets.
  */
 struct Bone {
-    static constexpr u32 MULTIPLE_GEOSETS = 0xFFFFFFFF; ///< Bone affects all geosets
+    static constexpr u32 MULTIPLE_GEOSETS = 0xFFFFFFFF; ///< @bind js_name=MdxMultipleGeosets — Bone affects all geosets
 
     Node node;                                ///< Base node data with transform
     u32 geosetId = MULTIPLE_GEOSETS;          ///< Geoset this bone affects
@@ -496,6 +507,7 @@ struct Light {
     /**
      * @brief Type of light source
      */
+    /// @bind
     enum class LightType : u32 {
         Omni = 0,        ///< Point light (radiates in all directions)
         Directional = 1, ///< Directional light (like sunlight)
@@ -723,6 +735,7 @@ struct Camera {
  * Collision shapes define simplified geometry for collision detection.
  */
 struct CollisionShape {
+    /// @bind
     enum class ShapeType : u32 { Box = 0, Plane = 1, Sphere = 2, Cylinder = 3 };
     Node node;                       ///< Base node data
     ShapeType type = ShapeType::Box; ///< Shape type

@@ -32,8 +32,10 @@ namespace whiteout::textures::tga {
 // ============================================================================
 
 /// Encodes a Texture into TGA format.
+/// @bind methods=buffer_only, js_name=TgaWriter
 class Writer : public textures::Writer {
 public:
+    /// @bind js_name=TgaWriteMode
     enum class WriteMode {
         Strict, ///< Throw on any issue.
         Lenient ///< Collect issues, return empty data on failure.
