@@ -36,6 +36,8 @@ namespace whiteout::utils {
 ///   auto storage = mpq::Storage::open("War3.mpq");
 ///   utils::MpqFileSystem fs(*storage);
 ///   auto data = fs.readFile("units\\orc\\grunt\\grunt.mdx");
+///
+/// @bind methods, extends=whiteout::interfaces::VirtualPathFileSystem
 class MpqFileSystem : public interfaces::VirtualPathFileSystem {
 public:
     /// Construct from an existing MPQ storage. The storage is not owned;
@@ -67,6 +69,8 @@ public:
     /// Pass an empty string to list root-level entries.
     /// Returns one entry per unique child name; isDirectory is true when the
     /// child is a path component that precedes further files.
+    ///
+    /// @bind skip — DirectoryEntry isn't bound; users iterate via list_files() instead.
     std::vector<interfaces::DirectoryEntry> listDirectory(const std::string& path) const override;
 
 private:

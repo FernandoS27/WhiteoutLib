@@ -10,6 +10,7 @@ from typing import Iterator
 from . import mdx as mdx
 from . import m2 as m2
 from . import m3 as m3
+from . import mpq as mpq
 
 
 # ── Shared math types ─────────────────────────────────────────────────────

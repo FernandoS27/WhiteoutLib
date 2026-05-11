@@ -32,9 +32,15 @@ HEADER = '''// SPDX-License-Identifier: BSD-3-Clause
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+// Bridges std::optional<T> ⇄ JS `null | T` for any T Embind already knows.
+// Must be included before the EMSCRIPTEN_BINDINGS block so the BindingType
+// specialisation is in scope when the binding macros instantiate.
+#include "optional_marshal.h"
 
 '''
 
@@ -191,46 +197,163 @@ def _emit_value_object(out: StringIO, c: BindClass, ns: str):
 
 
 def _emit_method(out: StringIO, m, cls_qual: str, ns: str):
-    """Emit one Embind .function(...) line for a class method."""
-    if m.bytes_in or m.bytes_out:
-        # Custom adapter: take a JS Uint8Array, hand off to the C++ method,
-        # optionally unwrap std::optional<T>, optionally hand back a vector.
-        out.write(f'        .function("{m.name}",\n')
-        out.write(f'                  optional_override([](\n')
-        out.write(f'                      {cls_qual}& self')
-        for i, p in enumerate(m.params):
-            if i == 0 and m.bytes_in:
-                out.write(f',\n                      const emscripten::val& __js_bytes')
-            else:
-                out.write(f',\n                      {_cpp_type(p.type, ns)} {p.name}')
-        out.write(') {\n')
-        if m.bytes_in:
-            out.write(f'                      auto __vec = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_bytes);\n')
-            out.write(f'                      std::span<const whiteout::u8> {m.params[0].name}(__vec.data(), __vec.size());\n')
-        # Build call expression
-        call = f'self.{m.cpp_name}(' + ', '.join(p.name for p in m.params) + ')'
-        ret = m.return_type
-        if ret.kind.value == 'optional':
-            out.write(f'                      auto __r = {call};\n')
-            out.write(f'                      if (!__r) throw std::runtime_error("{m.cpp_name} returned no value");\n')
-            out.write(f'                      return std::move(*__r);\n')
-        elif ret.cpp_text == 'void':
-            out.write(f'                      {call};\n')
-        else:
-            out.write(f'                      return {call};\n')
-        out.write('                  }))\n')
+    """Emit one Embind .function(...) / .class_function(...) line.
+
+    Mirror of emit_pybind._emit_method:
+      - static methods           → `.class_function(...)`
+      - bytes-in / bytes-out     → lambda wrapper
+      - std::optional<T> return  → plain return (the BindingType bridge in
+                                   optional_marshal.h does the marshalling)
+      - overloaded methods       → `select_overload<Sig>(&Class::method)`
+      - trimmed default params   → lambda wrapper (needs_wrapper)
+    """
+    binder = 'class_function' if m.is_static else 'function'
+
+    # Helper: render the function-type signature for select_overload<...>.
+    # Embind's syntax embeds the `const` qualifier in the signature itself
+    # (`Ret(Args...) const`) rather than passing it as a runtime arg.
+    def _overload_sig() -> str:
+        ret_cpp = _cpp_type(m.return_type, ns) if m.return_type.cpp_text else 'void'
+        param_cpp = ', '.join(p.cpp_raw or _cpp_type(p.type, ns) for p in m.params)
+        sig = f'{ret_cpp}({param_cpp})'
+        if m.is_const and not m.is_static:
+            sig += ' const'
+        return sig
+
+    # Move-only class returns must go through a `val(std::move(...))`
+    # wrapper — Embind's default binding for the class type tries to copy
+    # via the value-type marshaller and won't compile against a deleted
+    # copy ctor.
+    # Reference returns (e.g. `Builder& declareX(...)`) of class types
+    # also need a wrapper: Embind's wire layer marshals the reference's
+    # pointee by value, which fails for move-only types and is wasteful
+    # for the common builder-chain idiom.
+    ret_is_class_ref = (
+        m.return_is_reference
+        and m.return_type.kind in (TypeKind.NESTED, TypeKind.UNKNOWN)
+    )
+    if ((m.return_is_move_only or ret_is_class_ref)
+            and m.return_type.kind != TypeKind.OPTIONAL
+            and not (m.bytes_in or m.bytes_out or m.needs_wrapper)):
+        m_needs_wrapper = True
     else:
-        out.write(f'        .function("{m.name}", &{cls_qual}::{m.cpp_name})\n')
+        m_needs_wrapper = m.needs_wrapper
+
+    if not (m.bytes_in or m.bytes_out or m_needs_wrapper):
+        target = f'&{cls_qual}::{m.cpp_name}'
+        if m.is_overloaded:
+            target = f'select_overload<{_overload_sig()}>({target})'
+        out.write(f'        .{binder}("{m.name}", {target})\n')
+        return
+
+    # Lambda wrapper for marshalling spans / bytes / trimmed defaults.
+    # `std::span<const T>` (for any primitive T) goes through Embind's
+    # `convertJSArrayToNumberVector<T>` — accepts JS arrays and typed
+    # arrays alike. The intermediate vector copies into WASM heap (no
+    # true zero-copy across the JS/WASM boundary without sharing the
+    # underlying ArrayBuffer, which Embind doesn't do natively).
+    span_params = [(i, p) for i, p in enumerate(m.params)
+                   if p.span_scalar is not None]
+    out.write(f'        .{binder}("{m.name}",\n')
+    out.write('                  optional_override([](')
+    if not m.is_static:
+        out.write(f'\n                      {cls_qual}& self')
+    sep = ',\n                      ' if not m.is_static else '\n                      '
+    for i, p in enumerate(m.params):
+        out.write(sep)
+        sep = ',\n                      '
+        if p.span_scalar is not None:
+            out.write(f'const emscripten::val& __js_arr_{i}')
+        else:
+            out.write(f'{_cpp_type(p.type, ns)} {p.name}')
+    out.write(') {\n')
+    for i, p in span_params:
+        short, _ = p.span_scalar
+        pname = p.name
+        out.write(f'                      auto __vec_{i} = emscripten::convertJSArrayToNumberVector<whiteout::{short}>(__js_arr_{i});\n')
+        out.write(f'                      std::span<const whiteout::{short}> {pname}(__vec_{i}.data(), __vec_{i}.size());\n')
+    qualified_call = (
+        f'{cls_qual}::{m.cpp_name}' if m.is_static else f'self.{m.cpp_name}'
+    )
+    args = ', '.join(p.name for p in m.params)
+    call = f'{qualified_call}({args})'
+
+    ret = m.return_type
+    if ret.cpp_text == 'void':
+        out.write(f'                      {call};\n')
+        out.write('                  }))\n')
+        return
+
+    needs_raw_ptr_policy = False
+    if (ret.kind == TypeKind.OPTIONAL
+            and ret.element.kind in (TypeKind.NESTED, TypeKind.UNKNOWN)):
+        # `optional<class>` → heap pointer or nullptr → JS `null | T`.
+        # Routing through `to_optional_ptr<T>` (rather than `val(...)`)
+        # avoids Embind's wire-marshalling layer trying to copy-construct
+        # move-only classes like `mpq::Storage`. JS owns the resulting
+        # wrapper — caller must `.delete()` it.
+        elem_cpp = _cpp_type(ret.element, ns)
+        out.write(f'                      return whiteout::wasm::to_optional_ptr<{elem_cpp}>({call});\n')
+        needs_raw_ptr_policy = True
+    elif ret_is_class_ref:
+        # Builder-pattern reference return — fire the side effect and hand
+        # the JS-side wrapper back the *same* object pointer. Preserves
+        # method chaining (`builder.declareX(...).declareY(...).build()`)
+        # without forcing Embind to value-marshal a move-only class.
+        # The call expression is `self.method(...)` returning T& — wrap
+        # it in `&(...)` to turn that into a `T*`.
+        out.write(f'                      return &({call});\n')
+        needs_raw_ptr_policy = True
+    elif m.return_is_move_only:
+        # Plain move-only class return → heap pointer; JS owns it.
+        elem_cpp = _cpp_type(ret, ns)
+        out.write(f'                      return whiteout::wasm::to_heap_ptr<{elem_cpp}>({call});\n')
+        needs_raw_ptr_policy = True
+    else:
+        out.write(f'                      return {call};\n')
+
+    if needs_raw_ptr_policy:
+        # Embind requires the `allow_raw_pointers()` policy when a binding
+        # function returns `T*` directly — without it, the binding is
+        # rejected as unsafe.
+        out.write('                  }), allow_raw_pointers())\n')
+    else:
+        out.write('                  }))\n')
+
+
+def _is_span_const_u8_type(t):
+    """Lift the parser's predicate into the emitter."""
+    from .parser import _is_span_const_u8
+    return _is_span_const_u8(t)
 
 
 def _emit_class(out: StringIO, c: BindClass, ns: str):
     use_ns = c.cpp_namespace or ns
     cpp_qual = _qualified(c.cpp_qualifier, use_ns)
-    out.write(f'    class_<{cpp_qual}>("{c.js_name}")\n')
-    # Default constructor first; explicit non-default constructors next.
-    out.write('        .constructor<>()\n')
+    # `class_<Derived, base<Base>>` is Embind's idiom for inheritance —
+    # base must be a template parameter, not a method on the class object.
+    if c.base_class:
+        out.write(f'    class_<{cpp_qual}, base<{c.base_class}>>("{c.js_name}")\n')
+    else:
+        out.write(f'    class_<{cpp_qual}>("{c.js_name}")\n')
+    # `optional<T>` returns need T's optional variant registered at
+    # runtime; emit it right after the class so the call is well-ordered
+    # against the class binding.
+    # (Done after the class body via the closing `;` — see end of fn.)
+    # Default constructor: skip when the C++ class has none (auto-detected
+    # at parse time) or when @bind no_default_ctor explicitly suppresses it
+    # (move-only factory types like mpq::Storage).
+    if not c.no_default_ctor:
+        out.write('        .constructor<>()\n')
+    # Helper: render ctor param types using the canonical type plus any
+    # `&` from the cursor's original spelling.
+    def _ctor_param_type(p):
+        base = _cpp_type(p.type, ns)
+        if p.cpp_raw and '&' in p.cpp_raw:
+            base += '&'
+        return base
     for ctor in c.constructors:
-        sig = ', '.join(_cpp_type(p.type, ns) for p in ctor.params)
+        sig = ', '.join(_ctor_param_type(p) for p in ctor.params)
         out.write(f'        .constructor<{sig}>()\n')
 
     # Skip array_with_view fields' .property — emit only the *View() function.
@@ -337,6 +460,29 @@ def emit(module: BindModule) -> str:
         buf.write('    // ── Classes ──────────────────────────────────────────────────────────\n')
         for c in other_classes:
             _emit_class(buf, c, ns)
+
+    # Runtime registration of `std::optional<T>` for every T that appears
+    # in an optional return. Without this, Embind throws "Cannot call X
+    # due to unbound types: std::optional<…>" at call time. The
+    # BindingType<std::optional<T>> bridge in optional_marshal.h handles
+    # the C++/JS conversion; this call wires it into Embind's registry.
+    optional_targets: list[str] = []
+    seen_opt: set[str] = set()
+    for c in module.classes:
+        for m in c.methods:
+            if m.return_type.kind != TypeKind.OPTIONAL:
+                continue
+            elem = m.return_type.element
+            elem_cpp = _cpp_type(elem, ns)
+            if elem_cpp in seen_opt:
+                continue
+            seen_opt.add(elem_cpp)
+            optional_targets.append(elem_cpp)
+    if optional_targets:
+        buf.write('    // ── Runtime registration for std::optional<T> returns ────────────────\n')
+        for t in optional_targets:
+            buf.write(f'    register_optional<{t}>();\n')
+        buf.write('\n')
 
     # Vector containers (must come AFTER class registration so types resolve).
     if module.vector_types:

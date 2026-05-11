@@ -13,9 +13,15 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+// Bridges std::optional<T> ⇄ JS `null | T` for any T Embind already knows.
+// Must be included before the EMSCRIPTEN_BINDINGS block so the BindingType
+// specialisation is in scope when the binding macros instantiate.
+#include "optional_marshal.h"
 
 #include <whiteout/common_types.h>
 #include <whiteout/textures/texture.h>
@@ -136,13 +142,11 @@ EMSCRIPTEN_BINDINGS(textures) {
         .function("parse",
                   optional_override([](
                       whiteout::textures::blp::Parser& self,
-                      const emscripten::val& __js_bytes) {
-                      auto __vec = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_bytes);
-                      std::span<const whiteout::u8> buffer(__vec.data(), __vec.size());
-                      auto __r = self.parse(buffer);
-                      if (!__r) throw std::runtime_error("parse returned no value");
-                      return std::move(*__r);
-                  }))
+                      const emscripten::val& __js_arr_0) {
+                      auto __vec_0 = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_arr_0);
+                      std::span<const whiteout::u8> buffer(__vec_0.data(), __vec_0.size());
+                      return whiteout::wasm::to_optional_ptr<whiteout::textures::Texture>(self.parse(buffer));
+                  }), allow_raw_pointers())
         .function("hasIssues", &whiteout::textures::blp::Parser::hasIssues)
         .function("getIssues", &whiteout::textures::blp::Parser::getIssues)
     ;
@@ -165,13 +169,11 @@ EMSCRIPTEN_BINDINGS(textures) {
         .function("parse",
                   optional_override([](
                       whiteout::textures::png::Parser& self,
-                      const emscripten::val& __js_bytes) {
-                      auto __vec = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_bytes);
-                      std::span<const whiteout::u8> buffer(__vec.data(), __vec.size());
-                      auto __r = self.parse(buffer);
-                      if (!__r) throw std::runtime_error("parse returned no value");
-                      return std::move(*__r);
-                  }))
+                      const emscripten::val& __js_arr_0) {
+                      auto __vec_0 = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_arr_0);
+                      std::span<const whiteout::u8> buffer(__vec_0.data(), __vec_0.size());
+                      return whiteout::wasm::to_optional_ptr<whiteout::textures::Texture>(self.parse(buffer));
+                  }), allow_raw_pointers())
         .function("hasIssues", &whiteout::textures::png::Parser::hasIssues)
         .function("getIssues", &whiteout::textures::png::Parser::getIssues)
     ;
@@ -194,13 +196,11 @@ EMSCRIPTEN_BINDINGS(textures) {
         .function("parse",
                   optional_override([](
                       whiteout::textures::jpeg::Parser& self,
-                      const emscripten::val& __js_bytes) {
-                      auto __vec = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_bytes);
-                      std::span<const whiteout::u8> buffer(__vec.data(), __vec.size());
-                      auto __r = self.parse(buffer);
-                      if (!__r) throw std::runtime_error("parse returned no value");
-                      return std::move(*__r);
-                  }))
+                      const emscripten::val& __js_arr_0) {
+                      auto __vec_0 = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_arr_0);
+                      std::span<const whiteout::u8> buffer(__vec_0.data(), __vec_0.size());
+                      return whiteout::wasm::to_optional_ptr<whiteout::textures::Texture>(self.parse(buffer));
+                  }), allow_raw_pointers())
         .function("hasIssues", &whiteout::textures::jpeg::Parser::hasIssues)
         .function("getIssues", &whiteout::textures::jpeg::Parser::getIssues)
     ;
@@ -223,13 +223,11 @@ EMSCRIPTEN_BINDINGS(textures) {
         .function("parse",
                   optional_override([](
                       whiteout::textures::dds::Parser& self,
-                      const emscripten::val& __js_bytes) {
-                      auto __vec = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_bytes);
-                      std::span<const whiteout::u8> buffer(__vec.data(), __vec.size());
-                      auto __r = self.parse(buffer);
-                      if (!__r) throw std::runtime_error("parse returned no value");
-                      return std::move(*__r);
-                  }))
+                      const emscripten::val& __js_arr_0) {
+                      auto __vec_0 = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_arr_0);
+                      std::span<const whiteout::u8> buffer(__vec_0.data(), __vec_0.size());
+                      return whiteout::wasm::to_optional_ptr<whiteout::textures::Texture>(self.parse(buffer));
+                  }), allow_raw_pointers())
         .function("hasIssues", &whiteout::textures::dds::Parser::hasIssues)
         .function("getIssues", &whiteout::textures::dds::Parser::getIssues)
     ;
@@ -253,13 +251,11 @@ EMSCRIPTEN_BINDINGS(textures) {
         .function("parse",
                   optional_override([](
                       whiteout::textures::bmp::Parser& self,
-                      const emscripten::val& __js_bytes) {
-                      auto __vec = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_bytes);
-                      std::span<const whiteout::u8> buffer(__vec.data(), __vec.size());
-                      auto __r = self.parse(buffer);
-                      if (!__r) throw std::runtime_error("parse returned no value");
-                      return std::move(*__r);
-                  }))
+                      const emscripten::val& __js_arr_0) {
+                      auto __vec_0 = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_arr_0);
+                      std::span<const whiteout::u8> buffer(__vec_0.data(), __vec_0.size());
+                      return whiteout::wasm::to_optional_ptr<whiteout::textures::Texture>(self.parse(buffer));
+                  }), allow_raw_pointers())
         .function("hasIssues", &whiteout::textures::bmp::Parser::hasIssues)
         .function("getIssues", &whiteout::textures::bmp::Parser::getIssues)
     ;
@@ -283,13 +279,11 @@ EMSCRIPTEN_BINDINGS(textures) {
         .function("parse",
                   optional_override([](
                       whiteout::textures::tga::Parser& self,
-                      const emscripten::val& __js_bytes) {
-                      auto __vec = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_bytes);
-                      std::span<const whiteout::u8> buffer(__vec.data(), __vec.size());
-                      auto __r = self.parse(buffer);
-                      if (!__r) throw std::runtime_error("parse returned no value");
-                      return std::move(*__r);
-                  }))
+                      const emscripten::val& __js_arr_0) {
+                      auto __vec_0 = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_arr_0);
+                      std::span<const whiteout::u8> buffer(__vec_0.data(), __vec_0.size());
+                      return whiteout::wasm::to_optional_ptr<whiteout::textures::Texture>(self.parse(buffer));
+                  }), allow_raw_pointers())
         .function("hasIssues", &whiteout::textures::tga::Parser::hasIssues)
         .function("getIssues", &whiteout::textures::tga::Parser::getIssues)
     ;
@@ -306,6 +300,9 @@ EMSCRIPTEN_BINDINGS(textures) {
         .function("hasIssues", &whiteout::textures::tga::Writer::hasIssues)
         .function("getIssues", &whiteout::textures::tga::Writer::getIssues)
     ;
+
+    // ── Runtime registration for std::optional<T> returns ────────────────
+    register_optional<whiteout::textures::Texture>();
 
     // ── Vector containers ────────────────────────────────────────────────
 

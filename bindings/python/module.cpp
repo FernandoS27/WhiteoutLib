@@ -17,10 +17,11 @@
 
 #include <whiteout/common_types.h>
 
-// VectorU8 is shared across mdx/m2/m3/textures — bind it once at the root
-// module so every TU's PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>) sees
-// the same registered class. Must precede <pybind11/stl.h>.
+// VectorU8 and VectorString are shared across every submodule — bind them
+// once at the root so every TU's PYBIND11_MAKE_OPAQUE sees the same
+// registered class. Must precede <pybind11/stl.h>.
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
+PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
@@ -41,6 +42,10 @@ void bind_mdx     (py::module_& m);
 void bind_m2      (py::module_& m);
 void bind_m3      (py::module_& m);
 void bind_textures(py::module_& m);   // texture parsers/writers + PixelFormat
+void bind_utils   (py::module_& m);   // VertexBuffer + VertexBufferBuilder
+#if defined(WHITEOUT_HAS_MPQ)
+void bind_mpq     (py::module_& m);
+#endif
 
 namespace {
 
@@ -126,7 +131,8 @@ py::bytes write_bytes(m3::Writer& self, const m3::Model& mod) {
 }  // namespace m3_extra
 
 namespace m2_extra {
-m2::Model parse_bytes(m2::Parser& self, InMemoryFs& fs, const std::string& main_path) {
+m2::Model parse_bytes(m2::Parser& self, interfaces::VirtualPathFileSystem& fs,
+                     const std::string& main_path) {
     return self.parse(fs, main_path);
 }
 }  // namespace m2_extra
@@ -135,10 +141,11 @@ m2::Model parse_bytes(m2::Parser& self, InMemoryFs& fs, const std::string& main_
 PYBIND11_MODULE(whiteout, root) {
     root.doc() = "Native bindings for whiteout_lib (model & texture parsers)";
 
-    // Shared opaque vector container. Bound once at root so all submodules
+    // Shared opaque vector containers. Bound once at root so all submodules
     // see the same registered type (mirrors WASM bindings.cpp::register_vector).
-    // Buffer protocol enables zero-copy `np.asarray(vec)` access.
+    // Buffer protocol on VectorU8 enables zero-copy `np.asarray(vec)` access.
     py::bind_vector<std::vector<u8>>(root, "VectorU8", py::buffer_protocol());
+    py::bind_vector<std::vector<std::string>>(root, "VectorString");
 
     bind_supplementary(root);
     // Texture parsers/writers + PixelFormat live at root for backwards
@@ -180,6 +187,14 @@ PYBIND11_MODULE(whiteout, root) {
     py::class_<m3::Writer>(m3_m, "Writer")
         .def(py::init<>())
         .def("write", &m3_extra::write_bytes);
+
+    auto utils_m = root.def_submodule("utils", "Vertex-buffer building + other helpers.");
+    bind_utils(utils_m);
+
+#if defined(WHITEOUT_HAS_MPQ)
+    auto mpq_m = root.def_submodule("mpq", "MPQ archives (Warcraft III, classic WoW, etc).");
+    bind_mpq(mpq_m);
+#endif
 
     auto m2_m = root.def_submodule("m2", "World of Warcraft M2");
     bind_m2(m2_m);

@@ -93,10 +93,13 @@ test("png round-trip", async () => {
     reTex.delete();
 });
 
-test("blp parser rejects garbage", async () => {
+test("blp parser returns null on garbage (Lenient mode)", async () => {
     const whiteout = await Whiteout();
     const garbage = new Uint8Array([0xde, 0xad, 0xbe, 0xef, 0xca, 0xfe, 0xba, 0xbe]);
-    assert.throws(() => whiteout.blp.parse(garbage));
+    // `optional<Texture>` surfaces as `null | Texture` thanks to the
+    // BindingType bridge in optional_marshal.h; Lenient parsers return
+    // nullopt on failure rather than throwing.
+    assert.equal(whiteout.blp.parse(garbage), null);
 });
 
 
@@ -593,6 +596,347 @@ test("m3 BlendMode is rich and lives under whiteout.m3", async () => {
     assert.ok(whiteout.m3.BlendMode);
     const values = Object.keys(whiteout.m3.BlendMode);
     assert.ok(values.length >= 5);
+});
+
+
+// ── MPQ ─────────────────────────────────────────────────────────────────
+
+test("mpq submodule surface is exposed", async () => {
+    const whiteout = await Whiteout();
+    assert.ok(whiteout.mpq);
+    assert.ok(whiteout.mpq.Storage);
+    assert.ok(whiteout.mpq.FileSystem);
+    assert.ok(whiteout.mpq.Compression);
+    assert.ok(whiteout.mpq.FormatVersion);
+    assert.equal(typeof whiteout.mpq.Storage.open, "function");
+    assert.equal(typeof whiteout.mpq.Storage.create, "function");
+});
+
+test("mpq.Storage.open returns null for missing path (optional<Storage>)", async () => {
+    const whiteout = await Whiteout();
+    // The to_optional_val<T> codegen path maps nullopt → JS null, even
+    // for move-only Storage. This is what makes the optional marshaller
+    // pull its weight.
+    const result = whiteout.mpq.Storage.open("/does/not/exist.mpq");
+    assert.equal(result, null);
+});
+
+test("mpq.Storage.create + write + read round-trip in memory", async () => {
+    const whiteout = await Whiteout();
+    // CreateOptions / WriteOptions are Embind value_objects — pass plain
+    // JS literals with the fields as keys.
+    const storage = whiteout.mpq.Storage.create({
+        version: whiteout.mpq.FormatVersion.V1,
+        hashTableSize: 64,
+        sectorSizeShift: 3,
+    });
+    try {
+        const data = new Uint8Array([1, 2, 3, 4, 5]);
+        const writeOpts = {
+            compression: whiteout.mpq.Compression.Zlib,
+            locale: 0,
+            encrypt: false,
+            singleUnit: false,
+        };
+        assert.equal(storage.writeFile("payload.bin", data, writeOpts), true);
+        assert.equal(storage.fileExists("payload.bin"), true);
+
+        // readFile returns `optional<vector<u8>>` → `null | Uint8Array`
+        // via the specialised BindingType in optional_marshal.h.
+        const bytes = storage.readFile("payload.bin");
+        assert.ok(bytes instanceof Uint8Array, "expected Uint8Array");
+        assert.deepEqual([...bytes], [1, 2, 3, 4, 5]);
+
+        // Missing file → null.
+        assert.equal(storage.readFile("absent"), null);
+    } finally {
+        storage.delete();
+    }
+});
+
+
+// ── Utils — VertexBuffer + VertexBufferBuilder ──────────────────────────
+//
+// Tracks the Python test_utils.py suite. The Embind binding names live
+// at the raw module level with the `Utils` prefix; the codegen-driven
+// declarations and the BUILDER's return-`*this`-pointer chaining is
+// what we exercise here.
+
+// Helpers ──
+//
+// declareFloatAttribute / declareIntAttribute take `std::span<const T>`
+// at the C++ level. Embind marshals JS array-likes (typed arrays,
+// regular arrays, …) into a heap-side vector via
+// `convertJSArrayToNumberVector<T>`; pass Float32Array / Uint32Array
+// directly.
+
+function bytesPerEncoding(M, enc) {
+    const E = M.UtilsAttributeEncoding;
+    if (enc === E.Float32.value || enc === E.UInt32.value || enc === E.Int32.value) return 4;
+    if (enc === E.Float16.value || enc === E.SNorm16.value || enc === E.UNorm16.value
+            || enc === E.UInt16.value || enc === E.Int16.value) return 2;
+    return 1;
+}
+
+
+// Single attribute, every float encoding ──
+const FLOAT_ENCODINGS = ["Float32", "Float16", "SNorm8", "SNorm16", "UNorm8", "UNorm16"];
+for (const enc of FLOAT_ENCODINGS) {
+    test(`utils.declareFloatAttribute — ${enc}`, async () => {
+        const whiteout = await Whiteout();
+        const M = whiteout.module;
+        const positions = new Float32Array([0, 0, 0, 1, 2, 3, 4, 5, 6]);
+        const builder = new M.UtilsVertexBufferBuilder();
+        try {
+            const encoding = M.UtilsAttributeEncoding[enc];
+            builder.declareFloatAttribute(
+                positions, 3,
+                M.UtilsAttributeClass.Position, encoding, 0,
+            );
+            const buf = builder.build();
+            try {
+                assert.equal(buf.vertexCount(), 3);
+                assert.equal(buf.vertexSize(), 3 * bytesPerEncoding(M, encoding.value));
+            } finally { buf.delete(); }
+        } finally { builder.delete(); }
+    });
+}
+
+
+// Single attribute, every integer encoding ──
+const INT_ENCODINGS = ["UInt8", "UInt16", "UInt32", "Int8", "Int16", "Int32"];
+for (const enc of INT_ENCODINGS) {
+    test(`utils.declareIntAttribute — ${enc}`, async () => {
+        const whiteout = await Whiteout();
+        const M = whiteout.module;
+        const indices = new Uint32Array([0, 1, 2, 3, 4, 5, 6, 7]);  // 2 verts × 4
+        const builder = new M.UtilsVertexBufferBuilder();
+        try {
+            const encoding = M.UtilsAttributeEncoding[enc];
+            builder.declareIntAttribute(
+                indices, 4,
+                M.UtilsAttributeClass.BlendIndices, encoding, 0,
+            );
+            const buf = builder.build();
+            try {
+                assert.equal(buf.vertexCount(), 2);
+                assert.equal(buf.vertexSize(), 4 * bytesPerEncoding(M, encoding.value));
+            } finally { buf.delete(); }
+        } finally { builder.delete(); }
+    });
+}
+
+
+// Realistic combos ──
+
+test("utils — PBR-style vertex layout (5 attributes, mixed encodings)", async () => {
+    const whiteout = await Whiteout();
+    const M = whiteout.module;
+    const N = 5;
+
+    const positions = new Float32Array(Array.from({length: N * 3}, (_, i) => i * 0.1));
+    const normals   = new Float32Array(Array.from({length: N}, () => [0, 0, 1]).flat());
+    const tangents  = new Float32Array(Array.from({length: N}, () => [1, 0, 0, 1]).flat());
+    const uvs       = new Float32Array(Array.from({length: N}, () => [0.25, 0.75]).flat());
+    const colors    = new Float32Array(Array.from({length: N}, () => [1.0, 0.5, 0.25, 1.0]).flat());
+
+    const builder = new M.UtilsVertexBufferBuilder();
+    try {
+        const cls = M.UtilsAttributeClass;
+        const enc = M.UtilsAttributeEncoding;
+        builder.declareFloatAttribute(positions, 3, cls.Position, enc.Float32, 0);
+        builder.declareFloatAttribute(normals,   3, cls.Normal,   enc.SNorm8,  0);
+        builder.declareFloatAttribute(tangents,  4, cls.Tangent,  enc.SNorm8,  0);
+        builder.declareFloatAttribute(uvs,       2, cls.UV,       enc.Float16, 0);
+        builder.declareFloatAttribute(colors,    4, cls.Color,    enc.UNorm8,  0);
+
+        const buf = builder.build();
+        try {
+            assert.equal(buf.vertexCount(), N);
+            //  pos(12) + nrm(3) + tan(4) + uv(2*2) + col(4) = 27
+            assert.equal(buf.vertexSize(), 12 + 3 + 4 + 4 + 4);
+        } finally { buf.delete(); }
+    } finally {
+        builder.delete();
+    }
+});
+
+
+test("utils — skinned vertex (position + bone indices + bone weights)", async () => {
+    const whiteout = await Whiteout();
+    const M = whiteout.module;
+    const N = 4;
+
+    const positions = new Float32Array(Array.from({length: N * 3}, (_, i) => i));
+    const indices   = new Uint32Array(Array.from({length: N}, () => [0, 1, 2, 3]).flat());
+    const weights   = new Float32Array(Array.from({length: N}, () => [0.25, 0.25, 0.25, 0.25]).flat());
+
+    const builder = new M.UtilsVertexBufferBuilder();
+    try {
+        const cls = M.UtilsAttributeClass;
+        const enc = M.UtilsAttributeEncoding;
+        builder.declareFloatAttribute(positions, 3, cls.Position,      enc.Float32, 0);
+        builder.declareIntAttribute(  indices,   4, cls.BlendIndices,  enc.UInt8,   0);
+        builder.declareFloatAttribute(weights,   4, cls.BlendWeights,  enc.UNorm8,  0);
+
+        const buf = builder.build();
+        try {
+            assert.equal(buf.vertexCount(), N);
+            assert.equal(buf.vertexSize(), 12 + 4 + 4);
+        } finally { buf.delete(); }
+    } finally {
+        builder.delete();
+    }
+});
+
+
+// Alignment padding ──
+
+test("utils — align argument pads the next attribute's offset", async () => {
+    const whiteout = await Whiteout();
+    const M = whiteout.module;
+
+    function build(align) {
+        const positions = new Float32Array([1, 2, 3, 4, 5, 6]);
+        const normals   = new Float32Array([0, 0, 1, 0, 0, 1]);
+        const uvs       = new Float32Array([0.5, 0.5, 0.5, 0.5]);
+        const builder = new M.UtilsVertexBufferBuilder();
+        try {
+            const cls = M.UtilsAttributeClass;
+            const enc = M.UtilsAttributeEncoding;
+            builder.declareFloatAttribute(positions, 3, cls.Position, enc.Float32, 0);
+            builder.declareFloatAttribute(normals,   3, cls.Normal,   enc.SNorm8,  align);
+            builder.declareFloatAttribute(uvs,       2, cls.UV,       enc.Float16, 0);
+            return builder.build();
+        } finally {
+            builder.delete();
+        }
+    }
+
+    const unaligned = build(0);
+    const aligned   = build(4);
+    try {
+        const uvUnaligned = unaligned.layout.get(2).offset;
+        const uvAligned   = aligned.layout.get(2).offset;
+        assert.ok(uvAligned >= uvUnaligned, "aligned UV offset should not be smaller");
+        assert.equal(uvAligned % 4, 0, "aligned UV offset must be 4-byte aligned");
+    } finally {
+        unaligned.delete();
+        aligned.delete();
+    }
+});
+
+
+// Round-trip ──
+
+test("utils — getPositions() reads back the float positions we wrote", async () => {
+    const whiteout = await Whiteout();
+    const M = whiteout.module;
+    const expected = [[0, 0, 0], [1.5, 2.5, 3.5], [-1, 0, 1], [10, 20, 30]];
+    const positions = new Float32Array(expected.flat());
+
+    const builder = new M.UtilsVertexBufferBuilder();
+    try {
+        builder.declareFloatAttribute(
+            positions, 3,
+            M.UtilsAttributeClass.Position, M.UtilsAttributeEncoding.Float32, 0,
+        );
+        const buf = builder.build();
+        try {
+            const got = buf.getPositions();
+            try {
+                assert.equal(got.size(), expected.length);
+                for (let i = 0; i < expected.length; i++) {
+                    const p = got.get(i);
+                    assert.equal(p.x, expected[i][0]);
+                    assert.equal(p.y, expected[i][1]);
+                    assert.equal(p.z, expected[i][2]);
+                }
+            } finally { got.delete(); }
+        } finally { buf.delete(); }
+    } finally { builder.delete(); }
+});
+
+
+// Plain JS array (no typed-array) is also accepted ──
+
+test("utils — declareFloatAttribute accepts a plain JS array", async () => {
+    const whiteout = await Whiteout();
+    const M = whiteout.module;
+    const builder = new M.UtilsVertexBufferBuilder();
+    try {
+        builder.declareFloatAttribute(
+            [0, 0, 0, 1, 1, 1, 2, 2, 2], 3,
+            M.UtilsAttributeClass.Position,
+            M.UtilsAttributeEncoding.Float32, 0,
+        );
+        const buf = builder.build();
+        try {
+            assert.equal(buf.vertexCount(), 3);
+        } finally { buf.delete(); }
+    } finally { builder.delete(); }
+});
+
+
+// Edge cases ──
+
+test("utils — empty builder builds an empty buffer", async () => {
+    const whiteout = await Whiteout();
+    const builder = new whiteout.module.UtilsVertexBufferBuilder();
+    try {
+        const buf = builder.build();
+        try {
+            assert.equal(buf.vertexCount(), 0);
+            assert.equal(buf.vertexSize(), 0);
+        } finally { buf.delete(); }
+    } finally { builder.delete(); }
+});
+
+test("utils — multiple UV layers", async () => {
+    const whiteout = await Whiteout();
+    const M = whiteout.module;
+    const positions = new Float32Array([0, 0, 0, 1, 0, 0]);
+    const uv0       = new Float32Array([0, 0, 1, 1]);
+    const uv1       = new Float32Array([0.1, 0.2, 0.3, 0.4]);
+
+    const builder = new M.UtilsVertexBufferBuilder();
+    try {
+        const cls = M.UtilsAttributeClass;
+        const enc = M.UtilsAttributeEncoding;
+        builder.declareFloatAttribute(positions, 3, cls.Position, enc.Float32, 0);
+        builder.declareFloatAttribute(uv0,       2, cls.UV,       enc.Float16, 0);
+        builder.declareFloatAttribute(uv1,       2, cls.UV,       enc.Float16, 0);
+
+        const buf = builder.build();
+        try {
+            assert.equal(buf.UVsNum(), 2);
+        } finally { buf.delete(); }
+    } finally { builder.delete(); }
+});
+
+test("utils — hasVertexColors flips on Color attribute", async () => {
+    const whiteout = await Whiteout();
+    const M = whiteout.module;
+    const positions = new Float32Array([0, 0, 0]);
+
+    // Without color.
+    let builder = new M.UtilsVertexBufferBuilder();
+    builder.declareFloatAttribute(positions, 3,
+        M.UtilsAttributeClass.Position, M.UtilsAttributeEncoding.Float32, 0);
+    let buf = builder.build();
+    try { assert.equal(buf.hasVertexColors(), false); }
+    finally { buf.delete(); builder.delete(); }
+
+    // With color.
+    const colors = new Float32Array([1.0, 0.5, 0.25, 1.0]);
+    builder = new M.UtilsVertexBufferBuilder();
+    builder.declareFloatAttribute(positions, 3,
+        M.UtilsAttributeClass.Position, M.UtilsAttributeEncoding.Float32, 0);
+    builder.declareFloatAttribute(colors, 4,
+        M.UtilsAttributeClass.Color, M.UtilsAttributeEncoding.UNorm8, 0);
+    buf = builder.build();
+    try { assert.equal(buf.hasVertexColors(), true); }
+    finally { buf.delete(); builder.delete(); }
 });
 
 

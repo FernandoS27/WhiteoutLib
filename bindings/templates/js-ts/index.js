@@ -195,6 +195,11 @@ export async function Whiteout() {
     };
     populateFromPrefix(M, "M3", m3);
 
+    // MPQ archive surface — type registry only; users go through
+    // `whiteout.mpq.Storage.open(path)` / `.create(opts)`.
+    const mpq = {};
+    populateFromPrefix(M, "Mpq", mpq);
+
     const wem = {
         parse(bytes, mode = M.WemParseMode.Lenient) {
             return call(M, () => {
@@ -247,6 +252,9 @@ export async function Whiteout() {
 
         // ── Model format namespaces (types + parse/write) ─────────────────
         mdx, m2, m3, wem,
+
+        // ── Storage backends ──────────────────────────────────────────────
+        mpq,
     };
 }
 

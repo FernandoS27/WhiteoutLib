@@ -101,6 +101,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::Warp>);
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
 #include <pybind11/operators.h>
+#include <pybind11/numpy.h>
 
 namespace py = pybind11;
 

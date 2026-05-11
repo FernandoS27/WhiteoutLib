@@ -229,8 +229,14 @@ EMSCRIPTEN_BINDINGS(whiteout) {
         .function("hasIssues", &m2::Parser::hasIssues)
         .function("getIssues", &m2::Parser::getIssues);
 
+    // ── Abstract VirtualPathFileSystem base class ────────────────────────
+    // Registered so concrete subclasses (InMemoryFileSystem, MpqFileSystem)
+    // can declare `.base<VirtualPathFileSystem>()` in their bindings.
+    class_<interfaces::VirtualPathFileSystem>("VirtualPathFileSystem");
+
     // ── In-memory VirtualPathFileSystem (for M2) ─────────────────────────
-    class_<wasm::InMemoryFileSystem>("InMemoryFileSystem")
+    class_<wasm::InMemoryFileSystem, base<interfaces::VirtualPathFileSystem>>(
+        "InMemoryFileSystem")
         .constructor<>()
         .function("addFile", &fsAddFile)
         .function("removeFile", &wasm::InMemoryFileSystem::removeFile)

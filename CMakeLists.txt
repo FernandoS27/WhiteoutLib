@@ -20,11 +20,13 @@ option(WHITEOUT_BUILD_WASM_BINDINGS "Build Emscripten/Embind JavaScript bindings
 option(WHITEOUT_BUILD_PYTHON_BINDINGS "Build native Python bindings via pybind11" OFF)
 
 if(EMSCRIPTEN)
-    # WASM build covers models + textures only. Storage, networking, disk
-    # discovery, and threading utilities are excluded from the source list
-    # below; CASC/MPQ subprojects are forced off.
+    # WASM build covers models + textures. CASC stays off (it pulls
+    # threading, HTTP, disk discovery — none of which are useful in a
+    # browser). MPQ is opt-in via the caller (`-DWHITEOUT_ENABLE_MPQ=ON`)
+    # because the JS bindings expose `Storage::create()` for in-memory
+    # archive construction even when `-sFILESYSTEM=0` blocks path-based
+    # `Storage::open(path)`.
     set(WHITEOUT_ENABLE_CASC OFF CACHE BOOL "" FORCE)
-    set(WHITEOUT_ENABLE_MPQ OFF CACHE BOOL "" FORCE)
     set(WHITEOUT_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(WHITEOUT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(WHITEOUT_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)

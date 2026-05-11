@@ -33,8 +33,13 @@ from .ir import (
     BindClass, BindEnum, BindField, BindModule,
     TypeKind, TypeRef,
 )
-from .parser import _short_name
+from .parser import _short_name, _is_span_const_u8
 from .emit_embind import _WHITEOUT_PRIMITIVES
+
+
+def _is_span_const_u8_type(t):
+    """Alias re-export — keeps the call-site readable in the emitter."""
+    return _is_span_const_u8(t)
 
 
 # ── Python naming conventions ──────────────────────────────────────────────
@@ -131,6 +136,7 @@ INCLUDES_AND_OPAQUE_TAIL = '''
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
 #include <pybind11/operators.h>
+#include <pybind11/numpy.h>
 
 namespace py = pybind11;
 
@@ -281,46 +287,157 @@ def _emit_enum(out: StringIO, e: BindEnum, ns: str, prefix: str):
 
 
 def _emit_method(out: StringIO, m, cls_qual: str, ns: str):
-    """Emit one pybind11 .def(...) line for a class method."""
+    """Emit one pybind11 .def(...) line for a class method.
+
+    Handles four orthogonal cases for the return value:
+      - plain T            → return T directly
+      - std::vector<u8>    → wrap in py::bytes  (bytes_out)
+      - std::optional<T>   → return None when empty
+      - std::optional<std::vector<u8>> → bytes or None  (bytes_out + optional)
+    """
     py_name = to_snake_case(m.name)
     doc_arg = f', {_cpp_string_lit(m.doc)}' if m.doc else ''
-    if m.bytes_in or m.bytes_out:
-        out.write(f'        .def("{py_name}",\n')
-        out.write(f'            []({cls_qual}& self')
-        for i, p in enumerate(m.params):
-            if i == 0 and m.bytes_in:
-                out.write(f', py::bytes __py_bytes')
+    binder = 'def_static' if m.is_static else 'def'
+
+    ret = m.return_type
+    is_optional = ret.kind.value == 'optional'
+
+    # Fast path: no marshalling needed. Pybind11 handles std::optional<T>
+    # natively (auto-converts to T|None), and primitives/strings round-trip
+    # without help. Overloaded methods need py::overload_cast to pin which
+    # overload we're binding.
+    if not (m.bytes_in or m.bytes_out or m.needs_wrapper):
+        target = f'&{cls_qual}::{m.cpp_name}'
+        if m.is_overloaded:
+            # pybind11 overload_cast: the param types go in the template
+            # args; `py::const_` is a *second runtime arg* to overload_cast
+            # (not a template arg) that pins the const-qualified overload.
+            param_sig = ', '.join(p.cpp_raw or _cpp_type(p.type, ns)
+                                  for p in m.params)
+            cast = f'py::overload_cast<{param_sig}>({target}'
+            if m.is_const and not m.is_static:
+                cast += ', py::const_'
+            cast += ')'
+            target = cast
+        # py::arg(...) for every parameter — supplies names AND, when the
+        # original C++ signature defaulted a param, the matching default.
+        # Without this pybind11 reports "incompatible function arguments"
+        # for any call that omits a defaulted tail param.
+        arg_clauses: list[str] = []
+        for p in m.params:
+            if p.has_default:
+                arg_clauses.append(
+                    f'py::arg("{p.name}") = {_cpp_type(p.type, ns)}{{}}')
             else:
-                out.write(f', {_cpp_type(p.type, ns)} {p.name}')
-        out.write(') {\n')
-        if m.bytes_in:
-            out.write(f'                std::string __s = __py_bytes;\n')
-            out.write(f'                std::span<const whiteout::u8> {m.params[0].name}('
-                      f'reinterpret_cast<const whiteout::u8*>(__s.data()), __s.size());\n')
-        call = f'self.{m.cpp_name}(' + ', '.join(p.name for p in m.params) + ')'
-        ret = m.return_type
-        if m.bytes_out:
-            out.write(f'                auto __v = {call};\n')
-            out.write(f'                return py::bytes(reinterpret_cast<const char*>(__v.data()), __v.size());\n')
-        elif ret.kind.value == 'optional':
-            out.write(f'                auto __r = {call};\n')
-            out.write(f'                if (!__r) throw std::runtime_error("{m.cpp_name} returned no value");\n')
-            out.write(f'                return std::move(*__r);\n')
-        elif ret.cpp_text == 'void':
-            out.write(f'                {call};\n')
+                arg_clauses.append(f'py::arg("{p.name}")')
+        args_tail = ', ' + ', '.join(arg_clauses) if arg_clauses else ''
+        out.write(f'        .{binder}("{py_name}", {target}{args_tail}{doc_arg})\n')
+        return
+
+    # Slow path: we wrap in a lambda to convert std::span ⇄ bytes etc.
+    # Span params can appear anywhere in the signature (the only API that
+    # has one mid-signature is `writeFile(name, data, opts)`).
+    #
+    # Two flavours of span marshalling:
+    #   - `std::span<const u8>` → `py::bytes` (the established idiom for
+    #     parser bytes_in handlers).
+    #   - `std::span<const T>` for any other primitive T → `py::array_t<T>`
+    #     with `c_style | forcecast`, giving zero-copy access to numpy
+    #     buffers (and accepting Python list / typed iterable inputs too).
+    span_params = [(i, p) for i, p in enumerate(m.params)
+                   if p.span_scalar is not None]
+
+    out.write(f'        .{binder}("{py_name}",\n')
+    out.write(f'            [](')
+    if not m.is_static:
+        out.write(f'{cls_qual}& self')
+    sep = ', ' if not m.is_static else ''
+    for i, p in enumerate(m.params):
+        out.write(sep)
+        sep = ', '
+        if p.span_scalar is not None:
+            short, _ = p.span_scalar
+            if short == 'u8':
+                out.write(f'py::bytes __py_bytes_{i}')
+            else:
+                # numpy-aware: forcecast allows Python list inputs too.
+                out.write(
+                    f'py::array_t<whiteout::{short}, '
+                    f'py::array::c_style | py::array::forcecast> __py_arr_{i}'
+                )
         else:
-            out.write(f'                return {call};\n')
-        out.write(f'            }}{doc_arg})\n')
+            out.write(f'{_cpp_type(p.type, ns)} {p.name}')
+    out.write(') {\n')
+    for i, p in span_params:
+        short, _ = p.span_scalar
+        pname = p.name
+        if short == 'u8':
+            out.write(f'                std::string __s_{i} = __py_bytes_{i};\n')
+            out.write(f'                std::span<const whiteout::u8> {pname}('
+                      f'reinterpret_cast<const whiteout::u8*>(__s_{i}.data()), __s_{i}.size());\n')
+        else:
+            # Zero-copy: span points straight at the numpy buffer.
+            out.write(f'                auto __buf_{i} = __py_arr_{i}.request();\n')
+            out.write(f'                std::span<const whiteout::{short}> {pname}(\n'
+                      f'                    static_cast<const whiteout::{short}*>(__buf_{i}.ptr),\n'
+                      f'                    static_cast<std::size_t>(__buf_{i}.size));\n')
+    qualified_call = (
+        f'{cls_qual}::{m.cpp_name}' if m.is_static else f'self.{m.cpp_name}'
+    )
+    args = ', '.join(p.name for p in m.params)
+    call = f'{qualified_call}({args})'
+
+    if m.bytes_out and is_optional:
+        # std::optional<std::vector<u8>> → py::bytes or py::none
+        out.write(f'                auto __r = {call};\n')
+        out.write('                if (!__r) return py::object(py::none());\n')
+        out.write('                return py::object(py::bytes(\n')
+        out.write('                    reinterpret_cast<const char*>(__r->data()), __r->size()));\n')
+    elif m.bytes_out:
+        out.write(f'                auto __v = {call};\n')
+        out.write('                return py::bytes(\n')
+        out.write('                    reinterpret_cast<const char*>(__v.data()), __v.size());\n')
+    elif is_optional:
+        # Let pybind11 auto-convert std::optional<T> to T|None.
+        out.write(f'                return {call};\n')
+    elif ret.cpp_text == 'void':
+        out.write(f'                {call};\n')
+    elif m.return_is_reference:
+        # Builder-pattern reference return — discard inside the lambda
+        # so the deduced return type is `void` (preventing pybind11 from
+        # trying to copy-construct a move-only class at the wire boundary).
+        # The JS/Python caller already has the object; chaining via the
+        # return value is unavailable but the operation still applies.
+        out.write(f'                {call};\n')
     else:
-        out.write(f'        .def("{py_name}", &{cls_qual}::{m.cpp_name}{doc_arg})\n')
+        out.write(f'                return {call};\n')
+
+    # Trailing py::arg(...) overrides — gives names + defaults to the
+    # wrapped lambda signature. The arg count MUST match the lambda's
+    # argument count, so emit one entry per m.params slot (span positions
+    # get a no-default py::arg too).
+    arg_clauses: list[str] = []
+    span_idx_set = {i for i, _ in span_params}
+    for i, p in enumerate(m.params):
+        if i not in span_idx_set and p.has_default:
+            arg_clauses.append(
+                f'py::arg("{p.name}") = {_cpp_type(p.type, ns)}{{}}')
+        else:
+            arg_clauses.append(f'py::arg("{p.name}")')
+    if arg_clauses:
+        out.write(f'            }}, {", ".join(arg_clauses)}{doc_arg})\n')
+    else:
+        out.write(f'            }}{doc_arg})\n')
 
 
 def _is_pod_value_object(c: BindClass) -> bool:
-    """A value_object whose fields are all primitives — eligible for a
-    positional-args ctor and a clean `__repr__`."""
+    """A value_object whose fields are all primitive-or-enum — eligible for
+    a positional-args ctor and a clean `__repr__`. (Strings are excluded
+    because they need pass-by-const-ref handling in the lambda init.)"""
     if not c.is_value_object or not c.fields:
         return False
-    return all(f.type.kind == TypeKind.PRIMITIVE for f in c.fields)
+    return all(f.type.kind in (TypeKind.PRIMITIVE, TypeKind.ENUM)
+               for f in c.fields)
 
 
 def _emit_class(out: StringIO, c: BindClass, ns: str, prefix: str):
@@ -333,12 +450,24 @@ def _emit_class(out: StringIO, c: BindClass, ns: str, prefix: str):
 
     py_name = _py_name(c.js_name, prefix)
 
+    # `py::class_<C, Base>` when @bind extends= sets a base class.
+    base_part = f', {c.base_class}' if c.base_class else ''
     if c.doc:
-        out.write(f'    py::class_<{cpp_qual}>(m, "{py_name}", '
+        out.write(f'    py::class_<{cpp_qual}{base_part}>(m, "{py_name}", '
                   f'{_cpp_string_lit(c.doc)})\n')
     else:
-        out.write(f'    py::class_<{cpp_qual}>(m, "{py_name}")\n')
-    out.write('        .def(py::init<>())\n')
+        out.write(f'    py::class_<{cpp_qual}{base_part}>(m, "{py_name}")\n')
+    if not c.no_default_ctor:
+        out.write('        .def(py::init<>())\n')
+
+    # Helper: render ctor parameter types using the fully-qualified
+    # canonical type (so the binding TU resolves names correctly), while
+    # preserving any reference qualifier from the original spelling.
+    def _ctor_param_type(p, ns):
+        base = _cpp_type(p.type, ns)
+        if p.cpp_raw and '&' in p.cpp_raw:
+            base += '&'
+        return base
 
     # POD value_objects: positional + keyword constructor and `__repr__`.
     # Use aggregate init through a lambda so this works whether or not the
@@ -363,10 +492,13 @@ def _emit_class(out: StringIO, c: BindClass, ns: str, prefix: str):
         for i, f in enumerate(c.fields):
             sep = '", "' if i < len(c.fields) - 1 else '")"'
             py_field = to_snake_case(f.name)
-            # u8 streams as a character — cast small ints to int so the repr
-            # shows the numeric value (e.g. "ColorBGRA(b=255, ...)").
+            # u8/i8 stream as characters; enum class types don't stream at
+            # all without a cast. Route both through `static_cast<int>`.
             short_t = _short_name(f.type.cpp_text)
-            if short_t in ('u8', 'i8'):
+            needs_int_cast = (
+                short_t in ('u8', 'i8') or f.type.kind == TypeKind.ENUM
+            )
+            if needs_int_cast:
                 out.write(f'            oss << "{py_field}=" '
                           f'<< static_cast<int>(self.{f.cpp_name}) << {sep};\n')
             else:
@@ -376,7 +508,7 @@ def _emit_class(out: StringIO, c: BindClass, ns: str, prefix: str):
         out.write(f'        }})\n')
 
     for ctor in c.constructors:
-        sig = ', '.join(_cpp_type(p.type, ns) for p in ctor.params)
+        sig = ', '.join(_ctor_param_type(p, ns) for p in ctor.params)
         out.write(f'        .def(py::init<{sig}>())\n')
 
     array_helpers = []

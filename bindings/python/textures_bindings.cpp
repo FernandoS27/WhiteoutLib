@@ -42,6 +42,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
 #include <pybind11/operators.h>
+#include <pybind11/numpy.h>
 
 namespace py = pybind11;
 
@@ -143,13 +144,11 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
         .def(py::init<>())
         .def(py::init<whiteout::textures::blp::Parser::ParseMode>())
         .def("parse",
-            [](whiteout::textures::blp::Parser& self, py::bytes __py_bytes) {
-                std::string __s = __py_bytes;
-                std::span<const whiteout::u8> buffer(reinterpret_cast<const whiteout::u8*>(__s.data()), __s.size());
-                auto __r = self.parse(buffer);
-                if (!__r) throw std::runtime_error("parse returned no value");
-                return std::move(*__r);
-            }, R"doc(Parse a BLP file from memory buffer @param buffer Memory buffer containing BLP data @return Parsed texture data, or std::nullopt on failure (in Lenient mode) @throws std::runtime_error If parsing fails in strict mode)doc")
+            [](whiteout::textures::blp::Parser& self, py::bytes __py_bytes_0) {
+                std::string __s_0 = __py_bytes_0;
+                std::span<const whiteout::u8> buffer(reinterpret_cast<const whiteout::u8*>(__s_0.data()), __s_0.size());
+                return self.parse(buffer);
+            }, py::arg("buffer"), R"doc(Parse a BLP file from memory buffer @param buffer Memory buffer containing BLP data @return Parsed texture data, or std::nullopt on failure (in Lenient mode) @throws std::runtime_error If parsing fails in strict mode)doc")
         .def("has_issues", &whiteout::textures::blp::Parser::hasIssues, R"doc(Check if parsing encountered any issues @return True if there were warnings or recoverable errors)doc")
         .def("get_issues", &whiteout::textures::blp::Parser::getIssues, R"doc(Get list of issues encountered during parsing @return Vector of issue description strings)doc")
     ;
@@ -163,8 +162,9 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
         .def("write",
             [](whiteout::textures::blp::Writer& self, whiteout::textures::Texture texture) {
                 auto __v = self.write(texture);
-                return py::bytes(reinterpret_cast<const char*>(__v.data()), __v.size());
-            }, R"doc(Write a BLP file to a byte buffer with default options)doc")
+                return py::bytes(
+                    reinterpret_cast<const char*>(__v.data()), __v.size());
+            }, py::arg("texture"), R"doc(Write a BLP file to a byte buffer with default options)doc")
         .def("has_issues", &whiteout::textures::blp::Writer::hasIssues, R"doc(Check if writing encountered any issues @return True if there were warnings or recoverable errors)doc")
         .def("get_issues", &whiteout::textures::blp::Writer::getIssues, R"doc(Get list of issues encountered during writing @return Vector of issue description strings)doc")
     ;
@@ -173,13 +173,11 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
         .def(py::init<>())
         .def(py::init<whiteout::textures::png::Parser::ParseMode>())
         .def("parse",
-            [](whiteout::textures::png::Parser& self, py::bytes __py_bytes) {
-                std::string __s = __py_bytes;
-                std::span<const whiteout::u8> buffer(reinterpret_cast<const whiteout::u8*>(__s.data()), __s.size());
-                auto __r = self.parse(buffer);
-                if (!__r) throw std::runtime_error("parse returned no value");
-                return std::move(*__r);
-            }, R"doc(Parse a PNG byte buffer.)doc")
+            [](whiteout::textures::png::Parser& self, py::bytes __py_bytes_0) {
+                std::string __s_0 = __py_bytes_0;
+                std::span<const whiteout::u8> buffer(reinterpret_cast<const whiteout::u8*>(__s_0.data()), __s_0.size());
+                return self.parse(buffer);
+            }, py::arg("buffer"), R"doc(Parse a PNG byte buffer.)doc")
         .def("has_issues", &whiteout::textures::png::Parser::hasIssues, R"doc(@return true if the last parse produced any issues.)doc")
         .def("get_issues", &whiteout::textures::png::Parser::getIssues, R"doc(@return accumulated issues from the last parse call.)doc")
     ;
@@ -190,8 +188,9 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
         .def("write",
             [](whiteout::textures::png::Writer& self, whiteout::textures::Texture texture) {
                 auto __v = self.write(texture);
-                return py::bytes(reinterpret_cast<const char*>(__v.data()), __v.size());
-            }, R"doc(Serialize the texture to a PNG byte buffer.)doc")
+                return py::bytes(
+                    reinterpret_cast<const char*>(__v.data()), __v.size());
+            }, py::arg("texture"), R"doc(Serialize the texture to a PNG byte buffer.)doc")
         .def("has_issues", &whiteout::textures::png::Writer::hasIssues, R"doc(@return true if the last write produced any issues.)doc")
         .def("get_issues", &whiteout::textures::png::Writer::getIssues, R"doc(@return accumulated issues from the last write call.)doc")
     ;
@@ -199,13 +198,11 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
     py::class_<whiteout::textures::jpeg::Parser>(m, "JpegParser", R"doc(Reads a JPEG file or byte buffer and decodes it into a Texture.)doc")
         .def(py::init<>())
         .def("parse",
-            [](whiteout::textures::jpeg::Parser& self, py::bytes __py_bytes) {
-                std::string __s = __py_bytes;
-                std::span<const whiteout::u8> buffer(reinterpret_cast<const whiteout::u8*>(__s.data()), __s.size());
-                auto __r = self.parse(buffer);
-                if (!__r) throw std::runtime_error("parse returned no value");
-                return std::move(*__r);
-            }, R"doc(Parse a JPEG byte buffer.)doc")
+            [](whiteout::textures::jpeg::Parser& self, py::bytes __py_bytes_0) {
+                std::string __s_0 = __py_bytes_0;
+                std::span<const whiteout::u8> buffer(reinterpret_cast<const whiteout::u8*>(__s_0.data()), __s_0.size());
+                return self.parse(buffer);
+            }, py::arg("buffer"), R"doc(Parse a JPEG byte buffer.)doc")
         .def("has_issues", &whiteout::textures::jpeg::Parser::hasIssues, R"doc(@return true if the last parse produced any issues.)doc")
         .def("get_issues", &whiteout::textures::jpeg::Parser::getIssues, R"doc(@return accumulated issues from the last parse call.)doc")
     ;
@@ -215,8 +212,9 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
         .def("write",
             [](whiteout::textures::jpeg::Writer& self, whiteout::textures::Texture texture) {
                 auto __v = self.write(texture);
-                return py::bytes(reinterpret_cast<const char*>(__v.data()), __v.size());
-            }, R"doc(Serialize the texture to a JPEG byte buffer.)doc")
+                return py::bytes(
+                    reinterpret_cast<const char*>(__v.data()), __v.size());
+            }, py::arg("texture"), R"doc(Serialize the texture to a JPEG byte buffer.)doc")
         .def("has_issues", &whiteout::textures::jpeg::Writer::hasIssues, R"doc(@return true if the last write produced any issues.)doc")
         .def("get_issues", &whiteout::textures::jpeg::Writer::getIssues, R"doc(@return accumulated issues from the last write call.)doc")
     ;
@@ -225,13 +223,11 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
         .def(py::init<>())
         .def(py::init<whiteout::textures::dds::Parser::ParseMode>())
         .def("parse",
-            [](whiteout::textures::dds::Parser& self, py::bytes __py_bytes) {
-                std::string __s = __py_bytes;
-                std::span<const whiteout::u8> buffer(reinterpret_cast<const whiteout::u8*>(__s.data()), __s.size());
-                auto __r = self.parse(buffer);
-                if (!__r) throw std::runtime_error("parse returned no value");
-                return std::move(*__r);
-            }, R"doc(Parse a DDS byte buffer.)doc")
+            [](whiteout::textures::dds::Parser& self, py::bytes __py_bytes_0) {
+                std::string __s_0 = __py_bytes_0;
+                std::span<const whiteout::u8> buffer(reinterpret_cast<const whiteout::u8*>(__s_0.data()), __s_0.size());
+                return self.parse(buffer);
+            }, py::arg("buffer"), R"doc(Parse a DDS byte buffer.)doc")
         .def("has_issues", &whiteout::textures::dds::Parser::hasIssues, R"doc(@return true if the last parse produced any issues.)doc")
         .def("get_issues", &whiteout::textures::dds::Parser::getIssues, R"doc(@return accumulated issues from the last parse call.)doc")
     ;
@@ -242,8 +238,9 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
         .def("write",
             [](whiteout::textures::dds::Writer& self, whiteout::textures::Texture texture) {
                 auto __v = self.write(texture);
-                return py::bytes(reinterpret_cast<const char*>(__v.data()), __v.size());
-            }, R"doc(Serialize the texture to a DDS byte buffer.)doc")
+                return py::bytes(
+                    reinterpret_cast<const char*>(__v.data()), __v.size());
+            }, py::arg("texture"), R"doc(Serialize the texture to a DDS byte buffer.)doc")
         .def("has_issues", &whiteout::textures::dds::Writer::hasIssues, R"doc(@return true if the last write produced any issues.)doc")
         .def("get_issues", &whiteout::textures::dds::Writer::getIssues, R"doc(@return accumulated issues from the last write call.)doc")
     ;
@@ -252,13 +249,11 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
         .def(py::init<>())
         .def(py::init<whiteout::textures::bmp::Parser::ParseMode>())
         .def("parse",
-            [](whiteout::textures::bmp::Parser& self, py::bytes __py_bytes) {
-                std::string __s = __py_bytes;
-                std::span<const whiteout::u8> buffer(reinterpret_cast<const whiteout::u8*>(__s.data()), __s.size());
-                auto __r = self.parse(buffer);
-                if (!__r) throw std::runtime_error("parse returned no value");
-                return std::move(*__r);
-            }, R"doc(Parse a BMP byte buffer.)doc")
+            [](whiteout::textures::bmp::Parser& self, py::bytes __py_bytes_0) {
+                std::string __s_0 = __py_bytes_0;
+                std::span<const whiteout::u8> buffer(reinterpret_cast<const whiteout::u8*>(__s_0.data()), __s_0.size());
+                return self.parse(buffer);
+            }, py::arg("buffer"), R"doc(Parse a BMP byte buffer.)doc")
         .def("has_issues", &whiteout::textures::bmp::Parser::hasIssues, R"doc(@return true if the last parse produced any issues.)doc")
         .def("get_issues", &whiteout::textures::bmp::Parser::getIssues, R"doc(@return accumulated issues from the last parse call.)doc")
     ;
@@ -269,8 +264,9 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
         .def("write",
             [](whiteout::textures::bmp::Writer& self, whiteout::textures::Texture texture) {
                 auto __v = self.write(texture);
-                return py::bytes(reinterpret_cast<const char*>(__v.data()), __v.size());
-            }, R"doc(Serialize the texture to a BMP byte buffer.)doc")
+                return py::bytes(
+                    reinterpret_cast<const char*>(__v.data()), __v.size());
+            }, py::arg("texture"), R"doc(Serialize the texture to a BMP byte buffer.)doc")
         .def("has_issues", &whiteout::textures::bmp::Writer::hasIssues, R"doc(@return true if the last write produced any issues.)doc")
         .def("get_issues", &whiteout::textures::bmp::Writer::getIssues, R"doc(@return accumulated issues from the last write call.)doc")
     ;
@@ -279,13 +275,11 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
         .def(py::init<>())
         .def(py::init<whiteout::textures::tga::Parser::ParseMode>())
         .def("parse",
-            [](whiteout::textures::tga::Parser& self, py::bytes __py_bytes) {
-                std::string __s = __py_bytes;
-                std::span<const whiteout::u8> buffer(reinterpret_cast<const whiteout::u8*>(__s.data()), __s.size());
-                auto __r = self.parse(buffer);
-                if (!__r) throw std::runtime_error("parse returned no value");
-                return std::move(*__r);
-            }, R"doc(Parse a TGA byte buffer.)doc")
+            [](whiteout::textures::tga::Parser& self, py::bytes __py_bytes_0) {
+                std::string __s_0 = __py_bytes_0;
+                std::span<const whiteout::u8> buffer(reinterpret_cast<const whiteout::u8*>(__s_0.data()), __s_0.size());
+                return self.parse(buffer);
+            }, py::arg("buffer"), R"doc(Parse a TGA byte buffer.)doc")
         .def("has_issues", &whiteout::textures::tga::Parser::hasIssues, R"doc(@return true if the last parse produced any issues.)doc")
         .def("get_issues", &whiteout::textures::tga::Parser::getIssues, R"doc(@return accumulated issues from the last parse call.)doc")
     ;
@@ -296,8 +290,9 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
         .def("write",
             [](whiteout::textures::tga::Writer& self, whiteout::textures::Texture texture) {
                 auto __v = self.write(texture);
-                return py::bytes(reinterpret_cast<const char*>(__v.data()), __v.size());
-            }, R"doc(Serialize the texture to a TGA byte buffer.)doc")
+                return py::bytes(
+                    reinterpret_cast<const char*>(__v.data()), __v.size());
+            }, py::arg("texture"), R"doc(Serialize the texture to a TGA byte buffer.)doc")
         .def("has_issues", &whiteout::textures::tga::Writer::hasIssues, R"doc(@return true if the last write produced any issues.)doc")
         .def("get_issues", &whiteout::textures::tga::Writer::getIssues, R"doc(@return accumulated issues from the last write call.)doc")
     ;

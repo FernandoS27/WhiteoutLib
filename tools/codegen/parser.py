@@ -262,7 +262,11 @@ def js_name_for_type(t: TypeRef, prefix: str) -> str:
         return 'Vector' + js_name_for_type(t.element, prefix)
     if t.kind == TypeKind.TRACK:
         return prefix + 'Track' + js_name_for_type(t.element, prefix)
-    return t.cpp_text
+    # UNKNOWN / fallback: scrub `::` and lower-cased namespace parts so the
+    # output is a valid C++/JS identifier (e.g. `whiteout::interfaces::Foo`
+    # collapses to `Foo`).
+    short = _short_name(t.cpp_text).replace('::', '')
+    return short or 'Unknown'
 
 
 # ── Parser entrypoint ──────────────────────────────────────────────────────
@@ -282,12 +286,78 @@ def _has_unbindable_inner(t: TypeRef) -> bool:
 
 
 def _is_span_const_u8(t: TypeRef) -> bool:
+    """Matches `std::span<const u8>` specifically — the bytes-in idiom.
+    Kept for the bytes-marshalling path which uses py::bytes / val."""
     if t.kind != TypeKind.UNKNOWN:
         return False
     s = t.cpp_text
     return s.startswith('std::span<') and ('uint8_t' in s or ' u8' in s
                                             or 'whiteout::u8' in s
                                             or 'unsigned char' in s)
+
+
+# Map C++ scalar spellings (as they appear inside `std::span<const X>`) to a
+# (short_name, fundamental) tuple used by the codegen for buffer marshalling.
+# Short name matches `_short_name(...)` output for the type so the rest of
+# the pipeline can re-resolve it.
+_SPAN_SCALAR_TABLE = {
+    'unsigned char':      ('u8',  'unsigned char'),
+    'uint8_t':            ('u8',  'unsigned char'),
+    'u8':                 ('u8',  'unsigned char'),
+    'unsigned short':     ('u16', 'unsigned short'),
+    'uint16_t':           ('u16', 'unsigned short'),
+    'u16':                ('u16', 'unsigned short'),
+    'unsigned int':       ('u32', 'unsigned int'),
+    'uint32_t':           ('u32', 'unsigned int'),
+    'u32':                ('u32', 'unsigned int'),
+    'unsigned long long': ('u64', 'unsigned long long'),
+    'uint64_t':           ('u64', 'unsigned long long'),
+    'u64':                ('u64', 'unsigned long long'),
+    'signed char':        ('i8',  'signed char'),
+    'int8_t':             ('i8',  'signed char'),
+    'i8':                 ('i8',  'signed char'),
+    'short':              ('i16', 'short'),
+    'int16_t':            ('i16', 'short'),
+    'i16':                ('i16', 'short'),
+    'int':                ('i32', 'int'),
+    'int32_t':            ('i32', 'int'),
+    'i32':                ('i32', 'int'),
+    'long long':          ('i64', 'long long'),
+    'int64_t':            ('i64', 'long long'),
+    'i64':                ('i64', 'long long'),
+    'float':              ('f32', 'float'),
+    'f32':                ('f32', 'float'),
+    'double':             ('f64', 'double'),
+    'f64':                ('f64', 'double'),
+}
+
+
+def _span_scalar(t: TypeRef) -> Optional[tuple[str, str]]:
+    """If `t` is `std::span<const X>` for a recognised scalar X, return
+    `(short_name, canonical_cpp)`. Otherwise None.
+
+    Generalises `_is_span_const_u8` — used by the codegen to marshal a
+    span of any primitive directly from a numpy array / typed array,
+    skipping an opaque-vector round trip.
+    """
+    if t.kind != TypeKind.UNKNOWN:
+        return None
+    s = t.cpp_text
+    if not s.startswith('std::span<'):
+        return None
+    # Strip `std::span<` ... `>` and any leading `const`.
+    inner = s[len('std::span<'):]
+    if inner.endswith('>'):
+        inner = inner[:-1]
+    inner = inner.strip()
+    if inner.startswith('const '):
+        inner = inner[len('const '):].strip()
+    # Drop any trailing template arg (e.g. extent), keep just the element.
+    if ',' in inner:
+        inner = inner.split(',', 1)[0].strip()
+    # Normalise leading `whiteout::` typedef so the lookup table hits.
+    inner_short = inner.removeprefix('whiteout::')
+    return _SPAN_SCALAR_TABLE.get(inner_short) or _SPAN_SCALAR_TABLE.get(inner)
 
 
 def _is_vector_u8(t: TypeRef) -> bool:
@@ -339,12 +409,32 @@ def collect_methods(cursor, bind_class, known_classes, known_enums,
             cpp = cpp_raw  # don't canonicalise span (it'd lose template args)
         tref = classify_type(cpp, known_classes, known_enums)
         remember_containers(tref)
+        # A default value shows up as an expression child of the param
+        # cursor. Different default forms produce different cursor kinds
+        # (UNEXPOSED_EXPR for `pool = nullptr`, INIT_LIST_EXPR for `opts =
+        # {}`, CALL_EXPR for `opts = CreateOptions()`, INTEGER_LITERAL for
+        # `n = 0`, …); accept any cursor whose kind name carries `_EXPR`
+        # or `_LITERAL` so we don't have to enumerate them all.
+        def _is_default_expr(c):
+            kn = c.kind.name
+            return '_EXPR' in kn or '_LITERAL' in kn
         return BindMethodParam(
             name=arg_cursor.spelling or 'arg',
             type=tref,
-            has_default=any(c.kind == CursorKind.UNEXPOSED_EXPR
-                            for c in arg_cursor.get_children()),
+            has_default=any(_is_default_expr(c) for c in arg_cursor.get_children()),
+            cpp_raw=cpp_raw,
+            span_scalar=_span_scalar(tref),
         )
+
+    def _has_pointer_param(o) -> bool:
+        """True if the overload has any pointer parameter (`Foo*`).
+        Pointers are typically used for diagnostic outputs (`std::string*`)
+        or unbindable resources (`WorkerPool*`); skip them."""
+        for a in o.get_arguments():
+            spelling = a.type.spelling
+            if '*' in spelling and 'span' not in spelling:
+                return True
+        return False
 
     for name, overloads in methods_by_name.items():
         method_ann = parse_annotations(
@@ -371,16 +461,90 @@ def collect_methods(cursor, bind_class, known_classes, known_enums,
                     if params and 'string' not in params[0].type.spelling:
                         chosen = o
                         break
+
+        if chosen is None and len(overloads) > 1:
+            # Prefer the overload with the simplest bindable shape — no raw
+            # pointer params (those are diagnostic outputs or unbindable
+            # resources like WorkerPool*).
+            clean = [o for o in overloads if not _has_pointer_param(o)]
+            if clean:
+                # Among clean candidates, pick the one with the fewest args
+                # (the simplest signature for the binding consumer).
+                chosen = min(clean, key=lambda o: len(list(o.get_arguments())))
+
         if chosen is None:
             chosen = overloads[0]
 
         ret_cpp = chosen.result_type.get_canonical().spelling
         ret = classify_type(ret_cpp, known_classes, known_enums)
+        # Capture reference-qualifier-on-return before classify_type strips
+        # it. Used to suppress move-only wrapping (builder methods commonly
+        # return `*this` by reference for chaining).
+        return_is_reference = ret_cpp.rstrip().endswith('&')
+
+        # Skip methods returning `std::vector<std::array<T, N>>`. Without
+        # this, the codegen tries to emit a container named
+        # `Vectorarray<float, 4>` — angle brackets in an identifier are
+        # a compile error. (`vector<T>` where T is UNKNOWN is fine: the
+        # type is usually bound in another module — Vector3f in mdx, etc.)
+        def _vector_of_array(t):
+            if t.kind in (TypeKind.VECTOR, TypeKind.NESTED_VEC):
+                if t.element.kind == TypeKind.ARRAY:
+                    return True
+                return _vector_of_array(t.element)
+            return False
+        if _vector_of_array(ret):
+            continue
         remember_containers(ret)
 
-        params = [make_param(a) for a in chosen.get_arguments()]
-        bytes_in = bool(params) and _is_span_const_u8(params[0].type)
-        bytes_out = _is_vector_u8(ret)
+        all_params = [make_param(a) for a in chosen.get_arguments()]
+        params = list(all_params)
+
+        # Trim trailing default-value pointer params (they're typically
+        # diagnostic outputs like `std::string* error` or unbindable
+        # resources like `WorkerPool* pool = nullptr`). The C++ defaults
+        # stay in effect when the wrapper lambda calls without them.
+        # NB: `classify_type` strips trailing `*`/`&` from cpp_text, so the
+        # pointer signal lives on `cpp_raw` (preserved cursor spelling).
+        while params and params[-1].has_default and '*' in params[-1].cpp_raw:
+            params.pop()
+        trimmed = len(params) < len(all_params)
+
+        # Skip the method if any remaining param is a raw pointer — those
+        # generally need custom marshalling and aren't safe to bind blind.
+        # `std::span<const T>` for primitive T is fine: the codegen
+        # marshals it as bytes/array. UNKNOWN-kind params (typically
+        # classes bound in another TU like `Texture`) are allowed:
+        # pybind11 resolves them at runtime via the global type registry.
+        def _bindable(p):
+            if p.span_scalar is not None:
+                return True
+            if '*' in p.cpp_raw:
+                return False
+            return True
+        if not all(_bindable(p) for p in params):
+            continue
+
+        # `bytes_in` is True if ANY parameter is a span of a primitive —
+        # the emitter generates marshalling glue per-param: py::bytes for
+        # `span<const u8>` (the established bytes idiom), py::array_t<T>
+        # for the others (numpy / typed-array zero-copy).
+        bytes_in = any(p.span_scalar is not None for p in params)
+        bytes_out = _is_vector_u8(ret) or (
+            ret.kind == TypeKind.OPTIONAL and _is_vector_u8(ret.element))
+
+        # `optional<class>` returns need the WASM lambda wrapper so the
+        # codegen can route through `to_optional_val<T>` (move-friendly).
+        # Without it, Embind's stock `BindingType<optional<T>>` does
+        # `val(*value)` which fails to compile for move-only T — and
+        # always yields `undefined` for nullopt instead of `null`.
+        # UNKNOWN counts here too because cross-module classes like
+        # `textures::Texture` show up that way to other modules' parsers.
+        optional_class_return = (
+            ret.kind == TypeKind.OPTIONAL
+            and ret.element is not None
+            and ret.element.kind in (TypeKind.NESTED, TypeKind.UNKNOWN)
+        )
 
         bind_class.methods.append(BindMethod(
             name=method_ann.get('rename', name),
@@ -391,6 +555,9 @@ def collect_methods(cursor, bind_class, known_classes, known_enums,
             is_static=chosen.is_static_method(),
             bytes_in=bytes_in,
             bytes_out=bytes_out,
+            needs_wrapper=trimmed or optional_class_return,
+            is_overloaded=(len(overloads) > 1),
+            return_is_reference=return_is_reference,
             doc=extract_doc(chosen.raw_comment),
         ))
 
@@ -424,7 +591,15 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
     # each header in isolation and avoids "header doesn't include what it uses"
     # follow-on issues.
     umbrella = '\n'.join(f'#include "{h.as_posix()}"' for h in headers) + '\n'
-    args = ['-std=c++20', '-x', 'c++', '-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH']
+    args = [
+        '-std=c++20', '-x', 'c++',
+        '-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH',
+        # Storage backends have #error guards that require their feature
+        # macro. Define them here so the codegen can parse the headers
+        # regardless of how the cmake build is configured.
+        '-DWHITEOUT_HAS_MPQ=1',
+        '-DWHITEOUT_HAS_CASC=1',
+    ]
     for inc in config.include_dirs:
         args.append(f'-I{(repo_root / inc).as_posix()}')
 
@@ -568,12 +743,38 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
 
     # Build classes.
     for cursor, ann, qual, ns in raw_classes:
+        # Auto-detect missing public default constructor: when the class
+        # declares any ctor and none of them are no-arg public, py::init<>()
+        # would fail to compile. Annotating @bind no_default_ctor overrides
+        # (forces suppression even if the class technically has one).
+        declared_ctors = [c for c in cursor.get_children()
+                          if c.kind == CursorKind.CONSTRUCTOR]
+        has_public_default = any(
+            c.is_default_constructor()
+            and c.access_specifier == cindex.AccessSpecifier.PUBLIC
+            for c in declared_ctors
+        ) or not declared_ctors   # implicit-default when no ctors declared
+        auto_no_default = not has_public_default
+
+        # Move-only detection: a class is move-only if its copy constructor
+        # is explicitly deleted. libclang exposes this via
+        # `is_deleted_method()` on the cursor (where available).
+        def _ctor_is_deleted(c):
+            return getattr(c, 'is_deleted_method', lambda: False)()
+        auto_move_only = any(
+            c.is_copy_constructor() and _ctor_is_deleted(c)
+            for c in declared_ctors
+        )
+
         bind_class = BindClass(
             cpp_qualifier=qual,
             cpp_namespace=ns,
             js_name=ann.get('js_name') or js_name_for_class(qual, config.js_prefix),
             is_value_object='value_object' in ann,
             doc=extract_doc(cursor.raw_comment),
+            base_class=ann.get('extends', ''),
+            no_default_ctor=auto_no_default or 'no_default_ctor' in ann,
+            is_move_only=auto_move_only or 'move_only' in ann,
         )
 
         # `fields=x;y;z` on the class annotation overrides AST inspection.
@@ -653,5 +854,33 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
 
     module.vector_types = list(vector_types.values())
     module.track_types  = list(track_types.values())
+
+    # Post-pass: cross-reference each method's return type against the
+    # class registry to flag move-only returns. Used by emit_embind to
+    # decide whether the binding needs an explicit `val(std::move(...))`
+    # wrap. Match by both bare qualifier ("Storage") and fully-qualified
+    # ("whiteout::storages::mpq::Storage") since classify_type's cpp_text
+    # form depends on whether the type lived in `known_classes`.
+    move_only_keys: set[str] = set()
+    for c in module.classes:
+        if not c.is_move_only:
+            continue
+        full = (f'{c.cpp_namespace}::{c.cpp_qualifier}'
+                if c.cpp_namespace else c.cpp_qualifier)
+        move_only_keys.add(c.cpp_qualifier)
+        move_only_keys.add(full)
+    for c in module.classes:
+        for m in c.methods:
+            # Reference returns (e.g. `Builder& declareX(...)`) are bound
+            # natively by both backends — no move-only wrapping. Skip.
+            if m.return_is_reference:
+                continue
+            ret = m.return_type
+            # Both `T` and `std::optional<T>` returns benefit — for plain T,
+            # the lambda wraps with `val(std::move(...))`; for optional<T>,
+            # to_optional_val<T> already moves.
+            target = ret.element if ret.kind == TypeKind.OPTIONAL and ret.element else ret
+            if target.cpp_text in move_only_keys:
+                m.return_is_move_only = True
 
     return module

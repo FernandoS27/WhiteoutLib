@@ -53,6 +53,8 @@ namespace whiteout::storages::mpq {
  *
  * All public methods are thread-safe: read operations acquire a shared
  * lock; write and persist operations acquire an exclusive lock.
+ *
+ * @bind methods, no_default_ctor
  */
 class Storage {
 public:
@@ -120,6 +122,9 @@ public:
 
     /// Enumerate all known filenames via callback.
     /// Callback returns true to continue, false to stop.
+    ///
+    /// @bind skip — std::function callbacks aren't auto-bindable across
+    /// backends. Use listFiles() and iterate.
     void enumerate(std::function<bool(const std::string&)> callback) const;
 
     // -- Write Operations (thread-safe, exclusive lock) --

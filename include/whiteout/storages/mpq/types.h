@@ -26,12 +26,14 @@ namespace whiteout::storages::mpq {
 // Enumerations
 // ============================================================================
 
+/// @bind
 /// MPQ format version.
 enum class FormatVersion : u16 {
     V1 = 0, ///< Original format (up to 4 GB archives).
     V2 = 1, ///< Extended format (>4 GB archives, hi-block table).
 };
 
+/// @bind
 /// Compression algorithm for writing files.
 enum class Compression : u8 {
     None        = 0x00, ///< No compression; data stored verbatim.
@@ -69,6 +71,7 @@ static constexpr u16 EnglishUK = 0x0809;
 // File Flags (public subset)
 // ============================================================================
 
+/// @bind
 enum class FileFlags : u32 {
     None       = 0,
     Compressed = 0x00000200, ///< File uses sector compression.
@@ -91,6 +94,7 @@ inline bool hasFlag(FileFlags flags, FileFlags flag) noexcept {
 // Info Structs
 // ============================================================================
 
+/// @bind value_object
 /// Information about a single file in the archive.
 struct FileInfo {
     std::string name;              ///< Filename (from listfile or hash table lookup).
@@ -100,6 +104,7 @@ struct FileInfo {
     u16 locale = 0;                ///< Locale ID (typically Locale::Neutral).
 };
 
+/// @bind value_object
 /// Summary information about the archive.
 struct ArchiveInfo {
     u16 formatVersion = 0;     ///< 0 = V1, 1 = V2.
@@ -113,6 +118,7 @@ struct ArchiveInfo {
 // Write / Create Options
 // ============================================================================
 
+/// @bind value_object
 /// Options for writing a file into the archive.
 struct WriteOptions {
     Compression compression = Compression::Zlib; ///< Compression algorithm to apply.
@@ -121,6 +127,7 @@ struct WriteOptions {
     bool singleUnit = false;                     ///< Store the file as a single unpartitioned unit.
 };
 
+/// @bind value_object
 /// Options for creating a new archive.
 struct CreateOptions {
     FormatVersion version = FormatVersion::V1; ///< Archive format version (V1 or V2).

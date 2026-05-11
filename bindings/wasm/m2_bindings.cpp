@@ -13,9 +13,15 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+// Bridges std::optional<T> ⇄ JS `null | T` for any T Embind already knows.
+// Must be included before the EMSCRIPTEN_BINDINGS block so the BindingType
+// specialisation is in scope when the binding macros instantiate.
+#include "optional_marshal.h"
 
 #include <whiteout/vector_types.h>
 #include <whiteout/models/m2/types.h>

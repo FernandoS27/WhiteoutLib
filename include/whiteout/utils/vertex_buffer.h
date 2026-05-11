@@ -8,6 +8,7 @@
 
 #include <array>
 #include <memory>
+#include <span>
 #include <type_traits>
 #include <vector>
 
@@ -21,6 +22,7 @@ namespace whiteout::utils {
 // Enums
 // ============================================================================
 
+/// @bind
 enum class AttributeClass : u32 {
     Position = 0,
     Normal = 1,
@@ -33,6 +35,7 @@ enum class AttributeClass : u32 {
     Count,
 };
 
+/// @bind
 enum class AttributeEncoding : u32 {
     Float32, // 4 bytes/component — f32 passthrough
     Float16, // 2 bytes/component — f16 half-float
@@ -55,7 +58,9 @@ using AttributeType = AttributeEncoding;
 // VertexBuffer
 // ============================================================================
 
+/// @bind methods
 struct VertexBuffer {
+    /// @bind value_object
     struct Attribute {
         AttributeClass attr_class;
         AttributeEncoding encoding;
@@ -300,6 +305,7 @@ struct vertex_traits<std::array<T, N>, typename std::enable_if<vertex_traits<T>:
 // VertexBufferBuilder
 // ============================================================================
 
+/// @bind methods
 class VertexBufferBuilder {
 public:
     VertexBufferBuilder();
@@ -324,6 +330,32 @@ public:
                                           size_t align = 0) {
         return declareAttributeDispatch(src_data, attr_class, encoding, align,
                                         std::integral_constant<bool, vertex_traits<T>::is_integer>{});
+    }
+
+    /// Non-template float-attribute entry point — accepts an already-
+    /// flattened `f32` array as a `std::span` so the binding layer can
+    /// aim straight at numpy buffers / `Float32Array` views with no
+    /// intermediate copy (vertex_count = data.size() / components).
+    VertexBufferBuilder& declareFloatAttribute(std::span<const f32> data,
+                                                size_t components,
+                                                AttributeClass attr_class,
+                                                AttributeEncoding encoding,
+                                                size_t align = 0) {
+        return declareAttributeFloat(data.data(), data.size() / components,
+                                     components, attr_class, encoding, align);
+    }
+
+    /// Non-template integer-attribute entry point — accepts an already-
+    /// flattened `u32` array. Smaller integer types (u8/u16/i8/i16/i32)
+    /// are upcast at the call site. `std::span` keeps the boundary
+    /// zero-copy.
+    VertexBufferBuilder& declareIntAttribute(std::span<const u32> data,
+                                              size_t components,
+                                              AttributeClass attr_class,
+                                              AttributeEncoding encoding,
+                                              size_t align = 0) {
+        return declareAttributeUint(data.data(), data.size() / components,
+                                    components, attr_class, encoding, align);
     }
 
     /// Build the interleaved vertex buffer from all declared attributes.

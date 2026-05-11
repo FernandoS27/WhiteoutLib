@@ -14,10 +14,16 @@ add_executable(whiteout_wasm
     m2_bindings.cpp
     m3_bindings.cpp
     textures_bindings.cpp
+    utils_bindings.cpp
     in_memory_fs.cpp
+    $<$<BOOL:${WHITEOUT_ENABLE_MPQ}>:${CMAKE_CURRENT_SOURCE_DIR}/mpq_bindings.cpp>
 )
 
 target_link_libraries(whiteout_wasm PRIVATE whiteout_lib)
+if(WHITEOUT_ENABLE_MPQ)
+    target_link_libraries(whiteout_wasm PRIVATE whiteout_mpq)
+    target_compile_definitions(whiteout_wasm PRIVATE WHITEOUT_HAS_MPQ=1)
+endif()
 
 # Embind is shipped with Emscripten; --bind links it in.
 target_link_options(whiteout_wasm PRIVATE
