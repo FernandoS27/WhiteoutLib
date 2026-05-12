@@ -208,7 +208,7 @@ Quaternion convertValue<Quaternion>(const MdlValue& v) {
 }
 
 template <>
-Vector4f convertValue<Vector4f>(const MdlValue& v) {
+[[maybe_unused]] Vector4f convertValue<Vector4f>(const MdlValue& v) {
     return valueToVec4(v);
 }
 
