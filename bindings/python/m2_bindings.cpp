@@ -30,16 +30,27 @@
 
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::i16>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::vector<whiteout::u32>>);
+PYBIND11_MAKE_OPAQUE(std::vector<std::vector<whiteout::Vector3f>>);
+PYBIND11_MAKE_OPAQUE(std::vector<std::vector<whiteout::f32>>);
+PYBIND11_MAKE_OPAQUE(std::vector<std::vector<whiteout::i16>>);
+PYBIND11_MAKE_OPAQUE(std::vector<std::vector<whiteout::m2::CameraSpline>>);
+PYBIND11_MAKE_OPAQUE(std::vector<std::vector<whiteout::m2::CompatQuaternion>>);
+PYBIND11_MAKE_OPAQUE(std::vector<std::vector<whiteout::u16>>);
+PYBIND11_MAKE_OPAQUE(std::vector<std::vector<whiteout::u8>>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u32>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u16>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector2f>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector3f>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::f32>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::AnimationTrackBase>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::Attachment>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::Batch>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::Bone>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::Camera>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::CameraSpline>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::ColorAnimation>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::CompatQuaternion>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DebugOcclusionData>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DetailedLightData>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DistanceFadeData>);
@@ -246,6 +257,10 @@ void bind_m2(py::module_& m) {
         .def_readwrite("minimum", &whiteout::m2::Extent::minimum)
         .def_readwrite("maximum", &whiteout::m2::Extent::maximum)
         .def_readwrite("sphere_radius", &whiteout::m2::Extent::sphereRadius)
+    ;
+
+    py::class_<whiteout::m2::CompatQuaternion>(m, "CompatQuaternion")
+        .def(py::init<>())
     ;
 
     py::class_<whiteout::m2::ColorBGRA>(m, "ColorBGRA")
@@ -522,6 +537,9 @@ void bind_m2(py::module_& m) {
         .def_readwrite("parent_bone_id", &whiteout::m2::Bone::parentBoneId)
         .def_readwrite("submesh_id", &whiteout::m2::Bone::submeshId)
         .def_readwrite("bone_name_crc", &whiteout::m2::Bone::boneNameCRC)
+        .def_readwrite("translation", &whiteout::m2::Bone::translation)
+        .def_readwrite("rotation", &whiteout::m2::Bone::rotation)
+        .def_readwrite("scale", &whiteout::m2::Bone::scale)
         .def_readwrite("pivot", &whiteout::m2::Bone::pivot)
     ;
 
@@ -540,14 +558,20 @@ void bind_m2(py::module_& m) {
 
     py::class_<whiteout::m2::TextureWeight>(m, "TextureWeight")
         .def(py::init<>())
+        .def_readwrite("weight", &whiteout::m2::TextureWeight::weight)
     ;
 
     py::class_<whiteout::m2::TextureTransform>(m, "TextureTransform")
         .def(py::init<>())
+        .def_readwrite("translation", &whiteout::m2::TextureTransform::translation)
+        .def_readwrite("rotation", &whiteout::m2::TextureTransform::rotation)
+        .def_readwrite("scaling", &whiteout::m2::TextureTransform::scaling)
     ;
 
     py::class_<whiteout::m2::ColorAnimation>(m, "ColorAnimation")
         .def(py::init<>())
+        .def_readwrite("color", &whiteout::m2::ColorAnimation::color)
+        .def_readwrite("alpha", &whiteout::m2::ColorAnimation::alpha)
     ;
 
     py::class_<whiteout::m2::Light>(m, "Light")
@@ -555,6 +579,13 @@ void bind_m2(py::module_& m) {
         .def_readwrite("type", &whiteout::m2::Light::type)
         .def_readwrite("bone_id", &whiteout::m2::Light::boneId)
         .def_readwrite("position", &whiteout::m2::Light::position)
+        .def_readwrite("ambient_color", &whiteout::m2::Light::ambientColor)
+        .def_readwrite("ambient_intensity", &whiteout::m2::Light::ambientIntensity)
+        .def_readwrite("diffuse_color", &whiteout::m2::Light::diffuseColor)
+        .def_readwrite("diffuse_intensity", &whiteout::m2::Light::diffuseIntensity)
+        .def_readwrite("attenuation_start", &whiteout::m2::Light::attenuationStart)
+        .def_readwrite("attenuation_end", &whiteout::m2::Light::attenuationEnd)
+        .def_readwrite("visibility", &whiteout::m2::Light::visibility)
     ;
 
     py::class_<whiteout::m2::CameraSpline>(m, "CameraSpline")
@@ -570,8 +601,12 @@ void bind_m2(py::module_& m) {
         .def_readwrite("field_of_view", &whiteout::m2::Camera::fieldOfView)
         .def_readwrite("far_clip", &whiteout::m2::Camera::farClip)
         .def_readwrite("near_clip", &whiteout::m2::Camera::nearClip)
+        .def_readwrite("positions", &whiteout::m2::Camera::positions)
         .def_readwrite("position_base", &whiteout::m2::Camera::positionBase)
+        .def_readwrite("target_positions", &whiteout::m2::Camera::targetPositions)
         .def_readwrite("target_position_base", &whiteout::m2::Camera::targetPositionBase)
+        .def_readwrite("roll", &whiteout::m2::Camera::roll)
+        .def_readwrite("field_of_view_track", &whiteout::m2::Camera::fieldOfViewTrack)
     ;
 
     py::class_<whiteout::m2::Attachment>(m, "Attachment")
@@ -580,6 +615,7 @@ void bind_m2(py::module_& m) {
         .def_readwrite("bone_id", &whiteout::m2::Attachment::boneId)
         .def_readwrite("unknown", &whiteout::m2::Attachment::unknown)
         .def_readwrite("position", &whiteout::m2::Attachment::position)
+        .def_readwrite("animate", &whiteout::m2::Attachment::animate)
     ;
 
     py::class_<whiteout::m2::RibbonEmitter>(m, "RibbonEmitter")
@@ -589,11 +625,17 @@ void bind_m2(py::module_& m) {
         .def_readwrite("position", &whiteout::m2::RibbonEmitter::position)
         .def_readwrite("texture_indices", &whiteout::m2::RibbonEmitter::textureIndices)
         .def_readwrite("material_indices", &whiteout::m2::RibbonEmitter::materialIndices)
+        .def_readwrite("color_track", &whiteout::m2::RibbonEmitter::colorTrack)
+        .def_readwrite("alpha_track", &whiteout::m2::RibbonEmitter::alphaTrack)
+        .def_readwrite("height_above", &whiteout::m2::RibbonEmitter::heightAbove)
+        .def_readwrite("height_below", &whiteout::m2::RibbonEmitter::heightBelow)
         .def_readwrite("edges_per_second", &whiteout::m2::RibbonEmitter::edgesPerSecond)
         .def_readwrite("edge_lifetime", &whiteout::m2::RibbonEmitter::edgeLifetime)
         .def_readwrite("gravity", &whiteout::m2::RibbonEmitter::gravity)
         .def_readwrite("texture_rows", &whiteout::m2::RibbonEmitter::textureRows)
         .def_readwrite("texture_cols", &whiteout::m2::RibbonEmitter::textureCols)
+        .def_readwrite("tex_slot", &whiteout::m2::RibbonEmitter::texSlot)
+        .def_readwrite("visibility", &whiteout::m2::RibbonEmitter::visibility)
         .def_readwrite("priority_plane", &whiteout::m2::RibbonEmitter::priorityPlane)
         .def_readwrite("ribbon_color_index", &whiteout::m2::RibbonEmitter::ribbonColorIndex)
         .def_readwrite("texture_transform_index", &whiteout::m2::RibbonEmitter::textureTransformIndex)
@@ -619,8 +661,20 @@ void bind_m2(py::module_& m) {
         .def_readwrite("texture_tilerotation", &whiteout::m2::ParticleEmitter::textureTilerotation)
         .def_readwrite("rows", &whiteout::m2::ParticleEmitter::rows)
         .def_readwrite("columns", &whiteout::m2::ParticleEmitter::columns)
+        .def_readwrite("emission_speed", &whiteout::m2::ParticleEmitter::emissionSpeed)
+        .def_readwrite("speed_variation", &whiteout::m2::ParticleEmitter::speedVariation)
+        .def_readwrite("vertical_range", &whiteout::m2::ParticleEmitter::verticalRange)
+        .def_readwrite("horizontal_range", &whiteout::m2::ParticleEmitter::horizontalRange)
+        .def_readwrite("gravity", &whiteout::m2::ParticleEmitter::gravity)
+        .def_readwrite("lifespan", &whiteout::m2::ParticleEmitter::lifespan)
         .def_readwrite("lifespan_variation", &whiteout::m2::ParticleEmitter::lifespanVariation)
+        .def_readwrite("emission_rate", &whiteout::m2::ParticleEmitter::emissionRate)
         .def_readwrite("emission_rate_variation", &whiteout::m2::ParticleEmitter::emissionRateVariation)
+        .def_readwrite("emission_area_width", &whiteout::m2::ParticleEmitter::emissionAreaWidth)
+        .def_readwrite("emission_area_length", &whiteout::m2::ParticleEmitter::emissionAreaLength)
+        .def_readwrite("z_source", &whiteout::m2::ParticleEmitter::zSource)
+        .def_readwrite("color_track", &whiteout::m2::ParticleEmitter::colorTrack)
+        .def_readwrite("scale_track", &whiteout::m2::ParticleEmitter::scaleTrack)
         .def_readwrite("scale_vary", &whiteout::m2::ParticleEmitter::scaleVary)
         .def_readwrite("tail_length", &whiteout::m2::ParticleEmitter::tailLength)
         .def_readwrite("twinkle_speed", &whiteout::m2::ParticleEmitter::twinkleSpeed)
@@ -640,6 +694,7 @@ void bind_m2(py::module_& m) {
         .def_readwrite("follow_speed2", &whiteout::m2::ParticleEmitter::followSpeed2)
         .def_readwrite("follow_scale2", &whiteout::m2::ParticleEmitter::followScale2)
         .def_readwrite("spline_points", &whiteout::m2::ParticleEmitter::splinePoints)
+        .def_readwrite("enabled_in", &whiteout::m2::ParticleEmitter::enabledIn)
         .def_readwrite("extension", &whiteout::m2::ParticleEmitter::extension)
         .def("get_multi_tex_scale",
             [](const whiteout::m2::ParticleEmitter& self) {
@@ -744,14 +799,89 @@ void bind_m2(py::module_& m) {
         .def_readwrite("textured_light_entries", &whiteout::m2::Model::texturedLightEntries, R"doc(TEXL)doc")
     ;
 
+    py::class_<whiteout::m2::AnimationTrack<whiteout::Vector3f>>(m, "AnimationTrackVector3f")
+        .def(py::init<>())
+        .def_readwrite("interpolation_type", &whiteout::m2::AnimationTrack<whiteout::Vector3f>::interpolationType)
+        .def_readwrite("global_sequence_id", &whiteout::m2::AnimationTrack<whiteout::Vector3f>::globalSequenceId)
+        .def_readwrite("timestamps", &whiteout::m2::AnimationTrack<whiteout::Vector3f>::timestamps)
+        .def_readwrite("values", &whiteout::m2::AnimationTrack<whiteout::Vector3f>::values)
+    ;
+
+    py::class_<whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>>(m, "AnimationTrackM2CompatQuaternion")
+        .def(py::init<>())
+        .def_readwrite("interpolation_type", &whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::interpolationType)
+        .def_readwrite("global_sequence_id", &whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::globalSequenceId)
+        .def_readwrite("timestamps", &whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::timestamps)
+        .def_readwrite("values", &whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::values)
+    ;
+
+    py::class_<whiteout::m2::AnimationTrack<whiteout::i16>>(m, "AnimationTrackI16")
+        .def(py::init<>())
+        .def_readwrite("interpolation_type", &whiteout::m2::AnimationTrack<whiteout::i16>::interpolationType)
+        .def_readwrite("global_sequence_id", &whiteout::m2::AnimationTrack<whiteout::i16>::globalSequenceId)
+        .def_readwrite("timestamps", &whiteout::m2::AnimationTrack<whiteout::i16>::timestamps)
+        .def_readwrite("values", &whiteout::m2::AnimationTrack<whiteout::i16>::values)
+    ;
+
+    py::class_<whiteout::m2::AnimationTrack<whiteout::f32>>(m, "AnimationTrackF32")
+        .def(py::init<>())
+        .def_readwrite("interpolation_type", &whiteout::m2::AnimationTrack<whiteout::f32>::interpolationType)
+        .def_readwrite("global_sequence_id", &whiteout::m2::AnimationTrack<whiteout::f32>::globalSequenceId)
+        .def_readwrite("timestamps", &whiteout::m2::AnimationTrack<whiteout::f32>::timestamps)
+        .def_readwrite("values", &whiteout::m2::AnimationTrack<whiteout::f32>::values)
+    ;
+
+    py::class_<whiteout::m2::AnimationTrack<whiteout::u8>>(m, "AnimationTrackU8")
+        .def(py::init<>())
+        .def_readwrite("interpolation_type", &whiteout::m2::AnimationTrack<whiteout::u8>::interpolationType)
+        .def_readwrite("global_sequence_id", &whiteout::m2::AnimationTrack<whiteout::u8>::globalSequenceId)
+        .def_readwrite("timestamps", &whiteout::m2::AnimationTrack<whiteout::u8>::timestamps)
+        .def_readwrite("values", &whiteout::m2::AnimationTrack<whiteout::u8>::values)
+    ;
+
+    py::class_<whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>>(m, "AnimationTrackM2CameraSpline")
+        .def(py::init<>())
+        .def_readwrite("interpolation_type", &whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::interpolationType)
+        .def_readwrite("global_sequence_id", &whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::globalSequenceId)
+        .def_readwrite("timestamps", &whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::timestamps)
+        .def_readwrite("values", &whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::values)
+    ;
+
+    py::class_<whiteout::m2::AnimationTrack<whiteout::u16>>(m, "AnimationTrackU16")
+        .def(py::init<>())
+        .def_readwrite("interpolation_type", &whiteout::m2::AnimationTrack<whiteout::u16>::interpolationType)
+        .def_readwrite("global_sequence_id", &whiteout::m2::AnimationTrack<whiteout::u16>::globalSequenceId)
+        .def_readwrite("timestamps", &whiteout::m2::AnimationTrack<whiteout::u16>::timestamps)
+        .def_readwrite("values", &whiteout::m2::AnimationTrack<whiteout::u16>::values)
+    ;
+
+    py::class_<whiteout::m2::ParticleAnimationTrack<whiteout::Vector3f>>(m, "ParticleAnimationTrackVector3f")
+        .def(py::init<>())
+        .def_readwrite("values", &whiteout::m2::ParticleAnimationTrack<whiteout::Vector3f>::values)
+    ;
+
+    py::class_<whiteout::m2::ParticleAnimationTrack<whiteout::Vector2f>>(m, "ParticleAnimationTrackVector2f")
+        .def(py::init<>())
+        .def_readwrite("values", &whiteout::m2::ParticleAnimationTrack<whiteout::Vector2f>::values)
+    ;
+
     py::bind_vector<std::vector<whiteout::i16>>(m, "VectorI16", py::buffer_protocol());
     py::bind_vector<std::vector<std::vector<whiteout::u32>>>(m, "VectorVectorU32");
+    py::bind_vector<std::vector<std::vector<whiteout::Vector3f>>>(m, "VectorVectorVector3f");
+    py::bind_vector<std::vector<std::vector<whiteout::f32>>>(m, "VectorVectorF32");
+    py::bind_vector<std::vector<std::vector<whiteout::i16>>>(m, "VectorVectorI16");
+    py::bind_vector<std::vector<std::vector<whiteout::m2::CameraSpline>>>(m, "VectorVectorM2CameraSpline");
+    py::bind_vector<std::vector<std::vector<whiteout::m2::CompatQuaternion>>>(m, "VectorVectorM2CompatQuaternion");
+    py::bind_vector<std::vector<std::vector<whiteout::u16>>>(m, "VectorVectorU16");
+    py::bind_vector<std::vector<std::vector<whiteout::u8>>>(m, "VectorVectorU8");
     py::bind_vector<std::vector<whiteout::m2::AnimationTrackBase>>(m, "VectorM2AnimationTrackBase");
     py::bind_vector<std::vector<whiteout::m2::Attachment>>(m, "VectorM2Attachment");
     py::bind_vector<std::vector<whiteout::m2::Batch>>(m, "VectorM2Batch");
     py::bind_vector<std::vector<whiteout::m2::Bone>>(m, "VectorM2Bone");
     py::bind_vector<std::vector<whiteout::m2::Camera>>(m, "VectorM2Camera");
+    py::bind_vector<std::vector<whiteout::m2::CameraSpline>>(m, "VectorM2CameraSpline");
     py::bind_vector<std::vector<whiteout::m2::ColorAnimation>>(m, "VectorM2ColorAnimation");
+    py::bind_vector<std::vector<whiteout::m2::CompatQuaternion>>(m, "VectorM2CompatQuaternion");
     py::bind_vector<std::vector<whiteout::m2::DebugOcclusionData>>(m, "VectorM2DebugOcclusionData");
     py::bind_vector<std::vector<whiteout::m2::DetailedLightData>>(m, "VectorM2DetailedLightData");
     py::bind_vector<std::vector<whiteout::m2::DistanceFadeData>>(m, "VectorM2DistanceFadeData");

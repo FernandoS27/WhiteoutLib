@@ -136,6 +136,81 @@ EMSCRIPTEN_BINDINGS(textures) {
         .value("Lenient", whiteout::textures::tga::Writer::WriteMode::Lenient);
 
     // ── Classes ──────────────────────────────────────────────────────────
+    class_<whiteout::textures::Texture>("Texture")
+        .constructor<>()
+        .function("format", select_overload<whiteout::textures::PixelFormat() const>(&whiteout::textures::Texture::format))
+        .function("copyAsFormat",
+                  optional_override([](
+                      whiteout::textures::Texture& self,
+                      whiteout::textures::PixelFormat new_fmt) {
+                      return self.copyAsFormat(new_fmt);
+                  }))
+        .function("swapChannels", &whiteout::textures::Texture::swapChannels)
+        .function("invertChannel", &whiteout::textures::Texture::invertChannel)
+        .function("expandNormal", &whiteout::textures::Texture::expandNormal)
+        .function("fillChannel", &whiteout::textures::Texture::fillChannel)
+        .function("splitChannels", &whiteout::textures::Texture::splitChannels)
+        .class_function("mergeChannels",
+                  optional_override([](
+                      std::vector<whiteout::textures::Texture> sources,
+                      std::vector<whiteout::textures::Channel> targetChannels) {
+                      return whiteout::wasm::to_optional_ptr<whiteout::textures::Texture>(whiteout::textures::Texture::mergeChannels(sources, targetChannels));
+                  }), allow_raw_pointers())
+        .function("copyFromNormalToRGBA",
+                  optional_override([](
+                      whiteout::textures::Texture& self) {
+                      return whiteout::wasm::to_optional_ptr<whiteout::textures::Texture>(self.copyFromNormalToRGBA());
+                  }), allow_raw_pointers())
+        .function("generateMipmaps",
+                  optional_override([](
+                      whiteout::textures::Texture& self,
+                      whiteout::u32 newMipCount) {
+                      return self.generateMipmaps(newMipCount);
+                  }))
+        .function("downscale",
+                  optional_override([](
+                      whiteout::textures::Texture& self,
+                      whiteout::u32 levels) {
+                      return self.downscale(levels);
+                  }))
+        .class_function("create2D", &whiteout::textures::Texture::create2D)
+        .class_function("create3D", &whiteout::textures::Texture::create3D)
+        .class_function("createCube", &whiteout::textures::Texture::createCube)
+        .class_function("create2DArray", &whiteout::textures::Texture::create2DArray)
+        .class_function("createCubeArray", &whiteout::textures::Texture::createCubeArray)
+        .function("type", &whiteout::textures::Texture::type)
+        .function("kind", &whiteout::textures::Texture::kind)
+        .function("setKind", &whiteout::textures::Texture::setKind)
+        .function("channelKind", &whiteout::textures::Texture::channelKind)
+        .function("setChannelKind", &whiteout::textures::Texture::setChannelKind)
+        .function("channelDefault", &whiteout::textures::Texture::channelDefault)
+        .function("setChannelDefault", &whiteout::textures::Texture::setChannelDefault)
+        .function("isSrgb", &whiteout::textures::Texture::isSrgb)
+        .function("setSrgb", &whiteout::textures::Texture::setSrgb)
+        .function("width", &whiteout::textures::Texture::width)
+        .function("height", &whiteout::textures::Texture::height)
+        .function("depth", &whiteout::textures::Texture::depth)
+        .function("layerCount", &whiteout::textures::Texture::layerCount)
+        .function("arraySize", &whiteout::textures::Texture::arraySize)
+        .function("mipCount", &whiteout::textures::Texture::mipCount)
+        .function("mipLevel",
+                  optional_override([](
+                      whiteout::textures::Texture& self,
+                      whiteout::u32 mip,
+                      whiteout::u32 layer) {
+                      return &(self.mipLevel(mip, layer));
+                  }), allow_raw_pointers())
+        .function("dataSize", &whiteout::textures::Texture::dataSize)
+        .function("data", select_overload<std::span<const unsigned char>() const>(&whiteout::textures::Texture::data))
+        .function("mipData", select_overload<std::span<const unsigned char>(u32, u32) const>(&whiteout::textures::Texture::mipData))
+        .function("takeData",
+                  optional_override([](
+                      whiteout::textures::Texture& self) {
+                      return self.takeData();
+                  }))
+        .function("setData", &whiteout::textures::Texture::setData)
+    ;
+
     class_<whiteout::textures::blp::Parser>("BlpParser")
         .constructor<>()
         .constructor<whiteout::textures::blp::Parser::ParseMode>()
@@ -302,8 +377,12 @@ EMSCRIPTEN_BINDINGS(textures) {
     ;
 
     // ── Runtime registration for std::optional<T> returns ────────────────
+    register_optional<std::vector<whiteout::textures::Texture>>();
     register_optional<whiteout::textures::Texture>();
+    register_optional<std::string>();
 
     // ── Vector containers ────────────────────────────────────────────────
+    register_vector<whiteout::textures::Channel>("VectorChannel");
+    register_vector<whiteout::textures::Texture>("VectorTexture");
 
 }

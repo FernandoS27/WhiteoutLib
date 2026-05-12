@@ -89,18 +89,21 @@ enum class InterpolationType : u16 {
     Hermite = 3,
 };
 
+/// @bind
 struct AnimationTrackBase {
     InterpolationType interpolationType = InterpolationType::None;
     u16 globalSequenceId = 0xFFFF;
     std::vector<std::vector<u32>> timestamps;
 };
 
+/// @bind value_template, instantiate=Vector3f;CompatQuaternion;i16;u8;u16;f32;CameraSpline
 template <typename T>
 struct AnimationTrack : public AnimationTrackBase {
     std::vector<std::vector<T>> values;
 };
 
 // Applies an animation during a particle lifetime
+/// @bind value_template, instantiate=Vector3f;Vector2f;unorm16
 template <typename T>
 struct ParticleAnimationTrack {
     std::vector<unorm16> timestamps; // unorm 0 to 1 where 1 is the end of lifetime.

@@ -181,20 +181,9 @@ def _ts_type(t: TypeRef, ctx: _NameContext) -> str:
         return f'EmbindVector<EmbindVector<{_ts_type(t.element.element, ctx)}>>'
     if t.kind == TypeKind.OPTIONAL:
         return f'{_ts_type(t.element, ctx)} | null'
-    if t.kind == TypeKind.TRACK:
-        return f'Track{_track_suffix(t.element)}'
     if t.kind == TypeKind.ARRAY:
         return 'never'
     return 'unknown'
-
-
-def _track_suffix(elem: TypeRef) -> str:
-    """f32 -> F32, Vector3f -> Vector3f, Quaternion -> Quaternion, etc."""
-    if elem.kind == TypeKind.PRIMITIVE:
-        s = _strip_namespace(elem.cpp_text)
-        return s.upper()
-    short = _strip_namespace(elem.cpp_text).replace('::', '')
-    return short
 
 
 def _strip_prefix(name: str, prefix: str) -> str:
@@ -337,34 +326,6 @@ def _emit_class(buf: StringIO, c: BindClass, ctx: _NameContext):
     buf.write('}\n\n')
 
 
-def _emit_track_classes(buf: StringIO, module: BindModule, ctx: _NameContext):
-    if not module.track_types:
-        return
-    buf.write('// ── Animation tracks ───────────────────────────────────────────────\n')
-    ctx.uses.add('EmbindObject')
-    ctx.uses.add('EmbindVector')
-    ctx.uses.add('EnumMember')
-    for t in sorted(module.track_types, key=lambda x: x.cpp_text):
-        suffix = _track_suffix(t.element)
-        elem_ts = _ts_type(t.element, ctx)
-        keys_view = _typed_array_for_element(t.element)
-        if keys_view is not None:
-            ctx.uses.add('EmbindBufferVector')
-            keys_ts = f'EmbindBufferVector<{elem_ts}, {keys_view}>'
-        else:
-            keys_ts = f'EmbindVector<{elem_ts}>'
-        buf.write(f'export class Track{suffix} extends EmbindObject {{\n')
-        buf.write('    constructor();\n')
-        buf.write('    isUsed: boolean;\n')
-        buf.write('    interpolationType: EnumMember<typeof InterpolationType>;\n')
-        buf.write('    globalSequenceId: number;\n')
-        buf.write('    keyCount: number;\n')
-        ctx.uses.add('EmbindBufferVector')
-        buf.write('    timestamps: EmbindBufferVector<number, Uint32Array>;\n')
-        buf.write(f'    keys: {keys_ts};\n')
-        buf.write('}\n\n')
-
-
 def emit(module: BindModule) -> str:
     body = StringIO()
     ctx = _NameContext(module)
@@ -387,8 +348,6 @@ def emit(module: BindModule) -> str:
         body.write('// ── Value-object types (plain JS objects) ──────────────────────────\n')
         for c in value_classes:
             _emit_value_object(body, c, ctx)
-
-    _emit_track_classes(body, module, ctx)
 
     if other_classes:
         body.write('// ── Classes ────────────────────────────────────────────────────────\n')

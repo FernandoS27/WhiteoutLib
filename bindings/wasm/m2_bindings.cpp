@@ -166,6 +166,10 @@ EMSCRIPTEN_BINDINGS(m2) {
     ;
 
     // ── Classes ──────────────────────────────────────────────────────────
+    class_<whiteout::m2::CompatQuaternion>("M2CompatQuaternion")
+        .constructor<>()
+    ;
+
     class_<whiteout::m2::ColorBGRA>("M2ColorBGRA")
         .constructor<>()
     ;
@@ -391,6 +395,9 @@ EMSCRIPTEN_BINDINGS(m2) {
         .property("parentBoneId", &whiteout::m2::Bone::parentBoneId)
         .property("submeshId", &whiteout::m2::Bone::submeshId)
         .property("boneNameCRC", &whiteout::m2::Bone::boneNameCRC)
+        .property("translation", &whiteout::m2::Bone::translation)
+        .property("rotation", &whiteout::m2::Bone::rotation)
+        .property("scale", &whiteout::m2::Bone::scale)
         .property("pivot", &whiteout::m2::Bone::pivot)
     ;
 
@@ -409,14 +416,20 @@ EMSCRIPTEN_BINDINGS(m2) {
 
     class_<whiteout::m2::TextureWeight>("M2TextureWeight")
         .constructor<>()
+        .property("weight", &whiteout::m2::TextureWeight::weight)
     ;
 
     class_<whiteout::m2::TextureTransform>("M2TextureTransform")
         .constructor<>()
+        .property("translation", &whiteout::m2::TextureTransform::translation)
+        .property("rotation", &whiteout::m2::TextureTransform::rotation)
+        .property("scaling", &whiteout::m2::TextureTransform::scaling)
     ;
 
     class_<whiteout::m2::ColorAnimation>("M2ColorAnimation")
         .constructor<>()
+        .property("color", &whiteout::m2::ColorAnimation::color)
+        .property("alpha", &whiteout::m2::ColorAnimation::alpha)
     ;
 
     class_<whiteout::m2::Light>("M2Light")
@@ -424,6 +437,13 @@ EMSCRIPTEN_BINDINGS(m2) {
         .property("type", &whiteout::m2::Light::type)
         .property("boneId", &whiteout::m2::Light::boneId)
         .property("position", &whiteout::m2::Light::position)
+        .property("ambientColor", &whiteout::m2::Light::ambientColor)
+        .property("ambientIntensity", &whiteout::m2::Light::ambientIntensity)
+        .property("diffuseColor", &whiteout::m2::Light::diffuseColor)
+        .property("diffuseIntensity", &whiteout::m2::Light::diffuseIntensity)
+        .property("attenuationStart", &whiteout::m2::Light::attenuationStart)
+        .property("attenuationEnd", &whiteout::m2::Light::attenuationEnd)
+        .property("visibility", &whiteout::m2::Light::visibility)
     ;
 
     class_<whiteout::m2::CameraSpline>("M2CameraSpline")
@@ -439,8 +459,12 @@ EMSCRIPTEN_BINDINGS(m2) {
         .property("fieldOfView", &whiteout::m2::Camera::fieldOfView)
         .property("farClip", &whiteout::m2::Camera::farClip)
         .property("nearClip", &whiteout::m2::Camera::nearClip)
+        .property("positions", &whiteout::m2::Camera::positions)
         .property("positionBase", &whiteout::m2::Camera::positionBase)
+        .property("targetPositions", &whiteout::m2::Camera::targetPositions)
         .property("targetPositionBase", &whiteout::m2::Camera::targetPositionBase)
+        .property("roll", &whiteout::m2::Camera::roll)
+        .property("fieldOfViewTrack", &whiteout::m2::Camera::fieldOfViewTrack)
     ;
 
     class_<whiteout::m2::Attachment>("M2Attachment")
@@ -449,6 +473,7 @@ EMSCRIPTEN_BINDINGS(m2) {
         .property("boneId", &whiteout::m2::Attachment::boneId)
         .property("unknown", &whiteout::m2::Attachment::unknown)
         .property("position", &whiteout::m2::Attachment::position)
+        .property("animate", &whiteout::m2::Attachment::animate)
     ;
 
     class_<whiteout::m2::RibbonEmitter>("M2RibbonEmitter")
@@ -458,11 +483,17 @@ EMSCRIPTEN_BINDINGS(m2) {
         .property("position", &whiteout::m2::RibbonEmitter::position)
         .property("textureIndices", &whiteout::m2::RibbonEmitter::textureIndices)
         .property("materialIndices", &whiteout::m2::RibbonEmitter::materialIndices)
+        .property("colorTrack", &whiteout::m2::RibbonEmitter::colorTrack)
+        .property("alphaTrack", &whiteout::m2::RibbonEmitter::alphaTrack)
+        .property("heightAbove", &whiteout::m2::RibbonEmitter::heightAbove)
+        .property("heightBelow", &whiteout::m2::RibbonEmitter::heightBelow)
         .property("edgesPerSecond", &whiteout::m2::RibbonEmitter::edgesPerSecond)
         .property("edgeLifetime", &whiteout::m2::RibbonEmitter::edgeLifetime)
         .property("gravity", &whiteout::m2::RibbonEmitter::gravity)
         .property("textureRows", &whiteout::m2::RibbonEmitter::textureRows)
         .property("textureCols", &whiteout::m2::RibbonEmitter::textureCols)
+        .property("texSlot", &whiteout::m2::RibbonEmitter::texSlot)
+        .property("visibility", &whiteout::m2::RibbonEmitter::visibility)
         .property("priorityPlane", &whiteout::m2::RibbonEmitter::priorityPlane)
         .property("ribbonColorIndex", &whiteout::m2::RibbonEmitter::ribbonColorIndex)
         .property("textureTransformIndex", &whiteout::m2::RibbonEmitter::textureTransformIndex)
@@ -488,8 +519,20 @@ EMSCRIPTEN_BINDINGS(m2) {
         .property("textureTilerotation", &whiteout::m2::ParticleEmitter::textureTilerotation)
         .property("rows", &whiteout::m2::ParticleEmitter::rows)
         .property("columns", &whiteout::m2::ParticleEmitter::columns)
+        .property("emissionSpeed", &whiteout::m2::ParticleEmitter::emissionSpeed)
+        .property("speedVariation", &whiteout::m2::ParticleEmitter::speedVariation)
+        .property("verticalRange", &whiteout::m2::ParticleEmitter::verticalRange)
+        .property("horizontalRange", &whiteout::m2::ParticleEmitter::horizontalRange)
+        .property("gravity", &whiteout::m2::ParticleEmitter::gravity)
+        .property("lifespan", &whiteout::m2::ParticleEmitter::lifespan)
         .property("lifespanVariation", &whiteout::m2::ParticleEmitter::lifespanVariation)
+        .property("emissionRate", &whiteout::m2::ParticleEmitter::emissionRate)
         .property("emissionRateVariation", &whiteout::m2::ParticleEmitter::emissionRateVariation)
+        .property("emissionAreaWidth", &whiteout::m2::ParticleEmitter::emissionAreaWidth)
+        .property("emissionAreaLength", &whiteout::m2::ParticleEmitter::emissionAreaLength)
+        .property("zSource", &whiteout::m2::ParticleEmitter::zSource)
+        .property("colorTrack", &whiteout::m2::ParticleEmitter::colorTrack)
+        .property("scaleTrack", &whiteout::m2::ParticleEmitter::scaleTrack)
         .property("scaleVary", &whiteout::m2::ParticleEmitter::scaleVary)
         .property("tailLength", &whiteout::m2::ParticleEmitter::tailLength)
         .property("twinkleSpeed", &whiteout::m2::ParticleEmitter::twinkleSpeed)
@@ -509,6 +552,7 @@ EMSCRIPTEN_BINDINGS(m2) {
         .property("followSpeed2", &whiteout::m2::ParticleEmitter::followSpeed2)
         .property("followScale2", &whiteout::m2::ParticleEmitter::followScale2)
         .property("splinePoints", &whiteout::m2::ParticleEmitter::splinePoints)
+        .property("enabledIn", &whiteout::m2::ParticleEmitter::enabledIn)
         .property("extension", &whiteout::m2::ParticleEmitter::extension)
         .function("getMultiTexScale",
                   optional_override([](const whiteout::m2::ParticleEmitter& self) { return arrayToVec(self.multiTexScale); }))
@@ -592,6 +636,72 @@ EMSCRIPTEN_BINDINGS(m2) {
         .property("texturedLightEntries", &whiteout::m2::Model::texturedLightEntries)
     ;
 
+    class_<whiteout::m2::AnimationTrack<whiteout::Vector3f>>("M2AnimationTrackVector3f")
+        .constructor<>()
+        .property("interpolationType", &whiteout::m2::AnimationTrack<whiteout::Vector3f>::interpolationType)
+        .property("globalSequenceId", &whiteout::m2::AnimationTrack<whiteout::Vector3f>::globalSequenceId)
+        .property("timestamps", &whiteout::m2::AnimationTrack<whiteout::Vector3f>::timestamps)
+        .property("values", &whiteout::m2::AnimationTrack<whiteout::Vector3f>::values)
+    ;
+
+    class_<whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>>("M2AnimationTrackM2CompatQuaternion")
+        .constructor<>()
+        .property("interpolationType", &whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::interpolationType)
+        .property("globalSequenceId", &whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::globalSequenceId)
+        .property("timestamps", &whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::timestamps)
+        .property("values", &whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::values)
+    ;
+
+    class_<whiteout::m2::AnimationTrack<whiteout::i16>>("M2AnimationTrackI16")
+        .constructor<>()
+        .property("interpolationType", &whiteout::m2::AnimationTrack<whiteout::i16>::interpolationType)
+        .property("globalSequenceId", &whiteout::m2::AnimationTrack<whiteout::i16>::globalSequenceId)
+        .property("timestamps", &whiteout::m2::AnimationTrack<whiteout::i16>::timestamps)
+        .property("values", &whiteout::m2::AnimationTrack<whiteout::i16>::values)
+    ;
+
+    class_<whiteout::m2::AnimationTrack<whiteout::f32>>("M2AnimationTrackF32")
+        .constructor<>()
+        .property("interpolationType", &whiteout::m2::AnimationTrack<whiteout::f32>::interpolationType)
+        .property("globalSequenceId", &whiteout::m2::AnimationTrack<whiteout::f32>::globalSequenceId)
+        .property("timestamps", &whiteout::m2::AnimationTrack<whiteout::f32>::timestamps)
+        .property("values", &whiteout::m2::AnimationTrack<whiteout::f32>::values)
+    ;
+
+    class_<whiteout::m2::AnimationTrack<whiteout::u8>>("M2AnimationTrackU8")
+        .constructor<>()
+        .property("interpolationType", &whiteout::m2::AnimationTrack<whiteout::u8>::interpolationType)
+        .property("globalSequenceId", &whiteout::m2::AnimationTrack<whiteout::u8>::globalSequenceId)
+        .property("timestamps", &whiteout::m2::AnimationTrack<whiteout::u8>::timestamps)
+        .property("values", &whiteout::m2::AnimationTrack<whiteout::u8>::values)
+    ;
+
+    class_<whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>>("M2AnimationTrackM2CameraSpline")
+        .constructor<>()
+        .property("interpolationType", &whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::interpolationType)
+        .property("globalSequenceId", &whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::globalSequenceId)
+        .property("timestamps", &whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::timestamps)
+        .property("values", &whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::values)
+    ;
+
+    class_<whiteout::m2::AnimationTrack<whiteout::u16>>("M2AnimationTrackU16")
+        .constructor<>()
+        .property("interpolationType", &whiteout::m2::AnimationTrack<whiteout::u16>::interpolationType)
+        .property("globalSequenceId", &whiteout::m2::AnimationTrack<whiteout::u16>::globalSequenceId)
+        .property("timestamps", &whiteout::m2::AnimationTrack<whiteout::u16>::timestamps)
+        .property("values", &whiteout::m2::AnimationTrack<whiteout::u16>::values)
+    ;
+
+    class_<whiteout::m2::ParticleAnimationTrack<whiteout::Vector3f>>("M2ParticleAnimationTrackVector3f")
+        .constructor<>()
+        .property("values", &whiteout::m2::ParticleAnimationTrack<whiteout::Vector3f>::values)
+    ;
+
+    class_<whiteout::m2::ParticleAnimationTrack<whiteout::Vector2f>>("M2ParticleAnimationTrackVector2f")
+        .constructor<>()
+        .property("values", &whiteout::m2::ParticleAnimationTrack<whiteout::Vector2f>::values)
+    ;
+
     // ── Vector containers ────────────────────────────────────────────────
     register_vector<whiteout::i16>("VectorI16")
         .function("view",
@@ -599,12 +709,21 @@ EMSCRIPTEN_BINDINGS(m2) {
                       return val(typed_memory_view(self.size(), self.data()));
                   }));
     register_vector<std::vector<whiteout::u32>>("VectorVectorU32");
+    register_vector<std::vector<whiteout::Vector3f>>("VectorVectorVector3f");
+    register_vector<std::vector<whiteout::f32>>("VectorVectorF32");
+    register_vector<std::vector<whiteout::i16>>("VectorVectorI16");
+    register_vector<std::vector<whiteout::m2::CameraSpline>>("VectorVectorM2CameraSpline");
+    register_vector<std::vector<whiteout::m2::CompatQuaternion>>("VectorVectorM2CompatQuaternion");
+    register_vector<std::vector<whiteout::u16>>("VectorVectorU16");
+    register_vector<std::vector<whiteout::u8>>("VectorVectorU8");
     register_vector<whiteout::m2::AnimationTrackBase>("VectorM2AnimationTrackBase");
     register_vector<whiteout::m2::Attachment>("VectorM2Attachment");
     register_vector<whiteout::m2::Batch>("VectorM2Batch");
     register_vector<whiteout::m2::Bone>("VectorM2Bone");
     register_vector<whiteout::m2::Camera>("VectorM2Camera");
+    register_vector<whiteout::m2::CameraSpline>("VectorM2CameraSpline");
     register_vector<whiteout::m2::ColorAnimation>("VectorM2ColorAnimation");
+    register_vector<whiteout::m2::CompatQuaternion>("VectorM2CompatQuaternion");
     register_vector<whiteout::m2::DebugOcclusionData>("VectorM2DebugOcclusionData");
     register_vector<whiteout::m2::DetailedLightData>("VectorM2DetailedLightData");
     register_vector<whiteout::m2::DistanceFadeData>("VectorM2DistanceFadeData");

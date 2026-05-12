@@ -17,12 +17,14 @@ class TypeKind(Enum):
     PRIMITIVE   = 'primitive'    # u32, f32, bool, ...
     STRING      = 'string'       # std::string
     ENUM        = 'enum'         # bound enum
-    NESTED      = 'nested'       # bound class/struct (passed by value/copy)
+    NESTED      = 'nested'       # bound class/struct (passed by value/copy);
+                                 # also: @bind value_template instantiations,
+                                 # in which case .element holds the template
+                                 # argument
     VECTOR      = 'vector'       # std::vector<T>
     NESTED_VEC  = 'nested_vec'   # std::vector<std::vector<T>>
     ARRAY       = 'array'        # std::array<T, N>  (needs getter/setter helper)
     OPTIONAL    = 'optional'     # std::optional<T>  (Embind has built-in support)
-    TRACK       = 'track'        # whiteout::mdx::Track<T>  (well-known template)
     UNKNOWN     = 'unknown'
 
 
@@ -42,6 +44,13 @@ class BindField:
     type: TypeRef
     array_with_view: bool = False   # vector<u8>: also emit *View() helper
     doc: str = ''            # extracted from C++ /// comment
+    # Byte offset of this field within its containing struct, computed
+    # by libclang. `None` when libclang couldn't determine it (templated
+    # type, anonymous bitfield, etc.). Backends use this to read/write
+    # the field directly from a MemorySegment without going through the
+    # C wrapper — only safe for plain-old-data fields (PRIMITIVE/ENUM
+    # and bit-compatible nested PODs like Vector*).
+    byte_offset: Optional[int] = None
 
 
 @dataclass
@@ -145,6 +154,16 @@ class BindClass:
     # for these so the binding doesn't try to invoke the absent copy.
     # Auto-detected: any class with an explicit `= delete`d copy ctor.
     is_move_only: bool = False
+    # Total byte size of the struct as libclang sees it (sizeof in the
+    # current compilation environment). `None` when libclang couldn't
+    # determine it (incomplete type, template).
+    byte_size: Optional[int] = None
+    # True when the C++ type is a Plain Old Data type per libclang
+    # (`Type.is_pod()`): trivial copy / trivial destructor / standard
+    # layout / no non-POD members. Backends use this to decide whether
+    # a bitwise `memcpy` is a safe replacement for the class's
+    # copy-assignment operator.
+    is_pod: bool = False
 
 
 @dataclass
@@ -152,6 +171,38 @@ class BindConstant:
     js_name: str             # "MdxNoParent"
     cpp_expr: str            # "Node::NO_PARENT"
     cpp_type: str = 'u32'
+    doc: str = ''
+
+
+@dataclass
+class BindTemplateField:
+    """A field on a class template, with the template parameter left as a
+    text placeholder (typically 'T'). Used by the parser to synthesise
+    concrete BindClasses by substituting 'T → X' into each field's
+    `cpp_text_template` and re-classifying the result."""
+    name: str
+    cpp_name: str
+    cpp_text_template: str   # raw spelling with 'T' (or whatever) preserved
+    doc: str = ''
+
+
+@dataclass
+class BindTemplate:
+    """A C++ class template marked `@bind value_template, instantiate=A;B;…`.
+    The parser captures its field list with the type parameter as a
+    placeholder, then synthesises one regular `BindClass` per requested
+    instantiation. Emitters never see the template directly — they see the
+    concrete classes and treat them like any other handle type."""
+    cpp_short: str                       # 'Track', 'AnimationTrack', 'AnimRef'
+    cpp_qualifier: str                   # 'whiteout::mdx::Track' (no <T>)
+    cpp_namespace: str                   # 'whiteout::mdx'
+    type_param: str = 'T'                # template parameter spelling
+    fields: list[BindTemplateField] = field(default_factory=list)
+    instantiate: list[str] = field(default_factory=list)  # raw cpp_text per T
+    # Fully-qualified base class to inline (e.g. 'whiteout::m2::AnimationTrackBase');
+    # the base's fields are flattened into every concrete instantiation. Empty
+    # string when no base.
+    base_cpp_qualifier: str = ''
     doc: str = ''
 
 
@@ -167,7 +218,7 @@ class BindModule:
     constants: list[BindConstant] = field(default_factory=list)
     # Auto-discovered from field types:
     vector_types: list[TypeRef] = field(default_factory=list)
-    track_types: list[TypeRef] = field(default_factory=list)
+    templates: list[BindTemplate] = field(default_factory=list)
     skip_vector_js_names: list[str] = field(default_factory=list)
     skip_class_js_names: list[str] = field(default_factory=list)
 
@@ -183,6 +234,8 @@ class ModuleConfig:
     pybind_output_path: str = ''     # pybind11 output (defaults to bindings/python/<name>_bindings.cpp)
     dts_output_path: str = ''        # TypeScript .d.ts output (defaults to packages/js-ts/types/<name>.d.ts)
     pyi_output_path: str = ''        # Python .pyi stub (defaults to packages/python/whiteout-stubs/<name>.pyi)
+    c_header_output_path: str = ''   # C ABI header (defaults to bindings/c/whiteout_<name>.h)
+    c_source_output_path: str = ''   # C ABI source (defaults to bindings/c/whiteout_<name>.cpp)
     include_dirs: list[str] = field(default_factory=list)
     # JS names of vector containers already registered elsewhere (e.g. by a
     # hand-written bindings file). The codegen will discover the same C++

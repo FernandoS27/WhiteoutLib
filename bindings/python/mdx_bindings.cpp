@@ -124,24 +124,6 @@ auto bindBufferVector(py::module_& m, const char* name) {
 }
 
 } // namespace
-
-namespace {
-
-template <typename T>
-void bindTrack(py::module_& m, const char* name) {
-    py::class_<whiteout::mdx::Track<T>>(m, name)
-        .def(py::init<>())
-        .def_readwrite("is_used",            &whiteout::mdx::Track<T>::isUsed)
-        .def_readwrite("interpolation_type", &whiteout::mdx::Track<T>::interpolationType)
-        .def_readwrite("global_sequence_id", &whiteout::mdx::Track<T>::globalSequenceId)
-        .def_property("key_count",
-            [](const whiteout::mdx::Track<T>& t) { return static_cast<std::uint32_t>(t.keyCount); },
-            [](whiteout::mdx::Track<T>& t, std::uint32_t v) { t.keyCount = v; })
-        .def_readwrite("timestamps", &whiteout::mdx::Track<T>::timestamps)
-        .def_readwrite("keys",       &whiteout::mdx::Track<T>::keys_data);
-}
-
-} // namespace
 void bind_mdx(py::module_& m) {
     // Sentinel value
     m.attr("NO_GLOBAL_SEQUENCE") = static_cast<whiteout::u32>(whiteout::mdx::Track<whiteout::f32>::kNoGlobalSequence);
@@ -386,11 +368,6 @@ void bind_mdx(py::module_& m) {
         .def_readwrite("minimum", &whiteout::mdx::Extent::minimum)
         .def_readwrite("maximum", &whiteout::mdx::Extent::maximum)
     ;
-
-    bindTrack<whiteout::f32>(m, "TrackF32");
-    bindTrack<whiteout::u32>(m, "TrackU32");
-    bindTrack<whiteout::Quaternion>(m, "TrackQuaternion");
-    bindTrack<whiteout::Vector3f>(m, "TrackVector3f");
 
     py::class_<whiteout::mdx::Model>(m, "Model", R"doc(Complete MDX model file structure
 
@@ -851,6 +828,62 @@ Advanced particle system using PopcornFX technology in Warcraft III: Reforged. C
         .def_readwrite("color_tracks", &whiteout::mdx::CornEmitter::colorTracks, R"doc(Color animation)doc")
         .def_readwrite("alpha_tracks", &whiteout::mdx::CornEmitter::alphaTracks, R"doc(Alpha animation)doc")
         .def_readwrite("visibility_tracks", &whiteout::mdx::CornEmitter::visibilityTracks, R"doc(Visibility animation)doc")
+    ;
+
+    py::class_<whiteout::mdx::Track<whiteout::Vector3f>>(m, "TrackVector3f", R"doc(Generic animation track with keyframe data
+
+Tracks store animation data as a series of keyframes. The interpolation type determines how values between keyframes are calculated.
+
+@tparam T The value type (f32, Vector3f, Vector4f, u32, etc.))doc")
+        .def(py::init<>())
+        .def_readwrite("is_used", &whiteout::mdx::Track<whiteout::Vector3f>::isUsed, R"doc(Whether this track contains animation data)doc")
+        .def_readwrite("interpolation_type", &whiteout::mdx::Track<whiteout::Vector3f>::interpolationType, R"doc(Interpolation type)doc")
+        .def_readwrite("global_sequence_id", &whiteout::mdx::Track<whiteout::Vector3f>::globalSequenceId, R"doc(Global sequence ID if applicable)doc")
+        .def_readwrite("key_count", &whiteout::mdx::Track<whiteout::Vector3f>::keyCount, R"doc(Number of keyframes)doc")
+        .def_readwrite("timestamps", &whiteout::mdx::Track<whiteout::Vector3f>::timestamps, R"doc(Keyframe timestamps (in frames))doc")
+        .def_readwrite("keys_data", &whiteout::mdx::Track<whiteout::Vector3f>::keys_data, R"doc(Raw keyframe data)doc")
+    ;
+
+    py::class_<whiteout::mdx::Track<whiteout::Quaternion>>(m, "TrackQuaternion", R"doc(Generic animation track with keyframe data
+
+Tracks store animation data as a series of keyframes. The interpolation type determines how values between keyframes are calculated.
+
+@tparam T The value type (f32, Vector3f, Vector4f, u32, etc.))doc")
+        .def(py::init<>())
+        .def_readwrite("is_used", &whiteout::mdx::Track<whiteout::Quaternion>::isUsed, R"doc(Whether this track contains animation data)doc")
+        .def_readwrite("interpolation_type", &whiteout::mdx::Track<whiteout::Quaternion>::interpolationType, R"doc(Interpolation type)doc")
+        .def_readwrite("global_sequence_id", &whiteout::mdx::Track<whiteout::Quaternion>::globalSequenceId, R"doc(Global sequence ID if applicable)doc")
+        .def_readwrite("key_count", &whiteout::mdx::Track<whiteout::Quaternion>::keyCount, R"doc(Number of keyframes)doc")
+        .def_readwrite("timestamps", &whiteout::mdx::Track<whiteout::Quaternion>::timestamps, R"doc(Keyframe timestamps (in frames))doc")
+        .def_readwrite("keys_data", &whiteout::mdx::Track<whiteout::Quaternion>::keys_data, R"doc(Raw keyframe data)doc")
+    ;
+
+    py::class_<whiteout::mdx::Track<whiteout::u32>>(m, "TrackU32", R"doc(Generic animation track with keyframe data
+
+Tracks store animation data as a series of keyframes. The interpolation type determines how values between keyframes are calculated.
+
+@tparam T The value type (f32, Vector3f, Vector4f, u32, etc.))doc")
+        .def(py::init<>())
+        .def_readwrite("is_used", &whiteout::mdx::Track<whiteout::u32>::isUsed, R"doc(Whether this track contains animation data)doc")
+        .def_readwrite("interpolation_type", &whiteout::mdx::Track<whiteout::u32>::interpolationType, R"doc(Interpolation type)doc")
+        .def_readwrite("global_sequence_id", &whiteout::mdx::Track<whiteout::u32>::globalSequenceId, R"doc(Global sequence ID if applicable)doc")
+        .def_readwrite("key_count", &whiteout::mdx::Track<whiteout::u32>::keyCount, R"doc(Number of keyframes)doc")
+        .def_readwrite("timestamps", &whiteout::mdx::Track<whiteout::u32>::timestamps, R"doc(Keyframe timestamps (in frames))doc")
+        .def_readwrite("keys_data", &whiteout::mdx::Track<whiteout::u32>::keys_data, R"doc(Raw keyframe data)doc")
+    ;
+
+    py::class_<whiteout::mdx::Track<whiteout::f32>>(m, "TrackF32", R"doc(Generic animation track with keyframe data
+
+Tracks store animation data as a series of keyframes. The interpolation type determines how values between keyframes are calculated.
+
+@tparam T The value type (f32, Vector3f, Vector4f, u32, etc.))doc")
+        .def(py::init<>())
+        .def_readwrite("is_used", &whiteout::mdx::Track<whiteout::f32>::isUsed, R"doc(Whether this track contains animation data)doc")
+        .def_readwrite("interpolation_type", &whiteout::mdx::Track<whiteout::f32>::interpolationType, R"doc(Interpolation type)doc")
+        .def_readwrite("global_sequence_id", &whiteout::mdx::Track<whiteout::f32>::globalSequenceId, R"doc(Global sequence ID if applicable)doc")
+        .def_readwrite("key_count", &whiteout::mdx::Track<whiteout::f32>::keyCount, R"doc(Number of keyframes)doc")
+        .def_readwrite("timestamps", &whiteout::mdx::Track<whiteout::f32>::timestamps, R"doc(Keyframe timestamps (in frames))doc")
+        .def_readwrite("keys_data", &whiteout::mdx::Track<whiteout::f32>::keys_data, R"doc(Raw keyframe data)doc")
     ;
 
     py::bind_vector<std::vector<std::vector<whiteout::Vector2f>>>(m, "VectorVectorVector2f");

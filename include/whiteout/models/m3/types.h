@@ -61,6 +61,7 @@ struct Reference {
  *
  * @tparam T The value type (f32, Vector3f, Quaternion, ColorBGRA, Extent, etc.)
  */
+/// @bind value_template, instantiate=f32;u16;u32;Vector2f;Vector3f;Quaternion;ColorBGRA;Extent
 template <typename T>
 struct AnimRef {
     u16 interpType = 0; ///< Interpolation: 0=none/step, 1=linear, 2=hermite, 3=bezier

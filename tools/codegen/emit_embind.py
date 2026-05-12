@@ -64,27 +64,6 @@ void vecToArray(std::array<T, N>& a, const std::vector<T>& v) {
 }
 '''
 
-_HELPERS_TRACK = '''
-template <typename T>
-void bindTrack(const char* jsName) {
-    using namespace emscripten;
-    class_<{TRACK_NS}::Track<T>>(jsName)
-        .constructor<>()
-        .property("isUsed",            &{TRACK_NS}::Track<T>::isUsed)
-        .property("interpolationType", &{TRACK_NS}::Track<T>::interpolationType)
-        .property("globalSequenceId",  &{TRACK_NS}::Track<T>::globalSequenceId)
-        .property("keyCount",
-                  optional_override([](const {TRACK_NS}::Track<T>& t) {{
-                      return static_cast<std::uint32_t>(t.keyCount);
-                  }}),
-                  optional_override([]({TRACK_NS}::Track<T>& t, std::uint32_t v) {{
-                      t.keyCount = v;
-                  }}))
-        .property("timestamps", &{TRACK_NS}::Track<T>::timestamps)
-        .property("keys",       &{TRACK_NS}::Track<T>::keys_data);
-}
-'''
-
 _HELPERS_END = '''
 } // namespace
 '''
@@ -161,8 +140,6 @@ def _cpp_type(t: TypeRef, ns: str) -> str:
         return f'std::array<{_cpp_type(t.element, ns)}, {t.array_size}>'
     if t.kind == TypeKind.OPTIONAL:
         return f'std::optional<{_cpp_type(t.element, ns)}>'
-    if t.kind == TypeKind.TRACK:
-        return f'{ns}::Track<{_cpp_type(t.element, ns)}>'
     return t.cpp_text
 
 
@@ -411,10 +388,6 @@ def emit(module: BindModule) -> str:
         buf.write(f'#include <{h.replace("include/", "")}>\n')
     buf.write('\n')
     buf.write(_HELPERS_BASE)
-    if module.track_types:
-        # Track is currently MDX-specific (whiteout::mdx::Track). If a future
-        # module needs a different Track namespace, surface it via config.
-        buf.write(_HELPERS_TRACK.replace('{TRACK_NS}', 'whiteout::mdx'))
     buf.write(_HELPERS_END)
     buf.write('\n')
     buf.write(f'EMSCRIPTEN_BINDINGS({module.embind_block}) {{\n')
@@ -445,15 +418,6 @@ def emit(module: BindModule) -> str:
         buf.write('    // ── Value-object types (plain JS objects) ────────────────────────────\n')
         for c in value_classes:
             _emit_value_object(buf, c, ns)
-
-    # Track instantiations.
-    if module.track_types:
-        buf.write('    // ── Animation track instantiations ───────────────────────────────────\n')
-        for t in sorted(module.track_types, key=lambda x: x.cpp_text):
-            elem_cpp = _cpp_type(t.element, ns)
-            elem_js  = js_name_for_type(t.element, module.js_prefix)
-            buf.write(f'    bindTrack<{elem_cpp}>("{module.js_prefix}Track{elem_js}");\n')
-        buf.write('\n')
 
     # Class types.
     if other_classes:

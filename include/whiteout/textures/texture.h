@@ -189,6 +189,8 @@ struct MipLevel {
  * values (uncompressed ↔ BCn) via `format()` and `copyAsFormat()`.
  *
  * Uses the PImpl (Pointer to Implementation) idiom to hide internals.
+ *
+ * @bind methods
  */
 struct Texture {
 

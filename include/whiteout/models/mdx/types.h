@@ -247,7 +247,7 @@ constexpr bool isSmoothInterpolation(InterpolationType t) {
  *
  * @tparam T The value type (f32, Vector3f, Vector4f, u32, etc.)
  */
-/// @bind track_template, instantiate=f32;u32;Vector3f;Vector4f;Quaternion
+/// @bind value_template, instantiate=f32;u32;Vector3f;Vector4f;Quaternion
 template <typename T>
 struct Track {
 

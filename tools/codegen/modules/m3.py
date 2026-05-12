@@ -36,9 +36,10 @@ CONFIG = ModuleConfig(
     skip_class_js_names=['Vector2f', 'Vector3f', 'Vector4f', 'Quaternion'],
     auto_bind=True,
     auto_bind_skip=[
-        # Internal helpers: AnimRef/AnimBlock/Reference are runtime parsing
-        # primitives, not Model surface area.
-        'Reference', 'AnimRef', 'AnimBlock', 'Flag',
+        # AnimBlock/Reference/Flag are runtime parsing primitives, not
+        # Model surface area. (AnimRef is now bound via @bind value_template
+        # and instantiated per-T from the structs that use it.)
+        'Reference', 'AnimBlock', 'Flag',
         # VertexBuffer is a binary blob with format flags; M3 vertex data is
         # better consumed via raw bytes than a per-attribute wrapper.
         'VertexBuffer',

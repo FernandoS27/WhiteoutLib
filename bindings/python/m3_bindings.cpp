@@ -40,6 +40,8 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u64>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u16>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector3f>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector4f>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::AnimRef<whiteout::f32>>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::AnimRef<whiteout::Vector3f>>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::AnimationGroup>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::AnimationState>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::AttachmentPoint>);
@@ -710,6 +712,14 @@ The most complex M3 chunk type. Contains bone/material binding, emission shape/r
         .def_readwrite("bone_index", &whiteout::m3::ParticleEmitter::boneIndex, R"doc(Index into BONE array)doc")
         .def_readwrite("material_index", &whiteout::m3::ParticleEmitter::materialIndex, R"doc(Index into MATM material map array)doc")
         .def_readwrite("additional_flags", &whiteout::m3::ParticleEmitter::additionalFlags)
+        .def_readwrite("initial_speed", &whiteout::m3::ParticleEmitter::initialSpeed, R"doc(Initial particle speed)doc")
+        .def_readwrite("initial_speed_random", &whiteout::m3::ParticleEmitter::initialSpeedRandom, R"doc(Random speed variation)doc")
+        .def_readwrite("initial_yaw", &whiteout::m3::ParticleEmitter::initialYaw, R"doc(Initial yaw angle)doc")
+        .def_readwrite("initial_pitch", &whiteout::m3::ParticleEmitter::initialPitch, R"doc(Initial pitch angle)doc")
+        .def_readwrite("initial_horizontal", &whiteout::m3::ParticleEmitter::initialHorizontal, R"doc(Initial horizontal spread)doc")
+        .def_readwrite("initial_vertical", &whiteout::m3::ParticleEmitter::initialVertical, R"doc(Initial vertical spread)doc")
+        .def_readwrite("lifetime", &whiteout::m3::ParticleEmitter::lifetime, R"doc(Base particle lifetime)doc")
+        .def_readwrite("lifetime_random", &whiteout::m3::ParticleEmitter::lifetimeRandom, R"doc(Random lifetime variation)doc")
         .def_readwrite("kill_radius", &whiteout::m3::ParticleEmitter::killRadius, R"doc(Kill radius (particles beyond this are destroyed))doc")
         .def_readwrite("gravity_x", &whiteout::m3::ParticleEmitter::gravityX, R"doc(Gravity X component (expected 0))doc")
         .def_readwrite("gravity_y", &whiteout::m3::ParticleEmitter::gravityY, R"doc(Gravity Y component (expected 0))doc")
@@ -722,6 +732,11 @@ The most complex M3 chunk type. Contains bone/material binding, emission shape/r
         .def_readwrite("color_mid_hold_time", &whiteout::m3::ParticleEmitter::colorMidHoldTime, R"doc(Color hold time at midpoint (v14+))doc")
         .def_readwrite("alpha_mid_hold_time", &whiteout::m3::ParticleEmitter::alphaMidHoldTime, R"doc(Alpha hold time at midpoint (v14+))doc")
         .def_readwrite("rotation_mid_hold_time", &whiteout::m3::ParticleEmitter::rotationMidHoldTime, R"doc(Rotation hold time at midpoint (v14+))doc")
+        .def_readwrite("size_animation", &whiteout::m3::ParticleEmitter::sizeAnimation, R"doc(Size curve (start, mid, end))doc")
+        .def_readwrite("rotation_animation", &whiteout::m3::ParticleEmitter::rotationAnimation, R"doc(Rotation curve (start, mid, end))doc")
+        .def_readwrite("color_start", &whiteout::m3::ParticleEmitter::colorStart, R"doc(Color at birth)doc")
+        .def_readwrite("color_mid", &whiteout::m3::ParticleEmitter::colorMid, R"doc(Color at midpoint)doc")
+        .def_readwrite("color_end", &whiteout::m3::ParticleEmitter::colorEnd, R"doc(Color at death)doc")
         .def_readwrite("drag", &whiteout::m3::ParticleEmitter::drag, R"doc(Air drag coefficient)doc")
         .def_readwrite("mass", &whiteout::m3::ParticleEmitter::mass, R"doc(Particle mass)doc")
         .def_readwrite("mass_random", &whiteout::m3::ParticleEmitter::massRandom, R"doc(Random mass variation multiplier)doc")
@@ -737,13 +752,24 @@ The most complex M3 chunk type. Contains bone/material binding, emission shape/r
         .def_readwrite("noise_edge", &whiteout::m3::ParticleEmitter::noiseEdge, R"doc(Noise edge sharpness)doc")
         .def_readwrite("index_plus_length", &whiteout::m3::ParticleEmitter::indexPlusLength, R"doc(Index + length (v11+))doc")
         .def_readwrite("max_particles", &whiteout::m3::ParticleEmitter::maxParticles, R"doc(Maximum live particle count)doc")
+        .def_readwrite("emission_rate", &whiteout::m3::ParticleEmitter::emissionRate, R"doc(Animated emission rate (particles/sec))doc")
         .def_readwrite("emitter_shape", &whiteout::m3::ParticleEmitter::emitterShape, R"doc(Emission shape)doc")
+        .def_readwrite("shape_outer", &whiteout::m3::ParticleEmitter::shapeOuter, R"doc(Animated outer shape dimensions)doc")
+        .def_readwrite("shape_inner", &whiteout::m3::ParticleEmitter::shapeInner, R"doc(Animated inner shape dimensions)doc")
+        .def_readwrite("outer_radius", &whiteout::m3::ParticleEmitter::outerRadius, R"doc(Animated outer radius)doc")
+        .def_readwrite("inner_radius", &whiteout::m3::ParticleEmitter::innerRadius, R"doc(Animated inner radius)doc")
         .def_readwrite("shape_regions", &whiteout::m3::ParticleEmitter::shapeRegions, R"doc(Shape region indices (U32_, v14+), which mesh region from div to use)doc")
         .def_readwrite("velocity_type", &whiteout::m3::ParticleEmitter::velocityType, R"doc(Velocity randomization type)doc")
         .def_readwrite("size_random_enable", &whiteout::m3::ParticleEmitter::sizeRandomEnable, R"doc(Enable size randomization)doc")
+        .def_readwrite("size_random_animation", &whiteout::m3::ParticleEmitter::sizeRandomAnimation, R"doc(Random size curve)doc")
         .def_readwrite("rotation_random_enable", &whiteout::m3::ParticleEmitter::rotationRandomEnable, R"doc(Enable rotation randomization)doc")
+        .def_readwrite("rotation_random_animation", &whiteout::m3::ParticleEmitter::rotationRandomAnimation, R"doc(Random rotation curve)doc")
         .def_readwrite("color_random_enable", &whiteout::m3::ParticleEmitter::colorRandomEnable, R"doc(Enable color randomization)doc")
+        .def_readwrite("color_start_random", &whiteout::m3::ParticleEmitter::colorStartRandom, R"doc(Random color at birth)doc")
+        .def_readwrite("color_mid_random", &whiteout::m3::ParticleEmitter::colorMidRandom, R"doc(Random color at midpoint)doc")
+        .def_readwrite("color_end_random", &whiteout::m3::ParticleEmitter::colorEndRandom, R"doc(Random color at death)doc")
         .def_readwrite("alpha_random_enable", &whiteout::m3::ParticleEmitter::alphaRandomEnable, R"doc(Enable alpha randomization)doc")
+        .def_readwrite("squirt_amount", &whiteout::m3::ParticleEmitter::squirtAmount, R"doc(Animated squirt burst count)doc")
         .def_readwrite("flipbook_start_init_index", &whiteout::m3::ParticleEmitter::flipbookStartInitIndex, R"doc(Flipbook start initial frame index)doc")
         .def_readwrite("flipbook_start_stop_index", &whiteout::m3::ParticleEmitter::flipbookStartStopIndex, R"doc(Flipbook start stop frame index)doc")
         .def_readwrite("flipbook_end_init_index", &whiteout::m3::ParticleEmitter::flipbookEndInitIndex, R"doc(Flipbook end initial frame index)doc")
@@ -766,24 +792,52 @@ The most complex M3 chunk type. Contains bone/material binding, emission shape/r
         .def_readwrite("instance_angle", &whiteout::m3::ParticleEmitter::instanceAngle, R"doc(Instance orientation angles)doc")
         .def_readwrite("instance_distance", &whiteout::m3::ParticleEmitter::instanceDistance, R"doc(Instance distance (v17+))doc")
         .def_readwrite("pitch_type", &whiteout::m3::ParticleEmitter::pitchType, R"doc(Pitch variation type)doc")
+        .def_readwrite("pitch_amplitude", &whiteout::m3::ParticleEmitter::pitchAmplitude, R"doc(Pitch variation amplitude)doc")
+        .def_readwrite("pitch_frequency", &whiteout::m3::ParticleEmitter::pitchFrequency, R"doc(Pitch variation frequency)doc")
         .def_readwrite("yaw_type", &whiteout::m3::ParticleEmitter::yawType, R"doc(Yaw variation type)doc")
+        .def_readwrite("yaw_amplitude", &whiteout::m3::ParticleEmitter::yawAmplitude, R"doc(Yaw variation amplitude)doc")
+        .def_readwrite("yaw_frequency", &whiteout::m3::ParticleEmitter::yawFrequency, R"doc(Yaw variation frequency)doc")
         .def_readwrite("speed_type", &whiteout::m3::ParticleEmitter::speedType, R"doc(Speed variation type)doc")
+        .def_readwrite("speed_amplitude", &whiteout::m3::ParticleEmitter::speedAmplitude, R"doc(Speed variation amplitude)doc")
+        .def_readwrite("speed_frequency", &whiteout::m3::ParticleEmitter::speedFrequency, R"doc(Speed variation frequency)doc")
         .def_readwrite("size_type", &whiteout::m3::ParticleEmitter::sizeType, R"doc(Size variation type)doc")
+        .def_readwrite("size_amplitude", &whiteout::m3::ParticleEmitter::sizeAmplitude, R"doc(Size variation amplitude)doc")
+        .def_readwrite("size_frequency", &whiteout::m3::ParticleEmitter::sizeFrequency, R"doc(Size variation frequency)doc")
         .def_readwrite("alpha_type", &whiteout::m3::ParticleEmitter::alphaType, R"doc(Alpha variation type)doc")
+        .def_readwrite("alpha_amplitude", &whiteout::m3::ParticleEmitter::alphaAmplitude, R"doc(Alpha variation amplitude)doc")
+        .def_readwrite("alpha_frequency", &whiteout::m3::ParticleEmitter::alphaFrequency, R"doc(Alpha variation frequency)doc")
         .def_readwrite("color_type", &whiteout::m3::ParticleEmitter::colorType, R"doc(Color variation type)doc")
+        .def_readwrite("color_amplitude", &whiteout::m3::ParticleEmitter::colorAmplitude, R"doc(Color variation amplitude)doc")
+        .def_readwrite("color_frequency", &whiteout::m3::ParticleEmitter::colorFrequency, R"doc(Color variation frequency)doc")
         .def_readwrite("rotation_type", &whiteout::m3::ParticleEmitter::rotationType, R"doc(Rotation variation type)doc")
+        .def_readwrite("rotation_amplitude", &whiteout::m3::ParticleEmitter::rotationAmplitude, R"doc(Rotation variation amplitude)doc")
+        .def_readwrite("rotation_frequency", &whiteout::m3::ParticleEmitter::rotationFrequency, R"doc(Rotation variation frequency)doc")
         .def_readwrite("horizontal_type", &whiteout::m3::ParticleEmitter::horizontalType, R"doc(Horizontal variation type)doc")
+        .def_readwrite("horizontal_amplitude", &whiteout::m3::ParticleEmitter::horizontalAmplitude, R"doc(Horizontal variation amplitude)doc")
+        .def_readwrite("horizontal_frequency", &whiteout::m3::ParticleEmitter::horizontalFrequency, R"doc(Horizontal variation frequency)doc")
         .def_readwrite("vertical_type", &whiteout::m3::ParticleEmitter::verticalType, R"doc(Vertical variation type)doc")
+        .def_readwrite("vertical_amplitude", &whiteout::m3::ParticleEmitter::verticalAmplitude, R"doc(Vertical variation amplitude)doc")
+        .def_readwrite("vertical_frequency", &whiteout::m3::ParticleEmitter::verticalFrequency, R"doc(Vertical variation frequency;)doc")
+        .def_readwrite("particle_velocity", &whiteout::m3::ParticleEmitter::particleVelocity, R"doc(Animated parent velocity influence)doc")
+        .def_readwrite("phase_shift", &whiteout::m3::ParticleEmitter::phaseShift, R"doc(Animated phase shift (v22+))doc")
         .def_readwrite("flags", &whiteout::m3::ParticleEmitter::flags, R"doc(Main particle flags)doc")
         .def_readwrite("rotation_flags", &whiteout::m3::ParticleEmitter::rotationFlags, R"doc(Rotation flags (v18+))doc")
         .def_readwrite("color_smoothing", &whiteout::m3::ParticleEmitter::colorSmoothing, R"doc(Color interpolation mode)doc")
         .def_readwrite("size_smoothing", &whiteout::m3::ParticleEmitter::sizeSmoothing, R"doc(Size interpolation mode)doc")
         .def_readwrite("rotation_smoothing", &whiteout::m3::ParticleEmitter::rotationSmoothing)
+        .def_readwrite("alpha_threshold", &whiteout::m3::ParticleEmitter::alphaThreshold, R"doc(Animated alpha threshold)doc")
+        .def_readwrite("uv_offset", &whiteout::m3::ParticleEmitter::uvOffset, R"doc(Animated UV offset)doc")
+        .def_readwrite("uv_angle", &whiteout::m3::ParticleEmitter::uvAngle, R"doc(Animated UV rotation angles)doc")
+        .def_readwrite("uv_tiling", &whiteout::m3::ParticleEmitter::uvTiling, R"doc(Animated UV tiling)doc")
+        .def_readwrite("spline_line_data", &whiteout::m3::ParticleEmitter::splineLineData, R"doc(Spline control points (SVC3))doc")
         .def_readwrite("wind_multiplier", &whiteout::m3::ParticleEmitter::windMultiplier, R"doc(Wind influence multiplier)doc")
         .def_readwrite("lod_reduce", &whiteout::m3::ParticleEmitter::lodReduce, R"doc(LOD reduction level)doc")
         .def_readwrite("lod_cut", &whiteout::m3::ParticleEmitter::lodCut, R"doc(LOD cut-off level)doc")
+        .def_readwrite("lower_bound", &whiteout::m3::ParticleEmitter::lowerBound, R"doc(Animated lower bound)doc")
+        .def_readwrite("upper_bound", &whiteout::m3::ParticleEmitter::upperBound, R"doc(Animated upper bound)doc")
         .def_readwrite("trail_link_index", &whiteout::m3::ParticleEmitter::trailLinkIndex)
         .def_readwrite("trail_chance", &whiteout::m3::ParticleEmitter::trailChance, R"doc(Trail spawn probability)doc")
+        .def_readwrite("trail_emission_rate", &whiteout::m3::ParticleEmitter::trailEmissionRate, R"doc(Animated trail emission rate)doc")
         .def_readwrite("splat_projection_index", &whiteout::m3::ParticleEmitter::splatProjectionIndex, R"doc(Linked projector index (-1 = none))doc")
         .def_readwrite("splat_chance", &whiteout::m3::ParticleEmitter::splatChance, R"doc(Splat spawn probability)doc")
         .def_readwrite("model_paths", &whiteout::m3::ParticleEmitter::modelPaths, R"doc(Model particle paths (SCHR))doc")
@@ -796,6 +850,8 @@ The most complex M3 chunk type. Contains bone/material binding, emission shape/r
 
 Lightweight copy of a particle emitter with overridden emission rate, squirt amount, and bone index. References the original PAR_ via Model.copyIndices.)doc")
         .def(py::init<>())
+        .def_readwrite("emission_rate", &whiteout::m3::ParticleEmitterCopy::emissionRate, R"doc(Overridden emission rate)doc")
+        .def_readwrite("squirt_amount", &whiteout::m3::ParticleEmitterCopy::squirtAmount, R"doc(Overridden squirt burst count)doc")
         .def_readwrite("bone_index", &whiteout::m3::ParticleEmitterCopy::boneIndex, R"doc(Index into BONE array)doc")
     ;
 
@@ -805,11 +861,22 @@ Defines a single segment of a spline-based ribbon with emission offset/vector, v
         .def(py::init<>())
         .def_readwrite("emission_offset", &whiteout::m3::SplineRibbon::emissionOffset, R"doc(Emission point offset from bone)doc")
         .def_readwrite("emission_vector", &whiteout::m3::SplineRibbon::emissionVector, R"doc(Emission direction vector)doc")
+        .def_readwrite("velocity", &whiteout::m3::SplineRibbon::velocity, R"doc(Animated base velocity)doc")
         .def_readwrite("reserved", &whiteout::m3::SplineRibbon::reserved, R"doc(Reserved (always 0))doc")
         .def_readwrite("bone_index", &whiteout::m3::SplineRibbon::boneIndex, R"doc(Index into BONE array)doc")
+        .def_readwrite("velocity_base_factor", &whiteout::m3::SplineRibbon::velocityBaseFactor, R"doc(Animated base velocity factor)doc")
+        .def_readwrite("velocity_end_factor", &whiteout::m3::SplineRibbon::velocityEndFactor, R"doc(Animated end velocity factor)doc")
         .def_readwrite("yaw_type", &whiteout::m3::SplineRibbon::yawType, R"doc(Yaw variation type)doc")
+        .def_readwrite("yaw_amplitude", &whiteout::m3::SplineRibbon::yawAmplitude, R"doc(Yaw variation amplitude)doc")
+        .def_readwrite("yaw_frequency", &whiteout::m3::SplineRibbon::yawFrequency, R"doc(Yaw variation frequency)doc")
         .def_readwrite("pitch_type", &whiteout::m3::SplineRibbon::pitchType, R"doc(Pitch variation type)doc")
+        .def_readwrite("pitch_amplitude", &whiteout::m3::SplineRibbon::pitchAmplitude, R"doc(Pitch variation amplitude)doc")
+        .def_readwrite("pitch_frequency", &whiteout::m3::SplineRibbon::pitchFrequency, R"doc(Pitch variation frequency)doc")
         .def_readwrite("velocity_type", &whiteout::m3::SplineRibbon::velocityType, R"doc(Velocity variation type)doc")
+        .def_readwrite("velocity_amplitude", &whiteout::m3::SplineRibbon::velocityAmplitude, R"doc(Velocity variation amplitude)doc")
+        .def_readwrite("velocity_frequency", &whiteout::m3::SplineRibbon::velocityFrequency, R"doc(Velocity variation frequency)doc")
+        .def_readwrite("yaw", &whiteout::m3::SplineRibbon::yaw, R"doc(Animated yaw angle)doc")
+        .def_readwrite("pitch", &whiteout::m3::SplineRibbon::pitch, R"doc(Animated pitch angle)doc")
         .def_readwrite("emission_vector_norm_factor", &whiteout::m3::SplineRibbon::emissionVectorNormFactor, R"doc(Precomputed ≈ 0.01 / |emissionVector|)doc")
         .def_readwrite("velocity_norm_factor", &whiteout::m3::SplineRibbon::velocityNormFactor, R"doc(Precomputed ≈ 0.01 / velocity.initValue)doc")
     ;
@@ -822,6 +889,14 @@ Ribbon strip effect with per-particle lifetime, velocity, color/size curves, phy
         .def_readwrite("bone_index_fallback", &whiteout::m3::RibbonEmitter::boneIndexFallback, R"doc(Fallback bone index)doc")
         .def_readwrite("material_index", &whiteout::m3::RibbonEmitter::materialIndex, R"doc(Index into MATM material map array)doc")
         .def_readwrite("additional_flags", &whiteout::m3::RibbonEmitter::additionalFlags, R"doc(Additional flags (v8+))doc")
+        .def_readwrite("initial_speed", &whiteout::m3::RibbonEmitter::initialSpeed, R"doc(Initial ribbon segment speed)doc")
+        .def_readwrite("initial_speed_random", &whiteout::m3::RibbonEmitter::initialSpeedRandom, R"doc(Random speed variation)doc")
+        .def_readwrite("initial_yaw", &whiteout::m3::RibbonEmitter::initialYaw, R"doc(Initial yaw angle)doc")
+        .def_readwrite("initial_pitch", &whiteout::m3::RibbonEmitter::initialPitch, R"doc(Initial pitch angle)doc")
+        .def_readwrite("initial_horizontal", &whiteout::m3::RibbonEmitter::initialHorizontal, R"doc(Initial horizontal spread)doc")
+        .def_readwrite("initial_vertical", &whiteout::m3::RibbonEmitter::initialVertical, R"doc(Initial vertical spread)doc")
+        .def_readwrite("lifetime", &whiteout::m3::RibbonEmitter::lifetime, R"doc(Base segment lifetime)doc")
+        .def_readwrite("lifetime_random", &whiteout::m3::RibbonEmitter::lifetimeRandom, R"doc(Random lifetime variation)doc")
         .def_readwrite("kill_radius", &whiteout::m3::RibbonEmitter::killRadius, R"doc(Kill radius)doc")
         .def_readwrite("gravity_x", &whiteout::m3::RibbonEmitter::gravityX, R"doc(Gravity X component)doc")
         .def_readwrite("gravity_y", &whiteout::m3::RibbonEmitter::gravityY, R"doc(Gravity Y component)doc")
@@ -834,6 +909,11 @@ Ribbon strip effect with per-particle lifetime, velocity, color/size curves, phy
         .def_readwrite("color_mid_hold_time", &whiteout::m3::RibbonEmitter::colorMidHoldTime, R"doc(Color hold time at midpoint)doc")
         .def_readwrite("alpha_mid_hold_time", &whiteout::m3::RibbonEmitter::alphaMidHoldTime, R"doc(Alpha hold time at midpoint)doc")
         .def_readwrite("rotation_mid_hold_time", &whiteout::m3::RibbonEmitter::rotationMidHoldTime, R"doc(Rotation hold time at midpoint)doc")
+        .def_readwrite("size_animation", &whiteout::m3::RibbonEmitter::sizeAnimation, R"doc(Size curve (start, mid, end))doc")
+        .def_readwrite("rotation_animation", &whiteout::m3::RibbonEmitter::rotationAnimation, R"doc(Rotation curve (start, mid, end))doc")
+        .def_readwrite("color_start", &whiteout::m3::RibbonEmitter::colorStart, R"doc(Color at birth)doc")
+        .def_readwrite("color_mid", &whiteout::m3::RibbonEmitter::colorMid, R"doc(Color at midpoint)doc")
+        .def_readwrite("color_end", &whiteout::m3::RibbonEmitter::colorEnd, R"doc(Color at death)doc")
         .def_readwrite("drag", &whiteout::m3::RibbonEmitter::drag, R"doc(Air drag coefficient)doc")
         .def_readwrite("mass", &whiteout::m3::RibbonEmitter::mass, R"doc(Segment mass)doc")
         .def_readwrite("mass_random", &whiteout::m3::RibbonEmitter::massRandom, R"doc(Random mass variation)doc")
@@ -853,7 +933,9 @@ Ribbon strip effect with per-particle lifetime, velocity, color/size curves, phy
         .def_readwrite("divisions", &whiteout::m3::RibbonEmitter::divisions, R"doc(Number of ribbon divisions)doc")
         .def_readwrite("edges", &whiteout::m3::RibbonEmitter::edges, R"doc(Number of cross-section edges)doc")
         .def_readwrite("inner_radius", &whiteout::m3::RibbonEmitter::innerRadius, R"doc(Inner radius)doc")
+        .def_readwrite("max_length", &whiteout::m3::RibbonEmitter::maxLength, R"doc(Animated maximum ribbon length)doc")
         .def_readwrite("spline_ribbons", &whiteout::m3::RibbonEmitter::splineRibbons, R"doc(Spline ribbon segments (SRIB))doc")
+        .def_readwrite("active", &whiteout::m3::RibbonEmitter::active, R"doc(Animated active state)doc")
         .def_readwrite("flags", &whiteout::m3::RibbonEmitter::flags, R"doc(Ribbon emitter flags)doc")
         .def_readwrite("size_smoothing", &whiteout::m3::RibbonEmitter::sizeSmoothing, R"doc(Size interpolation mode)doc")
         .def_readwrite("color_smoothing", &whiteout::m3::RibbonEmitter::colorSmoothing, R"doc(Color interpolation mode)doc")
@@ -862,10 +944,22 @@ Ribbon strip effect with per-particle lifetime, velocity, color/size curves, phy
         .def_readwrite("lod_reduce", &whiteout::m3::RibbonEmitter::lodReduce, R"doc(LOD reduction level)doc")
         .def_readwrite("lod_cut", &whiteout::m3::RibbonEmitter::lodCut, R"doc(LOD cut-off level)doc")
         .def_readwrite("yaw_type", &whiteout::m3::RibbonEmitter::yawType, R"doc(Yaw variation type)doc")
+        .def_readwrite("yaw_amplitude", &whiteout::m3::RibbonEmitter::yawAmplitude, R"doc(Yaw variation amplitude)doc")
+        .def_readwrite("yaw_frequency", &whiteout::m3::RibbonEmitter::yawFrequency, R"doc(Yaw variation frequency)doc")
         .def_readwrite("pitch_type", &whiteout::m3::RibbonEmitter::pitchType, R"doc(Pitch variation type)doc")
+        .def_readwrite("pitch_amplitude", &whiteout::m3::RibbonEmitter::pitchAmplitude, R"doc(Pitch variation amplitude)doc")
+        .def_readwrite("pitch_frequency", &whiteout::m3::RibbonEmitter::pitchFrequency, R"doc(Pitch variation frequency)doc")
         .def_readwrite("speed_type", &whiteout::m3::RibbonEmitter::speedType, R"doc(Speed variation type)doc")
+        .def_readwrite("speed_amplitude", &whiteout::m3::RibbonEmitter::speedAmplitude, R"doc(Speed variation amplitude)doc")
+        .def_readwrite("speed_frequency", &whiteout::m3::RibbonEmitter::speedFrequency, R"doc(Speed variation frequency)doc")
         .def_readwrite("size_type", &whiteout::m3::RibbonEmitter::sizeType, R"doc(Size variation type)doc")
+        .def_readwrite("size_amplitude", &whiteout::m3::RibbonEmitter::sizeAmplitude, R"doc(Size variation amplitude)doc")
+        .def_readwrite("size_frequency", &whiteout::m3::RibbonEmitter::sizeFrequency, R"doc(Size variation frequency)doc")
         .def_readwrite("alpha_type", &whiteout::m3::RibbonEmitter::alphaType, R"doc(Alpha variation type)doc")
+        .def_readwrite("alpha_amplitude", &whiteout::m3::RibbonEmitter::alphaAmplitude, R"doc(Alpha variation amplitude)doc")
+        .def_readwrite("alpha_frequency", &whiteout::m3::RibbonEmitter::alphaFrequency, R"doc(Alpha variation frequency)doc")
+        .def_readwrite("particle_velocity", &whiteout::m3::RibbonEmitter::particleVelocity, R"doc(Animated parent velocity influence)doc")
+        .def_readwrite("overlay", &whiteout::m3::RibbonEmitter::overlay, R"doc(Animated overlay effect)doc")
     ;
 
     py::class_<whiteout::m3::Projector>(m, "Projector", R"doc(PROJ — Projector / decal (v0–v5, 388 bytes)
@@ -875,6 +969,20 @@ Projects a material onto scene geometry with animated offset, orientation, field
         .def_readwrite("projection_type", &whiteout::m3::Projector::projectionType, R"doc(Projection type (ortho/perspective))doc")
         .def_readwrite("bone", &whiteout::m3::Projector::bone, R"doc(Index into BONE array)doc")
         .def_readwrite("material_reference_index", &whiteout::m3::Projector::materialReferenceIndex, R"doc(Index into MATM material map)doc")
+        .def_readwrite("offset", &whiteout::m3::Projector::offset, R"doc(Animated position offset)doc")
+        .def_readwrite("pitch", &whiteout::m3::Projector::pitch, R"doc(Animated pitch angle)doc")
+        .def_readwrite("yaw", &whiteout::m3::Projector::yaw, R"doc(Animated yaw angle)doc")
+        .def_readwrite("roll", &whiteout::m3::Projector::roll, R"doc(Animated roll angle)doc")
+        .def_readwrite("field_of_view", &whiteout::m3::Projector::fieldOfView, R"doc(Animated field of view)doc")
+        .def_readwrite("aspect_ratio", &whiteout::m3::Projector::aspectRatio, R"doc(Animated aspect ratio)doc")
+        .def_readwrite("near", &whiteout::m3::Projector::near, R"doc(Animated near clip plane)doc")
+        .def_readwrite("far", &whiteout::m3::Projector::far, R"doc(Animated far clip plane)doc")
+        .def_readwrite("box_offset_z_bottom", &whiteout::m3::Projector::boxOffsetZBottom, R"doc(Animated box Z bottom offset)doc")
+        .def_readwrite("box_offset_z_top", &whiteout::m3::Projector::boxOffsetZTop, R"doc(Animated box Z top offset)doc")
+        .def_readwrite("box_offset_x_left", &whiteout::m3::Projector::boxOffsetXLeft, R"doc(Animated box X left offset)doc")
+        .def_readwrite("box_offset_x_right", &whiteout::m3::Projector::boxOffsetXRight, R"doc(Animated box X right offset)doc")
+        .def_readwrite("box_offset_y_front", &whiteout::m3::Projector::boxOffsetYFront, R"doc(Animated box Y front offset)doc")
+        .def_readwrite("box_offset_y_back", &whiteout::m3::Projector::boxOffsetYBack, R"doc(Animated box Y back offset)doc")
         .def_readwrite("falloff", &whiteout::m3::Projector::falloff, R"doc(Projection falloff distance)doc")
         .def_readwrite("alpha_init", &whiteout::m3::Projector::alphaInit, R"doc(Alpha at creation)doc")
         .def_readwrite("alpha_mid", &whiteout::m3::Projector::alphaMid, R"doc(Alpha at midpoint)doc")
@@ -886,6 +994,7 @@ Projects a material onto scene geometry with animated offset, orientation, field
         .def_readwrite("lifetime_decay", &whiteout::m3::Projector::lifetimeDecay, R"doc(Decay phase duration)doc")
         .def_readwrite("lifetime_decay_to", &whiteout::m3::Projector::lifetimeDecayTo, R"doc(Decay target time)doc")
         .def_readwrite("attenuation_distance", &whiteout::m3::Projector::attenuationDistance, R"doc(Distance-based attenuation)doc")
+        .def_readwrite("active", &whiteout::m3::Projector::active, R"doc(Animated active state)doc")
         .def_readwrite("layer", &whiteout::m3::Projector::layer, R"doc(Render layer)doc")
         .def_readwrite("lod_reduce", &whiteout::m3::Projector::lodReduce, R"doc(LOD reduction level)doc")
         .def_readwrite("lod_cut", &whiteout::m3::Projector::lodCut, R"doc(LOD cut-off level)doc")
@@ -906,9 +1015,12 @@ A single texture binding with animated color tint, UV transforms, flipbook param
         .def(py::init<>())
         .def_readwrite("id", &whiteout::m3::TextureLayer::id, R"doc(Layer identifier)doc")
         .def_readwrite("texture_path", &whiteout::m3::TextureLayer::texturePath, R"doc(Texture file path (Ref<CHAR>))doc")
+        .def_readwrite("color", &whiteout::m3::TextureLayer::color, R"doc(Animated color tint)doc")
         .def_readwrite("flags", &whiteout::m3::TextureLayer::flags, R"doc(Layer flags (wrap, flipbook, video, etc.))doc")
         .def_readwrite("uv_mapping", &whiteout::m3::TextureLayer::uvMapping, R"doc(UV mapping source)doc")
         .def_readwrite("color_type", &whiteout::m3::TextureLayer::colorType, R"doc(Channel selection)doc")
+        .def_readwrite("rgb_multiply", &whiteout::m3::TextureLayer::rgbMultiply, R"doc(RGB multiply factor)doc")
+        .def_readwrite("rgb_add", &whiteout::m3::TextureLayer::rgbAdd, R"doc(RGB additive factor)doc")
         .def_readwrite("poc_texture", &whiteout::m3::TextureLayer::pocTexture, R"doc(POC texture reference)doc")
         .def_readwrite("noise_amplitude", &whiteout::m3::TextureLayer::noiseAmplitude, R"doc(Noise amplitude (v24+))doc")
         .def_readwrite("noise_frequency", &whiteout::m3::TextureLayer::noiseFrequency, R"doc(Noise frequency (v24+))doc")
@@ -918,8 +1030,19 @@ A single texture binding with animated color tint, UV transforms, flipbook param
         .def_readwrite("avi_stop", &whiteout::m3::TextureLayer::aviStop, R"doc(AVI stop frame)doc")
         .def_readwrite("avi_loop", &whiteout::m3::TextureLayer::aviLoop, R"doc(AVI loop mode)doc")
         .def_readwrite("avi_sync", &whiteout::m3::TextureLayer::aviSync, R"doc(AVI sync mode)doc")
+        .def_readwrite("avi_play", &whiteout::m3::TextureLayer::aviPlay, R"doc(AVI play control)doc")
+        .def_readwrite("avi_restart", &whiteout::m3::TextureLayer::aviRestart, R"doc(AVI restart control)doc")
         .def_readwrite("flipbook_rows", &whiteout::m3::TextureLayer::flipbookRows, R"doc(Flipbook grid rows)doc")
         .def_readwrite("flipbook_columns", &whiteout::m3::TextureLayer::flipbookColumns, R"doc(Flipbook grid columns)doc")
+        .def_readwrite("current_frame", &whiteout::m3::TextureLayer::currentFrame, R"doc(Animated flipbook frame index)doc")
+        .def_readwrite("uv_offset", &whiteout::m3::TextureLayer::uvOffset, R"doc(Animated UV offset)doc")
+        .def_readwrite("uv_angle", &whiteout::m3::TextureLayer::uvAngle, R"doc(Animated UV rotation angles)doc")
+        .def_readwrite("uv_tiling", &whiteout::m3::TextureLayer::uvTiling, R"doc(Animated UV tiling)doc")
+        .def_readwrite("w_offset", &whiteout::m3::TextureLayer::wOffset, R"doc(Animated W offset (3D textures))doc")
+        .def_readwrite("w_tiling", &whiteout::m3::TextureLayer::wTiling, R"doc(Animated W tiling (3D textures))doc")
+        .def_readwrite("map_alpha", &whiteout::m3::TextureLayer::mapAlpha, R"doc(Animated map alpha)doc")
+        .def_readwrite("triplanar_offset", &whiteout::m3::TextureLayer::triplanarOffset, R"doc(Tri-planar UV offset (v23+))doc")
+        .def_readwrite("triplanar_scale", &whiteout::m3::TextureLayer::triplanarScale, R"doc(Tri-planar UV scale (v23+))doc")
         .def_readwrite("uv_source_related", &whiteout::m3::TextureLayer::uvSourceRelated, R"doc(UV source related field)doc")
         .def_readwrite("fresnel_mode", &whiteout::m3::TextureLayer::fresnelMode, R"doc(Fresnel effect mode)doc")
         .def_readwrite("fresnel_exponent", &whiteout::m3::TextureLayer::fresnelExponent, R"doc(Fresnel exponent (edge sharpness))doc")
@@ -972,6 +1095,9 @@ The primary material type with up to 18 texture layers (diffuse, specular, emiss
         .def_readwrite("emissive_blend_mode1", &whiteout::m3::StandardMaterial::emissiveBlendMode1, R"doc(Emissive layer 1 blend mode)doc")
         .def_readwrite("emissive_blend_mode2", &whiteout::m3::StandardMaterial::emissiveBlendMode2, R"doc(Emissive layer 2 blend mode)doc")
         .def_readwrite("specular_mode", &whiteout::m3::StandardMaterial::specularMode, R"doc(Specular computation mode)doc")
+        .def_readwrite("parallax_height", &whiteout::m3::StandardMaterial::parallaxHeight, R"doc(Animated parallax height)doc")
+        .def_readwrite("motion_blur_amount", &whiteout::m3::StandardMaterial::motionBlurAmount, R"doc(Animated motion blur amount)doc")
+        .def_readwrite("normal_blend_factors", &whiteout::m3::StandardMaterial::normalBlendFactors, R"doc(Normal blend factors (v19+))doc")
     ;
 
     py::class_<whiteout::m3::DisplacementMaterial>(m, "DisplacementMaterial", R"doc(DIS_ — Displacement material (v0–v4, 68 bytes)
@@ -980,6 +1106,7 @@ Applies vertex displacement via a normal map and animated strength.)doc")
         .def(py::init<>())
         .def_readwrite("name", &whiteout::m3::DisplacementMaterial::name, R"doc(Material name (Ref<CHAR>))doc")
         .def_readwrite("unknown", &whiteout::m3::DisplacementMaterial::unknown, R"doc(Unknown field)doc")
+        .def_readwrite("strength", &whiteout::m3::DisplacementMaterial::strength, R"doc(Animated displacement strength)doc")
         .def_readwrite("normal_map", &whiteout::m3::DisplacementMaterial::normalMap, R"doc(Normal / displacement direction map)doc")
         .def_readwrite("strength_map", &whiteout::m3::DisplacementMaterial::strengthMap, R"doc(Strength mask texture)doc")
         .def_readwrite("priority", &whiteout::m3::DisplacementMaterial::priority, R"doc(Render priority)doc")
@@ -990,6 +1117,7 @@ Applies vertex displacement via a normal map and animated strength.)doc")
 A single section within a composite material, referencing another material index with an animated blend multiplier.)doc")
         .def(py::init<>())
         .def_readwrite("material_index", &whiteout::m3::CompositeSection::materialIndex, R"doc(Index into MATM array)doc")
+        .def_readwrite("map_multiplier", &whiteout::m3::CompositeSection::mapMultiplier, R"doc(Animated blend weight)doc")
     ;
 
     py::class_<whiteout::m3::CompositeMaterial>(m, "CompositeMaterial", R"doc(CMP_ — Composite material (v0–v2, 28 bytes)
@@ -1017,6 +1145,7 @@ Volumetric rendering material with density falloff, color map, and two noise map
         .def_readwrite("name", &whiteout::m3::VolumeMaterial::name, R"doc(Material name (Ref<CHAR>))doc")
         .def_readwrite("blend_mode", &whiteout::m3::VolumeMaterial::blendMode, R"doc(Blend mode)doc")
         .def_readwrite("falloff_type", &whiteout::m3::VolumeMaterial::falloffType, R"doc(Density falloff type)doc")
+        .def_readwrite("density", &whiteout::m3::VolumeMaterial::density, R"doc(Animated density)doc")
         .def_readwrite("color_map", &whiteout::m3::VolumeMaterial::colorMap, R"doc(Color map texture)doc")
         .def_readwrite("noise_map1", &whiteout::m3::VolumeMaterial::noiseMap1, R"doc(Noise map 1)doc")
         .def_readwrite("noise_map2", &whiteout::m3::VolumeMaterial::noiseMap2, R"doc(Noise map 2)doc")
@@ -1034,6 +1163,8 @@ Anisotropic hair rendering material with specular shift and AO. Always null in o
         .def_readwrite("layer_ao", &whiteout::m3::HairMaterial::layerAO, R"doc(Ambient occlusion map)doc")
         .def_readwrite("shift_primary", &whiteout::m3::HairMaterial::shiftPrimary, R"doc(Primary specular shift)doc")
         .def_readwrite("shift_secondary", &whiteout::m3::HairMaterial::shiftSecondary, R"doc(Secondary specular shift)doc")
+        .def_readwrite("color_diffuse", &whiteout::m3::HairMaterial::colorDiffuse, R"doc(Animated diffuse tint)doc")
+        .def_readwrite("color_spec", &whiteout::m3::HairMaterial::colorSpec, R"doc(Animated specular tint)doc")
         .def_readwrite("spec_exponent0", &whiteout::m3::HairMaterial::specExponent0, R"doc(Primary specular exponent)doc")
         .def_readwrite("spec_exponent1", &whiteout::m3::HairMaterial::specExponent1, R"doc(Secondary specular exponent)doc")
     ;
@@ -1045,9 +1176,16 @@ Volumetric noise-based rendering material with animated density, falloff, scroll
         .def_readwrite("name", &whiteout::m3::VolumeNoiseMaterial::name, R"doc(Material name (Ref<CHAR>))doc")
         .def_readwrite("falloff_type", &whiteout::m3::VolumeNoiseMaterial::falloffType, R"doc(Density falloff type)doc")
         .def_readwrite("draw_transparency", &whiteout::m3::VolumeNoiseMaterial::drawTransparency, R"doc(Camera position mode (inside/outside))doc")
+        .def_readwrite("density", &whiteout::m3::VolumeNoiseMaterial::density, R"doc(Animated density)doc")
+        .def_readwrite("near_plane", &whiteout::m3::VolumeNoiseMaterial::nearPlane, R"doc(Animated near-plane clip)doc")
+        .def_readwrite("falloff", &whiteout::m3::VolumeNoiseMaterial::falloff, R"doc(Animated falloff distance)doc")
         .def_readwrite("color_map", &whiteout::m3::VolumeNoiseMaterial::colorMap, R"doc(Color map texture)doc")
         .def_readwrite("noise_map1", &whiteout::m3::VolumeNoiseMaterial::noiseMap1, R"doc(Noise map 1)doc")
         .def_readwrite("noise_map2", &whiteout::m3::VolumeNoiseMaterial::noiseMap2, R"doc(Noise map 2)doc")
+        .def_readwrite("scroll_rate", &whiteout::m3::VolumeNoiseMaterial::scrollRate, R"doc(Animated noise scroll rate)doc")
+        .def_readwrite("position", &whiteout::m3::VolumeNoiseMaterial::position, R"doc(Animated volume position)doc")
+        .def_readwrite("scale", &whiteout::m3::VolumeNoiseMaterial::scale, R"doc(Animated volume scale)doc")
+        .def_readwrite("rotation", &whiteout::m3::VolumeNoiseMaterial::rotation, R"doc(Animated volume rotation)doc")
         .def_readwrite("alpha_threshold", &whiteout::m3::VolumeNoiseMaterial::alphaThreshold, R"doc(Alpha test threshold)doc")
         .def_readwrite("flags", &whiteout::m3::VolumeNoiseMaterial::flags, R"doc(Volume noise material flags)doc")
     ;
@@ -1077,6 +1215,11 @@ Planar or cube-map reflection material with animated reflection/displacement str
         .def(py::init<>())
         .def_readwrite("name", &whiteout::m3::ReflectionMaterial::name, R"doc(Material name (Ref<CHAR>))doc")
         .def_readwrite("unknown", &whiteout::m3::ReflectionMaterial::unknown, R"doc(Unknown field)doc")
+        .def_readwrite("reflection_strength", &whiteout::m3::ReflectionMaterial::reflectionStrength, R"doc(Animated reflection strength (v2+))doc")
+        .def_readwrite("displacement_strength", &whiteout::m3::ReflectionMaterial::displacementStrength, R"doc(Animated displacement strength (v2+))doc")
+        .def_readwrite("reflection_offset", &whiteout::m3::ReflectionMaterial::reflectionOffset, R"doc(Animated reflection offset (v2+))doc")
+        .def_readwrite("blur_angle", &whiteout::m3::ReflectionMaterial::blurAngle, R"doc(Animated blur angle (v2+))doc")
+        .def_readwrite("blur_distance_max", &whiteout::m3::ReflectionMaterial::blurDistanceMax, R"doc(Animated max blur distance (v2+))doc")
         .def_readwrite("reflection_map", &whiteout::m3::ReflectionMaterial::reflectionMap, R"doc(Reflection map texture)doc")
         .def_readwrite("displacement_map", &whiteout::m3::ReflectionMaterial::displacementMap, R"doc(Displacement map texture)doc")
         .def_readwrite("blur_map", &whiteout::m3::ReflectionMaterial::blurMap, R"doc(Blur map texture)doc")
@@ -1111,6 +1254,10 @@ Lens flare effect with animated intensity, color, HDR, size, sub-flare elements,
         .def_readwrite("rows", &whiteout::m3::LensFlare::rows, R"doc(Flipbook grid rows)doc")
         .def_readwrite("distance_fade", &whiteout::m3::LensFlare::distanceFade, R"doc(Distance fade start)doc")
         .def_readwrite("lib_name", &whiteout::m3::LensFlare::libName, R"doc(Library name (Ref<CHAR>))doc")
+        .def_readwrite("intensity", &whiteout::m3::LensFlare::intensity, R"doc(Animated intensity)doc")
+        .def_readwrite("color", &whiteout::m3::LensFlare::color, R"doc(Animated color)doc")
+        .def_readwrite("hdr", &whiteout::m3::LensFlare::hdr, R"doc(Animated HDR multiplier)doc")
+        .def_readwrite("size", &whiteout::m3::LensFlare::size, R"doc(Animated size)doc")
     ;
 
     py::class_<whiteout::m3::MaterialAddData>(m, "MaterialAddData", R"doc(MADD — Material additional data (v0–v3, 140–160 bytes)
@@ -1157,6 +1304,10 @@ Each bone has a parent index, animated position/rotation/scale/visibility, and f
         .def_readwrite("flags", &whiteout::m3::Bone::flags, R"doc(Bone flags (inherit, billboard, IK, skin))doc")
         .def_readwrite("parent_index", &whiteout::m3::Bone::parentIndex, R"doc(Parent bone index (0xFFFF = root))doc")
         .def_readwrite("padding", &whiteout::m3::Bone::padding, R"doc(Alignment padding)doc")
+        .def_readwrite("position", &whiteout::m3::Bone::position, R"doc(Animated translation (36 bytes))doc")
+        .def_readwrite("rotation", &whiteout::m3::Bone::rotation, R"doc(Animated rotation (44 bytes))doc")
+        .def_readwrite("scale", &whiteout::m3::Bone::scale, R"doc(Animated scale (36 bytes))doc")
+        .def_readwrite("visibility", &whiteout::m3::Bone::visibility, R"doc(Animated visibility flag (20 bytes))doc")
     ;
 
     py::class_<whiteout::m3::Region>(m, "Region", R"doc(REGN — Region / submesh (v0–v5, 48 bytes)
@@ -1197,6 +1348,7 @@ Associates a Region with a material for rendering. Multiple batches may referenc
 Per-node animated bounding extent used for culling and LOD.)doc")
         .def(py::init<>())
         .def_readwrite("node_index", &whiteout::m3::MeshSection::nodeIndex, R"doc(Index into BONE array)doc")
+        .def_readwrite("bounds", &whiteout::m3::MeshSection::bounds, R"doc(Animated bounding volume (76 bytes))doc")
     ;
 
     py::class_<whiteout::m3::MeshDivision>(m, "MeshDivision", R"doc(DIV_ — Mesh division (v0–v2, 52 bytes)
@@ -1358,6 +1510,7 @@ Axis-aligned shadow volume defined by a 4×4 transform matrix.)doc")
 Animated visibility volume bound to a bone, used for culling decisions.)doc")
         .def(py::init<>())
         .def_readwrite("node_index", &whiteout::m3::ViewVolume::nodeIndex, R"doc(Index into BONE array)doc")
+        .def_readwrite("size", &whiteout::m3::ViewVolume::size, R"doc(Animated half-extents (36 bytes))doc")
     ;
 
     py::class_<whiteout::m3::TrailingModel>(m, "TrailingModel", R"doc(TMD_ — Trailing model (v0–v1, defunct)
@@ -1367,6 +1520,8 @@ Legacy trailing model data. Observed in older files but no longer actively used 
         .def_readwrite("vectors", &whiteout::m3::TrailingModel::vectors, R"doc(Control vectors (VEC3))doc")
         .def_readwrite("param0", &whiteout::m3::TrailingModel::param0, R"doc(Parameter 0 (observed: 5.0))doc")
         .def_readwrite("param1", &whiteout::m3::TrailingModel::param1, R"doc(Parameter 1 (observed: 1.0))doc")
+        .def_readwrite("anim_float0", &whiteout::m3::TrailingModel::animFloat0, R"doc(Animated float 0 (init 0.5))doc")
+        .def_readwrite("anim_float1", &whiteout::m3::TrailingModel::animFloat1, R"doc(Animated float 1 (init 1.0))doc")
         .def_readwrite("flag", &whiteout::m3::TrailingModel::flag, R"doc(Flag (observed: 1))doc")
         .def_readwrite("reserved0", &whiteout::m3::TrailingModel::reserved0, R"doc(Reserved)doc")
         .def_readwrite("reserved1", &whiteout::m3::TrailingModel::reserved1, R"doc(Reserved)doc")
@@ -1382,6 +1537,10 @@ Applies radial, wind, or explosion forces to particles and ribbons within an inf
         .def_readwrite("bone_index", &whiteout::m3::Force::boneIndex, R"doc(Index into BONE array)doc")
         .def_readwrite("flags", &whiteout::m3::Force::flags, R"doc(Force flags (falloff, height gradient, unbounded))doc")
         .def_readwrite("local_channels", &whiteout::m3::Force::localChannels, R"doc(Local channel bitmask)doc")
+        .def_readwrite("strength", &whiteout::m3::Force::strength, R"doc(Animated force strength)doc")
+        .def_readwrite("width", &whiteout::m3::Force::width, R"doc(Animated influence width)doc")
+        .def_readwrite("height", &whiteout::m3::Force::height, R"doc(Animated influence height)doc")
+        .def_readwrite("length", &whiteout::m3::Force::length, R"doc(Animated influence length)doc")
     ;
 
     py::class_<whiteout::m3::Warp>(m, "Warp", R"doc(WRP_ — Warp field (v0–v1, 132 bytes)
@@ -1391,6 +1550,12 @@ Warps particle/ribbon trajectories with animated radius, height, and angular/axi
         .def_readwrite("warp_type", &whiteout::m3::Warp::warpType, R"doc(Warp type)doc")
         .def_readwrite("bone_index", &whiteout::m3::Warp::boneIndex, R"doc(Index into BONE array)doc")
         .def_readwrite("unknown", &whiteout::m3::Warp::unknown, R"doc(Unknown field)doc")
+        .def_readwrite("radius", &whiteout::m3::Warp::radius, R"doc(Animated warp radius)doc")
+        .def_readwrite("height", &whiteout::m3::Warp::height, R"doc(Animated warp height)doc")
+        .def_readwrite("strength", &whiteout::m3::Warp::strength, R"doc(Animated warp strength)doc")
+        .def_readwrite("angular", &whiteout::m3::Warp::angular, R"doc(Animated angular component)doc")
+        .def_readwrite("axial", &whiteout::m3::Warp::axial, R"doc(Animated axial component)doc")
+        .def_readwrite("radial", &whiteout::m3::Warp::radial, R"doc(Animated radial component)doc")
     ;
 
     py::class_<whiteout::m3::ConvexHullHalfEdge>(m, "ConvexHullHalfEdge", R"doc(DMSE — Convex hull half-edge (v0, 4 bytes)
@@ -1488,6 +1653,7 @@ Havok rigid body with density, friction, restitution, damping, gravity scale, an
         .def_readwrite("linear_damping", &whiteout::m3::RigidBody::linearDamping, R"doc(Linear velocity damping)doc")
         .def_readwrite("angular_damping", &whiteout::m3::RigidBody::angularDamping, R"doc(Angular velocity damping)doc")
         .def_readwrite("gravity_scale", &whiteout::m3::RigidBody::gravityScale, R"doc(Gravity influence scale)doc")
+        .def_readwrite("dynamic_state", &whiteout::m3::RigidBody::dynamicState, R"doc(Animated dynamic state (v4+))doc")
         .def_readwrite("dynamic_blend_out", &whiteout::m3::RigidBody::dynamicBlendOut, R"doc(Dynamic blend-out duration (v4+))doc")
         .def_readwrite("rigid_body_shape", &whiteout::m3::RigidBody::rigidBodyShape, R"doc(Collision shapes (PHSH))doc")
         .def_readwrite("flags", &whiteout::m3::RigidBody::flags, R"doc(Rigid body flags)doc")
@@ -1571,6 +1737,7 @@ Full cloth simulation configuration: skin bone binding, stiffness parameters, da
         .def_readwrite("lift_factor", &whiteout::m3::ClothPhysics::liftFactor, R"doc(Lift factor (v4+))doc")
         .def_readwrite("sphere_stiffness", &whiteout::m3::ClothPhysics::sphereStiffness, R"doc(Sphere collider stiffness (v4+))doc")
         .def_readwrite("flatten", &whiteout::m3::ClothPhysics::flatten, R"doc(Flatten mode (v4+))doc")
+        .def_readwrite("active", &whiteout::m3::ClothPhysics::active, R"doc(Animated active state)doc")
         .def_readwrite("use_skin_collision", &whiteout::m3::ClothPhysics::useSkinCollision, R"doc(Use skin mesh for collision)doc")
         .def_readwrite("skin_offset", &whiteout::m3::ClothPhysics::skinOffset, R"doc(Skin collision offset)doc")
         .def_readwrite("skin_exponent", &whiteout::m3::ClothPhysics::skinExponent, R"doc(Skin collision exponent)doc")
@@ -1588,7 +1755,15 @@ Omni, spot, or directional light with animated diffuse/specular colors, intensit
         .def_readwrite("flags", &whiteout::m3::Light::flags, R"doc(Light flags (shadows, specular, AO, etc.))doc")
         .def_readwrite("lod_cut", &whiteout::m3::Light::lodCut, R"doc(LOD cut-off level)doc")
         .def_readwrite("shadow_lod_cut", &whiteout::m3::Light::shadowLodCut, R"doc(Shadow LOD cut-off level)doc")
+        .def_readwrite("diffuse_color", &whiteout::m3::Light::diffuseColor, R"doc(Animated diffuse color (RGB))doc")
+        .def_readwrite("intensity_multiplier", &whiteout::m3::Light::intensityMultiplier, R"doc(Animated intensity multiplier)doc")
+        .def_readwrite("specular_color", &whiteout::m3::Light::specularColor, R"doc(Animated specular color (RGB))doc")
+        .def_readwrite("specular_multiplier", &whiteout::m3::Light::specularMultiplier, R"doc(Animated specular multiplier)doc")
+        .def_readwrite("decay", &whiteout::m3::Light::decay, R"doc(Animated distance decay exponent)doc")
         .def_readwrite("attenuation_end", &whiteout::m3::Light::attenuationEnd, R"doc(Attenuation end distance)doc")
+        .def_readwrite("attenuation_start", &whiteout::m3::Light::attenuationStart, R"doc(Animated attenuation start distance)doc")
+        .def_readwrite("hot_spot", &whiteout::m3::Light::hotSpot, R"doc(Animated spot inner cone angle)doc")
+        .def_readwrite("falloff", &whiteout::m3::Light::falloff, R"doc(Animated spot outer cone falloff)doc")
     ;
 
     py::class_<whiteout::m3::Camera>(m, "Camera", R"doc(CAM_ — Camera (v2–v5, 144–264 bytes)
@@ -1597,8 +1772,20 @@ Bone-attached camera with animated FOV, clip planes, shadow clip distance, depth
         .def(py::init<>())
         .def_readwrite("bone_index", &whiteout::m3::Camera::boneIndex, R"doc(Index into BONE array)doc")
         .def_readwrite("name", &whiteout::m3::Camera::name, R"doc(Camera name (Ref<CHAR>))doc")
+        .def_readwrite("field_of_view", &whiteout::m3::Camera::fieldOfView, R"doc(Animated FOV in radians (v2+))doc")
         .def_readwrite("use_vertical_fov", &whiteout::m3::Camera::useVerticalFOV, R"doc(Use vertical FOV (0 or 1, v2+))doc")
         .def_readwrite("dof_type", &whiteout::m3::Camera::dofType, R"doc(DOF type (v5 only, default 3))doc")
+        .def_readwrite("far_clip", &whiteout::m3::Camera::farClip, R"doc(Animated far clip plane (v3+))doc")
+        .def_readwrite("near_clip", &whiteout::m3::Camera::nearClip, R"doc(Animated near clip plane (v3+))doc")
+        .def_readwrite("shadow_clip_distance", &whiteout::m3::Camera::shadowClipDistance, R"doc(Animated shadow clip distance (v2+))doc")
+        .def_readwrite("focus_distance", &whiteout::m3::Camera::focusDistance, R"doc(Animated DOF focal point distance (v2+))doc")
+        .def_readwrite("far_focus_range", &whiteout::m3::Camera::farFocusRange, R"doc(Animated DOF far focus range (v2+))doc")
+        .def_readwrite("near_focus_range", &whiteout::m3::Camera::nearFocusRange, R"doc(Animated DOF near focus range (v2+))doc")
+        .def_readwrite("near_falloff_start", &whiteout::m3::Camera::nearFalloffStart, R"doc(Animated near falloff start (v4+))doc")
+        .def_readwrite("near_falloff_end", &whiteout::m3::Camera::nearFalloffEnd, R"doc(Animated near falloff end (v4+))doc")
+        .def_readwrite("dof_amount", &whiteout::m3::Camera::dofAmount, R"doc(Animated DOF strength (v2+))doc")
+        .def_readwrite("bokeh_f_stop", &whiteout::m3::Camera::bokehFStop, R"doc(Animated bokeh f-stop (v5+))doc")
+        .def_readwrite("bokeh_max_co_c_diameter", &whiteout::m3::Camera::bokehMaxCoCDiameter, R"doc(Animated bokeh max CoC diameter (v5+))doc")
     ;
 
     py::class_<whiteout::m3::Model>(m, "Model", R"doc(MODL — Model root chunk (v23–v30, 784–868 bytes)
@@ -1672,7 +1859,121 @@ Version history: - v23 (784 bytes): Base release layout - v24 (+ikCCD): 796 byte
         .def_readwrite("m3a_anim_hashes", &whiteout::m3::Model::m3aAnimHashes, R"doc(Additional .m3a hashes (U32_))doc")
     ;
 
+    py::class_<whiteout::m3::AnimRef<whiteout::f32>>(m, "AnimRefF32", R"doc(Animatable reference holding a default value and animation link
+
+Holds both a constant default value and a link to keyframed animation data. If animId == 0, the property is not animated — use initValue as a constant. Otherwise, resolve through STC_.animIds to locate keyframe data. Total size depends on sizeof(T): 12 + 2*sizeof(T) + 4 bytes.
+
+@tparam T The value type (f32, Vector3f, Quaternion, ColorBGRA, Extent, etc.))doc")
+        .def(py::init<>())
+        .def_readwrite("interp_type", &whiteout::m3::AnimRef<whiteout::f32>::interpType, R"doc(Interpolation: 0=none/step, 1=linear, 2=hermite, 3=bezier)doc")
+        .def_readwrite("flags", &whiteout::m3::AnimRef<whiteout::f32>::flags, R"doc(Animation flags)doc")
+        .def_readwrite("anim_id", &whiteout::m3::AnimRef<whiteout::f32>::animId, R"doc(Animation identifier (links to STC animation data; 0=not animated))doc")
+        .def_readwrite("init_value", &whiteout::m3::AnimRef<whiteout::f32>::initValue, R"doc(Initial/default value (used when not animated))doc")
+        .def_readwrite("null_value", &whiteout::m3::AnimRef<whiteout::f32>::nullValue, R"doc(Null/reset value)doc")
+        .def_readwrite("unused", &whiteout::m3::AnimRef<whiteout::f32>::unused, R"doc(Typically -1)doc")
+    ;
+
+    py::class_<whiteout::m3::AnimRef<whiteout::Vector3f>>(m, "AnimRefVector3f", R"doc(Animatable reference holding a default value and animation link
+
+Holds both a constant default value and a link to keyframed animation data. If animId == 0, the property is not animated — use initValue as a constant. Otherwise, resolve through STC_.animIds to locate keyframe data. Total size depends on sizeof(T): 12 + 2*sizeof(T) + 4 bytes.
+
+@tparam T The value type (f32, Vector3f, Quaternion, ColorBGRA, Extent, etc.))doc")
+        .def(py::init<>())
+        .def_readwrite("interp_type", &whiteout::m3::AnimRef<whiteout::Vector3f>::interpType, R"doc(Interpolation: 0=none/step, 1=linear, 2=hermite, 3=bezier)doc")
+        .def_readwrite("flags", &whiteout::m3::AnimRef<whiteout::Vector3f>::flags, R"doc(Animation flags)doc")
+        .def_readwrite("anim_id", &whiteout::m3::AnimRef<whiteout::Vector3f>::animId, R"doc(Animation identifier (links to STC animation data; 0=not animated))doc")
+        .def_readwrite("init_value", &whiteout::m3::AnimRef<whiteout::Vector3f>::initValue, R"doc(Initial/default value (used when not animated))doc")
+        .def_readwrite("null_value", &whiteout::m3::AnimRef<whiteout::Vector3f>::nullValue, R"doc(Null/reset value)doc")
+        .def_readwrite("unused", &whiteout::m3::AnimRef<whiteout::Vector3f>::unused, R"doc(Typically -1)doc")
+    ;
+
+    py::class_<whiteout::m3::AnimRef<whiteout::m3::ColorBGRA>>(m, "AnimRefM3ColorBGRA", R"doc(Animatable reference holding a default value and animation link
+
+Holds both a constant default value and a link to keyframed animation data. If animId == 0, the property is not animated — use initValue as a constant. Otherwise, resolve through STC_.animIds to locate keyframe data. Total size depends on sizeof(T): 12 + 2*sizeof(T) + 4 bytes.
+
+@tparam T The value type (f32, Vector3f, Quaternion, ColorBGRA, Extent, etc.))doc")
+        .def(py::init<>())
+        .def_readwrite("interp_type", &whiteout::m3::AnimRef<whiteout::m3::ColorBGRA>::interpType, R"doc(Interpolation: 0=none/step, 1=linear, 2=hermite, 3=bezier)doc")
+        .def_readwrite("flags", &whiteout::m3::AnimRef<whiteout::m3::ColorBGRA>::flags, R"doc(Animation flags)doc")
+        .def_readwrite("anim_id", &whiteout::m3::AnimRef<whiteout::m3::ColorBGRA>::animId, R"doc(Animation identifier (links to STC animation data; 0=not animated))doc")
+        .def_readwrite("init_value", &whiteout::m3::AnimRef<whiteout::m3::ColorBGRA>::initValue, R"doc(Initial/default value (used when not animated))doc")
+        .def_readwrite("null_value", &whiteout::m3::AnimRef<whiteout::m3::ColorBGRA>::nullValue, R"doc(Null/reset value)doc")
+        .def_readwrite("unused", &whiteout::m3::AnimRef<whiteout::m3::ColorBGRA>::unused, R"doc(Typically -1)doc")
+    ;
+
+    py::class_<whiteout::m3::AnimRef<whiteout::u16>>(m, "AnimRefU16", R"doc(Animatable reference holding a default value and animation link
+
+Holds both a constant default value and a link to keyframed animation data. If animId == 0, the property is not animated — use initValue as a constant. Otherwise, resolve through STC_.animIds to locate keyframe data. Total size depends on sizeof(T): 12 + 2*sizeof(T) + 4 bytes.
+
+@tparam T The value type (f32, Vector3f, Quaternion, ColorBGRA, Extent, etc.))doc")
+        .def(py::init<>())
+        .def_readwrite("interp_type", &whiteout::m3::AnimRef<whiteout::u16>::interpType, R"doc(Interpolation: 0=none/step, 1=linear, 2=hermite, 3=bezier)doc")
+        .def_readwrite("flags", &whiteout::m3::AnimRef<whiteout::u16>::flags, R"doc(Animation flags)doc")
+        .def_readwrite("anim_id", &whiteout::m3::AnimRef<whiteout::u16>::animId, R"doc(Animation identifier (links to STC animation data; 0=not animated))doc")
+        .def_readwrite("init_value", &whiteout::m3::AnimRef<whiteout::u16>::initValue, R"doc(Initial/default value (used when not animated))doc")
+        .def_readwrite("null_value", &whiteout::m3::AnimRef<whiteout::u16>::nullValue, R"doc(Null/reset value)doc")
+        .def_readwrite("unused", &whiteout::m3::AnimRef<whiteout::u16>::unused, R"doc(Typically -1)doc")
+    ;
+
+    py::class_<whiteout::m3::AnimRef<whiteout::Vector2f>>(m, "AnimRefVector2f", R"doc(Animatable reference holding a default value and animation link
+
+Holds both a constant default value and a link to keyframed animation data. If animId == 0, the property is not animated — use initValue as a constant. Otherwise, resolve through STC_.animIds to locate keyframe data. Total size depends on sizeof(T): 12 + 2*sizeof(T) + 4 bytes.
+
+@tparam T The value type (f32, Vector3f, Quaternion, ColorBGRA, Extent, etc.))doc")
+        .def(py::init<>())
+        .def_readwrite("interp_type", &whiteout::m3::AnimRef<whiteout::Vector2f>::interpType, R"doc(Interpolation: 0=none/step, 1=linear, 2=hermite, 3=bezier)doc")
+        .def_readwrite("flags", &whiteout::m3::AnimRef<whiteout::Vector2f>::flags, R"doc(Animation flags)doc")
+        .def_readwrite("anim_id", &whiteout::m3::AnimRef<whiteout::Vector2f>::animId, R"doc(Animation identifier (links to STC animation data; 0=not animated))doc")
+        .def_readwrite("init_value", &whiteout::m3::AnimRef<whiteout::Vector2f>::initValue, R"doc(Initial/default value (used when not animated))doc")
+        .def_readwrite("null_value", &whiteout::m3::AnimRef<whiteout::Vector2f>::nullValue, R"doc(Null/reset value)doc")
+        .def_readwrite("unused", &whiteout::m3::AnimRef<whiteout::Vector2f>::unused, R"doc(Typically -1)doc")
+    ;
+
+    py::class_<whiteout::m3::AnimRef<whiteout::u32>>(m, "AnimRefU32", R"doc(Animatable reference holding a default value and animation link
+
+Holds both a constant default value and a link to keyframed animation data. If animId == 0, the property is not animated — use initValue as a constant. Otherwise, resolve through STC_.animIds to locate keyframe data. Total size depends on sizeof(T): 12 + 2*sizeof(T) + 4 bytes.
+
+@tparam T The value type (f32, Vector3f, Quaternion, ColorBGRA, Extent, etc.))doc")
+        .def(py::init<>())
+        .def_readwrite("interp_type", &whiteout::m3::AnimRef<whiteout::u32>::interpType, R"doc(Interpolation: 0=none/step, 1=linear, 2=hermite, 3=bezier)doc")
+        .def_readwrite("flags", &whiteout::m3::AnimRef<whiteout::u32>::flags, R"doc(Animation flags)doc")
+        .def_readwrite("anim_id", &whiteout::m3::AnimRef<whiteout::u32>::animId, R"doc(Animation identifier (links to STC animation data; 0=not animated))doc")
+        .def_readwrite("init_value", &whiteout::m3::AnimRef<whiteout::u32>::initValue, R"doc(Initial/default value (used when not animated))doc")
+        .def_readwrite("null_value", &whiteout::m3::AnimRef<whiteout::u32>::nullValue, R"doc(Null/reset value)doc")
+        .def_readwrite("unused", &whiteout::m3::AnimRef<whiteout::u32>::unused, R"doc(Typically -1)doc")
+    ;
+
+    py::class_<whiteout::m3::AnimRef<whiteout::Quaternion>>(m, "AnimRefQuaternion", R"doc(Animatable reference holding a default value and animation link
+
+Holds both a constant default value and a link to keyframed animation data. If animId == 0, the property is not animated — use initValue as a constant. Otherwise, resolve through STC_.animIds to locate keyframe data. Total size depends on sizeof(T): 12 + 2*sizeof(T) + 4 bytes.
+
+@tparam T The value type (f32, Vector3f, Quaternion, ColorBGRA, Extent, etc.))doc")
+        .def(py::init<>())
+        .def_readwrite("interp_type", &whiteout::m3::AnimRef<whiteout::Quaternion>::interpType, R"doc(Interpolation: 0=none/step, 1=linear, 2=hermite, 3=bezier)doc")
+        .def_readwrite("flags", &whiteout::m3::AnimRef<whiteout::Quaternion>::flags, R"doc(Animation flags)doc")
+        .def_readwrite("anim_id", &whiteout::m3::AnimRef<whiteout::Quaternion>::animId, R"doc(Animation identifier (links to STC animation data; 0=not animated))doc")
+        .def_readwrite("init_value", &whiteout::m3::AnimRef<whiteout::Quaternion>::initValue, R"doc(Initial/default value (used when not animated))doc")
+        .def_readwrite("null_value", &whiteout::m3::AnimRef<whiteout::Quaternion>::nullValue, R"doc(Null/reset value)doc")
+        .def_readwrite("unused", &whiteout::m3::AnimRef<whiteout::Quaternion>::unused, R"doc(Typically -1)doc")
+    ;
+
+    py::class_<whiteout::m3::AnimRef<whiteout::m3::Extent>>(m, "AnimRefM3Extent", R"doc(Animatable reference holding a default value and animation link
+
+Holds both a constant default value and a link to keyframed animation data. If animId == 0, the property is not animated — use initValue as a constant. Otherwise, resolve through STC_.animIds to locate keyframe data. Total size depends on sizeof(T): 12 + 2*sizeof(T) + 4 bytes.
+
+@tparam T The value type (f32, Vector3f, Quaternion, ColorBGRA, Extent, etc.))doc")
+        .def(py::init<>())
+        .def_readwrite("interp_type", &whiteout::m3::AnimRef<whiteout::m3::Extent>::interpType, R"doc(Interpolation: 0=none/step, 1=linear, 2=hermite, 3=bezier)doc")
+        .def_readwrite("flags", &whiteout::m3::AnimRef<whiteout::m3::Extent>::flags, R"doc(Animation flags)doc")
+        .def_readwrite("anim_id", &whiteout::m3::AnimRef<whiteout::m3::Extent>::animId, R"doc(Animation identifier (links to STC animation data; 0=not animated))doc")
+        .def_readwrite("init_value", &whiteout::m3::AnimRef<whiteout::m3::Extent>::initValue, R"doc(Initial/default value (used when not animated))doc")
+        .def_readwrite("null_value", &whiteout::m3::AnimRef<whiteout::m3::Extent>::nullValue, R"doc(Null/reset value)doc")
+        .def_readwrite("unused", &whiteout::m3::AnimRef<whiteout::m3::Extent>::unused, R"doc(Typically -1)doc")
+    ;
+
     py::bind_vector<std::vector<whiteout::u64>>(m, "VectorU64", py::buffer_protocol());
+    py::bind_vector<std::vector<whiteout::m3::AnimRef<whiteout::f32>>>(m, "VectorM3AnimRefF32");
+    py::bind_vector<std::vector<whiteout::m3::AnimRef<whiteout::Vector3f>>>(m, "VectorM3AnimRefVector3f");
     py::bind_vector<std::vector<whiteout::m3::AnimationGroup>>(m, "VectorM3AnimationGroup");
     py::bind_vector<std::vector<whiteout::m3::AnimationState>>(m, "VectorM3AnimationState");
     py::bind_vector<std::vector<whiteout::m3::AttachmentPoint>>(m, "VectorM3AttachmentPoint");

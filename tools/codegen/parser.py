@@ -14,8 +14,8 @@ from clang.cindex import CursorKind, TypeKind as CXTypeKind
 from .annotations import parse as parse_annotations, is_bound, extract_doc
 from .ir import (
     BindClass, BindConstant, BindConstructor, BindEnum, BindEnumValue,
-    BindField, BindMethod, BindMethodParam, BindModule, ModuleConfig,
-    TypeKind, TypeRef,
+    BindField, BindMethod, BindMethodParam, BindModule, BindTemplate,
+    BindTemplateField, ModuleConfig, TypeKind, TypeRef,
 )
 
 
@@ -116,7 +116,18 @@ def _split_template_args(args: str) -> list[str]:
     return out
 
 
-def classify_type(cpp_text: str, known_classes: set[str], known_enums: set[str]) -> TypeRef:
+def classify_type(cpp_text: str, known_classes: set[str], known_enums: set[str],
+                  known_templates: dict[str, str] | None = None) -> TypeRef:
+    """Classify a raw C++ type spelling into a TypeRef.
+
+    `known_templates` maps every spelling under which a `@bind value_template`
+    template might appear (`'Track'`, `'mdx::Track'`, `'whiteout::mdx::Track'`)
+    to its canonical fully-qualified name (`'whiteout::mdx::Track'`). When a
+    type matches one of these templates, we treat the instantiation as a
+    NESTED reference to a synthetic concrete class — the codegen later
+    materialises that class by substituting the template parameter."""
+    if known_templates is None:
+        known_templates = {}
     t = _strip_qualifiers(cpp_text)
     # Map canonical built-ins / template instantiations back to their
     # whiteout aliases so the emitter and JS naming stay stable.
@@ -136,12 +147,12 @@ def classify_type(cpp_text: str, known_classes: set[str], known_enums: set[str])
         args = _split_template_args(m.group('args'))
         # std::vector<X>
         if base in ('std::vector', 'vector'):
-            inner = classify_type(args[0], known_classes, known_enums)
+            inner = classify_type(args[0], known_classes, known_enums, known_templates)
             kind = TypeKind.NESTED_VEC if inner.kind == TypeKind.VECTOR else TypeKind.VECTOR
             return TypeRef(cpp_text=t, kind=kind, element=inner)
         # std::array<X, N>
         if base in ('std::array', 'array'):
-            inner = classify_type(args[0], known_classes, known_enums)
+            inner = classify_type(args[0], known_classes, known_enums, known_templates)
             try:
                 n = int(args[1].strip())
             except (ValueError, IndexError):
@@ -149,20 +160,39 @@ def classify_type(cpp_text: str, known_classes: set[str], known_enums: set[str])
             return TypeRef(cpp_text=t, kind=TypeKind.ARRAY, element=inner, array_size=n)
         # std::optional<X> — Embind has built-in JS<->std::optional conversion.
         if base in ('std::optional', 'optional'):
-            inner = classify_type(args[0], known_classes, known_enums)
+            inner = classify_type(args[0], known_classes, known_enums, known_templates)
             return TypeRef(cpp_text=t, kind=TypeKind.OPTIONAL, element=inner)
-        # whiteout::mdx::Track<X> — keyframe track template owned by MDX.
-        # Only the exact MDX Track template is treated as TRACK; M2's
-        # AnimationTrack<T> and M3's AnimBlock<T> are different templates
-        # that need their own handling.
-        if base in ('whiteout::mdx::Track', 'mdx::Track', 'Track'):
-            inner = classify_type(args[0], known_classes, known_enums)
-            return TypeRef(cpp_text=t, kind=TypeKind.TRACK, element=inner)
+        # `@bind value_template` instantiation — synthesise a NESTED ref to a
+        # concrete class the parser will materialise later. The element TypeRef
+        # carries the template argument so naming helpers (js_name_for_type)
+        # can reach it.
+        if base in known_templates:
+            template_qual = known_templates[base]
+            inner = classify_type(args[0], known_classes, known_enums, known_templates)
+            instantiation = f'{template_qual}<{inner.cpp_text}>'
+            return TypeRef(cpp_text=instantiation, kind=TypeKind.NESTED,
+                           element=inner)
 
     if t in known_classes or short in known_classes:
         return TypeRef(cpp_text=t, kind=TypeKind.NESTED)
 
     return TypeRef(cpp_text=t, kind=TypeKind.UNKNOWN)
+
+
+def _template_for_instantiation(cpp_text: str,
+                                templates: dict[str, BindTemplate]
+                                ) -> Optional[BindTemplate]:
+    """Map an instantiation cpp_text like 'whiteout::mdx::Track<float>' back
+    to the BindTemplate that produced it. Returns None for plain
+    (non-template) NESTED types."""
+    m = TEMPLATE_RE.match(cpp_text)
+    if not m:
+        return None
+    base = m.group('base')
+    # Match by short name (last `::` component) since that's how templates
+    # are keyed.
+    short = base.split('::')[-1]
+    return templates.get(short)
 
 
 # ── AST walking helpers ────────────────────────────────────────────────────
@@ -251,6 +281,15 @@ def js_name_for_type(t: TypeRef, prefix: str) -> str:
     if t.kind == TypeKind.STRING:
         return 'String'
     if t.kind in (TypeKind.NESTED, TypeKind.ENUM):
+        # `value_template` instantiation: classify_type produced a NESTED
+        # with .element set to the template argument. Name it as
+        # `<prefix><TemplateShort><T-as-js-name>` so e.g. `AnimRef<f32>`
+        # becomes `M3AnimRefF32`, matching the synthetic BindClass.
+        if t.kind == TypeKind.NESTED and t.element is not None and '<' in t.cpp_text:
+            m = TEMPLATE_RE.match(t.cpp_text)
+            if m:
+                template_short = m.group('base').split('::')[-1]
+                return prefix + template_short + js_name_for_type(t.element, prefix)
         # Shared math types stay un-prefixed; everything else gets js_prefix.
         short = _short_name(t.cpp_text)
         if short in ('Vector2f', 'Vector3f', 'Vector4f', 'Quaternion'):
@@ -260,8 +299,6 @@ def js_name_for_type(t: TypeRef, prefix: str) -> str:
         return 'Vector' + js_name_for_type(t.element, prefix)
     if t.kind == TypeKind.NESTED_VEC:
         return 'Vector' + js_name_for_type(t.element, prefix)
-    if t.kind == TypeKind.TRACK:
-        return prefix + 'Track' + js_name_for_type(t.element, prefix)
     # UNKNOWN / fallback: scrub `::` and lower-cased namespace parts so the
     # output is a valid C++/JS identifier (e.g. `whiteout::interfaces::Foo`
     # collapses to `Foo`).
@@ -281,6 +318,10 @@ def _has_unbindable_inner(t: TypeRef) -> bool:
     if t.kind in (TypeKind.VECTOR, TypeKind.NESTED_VEC):
         if t.element.kind == TypeKind.ARRAY:
             return True
+        return _has_unbindable_inner(t.element)
+    # A value_template instantiation (NESTED with .element set) whose T
+    # is itself unbindable — `Track<UnboundType>` — has nowhere to point.
+    if t.kind == TypeKind.NESTED and t.element is not None:
         return _has_unbindable_inner(t.element)
     return False
 
@@ -372,7 +413,8 @@ def _is_string_param(t: TypeRef) -> bool:
 
 
 def collect_methods(cursor, bind_class, known_classes, known_enums,
-                    remember_containers, mode: str | bool):
+                    remember_containers, mode: str | bool,
+                    known_templates: dict[str, str] | None = None):
     """Walk public CXX_METHOD / CONSTRUCTOR cursors on a class and add them
     to bind_class.methods / .constructors.
 
@@ -407,7 +449,7 @@ def collect_methods(cursor, bind_class, known_classes, known_enums,
         cpp_raw = arg_cursor.type.spelling
         if 'span' in cpp_raw:
             cpp = cpp_raw  # don't canonicalise span (it'd lose template args)
-        tref = classify_type(cpp, known_classes, known_enums)
+        tref = classify_type(cpp, known_classes, known_enums, known_templates)
         remember_containers(tref)
         # A default value shows up as an expression child of the param
         # cursor. Different default forms produce different cursor kinds
@@ -476,7 +518,15 @@ def collect_methods(cursor, bind_class, known_classes, known_enums,
             chosen = overloads[0]
 
         ret_cpp = chosen.result_type.get_canonical().spelling
-        ret = classify_type(ret_cpp, known_classes, known_enums)
+        # Pointer returns (`const u8*`, `Foo*`) need custom marshalling — the
+        # C ABI can't generically wrap them. Drop the method; the codegen
+        # would otherwise classify the pointee as a primitive/class and emit
+        # a broken signature.
+        ret_raw = chosen.result_type.spelling
+        if ('*' in ret_cpp and 'span' not in ret_cpp) \
+                or ('*' in ret_raw and 'span' not in ret_raw):
+            continue
+        ret = classify_type(ret_cpp, known_classes, known_enums, known_templates)
         # Capture reference-qualifier-on-return before classify_type strips
         # it. Used to suppress move-only wrapping (builder methods commonly
         # return `*this` by reference for chaining).
@@ -628,6 +678,10 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
     raw_classes:   list[tuple[cindex.Cursor, dict, str, str]] = []
     raw_enums:     list[tuple[cindex.Cursor, dict, str, str]] = []
     raw_constants: list[tuple[cindex.Cursor, dict, str, str]] = []
+    # @bind value_template — class templates whose instantiations the parser
+    # later materialises as concrete classes. Stored separately so they
+    # don't accidentally get bound as if they were complete classes.
+    raw_templates: list[tuple[cindex.Cursor, dict, str, str]] = []
 
     auto_skip = set(config.auto_bind_skip)
 
@@ -672,7 +726,10 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
                 qual = (scope_qual + '::' if scope_qual else '') + child.spelling
                 is_def = child.is_definition() or child.kind == CursorKind.CLASS_TEMPLATE
                 if is_def:
-                    if (_should_bind(ann, qual, scope_qual, cpp_ns)
+                    if (child.kind == CursorKind.CLASS_TEMPLATE
+                            and ann.get('value_template')):
+                        raw_templates.append((child, ann, qual, cpp_ns))
+                    elif (_should_bind(ann, qual, scope_qual, cpp_ns)
                             and child.kind != CursorKind.CLASS_TEMPLATE):
                         raw_classes.append((child, ann, qual, cpp_ns))
                     # Recurse INTO the struct/class for nested types — keep
@@ -700,26 +757,97 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
     known_classes = {q for (_, _, q, _) in raw_classes}
     known_enums   = {q for (_, _, q, _) in raw_enums}
 
+    # Build BindTemplate IR for every `@bind value_template` class template.
+    # We record the field list with the type-parameter spelling preserved so
+    # we can substitute it later when synthesising concrete instantiations.
+    templates: dict[str, BindTemplate] = {}             # cpp_short -> BindTemplate
+    known_templates: dict[str, str] = {}                # spelling -> fully-qualified
+    for cursor, ann, qual, ns in raw_templates:
+        # The template parameter spelling (almost always 'T').
+        type_param = 'T'
+        for c in cursor.get_children():
+            if c.kind == CursorKind.TEMPLATE_TYPE_PARAMETER:
+                type_param = c.spelling or 'T'
+                break
+        # Detect a single public base class — its fields are flattened into
+        # every instantiation so AnimationTrack<T> picks up
+        # AnimationTrackBase's interpolationType/globalSequenceId/timestamps.
+        base_qual = ''
+        for c in cursor.get_children():
+            if c.kind == CursorKind.CXX_BASE_SPECIFIER:
+                base_qual = c.type.get_canonical().spelling
+                break
+        # Walk fields, preserving the raw template-parameter spelling in
+        # cpp_text_template (libclang gives us 'std::vector<T>' literally for
+        # template members).
+        tpl_fields: list[BindTemplateField] = []
+        def collect_template_fields(c):
+            for member in c.get_children():
+                if member.kind == CursorKind.FIELD_DECL:
+                    if member.access_specifier in (
+                            cindex.AccessSpecifier.PRIVATE,
+                            cindex.AccessSpecifier.PROTECTED):
+                        continue
+                    f_ann = parse_annotations(member.raw_comment)
+                    if f_ann.get('skip'):
+                        continue
+                    tpl_fields.append(BindTemplateField(
+                        name=f_ann.get('rename', member.spelling),
+                        cpp_name=member.spelling,
+                        cpp_text_template=member.type.spelling,
+                        doc=extract_doc(member.raw_comment),
+                    ))
+                elif member.kind in (CursorKind.UNION_DECL,
+                                     CursorKind.STRUCT_DECL) \
+                        and not member.spelling:
+                    collect_template_fields(member)
+        collect_template_fields(cursor)
+        # Parse the explicit instantiate=A;B;C list (canonicalising the
+        # tokens lightly — we just trim whitespace; classify_type will do
+        # the rest).
+        inst_raw = ann.get('instantiate', '')
+        instantiate = [s.strip() for s in inst_raw.split(';') if s.strip()]
+        tpl = BindTemplate(
+            cpp_short=cursor.spelling,
+            cpp_qualifier=qual,
+            cpp_namespace=ns,
+            type_param=type_param,
+            fields=tpl_fields,
+            instantiate=instantiate,
+            base_cpp_qualifier=base_qual,
+            doc=extract_doc(cursor.raw_comment),
+        )
+        templates[cursor.spelling] = tpl
+        # Spelling variants classify_type may see for this template — by the
+        # short name, namespace-prefixed, or fully-qualified.
+        full_qual = (ns + '::' + qual) if ns else qual
+        known_templates[cursor.spelling] = full_qual
+        known_templates[qual] = full_qual
+        known_templates[full_qual] = full_qual
+
     # Second pass: build the IR objects and discover container types.
     vector_types: dict[str, TypeRef] = {}    # cpp_text -> TypeRef
-    track_types:  dict[str, TypeRef] = {}
+    # Collected during field walking; consumed by the third pass that
+    # materialises a concrete BindClass per (template, T) tuple.
+    instantiations: dict[str, tuple[BindTemplate, TypeRef]] = {}  # cpp_text -> (template, T-TypeRef)
 
     def remember_containers(t: TypeRef):
         """Walk a type and remember every container we'll need to register."""
         if t.kind in (TypeKind.VECTOR, TypeKind.NESTED_VEC):
             vector_types.setdefault(t.cpp_text, t)
             remember_containers(t.element)
-        elif t.kind == TypeKind.TRACK:
-            track_types.setdefault(t.cpp_text, t)
-            # Track<T>::keys_data is std::vector<T>, so we need vector<T> too.
-            inner_vec = TypeRef(cpp_text=f'std::vector<{t.element.cpp_text}>',
-                                kind=TypeKind.VECTOR, element=t.element)
-            vector_types.setdefault(inner_vec.cpp_text, inner_vec)
-            # Timestamps are vector<u32>.
-            ts = TypeRef(cpp_text='std::vector<u32>', kind=TypeKind.VECTOR,
-                         element=TypeRef(cpp_text='u32', kind=TypeKind.PRIMITIVE))
-            vector_types.setdefault(ts.cpp_text, ts)
         elif t.kind == TypeKind.ARRAY:
+            remember_containers(t.element)
+        elif t.kind == TypeKind.NESTED and t.element is not None:
+            # A NESTED with .element set is a value_template instantiation
+            # produced by classify_type. Record it for later synthesis,
+            # but only when the template argument is itself bindable —
+            # `Track<UnboundType>` would generate a class name like
+            # `MdxTrack<UnboundType>` (containing `<>` chars) which breaks
+            # downstream identifier generation and filenames.
+            tpl = _template_for_instantiation(t.cpp_text, templates)
+            if tpl is not None and t.element.kind != TypeKind.UNKNOWN:
+                instantiations.setdefault(t.cpp_text, (tpl, t.element))
             remember_containers(t.element)
 
     # Build enums.
@@ -814,24 +942,55 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
                     if field_ann.get('skip'):
                         continue
                     cpp = member.type.get_canonical().spelling
-                    tref = classify_type(cpp, known_classes, known_enums)
+                    tref = classify_type(cpp, known_classes, known_enums,
+                                         known_templates)
                     # Skip fields whose type can't be cleanly bound across
                     # backends — e.g. vector<array<T,N>> needs a specially-
                     # named container plus per-element conversions.
                     if _has_unbindable_inner(tref):
                         continue
                     remember_containers(tref)
+                    # libclang reports the offset in BITS; we want bytes.
+                    # Negative values mean libclang couldn't determine the
+                    # offset (templated, bitfield in a packed struct, …).
+                    try:
+                        bit_off = member.get_field_offsetof()
+                    except Exception:
+                        bit_off = -1
+                    byte_off = bit_off // 8 if bit_off is not None and bit_off >= 0 \
+                                            else None
                     bind_class.fields.append(BindField(
                         name=field_ann.get('rename', member.spelling),
                         cpp_name=member.spelling,
                         type=tref,
                         array_with_view=bool(field_ann.get('array_with_view')),
                         doc=extract_doc(member.raw_comment),
+                        byte_offset=byte_off,
                     ))
                 elif member.kind in (CursorKind.UNION_DECL, CursorKind.STRUCT_DECL) \
                         and not member.spelling:
                     collect_fields(member)
         collect_fields(cursor)
+
+        # Whole-struct sizeof. libclang returns negative numbers for
+        # incomplete / template-instantiated types where it can't compute.
+        try:
+            type_size = cursor.type.get_size()
+        except Exception:
+            type_size = -1
+        if type_size is not None and type_size > 0:
+            bind_class.byte_size = type_size
+
+        # POD-ness drives whether downstream backends can safely use
+        # bitwise copy (memcpy) instead of the C++ copy-assignment
+        # operator. libclang's `is_pod()` inspects *every* member
+        # (including private/protected) so a class with a private
+        # `std::string` correctly reports False even when we didn't
+        # bind that member.
+        try:
+            bind_class.is_pod = bool(cursor.type.is_pod())
+        except Exception:
+            bind_class.is_pod = False
 
         # Walk methods + non-default constructors when the class has been
         # explicitly @bind'd with `methods` (we don't auto-bind methods on
@@ -839,7 +998,8 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
         # details).
         if ann.get('methods'):
             collect_methods(cursor, bind_class, known_classes, known_enums,
-                            remember_containers, ann.get('methods'))
+                            remember_containers, ann.get('methods'),
+                            known_templates=known_templates)
 
         module.classes.append(bind_class)
 
@@ -852,8 +1012,69 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
             doc=extract_doc(cursor.raw_comment),
         ))
 
+    # Synthesise concrete classes for every (template, T) instantiation
+    # discovered during field walking. Each concrete class is a regular
+    # BindClass — emitters treat it identically to a hand-bound struct.
+    # We also flatten any base-class fields into the synthesised class so
+    # AnimationTrack<f32> picks up AnimationTrackBase's members.
+    def _resolve_base_fields(base_qual: str) -> list[BindField]:
+        if not base_qual:
+            return []
+        # Strip qualifiers so 'whiteout::m2::AnimationTrackBase' and
+        # 'AnimationTrackBase' both match.
+        candidates = {base_qual, _short_name(base_qual)}
+        for cls in module.classes:
+            if cls.cpp_qualifier in candidates:
+                return list(cls.fields)
+        return []
+
+    def _substitute(cpp_template: str, type_param: str, value: str) -> str:
+        # Whole-word substitution of the template parameter — avoid replacing
+        # 'T' inside identifiers like 'TangentKey' or 'std::vector<TKey>'.
+        return re.sub(rf'\b{re.escape(type_param)}\b', value, cpp_template)
+
+    for inst_cpp_text, (tpl, t_ref) in instantiations.items():
+        # Store cpp_qualifier in the relative-to-namespace form
+        # ('Track<whiteout::Vector3f>') so emitters can splice in
+        # cpp_namespace the same way they do for regular classes. The
+        # full instantiation text (`whiteout::mdx::Track<...>`) is what
+        # libclang gives us in field cpp_text — keep that around to
+        # build map entries below.
+        ns_prefix = tpl.cpp_namespace + '::' if tpl.cpp_namespace else ''
+        synthetic_qual = (inst_cpp_text[len(ns_prefix):]
+                          if inst_cpp_text.startswith(ns_prefix)
+                          else inst_cpp_text)
+        synthetic_js   = (config.js_prefix + tpl.cpp_short
+                          + js_name_for_type(t_ref, config.js_prefix))
+        bind_class = BindClass(
+            cpp_qualifier=synthetic_qual,
+            cpp_namespace=tpl.cpp_namespace,
+            js_name=synthetic_js,
+            is_value_object=False,
+            doc=tpl.doc,
+        )
+        # Inherited base-class fields first (so the layout reads top-down
+        # the way the C++ struct does).
+        bind_class.fields.extend(_resolve_base_fields(tpl.base_cpp_qualifier))
+        # Template-defined fields with `T` substituted.
+        for tf in tpl.fields:
+            substituted = _substitute(tf.cpp_text_template, tpl.type_param,
+                                      t_ref.cpp_text)
+            tref = classify_type(substituted, known_classes, known_enums,
+                                 known_templates)
+            if _has_unbindable_inner(tref):
+                continue
+            remember_containers(tref)
+            bind_class.fields.append(BindField(
+                name=tf.name,
+                cpp_name=tf.cpp_name,
+                type=tref,
+                doc=tf.doc,
+            ))
+        module.classes.append(bind_class)
+
     module.vector_types = list(vector_types.values())
-    module.track_types  = list(track_types.values())
+    module.templates    = list(templates.values())
 
     # Post-pass: cross-reference each method's return type against the
     # class registry to flag move-only returns. Used by emit_embind to

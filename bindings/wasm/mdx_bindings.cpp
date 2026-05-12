@@ -45,25 +45,6 @@ void vecToArray(std::array<T, N>& a, const std::vector<T>& v) {
     for (std::size_t i = 0; i < N; ++i) a[i] = v[i];
 }
 
-template <typename T>
-void bindTrack(const char* jsName) {
-    using namespace emscripten;
-    class_<whiteout::mdx::Track<T>>(jsName)
-        .constructor<>()
-        .property("isUsed",            &whiteout::mdx::Track<T>::isUsed)
-        .property("interpolationType", &whiteout::mdx::Track<T>::interpolationType)
-        .property("globalSequenceId",  &whiteout::mdx::Track<T>::globalSequenceId)
-        .property("keyCount",
-                  optional_override([](const whiteout::mdx::Track<T>& t) {{
-                      return static_cast<std::uint32_t>(t.keyCount);
-                  }}),
-                  optional_override([](whiteout::mdx::Track<T>& t, std::uint32_t v) {{
-                      t.keyCount = v;
-                  }}))
-        .property("timestamps", &whiteout::mdx::Track<T>::timestamps)
-        .property("keys",       &whiteout::mdx::Track<T>::keys_data);
-}
-
 } // namespace
 
 EMSCRIPTEN_BINDINGS(mdx) {
@@ -249,12 +230,6 @@ EMSCRIPTEN_BINDINGS(mdx) {
         .field("minimum", &whiteout::mdx::Extent::minimum)
         .field("maximum", &whiteout::mdx::Extent::maximum)
     ;
-
-    // ── Animation track instantiations ───────────────────────────────────
-    bindTrack<whiteout::f32>("MdxTrackF32");
-    bindTrack<whiteout::u32>("MdxTrackU32");
-    bindTrack<whiteout::Quaternion>("MdxTrackQuaternion");
-    bindTrack<whiteout::Vector3f>("MdxTrackVector3f");
 
     // ── Classes ──────────────────────────────────────────────────────────
     class_<whiteout::mdx::Model>("MdxModel")
@@ -611,6 +586,46 @@ EMSCRIPTEN_BINDINGS(mdx) {
         .property("colorTracks", &whiteout::mdx::CornEmitter::colorTracks)
         .property("alphaTracks", &whiteout::mdx::CornEmitter::alphaTracks)
         .property("visibilityTracks", &whiteout::mdx::CornEmitter::visibilityTracks)
+    ;
+
+    class_<whiteout::mdx::Track<whiteout::Vector3f>>("MdxTrackVector3f")
+        .constructor<>()
+        .property("isUsed", &whiteout::mdx::Track<whiteout::Vector3f>::isUsed)
+        .property("interpolationType", &whiteout::mdx::Track<whiteout::Vector3f>::interpolationType)
+        .property("globalSequenceId", &whiteout::mdx::Track<whiteout::Vector3f>::globalSequenceId)
+        .property("keyCount", &whiteout::mdx::Track<whiteout::Vector3f>::keyCount)
+        .property("timestamps", &whiteout::mdx::Track<whiteout::Vector3f>::timestamps)
+        .property("keys_data", &whiteout::mdx::Track<whiteout::Vector3f>::keys_data)
+    ;
+
+    class_<whiteout::mdx::Track<whiteout::Quaternion>>("MdxTrackQuaternion")
+        .constructor<>()
+        .property("isUsed", &whiteout::mdx::Track<whiteout::Quaternion>::isUsed)
+        .property("interpolationType", &whiteout::mdx::Track<whiteout::Quaternion>::interpolationType)
+        .property("globalSequenceId", &whiteout::mdx::Track<whiteout::Quaternion>::globalSequenceId)
+        .property("keyCount", &whiteout::mdx::Track<whiteout::Quaternion>::keyCount)
+        .property("timestamps", &whiteout::mdx::Track<whiteout::Quaternion>::timestamps)
+        .property("keys_data", &whiteout::mdx::Track<whiteout::Quaternion>::keys_data)
+    ;
+
+    class_<whiteout::mdx::Track<whiteout::u32>>("MdxTrackU32")
+        .constructor<>()
+        .property("isUsed", &whiteout::mdx::Track<whiteout::u32>::isUsed)
+        .property("interpolationType", &whiteout::mdx::Track<whiteout::u32>::interpolationType)
+        .property("globalSequenceId", &whiteout::mdx::Track<whiteout::u32>::globalSequenceId)
+        .property("keyCount", &whiteout::mdx::Track<whiteout::u32>::keyCount)
+        .property("timestamps", &whiteout::mdx::Track<whiteout::u32>::timestamps)
+        .property("keys_data", &whiteout::mdx::Track<whiteout::u32>::keys_data)
+    ;
+
+    class_<whiteout::mdx::Track<whiteout::f32>>("MdxTrackF32")
+        .constructor<>()
+        .property("isUsed", &whiteout::mdx::Track<whiteout::f32>::isUsed)
+        .property("interpolationType", &whiteout::mdx::Track<whiteout::f32>::interpolationType)
+        .property("globalSequenceId", &whiteout::mdx::Track<whiteout::f32>::globalSequenceId)
+        .property("keyCount", &whiteout::mdx::Track<whiteout::f32>::keyCount)
+        .property("timestamps", &whiteout::mdx::Track<whiteout::f32>::timestamps)
+        .property("keys_data", &whiteout::mdx::Track<whiteout::f32>::keys_data)
     ;
 
     // ── Vector containers ────────────────────────────────────────────────

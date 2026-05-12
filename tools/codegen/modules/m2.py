@@ -37,8 +37,5 @@ CONFIG = ModuleConfig(
         # Format is a top-level enum used by the parser; not a public Model
         # field. Keep internal.
         'Format',
-        # AnimationTrack<T> templates aren't bound directly; their data
-        # surfaces through the typed track fields on each struct.
-        'AnimationTrack', 'ParticleAnimationTrack', 'CompatQuaternion',
     ],
 )

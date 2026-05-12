@@ -75,12 +75,6 @@ def _flatten_qualified(qual: str) -> str:
     return ''.join(parts)
 
 
-def _track_suffix(elem: TypeRef) -> str:
-    if elem.kind == TypeKind.PRIMITIVE:
-        return _strip_namespace(elem.cpp_text).upper()
-    return _strip_namespace(elem.cpp_text).replace('::', '')
-
-
 class _NameContext:
     """Resolves C++ qualifiers to Python class names + tracks shared imports."""
     def __init__(self, module: BindModule):
@@ -132,8 +126,6 @@ def _py_type(t: TypeRef, ctx: _NameContext) -> str:
         return _vector_class_for(t.element, ctx)
     if t.kind == TypeKind.OPTIONAL:
         return f'{_py_type(t.element, ctx)} | None'
-    if t.kind == TypeKind.TRACK:
-        return f'Track{_track_suffix(t.element)}'
     if t.kind == TypeKind.ARRAY:
         return f'list[{_py_type(t.element, ctx)}]'
     return 'Any'
@@ -297,27 +289,6 @@ def _emit_class(buf: StringIO, c: BindClass, ctx: _NameContext):
     buf.write('\n')
 
 
-def _emit_track_classes(buf: StringIO, module: BindModule, ctx: _NameContext):
-    if not module.track_types:
-        return
-    buf.write('# ── Animation tracks ───────────────────────────────────────────────\n')
-    u32_ref = TypeRef(cpp_text='u32', kind=TypeKind.PRIMITIVE)
-    for t in sorted(module.track_types, key=lambda x: x.cpp_text):
-        suffix = _track_suffix(t.element)
-        # Touch _vector_class_for so VectorU32 + Vector{element} both get
-        # recorded as referenced vectors.
-        ts_vec = _vector_class_for(u32_ref, ctx)
-        keys_vec = _vector_class_for(t.element, ctx)
-        buf.write(f'class Track{suffix}:\n')
-        buf.write('    def __init__(self) -> None: ...\n')
-        buf.write('    is_used: bool\n')
-        buf.write('    interpolation_type: InterpolationType\n')
-        buf.write('    global_sequence_id: int\n')
-        buf.write('    key_count: int\n')
-        buf.write(f'    timestamps: {ts_vec}\n')
-        buf.write(f'    keys: {keys_vec}\n\n')
-
-
 def _vector_class_for(elem: TypeRef, ctx: _NameContext) -> str:
     """Match the per-vector class names emitted by the pybind11 backend
     (VectorU32, VectorVector3f, VectorMdxBone, ...).
@@ -411,8 +382,6 @@ def emit(module: BindModule) -> str:
         body.write('# ── Value-object types ─────────────────────────────────────────────\n')
         for c in value_classes:
             _emit_value_object(body, c, ctx)
-
-    _emit_track_classes(body, module, ctx)
 
     if other_classes:
         body.write('# ── Classes ────────────────────────────────────────────────────────\n')

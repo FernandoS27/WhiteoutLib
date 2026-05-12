@@ -38,6 +38,8 @@
 
 PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::textures::Channel>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::textures::Texture>);
 
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
@@ -134,6 +136,149 @@ Uncompressed formats store one pixel per "block"; BCn formats store a 4×4 pixel
     py::enum_<whiteout::textures::tga::Writer::WriteMode>(m, "TgaWriteMode")
         .value("STRICT", whiteout::textures::tga::Writer::WriteMode::Strict, R"doc(Throw on any issue.)doc")
         .value("LENIENT", whiteout::textures::tga::Writer::WriteMode::Lenient, R"doc(Collect issues, return empty data on failure.)doc")
+    ;
+
+    py::class_<whiteout::textures::Texture>(m, "Texture", R"doc(Format-agnostic GPU texture container
+
+Texture is the central interchange object used by every format-specific parser and writer in the library. It owns a contiguous pixel-data buffer and a mip chain describing the layout of every mip level and layer.
+
+Use the static factory methods (`create2D`, `create3D`, `createCube`) to allocate a new texture, or obtain one from a parser.
+
+Supports in-place and copying format conversion between all PixelFormat values (uncompressed ↔ BCn) via `format()` and `copyAsFormat()`.
+
+Uses the PImpl (Pointer to Implementation) idiom to hide internals.)doc")
+        .def(py::init<>())
+        .def("format", py::overload_cast<>(&whiteout::textures::Texture::format, py::const_), R"doc(@return The pixel format of the stored data.)doc")
+        .def("copy_as_format",
+            [](whiteout::textures::Texture& self, whiteout::textures::PixelFormat new_fmt) {
+                return self.copyAsFormat(new_fmt);
+            }, py::arg("new_fmt"), R"doc(Return a copy of this texture converted to a different pixel format.
+
+Conversion path: - Same format → plain copy. - BCn → decoded to native format (R8 for BC4, RG8 for BC5, RGBA32F for BC6H, RGBA8 for others), then recurse. - Uncompressed → uncompressed → per-pixel conversion. - Uncompressed → BCn → encode via the appropriate codec.
+
+@param new_fmt Target pixel format. @param pool Optional WorkerPool for parallel BCn encode/decode work. Ignored for purely uncompressed-to-uncompressed conversions. @return A new Texture with the converted data.)doc")
+        .def("swap_channels", &whiteout::textures::Texture::swapChannels, py::arg("a"), py::arg("b"), R"doc(Swap two channels in-place across all mip levels and array layers.
+
+Operates directly on the stored pixel data without any intermediate copy. Supports all uncompressed PixelFormats (R*, RG*, RGBA*).
+
+Failure conditions (returns false): - The texture uses a BCn block-compressed format. - Either channel is not present in the current pixel format (e.g. Channel::B on an RG8 texture).
+
+@param a First channel to swap. @param b Second channel to swap. @return true on success (including when @p a == @p b, which is a no-op), false when the operation is not valid for this texture.)doc")
+        .def("invert_channel", &whiteout::textures::Texture::invertChannel, py::arg("ch"), R"doc(Invert a single channel in-place across all mip levels and array layers.
+
+Each sample value @c v is replaced with @c max_value - v, where @c max_value is the maximum representable value for the channel's underlying type (255 for u8, 65535 for u16, 1.0 for f32).
+
+Operates directly on the stored pixel data without any intermediate copy. Supports all uncompressed PixelFormats (R*, RG*, RGBA*).
+
+Failure conditions (returns false): - The texture uses a BCn block-compressed format. - The requested channel is not present in the current pixel format (e.g. Channel::B on an RG8 texture).
+
+@param ch Channel to invert. @return true on success, false when the operation is not valid for this texture.)doc")
+        .def("expand_normal", &whiteout::textures::Texture::expandNormal, py::arg("xChannel"), py::arg("yChannel"), py::arg("zChannel"), R"doc(Reconstruct the Z component of a tangent-space normal map in-place.
+
+Interprets channels @p a and @p b as the packed X and Y components of a unit normal vector, computes Z = sqrt(max(0, 1 - x² - y²)), and writes the result back to channel @p c.
+
+Channel values are decoded from the UNORM [0, 1] storage convention to the signed [-1, 1] range before the computation (i.e. x = 2v - 1), and the reconstructed Z is re-encoded as (z + 1) / 2 before being written. This matches the encoding used by all other normal-map utilities in the library.
+
+Operates directly on the stored pixel data without any intermediate copy. Supports all uncompressed PixelFormats (R*, RG*, RGBA*).
+
+Failure conditions (returns false): - The texture uses a BCn block-compressed format. - Any of the three channel indices is not present in the current pixel format (e.g. Channel::B on an RG8 texture).
+
+@param xChannel Channel storing the packed X component (source, read-only). @param yChannel Channel storing the packed Y component (source, read-only). @param zChannel Channel to receive the reconstructed Z component (write target). @return true on success, false when the operation is not valid for this texture.)doc")
+        .def("fill_channel", &whiteout::textures::Texture::fillChannel, py::arg("target"), py::arg("value"), R"doc(Fill a single channel with a constant value across all mip levels and array layers.
+
+The floating-point value is quantised to the channel's underlying type (clamped to [0, 255] for u8, [0, 65535] for u16, stored directly for f32).
+
+Returns false for BCn formats or if the channel index exceeds the format's channel count.
+
+@param target Channel to fill. @param value  Value to write (interpreted as [0, 1] for integer formats). @return true on success, false when the operation is not valid.)doc")
+        .def("split_channels", &whiteout::textures::Texture::splitChannels, py::arg("channels"), R"doc(Split selected channels into individual single-channel textures.
+
+Each requested channel produces a separate Texture with a single-channel format matching the source bit depth (R8, R16, or R32F).  All mip levels and layers are copied.  The returned textures inherit the source's sRGB flag but their kind is set to TextureKind::Other.
+
+Returns std::nullopt if the source is BCn-compressed or if any requested channel index exceeds the source channel count.
+
+@param channels Channels to extract (e.g. {Channel::R, Channel::G}). @return One Texture per requested channel, or std::nullopt on failure.)doc")
+        .def_static("merge_channels",
+            [](std::vector<whiteout::textures::Texture> sources, std::vector<whiteout::textures::Channel> targetChannels) {
+                return whiteout::textures::Texture::mergeChannels(sources, targetChannels);
+            }, py::arg("sources"), py::arg("targetChannels"), R"doc(Merge single-channel textures into one multi-channel texture.
+
+Each source texture is written into the corresponding target channel of a new RGBA-width texture whose bit depth matches the sources (RGBA8, RGBA16, or RGBA32F).  All sources must share the same format, dimensions, mip count, and texture type.  Channels not covered by the input list are zero-filled.
+
+@param sources          Single-channel textures to combine. @param targetChannels   Destination channel for each source (same length as @p sources). @return The combined RGBA texture, or std::nullopt on failure.)doc")
+        .def("copy_from_normal_to_rgba",
+            [](whiteout::textures::Texture& self) {
+                return self.copyFromNormalToRGBA();
+            }, R"doc(Return a copy of a 2-channel normal map expanded to RGBA8.
+
+Only supported for textures whose kind() is TextureKind::Normal and whose format is RG8, RG16, RG32F, or BC5. The returned texture keeps the original shape, mip chain, kind, and sRGB flag, but stores data as RGBA8 with Z reconstructed from the packed X/Y normal in R/G.
+
+@param pool Optional WorkerPool for parallel BCn decode work when the source texture is compressed. @return Expanded RGBA8 texture, or std::nullopt when unsupported.)doc")
+        .def("generate_mipmaps",
+            [](whiteout::textures::Texture& self, whiteout::u32 newMipCount) {
+                return self.generateMipmaps(newMipCount);
+            }, py::arg("newMipCount"), R"doc(Generate all mip levels from the base image (mip 0).
+
+Every mip level is generated directly from the original full-resolution image using an appropriately-sized filter kernel, rather than cascading from the previous mip level.  This eliminates cumulative blur.
+
+Selects the best filter and pipeline for the texture's kind(): - Diffuse / Albedo — Lanczos3; sRGB linearize/delinearize when isSrgb() is true. - Normal — Kaiser(β=6) with unpack / Toksvig / renormalize / pack. - Specular — Kaiser(β=6); sRGB linearize/delinearize when isSrgb(). - Roughness — Kaiser(β=6.5) variance-preserving: r→r², filter, √. - Gloss — convert to roughness, apply variance filter, convert back. - Metalness — Kaiser(β=5.5) mean filtering. - AmbientOcclusion — Kaiser(β=6) mean filtering. - Emissive — Lanczos3; sRGB linearize/delinearize when isSrgb(). - ORM (deprecated) — same as Multikind with R=AO/G=Roughness/B=Metalness. - Multikind — per-channel kind-appropriate pipeline; each channel's kind is queried via channelKind(). Unused channels use a box filter. - AlphaMask — Box filter; no sRGB conversion (linear mask data). - Lightmap — Lanczos3; clamp channels to [0, ∞) (no sRGB). - EnvironmentPBR — GGX importance-sampled convolution (equirectangular); roughness increases with each mip level. - EnvironmentLegacy — Solid-angle-weighted spherical Kaiser convolution (equirectangular); no roughness encoding. - Other — Box filter; sRGB linearize/delinearize when isSrgb().
+
+The texture must use an uncompressed pixel format.  BCn textures should be decompressed first.  No-op if the texture has ≤ 1 mip.
+
+@param newMipCount Desired number of mip levels in the output texture. Pass kKeepMipCount (0) to preserve the existing mip count. Must be between 1 and computeMaxMipCount(width, height, depth). When 1, the mip chain is truncated to the base level only and the function returns immediately. @param pool Optional WorkerPool used to parallelize mip generation across mip levels and layers. If null, generation runs on the calling thread. @return std::nullopt on success; std::optional<std::string> with error message on failure. No exceptions are thrown.)doc")
+        .def("downscale",
+            [](whiteout::textures::Texture& self, whiteout::u32 levels) {
+                return self.downscale(levels);
+            }, py::arg("levels") = whiteout::u32{}, R"doc(Downscale the texture by dropping leading mip levels.
+
+Increases the mip count by @p levels (clamped to the maximum), regenerates all mip levels from the base image, then drops the first @p levels mips — effectively halving the resolution @p levels times while preserving the original mip chain length.
+
+The texture must use an uncompressed pixel format (same requirement as generateMipmaps).  Returns an error if @p levels would reduce every dimension to zero.
+
+@param levels Number of mip levels to drop (default 1). @param pool   Optional WorkerPool for parallel mip generation. @return std::nullopt on success; error message on failure.)doc")
+        .def_static("create2_d", &whiteout::textures::Texture::create2D, py::arg("fmt"), py::arg("width"), py::arg("height"), py::arg("mipCount") = whiteout::u32{}, R"doc(Create a 2D texture. @param fmt       Pixel format. @param width     Width in pixels. @param height    Height in pixels. @param mipCount Number of mip levels (0 = auto-compute full chain). @return A zero-filled Texture with the requested layout.)doc")
+        .def_static("create3_d", &whiteout::textures::Texture::create3D, py::arg("fmt"), py::arg("width"), py::arg("height"), py::arg("depth"), py::arg("mipCount") = whiteout::u32{}, R"doc(Create a 3D (volume) texture. @param fmt       Pixel format. @param width     Width in pixels. @param height    Height in pixels. @param depth     Depth in slices. @param mipCount Number of mip levels (0 = auto-compute full chain). @return A zero-filled Texture with the requested layout.)doc")
+        .def_static("create_cube", &whiteout::textures::Texture::createCube, py::arg("fmt"), py::arg("size"), py::arg("mipCount") = whiteout::u32{}, R"doc(Create a cube-map texture. @param fmt       Pixel format. @param size      Face edge length in pixels (faces are square). @param mipCount Number of mip levels (0 = auto-compute full chain). @return A zero-filled Texture with 6 layers.)doc")
+        .def_static("create2_d_array", &whiteout::textures::Texture::create2DArray, py::arg("fmt"), py::arg("width"), py::arg("height"), py::arg("arraySize"), py::arg("mipCount") = whiteout::u32{}, R"doc(Create a 2D texture array. @param fmt       Pixel format. @param width     Width in pixels. @param height    Height in pixels. @param arraySize Number of array slices (must be ≥ 1). @param mipCount  Number of mip levels (0 = auto-compute full chain). @return A zero-filled Texture with @p arraySize layers.)doc")
+        .def_static("create_cube_array", &whiteout::textures::Texture::createCubeArray, py::arg("fmt"), py::arg("size"), py::arg("arraySize"), py::arg("mipCount") = whiteout::u32{}, R"doc(Create a cube-map texture array. @param fmt       Pixel format. @param size      Face edge length in pixels (faces are square). @param arraySize Number of cube-map entries in the array (must be ≥ 1). The final layer count is 6 × @p arraySize. @param mipCount  Number of mip levels (0 = auto-compute full chain). @return A zero-filled Texture with 6 × arraySize layers.)doc")
+        .def("type", &whiteout::textures::Texture::type, R"doc(@return The texture dimensionality / topology.)doc")
+        .def("kind", &whiteout::textures::Texture::kind, R"doc(@return The semantic kind of this texture.)doc")
+        .def("set_kind", &whiteout::textures::Texture::setKind, py::arg("k"), R"doc(Set the semantic kind of this texture. @note TextureKind::Unused is not valid as a top-level kind; use setChannelKind() on a Multikind texture for per-channel Unused.)doc")
+        .def("channel_kind", &whiteout::textures::Texture::channelKind, py::arg("ch"), R"doc(@return The per-channel kind for channel @p ch.
+
+Only meaningful when kind() == TextureKind::Multikind. Returns TextureKind::Other by default for all other kinds. @param ch Channel to query (R/G/B/A).)doc")
+        .def("set_channel_kind", &whiteout::textures::Texture::setChannelKind, py::arg("ch"), py::arg("kind"), R"doc(Set the per-channel kind for channel @p ch.
+
+Only meaningful when kind() == TextureKind::Multikind. TextureKind::Unused is permitted here to mark a channel as unused. @param ch   Channel to configure. @param kind Kind to assign, including TextureKind::Unused.)doc")
+        .def("channel_default", &whiteout::textures::Texture::channelDefault, py::arg("ch"), R"doc(@return The default fill value for channel @p ch.
+
+This value is used by consumers (e.g. channel merging, material baking) when the channel carries no source data.  Defaults to 1.0f for all channels. @param ch Channel to query (R/G/B/A).)doc")
+        .def("set_channel_default", &whiteout::textures::Texture::setChannelDefault, py::arg("ch"), py::arg("value"), R"doc(Set the default fill value for channel @p ch.
+
+The value is stored as-is (normalised [0, 1] float for integer formats, linear scale for f32 formats).  No clamping is applied at storage time. @param ch    Channel to configure (R/G/B/A). @param value Default fill value; 1.0f by convention.)doc")
+        .def("is_srgb", &whiteout::textures::Texture::isSrgb, R"doc(@return True if the texture data is in sRGB colour space.)doc")
+        .def("set_srgb", &whiteout::textures::Texture::setSrgb, py::arg("srgb"), R"doc(Mark the texture as sRGB or linear.)doc")
+        .def("width", &whiteout::textures::Texture::width, R"doc(@return Base mip width in pixels.)doc")
+        .def("height", &whiteout::textures::Texture::height, R"doc(@return Base mip height in pixels.)doc")
+        .def("depth", &whiteout::textures::Texture::depth, R"doc(@return Base mip depth (1 for 2D / cube textures).)doc")
+        .def("layer_count", &whiteout::textures::Texture::layerCount, R"doc(@return Number of array layers. - Texture2D / Texture3D: 1. - TextureCube: 6. - Texture2DArray: arraySize(). - TextureCubeArray: 6 × arraySize().)doc")
+        .def("array_size", &whiteout::textures::Texture::arraySize, R"doc(@return Number of array slices (1 for non-array textures). For a TextureCubeArray, this is the number of cube-maps in the array (the layer count is 6 × this value).)doc")
+        .def("mip_count", &whiteout::textures::Texture::mipCount, R"doc(@return Number of mip levels per layer.)doc")
+        .def("mip_level", &whiteout::textures::Texture::mipLevel, py::arg("mip"), py::arg("layer") = whiteout::u32{}, R"doc(Get the mip-level descriptor for a given mip index and layer. @param mip   Mip level index (0 = base). @param layer Array layer index (0 for 2D / 3D textures). @return Reference to the MipLevel struct.)doc")
+        .def("data_size", &whiteout::textures::Texture::dataSize, R"doc(@return Total byte size of the pixel-data buffer.)doc")
+        .def("data", py::overload_cast<>(&whiteout::textures::Texture::data, py::const_), R"doc(@return Read-only span over the entire pixel-data buffer.)doc")
+        .def("mip_data", py::overload_cast<u32, u32>(&whiteout::textures::Texture::mipData, py::const_), py::arg("mip"), py::arg("layer") = whiteout::u32{}, R"doc(Get a read-only span for a specific mip / layer. @param mip   Mip level index. @param layer Array layer (default 0).)doc")
+        .def("take_data",
+            [](whiteout::textures::Texture& self) {
+                auto __v = self.takeData();
+                return py::bytes(
+                    reinterpret_cast<const char*>(__v.data()), __v.size());
+            }, R"doc(Move the data vector out of the texture (destructive).
+
+After this call the texture's dimensions and mip chain are cleared. @return The owned pixel-data buffer.)doc")
+        .def("set_data", &whiteout::textures::Texture::setData, py::arg("new_data"), R"doc(Replace the pixel-data buffer.
+
+The new buffer must match the existing allocation size. @param new_data Replacement data.)doc")
     ;
 
     py::class_<whiteout::textures::blp::Parser>(m, "BlpParser", R"doc(Parser for BLP texture files
@@ -297,5 +442,7 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
         .def("get_issues", &whiteout::textures::tga::Writer::getIssues, R"doc(@return accumulated issues from the last write call.)doc")
     ;
 
+    py::bind_vector<std::vector<whiteout::textures::Channel>>(m, "VectorChannel");
+    py::bind_vector<std::vector<whiteout::textures::Texture>>(m, "VectorTexture");
 
 }

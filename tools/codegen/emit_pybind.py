@@ -88,8 +88,6 @@ def _cpp_type(t: TypeRef, ns: str) -> str:
         return f'std::array<{_cpp_type(t.element, ns)}, {t.array_size}>'
     if t.kind == TypeKind.OPTIONAL:
         return f'std::optional<{_cpp_type(t.element, ns)}>'
-    if t.kind == TypeKind.TRACK:
-        return f'{ns}::Track<{_cpp_type(t.element, ns)}>'
     return t.cpp_text
 
 
@@ -206,28 +204,6 @@ auto bindBufferVector(py::module_& m, const char* name) {
         }
     });
     return cls;
-}
-
-} // namespace
-''')
-
-
-def _emit_track_helper(out: StringIO):
-    out.write('''
-namespace {
-
-template <typename T>
-void bindTrack(py::module_& m, const char* name) {
-    py::class_<whiteout::mdx::Track<T>>(m, name)
-        .def(py::init<>())
-        .def_readwrite("is_used",            &whiteout::mdx::Track<T>::isUsed)
-        .def_readwrite("interpolation_type", &whiteout::mdx::Track<T>::interpolationType)
-        .def_readwrite("global_sequence_id", &whiteout::mdx::Track<T>::globalSequenceId)
-        .def_property("key_count",
-            [](const whiteout::mdx::Track<T>& t) { return static_cast<std::uint32_t>(t.keyCount); },
-            [](whiteout::mdx::Track<T>& t, std::uint32_t v) { t.keyCount = v; })
-        .def_readwrite("timestamps", &whiteout::mdx::Track<T>::timestamps)
-        .def_readwrite("keys",       &whiteout::mdx::Track<T>::keys_data);
 }
 
 } // namespace
@@ -609,9 +585,6 @@ def emit(module: BindModule) -> str:
     if needs_buffer_vector:
         _emit_buffer_vector_helper(buf)
 
-    if module.track_types:
-        _emit_track_helper(buf)
-
     buf.write(f'void bind_{module.name}(py::module_& m) {{\n')
 
     # Constants.
@@ -637,16 +610,6 @@ def emit(module: BindModule) -> str:
     other_classes = [c for c in module.classes if not c.is_value_object and c.js_name not in skip]
     for c in value_classes:
         _emit_class(buf, c, ns, prefix)
-
-    # Track instantiations.
-    if module.track_types:
-        from .parser import js_name_for_type
-        for t in sorted(module.track_types, key=lambda x: x.cpp_text):
-            elem_cpp = _cpp_type(t.element, ns)
-            elem_js = js_name_for_type(t.element, prefix)
-            py = f'Track{elem_js}'
-            buf.write(f'    bindTrack<{elem_cpp}>(m, "{py}");\n')
-        buf.write('\n')
 
     # Class types.
     for c in other_classes:
