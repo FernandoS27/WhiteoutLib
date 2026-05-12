@@ -98,8 +98,17 @@ static constexpr u32 IgnoreLocale   = 0x00000001; ///< Return first match regard
 // ============================================================================
 
 namespace StorageFeatureFlags {
-static constexpr u32 None          = 0x00000000;
-static constexpr u32 LoadOnDemand  = 0x00000001; ///< Defer encoding/root loading until first use.
+static constexpr u32 None               = 0x00000000;
+static constexpr u32 LoadOnDemand       = 0x00000001; ///< Defer encoding/root loading until first use.
+static constexpr u32 LazyVfsSubmanifest = 0x00000002; ///< Resolve VFS sub-manifests on demand, not via upfront prefetch.
+static constexpr u32 LazyArchiveIndex   = 0x00000004; ///< Fault in archive .index files per archive on first miss.
+static constexpr u32 LazyEncodingFrames = 0x00000008; ///< Decode encoding-table BLTE frames on demand.
+static constexpr u32 LazyIdxBuckets     = 0x00000010; ///< Local-only: parse .idx buckets on first lookup.
+
+/// Convenience alias enabling every lazy behaviour. Default for online storage.
+static constexpr u32 FullLazy = LoadOnDemand | LazyVfsSubmanifest |
+                                LazyArchiveIndex | LazyEncodingFrames |
+                                LazyIdxBuckets;
 } // namespace StorageFeatureFlags
 
 // ============================================================================
@@ -323,8 +332,9 @@ struct OnlineOpenOptions {
     /// Locale filter (0 = accept all).
     u32 localeMask = LocaleMasks::None;
 
-    /// Feature flags (e.g. LoadOnDemand).
-    u32 flags = StorageFeatureFlags::None;
+    /// Feature flags. Defaults to FullLazy — call Storage::prefetch() to
+    /// restore eager warm-on-open behaviour.
+    u32 flags = StorageFeatureFlags::FullLazy;
 
     /// Progress callback.
     ProgressCallback progressCallback = nullptr;

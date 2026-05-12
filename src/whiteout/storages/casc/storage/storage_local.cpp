@@ -361,6 +361,7 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     auto& impl = *implPtr;
     impl.pool = opts.pool;
     impl.localeMask = opts.localeMask;
+    impl.featureFlags = opts.flags;
     impl.listfileData = opts.listfile;
 
     impl.localState = std::make_unique<LocalState>();
@@ -370,12 +371,16 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     if (opts.memoryCacheSize > 0)
         impl.memCache = std::make_unique<MemoryCache>(opts.memoryCacheSize);
 
-    // Step 3: Load the basic index table up-front so build config fallback
-    // can validate candidates against it.
+    // The index table is needed up-front so the build-config fallback can
+    // verify candidates. LazyIdxBuckets defers per-bucket parsing only.
     progress(ProgressStep::LoadingIndexFiles);
-    impl.localState->indexTable = IndexTable::load(dataPath, opts.pool);
+    if (opts.flags & StorageFeatureFlags::LazyIdxBuckets) {
+        impl.localState->indexTable = IndexTable::loadLazyBuckets(dataPath, opts.pool);
+    } else {
+        impl.localState->indexTable = IndexTable::load(dataPath, opts.pool);
+    }
 
-    if (impl.localState->indexTable.entryCount() == 0) {
+    if (!impl.localState->indexTable.isValid()) {
         s_lastError = kIndexLoadFailed;
         if (opts.errorOut)
             *opts.errorOut = "No usable .idx files under '" + dataPath + "/data'";
@@ -411,9 +416,15 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
             impl.cdnConfig = std::move(*fallback);
     }
 
-    if (!impl.cdnConfig.archiveEKeys.empty())
-        impl.localState->indexTable.loadArchiveIndices(
-            dataPath, impl.cdnConfig.archiveEKeys, opts.pool);
+    if (!impl.cdnConfig.archiveEKeys.empty()) {
+        if (opts.flags & StorageFeatureFlags::LazyArchiveIndex) {
+            impl.localState->indexTable.loadArchiveIndicesLazy(
+                dataPath, impl.cdnConfig.archiveEKeys, opts.pool);
+        } else {
+            impl.localState->indexTable.loadArchiveIndices(
+                dataPath, impl.cdnConfig.archiveEKeys, opts.pool);
+        }
+    }
 
     // Step 6: Memory-map data archives.
     progress(ProgressStep::MappingArchives);

@@ -237,8 +237,8 @@ public:
     /// Clear the in-memory decoded-data cache (container cache).
     void flushCache();
 
-    /// Prefetch the encoding table and root manifest into memory.
-    /// Useful for LoadOnDemand mode.
+    /// Force every deferred load (encoding, root, VFS, index files,
+    /// orphan bitvector) to resolve. Idempotent.
     bool prefetch();
 
     /// @return Last error code (thread-local).

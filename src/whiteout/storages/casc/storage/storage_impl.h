@@ -176,6 +176,7 @@ struct WriteOverlay {
 struct Storage::Impl {
     interfaces::WorkerPool* pool = nullptr;
     u32 localeMask = 0;
+    u32 featureFlags = StorageFeatureFlags::None; ///< From OpenOptions::flags / OnlineOpenOptions::flags.
 
     /// External listfile data (caller-owned, must outlive Storage).
     std::span<const u8> listfileData;
@@ -208,9 +209,13 @@ struct Storage::Impl {
     mutable std::once_flag deferOnce;
     mutable bool deferLoadOk = true;
 
-    /// Pre-built bitvector: m_encodingReferenced[i] = true iff encoding entry i
-    /// is referenced by at least one root entry. Used by enumerate() for orphans.
+    /// m_encodingReferenced[i] = true iff encoding entry i is referenced by
+    /// some root entry. Used by enumerate() to skip non-orphans.
     mutable std::vector<bool> m_encodingReferenced;
+    mutable std::once_flag m_encodingReferencedFlag;
+
+    /// Builds m_encodingReferenced. Idempotent; forces ensureFullyParsed.
+    void ensureEncodingReferenced() const;
 
     // ── State queries ────────────────────────────────────────────
 

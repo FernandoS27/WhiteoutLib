@@ -36,6 +36,30 @@ BlteDecodeResult blteDecode(std::span<const u8> blteData,
                             interfaces::WorkerPool* pool = nullptr);
 
 // ============================================================================
+// BLTE Frame-Level Access
+// ============================================================================
+
+/// Frame metadata extracted from the BLTE header without decoding bodies.
+struct BlteFrameLayout {
+    struct Frame {
+        u32 compressedSize;
+        u32 uncompressedSize; ///< 0 for single-frame BLTEs (headerSize==0).
+    };
+    std::vector<Frame> frames;
+    std::vector<size_t> offsets;
+    bool valid = false;
+    std::string error;
+};
+
+BlteFrameLayout blteParseFrameLayout(std::span<const u8> blteData);
+
+struct BlteBatchResult;
+BlteBatchResult blteDecodeFrame(std::span<const u8> blteData,
+                                const BlteFrameLayout& layout,
+                                size_t frameIdx,
+                                const KeyRing* keys = nullptr);
+
+// ============================================================================
 // BLTE Batch Decode
 // ============================================================================
 

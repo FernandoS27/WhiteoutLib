@@ -17,6 +17,7 @@
 #include "cdn_fetcher.h"
 
 #include <array>
+#include <memory>
 #include <span>
 #include <string>
 #include <unordered_map>
@@ -24,43 +25,54 @@
 
 namespace whiteout::storages::casc {
 
-/// Online (CDN) index table — maps EKey prefixes to archive locations.
+/// Maps EKey prefixes to (archive, offset, size). Eager via parse/loadAll/
+/// loadLoose, or lazy via makeLazy (faults in one .index file per missed
+/// archive). Lazy form is thread-safe.
 class OnlineIndexTable {
 public:
     struct Entry {
-        u32 archiveIndex;   ///< Index into CdnConfig.archiveEKeys.
-        u64 archiveOffset;  ///< Byte offset within the CDN archive.
-        u32 encodedSize;    ///< BLTE-encoded size.
+        u32 archiveIndex;
+        u64 archiveOffset;
+        u32 encodedSize;
     };
 
-    /// Parse a single CDN-format .index file.
-    /// @param data          Raw .index file contents.
-    /// @param archiveIndex  Index into CdnConfig.archiveEKeys for this archive.
-    /// @return Parsed table (may be empty on parse error).
-    static OnlineIndexTable parse(std::span<const u8> data, u32 archiveIndex);
+    OnlineIndexTable();
+    ~OnlineIndexTable();
+    OnlineIndexTable(OnlineIndexTable&&) noexcept;
+    OnlineIndexTable& operator=(OnlineIndexTable&&) noexcept;
+    OnlineIndexTable(const OnlineIndexTable&) = delete;
+    OnlineIndexTable& operator=(const OnlineIndexTable&) = delete;
 
-    /// Load all archive indices from CDN via fetcher (synchronous).
-    /// Uses WorkerPool for parallel fetching if available.
+    static OnlineIndexTable parse(std::span<const u8> data, u32 archiveIndex);
     static OnlineIndexTable loadAll(CdnFetcher& fetcher,
                                     const std::vector<std::array<u8, 16>>& archiveEKeys,
                                     interfaces::WorkerPool* pool = nullptr);
-
-    /// Load loose-file index from CDN.
     static OnlineIndexTable loadLoose(CdnFetcher& fetcher,
                                       const std::string& fileIndexKey);
 
-    /// Lookup by EKey prefix (first 9 bytes).
+    /// Lazy variant — pointer args must outlive the table.
+    static OnlineIndexTable makeLazy(CdnFetcher* fetcher,
+                                     const std::vector<std::array<u8, 16>>* archiveEKeys,
+                                     interfaces::WorkerPool* pool = nullptr);
+
+    /// First 9 bytes of eKeyPrefix are matched. Lazy mode may block on CDN.
+    /// Returned pointer is stable across subsequent inserts.
     const Entry* find(std::span<const u8> eKeyPrefix) const;
 
-    /// Merge entries from another table into this one.
     void merge(const OnlineIndexTable& other);
+    size_t entryCount() const;
 
-    size_t entryCount() const { return m_entries.size(); }
+    /// Force every pending archive index to load. No-op for eager tables.
+    void ensureAllLoaded() const;
 
 private:
     static u64 eKeyHash(std::span<const u8> eKey);
+    void loadArchive(u32 archiveIndex) const;
 
-    std::unordered_map<u64, Entry> m_entries;
+    mutable std::unordered_map<u64, Entry> m_entries;
+
+    struct LazyState;
+    mutable std::unique_ptr<LazyState> m_lazy;
 };
 
 } // namespace whiteout::storages::casc

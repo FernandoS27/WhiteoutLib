@@ -10,6 +10,7 @@
 #include <whiteout/interfaces.h>
 
 #include <array>
+#include <memory>
 #include <span>
 #include <string>
 #include <utility>
@@ -29,37 +30,59 @@ struct IndexEntry {
 
 class IndexTable {
 public:
-    /// Load from scanning .idx files in a data directory.
-    /// @param dataDir Path to the CASC Data directory containing .idx files.
-    /// @param pool    Optional worker pool for parallel .idx parsing.
+    IndexTable();
+    ~IndexTable();
+    IndexTable(IndexTable&&) noexcept;
+    IndexTable& operator=(IndexTable&&) noexcept;
+    IndexTable(const IndexTable&) = delete;
+    IndexTable& operator=(const IndexTable&) = delete;
+
+    /// Eagerly parse every .idx in the Data dir.
     static IndexTable load(const std::string& dataDir,
                            interfaces::WorkerPool* pool = nullptr);
 
-    /// Load per-archive .index files from the indices/ subdirectory.
-    /// @param dataDir      Path to the CASC Data directory.
-    /// @param archiveEKeys Ordered list of archive EKeys from the CDN config.
-    /// @param pool         Optional worker pool for parallel parsing.
+    /// Discover .idx files but defer parsing each bucket until find() needs it.
+    static IndexTable loadLazyBuckets(const std::string& dataDir,
+                                      interfaces::WorkerPool* pool = nullptr);
+
+    void ensureAllBucketsLoaded() const;
+
+    /// True if header parsed (eager populated entries or lazy state ready).
+    /// Distinct from entryCount()==0 — lazy tables start at 0.
+    bool isValid() const;
+
     void loadArchiveIndices(const std::string& dataDir,
                             const std::vector<std::array<u8, 16>>& archiveEKeys,
                             interfaces::WorkerPool* pool = nullptr);
 
-    /// Lookup by EKey (prefix match using first 9 bytes).
+    /// Lazy variant — archives parsed on first find() miss.
+    void loadArchiveIndicesLazy(const std::string& dataDir,
+                                const std::vector<std::array<u8, 16>>& archiveEKeys,
+                                interfaces::WorkerPool* pool = nullptr);
+
+    void ensureAllArchivesLoaded() const;
+
+    /// Matches first 9 bytes of eKeyPrefix.
     const IndexEntry* find(std::span<const u8> eKeyPrefix) const;
 
-    /// For write path: add an entry.
     void insert(const IndexEntry& entry);
-
-    /// Serialize all entries back to .idx file contents.
-    /// Returns pairs of (filename, data).
     std::vector<std::pair<std::string, std::vector<u8>>> serialize() const;
 
-    size_t entryCount() const { return m_entries.size(); }
+    size_t entryCount() const;
 
 private:
-    /// Hash key derived from first 9 bytes of EKey.
     static u64 eKeyHash(std::span<const u8> eKey);
 
+    void loadArchive(u32 archiveIdx) const;
+    void loadBucket(u8 bucket) const;
+
     FlatHashMap<IndexEntry> m_entries;
+
+    struct LazyArchives;
+    mutable std::unique_ptr<LazyArchives> m_lazyArchives;
+
+    struct LazyBuckets;
+    mutable std::unique_ptr<LazyBuckets> m_lazyBuckets;
 };
 
 } // namespace whiteout::storages::casc

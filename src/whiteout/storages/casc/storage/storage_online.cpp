@@ -135,6 +135,7 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
     auto& impl = *implPtr;
     impl.pool = opts.pool;
     impl.localeMask = opts.localeMask;
+    impl.featureFlags = opts.flags;
     impl.listfileData = opts.listfile;
 
     impl.onlineState = std::make_unique<OnlineState>();
@@ -319,8 +320,15 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
     // Step 6: Fetch archive index files + speculatively fetch encoding table.
     if (!reportProgress(ProgressStep::LoadingIndexFiles)) return std::nullopt;
 
+    const bool lazyArchives = (opts.flags & StorageFeatureFlags::LazyArchiveIndex) != 0;
+    const bool skipSpeculative = (opts.flags & StorageFeatureFlags::LoadOnDemand) != 0;
+
+    if (lazyArchives) {
+        impl.onlineState->onlineIndex = OnlineIndexTable::makeLazy(
+            impl.onlineState->fetcher.get(), &impl.cdnConfig.archiveEKeys, impl.pool);
+    }
+
     std::shared_ptr<std::vector<u8>> speculativeEncoding;
-    bool skipSpeculative = (opts.flags & StorageFeatureFlags::LoadOnDemand) != 0;
     if (!skipSpeculative) {
         struct EncFetchState {
             std::atomic<bool> done{false};
@@ -339,8 +347,10 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
                 encState->cv.notify_one();
             });
 
-        impl.onlineState->onlineIndex = OnlineIndexTable::loadAll(
-            *impl.onlineState->fetcher, impl.cdnConfig.archiveEKeys, impl.pool);
+        if (!lazyArchives) {
+            impl.onlineState->onlineIndex = OnlineIndexTable::loadAll(
+                *impl.onlineState->fetcher, impl.cdnConfig.archiveEKeys, impl.pool);
+        }
 
         if (!encState->done.load(std::memory_order_acquire)) {
             std::unique_lock<std::mutex> lk(encState->mtx);
@@ -348,7 +358,7 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
                 return encState->done.load(std::memory_order_acquire);
             });
         }
-    } else {
+    } else if (!lazyArchives) {
         impl.onlineState->onlineIndex = OnlineIndexTable::loadAll(
             *impl.onlineState->fetcher, impl.cdnConfig.archiveEKeys, impl.pool);
     }

@@ -269,6 +269,7 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
     std::vector<u8> compressedData; // Concatenated IDAT data.
 
     while (pos + 12 <= buffer.size()) {
+        bool exit = false;
         u32 chunkLen = readU32BE(buffer.data() + pos);
         u32 chunkType = readU32BE(buffer.data() + pos + 4);
 
@@ -364,17 +365,21 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
         }
 
         case CHUNK_IEND:
-            goto done_parsing;
+            exit = true;
+            break;
 
         default:
             // Skip unknown chunks.
             break;
         }
 
+        if (exit) {
+            break;
+        }
+
         pos += 12 + chunkLen;
     }
 
-done_parsing:
     if (!foundIHDR) {
         fail("No IHDR chunk found");
         return std::nullopt;

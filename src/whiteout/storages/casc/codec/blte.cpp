@@ -324,20 +324,9 @@ BlteDecodeResult blteDecode(std::span<const u8> blteData,
 // BLTE Header Parsing + Single-Frame Decode Helpers
 // ============================================================================
 
-/// Parsed BLTE frame layout for batch decode.
-struct BlteFrameLayout {
-    struct Frame {
-        u32 compressedSize;
-        u32 uncompressedSize;
-    };
-    std::vector<Frame> frames;
-    std::vector<size_t> offsets; ///< Byte offset of each frame's data within the blob.
-    bool valid = false;
-    std::string error;
-};
-
 /// Parse the header and frame table of a BLTE blob, computing frame offsets.
-static BlteFrameLayout parseBlteFrameLayout(std::span<const u8> blob) {
+/// Public API: see blte.h.
+BlteFrameLayout blteParseFrameLayout(std::span<const u8> blob) {
     BlteFrameLayout layout;
 
     if (blob.size() < kBlteMinHeaderSize) {
@@ -418,6 +407,33 @@ static BlteBatchResult decodeSingleFrameBlte(
 }
 
 // ============================================================================
+// Public frame-level API
+// ============================================================================
+
+BlteBatchResult blteDecodeFrame(std::span<const u8> blteData,
+                                const BlteFrameLayout& layout,
+                                size_t frameIdx,
+                                const KeyRing* keys) {
+    BlteBatchResult result;
+    if (!layout.valid || frameIdx >= layout.frames.size()) {
+        result.error = "invalid frame index";
+        return result;
+    }
+    auto& frame = layout.frames[frameIdx];
+    size_t off = layout.offsets[frameIdx];
+    if (off + frame.compressedSize > blteData.size()) {
+        result.error = "frame extends past blob end";
+        return result;
+    }
+    auto payload = blteData.subspan(off, frame.compressedSize);
+    auto fr = decodeFramePayload(payload, frame.uncompressedSize, keys);
+    result.data = std::move(fr.data);
+    result.success = fr.success;
+    result.error = std::move(fr.error);
+    return result;
+}
+
+// ============================================================================
 // BLTE Batch Decode (DAG pipeline)
 // ============================================================================
 
@@ -474,7 +490,7 @@ std::vector<BlteBatchResult> blteDecodeBatch(
         auto& blob = entries[i].blteData;
         auto& layout = layouts[i];
 
-        layout = parseBlteFrameLayout(blob);
+        layout = blteParseFrameLayout(blob);
         if (!layout.valid) {
             results[i].error = std::move(layout.error);
             continue;

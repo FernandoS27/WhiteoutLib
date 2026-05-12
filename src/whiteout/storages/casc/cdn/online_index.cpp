@@ -12,8 +12,23 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 
 namespace whiteout::storages::casc {
+
+// pimpl so OnlineIndexTable stays moveable despite once_flags + mutex.
+struct OnlineIndexTable::LazyState {
+    CdnFetcher* fetcher = nullptr;
+    const std::vector<std::array<u8, 16>>* archiveEKeys = nullptr;
+    interfaces::WorkerPool* pool = nullptr;
+    std::vector<std::once_flag> archiveFlags;
+    mutable std::shared_mutex mutex;
+};
+
+OnlineIndexTable::OnlineIndexTable() = default;
+OnlineIndexTable::~OnlineIndexTable() = default;
+OnlineIndexTable::OnlineIndexTable(OnlineIndexTable&&) noexcept = default;
+OnlineIndexTable& OnlineIndexTable::operator=(OnlineIndexTable&&) noexcept = default;
 
 // ============================================================================
 // Hash
@@ -190,14 +205,87 @@ OnlineIndexTable OnlineIndexTable::parse(std::span<const u8> data, u32 archiveIn
 
 const OnlineIndexTable::Entry* OnlineIndexTable::find(std::span<const u8> eKeyPrefix) const {
     u64 hash = eKeyHash(eKeyPrefix);
-    auto it = m_entries.find(hash);
-    return (it != m_entries.end()) ? &it->second : nullptr;
+
+    if (!m_lazy) {
+        auto it = m_entries.find(hash);
+        return (it != m_entries.end()) ? &it->second : nullptr;
+    }
+
+    {
+        std::shared_lock<std::shared_mutex> lk(m_lazy->mutex);
+        auto it = m_entries.find(hash);
+        if (it != m_entries.end()) return &it->second;
+    }
+
+    // Fault in archives one at a time; terminates on hit or when all loaded.
+    const size_t N = m_lazy->archiveEKeys ? m_lazy->archiveEKeys->size() : 0;
+    for (size_t i = 0; i < N; ++i) {
+        loadArchive(u32(i));
+        std::shared_lock<std::shared_mutex> lk(m_lazy->mutex);
+        auto it = m_entries.find(hash);
+        if (it != m_entries.end()) return &it->second;
+    }
+    return nullptr;
 }
 
 void OnlineIndexTable::merge(const OnlineIndexTable& other) {
     for (auto& [hash, entry] : other.m_entries) {
         m_entries.insert_or_assign(hash, entry);
     }
+}
+
+size_t OnlineIndexTable::entryCount() const {
+    if (m_lazy) {
+        std::shared_lock<std::shared_mutex> lk(m_lazy->mutex);
+        return m_entries.size();
+    }
+    return m_entries.size();
+}
+
+// ============================================================================
+// Lazy mode
+// ============================================================================
+
+OnlineIndexTable OnlineIndexTable::makeLazy(
+    CdnFetcher* fetcher,
+    const std::vector<std::array<u8, 16>>* archiveEKeys,
+    interfaces::WorkerPool* pool) {
+
+    OnlineIndexTable table;
+    table.m_lazy = std::make_unique<LazyState>();
+    table.m_lazy->fetcher = fetcher;
+    table.m_lazy->archiveEKeys = archiveEKeys;
+    table.m_lazy->pool = pool;
+    if (archiveEKeys)
+        table.m_lazy->archiveFlags = std::vector<std::once_flag>(archiveEKeys->size());
+    return table;
+}
+
+void OnlineIndexTable::loadArchive(u32 archiveIndex) const {
+    if (!m_lazy || !m_lazy->fetcher || !m_lazy->archiveEKeys) return;
+    if (archiveIndex >= m_lazy->archiveEKeys->size()) return;
+
+    std::call_once(m_lazy->archiveFlags[archiveIndex], [&]() {
+        auto keyHex = storages::common::hexEncode16(
+            (*m_lazy->archiveEKeys)[archiveIndex]);
+        auto indexKeyHex = keyHex + ".index";
+        auto data = m_lazy->fetcher->fetch("data", indexKeyHex);
+        if (!data || data->empty()) return;
+
+        auto parsed = OnlineIndexTable::parse(*data, archiveIndex);
+
+        std::unique_lock<std::shared_mutex> lk(m_lazy->mutex);
+        for (auto& [hash, entry] : parsed.m_entries) {
+            m_entries.insert_or_assign(hash, entry);
+        }
+    });
+}
+
+void OnlineIndexTable::ensureAllLoaded() const {
+    if (!m_lazy || !m_lazy->archiveEKeys) return;
+    const size_t N = m_lazy->archiveEKeys->size();
+    for (size_t i = 0; i < N; ++i)
+        loadArchive(u32(i));
 }
 
 // ============================================================================

@@ -13,8 +13,37 @@
 #include <cstring>
 #include <filesystem>
 #include <mutex>
+#include <shared_mutex>
+#include <unordered_map>
 
 namespace whiteout::storages::casc {
+
+// pimpls so IndexTable stays moveable despite once_flags + mutex.
+
+struct IndexTable::LazyArchives {
+    interfaces::WorkerPool* pool = nullptr;
+    std::vector<std::filesystem::path> archivePaths; // [i] empty if no file
+    std::vector<std::once_flag> flags;
+    std::unordered_map<u64, IndexEntry> entries;
+    mutable std::shared_mutex mutex;
+};
+
+// Bucket from EKey is (eKey[0] >> 4) & 0x0F (matches serialize). find()
+// faults that bucket first, then fans out across the rest as a safety net
+// in case Blizzard's actual file assignment ever diverges from our formula.
+struct IndexTable::LazyBuckets {
+    interfaces::WorkerPool* pool = nullptr;
+    std::array<std::vector<std::filesystem::path>, 16> bucketFiles;
+    std::array<std::once_flag, 16> flags;
+    std::unordered_map<u64, IndexEntry> entries;
+    mutable std::shared_mutex mutex;
+    bool nonEmpty = false;
+};
+
+IndexTable::IndexTable() = default;
+IndexTable::~IndexTable() = default;
+IndexTable::IndexTable(IndexTable&&) noexcept = default;
+IndexTable& IndexTable::operator=(IndexTable&&) noexcept = default;
 
 // ---- Constants local to index file codec ----
 
@@ -183,6 +212,96 @@ u64 IndexTable::eKeyHash(std::span<const u8> eKey) {
         h ^= static_cast<u64>(eKey[i]) << ((i - 8) * 8);
     return h;
 }
+
+namespace {
+
+/// Group .idx files by bucket (0..15), keeping best-per-(dir,bucket).
+/// Multiple dirs (data/, darch/) can each contribute one file per bucket.
+std::array<std::vector<std::filesystem::path>, 16>
+discoverIdxFilesByBucket(const std::string& dataDir) {
+    namespace fs = std::filesystem;
+    std::array<std::vector<fs::path>, 16> byBucket;
+
+    std::vector<fs::path> idxPaths;
+
+    // Try the known primary index directories first (matching CascLib).
+    std::string primaryDir;
+    for (auto& name : {"data", "darch"}) {
+        std::string candidate = dataDir + "/" + name;
+        if (fs::exists(candidate) && fs::is_directory(candidate)) {
+            primaryDir = candidate;
+            break;
+        }
+    }
+
+    if (!primaryDir.empty()) {
+        for (auto& entry : fs::directory_iterator(primaryDir)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".idx")
+                idxPaths.push_back(entry.path());
+        }
+    }
+
+    // Fallback: scan subdirectories.
+    if (idxPaths.empty() && fs::exists(dataDir)) {
+        for (auto& dirEntry : fs::directory_iterator(dataDir)) {
+            if (!dirEntry.is_directory()) continue;
+            for (auto& fileEntry : fs::directory_iterator(dirEntry.path())) {
+                if (fileEntry.is_regular_file() && fileEntry.path().extension() == ".idx")
+                    idxPaths.push_back(fileEntry.path());
+            }
+        }
+    }
+    // Fallback: flat layout.
+    if (idxPaths.empty() && fs::exists(dataDir)) {
+        for (auto& entry : fs::directory_iterator(dataDir)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".idx")
+                idxPaths.push_back(entry.path());
+        }
+    }
+
+    // Filename: {bucket:02x}{version:08x}.idx — first 2 chars give bucket.
+    auto parseBucket = [](const std::string& stem) -> u8 {
+        u8 bucket = 0;
+        for (int i = 0; i < 2 && i < int(stem.size()); ++i) {
+            char c = stem[i];
+            u8 nibble = 0;
+            if (c >= '0' && c <= '9') nibble = u8(c - '0');
+            else if (c >= 'a' && c <= 'f') nibble = u8(c - 'a' + 10);
+            else if (c >= 'A' && c <= 'F') nibble = u8(c - 'A' + 10);
+            bucket = (bucket << 4) | nibble;
+        }
+        return bucket;
+    };
+
+    // Pick best (highest stem string compare ≡ highest version) per
+    // (directory, bucket). Same logic the original eager loader used.
+    std::unordered_map<std::string, std::unordered_map<u8, fs::path>> bestByDirBucket;
+    for (auto& p : idxPaths) {
+        auto stem = p.stem().string();
+        if (stem.size() < 4) continue;
+        u8 bucket = parseBucket(stem);
+        auto& slot = bestByDirBucket[p.parent_path().string()][bucket];
+        if (slot.empty() || stem > slot.stem().string())
+            slot = p;
+    }
+
+    for (auto& [_, perBucket] : bestByDirBucket) {
+        for (auto& [bucket, path] : perBucket) {
+            if (bucket < 16) // skip out-of-range buckets — CascLib uses 16.
+                byBucket[bucket].push_back(path);
+        }
+    }
+    return byBucket;
+}
+
+void parseIdxFileIntoVector(const std::filesystem::path& path,
+                             std::vector<IndexEntry>& out) {
+    auto mf = common::MappedFile::open(path.string());
+    if (mf)
+        parseIdxFile(mf->ptr(), mf->size(), out);
+}
+
+} // namespace
 
 // ============================================================================
 // IndexTable::load
@@ -563,16 +682,230 @@ void IndexTable::loadArchiveIndices(const std::string& dataDir,
 
 const IndexEntry* IndexTable::find(std::span<const u8> eKeyPrefix) const {
     u64 h = eKeyHash(eKeyPrefix);
-    auto* ptr = m_entries.find(h);
-    if (!ptr)
+    const size_t cmpLen = std::min(eKeyPrefix.size(), size_t(9));
+
+    // Eager m_entries first — populated at open, frozen thereafter (no lock).
+    // u64 hash collisions fall through to the lazy maps below.
+    if (auto* ptr = m_entries.find(h)) {
+        if (std::memcmp(ptr->eKey.data(), eKeyPrefix.data(), cmpLen) == 0)
+            return ptr;
+    }
+
+    if (m_lazyBuckets) {
+        auto checkLazyBuckets = [&]() -> const IndexEntry* {
+            std::shared_lock<std::shared_mutex> lk(m_lazyBuckets->mutex);
+            auto it = m_lazyBuckets->entries.find(h);
+            if (it != m_lazyBuckets->entries.end() &&
+                std::memcmp(it->second.eKey.data(), eKeyPrefix.data(), cmpLen) == 0)
+                return &it->second;
+            return nullptr;
+        };
+        if (auto* hit = checkLazyBuckets()) return hit;
+
+        if (!eKeyPrefix.empty()) {
+            u8 firstBucket = u8((eKeyPrefix[0] >> 4) & 0x0F);
+            loadBucket(firstBucket);
+            if (auto* hit = checkLazyBuckets()) return hit;
+
+            for (u8 b = 0; b < 16; ++b) {
+                if (b == firstBucket) continue;
+                if (m_lazyBuckets->bucketFiles[b].empty()) continue;
+                loadBucket(b);
+                if (auto* hit = checkLazyBuckets()) return hit;
+            }
+        }
+    }
+
+    if (!m_lazyArchives)
         return nullptr;
 
-    // Verify that the prefix actually matches (collision check).
-    size_t cmpLen = std::min(eKeyPrefix.size(), size_t(9));
-    if (std::memcmp(ptr->eKey.data(), eKeyPrefix.data(), cmpLen) != 0)
-        return nullptr;
+    {
+        std::shared_lock<std::shared_mutex> lk(m_lazyArchives->mutex);
+        auto it = m_lazyArchives->entries.find(h);
+        if (it != m_lazyArchives->entries.end() &&
+            std::memcmp(it->second.eKey.data(), eKeyPrefix.data(), cmpLen) == 0) {
+            return &it->second;
+        }
+    }
 
-    return ptr;
+    const size_t N = m_lazyArchives->archivePaths.size();
+    for (size_t i = 0; i < N; ++i) {
+        if (m_lazyArchives->archivePaths[i].empty()) continue;
+        loadArchive(u32(i));
+        std::shared_lock<std::shared_mutex> lk(m_lazyArchives->mutex);
+        auto it = m_lazyArchives->entries.find(h);
+        if (it != m_lazyArchives->entries.end() &&
+            std::memcmp(it->second.eKey.data(), eKeyPrefix.data(), cmpLen) == 0) {
+            return &it->second;
+        }
+    }
+    return nullptr;
+}
+
+size_t IndexTable::entryCount() const {
+    size_t n = m_entries.size();
+    if (m_lazyArchives) {
+        std::shared_lock<std::shared_mutex> lk(m_lazyArchives->mutex);
+        n += m_lazyArchives->entries.size();
+    }
+    if (m_lazyBuckets) {
+        std::shared_lock<std::shared_mutex> lk(m_lazyBuckets->mutex);
+        n += m_lazyBuckets->entries.size();
+    }
+    return n;
+}
+
+// ============================================================================
+// IndexTable lazy archive loading
+// ============================================================================
+
+namespace {
+
+/// Discover which .index files live on disk and which archives they correspond
+/// to. Shared by eager and lazy paths. Returns the directory and a parallel
+/// `(path, archiveIndex)` job list. Empty `outDir` ⇒ nothing found.
+struct ArchiveDiscovery {
+    std::string indicesDir;
+    std::vector<std::filesystem::path> paths;     // paths[i] = path for archive i, empty if missing
+};
+
+ArchiveDiscovery discoverArchiveIndices(
+    const std::string& dataDir,
+    const std::vector<std::array<u8, 16>>& archiveEKeys) {
+
+    namespace fs = std::filesystem;
+    ArchiveDiscovery out;
+    out.paths.assign(archiveEKeys.size(), fs::path{});
+
+    if (archiveEKeys.empty()) return out;
+
+    for (auto& candidate : {dataDir + "/indices", dataDir + "/data"}) {
+        if (fs::exists(candidate) && fs::is_directory(candidate)) {
+            for (auto& entry : fs::directory_iterator(candidate)) {
+                if (entry.is_regular_file() && entry.path().extension() == ".index") {
+                    out.indicesDir = candidate;
+                    break;
+                }
+            }
+            if (!out.indicesDir.empty()) break;
+        }
+    }
+    if (out.indicesDir.empty()) return out;
+
+    auto toHex = [](const std::array<u8, 16>& key) -> std::string {
+        static constexpr char hex[] = "0123456789abcdef";
+        std::string s;
+        s.reserve(32);
+        for (u8 b : key) { s += hex[b >> 4]; s += hex[b & 0xF]; }
+        return s;
+    };
+
+    for (size_t i = 0; i < archiveEKeys.size(); ++i) {
+        fs::path indexPath = fs::path(out.indicesDir) / (toHex(archiveEKeys[i]) + ".index");
+        if (fs::exists(indexPath))
+            out.paths[i] = std::move(indexPath);
+    }
+    return out;
+}
+
+} // namespace
+
+void IndexTable::loadArchiveIndicesLazy(
+    const std::string& dataDir,
+    const std::vector<std::array<u8, 16>>& archiveEKeys,
+    interfaces::WorkerPool* pool) {
+
+    auto disco = discoverArchiveIndices(dataDir, archiveEKeys);
+
+    // Set up lazy state even if no .index files are on disk — keeps the
+    // mode flag consistent and makes ensureAllArchivesLoaded a clean no-op.
+    auto state = std::make_unique<LazyArchives>();
+    state->pool = pool;
+    state->archivePaths = std::move(disco.paths);
+    state->flags = std::vector<std::once_flag>(state->archivePaths.size());
+
+    m_lazyArchives = std::move(state);
+}
+
+void IndexTable::loadArchive(u32 archiveIdx) const {
+    if (!m_lazyArchives) return;
+    if (archiveIdx >= m_lazyArchives->archivePaths.size()) return;
+    auto& path = m_lazyArchives->archivePaths[archiveIdx];
+    if (path.empty()) return;
+
+    std::call_once(m_lazyArchives->flags[archiveIdx], [&]() {
+        auto mf = common::MappedFile::open(path.string());
+        if (!mf) return;
+
+        std::vector<IndexEntry> entries;
+        parseArchiveIndexFile(mf->ptr(), mf->size(), archiveIdx, entries);
+        if (entries.empty()) return;
+
+        std::unique_lock<std::shared_mutex> lk(m_lazyArchives->mutex);
+        for (auto& e : entries) {
+            u64 h = eKeyHash(std::span(e.eKey.data(), 9));
+            m_lazyArchives->entries.emplace(h, e);
+        }
+    });
+}
+
+void IndexTable::ensureAllArchivesLoaded() const {
+    if (!m_lazyArchives) return;
+    const size_t N = m_lazyArchives->archivePaths.size();
+    for (size_t i = 0; i < N; ++i)
+        loadArchive(u32(i));
+}
+
+// ============================================================================
+// IndexTable::loadLazyBuckets + loadBucket + ensureAllBucketsLoaded
+// ============================================================================
+
+IndexTable IndexTable::loadLazyBuckets(const std::string& dataDir,
+                                       interfaces::WorkerPool* pool) {
+    IndexTable table;
+    auto byBucket = discoverIdxFilesByBucket(dataDir);
+
+    auto state = std::make_unique<LazyBuckets>();
+    state->pool = pool;
+    state->bucketFiles = std::move(byBucket);
+    for (auto& v : state->bucketFiles)
+        if (!v.empty()) { state->nonEmpty = true; break; }
+
+    table.m_lazyBuckets = std::move(state);
+    return table;
+}
+
+void IndexTable::loadBucket(u8 bucket) const {
+    if (!m_lazyBuckets) return;
+    if (bucket >= 16) return;
+    auto& paths = m_lazyBuckets->bucketFiles[bucket];
+    if (paths.empty()) return;
+
+    std::call_once(m_lazyBuckets->flags[bucket], [&]() {
+        std::vector<IndexEntry> entries;
+        for (auto& path : paths)
+            parseIdxFileIntoVector(path, entries);
+        if (entries.empty()) return;
+
+        std::unique_lock<std::shared_mutex> lk(m_lazyBuckets->mutex);
+        for (auto& e : entries) {
+            u64 h = eKeyHash(std::span(e.eKey.data(), 9));
+            m_lazyBuckets->entries.emplace(h, e);
+        }
+    });
+}
+
+void IndexTable::ensureAllBucketsLoaded() const {
+    if (!m_lazyBuckets) return;
+    for (u8 b = 0; b < 16; ++b)
+        loadBucket(b);
+}
+
+bool IndexTable::isValid() const {
+    if (m_entries.size() > 0) return true;
+    if (m_lazyBuckets && m_lazyBuckets->nonEmpty) return true;
+    if (m_lazyArchives && !m_lazyArchives->archivePaths.empty()) return true;
+    return false;
 }
 
 // ============================================================================
@@ -589,13 +922,28 @@ void IndexTable::insert(const IndexEntry& entry) {
 // ============================================================================
 
 std::vector<std::pair<std::string, std::vector<u8>>> IndexTable::serialize() const {
+    // Force any lazy state to fully materialise — serialize() promises a
+    // complete on-disk representation.
+    ensureAllBucketsLoaded();
+    ensureAllArchivesLoaded();
+
     // Group entries by bucket (first nibble of EKey).
     std::vector<std::vector<const IndexEntry*>> buckets(kIdxNumBuckets);
 
-    m_entries.forEach([&buckets](u64 /*key*/, const IndexEntry& entry) {
+    auto add = [&buckets](const IndexEntry& entry) {
         u8 bucket = (entry.eKey[0] >> 4) & 0x0F;
         buckets[bucket].push_back(&entry);
-    });
+    };
+
+    m_entries.forEach([&add](u64 /*key*/, const IndexEntry& entry) { add(entry); });
+    if (m_lazyBuckets) {
+        std::shared_lock<std::shared_mutex> lk(m_lazyBuckets->mutex);
+        for (auto& [_, entry] : m_lazyBuckets->entries) add(entry);
+    }
+    if (m_lazyArchives) {
+        std::shared_lock<std::shared_mutex> lk(m_lazyArchives->mutex);
+        for (auto& [_, entry] : m_lazyArchives->entries) add(entry);
+    }
 
     std::vector<std::pair<std::string, std::vector<u8>>> result;
 

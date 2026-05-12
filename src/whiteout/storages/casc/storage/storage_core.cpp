@@ -19,6 +19,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <memory>
+#include <mutex>
 #include <sstream>
 #include <string_view>
 
@@ -305,6 +307,29 @@ const EncodingEntry* Storage::Impl::resolveEncoding(const RootEntry& re) const {
     return nullptr;
 }
 
+void Storage::Impl::ensureEncodingReferenced() const {
+    std::call_once(m_encodingReferencedFlag, [this]() {
+        // entries() forces ensureFullyParsed, which we need for pointer math.
+        const auto& encEntries = encodingTable.entries();
+        m_encodingReferenced.assign(encEntries.size(), false);
+        if (!root) return;
+
+        const auto* encBase = encEntries.data();
+        root->resolveEntries([&](RootEntry& e) {
+            const EncodingEntry* enc = nullptr;
+            if (!isZeroKey(e.cKey))
+                enc = encodingTable.findByCKey(e.cKey, kEKeyTruncSize);
+            if (!enc && !isZeroKey(e.eKey))
+                enc = encodingTable.findByEKey(e.eKey, kEKeyTruncSize);
+            if (enc) {
+                size_t idx = static_cast<size_t>(enc - encBase);
+                if (idx < m_encodingReferenced.size())
+                    m_encodingReferenced[idx] = true;
+            }
+        });
+    });
+}
+
 std::optional<std::vector<u8>> Storage::Impl::readFileResolved(
     const OverlayKey& key,
     const std::vector<const RootEntry*>& entries,
@@ -377,48 +402,73 @@ bool Storage::Impl::ensureLoaded() const {
 // ============================================================================
 
 bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBlte) const {
-    // Step 1: Fetch encoding table via DataSource (index first, loose fallback).
-    std::vector<u8> encodingBlte;
-
-    if (!prefetchedEncodingBlte.empty()) {
-        encodingBlte.assign(prefetchedEncodingBlte.begin(), prefetchedEncodingBlte.end());
-    }
-
-    if (encodingBlte.empty()) {
-        if (backend) {
-            auto encLoc = backend->findInIndex(eKeyTrunc(buildConfig.encodingEKey));
-            if (encLoc) {
-                encodingBlte = backend->fetchBlte(*encLoc);
-            }
-        } else {
-            auto encLoc = dataSource->findInIndex(eKeyTrunc(buildConfig.encodingEKey));
-            if (encLoc) {
-                encodingBlte = dataSource->fetchBlte(*encLoc);
+    // Try the online + LazyEncodingFrames fast path first: range-fetch
+    // header/TOC, decode pages on demand. Drops first-read encoding bandwidth
+    // from ~50–200 MB to ~few MB.
+    bool encodingReady = false;
+    if (onlineState && onlineState->fetcher &&
+        (featureFlags & StorageFeatureFlags::LazyEncodingFrames) != 0 &&
+        prefetchedEncodingBlte.empty()) {
+        auto encLoc = (backend
+            ? backend->findInIndex(eKeyTrunc(buildConfig.encodingEKey))
+            : dataSource->findInIndex(eKeyTrunc(buildConfig.encodingEKey)));
+        if (encLoc && encLoc->archiveIndex < cdnConfig.archiveEKeys.size()) {
+            auto archiveKeyHex = storages::common::hexEncode16(
+                cdnConfig.archiveEKeys[encLoc->archiveIndex]);
+            encodingTable = EncodingTable::openLazyOnline(
+                onlineState->fetcher.get(), archiveKeyHex,
+                encLoc->offset, encLoc->encodedSize, &keyRing, pool);
+            if (encodingTable.isValid()) {
+                encodingReady = true;
+            } else {
+                encodingTable = EncodingTable{};
             }
         }
     }
 
-    if (encodingBlte.empty()) {
-        // Loose file fallback (online: CDN fetch, local: index scan with full eKey).
-        if (backend)
-            encodingBlte = backend->fetchBlte(buildConfig.encodingEKey);
+    if (!encodingReady) {
+        std::vector<u8> encodingBlte;
+
+        if (!prefetchedEncodingBlte.empty()) {
+            encodingBlte.assign(prefetchedEncodingBlte.begin(), prefetchedEncodingBlte.end());
+        }
+
+        if (encodingBlte.empty()) {
+            if (backend) {
+                if (auto encLoc = backend->findInIndex(eKeyTrunc(buildConfig.encodingEKey)))
+                    encodingBlte = backend->fetchBlte(*encLoc);
+            } else {
+                if (auto encLoc = dataSource->findInIndex(eKeyTrunc(buildConfig.encodingEKey)))
+                    encodingBlte = dataSource->fetchBlte(*encLoc);
+            }
+        }
+
+        if (encodingBlte.empty()) {
+            // Loose-file fallback.
+            if (backend)
+                encodingBlte = backend->fetchBlte(buildConfig.encodingEKey);
+            else
+                encodingBlte = dataSource->fetchBlte(buildConfig.encodingEKey);
+        }
+
+        if (encodingBlte.empty()) {
+            s_lastError = kEncodingNotFound;
+            return false;
+        }
+
+        auto encodingDecoded = blteDecode(encodingBlte, &keyRing, pool);
+        if (!encodingDecoded.success) {
+            s_lastError = kEncodingDecodeFailed;
+            return false;
+        }
+
+        if (featureFlags & StorageFeatureFlags::LazyEncodingFrames)
+            encodingTable = EncodingTable::openLazy(encodingDecoded.data, pool);
         else
-            encodingBlte = dataSource->fetchBlte(buildConfig.encodingEKey);
+            encodingTable = EncodingTable::parse(encodingDecoded.data, pool);
     }
 
-    if (encodingBlte.empty()) {
-        s_lastError = kEncodingNotFound;
-        return false;
-    }
-
-    auto encodingDecoded = blteDecode(encodingBlte, &keyRing, pool);
-    if (!encodingDecoded.success) {
-        s_lastError = kEncodingDecodeFailed;
-        return false;
-    }
-
-    encodingTable = EncodingTable::parse(encodingDecoded.data, pool);
-    if (encodingTable.entryCount() == 0) {
+    if (!encodingTable.isValid()) {
         s_lastError = kEncodingDecodeFailed;
         return false;
     }
@@ -438,28 +488,43 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
             vfsEKeyToCKey[keyHash64(sub.eKey)] = sub.cKey;
         }
 
-        // Dispatch VFS prefetch based on storage type.
+        // Eager prefetch unless LazyVfsSubmanifest is set.
         std::unordered_map<u64, std::vector<u8>> vfsCache;
-        if (backend) {
-            vfsCache = backend->prefetchVfs(*this, vfsEKeys, vfsEKeyToCKey);
-        } else if (isLocal()) {
-            vfsCache = prefetchVfsLocal(*this, vfsEKeys, vfsEKeyToCKey);
-        } else if (isOnline()) {
-            vfsCache = prefetchVfsOnline(*this, vfsEKeys, vfsEKeyToCKey);
+        if (!(featureFlags & StorageFeatureFlags::LazyVfsSubmanifest)) {
+            if (backend) {
+                vfsCache = backend->prefetchVfs(*this, vfsEKeys, vfsEKeyToCKey);
+            } else if (isLocal()) {
+                vfsCache = prefetchVfsLocal(*this, vfsEKeys, vfsEKeyToCKey);
+            } else if (isOnline()) {
+                vfsCache = prefetchVfsOnline(*this, vfsEKeys, vfsEKeyToCKey);
+            }
         }
 
-        VfsResolver vfsResolver = [&vfsCache, this](std::span<const u8> eKey) -> std::vector<u8> {
-            u64 h = keyHash64(eKey.data());
-            auto it = vfsCache.find(h);
-            if (it != vfsCache.end())
-                return it->second;  // copy — sub-manifest may be needed multiple times
+        // TvfsRoot::parse may resolve sub-manifests on the worker pool, so
+        // the fault-in path needs a lock.
+        struct VfsCacheState {
+            std::unordered_map<u64, std::vector<u8>> map;
+            std::mutex mtx;
+        };
+        auto cacheState = std::make_shared<VfsCacheState>();
+        cacheState->map = std::move(vfsCache);
 
-            // Fallback: live resolve (shouldn't normally be needed).
+        VfsResolver vfsResolver = [cacheState, this](std::span<const u8> eKey) -> std::vector<u8> {
+            u64 h = keyHash64(eKey.data());
+            {
+                std::lock_guard<std::mutex> lk(cacheState->mtx);
+                auto it = cacheState->map.find(h);
+                if (it != cacheState->map.end()) return it->second;
+            }
+
             std::array<u8, 16> eKey16{};
             std::memcpy(eKey16.data(), eKey.data(), std::min(eKey.size(), size_t(16)));
             auto result = resolveEKey(eKey16);
-            if (!result.empty()) return result;
-            return {};
+            if (result.empty()) return {};
+
+            std::lock_guard<std::mutex> lk(cacheState->mtx);
+            auto [it, inserted] = cacheState->map.emplace(h, std::move(result));
+            return it->second;
         };
 
         auto vfsData = resolveCKey(buildConfig.vfsRootCKey, pool);
@@ -537,22 +602,28 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
         return false;
     }
 
-    // Step 3: Pre-resolve file sizes and build encoding-referenced bitvector.
-    m_encodingReferenced.assign(encodingTable.entryCount(), false);
-    const auto* encBase = encodingTable.entries().data();
-    root->resolveEntries([this, encBase](RootEntry& e) {
-        const EncodingEntry* enc = nullptr;
-        if (!isZeroKey(e.cKey))
-            enc = encodingTable.findByCKey(e.cKey, kEKeyTruncSize);
-        if (!enc && !isZeroKey(e.eKey))
-            enc = encodingTable.findByEKey(e.eKey, kEKeyTruncSize);
-        if (enc) {
-            e.fileSize = enc->fileSize;
-            if (isZeroKey(e.cKey))
-                e.cKey = enc->cKey;
-            m_encodingReferenced[static_cast<size_t>(enc - encBase)] = true;
-        }
-    });
+    // Pre-resolve fileSize + build orphan bitvector. Skipped in lazy mode —
+    // fileInfo/fileSize fall back to findByCKey, enumerate() calls
+    // ensureEncodingReferenced() on demand.
+    if (!(featureFlags & StorageFeatureFlags::LazyEncodingFrames)) {
+        m_encodingReferenced.assign(encodingTable.entryCount(), false);
+        const auto* encBase = encodingTable.entries().data();
+        root->resolveEntries([this, encBase](RootEntry& e) {
+            const EncodingEntry* enc = nullptr;
+            if (!isZeroKey(e.cKey))
+                enc = encodingTable.findByCKey(e.cKey, kEKeyTruncSize);
+            if (!enc && !isZeroKey(e.eKey))
+                enc = encodingTable.findByEKey(e.eKey, kEKeyTruncSize);
+            if (enc) {
+                e.fileSize = enc->fileSize;
+                if (isZeroKey(e.cKey))
+                    e.cKey = enc->cKey;
+                m_encodingReferenced[static_cast<size_t>(enc - encBase)] = true;
+            }
+        });
+        // The bitvector is already correct — short-circuit ensureEncodingReferenced.
+        std::call_once(m_encodingReferencedFlag, []() {});
+    }
 
     // Step 4: Container cache allocation (D4 combined-meta containers).
     constexpr size_t kD4MinCacheSize = 64 * 1024 * 1024;
@@ -1095,6 +1166,11 @@ void Storage::enumerate(std::function<bool(const EnumerateEntry&)> callback) con
     m_impl->root->enumerate([&](const RootEntry& re) -> bool {
         fe.cKey = re.cKey;
         fe.fileSize = re.fileSize;
+        // Lazy mode skips pre-resolveEntries — fall back per call.
+        if (fe.fileSize == 0) {
+            if (auto* enc = m_impl->resolveEncoding(re))
+                fe.fileSize = enc->fileSize;
+        }
         fe.localeFlags = re.localeFlags;
         fe.contentFlags = re.contentFlags;
         fe.fileDataId = static_cast<i32>(re.fileDataId);
@@ -1102,7 +1178,7 @@ void Storage::enumerate(std::function<bool(const EnumerateEntry&)> callback) con
         return callback(fe);
     });
 
-    // Emit encoding-table orphans using pre-built bitvector.
+    m_impl->ensureEncodingReferenced();
     static constexpr char kHex[] = "0123456789abcdef";
     const auto& encEntries = m_impl->encodingTable.entries();
     char hexBuf[33];
@@ -1225,6 +1301,11 @@ void Storage::enumerate(const std::string& mask,
 
         fe.cKey = re.cKey;
         fe.fileSize = re.fileSize;
+        // Lazy-mode fallback (see enumerate(callback) above).
+        if (fe.fileSize == 0) {
+            if (auto* enc = m_impl->resolveEncoding(re))
+                fe.fileSize = enc->fileSize;
+        }
         fe.localeFlags = re.localeFlags;
         fe.contentFlags = re.contentFlags;
         fe.fileDataId = static_cast<i32>(re.fileDataId);
@@ -1238,6 +1319,7 @@ void Storage::enumerate(const std::string& mask,
     bool canMatchOrphan = pureSuffix.empty() && prefix.empty();
     if (!canMatchOrphan) return;
 
+    m_impl->ensureEncodingReferenced();
     static constexpr char kHex[] = "0123456789abcdef";
     const auto& encEntries = m_impl->encodingTable.entries();
     char hexBuf[33];
@@ -1369,7 +1451,23 @@ void Storage::flushCache() {
 
 bool Storage::prefetch() {
     if (!m_impl || !m_impl->isValid) return false;
-    return m_impl->ensureLoaded();
+
+    if (!m_impl->ensureLoaded()) return false;
+
+    std::shared_lock lock(m_impl->mutex);
+
+    if (m_impl->localState) {
+        m_impl->localState->indexTable.ensureAllBucketsLoaded();
+        m_impl->localState->indexTable.ensureAllArchivesLoaded();
+    }
+    if (m_impl->onlineState) {
+        m_impl->onlineState->onlineIndex.ensureAllLoaded();
+    }
+
+    m_impl->encodingTable.ensureFullyParsed();
+    m_impl->ensureEncodingReferenced();
+
+    return true;
 }
 
 u32 Storage::lastError() noexcept {
