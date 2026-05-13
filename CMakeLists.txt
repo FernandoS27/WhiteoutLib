@@ -104,12 +104,26 @@ else()
         -Wno-missing-braces
         # Mirror MSVC's /wd4201 — vector_types and texture internals use
         # anonymous structs/unions intentionally for .x/.y/.z accessors.
+        # Clang silences the warning via these flags; GCC has no per-warning
+        # toggle, so the offending unions are prefixed with __extension__
+        # at each site (GCC accepts that as "I know this is non-standard").
         -Wno-gnu-anonymous-struct
         -Wno-nested-anon-types
     )
 
     if(WHITEOUT_WARNINGS_AS_ERRORS)
         target_compile_options(whiteout_strict_flags INTERFACE -Werror)
+        # GCC trips -Warray-bounds / -Wstringop-overflow / -Wmaybe-uninitialized
+        # false positives inside libstdc++ vector / shared_ptr / variant inlines
+        # at -O2/-O3 (well-known upstream issue). Keep them as warnings so the
+        # build survives them across GCC versions.
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+            target_compile_options(whiteout_strict_flags INTERFACE
+                -Wno-error=array-bounds
+                -Wno-error=stringop-overflow
+                -Wno-error=maybe-uninitialized
+            )
+        endif()
     endif()
 endif()
 
@@ -276,6 +290,12 @@ target_include_directories(whiteout_lib PUBLIC
 
 target_link_libraries(whiteout_lib PRIVATE whiteout_strict_flags)
 whiteout_apply_clang_tidy(whiteout_lib)
+
+if(WIN32 AND NOT EMSCRIPTEN)
+    # MSVC pulls winhttp via #pragma comment(lib, ...). MinGW/clang-mingw need
+    # it linked explicitly.
+    target_link_libraries(whiteout_lib PRIVATE winhttp)
+endif()
 
 if(WHITEOUT_BUILD_WASM_BINDINGS)
     add_subdirectory(bindings/wasm)

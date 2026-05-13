@@ -329,7 +329,9 @@ struct HuffTree {
         minValidValue = 1;
         isCmp0 = 0;
         std::memset(itemsByByte, 0, sizeof(itemsByByte));
-        std::memset(quickLinks, 0, sizeof(quickLinks));
+        // QuickLink has default member initializers, so it's non-trivial;
+        // memset through void* is intentional (bit-zero is the desired reset).
+        std::memset(static_cast<void*>(quickLinks), 0, sizeof(quickLinks));
     }
 
     void linkTwo(HTreeItem* item1, HTreeItem* item2) {

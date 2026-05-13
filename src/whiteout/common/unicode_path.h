@@ -4,15 +4,27 @@
 // Internal helper: open std::ifstream / std::ofstream from a UTF-8 encoded
 // path string.  On POSIX the path is passed through unchanged since the OS
 // already expects UTF-8.  On Windows the string is converted to UTF-16 (via
-// MultiByteToWideChar(CP_UTF8)) before being handed to the stream constructor,
-// which on MSVC accepts std::wstring.
+// MultiByteToWideChar(CP_UTF8)) and wrapped in std::filesystem::path, which
+// portably accepts wide strings on Windows across MSVC and libstdc++ (MinGW).
 //
 // This header is INTERNAL — never include it from public (include/) headers.
 
 #pragma once
 
+#include <filesystem>
 #include <fstream>
 #include <string>
+
+namespace whiteout::common {
+
+/// Build a std::filesystem::path from a UTF-8-encoded string without going
+/// through the deprecated std::filesystem::u8path (removed in C++26).
+inline std::filesystem::path utf8_to_path(const std::string& utf8) {
+    const auto* begin = reinterpret_cast<const char8_t*>(utf8.data());
+    return std::filesystem::path(begin, begin + utf8.size());
+}
+
+} // namespace whiteout::common
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -44,18 +56,17 @@ inline std::wstring utf8_to_wide(const std::string& utf8) {
     return wide;
 }
 
-/// Open a std::ifstream from a UTF-8 path, using the wide-string constructor
-/// on Windows so that non-ASCII characters are handled correctly.
+/// Open a std::ifstream from a UTF-8 path. Routes through
+/// std::filesystem::path(std::wstring) so non-ASCII paths work under both
+/// MSVC and MinGW's libstdc++ (which lacks MSVC's wstring stream overload).
 inline std::ifstream open_ifstream(const std::string& utf8Path,
                                    std::ios::openmode mode = std::ios::in) {
-    return std::ifstream(utf8_to_wide(utf8Path), mode);
+    return std::ifstream(std::filesystem::path(utf8_to_wide(utf8Path)), mode);
 }
 
-/// Open a std::ofstream from a UTF-8 path, using the wide-string constructor
-/// on Windows so that non-ASCII characters are handled correctly.
 inline std::ofstream open_ofstream(const std::string& utf8Path,
                                    std::ios::openmode mode = std::ios::out) {
-    return std::ofstream(utf8_to_wide(utf8Path), mode);
+    return std::ofstream(std::filesystem::path(utf8_to_wide(utf8Path)), mode);
 }
 
 } // namespace whiteout::common

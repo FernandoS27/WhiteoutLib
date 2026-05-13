@@ -5,6 +5,7 @@
 #include "mdl_tokenizer.h"
 
 #include <cstdlib>
+#include <cstring>
 
 namespace whiteout {
 namespace mdx {

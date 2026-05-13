@@ -384,7 +384,7 @@ struct ParticleEmitter {
     ParticleFlag flags = ParticleFlag::None;
     Vector3f position;
     u16 boneId = 0;
-    union {
+    WHITEOUT_ANON union {
         u16 textureId;
         struct {
             u16 textureId1 : 5;

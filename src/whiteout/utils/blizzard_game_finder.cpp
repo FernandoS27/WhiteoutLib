@@ -3,6 +3,8 @@
 
 #include <whiteout/utils/blizzard_game_finder.h>
 
+#include "../common/unicode_path.h"
+
 #if defined(_WIN32) || defined(__APPLE__) || defined(__linux__)
 
 #ifdef _WIN32
@@ -44,7 +46,7 @@ static std::string normalizePath(std::string p) {
 /// Check that a path actually exists on disk.
 static bool directoryExists(const std::string& path) {
     std::error_code ec;
-    return fs::is_directory(fs::u8path(path), ec);
+    return fs::is_directory(common::utf8_to_path(path), ec);
 }
 
 struct GameResult {
@@ -328,12 +330,12 @@ static void scanSteamLibraries(const std::string& steamRoot,
     if (steamRoot.empty())
         return;
 
-    fs::path vdfPath = fs::u8path(steamRoot) / "steamapps" / "libraryfolders.vdf";
+    fs::path vdfPath = common::utf8_to_path(steamRoot) / "steamapps" / "libraryfolders.vdf";
     std::vector<std::string> libraries = parseSteamLibraryFolders(vdfPath);
     libraries.insert(libraries.begin(), steamRoot);
 
     for (auto& lib : libraries) {
-        fs::path steamAppsDir = fs::u8path(lib) / "steamapps";
+        fs::path steamAppsDir = common::utf8_to_path(lib) / "steamapps";
 
         for (auto& app : kSteamApps) {
             fs::path manifest = steamAppsDir / (std::string("appmanifest_") + app.appId + ".acf");
@@ -794,7 +796,7 @@ static std::vector<std::string> findSteamRoots() {
     std::unordered_set<std::string> dedup;
     for (auto& c : candidates) {
         std::error_code ec;
-        auto canon = fs::canonical(fs::u8path(c), ec);
+        auto canon = fs::canonical(common::utf8_to_path(c), ec);
         if (!ec && fs::is_directory(canon, ec)) {
             std::string s = canon.string();
             if (dedup.insert(s).second)
@@ -814,11 +816,11 @@ static void scanBattleNetConfig(Results& results, std::unordered_set<std::string
         return;
 
     // Standalone Wine prefix
-    scanWinePrefix(fs::u8path(home) / ".wine", results, seen);
+    scanWinePrefix(common::utf8_to_path(home) / ".wine", results, seen);
 
     // Proton prefixes inside each Steam library
     for (auto& root : findSteamRoots()) {
-        fs::path compatDir = fs::u8path(root) / "steamapps" / "compatdata";
+        fs::path compatDir = common::utf8_to_path(root) / "steamapps" / "compatdata";
         std::error_code ec;
         if (!fs::is_directory(compatDir, ec))
             continue;

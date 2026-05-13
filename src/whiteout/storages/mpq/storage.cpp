@@ -18,6 +18,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <shared_mutex>
 #include <unordered_map>
 #include <unordered_set>

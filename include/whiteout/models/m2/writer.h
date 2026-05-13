@@ -2,6 +2,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include "structures.h"
 
@@ -25,21 +26,21 @@ struct M2SerializeResult {
     struct SkinFileEntry {
         u32 fileDataId = 0;
         std::vector<u8> data;
-        size_t pathOffset;
+        size_t pathOffset = 0;
     };
 
     struct SkeletonFileEntry {
         u32 fileDataId = 0;
         std::vector<u8> data;
-        size_t pathOffset;
+        size_t pathOffset = 0;
     };
 
     struct AnimDataEntry {
-        u16 animId;
-        u16 subAnimId;
+        u16 animId = 0;
+        u16 subAnimId = 0;
         u32 fileDataId = 0;
         std::vector<u8> data;
-        size_t pathOffset;
+        size_t pathOffset = 0;
     };
 
     std::vector<u8> m2Data;

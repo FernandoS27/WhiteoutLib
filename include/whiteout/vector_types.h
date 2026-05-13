@@ -214,7 +214,7 @@ struct VectorMethods {
 
 template <typename T>
 struct Vector2 : public VectorMethods<Vector2<T>, T> {
-    union {
+    WHITEOUT_ANON union {
         struct {
             T x, y;
         };
@@ -244,7 +244,7 @@ using Vector2u = Vector2<u32>;
 
 template <typename T>
 struct Vector3 : public VectorMethods<Vector3<T>, T> {
-    union {
+    WHITEOUT_ANON union {
         struct {
             T x, y, z;
         };
@@ -308,7 +308,7 @@ inline Vector3<T> cross(const Vector3<T>& a, const Vector3<T>& b) {
 
 template <typename T>
 struct Vector4 : public VectorMethods<Vector4<T>, T> {
-    union {
+    WHITEOUT_ANON union {
         struct {
             T x, y, z, w;
         };
@@ -516,7 +516,7 @@ using Vector4u = Vector4<u32>;
 
 /// @bind value_object, fields=x;y;z;w
 struct Quaternion : public VectorMethods<Quaternion, f32> {
-    union {
+    WHITEOUT_ANON union {
         struct {
             f32 x, y, z, w;
         };

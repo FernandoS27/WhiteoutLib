@@ -7,6 +7,7 @@
 #include "../vector_types.h"
 
 #include <array>
+#include <cstring>
 #include <memory>
 #include <span>
 #include <type_traits>

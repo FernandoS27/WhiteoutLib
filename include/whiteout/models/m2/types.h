@@ -16,7 +16,7 @@ namespace whiteout {
 namespace m2 {
 
 struct CompatQuaternion {
-    union {
+    WHITEOUT_ANON union {
         struct {
             u16 x, y, z, w;
         };
@@ -45,7 +45,7 @@ struct CompatQuaternion {
 };
 
 struct ColorBGRA {
-    union {
+    WHITEOUT_ANON union {
         struct {
             u8 b, g, r, a;
         };

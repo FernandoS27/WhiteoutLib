@@ -9,6 +9,7 @@
 #include <whiteout/common_types.h>
 
 #include <array>
+#include <cstring>
 #include <list>
 #include <mutex>
 #include <optional>

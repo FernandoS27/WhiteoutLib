@@ -477,7 +477,7 @@ bool JpegDecoder::parseScanHeader(size_t dataOffset, size_t dataLength, size_t& 
     if (!isProgressive && scanComponentCount != componentCount) {
         return reportError("SOS: baseline scan component count does not match frame header");
     }
-    if (dataLength < 1 + scanComponentCount * 2 + 3) {
+    if (dataLength < static_cast<size_t>(1 + scanComponentCount * 2 + 3)) {
         return reportError("SOS: segment too short for component selectors");
     }
 

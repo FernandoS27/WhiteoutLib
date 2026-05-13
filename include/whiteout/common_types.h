@@ -8,6 +8,17 @@
 #include <limits>
 #include <type_traits>
 
+// Marker for anonymous structs inside unions. GCC's -pedantic flags these as
+// non-standard; the __extension__ keyword silences the warning at the site
+// without disabling all pedantic checks. MSVC and Clang accept the construct
+// directly (MSVC via /wd4201, Clang via -Wno-gnu-anonymous-struct), so the
+// macro expands to nothing there.
+#if defined(__GNUC__) && !defined(__clang__)
+#define WHITEOUT_ANON __extension__
+#else
+#define WHITEOUT_ANON
+#endif
+
 namespace whiteout {
 
 // ============================================================================

@@ -282,16 +282,18 @@ public:
         u32 edx = index + m_baseVals[groupIndex].baseValue200 - (groupIndex << kSparseGroupBits);
         u32 dwordIndex = groupIndex << 4;
 
-        // Navigate sub-checkpoints.
+        // Navigate sub-checkpoints. Cast bitfield reads to u32 because
+        // narrow unsigned bitfields promote to int under GCC's usual
+        // arithmetic conversions, which trips -Wsign-compare against edx.
         auto& bv = m_baseVals[groupIndex];
-        if (edx < 0x100 - bv.addValue100) {
-            if (edx < 0x80 - bv.addValue80) {
-                if (edx >= 0x40 - bv.addValue40) {
+        if (edx < 0x100u - u32(bv.addValue100)) {
+            if (edx < 0x80u - u32(bv.addValue80)) {
+                if (edx >= 0x40u - u32(bv.addValue40)) {
                     dwordIndex += 2;
                     edx = edx + bv.addValue40 - 0x40;
                 }
             } else {
-                if (edx < 0xC0 - bv.addValueC0) {
+                if (edx < 0xC0u - u32(bv.addValueC0)) {
                     dwordIndex += 4;
                     edx = edx + bv.addValue80 - 0x80;
                 } else {
@@ -300,8 +302,8 @@ public:
                 }
             }
         } else {
-            if (edx < 0x180 - bv.addValue180) {
-                if (edx < 0x140 - bv.addValue140) {
+            if (edx < 0x180u - u32(bv.addValue180)) {
+                if (edx < 0x140u - u32(bv.addValue140)) {
                     dwordIndex += 8;
                     edx = edx + bv.addValue100 - 0x100;
                 } else {
@@ -309,7 +311,7 @@ public:
                     edx = edx + bv.addValue140 - 0x140;
                 }
             } else {
-                if (edx < 0x1C0 - bv.addValue1C0) {
+                if (edx < 0x1C0u - u32(bv.addValue1C0)) {
                     dwordIndex += 12;
                     edx = edx + bv.addValue180 - 0x180;
                 } else {

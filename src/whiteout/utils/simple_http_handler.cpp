@@ -10,7 +10,10 @@
 #endif
 #include <windows.h>
 #include <winhttp.h>
+#ifdef _MSC_VER
 #pragma comment(lib, "winhttp.lib")
+#endif
+// MinGW/clang-mingw resolve winhttp via CMake target_link_libraries instead.
 
 // WINHTTP_PROTOCOL_FLAG_HTTP2 requires Windows 10 1607 SDK or later.
 #ifndef WINHTTP_PROTOCOL_FLAG_HTTP2

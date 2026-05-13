@@ -12,6 +12,7 @@
 #pragma once
 
 #include <array>
+#include <cstring>
 #include <vector>
 
 #include <whiteout/common_types.h>

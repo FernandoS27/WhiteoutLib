@@ -3,6 +3,8 @@
 
 #include "whiteout/utils/os_file_system.h"
 
+#include "../common/unicode_path.h"
+
 #include <filesystem>
 #include <fstream>
 
@@ -13,10 +15,10 @@ namespace whiteout::utils {
 struct OsFileSystem::Impl {
     fs::path root;
 
-    explicit Impl(std::string rootPath) : root(fs::u8path(rootPath)) {}
+    explicit Impl(std::string rootPath) : root(common::utf8_to_path(rootPath)) {}
 
     fs::path resolve(const std::string& path) const {
-        return root / fs::u8path(path);
+        return root / common::utf8_to_path(path);
     }
 };
 

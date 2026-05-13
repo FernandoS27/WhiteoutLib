@@ -19,6 +19,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <condition_variable>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <sstream>

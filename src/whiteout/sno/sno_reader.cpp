@@ -9,6 +9,7 @@
 #include "../common/streams.h"
 
 #include <algorithm>
+#include <cstring>
 #include <istream>
 
 namespace whiteout {

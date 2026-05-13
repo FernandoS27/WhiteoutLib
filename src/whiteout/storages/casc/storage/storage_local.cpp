@@ -8,6 +8,7 @@
 #include "constants.h"
 #include "../../common/md5.h"
 
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <unordered_set>
