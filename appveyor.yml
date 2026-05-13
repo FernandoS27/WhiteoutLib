@@ -1,0 +1,100 @@
+version: 1.0.{build}
+
+# Cross-platform CI: Windows (MSVC), Linux (gcc), macOS (AppleClang).
+# AppVeyor runs one job per `image` entry. Each job uses its native compiler
+# toolchain; per-platform install/build/test steps are gated below.
+
+image:
+  - Visual Studio 2022
+  - Ubuntu2204
+  - macos-sonoma
+
+configuration:
+  - Release
+
+platform:
+  - x64
+
+clone_depth: 5
+
+environment:
+  CMAKE_BUILD_PARALLEL_LEVEL: 4
+  # WHITEOUT_ENABLE_CASC defaults ON in CMakeLists; MPQ + examples are
+  # explicitly enabled here so CI exercises the full library surface.
+  WHITEOUT_CMAKE_FLAGS: >-
+    -DWHITEOUT_BUILD_EXAMPLES=ON
+    -DWHITEOUT_ENABLE_MPQ=ON
+    -DWHITEOUT_ENABLE_CASC=ON
+    -DWHITEOUT_WARNINGS_AS_ERRORS=ON
+
+# ─── Install ────────────────────────────────────────────────────────────────
+# AppVeyor images already ship CMake + the platform's default C++ toolchain,
+# so install steps are minimal. Linux gets g++-12 to ensure full C++20 support.
+install:
+  - cmd: cmake --version
+  - sh:  cmake --version
+  - sh:  |
+      # On Linux, install the latest gcc/g++ available. On Debian/Ubuntu we
+      # add the ubuntu-toolchain-r/test PPA (which carries newer GCC than the
+      # distro default) and probe newest-first. On Fedora/Arch the default
+      # package is already recent. macOS uses AppleClang as-is.
+      if [ "$(uname -s)" = "Linux" ]; then
+        if command -v apt-get >/dev/null; then
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends software-properties-common
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update -qq
+          for v in 15 14 13 12; do
+            if sudo apt-get install -y --no-install-recommends gcc-$v g++-$v; then
+              export CC=gcc-$v
+              export CXX=g++-$v
+              echo "CC=gcc-$v"  >> linux_cc.env
+              echo "CXX=g++-$v" >> linux_cc.env
+              break
+            fi
+          done
+        elif command -v dnf >/dev/null; then
+          sudo dnf install -y gcc gcc-c++
+        elif command -v pacman >/dev/null; then
+          sudo pacman -Sy --noconfirm gcc
+        fi
+        echo "Using: $(${CXX:-g++} --version | head -n1)"
+      fi
+
+# ─── Configure ──────────────────────────────────────────────────────────────
+before_build:
+  - cmd: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 %WHITEOUT_CMAKE_FLAGS%
+  - sh:  |
+      # Re-export CC/CXX picked during install (shell state doesn't persist
+      # between AppVeyor script steps, so we stash them in a file).
+      if [ -f linux_cc.env ]; then
+        set -a; . ./linux_cc.env; set +a
+      fi
+      cmake -S . -B build -DCMAKE_BUILD_TYPE=$CONFIGURATION $WHITEOUT_CMAKE_FLAGS
+
+# ─── Build ──────────────────────────────────────────────────────────────────
+build_script:
+  - cmd: cmake --build build --config %CONFIGURATION% --parallel %CMAKE_BUILD_PARALLEL_LEVEL%
+  - sh:  cmake --build build --config $CONFIGURATION --parallel $CMAKE_BUILD_PARALLEL_LEVEL
+
+test: off
+
+# Stop the matrix wave on the first failed job so a single platform problem
+# doesn't burn the others' minutes too.
+matrix:
+  fast_finish: true
+
+# Build on pushes to any branch + on PRs.
+branches:
+  except:
+    - gh-pages
+
+# Skip CI when only docs or non-build files changed.
+skip_commits:
+  files:
+    - docs/*
+    - README.md
+    - LICENSE
+    - THIRD-PARTY-NOTICES.md
+    - .gitignore
+    - .clang-tidy
