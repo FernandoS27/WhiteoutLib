@@ -18,6 +18,8 @@
 #include <unistd.h>
 #endif
 
+#include <cerrno>
+#include <cstring>
 #include <utility>
 
 namespace whiteout::storages::common {
@@ -99,7 +101,7 @@ std::string lastErrorString() {
 #else
 std::string lastErrorString() {
     int err = errno;
-    return "[errno " + std::to_string(err) + "] " + strerror(err);
+    return "[errno " + std::to_string(err) + "] " + std::strerror(err);
 }
 #endif
 

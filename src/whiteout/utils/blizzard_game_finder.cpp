@@ -35,7 +35,7 @@ namespace {
 // ===========================================================================
 
 /// Normalize path to forward slashes and strip trailing separator.
-static std::string normalizePath(std::string p) {
+[[maybe_unused]] std::string normalizePath(std::string p) {
     for (auto& c : p)
         if (c == '\\') c = '/';
     while (p.size() > 1 && p.back() == '/')
@@ -44,7 +44,7 @@ static std::string normalizePath(std::string p) {
 }
 
 /// Check that a path actually exists on disk.
-static bool directoryExists(const std::string& path) {
+[[maybe_unused]] bool directoryExists(const std::string& path) {
     std::error_code ec;
     return fs::is_directory(common::utf8_to_path(path), ec);
 }
@@ -58,7 +58,7 @@ struct GameResult {
 using Results = std::vector<GameResult>;
 
 /// Insert a result, checking for duplicate paths.
-static void addResult(Results& results, std::unordered_set<std::string>& seen,
+[[maybe_unused]] void addResult(Results& results, std::unordered_set<std::string>& seen,
                       BlizzardGame game, std::string name, std::string path) {
     path = normalizePath(std::move(path));
     if (path.empty() || !directoryExists(path))
@@ -74,7 +74,7 @@ static void addResult(Results& results, std::unordered_set<std::string>& seen,
 }
 
 /// Crude JSON string value extractor — finds "key" : "value" pairs.
-static std::string extractJsonValue(const std::string& text, size_t startPos,
+[[maybe_unused]] std::string extractJsonValue(const std::string& text, size_t startPos,
                                     const std::string& key) {
     std::string searchKey = "\"" + key + "\"";
     size_t pos = text.find(searchKey, startPos);
@@ -202,7 +202,7 @@ static constexpr SteamApp kSteamApps[] = {
 // ---------------------------------------------------------------------------
 
 /// Scan a Battle.net config file for per-product install paths.
-static void scanBattleNetConfigFile(const fs::path& configPath,
+[[maybe_unused]] void scanBattleNetConfigFile(const fs::path& configPath,
                                     Results& results, std::unordered_set<std::string>& seen) {
     std::error_code ec;
     if (!fs::exists(configPath, ec))
@@ -234,8 +234,10 @@ static void scanBattleNetConfigFile(const fs::path& configPath,
 // ---------------------------------------------------------------------------
 
 /// Scan a Battle.net product.db for embedded install paths.
-static void scanProductDb(const fs::path& prodDb,
-                          Results& results, std::unordered_set<std::string>& seen) {
+/// Called from the Windows and macOS code paths; not referenced on Linux,
+/// which is fine — anonymous-namespace functions don't trip -Wunused-function.
+[[maybe_unused]] void scanProductDb(const fs::path& prodDb,
+                   Results& results, std::unordered_set<std::string>& seen) {
     std::error_code ec;
     if (!fs::exists(prodDb, ec))
         return;
@@ -285,7 +287,7 @@ static void scanProductDb(const fs::path& prodDb,
 // ---------------------------------------------------------------------------
 
 /// Parse a VDF file to extract library folder paths.
-static std::vector<std::string> parseSteamLibraryFolders(const fs::path& vdfPath) {
+[[maybe_unused]] std::vector<std::string> parseSteamLibraryFolders(const fs::path& vdfPath) {
     std::vector<std::string> folders;
     std::error_code ec;
     if (!fs::exists(vdfPath, ec))
@@ -325,7 +327,7 @@ static std::vector<std::string> parseSteamLibraryFolders(const fs::path& vdfPath
 }
 
 /// Scan Steam library folders for installed Blizzard games.
-static void scanSteamLibraries(const std::string& steamRoot,
+[[maybe_unused]] void scanSteamLibraries(const std::string& steamRoot,
                                Results& results, std::unordered_set<std::string>& seen) {
     if (steamRoot.empty())
         return;
@@ -385,7 +387,7 @@ static void scanSteamLibraries(const std::string& steamRoot,
     return w;
 }
 
-static std::string toUtf8(const std::wstring& w) {
+[[maybe_unused]] std::string toUtf8(const std::wstring& w) {
     if (w.empty()) return {};
     int len = WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), nullptr, 0, nullptr, nullptr);
     std::string s(static_cast<size_t>(len), '\0');
@@ -393,7 +395,7 @@ static std::string toUtf8(const std::wstring& w) {
     return s;
 }
 
-static std::string readRegString(HKEY root, const wchar_t* subkey, const wchar_t* valueName) {
+[[maybe_unused]] std::string readRegString(HKEY root, const wchar_t* subkey, const wchar_t* valueName) {
     HKEY hKey = nullptr;
     if (RegOpenKeyExW(root, subkey, 0, KEY_READ | KEY_WOW64_32KEY, &hKey) != ERROR_SUCCESS)
         return {};
@@ -420,7 +422,7 @@ static std::string readRegString(HKEY root, const wchar_t* subkey, const wchar_t
     return toUtf8(buf);
 }
 
-static std::vector<std::wstring> enumSubKeys(HKEY root, const wchar_t* subkey) {
+[[maybe_unused]] std::vector<std::wstring> enumSubKeys(HKEY root, const wchar_t* subkey) {
     std::vector<std::wstring> result;
     HKEY hKey = nullptr;
     if (RegOpenKeyExW(root, subkey, 0, KEY_READ | KEY_WOW64_32KEY, &hKey) != ERROR_SUCCESS)
@@ -488,7 +490,7 @@ static constexpr RegEntry kRegistryEntries[] = {
      "Blizzard Arcade Collection", BlizzardGame::BlizzardArcadeCollection},
 };
 
-static void scanRegistry(Results& results, std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanRegistry(Results& results, std::unordered_set<std::string>& seen) {
     for (auto& entry : kRegistryEntries) {
         std::string path = readRegString(HKEY_LOCAL_MACHINE, entry.subkey, entry.valueName);
         if (!path.empty())
@@ -526,7 +528,7 @@ static void scanRegistry(Results& results, std::unordered_set<std::string>& seen
 // Windows: Battle.net config + product.db
 // ---------------------------------------------------------------------------
 
-static void scanBattleNetConfig(Results& results, std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanBattleNetConfig(Results& results, std::unordered_set<std::string>& seen) {
     wchar_t* appDataPath = nullptr;
     if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &appDataPath))) {
         fs::path configPath = fs::path(appDataPath) / "Battle.net" / "Battle.net.config";
@@ -546,7 +548,7 @@ static void scanBattleNetConfig(Results& results, std::unordered_set<std::string
 // Windows: Steam
 // ---------------------------------------------------------------------------
 
-static void scanSteam(Results& results, std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanSteam(Results& results, std::unordered_set<std::string>& seen) {
     std::string steamRoot =
         readRegString(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Valve\\Steam", L"InstallPath");
     if (steamRoot.empty())
@@ -565,7 +567,7 @@ static void scanSteam(Results& results, std::unordered_set<std::string>& seen) {
 #if defined(__APPLE__) || defined(__linux__)
 
 /// Get the current user's home directory.
-static std::string getHomeDir() {
+[[maybe_unused]] std::string getHomeDir() {
     const char* home = std::getenv("HOME");
     if (home && home[0] != '\0')
         return home;
@@ -611,7 +613,7 @@ static constexpr AppEntry kMacAppEntries[] = {
     {"Blizzard Arcade Collection",  "Blizzard Arcade Collection", BlizzardGame::BlizzardArcadeCollection},
 };
 
-static void scanApplications(Results& results, std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanApplications(Results& results, std::unordered_set<std::string>& seen) {
     for (auto& app : kMacAppEntries) {
         // Check /Applications/<name>/ (some games use plain directories)
         fs::path appDir = fs::path("/Applications") / app.dirName;
@@ -631,7 +633,7 @@ static void scanApplications(Results& results, std::unordered_set<std::string>& 
 // macOS: Battle.net config + product.db
 // ---------------------------------------------------------------------------
 
-static void scanBattleNetConfig(Results& results, std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanBattleNetConfig(Results& results, std::unordered_set<std::string>& seen) {
     std::string home = getHomeDir();
     if (home.empty())
         return;
@@ -653,7 +655,7 @@ static void scanBattleNetConfig(Results& results, std::unordered_set<std::string
 // macOS: Steam
 // ---------------------------------------------------------------------------
 
-static void scanSteam(Results& results, std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanSteam(Results& results, std::unordered_set<std::string>& seen) {
     std::string home = getHomeDir();
     if (home.empty())
         return;
@@ -672,7 +674,7 @@ static void scanSteam(Results& results, std::unordered_set<std::string>& seen) {
 #ifdef __linux__
 
 /// Translate a Windows path (C:\...) to a real path inside a Wine/Proton prefix.
-static std::string translateWinePath(const std::string& winePath, const fs::path& driveC) {
+[[maybe_unused]] std::string translateWinePath(const std::string& winePath, const fs::path& driveC) {
     if (winePath.size() < 3)
         return {};
 
@@ -693,7 +695,7 @@ static std::string translateWinePath(const std::string& winePath, const fs::path
 }
 
 /// Scan a single Wine/Proton prefix for Battle.net config and product.db.
-static void scanWinePrefix(const fs::path& pfxRoot,
+[[maybe_unused]] void scanWinePrefix(const fs::path& pfxRoot,
                            Results& results, std::unordered_set<std::string>& seen) {
     fs::path driveC = pfxRoot / "drive_c";
     std::error_code ec;
@@ -780,7 +782,7 @@ static void scanWinePrefix(const fs::path& pfxRoot,
 // Linux: Discover Steam root directories (native, Snap, Flatpak)
 // ---------------------------------------------------------------------------
 
-static std::vector<std::string> findSteamRoots() {
+[[maybe_unused]] std::vector<std::string> findSteamRoots() {
     std::vector<std::string> roots;
     std::string home = getHomeDir();
     if (home.empty())
@@ -810,7 +812,7 @@ static std::vector<std::string> findSteamRoots() {
 // Linux: Battle.net under Wine/Proton
 // ---------------------------------------------------------------------------
 
-static void scanBattleNetConfig(Results& results, std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanBattleNetConfig(Results& results, std::unordered_set<std::string>& seen) {
     std::string home = getHomeDir();
     if (home.empty())
         return;
@@ -837,7 +839,7 @@ static void scanBattleNetConfig(Results& results, std::unordered_set<std::string
 // Linux: Steam
 // ---------------------------------------------------------------------------
 
-static void scanSteam(Results& results, std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanSteam(Results& results, std::unordered_set<std::string>& seen) {
     for (auto& root : findSteamRoots())
         scanSteamLibraries(root, results, seen);
 }

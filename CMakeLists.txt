@@ -122,6 +122,7 @@ else()
                 -Wno-error=array-bounds
                 -Wno-error=stringop-overflow
                 -Wno-error=maybe-uninitialized
+                -Wno-error=free-nonheap-object
             )
         endif()
     endif()
