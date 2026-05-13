@@ -27,8 +27,7 @@
 #include <whiteout/interfaces.h>
 #include "../compatibility.h"
 
-namespace whiteout {
-namespace textures {
+namespace whiteout::textures {
 
 // ============================================================================
 // Pixel Formats
@@ -627,6 +626,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-} // namespace textures
-
-} // namespace whiteout
+} // namespace whiteout::textures

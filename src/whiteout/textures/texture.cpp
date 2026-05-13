@@ -41,17 +41,12 @@ u32 bytesPerBlock(PixelFormat fmt) {
     case PixelFormat::RGBA32F:
         return 16;
     case PixelFormat::BC1:
-        return 8;
-    case PixelFormat::BC2:
-        return 16;
-    case PixelFormat::BC3:
-        return 16;
     case PixelFormat::BC4:
         return 8;
+    case PixelFormat::BC2:
+    case PixelFormat::BC3:
     case PixelFormat::BC5:
-        return 16;
     case PixelFormat::BC6H:
-        return 16;
     case PixelFormat::BC7:
         return 16;
     }

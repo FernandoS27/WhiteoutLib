@@ -24,11 +24,7 @@
 
 #include "writer.h"
 
-namespace whiteout {
-namespace gif = textures::gif;
-
-namespace textures {
-namespace gif {
+namespace whiteout::textures::gif {
 // ============================================================================
 // GIF Library Version
 // ============================================================================
@@ -39,6 +35,6 @@ constexpr int MAJOR_VERSION = 1;
 constexpr int MINOR_VERSION = 0;
 /// Library patch version number
 constexpr int PATCH_VERSION = 0;
-} // namespace gif
-} // namespace textures
-} // namespace whiteout
+} // namespace whiteout::textures::gif
+
+namespace whiteout { namespace gif = textures::gif; }

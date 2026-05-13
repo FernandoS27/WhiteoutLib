@@ -18,6 +18,10 @@ option(WHITEOUT_BUILD_TESTS "Build test programs" OFF)
 option(WHITEOUT_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ${WHITEOUT_MASTER_PROJECT})
 option(WHITEOUT_BUILD_WASM_BINDINGS "Build Emscripten/Embind JavaScript bindings" ${EMSCRIPTEN})
 option(WHITEOUT_BUILD_PYTHON_BINDINGS "Build native Python bindings via pybind11" OFF)
+option(WHITEOUT_ENABLE_CLANG_TIDY "Run clang-tidy on whiteout sources during build" OFF)
+
+# Always emit compile_commands.json — drives clangd, clang-tidy, IWYU, ...
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "" FORCE)
 
 if(EMSCRIPTEN)
     # WASM build covers models + textures. CASC stays off (it pulls
@@ -108,6 +112,44 @@ else()
         target_compile_options(whiteout_strict_flags INTERFACE -Werror)
     endif()
 endif()
+
+# =============================================================================
+# clang-tidy integration
+#
+# whiteout_apply_clang_tidy(<target>) sets CXX_CLANG_TIDY on <target> when
+# WHITEOUT_ENABLE_CLANG_TIDY is ON and clang-tidy is found. External targets
+# (Catch2, CascLib, zlib, ...) are deliberately left untouched.
+#
+# Disabled automatically with the clang-cl driver — CMake's
+# __run_co_compile wrapper feeds clang-tidy a mangled invocation that
+# trips clang-cl's "expected exactly one compiler job" check. On Windows,
+# use the standalone flow against compile_commands.json instead:
+#   clang-tidy -p build/clang src/whiteout/...
+# =============================================================================
+set(WHITEOUT_CLANG_TIDY_COMMAND "")
+if(WHITEOUT_ENABLE_CLANG_TIDY)
+    find_program(CLANG_TIDY_EXE NAMES clang-tidy)
+    if(NOT CLANG_TIDY_EXE)
+        message(WARNING "WHITEOUT_ENABLE_CLANG_TIDY=ON but clang-tidy not found in PATH")
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND MSVC)
+        message(STATUS "clang-tidy found (${CLANG_TIDY_EXE}) but in-build "
+                       "integration disabled for clang-cl — run standalone "
+                       "via compile_commands.json instead")
+    else()
+        message(STATUS "clang-tidy enabled: ${CLANG_TIDY_EXE}")
+        set(WHITEOUT_CLANG_TIDY_COMMAND
+            "${CLANG_TIDY_EXE}"
+            "--use-color=false"
+            "--quiet")
+    endif()
+endif()
+
+function(whiteout_apply_clang_tidy target)
+    if(WHITEOUT_CLANG_TIDY_COMMAND)
+        set_target_properties(${target} PROPERTIES
+            CXX_CLANG_TIDY "${WHITEOUT_CLANG_TIDY_COMMAND}")
+    endif()
+endfunction()
 
 # Whiteout Library
 add_library(whiteout_lib
@@ -233,6 +275,7 @@ target_include_directories(whiteout_lib PUBLIC
 )
 
 target_link_libraries(whiteout_lib PRIVATE whiteout_strict_flags)
+whiteout_apply_clang_tidy(whiteout_lib)
 
 if(WHITEOUT_BUILD_WASM_BINDINGS)
     add_subdirectory(bindings/wasm)
@@ -387,6 +430,7 @@ if(WHITEOUT_ENABLE_CASC)
 
     target_link_libraries(whiteout_casc PUBLIC whiteout_lib)
     target_link_libraries(whiteout_casc PRIVATE whiteout_strict_flags)
+    whiteout_apply_clang_tidy(whiteout_casc)
 
     target_compile_definitions(whiteout_casc PUBLIC WHITEOUT_HAS_CASC=1)
 
@@ -452,6 +496,7 @@ if(WHITEOUT_ENABLE_MPQ)
         PUBLIC whiteout_lib
     )
     target_link_libraries(whiteout_mpq PRIVATE whiteout_strict_flags)
+    whiteout_apply_clang_tidy(whiteout_mpq)
 
     target_compile_definitions(whiteout_mpq PUBLIC WHITEOUT_HAS_MPQ=1)
 

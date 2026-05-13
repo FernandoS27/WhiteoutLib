@@ -32,7 +32,7 @@ using f64 = double;
 ///
 /// Layout:  [15] sign  |  [14:10] exponent (bias 15)  |  [9:0] mantissa
 struct f16 {
-    u16 raw;
+    u16 raw = 0;
 
     f16() = default;
 

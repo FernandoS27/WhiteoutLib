@@ -36,11 +36,7 @@
 #include "parser.h"
 #include "writer.h"
 
-namespace whiteout {
-namespace jpeg = textures::jpeg;
-
-namespace textures {
-namespace jpeg {
+namespace whiteout::textures::jpeg {
 // ============================================================================
 // JPEG Library Version
 // ============================================================================
@@ -51,6 +47,6 @@ constexpr int MAJOR_VERSION = 1;
 constexpr int MINOR_VERSION = 0;
 /// Library patch version number
 constexpr int PATCH_VERSION = 0;
-} // namespace jpeg
-} // namespace textures
-} // namespace whiteout
+} // namespace whiteout::textures::jpeg
+
+namespace whiteout { namespace jpeg = textures::jpeg; }

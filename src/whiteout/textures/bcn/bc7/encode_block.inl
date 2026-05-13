@@ -38,8 +38,8 @@ u64 estimate_partition_cost(const u8* rgba, u32 partition) {
 /// return the top-N indices.
 std::array<u32, 4> best_partitions(const u8* rgba, u32 top_n) {
     struct PC {
-        u32 idx;
-        u64 cost;
+        u32 idx = 0;
+        u64 cost = 0;
     };
     std::array<PC, 64> costs;
     for (u32 i = 0; i < 64; ++i)
@@ -84,8 +84,8 @@ u64 estimate_partition_cost_3(const u8* rgba, u32 partition) {
 /// @param num_partitions  16 for mode 0, 64 for mode 2.
 std::array<u32, 4> best_partitions_3(const u8* rgba, u32 num_partitions, u32 top_n) {
     struct PC {
-        u32 idx;
-        u64 cost;
+        u32 idx = 0;
+        u64 cost = 0;
     };
     std::array<PC, 64> costs;
     for (u32 i = 0; i < num_partitions; ++i)

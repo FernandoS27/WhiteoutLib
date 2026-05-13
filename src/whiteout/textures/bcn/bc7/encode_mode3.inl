@@ -37,7 +37,7 @@ u64 encode_mode3_partition(const u8* rgba, u8* out, u32 partition) {
     for (u32 pmask = 0; pmask < 16; ++pmask) {
         std::array<u32, 4> pb = {pmask & 1, (pmask >> 1) & 1, (pmask >> 2) & 1, (pmask >> 3) & 1};
 
-        std::array<u32, 12> ep;
+        std::array<u32, 12> ep{};
         ep[0] = quantize7(lo0.r, pb[0]);
         ep[1] = quantize7(lo0.g, pb[0]);
         ep[2] = quantize7(lo0.b, pb[0]);
@@ -69,7 +69,7 @@ u64 encode_mode3_partition(const u8* rgba, u8* out, u32 partition) {
             }
         }
 
-        std::array<u8, 16> indices;
+        std::array<u8, 16> indices{};
         u64 total_err = 0;
         for (u32 i = 0; i < 16; ++i) {
             u8 s = part[i];

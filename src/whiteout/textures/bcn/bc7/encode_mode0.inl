@@ -44,11 +44,11 @@ u64 encode_mode0_partition(const u8* rgba, u8* out, u32 partition) {
 
     // Try all 64 combinations of 6 P-bits
     for (u32 pmask = 0; pmask < 64; ++pmask) {
-        std::array<u32, 6> pb;
+        std::array<u32, 6> pb{};
         for (u32 i = 0; i < 6; ++i)
             pb[i] = (pmask >> i) & 1;
 
-        std::array<u32, 18> ep;
+        std::array<u32, 18> ep{};
         // Subset 0
         ep[0] = quantize4(lo0.r, pb[0]);
         ep[1] = quantize4(lo0.g, pb[0]);
@@ -93,7 +93,7 @@ u64 encode_mode0_partition(const u8* rgba, u8* out, u32 partition) {
             }
         }
 
-        std::array<u8, 16> indices;
+        std::array<u8, 16> indices{};
         u64 total_err = 0;
         for (u32 i = 0; i < 16; ++i) {
             u8 s = part[i];

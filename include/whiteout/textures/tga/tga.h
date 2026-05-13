@@ -36,11 +36,7 @@
 #include "parser.h"
 #include "writer.h"
 
-namespace whiteout {
-namespace tga = textures::tga;
-
-namespace textures {
-namespace tga {
+namespace whiteout::textures::tga {
 // ============================================================================
 // TGA Library Version
 // ============================================================================
@@ -51,6 +47,6 @@ constexpr int MAJOR_VERSION = 1;
 constexpr int MINOR_VERSION = 0;
 /// Library patch version number
 constexpr int PATCH_VERSION = 0;
-} // namespace tga
-} // namespace textures
-} // namespace whiteout
+} // namespace whiteout::textures::tga
+
+namespace whiteout { namespace tga = textures::tga; }

@@ -25,7 +25,7 @@ namespace {
 // ============================================================================
 
 /// Minimum code size for 256-color images is always 8.
-static constexpr u32 LZW_MIN_CODE_SIZE = 8;
+constexpr u32 LZW_MIN_CODE_SIZE = 8;
 
 /// LZW table entry: parent code + suffix byte.
 struct LzwEntry {

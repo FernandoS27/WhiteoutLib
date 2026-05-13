@@ -53,7 +53,7 @@ inline i32 extend_magnitude_to_signed(u32 magnitudeBits, i32 category) {
 
 /// In-place 1-D IDCT butterfly on 8 contiguous floats (LLM algorithm).
 /// Reads all 8 inputs into registers before writing, so input == output is safe.
-static inline void idct_1d_inplace(f32* data) {
+inline void idct_1d_inplace(f32* data) {
     const f32 x0 = data[0], x1 = data[1], x2 = data[2], x3 = data[3];
     const f32 x4 = data[4], x5 = data[5], x6 = data[6], x7 = data[7];
 
@@ -95,7 +95,7 @@ static inline void idct_1d_inplace(f32* data) {
 /// Transpose an 8x8 float matrix in-place.
 /// After transpose, columns become rows — enabling contiguous access for the
 /// column IDCT pass.
-static inline void transpose_8x8_inplace(f32* block) {
+inline void transpose_8x8_inplace(f32* block) {
     for (i32 i = 0; i < BLOCK_SIZE; ++i) {
         for (i32 j = i + 1; j < BLOCK_SIZE; ++j) {
             const i32 a = i * BLOCK_SIZE + j;
@@ -626,7 +626,7 @@ bool JpegDecoder::decodeScanData() {
                     for (u32 blockColumn = 0; blockColumn < component.horizontalSampling;
                          blockColumn++) {
                         // No zero-init needed: decodeDctBlock starts with fill(0).
-                        std::array<i32, BLOCK_PIXELS> dctCoefficients;
+                        std::array<i32, BLOCK_PIXELS> dctCoefficients;  // NOLINT(cppcoreguidelines-pro-type-member-init)
                         if (!decodeDctBlock(
                                 dctCoefficients, dcHuffmanTables[component.dcHuffmanIndex],
                                 acHuffmanTables[component.acHuffmanIndex], component.dcPrediction,
@@ -842,7 +842,7 @@ bool JpegDecoder::decodeScanDataParallel(Image* directOutput) {
                         u32 mcuCol = mcuIdx % mcuCols;
 
                         // Decode all component blocks for this MCU into temp arrays.
-                        std::array<std::array<u8, BLOCK_PIXELS>, MAX_COMPONENTS> blks;
+                        std::array<std::array<u8, BLOCK_PIXELS>, MAX_COMPONENTS> blks;  // NOLINT(cppcoreguidelines-pro-type-member-init)
                         for (u32 ci = 0; ci < compCnt; ++ci) {
                             const auto& info = compInfo[ci];
                             const auto& dcTable = dcHuffmanTables[info.dcHuffIdx];
@@ -1334,7 +1334,7 @@ bool JpegDecoder::finalizeProgressiveImage() {
                 // Dequantize in natural (row-major) order: gather from zigzag,
                 // multiply by natural-order quant table, write contiguously.
                 // The contiguous write pattern is auto-vectorisation friendly.
-                std::array<i32, BLOCK_PIXELS> dequantised;
+                std::array<i32, BLOCK_PIXELS> dequantised;  // NOLINT(cppcoreguidelines-pro-type-member-init)
                 for (i32 n = 0; n < BLOCK_PIXELS; ++n) {
                     dequantised[n] = coeffs[naturalToZigzag[n]] * nqt[n];
                 }
@@ -1407,13 +1407,13 @@ bool JpegDecoder::finalizeAndAssembleImage(Image& outputImage) {
                 const u32 py = mcuRow * BLOCK_SIZE;
 
                 // Dequantize + IDCT each component block into temp arrays.
-                std::array<std::array<u8, BLOCK_PIXELS>, MAX_COMPONENTS> blks;
+                std::array<std::array<u8, BLOCK_PIXELS>, MAX_COMPONENTS> blks;  // NOLINT(cppcoreguidelines-pro-type-member-init)
                 for (u32 ci = 0; ci < compCnt; ++ci) {
                     auto& coeffs =
                         components[ci].coefficientBlocks[mcuRow * layout[ci].blocksPerRow + mcuCol];
                     const auto& nqt = naturalQuantTables[layout[ci].quantTableIndex];
 
-                    std::array<i32, BLOCK_PIXELS> dequantised;
+                    std::array<i32, BLOCK_PIXELS> dequantised;  // NOLINT(cppcoreguidelines-pro-type-member-init)
                     for (i32 n = 0; n < BLOCK_PIXELS; ++n) {
                         dequantised[n] = coeffs[naturalToZigzag[n]] * nqt[n];
                     }
@@ -1626,8 +1626,11 @@ bool JpegDecoder::decode(const u8* data, size_t size, Image& outputImage) {
     // Progressive scan collection for parallel AC decode.
     struct ProgressiveScanInfo {
         std::vector<u32> componentIndices;
-        u8 ss, se, ah, al;
-        size_t entropyStart;
+        u8 ss = 0;
+        u8 se = 0;
+        u8 ah = 0;
+        u8 al = 0;
+        size_t entropyStart = 0;
         // Huffman table indices for the scan's components.
         std::array<u8, MAX_COMPONENTS> acHuffIdx{};
     };

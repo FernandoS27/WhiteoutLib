@@ -101,7 +101,9 @@ std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error,
 namespace {
 
 struct RGB {
-    i32 r, g, b;
+    i32 r = 0;
+    i32 g = 0;
+    i32 b = 0;
 };
 
 /// Pack an 8-bit RGB triple into a 16-bit RGB565 value.

@@ -50,10 +50,10 @@ inline TexFlags operator&(TexFlags a, TexFlags b) {
 
 /// Describes one frame of a flip-book animation within the texture atlas.
 struct TexFrame {
-    f32 uMin;         ///< Left UV coordinate of the frame rectangle.
-    f32 vMin;         ///< Top UV coordinate of the frame rectangle.
-    f32 uMax;         ///< Right UV coordinate of the frame rectangle.
-    f32 vMax;         ///< Bottom UV coordinate of the frame rectangle.
+    f32 uMin = 0.0f;  ///< Left UV coordinate of the frame rectangle.
+    f32 vMin = 0.0f;  ///< Top UV coordinate of the frame rectangle.
+    f32 uMax = 0.0f;  ///< Right UV coordinate of the frame rectangle.
+    f32 vMax = 0.0f;  ///< Bottom UV coordinate of the frame rectangle.
     std::string name; ///< Optional frame name (may be empty).
 };
 

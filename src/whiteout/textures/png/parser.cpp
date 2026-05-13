@@ -325,17 +325,22 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
 
             // Validate bit depth / color type combinations.
             bool validCombo = false;
-            if (colorType == COLOR_GRAYSCALE)
-                validCombo = (bitDepth == 1 || bitDepth == 2 || bitDepth == 4 || bitDepth == 8 ||
-                              bitDepth == 16);
-            else if (colorType == COLOR_TRUECOLOR)
-                validCombo = (bitDepth == 8 || bitDepth == 16);
-            else if (colorType == COLOR_INDEXED)
+            switch (colorType) {
+            case COLOR_GRAYSCALE:
+                validCombo = (bitDepth == 1 || bitDepth == 2 || bitDepth == 4 ||
+                              bitDepth == 8 || bitDepth == 16);
+                break;
+            case COLOR_INDEXED:
                 validCombo = (bitDepth == 1 || bitDepth == 2 || bitDepth == 4 || bitDepth == 8);
-            else if (colorType == COLOR_GRAYSCALE_ALPHA)
+                break;
+            case COLOR_TRUECOLOR:
+            case COLOR_GRAYSCALE_ALPHA:
+            case COLOR_TRUECOLOR_ALPHA:
                 validCombo = (bitDepth == 8 || bitDepth == 16);
-            else if (colorType == COLOR_TRUECOLOR_ALPHA)
-                validCombo = (bitDepth == 8 || bitDepth == 16);
+                break;
+            default:
+                break;
+            }
 
             if (!validCombo) {
                 fail("Invalid bit depth / color type combination");

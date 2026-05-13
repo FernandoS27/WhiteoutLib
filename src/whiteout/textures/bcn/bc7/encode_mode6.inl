@@ -66,7 +66,7 @@ u64 encode_mode6(const u8* rgba, u8* out, bool use_pca) {
             }
 
             // Assign indices
-            std::array<u8, 16> indices;
+            std::array<u8, 16> indices{};
             u64 total_err = 0;
             for (u32 i = 0; i < 16; ++i) {
                 auto px = pixel_at(rgba, i);

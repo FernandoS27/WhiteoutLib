@@ -28,7 +28,7 @@ namespace {
 /// Maximum size of the JPEG header embedded in a BLP2 file.
 /// The palette field is 1024 bytes; the first 4 bytes store the header size,
 /// leaving a maximum of 1020 bytes for the actual JPEG header data.
-static constexpr u32 MAX_BLP2_JPEG_HEADER_SIZE = 1020;
+constexpr u32 MAX_BLP2_JPEG_HEADER_SIZE = 1020;
 
 // ============================================================================
 // Parser-side helpers

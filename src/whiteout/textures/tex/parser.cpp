@@ -68,7 +68,7 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer, TexInfo* 
 
     if (preamble.magic != TEX_MAGIC) {
         fail("Invalid TEX magic (expected 0xDEADBEEF, got 0x" + [&] {
-            std::array<char, 16> buf;
+            std::array<char, 16> buf{};
             std::snprintf(buf.data(), buf.size(), "%08X", preamble.magic);
             return std::string(buf.data());
         }() + ")");

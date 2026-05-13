@@ -23,7 +23,7 @@ u64 encode_mode2_partition(const u8* rgba, u8* out, u32 partition) {
     pca_endpoints_rgb_subset(rgba, part, 2, axis2, lo2, hi2);
 
     // Quantize to 5 bits, no P-bits
-    std::array<u32, 18> ep;
+    std::array<u32, 18> ep{};
     ep[0] = quantize(lo0.r, 5);
     ep[1] = quantize(lo0.g, 5);
     ep[2] = quantize(lo0.b, 5);
@@ -63,7 +63,7 @@ u64 encode_mode2_partition(const u8* rgba, u8* out, u32 partition) {
         }
     }
 
-    std::array<u8, 16> indices;
+    std::array<u8, 16> indices{};
     u64 total_err = 0;
     for (u32 i = 0; i < 16; ++i) {
         u8 s = part[i];

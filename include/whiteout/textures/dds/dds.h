@@ -36,11 +36,7 @@
 #include "parser.h"
 #include "writer.h"
 
-namespace whiteout {
-namespace dds = textures::dds;
-
-namespace textures {
-namespace dds {
+namespace whiteout::textures::dds {
 // ============================================================================
 // DDS Library Version
 // ============================================================================
@@ -51,6 +47,6 @@ constexpr int MAJOR_VERSION = 1;
 constexpr int MINOR_VERSION = 0;
 /// Library patch version number
 constexpr int PATCH_VERSION = 0;
-} // namespace dds
-} // namespace textures
-} // namespace whiteout
+} // namespace whiteout::textures::dds
+
+namespace whiteout { namespace dds = textures::dds; }

@@ -15,6 +15,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <type_traits>
 #include <utility>
@@ -121,7 +122,7 @@ constexpr Dst convert_channel(Src val) {
     }
     // f32 → u8
     else if constexpr (std::is_same_v<Src, f32> && std::is_same_v<Dst, u8>) {
-        return static_cast<u8>(std::clamp(val, 0.0f, 1.0f) * 255.0f + 0.5f);
+        return static_cast<u8>(std::lround(std::clamp(val, 0.0f, 1.0f) * 255.0f));
     }
     // u16 → f32
     else if constexpr (std::is_same_v<Src, u16> && std::is_same_v<Dst, f32>) {
@@ -129,7 +130,7 @@ constexpr Dst convert_channel(Src val) {
     }
     // f32 → u16
     else if constexpr (std::is_same_v<Src, f32> && std::is_same_v<Dst, u16>) {
-        return static_cast<u16>(std::clamp(val, 0.0f, 1.0f) * 65535.0f + 0.5f);
+        return static_cast<u16>(std::lround(std::clamp(val, 0.0f, 1.0f) * 65535.0f));
     } else {
         static_assert(!std::is_same_v<Src, Src>,
                       "unsupported channel type pair in convert_channel");

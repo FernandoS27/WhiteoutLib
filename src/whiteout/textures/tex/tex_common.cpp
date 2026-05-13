@@ -13,11 +13,8 @@ namespace whiteout::textures::tex {
 std::optional<FormatMapping> tex_format_to_pixel_format(u32 tex_fmt) {
     switch (tex_fmt) {
     case TEX_FMT_A8R8G8B8:
-        return FormatMapping{PixelFormat::RGBA8, true};
     case TEX_FMT_A4R4G4B4:
-        return FormatMapping{PixelFormat::RGBA8, true};
     case TEX_FMT_L8:
-        return FormatMapping{PixelFormat::RGBA8, true};
     case TEX_FMT_A8:
         return FormatMapping{PixelFormat::RGBA8, true};
     case TEX_FMT_DXT1:

@@ -129,7 +129,7 @@ inline Lab rgb_to_lab(f64 r, f64 g, f64 b, bool srgb) {
 
 /// Pre-computed [0,255] -> linear LUT (f32 -- sufficient for Lab precision).
 struct ToLinearLut {
-    std::array<f32, 256> table;
+    std::array<f32, 256> table{};
     explicit ToLinearLut(bool srgb) {
         for (u32 i = 0; i < 256; ++i) {
             if (srgb)
@@ -175,9 +175,9 @@ enum class Axis { R, G, B };
 // ============================================================================
 
 struct LabPalette {
-    alignas(64) f32 L[MAX_COLORS];
-    alignas(64) f32 a[MAX_COLORS];
-    alignas(64) f32 b[MAX_COLORS];
+    alignas(64) f32 L[MAX_COLORS]{};
+    alignas(64) f32 a[MAX_COLORS]{};
+    alignas(64) f32 b[MAX_COLORS]{};
     u32 count = 0;
 
     void set(u32 i, Lab lab) {
@@ -229,7 +229,7 @@ struct LabPalette {
 
 const std::array<Lab, 32 * 32 * 32>& get_bin_center_labs(bool srgb) {
     auto build = [](bool s) {
-        std::array<Lab, 32 * 32 * 32> result;
+        std::array<Lab, 32 * 32 * 32> result{};
         for (i32 r = 0; r < 32; ++r) {
             const f64 rc = r * 8.0 + 4.0;
             for (i32 g = 0; g < 32; ++g) {

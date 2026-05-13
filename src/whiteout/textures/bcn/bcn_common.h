@@ -195,7 +195,10 @@ constexpr u64 bcn_sq(i32 x) {
 // ============================================================================
 
 struct RGBA {
-    i32 r, g, b, a;
+    i32 r = 0;
+    i32 g = 0;
+    i32 b = 0;
+    i32 a = 0;
 };
 
 /// Extract a single pixel from an interleaved RGBA8 buffer.

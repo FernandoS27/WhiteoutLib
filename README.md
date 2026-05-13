@@ -86,6 +86,28 @@ cmake -S . -B build
 cmake --build build --config Release
 ```
 
+## Static analysis (clang-tidy)
+
+`.clang-tidy` at the repo root configures checks. CMake always emits
+`compile_commands.json` next to the build outputs, which both `clang-tidy`
+and `clangd` consume directly.
+
+```bash
+# Single file
+clang-tidy -p build src/whiteout/storages/casc/codec/crypto.cpp
+
+# Whole tree (parallel)
+run-clang-tidy -p build -header-filter='(include|src)[/\\]whiteout[/\\]'
+
+# Convenience wrapper (PowerShell)
+pwsh tools/run-clang-tidy.ps1 -BuildDir build
+```
+
+`-DWHITEOUT_ENABLE_CLANG_TIDY=ON` hooks clang-tidy into the build itself
+(via `CMAKE_CXX_CLANG_TIDY`). This works for clang/gcc; the option is a
+no-op for clang-cl on Windows (CMake's wrapper feeds clang-tidy a mangled
+invocation there — use the standalone flow above).
+
 ## Examples
 
 Example programs are available in `examples/` for loading and writing supported formats.

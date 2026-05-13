@@ -37,16 +37,16 @@ namespace {
 // ============================================================================
 
 /// For quality < 50: scale = QUALITY_LOW_NUMERATOR / quality.
-static constexpr i32 QUALITY_LOW_NUMERATOR = 5000;
+constexpr i32 QUALITY_LOW_NUMERATOR = 5000;
 
 /// For quality >= 50: scale = QUALITY_HIGH_BASE - 2 * quality.
-static constexpr i32 QUALITY_HIGH_BASE = 200;
+constexpr i32 QUALITY_HIGH_BASE = 200;
 
 /// DQT segment length for 8-bit precision: 2 (length) + 1 (table info) + 64 (values).
-static constexpr u16 DQT_8BIT_SEGMENT_LENGTH = 2 + 1 + BLOCK_PIXELS;
+constexpr u16 DQT_8BIT_SEGMENT_LENGTH = 2 + 1 + BLOCK_PIXELS;
 
 /// JPEG sampling factor byte for 1x1 (no subsampling): (1 << 4) | 1.
-static constexpr u8 SAMPLING_FACTOR_1x1 = 0x11;
+constexpr u8 SAMPLING_FACTOR_1x1 = 0x11;
 
 // ============================================================================
 // Progressive Scan Band Table
@@ -60,7 +60,7 @@ struct SpectralBand {
     u8 se;
 };
 
-static constexpr std::array<SpectralBand, 2> DEFAULT_AC_BANDS = {{
+constexpr std::array<SpectralBand, 2> DEFAULT_AC_BANDS = {{
     {1, 5},
     {6, 63},
 }};
@@ -71,7 +71,7 @@ static constexpr std::array<SpectralBand, 2> DEFAULT_AC_BANDS = {{
 
 /// Standard JPEG luminance quantisation matrix in natural (row-major) order.
 /// Used for all components in raw mode since there is no colourspace distinction.
-static constexpr std::array<u8, BLOCK_PIXELS> STD_LUMINANCE_QUANT_NATURAL = {{
+constexpr std::array<u8, BLOCK_PIXELS> STD_LUMINANCE_QUANT_NATURAL = {{
     16, 11, 10, 16, 24,  40,  51,  61,  12, 12, 14, 19, 26,  58,  60,  55,
     14, 13, 16, 24, 40,  57,  69,  56,  14, 17, 22, 29, 51,  87,  80,  62,
     18, 22, 37, 56, 68,  109, 103, 77,  24, 35, 55, 64, 81,  104, 113, 92,
@@ -88,7 +88,7 @@ static constexpr std::array<u8, BLOCK_PIXELS> STD_LUMINANCE_QUANT_NATURAL = {{
 /// to the true DCT: output[k] = true_DCT[k] * aanscale[k] * sqrt(N).
 /// Quantisation must compensate by dividing by (aanscale[row] * aanscale[col])
 /// so that the values stored in the JPEG file match the standard definition.
-static constexpr std::array<f32, BLOCK_SIZE> AAN_SCALE_FACTORS = {{
+constexpr std::array<f32, BLOCK_SIZE> AAN_SCALE_FACTORS = {{
     1.0f,
     SQRT2_F* dct_cos(1),
     SQRT2_F* dct_cos(2),
@@ -104,7 +104,7 @@ static constexpr std::array<f32, BLOCK_SIZE> AAN_SCALE_FACTORS = {{
 // ============================================================================
 
 /// Maps natural (row-major) position to zig-zag index.  Inverse of ZIGZAG_ORDER.
-static constexpr auto NATURAL_TO_ZIGZAG = []() {
+constexpr auto NATURAL_TO_ZIGZAG = []() {
     std::array<u8, BLOCK_PIXELS> table{};
     for (i32 zz = 0; zz < BLOCK_PIXELS; ++zz) {
         table[ZIGZAG_ORDER[zz]] = static_cast<u8>(zz);
@@ -139,7 +139,7 @@ std::array<f32, BLOCK_PIXELS> build_quant_reciprocal_natural(
 /// Loads all inputs into registers, computes the butterfly, and writes
 /// outputs back to the same buffer.  Operates on raw f32* for cache-friendly
 /// access when used with transpose_8x8_inplace.
-static inline void fdct_1d_inplace(f32* data) {
+inline void fdct_1d_inplace(f32* data) {
     const f32 d0 = data[0], d1 = data[1], d2 = data[2], d3 = data[3];
     const f32 d4 = data[4], d5 = data[5], d6 = data[6], d7 = data[7];
 
@@ -177,7 +177,7 @@ static inline void fdct_1d_inplace(f32* data) {
 
 /// Transpose an 8x8 float matrix in-place.
 /// Turns rows into columns for contiguous-access FDCT passes.
-static inline void transpose_8x8_inplace(f32* block) {
+inline void transpose_8x8_inplace(f32* block) {
     for (i32 i = 0; i < BLOCK_SIZE; ++i) {
         for (i32 j = i + 1; j < BLOCK_SIZE; ++j) {
             const i32 a = i * BLOCK_SIZE + j;

@@ -38,17 +38,13 @@
 #include "types.h"
 #include "writer.h"
 
-namespace whiteout {
-namespace blp = textures::blp;
-
-namespace textures {
-namespace blp {
+namespace whiteout::textures::blp {
 /// Library major version number
 constexpr int MAJOR_VERSION = 1;
 /// Library minor version number
 constexpr int MINOR_VERSION = 0;
 /// Library patch version number
 constexpr int PATCH_VERSION = 0;
-} // namespace blp
-} // namespace textures
-} // namespace whiteout
+} // namespace whiteout::textures::blp
+
+namespace whiteout { namespace blp = textures::blp; }

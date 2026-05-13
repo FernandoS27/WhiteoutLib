@@ -35,11 +35,7 @@
 #include "parser.h"
 #include "writer.h"
 
-namespace whiteout {
-namespace bmp = textures::bmp;
-
-namespace textures {
-namespace bmp {
+namespace whiteout::textures::bmp {
 // ============================================================================
 // BMP Library Version
 // ============================================================================
@@ -50,6 +46,6 @@ constexpr int MAJOR_VERSION = 1;
 constexpr int MINOR_VERSION = 0;
 /// Library patch version number
 constexpr int PATCH_VERSION = 0;
-} // namespace bmp
-} // namespace textures
-} // namespace whiteout
+} // namespace whiteout::textures::bmp
+
+namespace whiteout { namespace bmp = textures::bmp; }

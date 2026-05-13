@@ -62,15 +62,15 @@ u64 encode_mode4(const u8* rgba, u8* out, bool use_pca) {
             color_palette[idx] = {(i32)bcn_interpolate(c0.r, c1.r, w), (i32)bcn_interpolate(c0.g, c1.g, w),
                          (i32)bcn_interpolate(c0.b, c1.b, w), 0};
         }
-        std::array<u32, 8> alpha_palette;
+        std::array<u32, 8> alpha_palette{};
         for (u32 idx = 0; idx < alpha_count; ++idx) {
             u32 w = alpha_weights[idx];
             alpha_palette[idx] = bcn_interpolate(c0.a, c1.a, w);
         }
 
         // Assign indices
-        std::array<u8, 16> color_indices;
-        std::array<u8, 16> alpha_indices;
+        std::array<u8, 16> color_indices{};
+        std::array<u8, 16> alpha_indices{};
         u64 total_err = 0;
         for (u32 i = 0; i < 16; ++i) {
             auto px = pixel_at(rgba, i);

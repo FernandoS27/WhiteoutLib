@@ -44,7 +44,7 @@ u64 encode_mode1_partition(const u8* rgba, u8* out, u32 partition) {
     // Try both shared P-bit values for each subset
     for (u32 pb0 = 0; pb0 < 2; ++pb0) {
         for (u32 pb1 = 0; pb1 < 2; ++pb1) {
-            std::array<u32, 12> ep;
+            std::array<u32, 12> ep{};
             ep[0] = quantize6(lo0.r, pb0);
             ep[1] = quantize6(lo0.g, pb0);
             ep[2] = quantize6(lo0.b, pb0);
@@ -77,7 +77,7 @@ u64 encode_mode1_partition(const u8* rgba, u8* out, u32 partition) {
             }
 
             // Assign indices
-            std::array<u8, 16> indices;
+            std::array<u8, 16> indices{};
             u64 total_err = 0;
             for (u32 i = 0; i < 16; ++i) {
                 u8 s = part[i];

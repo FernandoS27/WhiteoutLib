@@ -83,8 +83,8 @@ f32 linearToSrgbExact(f32 linearValue) {
 constexpr u32 SRGB_LUT_SIZE = 4096;
 
 struct SrgbLuts {
-    f32 toLinear[SRGB_LUT_SIZE + 1];
-    f32 toSrgb[SRGB_LUT_SIZE + 1];
+    f32 toLinear[SRGB_LUT_SIZE + 1]{};
+    f32 toSrgb[SRGB_LUT_SIZE + 1]{};
 
     SrgbLuts() {
         for (u32 i = 0; i <= SRGB_LUT_SIZE; ++i) {

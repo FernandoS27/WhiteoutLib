@@ -605,15 +605,17 @@ void sphericalKaiserFilter(const MipImage& src, MipImage& dst, PipelineContext* 
                     const f32 duPad = std::min(
                         static_cast<f32>(angularRadius / (PI * static_cast<f64>(sinThetaN))), 0.5f);
 
-                    const u32 srcY0 = static_cast<u32>(
-                        std::max(0.0f, (tv - dvPad) * static_cast<f32>(src.height) - 0.5f));
+                    // Expand the sampling footprint by half a texel on each side
+                    // (floor for the start, ceil for the end).
+                    const u32 srcY0 = static_cast<u32>(std::max(
+                        0.0f, std::floor((tv - dvPad) * static_cast<f32>(src.height))));
                     const u32 srcY1 = std::min(
-                        static_cast<u32>((tv + dvPad) * static_cast<f32>(src.height) + 0.5f),
+                        static_cast<u32>(std::ceil((tv + dvPad) * static_cast<f32>(src.height))),
                         src.height - 1u);
-                    const i32 srcX0 =
-                        static_cast<i32>((tu - duPad) * static_cast<f32>(src.width) - 0.5f);
-                    const i32 srcX1 =
-                        static_cast<i32>((tu + duPad) * static_cast<f32>(src.width) + 0.5f);
+                    const i32 srcX0 = static_cast<i32>(
+                        std::floor((tu - duPad) * static_cast<f32>(src.width)));
+                    const i32 srcX1 = static_cast<i32>(
+                        std::ceil((tu + duPad) * static_cast<f32>(src.width)));
 
                     f32 color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
                     f64 weightSum = 0.0;
