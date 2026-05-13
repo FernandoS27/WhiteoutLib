@@ -5,9 +5,9 @@ version: 1.0.{build}
 # toolchain; per-platform install/build/test steps are gated below.
 
 image:
-  - Visual Studio 2022
-  - Ubuntu2204
   - macos-sonoma
+  - Ubuntu2204
+  - Visual Studio 2022
 
 configuration:
   - Release

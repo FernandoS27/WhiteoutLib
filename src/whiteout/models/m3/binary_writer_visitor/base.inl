@@ -33,10 +33,10 @@ void BinaryWriterVisitor::write(const Model& model) {
     indexTable.reserve(
         1024); // Avoid too many reallocations, as we will be adding entries one by one
 
-    indexTable.emplace_back(header.magic, 0, 1, 0); // Placeholder for header reference entry
+    indexTable.push_back({header.magic, 0, 1, 0}); // Placeholder for header reference entry
     auto modelRefIndex = indexTable.size();
-    indexTable.emplace_back(ChunkTagTraits<Model>::value, 0, 1,
-                            detail::getStructureVersion(model)); // Placeholder for model reference entry
+    indexTable.push_back({ChunkTagTraits<Model>::value, 0, 1,
+                          detail::getStructureVersion(model)}); // Placeholder for model reference entry
     header.modelRef.entries = 1;
     header.modelRef.index = static_cast<u32>(modelRefIndex);
 
@@ -179,8 +179,8 @@ void BinaryWriterVisitor::visit(const std::string& str) {
         auto new_entry_index = indexTable.size();
         auto version = detail::getStructureVersion(str);
         const auto currentOffset = writer.getPosition();
-        indexTable.emplace_back(ChunkTagTraits<char>::value, currentOffset,
-                                static_cast<u32>(str.size()), version);
+        indexTable.push_back({ChunkTagTraits<char>::value, currentOffset,
+                              static_cast<u32>(str.size()), version});
         auto& entry = indexTable[new_entry_index];
         writer.setPosition(ref_position);
         Reference ref = {};

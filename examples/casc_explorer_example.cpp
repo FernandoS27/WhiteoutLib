@@ -20,6 +20,7 @@
 #include <iostream>
 #include <map>
 #include <random>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <variant>

@@ -43,8 +43,8 @@ void BinaryWriterVisitor::visit(const std::vector<T>& container) {
         auto new_entry_index = indexTable.size();
         auto version = detail::getStructureVersion(*container.begin());
         const auto currentOffset = writer.getPosition();
-        indexTable.emplace_back(ChunkTagTraits<T>::value, currentOffset,
-                                static_cast<u32>(container.size()), version);
+        indexTable.push_back({ChunkTagTraits<T>::value, currentOffset,
+                              static_cast<u32>(container.size()), version});
         auto& entry = indexTable[new_entry_index];
         writer.setPosition(ref_position);
         Reference ref = {};
@@ -78,7 +78,7 @@ void BinaryWriterVisitor::visit(const std::optional<T>& container) {
         auto new_entry_index = indexTable.size();
         auto version = detail::getStructureVersion(*container);
         const auto currentOffset = writer.getPosition();
-        indexTable.emplace_back(ChunkTagTraits<T>::value, currentOffset, 1, version);
+        indexTable.push_back({ChunkTagTraits<T>::value, currentOffset, 1, version});
         auto& entry = indexTable[new_entry_index];
         writer.setPosition(ref_position);
         Reference ref = {};
