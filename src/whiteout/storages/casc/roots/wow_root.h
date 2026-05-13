@@ -9,6 +9,7 @@
 #include "root.h"
 #include "common/entry_index.h"
 
+#include <mutex>
 #include <span>
 #include <vector>
 
@@ -35,21 +36,33 @@ public:
     std::vector<const RootEntry*> findByCKey(std::span<const u8, 16> cKey) const override;
     RootFormat format() const override { return RootFormat::Wow; }
 
+    /// Force the lazy name-hash index to be built. No-op if already built.
+    /// Storage::prefetch() calls this.
+    void ensureFullyIndexed() const;
+
 protected:
     const std::vector<RootEntry>& entries() const override { return m_entries; }
     std::vector<RootEntry>& mutableEntries() override { return m_entries; }
 
 private:
-    /// All entries in flat storage.
     std::vector<RootEntry> m_entries;
 
-    /// Dual index: FileDataId → indices into m_entries.
+    /// Always-eager: FileDataId → entry indices. Cheap; the primary lookup.
     EntryIndex<u32> m_byFileDataId;
 
-    /// Dual index: JenkinsHash(name) → indices into m_entries.
-    EntryIndex<u64> m_byNameHash;
+    /// Eager when a listfile is present: JenkinsHash(listfile_path) → indices.
+    /// Built during the same iteration that enriches entry.path, so adds
+    /// almost nothing to open-time cost.
+    EntryIndex<u64> m_byListfilePath;
 
-    void buildIndices();
+    /// Lazy: in-blob JenkinsHash → indices. Built on first findByPath miss.
+    /// For the common WoW workflow (open + read by path via listfile), this
+    /// never gets built at all.
+    mutable EntryIndex<u64> m_byNameHash;
+    mutable std::once_flag m_nameHashIndexOnce;
+
+    void buildFileDataIdIndex();
+    void ensureNameHashIndex() const;
 };
 
 } // namespace whiteout::storages::casc

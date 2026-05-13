@@ -109,7 +109,7 @@ static std::vector<u8> buildV2Root(
     std::vector<u8> buf;
 
     // MFST header: magic + totalFiles + namedFiles.
-    writeLE32(buf, 0x5453464D); // 'MFST'
+    writeLE32(buf, 0x4D465354); // 'MFST'
     writeLE32(buf, n);          // totalFileCount
     writeLE32(buf, n);          // namedFileCount
 
@@ -148,7 +148,7 @@ static std::vector<u8> buildV3Root(
     std::vector<u8> buf;
 
     // V3 header: magic + headerSize + version + totalFiles + namedFiles + padding.
-    writeLE32(buf, 0x5453464D); // 'MFST'
+    writeLE32(buf, 0x4D465354); // 'MFST'
     writeLE32(buf, 20);         // headerSize (bytes after magic: 4+4+4+4+4)
     writeLE32(buf, 1);          // version = 1 (v3 with old block header format)
     writeLE32(buf, n);          // totalFileCount
@@ -191,7 +191,7 @@ static std::vector<u8> buildV3ManifestV2Root(
     std::vector<u8> buf;
 
     // V3 header with version=2.
-    writeLE32(buf, 0x5453464D); // 'MFST'
+    writeLE32(buf, 0x4D465354); // 'MFST'
     writeLE32(buf, 20);         // headerSize
     writeLE32(buf, 2);          // version = 2
     writeLE32(buf, n);
@@ -382,7 +382,7 @@ TEST_CASE("Block with NoNameHash flag (v2)", "[casc][wow_root]") {
     std::vector<u8> buf;
 
     // MFST header
-    writeLE32(buf, 0x5453464D);
+    writeLE32(buf, 0x4D465354);
     writeLE32(buf, n);  // totalFileCount
     writeLE32(buf, 0);  // namedFileCount = 0 (no name hashes)
 

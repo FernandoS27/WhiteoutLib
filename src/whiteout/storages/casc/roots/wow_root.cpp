@@ -227,7 +227,6 @@ std::unique_ptr<WowRoot> WowRoot::parse(std::span<const u8> data,
     if (data.size() < 12) return nullptr;
 
     WowRootHeader header;
-    // Try header versions from newest to oldest.
     if (!tryParseHeaderV3(data, header) &&
         !tryParseHeaderV2(data, header) &&
         !tryParseHeaderLegacy(data, header)) {
@@ -238,27 +237,44 @@ std::unique_ptr<WowRoot> WowRoot::parse(std::span<const u8> data,
     if (!parseBlocks(data, header, root->m_entries))
         return nullptr;
 
-    // Enrich entries with human-readable paths from listfile.
+    root->buildFileDataIdIndex();
+
+    // Enrich entries with listfile paths AND build the path-hash index in the
+    // same pass. The name-hash index stays lazy; it only fires if a queried
+    // path isn't covered by the listfile.
     if (!listfile.empty()) {
         auto pathMap = parseListfile(listfile);
         if (!pathMap.empty()) {
-            for (auto& entry : root->m_entries) {
-                if (entry.fileDataId == kInvalidFileDataId)
-                    continue;
+            root->m_byListfilePath.reserve(pathMap.size());
+            for (size_t i = 0; i < root->m_entries.size(); ++i) {
+                auto& entry = root->m_entries[i];
+                if (entry.fileDataId == kInvalidFileDataId) continue;
                 auto it = pathMap.find(entry.fileDataId);
-                if (it != pathMap.end())
-                    entry.path = it->second;
+                if (it == pathMap.end()) continue;
+                entry.path = it->second;
+                auto h = common::jenkinsHash(entry.path);
+                root->m_byListfilePath.emplace(
+                    u64(h.pc) | (u64(h.pb) << 32), i);
             }
         }
     }
 
-    root->buildIndices();
     return root;
 }
 
 std::vector<const RootEntry*> WowRoot::findByPath(const std::string& path) const {
     auto hash = common::jenkinsHash(path);
     u64 combined = u64(hash.pc) | (u64(hash.pb) << 32);
+
+    // Listfile-derived index first — populated eagerly when a listfile was
+    // provided, free hit for the WoW + listfile common case.
+    if (!m_byListfilePath.empty()) {
+        auto results = m_byListfilePath.findAll(m_entries, combined);
+        if (!results.empty()) return results;
+    }
+
+    // Fallback: in-blob name-hash index. Built lazily.
+    ensureNameHashIndex();
     return m_byNameHash.findAll(m_entries, combined);
 }
 
@@ -281,17 +297,28 @@ std::vector<const RootEntry*> WowRoot::findByCKey(std::span<const u8, 16> cKey) 
     return results;
 }
 
-void WowRoot::buildIndices() {
-    m_byFileDataId.reserve(m_entries.size());
-    m_byNameHash.reserve(m_entries.size());
+void WowRoot::ensureFullyIndexed() const {
+    ensureNameHashIndex();
+}
 
+void WowRoot::buildFileDataIdIndex() {
+    m_byFileDataId.reserve(m_entries.size());
     for (size_t i = 0; i < m_entries.size(); ++i) {
         auto& e = m_entries[i];
         if (e.fileDataId != kInvalidFileDataId)
             m_byFileDataId.emplace(e.fileDataId, i);
-        if (e.fileNameHash != 0)
-            m_byNameHash.emplace(e.fileNameHash, i);
     }
+}
+
+void WowRoot::ensureNameHashIndex() const {
+    std::call_once(m_nameHashIndexOnce, [this]() {
+        m_byNameHash.reserve(m_entries.size());
+        for (size_t i = 0; i < m_entries.size(); ++i) {
+            auto& e = m_entries[i];
+            if (e.fileNameHash != 0)
+                m_byNameHash.emplace(e.fileNameHash, i);
+        }
+    });
 }
 
 } // namespace whiteout::storages::casc

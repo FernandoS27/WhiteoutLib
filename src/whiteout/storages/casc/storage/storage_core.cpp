@@ -1469,6 +1469,11 @@ bool Storage::prefetch() {
     m_impl->encodingTable.ensureFullyParsed();
     m_impl->ensureEncodingReferenced();
 
+    // Force the WoW root's lazy name-hash index too, when present.
+    if (m_impl->root && m_impl->root->format() == RootFormat::Wow) {
+        static_cast<WowRoot*>(m_impl->root.get())->ensureFullyIndexed();
+    }
+
     return true;
 }
 

@@ -317,48 +317,13 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
         impl.cdnConfig = parseCdnConfig(*cs->cdnData);
     }
 
-    // Step 6: Fetch archive index files + speculatively fetch encoding table.
+    // Step 6: Set up archive index (lazy or eager).
     if (!reportProgress(ProgressStep::LoadingIndexFiles)) return std::nullopt;
 
-    const bool lazyArchives = (opts.flags & StorageFeatureFlags::LazyArchiveIndex) != 0;
-    const bool skipSpeculative = (opts.flags & StorageFeatureFlags::LoadOnDemand) != 0;
-
-    if (lazyArchives) {
+    if ((opts.flags & StorageFeatureFlags::LazyArchiveIndex) != 0) {
         impl.onlineState->onlineIndex = OnlineIndexTable::makeLazy(
             impl.onlineState->fetcher.get(), &impl.cdnConfig.archiveEKeys, impl.pool);
-    }
-
-    std::shared_ptr<std::vector<u8>> speculativeEncoding;
-    if (!skipSpeculative) {
-        struct EncFetchState {
-            std::atomic<bool> done{false};
-            std::mutex mtx;
-            std::condition_variable cv;
-        };
-        auto encState = std::make_shared<EncFetchState>();
-        speculativeEncoding = std::make_shared<std::vector<u8>>();
-
-        auto encodingEKeyHex = storages::common::hexEncode16(impl.buildConfig.encodingEKey);
-        impl.onlineState->fetcher->fetchAsync("data", encodingEKeyHex,
-            [encState, speculativeEncoding](std::optional<std::vector<u8>> data) {
-                if (data) *speculativeEncoding = std::move(*data);
-                encState->done.store(true, std::memory_order_release);
-                std::lock_guard<std::mutex> lk(encState->mtx);
-                encState->cv.notify_one();
-            });
-
-        if (!lazyArchives) {
-            impl.onlineState->onlineIndex = OnlineIndexTable::loadAll(
-                *impl.onlineState->fetcher, impl.cdnConfig.archiveEKeys, impl.pool);
-        }
-
-        if (!encState->done.load(std::memory_order_acquire)) {
-            std::unique_lock<std::mutex> lk(encState->mtx);
-            encState->cv.wait_for(lk, std::chrono::seconds(60), [&] {
-                return encState->done.load(std::memory_order_acquire);
-            });
-        }
-    } else if (!lazyArchives) {
+    } else {
         impl.onlineState->onlineIndex = OnlineIndexTable::loadAll(
             *impl.onlineState->fetcher, impl.cdnConfig.archiveEKeys, impl.pool);
     }
@@ -388,10 +353,7 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
         impl.deferMode = true;
     } else {
         if (!reportProgress(ProgressStep::LoadingEncodingTable)) return std::nullopt;
-        std::vector<u8> preEnc;
-        if (speculativeEncoding && !speculativeEncoding->empty())
-            preEnc = std::move(*speculativeEncoding);
-        if (!impl.loadEncodingAndRoot(preEnc)) return std::nullopt;
+        if (!impl.loadEncodingAndRoot()) return std::nullopt;
     }
 
     if (!reportProgress(ProgressStep::Ready)) return std::nullopt;

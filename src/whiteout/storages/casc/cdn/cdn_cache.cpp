@@ -63,10 +63,14 @@ void CdnCache::writeFileBytes(const std::string& path, std::span<const u8> data)
     std::string tmpPath = path + ".tmp";
     {
         auto f = whiteout::common::open_ofstream(tmpPath, std::ios::binary);
-        if (!f) return;
+        if (!f) {
+            std::fprintf(stderr, "[whiteout cdn_cache] open failed: %s\n", tmpPath.c_str());
+            return;
+        }
         f.write(reinterpret_cast<const char*>(data.data()),
                 static_cast<std::streamsize>(data.size()));
         if (!f) {
+            std::fprintf(stderr, "[whiteout cdn_cache] write failed: %s\n", tmpPath.c_str());
             std::error_code ec;
             fs::remove(tmpPath, ec);
             return;
@@ -75,10 +79,15 @@ void CdnCache::writeFileBytes(const std::string& path, std::span<const u8> data)
 
     std::error_code ec;
     fs::rename(tmpPath, path, ec);
-    if (ec) {
-        // Rename failed (e.g. cross-device) — try copy + remove.
-        fs::copy_file(tmpPath, path, fs::copy_options::overwrite_existing, ec);
-        fs::remove(tmpPath, ec);
+    if (!ec) return;
+
+    // Rename failed (e.g. cross-device) — try copy + remove.
+    std::error_code copyEc;
+    fs::copy_file(tmpPath, path, fs::copy_options::overwrite_existing, copyEc);
+    fs::remove(tmpPath, ec);
+    if (copyEc) {
+        std::fprintf(stderr, "[whiteout cdn_cache] commit failed: %s (%s)\n",
+                     path.c_str(), copyEc.message().c_str());
     }
 }
 
