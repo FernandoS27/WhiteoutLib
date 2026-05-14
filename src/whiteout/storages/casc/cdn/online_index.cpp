@@ -5,6 +5,9 @@
 #include "../../common/hex.h"
 #include "../storage/key_utils.h"
 
+#include <whiteout/interfaces.h>
+#include <whiteout/utils/job_group.h>
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -284,8 +287,27 @@ void OnlineIndexTable::loadArchive(u32 archiveIndex) const {
 void OnlineIndexTable::ensureAllLoaded() const {
     if (!m_lazy || !m_lazy->archiveEKeys) return;
     const size_t N = m_lazy->archiveEKeys->size();
-    for (size_t i = 0; i < N; ++i)
-        loadArchive(u32(i));
+    if (N == 0) return;
+
+    // loadArchive() is thread-safe (per-archive call_once + shared_mutex on the
+    // merge), so fault them all in parallel — WoW has hundreds of archives, and
+    // doing them serially is the cold-read bottleneck.
+    if (m_lazy->pool && N >= 4) {
+        utils::JobGroup jobGroup;
+        jobGroup.add(N);
+        for (size_t i = 0; i < N; ++i) {
+            interfaces::WorkerTask task;
+            task.fn = [this, i, &jobGroup]() {
+                loadArchive(u32(i));
+                jobGroup.done();
+            };
+            m_lazy->pool->submit(task);
+        }
+        jobGroup.wait();
+    } else {
+        for (size_t i = 0; i < N; ++i)
+            loadArchive(u32(i));
+    }
 }
 
 // ============================================================================

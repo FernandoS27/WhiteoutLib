@@ -436,12 +436,14 @@ bool traverseTvfsBlob(std::span<const u8> data,
 
 std::unique_ptr<TvfsRoot> TvfsRoot::parse(
     std::span<const u8> data,
-    interfaces::WorkerPool* pool)
+    interfaces::WorkerPool* pool,
+    bool buildIdx)
 {
     auto root = std::make_unique<TvfsRoot>();
     if (!traverseTvfsBlob(data, nullptr, nullptr, root->m_entries))
         return nullptr;
-    root->buildIndices(pool, /*preNormalized=*/true);
+    if (buildIdx)
+        root->buildIndices(pool, /*preNormalized=*/true);
     return root;
 }
 
@@ -449,13 +451,27 @@ std::unique_ptr<TvfsRoot> TvfsRoot::parse(
     std::span<const u8> data,
     const VfsResolver& resolver,
     const std::vector<std::array<u8, 16>>& vfsEKeys,
-    interfaces::WorkerPool* pool)
+    interfaces::WorkerPool* pool,
+    bool buildIdx)
 {
     auto root = std::make_unique<TvfsRoot>();
     if (!traverseTvfsBlob(data, &resolver, &vfsEKeys, root->m_entries))
         return nullptr;
-    root->buildIndices(pool, /*preNormalized=*/true);
+    if (buildIdx)
+        root->buildIndices(pool, /*preNormalized=*/true);
     return root;
+}
+
+void TvfsRoot::ensureIndexed(interfaces::WorkerPool* pool) {
+    if (m_byPathMap.size() != 0 || m_entries.empty()) return;
+    buildIndices(pool, /*preNormalized=*/true);
+}
+
+std::vector<RootEntry> TvfsRoot::takeEntries() {
+    m_byPathMap = {};
+    m_chainNext.clear();
+    m_trie.clear();
+    return std::move(m_entries);
 }
 
 void TvfsRoot::merge(const TvfsRoot& other) {

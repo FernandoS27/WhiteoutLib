@@ -138,14 +138,16 @@ std::optional<std::vector<u8>> StorageBackendImpl<DT, CT>::resolveRootEntry(
 
     if constexpr (DT::isLocal()) {
         // Local path: direct index lookup + mmap read + BLTE decode.
+        // Prefer the entry's own EKey — TVFS roots carry it straight from the
+        // manifest, so the CKey -> encoding-table lookup is a needless step.
         const IndexEntry* idxEntry = nullptr;
-        if (!isZeroKey(best->cKey)) {
+        if (!isZeroKey(best->eKey)) {
+            idxEntry = m_data.indexTable->find(eKeyTrunc(best->eKey));
+        }
+        if (!idxEntry && !isZeroKey(best->cKey)) {
             auto encEntry = m_encoding.findByCKey(best->cKey, kEKeyTruncSize);
             if (encEntry)
                 idxEntry = m_data.indexTable->find(eKeyTrunc(encEntry->eKey));
-        }
-        if (!idxEntry && !isZeroKey(best->eKey)) {
-            idxEntry = m_data.indexTable->find(eKeyTrunc(best->eKey));
         }
         if (!idxEntry) return std::nullopt;
 
@@ -164,8 +166,11 @@ std::optional<std::vector<u8>> StorageBackendImpl<DT, CT>::resolveRootEntry(
         return std::move(decoded.data);
     } else {
         // Online path: resolveCKey/resolveEKey already BLTE-decodes.
-        if (!isZeroKey(best->cKey)) {
-            auto data = resolveCKey(best->cKey);
+        // Prefer the entry's own EKey when present (TVFS roots carry it
+        // straight from the manifest) — skips a CKey -> encoding-table lookup,
+        // which under lazy encoding is a CDN range-fetch on the cold path.
+        if (!isZeroKey(best->eKey)) {
+            auto data = resolveEKey(best->eKey);
             if (!data.empty()) {
                 if (best->containerOffset != 0) {
                     std::array<u8, 16> cacheKey = !isZeroKey(best->eKey) ? best->eKey : best->cKey;
@@ -175,8 +180,8 @@ std::optional<std::vector<u8>> StorageBackendImpl<DT, CT>::resolveRootEntry(
                 return data;
             }
         }
-        if (!isZeroKey(best->eKey)) {
-            auto data = resolveEKey(best->eKey);
+        if (!isZeroKey(best->cKey)) {
+            auto data = resolveCKey(best->cKey);
             if (!data.empty()) {
                 if (best->containerOffset != 0) {
                     std::array<u8, 16> cacheKey = !isZeroKey(best->eKey) ? best->eKey : best->cKey;
@@ -250,13 +255,13 @@ void LocalDataTraits::resolveBatchPhase1(
         if (!best) { blob.error = "no matching root entry"; return; }
 
         const IndexEntry* idxEntry = nullptr;
-        if (!isZeroKey(best->cKey)) {
+        if (!isZeroKey(best->eKey)) {
+            idxEntry = indexTable->find(eKeyTrunc(best->eKey));
+        }
+        if (!idxEntry && !isZeroKey(best->cKey)) {
             auto encEntry = encoding.findByCKey(best->cKey, kEKeyTruncSize);
             if (encEntry)
                 idxEntry = indexTable->find(eKeyTrunc(encEntry->eKey));
-        }
-        if (!idxEntry && !isZeroKey(best->eKey)) {
-            idxEntry = indexTable->find(eKeyTrunc(best->eKey));
         }
         if (!idxEntry) { blob.error = "file not found in index"; return; }
 
@@ -318,16 +323,18 @@ void OnlineDataTraits::resolveBatchPhase1(
         const OnlineIndexTable::Entry* idxEntry = nullptr;
         std::array<u8, 16> eKey{};
 
-        if (!isZeroKey(best->cKey)) {
+        // Prefer the entry's own EKey — TVFS roots carry it from the manifest,
+        // avoiding a CKey -> encoding-table lookup per file.
+        if (!isZeroKey(best->eKey)) {
+            eKey = best->eKey;
+            idxEntry = onlineIndex->find(eKeyTrunc(best->eKey));
+        }
+        if (!idxEntry && !isZeroKey(best->cKey)) {
             auto encEntry = encoding.findByCKey(best->cKey, kEKeyTruncSize);
             if (encEntry) {
                 eKey = encEntry->eKey;
                 idxEntry = onlineIndex->find(eKeyTrunc(encEntry->eKey));
             }
-        }
-        if (!idxEntry && !isZeroKey(best->eKey)) {
-            eKey = best->eKey;
-            idxEntry = onlineIndex->find(eKeyTrunc(best->eKey));
         }
 
         if (idxEntry) {

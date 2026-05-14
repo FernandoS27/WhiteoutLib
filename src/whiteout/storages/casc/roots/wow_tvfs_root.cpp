@@ -57,19 +57,12 @@ std::unique_ptr<WowTvfsRoot> WowTvfsRoot::create(std::unique_ptr<TvfsRoot> tvfs,
         listfilePaths = casc::parseListfile(listfile);
 
     auto result = std::unique_ptr<WowTvfsRoot>(new WowTvfsRoot());
+    // Move the TVFS entry table in and transform it in place — avoids a second
+    // multi-million-element allocation + copy.
+    result->m_entries = tvfs->takeEntries();
     result->m_tvfs = std::move(tvfs);
 
-    // Collect all TVFS entries.
-    std::vector<const RootEntry*> tvfsEntryPtrs;
-    tvfsEntryPtrs.reserve(result->m_tvfs->entryCount());
-    result->m_tvfs->enumerate([&](const RootEntry& e) {
-        tvfsEntryPtrs.push_back(&e);
-        return true;
-    });
-
-    const size_t entryCount = tvfsEntryPtrs.size();
-    result->m_entries.resize(entryCount);
-
+    const size_t entryCount = result->m_entries.size();
     const bool haveListfile = !listfilePaths.empty();
 
     // Parse each encoded TVFS path to extract locale/content flags, FileDataId, and CKey.
@@ -81,42 +74,32 @@ std::unique_ptr<WowTvfsRoot> WowTvfsRoot::create(std::unique_ptr<TvfsRoot> tvfs,
     //     empty path so listFiles()/enumerate() filter them out. This matches
     //     the user expectation that a listfile-loaded session only surfaces
     //     human-readable filenames, not the raw 53-char hex encoding.
-    //   - Without a listfile: surface src.path so the encoded TVFS form is
-    //     still queryable.
+    //   - Without a listfile: keep the encoded TVFS form so it stays queryable.
     auto enrichEntry = [&](size_t i) {
-        auto& dst = result->m_entries[i];
-        const auto& src = *tvfsEntryPtrs[i];
-
-        // Copy EKey and file size from TVFS.
-        dst.eKey = src.eKey;
-        dst.fileSize = src.fileSize;
+        auto& e = result->m_entries[i];
 
         wow_tvfs_path::Info info;
-        const bool decoded = wow_tvfs_path::tryDecode(src.path, info);
+        const bool decoded = wow_tvfs_path::tryDecode(e.path, info);
 
         if (decoded) {
-            dst.cKey = info.cKey;
-            dst.localeFlags = info.localeFlags;
-            dst.contentFlags = info.contentFlags;
-            dst.fileDataId = info.fileDataId;
-        } else {
-            dst.cKey = src.cKey;
-            dst.localeFlags = src.localeFlags;
-            dst.contentFlags = src.contentFlags;
-            dst.fileDataId = src.fileDataId;
+            e.cKey = info.cKey;
+            e.localeFlags = info.localeFlags;
+            e.contentFlags = info.contentFlags;
+            e.fileDataId = info.fileDataId;
         }
+        // else: keep the entry's existing cKey/locale/content/fileDataId.
 
         if (haveListfile) {
+            // tryDecode already consumed e.path; safe to overwrite.
+            std::string newPath;
             if (decoded) {
                 auto it = listfilePaths.find(info.fileDataId);
                 if (it != listfilePaths.end())
-                    dst.path = it->second;
-                // else: leave empty so listFiles() hides hashed entries.
+                    newPath = it->second;
             }
-            // Non-decoded entries (containers, etc.) also stay path-less.
-        } else {
-            dst.path = src.path;
+            e.path = std::move(newPath); // empty unless found in the listfile
         }
+        // else: keep e.path (the encoded TVFS form).
     };
 
     // Parallel entry processing.
@@ -179,16 +162,38 @@ std::vector<RootEntry>& WowTvfsRoot::mutableEntries() {
 // WowTvfsRoot — index building
 // ============================================================================
 
-void WowTvfsRoot::buildIndex(interfaces::WorkerPool* /*pool*/) {
-    m_byFileDataId.reserve(m_entries.size());
-    for (size_t i = 0; i < m_entries.size(); ++i) {
-        auto& e = m_entries[i];
-        if (e.fileDataId != kInvalidFileDataId)
-            m_byFileDataId.emplace(e.fileDataId, i);
-        if (!e.path.empty()) {
-            auto key = storages::common::normalizeCascPath(e.path);
-            m_byPath.emplace(std::move(key), i);
+void WowTvfsRoot::buildIndex(interfaces::WorkerPool* pool) {
+    // The two indices are independent members — build them concurrently.
+    // The path index (with per-entry normalisation) is the long pole.
+    auto buildFileDataIdIndex = [this]() {
+        m_byFileDataId.reserve(m_entries.size());
+        for (size_t i = 0; i < m_entries.size(); ++i) {
+            if (m_entries[i].fileDataId != kInvalidFileDataId)
+                m_byFileDataId.emplace(m_entries[i].fileDataId, i);
         }
+    };
+    auto buildPathIndex = [this]() {
+        for (size_t i = 0; i < m_entries.size(); ++i) {
+            if (!m_entries[i].path.empty()) {
+                auto key = storages::common::normalizeCascPath(m_entries[i].path);
+                m_byPath.emplace(std::move(key), i);
+            }
+        }
+    };
+
+    if (pool && m_entries.size() > 10000) {
+        utils::JobGroup jobGroup;
+        jobGroup.add(2);
+        interfaces::WorkerTask t1;
+        t1.fn = [&]() { buildFileDataIdIndex(); jobGroup.done(); };
+        interfaces::WorkerTask t2;
+        t2.fn = [&]() { buildPathIndex(); jobGroup.done(); };
+        pool->submit(t1);
+        pool->submit(t2);
+        jobGroup.wait();
+    } else {
+        buildFileDataIdIndex();
+        buildPathIndex();
     }
 }
 

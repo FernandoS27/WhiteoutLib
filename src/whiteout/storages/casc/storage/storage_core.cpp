@@ -110,6 +110,8 @@ static std::unique_ptr<RootManifest> decorateTvfsRoot(
             return nullptr; // moved-from, can't recover
         }
         // Entries aren't hex-encoded WoW paths — return as plain TVFS.
+        // The WowTvfs hint skipped index building; restore it for direct use.
+        tvfs->ensureIndexed(pool);
         return tvfs;
     }
     case TvfsDecorator::None:
@@ -212,28 +214,31 @@ std::optional<std::vector<u8>> Storage::Impl::resolveRootEntry(
     const IndexEntry* idxEntry = nullptr;
     std::vector<u8> blteData;
 
-    // For local storage, try single-pass CKey → encoding → index → mmap read.
+    // For local storage, try single-pass key → index → mmap read. Prefer the
+    // entry's own EKey — TVFS roots carry it from the manifest, so the
+    // CKey → encoding-table lookup is a needless extra step.
     if (isLocal()) {
         auto& localDS = *localState->dataSource;
-        if (!isZeroKey(best->cKey)) {
+        if (!isZeroKey(best->eKey)) {
+            idxEntry = localState->indexTable.find(eKeyTrunc(best->eKey));
+        }
+        if (!idxEntry && !isZeroKey(best->cKey)) {
             auto encEntry = encodingTable.findByCKey(best->cKey, kEKeyTruncSize);
             if (encEntry) {
                 idxEntry = localState->indexTable.find(eKeyTrunc(encEntry->eKey));
             }
-        }
-        if (!idxEntry && !isZeroKey(best->eKey)) {
-            idxEntry = localState->indexTable.find(eKeyTrunc(best->eKey));
         }
         if (!idxEntry) return std::nullopt;
         auto span = localDS.readBlteFromIndex(*idxEntry);
         if (span.empty()) return std::nullopt;
         blteData.assign(span.begin(), span.end());
     } else {
-        // Online path: use DataSource for fetch.
-        if (!isZeroKey(best->cKey)) {
-            auto data = resolveCKey(best->cKey);
+        // Online path: use DataSource for fetch. Prefer the entry's own EKey
+        // (TVFS roots carry it from the manifest) — skips a CKey → encoding
+        // lookup, which under lazy encoding is a CDN range-fetch.
+        if (!isZeroKey(best->eKey)) {
+            auto data = resolveEKey(best->eKey);
             if (!data.empty()) {
-                // resolveCKey already decoded — handle container slicing.
                 if (best->containerOffset != 0) {
                     auto off = static_cast<size_t>(best->containerOffset);
                     auto sz  = static_cast<size_t>(best->containerSize);
@@ -252,9 +257,10 @@ std::optional<std::vector<u8>> Storage::Impl::resolveRootEntry(
                 return data;
             }
         }
-        if (!isZeroKey(best->eKey)) {
-            auto data = resolveEKey(best->eKey);
+        if (!isZeroKey(best->cKey)) {
+            auto data = resolveCKey(best->cKey);
             if (!data.empty()) {
+                // resolveCKey already decoded — handle container slicing.
                 if (best->containerOffset != 0) {
                     auto off = static_cast<size_t>(best->containerOffset);
                     auto sz  = static_cast<size_t>(best->containerSize);
@@ -490,16 +496,17 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
             vfsEKeyToCKey[keyHash64(sub.eKey)] = sub.cKey;
         }
 
-        // Eager prefetch unless LazyVfsSubmanifest is set.
+        // Always prefetch sub-manifests in parallel. TVFS traversal resolves
+        // every sub-manifest regardless of LazyVfsSubmanifest, so skipping the
+        // parallel prefetch only forces slow serial resolution inside the
+        // single-threaded traversal — WoW retail has ~870 sub-manifests.
         std::unordered_map<u64, std::vector<u8>> vfsCache;
-        if (!(featureFlags & StorageFeatureFlags::LazyVfsSubmanifest)) {
-            if (backend) {
-                vfsCache = backend->prefetchVfs(*this, vfsEKeys, vfsEKeyToCKey);
-            } else if (isLocal()) {
-                vfsCache = prefetchVfsLocal(*this, vfsEKeys, vfsEKeyToCKey);
-            } else if (isOnline()) {
-                vfsCache = prefetchVfsOnline(*this, vfsEKeys, vfsEKeyToCKey);
-            }
+        if (backend) {
+            vfsCache = backend->prefetchVfs(*this, vfsEKeys, vfsEKeyToCKey);
+        } else if (isLocal()) {
+            vfsCache = prefetchVfsLocal(*this, vfsEKeys, vfsEKeyToCKey);
+        } else if (isOnline()) {
+            vfsCache = prefetchVfsOnline(*this, vfsEKeys, vfsEKeyToCKey);
         }
 
         // TvfsRoot::parse may resolve sub-manifests on the worker pool, so
@@ -531,12 +538,15 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
 
         auto vfsData = resolveCKey(buildConfig.vfsRootCKey, pool);
         if (!vfsData.empty()) {
-            auto tvfsRoot = TvfsRoot::parse(vfsData, vfsResolver, vfsEKeys, pool);
+            auto hint = classifyTvfsProduct(buildConfig);
+            // WowTvfsRoot builds its own FileDataId/path indices; the plain
+            // TvfsRoot path map would be a wasted O(n) pass over ~1.5M entries.
+            bool buildTvfsIdx = (hint != TvfsDecorator::WowTvfs);
+            auto tvfsRoot = TvfsRoot::parse(vfsData, vfsResolver, vfsEKeys, pool, buildTvfsIdx);
             if (tvfsRoot) {
                 EKeyReader eKeyReader = [this](std::span<const u8, 16> eKey) -> std::vector<u8> {
                     return resolveEKey(eKey);
                 };
-                auto hint = classifyTvfsProduct(buildConfig);
                 root = decorateTvfsRoot(std::move(tvfsRoot), hint, eKeyReader, pool, listfileData);
             }
         }

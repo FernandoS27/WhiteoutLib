@@ -27,10 +27,15 @@ using VfsResolver = std::function<std::vector<u8>(std::span<const u8> eKey)>;
 class TvfsRoot final : public RootManifest {
 public:
     /// Parse a single TVFS blob (no sub-container resolution).
-    /// @param data  Raw (BLTE-decoded) TVFS root bytes.
+    /// @param data     Raw (BLTE-decoded) TVFS root bytes.
+    /// @param pool     Optional worker pool for parallel index building.
+    /// @param buildIdx Build the path index. Pass false when a decorator
+    ///                 (WowTvfsRoot) builds its own indices — avoids a wasted
+    ///                 O(n) pass. Call ensureIndexed() later if needed.
     /// @return Parsed root, or nullptr on failure.
     static std::unique_ptr<TvfsRoot> parse(std::span<const u8> data,
-                                            interfaces::WorkerPool* pool = nullptr);
+                                            interfaces::WorkerPool* pool = nullptr,
+                                            bool buildIdx = true);
 
     /// Parse a TVFS blob with sub-container resolution (WC3 Reforged multi-VFS).
     /// When a leaf entry's EKey matches a known VFS sub-manifest, the entry is
@@ -41,10 +46,20 @@ public:
     /// @param resolver  Resolves VFS sub-manifest EKeys to decoded data.
     /// @param vfsEKeys  EKeys of known VFS sub-manifests (matched by first eKeySize bytes).
     /// @param pool      Optional worker pool for parallel index building.
+    /// @param buildIdx  Build the path index (see single-arg overload).
     static std::unique_ptr<TvfsRoot> parse(std::span<const u8> data,
                                             const VfsResolver& resolver,
                                             const std::vector<std::array<u8, 16>>& vfsEKeys,
-                                            interfaces::WorkerPool* pool = nullptr);
+                                            interfaces::WorkerPool* pool = nullptr,
+                                            bool buildIdx = true);
+
+    /// Build the path index if it hasn't been built yet. No-op otherwise.
+    void ensureIndexed(interfaces::WorkerPool* pool = nullptr);
+
+    /// Move the entry table out, leaving this root empty. Used by decorators
+    /// (WowTvfsRoot) that transform the entries in place — avoids a second
+    /// allocation + copy of a multi-million-element vector.
+    std::vector<RootEntry> takeEntries();
 
     /// Merge entries from another TvfsRoot into this one.
     void merge(const TvfsRoot& other);

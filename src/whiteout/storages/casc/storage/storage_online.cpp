@@ -323,6 +323,12 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
     if ((opts.flags & StorageFeatureFlags::LazyArchiveIndex) != 0) {
         impl.onlineState->onlineIndex = OnlineIndexTable::makeLazy(
             impl.onlineState->fetcher.get(), &impl.cdnConfig.archiveEKeys, impl.pool);
+        // A listfile signals bulk path-based reads. The per-read lazy fault-in
+        // does O(archives) serial .index fetches on a cold miss — pathological
+        // at scale. Parallel-load every archive index up front instead, so the
+        // cold-read path is a pure data fetch with no index round-trips.
+        if (!opts.listfile.empty())
+            impl.onlineState->onlineIndex.ensureAllLoaded();
     } else {
         impl.onlineState->onlineIndex = OnlineIndexTable::loadAll(
             *impl.onlineState->fetcher, impl.cdnConfig.archiveEKeys, impl.pool);
