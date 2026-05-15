@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <mutex>
 
 namespace whiteout::storages::casc {
 
@@ -34,6 +35,9 @@ static constexpr int kTvfsMaxTraversalDepth = 128;
 
 /// End-of-chain sentinel for m_chainNext.
 static constexpr u32 kNoChain = UINT32_MAX;
+
+/// TVFS EKey size. CascLib enforces this; parseHeader rejects anything else.
+static constexpr u32 kTvfsEKeySize = 9;
 
 // ---- FNV-1a string hashing with MurmurHash3 finalizer ----
 
@@ -114,7 +118,7 @@ static bool parseHeader(std::span<const u8> data, TvfsHeader& hdr) {
 
     // CascLib enforces eKeySize == 9 (ERROR_BAD_FORMAT otherwise).
     // All known TVFS manifests use 9-byte eKeys matching CDN index key size.
-    if (hdr.eKeySize != 9) return false;
+    if (hdr.eKeySize != kTvfsEKeySize) return false;
 
     hdr.flags = readLE32(p + 8);
     hdr.pathTableOffset  = readBE32(p + 12);
@@ -147,6 +151,27 @@ static u32 getCftOffsSize(u32 cftTableSize) {
 // Path table traversal
 // ============================================================================
 
+/// A deferred sub-manifest traversal — queued during the root-blob pass so the
+/// independent sub-manifests can be traversed in parallel.
+struct SubManifestJob {
+    std::array<u8, 16> eKey{};   ///< Zero-padded; first kTvfsEKeySize bytes valid.
+    std::string containerPath;   ///< Path prefix ("parent:") for this sub-manifest.
+};
+
+/// A deferred subtree traversal — a folder node whose recursion was deferred so
+/// it can be traversed in parallel. Carries its blob context so subtrees from
+/// the root blob and from (giant) sub-manifests can share one work queue.
+/// data/node/nodeEnd point into a blob that outlives the parallel section.
+struct SubtreeJob {
+    std::span<const u8> data;
+    TvfsHeader hdr;
+    u32 cftOffsSize = 0;
+    const u8* node = nullptr;
+    const u8* nodeEnd = nullptr;
+    std::string accumulated;     ///< Path accumulated down to this folder.
+    int depth = 0;
+};
+
 /// Context for recursive path-tree traversal.
 struct TraversalCtx {
     std::span<const u8> data;
@@ -155,6 +180,14 @@ struct TraversalCtx {
     std::vector<RootEntry>& entries;
     const VfsResolver* resolver;                            ///< null when no sub-container resolution.
     const std::vector<std::array<u8, 16>>* vfsEKeys;       ///< null when no sub-container resolution.
+    /// When non-null, sub-containers are queued here instead of recursed into
+    /// inline — lets the caller traverse them in parallel. Null in job contexts
+    /// (nested sub-containers recurse inline within their parent job).
+    std::vector<SubManifestJob>* pendingJobs = nullptr;
+    /// When non-null, folder nodes are queued here instead of recursed into —
+    /// turns traversePathTree into a single-level walk so the caller can
+    /// descend the tree breadth-first and farm out subtrees in parallel.
+    std::vector<SubtreeJob>* pendingSubtrees = nullptr;
 };
 
 static void traversePathTree(TraversalCtx& ctx, const u8* node, const u8* nodeEnd,
@@ -211,6 +244,16 @@ static bool tryEmitSubContainer(TraversalCtx& ctx,
         copyKey16(containerEntry.cKey, eKeyPtr + hdr.eKeySize, hdr.eKeySize);
     ctx.entries.push_back(std::move(containerEntry));
 
+    // Defer to the caller for parallel traversal when a job queue is set.
+    if (ctx.pendingJobs) {
+        SubManifestJob job;
+        copyKey16(job.eKey, eKeyPtr, hdr.eKeySize);
+        job.containerPath = std::move(containerPath);
+        ctx.pendingJobs->push_back(std::move(job));
+        return true;
+    }
+
+    // Inline path: resolve + recurse (job contexts, or no worker pool).
     auto subData = (*ctx.resolver)(std::span<const u8>(eKeyPtr, hdr.eKeySize));
     if (!subData.empty()) {
         TvfsHeader subHdr;
@@ -352,7 +395,14 @@ static void traversePathTree(TraversalCtx& ctx, const u8* node, const u8* nodeEn
                 u32 innerLen = folderDataLen - 4;
                 if (node + innerLen > nodeEnd) break;
 
-                traversePathTree(ctx, node, node + innerLen, pathBuf, depth + 1);
+                if (ctx.pendingSubtrees) {
+                    // Single-level mode: defer this folder's subtree.
+                    ctx.pendingSubtrees->push_back(
+                        SubtreeJob{ctx.data, ctx.hdr, ctx.cftOffsSize,
+                                   node, node + innerLen, pathBuf, depth + 1});
+                } else {
+                    traversePathTree(ctx, node, node + innerLen, pathBuf, depth + 1);
+                }
                 node += innerLen;
             } else {
                 // File node — strip leading/trailing separators that the TVFS
@@ -413,11 +463,80 @@ static void parsePathTable(TraversalCtx& ctx, const std::string& pathPrefix) {
 
 namespace {
 
+/// Min entry count for a sub-manifest to be "big" — big ones are descended and
+/// fanned out alongside the root blob; small ones become whole-blob jobs.
+static constexpr u32 kBigBlobMinEntries = 4000;
+
+/// A folder subtree larger than this many path-table bytes is split off into
+/// its own parallel job. The byte length of a folder node's inner data is a
+/// good proxy for its entry count, so this caps the size of any single work
+/// unit and keeps the pool balanced even when the directory tree is very lumpy
+/// (e.g. WoW's giant `world/` subtree). The driver thread does the splitting —
+/// jobs never spawn jobs, which would risk a worker-pool deadlock.
+static constexpr size_t kSubtreeSplitBytes = 48 * 1024;
+
+/// Safety cap on the driver's folder-splitting descent depth.
+static constexpr int kMaxSplitDepth = 32;
+
+/// Shared sink for the parallel traversal: each job appends its result as a
+/// private buffer (concatenated once at the end) under a short-held lock.
+struct ParallelTraverseState {
+    const VfsResolver* resolver = nullptr;
+    const std::vector<std::array<u8, 16>>* vfsEKeys = nullptr;
+    std::mutex bufMutex;
+    std::vector<std::vector<RootEntry>> buffers;
+
+    void emit(std::vector<RootEntry>&& local) {
+        if (local.empty()) return;
+        std::lock_guard<std::mutex> lk(bufMutex);
+        buffers.push_back(std::move(local));
+    }
+};
+
+/// Traverse one (already small-enough) folder subtree fully into a buffer.
+static void traverseSubtreeJob(ParallelTraverseState& st, const SubtreeJob& job) {
+    std::vector<RootEntry> local;
+    TraversalCtx ctx{job.data, job.hdr, job.cftOffsSize, local,
+                     st.resolver, st.vfsEKeys};
+    traversePathTree(ctx, job.node, job.nodeEnd, job.accumulated, job.depth);
+    st.emit(std::move(local));
+}
+
+/// Traverse a small whole sub-manifest blob fully into a buffer.
+static void traverseSmallManifestJob(ParallelTraverseState& st, const SubManifestJob& job) {
+    std::vector<RootEntry> local;
+    auto subData = (*st.resolver)(
+        std::span<const u8>(job.eKey.data(), kTvfsEKeySize));
+    if (!subData.empty()) {
+        TvfsHeader subHdr;
+        if (parseHeader(subData, subHdr)) {
+            u32 subCftOffsSize = getCftOffsSize(subHdr.cftTableSize);
+            TraversalCtx ctx{subData, subHdr, subCftOffsSize, local,
+                             st.resolver, st.vfsEKeys};
+            parsePathTable(ctx, job.containerPath);
+        }
+    }
+    st.emit(std::move(local));
+}
+
 /// Fill @p outEntries by traversing a TVFS blob. Returns true on success.
+///
+/// With a resolver + worker pool the traversal runs in two strictly separate
+/// phases — no job ever spawns another job (that would risk a worker-pool
+/// deadlock):
+///   1. The *driver* thread descends the path tree, splitting any folder
+///      bigger than kSubtreeSplitBytes into smaller folders and resolving
+///      sub-manifests, until it has a flat list of small, balanced subtree
+///      jobs. This descent only walks the "spine" of big folders, so it's
+///      cheap even though it's single-threaded.
+///   2. Every accumulated job is dispatched in one flat batch and traversed
+///      into a private buffer; the buffers are concatenated at the end.
+/// Without a pool it falls back to plain recursion.
 bool traverseTvfsBlob(std::span<const u8> data,
                        const VfsResolver* resolver,
                        const std::vector<std::array<u8, 16>>* vfsEKeys,
-                       std::vector<RootEntry>& outEntries) {
+                       std::vector<RootEntry>& outEntries,
+                       interfaces::WorkerPool* pool) {
     TvfsHeader hdr;
     if (!parseHeader(data, hdr))
         return false;
@@ -427,8 +546,121 @@ bool traverseTvfsBlob(std::span<const u8> data,
         outEntries.reserve(hdr.cftTableSize / hdr.eKeySize);
 
     u32 cftOffsSize = getCftOffsSize(hdr.cftTableSize);
-    TraversalCtx ctx{data, hdr, cftOffsSize, outEntries, resolver, vfsEKeys};
-    parsePathTable(ctx);
+
+    // No sub-container resolution, or no pool — single-threaded recursion.
+    if (!resolver || !vfsEKeys || !pool) {
+        TraversalCtx ctx{data, hdr, cftOffsSize, outEntries, resolver, vfsEKeys};
+        parsePathTable(ctx);
+        return !outEntries.empty();
+    }
+
+    std::vector<SubManifestJob> manifestRefs;   // sub-containers as discovered
+    std::vector<SubtreeJob> worklist;           // folders to split or accept
+    std::vector<SubtreeJob> readyJobs;          // small-enough subtrees → jobs
+    std::vector<SubManifestJob> smallManifests; // whole-blob jobs
+    std::vector<std::vector<u8>> resolvedBlobs; // keeps big sub-manifest data alive
+
+    // One-level walk of a blob: emits this level's leaves into outEntries,
+    // queues folder children onto the worklist, queues sub-containers as refs.
+    auto seedBlob = [&](std::span<const u8> bd, const TvfsHeader& bh, u32 bc,
+                        const std::string& prefix) {
+        TraversalCtx ctx{bd, bh, bc, outEntries, resolver, vfsEKeys,
+                         &manifestRefs, &worklist};
+        parsePathTable(ctx, prefix);
+    };
+
+    // Phase 1a (driver thread): fully traverse the *root* blob. It's small (a
+    // manifest-of-manifests), but a small folder there can reference a giant
+    // sub-manifest — the byte-size split heuristic can't see through that — so
+    // the root blob must be walked completely to collect every sub-container
+    // ref. Sub-containers are deferred (pendingJobs); folders recurse inline.
+    {
+        TraversalCtx ctx{data, hdr, cftOffsSize, outEntries, resolver, vfsEKeys,
+                         &manifestRefs, /*pendingSubtrees=*/nullptr};
+        parsePathTable(ctx);
+    }
+
+    // Phase 1b (driver thread): resolve sub-manifests and descend/split the
+    // big ones into small balanced jobs. worklist/manifestRefs both grow as we
+    // go (folders reveal sub-folders; big folders reveal sub-containers), so
+    // loop until both are drained.
+    size_t wCursor = 0, mCursor = 0;
+    while (wCursor < worklist.size() || mCursor < manifestRefs.size()) {
+        // Resolve newly-discovered sub-manifests. Big ones are seeded into the
+        // worklist (descended like any folder); small ones become whole-blob jobs.
+        while (mCursor < manifestRefs.size()) {
+            SubManifestJob ref = std::move(manifestRefs[mCursor++]);
+            auto blob = (*resolver)(
+                std::span<const u8>(ref.eKey.data(), kTvfsEKeySize));
+            if (blob.empty()) continue;
+            TvfsHeader subHdr;
+            if (!parseHeader(blob, subHdr)) continue;
+            u32 approxEntries = subHdr.eKeySize
+                ? subHdr.cftTableSize / subHdr.eKeySize : 0;
+            if (approxEntries < kBigBlobMinEntries) {
+                smallManifests.push_back(std::move(ref));
+                continue;
+            }
+            resolvedBlobs.push_back(std::move(blob));
+            // Moving the outer vector relocates the inner vector objects but
+            // not their heap buffers, so the span stays valid for phase 2.
+            seedBlob(resolvedBlobs.back(), subHdr,
+                     getCftOffsSize(subHdr.cftTableSize), ref.containerPath);
+        }
+        // Split big folders; accept small ones as jobs.
+        while (wCursor < worklist.size()) {
+            SubtreeJob job = std::move(worklist[wCursor++]);
+            size_t bytes = static_cast<size_t>(job.nodeEnd - job.node);
+            if (bytes <= kSubtreeSplitBytes || job.depth >= kMaxSplitDepth) {
+                readyJobs.push_back(std::move(job));
+                continue;
+            }
+            TraversalCtx ctx{job.data, job.hdr, job.cftOffsSize, outEntries,
+                             resolver, vfsEKeys, &manifestRefs, &worklist};
+            traversePathTree(ctx, job.node, job.nodeEnd,
+                             job.accumulated, job.depth);
+        }
+    }
+    if (readyJobs.empty() && smallManifests.empty())
+        return !outEntries.empty();
+
+    // Phase 2: one flat parallel batch — each job traverses its (already
+    // small) subtree fully into a private buffer. No job spawns work.
+    ParallelTraverseState st;
+    st.resolver = resolver;
+    st.vfsEKeys = vfsEKeys;
+    {
+        utils::JobGroup jobGroup;
+        jobGroup.add(readyJobs.size() + smallManifests.size());
+        for (size_t i = 0; i < readyJobs.size(); ++i) {
+            interfaces::WorkerTask task;
+            task.fn = [&st, &jobGroup, &readyJobs, i]() {
+                traverseSubtreeJob(st, readyJobs[i]);
+                jobGroup.done();
+            };
+            pool->submit(task);
+        }
+        for (size_t i = 0; i < smallManifests.size(); ++i) {
+            interfaces::WorkerTask task;
+            task.fn = [&st, &jobGroup, &smallManifests, i]() {
+                traverseSmallManifestJob(st, smallManifests[i]);
+                jobGroup.done();
+            };
+            pool->submit(task);
+        }
+        jobGroup.wait();
+    }
+
+    // Phase 3: concatenate. Entry order is not load-bearing — every consumer
+    // (index build, enumerate, merge) is order-agnostic.
+    size_t total = outEntries.size();
+    for (auto& buf : st.buffers) total += buf.size();
+    outEntries.reserve(total);
+    for (auto& buf : st.buffers)
+        outEntries.insert(outEntries.end(),
+                          std::make_move_iterator(buf.begin()),
+                          std::make_move_iterator(buf.end()));
+
     return !outEntries.empty();
 }
 
@@ -440,7 +672,7 @@ std::unique_ptr<TvfsRoot> TvfsRoot::parse(
     bool buildIdx)
 {
     auto root = std::make_unique<TvfsRoot>();
-    if (!traverseTvfsBlob(data, nullptr, nullptr, root->m_entries))
+    if (!traverseTvfsBlob(data, nullptr, nullptr, root->m_entries, pool))
         return nullptr;
     if (buildIdx)
         root->buildIndices(pool, /*preNormalized=*/true);
@@ -455,7 +687,7 @@ std::unique_ptr<TvfsRoot> TvfsRoot::parse(
     bool buildIdx)
 {
     auto root = std::make_unique<TvfsRoot>();
-    if (!traverseTvfsBlob(data, &resolver, &vfsEKeys, root->m_entries))
+    if (!traverseTvfsBlob(data, &resolver, &vfsEKeys, root->m_entries, pool))
         return nullptr;
     if (buildIdx)
         root->buildIndices(pool, /*preNormalized=*/true);

@@ -222,7 +222,7 @@ static bool parseBlocks(std::span<const u8> data, const WowRootHeader& header,
 // ============================================================================
 
 std::unique_ptr<WowRoot> WowRoot::parse(std::span<const u8> data,
-                                        interfaces::WorkerPool* /*pool*/,
+                                        interfaces::WorkerPool* pool,
                                         std::span<const u8> listfile) {
     if (data.size() < 12) return nullptr;
 
@@ -243,7 +243,7 @@ std::unique_ptr<WowRoot> WowRoot::parse(std::span<const u8> data,
     // same pass. The name-hash index stays lazy; it only fires if a queried
     // path isn't covered by the listfile.
     if (!listfile.empty()) {
-        auto pathMap = parseListfile(listfile);
+        auto pathMap = parseListfile(listfile, pool);
         if (!pathMap.empty()) {
             root->m_byListfilePath.reserve(pathMap.size());
             for (size_t i = 0; i < root->m_entries.size(); ++i) {

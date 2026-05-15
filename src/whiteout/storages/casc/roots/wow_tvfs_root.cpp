@@ -51,10 +51,10 @@ std::unique_ptr<WowTvfsRoot> WowTvfsRoot::create(std::unique_ptr<TvfsRoot> tvfs,
     if (!tvfs) return nullptr;
     if (!looksLikeWowTvfs(*tvfs)) return nullptr;
 
-    // Parse listfile if provided.
+    // Parse listfile if provided (parallel — community listfiles are ~140 MB).
     std::unordered_map<u32, std::string> listfilePaths;
     if (!listfile.empty())
-        listfilePaths = casc::parseListfile(listfile);
+        listfilePaths = casc::parseListfile(listfile, pool);
 
     auto result = std::unique_ptr<WowTvfsRoot>(new WowTvfsRoot());
     // Move the TVFS entry table in and transform it in place — avoids a second
