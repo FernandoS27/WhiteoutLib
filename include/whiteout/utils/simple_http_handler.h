@@ -10,9 +10,12 @@
 
 namespace whiteout::utils {
 
-/// Basic HTTP handler backed by the Windows WinHTTP API.
+/// Basic HTTP handler with two platform backends:
+///   * Windows  — WinHTTP
+///   * Other    — libcurl (linked at build time)
 ///
-/// Requests are dispatched asynchronously onto an internal thread pool.
+/// Requests are dispatched asynchronously onto an internal thread pool;
+/// each worker owns one backend handle and keeps its connection cache warm.
 /// Thread-safe: multiple threads may call getAsync / getRangeAsync
 /// concurrently.
 class SimpleHttpHandler : public interfaces::HttpHandler {

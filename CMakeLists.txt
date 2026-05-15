@@ -296,6 +296,27 @@ if(WIN32 AND NOT EMSCRIPTEN)
     # MSVC pulls winhttp via #pragma comment(lib, ...). MinGW/clang-mingw need
     # it linked explicitly.
     target_link_libraries(whiteout_lib PRIVATE winhttp)
+elseif(NOT EMSCRIPTEN)
+    # Non-Windows: SimpleHttpHandler can optionally use libcurl as its backend.
+    # If libcurl headers are absent the class still compiles, but its methods
+    # return an error response — apps that need real HTTP on these platforms
+    # should provide their own HttpHandler implementation.
+    option(WHITEOUT_ENABLE_CURL_HTTP
+        "Enable libcurl backend for SimpleHttpHandler on non-Windows hosts" ON)
+    if(WHITEOUT_ENABLE_CURL_HTTP)
+        find_package(CURL)
+        if(CURL_FOUND)
+            target_link_libraries(whiteout_lib PRIVATE CURL::libcurl)
+            target_compile_definitions(whiteout_lib PRIVATE WHITEOUT_HAVE_CURL=1)
+            message(STATUS "WhiteoutLib: SimpleHttpHandler using libcurl ${CURL_VERSION_STRING}")
+        else()
+            message(STATUS
+                "WhiteoutLib: libcurl not found — SimpleHttpHandler will stub "
+                "HTTP requests on this platform. Install libcurl-dev "
+                "(libcurl4-openssl-dev on Debian/Ubuntu, libcurl-devel on RHEL) "
+                "or provide your own HttpHandler implementation.")
+        endif()
+    endif()
 endif()
 
 if(WHITEOUT_BUILD_WASM_BINDINGS)

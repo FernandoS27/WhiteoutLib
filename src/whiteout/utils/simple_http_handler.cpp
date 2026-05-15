@@ -302,9 +302,214 @@ void SimpleHttpHandler::getRangeAsync(const std::string& url, u64 start, u64 end
 
 } // namespace whiteout::utils
 
-#else // !_WIN32
+#elif defined(WHITEOUT_HAVE_CURL)
 
-// ── Stub for non-Windows platforms ──────────────────────────────────
+// ── libcurl backend (Linux, macOS, BSD, …) ───────────────────────────
+
+#include <curl/curl.h>
+
+#include <atomic>
+#include <condition_variable>
+#include <cstdlib>
+#include <deque>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
+
+namespace whiteout::utils {
+
+namespace {
+
+// Lazily one-shot-init libcurl.  curl_global_init touches process-wide state
+// (TLS engine, signal handlers, etc.) and is not safe to call concurrently;
+// std::call_once gives us the right barrier.
+std::once_flag g_curl_init_flag;
+void ensureCurlInit() {
+    std::call_once(g_curl_init_flag, [] {
+        curl_global_init(CURL_GLOBAL_DEFAULT);
+        std::atexit([] { curl_global_cleanup(); });
+    });
+}
+
+size_t writeCb(char* ptr, size_t size, size_t nmemb, void* userdata) noexcept {
+    auto* body = static_cast<std::vector<u8>*>(userdata);
+    const size_t total = size * nmemb;
+    body->insert(body->end(),
+                 reinterpret_cast<u8*>(ptr),
+                 reinterpret_cast<u8*>(ptr) + total);
+    return total;
+}
+
+} // namespace
+
+struct HttpJob {
+    std::string url;
+    interfaces::HttpCallback callback;
+    bool rangeRequest = false;
+    u64 rangeStart = 0;
+    u64 rangeEnd = 0;
+};
+
+struct SimpleHttpHandler::Impl {
+    std::vector<std::thread> workers;
+    std::deque<HttpJob> queue;
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::atomic<bool> shutdown{false};
+
+    explicit Impl(size_t nThreads) {
+        ensureCurlInit();
+        workers.reserve(nThreads);
+        for (size_t i = 0; i < nThreads; ++i) {
+            workers.emplace_back([this] { workerLoop(); });
+        }
+    }
+
+    ~Impl() {
+        {
+            std::lock_guard<std::mutex> lk(mutex);
+            shutdown.store(true, std::memory_order_relaxed);
+        }
+        cv.notify_all();
+        for (auto& t : workers) {
+            if (t.joinable()) t.join();
+        }
+    }
+
+    void enqueue(HttpJob job) {
+        {
+            std::lock_guard<std::mutex> lk(mutex);
+            queue.push_back(std::move(job));
+        }
+        cv.notify_one();
+    }
+
+    void workerLoop() {
+        // One CURL easy handle per worker — libcurl reuses the connection
+        // cache across curl_easy_perform calls on the same handle, so we
+        // get keep-alive for free without sharing handles across threads
+        // (which is not safe).
+        CURL* curl = curl_easy_init();
+        if (!curl) {
+            // Drain pending jobs with a clear error so callers don't hang.
+            while (true) {
+                HttpJob job;
+                {
+                    std::unique_lock<std::mutex> lk(mutex);
+                    cv.wait(lk, [&] {
+                        return shutdown.load(std::memory_order_relaxed) ||
+                               !queue.empty();
+                    });
+                    if (shutdown.load(std::memory_order_relaxed) && queue.empty())
+                        return;
+                    job = std::move(queue.front());
+                    queue.pop_front();
+                }
+                interfaces::HttpResponse resp;
+                resp.error = "libcurl: curl_easy_init failed";
+                job.callback(std::move(resp));
+            }
+        }
+
+        while (true) {
+            HttpJob job;
+            {
+                std::unique_lock<std::mutex> lk(mutex);
+                cv.wait(lk, [&] {
+                    return shutdown.load(std::memory_order_relaxed) ||
+                           !queue.empty();
+                });
+                if (shutdown.load(std::memory_order_relaxed) && queue.empty()) {
+                    curl_easy_cleanup(curl);
+                    return;
+                }
+                job = std::move(queue.front());
+                queue.pop_front();
+            }
+            executeJob(curl, std::move(job));
+        }
+    }
+
+    void executeJob(CURL* curl, HttpJob job) {
+        interfaces::HttpResponse resp;
+
+        // Wipe per-request options but keep the connection cache.
+        curl_easy_reset(curl);
+
+        curl_easy_setopt(curl, CURLOPT_URL, job.url.c_str());
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "WhiteoutLib/1.0");
+        // NOSIGNAL: libcurl's default DNS resolver uses SIGALRM for timeouts
+        // and is not thread-safe under that mode.  Disabling signals forces
+        // the threaded resolver path (built in by default on modern libcurl).
+        curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 15000L);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, 60000L);
+        curl_easy_setopt(curl, CURLOPT_HTTP_VERSION,
+                         static_cast<long>(CURL_HTTP_VERSION_2TLS));
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &writeCb);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp.body);
+
+        std::string rangeStr;
+        if (job.rangeRequest) {
+            rangeStr = std::to_string(job.rangeStart) + "-" +
+                       std::to_string(job.rangeEnd);
+            curl_easy_setopt(curl, CURLOPT_RANGE, rangeStr.c_str());
+        }
+
+        const CURLcode rc = curl_easy_perform(curl);
+        if (rc != CURLE_OK) {
+            resp.body.clear();
+            resp.error = std::string("libcurl: ") + curl_easy_strerror(rc);
+            job.callback(std::move(resp));
+            return;
+        }
+
+        long code = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+        resp.statusCode = static_cast<i32>(code);
+
+        job.callback(std::move(resp));
+    }
+};
+
+SimpleHttpHandler::SimpleHttpHandler(size_t nThreads)
+    : m_impl(std::make_unique<Impl>(nThreads)) {}
+
+SimpleHttpHandler::~SimpleHttpHandler() = default;
+
+u32 SimpleHttpHandler::capabilities() const noexcept {
+    // libcurl negotiates HTTP/2 per-connection via CURL_HTTP_VERSION_2TLS;
+    // it does not multiplex requests across our worker handles, but the
+    // wire-level capability is present.
+    return interfaces::HttpCapability::Http2Multiplexing;
+}
+
+void SimpleHttpHandler::getAsync(const std::string& url,
+                                 interfaces::HttpCallback callback) {
+    HttpJob job;
+    job.url = url;
+    job.callback = std::move(callback);
+    m_impl->enqueue(std::move(job));
+}
+
+void SimpleHttpHandler::getRangeAsync(const std::string& url, u64 start, u64 end,
+                                      interfaces::HttpCallback callback) {
+    HttpJob job;
+    job.url = url;
+    job.callback = std::move(callback);
+    job.rangeRequest = true;
+    job.rangeStart = start;
+    job.rangeEnd = end;
+    m_impl->enqueue(std::move(job));
+}
+
+} // namespace whiteout::utils
+
+#else // !_WIN32 && !WHITEOUT_HAVE_CURL
+
+// ── Stub when no backend is available ────────────────────────────────
 
 namespace whiteout::utils {
 
@@ -322,7 +527,8 @@ u32 SimpleHttpHandler::capabilities() const noexcept {
 void SimpleHttpHandler::getAsync(const std::string& /*url*/,
                                  interfaces::HttpCallback callback) {
     interfaces::HttpResponse resp;
-    resp.error = "SimpleHttpHandler: not available on this platform";
+    resp.error = "SimpleHttpHandler: no HTTP backend compiled in "
+                 "(build with libcurl or provide your own HttpHandler)";
     callback(std::move(resp));
 }
 
@@ -330,10 +536,11 @@ void SimpleHttpHandler::getRangeAsync(const std::string& /*url*/,
                                       u64 /*start*/, u64 /*end*/,
                                       interfaces::HttpCallback callback) {
     interfaces::HttpResponse resp;
-    resp.error = "SimpleHttpHandler: not available on this platform";
+    resp.error = "SimpleHttpHandler: no HTTP backend compiled in "
+                 "(build with libcurl or provide your own HttpHandler)";
     callback(std::move(resp));
 }
 
 } // namespace whiteout::utils
 
-#endif // _WIN32
+#endif // backend selection
