@@ -35074,8 +35074,8 @@ static const SnoTypeDef kTypes[2915] = {
     {4294651991u, 0, 32, 0x20300u, 19568, 3, 0u},
 };
 
-// Format hash → type hash (130 root types)
-static const std::pair<u32, u32> kFormatHashMap[130] = {
+// Format hash → type hash (131 root types)
+static const std::pair<u32, u32> kFormatHashMap[131] = {
     {7088668u, 228865963u},     {35622378u, 1499847222u},   {78014347u, 2469691855u},
     {103202469u, 1144835562u},  {123576590u, 5640122u},     {224371045u, 825784223u},
     {284791292u, 3182988848u},  {317910905u, 4093179991u},  {345536336u, 1213843687u},
@@ -35118,7 +35118,8 @@ static const std::pair<u32, u32> kFormatHashMap[130] = {
     {3778264574u, 2826925415u}, {3989488060u, 216509239u},  {4001823730u, 1043704300u},
     {4017262158u, 2928454866u}, {4059179249u, 3417499265u}, {4069907825u, 3378075250u},
     {4096545315u, 4272354313u}, {4109296047u, 173900177u},  {4110251922u, 2454888476u},
-    {4190995430u, 3631735738u}, {4236165849u, 1596648439u}, {4264731507u, 443290979u},
+    {4190995430u, 3631735738u}, {4190995431u, 3631735738u}, {4236165849u, 1596648439u},
+    {4264731507u, 443290979u},
     {4270113482u, 1091889950u},
 };
 
@@ -35134,7 +35135,7 @@ SnoTypeRegistry::SnoTypeRegistry() {
     m_typeNames = kTypeNames;
     m_fieldNames = kFieldNames;
     m_formatMap = kFormatHashMap;
-    m_formatMapCount = 130;
+    m_formatMapCount = 131;
 
     // Build hash lookup table (open addressing)
     m_hashLookup = new u32[kHashBuckets];

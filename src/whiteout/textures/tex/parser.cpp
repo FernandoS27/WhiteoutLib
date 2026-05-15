@@ -40,7 +40,7 @@ static Parser::FileKind detect_tex_kind(std::span<const u8> buffer) {
                                                 : Parser::FileKind::Unknown;
     }
 
-    if (tag == D4_TEX_FORMAT_HASH)
+    if (tag == D4_TEX_FORMAT_HASH || tag == D4_TEX_FORMAT_HASH_V2)
         return Parser::FileKind::Diablo4MetaTex;
 
     return Parser::FileKind::Unknown;

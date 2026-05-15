@@ -263,6 +263,8 @@ std::optional<D4FormatMapping> d4_tex_format_to_pixel_format(u32 d4_fmt) {
         return D4FormatMapping{PixelFormat::BC3, false, 4, 16};
     case D4_TEX_FMT_RGBA16F:
         return D4FormatMapping{PixelFormat::RGBA32F, false, 1, 8}; // will convert f16→f32
+    case D4_TEX_FMT_RGBA32F:
+        return D4FormatMapping{PixelFormat::RGBA32F, false, 1, 16}; // raw f32 RGBA
     case D4_TEX_FMT_BC4:
         return D4FormatMapping{PixelFormat::BC4, false, 4, 8};
     case D4_TEX_FMT_BC5:

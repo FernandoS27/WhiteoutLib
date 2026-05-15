@@ -54,6 +54,7 @@ static constexpr u32 D4_TEX_FMT_BC1_ALT = 10;
 static constexpr u32 D4_TEX_FMT_BC3 = 12;
 static constexpr u32 D4_TEX_FMT_R8 = 23;
 static constexpr u32 D4_TEX_FMT_RGBA16F = 25;
+static constexpr u32 D4_TEX_FMT_RGBA32F = 26;
 static constexpr u32 D4_TEX_FMT_BC4 = 41;
 static constexpr u32 D4_TEX_FMT_BC5 = 42;
 static constexpr u32 D4_TEX_FMT_BC5_ALT = 43; ///< D3-inherited BC5/ATI2 format ID
@@ -67,6 +68,7 @@ static constexpr u32 D4_TEX_FMT_BC7 = 50;
 
 static constexpr u32 D4_ROW_ALIGNMENT = 256;
 static constexpr u32 D4_TEX_FORMAT_HASH = 0xF9CD83E6u;
+static constexpr u32 D4_TEX_FORMAT_HASH_V2 = 0xF9CD83E7u;
 
 #pragma pack(push, 1)
 
