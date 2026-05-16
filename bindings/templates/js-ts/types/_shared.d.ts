@@ -67,27 +67,6 @@ export interface Vector4f { x: number; y: number; z: number; w: number; }
 export interface Quaternion { x: number; y: number; z: number; w: number; }
 
 
-// ── Texture (hand-written; the C++ class has overloaded methods and a
-//    custom data() accessor that the codegen can't auto-generate) ─────────
-
-/** Format-agnostic GPU texture. Returned by every texture parser; consumed
- *  by every texture writer. */
-export class Texture extends EmbindObject {
-    constructor();
-    type(): EnumValue;
-    format(): EnumValue;
-    width(): number;
-    height(): number;
-    depth(): number;
-    mipCount(): number;
-    layerCount(): number;
-    arraySize(): number;
-    dataSize(): number;
-    /** Zero-copy memoryview onto the WASM heap. Copy out before any other
-     *  WASM call — heap growth invalidates the view. */
-    data(): Uint8Array;
-    convertTo(format: EnumValue): void;
-    /** Returns "" on success, an error message otherwise. */
-    generateMipmaps(): string;
-}
-
+// Texture, PixelFormat, TextureType, and every texture-format Parser /
+// Writer class are exported by the auto-generated `./textures.d.ts`.
+// Import them from there to get the full, codegen-derived surface.

@@ -17,6 +17,8 @@ option(WHITEOUT_BUILD_EXAMPLES "Build example programs" OFF)
 option(WHITEOUT_BUILD_TESTS "Build test programs" OFF)
 option(WHITEOUT_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ${WHITEOUT_MASTER_PROJECT})
 option(WHITEOUT_BUILD_WASM_BINDINGS "Build Emscripten/Embind JavaScript bindings" ${EMSCRIPTEN})
+option(WHITEOUT_BUILD_WASM_NODE_BINDINGS
+    "Build the Node.js-flavoured Emscripten target (NODERAWFS + pthreads)." OFF)
 option(WHITEOUT_BUILD_PYTHON_BINDINGS "Build native Python bindings via pybind11" OFF)
 option(WHITEOUT_ENABLE_CLANG_TIDY "Run clang-tidy on whiteout sources during build" OFF)
 
@@ -24,17 +26,68 @@ option(WHITEOUT_ENABLE_CLANG_TIDY "Run clang-tidy on whiteout sources during bui
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "" FORCE)
 
 if(EMSCRIPTEN)
-    # WASM build covers models + textures. CASC stays off (it pulls
-    # threading, HTTP, disk discovery — none of which are useful in a
-    # browser). MPQ is opt-in via the caller (`-DWHITEOUT_ENABLE_MPQ=ON`)
+    # WASM build covers models + textures. CASC stays off by default (it
+    # pulls threading, HTTP, disk discovery — none of which are useful in
+    # a browser). MPQ is opt-in via the caller (`-DWHITEOUT_ENABLE_MPQ=ON`)
     # because the JS bindings expose `Storage::create()` for in-memory
     # archive construction even when `-sFILESYSTEM=0` blocks path-based
     # `Storage::open(path)`.
-    set(WHITEOUT_ENABLE_CASC OFF CACHE BOOL "" FORCE)
+    #
+    # The Node-flavoured build (`-DWHITEOUT_BUILD_WASM_NODE_BINDINGS=ON`)
+    # opts in to pthreads + NODERAWFS and *can* link CASC, so we only
+    # force CASC OFF for the plain web build. The Node target honours
+    # whatever the caller passed for `WHITEOUT_ENABLE_CASC`.
+    if(NOT WHITEOUT_BUILD_WASM_NODE_BINDINGS)
+        set(WHITEOUT_ENABLE_CASC OFF CACHE BOOL "" FORCE)
+    endif()
     set(WHITEOUT_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(WHITEOUT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(WHITEOUT_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
 endif()
+
+# Build a parallel `*_mt` variant of every whiteout library when the
+# Node-flavoured WASM target is requested. Emscripten's pthread support
+# changes the WASM ABI (shared memory + atomics), so a single archive
+# can't satisfy both a non-pthread link (whiteout_wasm, web target) and
+# a pthread link (whiteout_wasm_node). The two variants are otherwise
+# identical — same sources, same public headers — with `-pthread`
+# applied to the `_mt` form only.
+#
+# Sub-projects (bindings/wasm) check WHITEOUT_BUILD_WASM_NODE_BINDINGS
+# and link against the `_mt` targets when it's ON.
+function(whiteout_define_mt_variant target)
+    if(NOT WHITEOUT_BUILD_WASM_NODE_BINDINGS OR NOT EMSCRIPTEN)
+        return()
+    endif()
+    get_target_property(src     ${target} SOURCES)
+    get_target_property(incdir  ${target} INTERFACE_INCLUDE_DIRECTORIES)
+    get_target_property(deps    ${target} LINK_LIBRARIES)
+    get_target_property(pubdefs ${target} INTERFACE_COMPILE_DEFINITIONS)
+    get_target_property(prvdefs ${target} COMPILE_DEFINITIONS)
+    add_library(${target}_mt STATIC ${src})
+    if(incdir)
+        target_include_directories(${target}_mt PUBLIC ${incdir})
+    endif()
+    if(pubdefs)
+        target_compile_definitions(${target}_mt PUBLIC ${pubdefs})
+    endif()
+    if(prvdefs)
+        target_compile_definitions(${target}_mt PRIVATE ${prvdefs})
+    endif()
+    if(deps)
+        foreach(d ${deps})
+            # Re-target inter-whiteout deps to the _mt equivalents so the
+            # pthread ABI stays consistent across the dep graph.
+            if(TARGET ${d}_mt)
+                target_link_libraries(${target}_mt PUBLIC ${d}_mt)
+            else()
+                target_link_libraries(${target}_mt PUBLIC ${d})
+            endif()
+        endforeach()
+    endif()
+    target_link_libraries(${target}_mt PRIVATE whiteout_strict_flags)
+    target_compile_options(${target}_mt PUBLIC -pthread)
+endfunction()
 
 if(WHITEOUT_BUILD_TESTS)
     enable_testing()
@@ -319,13 +372,11 @@ elseif(NOT EMSCRIPTEN)
     endif()
 endif()
 
-if(WHITEOUT_BUILD_WASM_BINDINGS)
-    add_subdirectory(bindings/wasm)
-endif()
+whiteout_define_mt_variant(whiteout_lib)
 
-if(WHITEOUT_BUILD_PYTHON_BINDINGS)
-    add_subdirectory(bindings/python)
-endif()
+# Binding subdirectories are added at the END of this file, after
+# whiteout_casc / whiteout_mpq are defined so the pthread `_mt` variants
+# exist before bindings/wasm/CMakeLists tries to link against them.
 
 if(WHITEOUT_BUILD_EXAMPLES)
 
@@ -476,6 +527,8 @@ if(WHITEOUT_ENABLE_CASC)
 
     target_compile_definitions(whiteout_casc PUBLIC WHITEOUT_HAS_CASC=1)
 
+    whiteout_define_mt_variant(whiteout_casc)
+
     if(WHITEOUT_BUILD_EXAMPLES)
 
     # CASC Storage Loader Example
@@ -542,6 +595,8 @@ if(WHITEOUT_ENABLE_MPQ)
 
     target_compile_definitions(whiteout_mpq PUBLIC WHITEOUT_HAS_MPQ=1)
 
+    whiteout_define_mt_variant(whiteout_mpq)
+
     if(WHITEOUT_BUILD_EXAMPLES)
 
     # MPQ Loader Example
@@ -560,6 +615,18 @@ if(WHITEOUT_ENABLE_MPQ)
 
     endif() # WHITEOUT_BUILD_EXAMPLES
 endif() # WHITEOUT_ENABLE_MPQ
+
+# =============================================================================
+# Bindings subdirectories — added last so they can link against
+# whiteout_lib / whiteout_casc / whiteout_mpq AND their `_mt` variants.
+# =============================================================================
+if(WHITEOUT_BUILD_WASM_BINDINGS)
+    add_subdirectory(bindings/wasm)
+endif()
+
+if(WHITEOUT_BUILD_PYTHON_BINDINGS)
+    add_subdirectory(bindings/python)
+endif()
 
 # =============================================================================
 # Tests

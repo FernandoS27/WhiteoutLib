@@ -42,7 +42,12 @@
 #include <whiteout/models/wem/writer.h>
 #include <whiteout/models/m2/parser.h>
 
+// InMemoryFileSystem is the web build's only VirtualPathFileSystem
+// implementation. The Node build links its own OsFileSystem instead and
+// doesn't need (or compile) the in-memory variant — guarded below.
+#ifndef WHITEOUT_WASM_NODE_BUILD
 #include "in_memory_fs.h"
+#endif
 
 using namespace emscripten;
 using namespace whiteout;
@@ -57,16 +62,6 @@ std::vector<u8> jsToBytes(const val& jsArray) {
 // Throw a JS-visible runtime_error with a helpful message.
 [[noreturn]] void fail(const std::string& msg) {
     throw std::runtime_error(msg);
-}
-
-// ── Texture data accessor: copy into a fresh JS Uint8Array ───────────────
-// (Texture parsers/writers are bound in textures_bindings.cpp.)
-
-val textureData(const textures::Texture& tex) {
-    auto span = tex.data();
-    // typed_memory_view shares the WASM heap — JS callers should copy out
-    // before any subsequent allocation invalidates the view.
-    return val(typed_memory_view(span.size(), span.data()));
 }
 
 // ── Model parser/writer glue ─────────────────────────────────────────────
@@ -111,17 +106,22 @@ std::vector<u8> writeWem(models::wem::Writer& writer, const models::wem::Model& 
     return writer.write(model);
 }
 
-m2::Model parseM2(m2::Parser& parser, wasm::InMemoryFileSystem& fs,
+// Accepts any concrete VirtualPathFileSystem: InMemoryFileSystem in the
+// web build, OsFileSystem in the Node build. Embind handles the upcast
+// because both register `.base<VirtualPathFileSystem>()`.
+m2::Model parseM2(m2::Parser& parser, interfaces::VirtualPathFileSystem& fs,
                   const std::string& path) {
     return parser.parse(fs, path);
 }
 
-// ── In-memory FS helper ──────────────────────────────────────────────────
+#ifndef WHITEOUT_WASM_NODE_BUILD
+// ── In-memory FS helper (web build only) ─────────────────────────────────
 
 void fsAddFile(wasm::InMemoryFileSystem& fs, const std::string& path,
                const val& jsArray) {
     fs.addFile(path, jsToBytes(jsArray));
 }
+#endif
 
 } // namespace
 
@@ -130,29 +130,9 @@ EMSCRIPTEN_BINDINGS(whiteout) {
     register_vector<u8>("VectorU8");
     register_vector<std::string>("VectorString");
 
-    // ── Texture (custom — parsers/writers are in textures_bindings.cpp) ─
-    class_<textures::Texture>("Texture")
-        .constructor<>()
-        .function("type", &textures::Texture::type)
-        .function("format", select_overload<textures::PixelFormat() const>(&textures::Texture::format))
-        .function("width", &textures::Texture::width)
-        .function("height", &textures::Texture::height)
-        .function("depth", &textures::Texture::depth)
-        .function("mipCount", &textures::Texture::mipCount)
-        .function("layerCount", &textures::Texture::layerCount)
-        .function("arraySize", &textures::Texture::arraySize)
-        .function("dataSize",
-                  optional_override([](const textures::Texture& t) { return static_cast<u32>(t.dataSize()); }))
-        .function("data", &textureData)
-        .function("convertTo",
-                  optional_override([](textures::Texture& t, textures::PixelFormat fmt) {
-                      t.format(fmt);
-                  }))
-        .function("generateMipmaps",
-                  optional_override([](textures::Texture& t) {
-                      auto err = t.generateMipmaps(static_cast<interfaces::WorkerPool*>(nullptr));
-                      return err.value_or(std::string{});
-                  }));
+    // Texture, all PixelFormat / TextureType enums, and all per-format
+    // Parser/Writer classes are bound by tools/codegen via
+    // bindings/wasm/textures_bindings.cpp.
 
     // ── MDX (Warcraft III) ───────────────────────────────────────────────
     // The Model struct and its nested types are bound in mdx_bindings.cpp.
@@ -230,11 +210,17 @@ EMSCRIPTEN_BINDINGS(whiteout) {
         .function("getIssues", &m2::Parser::getIssues);
 
     // ── Abstract VirtualPathFileSystem base class ────────────────────────
-    // Registered so concrete subclasses (InMemoryFileSystem, MpqFileSystem)
-    // can declare `.base<VirtualPathFileSystem>()` in their bindings.
+    // Registered so concrete subclasses (InMemoryFileSystem in the web
+    // build, OsFileSystem in the Node build) can declare
+    // `.base<VirtualPathFileSystem>()` in their bindings.
     class_<interfaces::VirtualPathFileSystem>("VirtualPathFileSystem");
 
-    // ── In-memory VirtualPathFileSystem (for M2) ─────────────────────────
+#ifndef WHITEOUT_WASM_NODE_BUILD
+    // ── In-memory VirtualPathFileSystem (web build only) ─────────────────
+    // Used by `m2.parse({path: bytes}, mainPath)` to give the M2 parser
+    // its sibling .skin / .skel / .anim / .bone files when there's no
+    // real filesystem available. The Node build replaces this with
+    // OsFileSystem (bound in node_bindings.cpp).
     class_<wasm::InMemoryFileSystem, base<interfaces::VirtualPathFileSystem>>(
         "InMemoryFileSystem")
         .constructor<>()
@@ -246,4 +232,5 @@ EMSCRIPTEN_BINDINGS(whiteout) {
                       return static_cast<u32>(fs.fileCount());
                   }))
         .function("fileExists", &wasm::InMemoryFileSystem::fileExists);
+#endif
 }

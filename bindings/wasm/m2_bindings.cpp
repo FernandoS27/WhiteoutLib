@@ -638,68 +638,68 @@ EMSCRIPTEN_BINDINGS(m2) {
 
     class_<whiteout::m2::AnimationTrack<whiteout::Vector3f>>("M2AnimationTrackVector3f")
         .constructor<>()
-        .property("interpolationType", &whiteout::m2::AnimationTrack<whiteout::Vector3f>::interpolationType)
-        .property("globalSequenceId", &whiteout::m2::AnimationTrack<whiteout::Vector3f>::globalSequenceId)
-        .property("timestamps", &whiteout::m2::AnimationTrack<whiteout::Vector3f>::timestamps)
-        .property("values", &whiteout::m2::AnimationTrack<whiteout::Vector3f>::values)
+        .property("interpolationType", static_cast<whiteout::m2::InterpolationType whiteout::m2::AnimationTrack<whiteout::Vector3f>::*>(&whiteout::m2::AnimationTrack<whiteout::Vector3f>::interpolationType))
+        .property("globalSequenceId", static_cast<whiteout::u16 whiteout::m2::AnimationTrack<whiteout::Vector3f>::*>(&whiteout::m2::AnimationTrack<whiteout::Vector3f>::globalSequenceId))
+        .property("timestamps", static_cast<std::vector<std::vector<whiteout::u32>> whiteout::m2::AnimationTrack<whiteout::Vector3f>::*>(&whiteout::m2::AnimationTrack<whiteout::Vector3f>::timestamps))
+        .property("values", static_cast<std::vector<std::vector<whiteout::Vector3f>> whiteout::m2::AnimationTrack<whiteout::Vector3f>::*>(&whiteout::m2::AnimationTrack<whiteout::Vector3f>::values))
     ;
 
     class_<whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>>("M2AnimationTrackM2CompatQuaternion")
         .constructor<>()
-        .property("interpolationType", &whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::interpolationType)
-        .property("globalSequenceId", &whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::globalSequenceId)
-        .property("timestamps", &whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::timestamps)
-        .property("values", &whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::values)
+        .property("interpolationType", static_cast<whiteout::m2::InterpolationType whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::*>(&whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::interpolationType))
+        .property("globalSequenceId", static_cast<whiteout::u16 whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::*>(&whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::globalSequenceId))
+        .property("timestamps", static_cast<std::vector<std::vector<whiteout::u32>> whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::*>(&whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::timestamps))
+        .property("values", static_cast<std::vector<std::vector<whiteout::m2::CompatQuaternion>> whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::*>(&whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::values))
     ;
 
     class_<whiteout::m2::AnimationTrack<whiteout::i16>>("M2AnimationTrackI16")
         .constructor<>()
-        .property("interpolationType", &whiteout::m2::AnimationTrack<whiteout::i16>::interpolationType)
-        .property("globalSequenceId", &whiteout::m2::AnimationTrack<whiteout::i16>::globalSequenceId)
-        .property("timestamps", &whiteout::m2::AnimationTrack<whiteout::i16>::timestamps)
-        .property("values", &whiteout::m2::AnimationTrack<whiteout::i16>::values)
+        .property("interpolationType", static_cast<whiteout::m2::InterpolationType whiteout::m2::AnimationTrack<whiteout::i16>::*>(&whiteout::m2::AnimationTrack<whiteout::i16>::interpolationType))
+        .property("globalSequenceId", static_cast<whiteout::u16 whiteout::m2::AnimationTrack<whiteout::i16>::*>(&whiteout::m2::AnimationTrack<whiteout::i16>::globalSequenceId))
+        .property("timestamps", static_cast<std::vector<std::vector<whiteout::u32>> whiteout::m2::AnimationTrack<whiteout::i16>::*>(&whiteout::m2::AnimationTrack<whiteout::i16>::timestamps))
+        .property("values", static_cast<std::vector<std::vector<whiteout::i16>> whiteout::m2::AnimationTrack<whiteout::i16>::*>(&whiteout::m2::AnimationTrack<whiteout::i16>::values))
     ;
 
     class_<whiteout::m2::AnimationTrack<whiteout::f32>>("M2AnimationTrackF32")
         .constructor<>()
-        .property("interpolationType", &whiteout::m2::AnimationTrack<whiteout::f32>::interpolationType)
-        .property("globalSequenceId", &whiteout::m2::AnimationTrack<whiteout::f32>::globalSequenceId)
-        .property("timestamps", &whiteout::m2::AnimationTrack<whiteout::f32>::timestamps)
-        .property("values", &whiteout::m2::AnimationTrack<whiteout::f32>::values)
+        .property("interpolationType", static_cast<whiteout::m2::InterpolationType whiteout::m2::AnimationTrack<whiteout::f32>::*>(&whiteout::m2::AnimationTrack<whiteout::f32>::interpolationType))
+        .property("globalSequenceId", static_cast<whiteout::u16 whiteout::m2::AnimationTrack<whiteout::f32>::*>(&whiteout::m2::AnimationTrack<whiteout::f32>::globalSequenceId))
+        .property("timestamps", static_cast<std::vector<std::vector<whiteout::u32>> whiteout::m2::AnimationTrack<whiteout::f32>::*>(&whiteout::m2::AnimationTrack<whiteout::f32>::timestamps))
+        .property("values", static_cast<std::vector<std::vector<whiteout::f32>> whiteout::m2::AnimationTrack<whiteout::f32>::*>(&whiteout::m2::AnimationTrack<whiteout::f32>::values))
     ;
 
     class_<whiteout::m2::AnimationTrack<whiteout::u8>>("M2AnimationTrackU8")
         .constructor<>()
-        .property("interpolationType", &whiteout::m2::AnimationTrack<whiteout::u8>::interpolationType)
-        .property("globalSequenceId", &whiteout::m2::AnimationTrack<whiteout::u8>::globalSequenceId)
-        .property("timestamps", &whiteout::m2::AnimationTrack<whiteout::u8>::timestamps)
-        .property("values", &whiteout::m2::AnimationTrack<whiteout::u8>::values)
+        .property("interpolationType", static_cast<whiteout::m2::InterpolationType whiteout::m2::AnimationTrack<whiteout::u8>::*>(&whiteout::m2::AnimationTrack<whiteout::u8>::interpolationType))
+        .property("globalSequenceId", static_cast<whiteout::u16 whiteout::m2::AnimationTrack<whiteout::u8>::*>(&whiteout::m2::AnimationTrack<whiteout::u8>::globalSequenceId))
+        .property("timestamps", static_cast<std::vector<std::vector<whiteout::u32>> whiteout::m2::AnimationTrack<whiteout::u8>::*>(&whiteout::m2::AnimationTrack<whiteout::u8>::timestamps))
+        .property("values", static_cast<std::vector<std::vector<whiteout::u8>> whiteout::m2::AnimationTrack<whiteout::u8>::*>(&whiteout::m2::AnimationTrack<whiteout::u8>::values))
     ;
 
     class_<whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>>("M2AnimationTrackM2CameraSpline")
         .constructor<>()
-        .property("interpolationType", &whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::interpolationType)
-        .property("globalSequenceId", &whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::globalSequenceId)
-        .property("timestamps", &whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::timestamps)
-        .property("values", &whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::values)
+        .property("interpolationType", static_cast<whiteout::m2::InterpolationType whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::*>(&whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::interpolationType))
+        .property("globalSequenceId", static_cast<whiteout::u16 whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::*>(&whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::globalSequenceId))
+        .property("timestamps", static_cast<std::vector<std::vector<whiteout::u32>> whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::*>(&whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::timestamps))
+        .property("values", static_cast<std::vector<std::vector<whiteout::m2::CameraSpline>> whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::*>(&whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::values))
     ;
 
     class_<whiteout::m2::AnimationTrack<whiteout::u16>>("M2AnimationTrackU16")
         .constructor<>()
-        .property("interpolationType", &whiteout::m2::AnimationTrack<whiteout::u16>::interpolationType)
-        .property("globalSequenceId", &whiteout::m2::AnimationTrack<whiteout::u16>::globalSequenceId)
-        .property("timestamps", &whiteout::m2::AnimationTrack<whiteout::u16>::timestamps)
-        .property("values", &whiteout::m2::AnimationTrack<whiteout::u16>::values)
+        .property("interpolationType", static_cast<whiteout::m2::InterpolationType whiteout::m2::AnimationTrack<whiteout::u16>::*>(&whiteout::m2::AnimationTrack<whiteout::u16>::interpolationType))
+        .property("globalSequenceId", static_cast<whiteout::u16 whiteout::m2::AnimationTrack<whiteout::u16>::*>(&whiteout::m2::AnimationTrack<whiteout::u16>::globalSequenceId))
+        .property("timestamps", static_cast<std::vector<std::vector<whiteout::u32>> whiteout::m2::AnimationTrack<whiteout::u16>::*>(&whiteout::m2::AnimationTrack<whiteout::u16>::timestamps))
+        .property("values", static_cast<std::vector<std::vector<whiteout::u16>> whiteout::m2::AnimationTrack<whiteout::u16>::*>(&whiteout::m2::AnimationTrack<whiteout::u16>::values))
     ;
 
     class_<whiteout::m2::ParticleAnimationTrack<whiteout::Vector3f>>("M2ParticleAnimationTrackVector3f")
         .constructor<>()
-        .property("values", &whiteout::m2::ParticleAnimationTrack<whiteout::Vector3f>::values)
+        .property("values", static_cast<std::vector<whiteout::Vector3f> whiteout::m2::ParticleAnimationTrack<whiteout::Vector3f>::*>(&whiteout::m2::ParticleAnimationTrack<whiteout::Vector3f>::values))
     ;
 
     class_<whiteout::m2::ParticleAnimationTrack<whiteout::Vector2f>>("M2ParticleAnimationTrackVector2f")
         .constructor<>()
-        .property("values", &whiteout::m2::ParticleAnimationTrack<whiteout::Vector2f>::values)
+        .property("values", static_cast<std::vector<whiteout::Vector2f> whiteout::m2::ParticleAnimationTrack<whiteout::Vector2f>::*>(&whiteout::m2::ParticleAnimationTrack<whiteout::Vector2f>::values))
     ;
 
     // ── Vector containers ────────────────────────────────────────────────

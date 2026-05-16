@@ -1,0 +1,32 @@
+{
+  "name": "whiteout-node",
+  "version": "0.1.0",
+  "description": "Node.js-flavoured WhiteoutLib WASM build with disk I/O (NODERAWFS) and real threading (pthreads). Adds OsFileSystem, SimpleThreadPool, subclassable HttpHandler, and pool-aware texture pipelines on top of the whiteout-wasm surface.",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "engines": {
+    "node": ">=18"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js"
+    },
+    "./whiteout-node.wasm": "./whiteout-node.wasm"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "whiteout-node.js",
+    "whiteout-node.wasm",
+    "whiteout-node.worker.js",
+    "types/",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test ../tests/wasm/node-features.test.js"
+  },
+  "license": "BSD-3-Clause",
+  "author": "Fernando Sahmkow"
+}

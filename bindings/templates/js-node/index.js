@@ -1,43 +1,32 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 //
-// Ergonomic JS facade over the Emscripten/Embind module.
+// Node.js-only facade over the pthread+NODERAWFS WASM build.
 //
-// API shape mirrors the Python bindings:
+// This wraps `whiteout-node.js` (Emscripten module, EXPORT_NAME=WhiteoutNode)
+// the same way `whiteout-wasm/index.js` wraps `whiteout.js`, but adds:
 //
-//     const wo = await Whiteout();
-//     const bone = new whiteout.mdx.Bone();           // types live under format namespaces
-//     bone.node.parentId = whiteout.mdx.NoParent;     // constants too
-//     model.bones.push_back(bone);
+//   - OsFileSystem  — read/write the host disk directly.
+//   - SimpleThreadPool — pool that parallelises mipmap gen, BC7 encode,
+//                       CASC/MPQ decode. Backed by Emscripten pthreads
+//                       (= worker_threads under Node).
+//   - HttpHandler subclass helper — JS implementation surfaced as the
+//                       C++ HttpHandler interface for online CASC.
+//   - Pool-aware texture / archive helpers.
 //
-//     const model = whiteout.mdx.parse(bytes);        // convenience parser
-//     const bytes = whiteout.mdx.write(model);
-//
-//     const tex = whiteout.png.parse(pngBytes);       // texture format facades
-//     const blp = whiteout.blp.write(tex);
-//
-// `whiteout.module` is still exposed for anything not surfaced by the facade.
+// The facade is intentionally close to whiteout-wasm so user code that
+// only needs models / textures works against either build with at most
+// an import-path swap.
 
-import WhiteoutModule from "./whiteout.js";
+import WhiteoutNodeModule from "./whiteout-node.js";
 
 let _modulePromise = null;
 function instantiate() {
-    if (_modulePromise === null) _modulePromise = WhiteoutModule();
+    if (_modulePromise === null) _modulePromise = WhiteoutNodeModule();
     return _modulePromise;
 }
 
-// Combine Embind enum values (or raw numbers) into a single bitmask.
-//   whiteout.flags(whiteout.mdx.NodeFlag.Bone, whiteout.mdx.NodeFlag.Billboarded)
-function flagsOf(...vals) {
-    let n = 0;
-    for (const v of vals) {
-        if (v == null) continue;
-        n |= (typeof v === "object" && "value" in v) ? v.value : v;
-    }
-    return n;
-}
-
-// std::vector<u8> -> Uint8Array (with copy; vector lives in WASM heap).
+// std::vector<u8> -> Uint8Array (with copy).
 function vecToBytes(vec) {
     const len = vec.size();
     const out = new Uint8Array(len);
@@ -46,7 +35,6 @@ function vecToBytes(vec) {
     return out;
 }
 
-// Re-throw WASM exceptions as regular Errors so callers see useful messages.
 function rethrow(M, e) {
     if (typeof WebAssembly !== "undefined" && e instanceof WebAssembly.Exception
             && typeof M.getExceptionMessage === "function") {
@@ -62,20 +50,13 @@ function call(M, fn) {
     try { return fn(); } catch (e) { rethrow(M, e); }
 }
 
-// Patch `[Symbol.iterator]` onto every Embind-bound vector class so callers
-// can write `for (const x of vec) ...`. Embind's own surface only exposes
-// indexed access (`size`/`get`); this generator yields copies, matching
-// Embind's read-by-copy semantics — mutation through the iterator value
-// does NOT write back to the C++ vector.
 function patchVectorIteration(M) {
     for (const key of Object.keys(M)) {
         if (!key.startsWith("Vector")) continue;
         const cls = M[key];
         const proto = cls?.prototype;
-        if (!proto || typeof proto.size !== "function" || typeof proto.get !== "function") {
-            continue;
-        }
-        if (proto[Symbol.iterator]) continue;   // already patched / native
+        if (!proto || typeof proto.size !== "function" || typeof proto.get !== "function") continue;
+        if (proto[Symbol.iterator]) continue;
         proto[Symbol.iterator] = function* () {
             const n = this.size();
             for (let i = 0; i < n; i++) yield this.get(i);
@@ -83,17 +64,11 @@ function patchVectorIteration(M) {
     }
 }
 
-// Auto-populate `target` with every Embind export whose name starts with
-// `prefix`, with the prefix stripped. Used to build the per-format
-// namespaces (`whiteout.mdx`, `whiteout.m2`, `whiteout.m3`) from the auto-generated bindings.
 function populateFromPrefix(M, prefix, target) {
     for (const key of Object.keys(M)) {
         if (key.length > prefix.length && key.startsWith(prefix)) {
             const stripped = key.slice(prefix.length);
-            // Don't clobber explicit method/property names already on target.
-            if (!(stripped in target)) {
-                target[stripped] = M[key];
-            }
+            if (!(stripped in target)) target[stripped] = M[key];
         }
     }
     return target;
@@ -102,7 +77,7 @@ function populateFromPrefix(M, prefix, target) {
 function makeTextureFormat(M, prefix) {
     const ParserCtor = M[prefix + "Parser"];
     const WriterCtor = M[prefix + "Writer"];
-    const ns = {
+    return {
         Parser: ParserCtor,
         Writer: WriterCtor,
         ParseMode: M[prefix + "ParseMode"],
@@ -120,27 +95,18 @@ function makeTextureFormat(M, prefix) {
             });
         },
     };
-    return ns;
 }
 
-// Build the `whiteout.texture` namespace — sugar over Texture's static
-// factories plus pipeline helpers that turn "empty string = ok / non-empty
-// = error message" into a throwing API.
-//
-// `opts.pool` is honoured by the Node build (whiteout-node) which exposes
-// `M.textureGenerateMipmapsWithPool`/`WithCountAndPool`; in the web build
-// the pool is ignored and we fall back to Texture's single-threaded
-// instance method.
+// Mirror of the web build's `whiteout.texture` namespace, with the
+// pool-aware codepath wired in. Both builds export the same surface so
+// downstream code that doesn't care about threading is portable.
 function makeTextureNamespace(M) {
     const T = M.Texture;
     const supportsPool = typeof M.textureGenerateMipmapsWithPool === "function";
 
-    const ns = {
-        /** Raw Embind constructor — same as `whiteout.Texture`. */
+    return {
         Texture: T,
-        /** PixelFormat enum (mirrors `whiteout.PixelFormat`). */
         PixelFormat: M.PixelFormat,
-        /** TextureType enum (mirrors `whiteout.TextureType`). */
         TextureType: M.TextureType,
 
         create2D(format, width, height, mipCount = 0) {
@@ -164,11 +130,8 @@ function makeTextureNamespace(M) {
                 size >>> 0, arraySize >>> 0, mipCount >>> 0));
         },
 
-        /** Generate the full mip chain in place.
-         *  Throws on failure (the C++ "" / error-message convention is
-         *  hidden). Pass `{ pool }` in the Node build for multi-threaded
-         *  Kaiser / BC7 — ignored everywhere else. Pass `{ newMipCount }`
-         *  to override the default (preserve the existing count). */
+        /** Generate the full mip chain in place. Throws on failure.
+         *  Pass `{ pool }` for multi-threaded BC7 / Kaiser. */
         generateMipmaps(tex, opts = {}) {
             const { newMipCount = 0, pool = null } = opts;
             const err = call(M, () => {
@@ -183,22 +146,72 @@ function makeTextureNamespace(M) {
             if (err) throw new Error(`generateMipmaps failed: ${err}`);
         },
 
-        /** Drop `levels` leading mip levels in place (default 1).
-         *  Throws on failure. */
         downscale(tex, levels = 1) {
             const err = call(M, () => tex.downscale(levels >>> 0));
             if (err) throw new Error(`downscale failed: ${err}`);
         },
 
-        /** Combine N single-channel textures into one RGBA texture.
-         *  `sources` is a `VectorTexture` and `channels` a `VectorChannel`
-         *  (use `whiteout.module.VectorTexture` / `.VectorChannel` to
-         *  build them). Returns `null` on failure. */
         mergeChannels(sources, channels) {
             return call(M, () => T.mergeChannels(sources, channels));
         },
     };
-    return ns;
+}
+
+// ── HttpHandler subclass helper ─────────────────────────────────────────
+// User passes a plain JS object with `getAsync(url, complete)` and optional
+// `getRangeAsync(url, start, end, complete)` / `capabilities()`. We wrap
+// it so the C++ wire-up sees a fully-fledged HttpHandlerWrapper subclass.
+//
+//   const handler = whiteout.makeHttpHandler({
+//       async getAsync(url, complete) {
+//           const r = await fetch(url);
+//           const buf = new Uint8Array(await r.arrayBuffer());
+//           complete({ statusCode: r.status, body: buf });
+//       },
+//   });
+//
+// `complete(response)` accepts `{ statusCode, body?, error? }`. Calling it
+// transfers the C++ callback handle back into native land and releases
+// the heap allocation.
+function makeHttpHandler(M, impl) {
+    const dispatch = (cbHandle, response) => {
+        const { statusCode = 0, body = null, error = "" } = response || {};
+        M.dispatchHttpCallback(cbHandle, statusCode | 0, body, error);
+    };
+    const obj = {
+        capabilities() {
+            return (impl.capabilities?.() ?? 0) >>> 0;
+        },
+        getAsync(url, cbHandle) {
+            try {
+                const completion = (r) => dispatch(cbHandle, r);
+                const p = impl.getAsync(url, completion);
+                if (p && typeof p.then === "function") {
+                    p.catch((err) => dispatch(cbHandle, {
+                        statusCode: 0, error: String(err?.message ?? err),
+                    }));
+                }
+            } catch (e) {
+                dispatch(cbHandle, { statusCode: 0, error: String(e?.message ?? e) });
+            }
+        },
+        getRangeAsync(url, start, end, cbHandle) {
+            try {
+                const completion = (r) => dispatch(cbHandle, r);
+                const fn = impl.getRangeAsync
+                    ?? ((u, s, e, c) => impl.getAsync(u, c));
+                const p = fn(url, start, end, completion);
+                if (p && typeof p.then === "function") {
+                    p.catch((err) => dispatch(cbHandle, {
+                        statusCode: 0, error: String(err?.message ?? err),
+                    }));
+                }
+            } catch (e) {
+                dispatch(cbHandle, { statusCode: 0, error: String(e?.message ?? e) });
+            }
+        },
+    };
+    return M.HttpHandler.implement(obj);
 }
 
 export async function Whiteout() {
@@ -206,9 +219,6 @@ export async function Whiteout() {
     patchVectorIteration(M);
 
     // ── Per-format model namespaces ───────────────────────────────────────
-    // Each starts with hand-written convenience methods (parse/write etc.),
-    // then auto-populates with every type whose JS name carries the prefix.
-
     const mdx = {
         parse(bytes, mode = M.MdxParseMode.Lenient,
               upgrade = M.MdxUpgradeMode.UpgradeOldVersions) {
@@ -240,19 +250,23 @@ export async function Whiteout() {
     populateFromPrefix(M, "Mdx", mdx);
 
     const m2 = {
-        // files: Record<string, Uint8Array>
-        // mainPath: path key in `files` of the base .m2
-        parse(files, mainPath, mode = M.M2ParseMode.Lenient) {
+        // Primary Node entry point: parse directly from disk.
+        // `rootPath` is the directory containing the .m2 and its siblings;
+        // `mainPath` is the .m2 file path relative to that root. The M2
+        // parser pulls .skin / .skel / .anim / .bone via OsFileSystem.
+        parse(rootPath, mainPath, mode = M.M2ParseMode.Lenient) {
             return call(M, () => {
-                const fs = new M.InMemoryFileSystem();
+                const fs = new M.OsFileSystem(rootPath);
                 const p = new M.M2Parser(mode);
                 try {
-                    for (const [path, data] of Object.entries(files)) {
-                        fs.addFile(path, data);
-                    }
                     return p.parse(fs, mainPath);
                 } finally { p.delete(); fs.delete(); }
             });
+        },
+        // Same as `parse` — kept under the more explicit name for users
+        // who want to disambiguate from the web build's bytes-map form.
+        parseFromDisk(rootPath, mainPath, mode = M.M2ParseMode.Lenient) {
+            return this.parse(rootPath, mainPath, mode);
         },
     };
     populateFromPrefix(M, "M2", m2);
@@ -273,9 +287,18 @@ export async function Whiteout() {
     };
     populateFromPrefix(M, "M3", m3);
 
-    // MPQ archive surface — type registry only; users go through
-    // `whiteout.mpq.Storage.open(path)` / `.create(opts)`.
-    const mpq = {};
+    const mpq = {
+        // Node-only convenience: open a .mpq on disk, optionally with a
+        // pool for parallel decompression.
+        open(path, pool = null) {
+            return call(M, () => M.mpqOpenWithPool(path, pool));
+        },
+        // Codegen only binds the no-arg Storage::save(); this surfaces
+        // the save-to-path overload via a free function.
+        saveTo(storage, path) {
+            return call(M, () => M.mpqSaveStorageToPath(storage, path));
+        },
+    };
     populateFromPrefix(M, "Mpq", mpq);
 
     const wem = {
@@ -294,12 +317,25 @@ export async function Whiteout() {
     };
     populateFromPrefix(M, "Wem", wem);
 
+    // CASC namespace only present if the WASM was built with CASC support.
+    const casc = M.CascStorage ? {
+        Storage: M.CascStorage,
+        open(path, pool = null) {
+            return call(M, () => M.CascStorage.open(path, pool));
+        },
+    } : null;
+
     return {
-        // Raw module — escape hatch for anything not surfaced by the facade.
         module: M,
 
-        /** Combine Embind enum values (or raw integers) into a bitmask. */
-        flags: flagsOf,
+        flags(...vals) {
+            let n = 0;
+            for (const v of vals) {
+                if (v == null) continue;
+                n |= (typeof v === "object" && "value" in v) ? v.value : v;
+            }
+            return n;
+        },
 
         // ── Shared types at root ───────────────────────────────────────────
         Texture: M.Texture,
@@ -309,21 +345,41 @@ export async function Whiteout() {
         Vector3f: M.Vector3f,
         Vector4f: M.Vector4f,
         Quaternion: M.Quaternion,
-        InMemoryFileSystem: M.InMemoryFileSystem,
 
-        // ── Math-type factories ────────────────────────────────────────────
-        // Vector2f/3f/4f and Quaternion are Embind value_object types —
-        // they pass as plain JS literals. These factories are syntactic
-        // sugar so callers don't have to spell the field names.
+        // ── Node additions ────────────────────────────────────────────────
+        OsFileSystem: M.OsFileSystem,
+        SimpleThreadPool: M.SimpleThreadPool,
+
+        /**
+         * Create a SimpleThreadPool. Mirrors the C++ constructor:
+         *   new whiteout.SimpleThreadPool(n).
+         *
+         * The hosting WASM binary was linked with a fixed number of
+         * pre-spawned worker_threads (see -sPTHREAD_POOL_SIZE in the
+         * CMake target). Requesting more than that count is legal but
+         * blocks until additional pthreads are created.
+         */
+        threadPool(n) { return new M.SimpleThreadPool(n); },
+
+        /**
+         * Wrap a plain JS object as an HttpHandler the C++ side can call.
+         * The object must expose `getAsync(url, complete)` and may expose
+         * `getRangeAsync(url, start, end, complete)` and `capabilities()`.
+         * `complete({ statusCode, body, error })` must be invoked exactly
+         * once per request.
+         */
+        makeHttpHandler(impl) { return makeHttpHandler(M, impl); },
+
+        // ── Math-type factories ───────────────────────────────────────────
         vec2: (x, y)       => ({ x, y }),
         vec3: (x, y, z)    => ({ x, y, z }),
         vec4: (x, y, z, w) => ({ x, y, z, w }),
         quat: (x, y, z, w) => ({ x, y, z, w }),
 
-        // ── Texture pipeline helpers (factories + mip ops) ────────────────
+        // ── Texture pipeline helpers (factories + mip ops; pool-aware) ────
         texture: makeTextureNamespace(M),
 
-        // ── Texture format facades (parse/write helpers + raw classes) ────
+        // ── Texture format facades ────────────────────────────────────────
         blp:  makeTextureFormat(M, "Blp"),
         dds:  makeTextureFormat(M, "Dds"),
         png:  makeTextureFormat(M, "Png"),
@@ -331,11 +387,12 @@ export async function Whiteout() {
         bmp:  makeTextureFormat(M, "Bmp"),
         tga:  makeTextureFormat(M, "Tga"),
 
-        // ── Model format namespaces (types + parse/write) ─────────────────
+        // ── Model format namespaces ───────────────────────────────────────
         mdx, m2, m3, wem,
 
         // ── Storage backends ──────────────────────────────────────────────
         mpq,
+        casc,
     };
 }
 

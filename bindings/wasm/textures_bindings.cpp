@@ -202,7 +202,7 @@ EMSCRIPTEN_BINDINGS(textures) {
                   }), allow_raw_pointers())
         .function("dataSize", &whiteout::textures::Texture::dataSize)
         .function("data", select_overload<std::span<const unsigned char>() const>(&whiteout::textures::Texture::data))
-        .function("mipData", select_overload<std::span<const unsigned char>(u32, u32) const>(&whiteout::textures::Texture::mipData))
+        .function("mipData", select_overload<std::span<const unsigned char>(whiteout::u32, whiteout::u32) const>(&whiteout::textures::Texture::mipData))
         .function("takeData",
                   optional_override([](
                       whiteout::textures::Texture& self) {
