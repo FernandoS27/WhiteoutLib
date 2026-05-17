@@ -20,6 +20,8 @@ namespace whiteout::utils {
 /// Example:
 ///   utils::OsFileSystem fs("C:/Games/Warcraft III/Data");
 ///   auto data = fs.readFile("units/human/arthas/arthas.mdx");
+///
+/// @bind methods, ctors=string, move_only, extends=whiteout::interfaces::VirtualPathFileSystem
 class OsFileSystem : public interfaces::VirtualPathFileSystem {
 public:
     /// Construct with a root directory. The path is stored as-is;
@@ -42,7 +44,7 @@ public:
 
     bool fileExists(const std::string& path) const override;
 
-    /// List all entries in the directory at `rootPath / path`.
+    /// @bind skip — DirectoryEntry vector not exposed via codegen yet
     std::vector<interfaces::DirectoryEntry> listDirectory(const std::string& path) const override;
 
 private:

@@ -267,7 +267,7 @@ The value is stored as-is (normalised [0, 1] float for integer formats, linear s
         .def("mip_level", &whiteout::textures::Texture::mipLevel, py::arg("mip"), py::arg("layer") = whiteout::u32{}, R"doc(Get the mip-level descriptor for a given mip index and layer. @param mip   Mip level index (0 = base). @param layer Array layer index (0 for 2D / 3D textures). @return Reference to the MipLevel struct.)doc")
         .def("data_size", &whiteout::textures::Texture::dataSize, R"doc(@return Total byte size of the pixel-data buffer.)doc")
         .def("data", py::overload_cast<>(&whiteout::textures::Texture::data, py::const_), R"doc(@return Read-only span over the entire pixel-data buffer.)doc")
-        .def("mip_data", py::overload_cast<u32, u32>(&whiteout::textures::Texture::mipData, py::const_), py::arg("mip"), py::arg("layer") = whiteout::u32{}, R"doc(Get a read-only span for a specific mip / layer. @param mip   Mip level index. @param layer Array layer (default 0).)doc")
+        .def("mip_data", py::overload_cast<whiteout::u32, whiteout::u32>(&whiteout::textures::Texture::mipData, py::const_), py::arg("mip"), py::arg("layer") = whiteout::u32{}, R"doc(Get a read-only span for a specific mip / layer. @param mip   Mip level index. @param layer Array layer (default 0).)doc")
         .def("take_data",
             [](whiteout::textures::Texture& self) {
                 auto __v = self.takeData();

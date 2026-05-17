@@ -58,12 +58,84 @@ class Texture:
     def data(self) -> bytes: ...
 
 
-# ── In-memory virtual FS (for M2 sibling files) ───────────────────────────
+# ── Virtual filesystems ───────────────────────────────────────────────────
 
 class VirtualPathFileSystem:
-    """Abstract base — bindings expose only the InMemoryFileSystem subclass."""
+    """Abstract base. Concrete subclasses: InMemoryFileSystem, OsFileSystem."""
 
 class InMemoryFileSystem(VirtualPathFileSystem):
     def __init__(self) -> None: ...
     def add_file(self, path: str, data: bytes, /) -> None: ...
     def file_exists(self, path: str, /) -> bool: ...
+
+class OsFileSystem(VirtualPathFileSystem):
+    """VirtualPathFileSystem backed by the host disk.
+
+    Construct with a root directory; subsequent reads / writes resolve
+    `root_path / path`. Suitable for feeding M2/CASC/MPQ parsers
+    directly without staging files into an in-memory map first."""
+    def __init__(self, root_path: str) -> None: ...
+    def read_file(self, path: str, /) -> bytes: ...
+    def write_file(self, path: str, data: bytes, /) -> bool: ...
+    def file_exists(self, path: str, /) -> bool: ...
+
+
+# ── Threading ─────────────────────────────────────────────────────────────
+
+class WorkerPool:
+    """Abstract worker pool. Concrete subclass: SimpleThreadPool."""
+
+class SimpleThreadPool(WorkerPool):
+    """std::thread-backed worker pool. Pass to pool-aware library calls
+    (Texture.generate_mipmaps, mpq.Storage.open, ...) to parallelise
+    BC7 encode / Kaiser mip filtering / archive decompression."""
+    def __init__(self, n_threads: int) -> None: ...
+    def wait_idle(self) -> None: ...
+    def thread_count(self) -> int: ...
+
+
+# ── HTTP ──────────────────────────────────────────────────────────────────
+
+from typing import Callable
+
+HTTP_CAPABILITY_NONE: int
+HTTP_CAPABILITY_HTTP2_MULTIPLEXING: int
+
+class HttpResponse:
+    """HTTP response payload returned by an HttpHandler callback."""
+    status_code: int
+    body: bytes
+    error: str
+    def __init__(
+        self,
+        status_code: int = 0,
+        body: bytes = b"",
+        error: str = "",
+    ) -> None: ...
+
+class HttpHandler:
+    """Abstract HTTP handler. Subclass and implement ``get_async`` (and
+    optionally ``get_range_async`` / ``capabilities``) to plug a Python
+    HTTP client into CASC online storage. The ``complete`` argument is a
+    callable ``(HttpResponse) -> None`` that MUST be invoked exactly once
+    per request."""
+    def __init__(self) -> None: ...
+    def capabilities(self) -> int: ...
+    def get_async(
+        self,
+        url: str,
+        complete: Callable[[HttpResponse], None],
+    ) -> None: ...
+    def get_range_async(
+        self,
+        url: str,
+        start: int,
+        end: int,
+        complete: Callable[[HttpResponse], None],
+    ) -> None: ...
+
+class SimpleHttpHandler(HttpHandler):
+    """Concrete HttpHandler using WinHTTP (Windows) or libcurl (Linux /
+    macOS). Runs requests on an internal worker pool; ``n_threads``
+    controls the max number of in-flight requests."""
+    def __init__(self, n_threads: int = 4) -> None: ...

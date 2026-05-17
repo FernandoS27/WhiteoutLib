@@ -414,7 +414,8 @@ def _is_string_param(t: TypeRef) -> bool:
 
 def collect_methods(cursor, bind_class, known_classes, known_enums,
                     remember_containers, mode: str | bool,
-                    known_templates: dict[str, str] | None = None):
+                    known_templates: dict[str, str] | None = None,
+                    class_ann: dict | None = None):
     """Walk public CXX_METHOD / CONSTRUCTOR cursors on a class and add them
     to bind_class.methods / .constructors.
 
@@ -615,8 +616,13 @@ def collect_methods(cursor, bind_class, known_classes, known_enums,
     #   - the implicit default ctor (already emitted separately)
     #   - copy / move constructors (PImpl classes have these deleted, and
     #     binding them would fail to compile)
-    #   - any ctor taking std::string& (path-based)
+    #   - any ctor taking std::string& (path-based)  — unless the class is
+    #     `@bind ctors=string`, used for openers like `OsFileSystem(root)`.
     #   - any ctor taking an UNKNOWN type (e.g. WorkerPool* — not bound)
+    ctors_modes = (class_ann or {}).get('ctors', '')
+    if not isinstance(ctors_modes, str):
+        ctors_modes = ''
+    allow_string_ctors = 'string' in ctors_modes
     for ctor in constructors:
         if ctor.is_copy_constructor() or ctor.is_move_constructor():
             continue
@@ -624,7 +630,7 @@ def collect_methods(cursor, bind_class, known_classes, known_enums,
         if not params:
             continue
         param_objs = [make_param(p) for p in params]
-        if any(_is_string_param(p.type) for p in param_objs):
+        if any(_is_string_param(p.type) for p in param_objs) and not allow_string_ctors:
             continue
         if any(p.type.kind == TypeKind.UNKNOWN for p in param_objs):
             continue
@@ -999,7 +1005,8 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
         if ann.get('methods'):
             collect_methods(cursor, bind_class, known_classes, known_enums,
                             remember_containers, ann.get('methods'),
-                            known_templates=known_templates)
+                            known_templates=known_templates,
+                            class_ann=ann)
 
         module.classes.append(bind_class)
 

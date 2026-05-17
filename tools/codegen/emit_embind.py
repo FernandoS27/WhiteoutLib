@@ -9,12 +9,25 @@ register_vector calls.
 
 from __future__ import annotations
 
+import re
 from io import StringIO
 from .ir import (
     BindClass, BindConstant, BindEnum, BindField, BindModule,
     TypeKind, TypeRef,
 )
 from .parser import js_name_for_type, _short_name
+
+
+# Whole-word-substitute bare whiteout primitives (`u32` etc.) with their
+# fully-qualified spelling. Used wherever we splice libclang's raw param
+# spellings into a context that doesn't `using namespace whiteout` —
+# select_overload<> signatures live inside an EMSCRIPTEN_BINDINGS block
+# which only opens up `emscripten`, so `u32` would be undeclared there.
+_PRIMITIVE_RE = re.compile(
+    r'\b(u8|u16|u32|u64|i8|i16|i32|i64|f32|f64)\b')
+
+def _qualify_primitives(raw: str) -> str:
+    return _PRIMITIVE_RE.sub(r'whiteout::\1', raw) if raw else raw
 
 
 HEADER = '''// SPDX-License-Identifier: BSD-3-Clause
@@ -191,7 +204,12 @@ def _emit_method(out: StringIO, m, cls_qual: str, ns: str):
     # (`Ret(Args...) const`) rather than passing it as a runtime arg.
     def _overload_sig() -> str:
         ret_cpp = _cpp_type(m.return_type, ns) if m.return_type.cpp_text else 'void'
-        param_cpp = ', '.join(p.cpp_raw or _cpp_type(p.type, ns) for p in m.params)
+        # `cpp_raw` is libclang's spelling of the parameter type — preserve
+        # spans / refs faithfully but qualify bare whiteout primitives so
+        # `u32` doesn't appear unqualified inside the embind block.
+        param_cpp = ', '.join(
+            _qualify_primitives(p.cpp_raw) or _cpp_type(p.type, ns)
+            for p in m.params)
         sig = f'{ret_cpp}({param_cpp})'
         if m.is_const and not m.is_static:
             sig += ' const'
@@ -337,6 +355,14 @@ def _emit_class(out: StringIO, c: BindClass, ns: str):
     # Other fields use plain .property; std::array<T,N> goes through helpers.
     array_helper_funcs = []
     last_idx = len(c.fields) - 1
+    # For template instantiations (e.g. `AnimationTrack<Vector3f>`) the
+    # synthesised field list includes members inherited from a public base.
+    # `&Derived::base_field` has type `T Base::*`, which Embind's `.property`
+    # template can't bind on `class_<Derived>`. Down-cast the member pointer
+    # via static_cast: `T Base::*` → `T Derived::*` is well-defined for
+    # public single inheritance and is identity for own fields. Cheap, safe,
+    # and avoids reworking the parser's flatten step or every other backend.
+    is_template_instance = '<' in c.cpp_qualifier
     for i, f in enumerate(c.fields):
         end = ';' if i == last_idx and not array_helper_funcs else ''
         if f.type.kind == TypeKind.ARRAY:
@@ -348,7 +374,13 @@ def _emit_class(out: StringIO, c: BindClass, ns: str):
             continue
         # Vector<u8> with array_with_view: emit BOTH the property (read/write)
         # AND a *View() function.
-        out.write(f'        .property("{f.name}", &{cpp_qual}::{f.cpp_name})\n')
+        if is_template_instance:
+            field_t = _cpp_type(f.type, ns)
+            mptr = (f'static_cast<{field_t} {cpp_qual}::*>'
+                    f'(&{cpp_qual}::{f.cpp_name})')
+        else:
+            mptr = f'&{cpp_qual}::{f.cpp_name}'
+        out.write(f'        .property("{f.name}", {mptr})\n')
         if f.array_with_view:
             out.write(f'        .function("{f.name}View",\n')
             out.write('                  optional_override([](const ' + cpp_qual + '& self) {\n')

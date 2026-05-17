@@ -385,6 +385,52 @@ def _c_type(t: TypeRef, module: BindModule) -> str:
     return 'void*'
 
 
+def _ctor_param_c_type(p: BindMethodParam, module: BindModule) -> str:
+    """Render one constructor parameter for the C header/source.
+    `std::string` is taken as `const char*` (callers pass `argv[1]` etc.);
+    everything else follows _c_type."""
+    if p.type.kind == TypeKind.STRING:
+        return 'const char*'
+    return _c_type(p.type, module)
+
+
+def _ctor_overloads_named(c: BindClass):
+    """Return (ctor, name_suffix, c_params_str) for every non-default ctor
+    on c whose param types are representable in C.
+
+    The suffix is derived from the parameter names so each overload gets
+    a distinct C symbol. Collisions append a numeric index. Returning the
+    ctor reference (not just metadata) lets the source emitter recover the
+    BindMethodParam list when building the C++ forwarder call.
+
+    Ctors with params not representable in C (e.g. unbound class types)
+    are dropped; the parser already filters most of these out, this is a
+    belt-and-suspenders check.
+    """
+    seen: dict[str, int] = {}
+    out = []
+    for ctor in c.constructors:
+        bits = []
+        for p in ctor.params:
+            if p.type.kind == TypeKind.STRING:
+                bits.append(f'const char* {p.name}')
+            elif p.type.kind == TypeKind.PRIMITIVE:
+                short = _short_name(p.type.cpp_text)
+                bits.append(f'{_C_PRIMITIVE.get(short, "int32_t")} {p.name}')
+            else:
+                bits = None
+                break
+        if bits is None:
+            continue
+        sig_name = '_'.join(p.name or 'arg' for p in ctor.params)
+        n = seen.get(sig_name, 0)
+        seen[sig_name] = n + 1
+        if n > 0:
+            sig_name = f'{sig_name}_{n + 1}'
+        out.append((ctor, sig_name, ', '.join(bits)))
+    return out
+
+
 def _c_qual_class(prefix: str, c_handle: str) -> str:
     """`whiteout_textures` + `PngParser` -> `whiteout_textures_PngParser`."""
     return f'{prefix}_{c_handle}'
@@ -491,6 +537,13 @@ def _emit_class_header(buf: StringIO, c: BindClass, prefix: str,
     # Constructor.
     if not c.no_default_ctor:
         buf.write(f'{cls_t} {prefix}_{short}_new(void);\n')
+    # Non-default constructors. Named after the first parameter to keep the
+    # C surface ergonomic — collisions across overloads append a numeric
+    # suffix. Single-param string ctors (e.g. OsFileSystem(root)) take a
+    # `const char*`; vector / span params follow the same flat pair pattern
+    # used for method args.
+    for _ctor, sig_name, sig_params in _ctor_overloads_named(c):
+        buf.write(f'{cls_t} {prefix}_{short}_new_{sig_name}({sig_params});\n')
     # Destructor.
     buf.write(f'void {prefix}_{short}_delete({cls_t} self);\n\n')
 
@@ -739,11 +792,19 @@ def _emit_field_defs(buf: StringIO, c: BindClass, cls_cpp_qual: str,
             buf.write(f'    {target_mut} = value;\n')
             buf.write('}\n\n')
         elif t.kind == TypeKind.ENUM:
+            # Inherited enum fields on template instantiations sometimes
+            # come back unqualified from libclang (e.g. `InterpolationType`
+            # instead of `whiteout::mdx::InterpolationType`). The setter
+            # lives at global scope inside `extern "C"` so we need a fully
+            # qualified type for the static_cast.
+            enum_cpp = t.cpp_text
+            if '::' not in enum_cpp and module.cpp_namespace:
+                enum_cpp = f'{module.cpp_namespace}::{enum_cpp}'
             buf.write(f'int32_t {prefix}_{short}_get_{f.name}({cls_t_const} self) {{\n')
             buf.write(f'    return static_cast<int32_t>({target_const});\n')
             buf.write('}\n\n')
             buf.write(f'void {prefix}_{short}_set_{f.name}({cls_t} self, int32_t value) {{\n')
-            buf.write(f'    {target_mut} = static_cast<{t.cpp_text}>(value);\n')
+            buf.write(f'    {target_mut} = static_cast<{enum_cpp}>(value);\n')
             buf.write('}\n\n')
         elif t.kind == TypeKind.STRING:
             buf.write(f'whiteout_CString {prefix}_{short}_get_{f.name}({cls_t_const} self) {{\n')
@@ -1268,6 +1329,22 @@ def _emit_class_source(buf: StringIO, c: BindClass, prefix: str,
     if not c.no_default_ctor:
         buf.write(f'{cls_t} {prefix}_{short}_new(void) {{\n')
         buf.write(f'    return reinterpret_cast<{cls_t}>(new {cpp_qual}());\n')
+        buf.write('}\n\n')
+
+    # Non-default constructors. Header emits the matching declarations via
+    # the same _ctor_overloads_named helper to keep names in sync.
+    for ctor, sig_name, sig_params in _ctor_overloads_named(c):
+        # Build the C++ argument list: forward the C params into the C++
+        # ctor, converting `const char*` to `std::string` where needed.
+        cpp_args = []
+        for p in ctor.params:
+            if p.type.kind == TypeKind.STRING:
+                cpp_args.append(f'std::string({p.name})')
+            else:
+                cpp_args.append(p.name)
+        cpp_call = ', '.join(cpp_args)
+        buf.write(f'{cls_t} {prefix}_{short}_new_{sig_name}({sig_params}) {{\n')
+        buf.write(f'    return reinterpret_cast<{cls_t}>(new {cpp_qual}({cpp_call}));\n')
         buf.write('}\n\n')
 
     # Destructor.

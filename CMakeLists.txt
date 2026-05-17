@@ -20,6 +20,7 @@ option(WHITEOUT_BUILD_WASM_BINDINGS "Build Emscripten/Embind JavaScript bindings
 option(WHITEOUT_BUILD_WASM_NODE_BINDINGS
     "Build the Node.js-flavoured Emscripten target (NODERAWFS + pthreads)." OFF)
 option(WHITEOUT_BUILD_PYTHON_BINDINGS "Build native Python bindings via pybind11" OFF)
+option(WHITEOUT_BUILD_C_BINDINGS "Build the flat-C ABI shared library (whiteout_c)" OFF)
 option(WHITEOUT_ENABLE_CLANG_TIDY "Run clang-tidy on whiteout sources during build" OFF)
 
 # Always emit compile_commands.json — drives clangd, clang-tidy, IWYU, ...
@@ -626,6 +627,10 @@ endif()
 
 if(WHITEOUT_BUILD_PYTHON_BINDINGS)
     add_subdirectory(bindings/python)
+endif()
+
+if(WHITEOUT_BUILD_C_BINDINGS)
+    add_subdirectory(bindings/c)
 endif()
 
 # =============================================================================

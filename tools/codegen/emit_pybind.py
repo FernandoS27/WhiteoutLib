@@ -34,7 +34,7 @@ from .ir import (
     TypeKind, TypeRef,
 )
 from .parser import _short_name, _is_span_const_u8
-from .emit_embind import _WHITEOUT_PRIMITIVES
+from .emit_embind import _WHITEOUT_PRIMITIVES, _qualify_primitives
 
 
 def _is_span_const_u8_type(t):
@@ -288,8 +288,12 @@ def _emit_method(out: StringIO, m, cls_qual: str, ns: str):
             # pybind11 overload_cast: the param types go in the template
             # args; `py::const_` is a *second runtime arg* to overload_cast
             # (not a template arg) that pins the const-qualified overload.
-            param_sig = ', '.join(p.cpp_raw or _cpp_type(p.type, ns)
-                                  for p in m.params)
+            # cpp_raw preserves libclang's spelling (e.g. bare `u32` from
+            # the header) — qualify those primitives so the overload_cast
+            # compiles outside `using namespace whiteout`.
+            param_sig = ', '.join(
+                _qualify_primitives(p.cpp_raw) or _cpp_type(p.type, ns)
+                for p in m.params)
             cast = f'py::overload_cast<{param_sig}>({target}'
             if m.is_const and not m.is_static:
                 cast += ', py::const_'
@@ -485,7 +489,15 @@ def _emit_class(out: StringIO, c: BindClass, ns: str, prefix: str):
 
     for ctor in c.constructors:
         sig = ', '.join(_ctor_param_type(p, ns) for p in ctor.params)
-        out.write(f'        .def(py::init<{sig}>())\n')
+        # Emit py::arg("name") for every parameter so Python callers can
+        # use keyword args: `Cls(name=value)`. The libclang-spelled names
+        # are captured by the parser at make_param time.
+        py_args = ', '.join(f'py::arg("{to_snake_case(p.name)}")'
+                            for p in ctor.params)
+        if py_args:
+            out.write(f'        .def(py::init<{sig}>(), {py_args})\n')
+        else:
+            out.write(f'        .def(py::init<{sig}>())\n')
 
     array_helpers = []
     for f in c.fields:

@@ -841,7 +841,7 @@ Tracks store animation data as a series of keyframes. The interpolation type det
         .def_readwrite("global_sequence_id", &whiteout::mdx::Track<whiteout::Vector3f>::globalSequenceId, R"doc(Global sequence ID if applicable)doc")
         .def_readwrite("key_count", &whiteout::mdx::Track<whiteout::Vector3f>::keyCount, R"doc(Number of keyframes)doc")
         .def_readwrite("timestamps", &whiteout::mdx::Track<whiteout::Vector3f>::timestamps, R"doc(Keyframe timestamps (in frames))doc")
-        .def_readwrite("keys_data", &whiteout::mdx::Track<whiteout::Vector3f>::keys_data, R"doc(Raw keyframe data)doc")
+        .def_readwrite("keys", &whiteout::mdx::Track<whiteout::Vector3f>::keys_data, R"doc(Raw keyframe data)doc")
     ;
 
     py::class_<whiteout::mdx::Track<whiteout::Quaternion>>(m, "TrackQuaternion", R"doc(Generic animation track with keyframe data
@@ -855,7 +855,7 @@ Tracks store animation data as a series of keyframes. The interpolation type det
         .def_readwrite("global_sequence_id", &whiteout::mdx::Track<whiteout::Quaternion>::globalSequenceId, R"doc(Global sequence ID if applicable)doc")
         .def_readwrite("key_count", &whiteout::mdx::Track<whiteout::Quaternion>::keyCount, R"doc(Number of keyframes)doc")
         .def_readwrite("timestamps", &whiteout::mdx::Track<whiteout::Quaternion>::timestamps, R"doc(Keyframe timestamps (in frames))doc")
-        .def_readwrite("keys_data", &whiteout::mdx::Track<whiteout::Quaternion>::keys_data, R"doc(Raw keyframe data)doc")
+        .def_readwrite("keys", &whiteout::mdx::Track<whiteout::Quaternion>::keys_data, R"doc(Raw keyframe data)doc")
     ;
 
     py::class_<whiteout::mdx::Track<whiteout::u32>>(m, "TrackU32", R"doc(Generic animation track with keyframe data
@@ -869,7 +869,7 @@ Tracks store animation data as a series of keyframes. The interpolation type det
         .def_readwrite("global_sequence_id", &whiteout::mdx::Track<whiteout::u32>::globalSequenceId, R"doc(Global sequence ID if applicable)doc")
         .def_readwrite("key_count", &whiteout::mdx::Track<whiteout::u32>::keyCount, R"doc(Number of keyframes)doc")
         .def_readwrite("timestamps", &whiteout::mdx::Track<whiteout::u32>::timestamps, R"doc(Keyframe timestamps (in frames))doc")
-        .def_readwrite("keys_data", &whiteout::mdx::Track<whiteout::u32>::keys_data, R"doc(Raw keyframe data)doc")
+        .def_readwrite("keys", &whiteout::mdx::Track<whiteout::u32>::keys_data, R"doc(Raw keyframe data)doc")
     ;
 
     py::class_<whiteout::mdx::Track<whiteout::f32>>(m, "TrackF32", R"doc(Generic animation track with keyframe data
@@ -883,7 +883,7 @@ Tracks store animation data as a series of keyframes. The interpolation type det
         .def_readwrite("global_sequence_id", &whiteout::mdx::Track<whiteout::f32>::globalSequenceId, R"doc(Global sequence ID if applicable)doc")
         .def_readwrite("key_count", &whiteout::mdx::Track<whiteout::f32>::keyCount, R"doc(Number of keyframes)doc")
         .def_readwrite("timestamps", &whiteout::mdx::Track<whiteout::f32>::timestamps, R"doc(Keyframe timestamps (in frames))doc")
-        .def_readwrite("keys_data", &whiteout::mdx::Track<whiteout::f32>::keys_data, R"doc(Raw keyframe data)doc")
+        .def_readwrite("keys", &whiteout::mdx::Track<whiteout::f32>::keys_data, R"doc(Raw keyframe data)doc")
     ;
 
     py::bind_vector<std::vector<std::vector<whiteout::Vector2f>>>(m, "VectorVectorVector2f");

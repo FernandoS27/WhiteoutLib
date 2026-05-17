@@ -20,6 +20,7 @@ set(_whiteout_c_sources
     whiteout_m2.cpp
     whiteout_m3.cpp
     whiteout_utils.cpp
+    whiteout_host.cpp
 )
 if(WHITEOUT_ENABLE_MPQ)
     list(APPEND _whiteout_c_sources whiteout_mpq.cpp)

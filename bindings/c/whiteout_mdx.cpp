@@ -2589,7 +2589,7 @@ int32_t whiteout_mdx_MdxTrackVector3f_get_interpolationType(const whiteout_MdxTr
 }
 
 void whiteout_mdx_MdxTrackVector3f_set_interpolationType(whiteout_MdxTrackVector3f* self, int32_t value) {
-    reinterpret_cast<whiteout::mdx::Track<whiteout::Vector3f>*>(self)->interpolationType = static_cast<InterpolationType>(value);
+    reinterpret_cast<whiteout::mdx::Track<whiteout::Vector3f>*>(self)->interpolationType = static_cast<whiteout::mdx::InterpolationType>(value);
 }
 
 uint32_t whiteout_mdx_MdxTrackVector3f_get_globalSequenceId(const whiteout_MdxTrackVector3f* self) {
@@ -2627,20 +2627,20 @@ void whiteout_mdx_MdxTrackVector3f_assign_timestamps(whiteout_MdxTrackVector3f* 
     if (count) std::memcpy(__v.data(), data, count * sizeof(u32));
 }
 
-size_t whiteout_mdx_MdxTrackVector3f_get_keys_data_count(const whiteout_MdxTrackVector3f* self) {
+size_t whiteout_mdx_MdxTrackVector3f_get_keys_count(const whiteout_MdxTrackVector3f* self) {
     return reinterpret_cast<const whiteout::mdx::Track<whiteout::Vector3f>*>(self)->keys_data.size();
 }
 
-void whiteout_mdx_MdxTrackVector3f_resize_keys_data(whiteout_MdxTrackVector3f* self, size_t count) {
+void whiteout_mdx_MdxTrackVector3f_resize_keys(whiteout_MdxTrackVector3f* self, size_t count) {
     reinterpret_cast<whiteout::mdx::Track<whiteout::Vector3f>*>(self)->keys_data.resize(count);
 }
 
-const float* whiteout_mdx_MdxTrackVector3f_get_keys_data_data(const whiteout_MdxTrackVector3f* self) {
+const float* whiteout_mdx_MdxTrackVector3f_get_keys_data(const whiteout_MdxTrackVector3f* self) {
     const auto& __v = reinterpret_cast<const whiteout::mdx::Track<whiteout::Vector3f>*>(self)->keys_data;
     return __v.empty() ? nullptr : reinterpret_cast<const float*>(__v.data());
 }
 
-void whiteout_mdx_MdxTrackVector3f_assign_keys_data(whiteout_MdxTrackVector3f* self, const float* data, size_t count) {
+void whiteout_mdx_MdxTrackVector3f_assign_keys(whiteout_MdxTrackVector3f* self, const float* data, size_t count) {
     auto& __v = reinterpret_cast<whiteout::mdx::Track<whiteout::Vector3f>*>(self)->keys_data;
     __v.resize(count);
     if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::Vector3f));
@@ -2673,7 +2673,7 @@ int32_t whiteout_mdx_MdxTrackQuaternion_get_interpolationType(const whiteout_Mdx
 }
 
 void whiteout_mdx_MdxTrackQuaternion_set_interpolationType(whiteout_MdxTrackQuaternion* self, int32_t value) {
-    reinterpret_cast<whiteout::mdx::Track<whiteout::Quaternion>*>(self)->interpolationType = static_cast<InterpolationType>(value);
+    reinterpret_cast<whiteout::mdx::Track<whiteout::Quaternion>*>(self)->interpolationType = static_cast<whiteout::mdx::InterpolationType>(value);
 }
 
 uint32_t whiteout_mdx_MdxTrackQuaternion_get_globalSequenceId(const whiteout_MdxTrackQuaternion* self) {
@@ -2711,20 +2711,20 @@ void whiteout_mdx_MdxTrackQuaternion_assign_timestamps(whiteout_MdxTrackQuaterni
     if (count) std::memcpy(__v.data(), data, count * sizeof(u32));
 }
 
-size_t whiteout_mdx_MdxTrackQuaternion_get_keys_data_count(const whiteout_MdxTrackQuaternion* self) {
+size_t whiteout_mdx_MdxTrackQuaternion_get_keys_count(const whiteout_MdxTrackQuaternion* self) {
     return reinterpret_cast<const whiteout::mdx::Track<whiteout::Quaternion>*>(self)->keys_data.size();
 }
 
-void whiteout_mdx_MdxTrackQuaternion_resize_keys_data(whiteout_MdxTrackQuaternion* self, size_t count) {
+void whiteout_mdx_MdxTrackQuaternion_resize_keys(whiteout_MdxTrackQuaternion* self, size_t count) {
     reinterpret_cast<whiteout::mdx::Track<whiteout::Quaternion>*>(self)->keys_data.resize(count);
 }
 
-const float* whiteout_mdx_MdxTrackQuaternion_get_keys_data_data(const whiteout_MdxTrackQuaternion* self) {
+const float* whiteout_mdx_MdxTrackQuaternion_get_keys_data(const whiteout_MdxTrackQuaternion* self) {
     const auto& __v = reinterpret_cast<const whiteout::mdx::Track<whiteout::Quaternion>*>(self)->keys_data;
     return __v.empty() ? nullptr : reinterpret_cast<const float*>(__v.data());
 }
 
-void whiteout_mdx_MdxTrackQuaternion_assign_keys_data(whiteout_MdxTrackQuaternion* self, const float* data, size_t count) {
+void whiteout_mdx_MdxTrackQuaternion_assign_keys(whiteout_MdxTrackQuaternion* self, const float* data, size_t count) {
     auto& __v = reinterpret_cast<whiteout::mdx::Track<whiteout::Quaternion>*>(self)->keys_data;
     __v.resize(count);
     if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::Quaternion));
@@ -2757,7 +2757,7 @@ int32_t whiteout_mdx_MdxTrackU32_get_interpolationType(const whiteout_MdxTrackU3
 }
 
 void whiteout_mdx_MdxTrackU32_set_interpolationType(whiteout_MdxTrackU32* self, int32_t value) {
-    reinterpret_cast<whiteout::mdx::Track<whiteout::u32>*>(self)->interpolationType = static_cast<InterpolationType>(value);
+    reinterpret_cast<whiteout::mdx::Track<whiteout::u32>*>(self)->interpolationType = static_cast<whiteout::mdx::InterpolationType>(value);
 }
 
 uint32_t whiteout_mdx_MdxTrackU32_get_globalSequenceId(const whiteout_MdxTrackU32* self) {
@@ -2795,20 +2795,20 @@ void whiteout_mdx_MdxTrackU32_assign_timestamps(whiteout_MdxTrackU32* self, cons
     if (count) std::memcpy(__v.data(), data, count * sizeof(u32));
 }
 
-size_t whiteout_mdx_MdxTrackU32_get_keys_data_count(const whiteout_MdxTrackU32* self) {
+size_t whiteout_mdx_MdxTrackU32_get_keys_count(const whiteout_MdxTrackU32* self) {
     return reinterpret_cast<const whiteout::mdx::Track<whiteout::u32>*>(self)->keys_data.size();
 }
 
-void whiteout_mdx_MdxTrackU32_resize_keys_data(whiteout_MdxTrackU32* self, size_t count) {
+void whiteout_mdx_MdxTrackU32_resize_keys(whiteout_MdxTrackU32* self, size_t count) {
     reinterpret_cast<whiteout::mdx::Track<whiteout::u32>*>(self)->keys_data.resize(count);
 }
 
-const uint32_t* whiteout_mdx_MdxTrackU32_get_keys_data_data(const whiteout_MdxTrackU32* self) {
+const uint32_t* whiteout_mdx_MdxTrackU32_get_keys_data(const whiteout_MdxTrackU32* self) {
     const auto& __v = reinterpret_cast<const whiteout::mdx::Track<whiteout::u32>*>(self)->keys_data;
     return __v.empty() ? nullptr : reinterpret_cast<const uint32_t*>(__v.data());
 }
 
-void whiteout_mdx_MdxTrackU32_assign_keys_data(whiteout_MdxTrackU32* self, const uint32_t* data, size_t count) {
+void whiteout_mdx_MdxTrackU32_assign_keys(whiteout_MdxTrackU32* self, const uint32_t* data, size_t count) {
     auto& __v = reinterpret_cast<whiteout::mdx::Track<whiteout::u32>*>(self)->keys_data;
     __v.resize(count);
     if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u32));
@@ -2841,7 +2841,7 @@ int32_t whiteout_mdx_MdxTrackF32_get_interpolationType(const whiteout_MdxTrackF3
 }
 
 void whiteout_mdx_MdxTrackF32_set_interpolationType(whiteout_MdxTrackF32* self, int32_t value) {
-    reinterpret_cast<whiteout::mdx::Track<whiteout::f32>*>(self)->interpolationType = static_cast<InterpolationType>(value);
+    reinterpret_cast<whiteout::mdx::Track<whiteout::f32>*>(self)->interpolationType = static_cast<whiteout::mdx::InterpolationType>(value);
 }
 
 uint32_t whiteout_mdx_MdxTrackF32_get_globalSequenceId(const whiteout_MdxTrackF32* self) {
@@ -2879,20 +2879,20 @@ void whiteout_mdx_MdxTrackF32_assign_timestamps(whiteout_MdxTrackF32* self, cons
     if (count) std::memcpy(__v.data(), data, count * sizeof(u32));
 }
 
-size_t whiteout_mdx_MdxTrackF32_get_keys_data_count(const whiteout_MdxTrackF32* self) {
+size_t whiteout_mdx_MdxTrackF32_get_keys_count(const whiteout_MdxTrackF32* self) {
     return reinterpret_cast<const whiteout::mdx::Track<whiteout::f32>*>(self)->keys_data.size();
 }
 
-void whiteout_mdx_MdxTrackF32_resize_keys_data(whiteout_MdxTrackF32* self, size_t count) {
+void whiteout_mdx_MdxTrackF32_resize_keys(whiteout_MdxTrackF32* self, size_t count) {
     reinterpret_cast<whiteout::mdx::Track<whiteout::f32>*>(self)->keys_data.resize(count);
 }
 
-const float* whiteout_mdx_MdxTrackF32_get_keys_data_data(const whiteout_MdxTrackF32* self) {
+const float* whiteout_mdx_MdxTrackF32_get_keys_data(const whiteout_MdxTrackF32* self) {
     const auto& __v = reinterpret_cast<const whiteout::mdx::Track<whiteout::f32>*>(self)->keys_data;
     return __v.empty() ? nullptr : reinterpret_cast<const float*>(__v.data());
 }
 
-void whiteout_mdx_MdxTrackF32_assign_keys_data(whiteout_MdxTrackF32* self, const float* data, size_t count) {
+void whiteout_mdx_MdxTrackF32_assign_keys(whiteout_MdxTrackF32* self, const float* data, size_t count) {
     auto& __v = reinterpret_cast<whiteout::mdx::Track<whiteout::f32>*>(self)->keys_data;
     __v.resize(count);
     if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::f32));

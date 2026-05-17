@@ -43,21 +43,21 @@ struct WorkerTask {
     TimelineSemaphore::Value signalValue = 0;
 };
 
+/// @bind methods, no_default_ctor — abstract opaque base. Concrete impl: utils::SimpleThreadPool.
 class WorkerPool {
 public:
     virtual ~WorkerPool() = default;
 
-    // Submit a task with optional dependencies
+    /// @bind skip — std::function in WorkerTask isn't auto-bindable
     virtual void submit(const WorkerTask& task) = 0;
 
-    // Wait until pool idle
+    /// @bind — Block until every submitted task has completed.
     virtual void waitIdle() = 0;
 
-    // Worker thread count
+    /// @bind — Number of worker threads in this pool.
     virtual size_t threadCount() const noexcept = 0;
 
-    /// Create a timeline semaphore for task dependency management.
-    /// Returns nullptr by default; override in concrete pool implementations.
+    /// @bind skip — unique_ptr return doesn't round-trip cleanly
     virtual std::unique_ptr<TimelineSemaphore> createTimelineSemaphore() {
         return nullptr;
     }
@@ -85,20 +85,21 @@ struct DirectoryEntry {
     bool isDirectory;
 };
 
-/// Abstract path-based file system (similar to std::filesystem).
+/// @bind methods, no_default_ctor — abstract base. Concrete impl: utils::OsFileSystem.
 class VirtualPathFileSystem {
 public:
     virtual ~VirtualPathFileSystem() = default;
 
-    /// Read the entire contents of a file into a byte vector.
+    /// @bind — Read the entire contents of a file into a byte vector.
     virtual std::vector<u8> readFile(const std::string& path) const = 0;
 
+    /// @bind — Write a file. Returns true on success.
     virtual bool writeFile(const std::string& path, const std::vector<u8>& data) = 0;
 
-    /// Check if a file exists at the given path.
+    /// @bind — Check if a file exists at the given path.
     virtual bool fileExists(const std::string& path) const = 0;
 
-    /// List all entries (files and subdirectories) in the given directory.
+    /// @bind skip — DirectoryEntry vector not exposed via codegen yet
     virtual std::vector<DirectoryEntry> listDirectory(const std::string& path) const = 0;
 };
 
@@ -106,7 +107,7 @@ public:
 // HTTP Handler (for online CASC storage)
 // ============================================================================
 
-/// Result of an HTTP GET request.
+/// @bind value_object — HTTP GET result handed to user callbacks.
 struct HttpResponse {
     i32 statusCode = 0;          ///< HTTP status code (200, 206, 404, …).
     std::vector<u8> body;        ///< Response body.
@@ -131,32 +132,19 @@ namespace HttpCapability {
 ///
 /// Thread safety: methods may be called concurrently from multiple
 /// WorkerPool threads.  The implementation must be thread-safe.
+/// @bind methods, no_default_ctor — abstract opaque base. Concrete impl: utils::SimpleHttpHandler.
 class HttpHandler {
 public:
     virtual ~HttpHandler() = default;
 
-    /// Report supported optional capabilities.  The library inspects this
-    /// once at open() time to tune its dispatch strategy.
-    /// Default: no optional capabilities.
+    /// @bind — Reported handler capability flags.
     virtual u32 capabilities() const noexcept { return HttpCapability::None; }
 
-    /// Start a non-blocking HTTP GET for the full resource.
-    /// The handler must invoke @p callback exactly once when the request
-    /// completes (success or failure).  The callback may be invoked on
-    /// any thread (e.g. an I/O thread, the calling thread, a thread pool).
-    /// @param url      Fully-qualified URL.
-    /// @param callback Invoked with the response when the request completes.
+    /// @bind skip — std::function callbacks not auto-bindable across C/Java
     virtual void getAsync(const std::string& url,
                           HttpCallback callback) = 0;
 
-    /// Start a non-blocking HTTP range-GET (inclusive byte range).
-    /// Implementations should send `Range: bytes=start-end`.
-    /// The handler must invoke @p callback exactly once when the request
-    /// completes.
-    /// @param url      Fully-qualified URL.
-    /// @param start    First byte offset (inclusive).
-    /// @param end      Last byte offset (inclusive).
-    /// @param callback Invoked with the response when the request completes.
+    /// @bind skip — std::function callbacks not auto-bindable across C/Java
     virtual void getRangeAsync(const std::string& url, u64 start, u64 end,
                                HttpCallback callback) = 0;
 };

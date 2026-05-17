@@ -1,0 +1,18 @@
+{
+    "compilerOptions": {
+        "target": "es2022",
+        "module": "esnext",
+        "moduleResolution": "bundler",
+        "strict": true,
+        "noEmit": true,
+        "skipLibCheck": false,
+        "esModuleInterop": true,
+        "allowSyntheticDefaultImports": true,
+        "lib": ["ES2022", "DOM"]
+    },
+    "include": [
+        "../../packages/js-node/types/*.d.ts",
+        "../../packages/js-node/index.d.ts",
+        "node-dts-smoke.ts"
+    ]
+}

@@ -15,6 +15,8 @@ namespace whiteout::utils {
 ///
 /// Tasks are executed by a fixed number of worker threads created at
 /// construction time.
+///
+/// @bind methods, extends=whiteout::interfaces::WorkerPool
 class SimpleThreadPool : public interfaces::WorkerPool {
 public:
     /// Create a pool with @p nThreads worker threads.
@@ -25,21 +27,16 @@ public:
     /// Shut down workers and release resources.
     ~SimpleThreadPool() override;
 
-    /// Submit a task to be executed by the pool.
-    ///
-    /// @param task Task descriptor containing function and optional
-    ///             semaphore dependencies/signals.
+    /// @bind skip — std::function in WorkerTask isn't bindable
     void submit(const interfaces::WorkerTask& task) override;
 
-    /// Block until the pool has no pending or running tasks.
+    /// @bind — Block until the pool has no pending or running tasks.
     void waitIdle() override;
 
-    /// Get the number of worker threads in this pool.
-    ///
-    /// @return Worker thread count.
+    /// @bind — Number of worker threads in this pool.
     size_t threadCount() const noexcept override;
 
-    /// Create a timeline semaphore backed by utils::TimelineSemaphore.
+    /// @bind skip — unique_ptr return not bindable
     std::unique_ptr<interfaces::TimelineSemaphore> createTimelineSemaphore() override;
 
 private:

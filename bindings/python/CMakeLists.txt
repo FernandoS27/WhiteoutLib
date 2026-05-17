@@ -37,6 +37,7 @@ pybind11_add_module(whiteout MODULE
     m3_bindings.cpp
     textures_bindings.cpp
     utils_bindings.cpp
+    host_bindings.cpp
     $<$<BOOL:${WHITEOUT_ENABLE_MPQ}>:${CMAKE_CURRENT_SOURCE_DIR}/mpq_bindings.cpp>
 )
 

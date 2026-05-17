@@ -18,6 +18,8 @@ namespace whiteout::utils {
 /// each worker owns one backend handle and keeps its connection cache warm.
 /// Thread-safe: multiple threads may call getAsync / getRangeAsync
 /// concurrently.
+///
+/// @bind methods, extends=whiteout::interfaces::HttpHandler
 class SimpleHttpHandler : public interfaces::HttpHandler {
 public:
     /// Create a handler with @p nThreads I/O worker threads (default: 4).
@@ -29,11 +31,14 @@ public:
     SimpleHttpHandler(const SimpleHttpHandler&) = delete;
     SimpleHttpHandler& operator=(const SimpleHttpHandler&) = delete;
 
+    /// @bind — Reported handler capability flags.
     u32 capabilities() const noexcept override;
 
+    /// @bind skip — std::function callback isn't auto-bindable
     void getAsync(const std::string& url,
                   interfaces::HttpCallback callback) override;
 
+    /// @bind skip — std::function callback isn't auto-bindable
     void getRangeAsync(const std::string& url, u64 start, u64 end,
                        interfaces::HttpCallback callback) override;
 

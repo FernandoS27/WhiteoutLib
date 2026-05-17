@@ -1343,8 +1343,12 @@ static void runPerfCrossRef(const std::string& cascPath,
                 req.path = e.path;
             else if (e.fileDataId > 0)
                 req.fileDataId = e.fileDataId;
+            else
+                continue; // skip entries with no usable identifier (apples-to-apples vs 12/12b)
             requests.push_back(std::move(req));
         }
+        std::cout << "  [WO+batch] requests after filter: " << requests.size()
+                  << " / " << sample.size() << "\n";
 
         u64 woBytes = 0;
         u32 woOk = 0;

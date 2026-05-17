@@ -1192,10 +1192,10 @@ void whiteout_mdx_MdxTrackVector3f_resize_timestamps(whiteout_MdxTrackVector3f* 
 const uint32_t* whiteout_mdx_MdxTrackVector3f_get_timestamps_data(const whiteout_MdxTrackVector3f* self);
 void whiteout_mdx_MdxTrackVector3f_assign_timestamps(whiteout_MdxTrackVector3f* self, const uint32_t* data, size_t count);
 /* Raw keyframe data */
-size_t whiteout_mdx_MdxTrackVector3f_get_keys_data_count(const whiteout_MdxTrackVector3f* self);
-void whiteout_mdx_MdxTrackVector3f_resize_keys_data(whiteout_MdxTrackVector3f* self, size_t count);
-const float* whiteout_mdx_MdxTrackVector3f_get_keys_data_data(const whiteout_MdxTrackVector3f* self);
-void whiteout_mdx_MdxTrackVector3f_assign_keys_data(whiteout_MdxTrackVector3f* self, const float* data, size_t count);
+size_t whiteout_mdx_MdxTrackVector3f_get_keys_count(const whiteout_MdxTrackVector3f* self);
+void whiteout_mdx_MdxTrackVector3f_resize_keys(whiteout_MdxTrackVector3f* self, size_t count);
+const float* whiteout_mdx_MdxTrackVector3f_get_keys_data(const whiteout_MdxTrackVector3f* self);
+void whiteout_mdx_MdxTrackVector3f_assign_keys(whiteout_MdxTrackVector3f* self, const float* data, size_t count);
 
 /* ── MdxTrackQuaternion ─────────────────────────────────────────────── */
 
@@ -1225,10 +1225,10 @@ void whiteout_mdx_MdxTrackQuaternion_resize_timestamps(whiteout_MdxTrackQuaterni
 const uint32_t* whiteout_mdx_MdxTrackQuaternion_get_timestamps_data(const whiteout_MdxTrackQuaternion* self);
 void whiteout_mdx_MdxTrackQuaternion_assign_timestamps(whiteout_MdxTrackQuaternion* self, const uint32_t* data, size_t count);
 /* Raw keyframe data */
-size_t whiteout_mdx_MdxTrackQuaternion_get_keys_data_count(const whiteout_MdxTrackQuaternion* self);
-void whiteout_mdx_MdxTrackQuaternion_resize_keys_data(whiteout_MdxTrackQuaternion* self, size_t count);
-const float* whiteout_mdx_MdxTrackQuaternion_get_keys_data_data(const whiteout_MdxTrackQuaternion* self);
-void whiteout_mdx_MdxTrackQuaternion_assign_keys_data(whiteout_MdxTrackQuaternion* self, const float* data, size_t count);
+size_t whiteout_mdx_MdxTrackQuaternion_get_keys_count(const whiteout_MdxTrackQuaternion* self);
+void whiteout_mdx_MdxTrackQuaternion_resize_keys(whiteout_MdxTrackQuaternion* self, size_t count);
+const float* whiteout_mdx_MdxTrackQuaternion_get_keys_data(const whiteout_MdxTrackQuaternion* self);
+void whiteout_mdx_MdxTrackQuaternion_assign_keys(whiteout_MdxTrackQuaternion* self, const float* data, size_t count);
 
 /* ── MdxTrackU32 ─────────────────────────────────────────────── */
 
@@ -1258,10 +1258,10 @@ void whiteout_mdx_MdxTrackU32_resize_timestamps(whiteout_MdxTrackU32* self, size
 const uint32_t* whiteout_mdx_MdxTrackU32_get_timestamps_data(const whiteout_MdxTrackU32* self);
 void whiteout_mdx_MdxTrackU32_assign_timestamps(whiteout_MdxTrackU32* self, const uint32_t* data, size_t count);
 /* Raw keyframe data */
-size_t whiteout_mdx_MdxTrackU32_get_keys_data_count(const whiteout_MdxTrackU32* self);
-void whiteout_mdx_MdxTrackU32_resize_keys_data(whiteout_MdxTrackU32* self, size_t count);
-const uint32_t* whiteout_mdx_MdxTrackU32_get_keys_data_data(const whiteout_MdxTrackU32* self);
-void whiteout_mdx_MdxTrackU32_assign_keys_data(whiteout_MdxTrackU32* self, const uint32_t* data, size_t count);
+size_t whiteout_mdx_MdxTrackU32_get_keys_count(const whiteout_MdxTrackU32* self);
+void whiteout_mdx_MdxTrackU32_resize_keys(whiteout_MdxTrackU32* self, size_t count);
+const uint32_t* whiteout_mdx_MdxTrackU32_get_keys_data(const whiteout_MdxTrackU32* self);
+void whiteout_mdx_MdxTrackU32_assign_keys(whiteout_MdxTrackU32* self, const uint32_t* data, size_t count);
 
 /* ── MdxTrackF32 ─────────────────────────────────────────────── */
 
@@ -1291,10 +1291,10 @@ void whiteout_mdx_MdxTrackF32_resize_timestamps(whiteout_MdxTrackF32* self, size
 const uint32_t* whiteout_mdx_MdxTrackF32_get_timestamps_data(const whiteout_MdxTrackF32* self);
 void whiteout_mdx_MdxTrackF32_assign_timestamps(whiteout_MdxTrackF32* self, const uint32_t* data, size_t count);
 /* Raw keyframe data */
-size_t whiteout_mdx_MdxTrackF32_get_keys_data_count(const whiteout_MdxTrackF32* self);
-void whiteout_mdx_MdxTrackF32_resize_keys_data(whiteout_MdxTrackF32* self, size_t count);
-const float* whiteout_mdx_MdxTrackF32_get_keys_data_data(const whiteout_MdxTrackF32* self);
-void whiteout_mdx_MdxTrackF32_assign_keys_data(whiteout_MdxTrackF32* self, const float* data, size_t count);
+size_t whiteout_mdx_MdxTrackF32_get_keys_count(const whiteout_MdxTrackF32* self);
+void whiteout_mdx_MdxTrackF32_resize_keys(whiteout_MdxTrackF32* self, size_t count);
+const float* whiteout_mdx_MdxTrackF32_get_keys_data(const whiteout_MdxTrackF32* self);
+void whiteout_mdx_MdxTrackF32_assign_keys(whiteout_MdxTrackF32* self, const float* data, size_t count);
 
 
 #ifdef __cplusplus

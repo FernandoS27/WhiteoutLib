@@ -268,7 +268,7 @@ struct Track {
     u32 globalSequenceId = kNoGlobalSequence;  ///< Global sequence ID if applicable
     size_t keyCount = 0;       ///< Number of keyframes
     std::vector<u32> timestamps; ///< Keyframe timestamps (in frames)
-    std::vector<T> keys_data; ///< Raw keyframe data
+    std::vector<T> keys_data; ///< @bind rename=keys — Raw keyframe data
 
     /**
      * @brief Get keyframes as a span (for linear/no interpolation)

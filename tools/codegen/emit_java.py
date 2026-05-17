@@ -101,6 +101,41 @@ def _construct_handle_wrap(java_cls: str, seg_expr: str, owned: str) -> str:
     return f'new {java_cls}({seg_expr}, {owned})'
 
 
+def _java_ctor_param_info(p) -> tuple[str, str, str, str] | None:
+    """For a constructor parameter, return
+    `(java_type, layout, marshal_setup, native_arg)`.
+
+    - `java_type`     — what users see at the Java call site (`String`, `long`, …)
+    - `layout`        — the FunctionDescriptor value layout
+                        (`ValueLayout.ADDRESS`, `ValueLayout.JAVA_LONG`, …)
+    - `marshal_setup` — Java statement(s) that turn the user-facing param
+                        into the call-site argument; empty when no setup
+                        is needed
+    - `native_arg`    — the expression passed to `MethodHandle.invoke`
+
+    Returns `None` for types the Java side can't surface as a constructor
+    parameter (e.g. raw pointers, classes / vectors without a known
+    wrapper). The caller skips such ctors when emitting factories.
+    """
+    if p.type.kind == TypeKind.STRING:
+        # const char* on the C side; Java users pass a String. Allocate
+        # off a confined arena so the C++ ctor (called inside `invoke`)
+        # sees a NUL-terminated UTF-8 buffer that doesn't survive the
+        # call. UTF-8 matches whiteout's path-handling convention.
+        return ('String',
+                'ValueLayout.ADDRESS',
+                f'MemorySegment __seg_{p.name} = __arena.allocateFrom('
+                f'{p.name}, StandardCharsets.UTF_8);',
+                f'__seg_{p.name}')
+    if p.type.kind == TypeKind.PRIMITIVE:
+        from .parser import _short_name as _sn
+        short = _sn(p.type.cpp_text)
+        if short in _PRIMITIVE_DIRECT:
+            java_t, layout = _PRIMITIVE_DIRECT[short]
+            return (java_t, layout, '', p.name)
+    return None
+
+
 def _nested_is_pod(t: TypeRef, module: BindModule) -> bool:
     """True when a NESTED field's target type is bitwise-copyable. POD
     types can use direct memcpy in setters; non-POD must route through
@@ -1087,6 +1122,18 @@ def _emit_native(module: BindModule, classes: list[BindClass],
         if not c.no_default_ctor:
             buf.write(f'    public static final MethodHandle {prefix}_{short}_new = find(\n')
             buf.write(f'        "{prefix}_{short}_new", FunctionDescriptor.of(ValueLayout.ADDRESS));\n')
+        # Non-default ctors: emit a MethodHandle per ctor that has a
+        # Java-surface-able param list (string / primitive). The user-facing
+        # class's factory methods bind to these handles. Naming mirrors
+        # emit_c::_ctor_overloads_named — same `_new_<sigName>` symbols.
+        for ctor in c.constructors:
+            param_infos = [_java_ctor_param_info(p) for p in ctor.params]
+            if any(pi is None for pi in param_infos):
+                continue
+            sig_name = '_'.join(p.name or 'arg' for p in ctor.params)
+            layouts = ', '.join(pi[1] for pi in param_infos)
+            buf.write(f'    public static final MethodHandle {prefix}_{short}_new_{sig_name} = find(\n')
+            buf.write(f'        "{prefix}_{short}_new_{sig_name}", FunctionDescriptor.of(ValueLayout.ADDRESS, {layouts}));\n')
         buf.write(f'    public static final MethodHandle {prefix}_{short}_delete = find(\n')
         buf.write(f'        "{prefix}_{short}_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));\n')
 
@@ -1359,6 +1406,40 @@ def _emit_class(pkg: str, c: BindClass, c_short: str, java_short: str,
         else:
             buf.write('            this.handle = __raw;\n')
         buf.write('            this.owned = true;\n')
+        buf.write('        } catch (Throwable __ex) { throw new RuntimeException(__ex); }\n')
+        buf.write('    }\n\n')
+
+    # Non-default constructors → static factory methods, one per ctor that
+    # has a Java-surface-able signature. Mirror image of the Native.java
+    # MethodHandles emitted at the same time. Naming: `create<UpperName>`
+    # so a `SimpleThreadPool(nThreads)` ctor becomes
+    # `SimpleThreadPool.createNThreads(long)`.
+    for ctor in c.constructors:
+        param_infos = [_java_ctor_param_info(p) for p in ctor.params]
+        if any(pi is None for pi in param_infos):
+            continue
+        sig_name = '_'.join(p.name or 'arg' for p in ctor.params)
+        # camelCase suffix for the factory method (e.g. `nThreads` → `NThreads`).
+        suffix = ''.join(part[:1].upper() + part[1:]
+                         for part in sig_name.split('_') if part)
+        java_args = ', '.join(f'{pi[0]} {p.name}' for p, pi in zip(ctor.params, param_infos))
+        invoke_args = ', '.join(pi[3] for pi in param_infos)
+        needs_arena = any('allocateFrom' in pi[2] for pi in param_infos)
+        buf.write(f'    public static {java_short} create{suffix}({java_args}) {{\n')
+        if needs_arena:
+            buf.write('        try (Arena __arena = Arena.ofConfined()) {\n')
+            indent = '            '
+        else:
+            buf.write('        try {\n')
+            indent = '            '
+        for pi in param_infos:
+            if pi[2]:
+                buf.write(f'{indent}{pi[2]}\n')
+        buf.write(f'{indent}MemorySegment __raw = (MemorySegment) '
+                  f'Native.{prefix}_{c_short}_new_{sig_name}.invoke({invoke_args});\n')
+        buf.write(f'{indent}if (__raw == null || __raw.equals(MemorySegment.NULL))\n')
+        buf.write(f'{indent}    throw new RuntimeException("{java_short} allocation failed");\n')
+        buf.write(f'{indent}return new {java_short}(__raw, true);\n')
         buf.write('        } catch (Throwable __ex) { throw new RuntimeException(__ex); }\n')
         buf.write('    }\n\n')
 
