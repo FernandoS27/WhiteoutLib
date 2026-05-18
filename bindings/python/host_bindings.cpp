@@ -25,8 +25,11 @@
 #include <whiteout/utils/os_file_system.h>
 #include <whiteout/utils/simple_thread_pool.h>
 #include <whiteout/utils/simple_http_handler.h>
+#include <whiteout/utils/job_group.h>
+#include <whiteout/utils/blizzard_game_finder.h>
 
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::utils::BlizzardGameInfo>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 
 #include <pybind11/stl.h>
@@ -37,9 +40,56 @@ PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 namespace py = pybind11;
 
 void bind_host(py::module_& m) {
+    py::enum_<whiteout::utils::BlizzardGame>(m, "BlizzardGame", R"doc(Known Blizzard game identifiers.
+
+The `Unknown` value is used for games discovered via generic heuristics (e.g. the Windows Uninstall registry scan) that don't match a known title. In that case, inspect the `name` field of the result for the display name.)doc")
+        .value("UNKNOWN", whiteout::utils::BlizzardGame::Unknown)
+        .value("WORLD_OF_WARCRAFT", whiteout::utils::BlizzardGame::WorldOfWarcraft)
+        .value("WORLD_OF_WARCRAFT_CLASSIC", whiteout::utils::BlizzardGame::WorldOfWarcraftClassic)
+        .value("WORLD_OF_WARCRAFT_CLASSIC_ERA", whiteout::utils::BlizzardGame::WorldOfWarcraftClassicEra)
+        .value("WARCRAFT_II_BATTLE_NET_EDITION", whiteout::utils::BlizzardGame::WarcraftIIBattleNetEdition)
+        .value("WARCRAFT_II_REMASTERED", whiteout::utils::BlizzardGame::WarcraftIIRemastered)
+        .value("WARCRAFT_III", whiteout::utils::BlizzardGame::WarcraftIII)
+        .value("WARCRAFT_III_REFORGED", whiteout::utils::BlizzardGame::WarcraftIIIReforged)
+        .value("STAR_CRAFT", whiteout::utils::BlizzardGame::StarCraft)
+        .value("STAR_CRAFT_REMASTERED", whiteout::utils::BlizzardGame::StarCraftRemastered)
+        .value("STAR_CRAFT_II", whiteout::utils::BlizzardGame::StarCraftII)
+        .value("DIABLO", whiteout::utils::BlizzardGame::Diablo)
+        .value("DIABLO_II", whiteout::utils::BlizzardGame::DiabloII)
+        .value("DIABLO_II_RESURRECTED", whiteout::utils::BlizzardGame::DiabloIIResurrected)
+        .value("DIABLO_III", whiteout::utils::BlizzardGame::DiabloIII)
+        .value("DIABLO_IV", whiteout::utils::BlizzardGame::DiabloIV)
+        .value("DIABLO_IMMORTAL", whiteout::utils::BlizzardGame::DiabloImmortal)
+        .value("HEROES_OF_THE_STORM", whiteout::utils::BlizzardGame::HeroesOfTheStorm)
+        .value("OVERWATCH2", whiteout::utils::BlizzardGame::Overwatch2)
+        .value("HEARTHSTONE", whiteout::utils::BlizzardGame::Hearthstone)
+        .value("BLIZZARD_ARCADE_COLLECTION", whiteout::utils::BlizzardGame::BlizzardArcadeCollection)
+        .value("BATTLE_NET", whiteout::utils::BlizzardGame::BattleNet)
+    ;
+
+    py::class_<whiteout::utils::BlizzardGameInfo>(m, "BlizzardGameInfo", R"doc(Result entry from findBlizzardGames().)doc")
+        .def(py::init<>())
+        .def_readwrite("game", &whiteout::utils::BlizzardGameInfo::game, R"doc(Identified game. `Unknown` if not recognized.)doc")
+        .def_readwrite("name", &whiteout::utils::BlizzardGameInfo::name, R"doc(Human-readable display name.)doc")
+        .def_readwrite("path", &whiteout::utils::BlizzardGameInfo::path, R"doc(Install directory path.)doc")
+    ;
+
     py::class_<whiteout::interfaces::WorkerPool>(m, "WorkerPool", R"doc(abstract opaque base. Concrete impl: utils::SimpleThreadPool.)doc")
+        .def("submit", &whiteout::interfaces::WorkerPool::submit, py::arg("task"), R"doc(JNI bridge: Java sees `submit(WorkerTask task)` with the std::function exposed as a Runnable and the two TimelineSemaphore pointers wrapped in opaque Java handles. WorkerTask implements Runnable; its default `run()` honours wait → fn → signal so simple pools can just `exec.submit(task)`.)doc")
         .def("wait_idle", &whiteout::interfaces::WorkerPool::waitIdle, R"doc(Block until every submitted task has completed.)doc")
         .def("thread_count", &whiteout::interfaces::WorkerPool::threadCount, R"doc(Number of worker threads in this pool.)doc")
+    ;
+
+    py::class_<whiteout::interfaces::CascFileSystem>(m, "CascFileSystem", R"doc(abstract file system that resolves files by numeric data ID (e.g. CASC).)doc")
+        .def("read_file",
+            [](whiteout::interfaces::CascFileSystem& self, whiteout::u32 fileId) {
+                auto __v = self.readFile(fileId);
+                return py::bytes(
+                    reinterpret_cast<const char*>(__v.data()), __v.size());
+            }, py::arg("fileId"), R"doc(Read the entire contents of a file by its numeric data ID.)doc")
+        .def("reserve_file_id", &whiteout::interfaces::CascFileSystem::reserveFileId, py::arg("path"), R"doc(Resolve a path to a numeric file ID (nullable).)doc")
+        .def("write_file", &whiteout::interfaces::CascFileSystem::writeFile, py::arg("fileId"), py::arg("data"), R"doc(Write a file by its numeric data ID. Returns true on success.)doc")
+        .def("file_exists", &whiteout::interfaces::CascFileSystem::fileExists, py::arg("fileId"), R"doc(Check if a file with the given data ID exists.)doc")
     ;
 
     py::class_<whiteout::utils::OsFileSystem, whiteout::interfaces::VirtualPathFileSystem>(m, "OsFileSystem", R"doc(VirtualPathFileSystem implementation backed by the OS filesystem.
@@ -74,5 +124,38 @@ Requests are dispatched asynchronously onto an internal thread pool; each worker
         .def("capabilities", &whiteout::utils::SimpleHttpHandler::capabilities, R"doc(Reported handler capability flags.)doc")
     ;
 
+    py::class_<whiteout::utils::JobGroup>(m, "JobGroup", R"doc(Thread-safe counter-based completion primitive for grouped jobs.
+
+A JobGroup starts with zero pending jobs. Call add() before submitting work, then call done() once per completed job. wait() blocks until the pending count reaches zero.
+
+Typical usage pattern: 1. add(N) 2. submit N tasks 3. each task calls done() on completion 4. wait() to join the group)doc")
+        .def(py::init<>())
+        .def("add", &whiteout::utils::JobGroup::add, py::arg("n") = whiteout::u64{}, R"doc(Increment the number of pending jobs.
+
+@param n Number of jobs to add to the group.)doc")
+        .def("done", &whiteout::utils::JobGroup::done, R"doc(Mark one pending job as completed.
+
+When the pending count reaches zero, all waiters are notified.
+
+@note done() calls must be balanced with prior add() calls.)doc")
+        .def("await", &whiteout::utils::JobGroup::wait, R"doc(Java's Object.wait() is final so the generated wrapper would fail to compile; expose as await(). Block until all pending jobs in the group are completed.)doc")
+        .def("is_ready", &whiteout::utils::JobGroup::isReady, R"doc(Check whether the group has no pending jobs.
+
+@return true if pending count is zero, false otherwise.)doc")
+    ;
+
+    py::class_<whiteout::utils::BlizzardGameInfoList>(m, "BlizzardGameInfoList", R"doc(Opaque handle around `std::vector<BlizzardGameInfo>` returned by `BlizzardGameFinder::findAll()`. Iterate via size() + at(index).)doc")
+        .def(py::init<std::vector<whiteout::utils::BlizzardGameInfo>>(), py::arg("games"))
+        .def("size", &whiteout::utils::BlizzardGameInfoList::size, R"doc(Number of game entries in the list.)doc")
+        .def("at", &whiteout::utils::BlizzardGameInfoList::at, py::arg("index"), R"doc(Borrowed reference to entry at @p index. Valid until this list is destroyed.)doc")
+    ;
+
+    py::class_<whiteout::utils::BlizzardGameFinder>(m, "BlizzardGameFinder", R"doc(Static-method facade around the free functions above so they bind through the class-method codegen path.)doc")
+        .def_static("find_all", &whiteout::utils::BlizzardGameFinder::findAll, R"doc(Discover installed Blizzard games. See `findBlizzardGames()`.)doc")
+        .def_static("from_name", &whiteout::utils::BlizzardGameFinder::fromName, py::arg("name"), R"doc(Map a display name to a BlizzardGame enum. See `blizzardGameFromName()`.)doc")
+        .def_static("to_name", &whiteout::utils::BlizzardGameFinder::toName, py::arg("game"), R"doc(Get the canonical display name for a known game. See `blizzardGameToName()`. Returns empty string for Unknown.)doc")
+    ;
+
+    py::bind_vector<std::vector<whiteout::utils::BlizzardGameInfo>>(m, "VectorBlizzardGameInfo");
 
 }

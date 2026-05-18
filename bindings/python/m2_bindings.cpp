@@ -27,8 +27,12 @@
 #include <whiteout/models/m2/structures/extensions.h>
 #include <whiteout/models/m2/structures/skin.h>
 #include <whiteout/models/m2/structures.h>
+#include <whiteout/models/m2/parser.h>
+#include <whiteout/models/m2/writer.h>
+#include <whiteout/interfaces.h>
 
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::i16>);
+PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::vector<whiteout::u32>>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::vector<whiteout::Vector3f>>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::vector<whiteout::f32>>);
@@ -72,7 +76,6 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::TextureTransform>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::TextureWeight>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::TexturedLightData>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::Vertex>);
-PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
@@ -250,6 +253,11 @@ void bind_m2(py::module_& m) {
         .value("MULTITEX_USE_MODX4", whiteout::m2::ParticleFlag::MultitexUseModx4)
         .value("MULTITEX_USE3_COLORS", whiteout::m2::ParticleFlag::MultitexUse3Colors)
         .value("DYNAMIC_WIND", whiteout::m2::ParticleFlag::DynamicWind)
+    ;
+
+    py::enum_<whiteout::m2::Parser::ParseMode>(m, "ParseMode")
+        .value("STRICT", whiteout::m2::Parser::ParseMode::Strict)
+        .value("LENIENT", whiteout::m2::Parser::ParseMode::Lenient)
     ;
 
     py::class_<whiteout::m2::Extent>(m, "Extent")
@@ -797,6 +805,43 @@ void bind_m2(py::module_& m) {
         .def_readwrite("physics_collision", &whiteout::m2::Model::physicsCollision, R"doc(PCOL)doc")
         .def_readwrite("dpiv_data", &whiteout::m2::Model::dpivData, R"doc(DPIV)doc")
         .def_readwrite("textured_light_entries", &whiteout::m2::Model::texturedLightEntries, R"doc(TEXL)doc")
+    ;
+
+    py::class_<whiteout::m2::Parser>(m, "Parser")
+        .def(py::init<>())
+        .def(py::init<whiteout::m2::Parser::ParseMode>(), py::arg("mode"))
+        .def("parse", py::overload_cast<whiteout::interfaces::VirtualPathFileSystem&, const std::string&>(&whiteout::m2::Parser::parse), py::arg("fs"), py::arg("filePath"))
+        .def("parse",
+            [](whiteout::m2::Parser& self, whiteout::interfaces::CascFileSystem& cascFs, py::bytes __py_bytes_1) {
+                std::string __s_1 = __py_bytes_1;
+                std::span<const whiteout::u8> buffer(reinterpret_cast<const whiteout::u8*>(__s_1.data()), __s_1.size());
+                return self.parse(cascFs, buffer);
+            }, py::arg("cascFs"), py::arg("buffer"))
+        .def("has_issues", &whiteout::m2::Parser::hasIssues)
+        .def("get_issues", &whiteout::m2::Parser::getIssues)
+    ;
+
+    py::class_<whiteout::m2::WriteOptions>(m, "WriteOptions")
+        .def(py::init<>())
+        .def_readwrite("m2_version", &whiteout::m2::WriteOptions::m2Version)
+        .def_readwrite("emit_skeleton", &whiteout::m2::WriteOptions::emitSkeleton)
+        .def_readwrite("base_stem", &whiteout::m2::WriteOptions::baseStem)
+    ;
+
+    py::class_<whiteout::m2::M2SerializeResult>(m, "SerializeResult")
+        .def(py::init<>())
+        .def_readwrite("m2_data", &whiteout::m2::M2SerializeResult::m2Data)
+        .def_readwrite("skeleton_data", &whiteout::m2::M2SerializeResult::skeletonData)
+    ;
+
+    py::class_<whiteout::m2::Writer>(m, "Writer")
+        .def(py::init<>())
+        .def(py::init<whiteout::m2::WriteOptions>(), py::arg("options"))
+        .def("write", py::overload_cast<whiteout::interfaces::VirtualPathFileSystem&, const std::string&, const whiteout::m2::Model&>(&whiteout::m2::Writer::write), py::arg("fs"), py::arg("filePath"), py::arg("model"))
+        .def("write", py::overload_cast<whiteout::interfaces::CascFileSystem&, const whiteout::m2::Model&>(&whiteout::m2::Writer::write), py::arg("cascFs"), py::arg("model"))
+        .def("write", py::overload_cast<const whiteout::m2::Model&>(&whiteout::m2::Writer::write), py::arg("model"))
+        .def("has_issues", &whiteout::m2::Writer::hasIssues)
+        .def("get_issues", &whiteout::m2::Writer::getIssues)
     ;
 
     py::class_<whiteout::m2::AnimationTrack<whiteout::Vector3f>>(m, "AnimationTrackVector3f")

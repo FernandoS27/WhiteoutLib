@@ -35,6 +35,8 @@
 #include <whiteout/textures/bmp/writer.h>
 #include <whiteout/textures/tga/parser.h>
 #include <whiteout/textures/tga/writer.h>
+#include <whiteout/textures/gif/writer.h>
+#include <whiteout/interfaces.h>
 
 PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
@@ -138,6 +140,31 @@ Uncompressed formats store one pixel per "block"; BCn formats store a 4×4 pixel
         .value("LENIENT", whiteout::textures::tga::Writer::WriteMode::Lenient, R"doc(Collect issues, return empty data on failure.)doc")
     ;
 
+    py::enum_<whiteout::textures::gif::Writer::WriteMode>(m, "GifWriteMode")
+        .value("STRICT", whiteout::textures::gif::Writer::WriteMode::Strict, R"doc(Throw on any issue.)doc")
+        .value("LENIENT", whiteout::textures::gif::Writer::WriteMode::Lenient, R"doc(Collect issues, return empty data on failure.)doc")
+    ;
+
+    py::class_<whiteout::textures::gif::SaveOptions>(m, "GifSaveOptions", R"doc(Per-write options for GIF encoding.)doc")
+        .def(py::init<>())
+        .def(py::init([](whiteout::u16 delay_cs, whiteout::u16 loop_count, bool dither, whiteout::f32 dither_strength) {
+            return whiteout::textures::gif::SaveOptions{delay_cs, loop_count, dither, dither_strength};
+        }), py::arg("delay_cs"), py::arg("loop_count"), py::arg("dither"), py::arg("dither_strength"))
+        .def("__repr__", [](const whiteout::textures::gif::SaveOptions& self) {
+            std::ostringstream oss;
+            oss << "GifSaveOptions(";
+            oss << "delay_cs=" << self.delayCs << ", ";
+            oss << "loop_count=" << self.loopCount << ", ";
+            oss << "dither=" << self.dither << ", ";
+            oss << "dither_strength=" << self.ditherStrength << ")";
+            return oss.str();
+        })
+        .def_readwrite("delay_cs", &whiteout::textures::gif::SaveOptions::delayCs, R"doc(Delay between frames in centiseconds (1/100 s).  0 = unspecified.)doc")
+        .def_readwrite("loop_count", &whiteout::textures::gif::SaveOptions::loopCount, R"doc(Number of times the animation should loop.  0 = loop forever.)doc")
+        .def_readwrite("dither", &whiteout::textures::gif::SaveOptions::dither, R"doc(Enable blue-noise ordered dithering when mapping pixels to the palette.)doc")
+        .def_readwrite("dither_strength", &whiteout::textures::gif::SaveOptions::ditherStrength, R"doc(Dither strength in [0, 1].  0 = no visible dithering, 1 = full.)doc")
+    ;
+
     py::class_<whiteout::textures::Texture>(m, "Texture", R"doc(Format-agnostic GPU texture container
 
 Texture is the central interchange object used by every format-specific parser and writer in the library. It owns a contiguous pixel-data buffer and a mip chain describing the layout of every mip level and layer.
@@ -148,11 +175,13 @@ Supports in-place and copying format conversion between all PixelFormat values (
 
 Uses the PImpl (Pointer to Implementation) idiom to hide internals.)doc")
         .def(py::init<>())
+        .def("format", py::overload_cast<whiteout::textures::PixelFormat>(&whiteout::textures::Texture::format), py::arg("new_fmt"), R"doc(Convert this texture to a new pixel format in-place.
+
+Replaces the internal data with the converted result. Equivalent to `*this = copyAsFormat(new_fmt)`.
+
+@param new_fmt Target pixel format.)doc")
         .def("format", py::overload_cast<>(&whiteout::textures::Texture::format, py::const_), R"doc(@return The pixel format of the stored data.)doc")
-        .def("copy_as_format",
-            [](whiteout::textures::Texture& self, whiteout::textures::PixelFormat new_fmt) {
-                return self.copyAsFormat(new_fmt);
-            }, py::arg("new_fmt"), R"doc(Return a copy of this texture converted to a different pixel format.
+        .def("copy_as_format", &whiteout::textures::Texture::copyAsFormat, py::arg("new_fmt"), py::arg("pool") = nullptr, R"doc(Return a copy of this texture converted to a different pixel format.
 
 Conversion path: - Same format → plain copy. - BCn → decoded to native format (R8 for BC4, RG8 for BC5, RGBA32F for BC6H, RGBA8 for others), then recurse. - Uncompressed → uncompressed → per-pixel conversion. - Uncompressed → BCn → encode via the appropriate codec.
 
@@ -199,7 +228,7 @@ Returns std::nullopt if the source is BCn-compressed or if any requested channel
 
 @param channels Channels to extract (e.g. {Channel::R, Channel::G}). @return One Texture per requested channel, or std::nullopt on failure.)doc")
         .def_static("merge_channels",
-            [](std::vector<whiteout::textures::Texture> sources, std::vector<whiteout::textures::Channel> targetChannels) {
+            [](const std::vector<whiteout::textures::Texture>& sources, const std::vector<whiteout::textures::Channel>& targetChannels) {
                 return whiteout::textures::Texture::mergeChannels(sources, targetChannels);
             }, py::arg("sources"), py::arg("targetChannels"), R"doc(Merge single-channel textures into one multi-channel texture.
 
@@ -207,17 +236,14 @@ Each source texture is written into the corresponding target channel of a new RG
 
 @param sources          Single-channel textures to combine. @param targetChannels   Destination channel for each source (same length as @p sources). @return The combined RGBA texture, or std::nullopt on failure.)doc")
         .def("copy_from_normal_to_rgba",
-            [](whiteout::textures::Texture& self) {
-                return self.copyFromNormalToRGBA();
-            }, R"doc(Return a copy of a 2-channel normal map expanded to RGBA8.
+            [](whiteout::textures::Texture& self, whiteout::interfaces::WorkerPool* pool) {
+                return self.copyFromNormalToRGBA(pool);
+            }, py::arg("pool") = nullptr, R"doc(Return a copy of a 2-channel normal map expanded to RGBA8.
 
 Only supported for textures whose kind() is TextureKind::Normal and whose format is RG8, RG16, RG32F, or BC5. The returned texture keeps the original shape, mip chain, kind, and sRGB flag, but stores data as RGBA8 with Z reconstructed from the packed X/Y normal in R/G.
 
 @param pool Optional WorkerPool for parallel BCn decode work when the source texture is compressed. @return Expanded RGBA8 texture, or std::nullopt when unsupported.)doc")
-        .def("generate_mipmaps",
-            [](whiteout::textures::Texture& self, whiteout::u32 newMipCount) {
-                return self.generateMipmaps(newMipCount);
-            }, py::arg("newMipCount"), R"doc(Generate all mip levels from the base image (mip 0).
+        .def("generate_mipmaps", py::overload_cast<whiteout::u32, whiteout::interfaces::WorkerPool*>(&whiteout::textures::Texture::generateMipmaps), py::arg("newMipCount"), py::arg("pool") = nullptr, R"doc(Generate all mip levels from the base image (mip 0).
 
 Every mip level is generated directly from the original full-resolution image using an appropriately-sized filter kernel, rather than cascading from the previous mip level.  This eliminates cumulative blur.
 
@@ -226,10 +252,8 @@ Selects the best filter and pipeline for the texture's kind(): - Diffuse / Albed
 The texture must use an uncompressed pixel format.  BCn textures should be decompressed first.  No-op if the texture has ≤ 1 mip.
 
 @param newMipCount Desired number of mip levels in the output texture. Pass kKeepMipCount (0) to preserve the existing mip count. Must be between 1 and computeMaxMipCount(width, height, depth). When 1, the mip chain is truncated to the base level only and the function returns immediately. @param pool Optional WorkerPool used to parallelize mip generation across mip levels and layers. If null, generation runs on the calling thread. @return std::nullopt on success; std::optional<std::string> with error message on failure. No exceptions are thrown.)doc")
-        .def("downscale",
-            [](whiteout::textures::Texture& self, whiteout::u32 levels) {
-                return self.downscale(levels);
-            }, py::arg("levels") = whiteout::u32{}, R"doc(Downscale the texture by dropping leading mip levels.
+        .def("generate_mipmaps", py::overload_cast<whiteout::interfaces::WorkerPool*>(&whiteout::textures::Texture::generateMipmaps), py::arg("pool") = nullptr, R"doc(@overload Preserves existing mip count; optional worker pool.)doc")
+        .def("downscale", &whiteout::textures::Texture::downscale, py::arg("levels") = whiteout::u32{}, py::arg("pool") = nullptr, R"doc(Downscale the texture by dropping leading mip levels.
 
 Increases the mip count by @p levels (clamped to the maximum), regenerates all mip levels from the base image, then drops the first @p levels mips — effectively halving the resolution @p levels times while preserving the original mip chain length.
 
@@ -287,7 +311,7 @@ The Parser reads binary BLP files and converts them into the Texture structure. 
 
 Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::textures::blp::Parser::ParseMode>())
+        .def(py::init<whiteout::textures::blp::Parser::ParseMode>(), py::arg("parse_mode"))
         .def("parse",
             [](whiteout::textures::blp::Parser& self, py::bytes __py_bytes_0) {
                 std::string __s_0 = __py_bytes_0;
@@ -304,8 +328,9 @@ The Writer takes a Texture and encodes it into BLP1 or BLP2 binary format. It su
 
 Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.)doc")
         .def(py::init<>())
+        .def(py::init<whiteout::textures::blp::Writer::WriteMode, whiteout::interfaces::WorkerPool*>(), py::arg("write_mode"), py::arg("pool"))
         .def("write",
-            [](whiteout::textures::blp::Writer& self, whiteout::textures::Texture texture) {
+            [](whiteout::textures::blp::Writer& self, const whiteout::textures::Texture& texture) {
                 auto __v = self.write(texture);
                 return py::bytes(
                     reinterpret_cast<const char*>(__v.data()), __v.size());
@@ -316,7 +341,7 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
 
     py::class_<whiteout::textures::png::Parser>(m, "PngParser", R"doc(Reads a PNG file or byte buffer and decodes it into a Texture.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::textures::png::Parser::ParseMode>())
+        .def(py::init<whiteout::textures::png::Parser::ParseMode>(), py::arg("parse_mode"))
         .def("parse",
             [](whiteout::textures::png::Parser& self, py::bytes __py_bytes_0) {
                 std::string __s_0 = __py_bytes_0;
@@ -329,9 +354,9 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
 
     py::class_<whiteout::textures::png::Writer>(m, "PngWriter", R"doc(Encodes a Texture into PNG format.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::textures::png::Writer::WriteMode>())
+        .def(py::init<whiteout::textures::png::Writer::WriteMode>(), py::arg("write_mode"))
         .def("write",
-            [](whiteout::textures::png::Writer& self, whiteout::textures::Texture texture) {
+            [](whiteout::textures::png::Writer& self, const whiteout::textures::Texture& texture) {
                 auto __v = self.write(texture);
                 return py::bytes(
                     reinterpret_cast<const char*>(__v.data()), __v.size());
@@ -342,6 +367,7 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
 
     py::class_<whiteout::textures::jpeg::Parser>(m, "JpegParser", R"doc(Reads a JPEG file or byte buffer and decodes it into a Texture.)doc")
         .def(py::init<>())
+        .def(py::init<whiteout::textures::jpeg::Parser::ParseMode, whiteout::interfaces::WorkerPool*>(), py::arg("parse_mode"), py::arg("pool"))
         .def("parse",
             [](whiteout::textures::jpeg::Parser& self, py::bytes __py_bytes_0) {
                 std::string __s_0 = __py_bytes_0;
@@ -354,8 +380,9 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
 
     py::class_<whiteout::textures::jpeg::Writer>(m, "JpegWriter", R"doc(Encodes a Texture into JPEG format.)doc")
         .def(py::init<>())
+        .def(py::init<whiteout::i32, whiteout::textures::jpeg::Writer::WriteMode, whiteout::interfaces::WorkerPool*, bool>(), py::arg("quality"), py::arg("write_mode"), py::arg("pool"), py::arg("progressive"))
         .def("write",
-            [](whiteout::textures::jpeg::Writer& self, whiteout::textures::Texture texture) {
+            [](whiteout::textures::jpeg::Writer& self, const whiteout::textures::Texture& texture) {
                 auto __v = self.write(texture);
                 return py::bytes(
                     reinterpret_cast<const char*>(__v.data()), __v.size());
@@ -366,7 +393,7 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
 
     py::class_<whiteout::textures::dds::Parser>(m, "DdsParser", R"doc(Reads a DDS file or byte buffer and decodes it into a Texture.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::textures::dds::Parser::ParseMode>())
+        .def(py::init<whiteout::textures::dds::Parser::ParseMode>(), py::arg("parse_mode"))
         .def("parse",
             [](whiteout::textures::dds::Parser& self, py::bytes __py_bytes_0) {
                 std::string __s_0 = __py_bytes_0;
@@ -379,9 +406,9 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
 
     py::class_<whiteout::textures::dds::Writer>(m, "DdsWriter", R"doc(Encodes a Texture into DDS format.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::textures::dds::Writer::WriteMode>())
+        .def(py::init<whiteout::textures::dds::Writer::WriteMode>(), py::arg("write_mode"))
         .def("write",
-            [](whiteout::textures::dds::Writer& self, whiteout::textures::Texture texture) {
+            [](whiteout::textures::dds::Writer& self, const whiteout::textures::Texture& texture) {
                 auto __v = self.write(texture);
                 return py::bytes(
                     reinterpret_cast<const char*>(__v.data()), __v.size());
@@ -392,7 +419,7 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
 
     py::class_<whiteout::textures::bmp::Parser>(m, "BmpParser", R"doc(Reads a BMP file or byte buffer and decodes it into a Texture.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::textures::bmp::Parser::ParseMode>())
+        .def(py::init<whiteout::textures::bmp::Parser::ParseMode>(), py::arg("parse_mode"))
         .def("parse",
             [](whiteout::textures::bmp::Parser& self, py::bytes __py_bytes_0) {
                 std::string __s_0 = __py_bytes_0;
@@ -405,9 +432,9 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
 
     py::class_<whiteout::textures::bmp::Writer>(m, "BmpWriter", R"doc(Encodes a Texture into BMP format.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::textures::bmp::Writer::WriteMode>())
+        .def(py::init<whiteout::textures::bmp::Writer::WriteMode>(), py::arg("write_mode"))
         .def("write",
-            [](whiteout::textures::bmp::Writer& self, whiteout::textures::Texture texture) {
+            [](whiteout::textures::bmp::Writer& self, const whiteout::textures::Texture& texture) {
                 auto __v = self.write(texture);
                 return py::bytes(
                     reinterpret_cast<const char*>(__v.data()), __v.size());
@@ -418,7 +445,7 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
 
     py::class_<whiteout::textures::tga::Parser>(m, "TgaParser", R"doc(Reads a TGA file or byte buffer and decodes it into a Texture.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::textures::tga::Parser::ParseMode>())
+        .def(py::init<whiteout::textures::tga::Parser::ParseMode>(), py::arg("parse_mode"))
         .def("parse",
             [](whiteout::textures::tga::Parser& self, py::bytes __py_bytes_0) {
                 std::string __s_0 = __py_bytes_0;
@@ -431,15 +458,38 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
 
     py::class_<whiteout::textures::tga::Writer>(m, "TgaWriter", R"doc(Encodes a Texture into TGA format.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::textures::tga::Writer::WriteMode>())
+        .def(py::init<whiteout::textures::tga::Writer::WriteMode>(), py::arg("write_mode"))
         .def("write",
-            [](whiteout::textures::tga::Writer& self, whiteout::textures::Texture texture) {
+            [](whiteout::textures::tga::Writer& self, const whiteout::textures::Texture& texture) {
                 auto __v = self.write(texture);
                 return py::bytes(
                     reinterpret_cast<const char*>(__v.data()), __v.size());
             }, py::arg("texture"), R"doc(Serialize the texture to a TGA byte buffer.)doc")
         .def("has_issues", &whiteout::textures::tga::Writer::hasIssues, R"doc(@return true if the last write produced any issues.)doc")
         .def("get_issues", &whiteout::textures::tga::Writer::getIssues, R"doc(@return accumulated issues from the last write call.)doc")
+    ;
+
+    py::class_<whiteout::textures::gif::Writer>(m, "GifWriter", R"doc(Encodes a sequence of Texture frames into GIF89a format.
+
+Unlike the single-image writers (BMP, TGA, …), this writer accepts a vector of frames.  It does **not** inherit from `textures::Writer`.)doc")
+        .def(py::init<>())
+        .def(py::init<whiteout::textures::gif::Writer::WriteMode, whiteout::interfaces::WorkerPool*>(), py::arg("write_mode"), py::arg("pool"))
+        .def("write", py::overload_cast<const std::string&, const std::vector<whiteout::textures::Texture>&>(&whiteout::textures::gif::Writer::write), py::arg("filePath"), py::arg("frames"), R"doc(Write frames to a GIF file on disk using default options.)doc")
+        .def("write",
+            [](whiteout::textures::gif::Writer& self, const std::vector<whiteout::textures::Texture>& frames) {
+                auto __v = self.write(frames);
+                return py::bytes(
+                    reinterpret_cast<const char*>(__v.data()), __v.size());
+            }, py::arg("frames"), R"doc(Write frames to a GIF byte buffer using default options.)doc")
+        .def("write", py::overload_cast<const std::string&, const std::vector<whiteout::textures::Texture>&, const whiteout::textures::gif::SaveOptions&>(&whiteout::textures::gif::Writer::write), py::arg("filePath"), py::arg("frames"), py::arg("opts"), R"doc(Write frames to a GIF file on disk with explicit options.)doc")
+        .def("write",
+            [](whiteout::textures::gif::Writer& self, const std::vector<whiteout::textures::Texture>& frames, const whiteout::textures::gif::SaveOptions& opts) {
+                auto __v = self.write(frames, opts);
+                return py::bytes(
+                    reinterpret_cast<const char*>(__v.data()), __v.size());
+            }, py::arg("frames"), py::arg("opts"), R"doc(Write frames to a GIF byte buffer with explicit options.)doc")
+        .def("has_issues", &whiteout::textures::gif::Writer::hasIssues, R"doc(@return true if the last write produced any issues.)doc")
+        .def("get_issues", &whiteout::textures::gif::Writer::getIssues, R"doc(@return accumulated issues from the last write call.)doc")
     ;
 
     py::bind_vector<std::vector<whiteout::textures::Channel>>(m, "VectorChannel");

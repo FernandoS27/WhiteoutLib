@@ -259,33 +259,14 @@ PYBIND11_MODULE(whiteout, root) {
     for (auto name : {"Vector2f", "Vector3f", "Vector4f", "Quaternion"}) {
         root.attr(name) = mdx_m.attr(name);
     }
-    py::enum_<mdx::Parser::ParseMode>(mdx_m, "ParseMode")
-        .value("Strict",  mdx::Parser::ParseMode::Strict)
-        .value("Lenient", mdx::Parser::ParseMode::Lenient);
-    py::class_<mdx::Parser>(mdx_m, "Parser")
-        .def(py::init<mdx::Parser::ParseMode>(),
-             py::arg("mode") = mdx::Parser::ParseMode::Lenient)
-        .def("parse", &mdx_extra::parse_bytes)
-        .def("has_issues", &mdx::Parser::hasIssues)
-        .def("get_issues", &mdx::Parser::getIssues);
-    py::class_<mdx::Writer>(mdx_m, "Writer")
-        .def(py::init<>())
-        .def("write", &mdx_extra::write_bytes);
+    // mdx::Parser / Writer / ParseMode / MDLXFormat / MdlFormat /
+    // UpgradeMode are now fully bound by the codegen (bind_mdx). The
+    // span<u8> ↔ py::bytes round-trip is handled by the codegen's
+    // slow-path lambda emission, so the previous mdx_extra helpers
+    // here became redundant.
 
     auto m3_m = root.def_submodule("m3", "StarCraft II / Heroes of the Storm M3");
     bind_m3(m3_m);
-    py::enum_<m3::Parser::ParseMode>(m3_m, "ParseMode")
-        .value("Strict",  m3::Parser::ParseMode::Strict)
-        .value("Lenient", m3::Parser::ParseMode::Lenient);
-    py::class_<m3::Parser>(m3_m, "Parser")
-        .def(py::init<m3::Parser::ParseMode>(),
-             py::arg("mode") = m3::Parser::ParseMode::Lenient)
-        .def("parse", &m3_extra::parse_bytes)
-        .def("has_issues", &m3::Parser::hasIssues)
-        .def("get_issues", &m3::Parser::getIssues);
-    py::class_<m3::Writer>(m3_m, "Writer")
-        .def(py::init<>())
-        .def("write", &m3_extra::write_bytes);
 
     auto utils_m = root.def_submodule("utils", "Vertex-buffer building + other helpers.");
     bind_utils(utils_m);
@@ -297,11 +278,6 @@ PYBIND11_MODULE(whiteout, root) {
 
     auto m2_m = root.def_submodule("m2", "World of Warcraft M2");
     bind_m2(m2_m);
-    py::enum_<m2::Parser::ParseMode>(m2_m, "ParseMode")
-        .value("Strict",  m2::Parser::ParseMode::Strict)
-        .value("Lenient", m2::Parser::ParseMode::Lenient);
-    py::class_<m2::Parser>(m2_m, "Parser")
-        .def(py::init<m2::Parser::ParseMode>(),
-             py::arg("mode") = m2::Parser::ParseMode::Lenient)
-        .def("parse", &m2_extra::parse_bytes);
+    // m2::Parser is fully bound by bind_m2 (takes VirtualPathFileSystem&
+    // / CascFileSystem& which the codegen now handles).
 }

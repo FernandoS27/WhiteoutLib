@@ -99,7 +99,11 @@ def test_mdx_full_type_tree_roundtrip():
     encoded = w.mdx.Writer().write(model)
     assert len(encoded) > 100
 
-    parsed = w.mdx.Parser().parse(encoded)
+    # `parse(str)` and `parse(bytes, format)` are both registered now —
+    # disambiguate by passing the format explicitly so pybind11 picks
+    # the byte-buffer overload (str and bytes both auto-convert, so a
+    # 1-arg call resolves to the file-path overload otherwise).
+    parsed = w.mdx.Parser().parse(encoded, w.mdx.MDLXFormat.MDX)
     assert parsed.model_name == "PyTest"
     assert parsed.blend_time == 150
     assert parsed.model_extent.bounds_radius == 42.0

@@ -271,7 +271,15 @@ def _emit_method(out: StringIO, m, cls_qual: str, ns: str):
       - std::optional<T>   → return None when empty
       - std::optional<std::vector<u8>> → bytes or None  (bytes_out + optional)
     """
-    py_name = to_snake_case(m.name)
+    # Python method name: use cpp_name so overloads collapse onto the
+    # original C++ name and pybind11's overload dispatch picks the right
+    # one via signature matching. m.name carries the disambiguating
+    # suffix needed by the C symbol layer only (not Python). The rename
+    # annotation still takes precedence so `@bind rename=foo` works.
+    py_method_name = m.annotations.get('rename') if m.annotations else None
+    if not py_method_name:
+        py_method_name = m.cpp_name
+    py_name = to_snake_case(py_method_name)
     doc_arg = f', {_cpp_string_lit(m.doc)}' if m.doc else ''
     binder = 'def_static' if m.is_static else 'def'
 
@@ -288,12 +296,21 @@ def _emit_method(out: StringIO, m, cls_qual: str, ns: str):
             # pybind11 overload_cast: the param types go in the template
             # args; `py::const_` is a *second runtime arg* to overload_cast
             # (not a template arg) that pins the const-qualified overload.
-            # cpp_raw preserves libclang's spelling (e.g. bare `u32` from
-            # the header) — qualify those primitives so the overload_cast
-            # compiles outside `using namespace whiteout`.
-            param_sig = ', '.join(
-                _qualify_primitives(p.cpp_raw) or _cpp_type(p.type, ns)
-                for p in m.params)
+            # Build the param spelling from the canonical fully-qualified
+            # type (so `interfaces::Foo` / bare `Model` get the right
+            # namespace) and restore const/ref qualifiers from cpp_raw,
+            # which preserves the original signature decoration.
+            def _qual_param(p) -> str:
+                raw = p.cpp_raw or ''
+                base = _cpp_type(p.type, ns)
+                if '*' in raw:
+                    base += '*'
+                elif '&' in raw:
+                    base += '&'
+                if raw.lstrip().startswith('const '):
+                    base = 'const ' + base
+                return base
+            param_sig = ', '.join(_qual_param(p) for p in m.params)
             cast = f'py::overload_cast<{param_sig}>({target}'
             if m.is_const and not m.is_static:
                 cast += ', py::const_'
@@ -306,8 +323,15 @@ def _emit_method(out: StringIO, m, cls_qual: str, ns: str):
         arg_clauses: list[str] = []
         for p in m.params:
             if p.has_default:
-                arg_clauses.append(
-                    f'py::arg("{p.name}") = {_cpp_type(p.type, ns)}{{}}')
+                raw = p.cpp_raw or ''
+                # Pointer params default to nullptr — `Pointee{}` is wrong
+                # AND fails for abstract bases (`WorkerPool* pool = nullptr`
+                # would try to default-construct the abstract type).
+                if '*' in raw:
+                    arg_clauses.append(f'py::arg("{p.name}") = nullptr')
+                else:
+                    arg_clauses.append(
+                        f'py::arg("{p.name}") = {_cpp_type(p.type, ns)}{{}}')
             else:
                 arg_clauses.append(f'py::arg("{p.name}")')
         args_tail = ', ' + ', '.join(arg_clauses) if arg_clauses else ''
@@ -326,6 +350,22 @@ def _emit_method(out: StringIO, m, cls_qual: str, ns: str):
     #     buffers (and accepting Python list / typed iterable inputs too).
     span_params = [(i, p) for i, p in enumerate(m.params)
                    if p.span_scalar is not None]
+
+    # Match _qual_param above: build the param's C++ type from
+    # _cpp_type (canonical, fully qualified) and restore the const/
+    # ref/pointer decoration the original signature had. Without
+    # this, pointer-to-abstract params (WorkerPool*) lose the `*`
+    # and pybind tries to default-construct the abstract.
+    def _qual_param_lambda(p) -> str:
+        raw = p.cpp_raw or ''
+        base = _cpp_type(p.type, ns)
+        if '*' in raw:
+            base += '*'
+        elif '&' in raw:
+            base += '&'
+        if raw.lstrip().startswith('const '):
+            base = 'const ' + base
+        return base
 
     out.write(f'        .{binder}("{py_name}",\n')
     out.write(f'            [](')
@@ -346,7 +386,7 @@ def _emit_method(out: StringIO, m, cls_qual: str, ns: str):
                     f'py::array::c_style | py::array::forcecast> __py_arr_{i}'
                 )
         else:
-            out.write(f'{_cpp_type(p.type, ns)} {p.name}')
+            out.write(f'{_qual_param_lambda(p)} {p.name}')
     out.write(') {\n')
     for i, p in span_params:
         short, _ = p.span_scalar
@@ -400,8 +440,13 @@ def _emit_method(out: StringIO, m, cls_qual: str, ns: str):
     span_idx_set = {i for i, _ in span_params}
     for i, p in enumerate(m.params):
         if i not in span_idx_set and p.has_default:
-            arg_clauses.append(
-                f'py::arg("{p.name}") = {_cpp_type(p.type, ns)}{{}}')
+            raw = p.cpp_raw or ''
+            # Pointer defaults → nullptr (see fast-path arm above).
+            if '*' in raw:
+                arg_clauses.append(f'py::arg("{p.name}") = nullptr')
+            else:
+                arg_clauses.append(
+                    f'py::arg("{p.name}") = {_cpp_type(p.type, ns)}{{}}')
         else:
             arg_clauses.append(f'py::arg("{p.name}")')
     if arg_clauses:
@@ -444,9 +489,18 @@ def _emit_class(out: StringIO, c: BindClass, ns: str, prefix: str):
     # canonical type (so the binding TU resolves names correctly), while
     # preserving any reference qualifier from the original spelling.
     def _ctor_param_type(p, ns):
+        # Preserve const/ref/pointer qualifiers from the original
+        # signature spelling — needed for abstract-base pointer params
+        # (e.g. `WorkerPool* pool`) where dropping the `*` makes pybind11
+        # try to instantiate the abstract base.
         base = _cpp_type(p.type, ns)
-        if p.cpp_raw and '&' in p.cpp_raw:
+        raw = p.cpp_raw or ''
+        if '*' in raw:
+            base += '*'
+        elif '&' in raw:
             base += '&'
+        if raw.lstrip().startswith('const '):
+            base = 'const ' + base
         return base
 
     # POD value_objects: positional + keyword constructor and `__repr__`.
@@ -568,6 +622,14 @@ def emit(module: BindModule) -> str:
     # the PYBIND11_MAKE_OPAQUE template arguments below.
     for h in module.headers:
         buf.write(f'#include <{h.replace("include/", "")}>\n')
+    # whiteout/interfaces.h is needed whenever a bound method takes an
+    # `interfaces::X` reference/pointer (m2::Parser, m2::Writer, etc.).
+    # Module configs that already include it skip — duplicate #includes
+    # are harmless because of header guards, but we keep the check
+    # explicit so the emitted output stays minimal.
+    interfaces_already = any('interfaces.h' in h for h in module.headers)
+    if not interfaces_already:
+        buf.write('#include <whiteout/interfaces.h>\n')
     buf.write('\n')
 
     # MAKE_OPAQUE block — every vector we bind. Must come before stl.h.

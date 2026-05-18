@@ -32,6 +32,9 @@
 #include <whiteout/models/m3/structures/physics.h>
 #include <whiteout/models/m3/structures/scene.h>
 #include <whiteout/models/m3/structures.h>
+#include <whiteout/models/m3/parser.h>
+#include <whiteout/models/m3/writer.h>
+#include <whiteout/interfaces.h>
 
 PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
@@ -594,6 +597,11 @@ Maps to RibbonParticleCommon.fx constants. Used by PAR_ colorSmoothing / sizeSmo
         .value("UNKNOWN6", whiteout::m3::RigidBodyFlag::Unknown6, R"doc(Unknown)doc")
         .value("NO_SIMULATION", whiteout::m3::RigidBodyFlag::NoSimulation, R"doc(Disable simulation)doc")
         .value("UNKNOWN9", whiteout::m3::RigidBodyFlag::Unknown9, R"doc(Unknown)doc")
+    ;
+
+    py::enum_<whiteout::m3::Parser::ParseMode>(m, "ParseMode", R"doc(Parsing strictness mode)doc")
+        .value("STRICT", whiteout::m3::Parser::ParseMode::Strict, R"doc(Throw exceptions on invalid data or parsing errors)doc")
+        .value("LENIENT", whiteout::m3::Parser::ParseMode::Lenient, R"doc(Skip problematic data and try to recover from errors (recommended))doc")
     ;
 
     py::class_<whiteout::m3::Extent>(m, "Extent", R"doc(Axis-aligned bounding box with bounding sphere radius (28 bytes)
@@ -1857,6 +1865,37 @@ Version history: - v23 (784 bytes): Base release layout - v24 (+ikCCD): 796 byte
         .def_readwrite("trailing_models", &whiteout::m3::Model::trailingModels, R"doc(Trailing models (TMD_, defunct))doc")
         .def_readwrite("m3a_anim_hash", &whiteout::m3::Model::m3aAnimHash, R"doc(Hash for .m3a animation file binding)doc")
         .def_readwrite("m3a_anim_hashes", &whiteout::m3::Model::m3aAnimHashes, R"doc(Additional .m3a hashes (U32_))doc")
+    ;
+
+    py::class_<whiteout::m3::Parser>(m, "Parser", R"doc(Parser for M3 model files
+
+The Parser reads binary M3 files and converts them into the Model structure. It supports multiple parsing modes for error handling.
+
+Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.)doc")
+        .def(py::init<>())
+        .def(py::init<whiteout::m3::Parser::ParseMode>(), py::arg("mode"))
+        .def("parse", py::overload_cast<const std::string&>(&whiteout::m3::Parser::parse), py::arg("filePath"), R"doc(Parse an M3 file from disk @param filePath Path to the M3 file @return Parsed M3 model data @throws std::runtime_error If file cannot be opened or parsing fails in strict mode)doc")
+        .def("parse",
+            [](whiteout::m3::Parser& self, py::bytes __py_bytes_0) {
+                std::string __s_0 = __py_bytes_0;
+                std::span<const whiteout::u8> buffer(reinterpret_cast<const whiteout::u8*>(__s_0.data()), __s_0.size());
+                return self.parse(buffer);
+            }, py::arg("buffer"), R"doc(Parse an M3 file from memory buffer @param buffer Memory buffer containing M3 data @return Parsed M3 model data @throws std::runtime_error If parsing fails in strict mode)doc")
+        .def("has_issues", &whiteout::m3::Parser::hasIssues, R"doc(Check if parsing encountered any issues @return True if there were warnings or recoverable errors)doc")
+        .def("get_issues", &whiteout::m3::Parser::getIssues, R"doc(Get list of issues encountered during parsing @return Vector of issue description strings)doc")
+    ;
+
+    py::class_<whiteout::m3::Writer>(m, "Writer", R"doc(Writer for M3 model files
+
+Writes Model structures to disk in binary M3 format. Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.)doc")
+        .def(py::init<>())
+        .def("write", py::overload_cast<const std::string&, const whiteout::m3::Model&>(&whiteout::m3::Writer::write), py::arg("filePath"), py::arg("model"), R"doc(Write an M3 model to a file on disk @param filePath Output file path @param model Model data to serialize @throws std::runtime_error If file cannot be created or writing fails)doc")
+        .def("write",
+            [](whiteout::m3::Writer& self, const whiteout::m3::Model& model) {
+                auto __v = self.write(model);
+                return py::bytes(
+                    reinterpret_cast<const char*>(__v.data()), __v.size());
+            }, py::arg("model"), R"doc(Write an M3 model to a byte buffer @param model Model data to serialize @return Byte buffer containing the M3 file data)doc")
     ;
 
     py::class_<whiteout::m3::AnimRef<whiteout::f32>>(m, "AnimRefF32", R"doc(Animatable reference holding a default value and animation link

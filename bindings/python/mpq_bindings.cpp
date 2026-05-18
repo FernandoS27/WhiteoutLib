@@ -24,6 +24,7 @@
 #include <whiteout/storages/mpq/types.h>
 #include <whiteout/storages/mpq/storage.h>
 #include <whiteout/utils/mpq_file_system.h>
+#include <whiteout/interfaces.h>
 
 PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
@@ -135,36 +136,41 @@ Provides full CRUD operations on MPQ archives.  Modifications are held in a virt
 
 All public methods are thread-safe: read operations acquire a shared lock; write and persist operations acquire an exclusive lock.)doc")
         .def_static("open",
-            [](std::string path) {
-                return whiteout::storages::mpq::Storage::open(path);
-            }, py::arg("path"), R"doc(Open an existing MPQ archive. Memory-maps the file and parses tables. @param path  Path to the .mpq file. @param pool  Optional WorkerPool for parallel compress/decompress (non-owning). @return A valid Storage, or std::nullopt on failure.)doc")
-        .def_static("create",
-            [](whiteout::storages::mpq::CreateOptions opts) {
-                return whiteout::storages::mpq::Storage::create(opts);
-            }, py::arg("opts") = whiteout::storages::mpq::CreateOptions{}, R"doc(Create a new empty archive in memory. No file on disk until save(path).)doc")
+            [](const std::string& path, whiteout::interfaces::WorkerPool* pool) {
+                return whiteout::storages::mpq::Storage::open(path, pool);
+            }, py::arg("path"), py::arg("pool") = nullptr, R"doc(Open an existing MPQ archive. Memory-maps the file and parses tables. @param path  Path to the .mpq file. @param pool  Optional WorkerPool for parallel compress/decompress (non-owning). @return A valid Storage, or std::nullopt on failure.)doc")
+        .def_static("create", &whiteout::storages::mpq::Storage::create, py::arg("opts") = whiteout::storages::mpq::CreateOptions{}, py::arg("pool") = nullptr, R"doc(Create a new empty archive in memory. No file on disk until save(path).)doc")
         .def("close", &whiteout::storages::mpq::Storage::close, R"doc(Release all resources. Same effect as letting the Storage go out of scope.)doc")
         .def("read_file",
-            [](whiteout::storages::mpq::Storage& self, std::string name) {
+            [](whiteout::storages::mpq::Storage& self, const std::string& name) {
                 auto __r = self.readFile(name);
                 if (!__r) return py::object(py::none());
                 return py::object(py::bytes(
                     reinterpret_cast<const char*>(__r->data()), __r->size()));
             }, py::arg("name"), R"doc(Read a file from the archive. Checks the overlay first, then the source archive. @return File contents, or std::nullopt if not found or deleted.)doc")
+        .def("read_file",
+            [](whiteout::storages::mpq::Storage& self, const std::string& name, whiteout::u16 locale) {
+                auto __r = self.readFile(name, locale);
+                if (!__r) return py::object(py::none());
+                return py::object(py::bytes(
+                    reinterpret_cast<const char*>(__r->data()), __r->size()));
+            }, py::arg("name"), py::arg("locale"), R"doc(Read a file with a specific locale.)doc")
         .def("file_exists", &whiteout::storages::mpq::Storage::fileExists, py::arg("name"), R"doc(Check if a file exists in the archive (including overlay).)doc")
         .def("file_info",
-            [](whiteout::storages::mpq::Storage& self, std::string name) {
+            [](whiteout::storages::mpq::Storage& self, const std::string& name) {
                 return self.fileInfo(name);
             }, py::arg("name"), R"doc(Get information about a file.)doc")
         .def("archive_info", &whiteout::storages::mpq::Storage::archiveInfo, R"doc(Get summary information about the archive.)doc")
         .def("list_files", &whiteout::storages::mpq::Storage::listFiles, R"doc(List all known filenames (from listfile + overlay additions − deletions).)doc")
         .def("write_file",
-            [](whiteout::storages::mpq::Storage& self, std::string name, py::bytes __py_bytes_1, whiteout::storages::mpq::WriteOptions opts) {
+            [](whiteout::storages::mpq::Storage& self, const std::string& name, py::bytes __py_bytes_1, whiteout::storages::mpq::WriteOptions opts) {
                 std::string __s_1 = __py_bytes_1;
                 std::span<const whiteout::u8> data(reinterpret_cast<const whiteout::u8*>(__s_1.data()), __s_1.size());
                 return self.writeFile(name, data, opts);
             }, py::arg("name"), py::arg("data"), py::arg("opts") = whiteout::storages::mpq::WriteOptions{}, R"doc(Write or overwrite a file. Data is held in overlay until save(). @return true on success, false if the hash table is full.)doc")
         .def("delete_file", &whiteout::storages::mpq::Storage::deleteFile, py::arg("name"), R"doc(Delete a file from the archive. @return true if the file was found (in source or overlay), false otherwise.)doc")
         .def("save", py::overload_cast<>(&whiteout::storages::mpq::Storage::save), R"doc(Save the archive to its original path (temp file + atomic rename). @return false if this Storage was created via create() with no prior save(path).)doc")
+        .def("save", py::overload_cast<const std::string&>(&whiteout::storages::mpq::Storage::save), py::arg("path"), R"doc(Save the archive to a specific path. After saving, the new file becomes the source archive and the overlay is cleared.)doc")
     ;
 
     py::class_<whiteout::utils::MpqFileSystem, whiteout::interfaces::VirtualPathFileSystem>(m, "FileSystem", R"doc(VirtualPathFileSystem implementation backed by an MPQ archive.
@@ -176,9 +182,9 @@ Path separators: both '/' and '\\' are accepted and treated identically. Filenam
 Requires the `whiteout_mpq` CMake target.
 
 Example: auto storage = mpq::Storage::open("War3.mpq"); utils::MpqFileSystem fs(*storage); auto data = fs.readFile("units\\orc\\grunt\\grunt.mdx");)doc")
-        .def(py::init<whiteout::storages::mpq::Storage&>())
+        .def(py::init<whiteout::storages::mpq::Storage&>(), py::arg("storage"))
         .def("read_file",
-            [](whiteout::utils::MpqFileSystem& self, std::string path) {
+            [](whiteout::utils::MpqFileSystem& self, const std::string& path) {
                 auto __v = self.readFile(path);
                 return py::bytes(
                     reinterpret_cast<const char*>(__v.data()), __v.size());

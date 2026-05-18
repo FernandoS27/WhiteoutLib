@@ -24,7 +24,11 @@
 #include <whiteout/vector_types.h>
 #include <whiteout/models/mdx/types.h>
 #include <whiteout/models/mdx/structures.h>
+#include <whiteout/models/mdx/parser.h>
+#include <whiteout/models/mdx/writer.h>
+#include <whiteout/interfaces.h>
 
+PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::vector<whiteout::Vector2f>>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u32>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
@@ -57,7 +61,6 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::mdx::Sound>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::mdx::SoundEmitter>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::mdx::Texture>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::mdx::TextureAnimation>);
-PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
@@ -286,6 +289,28 @@ void bind_mdx(py::module_& m) {
         .value("PLANE", whiteout::mdx::CollisionShape::ShapeType::Plane)
         .value("SPHERE", whiteout::mdx::CollisionShape::ShapeType::Sphere)
         .value("CYLINDER", whiteout::mdx::CollisionShape::ShapeType::Cylinder)
+    ;
+
+    py::enum_<whiteout::mdx::MDLXFormat>(m, "MDLXFormat", R"doc(Source format selector for buffer-based parsing.)doc")
+        .value("MDX", whiteout::mdx::MDLXFormat::MDX, R"doc(Binary MDX format)doc")
+        .value("MDL", whiteout::mdx::MDLXFormat::MDL, R"doc(Text MDL format)doc")
+    ;
+
+    py::enum_<whiteout::mdx::Parser::ParseMode>(m, "ParseMode", R"doc(Parsing strictness mode)doc")
+        .value("STRICT", whiteout::mdx::Parser::ParseMode::Strict, R"doc(Throw exceptions on unknown chunks or invalid data)doc")
+        .value("LENIENT", whiteout::mdx::Parser::ParseMode::Lenient, R"doc(Skip unknown chunks and try to recover from errors (recommended))doc")
+    ;
+
+    py::enum_<whiteout::mdx::Parser::UpgradeMode>(m, "UpgradeMode", R"doc(Version handling mode)doc")
+        .value("UPGRADE_OLD_VERSIONS", whiteout::mdx::Parser::UpgradeMode::UpgradeOldVersions, R"doc(Automatically upgrade older versions to latest format)doc")
+        .value("PRESERVE_ORIGINAL", whiteout::mdx::Parser::UpgradeMode::PreserveOriginal, R"doc(Keep original version and structure as-is)doc")
+    ;
+
+    py::enum_<whiteout::mdx::MdlFormat>(m, "MdlFormat", R"doc(Selects which MDL text dialect Writer / writeModelToMdl emits.
+
+Only affects the .mdl text output path; MDX binary is unchanged.)doc")
+        .value("WARCRAFT_III", whiteout::mdx::MdlFormat::WarcraftIII, R"doc(Engine-faithful dialect — matches what Warcraft III's MDL writer produces. HD layers use a per-layer `Shader "name",` directive and `static TextureID id <= slot,` for sub-textures. Files written in this dialect parse cleanly through the in-game MDL reader. (Default.))doc")
+        .value("HIVEWORKSHOP", whiteout::mdx::MdlFormat::Hiveworkshop, R"doc(HiveWorkshop community dialect — uses `ShaderTypeId N,` to mark HD layers and named slot properties (`NormalTextureID`, `ORMTextureID`, `EmissiveTextureID`, `TeamColorTextureID`, `ReflectionsTextureID`). Compatible with HiveWorkshop tools (Retera Model Studio, Magos, MdlVis, etc.).)doc")
     ;
 
     py::class_<whiteout::Vector2f>(m, "Vector2f")
@@ -828,6 +853,49 @@ Advanced particle system using PopcornFX technology in Warcraft III: Reforged. C
         .def_readwrite("color_tracks", &whiteout::mdx::CornEmitter::colorTracks, R"doc(Color animation)doc")
         .def_readwrite("alpha_tracks", &whiteout::mdx::CornEmitter::alphaTracks, R"doc(Alpha animation)doc")
         .def_readwrite("visibility_tracks", &whiteout::mdx::CornEmitter::visibilityTracks, R"doc(Visibility animation)doc")
+    ;
+
+    py::class_<whiteout::mdx::Parser>(m, "Parser", R"doc(Parser for MDX model files
+
+The Parser reads binary MDX files and converts them into the Model structure. It supports multiple parsing modes and can handle version differences.
+
+Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.)doc")
+        .def(py::init<>())
+        .def(py::init<whiteout::mdx::Parser::ParseMode, whiteout::mdx::Parser::UpgradeMode>(), py::arg("parse_mode"), py::arg("upgrade_mode"))
+        .def("parse", py::overload_cast<const std::string&>(&whiteout::mdx::Parser::parse), py::arg("filePath"), R"doc(Parse an MDX file from disk
+
+The format is detected from the file extension: `.mdl` for text MDL format, `.mdx` (or any other extension) for binary MDX format.
+
+@param filePath Path to the MDX/MDL file @return Parsed MDX file data @throws std::runtime_error If file cannot be opened or parsing fails in strict mode)doc")
+        .def("parse",
+            [](whiteout::mdx::Parser& self, py::bytes __py_bytes_0, whiteout::mdx::MDLXFormat format) {
+                std::string __s_0 = __py_bytes_0;
+                std::span<const whiteout::u8> buffer(reinterpret_cast<const whiteout::u8*>(__s_0.data()), __s_0.size());
+                return self.parse(buffer, format);
+            }, py::arg("buffer"), py::arg("format") = whiteout::mdx::MDLXFormat{}, R"doc(Parse an MDX/MDL file from memory buffer @param buffer Memory buffer containing MDX/MDL data @param format Source format (MDX binary or MDL text) @return Parsed MDX file data @throws std::runtime_error If parsing fails in strict mode)doc")
+        .def("has_issues", &whiteout::mdx::Parser::hasIssues, R"doc(Check if parsing encountered any issues @return True if there were warnings or recoverable errors)doc")
+        .def("get_issues", &whiteout::mdx::Parser::getIssues, R"doc(Get list of issues encountered during parsing @return Vector of issue description strings)doc")
+    ;
+
+    py::class_<whiteout::mdx::Writer>(m, "Writer", R"doc(Writer for MDX/MDL model files
+
+The Writer takes a Model structure and writes it to disk in binary MDX format or text MDL format. It automatically handles chunk serialization and size calculation for MDX, and text formatting for MDL.
+
+The format is selected either by file extension (.mdl → text, .mdx → binary) or by an explicit MDLXFormat parameter.
+
+Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.)doc")
+        .def(py::init<>())
+        .def("write", py::overload_cast<const std::string&, const whiteout::mdx::Model&, whiteout::mdx::MdlFormat>(&whiteout::mdx::Writer::write), py::arg("filePath"), py::arg("mdlx"), py::arg("mdlFormat") = whiteout::mdx::MdlFormat{}, R"doc(Write a model file to disk
+
+The format is detected from the file extension: `.mdl` for text MDL format, `.mdx` (or any other extension) for binary MDX format.
+
+@param filePath  Path where the file should be written @param mdlx      Model data to write @param mdlFormat MDL text dialect (only used when writing .mdl); defaults to WarcraftIII (engine-faithful). @throws std::runtime_error If file cannot be created or written)doc")
+        .def("write",
+            [](whiteout::mdx::Writer& self, const whiteout::mdx::Model& mdx, whiteout::mdx::MDLXFormat format, whiteout::mdx::MdlFormat mdlFormat) {
+                auto __v = self.write(mdx, format, mdlFormat);
+                return py::bytes(
+                    reinterpret_cast<const char*>(__v.data()), __v.size());
+            }, py::arg("mdx"), py::arg("format") = whiteout::mdx::MDLXFormat{}, py::arg("mdlFormat") = whiteout::mdx::MdlFormat{}, R"doc(Write a model to a byte buffer @param mdx       Model data to write @param format    Output format (MDX binary or MDL text, defaults to MDX) @param mdlFormat MDL text dialect (only used when format == MDL); defaults to WarcraftIII (engine-faithful). @return Vector containing the binary MDX data or UTF-8 MDL text)doc")
     ;
 
     py::class_<whiteout::mdx::Track<whiteout::Vector3f>>(m, "TrackVector3f", R"doc(Generic animation track with keyframe data
