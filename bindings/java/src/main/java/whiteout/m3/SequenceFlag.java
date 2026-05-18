@@ -12,14 +12,28 @@ public enum SequenceFlag {
     /** Always plays globally */
     AlwaysGlobal(2),
     /** Unknown */
-    Unknown0x4(3),
+    Unknown0x4(4),
     /** Global playback in editor */
-    GlobalInPreviewer(4);
+    GlobalInPreviewer(8);
 
     public final int value;
     SequenceFlag(int v) { this.value = v; }
     public static SequenceFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown SequenceFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of SequenceFlag bits. */
+    public static java.util.EnumSet<SequenceFlag> unpack(int packed) {
+        java.util.EnumSet<SequenceFlag> out = java.util.EnumSet.noneOf(SequenceFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<SequenceFlag> flags) {
+        int v = 0;
+        for (SequenceFlag f : flags) v |= f.value;
+        return v;
     }
 }

@@ -6,19 +6,33 @@ public enum BoneFlag {
     None(0),
     IgnoreParentTranslate(1),
     IgnoreParentScale(2),
-    IgnoreParentRotation(3),
-    SphericalBillboard(4),
-    CylindricalBillboardX(5),
-    CylindricalBillboardY(6),
-    CylindricalBillboardZ(7),
-    Transformed(8),
-    Kinematic(9),
-    HelmetAnimScaled(10);
+    IgnoreParentRotation(4),
+    SphericalBillboard(8),
+    CylindricalBillboardX(16),
+    CylindricalBillboardY(32),
+    CylindricalBillboardZ(64),
+    Transformed(512),
+    Kinematic(1024),
+    HelmetAnimScaled(4096);
 
     public final int value;
     BoneFlag(int v) { this.value = v; }
     public static BoneFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown BoneFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of BoneFlag bits. */
+    public static java.util.EnumSet<BoneFlag> unpack(int packed) {
+        java.util.EnumSet<BoneFlag> out = java.util.EnumSet.noneOf(BoneFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<BoneFlag> flags) {
+        int v = 0;
+        for (BoneFlag f : flags) v |= f.value;
+        return v;
     }
 }

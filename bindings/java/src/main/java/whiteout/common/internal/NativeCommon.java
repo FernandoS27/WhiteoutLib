@@ -20,7 +20,7 @@ public final class NativeCommon {
         if (envPath != null) {
             System.load(envPath);
         } else {
-            System.loadLibrary("whiteout_c");
+            System.loadLibrary("whiteout_native");
         }
         LOOKUP = SymbolLookup.loaderLookup();
     }

@@ -214,6 +214,7 @@ def _enum_values(cursor: cindex.Cursor) -> list[BindEnumValue]:
             out.append(BindEnumValue(
                 js_name=child.spelling,
                 cpp_qualifier=f'{parent_qual}::{child.spelling}',
+                value=int(child.enum_value),
             ))
     return out
 
@@ -412,6 +413,27 @@ def _is_string_param(t: TypeRef) -> bool:
     return t.kind == TypeKind.STRING
 
 
+# Capture `T` from canonical spellings like
+#   `std::function<void(whiteout::interfaces::HttpResponse)>`
+#   `std::function<void()>`
+# Returns the short name of T (e.g. "HttpResponse"), or "void" for the
+# no-arg form, or '' when the spelling isn't a function callback.
+_FUNCTION_CALLBACK_RE = re.compile(r'std::function\s*<\s*void\s*\((?P<args>[^)]*)\)\s*>')
+
+
+def _extract_callback_target(cpp_text: str) -> str:
+    m = _FUNCTION_CALLBACK_RE.search(cpp_text)
+    if m is None:
+        return ''
+    args = m.group('args').strip()
+    if not args:
+        return 'void'  # std::function<void()> — Runnable in Java
+    # Strip the parameter name if present (`HttpResponse r` → `HttpResponse`).
+    # The canonical form is just the type — but be defensive.
+    args = args.split()[0]
+    return _short_name(args)
+
+
 def collect_methods(cursor, bind_class, known_classes, known_enums,
                     remember_containers, mode: str | bool,
                     known_templates: dict[str, str] | None = None,
@@ -452,6 +474,10 @@ def collect_methods(cursor, bind_class, known_classes, known_enums,
             cpp = cpp_raw  # don't canonicalise span (it'd lose template args)
         tref = classify_type(cpp, known_classes, known_enums, known_templates)
         remember_containers(tref)
+        # Detect std::function<...> callback shapes. The JNI backend
+        # turns these into Java functional-interface params (Consumer<T>,
+        # Runnable, etc.) and generates the matching wrapper class.
+        callback_target = _extract_callback_target(cpp)
         # A default value shows up as an expression child of the param
         # cursor. Different default forms produce different cursor kinds
         # (UNEXPOSED_EXPR for `pool = nullptr`, INIT_LIST_EXPR for `opts =
@@ -467,6 +493,7 @@ def collect_methods(cursor, bind_class, known_classes, known_enums,
             has_default=any(_is_default_expr(c) for c in arg_cursor.get_children()),
             cpp_raw=cpp_raw,
             span_scalar=_span_scalar(tref),
+            callback_target=callback_target,
         )
 
     def _has_pointer_param(o) -> bool:
@@ -479,65 +506,29 @@ def collect_methods(cursor, bind_class, known_classes, known_enums,
                 return True
         return False
 
-    for name, overloads in methods_by_name.items():
-        method_ann = parse_annotations(
-            overloads[0].raw_comment) if overloads else {}
-        if method_ann.get('skip'):
-            continue
+    def _is_interface_pointer(p):
+        return 'interfaces::' in p.cpp_raw
 
-        chosen = None
-        if len(overloads) > 1 and mode == 'buffer_only':
-            # Prefer the overload whose first param is std::span<const u8>.
-            for o in overloads:
-                params = list(o.get_arguments())
-                if not params:
-                    continue
-                first_cpp = params[0].type.spelling
-                if 'span' in first_cpp and ('u8' in first_cpp
-                                             or 'uint8_t' in first_cpp):
-                    chosen = o
-                    break
-            if chosen is None:
-                # Fall back: prefer any non-string-first-arg overload.
-                for o in overloads:
-                    params = list(o.get_arguments())
-                    if params and 'string' not in params[0].type.spelling:
-                        chosen = o
-                        break
+    def _bindable(p):
+        if p.span_scalar is not None:
+            return True
+        if '*' in p.cpp_raw:
+            return _is_interface_pointer(p)
+        return True
 
-        if chosen is None and len(overloads) > 1:
-            # Prefer the overload with the simplest bindable shape — no raw
-            # pointer params (those are diagnostic outputs or unbindable
-            # resources like WorkerPool*).
-            clean = [o for o in overloads if not _has_pointer_param(o)]
-            if clean:
-                # Among clean candidates, pick the one with the fewest args
-                # (the simplest signature for the binding consumer).
-                chosen = min(clean, key=lambda o: len(list(o.get_arguments())))
-
-        if chosen is None:
-            chosen = overloads[0]
-
+    def _try_emit_overload(name, chosen, method_ann, total_overloads,
+                            name_suffix=''):
+        """Render one overload into a BindMethod and append it to
+        bind_class.methods. Returns True if emitted, False if filtered
+        (unbindable return, pointer-return, vector<array>, etc.)."""
         ret_cpp = chosen.result_type.get_canonical().spelling
-        # Pointer returns (`const u8*`, `Foo*`) need custom marshalling — the
-        # C ABI can't generically wrap them. Drop the method; the codegen
-        # would otherwise classify the pointee as a primitive/class and emit
-        # a broken signature.
         ret_raw = chosen.result_type.spelling
         if ('*' in ret_cpp and 'span' not in ret_cpp) \
                 or ('*' in ret_raw and 'span' not in ret_raw):
-            continue
+            return False
         ret = classify_type(ret_cpp, known_classes, known_enums, known_templates)
-        # Capture reference-qualifier-on-return before classify_type strips
-        # it. Used to suppress move-only wrapping (builder methods commonly
-        # return `*this` by reference for chaining).
         return_is_reference = ret_cpp.rstrip().endswith('&')
 
-        # Skip methods returning `std::vector<std::array<T, N>>`. Without
-        # this, the codegen tries to emit a container named
-        # `Vectorarray<float, 4>` — angle brackets in an identifier are
-        # a compile error. (`vector<T>` where T is UNKNOWN is fine: the
-        # type is usually bound in another module — Vector3f in mdx, etc.)
         def _vector_of_array(t):
             if t.kind in (TypeKind.VECTOR, TypeKind.NESTED_VEC):
                 if t.element.kind == TypeKind.ARRAY:
@@ -545,60 +536,42 @@ def collect_methods(cursor, bind_class, known_classes, known_enums,
                 return _vector_of_array(t.element)
             return False
         if _vector_of_array(ret):
-            continue
+            return False
         remember_containers(ret)
 
         all_params = [make_param(a) for a in chosen.get_arguments()]
         params = list(all_params)
-
-        # Trim trailing default-value pointer params (they're typically
-        # diagnostic outputs like `std::string* error` or unbindable
-        # resources like `WorkerPool* pool = nullptr`). The C++ defaults
-        # stay in effect when the wrapper lambda calls without them.
-        # NB: `classify_type` strips trailing `*`/`&` from cpp_text, so the
-        # pointer signal lives on `cpp_raw` (preserved cursor spelling).
-        while params and params[-1].has_default and '*' in params[-1].cpp_raw:
+        while params and params[-1].has_default and '*' in params[-1].cpp_raw \
+                and not _is_interface_pointer(params[-1]):
             params.pop()
         trimmed = len(params) < len(all_params)
 
-        # Skip the method if any remaining param is a raw pointer — those
-        # generally need custom marshalling and aren't safe to bind blind.
-        # `std::span<const T>` for primitive T is fine: the codegen
-        # marshals it as bytes/array. UNKNOWN-kind params (typically
-        # classes bound in another TU like `Texture`) are allowed:
-        # pybind11 resolves them at runtime via the global type registry.
-        def _bindable(p):
-            if p.span_scalar is not None:
-                return True
-            if '*' in p.cpp_raw:
-                return False
-            return True
         if not all(_bindable(p) for p in params):
-            continue
+            return False
 
-        # `bytes_in` is True if ANY parameter is a span of a primitive —
-        # the emitter generates marshalling glue per-param: py::bytes for
-        # `span<const u8>` (the established bytes idiom), py::array_t<T>
-        # for the others (numpy / typed-array zero-copy).
         bytes_in = any(p.span_scalar is not None for p in params)
         bytes_out = _is_vector_u8(ret) or (
             ret.kind == TypeKind.OPTIONAL and _is_vector_u8(ret.element))
-
-        # `optional<class>` returns need the WASM lambda wrapper so the
-        # codegen can route through `to_optional_val<T>` (move-friendly).
-        # Without it, Embind's stock `BindingType<optional<T>>` does
-        # `val(*value)` which fails to compile for move-only T — and
-        # always yields `undefined` for nullopt instead of `null`.
-        # UNKNOWN counts here too because cross-module classes like
-        # `textures::Texture` show up that way to other modules' parsers.
         optional_class_return = (
             ret.kind == TypeKind.OPTIONAL
             and ret.element is not None
             and ret.element.kind in (TypeKind.NESTED, TypeKind.UNKNOWN)
         )
 
+        try:
+            from clang.cindex import ExceptionSpecificationKind as _ESK
+            _spec = chosen.exception_specification_kind
+            is_noexcept = _spec in (
+                _ESK.BASIC_NOEXCEPT,
+                _ESK.COMPUTED_NOEXCEPT,
+                _ESK.DYNAMIC_NONE,
+                _ESK.UNEVALUATED,
+            )
+        except Exception:
+            is_noexcept = False
+
         bind_class.methods.append(BindMethod(
-            name=method_ann.get('rename', name),
+            name=method_ann.get('rename', name) + name_suffix,
             cpp_name=name,
             return_type=ret,
             params=params,
@@ -607,10 +580,102 @@ def collect_methods(cursor, bind_class, known_classes, known_enums,
             bytes_in=bytes_in,
             bytes_out=bytes_out,
             needs_wrapper=trimmed or optional_class_return,
-            is_overloaded=(len(overloads) > 1),
+            is_overloaded=(total_overloads > 1),
             return_is_reference=return_is_reference,
+            is_noexcept=is_noexcept,
+            annotations=dict(method_ann),
             doc=extract_doc(chosen.raw_comment),
         ))
+        return True
+
+    for name, overloads in methods_by_name.items():
+        method_ann = parse_annotations(
+            overloads[0].raw_comment) if overloads else {}
+        if method_ann.get('skip'):
+            continue
+
+        # `buffer_only` mode (BLP/JPEG/PNG writers): pick exactly ONE
+        # buffer-returning overload to expose. Everywhere else we emit
+        # every bindable overload, disambiguated by the first non-default
+        # param name(s) — Java natively supports overloading by signature,
+        # so the C symbol is the only thing that needs uniqueness.
+        if mode == 'buffer_only' and len(overloads) > 1:
+            chosen = None
+            for o in overloads:
+                ps = list(o.get_arguments())
+                if not ps:
+                    continue
+                first_cpp = ps[0].type.spelling
+                if 'span' in first_cpp and ('u8' in first_cpp
+                                             or 'uint8_t' in first_cpp):
+                    chosen = o
+                    break
+            if chosen is None:
+                for o in overloads:
+                    ps = list(o.get_arguments())
+                    if ps and 'string' not in ps[0].type.spelling:
+                        chosen = o
+                        break
+            if chosen is None:
+                chosen = overloads[0]
+            _try_emit_overload(name, chosen, method_ann, len(overloads))
+            continue
+
+        # Collapse const/non-const overload pairs with identical param
+        # type signatures: Java has no const-overloading, so a single
+        # entry suffices. Prefer the const variant — it's the read-only
+        # face, matches reasonable callers' default expectation.
+        by_sig: dict[str, list] = {}
+        for o in overloads:
+            type_sig = '|'.join(
+                a.type.get_canonical().spelling for a in o.get_arguments())
+            by_sig.setdefault(type_sig, []).append(o)
+        deduped: list = []
+        for _sig, group in by_sig.items():
+            if len(group) > 1:
+                const_first = sorted(
+                    group, key=lambda o: not o.is_const_method())
+                deduped.append(const_first[0])
+            else:
+                deduped.append(group[0])
+        overloads_to_emit = deduped
+
+        # Standard path: walk every (deduped) overload, skipping ones
+        # with raw pointer params (diagnostic outputs / unbindable
+        # resources).
+        emitted = 0
+        seen_param_sigs: set = set()
+        for o in overloads_to_emit:
+            if _has_pointer_param(o):
+                # Allow whiteout::interfaces::X* pointers — those route
+                # through the NativeHandled / *Bridge dispatch layer.
+                params_iter = list(o.get_arguments())
+                if not all(('interfaces::' in p.type.spelling)
+                           or '*' not in p.type.spelling
+                           or 'span' in p.type.spelling
+                           for p in params_iter):
+                    continue
+
+            # Build a coarse signature key (param-name list) so two
+            # overloads producing the same C symbol collide cleanly. The
+            # _N suffix is only added once we hit a real collision.
+            sig_key = '_'.join(
+                (a.spelling or 'arg') for a in o.get_arguments())
+            suffix = ''
+            if sig_key in seen_param_sigs:
+                # Tiebreaker if param names collide too — shouldn't
+                # happen in our codebase but keep the symbol unique.
+                suffix = f'_dup{emitted + 1}'
+            elif emitted > 0:
+                # First overload: no suffix (keeps the common name).
+                # Subsequent ones: use the param-name list as a suffix
+                # (mirrors the ctor pattern, e.g. `write_frames_opts`).
+                suffix = f'_{sig_key}' if sig_key else f'_overload{emitted + 1}'
+            seen_param_sigs.add(sig_key)
+
+            if _try_emit_overload(name, o, method_ann, len(overloads), suffix):
+                emitted += 1
+        continue
 
     # Non-default constructors. Skip:
     #   - the implicit default ctor (already emitted separately)
@@ -632,7 +697,12 @@ def collect_methods(cursor, bind_class, known_classes, known_enums,
         param_objs = [make_param(p) for p in params]
         if any(_is_string_param(p.type) for p in param_objs) and not allow_string_ctors:
             continue
-        if any(p.type.kind == TypeKind.UNKNOWN for p in param_objs):
+        # UNKNOWN params are typically un-bindable (raw pointers to types
+        # the codegen doesn't model). EXCEPTION: `whiteout::interfaces::X*`
+        # is routed through the host bindings' NativeHandled/*Bridge
+        # dispatch layer — those are bindable.
+        if any(p.type.kind == TypeKind.UNKNOWN and not _is_interface_pointer(p)
+               for p in param_objs):
             continue
         bind_class.constructors.append(BindConstructor(params=param_objs))
 
@@ -868,6 +938,7 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
                     js_name=v.spelling,
                     cpp_qualifier=f'{qual}::{v.spelling}',
                     doc=extract_doc(v.raw_comment),
+                    value=int(v.enum_value),
                 )
                 for v in cursor.get_children()
                 if v.kind == CursorKind.ENUM_CONSTANT_DECL
@@ -909,6 +980,9 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
             base_class=ann.get('extends', ''),
             no_default_ctor=auto_no_default or 'no_default_ctor' in ann,
             is_move_only=auto_move_only or 'move_only' in ann,
+            is_subclassable='subclassable' in ann,
+            jni_package=ann.get('jni_package', '') or '',
+            java_package=ann.get('java_package', '') or '',
         )
 
         # `fields=x;y;z` on the class annotation overrides AST inspection.

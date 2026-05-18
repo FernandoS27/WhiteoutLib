@@ -3,10 +3,10 @@
 package whiteout.m2;
 
 public enum ParticleEmitterType {
-    Plane(0),
-    Sphere(1),
-    Spline(2),
-    Bone(3);
+    Plane(1),
+    Sphere(2),
+    Spline(3),
+    Bone(4);
 
     public final int value;
     ParticleEmitterType(int v) { this.value = v; }

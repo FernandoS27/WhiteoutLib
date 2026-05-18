@@ -12,14 +12,28 @@ public enum RibbonAdditionalFlag {
     /** Randomize lifespan */
     LifespanRandomize(2),
     /** Randomize mass */
-    MassRandomize(3),
+    MassRandomize(4),
     /** World-space coordinates */
-    WorldSpace(4);
+    WorldSpace(8);
 
     public final int value;
     RibbonAdditionalFlag(int v) { this.value = v; }
     public static RibbonAdditionalFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown RibbonAdditionalFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of RibbonAdditionalFlag bits. */
+    public static java.util.EnumSet<RibbonAdditionalFlag> unpack(int packed) {
+        java.util.EnumSet<RibbonAdditionalFlag> out = java.util.EnumSet.noneOf(RibbonAdditionalFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<RibbonAdditionalFlag> flags) {
+        int v = 0;
+        for (RibbonAdditionalFlag f : flags) v |= f.value;
+        return v;
     }
 }

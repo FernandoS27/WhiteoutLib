@@ -94,7 +94,7 @@ struct whiteout_UtilsVertexBufferBuilder* whiteout_utils_UtilsVertexBufferBuilde
 /* Non-template integer-attribute entry point — accepts an already- flattened `u32` array. Smaller integer types (u8/u16/i8/i16/i32) are upcast at the call site. `std::span` keeps the boundary zero-copy. */
 struct whiteout_UtilsVertexBufferBuilder* whiteout_utils_UtilsVertexBufferBuilder_declareIntAttribute(whiteout_UtilsVertexBufferBuilder* self, const uint32_t* data, size_t data_size, uint64_t components, int32_t attr_class, int32_t encoding, uint64_t align);
 /* Build the interleaved vertex buffer from all declared attributes. @param pool  Optional WorkerPool for parallel encoding. When non-null and the vertex count is large enough, the vertex encoding loop is split into cache-friendly chunks across workers. */
-struct whiteout_UtilsVertexBuffer* whiteout_utils_UtilsVertexBufferBuilder_build(const whiteout_UtilsVertexBufferBuilder* self);
+struct whiteout_UtilsVertexBuffer* whiteout_utils_UtilsVertexBufferBuilder_build(const whiteout_UtilsVertexBufferBuilder* self, void* pool);
 
 
 #ifdef __cplusplus

@@ -26,7 +26,29 @@ if(WHITEOUT_ENABLE_MPQ)
     list(APPEND _whiteout_c_sources whiteout_mpq.cpp)
 endif()
 
-add_library(whiteout_c SHARED ${_whiteout_c_sources})
+# JNI bridge sources are absorbed into whiteout_c when the JNI bindings
+# are enabled — Java consumers load a single DLL via System.loadLibrary
+# and both the flat-C surface (Panama) and the Java_* upcall symbols
+# (JNI) live side-by-side. Non-Java consumers see the extra symbols but
+# never trigger them (no JVM → JNI exports are never invoked).
+set(_whiteout_jni_sources)
+if(WHITEOUT_BUILD_JNI_BINDINGS)
+    find_package(JNI REQUIRED)
+    set(_jni_dir ${CMAKE_SOURCE_DIR}/bindings/java/jni)
+    set(_whiteout_jni_sources
+        ${_jni_dir}/jni_common.cpp
+        ${_jni_dir}/smoke_invokers.cpp
+        ${_jni_dir}/timelinesemaphore_jni.cpp
+        ${_jni_dir}/httphandler_bridge.cpp
+        ${_jni_dir}/virtualpathfilesystem_bridge.cpp
+        ${_jni_dir}/workerpool_bridge.cpp
+        ${_jni_dir}/cascfilesystem_bridge.cpp
+        ${_jni_dir}/httpresponseconsumer_callback.cpp
+        ${_jni_dir}/callbackrunnable_callback.cpp
+    )
+endif()
+
+add_library(whiteout_c SHARED ${_whiteout_c_sources} ${_whiteout_jni_sources})
 
 target_link_libraries(whiteout_c PRIVATE whiteout_lib)
 if(WHITEOUT_ENABLE_MPQ)
@@ -38,13 +60,36 @@ target_include_directories(whiteout_c PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
+if(WHITEOUT_BUILD_JNI_BINDINGS)
+    target_include_directories(whiteout_c PRIVATE
+        ${JNI_INCLUDE_DIRS}
+        ${CMAKE_SOURCE_DIR}/bindings/java/jni
+    )
+endif()
 target_compile_features(whiteout_c PRIVATE cxx_std_20)
 
-# Disable exceptions in this TU only — see header comment.
-if(MSVC)
-    target_compile_options(whiteout_c PRIVATE /EHs-c- /D_HAS_EXCEPTIONS=0)
+# Disable exceptions for the C-ABI TUs only — see header comment.
+# When the JNI bridge is bundled in (WHITEOUT_BUILD_JNI_BINDINGS=ON),
+# the bridge sources need exceptions, so we keep them enabled at the
+# target level and selectively disable exceptions per-source on just
+# the C-ABI TUs. Otherwise (Java-free build), disable for the whole
+# target. Mixing `_HAS_EXCEPTIONS=0` with the STL on TUs that use
+# exceptions causes ODR-style breakage, so we use the compile FLAGS
+# (`/EHs-c-`, `-fno-exceptions`) without touching `_HAS_EXCEPTIONS`.
+if(WHITEOUT_BUILD_JNI_BINDINGS)
+    if(MSVC)
+        set_source_files_properties(${_whiteout_c_sources} PROPERTIES
+            COMPILE_OPTIONS "/EHs-c-")
+    else()
+        set_source_files_properties(${_whiteout_c_sources} PROPERTIES
+            COMPILE_OPTIONS "-fno-exceptions")
+    endif()
 else()
-    target_compile_options(whiteout_c PRIVATE -fno-exceptions)
+    if(MSVC)
+        target_compile_options(whiteout_c PRIVATE /EHs-c- /D_HAS_EXCEPTIONS=0)
+    else()
+        target_compile_options(whiteout_c PRIVATE -fno-exceptions)
+    endif()
 endif()
 
 # On Windows, DLL symbols aren't exported by default. Auto-export
@@ -56,3 +101,13 @@ set_target_properties(whiteout_c PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/c-dist"
     WINDOWS_EXPORT_ALL_SYMBOLS ON
 )
+
+# When the JNI bridge is bundled in, the DLL is no longer "just C ABI"
+# — it carries both Panama-callable C exports AND the JNI upcall
+# symbols Java consumers need. Rename the output to `whiteout_native`
+# so the filename reflects that. Pure-C-bindings builds (Python /
+# Rust / etc., WHITEOUT_BUILD_JNI_BINDINGS=OFF) keep the original
+# `whiteout_c` name for back-compat with existing FFI users.
+if(WHITEOUT_BUILD_JNI_BINDINGS)
+    set_target_properties(whiteout_c PROPERTIES OUTPUT_NAME whiteout_native)
+endif()

@@ -29,6 +29,7 @@ CONFIG = ModuleConfig(
         'include/whiteout/textures/bmp/writer.h',
         'include/whiteout/textures/tga/parser.h',
         'include/whiteout/textures/tga/writer.h',
+        'include/whiteout/textures/gif/writer.h',
     ],
     output_path='bindings/wasm/textures_bindings.cpp',
     pybind_output_path='bindings/python/textures_bindings.cpp',

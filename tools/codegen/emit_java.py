@@ -43,6 +43,16 @@ from .emit_c import (
     _SHARED_MATH_TYPES,
     _SHARED_MATH_BYTE_SIZES,
 )
+# JNI helpers reused for emitting stubs that satisfy
+# `whiteout.interfaces.*` abstract methods Panama can't yet expose
+# (typically callback-bearing). Sharing keeps the stub signatures in
+# lock-step with the canonical interface declarations emit_jni.py
+# produces.
+from .emit_jni import (
+    _value_records_referenced as _jni_value_records,
+    _supported_methods as _jni_supported_methods,
+    _java_method_signature as _jni_java_method_signature,
+)
 
 
 # ── Direct-memory layout helpers ──────────────────────────────────────────
@@ -101,7 +111,7 @@ def _construct_handle_wrap(java_cls: str, seg_expr: str, owned: str) -> str:
     return f'new {java_cls}({seg_expr}, {owned})'
 
 
-def _java_ctor_param_info(p) -> tuple[str, str, str, str] | None:
+def _java_ctor_param_info(p, module: BindModule | None = None) -> tuple[str, str, str, str] | None:
     """For a constructor parameter, return
     `(java_type, layout, marshal_setup, native_arg)`.
 
@@ -133,6 +143,31 @@ def _java_ctor_param_info(p) -> tuple[str, str, str, str] | None:
         if short in _PRIMITIVE_DIRECT:
             java_t, layout = _PRIMITIVE_DIRECT[short]
             return (java_t, layout, '', p.name)
+    if p.type.kind == TypeKind.ENUM:
+        if module is None:
+            return None
+        enum_short = _resolve_java_name(p.type.cpp_text, module)
+        return (enum_short, 'ValueLayout.JAVA_INT', '', f'{p.name}.value')
+    if _is_interface_pointer_param(p):
+        iface_short = _interface_short_name_for_param(p)
+        helper_fqn = f'whiteout.host.{iface_short}s'
+        handle_var = f'__{p.name}_h'
+        seg_var = f'__{p.name}_seg'
+        # Owner = impl itself: the constructed wrapper relies on the user
+        # keeping the impl alive while the C++ object holds the pointer.
+        setup = (f'long {handle_var} = {p.name} == null ? 0L\n'
+                 f'                : {helper_fqn}.resolveNative({p.name}, {p.name});\n'
+                 f'            MemorySegment {seg_var} = {handle_var} == 0L\n'
+                 f'                ? MemorySegment.NULL : MemorySegment.ofAddress({handle_var});')
+        return (f'{_INTERFACES_PKG}.{iface_short}',
+                'ValueLayout.ADDRESS', setup, seg_var)
+    if p.type.kind in (TypeKind.NESTED, TypeKind.UNKNOWN) \
+            and not p.type.cpp_text.startswith('std::') and module is not None:
+        # Class-handle param (e.g. `mpq.FileSystem(Storage storage)`).
+        # Java users pass the wrapper; we forward `.handle` to the C ctor.
+        cls_short = _resolve_java_name(p.type.cpp_text, module)
+        return (cls_short, 'ValueLayout.ADDRESS', '',
+                f'{p.name} == null ? MemorySegment.NULL : {p.name}.handle')
     return None
 
 
@@ -333,6 +368,8 @@ def _java_type(t: TypeRef, module: BindModule,
         if _is_span_const_u8(t):
             return 'byte[]'
         return _resolve_java_class(t.cpp_text, module, classes_in_module)
+    if t.kind == TypeKind.STRING:
+        return 'String'
     if t.kind == TypeKind.OPTIONAL:
         # std::optional<class> -> java.util.Optional<T> so callers can
         # use the idiomatic ifPresent/orElse/map chain instead of
@@ -341,10 +378,19 @@ def _java_type(t: TypeRef, module: BindModule,
         if t.element.kind in (TypeKind.NESTED, TypeKind.UNKNOWN):
             inner = _java_type(t.element, module, classes_in_module)
             return f'java.util.Optional<{inner}>'
+        if t.element.kind == TypeKind.STRING:
+            return 'java.util.Optional<String>'
+        if t.element.kind == TypeKind.VECTOR \
+                and _short_name(t.element.element.cpp_text) in ('u8', 'unsigned char'):
+            return 'byte[]'
         return _java_type(t.element, module, classes_in_module)
     if t.kind == TypeKind.VECTOR:
         if _short_name(t.element.cpp_text) in ('u8', 'unsigned char'):
             return 'byte[]'
+        if t.element.kind in (TypeKind.NESTED, TypeKind.UNKNOWN) \
+                and not t.element.cpp_text.startswith('std::'):
+            inner = _resolve_java_name(t.element.cpp_text, module)
+            return f'{inner}[]'
         return 'byte[]'
     return 'Object'
 
@@ -491,6 +537,9 @@ def _emit_module_info() -> str:
     buf.write('    exports whiteout.m2;\n')
     buf.write('    exports whiteout.m3;\n')
     buf.write('    exports whiteout.utils;\n')
+    buf.write('    exports whiteout.host;\n')
+    buf.write('    exports whiteout.interfaces;\n')
+    buf.write('    exports whiteout.mpq;\n')
     buf.write('}\n')
     return buf.getvalue()
 
@@ -1015,14 +1064,74 @@ def emit(module: BindModule) -> dict[str, str]:
 
     # Classes — same reasoning: per-format `Parser` classes share a
     # cpp_qualifier, so we go through js_name to disambiguate.
+    # When a class carries `@bind java_package=foo.bar`, route its file
+    # to that package instead of the module default — lets one C++ TU
+    # surface classes in multiple Java packages (e.g. utils:: concrete
+    # impls compiled with the host module land under `whiteout.utils`).
     for c in classes:
         c_short = _c_handle_short(c.js_name)
         java_short = _java_strip_prefix(c_short, module)
-        files[f'{base}/{java_short}.java'] = _emit_class(
-            pkg, c, c_short, java_short, classes_in_module, module
+        class_pkg = c.java_package or pkg
+        class_base = f'bindings/java/src/main/java/{class_pkg.replace(".", "/")}'
+        files[f'{class_base}/{java_short}.java'] = _emit_class(
+            class_pkg, c, c_short, java_short, classes_in_module, module
         )
 
+    # Per-interface dispatch helpers. One <Iface>Handlers.java per
+    # `whiteout::interfaces::*` abstract base in the module — gives
+    # consumer bindings a single call (`<Iface>Handlers.resolveNative`)
+    # that uses the NativeHandled fast-path for Panama wrappers and falls
+    # back to the JNI bridge for pure-Java impls.
+    for c in classes:
+        if not (c.is_subclassable and c.cpp_namespace == 'whiteout::interfaces'):
+            continue
+        iface_short = c.cpp_qualifier
+        files[f'{base}/{iface_short}s.java'] = _emit_interface_dispatch(pkg, c)
+
     return files
+
+
+def _emit_interface_dispatch(pkg: str, iface: BindClass) -> str:
+    """Generate `whiteout.host.<Iface>Handlers.java`: a tiny static helper
+    that resolves either flavour of impl to a raw C++ pointer."""
+    iface_short = iface.cpp_qualifier
+    iface_fqn = _interface_java_fqn(iface)
+    bridge_fqn = f'whiteout.interfaces.internal.{iface_short}Bridge'
+    buf = StringIO()
+    buf.write('// SPDX-License-Identifier: BSD-3-Clause\n')
+    buf.write('// AUTOGENERATED by tools/codegen/emit_java.py - do not edit.\n')
+    buf.write(f'package {pkg};\n\n')
+    buf.write('import java.util.Objects;\n\n')
+    buf.write(f'import {iface_fqn};\n')
+    buf.write(f'import {bridge_fqn};\n\n')
+    buf.write('/**\n')
+    buf.write(f' * Dispatch helper for consumer bindings that accept any {{@link {iface_short}}}.\n')
+    buf.write(' *\n')
+    buf.write(f' * <p>{{@link #resolveNative({iface_short}, Object)}} normalises native-backed\n')
+    buf.write(f' * (Panama-wrapped, implementing {{@link NativeHandled}}) and pure-Java\n')
+    buf.write(f' * implementations to a raw C++ {{@code {iface_short}*}} address suitable for\n')
+    buf.write(' * a native consumer. Native-backed inputs come through unchanged (zero-cost);\n')
+    buf.write(f' * pure-Java inputs are wrapped via {{@link {iface_short}Bridge#createPinned}}.\n')
+    buf.write(' */\n')
+    buf.write(f'public final class {iface_short}s {{\n\n')
+    buf.write(f'    private {iface_short}s() {{}}\n\n')
+    buf.write('    /**\n')
+    buf.write(f'     * Resolve {{@code impl}} to a raw {{@code {iface_short}*}} address.\n')
+    buf.write('     *\n')
+    buf.write('     * <p>For pure-Java implementations the resulting handle is pinned by a\n')
+    buf.write('     * {@code Cleaner} keyed on {@code owner}; keep a strong reference to\n')
+    buf.write('     * {@code owner} (typically the consumer wrapper) until C++ is done\n')
+    buf.write(f'     * with the {iface_short}.\n')
+    buf.write('     */\n')
+    buf.write(f'    public static long resolveNative({iface_short} impl, Object owner) {{\n')
+    buf.write('        Objects.requireNonNull(impl, "impl");\n')
+    buf.write('        if (impl instanceof NativeHandled nh) {\n')
+    buf.write('            return nh.nativeHandle().address();\n')
+    buf.write('        }\n')
+    buf.write(f'        return {iface_short}Bridge.createPinned(impl, owner);\n')
+    buf.write('    }\n')
+    buf.write('}\n')
+    return buf.getvalue()
 
 
 # â”€â”€ Native (FFM glue) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1042,7 +1151,7 @@ public final class NativeCommon {
         if (envPath != null) {
             System.load(envPath);
         } else {
-            System.loadLibrary("whiteout_c");
+            System.loadLibrary("whiteout_native");
         }
         LOOKUP = SymbolLookup.loaderLookup();
     }
@@ -1127,7 +1236,7 @@ def _emit_native(module: BindModule, classes: list[BindClass],
         # class's factory methods bind to these handles. Naming mirrors
         # emit_c::_ctor_overloads_named — same `_new_<sigName>` symbols.
         for ctor in c.constructors:
-            param_infos = [_java_ctor_param_info(p) for p in ctor.params]
+            param_infos = [_java_ctor_param_info(p, module) for p in ctor.params]
             if any(pi is None for pi in param_infos):
                 continue
             sig_name = '_'.join(p.name or 'arg' for p in ctor.params)
@@ -1139,6 +1248,10 @@ def _emit_native(module: BindModule, classes: list[BindClass],
 
         for m in c.methods:
             if not _is_supported(m, module):
+                continue
+            # Match the filter in _emit_class — no Java surface for
+            # zero-arg `close()`/`delete()`; AutoCloseable owns those.
+            if m.name in ('close', 'delete') and not m.params:
                 continue
             sym = f'{prefix}_{short}_{m.name}'
             buf.write(f'    public static final MethodHandle {sym} = find(\n')
@@ -1254,6 +1367,16 @@ def _function_descriptor(m: BindMethod, c: BindClass) -> str:
             param_layouts.append(_java_layout(p.type))
         elif p.type.kind == TypeKind.ENUM:
             param_layouts.append('ValueLayout.JAVA_INT')
+        elif p.type.kind == TypeKind.STRING:
+            param_layouts.append('ValueLayout.ADDRESS')   # const char*
+        elif p.type.kind == TypeKind.VECTOR \
+                and _short_name(p.type.element.cpp_text) in ('u8', 'unsigned char'):
+            param_layouts.append('ValueLayout.ADDRESS')   # data ptr
+            param_layouts.append('ValueLayout.JAVA_LONG') # size
+        elif p.type.kind == TypeKind.VECTOR \
+                and p.type.element.kind in (TypeKind.NESTED, TypeKind.UNKNOWN):
+            param_layouts.append('ValueLayout.ADDRESS')   # handle-ptr array
+            param_layouts.append('ValueLayout.JAVA_LONG') # count
         elif p.type.kind in (TypeKind.NESTED, TypeKind.UNKNOWN):
             param_layouts.append('ValueLayout.ADDRESS')
         else:
@@ -1273,6 +1396,8 @@ def _return_layout(ret: TypeRef) -> str:
         return _java_layout(ret)
     if ret.kind == TypeKind.ENUM:
         return 'ValueLayout.JAVA_INT'
+    if ret.kind == TypeKind.STRING:
+        return 'CSTRING_LAYOUT'
     if ret.kind in (TypeKind.NESTED, TypeKind.UNKNOWN):
         # span<const u8> is packed into whiteout_Bytes by the C wrapper.
         if _is_span_const_u8(ret):
@@ -1281,6 +1406,8 @@ def _return_layout(ret: TypeRef) -> str:
     if ret.kind == TypeKind.OPTIONAL:
         if ret.element.kind in (TypeKind.NESTED, TypeKind.UNKNOWN):
             return 'ValueLayout.ADDRESS'        # nullable handle
+        if ret.element.kind == TypeKind.STRING:
+            return 'CSTRING_LAYOUT'             # nullable string struct
         if ret.element.kind == TypeKind.VECTOR:
             return 'BYTES_LAYOUT'               # struct
     if ret.kind == TypeKind.VECTOR:
@@ -1300,6 +1427,24 @@ def _emit_enum(pkg: str, e: BindEnum, short: str) -> str:
         for line in e.doc.splitlines():
             buf.write(f' * {line}\n')
         buf.write(' */\n')
+    # Bitmask detection: every non-zero value is a distinct power of
+    # two. Strict heuristic — only triggers on real bitflag enums (e.g.
+    # NodeFlag, RibbonFlag), not regular value enums where a stray
+    # constant happens to be a power of two. For bitmask enums we
+    # additionally emit a `pack(Set<X>)` / `unpack(int)` pair and a
+    # lenient `fromInt` that gracefully handles OR'd combinations.
+    nz = [v for v in e.values if v.value != 0]
+    # Bitmask heuristic: every non-zero value is a power of two AND at
+    # least one value reaches the third bit (>= 4). The latter rules out
+    # plain value enums whose ordinals happen to be {1, 2} (e.g.
+    # `ForceType { Radial=0, Wind=1, Explosion=2 }` is NOT a bitmask).
+    # Alias enumerators (same value on multiple names) are allowed —
+    # common in MDX where one bit means two things in different chunk
+    # contexts.
+    is_bitmask = (len(nz) >= 2
+                  and all(v.value > 0 and (v.value & (v.value - 1)) == 0 for v in nz)
+                  and max(v.value for v in nz) >= 4)
+
     buf.write(f'public enum {short} {{\n')
     seen: set[str] = set()
     for i, v in enumerate(e.values):
@@ -1309,16 +1454,177 @@ def _emit_enum(pkg: str, e: BindEnum, short: str) -> str:
         sep = ';' if i == len(e.values) - 1 else ','
         if v.doc:
             buf.write(f'    /** {v.doc} */\n')
-        buf.write(f'    {v.js_name}({i}){sep}\n')
+        # Use the underlying C++ integer literal (e.g. 0x04 for a
+        # bitflag value), NOT the ordinal index — otherwise bitwise
+        # `flags & FOO.value` checks against a different number than
+        # the C++ stored.
+        buf.write(f'    {v.js_name}({v.value}){sep}\n')
     buf.write('\n')
     buf.write('    public final int value;\n')
     buf.write(f'    {short}(int v) {{ this.value = v; }}\n')
-    buf.write(f'    public static {short} fromInt(int v) {{\n')
-    buf.write('        for (var e : values()) if (e.value == v) return e;\n')
-    buf.write(f'        throw new IllegalArgumentException("unknown {short}: " + v);\n')
-    buf.write('    }\n')
+    if is_bitmask:
+        # `fromInt` for a bitmask is only meaningful for single-flag
+        # values; OR'd combinations have no matching enum constant.
+        # Return null on miss instead of throwing — callers usually want
+        # `unpack(int)` for combined flags anyway.
+        buf.write(f'    public static {short} fromInt(int v) {{\n')
+        buf.write('        for (var e : values()) if (e.value == v) return e;\n')
+        buf.write('        return null;\n')
+        buf.write('    }\n')
+        buf.write(f'    /** Decompose a packed int into its set of {short} bits. */\n')
+        buf.write(f'    public static java.util.EnumSet<{short}> unpack(int packed) {{\n')
+        buf.write(f'        java.util.EnumSet<{short}> out = java.util.EnumSet.noneOf({short}.class);\n')
+        buf.write('        for (var e : values()) {\n')
+        buf.write('            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);\n')
+        buf.write('        }\n')
+        buf.write('        return out;\n')
+        buf.write('    }\n')
+        buf.write(f'    /** OR every flag in {{@code flags}} together into a packed int. */\n')
+        buf.write(f'    public static int pack(java.util.Set<{short}> flags) {{\n')
+        buf.write('        int v = 0;\n')
+        buf.write(f'        for ({short} f : flags) v |= f.value;\n')
+        buf.write('        return v;\n')
+        buf.write('    }\n')
+    else:
+        buf.write(f'    public static {short} fromInt(int v) {{\n')
+        buf.write('        for (var e : values()) if (e.value == v) return e;\n')
+        buf.write(f'        throw new IllegalArgumentException("unknown {short}: " + v);\n')
+        buf.write('    }\n')
     buf.write('}\n')
     return buf.getvalue()
+
+
+# ── Cross-package interface integration ──────────────────────────────────
+#
+# Host wrappers for concrete impls of `whiteout::interfaces::X` (e.g.
+# SimpleHttpHandler → HttpHandler) directly implement the corresponding
+# Java interface in whiteout.interfaces, plus the NativeHandled SPI so
+# consumer bindings can hand the embedded pointer straight to C++ without
+# routing through the JNI bridge. Panama emits whatever methods it can
+# (the non-callback ones); any interface methods left unfulfilled get a
+# stub that throws UnsupportedOperationException — those methods are only
+# reachable via the native fast-path anyway.
+
+_INTERFACES_PKG = 'whiteout.interfaces'
+_NATIVE_HANDLED_FQN = 'whiteout.host.NativeHandled'
+
+
+def _full_cpp_qualifier(c: BindClass) -> str:
+    """`cpp_qualifier` holds only the short name; the full C++ path is
+    namespace + qualifier. Used to match `extends=` annotations against
+    abstract bases in the same module."""
+    if c.cpp_namespace:
+        return f'{c.cpp_namespace}::{c.cpp_qualifier}'
+    return c.cpp_qualifier
+
+
+def _interface_base(c: BindClass, module: BindModule) -> BindClass | None:
+    """Return the `whiteout::interfaces::*` BindClass that `c` either IS
+    (when c itself is the abstract subclassable base) or EXTENDS, else
+    None. Only resolves when the base BindClass is parsed into the SAME
+    module — used by stub emission, which needs the interface's method
+    list to fill in unfulfilled abstract methods."""
+    if c.is_subclassable and c.cpp_namespace == 'whiteout::interfaces':
+        return c
+    if c.base_class and c.base_class.startswith('whiteout::interfaces::'):
+        for other in module.classes:
+            if _full_cpp_qualifier(other) == c.base_class:
+                return other
+    return None
+
+
+def _interface_base_java_fqn(c: BindClass) -> str | None:
+    """Java FQN of the interface `c` extends, derivable from `c.base_class`
+    alone (cross-module — no IR lookup). Returns None if `c` is neither
+    an interface itself nor an extender of one. Used by the `implements`
+    clause emission so cross-module impls (e.g. mpq.FileSystem extending
+    interfaces.VirtualPathFileSystem) still get the interface wired up."""
+    if c.is_subclassable and c.cpp_namespace == 'whiteout::interfaces':
+        return f'{_INTERFACES_PKG}.{c.cpp_qualifier}'
+    if c.base_class and c.base_class.startswith('whiteout::interfaces::'):
+        return f'{_INTERFACES_PKG}.{c.base_class.rsplit("::", 1)[-1]}'
+    return None
+
+
+def _interface_java_fqn(iface: BindClass) -> str:
+    return f'{_INTERFACES_PKG}.{iface.cpp_qualifier}'
+
+
+def _qualify_interface_types(sig: str, value_records: set[str]) -> str:
+    """Rewrite short names that resolve into whiteout.interfaces.* into
+    their fully-qualified spellings so the host wrapper doesn't need to
+    import the interfaces package (which would collide with the host
+    package's own HttpResponse / etc. shadows). Also fully-qualifies
+    `Consumer` so we don't need to add `java.util.function.Consumer` to
+    the import block conditionally."""
+    import re
+    # Value records (HttpResponse, …) live in whiteout.interfaces.
+    for r in value_records:
+        sig = re.sub(rf'\b{re.escape(r)}\b', f'{_INTERFACES_PKG}.{r}', sig)
+    # WorkerTask is a hand-written record in whiteout.interfaces — not in
+    # value_records but referenced by submit_workertask methods.
+    sig = re.sub(r'\bWorkerTask\b', f'{_INTERFACES_PKG}.WorkerTask', sig)
+    # Functional-interface params — Panama's import block omits these.
+    sig = re.sub(r'\bConsumer<', 'java.util.function.Consumer<', sig)
+    sig = re.sub(r'\bRunnable\b', 'java.lang.Runnable', sig)
+    return sig
+
+
+def _emit_interface_implements(c: BindClass, module: BindModule) -> str:
+    """Returns the `, <iface>, <NativeHandled>` extension to append to
+    the `implements AutoCloseable` clause of the host wrapper, or ''.
+    Works cross-module — derived from `c.base_class` alone so impls in
+    different modules from the interface (e.g. mpq.FileSystem extending
+    interfaces.VirtualPathFileSystem) still get the implements clause."""
+    iface_fqn = _interface_base_java_fqn(c)
+    if iface_fqn is None:
+        return ''
+    return f', {iface_fqn}, {_NATIVE_HANDLED_FQN}'
+
+
+def _emit_interface_stubs(buf: StringIO, c: BindClass, module: BindModule) -> None:
+    """Emit `nativeHandle()` (whenever the class implements an interface
+    via `implements`) plus UnsupportedOperationException stubs for any
+    interface methods Panama's c-codegen couldn't expose.
+
+    Stubs only emit when the interface base BindClass is in this module's
+    IR — cross-module impls (e.g. mpq.FileSystem) skip stubs and rely on
+    Panama covering every abstract method (javac will catch shortfalls)."""
+    if _interface_base_java_fqn(c) is None:
+        return  # not an interface impl at all
+
+    # nativeHandle is always safe to emit — every host wrapper has
+    # `handle` and the SPI requires it whenever NativeHandled is mixed in.
+    buf.write('    /** {@inheritDoc} */\n')
+    buf.write('    @Override\n')
+    buf.write('    public MemorySegment nativeHandle() { return handle; }\n\n')
+
+    iface = _interface_base(c, module)
+    if iface is None:
+        return  # cross-module impl — Panama must cover all interface methods
+    iface_short = _short_name(iface.cpp_qualifier)
+
+    # Methods Panama emits on the host wrapper — match by name.
+    emitted = {m.name for m in c.methods if _is_supported(m, module)}
+    value_records = _jni_value_records(module)
+    for m in _jni_supported_methods(iface, value_records):
+        if m.name in emitted:
+            continue  # Panama already provides the real implementation
+        sig = _jni_java_method_signature(m, value_records)
+        if sig is None:
+            continue
+        sig = _qualify_interface_types(sig, value_records)
+        has_callback = any(p.callback_target for p in m.params)
+        throws = ' throws Exception' if has_callback else ''
+        buf.write('    @Override\n')
+        buf.write(f'    public {sig}{throws} {{\n')
+        buf.write('        throw new UnsupportedOperationException(\n')
+        buf.write(f'            "{iface_short}.{m.name} cannot be invoked from Java on a native-backed "\n')
+        buf.write('            + "wrapper — the C ABI does not marshal callback / std::function params. "\n')
+        buf.write(f'            + "Either (a) pass this instance to a native consumer that takes {iface_short} "\n')
+        buf.write('            + "(the consumer\'s C++ side will call this directly), or "\n')
+        buf.write(f'            + "(b) implement {iface_short} in pure Java if you need Java-controlled dispatch.");\n')
+        buf.write('    }\n\n')
 
 
 # â”€â”€ Class file (AutoCloseable wrapper) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1369,7 +1675,8 @@ def _emit_class(pkg: str, c: BindClass, c_short: str, java_short: str,
     buf.write(' * external access if a handle is shared across threads.\n')
     buf.write(' */\n')
 
-    buf.write(f'public final class {java_short} implements AutoCloseable {{\n')
+    extra_implements = _emit_interface_implements(c, module)
+    buf.write(f'public final class {java_short} implements AutoCloseable{extra_implements} {{\n')
 
     # Struct size (from libclang). When known, the ctors reinterpret
     # the raw FFM pointer to this size so direct-memory field accessors
@@ -1415,7 +1722,7 @@ def _emit_class(pkg: str, c: BindClass, c_short: str, java_short: str,
     # so a `SimpleThreadPool(nThreads)` ctor becomes
     # `SimpleThreadPool.createNThreads(long)`.
     for ctor in c.constructors:
-        param_infos = [_java_ctor_param_info(p) for p in ctor.params]
+        param_infos = [_java_ctor_param_info(p, module) for p in ctor.params]
         if any(pi is None for pi in param_infos):
             continue
         sig_name = '_'.join(p.name or 'arg' for p in ctor.params)
@@ -1456,6 +1763,13 @@ def _emit_class(pkg: str, c: BindClass, c_short: str, java_short: str,
     for m in c.methods:
         if not _is_supported(m, module):
             continue
+        # `close()` and `delete()` are reserved for the AutoCloseable
+        # contract emitted above — a C++ release-resources method with
+        # the same name (e.g. `mpq::Storage::close()`) would collide,
+        # and the AutoCloseable wrapper already invokes `_delete` which
+        # tears down the C++ object the same way.
+        if m.name in ('close', 'delete') and not m.params:
+            continue
         _emit_class_method(buf, m, c, c_short, classes, prefix, module)
 
     for f in c.fields:
@@ -1463,6 +1777,8 @@ def _emit_class(pkg: str, c: BindClass, c_short: str, java_short: str,
             continue
         _emit_class_field(buf, f, c_short, classes, prefix, module,
                           parent_byte_size=c.byte_size)
+
+    _emit_interface_stubs(buf, c, module)
 
     _emit_class_to_string(buf, c, java_short, module, known)
 
@@ -1904,6 +2220,21 @@ def _java_to_native_primitive(jt: str) -> str:
     return '{value}'
 
 
+def _is_interface_pointer_param(p) -> bool:
+    """Match emit_c.py's check: a `whiteout::interfaces::X*` OR
+    `whiteout::interfaces::X&` parameter that the host bindings'
+    NativeHandled/Bridge dispatch layer can resolve. The Java surface
+    is identical for both shapes — the C wrapper dereferences for
+    reference params."""
+    return (('*' in p.cpp_raw) or ('&' in p.cpp_raw)) \
+        and ('interfaces::' in p.cpp_raw)
+
+
+def _interface_short_name_for_param(p) -> str:
+    """`whiteout::interfaces::WorkerPool` → `WorkerPool`."""
+    return p.type.cpp_text.rsplit('::', 1)[-1]
+
+
 def _emit_class_method(buf: StringIO, m: BindMethod, c: BindClass, short: str,
                        classes: dict[str, str], prefix: str,
                        module: BindModule):
@@ -1915,6 +2246,9 @@ def _emit_class_method(buf: StringIO, m: BindMethod, c: BindClass, short: str,
         if p.span_scalar is not None:
             jt, _layout, _sz = _span_elem(p.span_scalar)
             java_params.append(f'{jt}[] {p.name}')
+        elif _is_interface_pointer_param(p):
+            iface_short = _interface_short_name_for_param(p)
+            java_params.append(f'{_INTERFACES_PKG}.{iface_short} {p.name}')
         elif p.type.kind in (TypeKind.NESTED, TypeKind.UNKNOWN):
             jt = _java_type(p.type, module, classes)
             java_params.append(f'{jt} {p.name}')
@@ -1968,7 +2302,12 @@ def _emit_class_method(buf: StringIO, m: BindMethod, c: BindClass, short: str,
         buf.write(f'     * @return {ret_desc}.\n')
     buf.write('     */\n')
 
-    buf.write(f'    public {ret_java} {_java_method_name(m.name)}({params_str}) {{\n')
+    static_kw = 'static ' if m.is_static else ''
+    # Use `cpp_name` (original C++ method name) for the Java method so
+    # overloads collapse to a single Java name — Java's signature-based
+    # overload resolution picks the right one. `m.name` carries the
+    # disambiguated FFM-symbol suffix used in the Native.X.invoke lookup.
+    buf.write(f'    public {static_kw}{ret_java} {_java_method_name(m.cpp_name)}({params_str}) {{\n')
 
     # An Arena is needed for two reasons:
     #   - to marshal span params (Java byte[] â†’ native MemorySegment), and
@@ -1976,11 +2315,23 @@ def _emit_class_method(buf: StringIO, m: BindMethod, c: BindClass, short: str,
     #     (FFM prepends a SegmentAllocator param for those).
     ret = m.return_type
     returns_struct = (ret.kind == TypeKind.VECTOR or
+                      ret.kind == TypeKind.STRING or
                       (ret.kind == TypeKind.OPTIONAL and
-                       ret.element.kind == TypeKind.VECTOR) or
+                       ret.element.kind in (TypeKind.VECTOR, TypeKind.STRING)) or
                       _is_span_const_u8(ret))
     has_span = any(p.span_scalar is not None for p in m.params)
-    needs_arena = has_span or returns_struct
+    has_string_param = any(p.type.kind == TypeKind.STRING for p in m.params)
+    has_byte_vec_param = any(
+        p.type.kind == TypeKind.VECTOR
+        and _short_name(p.type.element.cpp_text) in ('u8', 'unsigned char')
+        for p in m.params)
+    has_class_vec_param = any(
+        p.type.kind == TypeKind.VECTOR
+        and p.type.element.kind in (TypeKind.NESTED, TypeKind.UNKNOWN)
+        and not p.type.element.cpp_text.startswith('std::')
+        for p in m.params)
+    needs_arena = (has_span or returns_struct or has_string_param
+                   or has_byte_vec_param or has_class_vec_param)
 
     if needs_arena:
         buf.write('        try (Arena arena = Arena.ofConfined()) {\n')
@@ -1991,6 +2342,9 @@ def _emit_class_method(buf: StringIO, m: BindMethod, c: BindClass, short: str,
 
     # Prepare per-param Java->native conversions.
     invoke_args = []
+    # Track interface-pointer owners — declared OUTSIDE the try{} so the
+    # reachabilityFence in `finally` can name them.
+    iface_owners: list[str] = []
     # Struct returns require a leading SegmentAllocator.
     if returns_struct:
         invoke_args.append('arena')
@@ -2003,6 +2357,57 @@ def _emit_class_method(buf: StringIO, m: BindMethod, c: BindClass, short: str,
             buf.write(f'{body_indent}MemorySegment.copy({p.name}, 0, {p.name}_seg, {layout}, 0, {p.name}.length);\n')
             invoke_args.append(f'{p.name}_seg')
             invoke_args.append(f'(long) {p.name}.length')
+        elif p.type.kind == TypeKind.STRING:
+            # const char* — allocate NUL-terminated UTF-8 off the arena.
+            buf.write(f'{body_indent}MemorySegment {p.name}_seg = {p.name} == null\n')
+            buf.write(f'{body_indent}    ? MemorySegment.NULL\n')
+            buf.write(f'{body_indent}    : arena.allocateFrom({p.name}, StandardCharsets.UTF_8);\n')
+            invoke_args.append(f'{p.name}_seg')
+        elif p.type.kind == TypeKind.VECTOR \
+                and _short_name(p.type.element.cpp_text) in ('u8', 'unsigned char'):
+            # const std::vector<u8>& → (ptr, size) pair. Arena-owned copy.
+            buf.write(f'{body_indent}MemorySegment {p.name}_seg = {p.name} == null || {p.name}.length == 0\n')
+            buf.write(f'{body_indent}    ? MemorySegment.NULL\n')
+            buf.write(f'{body_indent}    : arena.allocate({p.name}.length);\n')
+            buf.write(f'{body_indent}if ({p.name} != null && {p.name}.length != 0) {{\n')
+            buf.write(f'{body_indent}    MemorySegment.copy({p.name}, 0, {p.name}_seg, ValueLayout.JAVA_BYTE, 0, {p.name}.length);\n')
+            buf.write(f'{body_indent}}}\n')
+            invoke_args.append(f'{p.name}_seg')
+            invoke_args.append(f'(long) ({p.name} == null ? 0 : {p.name}.length)')
+        elif p.type.kind == TypeKind.VECTOR \
+                and p.type.element.kind in (TypeKind.NESTED, TypeKind.UNKNOWN) \
+                and not p.type.element.cpp_text.startswith('std::'):
+            # const std::vector<Class>& → array of opaque handles + count.
+            # Each Java wrapper's `.handle` is stored at sizeof(ADDRESS)
+            # increments in an arena segment, which is passed to C++.
+            buf.write(f'{body_indent}MemorySegment {p.name}_seg = {p.name} == null || {p.name}.length == 0\n')
+            buf.write(f'{body_indent}    ? MemorySegment.NULL\n')
+            buf.write(f'{body_indent}    : arena.allocate(ValueLayout.ADDRESS, {p.name}.length);\n')
+            buf.write(f'{body_indent}if ({p.name} != null) {{\n')
+            buf.write(f'{body_indent}    for (int __i = 0; __i < {p.name}.length; ++__i) {{\n')
+            buf.write(f'{body_indent}        {p.name}_seg.setAtIndex(ValueLayout.ADDRESS, __i,\n')
+            buf.write(f'{body_indent}            {p.name}[__i] == null ? MemorySegment.NULL : {p.name}[__i].handle);\n')
+            buf.write(f'{body_indent}    }}\n')
+            buf.write(f'{body_indent}}}\n')
+            invoke_args.append(f'{p.name}_seg')
+            invoke_args.append(f'(long) ({p.name} == null ? 0 : {p.name}.length)')
+        elif _is_interface_pointer_param(p):
+            # Bridge a `whiteout::interfaces::X*` param: NativeHandled
+            # fast-path or *Bridge.createPinned. The bridge owner is the
+            # impl itself — the user already has to keep it alive while
+            # C++ holds the pointer, and this avoids the awkward
+            # synthetic-owner indirection. reachabilityFence below keeps
+            # the param strongly reachable until the FFM call returns.
+            iface_short = _interface_short_name_for_param(p)
+            helper_fqn = f'whiteout.host.{iface_short}s'
+            handle_var = f'__{p.name}_h'
+            seg_var = f'__{p.name}_seg'
+            buf.write(f'{body_indent}long {handle_var} = {p.name} == null ? 0L\n')
+            buf.write(f'{body_indent}    : {helper_fqn}.resolveNative({p.name}, {p.name});\n')
+            buf.write(f'{body_indent}MemorySegment {seg_var} = {handle_var} == 0L\n')
+            buf.write(f'{body_indent}    ? MemorySegment.NULL : MemorySegment.ofAddress({handle_var});\n')
+            invoke_args.append(seg_var)
+            iface_owners.append(p.name)
         elif p.type.kind in (TypeKind.NESTED, TypeKind.UNKNOWN):
             java_cls = _resolve_java_class(p.type.cpp_text, module, classes)
             if java_cls in _SHARED_MATH_TYPES:
@@ -2024,8 +2429,40 @@ def _emit_class_method(buf: StringIO, m: BindMethod, c: BindClass, short: str,
     sym = f'{prefix}_{short}_{m.name}'
     invoke = f'Native.{sym}.invoke({", ".join(invoke_args)})'
 
+    # Interface-pointer params allocate a synthetic owner that the Cleaner
+    # uses to gate the bridge's lifetime. Wrap the FFM call in try-finally
+    # so reachabilityFence keeps each owner alive until after the C++ side
+    # has consumed the resolved pointer.
+    if iface_owners:
+        buf.write(f'{body_indent}try {{\n')
+        body_indent = body_indent + '    '
+
     if ret.cpp_text == 'void':
         buf.write(f'{body_indent}{invoke};\n')
+    elif ret.kind == TypeKind.STRING:
+        # whiteout_CString → String. Always returns a non-null
+        # string (callers that need optional semantics use
+        # std::optional<std::string>, handled below).
+        buf.write(f'{body_indent}MemorySegment __cstr = (MemorySegment) {invoke};\n')
+        buf.write(f'{body_indent}MemorySegment __chars = __cstr.get(ValueLayout.ADDRESS, 0);\n')
+        buf.write(f'{body_indent}long __slen = __cstr.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());\n')
+        buf.write(f'{body_indent}String __out = (__chars == null || __chars.equals(MemorySegment.NULL))\n')
+        buf.write(f'{body_indent}    ? "" : __chars.reinterpret(__slen + 1).getString(0L);\n')
+        buf.write(f'{body_indent}Native.whiteout_CString_free.invoke(__cstr);\n')
+        buf.write(f'{body_indent}return __out;\n')
+    elif ret.kind == TypeKind.OPTIONAL and ret.element.kind == TypeKind.STRING:
+        # whiteout_CString → Optional<String>. Empty when chars == NULL
+        # (the C side returns emptyCString() for std::nullopt).
+        buf.write(f'{body_indent}MemorySegment __cstr = (MemorySegment) {invoke};\n')
+        buf.write(f'{body_indent}MemorySegment __chars = __cstr.get(ValueLayout.ADDRESS, 0);\n')
+        buf.write(f'{body_indent}if (__chars == null || __chars.equals(MemorySegment.NULL)) {{\n')
+        buf.write(f'{body_indent}    Native.whiteout_CString_free.invoke(__cstr);\n')
+        buf.write(f'{body_indent}    return java.util.Optional.empty();\n')
+        buf.write(f'{body_indent}}}\n')
+        buf.write(f'{body_indent}long __slen = __cstr.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());\n')
+        buf.write(f'{body_indent}String __out = __chars.reinterpret(__slen + 1).getString(0L);\n')
+        buf.write(f'{body_indent}Native.whiteout_CString_free.invoke(__cstr);\n')
+        buf.write(f'{body_indent}return java.util.Optional.of(__out);\n')
     elif _is_span_const_u8(ret):
         # span<const u8> â€” same Bytes-shaped struct return as vector<u8>,
         # but checked first so the generic UNKNOWN-handle branch doesn't
@@ -2074,6 +2511,13 @@ def _emit_class_method(buf: StringIO, m: BindMethod, c: BindClass, short: str,
         buf.write(f'{body_indent}return ((int) {invoke}) != 0;\n')
     else:
         buf.write(f'{body_indent}return ({_java_primitive(ret)}) {invoke};\n')
+
+    if iface_owners:
+        body_indent = body_indent[:-4]
+        buf.write(f'{body_indent}}} finally {{\n')
+        for ow in iface_owners:
+            buf.write(f'{body_indent}    java.lang.ref.Reference.reachabilityFence({ow});\n')
+        buf.write(f'{body_indent}}}\n')
 
     buf.write('        } catch (Throwable __ex) { throw new RuntimeException(__ex); }\n')
     buf.write('    }\n\n')

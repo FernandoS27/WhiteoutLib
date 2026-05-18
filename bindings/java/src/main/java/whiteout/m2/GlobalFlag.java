@@ -6,23 +6,37 @@ public enum GlobalFlag {
     None(0),
     TiltX(1),
     TiltY(2),
-    AddBackReferences(3),
-    UseTextureCombinerCombos(4),
-    IsCamera(5),
-    Unused(6),
-    Unk_0x80(7),
-    LoadPhysicsData(8),
-    NewParticleRecord(9),
-    Unk_0x400(10),
-    TextureTransformsUsesBoneSequences(11),
-    Unk_0x1000(12),
-    ChunkedAnimFiles(13),
-    UpgradedFormat(14);
+    AddBackReferences(4),
+    UseTextureCombinerCombos(8),
+    IsCamera(16),
+    Unused(32),
+    Unk_0x80(128),
+    LoadPhysicsData(256),
+    NewParticleRecord(512),
+    Unk_0x400(1024),
+    TextureTransformsUsesBoneSequences(2048),
+    Unk_0x1000(4096),
+    ChunkedAnimFiles(8192),
+    UpgradedFormat(2097152);
 
     public final int value;
     GlobalFlag(int v) { this.value = v; }
     public static GlobalFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown GlobalFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of GlobalFlag bits. */
+    public static java.util.EnumSet<GlobalFlag> unpack(int packed) {
+        java.util.EnumSet<GlobalFlag> out = java.util.EnumSet.noneOf(GlobalFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<GlobalFlag> flags) {
+        int v = 0;
+        for (GlobalFlag f : flags) v |= f.value;
+        return v;
     }
 }

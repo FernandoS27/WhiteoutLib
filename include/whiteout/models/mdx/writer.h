@@ -79,6 +79,7 @@ enum class MdlFormat {
  *
  * Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
  */
+/// @bind methods, js_name=MdxWriter
 class Writer {
 public:
     /// @brief Construct a new Writer

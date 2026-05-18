@@ -12,12 +12,26 @@ public enum ForceFlag {
     /** Height gradient */
     HeightGradient(2),
     /** Unbounded range */
-    Unbounded(3);
+    Unbounded(4);
 
     public final int value;
     ForceFlag(int v) { this.value = v; }
     public static ForceFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown ForceFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of ForceFlag bits. */
+    public static java.util.EnumSet<ForceFlag> unpack(int packed) {
+        java.util.EnumSet<ForceFlag> out = java.util.EnumSet.noneOf(ForceFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<ForceFlag> flags) {
+        int v = 0;
+        for (ForceFlag f : flags) v |= f.value;
+        return v;
     }
 }

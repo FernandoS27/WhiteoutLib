@@ -66,6 +66,6 @@ public final class Native {
     public static final MethodHandle whiteout_utils_UtilsVertexBufferBuilder_declareIntAttribute = find(
         "whiteout_utils_UtilsVertexBufferBuilder_declareIntAttribute", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_utils_UtilsVertexBufferBuilder_build = find(
-        "whiteout_utils_UtilsVertexBufferBuilder_build", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        "whiteout_utils_UtilsVertexBufferBuilder_build", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
 
 }

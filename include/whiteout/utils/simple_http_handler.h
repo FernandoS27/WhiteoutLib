@@ -19,7 +19,7 @@ namespace whiteout::utils {
 /// Thread-safe: multiple threads may call getAsync / getRangeAsync
 /// concurrently.
 ///
-/// @bind methods, extends=whiteout::interfaces::HttpHandler
+/// @bind methods, extends=whiteout::interfaces::HttpHandler, java_package=whiteout.utils
 class SimpleHttpHandler : public interfaces::HttpHandler {
 public:
     /// Create a handler with @p nThreads I/O worker threads (default: 4).

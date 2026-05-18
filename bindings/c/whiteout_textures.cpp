@@ -25,6 +25,7 @@
 #include <whiteout/textures/bmp/writer.h>
 #include <whiteout/textures/tga/parser.h>
 #include <whiteout/textures/tga/writer.h>
+#include <whiteout/textures/gif/writer.h>
 
 namespace { using namespace whiteout; }
 
@@ -42,6 +43,15 @@ inline whiteout_Bytes emptyBytes() {
     return { nullptr, 0, nullptr };
 }
 
+inline whiteout_CString wrapCString(std::string&& s) {
+    auto* owned = new std::string(std::move(s));
+    return { owned->c_str(), owned->size(), owned };
+}
+
+inline whiteout_CString emptyCString() {
+    return { nullptr, 0, nullptr };
+}
+
 } // anonymous
 
 // ── Texture ─────────────────────────────────────────────────
@@ -56,20 +66,42 @@ void whiteout_textures_Texture_delete(whiteout_Texture* self) {
     delete reinterpret_cast<whiteout::textures::Texture*>(self);
 }
 
-int32_t whiteout_textures_Texture_format(const whiteout_Texture* self) {
+void whiteout_textures_Texture_format(whiteout_Texture* self, int32_t new_fmt) {
+    reinterpret_cast<whiteout::textures::Texture*>(self)->format(static_cast<whiteout::textures::PixelFormat>(new_fmt));
+}
+
+int32_t whiteout_textures_Texture_format_overload2(const whiteout_Texture* self) {
     return static_cast<int32_t>(reinterpret_cast<const whiteout::textures::Texture*>(self)->format());
 }
 
-struct whiteout_Texture* whiteout_textures_Texture_copyAsFormat(const whiteout_Texture* self, int32_t new_fmt) {
+struct whiteout_Texture* whiteout_textures_Texture_copyAsFormat(const whiteout_Texture* self, int32_t new_fmt, void* pool) {
     return reinterpret_cast<struct whiteout_Texture*>(
-        new whiteout::textures::Texture(reinterpret_cast<const whiteout::textures::Texture*>(self)->copyAsFormat(static_cast<whiteout::textures::PixelFormat>(new_fmt))));
+        new whiteout::textures::Texture(reinterpret_cast<const whiteout::textures::Texture*>(self)->copyAsFormat(static_cast<whiteout::textures::PixelFormat>(new_fmt), reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool))));
 }
 
-struct whiteout_Texture* whiteout_textures_Texture_copyFromNormalToRGBA(const whiteout_Texture* self) {
-    auto __r = reinterpret_cast<const whiteout::textures::Texture*>(self)->copyFromNormalToRGBA();
+struct whiteout_Texture* whiteout_textures_Texture_copyFromNormalToRGBA(const whiteout_Texture* self, void* pool) {
+    auto __r = reinterpret_cast<const whiteout::textures::Texture*>(self)->copyFromNormalToRGBA(reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool));
     if (!__r) return nullptr;
     return reinterpret_cast<struct whiteout_Texture*>(
         new whiteout::textures::Texture(std::move(*__r)));
+}
+
+whiteout_CString whiteout_textures_Texture_generateMipmaps(whiteout_Texture* self, uint32_t newMipCount, void* pool) {
+    auto __r = reinterpret_cast<whiteout::textures::Texture*>(self)->generateMipmaps(newMipCount, reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool));
+    if (!__r) return emptyCString();
+    return wrapCString(std::move(*__r));
+}
+
+whiteout_CString whiteout_textures_Texture_generateMipmaps_pool(whiteout_Texture* self, void* pool) {
+    auto __r = reinterpret_cast<whiteout::textures::Texture*>(self)->generateMipmaps(reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool));
+    if (!__r) return emptyCString();
+    return wrapCString(std::move(*__r));
+}
+
+whiteout_CString whiteout_textures_Texture_downscale(whiteout_Texture* self, uint32_t levels, void* pool) {
+    auto __r = reinterpret_cast<whiteout::textures::Texture*>(self)->downscale(levels, reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool));
+    if (!__r) return emptyCString();
+    return wrapCString(std::move(*__r));
 }
 
 struct whiteout_Texture* whiteout_textures_Texture_create2D(int32_t fmt, uint32_t width, uint32_t height, uint32_t mipCount) {
@@ -155,6 +187,10 @@ whiteout_Bytes whiteout_textures_Texture_takeData(whiteout_Texture* self) {
     return wrapBytes(reinterpret_cast<whiteout::textures::Texture*>(self)->takeData());
 }
 
+void whiteout_textures_Texture_setData(whiteout_Texture* self, const uint8_t* new_data, size_t new_data_size) {
+    reinterpret_cast<whiteout::textures::Texture*>(self)->setData(std::vector<whiteout::u8>(new_data, new_data + new_data_size));
+}
+
 } // extern "C"
 
 // ── BlpParser ─────────────────────────────────────────────────
@@ -163,6 +199,10 @@ extern "C" {
 
 whiteout_BlpParser* whiteout_textures_BlpParser_new(void) {
     return reinterpret_cast<whiteout_BlpParser*>(new whiteout::textures::blp::Parser());
+}
+
+whiteout_BlpParser* whiteout_textures_BlpParser_new_parseMode(int32_t parseMode) {
+    return reinterpret_cast<whiteout_BlpParser*>(new whiteout::textures::blp::Parser(static_cast<whiteout::textures::blp::Parser::ParseMode>(parseMode)));
 }
 
 void whiteout_textures_BlpParser_delete(whiteout_BlpParser* self) {
@@ -190,6 +230,10 @@ whiteout_BlpWriter* whiteout_textures_BlpWriter_new(void) {
     return reinterpret_cast<whiteout_BlpWriter*>(new whiteout::textures::blp::Writer());
 }
 
+whiteout_BlpWriter* whiteout_textures_BlpWriter_new_writeMode_pool(int32_t writeMode, void* pool) {
+    return reinterpret_cast<whiteout_BlpWriter*>(new whiteout::textures::blp::Writer(static_cast<whiteout::textures::blp::Writer::WriteMode>(writeMode), reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool)));
+}
+
 void whiteout_textures_BlpWriter_delete(whiteout_BlpWriter* self) {
     delete reinterpret_cast<whiteout::textures::blp::Writer*>(self);
 }
@@ -210,6 +254,10 @@ extern "C" {
 
 whiteout_PngParser* whiteout_textures_PngParser_new(void) {
     return reinterpret_cast<whiteout_PngParser*>(new whiteout::textures::png::Parser());
+}
+
+whiteout_PngParser* whiteout_textures_PngParser_new_parseMode(int32_t parseMode) {
+    return reinterpret_cast<whiteout_PngParser*>(new whiteout::textures::png::Parser(static_cast<whiteout::textures::png::Parser::ParseMode>(parseMode)));
 }
 
 void whiteout_textures_PngParser_delete(whiteout_PngParser* self) {
@@ -237,6 +285,10 @@ whiteout_PngWriter* whiteout_textures_PngWriter_new(void) {
     return reinterpret_cast<whiteout_PngWriter*>(new whiteout::textures::png::Writer());
 }
 
+whiteout_PngWriter* whiteout_textures_PngWriter_new_writeMode(int32_t writeMode) {
+    return reinterpret_cast<whiteout_PngWriter*>(new whiteout::textures::png::Writer(static_cast<whiteout::textures::png::Writer::WriteMode>(writeMode)));
+}
+
 void whiteout_textures_PngWriter_delete(whiteout_PngWriter* self) {
     delete reinterpret_cast<whiteout::textures::png::Writer*>(self);
 }
@@ -257,6 +309,10 @@ extern "C" {
 
 whiteout_JpegParser* whiteout_textures_JpegParser_new(void) {
     return reinterpret_cast<whiteout_JpegParser*>(new whiteout::textures::jpeg::Parser());
+}
+
+whiteout_JpegParser* whiteout_textures_JpegParser_new_parseMode_pool(int32_t parseMode, void* pool) {
+    return reinterpret_cast<whiteout_JpegParser*>(new whiteout::textures::jpeg::Parser(static_cast<whiteout::textures::jpeg::Parser::ParseMode>(parseMode), reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool)));
 }
 
 void whiteout_textures_JpegParser_delete(whiteout_JpegParser* self) {
@@ -284,6 +340,10 @@ whiteout_JpegWriter* whiteout_textures_JpegWriter_new(void) {
     return reinterpret_cast<whiteout_JpegWriter*>(new whiteout::textures::jpeg::Writer());
 }
 
+whiteout_JpegWriter* whiteout_textures_JpegWriter_new_quality_writeMode_pool_progressive(int32_t quality, int32_t writeMode, void* pool, int32_t progressive) {
+    return reinterpret_cast<whiteout_JpegWriter*>(new whiteout::textures::jpeg::Writer(quality, static_cast<whiteout::textures::jpeg::Writer::WriteMode>(writeMode), reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool), progressive));
+}
+
 void whiteout_textures_JpegWriter_delete(whiteout_JpegWriter* self) {
     delete reinterpret_cast<whiteout::textures::jpeg::Writer*>(self);
 }
@@ -304,6 +364,10 @@ extern "C" {
 
 whiteout_DdsParser* whiteout_textures_DdsParser_new(void) {
     return reinterpret_cast<whiteout_DdsParser*>(new whiteout::textures::dds::Parser());
+}
+
+whiteout_DdsParser* whiteout_textures_DdsParser_new_parseMode(int32_t parseMode) {
+    return reinterpret_cast<whiteout_DdsParser*>(new whiteout::textures::dds::Parser(static_cast<whiteout::textures::dds::Parser::ParseMode>(parseMode)));
 }
 
 void whiteout_textures_DdsParser_delete(whiteout_DdsParser* self) {
@@ -331,6 +395,10 @@ whiteout_DdsWriter* whiteout_textures_DdsWriter_new(void) {
     return reinterpret_cast<whiteout_DdsWriter*>(new whiteout::textures::dds::Writer());
 }
 
+whiteout_DdsWriter* whiteout_textures_DdsWriter_new_writeMode(int32_t writeMode) {
+    return reinterpret_cast<whiteout_DdsWriter*>(new whiteout::textures::dds::Writer(static_cast<whiteout::textures::dds::Writer::WriteMode>(writeMode)));
+}
+
 void whiteout_textures_DdsWriter_delete(whiteout_DdsWriter* self) {
     delete reinterpret_cast<whiteout::textures::dds::Writer*>(self);
 }
@@ -351,6 +419,10 @@ extern "C" {
 
 whiteout_BmpParser* whiteout_textures_BmpParser_new(void) {
     return reinterpret_cast<whiteout_BmpParser*>(new whiteout::textures::bmp::Parser());
+}
+
+whiteout_BmpParser* whiteout_textures_BmpParser_new_parseMode(int32_t parseMode) {
+    return reinterpret_cast<whiteout_BmpParser*>(new whiteout::textures::bmp::Parser(static_cast<whiteout::textures::bmp::Parser::ParseMode>(parseMode)));
 }
 
 void whiteout_textures_BmpParser_delete(whiteout_BmpParser* self) {
@@ -378,6 +450,10 @@ whiteout_BmpWriter* whiteout_textures_BmpWriter_new(void) {
     return reinterpret_cast<whiteout_BmpWriter*>(new whiteout::textures::bmp::Writer());
 }
 
+whiteout_BmpWriter* whiteout_textures_BmpWriter_new_writeMode(int32_t writeMode) {
+    return reinterpret_cast<whiteout_BmpWriter*>(new whiteout::textures::bmp::Writer(static_cast<whiteout::textures::bmp::Writer::WriteMode>(writeMode)));
+}
+
 void whiteout_textures_BmpWriter_delete(whiteout_BmpWriter* self) {
     delete reinterpret_cast<whiteout::textures::bmp::Writer*>(self);
 }
@@ -398,6 +474,10 @@ extern "C" {
 
 whiteout_TgaParser* whiteout_textures_TgaParser_new(void) {
     return reinterpret_cast<whiteout_TgaParser*>(new whiteout::textures::tga::Parser());
+}
+
+whiteout_TgaParser* whiteout_textures_TgaParser_new_parseMode(int32_t parseMode) {
+    return reinterpret_cast<whiteout_TgaParser*>(new whiteout::textures::tga::Parser(static_cast<whiteout::textures::tga::Parser::ParseMode>(parseMode)));
 }
 
 void whiteout_textures_TgaParser_delete(whiteout_TgaParser* self) {
@@ -425,6 +505,10 @@ whiteout_TgaWriter* whiteout_textures_TgaWriter_new(void) {
     return reinterpret_cast<whiteout_TgaWriter*>(new whiteout::textures::tga::Writer());
 }
 
+whiteout_TgaWriter* whiteout_textures_TgaWriter_new_writeMode(int32_t writeMode) {
+    return reinterpret_cast<whiteout_TgaWriter*>(new whiteout::textures::tga::Writer(static_cast<whiteout::textures::tga::Writer::WriteMode>(writeMode)));
+}
+
 void whiteout_textures_TgaWriter_delete(whiteout_TgaWriter* self) {
     delete reinterpret_cast<whiteout::textures::tga::Writer*>(self);
 }
@@ -435,6 +519,90 @@ whiteout_Bytes whiteout_textures_TgaWriter_write(whiteout_TgaWriter* self, struc
 
 int32_t whiteout_textures_TgaWriter_hasIssues(const whiteout_TgaWriter* self) {
     return reinterpret_cast<const whiteout::textures::tga::Writer*>(self)->hasIssues();
+}
+
+} // extern "C"
+
+// ── GifSaveOptions ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_GifSaveOptions* whiteout_textures_GifSaveOptions_new(void) {
+    return reinterpret_cast<whiteout_GifSaveOptions*>(new whiteout::textures::gif::SaveOptions());
+}
+
+void whiteout_textures_GifSaveOptions_delete(whiteout_GifSaveOptions* self) {
+    delete reinterpret_cast<whiteout::textures::gif::SaveOptions*>(self);
+}
+
+uint16_t whiteout_textures_GifSaveOptions_get_delayCs(const whiteout_GifSaveOptions* self) {
+    return reinterpret_cast<const whiteout::textures::gif::SaveOptions*>(self)->delayCs;
+}
+
+void whiteout_textures_GifSaveOptions_set_delayCs(whiteout_GifSaveOptions* self, uint16_t value) {
+    reinterpret_cast<whiteout::textures::gif::SaveOptions*>(self)->delayCs = value;
+}
+
+uint16_t whiteout_textures_GifSaveOptions_get_loopCount(const whiteout_GifSaveOptions* self) {
+    return reinterpret_cast<const whiteout::textures::gif::SaveOptions*>(self)->loopCount;
+}
+
+void whiteout_textures_GifSaveOptions_set_loopCount(whiteout_GifSaveOptions* self, uint16_t value) {
+    reinterpret_cast<whiteout::textures::gif::SaveOptions*>(self)->loopCount = value;
+}
+
+int32_t whiteout_textures_GifSaveOptions_get_dither(const whiteout_GifSaveOptions* self) {
+    return reinterpret_cast<const whiteout::textures::gif::SaveOptions*>(self)->dither;
+}
+
+void whiteout_textures_GifSaveOptions_set_dither(whiteout_GifSaveOptions* self, int32_t value) {
+    reinterpret_cast<whiteout::textures::gif::SaveOptions*>(self)->dither = value;
+}
+
+float whiteout_textures_GifSaveOptions_get_ditherStrength(const whiteout_GifSaveOptions* self) {
+    return reinterpret_cast<const whiteout::textures::gif::SaveOptions*>(self)->ditherStrength;
+}
+
+void whiteout_textures_GifSaveOptions_set_ditherStrength(whiteout_GifSaveOptions* self, float value) {
+    reinterpret_cast<whiteout::textures::gif::SaveOptions*>(self)->ditherStrength = value;
+}
+
+} // extern "C"
+
+// ── GifWriter ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_GifWriter* whiteout_textures_GifWriter_new(void) {
+    return reinterpret_cast<whiteout_GifWriter*>(new whiteout::textures::gif::Writer());
+}
+
+whiteout_GifWriter* whiteout_textures_GifWriter_new_writeMode_pool(int32_t writeMode, void* pool) {
+    return reinterpret_cast<whiteout_GifWriter*>(new whiteout::textures::gif::Writer(static_cast<whiteout::textures::gif::Writer::WriteMode>(writeMode), reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool)));
+}
+
+void whiteout_textures_GifWriter_delete(whiteout_GifWriter* self) {
+    delete reinterpret_cast<whiteout::textures::gif::Writer*>(self);
+}
+
+void whiteout_textures_GifWriter_write(whiteout_GifWriter* self, const char* filePath, const struct whiteout_Texture* const* frames, size_t frames_size) {
+    reinterpret_cast<whiteout::textures::gif::Writer*>(self)->write(std::string(filePath ? filePath : ""), ([&]{ std::vector<whiteout::textures::Texture> __v; __v.reserve(frames_size); for (size_t __i = 0; __i < frames_size; ++__i) __v.emplace_back(*reinterpret_cast<const whiteout::textures::Texture*>(frames[__i])); return __v; })());
+}
+
+whiteout_Bytes whiteout_textures_GifWriter_write_frames(whiteout_GifWriter* self, const struct whiteout_Texture* const* frames, size_t frames_size) {
+    return wrapBytes(reinterpret_cast<whiteout::textures::gif::Writer*>(self)->write(([&]{ std::vector<whiteout::textures::Texture> __v; __v.reserve(frames_size); for (size_t __i = 0; __i < frames_size; ++__i) __v.emplace_back(*reinterpret_cast<const whiteout::textures::Texture*>(frames[__i])); return __v; })()));
+}
+
+void whiteout_textures_GifWriter_write_filePath_frames_opts(whiteout_GifWriter* self, const char* filePath, const struct whiteout_Texture* const* frames, size_t frames_size, struct whiteout_GifSaveOptions* opts) {
+    reinterpret_cast<whiteout::textures::gif::Writer*>(self)->write(std::string(filePath ? filePath : ""), ([&]{ std::vector<whiteout::textures::Texture> __v; __v.reserve(frames_size); for (size_t __i = 0; __i < frames_size; ++__i) __v.emplace_back(*reinterpret_cast<const whiteout::textures::Texture*>(frames[__i])); return __v; })(), *reinterpret_cast<const whiteout::textures::gif::SaveOptions*>(opts));
+}
+
+whiteout_Bytes whiteout_textures_GifWriter_write_frames_opts(whiteout_GifWriter* self, const struct whiteout_Texture* const* frames, size_t frames_size, struct whiteout_GifSaveOptions* opts) {
+    return wrapBytes(reinterpret_cast<whiteout::textures::gif::Writer*>(self)->write(([&]{ std::vector<whiteout::textures::Texture> __v; __v.reserve(frames_size); for (size_t __i = 0; __i < frames_size; ++__i) __v.emplace_back(*reinterpret_cast<const whiteout::textures::Texture*>(frames[__i])); return __v; })(), *reinterpret_cast<const whiteout::textures::gif::SaveOptions*>(opts)));
+}
+
+int32_t whiteout_textures_GifWriter_hasIssues(const whiteout_GifWriter* self) {
+    return reinterpret_cast<const whiteout::textures::gif::Writer*>(self)->hasIssues();
 }
 
 } // extern "C"

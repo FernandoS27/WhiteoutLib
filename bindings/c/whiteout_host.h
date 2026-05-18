@@ -15,6 +15,7 @@ extern "C" {
 /* ── Opaque handles ───────────────────────────────────────── */
 
 typedef struct whiteout_WorkerPool whiteout_WorkerPool;
+typedef struct whiteout_CascFileSystem whiteout_CascFileSystem;
 typedef struct whiteout_VirtualPathFileSystem whiteout_VirtualPathFileSystem;
 typedef struct whiteout_HttpResponse whiteout_HttpResponse;
 typedef struct whiteout_HttpHandler whiteout_HttpHandler;
@@ -32,11 +33,29 @@ void whiteout_host_WorkerPool_waitIdle(whiteout_WorkerPool* self);
 /* Number of worker threads in this pool. */
 uint64_t whiteout_host_WorkerPool_threadCount(const whiteout_WorkerPool* self);
 
+/* ── CascFileSystem ─────────────────────────────────────────────── */
+
+/* abstract file system that resolves files by numeric data ID (e.g. CASC). */
+void whiteout_host_CascFileSystem_delete(whiteout_CascFileSystem* self);
+
+/* Read the entire contents of a file by its numeric data ID. */
+whiteout_Bytes whiteout_host_CascFileSystem_readFile(const whiteout_CascFileSystem* self, uint32_t fileId);
+/* Write a file by its numeric data ID. Returns true on success. */
+int32_t whiteout_host_CascFileSystem_writeFile(whiteout_CascFileSystem* self, uint32_t fileId, const uint8_t* data, size_t data_size);
+/* Check if a file with the given data ID exists. */
+int32_t whiteout_host_CascFileSystem_fileExists(const whiteout_CascFileSystem* self, uint32_t fileId);
+
 /* ── VirtualPathFileSystem ─────────────────────────────────────────────── */
 
 /* abstract base. Concrete impl: utils::OsFileSystem. */
 void whiteout_host_VirtualPathFileSystem_delete(whiteout_VirtualPathFileSystem* self);
 
+/* Read the entire contents of a file into a byte vector. */
+whiteout_Bytes whiteout_host_VirtualPathFileSystem_readFile(const whiteout_VirtualPathFileSystem* self, const char* path);
+/* Write a file. Returns true on success. */
+int32_t whiteout_host_VirtualPathFileSystem_writeFile(whiteout_VirtualPathFileSystem* self, const char* path, const uint8_t* data, size_t data_size);
+/* Check if a file exists at the given path. */
+int32_t whiteout_host_VirtualPathFileSystem_fileExists(const whiteout_VirtualPathFileSystem* self, const char* path);
 
 /* ── HttpResponse ─────────────────────────────────────────────── */
 
@@ -78,6 +97,10 @@ uint32_t whiteout_host_HttpHandler_capabilities(const whiteout_HttpHandler* self
 whiteout_OsFileSystem* whiteout_host_OsFileSystem_new_rootPath(const char* rootPath);
 void whiteout_host_OsFileSystem_delete(whiteout_OsFileSystem* self);
 
+/* Read a file at `rootPath / path`. Returns an empty vector if not found. */
+whiteout_Bytes whiteout_host_OsFileSystem_readFile(const whiteout_OsFileSystem* self, const char* path);
+int32_t whiteout_host_OsFileSystem_writeFile(whiteout_OsFileSystem* self, const char* path, const uint8_t* data, size_t data_size);
+int32_t whiteout_host_OsFileSystem_fileExists(const whiteout_OsFileSystem* self, const char* path);
 
 /* ── SimpleThreadPool ─────────────────────────────────────────────── */
 

@@ -14,6 +14,8 @@
 #include <whiteout/vector_types.h>
 #include <whiteout/models/mdx/types.h>
 #include <whiteout/models/mdx/structures.h>
+#include <whiteout/models/mdx/parser.h>
+#include <whiteout/models/mdx/writer.h>
 
 namespace { using namespace whiteout; }
 
@@ -28,6 +30,15 @@ inline whiteout_Bytes wrapBytes(std::vector<whiteout::u8>&& v) {
 }
 
 inline whiteout_Bytes emptyBytes() {
+    return { nullptr, 0, nullptr };
+}
+
+inline whiteout_CString wrapCString(std::string&& s) {
+    auto* owned = new std::string(std::move(s));
+    return { owned->c_str(), owned->size(), owned };
+}
+
+inline whiteout_CString emptyCString() {
     return { nullptr, 0, nullptr };
 }
 
@@ -2560,6 +2571,60 @@ whiteout_MdxTrackF32* whiteout_mdx_MdxCornEmitter_get_visibilityTracks(whiteout_
 
 void whiteout_mdx_MdxCornEmitter_set_visibilityTracks(whiteout_MdxCornEmitter* self, const whiteout_MdxTrackF32* value) {
     reinterpret_cast<whiteout::mdx::CornEmitter*>(self)->visibilityTracks = *reinterpret_cast<const whiteout::mdx::Track<whiteout::f32>*>(value);
+}
+
+} // extern "C"
+
+// ── MdxParser ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_MdxParser* whiteout_mdx_MdxParser_new(void) {
+    return reinterpret_cast<whiteout_MdxParser*>(new whiteout::mdx::Parser());
+}
+
+whiteout_MdxParser* whiteout_mdx_MdxParser_new_parseMode_upgradeMode(int32_t parseMode, int32_t upgradeMode) {
+    return reinterpret_cast<whiteout_MdxParser*>(new whiteout::mdx::Parser(static_cast<whiteout::mdx::Parser::ParseMode>(parseMode), static_cast<whiteout::mdx::Parser::UpgradeMode>(upgradeMode)));
+}
+
+void whiteout_mdx_MdxParser_delete(whiteout_MdxParser* self) {
+    delete reinterpret_cast<whiteout::mdx::Parser*>(self);
+}
+
+struct whiteout_MdxModel* whiteout_mdx_MdxParser_parse(whiteout_MdxParser* self, const char* filePath) {
+    return reinterpret_cast<struct whiteout_MdxModel*>(
+        new whiteout::mdx::Model(reinterpret_cast<whiteout::mdx::Parser*>(self)->parse(std::string(filePath ? filePath : ""))));
+}
+
+struct whiteout_MdxModel* whiteout_mdx_MdxParser_parse_buffer_format(whiteout_MdxParser* self, const uint8_t* buffer, size_t buffer_size, int32_t format) {
+    return reinterpret_cast<struct whiteout_MdxModel*>(
+        new whiteout::mdx::Model(reinterpret_cast<whiteout::mdx::Parser*>(self)->parse(std::span<const whiteout::u8>(buffer, buffer_size), static_cast<whiteout::mdx::MDLXFormat>(format))));
+}
+
+int32_t whiteout_mdx_MdxParser_hasIssues(const whiteout_MdxParser* self) {
+    return reinterpret_cast<const whiteout::mdx::Parser*>(self)->hasIssues();
+}
+
+} // extern "C"
+
+// ── MdxWriter ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_MdxWriter* whiteout_mdx_MdxWriter_new(void) {
+    return reinterpret_cast<whiteout_MdxWriter*>(new whiteout::mdx::Writer());
+}
+
+void whiteout_mdx_MdxWriter_delete(whiteout_MdxWriter* self) {
+    delete reinterpret_cast<whiteout::mdx::Writer*>(self);
+}
+
+void whiteout_mdx_MdxWriter_write(whiteout_MdxWriter* self, const char* filePath, struct whiteout_MdxModel* mdlx, int32_t mdlFormat) {
+    reinterpret_cast<whiteout::mdx::Writer*>(self)->write(std::string(filePath ? filePath : ""), *reinterpret_cast<const whiteout::mdx::Model*>(mdlx), static_cast<whiteout::mdx::MdlFormat>(mdlFormat));
+}
+
+whiteout_Bytes whiteout_mdx_MdxWriter_write_mdx_format_mdlFormat(whiteout_MdxWriter* self, struct whiteout_MdxModel* mdx, int32_t format, int32_t mdlFormat) {
+    return wrapBytes(reinterpret_cast<whiteout::mdx::Writer*>(self)->write(*reinterpret_cast<const whiteout::mdx::Model*>(mdx), static_cast<whiteout::mdx::MDLXFormat>(format), static_cast<whiteout::mdx::MdlFormat>(mdlFormat)));
 }
 
 } // extern "C"

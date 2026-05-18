@@ -2157,6 +2157,30 @@ public final class Native {
     public static final MethodHandle whiteout_m3_M3Model_get_m3aAnimHashes_data = find("whiteout_m3_M3Model_get_m3aAnimHashes_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3Model_assign_m3aAnimHashes = find("whiteout_m3_M3Model_assign_m3aAnimHashes", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
 
+    // -- M3Parser --
+    public static final MethodHandle whiteout_m3_M3Parser_new = find(
+        "whiteout_m3_M3Parser_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3Parser_new_mode = find(
+        "whiteout_m3_M3Parser_new_mode", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m3_M3Parser_delete = find(
+        "whiteout_m3_M3Parser_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3Parser_parse = find(
+        "whiteout_m3_M3Parser_parse", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3Parser_parse_buffer = find(
+        "whiteout_m3_M3Parser_parse_buffer", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m3_M3Parser_hasIssues = find(
+        "whiteout_m3_M3Parser_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+
+    // -- M3Writer --
+    public static final MethodHandle whiteout_m3_M3Writer_new = find(
+        "whiteout_m3_M3Writer_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3Writer_delete = find(
+        "whiteout_m3_M3Writer_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3Writer_write = find(
+        "whiteout_m3_M3Writer_write", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3Writer_write_model = find(
+        "whiteout_m3_M3Writer_write_model", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+
     // -- M3AnimRefF32 --
     public static final MethodHandle whiteout_m3_M3AnimRefF32_new = find(
         "whiteout_m3_M3AnimRefF32_new", FunctionDescriptor.of(ValueLayout.ADDRESS));

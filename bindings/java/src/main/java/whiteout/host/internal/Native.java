@@ -27,9 +27,25 @@ public final class Native {
     public static final MethodHandle whiteout_host_WorkerPool_threadCount = find(
         "whiteout_host_WorkerPool_threadCount", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
 
+    // -- CascFileSystem --
+    public static final MethodHandle whiteout_host_CascFileSystem_delete = find(
+        "whiteout_host_CascFileSystem_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_host_CascFileSystem_readFile = find(
+        "whiteout_host_CascFileSystem_readFile", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_host_CascFileSystem_writeFile = find(
+        "whiteout_host_CascFileSystem_writeFile", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_host_CascFileSystem_fileExists = find(
+        "whiteout_host_CascFileSystem_fileExists", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+
     // -- VirtualPathFileSystem --
     public static final MethodHandle whiteout_host_VirtualPathFileSystem_delete = find(
         "whiteout_host_VirtualPathFileSystem_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_host_VirtualPathFileSystem_readFile = find(
+        "whiteout_host_VirtualPathFileSystem_readFile", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_host_VirtualPathFileSystem_writeFile = find(
+        "whiteout_host_VirtualPathFileSystem_writeFile", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_host_VirtualPathFileSystem_fileExists = find(
+        "whiteout_host_VirtualPathFileSystem_fileExists", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
 
     // -- HttpResponse --
     public static final MethodHandle whiteout_host_HttpResponse_new = find(
@@ -56,6 +72,12 @@ public final class Native {
         "whiteout_host_OsFileSystem_new_rootPath", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_host_OsFileSystem_delete = find(
         "whiteout_host_OsFileSystem_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_host_OsFileSystem_readFile = find(
+        "whiteout_host_OsFileSystem_readFile", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_host_OsFileSystem_writeFile = find(
+        "whiteout_host_OsFileSystem_writeFile", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_host_OsFileSystem_fileExists = find(
+        "whiteout_host_OsFileSystem_fileExists", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
 
     // -- SimpleThreadPool --
     public static final MethodHandle whiteout_host_SimpleThreadPool_new_nThreads = find(

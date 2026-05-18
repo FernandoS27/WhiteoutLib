@@ -8,14 +8,28 @@ package whiteout.m3;
 public enum ParticleRotationFlag {
     None(0),
     /** Relative rotation */
-    Relative(1),
+    Relative(2),
     /** Always set */
-    AlwaysSet(2);
+    AlwaysSet(4);
 
     public final int value;
     ParticleRotationFlag(int v) { this.value = v; }
     public static ParticleRotationFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown ParticleRotationFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of ParticleRotationFlag bits. */
+    public static java.util.EnumSet<ParticleRotationFlag> unpack(int packed) {
+        java.util.EnumSet<ParticleRotationFlag> out = java.util.EnumSet.noneOf(ParticleRotationFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<ParticleRotationFlag> flags) {
+        int v = 0;
+        for (ParticleRotationFlag f : flags) v |= f.value;
+        return v;
     }
 }

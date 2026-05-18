@@ -22,6 +22,8 @@
 #include <whiteout/models/m3/structures/physics.h>
 #include <whiteout/models/m3/structures/scene.h>
 #include <whiteout/models/m3/structures.h>
+#include <whiteout/models/m3/parser.h>
+#include <whiteout/models/m3/writer.h>
 
 namespace { using namespace whiteout; }
 
@@ -36,6 +38,15 @@ inline whiteout_Bytes wrapBytes(std::vector<whiteout::u8>&& v) {
 }
 
 inline whiteout_Bytes emptyBytes() {
+    return { nullptr, 0, nullptr };
+}
+
+inline whiteout_CString wrapCString(std::string&& s) {
+    auto* owned = new std::string(std::move(s));
+    return { owned->c_str(), owned->size(), owned };
+}
+
+inline whiteout_CString emptyCString() {
     return { nullptr, 0, nullptr };
 }
 
@@ -8091,6 +8102,60 @@ void whiteout_m3_M3Model_assign_m3aAnimHashes(whiteout_M3Model* self, const uint
     auto& __v = reinterpret_cast<whiteout::m3::Model*>(self)->m3aAnimHashes;
     __v.resize(count);
     if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u32));
+}
+
+} // extern "C"
+
+// ── M3Parser ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M3Parser* whiteout_m3_M3Parser_new(void) {
+    return reinterpret_cast<whiteout_M3Parser*>(new whiteout::m3::Parser());
+}
+
+whiteout_M3Parser* whiteout_m3_M3Parser_new_mode(int32_t mode) {
+    return reinterpret_cast<whiteout_M3Parser*>(new whiteout::m3::Parser(static_cast<whiteout::m3::Parser::ParseMode>(mode)));
+}
+
+void whiteout_m3_M3Parser_delete(whiteout_M3Parser* self) {
+    delete reinterpret_cast<whiteout::m3::Parser*>(self);
+}
+
+struct whiteout_M3Model* whiteout_m3_M3Parser_parse(whiteout_M3Parser* self, const char* filePath) {
+    return reinterpret_cast<struct whiteout_M3Model*>(
+        new whiteout::m3::Model(reinterpret_cast<whiteout::m3::Parser*>(self)->parse(std::string(filePath ? filePath : ""))));
+}
+
+struct whiteout_M3Model* whiteout_m3_M3Parser_parse_buffer(whiteout_M3Parser* self, const uint8_t* buffer, size_t buffer_size) {
+    return reinterpret_cast<struct whiteout_M3Model*>(
+        new whiteout::m3::Model(reinterpret_cast<whiteout::m3::Parser*>(self)->parse(std::span<const whiteout::u8>(buffer, buffer_size))));
+}
+
+int32_t whiteout_m3_M3Parser_hasIssues(const whiteout_M3Parser* self) {
+    return reinterpret_cast<const whiteout::m3::Parser*>(self)->hasIssues();
+}
+
+} // extern "C"
+
+// ── M3Writer ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M3Writer* whiteout_m3_M3Writer_new(void) {
+    return reinterpret_cast<whiteout_M3Writer*>(new whiteout::m3::Writer());
+}
+
+void whiteout_m3_M3Writer_delete(whiteout_M3Writer* self) {
+    delete reinterpret_cast<whiteout::m3::Writer*>(self);
+}
+
+void whiteout_m3_M3Writer_write(whiteout_M3Writer* self, const char* filePath, struct whiteout_M3Model* model) {
+    reinterpret_cast<whiteout::m3::Writer*>(self)->write(std::string(filePath ? filePath : ""), *reinterpret_cast<const whiteout::m3::Model*>(model));
+}
+
+whiteout_Bytes whiteout_m3_M3Writer_write_model(whiteout_M3Writer* self, struct whiteout_M3Model* model) {
+    return wrapBytes(reinterpret_cast<whiteout::m3::Writer*>(self)->write(*reinterpret_cast<const whiteout::m3::Model*>(model)));
 }
 
 } // extern "C"

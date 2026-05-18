@@ -49,6 +49,15 @@ public final class DdsParser implements AutoCloseable {
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
+    public static DdsParser createParseMode(DdsParseMode parseMode) {
+        try {
+            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_DdsParser_new_parseMode.invoke(parseMode.value);
+            if (__raw == null || __raw.equals(MemorySegment.NULL))
+                throw new RuntimeException("DdsParser allocation failed");
+            return new DdsParser(__raw, true);
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
     @Override
     public void close() {
         if (!owned) return;

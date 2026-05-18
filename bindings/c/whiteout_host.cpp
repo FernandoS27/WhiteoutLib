@@ -32,6 +32,15 @@ inline whiteout_Bytes emptyBytes() {
     return { nullptr, 0, nullptr };
 }
 
+inline whiteout_CString wrapCString(std::string&& s) {
+    auto* owned = new std::string(std::move(s));
+    return { owned->c_str(), owned->size(), owned };
+}
+
+inline whiteout_CString emptyCString() {
+    return { nullptr, 0, nullptr };
+}
+
 } // anonymous
 
 // ── WorkerPool ─────────────────────────────────────────────────
@@ -52,12 +61,46 @@ uint64_t whiteout_host_WorkerPool_threadCount(const whiteout_WorkerPool* self) {
 
 } // extern "C"
 
+// ── CascFileSystem ─────────────────────────────────────────────────
+
+extern "C" {
+
+void whiteout_host_CascFileSystem_delete(whiteout_CascFileSystem* self) {
+    delete reinterpret_cast<whiteout::interfaces::CascFileSystem*>(self);
+}
+
+whiteout_Bytes whiteout_host_CascFileSystem_readFile(const whiteout_CascFileSystem* self, uint32_t fileId) {
+    return wrapBytes(reinterpret_cast<const whiteout::interfaces::CascFileSystem*>(self)->readFile(fileId));
+}
+
+int32_t whiteout_host_CascFileSystem_writeFile(whiteout_CascFileSystem* self, uint32_t fileId, const uint8_t* data, size_t data_size) {
+    return reinterpret_cast<whiteout::interfaces::CascFileSystem*>(self)->writeFile(fileId, std::vector<whiteout::u8>(data, data + data_size));
+}
+
+int32_t whiteout_host_CascFileSystem_fileExists(const whiteout_CascFileSystem* self, uint32_t fileId) {
+    return reinterpret_cast<const whiteout::interfaces::CascFileSystem*>(self)->fileExists(fileId);
+}
+
+} // extern "C"
+
 // ── VirtualPathFileSystem ─────────────────────────────────────────────────
 
 extern "C" {
 
 void whiteout_host_VirtualPathFileSystem_delete(whiteout_VirtualPathFileSystem* self) {
     delete reinterpret_cast<whiteout::interfaces::VirtualPathFileSystem*>(self);
+}
+
+whiteout_Bytes whiteout_host_VirtualPathFileSystem_readFile(const whiteout_VirtualPathFileSystem* self, const char* path) {
+    return wrapBytes(reinterpret_cast<const whiteout::interfaces::VirtualPathFileSystem*>(self)->readFile(std::string(path ? path : "")));
+}
+
+int32_t whiteout_host_VirtualPathFileSystem_writeFile(whiteout_VirtualPathFileSystem* self, const char* path, const uint8_t* data, size_t data_size) {
+    return reinterpret_cast<whiteout::interfaces::VirtualPathFileSystem*>(self)->writeFile(std::string(path ? path : ""), std::vector<whiteout::u8>(data, data + data_size));
+}
+
+int32_t whiteout_host_VirtualPathFileSystem_fileExists(const whiteout_VirtualPathFileSystem* self, const char* path) {
+    return reinterpret_cast<const whiteout::interfaces::VirtualPathFileSystem*>(self)->fileExists(std::string(path ? path : ""));
 }
 
 } // extern "C"
@@ -136,6 +179,18 @@ whiteout_OsFileSystem* whiteout_host_OsFileSystem_new_rootPath(const char* rootP
 
 void whiteout_host_OsFileSystem_delete(whiteout_OsFileSystem* self) {
     delete reinterpret_cast<whiteout::utils::OsFileSystem*>(self);
+}
+
+whiteout_Bytes whiteout_host_OsFileSystem_readFile(const whiteout_OsFileSystem* self, const char* path) {
+    return wrapBytes(reinterpret_cast<const whiteout::utils::OsFileSystem*>(self)->readFile(std::string(path ? path : "")));
+}
+
+int32_t whiteout_host_OsFileSystem_writeFile(whiteout_OsFileSystem* self, const char* path, const uint8_t* data, size_t data_size) {
+    return reinterpret_cast<whiteout::utils::OsFileSystem*>(self)->writeFile(std::string(path ? path : ""), std::vector<whiteout::u8>(data, data + data_size));
+}
+
+int32_t whiteout_host_OsFileSystem_fileExists(const whiteout_OsFileSystem* self, const char* path) {
+    return reinterpret_cast<const whiteout::utils::OsFileSystem*>(self)->fileExists(std::string(path ? path : ""));
 }
 
 } // extern "C"

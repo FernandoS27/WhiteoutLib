@@ -16,7 +16,7 @@ namespace whiteout::utils {
 /// Tasks are executed by a fixed number of worker threads created at
 /// construction time.
 ///
-/// @bind methods, extends=whiteout::interfaces::WorkerPool
+/// @bind methods, extends=whiteout::interfaces::WorkerPool, java_package=whiteout.utils
 class SimpleThreadPool : public interfaces::WorkerPool {
 public:
     /// Create a pool with @p nThreads worker threads.

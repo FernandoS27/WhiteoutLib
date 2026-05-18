@@ -49,6 +49,15 @@ public final class BmpParser implements AutoCloseable {
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
+    public static BmpParser createParseMode(BmpParseMode parseMode) {
+        try {
+            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_BmpParser_new_parseMode.invoke(parseMode.value);
+            if (__raw == null || __raw.equals(MemorySegment.NULL))
+                throw new RuntimeException("BmpParser allocation failed");
+            return new BmpParser(__raw, true);
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
     @Override
     public void close() {
         if (!owned) return;

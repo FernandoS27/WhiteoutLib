@@ -6,15 +6,29 @@ public enum MaterialFlag {
     None(0),
     Unlit(1),
     Unfogged(2),
-    TwoSided(3),
-    DepthTest(4),
-    DepthWrite(5),
-    NoAlphaComposite(6);
+    TwoSided(4),
+    DepthTest(8),
+    DepthWrite(16),
+    NoAlphaComposite(2048);
 
     public final int value;
     MaterialFlag(int v) { this.value = v; }
     public static MaterialFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown MaterialFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of MaterialFlag bits. */
+    public static java.util.EnumSet<MaterialFlag> unpack(int packed) {
+        java.util.EnumSet<MaterialFlag> out = java.util.EnumSet.noneOf(MaterialFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<MaterialFlag> flags) {
+        int v = 0;
+        for (MaterialFlag f : flags) v |= f.value;
+        return v;
     }
 }

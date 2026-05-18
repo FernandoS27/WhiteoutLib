@@ -20,9 +20,6 @@ Deferred / known gaps:
   - `Locale::English` / `Locale::Russian` / ... constants are unbound. The
     codegen doesn't yet group sub-namespace constants into a holder class.
     Callers can pass the raw `u16` value to `WriteOptions(locale=0x0409)`.
-  - `Storage::save(path)` overload (`save` returns to source path; for new
-    archives, the path-variant is needed). The codegen picks one overload
-    only.
   - WASM/Embind backend isn't wired. Embind doesn't auto-convert
     `std::optional` returns, so `Storage::open` would need custom glue.
 """

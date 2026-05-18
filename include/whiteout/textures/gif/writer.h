@@ -44,6 +44,7 @@ namespace whiteout::textures::gif {
 // ============================================================================
 
 /// Per-write options for GIF encoding.
+/// @bind value_object, js_name=GifSaveOptions
 struct SaveOptions {
     /// Delay between frames in centiseconds (1/100 s).  0 = unspecified.
     u16 delayCs = 4;
@@ -66,8 +67,10 @@ struct SaveOptions {
 ///
 /// Unlike the single-image writers (BMP, TGA, …), this writer accepts a
 /// vector of frames.  It does **not** inherit from `textures::Writer`.
+/// @bind methods, js_name=GifWriter
 class Writer {
 public:
+    /// @bind js_name=GifWriteMode
     enum class WriteMode {
         Strict, ///< Throw on any issue.
         Lenient ///< Collect issues, return empty data on failure.

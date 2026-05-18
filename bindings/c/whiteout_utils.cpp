@@ -29,6 +29,15 @@ inline whiteout_Bytes emptyBytes() {
     return { nullptr, 0, nullptr };
 }
 
+inline whiteout_CString wrapCString(std::string&& s) {
+    auto* owned = new std::string(std::move(s));
+    return { owned->c_str(), owned->size(), owned };
+}
+
+inline whiteout_CString emptyCString() {
+    return { nullptr, 0, nullptr };
+}
+
 } // anonymous
 
 // ── UtilsVertexBuffer ─────────────────────────────────────────────────
@@ -168,9 +177,9 @@ struct whiteout_UtilsVertexBufferBuilder* whiteout_utils_UtilsVertexBufferBuilde
     return reinterpret_cast<struct whiteout_UtilsVertexBufferBuilder*>(&__r);
 }
 
-struct whiteout_UtilsVertexBuffer* whiteout_utils_UtilsVertexBufferBuilder_build(const whiteout_UtilsVertexBufferBuilder* self) {
+struct whiteout_UtilsVertexBuffer* whiteout_utils_UtilsVertexBufferBuilder_build(const whiteout_UtilsVertexBufferBuilder* self, void* pool) {
     return reinterpret_cast<struct whiteout_UtilsVertexBuffer*>(
-        new whiteout::utils::VertexBuffer(reinterpret_cast<const whiteout::utils::VertexBufferBuilder*>(self)->build()));
+        new whiteout::utils::VertexBuffer(reinterpret_cast<const whiteout::utils::VertexBufferBuilder*>(self)->build(reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool))));
 }
 
 } // extern "C"

@@ -84,6 +84,7 @@ private:
     }
 };
 
+/// @bind methods, js_name=M2Writer
 class Writer {
 public:
     explicit Writer(WriteOptions options = {});

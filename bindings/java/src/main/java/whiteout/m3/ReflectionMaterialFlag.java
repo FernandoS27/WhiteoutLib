@@ -12,16 +12,30 @@ public enum ReflectionMaterialFlag {
     /** Use displacement map */
     UseDisplacementMap(2),
     /** Render in transparent pass */
-    RenderInTransparentPass(3),
+    RenderInTransparentPass(4),
     /** Enable blurring */
-    Blurring(4),
+    Blurring(8),
     /** Use blur map */
-    UseBlurMap(5);
+    UseBlurMap(16);
 
     public final int value;
     ReflectionMaterialFlag(int v) { this.value = v; }
     public static ReflectionMaterialFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown ReflectionMaterialFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of ReflectionMaterialFlag bits. */
+    public static java.util.EnumSet<ReflectionMaterialFlag> unpack(int packed) {
+        java.util.EnumSet<ReflectionMaterialFlag> out = java.util.EnumSet.noneOf(ReflectionMaterialFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<ReflectionMaterialFlag> flags) {
+        int v = 0;
+        for (ReflectionMaterialFlag f : flags) v |= f.value;
+        return v;
     }
 }

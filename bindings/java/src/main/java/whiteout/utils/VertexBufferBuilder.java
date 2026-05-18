@@ -99,12 +99,22 @@ public final class VertexBufferBuilder implements AutoCloseable {
 
     /**
      * Build the interleaved vertex buffer from all declared attributes. @param pool  Optional WorkerPool for parallel encoding. When non-null and the vertex count is large enough, the vertex encoding loop is split into cache-friendly chunks across workers.
+     *
+     * @param pool WorkerPool input.
      * @return a fresh VertexBuffer owning a native allocation.
      */
-    public VertexBuffer build() {
+    public VertexBuffer build(whiteout.interfaces.WorkerPool pool) {
         try {
-        MemorySegment __h = (MemorySegment) Native.whiteout_utils_UtilsVertexBufferBuilder_build.invoke(handle);
-        return new VertexBuffer(__h, true);
+        long __pool_h = pool == null ? 0L
+            : whiteout.host.WorkerPools.resolveNative(pool, pool);
+        MemorySegment __pool_seg = __pool_h == 0L
+            ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
+        try {
+            MemorySegment __h = (MemorySegment) Native.whiteout_utils_UtilsVertexBufferBuilder_build.invoke(handle, __pool_seg);
+            return new VertexBuffer(__h, true);
+        } finally {
+            java.lang.ref.Reference.reachabilityFence(pool);
+        }
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 

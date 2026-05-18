@@ -12,14 +12,28 @@ public enum RegionFlag {
     /** Placeholder region */
     Placeholder(2),
     /** Cloth-simulated */
-    ClothSimulated(3),
+    ClothSimulated(4),
     /** Cloth-influenced */
-    ClothInfluenced(4);
+    ClothInfluenced(8);
 
     public final int value;
     RegionFlag(int v) { this.value = v; }
     public static RegionFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown RegionFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of RegionFlag bits. */
+    public static java.util.EnumSet<RegionFlag> unpack(int packed) {
+        java.util.EnumSet<RegionFlag> out = java.util.EnumSet.noneOf(RegionFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<RegionFlag> flags) {
+        int v = 0;
+        for (RegionFlag f : flags) v |= f.value;
+        return v;
     }
 }

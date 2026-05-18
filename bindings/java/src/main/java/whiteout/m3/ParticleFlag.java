@@ -12,62 +12,76 @@ public enum ParticleFlag {
     /** Collide with terrain */
     CollideTerrain(2),
     /** Collide with objects */
-    CollideObjects(3),
+    CollideObjects(4),
     /** Emit on collision */
-    CollideEmit(4),
+    CollideEmit(8),
     /** Emit from shape cutout */
-    EmitShapeCutout(5),
+    EmitShapeCutout(16),
     /** Inherit emission parameters */
-    InheritEmitParams(6),
+    InheritEmitParams(32),
     /** Inherit parent velocity */
-    InheritParentVelocity(7),
+    InheritParentVelocity(64),
     /** Sort by height */
-    SortHeight(8),
+    SortHeight(128),
     /** Reverse sort order */
-    SortReverse(9),
+    SortReverse(256),
     /** Legacy rotation smoothing */
-    OldRotationSmooth(10),
+    OldRotationSmooth(512),
     /** Legacy rotation bezier */
-    OldRotationBezier(11),
+    OldRotationBezier(1024),
     /** Legacy size smoothing */
-    OldSizeSmooth(12),
+    OldSizeSmooth(2048),
     /** Legacy size bezier */
-    OldSizeBezier(13),
+    OldSizeBezier(4096),
     /** Legacy color smoothing */
-    OldColorSmooth(14),
+    OldColorSmooth(8192),
     /** Legacy color bezier */
-    OldColorBezier(15),
+    OldColorBezier(16384),
     /** Lit particles */
-    LitParts(16),
+    LitParts(32768),
     /** Random flipbook start */
-    RandomFlipbookStart(17),
+    RandomFlipbookStart(65536),
     /** Multiply gravity by mass */
-    MultiplyGravityByMass(18),
+    MultiplyGravityByMass(131072),
     /** Clamp tail length */
-    ClampTailLength(19),
+    ClampTailLength(262144),
     /** Spawn trailing particles */
-    SpawnTrailingParticles(20),
+    SpawnTrailingParticles(524288),
     /** Fix tail length on creation */
-    FixTailLengthOnCreation(21),
+    FixTailLengthOnCreation(1048576),
     /** Use vertex alpha */
-    UseVertexAlpha(22),
+    UseVertexAlpha(2097152),
     /** Use model particles */
-    ModelParticles(23),
+    ModelParticles(4194304),
     /** Swap Y/Z on model particles */
-    SwapYZOnModelParticles(24),
+    SwapYZOnModelParticles(8388608),
     /** Scale time by parent */
-    ScaleTimeByParent(25),
+    ScaleTimeByParent(16777216),
     /** Use local time */
-    UseLocalTime(26),
+    UseLocalTime(33554432),
     /** Simulate on initialization */
-    SimulateInit(27),
+    SimulateInit(67108864),
     /** Copy emitter */
-    Copy(28);
+    Copy(134217728);
 
     public final int value;
     ParticleFlag(int v) { this.value = v; }
     public static ParticleFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown ParticleFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of ParticleFlag bits. */
+    public static java.util.EnumSet<ParticleFlag> unpack(int packed) {
+        java.util.EnumSet<ParticleFlag> out = java.util.EnumSet.noneOf(ParticleFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<ParticleFlag> flags) {
+        int v = 0;
+        for (ParticleFlag f : flags) v |= f.value;
+        return v;
     }
 }

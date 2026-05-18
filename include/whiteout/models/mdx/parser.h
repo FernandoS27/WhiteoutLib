@@ -60,11 +60,13 @@ enum class MDLXFormat {
  *
  * Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
  */
+/// @bind methods, js_name=MdxParser
 class Parser {
 public:
     /**
      * @brief Parsing strictness mode
      */
+    /// @bind js_name=MdxParseMode
     enum class ParseMode {
         Strict, ///< Throw exceptions on unknown chunks or invalid data
         Lenient ///< Skip unknown chunks and try to recover from errors (recommended)
@@ -73,6 +75,7 @@ public:
     /**
      * @brief Version handling mode
      */
+    /// @bind js_name=MdxUpgradeMode
     enum class UpgradeMode {
         UpgradeOldVersions, ///< Automatically upgrade older versions to latest format
         PreserveOriginal    ///< Keep original version and structure as-is

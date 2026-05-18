@@ -53,6 +53,15 @@ public final class BlpParser implements AutoCloseable {
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
+    public static BlpParser createParseMode(BlpParseMode parseMode) {
+        try {
+            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_BlpParser_new_parseMode.invoke(parseMode.value);
+            if (__raw == null || __raw.equals(MemorySegment.NULL))
+                throw new RuntimeException("BlpParser allocation failed");
+            return new BlpParser(__raw, true);
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
     @Override
     public void close() {
         if (!owned) return;

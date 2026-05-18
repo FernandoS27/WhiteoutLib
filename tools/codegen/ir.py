@@ -62,6 +62,13 @@ class BindMethodParam:
     # Used when the emit-side needs the full signature: ctor parameter
     # types (`Storage&`), `py::overload_cast` disambiguation, etc.
     cpp_raw: str = ''
+    # When the param is `std::function<void(T)>` (or similar callback
+    # shape), this is the short name of T — e.g. "HttpResponse". The
+    # JNI emitter uses this to surface the param as `Consumer<T>` /
+    # `Runnable` on the Java side and to generate the matching wrapper
+    # class that fires the std::function from Java. Empty when the
+    # param isn't a callback.
+    callback_target: str = ''
     # If the param is `std::span<const X>` for some primitive scalar X,
     # this is the (short_name, canonical_cpp) tuple for X — e.g.
     # ("f32", "float") or ("u8", "unsigned char"). Used by the codegen to
@@ -105,6 +112,21 @@ class BindMethod:
     # wrapper needed) since the JS/Python wrapper for the class type is
     # already a handle/reference.
     return_is_reference: bool = False
+    # True when the C++ declaration is `... noexcept`. Critical for the
+    # JNI bridge: overrides must match the base's exception specification
+    # exactly or `override` rejects the declaration.
+    is_noexcept: bool = False
+    # True when the method carried `@bind skip`. Most emitters drop these
+    # entirely (their existing behaviour); the JNI emitter needs them in
+    # the IR so it can synthesise a stub override that keeps the C++
+    # wrapper class non-abstract — library code that calls the stub
+    # aborts with a clear error message.
+    is_skipped: bool = False
+    # Full annotation dict captured by the parser from this method's doc
+    # comment. Backends look here for cross-backend directives like
+    # `sync_call=HttpResponse` (JNI bridge: drop trailing std::function
+    # param, treat the named struct as the synchronous return type).
+    annotations: dict = field(default_factory=dict)
     doc: str = ''
 
 
@@ -113,6 +135,10 @@ class BindEnumValue:
     js_name: str
     cpp_qualifier: str       # "Layer::ShaderType::HD"
     doc: str = ''
+    # Underlying integer value from the C++ literal (e.g. `0x04` for a
+    # bitflag enumerator). Without this the codegen falls back to
+    # ordinal positions, which silently mangles every bitflag enum.
+    value: int = 0
 
 
 @dataclass
@@ -164,6 +190,27 @@ class BindClass:
     # a bitwise `memcpy` is a safe replacement for the class's
     # copy-assignment operator.
     is_pod: bool = False
+    # True when `@bind subclassable` is set on the class. The JNI backend
+    # (emit_jni.py) generates a C++ wrapper class deriving from this
+    # interface plus a Java interface + factory, letting Java code
+    # implement the abstract methods and pass the resulting handle where
+    # a `Class*` is expected.
+    is_subclassable: bool = False
+    # Optional Java package override for the JNI-generated interface and
+    # factory. Defaults to `whiteout.interfaces`. Set via
+    # `@bind jni_package=foo.bar`. Unused outside the JNI backend.
+    jni_package: str = ''
+    # Optional Java package override for the Panama-wrapped class. When
+    # set, the emitter routes this class's `.java` file to the override
+    # package (e.g. `whiteout.utils`) rather than the module default
+    # (`whiteout.<module-name>`). Useful when one C++ TU produces
+    # classes that belong in different Java packages — concrete
+    # `whiteout::utils::*` impls compiled alongside the `interfaces::*`
+    # abstract bases want to land under `whiteout.utils` rather than
+    # share the host's bridge-infrastructure package. Set via
+    # `@bind java_package=foo.bar`. C symbol naming is unaffected
+    # (symbols stay under the module's prefix to preserve ABI).
+    java_package: str = ''
 
 
 @dataclass

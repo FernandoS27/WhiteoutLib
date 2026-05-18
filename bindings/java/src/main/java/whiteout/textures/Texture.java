@@ -68,11 +68,24 @@ public final class Texture implements AutoCloseable {
     }
 
     /**
+     * Convert this texture to a new pixel format in-place.
+     * 
+     * Replaces the internal data with the converted result. Equivalent to `*this = copyAsFormat(new_fmt)`.
+     * 
+     * @param new_fmt Target pixel format.
+     */
+    public void format(PixelFormat new_fmt) {
+        try {
+        Native.whiteout_textures_Texture_format.invoke(handle, new_fmt.value);
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
+    /**
      * @return The pixel format of the stored data.
      */
     public PixelFormat format() {
         try {
-        return PixelFormat.fromInt((int) Native.whiteout_textures_Texture_format.invoke(handle));
+        return PixelFormat.fromInt((int) Native.whiteout_textures_Texture_format_overload2.invoke(handle));
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
@@ -82,11 +95,21 @@ public final class Texture implements AutoCloseable {
      * Conversion path: - Same format → plain copy. - BCn → decoded to native format (R8 for BC4, RG8 for BC5, RGBA32F for BC6H, RGBA8 for others), then recurse. - Uncompressed → uncompressed → per-pixel conversion. - Uncompressed → BCn → encode via the appropriate codec.
      * 
      * @param new_fmt Target pixel format. @param pool Optional WorkerPool for parallel BCn encode/decode work. Ignored for purely uncompressed-to-uncompressed conversions. @return A new Texture with the converted data.
+     *
+     * @param pool WorkerPool input.
      */
-    public Texture copyAsFormat(PixelFormat new_fmt) {
+    public Texture copyAsFormat(PixelFormat new_fmt, whiteout.interfaces.WorkerPool pool) {
         try {
-        MemorySegment __h = (MemorySegment) Native.whiteout_textures_Texture_copyAsFormat.invoke(handle, new_fmt.value);
-        return new Texture(__h, true);
+        long __pool_h = pool == null ? 0L
+            : whiteout.host.WorkerPools.resolveNative(pool, pool);
+        MemorySegment __pool_seg = __pool_h == 0L
+            ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
+        try {
+            MemorySegment __h = (MemorySegment) Native.whiteout_textures_Texture_copyAsFormat.invoke(handle, new_fmt.value, __pool_seg);
+            return new Texture(__h, true);
+        } finally {
+            java.lang.ref.Reference.reachabilityFence(pool);
+        }
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
@@ -97,11 +120,118 @@ public final class Texture implements AutoCloseable {
      * 
      * @param pool Optional WorkerPool for parallel BCn decode work when the source texture is compressed. @return Expanded RGBA8 texture, or std::nullopt when unsupported.
      */
-    public java.util.Optional<Texture> copyFromNormalToRGBA() {
+    public java.util.Optional<Texture> copyFromNormalToRGBA(whiteout.interfaces.WorkerPool pool) {
         try {
-        MemorySegment __h = (MemorySegment) Native.whiteout_textures_Texture_copyFromNormalToRGBA.invoke(handle);
-        if (__h == null || __h.equals(MemorySegment.NULL)) return java.util.Optional.empty();
-        return java.util.Optional.of(new Texture(__h, true));
+        long __pool_h = pool == null ? 0L
+            : whiteout.host.WorkerPools.resolveNative(pool, pool);
+        MemorySegment __pool_seg = __pool_h == 0L
+            ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
+        try {
+            MemorySegment __h = (MemorySegment) Native.whiteout_textures_Texture_copyFromNormalToRGBA.invoke(handle, __pool_seg);
+            if (__h == null || __h.equals(MemorySegment.NULL)) return java.util.Optional.empty();
+            return java.util.Optional.of(new Texture(__h, true));
+        } finally {
+            java.lang.ref.Reference.reachabilityFence(pool);
+        }
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
+    /**
+     * Generate all mip levels from the base image (mip 0).
+     * 
+     * Every mip level is generated directly from the original full-resolution image using an appropriately-sized filter kernel, rather than cascading from the previous mip level.  This eliminates cumulative blur.
+     * 
+     * Selects the best filter and pipeline for the texture's kind(): - Diffuse / Albedo — Lanczos3; sRGB linearize/delinearize when isSrgb() is true. - Normal — Kaiser(β=6) with unpack / Toksvig / renormalize / pack. - Specular — Kaiser(β=6); sRGB linearize/delinearize when isSrgb(). - Roughness — Kaiser(β=6.5) variance-preserving: r→r², filter, √. - Gloss — convert to roughness, apply variance filter, convert back. - Metalness — Kaiser(β=5.5) mean filtering. - AmbientOcclusion — Kaiser(β=6) mean filtering. - Emissive — Lanczos3; sRGB linearize/delinearize when isSrgb(). - ORM (deprecated) — same as Multikind with R=AO/G=Roughness/B=Metalness. - Multikind — per-channel kind-appropriate pipeline; each channel's kind is queried via channelKind(). Unused channels use a box filter. - AlphaMask — Box filter; no sRGB conversion (linear mask data). - Lightmap — Lanczos3; clamp channels to [0, ∞) (no sRGB). - EnvironmentPBR — GGX importance-sampled convolution (equirectangular); roughness increases with each mip level. - EnvironmentLegacy — Solid-angle-weighted spherical Kaiser convolution (equirectangular); no roughness encoding. - Other — Box filter; sRGB linearize/delinearize when isSrgb().
+     * 
+     * The texture must use an uncompressed pixel format.  BCn textures should be decompressed first.  No-op if the texture has ≤ 1 mip.
+     * 
+     * @param newMipCount Desired number of mip levels in the output texture. Pass kKeepMipCount (0) to preserve the existing mip count. Must be between 1 and computeMaxMipCount(width, height, depth). When 1, the mip chain is truncated to the base level only and the function returns immediately. @param pool Optional WorkerPool used to parallelize mip generation across mip levels and layers. If null, generation runs on the calling thread. @return std::nullopt on success; std::optional<std::string> with error message on failure. No exceptions are thrown.
+     *
+     * @param pool WorkerPool input.
+     */
+    public java.util.Optional<String> generateMipmaps(int newMipCount, whiteout.interfaces.WorkerPool pool) {
+        try (Arena arena = Arena.ofConfined()) {
+            long __pool_h = pool == null ? 0L
+                : whiteout.host.WorkerPools.resolveNative(pool, pool);
+            MemorySegment __pool_seg = __pool_h == 0L
+                ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
+            try {
+                MemorySegment __cstr = (MemorySegment) Native.whiteout_textures_Texture_generateMipmaps.invoke(arena, handle, newMipCount, __pool_seg);
+                MemorySegment __chars = __cstr.get(ValueLayout.ADDRESS, 0);
+                if (__chars == null || __chars.equals(MemorySegment.NULL)) {
+                    Native.whiteout_CString_free.invoke(__cstr);
+                    return java.util.Optional.empty();
+                }
+                long __slen = __cstr.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
+                String __out = __chars.reinterpret(__slen + 1).getString(0L);
+                Native.whiteout_CString_free.invoke(__cstr);
+                return java.util.Optional.of(__out);
+            } finally {
+                java.lang.ref.Reference.reachabilityFence(pool);
+            }
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
+    /**
+     * @overload Preserves existing mip count; optional worker pool.
+     *
+     * @param pool WorkerPool input.
+     * @return a fresh java.util.Optional<String> owning a native allocation.
+     */
+    public java.util.Optional<String> generateMipmaps(whiteout.interfaces.WorkerPool pool) {
+        try (Arena arena = Arena.ofConfined()) {
+            long __pool_h = pool == null ? 0L
+                : whiteout.host.WorkerPools.resolveNative(pool, pool);
+            MemorySegment __pool_seg = __pool_h == 0L
+                ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
+            try {
+                MemorySegment __cstr = (MemorySegment) Native.whiteout_textures_Texture_generateMipmaps_pool.invoke(arena, handle, __pool_seg);
+                MemorySegment __chars = __cstr.get(ValueLayout.ADDRESS, 0);
+                if (__chars == null || __chars.equals(MemorySegment.NULL)) {
+                    Native.whiteout_CString_free.invoke(__cstr);
+                    return java.util.Optional.empty();
+                }
+                long __slen = __cstr.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
+                String __out = __chars.reinterpret(__slen + 1).getString(0L);
+                Native.whiteout_CString_free.invoke(__cstr);
+                return java.util.Optional.of(__out);
+            } finally {
+                java.lang.ref.Reference.reachabilityFence(pool);
+            }
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
+    /**
+     * Downscale the texture by dropping leading mip levels.
+     * 
+     * Increases the mip count by @p levels (clamped to the maximum), regenerates all mip levels from the base image, then drops the first @p levels mips — effectively halving the resolution @p levels times while preserving the original mip chain length.
+     * 
+     * The texture must use an uncompressed pixel format (same requirement as generateMipmaps).  Returns an error if @p levels would reduce every dimension to zero.
+     * 
+     * @param levels Number of mip levels to drop (default 1). @param pool   Optional WorkerPool for parallel mip generation. @return std::nullopt on success; error message on failure.
+     *
+     * @param pool WorkerPool input.
+     */
+    public java.util.Optional<String> downscale(int levels, whiteout.interfaces.WorkerPool pool) {
+        try (Arena arena = Arena.ofConfined()) {
+            long __pool_h = pool == null ? 0L
+                : whiteout.host.WorkerPools.resolveNative(pool, pool);
+            MemorySegment __pool_seg = __pool_h == 0L
+                ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
+            try {
+                MemorySegment __cstr = (MemorySegment) Native.whiteout_textures_Texture_downscale.invoke(arena, handle, levels, __pool_seg);
+                MemorySegment __chars = __cstr.get(ValueLayout.ADDRESS, 0);
+                if (__chars == null || __chars.equals(MemorySegment.NULL)) {
+                    Native.whiteout_CString_free.invoke(__cstr);
+                    return java.util.Optional.empty();
+                }
+                long __slen = __cstr.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
+                String __out = __chars.reinterpret(__slen + 1).getString(0L);
+                Native.whiteout_CString_free.invoke(__cstr);
+                return java.util.Optional.of(__out);
+            } finally {
+                java.lang.ref.Reference.reachabilityFence(pool);
+            }
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
@@ -113,7 +243,7 @@ public final class Texture implements AutoCloseable {
      * @param height int input.
      * @param mipCount int input.
      */
-    public Texture create2D(PixelFormat fmt, int width, int height, int mipCount) {
+    public static Texture create2D(PixelFormat fmt, int width, int height, int mipCount) {
         try {
         MemorySegment __h = (MemorySegment) Native.whiteout_textures_Texture_create2D.invoke(fmt.value, width, height, mipCount);
         return new Texture(__h, true);
@@ -129,7 +259,7 @@ public final class Texture implements AutoCloseable {
      * @param depth int input.
      * @param mipCount int input.
      */
-    public Texture create3D(PixelFormat fmt, int width, int height, int depth, int mipCount) {
+    public static Texture create3D(PixelFormat fmt, int width, int height, int depth, int mipCount) {
         try {
         MemorySegment __h = (MemorySegment) Native.whiteout_textures_Texture_create3D.invoke(fmt.value, width, height, depth, mipCount);
         return new Texture(__h, true);
@@ -143,7 +273,7 @@ public final class Texture implements AutoCloseable {
      * @param size int input.
      * @param mipCount int input.
      */
-    public Texture createCube(PixelFormat fmt, int size, int mipCount) {
+    public static Texture createCube(PixelFormat fmt, int size, int mipCount) {
         try {
         MemorySegment __h = (MemorySegment) Native.whiteout_textures_Texture_createCube.invoke(fmt.value, size, mipCount);
         return new Texture(__h, true);
@@ -159,7 +289,7 @@ public final class Texture implements AutoCloseable {
      * @param arraySize int input.
      * @param mipCount int input.
      */
-    public Texture create2DArray(PixelFormat fmt, int width, int height, int arraySize, int mipCount) {
+    public static Texture create2DArray(PixelFormat fmt, int width, int height, int arraySize, int mipCount) {
         try {
         MemorySegment __h = (MemorySegment) Native.whiteout_textures_Texture_create2DArray.invoke(fmt.value, width, height, arraySize, mipCount);
         return new Texture(__h, true);
@@ -174,7 +304,7 @@ public final class Texture implements AutoCloseable {
      * @param arraySize int input.
      * @param mipCount int input.
      */
-    public Texture createCubeArray(PixelFormat fmt, int size, int arraySize, int mipCount) {
+    public static Texture createCubeArray(PixelFormat fmt, int size, int arraySize, int mipCount) {
         try {
         MemorySegment __h = (MemorySegment) Native.whiteout_textures_Texture_createCubeArray.invoke(fmt.value, size, arraySize, mipCount);
         return new Texture(__h, true);
@@ -321,6 +451,25 @@ public final class Texture implements AutoCloseable {
             byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
             Native.whiteout_Bytes_free.invoke(__struct);
             return __out;
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
+    /**
+     * Replace the pixel-data buffer.
+     * 
+     * The new buffer must match the existing allocation size. @param new_data Replacement data.
+     *
+     * @param new_data byte[] input.
+     */
+    public void setData(byte[] new_data) {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment new_data_seg = new_data == null || new_data.length == 0
+                ? MemorySegment.NULL
+                : arena.allocate(new_data.length);
+            if (new_data != null && new_data.length != 0) {
+                MemorySegment.copy(new_data, 0, new_data_seg, ValueLayout.JAVA_BYTE, 0, new_data.length);
+            }
+            Native.whiteout_textures_Texture_setData.invoke(handle, new_data_seg, (long) (new_data == null ? 0 : new_data.length));
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 

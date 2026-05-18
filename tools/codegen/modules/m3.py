@@ -25,6 +25,8 @@ CONFIG = ModuleConfig(
         'include/whiteout/models/m3/structures/physics.h',
         'include/whiteout/models/m3/structures/scene.h',
         'include/whiteout/models/m3/structures.h',
+        'include/whiteout/models/m3/parser.h',
+        'include/whiteout/models/m3/writer.h',
     ],
     output_path='bindings/wasm/m3_bindings.cpp',
     include_dirs=['include'],

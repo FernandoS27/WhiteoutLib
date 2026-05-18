@@ -139,31 +139,31 @@ public final class TrackU32 implements AutoCloseable {
     }
     /**
      * Raw keyframe data
-     * @return the keys_data field of this MdxTrackU32.
+     * @return the keys field of this MdxTrackU32.
      */
-    public int getKeys_dataCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxTrackU32_get_keys_data_count.invoke(handle); }
+    public int getKeysCount() {
+        try { return (int) (long) Native.whiteout_mdx_MdxTrackU32_get_keys_count.invoke(handle); }
         catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
-    public int[] getKeys_data() {
+    public int[] getKeys() {
         try {
-            long __count = (long) Native.whiteout_mdx_MdxTrackU32_get_keys_data_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_mdx_MdxTrackU32_get_keys_data_data.invoke(handle);
+            long __count = (long) Native.whiteout_mdx_MdxTrackU32_get_keys_count.invoke(handle);
+            MemorySegment __ptr = (MemorySegment) Native.whiteout_mdx_MdxTrackU32_get_keys_data.invoke(handle);
             if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
             long __scalars = __count * 1L;
             return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
-    public void setKeys_data(int[] values) {
+    public void setKeys(int[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
-            Native.whiteout_mdx_MdxTrackU32_assign_keys_data.invoke(handle, __seg, __count);
+            Native.whiteout_mdx_MdxTrackU32_assign_keys.invoke(handle, __seg, __count);
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
-    public void resizeKeys_data(int count) {
-        try { Native.whiteout_mdx_MdxTrackU32_resize_keys_data.invoke(handle, (long) count); }
+    public void resizeKeys(int count) {
+        try { Native.whiteout_mdx_MdxTrackU32_resize_keys.invoke(handle, (long) count); }
         catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
     @Override public String toString() {

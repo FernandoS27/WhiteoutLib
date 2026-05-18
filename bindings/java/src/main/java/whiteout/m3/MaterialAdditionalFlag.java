@@ -10,14 +10,28 @@ public enum MaterialAdditionalFlag {
     /** Enable depth blend falloff */
     DepthBlendFalloff(1),
     /** Uses vertex color */
-    VertexColor(2),
+    VertexColor(4),
     /** Uses vertex alpha */
-    VertexAlpha(3);
+    VertexAlpha(8);
 
     public final int value;
     MaterialAdditionalFlag(int v) { this.value = v; }
     public static MaterialAdditionalFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown MaterialAdditionalFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of MaterialAdditionalFlag bits. */
+    public static java.util.EnumSet<MaterialAdditionalFlag> unpack(int packed) {
+        java.util.EnumSet<MaterialAdditionalFlag> out = java.util.EnumSet.noneOf(MaterialAdditionalFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<MaterialAdditionalFlag> flags) {
+        int v = 0;
+        for (MaterialAdditionalFlag f : flags) v |= f.value;
+        return v;
     }
 }

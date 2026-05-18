@@ -12,30 +12,44 @@ public enum BoneFlag {
     /** Inherit parent scale */
     InheritScale(2),
     /** Inherit parent rotation */
-    InheritRotation(3),
+    InheritRotation(4),
     /** Billboard mode 1 */
-    Billboard1(4),
+    Billboard1(16),
     /** Billboard mode 2 */
-    Billboard2(5),
+    Billboard2(64),
     /** 2D projection mode */
-    Project2D(6),
+    Project2D(256),
     /** Has animation data */
-    Animated(7),
+    Animated(512),
     /** IK bone */
-    InverseKinematics(8),
+    InverseKinematics(1024),
     /** Affects mesh skin */
-    Skinned(9),
+    Skinned(2048),
     /** Real bone (not helper) */
-    Real(10),
+    Real(8192),
     /** Primary batch bone */
-    Batch1(11),
+    Batch1(16384),
     /** Descendant of batch1 bone */
-    Batch2(12);
+    Batch2(32768);
 
     public final int value;
     BoneFlag(int v) { this.value = v; }
     public static BoneFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown BoneFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of BoneFlag bits. */
+    public static java.util.EnumSet<BoneFlag> unpack(int packed) {
+        java.util.EnumSet<BoneFlag> out = java.util.EnumSet.noneOf(BoneFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<BoneFlag> flags) {
+        int v = 0;
+        for (BoneFlag f : flags) v |= f.value;
+        return v;
     }
 }

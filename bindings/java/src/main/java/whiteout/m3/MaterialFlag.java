@@ -12,61 +12,61 @@ public enum MaterialFlag {
     /** Enable vertex alpha */
     VertexAlpha(2),
     /** Not affected by fog */
-    Unfogged(3),
+    Unfogged(4),
     /** Two-sided rendering */
-    TwoSided(4),
+    TwoSided(8),
     /** Unlit / unshaded */
-    Unshaded(5),
+    Unshaded(16),
     /** Does not cast shadows */
-    NoShadowsCast(6),
+    NoShadowsCast(32),
     /** Excluded from hit testing */
-    NoHitTest(7),
+    NoHitTest(64),
     /** Does not receive shadows */
-    NoShadowsReceive(8),
+    NoShadowsReceive(128),
     /** Z-fill pre-pass */
-    DepthPrepass(9),
+    DepthPrepass(256),
     /** Terrain HDR mode */
-    TerrainHDR(10),
+    TerrainHDR(512),
     /** Simulate roughness */
-    SimulateRoughness(11),
+    SimulateRoughness(2048),
     /** Pixel forward lighting */
-    PixelForwardLighting(12),
+    PixelForwardLighting(4096),
     /** Depth-based fog */
-    DepthFog(13),
+    DepthFog(8192),
     /** Transparent shadows */
-    TransparentShadows(14),
+    TransparentShadows(16384),
     /** Decal lighting mode */
-    DecalLighting(15),
+    DecalLighting(32768),
     /** Transparent depth effects */
-    TransparentDepthEffects(16),
+    TransparentDepthEffects(65536),
     /** Transparent local lights */
-    TransparentLocalLights(17),
+    TransparentLocalLights(131072),
     /** Disable soft blending */
-    DisableSoft(18),
+    DisableSoft(262144),
     /** Double Lambert shading */
-    DoubleLambert(19),
+    DoubleLambert(524288),
     /** Hair layer sorting */
-    HairLayerSorting(20),
+    HairLayerSorting(1048576),
     /** Accept splat projections */
-    AcceptSplats(21),
+    AcceptSplats(2097152),
     /** Decal low LOD required */
-    DecalLowRequired(22),
+    DecalLowRequired(4194304),
     /** Emissive low LOD required */
-    EmisLowRequired(23),
+    EmisLowRequired(8388608),
     /** Specular low LOD required */
-    SpecLowRequired(24),
+    SpecLowRequired(16777216),
     /** Accept splats only */
-    AcceptSplatsOnly(25),
+    AcceptSplatsOnly(33554432),
     /** Background object */
-    BackgroundObject(26),
+    BackgroundObject(67108864),
     /** Depth prepass low LOD */
-    DepthPrepassLowRequired(27),
+    DepthPrepassLowRequired(268435456),
     /** Disable highlighting */
-    NoHighlighting(28),
+    NoHighlighting(536870912),
     /** Clamp output */
-    ClampOutput(29),
+    ClampOutput(1073741824),
     /** Geometry visible (v17+) */
-    GeometryVisible(30);
+    GeometryVisible(-2147483648);
 
     public final int value;
     MaterialFlag(int v) { this.value = v; }

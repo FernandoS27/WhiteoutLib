@@ -440,6 +440,11 @@ typedef enum {
     whiteout_m3_RigidBodyFlag_Unknown9,
 } whiteout_m3_RigidBodyFlag;
 
+typedef enum {
+    whiteout_m3_ParseMode_Strict,
+    whiteout_m3_ParseMode_Lenient,
+} whiteout_m3_ParseMode;
+
 /* ── Opaque handles ───────────────────────────────────────── */
 
 typedef struct whiteout_M3ColorBGRA whiteout_M3ColorBGRA;
@@ -507,6 +512,8 @@ typedef struct whiteout_M3ClothPhysics whiteout_M3ClothPhysics;
 typedef struct whiteout_M3Light whiteout_M3Light;
 typedef struct whiteout_M3Camera whiteout_M3Camera;
 typedef struct whiteout_M3Model whiteout_M3Model;
+typedef struct whiteout_M3Parser whiteout_M3Parser;
+typedef struct whiteout_M3Writer whiteout_M3Writer;
 typedef struct whiteout_M3AnimRefF32 whiteout_M3AnimRefF32;
 typedef struct whiteout_M3AnimRefVector3f whiteout_M3AnimRefVector3f;
 typedef struct whiteout_M3AnimRefM3ColorBGRA whiteout_M3AnimRefM3ColorBGRA;
@@ -3654,6 +3661,37 @@ size_t whiteout_m3_M3Model_get_m3aAnimHashes_count(const whiteout_M3Model* self)
 void whiteout_m3_M3Model_resize_m3aAnimHashes(whiteout_M3Model* self, size_t count);
 const uint32_t* whiteout_m3_M3Model_get_m3aAnimHashes_data(const whiteout_M3Model* self);
 void whiteout_m3_M3Model_assign_m3aAnimHashes(whiteout_M3Model* self, const uint32_t* data, size_t count);
+
+/* ── M3Parser ─────────────────────────────────────────────── */
+
+/* Parser for M3 model files */
+/*  */
+/* The Parser reads binary M3 files and converts them into the Model structure. It supports multiple parsing modes for error handling. */
+/*  */
+/* Uses the PImpl (Pointer to Implementation) idiom to hide implementation details. */
+whiteout_M3Parser* whiteout_m3_M3Parser_new(void);
+whiteout_M3Parser* whiteout_m3_M3Parser_new_mode(int32_t mode);
+void whiteout_m3_M3Parser_delete(whiteout_M3Parser* self);
+
+/* Parse an M3 file from disk @param filePath Path to the M3 file @return Parsed M3 model data @throws std::runtime_error If file cannot be opened or parsing fails in strict mode */
+struct whiteout_M3Model* whiteout_m3_M3Parser_parse(whiteout_M3Parser* self, const char* filePath);
+/* Parse an M3 file from memory buffer @param buffer Memory buffer containing M3 data @return Parsed M3 model data @throws std::runtime_error If parsing fails in strict mode */
+struct whiteout_M3Model* whiteout_m3_M3Parser_parse_buffer(whiteout_M3Parser* self, const uint8_t* buffer, size_t buffer_size);
+/* Check if parsing encountered any issues @return True if there were warnings or recoverable errors */
+int32_t whiteout_m3_M3Parser_hasIssues(const whiteout_M3Parser* self);
+
+/* ── M3Writer ─────────────────────────────────────────────── */
+
+/* Writer for M3 model files */
+/*  */
+/* Writes Model structures to disk in binary M3 format. Uses the PImpl (Pointer to Implementation) idiom to hide implementation details. */
+whiteout_M3Writer* whiteout_m3_M3Writer_new(void);
+void whiteout_m3_M3Writer_delete(whiteout_M3Writer* self);
+
+/* Write an M3 model to a file on disk @param filePath Output file path @param model Model data to serialize @throws std::runtime_error If file cannot be created or writing fails */
+void whiteout_m3_M3Writer_write(whiteout_M3Writer* self, const char* filePath, struct whiteout_M3Model* model);
+/* Write an M3 model to a byte buffer @param model Model data to serialize @return Byte buffer containing the M3 file data */
+whiteout_Bytes whiteout_m3_M3Writer_write_model(whiteout_M3Writer* self, struct whiteout_M3Model* model);
 
 /* ── M3AnimRefF32 ─────────────────────────────────────────────── */
 

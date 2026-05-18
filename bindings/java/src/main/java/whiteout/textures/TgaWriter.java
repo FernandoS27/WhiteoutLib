@@ -49,6 +49,15 @@ public final class TgaWriter implements AutoCloseable {
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
+    public static TgaWriter createWriteMode(TgaWriteMode writeMode) {
+        try {
+            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_TgaWriter_new_writeMode.invoke(writeMode.value);
+            if (__raw == null || __raw.equals(MemorySegment.NULL))
+                throw new RuntimeException("TgaWriter allocation failed");
+            return new TgaWriter(__raw, true);
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
     @Override
     public void close() {
         if (!owned) return;

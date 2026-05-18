@@ -12,24 +12,38 @@ public enum LayerShadingFlag {
     /** Spherical environment mapping */
     SphereEnvMap(2),
     /** Texture U-wrap */
-    WrapWidth(3),
+    WrapWidth(4),
     /** Texture V-wrap */
-    WrapHeight(4),
+    WrapHeight(8),
     /** Render both sides of polygons */
-    TwoSided(5),
+    TwoSided(16),
     /** Not affected by fog */
-    Unfogged(6),
+    Unfogged(32),
     /** Disable depth testing */
-    NoDepthTest(7),
+    NoDepthTest(64),
     /** Don't write to depth buffer */
-    NoDepthSet(8),
+    NoDepthSet(128),
     /** Reforged: bypass lighting pipeline */
-    Unlit(9);
+    Unlit(256);
 
     public final int value;
     LayerShadingFlag(int v) { this.value = v; }
     public static LayerShadingFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown LayerShadingFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of LayerShadingFlag bits. */
+    public static java.util.EnumSet<LayerShadingFlag> unpack(int packed) {
+        java.util.EnumSet<LayerShadingFlag> out = java.util.EnumSet.noneOf(LayerShadingFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<LayerShadingFlag> flags) {
+        int v = 0;
+        for (LayerShadingFlag f : flags) v |= f.value;
+        return v;
     }
 }

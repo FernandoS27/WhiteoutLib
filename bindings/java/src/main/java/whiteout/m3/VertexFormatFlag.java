@@ -10,22 +10,36 @@ package whiteout.m3;
 public enum VertexFormatFlag {
     None(0),
     /** Bit 10 (1-based): Has vertex color (adds 4 bytes) */
-    VertexColor(1),
+    VertexColor(512),
     /** Bit 18 (1-based): Has UV layer 1 (adds 4 bytes) */
-    UV1(2),
+    UV1(131072),
     /** Bit 19 (1-based): Has UV layer 2 (adds 4 bytes) */
-    UV2(3),
+    UV2(262144),
     /** Bit 20 (1-based): Has UV layer 3 (adds 4 bytes) */
-    UV3(4),
+    UV3(524288),
     /** Bit 21 (1-based): Has UV layer 4 (adds 4 bytes) */
-    UV4(5),
+    UV4(1048576),
     /** Bit 30 (1-based): Has UV layer 5 (adds 4 bytes) */
-    UV5(6);
+    UV5(536870912);
 
     public final int value;
     VertexFormatFlag(int v) { this.value = v; }
     public static VertexFormatFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown VertexFormatFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of VertexFormatFlag bits. */
+    public static java.util.EnumSet<VertexFormatFlag> unpack(int packed) {
+        java.util.EnumSet<VertexFormatFlag> out = java.util.EnumSet.noneOf(VertexFormatFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<VertexFormatFlag> flags) {
+        int v = 0;
+        for (VertexFormatFlag f : flags) v |= f.value;
+        return v;
     }
 }

@@ -920,6 +920,58 @@ public final class Native {
     public static final MethodHandle whiteout_m2_M2Model_resize_texturedLightEntries = find("whiteout_m2_M2Model_resize_texturedLightEntries", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m2_M2Model_get_texturedLightEntries_at = find("whiteout_m2_M2Model_get_texturedLightEntries_at", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
 
+    // -- M2Parser --
+    public static final MethodHandle whiteout_m2_M2Parser_new = find(
+        "whiteout_m2_M2Parser_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2Parser_new_mode = find(
+        "whiteout_m2_M2Parser_new_mode", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m2_M2Parser_delete = find(
+        "whiteout_m2_M2Parser_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2Parser_parse = find(
+        "whiteout_m2_M2Parser_parse", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2Parser_parse_cascFs_buffer = find(
+        "whiteout_m2_M2Parser_parse_cascFs_buffer", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2Parser_hasIssues = find(
+        "whiteout_m2_M2Parser_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+
+    // -- M2WriteOptions --
+    public static final MethodHandle whiteout_m2_M2WriteOptions_new = find(
+        "whiteout_m2_M2WriteOptions_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2WriteOptions_delete = find(
+        "whiteout_m2_M2WriteOptions_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2WriteOptions_get_m2Version = find("whiteout_m2_M2WriteOptions_get_m2Version", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2WriteOptions_set_m2Version = find("whiteout_m2_M2WriteOptions_set_m2Version", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m2_M2WriteOptions_get_emitSkeleton = find("whiteout_m2_M2WriteOptions_get_emitSkeleton", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2WriteOptions_set_emitSkeleton = find("whiteout_m2_M2WriteOptions_set_emitSkeleton", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m2_M2WriteOptions_get_baseStem = find("whiteout_m2_M2WriteOptions_get_baseStem", FunctionDescriptor.of(CSTRING_LAYOUT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2WriteOptions_set_baseStem = find("whiteout_m2_M2WriteOptions_set_baseStem", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+
+    // -- M2SerializeResult --
+    public static final MethodHandle whiteout_m2_M2SerializeResult_new = find(
+        "whiteout_m2_M2SerializeResult_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2SerializeResult_delete = find(
+        "whiteout_m2_M2SerializeResult_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2SerializeResult_get_m2Data_count = find("whiteout_m2_M2SerializeResult_get_m2Data_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2SerializeResult_resize_m2Data = find("whiteout_m2_M2SerializeResult_resize_m2Data", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2SerializeResult_get_m2Data_data = find("whiteout_m2_M2SerializeResult_get_m2Data_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2SerializeResult_assign_m2Data = find("whiteout_m2_M2SerializeResult_assign_m2Data", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+
+    // -- M2Writer --
+    public static final MethodHandle whiteout_m2_M2Writer_new = find(
+        "whiteout_m2_M2Writer_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2Writer_new_options = find(
+        "whiteout_m2_M2Writer_new_options", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2Writer_delete = find(
+        "whiteout_m2_M2Writer_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2Writer_write = find(
+        "whiteout_m2_M2Writer_write", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2Writer_write_cascFs_model = find(
+        "whiteout_m2_M2Writer_write_cascFs_model", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2Writer_write_model = find(
+        "whiteout_m2_M2Writer_write_model", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2Writer_hasIssues = find(
+        "whiteout_m2_M2Writer_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+
     // -- M2AnimationTrackVector3f --
     public static final MethodHandle whiteout_m2_M2AnimationTrackVector3f_new = find(
         "whiteout_m2_M2AnimationTrackVector3f_new", FunctionDescriptor.of(ValueLayout.ADDRESS));

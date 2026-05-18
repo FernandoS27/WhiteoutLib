@@ -49,6 +49,15 @@ public final class DdsWriter implements AutoCloseable {
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
+    public static DdsWriter createWriteMode(DdsWriteMode writeMode) {
+        try {
+            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_DdsWriter_new_writeMode.invoke(writeMode.value);
+            if (__raw == null || __raw.equals(MemorySegment.NULL))
+                throw new RuntimeException("DdsWriter allocation failed");
+            return new DdsWriter(__raw, true);
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
     @Override
     public void close() {
         if (!owned) return;

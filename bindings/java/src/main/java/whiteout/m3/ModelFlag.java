@@ -12,42 +12,56 @@ public enum ModelFlag {
     /** Bone transforms fixed */
     BonesFixed(2),
     /** UV densities computed */
-    UVDensitiesComputed(3),
+    UVDensitiesComputed(4),
     /** Uses relative bounds */
-    RelativeBounds(4),
+    RelativeBounds(8),
     /** Section bounds fixed */
-    SectionBoundsFixed(5),
+    SectionBoundsFixed(16),
     /** Track sets computed */
-    TrackSetsComputed(6),
+    TrackSetsComputed(32),
     /** Track collection sorted */
-    TrackCollectionSorted(7),
+    TrackCollectionSorted(64),
     /** Model accepts splats */
-    AcceptsSplats(8),
+    AcceptsSplats(128),
     /** Animated base flag valid */
-    TrackAnimatedBaseFlagValid(9),
+    TrackAnimatedBaseFlagValid(2048),
     /** File marked dirty */
-    FileDirty(10),
+    FileDirty(4096),
     /** FOW: do not tint */
-    FowDoNotUseTint(11),
+    FowDoNotUseTint(16384),
     /** Uses instanced vertex buffer */
-    InstancedVB(12),
+    InstancedVB(32768),
     /** Force sampled FOW */
-    ForceSampledFOW(13),
+    ForceSampledFOW(65536),
     /** Instanced model */
-    InstancedModel(14),
+    InstancedModel(131072),
     /** Never use FOW */
-    NeverUseFOW(15),
+    NeverUseFOW(262144),
     /** Bone animated flags solved */
-    BoneAnimatedFlagSolved(16),
+    BoneAnimatedFlagSolved(524288),
     /** Allow local light shadows */
-    AllowLocalLightShadows(17),
+    AllowLocalLightShadows(1048576),
     /** Avoid sampled FOW */
-    AvoidSampledFOW(18);
+    AvoidSampledFOW(2097152);
 
     public final int value;
     ModelFlag(int v) { this.value = v; }
     public static ModelFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown ModelFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of ModelFlag bits. */
+    public static java.util.EnumSet<ModelFlag> unpack(int packed) {
+        java.util.EnumSet<ModelFlag> out = java.util.EnumSet.noneOf(ModelFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<ModelFlag> flags) {
+        int v = 0;
+        for (ModelFlag f : flags) v |= f.value;
+        return v;
     }
 }

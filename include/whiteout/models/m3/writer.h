@@ -39,6 +39,7 @@ namespace m3 {
  * Writes Model structures to disk in binary M3 format.
  * Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
  */
+/// @bind methods, js_name=M3Writer
 class Writer {
 public:
     /// @brief Construct a new Writer

@@ -21,6 +21,8 @@ CONFIG = ModuleConfig(
         'include/whiteout/models/m2/structures/extensions.h',
         'include/whiteout/models/m2/structures/skin.h',
         'include/whiteout/models/m2/structures.h',
+        'include/whiteout/models/m2/parser.h',
+        'include/whiteout/models/m2/writer.h',
     ],
     output_path='bindings/wasm/m2_bindings.cpp',
     include_dirs=['include'],

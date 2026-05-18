@@ -6,17 +6,31 @@ public enum SequenceFlag {
     None(0),
     TiltIn(1),
     TiltOut(2),
-    TiltFixed(3),
-    Looping(4),
-    IsAlias(5),
-    AnimatedSetup(6),
-    StoredAnimated(7),
-    EnableComposite(8);
+    TiltFixed(4),
+    Looping(32),
+    IsAlias(64),
+    AnimatedSetup(128),
+    StoredAnimated(256),
+    EnableComposite(512);
 
     public final int value;
     SequenceFlag(int v) { this.value = v; }
     public static SequenceFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown SequenceFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of SequenceFlag bits. */
+    public static java.util.EnumSet<SequenceFlag> unpack(int packed) {
+        java.util.EnumSet<SequenceFlag> out = java.util.EnumSet.noneOf(SequenceFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<SequenceFlag> flags) {
+        int v = 0;
+        for (SequenceFlag f : flags) v |= f.value;
+        return v;
     }
 }

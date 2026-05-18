@@ -12,14 +12,28 @@ public enum ProjectorFlag {
     /** Unknown */
     UnknownFlag0x2(2),
     /** Unknown */
-    UnknownFlag0x4(3),
+    UnknownFlag0x4(4),
     /** Unknown */
-    UnknownFlag0x8(4);
+    UnknownFlag0x8(8);
 
     public final int value;
     ProjectorFlag(int v) { this.value = v; }
     public static ProjectorFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown ProjectorFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of ProjectorFlag bits. */
+    public static java.util.EnumSet<ProjectorFlag> unpack(int packed) {
+        java.util.EnumSet<ProjectorFlag> out = java.util.EnumSet.noneOf(ProjectorFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<ProjectorFlag> flags) {
+        int v = 0;
+        for (ProjectorFlag f : flags) v |= f.value;
+        return v;
     }
 }

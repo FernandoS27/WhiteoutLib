@@ -53,6 +53,19 @@ public final class BlpWriter implements AutoCloseable {
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
+    public static BlpWriter createWriteModePool(BlpWriteMode writeMode, whiteout.interfaces.WorkerPool pool) {
+        try {
+            long __pool_h = pool == null ? 0L
+                : whiteout.host.WorkerPools.resolveNative(pool, pool);
+            MemorySegment __pool_seg = __pool_h == 0L
+                ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
+            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_BlpWriter_new_writeMode_pool.invoke(writeMode.value, __pool_seg);
+            if (__raw == null || __raw.equals(MemorySegment.NULL))
+                throw new RuntimeException("BlpWriter allocation failed");
+            return new BlpWriter(__raw, true);
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
     @Override
     public void close() {
         if (!owned) return;

@@ -8,40 +8,54 @@ package whiteout.m3;
 public enum RibbonFlag {
     None(0),
     /** Collide with terrain */
-    CollideTerrain(1),
+    CollideTerrain(2),
     /** Collide with objects */
-    CollideObjects(2),
+    CollideObjects(4),
     /** Fade edges */
-    EdgeFalloff(3),
+    EdgeFalloff(8),
     /** Inherit parent velocity */
-    InheritParentVelocity(4),
+    InheritParentVelocity(16),
     /** Smooth size */
-    SmoothSize(5),
+    SmoothSize(32),
     /** Bezier smooth size */
-    BezierSmoothSize(6),
+    BezierSmoothSize(64),
     /** Use vertex alpha */
-    UseVertexAlpha(7),
+    UseVertexAlpha(128),
     /** Scale time by parent */
-    ScaleTimeByParent(8),
+    ScaleTimeByParent(256),
     /** Force CPU simulation */
-    ForceCPUSim(9),
+    ForceCPUSim(512),
     /** Use local time */
-    LocalTime(10),
+    LocalTime(1024),
     /** Simulate on init */
-    SimulateInit(11),
+    SimulateInit(2048),
     /** Use length and time */
-    UseLengthAndTime(12),
+    UseLengthAndTime(4096),
     /** Accurate GPU tangents */
-    AccurateGPUTangents(13),
+    AccurateGPUTangents(8192),
     /** Derive yaw from speed */
-    YawFromSpeed(14),
+    YawFromSpeed(16384),
     /** Use locator node */
-    UseLocator(15);
+    UseLocator(32768);
 
     public final int value;
     RibbonFlag(int v) { this.value = v; }
     public static RibbonFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown RibbonFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of RibbonFlag bits. */
+    public static java.util.EnumSet<RibbonFlag> unpack(int packed) {
+        java.util.EnumSet<RibbonFlag> out = java.util.EnumSet.noneOf(RibbonFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<RibbonFlag> flags) {
+        int v = 0;
+        for (RibbonFlag f : flags) v |= f.value;
+        return v;
     }
 }

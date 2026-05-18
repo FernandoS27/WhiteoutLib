@@ -49,6 +49,15 @@ public final class TgaParser implements AutoCloseable {
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
+    public static TgaParser createParseMode(TgaParseMode parseMode) {
+        try {
+            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_TgaParser_new_parseMode.invoke(parseMode.value);
+            if (__raw == null || __raw.equals(MemorySegment.NULL))
+                throw new RuntimeException("TgaParser allocation failed");
+            return new TgaParser(__raw, true);
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
     @Override
     public void close() {
         if (!owned) return;

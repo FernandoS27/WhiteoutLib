@@ -54,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
                    choices=['embind', 'pybind11', 'dts', 'pyi',
                             'c-header', 'c-source',
                             'c-common', 'c-common-header',
-                            'java', 'java-common'],
+                            'java', 'java-common', 'jni'],
                    default='embind')
     p.add_argument('--repo-root', default=Path(__file__).resolve().parents[2],
                    type=lambda s: Path(s).resolve(),
@@ -107,6 +107,13 @@ def main(argv: list[str] | None = None) -> int:
     elif args.backend == 'java-common':
         from tools.codegen import emit_java
         files = emit_java.emit_common_java()
+        return _write_files(args, files)
+    elif args.backend == 'jni':
+        # JNI bridge: lets Java implement the abstract interfaces in
+        # include/whiteout/interfaces.h via a C++ wrapper that forwards
+        # virtual overrides into the Java side over JNI.
+        from tools.codegen import emit_jni
+        files = emit_jni.emit(module)
         return _write_files(args, files)
     else:  # dts
         from tools.codegen import emit_dts as emitter

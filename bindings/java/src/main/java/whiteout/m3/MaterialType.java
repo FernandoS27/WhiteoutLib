@@ -7,29 +7,29 @@ package whiteout.m3;
  */
 public enum MaterialType {
     /** MAT_ — Standard material */
-    Standard(0),
+    Standard(1),
     /** DIS_ — Displacement material */
-    Displacement(1),
+    Displacement(2),
     /** CMP_ — Composite material */
-    Composite(2),
+    Composite(3),
     /** TER_ — Terrain material */
-    Terrain(3),
+    Terrain(4),
     /** VOL_ — Volume material */
-    Volume(4),
+    Volume(5),
     /** VON_ — Volume noise material */
-    VolumeNoise(5),
+    VolumeNoise(6),
     /** CREP — Creep material */
-    Creep(6),
+    Creep(7),
     /** HAI_ — Hair material (defunct) */
-    Hair(7),
+    Hair(8),
     /** STBM — Splat terrain bake material */
-    SplatTerrainBake(8),
+    SplatTerrainBake(9),
     /** REF_ — Reflection material */
-    Reflection(9),
+    Reflection(10),
     /** LFLR — Lens flare material */
-    LensFlare(10),
+    LensFlare(11),
     /** MADD — Buffer / additional material data */
-    BufferMaterial(11);
+    BufferMaterial(12);
 
     public final int value;
     MaterialType(int v) { this.value = v; }

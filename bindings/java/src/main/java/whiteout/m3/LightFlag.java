@@ -12,18 +12,32 @@ public enum LightFlag {
     /** Specular component */
     Specular(2),
     /** AO influence */
-    AmbientOcclusion(3),
+    AmbientOcclusion(4),
     /** Lights opaque objects */
-    LightOpaque(4),
+    LightOpaque(8),
     /** Lights transparent objects */
-    LightTransparent(5),
+    LightTransparent(16),
     /** Uses team color */
-    TeamColor(6);
+    TeamColor(32);
 
     public final int value;
     LightFlag(int v) { this.value = v; }
     public static LightFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown LightFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of LightFlag bits. */
+    public static java.util.EnumSet<LightFlag> unpack(int packed) {
+        java.util.EnumSet<LightFlag> out = java.util.EnumSet.noneOf(LightFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<LightFlag> flags) {
+        int v = 0;
+        for (LightFlag f : flags) v |= f.value;
+        return v;
     }
 }

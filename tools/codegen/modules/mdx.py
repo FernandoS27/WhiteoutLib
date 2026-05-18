@@ -17,6 +17,8 @@ CONFIG = ModuleConfig(
         'include/whiteout/vector_types.h',
         'include/whiteout/models/mdx/types.h',
         'include/whiteout/models/mdx/structures.h',
+        'include/whiteout/models/mdx/parser.h',
+        'include/whiteout/models/mdx/writer.h',
     ],
     output_path='bindings/wasm/mdx_bindings.cpp',
     include_dirs=['include'],

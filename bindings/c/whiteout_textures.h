@@ -66,6 +66,8 @@ typedef struct whiteout_BmpParser whiteout_BmpParser;
 typedef struct whiteout_BmpWriter whiteout_BmpWriter;
 typedef struct whiteout_TgaParser whiteout_TgaParser;
 typedef struct whiteout_TgaWriter whiteout_TgaWriter;
+typedef struct whiteout_GifSaveOptions whiteout_GifSaveOptions;
+typedef struct whiteout_GifWriter whiteout_GifWriter;
 
 /* ── Texture ─────────────────────────────────────────────── */
 
@@ -81,20 +83,46 @@ typedef struct whiteout_TgaWriter whiteout_TgaWriter;
 whiteout_Texture* whiteout_textures_Texture_new(void);
 void whiteout_textures_Texture_delete(whiteout_Texture* self);
 
+/* Convert this texture to a new pixel format in-place. */
+/*  */
+/* Replaces the internal data with the converted result. Equivalent to `*this = copyAsFormat(new_fmt)`. */
+/*  */
+/* @param new_fmt Target pixel format. */
+void whiteout_textures_Texture_format(whiteout_Texture* self, int32_t new_fmt);
 /* @return The pixel format of the stored data. */
-int32_t whiteout_textures_Texture_format(const whiteout_Texture* self);
+int32_t whiteout_textures_Texture_format_overload2(const whiteout_Texture* self);
 /* Return a copy of this texture converted to a different pixel format. */
 /*  */
 /* Conversion path: - Same format → plain copy. - BCn → decoded to native format (R8 for BC4, RG8 for BC5, RGBA32F for BC6H, RGBA8 for others), then recurse. - Uncompressed → uncompressed → per-pixel conversion. - Uncompressed → BCn → encode via the appropriate codec. */
 /*  */
 /* @param new_fmt Target pixel format. @param pool Optional WorkerPool for parallel BCn encode/decode work. Ignored for purely uncompressed-to-uncompressed conversions. @return A new Texture with the converted data. */
-struct whiteout_Texture* whiteout_textures_Texture_copyAsFormat(const whiteout_Texture* self, int32_t new_fmt);
+struct whiteout_Texture* whiteout_textures_Texture_copyAsFormat(const whiteout_Texture* self, int32_t new_fmt, void* pool);
 /* Return a copy of a 2-channel normal map expanded to RGBA8. */
 /*  */
 /* Only supported for textures whose kind() is TextureKind::Normal and whose format is RG8, RG16, RG32F, or BC5. The returned texture keeps the original shape, mip chain, kind, and sRGB flag, but stores data as RGBA8 with Z reconstructed from the packed X/Y normal in R/G. */
 /*  */
 /* @param pool Optional WorkerPool for parallel BCn decode work when the source texture is compressed. @return Expanded RGBA8 texture, or std::nullopt when unsupported. */
-struct whiteout_Texture* whiteout_textures_Texture_copyFromNormalToRGBA(const whiteout_Texture* self);
+struct whiteout_Texture* whiteout_textures_Texture_copyFromNormalToRGBA(const whiteout_Texture* self, void* pool);
+/* Generate all mip levels from the base image (mip 0). */
+/*  */
+/* Every mip level is generated directly from the original full-resolution image using an appropriately-sized filter kernel, rather than cascading from the previous mip level.  This eliminates cumulative blur. */
+/*  */
+/* Selects the best filter and pipeline for the texture's kind(): - Diffuse / Albedo — Lanczos3; sRGB linearize/delinearize when isSrgb() is true. - Normal — Kaiser(β=6) with unpack / Toksvig / renormalize / pack. - Specular — Kaiser(β=6); sRGB linearize/delinearize when isSrgb(). - Roughness — Kaiser(β=6.5) variance-preserving: r→r², filter, √. - Gloss — convert to roughness, apply variance filter, convert back. - Metalness — Kaiser(β=5.5) mean filtering. - AmbientOcclusion — Kaiser(β=6) mean filtering. - Emissive — Lanczos3; sRGB linearize/delinearize when isSrgb(). - ORM (deprecated) — same as Multikind with R=AO/G=Roughness/B=Metalness. - Multikind — per-channel kind-appropriate pipeline; each channel's kind is queried via channelKind(). Unused channels use a box filter. - AlphaMask — Box filter; no sRGB conversion (linear mask data). - Lightmap — Lanczos3; clamp channels to [0, ∞) (no sRGB). - EnvironmentPBR — GGX importance-sampled convolution (equirectangular); roughness increases with each mip level. - EnvironmentLegacy — Solid-angle-weighted spherical Kaiser convolution (equirectangular); no roughness encoding. - Other — Box filter; sRGB linearize/delinearize when isSrgb(). */
+/*  */
+/* The texture must use an uncompressed pixel format.  BCn textures should be decompressed first.  No-op if the texture has ≤ 1 mip. */
+/*  */
+/* @param newMipCount Desired number of mip levels in the output texture. Pass kKeepMipCount (0) to preserve the existing mip count. Must be between 1 and computeMaxMipCount(width, height, depth). When 1, the mip chain is truncated to the base level only and the function returns immediately. @param pool Optional WorkerPool used to parallelize mip generation across mip levels and layers. If null, generation runs on the calling thread. @return std::nullopt on success; std::optional<std::string> with error message on failure. No exceptions are thrown. */
+whiteout_CString whiteout_textures_Texture_generateMipmaps(whiteout_Texture* self, uint32_t newMipCount, void* pool);
+/* @overload Preserves existing mip count; optional worker pool. */
+whiteout_CString whiteout_textures_Texture_generateMipmaps_pool(whiteout_Texture* self, void* pool);
+/* Downscale the texture by dropping leading mip levels. */
+/*  */
+/* Increases the mip count by @p levels (clamped to the maximum), regenerates all mip levels from the base image, then drops the first @p levels mips — effectively halving the resolution @p levels times while preserving the original mip chain length. */
+/*  */
+/* The texture must use an uncompressed pixel format (same requirement as generateMipmaps).  Returns an error if @p levels would reduce every dimension to zero. */
+/*  */
+/* @param levels Number of mip levels to drop (default 1). @param pool   Optional WorkerPool for parallel mip generation. @return std::nullopt on success; error message on failure. */
+whiteout_CString whiteout_textures_Texture_downscale(whiteout_Texture* self, uint32_t levels, void* pool);
 /* Create a 2D texture. @param fmt       Pixel format. @param width     Width in pixels. @param height    Height in pixels. @param mipCount Number of mip levels (0 = auto-compute full chain). @return A zero-filled Texture with the requested layout. */
 struct whiteout_Texture* whiteout_textures_Texture_create2D(int32_t fmt, uint32_t width, uint32_t height, uint32_t mipCount);
 /* Create a 3D (volume) texture. @param fmt       Pixel format. @param width     Width in pixels. @param height    Height in pixels. @param depth     Depth in slices. @param mipCount Number of mip levels (0 = auto-compute full chain). @return A zero-filled Texture with the requested layout. */
@@ -133,6 +161,10 @@ whiteout_Bytes whiteout_textures_Texture_mipData(const whiteout_Texture* self, u
 /*  */
 /* After this call the texture's dimensions and mip chain are cleared. @return The owned pixel-data buffer. */
 whiteout_Bytes whiteout_textures_Texture_takeData(whiteout_Texture* self);
+/* Replace the pixel-data buffer. */
+/*  */
+/* The new buffer must match the existing allocation size. @param new_data Replacement data. */
+void whiteout_textures_Texture_setData(whiteout_Texture* self, const uint8_t* new_data, size_t new_data_size);
 
 /* ── BlpParser ─────────────────────────────────────────────── */
 
@@ -142,6 +174,7 @@ whiteout_Bytes whiteout_textures_Texture_takeData(whiteout_Texture* self);
 /*  */
 /* Uses the PImpl (Pointer to Implementation) idiom to hide implementation details. */
 whiteout_BlpParser* whiteout_textures_BlpParser_new(void);
+whiteout_BlpParser* whiteout_textures_BlpParser_new_parseMode(int32_t parseMode);
 void whiteout_textures_BlpParser_delete(whiteout_BlpParser* self);
 
 /* Parse a BLP file from memory buffer @param buffer Memory buffer containing BLP data @return Parsed texture data, or std::nullopt on failure (in Lenient mode) @throws std::runtime_error If parsing fails in strict mode */
@@ -157,6 +190,7 @@ int32_t whiteout_textures_BlpParser_hasIssues(const whiteout_BlpParser* self);
 /*  */
 /* Uses the PImpl (Pointer to Implementation) idiom to hide implementation details. */
 whiteout_BlpWriter* whiteout_textures_BlpWriter_new(void);
+whiteout_BlpWriter* whiteout_textures_BlpWriter_new_writeMode_pool(int32_t writeMode, void* pool);
 void whiteout_textures_BlpWriter_delete(whiteout_BlpWriter* self);
 
 /* Write a BLP file to a byte buffer with default options */
@@ -168,6 +202,7 @@ int32_t whiteout_textures_BlpWriter_hasIssues(const whiteout_BlpWriter* self);
 
 /* Reads a PNG file or byte buffer and decodes it into a Texture. */
 whiteout_PngParser* whiteout_textures_PngParser_new(void);
+whiteout_PngParser* whiteout_textures_PngParser_new_parseMode(int32_t parseMode);
 void whiteout_textures_PngParser_delete(whiteout_PngParser* self);
 
 /* Parse a PNG byte buffer. */
@@ -179,6 +214,7 @@ int32_t whiteout_textures_PngParser_hasIssues(const whiteout_PngParser* self);
 
 /* Encodes a Texture into PNG format. */
 whiteout_PngWriter* whiteout_textures_PngWriter_new(void);
+whiteout_PngWriter* whiteout_textures_PngWriter_new_writeMode(int32_t writeMode);
 void whiteout_textures_PngWriter_delete(whiteout_PngWriter* self);
 
 /* Serialize the texture to a PNG byte buffer. */
@@ -190,6 +226,7 @@ int32_t whiteout_textures_PngWriter_hasIssues(const whiteout_PngWriter* self);
 
 /* Reads a JPEG file or byte buffer and decodes it into a Texture. */
 whiteout_JpegParser* whiteout_textures_JpegParser_new(void);
+whiteout_JpegParser* whiteout_textures_JpegParser_new_parseMode_pool(int32_t parseMode, void* pool);
 void whiteout_textures_JpegParser_delete(whiteout_JpegParser* self);
 
 /* Parse a JPEG byte buffer. */
@@ -201,6 +238,7 @@ int32_t whiteout_textures_JpegParser_hasIssues(const whiteout_JpegParser* self);
 
 /* Encodes a Texture into JPEG format. */
 whiteout_JpegWriter* whiteout_textures_JpegWriter_new(void);
+whiteout_JpegWriter* whiteout_textures_JpegWriter_new_quality_writeMode_pool_progressive(int32_t quality, int32_t writeMode, void* pool, int32_t progressive);
 void whiteout_textures_JpegWriter_delete(whiteout_JpegWriter* self);
 
 /* Serialize the texture to a JPEG byte buffer. */
@@ -212,6 +250,7 @@ int32_t whiteout_textures_JpegWriter_hasIssues(const whiteout_JpegWriter* self);
 
 /* Reads a DDS file or byte buffer and decodes it into a Texture. */
 whiteout_DdsParser* whiteout_textures_DdsParser_new(void);
+whiteout_DdsParser* whiteout_textures_DdsParser_new_parseMode(int32_t parseMode);
 void whiteout_textures_DdsParser_delete(whiteout_DdsParser* self);
 
 /* Parse a DDS byte buffer. */
@@ -223,6 +262,7 @@ int32_t whiteout_textures_DdsParser_hasIssues(const whiteout_DdsParser* self);
 
 /* Encodes a Texture into DDS format. */
 whiteout_DdsWriter* whiteout_textures_DdsWriter_new(void);
+whiteout_DdsWriter* whiteout_textures_DdsWriter_new_writeMode(int32_t writeMode);
 void whiteout_textures_DdsWriter_delete(whiteout_DdsWriter* self);
 
 /* Serialize the texture to a DDS byte buffer. */
@@ -234,6 +274,7 @@ int32_t whiteout_textures_DdsWriter_hasIssues(const whiteout_DdsWriter* self);
 
 /* Reads a BMP file or byte buffer and decodes it into a Texture. */
 whiteout_BmpParser* whiteout_textures_BmpParser_new(void);
+whiteout_BmpParser* whiteout_textures_BmpParser_new_parseMode(int32_t parseMode);
 void whiteout_textures_BmpParser_delete(whiteout_BmpParser* self);
 
 /* Parse a BMP byte buffer. */
@@ -245,6 +286,7 @@ int32_t whiteout_textures_BmpParser_hasIssues(const whiteout_BmpParser* self);
 
 /* Encodes a Texture into BMP format. */
 whiteout_BmpWriter* whiteout_textures_BmpWriter_new(void);
+whiteout_BmpWriter* whiteout_textures_BmpWriter_new_writeMode(int32_t writeMode);
 void whiteout_textures_BmpWriter_delete(whiteout_BmpWriter* self);
 
 /* Serialize the texture to a BMP byte buffer. */
@@ -256,6 +298,7 @@ int32_t whiteout_textures_BmpWriter_hasIssues(const whiteout_BmpWriter* self);
 
 /* Reads a TGA file or byte buffer and decodes it into a Texture. */
 whiteout_TgaParser* whiteout_textures_TgaParser_new(void);
+whiteout_TgaParser* whiteout_textures_TgaParser_new_parseMode(int32_t parseMode);
 void whiteout_textures_TgaParser_delete(whiteout_TgaParser* self);
 
 /* Parse a TGA byte buffer. */
@@ -267,12 +310,52 @@ int32_t whiteout_textures_TgaParser_hasIssues(const whiteout_TgaParser* self);
 
 /* Encodes a Texture into TGA format. */
 whiteout_TgaWriter* whiteout_textures_TgaWriter_new(void);
+whiteout_TgaWriter* whiteout_textures_TgaWriter_new_writeMode(int32_t writeMode);
 void whiteout_textures_TgaWriter_delete(whiteout_TgaWriter* self);
 
 /* Serialize the texture to a TGA byte buffer. */
 whiteout_Bytes whiteout_textures_TgaWriter_write(whiteout_TgaWriter* self, struct whiteout_Texture* texture);
 /* @return true if the last write produced any issues. */
 int32_t whiteout_textures_TgaWriter_hasIssues(const whiteout_TgaWriter* self);
+
+/* ── GifSaveOptions ─────────────────────────────────────────────── */
+
+/* Per-write options for GIF encoding. */
+whiteout_GifSaveOptions* whiteout_textures_GifSaveOptions_new(void);
+void whiteout_textures_GifSaveOptions_delete(whiteout_GifSaveOptions* self);
+
+/* Delay between frames in centiseconds (1/100 s).  0 = unspecified. */
+uint16_t whiteout_textures_GifSaveOptions_get_delayCs(const whiteout_GifSaveOptions* self);
+void whiteout_textures_GifSaveOptions_set_delayCs(whiteout_GifSaveOptions* self, uint16_t value);
+/* Number of times the animation should loop.  0 = loop forever. */
+uint16_t whiteout_textures_GifSaveOptions_get_loopCount(const whiteout_GifSaveOptions* self);
+void whiteout_textures_GifSaveOptions_set_loopCount(whiteout_GifSaveOptions* self, uint16_t value);
+/* Enable blue-noise ordered dithering when mapping pixels to the palette. */
+int32_t whiteout_textures_GifSaveOptions_get_dither(const whiteout_GifSaveOptions* self);
+void whiteout_textures_GifSaveOptions_set_dither(whiteout_GifSaveOptions* self, int32_t value);
+/* Dither strength in [0, 1].  0 = no visible dithering, 1 = full. */
+float whiteout_textures_GifSaveOptions_get_ditherStrength(const whiteout_GifSaveOptions* self);
+void whiteout_textures_GifSaveOptions_set_ditherStrength(whiteout_GifSaveOptions* self, float value);
+
+/* ── GifWriter ─────────────────────────────────────────────── */
+
+/* Encodes a sequence of Texture frames into GIF89a format. */
+/*  */
+/* Unlike the single-image writers (BMP, TGA, …), this writer accepts a vector of frames.  It does **not** inherit from `textures::Writer`. */
+whiteout_GifWriter* whiteout_textures_GifWriter_new(void);
+whiteout_GifWriter* whiteout_textures_GifWriter_new_writeMode_pool(int32_t writeMode, void* pool);
+void whiteout_textures_GifWriter_delete(whiteout_GifWriter* self);
+
+/* Write frames to a GIF file on disk using default options. */
+void whiteout_textures_GifWriter_write(whiteout_GifWriter* self, const char* filePath, const struct whiteout_Texture* const* frames, size_t frames_size);
+/* Write frames to a GIF byte buffer using default options. */
+whiteout_Bytes whiteout_textures_GifWriter_write_frames(whiteout_GifWriter* self, const struct whiteout_Texture* const* frames, size_t frames_size);
+/* Write frames to a GIF file on disk with explicit options. */
+void whiteout_textures_GifWriter_write_filePath_frames_opts(whiteout_GifWriter* self, const char* filePath, const struct whiteout_Texture* const* frames, size_t frames_size, struct whiteout_GifSaveOptions* opts);
+/* Write frames to a GIF byte buffer with explicit options. */
+whiteout_Bytes whiteout_textures_GifWriter_write_frames_opts(whiteout_GifWriter* self, const struct whiteout_Texture* const* frames, size_t frames_size, struct whiteout_GifSaveOptions* opts);
+/* @return true if the last write produced any issues. */
+int32_t whiteout_textures_GifWriter_hasIssues(const whiteout_GifWriter* self);
 
 
 #ifdef __cplusplus

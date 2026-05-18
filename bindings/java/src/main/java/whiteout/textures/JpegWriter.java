@@ -49,6 +49,19 @@ public final class JpegWriter implements AutoCloseable {
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
+    public static JpegWriter createQualityWriteModePoolProgressive(int quality, JpegWriteMode writeMode, whiteout.interfaces.WorkerPool pool, byte progressive) {
+        try {
+            long __pool_h = pool == null ? 0L
+                : whiteout.host.WorkerPools.resolveNative(pool, pool);
+            MemorySegment __pool_seg = __pool_h == 0L
+                ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
+            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_JpegWriter_new_quality_writeMode_pool_progressive.invoke(quality, writeMode.value, __pool_seg, progressive);
+            if (__raw == null || __raw.equals(MemorySegment.NULL))
+                throw new RuntimeException("JpegWriter allocation failed");
+            return new JpegWriter(__raw, true);
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
     @Override
     public void close() {
         if (!owned) return;

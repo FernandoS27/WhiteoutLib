@@ -147,6 +147,26 @@ typedef enum {
     whiteout_mdx_ShapeType_Cylinder,
 } whiteout_mdx_ShapeType;
 
+typedef enum {
+    whiteout_mdx_MDLXFormat_MDX,
+    whiteout_mdx_MDLXFormat_MDL,
+} whiteout_mdx_MDLXFormat;
+
+typedef enum {
+    whiteout_mdx_ParseMode_Strict,
+    whiteout_mdx_ParseMode_Lenient,
+} whiteout_mdx_ParseMode;
+
+typedef enum {
+    whiteout_mdx_UpgradeMode_UpgradeOldVersions,
+    whiteout_mdx_UpgradeMode_PreserveOriginal,
+} whiteout_mdx_UpgradeMode;
+
+typedef enum {
+    whiteout_mdx_MdlFormat_WarcraftIII,
+    whiteout_mdx_MdlFormat_Hiveworkshop,
+} whiteout_mdx_MdlFormat;
+
 /* ── Opaque handles ───────────────────────────────────────── */
 
 typedef struct whiteout_MdxExtent whiteout_MdxExtent;
@@ -174,6 +194,8 @@ typedef struct whiteout_MdxCamera whiteout_MdxCamera;
 typedef struct whiteout_MdxCollisionShape whiteout_MdxCollisionShape;
 typedef struct whiteout_MdxFaceEffect whiteout_MdxFaceEffect;
 typedef struct whiteout_MdxCornEmitter whiteout_MdxCornEmitter;
+typedef struct whiteout_MdxParser whiteout_MdxParser;
+typedef struct whiteout_MdxWriter whiteout_MdxWriter;
 typedef struct whiteout_MdxTrackVector3f whiteout_MdxTrackVector3f;
 typedef struct whiteout_MdxTrackQuaternion whiteout_MdxTrackQuaternion;
 typedef struct whiteout_MdxTrackU32 whiteout_MdxTrackU32;
@@ -1163,6 +1185,49 @@ void whiteout_mdx_MdxCornEmitter_set_alphaTracks(whiteout_MdxCornEmitter* self, 
 /* Visibility animation */
 whiteout_MdxTrackF32* whiteout_mdx_MdxCornEmitter_get_visibilityTracks(whiteout_MdxCornEmitter* self);
 void whiteout_mdx_MdxCornEmitter_set_visibilityTracks(whiteout_MdxCornEmitter* self, const whiteout_MdxTrackF32* value);
+
+/* ── MdxParser ─────────────────────────────────────────────── */
+
+/* Parser for MDX model files */
+/*  */
+/* The Parser reads binary MDX files and converts them into the Model structure. It supports multiple parsing modes and can handle version differences. */
+/*  */
+/* Uses the PImpl (Pointer to Implementation) idiom to hide implementation details. */
+whiteout_MdxParser* whiteout_mdx_MdxParser_new(void);
+whiteout_MdxParser* whiteout_mdx_MdxParser_new_parseMode_upgradeMode(int32_t parseMode, int32_t upgradeMode);
+void whiteout_mdx_MdxParser_delete(whiteout_MdxParser* self);
+
+/* Parse an MDX file from disk */
+/*  */
+/* The format is detected from the file extension: `.mdl` for text MDL format, `.mdx` (or any other extension) for binary MDX format. */
+/*  */
+/* @param filePath Path to the MDX/MDL file @return Parsed MDX file data @throws std::runtime_error If file cannot be opened or parsing fails in strict mode */
+struct whiteout_MdxModel* whiteout_mdx_MdxParser_parse(whiteout_MdxParser* self, const char* filePath);
+/* Parse an MDX/MDL file from memory buffer @param buffer Memory buffer containing MDX/MDL data @param format Source format (MDX binary or MDL text) @return Parsed MDX file data @throws std::runtime_error If parsing fails in strict mode */
+struct whiteout_MdxModel* whiteout_mdx_MdxParser_parse_buffer_format(whiteout_MdxParser* self, const uint8_t* buffer, size_t buffer_size, int32_t format);
+/* Check if parsing encountered any issues @return True if there were warnings or recoverable errors */
+int32_t whiteout_mdx_MdxParser_hasIssues(const whiteout_MdxParser* self);
+
+/* ── MdxWriter ─────────────────────────────────────────────── */
+
+/* Writer for MDX/MDL model files */
+/*  */
+/* The Writer takes a Model structure and writes it to disk in binary MDX format or text MDL format. It automatically handles chunk serialization and size calculation for MDX, and text formatting for MDL. */
+/*  */
+/* The format is selected either by file extension (.mdl → text, .mdx → binary) or by an explicit MDLXFormat parameter. */
+/*  */
+/* Uses the PImpl (Pointer to Implementation) idiom to hide implementation details. */
+whiteout_MdxWriter* whiteout_mdx_MdxWriter_new(void);
+void whiteout_mdx_MdxWriter_delete(whiteout_MdxWriter* self);
+
+/* Write a model file to disk */
+/*  */
+/* The format is detected from the file extension: `.mdl` for text MDL format, `.mdx` (or any other extension) for binary MDX format. */
+/*  */
+/* @param filePath  Path where the file should be written @param mdlx      Model data to write @param mdlFormat MDL text dialect (only used when writing .mdl); defaults to WarcraftIII (engine-faithful). @throws std::runtime_error If file cannot be created or written */
+void whiteout_mdx_MdxWriter_write(whiteout_MdxWriter* self, const char* filePath, struct whiteout_MdxModel* mdlx, int32_t mdlFormat);
+/* Write a model to a byte buffer @param mdx       Model data to write @param format    Output format (MDX binary or MDL text, defaults to MDX) @param mdlFormat MDL text dialect (only used when format == MDL); defaults to WarcraftIII (engine-faithful). @return Vector containing the binary MDX data or UTF-8 MDL text */
+whiteout_Bytes whiteout_mdx_MdxWriter_write_mdx_format_mdlFormat(whiteout_MdxWriter* self, struct whiteout_MdxModel* mdx, int32_t format, int32_t mdlFormat);
 
 /* ── MdxTrackVector3f ─────────────────────────────────────────────── */
 

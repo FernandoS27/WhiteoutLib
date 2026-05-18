@@ -13,6 +13,11 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import whiteout.utils.HttpResponse;
+import whiteout.utils.OsFileSystem;
+import whiteout.utils.SimpleHttpHandler;
+import whiteout.utils.SimpleThreadPool;
+
 public class HostSmokeTest {
 
     public static void main(String[] args) throws Exception {

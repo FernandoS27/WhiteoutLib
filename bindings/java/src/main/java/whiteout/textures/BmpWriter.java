@@ -49,6 +49,15 @@ public final class BmpWriter implements AutoCloseable {
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
+    public static BmpWriter createWriteMode(BmpWriteMode writeMode) {
+        try {
+            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_BmpWriter_new_writeMode.invoke(writeMode.value);
+            if (__raw == null || __raw.equals(MemorySegment.NULL))
+                throw new RuntimeException("BmpWriter allocation failed");
+            return new BmpWriter(__raw, true);
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
     @Override
     public void close() {
         if (!owned) return;

@@ -126,6 +126,11 @@ typedef enum {
     whiteout_m2_ParticleFlag_DynamicWind,
 } whiteout_m2_ParticleFlag;
 
+typedef enum {
+    whiteout_m2_ParseMode_Strict,
+    whiteout_m2_ParseMode_Lenient,
+} whiteout_m2_ParseMode;
+
 /* ── Opaque handles ───────────────────────────────────────── */
 
 typedef struct whiteout_M2CompatQuaternion whiteout_M2CompatQuaternion;
@@ -165,6 +170,10 @@ typedef struct whiteout_M2Box whiteout_M2Box;
 typedef struct whiteout_M2ParticleEmitter whiteout_M2ParticleEmitter;
 typedef struct whiteout_M2Event whiteout_M2Event;
 typedef struct whiteout_M2Model whiteout_M2Model;
+typedef struct whiteout_M2Parser whiteout_M2Parser;
+typedef struct whiteout_M2WriteOptions whiteout_M2WriteOptions;
+typedef struct whiteout_M2SerializeResult whiteout_M2SerializeResult;
+typedef struct whiteout_M2Writer whiteout_M2Writer;
 typedef struct whiteout_M2AnimationTrackVector3f whiteout_M2AnimationTrackVector3f;
 typedef struct whiteout_M2AnimationTrackM2CompatQuaternion whiteout_M2AnimationTrackM2CompatQuaternion;
 typedef struct whiteout_M2AnimationTrackI16 whiteout_M2AnimationTrackI16;
@@ -1090,6 +1099,49 @@ void whiteout_m2_M2Model_assign_animFrameData(whiteout_M2Model* self, const uint
 size_t whiteout_m2_M2Model_get_texturedLightEntries_count(const whiteout_M2Model* self);
 void whiteout_m2_M2Model_resize_texturedLightEntries(whiteout_M2Model* self, size_t count);
 whiteout_M2TexturedLightData* whiteout_m2_M2Model_get_texturedLightEntries_at(whiteout_M2Model* self, size_t index);
+
+/* ── M2Parser ─────────────────────────────────────────────── */
+
+whiteout_M2Parser* whiteout_m2_M2Parser_new(void);
+whiteout_M2Parser* whiteout_m2_M2Parser_new_mode(int32_t mode);
+void whiteout_m2_M2Parser_delete(whiteout_M2Parser* self);
+
+struct whiteout_M2Model* whiteout_m2_M2Parser_parse(whiteout_M2Parser* self, void* fs, const char* filePath);
+struct whiteout_M2Model* whiteout_m2_M2Parser_parse_cascFs_buffer(whiteout_M2Parser* self, void* cascFs, const uint8_t* buffer, size_t buffer_size);
+int32_t whiteout_m2_M2Parser_hasIssues(const whiteout_M2Parser* self);
+
+/* ── M2WriteOptions ─────────────────────────────────────────────── */
+
+whiteout_M2WriteOptions* whiteout_m2_M2WriteOptions_new(void);
+void whiteout_m2_M2WriteOptions_delete(whiteout_M2WriteOptions* self);
+
+uint32_t whiteout_m2_M2WriteOptions_get_m2Version(const whiteout_M2WriteOptions* self);
+void whiteout_m2_M2WriteOptions_set_m2Version(whiteout_M2WriteOptions* self, uint32_t value);
+int32_t whiteout_m2_M2WriteOptions_get_emitSkeleton(const whiteout_M2WriteOptions* self);
+void whiteout_m2_M2WriteOptions_set_emitSkeleton(whiteout_M2WriteOptions* self, int32_t value);
+whiteout_CString whiteout_m2_M2WriteOptions_get_baseStem(const whiteout_M2WriteOptions* self);
+void whiteout_m2_M2WriteOptions_set_baseStem(whiteout_M2WriteOptions* self, const char* value);
+
+/* ── M2SerializeResult ─────────────────────────────────────────────── */
+
+whiteout_M2SerializeResult* whiteout_m2_M2SerializeResult_new(void);
+void whiteout_m2_M2SerializeResult_delete(whiteout_M2SerializeResult* self);
+
+size_t whiteout_m2_M2SerializeResult_get_m2Data_count(const whiteout_M2SerializeResult* self);
+void whiteout_m2_M2SerializeResult_resize_m2Data(whiteout_M2SerializeResult* self, size_t count);
+const uint8_t* whiteout_m2_M2SerializeResult_get_m2Data_data(const whiteout_M2SerializeResult* self);
+void whiteout_m2_M2SerializeResult_assign_m2Data(whiteout_M2SerializeResult* self, const uint8_t* data, size_t count);
+
+/* ── M2Writer ─────────────────────────────────────────────── */
+
+whiteout_M2Writer* whiteout_m2_M2Writer_new(void);
+whiteout_M2Writer* whiteout_m2_M2Writer_new_options(struct whiteout_M2WriteOptions* options);
+void whiteout_m2_M2Writer_delete(whiteout_M2Writer* self);
+
+void whiteout_m2_M2Writer_write(whiteout_M2Writer* self, void* fs, const char* filePath, struct whiteout_M2Model* model);
+void whiteout_m2_M2Writer_write_cascFs_model(whiteout_M2Writer* self, void* cascFs, struct whiteout_M2Model* model);
+struct whiteout_M2SerializeResult* whiteout_m2_M2Writer_write_model(whiteout_M2Writer* self, struct whiteout_M2Model* model);
+int32_t whiteout_m2_M2Writer_hasIssues(const whiteout_M2Writer* self);
 
 /* ── M2AnimationTrackVector3f ─────────────────────────────────────────────── */
 

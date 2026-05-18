@@ -135,14 +135,30 @@ void whiteout_mpq_MpqCreateOptions_set_sectorSizeShift(whiteout_MpqCreateOptions
 /* All public methods are thread-safe: read operations acquire a shared lock; write and persist operations acquire an exclusive lock. */
 void whiteout_mpq_MpqStorage_delete(whiteout_MpqStorage* self);
 
+/* Open an existing MPQ archive. Memory-maps the file and parses tables. @param path  Path to the .mpq file. @param pool  Optional WorkerPool for parallel compress/decompress (non-owning). @return A valid Storage, or std::nullopt on failure. */
+struct whiteout_MpqStorage* whiteout_mpq_MpqStorage_open(const char* path, void* pool);
 /* Create a new empty archive in memory. No file on disk until save(path). */
-struct whiteout_MpqStorage* whiteout_mpq_MpqStorage_create(struct whiteout_MpqCreateOptions* opts);
+struct whiteout_MpqStorage* whiteout_mpq_MpqStorage_create(struct whiteout_MpqCreateOptions* opts, void* pool);
 /* Release all resources. Same effect as letting the Storage go out of scope. */
 void whiteout_mpq_MpqStorage_close(whiteout_MpqStorage* self);
+/* Read a file from the archive. Checks the overlay first, then the source archive. @return File contents, or std::nullopt if not found or deleted. */
+whiteout_Bytes whiteout_mpq_MpqStorage_readFile(const whiteout_MpqStorage* self, const char* name);
+/* Read a file with a specific locale. */
+whiteout_Bytes whiteout_mpq_MpqStorage_readFile_name_locale(const whiteout_MpqStorage* self, const char* name, uint16_t locale);
+/* Check if a file exists in the archive (including overlay). */
+int32_t whiteout_mpq_MpqStorage_fileExists(const whiteout_MpqStorage* self, const char* name);
+/* Get information about a file. */
+struct whiteout_MpqFileInfo* whiteout_mpq_MpqStorage_fileInfo(const whiteout_MpqStorage* self, const char* name);
 /* Get summary information about the archive. */
 struct whiteout_MpqArchiveInfo* whiteout_mpq_MpqStorage_archiveInfo(const whiteout_MpqStorage* self);
+/* Write or overwrite a file. Data is held in overlay until save(). @return true on success, false if the hash table is full. */
+int32_t whiteout_mpq_MpqStorage_writeFile(whiteout_MpqStorage* self, const char* name, const uint8_t* data, size_t data_size, struct whiteout_MpqWriteOptions* opts);
+/* Delete a file from the archive. @return true if the file was found (in source or overlay), false otherwise. */
+int32_t whiteout_mpq_MpqStorage_deleteFile(whiteout_MpqStorage* self, const char* name);
 /* Save the archive to its original path (temp file + atomic rename). @return false if this Storage was created via create() with no prior save(path). */
 int32_t whiteout_mpq_MpqStorage_save(whiteout_MpqStorage* self);
+/* Save the archive to a specific path. After saving, the new file becomes the source archive and the overlay is cleared. */
+int32_t whiteout_mpq_MpqStorage_save_path(whiteout_MpqStorage* self, const char* path);
 
 /* ── MpqFileSystem ─────────────────────────────────────────────── */
 
@@ -155,8 +171,15 @@ int32_t whiteout_mpq_MpqStorage_save(whiteout_MpqStorage* self);
 /* Requires the `whiteout_mpq` CMake target. */
 /*  */
 /* Example: auto storage = mpq::Storage::open("War3.mpq"); utils::MpqFileSystem fs(*storage); auto data = fs.readFile("units\\orc\\grunt\\grunt.mdx"); */
+whiteout_MpqFileSystem* whiteout_mpq_MpqFileSystem_new_storage(struct whiteout_MpqStorage* storage);
 void whiteout_mpq_MpqFileSystem_delete(whiteout_MpqFileSystem* self);
 
+/* Read a file from the archive. Returns an empty vector if not found. */
+whiteout_Bytes whiteout_mpq_MpqFileSystem_readFile(const whiteout_MpqFileSystem* self, const char* path);
+/* Write a file into the archive overlay. Changes are not persisted to disk until storage.save() is called on the underlying Storage. */
+int32_t whiteout_mpq_MpqFileSystem_writeFile(whiteout_MpqFileSystem* self, const char* path, const uint8_t* data, size_t data_size);
+/* Check if a file exists in the archive (including the write overlay). */
+int32_t whiteout_mpq_MpqFileSystem_fileExists(const whiteout_MpqFileSystem* self, const char* path);
 
 
 #ifdef __cplusplus

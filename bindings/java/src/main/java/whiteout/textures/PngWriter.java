@@ -49,6 +49,15 @@ public final class PngWriter implements AutoCloseable {
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
+    public static PngWriter createWriteMode(PngWriteMode writeMode) {
+        try {
+            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_PngWriter_new_writeMode.invoke(writeMode.value);
+            if (__raw == null || __raw.equals(MemorySegment.NULL))
+                throw new RuntimeException("PngWriter allocation failed");
+            return new PngWriter(__raw, true);
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
     @Override
     public void close() {
         if (!owned) return;

@@ -51,11 +51,13 @@ using common::BinaryReader;
  *
  * Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
  */
+/// @bind methods, js_name=M3Parser
 class Parser {
 public:
     /**
      * @brief Parsing strictness mode
      */
+    /// @bind js_name=M3ParseMode
     enum class ParseMode {
         Strict, ///< Throw exceptions on invalid data or parsing errors
         Lenient ///< Skip problematic data and try to recover from errors (recommended)

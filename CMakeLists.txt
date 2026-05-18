@@ -21,6 +21,8 @@ option(WHITEOUT_BUILD_WASM_NODE_BINDINGS
     "Build the Node.js-flavoured Emscripten target (NODERAWFS + pthreads)." OFF)
 option(WHITEOUT_BUILD_PYTHON_BINDINGS "Build native Python bindings via pybind11" OFF)
 option(WHITEOUT_BUILD_C_BINDINGS "Build the flat-C ABI shared library (whiteout_c)" OFF)
+option(WHITEOUT_BUILD_JNI_BINDINGS
+    "Build the Java JNI bridge (whiteout_jni) for callback-direction interop" OFF)
 option(WHITEOUT_ENABLE_CLANG_TIDY "Run clang-tidy on whiteout sources during build" OFF)
 
 # Always emit compile_commands.json — drives clangd, clang-tidy, IWYU, ...
@@ -630,6 +632,9 @@ if(WHITEOUT_BUILD_PYTHON_BINDINGS)
 endif()
 
 if(WHITEOUT_BUILD_C_BINDINGS)
+    # The C bindings CMakeLists also absorbs the JNI bridge sources
+    # into the same DLL when WHITEOUT_BUILD_JNI_BINDINGS=ON, so no
+    # separate add_subdirectory(bindings/java/jni) is needed anymore.
     add_subdirectory(bindings/c)
 endif()
 

@@ -12,58 +12,72 @@ public enum NodeFlag {
     /** Don't inherit parent scaling */
     DontInheritScaling(2),
     /** Don't inherit parent rotation */
-    DontInheritRotation(3),
+    DontInheritRotation(4),
     /** Always face camera */
-    Billboarded(4),
+    Billboarded(8),
     /** Billboard but lock X axis */
-    BillboardedLockX(5),
+    BillboardedLockX(16),
     /** Billboard but lock Y axis */
-    BillboardedLockY(6),
+    BillboardedLockY(32),
     /** Billboard but lock Z axis */
-    BillboardedLockZ(7),
+    BillboardedLockZ(64),
     /** Anchored to camera */
-    CameraAnchored(8),
+    CameraAnchored(128),
     /** This is a bone */
-    Bone(9),
+    Bone(256),
     /** This is a light */
-    Light(10),
+    Light(512),
     /** This is an event object */
-    EventObject(11),
+    EventObject(1024),
     /** This is an attachment */
-    Attachment(12),
+    Attachment(2048),
     /** This is a particle emitter */
-    ParticleEmitter(13),
+    ParticleEmitter(4096),
     /** This is a collision shape */
-    CollisionShape(14),
+    CollisionShape(8192),
     /** This is a ribbon emitter */
-    RibbonEmitter(15),
+    RibbonEmitter(16384),
     /** Unshaded (PE2/Popcorn) / EmitterUsesMdl (PE) */
-    Unshaded(16),
+    Unshaded(32768),
     /** Particle emitter uses MDL model */
-    EmitterUsesMdl(17),
+    EmitterUsesMdl(32768),
     /** Sort primitives (PE2/Popcorn) */
-    SortPrimitives(18),
+    SortPrimitives(65536),
     /** Alias of SortPrimitives */
-    SortPrimsFarZ(19),
+    SortPrimsFarZ(65536),
     /** Particle emitter uses TGA (PE only) */
-    EmitterUsesTga(20),
+    EmitterUsesTga(65536),
     /** Line-shaped emitter (PE2) */
-    LineEmitter(21),
+    LineEmitter(131072),
     /** Unfogged (Popcorn emitter) */
-    PopcornUnfogged(22),
+    PopcornUnfogged(131072),
     /** Not affected by fog (PE2) */
-    Unfogged(23),
+    Unfogged(262144),
     /** Particle scaling (Popcorn emitter) */
-    PopcornScaling(24),
+    PopcornScaling(262144),
     /** Use model space coordinates */
-    ModelSpace(25),
+    ModelSpace(524288),
     /** XY quad billboarding */
-    XYQuad(26);
+    XYQuad(1048576);
 
     public final int value;
     NodeFlag(int v) { this.value = v; }
     public static NodeFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown NodeFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of NodeFlag bits. */
+    public static java.util.EnumSet<NodeFlag> unpack(int packed) {
+        java.util.EnumSet<NodeFlag> out = java.util.EnumSet.noneOf(NodeFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<NodeFlag> flags) {
+        int v = 0;
+        for (NodeFlag f : flags) v |= f.value;
+        return v;
     }
 }

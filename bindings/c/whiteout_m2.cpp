@@ -17,6 +17,8 @@
 #include <whiteout/models/m2/structures/extensions.h>
 #include <whiteout/models/m2/structures/skin.h>
 #include <whiteout/models/m2/structures.h>
+#include <whiteout/models/m2/parser.h>
+#include <whiteout/models/m2/writer.h>
 
 namespace { using namespace whiteout; }
 
@@ -31,6 +33,15 @@ inline whiteout_Bytes wrapBytes(std::vector<whiteout::u8>&& v) {
 }
 
 inline whiteout_Bytes emptyBytes() {
+    return { nullptr, 0, nullptr };
+}
+
+inline whiteout_CString wrapCString(std::string&& s) {
+    auto* owned = new std::string(std::move(s));
+    return { owned->c_str(), owned->size(), owned };
+}
+
+inline whiteout_CString emptyCString() {
     return { nullptr, 0, nullptr };
 }
 
@@ -3365,6 +3376,145 @@ void whiteout_m2_M2Model_resize_texturedLightEntries(whiteout_M2Model* self, siz
 
 whiteout_M2TexturedLightData* whiteout_m2_M2Model_get_texturedLightEntries_at(whiteout_M2Model* self, size_t index) {
     return reinterpret_cast<whiteout_M2TexturedLightData*>(&reinterpret_cast<whiteout::m2::Model*>(self)->texturedLightEntries[index]);
+}
+
+} // extern "C"
+
+// ── M2Parser ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2Parser* whiteout_m2_M2Parser_new(void) {
+    return reinterpret_cast<whiteout_M2Parser*>(new whiteout::m2::Parser());
+}
+
+whiteout_M2Parser* whiteout_m2_M2Parser_new_mode(int32_t mode) {
+    return reinterpret_cast<whiteout_M2Parser*>(new whiteout::m2::Parser(static_cast<whiteout::m2::Parser::ParseMode>(mode)));
+}
+
+void whiteout_m2_M2Parser_delete(whiteout_M2Parser* self) {
+    delete reinterpret_cast<whiteout::m2::Parser*>(self);
+}
+
+struct whiteout_M2Model* whiteout_m2_M2Parser_parse(whiteout_M2Parser* self, void* fs, const char* filePath) {
+    return reinterpret_cast<struct whiteout_M2Model*>(
+        new whiteout::m2::Model(reinterpret_cast<whiteout::m2::Parser*>(self)->parse(*reinterpret_cast<whiteout::interfaces::VirtualPathFileSystem*>(fs), std::string(filePath ? filePath : ""))));
+}
+
+struct whiteout_M2Model* whiteout_m2_M2Parser_parse_cascFs_buffer(whiteout_M2Parser* self, void* cascFs, const uint8_t* buffer, size_t buffer_size) {
+    return reinterpret_cast<struct whiteout_M2Model*>(
+        new whiteout::m2::Model(reinterpret_cast<whiteout::m2::Parser*>(self)->parse(*reinterpret_cast<whiteout::interfaces::CascFileSystem*>(cascFs), std::span<const whiteout::u8>(buffer, buffer_size))));
+}
+
+int32_t whiteout_m2_M2Parser_hasIssues(const whiteout_M2Parser* self) {
+    return reinterpret_cast<const whiteout::m2::Parser*>(self)->hasIssues();
+}
+
+} // extern "C"
+
+// ── M2WriteOptions ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2WriteOptions* whiteout_m2_M2WriteOptions_new(void) {
+    return reinterpret_cast<whiteout_M2WriteOptions*>(new whiteout::m2::WriteOptions());
+}
+
+void whiteout_m2_M2WriteOptions_delete(whiteout_M2WriteOptions* self) {
+    delete reinterpret_cast<whiteout::m2::WriteOptions*>(self);
+}
+
+uint32_t whiteout_m2_M2WriteOptions_get_m2Version(const whiteout_M2WriteOptions* self) {
+    return reinterpret_cast<const whiteout::m2::WriteOptions*>(self)->m2Version;
+}
+
+void whiteout_m2_M2WriteOptions_set_m2Version(whiteout_M2WriteOptions* self, uint32_t value) {
+    reinterpret_cast<whiteout::m2::WriteOptions*>(self)->m2Version = value;
+}
+
+int32_t whiteout_m2_M2WriteOptions_get_emitSkeleton(const whiteout_M2WriteOptions* self) {
+    return reinterpret_cast<const whiteout::m2::WriteOptions*>(self)->emitSkeleton;
+}
+
+void whiteout_m2_M2WriteOptions_set_emitSkeleton(whiteout_M2WriteOptions* self, int32_t value) {
+    reinterpret_cast<whiteout::m2::WriteOptions*>(self)->emitSkeleton = value;
+}
+
+whiteout_CString whiteout_m2_M2WriteOptions_get_baseStem(const whiteout_M2WriteOptions* self) {
+    auto* __owned = new std::string(reinterpret_cast<const whiteout::m2::WriteOptions*>(self)->baseStem);
+    return whiteout_CString{ __owned->c_str(), __owned->size(), __owned };
+}
+
+void whiteout_m2_M2WriteOptions_set_baseStem(whiteout_M2WriteOptions* self, const char* value) {
+    reinterpret_cast<whiteout::m2::WriteOptions*>(self)->baseStem = (value ? value : "");
+}
+
+} // extern "C"
+
+// ── M2SerializeResult ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2SerializeResult* whiteout_m2_M2SerializeResult_new(void) {
+    return reinterpret_cast<whiteout_M2SerializeResult*>(new whiteout::m2::M2SerializeResult());
+}
+
+void whiteout_m2_M2SerializeResult_delete(whiteout_M2SerializeResult* self) {
+    delete reinterpret_cast<whiteout::m2::M2SerializeResult*>(self);
+}
+
+size_t whiteout_m2_M2SerializeResult_get_m2Data_count(const whiteout_M2SerializeResult* self) {
+    return reinterpret_cast<const whiteout::m2::M2SerializeResult*>(self)->m2Data.size();
+}
+
+void whiteout_m2_M2SerializeResult_resize_m2Data(whiteout_M2SerializeResult* self, size_t count) {
+    reinterpret_cast<whiteout::m2::M2SerializeResult*>(self)->m2Data.resize(count);
+}
+
+const uint8_t* whiteout_m2_M2SerializeResult_get_m2Data_data(const whiteout_M2SerializeResult* self) {
+    const auto& __v = reinterpret_cast<const whiteout::m2::M2SerializeResult*>(self)->m2Data;
+    return __v.empty() ? nullptr : reinterpret_cast<const uint8_t*>(__v.data());
+}
+
+void whiteout_m2_M2SerializeResult_assign_m2Data(whiteout_M2SerializeResult* self, const uint8_t* data, size_t count) {
+    auto& __v = reinterpret_cast<whiteout::m2::M2SerializeResult*>(self)->m2Data;
+    __v.resize(count);
+    if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u8));
+}
+
+} // extern "C"
+
+// ── M2Writer ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2Writer* whiteout_m2_M2Writer_new(void) {
+    return reinterpret_cast<whiteout_M2Writer*>(new whiteout::m2::Writer());
+}
+
+whiteout_M2Writer* whiteout_m2_M2Writer_new_options(struct whiteout_M2WriteOptions* options) {
+    return reinterpret_cast<whiteout_M2Writer*>(new whiteout::m2::Writer(*reinterpret_cast<whiteout::m2::WriteOptions*>(options)));
+}
+
+void whiteout_m2_M2Writer_delete(whiteout_M2Writer* self) {
+    delete reinterpret_cast<whiteout::m2::Writer*>(self);
+}
+
+void whiteout_m2_M2Writer_write(whiteout_M2Writer* self, void* fs, const char* filePath, struct whiteout_M2Model* model) {
+    reinterpret_cast<whiteout::m2::Writer*>(self)->write(*reinterpret_cast<whiteout::interfaces::VirtualPathFileSystem*>(fs), std::string(filePath ? filePath : ""), *reinterpret_cast<const whiteout::m2::Model*>(model));
+}
+
+void whiteout_m2_M2Writer_write_cascFs_model(whiteout_M2Writer* self, void* cascFs, struct whiteout_M2Model* model) {
+    reinterpret_cast<whiteout::m2::Writer*>(self)->write(*reinterpret_cast<whiteout::interfaces::CascFileSystem*>(cascFs), *reinterpret_cast<const whiteout::m2::Model*>(model));
+}
+
+struct whiteout_M2SerializeResult* whiteout_m2_M2Writer_write_model(whiteout_M2Writer* self, struct whiteout_M2Model* model) {
+    return reinterpret_cast<struct whiteout_M2SerializeResult*>(
+        new whiteout::m2::M2SerializeResult(reinterpret_cast<whiteout::m2::Writer*>(self)->write(*reinterpret_cast<const whiteout::m2::Model*>(model))));
+}
+
+int32_t whiteout_m2_M2Writer_hasIssues(const whiteout_M2Writer* self) {
+    return reinterpret_cast<const whiteout::m2::Writer*>(self)->hasIssues();
 }
 
 } // extern "C"

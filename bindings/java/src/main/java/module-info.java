@@ -12,4 +12,7 @@ module whiteout {
     exports whiteout.m2;
     exports whiteout.m3;
     exports whiteout.utils;
+    exports whiteout.host;
+    exports whiteout.interfaces;
+    exports whiteout.mpq;
 }

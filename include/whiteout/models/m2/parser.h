@@ -23,8 +23,10 @@ namespace m2 {
 
 using common::BinaryReader;
 
+/// @bind methods, js_name=M2Parser
 class Parser {
 public:
+    /// @bind js_name=M2ParseMode
     enum class ParseMode { Strict, Lenient };
 
     explicit Parser(ParseMode mode = ParseMode::Lenient);

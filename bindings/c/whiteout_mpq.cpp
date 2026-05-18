@@ -31,6 +31,15 @@ inline whiteout_Bytes emptyBytes() {
     return { nullptr, 0, nullptr };
 }
 
+inline whiteout_CString wrapCString(std::string&& s) {
+    auto* owned = new std::string(std::move(s));
+    return { owned->c_str(), owned->size(), owned };
+}
+
+inline whiteout_CString emptyCString() {
+    return { nullptr, 0, nullptr };
+}
+
 } // anonymous
 
 // ── MpqFileInfo ─────────────────────────────────────────────────
@@ -234,13 +243,43 @@ void whiteout_mpq_MpqStorage_delete(whiteout_MpqStorage* self) {
     delete reinterpret_cast<whiteout::storages::mpq::Storage*>(self);
 }
 
-struct whiteout_MpqStorage* whiteout_mpq_MpqStorage_create(struct whiteout_MpqCreateOptions* opts) {
+struct whiteout_MpqStorage* whiteout_mpq_MpqStorage_open(const char* path, void* pool) {
+    auto __r = whiteout::storages::mpq::Storage::open(std::string(path ? path : ""), reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool));
+    if (!__r) return nullptr;
     return reinterpret_cast<struct whiteout_MpqStorage*>(
-        new whiteout::storages::mpq::Storage(whiteout::storages::mpq::Storage::create(*reinterpret_cast<const whiteout::storages::mpq::CreateOptions*>(opts))));
+        new whiteout::storages::mpq::Storage(std::move(*__r)));
+}
+
+struct whiteout_MpqStorage* whiteout_mpq_MpqStorage_create(struct whiteout_MpqCreateOptions* opts, void* pool) {
+    return reinterpret_cast<struct whiteout_MpqStorage*>(
+        new whiteout::storages::mpq::Storage(whiteout::storages::mpq::Storage::create(*reinterpret_cast<const whiteout::storages::mpq::CreateOptions*>(opts), reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool))));
 }
 
 void whiteout_mpq_MpqStorage_close(whiteout_MpqStorage* self) {
     reinterpret_cast<whiteout::storages::mpq::Storage*>(self)->close();
+}
+
+whiteout_Bytes whiteout_mpq_MpqStorage_readFile(const whiteout_MpqStorage* self, const char* name) {
+    auto __r = reinterpret_cast<const whiteout::storages::mpq::Storage*>(self)->readFile(std::string(name ? name : ""));
+    if (!__r) return emptyBytes();
+    return wrapBytes(std::move(*__r));
+}
+
+whiteout_Bytes whiteout_mpq_MpqStorage_readFile_name_locale(const whiteout_MpqStorage* self, const char* name, uint16_t locale) {
+    auto __r = reinterpret_cast<const whiteout::storages::mpq::Storage*>(self)->readFile(std::string(name ? name : ""), locale);
+    if (!__r) return emptyBytes();
+    return wrapBytes(std::move(*__r));
+}
+
+int32_t whiteout_mpq_MpqStorage_fileExists(const whiteout_MpqStorage* self, const char* name) {
+    return reinterpret_cast<const whiteout::storages::mpq::Storage*>(self)->fileExists(std::string(name ? name : ""));
+}
+
+struct whiteout_MpqFileInfo* whiteout_mpq_MpqStorage_fileInfo(const whiteout_MpqStorage* self, const char* name) {
+    auto __r = reinterpret_cast<const whiteout::storages::mpq::Storage*>(self)->fileInfo(std::string(name ? name : ""));
+    if (!__r) return nullptr;
+    return reinterpret_cast<struct whiteout_MpqFileInfo*>(
+        new whiteout::storages::mpq::FileInfo(std::move(*__r)));
 }
 
 struct whiteout_MpqArchiveInfo* whiteout_mpq_MpqStorage_archiveInfo(const whiteout_MpqStorage* self) {
@@ -248,8 +287,20 @@ struct whiteout_MpqArchiveInfo* whiteout_mpq_MpqStorage_archiveInfo(const whiteo
         new whiteout::storages::mpq::ArchiveInfo(reinterpret_cast<const whiteout::storages::mpq::Storage*>(self)->archiveInfo()));
 }
 
+int32_t whiteout_mpq_MpqStorage_writeFile(whiteout_MpqStorage* self, const char* name, const uint8_t* data, size_t data_size, struct whiteout_MpqWriteOptions* opts) {
+    return reinterpret_cast<whiteout::storages::mpq::Storage*>(self)->writeFile(std::string(name ? name : ""), std::span<const whiteout::u8>(data, data_size), *reinterpret_cast<const whiteout::storages::mpq::WriteOptions*>(opts));
+}
+
+int32_t whiteout_mpq_MpqStorage_deleteFile(whiteout_MpqStorage* self, const char* name) {
+    return reinterpret_cast<whiteout::storages::mpq::Storage*>(self)->deleteFile(std::string(name ? name : ""));
+}
+
 int32_t whiteout_mpq_MpqStorage_save(whiteout_MpqStorage* self) {
     return reinterpret_cast<whiteout::storages::mpq::Storage*>(self)->save();
+}
+
+int32_t whiteout_mpq_MpqStorage_save_path(whiteout_MpqStorage* self, const char* path) {
+    return reinterpret_cast<whiteout::storages::mpq::Storage*>(self)->save(std::string(path ? path : ""));
 }
 
 } // extern "C"
@@ -258,8 +309,24 @@ int32_t whiteout_mpq_MpqStorage_save(whiteout_MpqStorage* self) {
 
 extern "C" {
 
+whiteout_MpqFileSystem* whiteout_mpq_MpqFileSystem_new_storage(struct whiteout_MpqStorage* storage) {
+    return reinterpret_cast<whiteout_MpqFileSystem*>(new whiteout::utils::MpqFileSystem(*reinterpret_cast<whiteout::storages::mpq::Storage*>(storage)));
+}
+
 void whiteout_mpq_MpqFileSystem_delete(whiteout_MpqFileSystem* self) {
     delete reinterpret_cast<whiteout::utils::MpqFileSystem*>(self);
+}
+
+whiteout_Bytes whiteout_mpq_MpqFileSystem_readFile(const whiteout_MpqFileSystem* self, const char* path) {
+    return wrapBytes(reinterpret_cast<const whiteout::utils::MpqFileSystem*>(self)->readFile(std::string(path ? path : "")));
+}
+
+int32_t whiteout_mpq_MpqFileSystem_writeFile(whiteout_MpqFileSystem* self, const char* path, const uint8_t* data, size_t data_size) {
+    return reinterpret_cast<whiteout::utils::MpqFileSystem*>(self)->writeFile(std::string(path ? path : ""), std::vector<whiteout::u8>(data, data + data_size));
+}
+
+int32_t whiteout_mpq_MpqFileSystem_fileExists(const whiteout_MpqFileSystem* self, const char* path) {
+    return reinterpret_cast<const whiteout::utils::MpqFileSystem*>(self)->fileExists(std::string(path ? path : ""));
 }
 
 } // extern "C"

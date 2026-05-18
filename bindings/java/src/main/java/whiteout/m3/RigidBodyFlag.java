@@ -12,24 +12,38 @@ public enum RigidBodyFlag {
     /** Walkable surface */
     Walkable(2),
     /** Can be stacked */
-    Stackable(3),
+    Stackable(4),
     /** Simulate collisions */
-    SimulateCollision(4),
+    SimulateCollision(8),
     /** Ignore local bodies */
-    IgnoreLocalBodies(5),
+    IgnoreLocalBodies(16),
     /** Always present */
-    AlwaysExists(6),
+    AlwaysExists(32),
     /** Unknown */
-    Unknown6(7),
+    Unknown6(64),
     /** Disable simulation */
-    NoSimulation(8),
+    NoSimulation(128),
     /** Unknown */
-    Unknown9(9);
+    Unknown9(512);
 
     public final int value;
     RigidBodyFlag(int v) { this.value = v; }
     public static RigidBodyFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown RigidBodyFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of RigidBodyFlag bits. */
+    public static java.util.EnumSet<RigidBodyFlag> unpack(int packed) {
+        java.util.EnumSet<RigidBodyFlag> out = java.util.EnumSet.noneOf(RigidBodyFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<RigidBodyFlag> flags) {
+        int v = 0;
+        for (RigidBodyFlag f : flags) v |= f.value;
+        return v;
     }
 }

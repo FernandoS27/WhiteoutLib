@@ -12,20 +12,34 @@ public enum MaterialFlag {
     /** Render both sides of polygons */
     TwoSided(2),
     /** Not affected by fog */
-    Unfogged(3),
+    Unfogged(4),
     /** Sort by near-Z */
-    SortPrimsNearZ(4),
+    SortPrimsNearZ(8),
     /** Sort by far-Z; alias: SortPrimitives */
-    SortPrimsFarZ(5),
+    SortPrimsFarZ(16),
     /** Legacy alias for SortPrimsFarZ (HiveWorkshop name) */
-    SortPrimitives(6),
+    SortPrimitives(16),
     /** Force full-resolution textures */
-    FullResolution(7);
+    FullResolution(32);
 
     public final int value;
     MaterialFlag(int v) { this.value = v; }
     public static MaterialFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown MaterialFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of MaterialFlag bits. */
+    public static java.util.EnumSet<MaterialFlag> unpack(int packed) {
+        java.util.EnumSet<MaterialFlag> out = java.util.EnumSet.noneOf(MaterialFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<MaterialFlag> flags) {
+        int v = 0;
+        for (MaterialFlag f : flags) v |= f.value;
+        return v;
     }
 }

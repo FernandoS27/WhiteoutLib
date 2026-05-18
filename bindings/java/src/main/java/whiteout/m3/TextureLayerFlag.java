@@ -8,34 +8,48 @@ package whiteout.m3;
 public enum TextureLayerFlag {
     None(0),
     /** Wrap texture in U */
-    UVWrapX(1),
+    UVWrapX(4),
     /** Wrap texture in V */
-    UVWrapY(2),
+    UVWrapY(8),
     /** Invert color */
-    ColorInvert(3),
+    ColorInvert(16),
     /** Clamp to [0,1] */
-    ColorClamp(4),
+    ColorClamp(32),
     /** Additive blending */
-    ColorAdd(5),
+    ColorAdd(64),
     /** Multiplicative blending */
-    ColorMultiply(6),
+    ColorMultiply(128),
     /** Flipbook UVs for particles */
-    ParticleUVFlipbook(7),
+    ParticleUVFlipbook(256),
     /** Video texture */
-    Video(8),
+    Video(512),
     /** Solid color (no texture) */
-    Color(9),
+    Color(1024),
     /** Override texture source */
-    ReplaceTextureSource(10),
+    ReplaceTextureSource(2048),
     /** Fresnel-based UV transform */
-    FresnelTransform(11),
+    FresnelTransform(16384),
     /** Normalize fresnel values */
-    FresnelNormalize(12);
+    FresnelNormalize(32768);
 
     public final int value;
     TextureLayerFlag(int v) { this.value = v; }
     public static TextureLayerFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        throw new IllegalArgumentException("unknown TextureLayerFlag: " + v);
+        return null;
+    }
+    /** Decompose a packed int into its set of TextureLayerFlag bits. */
+    public static java.util.EnumSet<TextureLayerFlag> unpack(int packed) {
+        java.util.EnumSet<TextureLayerFlag> out = java.util.EnumSet.noneOf(TextureLayerFlag.class);
+        for (var e : values()) {
+            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
+        }
+        return out;
+    }
+    /** OR every flag in {@code flags} together into a packed int. */
+    public static int pack(java.util.Set<TextureLayerFlag> flags) {
+        int v = 0;
+        for (TextureLayerFlag f : flags) v |= f.value;
+        return v;
     }
 }

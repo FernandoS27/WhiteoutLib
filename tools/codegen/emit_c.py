@@ -394,7 +394,7 @@ def _ctor_param_c_type(p: BindMethodParam, module: BindModule) -> str:
     return _c_type(p.type, module)
 
 
-def _ctor_overloads_named(c: BindClass):
+def _ctor_overloads_named(c: BindClass, module: BindModule | None = None):
     """Return (ctor, name_suffix, c_params_str) for every non-default ctor
     on c whose param types are representable in C.
 
@@ -417,6 +417,20 @@ def _ctor_overloads_named(c: BindClass):
             elif p.type.kind == TypeKind.PRIMITIVE:
                 short = _short_name(p.type.cpp_text)
                 bits.append(f'{_C_PRIMITIVE.get(short, "int32_t")} {p.name}')
+            elif p.type.kind == TypeKind.ENUM:
+                bits.append(f'int32_t {p.name}')
+            elif _is_interface_pointer_param(p):
+                bits.append(f'void* {p.name}')
+            elif p.type.kind in (TypeKind.NESTED, TypeKind.UNKNOWN) \
+                    and not p.type.cpp_text.startswith('std::'):
+                # Class-handle ctor param (e.g. `MpqFileSystem(Storage&)`).
+                # Module is required to resolve the typedef short name —
+                # callers supply it.
+                if module is None:
+                    bits = None
+                    break
+                handle = _resolve_handle_short(p.type.cpp_text, module)
+                bits.append(f'struct whiteout_{handle}* {p.name}')
             else:
                 bits = None
                 break
@@ -542,7 +556,7 @@ def _emit_class_header(buf: StringIO, c: BindClass, prefix: str,
     # suffix. Single-param string ctors (e.g. OsFileSystem(root)) take a
     # `const char*`; vector / span params follow the same flat pair pattern
     # used for method args.
-    for _ctor, sig_name, sig_params in _ctor_overloads_named(c):
+    for _ctor, sig_name, sig_params in _ctor_overloads_named(c, module):
         buf.write(f'{cls_t} {prefix}_{short}_new_{sig_name}({sig_params});\n')
     # Destructor.
     buf.write(f'void {prefix}_{short}_delete({cls_t} self);\n\n')
@@ -570,6 +584,20 @@ def _emit_method_decl(buf: StringIO, m: BindMethod, c: BindClass, prefix: str,
             short_t, _ = p.span_scalar
             c_elem = _C_PRIMITIVE[short_t]
             param_strs.append(f'const {c_elem}* {p.name}')
+            param_strs.append(f'size_t {p.name}_size')
+        elif _is_interface_pointer_param(p):
+            # whiteout::interfaces::X* — emitted opaque so consumers
+            # outside the textures/mpq TUs don't need the typedef.
+            param_strs.append(f'void* {p.name}')
+        elif p.type.kind == TypeKind.STRING:
+            param_strs.append(f'const char* {p.name}')
+        elif _is_byte_vector_param(p):
+            param_strs.append(f'const uint8_t* {p.name}')
+            param_strs.append(f'size_t {p.name}_size')
+        elif _is_class_vector_param(p, module):
+            elem_handle = _resolve_handle_short(p.type.element.cpp_text, module)
+            param_strs.append(
+                f'const struct whiteout_{elem_handle}* const* {p.name}')
             param_strs.append(f'size_t {p.name}_size')
         else:
             param_strs.append(f'{_c_type(p.type, module)} {p.name}')
@@ -947,6 +975,8 @@ def _is_return_supported(ret: TypeRef, module: BindModule) -> bool:
         return True
     if ret.kind in (TypeKind.PRIMITIVE, TypeKind.ENUM, TypeKind.NESTED):
         return True
+    if ret.kind == TypeKind.STRING:
+        return True
     if ret.kind == TypeKind.UNKNOWN:
         # `std::span<const u8>` lands here too; route it through Bytes.
         if _is_span_const_u8(ret):
@@ -961,6 +991,8 @@ def _is_return_supported(ret: TypeRef, module: BindModule) -> bool:
     if ret.kind == TypeKind.OPTIONAL:
         if ret.element.kind in (TypeKind.NESTED,):
             return True
+        if ret.element.kind == TypeKind.STRING:
+            return True
         if ret.element.kind == TypeKind.UNKNOWN:
             if ret.element.cpp_text.startswith('std::'):
                 return False
@@ -970,15 +1002,57 @@ def _is_return_supported(ret: TypeRef, module: BindModule) -> bool:
     return False
 
 
+def _is_interface_pointer_param(p: BindMethodParam) -> bool:
+    """`whiteout::interfaces::X*` or `whiteout::interfaces::X&` params —
+    bridged through the host bindings' NativeHandled/*Bridge dispatch
+    layer. Detected via cpp_raw (which preserves the `*`/`&` that
+    classify_type strips off cpp_text). On the C ABI side both shapes
+    collapse to the same opaque-pointer marshalling, so we treat them
+    identically here."""
+    return (('*' in p.cpp_raw) or ('&' in p.cpp_raw)) \
+        and ('interfaces::' in p.cpp_raw)
+
+
+def _is_byte_vector_param(p: BindMethodParam) -> bool:
+    """`const std::vector<u8>&` style — marshalled as a (ptr, size) pair
+    over the C ABI, same shape as a span<const u8>."""
+    t = p.type
+    return (t.kind == TypeKind.VECTOR
+            and _short_name(t.element.cpp_text) in ('u8', 'unsigned char'))
+
+
+def _is_class_vector_param(p: BindMethodParam, module: BindModule) -> bool:
+    """`const std::vector<Class>&` where Class is a bound class handle —
+    marshalled as an array of opaque handle pointers + a size."""
+    t = p.type
+    if t.kind != TypeKind.VECTOR:
+        return False
+    elem = t.element
+    if elem.kind not in (TypeKind.NESTED, TypeKind.UNKNOWN):
+        return False
+    if elem.cpp_text.startswith('std::'):
+        return False
+    return _c_handle_name(elem.cpp_text) in _known_class_short_names(module)
+
+
 def _is_param_supported(p: BindMethodParam, module: BindModule) -> bool:
     """Mirror of `_is_return_supported` for parameter types. Span-of-
     primitive params are explicitly OK (the C side gets ptr+size)."""
     if p.span_scalar is not None:
         return True
+    if _is_interface_pointer_param(p):
+        return True
     t = p.type
     if t.kind == TypeKind.PRIMITIVE:
         return True
     if t.kind == TypeKind.ENUM:
+        return True
+    if t.kind == TypeKind.STRING:
+        # `const std::string&` → `const char*` on the C ABI.
+        return True
+    if _is_byte_vector_param(p):
+        return True
+    if _is_class_vector_param(p, module):
         return True
     if t.kind == TypeKind.NESTED:
         return True
@@ -1293,6 +1367,15 @@ inline whiteout_Bytes emptyBytes() {
     return { nullptr, 0, nullptr };
 }
 
+inline whiteout_CString wrapCString(std::string&& s) {
+    auto* owned = new std::string(std::move(s));
+    return { owned->c_str(), owned->size(), owned };
+}
+
+inline whiteout_CString emptyCString() {
+    return { nullptr, 0, nullptr };
+}
+
 } // anonymous
 
 ''')
@@ -1333,13 +1416,27 @@ def _emit_class_source(buf: StringIO, c: BindClass, prefix: str,
 
     # Non-default constructors. Header emits the matching declarations via
     # the same _ctor_overloads_named helper to keep names in sync.
-    for ctor, sig_name, sig_params in _ctor_overloads_named(c):
+    for ctor, sig_name, sig_params in _ctor_overloads_named(c, module):
         # Build the C++ argument list: forward the C params into the C++
         # ctor, converting `const char*` to `std::string` where needed.
         cpp_args = []
         for p in ctor.params:
             if p.type.kind == TypeKind.STRING:
                 cpp_args.append(f'std::string({p.name})')
+            elif p.type.kind == TypeKind.ENUM:
+                cpp_args.append(f'static_cast<{p.type.cpp_text}>({p.name})')
+            elif _is_interface_pointer_param(p):
+                if '&' in p.cpp_raw:
+                    cpp_args.append(
+                        f'*reinterpret_cast<{p.type.cpp_text}*>({p.name})')
+                else:
+                    cpp_args.append(
+                        f'reinterpret_cast<{p.type.cpp_text}*>({p.name})')
+            elif p.type.kind in (TypeKind.NESTED, TypeKind.UNKNOWN) \
+                    and not p.type.cpp_text.startswith('std::'):
+                # Class-handle param: dereference the opaque pointer.
+                cpp_args.append(
+                    f'*reinterpret_cast<{p.type.cpp_text}*>({p.name})')
             else:
                 cpp_args.append(p.name)
         cpp_call = ', '.join(cpp_args)
@@ -1380,6 +1477,18 @@ def _emit_method_source(buf: StringIO, m: BindMethod, c: BindClass,
             c_elem = _C_PRIMITIVE[short_t]
             param_strs.append(f'const {c_elem}* {p.name}')
             param_strs.append(f'size_t {p.name}_size')
+        elif _is_interface_pointer_param(p):
+            param_strs.append(f'void* {p.name}')
+        elif p.type.kind == TypeKind.STRING:
+            param_strs.append(f'const char* {p.name}')
+        elif _is_byte_vector_param(p):
+            param_strs.append(f'const uint8_t* {p.name}')
+            param_strs.append(f'size_t {p.name}_size')
+        elif _is_class_vector_param(p, module):
+            elem_handle = _resolve_handle_short(p.type.element.cpp_text, module)
+            param_strs.append(
+                f'const struct whiteout_{elem_handle}* const* {p.name}')
+            param_strs.append(f'size_t {p.name}_size')
         else:
             param_strs.append(f'{_c_type(p.type, module)} {p.name}')
     params = ', '.join(param_strs) if param_strs else 'void'
@@ -1394,6 +1503,35 @@ def _emit_method_source(buf: StringIO, m: BindMethod, c: BindClass,
             short_t, _canon = p.span_scalar
             cpp_args.append(
                 f'std::span<const whiteout::{short_t}>({p.name}, {p.name}_size)')
+        elif _is_interface_pointer_param(p):
+            # Interface pointer or reference: void* → cast back to X*,
+            # then dereference for reference-shaped params so the C++
+            # call binds to `X&` overloads correctly.
+            if '&' in p.cpp_raw:
+                cpp_args.append(
+                    f'*reinterpret_cast<{p.type.cpp_text}*>({p.name})')
+            else:
+                cpp_args.append(
+                    f'reinterpret_cast<{p.type.cpp_text}*>({p.name})')
+        elif p.type.kind == TypeKind.STRING:
+            # const char* → std::string. Null pointer treated as empty.
+            cpp_args.append(f'std::string({p.name} ? {p.name} : "")')
+        elif _is_byte_vector_param(p):
+            # (ptr, size) → std::vector<u8>. Copy-construct from the range.
+            cpp_args.append(
+                f'std::vector<whiteout::u8>({p.name}, {p.name} + {p.name}_size)')
+        elif _is_class_vector_param(p, module):
+            # (handle*[], size) → std::vector<Class>. Each handle is
+            # dereferenced and copied into the local vector before the
+            # call. Emitted inline; the std::vector is materialised in
+            # a comma-expression so it lives for the duration of the
+            # invocation.
+            elem_cpp = p.type.element.cpp_text
+            cpp_args.append(
+                f'([&]{{ std::vector<{elem_cpp}> __v; __v.reserve({p.name}_size); '
+                f'for (size_t __i = 0; __i < {p.name}_size; ++__i) '
+                f'__v.emplace_back(*reinterpret_cast<const {elem_cpp}*>({p.name}[__i])); '
+                f'return __v; }})()')
         elif p.type.kind in (TypeKind.NESTED, TypeKind.UNKNOWN) \
                 and not p.type.cpp_text.startswith('std::'):
             # Handle params: opaque pointer → dereferenced C++ value.
@@ -1463,6 +1601,18 @@ def _emit_call_body(call: str, ret: TypeRef, m: BindMethod,
         out.write(f'{indent}auto __r = {call};\n')
         out.write(f'{indent}if (!__r) return emptyBytes();\n')
         out.write(f'{indent}return wrapBytes(std::move(*__r));\n')
+        return out.getvalue()
+
+    # std::optional<std::string> → whiteout_CString or empty
+    if ret.kind == TypeKind.OPTIONAL and ret.element.kind == TypeKind.STRING:
+        out.write(f'{indent}auto __r = {call};\n')
+        out.write(f'{indent}if (!__r) return emptyCString();\n')
+        out.write(f'{indent}return wrapCString(std::move(*__r));\n')
+        return out.getvalue()
+
+    # std::string → whiteout_CString
+    if ret.kind == TypeKind.STRING:
+        out.write(f'{indent}return wrapCString({call});\n')
         return out.getvalue()
 
     # std::vector<u8> → whiteout_Bytes
