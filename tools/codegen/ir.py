@@ -148,6 +148,9 @@ class BindEnum:
     values: list[BindEnumValue] = field(default_factory=list)
     cpp_namespace: str = ''  # full namespace, e.g. "whiteout::textures::blp"
     doc: str = ''
+    # Optional Java package override (mirrors BindClass.java_package).
+    # Set via `@bind java_package=foo.bar` on the enum declaration.
+    java_package: str = ''
 
 
 @dataclass

@@ -85,13 +85,18 @@ public final class SimpleThreadPool implements AutoCloseable, whiteout.interface
 
     @Override
     public void submit(whiteout.interfaces.WorkerTask task) {
-        throw new UnsupportedOperationException(
-            "WorkerPool.submit cannot be invoked from Java on a native-backed "
-            + "wrapper — the C ABI does not marshal callback / std::function params. "
-            + "Either (a) pass this instance to a native consumer that takes WorkerPool "
-            + "(the consumer's C++ side will call this directly), or "
-            + "(b) implement WorkerPool in pure Java if you need Java-controlled dispatch.");
+        long waitSem = task.waitSemaphore() == null ? 0L
+            : task.waitSemaphore().nativeHandle();
+        long signalSem = task.signalSemaphore() == null ? 0L
+            : task.signalSemaphore().nativeHandle();
+        _submitRunnable(handle.address(), task.fn(),
+            waitSem, task.waitValue(),
+            signalSem, task.signalValue());
     }
+    private static native void _submitRunnable(
+        long poolHandle, Runnable runnable,
+        long waitSemHandle, long waitValue,
+        long signalSemHandle, long signalValue);
 
     @Override public String toString() {
         return "SimpleThreadPool@" + Long.toHexString(handle == null ? 0 : handle.address());

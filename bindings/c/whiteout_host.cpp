@@ -15,6 +15,8 @@
 #include <whiteout/utils/os_file_system.h>
 #include <whiteout/utils/simple_thread_pool.h>
 #include <whiteout/utils/simple_http_handler.h>
+#include <whiteout/utils/job_group.h>
+#include <whiteout/utils/blizzard_game_finder.h>
 
 namespace { using namespace whiteout; }
 
@@ -235,6 +237,119 @@ void whiteout_host_SimpleHttpHandler_delete(whiteout_SimpleHttpHandler* self) {
 
 uint32_t whiteout_host_SimpleHttpHandler_capabilities(const whiteout_SimpleHttpHandler* self) {
     return reinterpret_cast<const whiteout::utils::SimpleHttpHandler*>(self)->capabilities();
+}
+
+} // extern "C"
+
+// ── JobGroup ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_JobGroup* whiteout_host_JobGroup_new(void) {
+    return reinterpret_cast<whiteout_JobGroup*>(new whiteout::utils::JobGroup());
+}
+
+void whiteout_host_JobGroup_delete(whiteout_JobGroup* self) {
+    delete reinterpret_cast<whiteout::utils::JobGroup*>(self);
+}
+
+void whiteout_host_JobGroup_add(whiteout_JobGroup* self, uint64_t n) {
+    reinterpret_cast<whiteout::utils::JobGroup*>(self)->add(n);
+}
+
+void whiteout_host_JobGroup_done(whiteout_JobGroup* self) {
+    reinterpret_cast<whiteout::utils::JobGroup*>(self)->done();
+}
+
+void whiteout_host_JobGroup_await(whiteout_JobGroup* self) {
+    reinterpret_cast<whiteout::utils::JobGroup*>(self)->wait();
+}
+
+int32_t whiteout_host_JobGroup_isReady(const whiteout_JobGroup* self) {
+    return reinterpret_cast<const whiteout::utils::JobGroup*>(self)->isReady();
+}
+
+} // extern "C"
+
+// ── BlizzardGameInfo ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_BlizzardGameInfo* whiteout_host_BlizzardGameInfo_new(void) {
+    return reinterpret_cast<whiteout_BlizzardGameInfo*>(new whiteout::utils::BlizzardGameInfo());
+}
+
+void whiteout_host_BlizzardGameInfo_delete(whiteout_BlizzardGameInfo* self) {
+    delete reinterpret_cast<whiteout::utils::BlizzardGameInfo*>(self);
+}
+
+int32_t whiteout_host_BlizzardGameInfo_get_game(const whiteout_BlizzardGameInfo* self) {
+    return static_cast<int32_t>(reinterpret_cast<const whiteout::utils::BlizzardGameInfo*>(self)->game);
+}
+
+void whiteout_host_BlizzardGameInfo_set_game(whiteout_BlizzardGameInfo* self, int32_t value) {
+    reinterpret_cast<whiteout::utils::BlizzardGameInfo*>(self)->game = static_cast<whiteout::utils::BlizzardGame>(value);
+}
+
+whiteout_CString whiteout_host_BlizzardGameInfo_get_name(const whiteout_BlizzardGameInfo* self) {
+    auto* __owned = new std::string(reinterpret_cast<const whiteout::utils::BlizzardGameInfo*>(self)->name);
+    return whiteout_CString{ __owned->c_str(), __owned->size(), __owned };
+}
+
+void whiteout_host_BlizzardGameInfo_set_name(whiteout_BlizzardGameInfo* self, const char* value) {
+    reinterpret_cast<whiteout::utils::BlizzardGameInfo*>(self)->name = (value ? value : "");
+}
+
+whiteout_CString whiteout_host_BlizzardGameInfo_get_path(const whiteout_BlizzardGameInfo* self) {
+    auto* __owned = new std::string(reinterpret_cast<const whiteout::utils::BlizzardGameInfo*>(self)->path);
+    return whiteout_CString{ __owned->c_str(), __owned->size(), __owned };
+}
+
+void whiteout_host_BlizzardGameInfo_set_path(whiteout_BlizzardGameInfo* self, const char* value) {
+    reinterpret_cast<whiteout::utils::BlizzardGameInfo*>(self)->path = (value ? value : "");
+}
+
+} // extern "C"
+
+// ── BlizzardGameInfoList ─────────────────────────────────────────────────
+
+extern "C" {
+
+void whiteout_host_BlizzardGameInfoList_delete(whiteout_BlizzardGameInfoList* self) {
+    delete reinterpret_cast<whiteout::utils::BlizzardGameInfoList*>(self);
+}
+
+uint64_t whiteout_host_BlizzardGameInfoList_size(const whiteout_BlizzardGameInfoList* self) {
+    return reinterpret_cast<const whiteout::utils::BlizzardGameInfoList*>(self)->size();
+}
+
+struct whiteout_BlizzardGameInfo* whiteout_host_BlizzardGameInfoList_at(const whiteout_BlizzardGameInfoList* self, uint64_t index) {
+    auto& __r = reinterpret_cast<const whiteout::utils::BlizzardGameInfoList*>(self)->at(index);
+    return const_cast<struct whiteout_BlizzardGameInfo*>(
+        reinterpret_cast<const struct whiteout_BlizzardGameInfo*>(&__r));
+}
+
+} // extern "C"
+
+// ── BlizzardGameFinder ─────────────────────────────────────────────────
+
+extern "C" {
+
+void whiteout_host_BlizzardGameFinder_delete(whiteout_BlizzardGameFinder* self) {
+    delete reinterpret_cast<whiteout::utils::BlizzardGameFinder*>(self);
+}
+
+struct whiteout_BlizzardGameInfoList* whiteout_host_BlizzardGameFinder_findAll(void) {
+    return reinterpret_cast<struct whiteout_BlizzardGameInfoList*>(
+        new whiteout::utils::BlizzardGameInfoList(whiteout::utils::BlizzardGameFinder::findAll()));
+}
+
+int32_t whiteout_host_BlizzardGameFinder_fromName(const char* name) {
+    return static_cast<int32_t>(whiteout::utils::BlizzardGameFinder::fromName(std::string(name ? name : "")));
+}
+
+whiteout_CString whiteout_host_BlizzardGameFinder_toName(int32_t game) {
+    return wrapCString(whiteout::utils::BlizzardGameFinder::toName(static_cast<whiteout::utils::BlizzardGame>(game)));
 }
 
 } // extern "C"

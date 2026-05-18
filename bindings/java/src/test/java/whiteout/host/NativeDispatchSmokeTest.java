@@ -74,15 +74,16 @@ public class NativeDispatchSmokeTest {
             require(((NativeHandled) asIface).nativeHandle().address()
                     == nat.nativeHandle().address(),
                 "nativeHandle() returns the underlying Panama handle");
-            boolean threw = false;
+            // getAsync used to throw UnsupportedOperationException — it
+            // now routes through the JNI shim in native_http_async.cpp
+            // and actually fires the Consumer. Cover that elsewhere
+            // (SimpleHttpHandlerAsyncSmokeTest); here just make sure the
+            // call doesn't throw synchronously.
             try {
                 asIface.getAsync("http://example/", r -> {});
-            } catch (UnsupportedOperationException ex) {
-                threw = true;
             } catch (Exception ex) {
-                throw new AssertionError("unexpected exception type: " + ex);
+                throw new AssertionError("getAsync no longer stubs out: " + ex);
             }
-            require(threw, "getAsync() on a native-backed handler throws UnsupportedOperationException");
         }
     }
 

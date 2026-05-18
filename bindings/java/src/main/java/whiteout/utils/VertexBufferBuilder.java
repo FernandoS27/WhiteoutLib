@@ -74,7 +74,7 @@ public final class VertexBufferBuilder implements AutoCloseable {
             MemorySegment data_seg = arena.allocate(data.length * 4L);
             MemorySegment.copy(data, 0, data_seg, ValueLayout.JAVA_FLOAT, 0, data.length);
             MemorySegment __h = (MemorySegment) Native.whiteout_utils_UtilsVertexBufferBuilder_declareFloatAttribute.invoke(handle, data_seg, (long) data.length, components, attr_class.value, encoding.value, align);
-            return new VertexBufferBuilder(__h, true);
+            return new VertexBufferBuilder(__h, false);
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
@@ -93,7 +93,7 @@ public final class VertexBufferBuilder implements AutoCloseable {
             MemorySegment data_seg = arena.allocate(data.length * 4L);
             MemorySegment.copy(data, 0, data_seg, ValueLayout.JAVA_INT, 0, data.length);
             MemorySegment __h = (MemorySegment) Native.whiteout_utils_UtilsVertexBufferBuilder_declareIntAttribute.invoke(handle, data_seg, (long) data.length, components, attr_class.value, encoding.value, align);
-            return new VertexBufferBuilder(__h, true);
+            return new VertexBufferBuilder(__h, false);
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 

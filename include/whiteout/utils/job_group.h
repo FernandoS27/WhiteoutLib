@@ -21,6 +21,7 @@ namespace whiteout::utils {
 /// 2. submit N tasks
 /// 3. each task calls done() on completion
 /// 4. wait() to join the group
+/// @bind methods, java_package=whiteout.utils
 class JobGroup {
 public:
     /// Construct an empty job group (pending count = 0).
@@ -46,6 +47,8 @@ public:
     /// @note done() calls must be balanced with prior add() calls.
     void done();
 
+    /// @bind rename=await — Java's Object.wait() is final so the
+    /// generated wrapper would fail to compile; expose as await().
     /// Block until all pending jobs in the group are completed.
     void wait();
 
@@ -58,6 +61,9 @@ public:
     ///
     /// @param sem Semaphore to signal on completion.
     /// @param value Value to signal on the semaphore.
+    /// @bind skip — needs TimelineSemaphore dispatch helper that's not
+    /// emitted yet (TimelineSemaphore is hand-written, not auto-bound
+    /// as a subclassable interface).
     void signalOnComplete(interfaces::TimelineSemaphore* sem,
                           interfaces::TimelineSemaphore::Value value);
 

@@ -45,6 +45,8 @@ if(WHITEOUT_BUILD_JNI_BINDINGS)
         ${_jni_dir}/cascfilesystem_bridge.cpp
         ${_jni_dir}/httpresponseconsumer_callback.cpp
         ${_jni_dir}/callbackrunnable_callback.cpp
+        ${_jni_dir}/native_pool_submit.cpp
+        ${_jni_dir}/native_http_async.cpp
     )
 endif()
 

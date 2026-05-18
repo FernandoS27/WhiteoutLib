@@ -12,6 +12,33 @@
 extern "C" {
 #endif
 
+/* ── Enums ─────────────────────────────────────────────────── */
+
+typedef enum {
+    whiteout_host_BlizzardGame_Unknown,
+    whiteout_host_BlizzardGame_WorldOfWarcraft,
+    whiteout_host_BlizzardGame_WorldOfWarcraftClassic,
+    whiteout_host_BlizzardGame_WorldOfWarcraftClassicEra,
+    whiteout_host_BlizzardGame_WarcraftIIBattleNetEdition,
+    whiteout_host_BlizzardGame_WarcraftIIRemastered,
+    whiteout_host_BlizzardGame_WarcraftIII,
+    whiteout_host_BlizzardGame_WarcraftIIIReforged,
+    whiteout_host_BlizzardGame_StarCraft,
+    whiteout_host_BlizzardGame_StarCraftRemastered,
+    whiteout_host_BlizzardGame_StarCraftII,
+    whiteout_host_BlizzardGame_Diablo,
+    whiteout_host_BlizzardGame_DiabloII,
+    whiteout_host_BlizzardGame_DiabloIIResurrected,
+    whiteout_host_BlizzardGame_DiabloIII,
+    whiteout_host_BlizzardGame_DiabloIV,
+    whiteout_host_BlizzardGame_DiabloImmortal,
+    whiteout_host_BlizzardGame_HeroesOfTheStorm,
+    whiteout_host_BlizzardGame_Overwatch2,
+    whiteout_host_BlizzardGame_Hearthstone,
+    whiteout_host_BlizzardGame_BlizzardArcadeCollection,
+    whiteout_host_BlizzardGame_BattleNet,
+} whiteout_host_BlizzardGame;
+
 /* ── Opaque handles ───────────────────────────────────────── */
 
 typedef struct whiteout_WorkerPool whiteout_WorkerPool;
@@ -22,6 +49,10 @@ typedef struct whiteout_HttpHandler whiteout_HttpHandler;
 typedef struct whiteout_OsFileSystem whiteout_OsFileSystem;
 typedef struct whiteout_SimpleThreadPool whiteout_SimpleThreadPool;
 typedef struct whiteout_SimpleHttpHandler whiteout_SimpleHttpHandler;
+typedef struct whiteout_JobGroup whiteout_JobGroup;
+typedef struct whiteout_BlizzardGameInfo whiteout_BlizzardGameInfo;
+typedef struct whiteout_BlizzardGameInfoList whiteout_BlizzardGameInfoList;
+typedef struct whiteout_BlizzardGameFinder whiteout_BlizzardGameFinder;
 
 /* ── WorkerPool ─────────────────────────────────────────────── */
 
@@ -126,6 +157,71 @@ void whiteout_host_SimpleHttpHandler_delete(whiteout_SimpleHttpHandler* self);
 
 /* Reported handler capability flags. */
 uint32_t whiteout_host_SimpleHttpHandler_capabilities(const whiteout_SimpleHttpHandler* self);
+
+/* ── JobGroup ─────────────────────────────────────────────── */
+
+/* Thread-safe counter-based completion primitive for grouped jobs. */
+/*  */
+/* A JobGroup starts with zero pending jobs. Call add() before submitting work, then call done() once per completed job. wait() blocks until the pending count reaches zero. */
+/*  */
+/* Typical usage pattern: 1. add(N) 2. submit N tasks 3. each task calls done() on completion 4. wait() to join the group */
+whiteout_JobGroup* whiteout_host_JobGroup_new(void);
+void whiteout_host_JobGroup_delete(whiteout_JobGroup* self);
+
+/* Increment the number of pending jobs. */
+/*  */
+/* @param n Number of jobs to add to the group. */
+void whiteout_host_JobGroup_add(whiteout_JobGroup* self, uint64_t n);
+/* Mark one pending job as completed. */
+/*  */
+/* When the pending count reaches zero, all waiters are notified. */
+/*  */
+/* @note done() calls must be balanced with prior add() calls. */
+void whiteout_host_JobGroup_done(whiteout_JobGroup* self);
+/* Java's Object.wait() is final so the generated wrapper would fail to compile; expose as await(). Block until all pending jobs in the group are completed. */
+void whiteout_host_JobGroup_await(whiteout_JobGroup* self);
+/* Check whether the group has no pending jobs. */
+/*  */
+/* @return true if pending count is zero, false otherwise. */
+int32_t whiteout_host_JobGroup_isReady(const whiteout_JobGroup* self);
+
+/* ── BlizzardGameInfo ─────────────────────────────────────────────── */
+
+/* Result entry from findBlizzardGames(). */
+whiteout_BlizzardGameInfo* whiteout_host_BlizzardGameInfo_new(void);
+void whiteout_host_BlizzardGameInfo_delete(whiteout_BlizzardGameInfo* self);
+
+/* Identified game. `Unknown` if not recognized. */
+int32_t whiteout_host_BlizzardGameInfo_get_game(const whiteout_BlizzardGameInfo* self);
+void whiteout_host_BlizzardGameInfo_set_game(whiteout_BlizzardGameInfo* self, int32_t value);
+/* Human-readable display name. */
+whiteout_CString whiteout_host_BlizzardGameInfo_get_name(const whiteout_BlizzardGameInfo* self);
+void whiteout_host_BlizzardGameInfo_set_name(whiteout_BlizzardGameInfo* self, const char* value);
+/* Install directory path. */
+whiteout_CString whiteout_host_BlizzardGameInfo_get_path(const whiteout_BlizzardGameInfo* self);
+void whiteout_host_BlizzardGameInfo_set_path(whiteout_BlizzardGameInfo* self, const char* value);
+
+/* ── BlizzardGameInfoList ─────────────────────────────────────────────── */
+
+/* Opaque handle around `std::vector<BlizzardGameInfo>` returned by `BlizzardGameFinder::findAll()`. Iterate via size() + at(index). */
+void whiteout_host_BlizzardGameInfoList_delete(whiteout_BlizzardGameInfoList* self);
+
+/* Number of game entries in the list. */
+uint64_t whiteout_host_BlizzardGameInfoList_size(const whiteout_BlizzardGameInfoList* self);
+/* Borrowed reference to entry at @p index. Valid until this list is destroyed. */
+struct whiteout_BlizzardGameInfo* whiteout_host_BlizzardGameInfoList_at(const whiteout_BlizzardGameInfoList* self, uint64_t index);
+
+/* ── BlizzardGameFinder ─────────────────────────────────────────────── */
+
+/* Static-method facade around the free functions above so they bind through the class-method codegen path. */
+void whiteout_host_BlizzardGameFinder_delete(whiteout_BlizzardGameFinder* self);
+
+/* Discover installed Blizzard games. See `findBlizzardGames()`. */
+struct whiteout_BlizzardGameInfoList* whiteout_host_BlizzardGameFinder_findAll(void);
+/* Map a display name to a BlizzardGame enum. See `blizzardGameFromName()`. */
+int32_t whiteout_host_BlizzardGameFinder_fromName(const char* name);
+/* Get the canonical display name for a known game. See `blizzardGameToName()`. Returns empty string for Unknown. */
+whiteout_CString whiteout_host_BlizzardGameFinder_toName(int32_t game);
 
 
 #ifdef __cplusplus

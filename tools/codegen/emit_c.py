@@ -1576,8 +1576,15 @@ def _emit_call_body(call: str, ret: TypeRef, m: BindMethod,
             and not ret.cpp_text.startswith('std::'):
         elem = ret.cpp_text
         c_handle = _resolve_handle_short(elem, module)
+        # const_cast strips const off the referent — the C ABI handle
+        # type is non-const (`whiteout_X*`) regardless of the C++ source
+        # const-ness, and field accessors take a `const whiteout_X*`
+        # so const_cast'ing here doesn't actually weaken the type
+        # contract at the C ABI boundary. Without this, `const T&`
+        # returns fail to reinterpret_cast.
         out.write(f'{indent}auto& __r = {call};\n')
-        out.write(f'{indent}return reinterpret_cast<struct whiteout_{c_handle}*>(&__r);\n')
+        out.write(f'{indent}return const_cast<struct whiteout_{c_handle}*>(\n')
+        out.write(f'{indent}    reinterpret_cast<const struct whiteout_{c_handle}*>(&__r));\n')
         return out.getvalue()
 
     # std::optional<class> → nullable handle to a heap-moved copy.

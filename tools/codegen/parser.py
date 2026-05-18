@@ -933,6 +933,7 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
             cpp_namespace=ns,
             js_name=ann.get('js_name') or js_name_for_enum(qual, config.js_prefix),
             doc=extract_doc(cursor.raw_comment),
+            java_package=ann.get('java_package', '') or '',
             values=[
                 BindEnumValue(
                     js_name=v.spelling,

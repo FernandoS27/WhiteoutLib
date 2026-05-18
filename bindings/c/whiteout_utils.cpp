@@ -169,12 +169,14 @@ void whiteout_utils_UtilsVertexBufferBuilder_delete(whiteout_UtilsVertexBufferBu
 
 struct whiteout_UtilsVertexBufferBuilder* whiteout_utils_UtilsVertexBufferBuilder_declareFloatAttribute(whiteout_UtilsVertexBufferBuilder* self, const float* data, size_t data_size, uint64_t components, int32_t attr_class, int32_t encoding, uint64_t align) {
     auto& __r = reinterpret_cast<whiteout::utils::VertexBufferBuilder*>(self)->declareFloatAttribute(std::span<const whiteout::f32>(data, data_size), components, static_cast<whiteout::utils::AttributeClass>(attr_class), static_cast<whiteout::utils::AttributeEncoding>(encoding), align);
-    return reinterpret_cast<struct whiteout_UtilsVertexBufferBuilder*>(&__r);
+    return const_cast<struct whiteout_UtilsVertexBufferBuilder*>(
+        reinterpret_cast<const struct whiteout_UtilsVertexBufferBuilder*>(&__r));
 }
 
 struct whiteout_UtilsVertexBufferBuilder* whiteout_utils_UtilsVertexBufferBuilder_declareIntAttribute(whiteout_UtilsVertexBufferBuilder* self, const uint32_t* data, size_t data_size, uint64_t components, int32_t attr_class, int32_t encoding, uint64_t align) {
     auto& __r = reinterpret_cast<whiteout::utils::VertexBufferBuilder*>(self)->declareIntAttribute(std::span<const whiteout::u32>(data, data_size), components, static_cast<whiteout::utils::AttributeClass>(attr_class), static_cast<whiteout::utils::AttributeEncoding>(encoding), align);
-    return reinterpret_cast<struct whiteout_UtilsVertexBufferBuilder*>(&__r);
+    return const_cast<struct whiteout_UtilsVertexBufferBuilder*>(
+        reinterpret_cast<const struct whiteout_UtilsVertexBufferBuilder*>(&__r));
 }
 
 struct whiteout_UtilsVertexBuffer* whiteout_utils_UtilsVertexBufferBuilder_build(const whiteout_UtilsVertexBufferBuilder* self, void* pool) {

@@ -69,23 +69,19 @@ public final class HttpHandler implements AutoCloseable, whiteout.interfaces.Htt
 
     @Override
     public void getAsync(String url, java.util.function.Consumer<whiteout.interfaces.HttpResponse> callback) throws Exception {
-        throw new UnsupportedOperationException(
-            "HttpHandler.getAsync cannot be invoked from Java on a native-backed "
-            + "wrapper — the C ABI does not marshal callback / std::function params. "
-            + "Either (a) pass this instance to a native consumer that takes HttpHandler "
-            + "(the consumer's C++ side will call this directly), or "
-            + "(b) implement HttpHandler in pure Java if you need Java-controlled dispatch.");
+        _getAsync(handle.address(), url, callback);
     }
+    private static native void _getAsync(
+        long handlerHandle, String url,
+        java.util.function.Consumer<whiteout.interfaces.HttpResponse> callback);
 
     @Override
     public void getRangeAsync(String url, long start, long end, java.util.function.Consumer<whiteout.interfaces.HttpResponse> callback) throws Exception {
-        throw new UnsupportedOperationException(
-            "HttpHandler.getRangeAsync cannot be invoked from Java on a native-backed "
-            + "wrapper — the C ABI does not marshal callback / std::function params. "
-            + "Either (a) pass this instance to a native consumer that takes HttpHandler "
-            + "(the consumer's C++ side will call this directly), or "
-            + "(b) implement HttpHandler in pure Java if you need Java-controlled dispatch.");
+        _getRangeAsync(handle.address(), url, start, end, callback);
     }
+    private static native void _getRangeAsync(
+        long handlerHandle, String url, long start, long end,
+        java.util.function.Consumer<whiteout.interfaces.HttpResponse> callback);
 
     @Override public String toString() {
         return "HttpHandler@" + Long.toHexString(handle == null ? 0 : handle.address());

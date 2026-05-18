@@ -1060,7 +1060,9 @@ def emit(module: BindModule) -> dict[str, str]:
         if java_short in seen_enums:
             continue
         seen_enums.add(java_short)
-        files[f'{base}/{java_short}.java'] = _emit_enum(pkg, e, java_short)
+        enum_pkg = e.java_package or pkg
+        enum_base = f'bindings/java/src/main/java/{enum_pkg.replace(".", "/")}'
+        files[f'{enum_base}/{java_short}.java'] = _emit_enum(enum_pkg, e, java_short)
 
     # Classes — same reasoning: per-format `Parser` classes share a
     # cpp_qualifier, so we go through js_name to disambiguate.
@@ -1616,6 +1618,49 @@ def _emit_interface_stubs(buf: StringIO, c: BindClass, module: BindModule) -> No
         sig = _qualify_interface_types(sig, value_records)
         has_callback = any(p.callback_target for p in m.params)
         throws = ' throws Exception' if has_callback else ''
+        # Hand-written real implementations for callback-bearing methods
+        # on native-backed wrappers. Each routes through a per-method
+        # JNI shim under bindings/java/jni/native_*.cpp (bundled into
+        # whiteout_native.dll). Any stub NOT special-cased here falls
+        # through to the throw-UnsupportedOperationException default
+        # below.
+        if iface_short == 'WorkerPool' and m.name == 'submit':
+            buf.write('    @Override\n')
+            buf.write(f'    public {sig}{throws} {{\n')
+            buf.write('        long waitSem = task.waitSemaphore() == null ? 0L\n')
+            buf.write('            : task.waitSemaphore().nativeHandle();\n')
+            buf.write('        long signalSem = task.signalSemaphore() == null ? 0L\n')
+            buf.write('            : task.signalSemaphore().nativeHandle();\n')
+            buf.write('        _submitRunnable(handle.address(), task.fn(),\n')
+            buf.write('            waitSem, task.waitValue(),\n')
+            buf.write('            signalSem, task.signalValue());\n')
+            buf.write('    }\n')
+            buf.write('    private static native void _submitRunnable(\n')
+            buf.write('        long poolHandle, Runnable runnable,\n')
+            buf.write('        long waitSemHandle, long waitValue,\n')
+            buf.write('        long signalSemHandle, long signalValue);\n\n')
+            continue
+
+        if iface_short == 'HttpHandler' and m.name == 'getAsync':
+            buf.write('    @Override\n')
+            buf.write(f'    public {sig}{throws} {{\n')
+            buf.write('        _getAsync(handle.address(), url, callback);\n')
+            buf.write('    }\n')
+            buf.write('    private static native void _getAsync(\n')
+            buf.write('        long handlerHandle, String url,\n')
+            buf.write(f'        java.util.function.Consumer<{_INTERFACES_PKG}.HttpResponse> callback);\n\n')
+            continue
+
+        if iface_short == 'HttpHandler' and m.name == 'getRangeAsync':
+            buf.write('    @Override\n')
+            buf.write(f'    public {sig}{throws} {{\n')
+            buf.write('        _getRangeAsync(handle.address(), url, start, end, callback);\n')
+            buf.write('    }\n')
+            buf.write('    private static native void _getRangeAsync(\n')
+            buf.write('        long handlerHandle, String url, long start, long end,\n')
+            buf.write(f'        java.util.function.Consumer<{_INTERFACES_PKG}.HttpResponse> callback);\n\n')
+            continue
+
         buf.write('    @Override\n')
         buf.write(f'    public {sig}{throws} {{\n')
         buf.write('        throw new UnsupportedOperationException(\n')
@@ -2303,11 +2348,18 @@ def _emit_class_method(buf: StringIO, m: BindMethod, c: BindClass, short: str,
     buf.write('     */\n')
 
     static_kw = 'static ' if m.is_static else ''
-    # Use `cpp_name` (original C++ method name) for the Java method so
-    # overloads collapse to a single Java name — Java's signature-based
-    # overload resolution picks the right one. `m.name` carries the
-    # disambiguated FFM-symbol suffix used in the Native.X.invoke lookup.
-    buf.write(f'    public {static_kw}{ret_java} {_java_method_name(m.cpp_name)}({params_str}) {{\n')
+    # Pick the Java method name:
+    #   - If the C++ has `@bind rename=foo`, m.annotations carries it.
+    #     Honour the rename (lets us escape Java keyword/Object-method
+    #     clashes like `wait` → `await`).
+    #   - Otherwise use `cpp_name` so overloaded methods share one Java
+    #     name and Java's signature-based overload resolution picks
+    #     the right one. `m.name` carries the disambiguated FFM-symbol
+    #     suffix used by Native.X.invoke lookup either way.
+    java_method = m.annotations.get('rename') if m.annotations else None
+    if not java_method:
+        java_method = m.cpp_name
+    buf.write(f'    public {static_kw}{ret_java} {_java_method_name(java_method)}({params_str}) {{\n')
 
     # An Arena is needed for two reasons:
     #   - to marshal span params (Java byte[] â†’ native MemorySegment), and
@@ -2486,10 +2538,15 @@ def _emit_class_method(buf: StringIO, m: BindMethod, c: BindClass, short: str,
         buf.write(f'{body_indent}return java.util.Optional.of({wrap});\n')
     elif ret.kind in (TypeKind.NESTED, TypeKind.UNKNOWN):
         elem_short = _resolve_java_class(ret.cpp_text, module, classes)
+        # Reference returns hand back a BORROWED handle pointing into
+        # another object's storage (e.g. `at(i)` into a vector). The
+        # Java wrapper must NOT delete it on close() — set owned=false.
+        # Value returns are heap-moved by the C wrapper and ARE owned.
+        owned_lit = 'false' if m.return_is_reference else 'true'
         if elem_short in _SHARED_MATH_TYPES:
-            wrap = f'Handles.wrap{elem_short}(__h, true)'
+            wrap = f'Handles.wrap{elem_short}(__h, {owned_lit})'
         else:
-            wrap = _construct_handle_wrap(elem_short, '__h', 'true')
+            wrap = _construct_handle_wrap(elem_short, '__h', owned_lit)
         buf.write(f'{body_indent}MemorySegment __h = (MemorySegment) {invoke};\n')
         buf.write(f'{body_indent}return {wrap};\n')
     elif ret.kind == TypeKind.ENUM:

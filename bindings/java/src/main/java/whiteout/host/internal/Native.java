@@ -99,4 +99,48 @@ public final class Native {
     public static final MethodHandle whiteout_host_SimpleHttpHandler_capabilities = find(
         "whiteout_host_SimpleHttpHandler_capabilities", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
 
+    // -- JobGroup --
+    public static final MethodHandle whiteout_host_JobGroup_new = find(
+        "whiteout_host_JobGroup_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_host_JobGroup_delete = find(
+        "whiteout_host_JobGroup_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_host_JobGroup_add = find(
+        "whiteout_host_JobGroup_add", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_host_JobGroup_done = find(
+        "whiteout_host_JobGroup_done", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_host_JobGroup_await = find(
+        "whiteout_host_JobGroup_await", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_host_JobGroup_isReady = find(
+        "whiteout_host_JobGroup_isReady", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+
+    // -- BlizzardGameInfo --
+    public static final MethodHandle whiteout_host_BlizzardGameInfo_new = find(
+        "whiteout_host_BlizzardGameInfo_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_host_BlizzardGameInfo_delete = find(
+        "whiteout_host_BlizzardGameInfo_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_host_BlizzardGameInfo_get_game = find("whiteout_host_BlizzardGameInfo_get_game", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_host_BlizzardGameInfo_set_game = find("whiteout_host_BlizzardGameInfo_set_game", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_host_BlizzardGameInfo_get_name = find("whiteout_host_BlizzardGameInfo_get_name", FunctionDescriptor.of(CSTRING_LAYOUT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_host_BlizzardGameInfo_set_name = find("whiteout_host_BlizzardGameInfo_set_name", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_host_BlizzardGameInfo_get_path = find("whiteout_host_BlizzardGameInfo_get_path", FunctionDescriptor.of(CSTRING_LAYOUT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_host_BlizzardGameInfo_set_path = find("whiteout_host_BlizzardGameInfo_set_path", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+
+    // -- BlizzardGameInfoList --
+    public static final MethodHandle whiteout_host_BlizzardGameInfoList_delete = find(
+        "whiteout_host_BlizzardGameInfoList_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_host_BlizzardGameInfoList_size = find(
+        "whiteout_host_BlizzardGameInfoList_size", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_host_BlizzardGameInfoList_at = find(
+        "whiteout_host_BlizzardGameInfoList_at", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+
+    // -- BlizzardGameFinder --
+    public static final MethodHandle whiteout_host_BlizzardGameFinder_delete = find(
+        "whiteout_host_BlizzardGameFinder_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_host_BlizzardGameFinder_findAll = find(
+        "whiteout_host_BlizzardGameFinder_findAll", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_host_BlizzardGameFinder_fromName = find(
+        "whiteout_host_BlizzardGameFinder_fromName", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_host_BlizzardGameFinder_toName = find(
+        "whiteout_host_BlizzardGameFinder_toName", FunctionDescriptor.of(CSTRING_LAYOUT, ValueLayout.JAVA_INT));
+
 }

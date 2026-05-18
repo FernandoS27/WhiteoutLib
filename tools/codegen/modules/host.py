@@ -34,6 +34,8 @@ CONFIG = ModuleConfig(
         'include/whiteout/utils/os_file_system.h',
         'include/whiteout/utils/simple_thread_pool.h',
         'include/whiteout/utils/simple_http_handler.h',
+        'include/whiteout/utils/job_group.h',
+        'include/whiteout/utils/blizzard_game_finder.h',
     ],
     output_path='bindings/wasm/host_bindings.cpp',
     pybind_output_path='bindings/python/host_bindings.cpp',

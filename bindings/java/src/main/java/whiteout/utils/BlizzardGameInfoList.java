@@ -10,13 +10,13 @@ import whiteout.common.internal.Handles;
 import whiteout.host.internal.Native;
 
 /**
- * abstract opaque base. Concrete impl: utils::SimpleThreadPool.
+ * Opaque handle around `std::vector<BlizzardGameInfo>` returned by `BlizzardGameFinder::findAll()`. Iterate via size() + at(index).
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
- * WorkerPool allocation. Always release them with
+ * BlizzardGameInfoList allocation. Always release them with
  * {@link #close()} — try-with-resources is the natural shape:
  * <pre>{@code
- * try (WorkerPool obj = ...) {
+ * try (BlizzardGameInfoList obj = ...) {
  *     // ... use obj ...
  * }
  * }</pre>
@@ -27,13 +27,13 @@ import whiteout.host.internal.Native;
  * C++ types make no synchronization guarantees, so callers must coordinate
  * external access if a handle is shared across threads.
  */
-public final class WorkerPool implements AutoCloseable, whiteout.interfaces.WorkerPool, whiteout.host.NativeHandled {
-    private static final long BYTES = 8L;
+public final class BlizzardGameInfoList implements AutoCloseable {
+    private static final long BYTES = 24L;
 
     final MemorySegment handle;
     final boolean owned;
 
-    WorkerPool(MemorySegment seg, boolean owned) {
+    BlizzardGameInfoList(MemorySegment seg, boolean owned) {
         this.handle = (seg == null || seg.equals(MemorySegment.NULL))
             ? seg : seg.reinterpret(BYTES);
         this.owned = owned;
@@ -44,51 +44,36 @@ public final class WorkerPool implements AutoCloseable, whiteout.interfaces.Work
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
             try {
-                Native.whiteout_host_WorkerPool_delete.invoke(handle);
+                Native.whiteout_host_BlizzardGameInfoList_delete.invoke(handle);
             } catch (Throwable __ex) { throw new RuntimeException(__ex); }
         }
     }
 
     /**
-     * Block until every submitted task has completed.
+     * Number of game entries in the list.
+     * @return long result.
      */
-    public void waitIdle() {
+    public long size() {
         try {
-        Native.whiteout_host_WorkerPool_waitIdle.invoke(handle);
+        return (long) Native.whiteout_host_BlizzardGameInfoList_size.invoke(handle);
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
     /**
-     * Number of worker threads in this pool.
-     * @return long result.
+     * Borrowed reference to entry at @p index. Valid until this list is destroyed.
+     *
+     * @param index long input.
+     * @return a fresh BlizzardGameInfo owning a native allocation.
      */
-    public long threadCount() {
+    public BlizzardGameInfo at(long index) {
         try {
-        return (long) Native.whiteout_host_WorkerPool_threadCount.invoke(handle);
+        MemorySegment __h = (MemorySegment) Native.whiteout_host_BlizzardGameInfoList_at.invoke(handle, index);
+        return new BlizzardGameInfo(__h, false);
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
-    /** {@inheritDoc} */
-    @Override
-    public MemorySegment nativeHandle() { return handle; }
-
-    @Override
-    public void submit(whiteout.interfaces.WorkerTask task) {
-        long waitSem = task.waitSemaphore() == null ? 0L
-            : task.waitSemaphore().nativeHandle();
-        long signalSem = task.signalSemaphore() == null ? 0L
-            : task.signalSemaphore().nativeHandle();
-        _submitRunnable(handle.address(), task.fn(),
-            waitSem, task.waitValue(),
-            signalSem, task.signalValue());
-    }
-    private static native void _submitRunnable(
-        long poolHandle, Runnable runnable,
-        long waitSemHandle, long waitValue,
-        long signalSemHandle, long signalValue);
-
     @Override public String toString() {
-        return "WorkerPool@" + Long.toHexString(handle == null ? 0 : handle.address());
+        return "BlizzardGameInfoList@" + Long.toHexString(handle == null ? 0 : handle.address());
     }
 
 }
