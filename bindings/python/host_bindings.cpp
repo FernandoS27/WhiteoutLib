@@ -99,7 +99,7 @@ All paths passed to readFile() / fileExists() are resolved relative to the root 
 Example: utils::OsFileSystem fs("C:/Games/Warcraft III/Data"); auto data = fs.readFile("units/human/arthas/arthas.mdx");)doc")
         .def(py::init<std::string>(), py::arg("root_path"))
         .def("read_file",
-            [](whiteout::utils::OsFileSystem& self, std::string path) {
+            [](whiteout::utils::OsFileSystem& self, const std::string& path) {
                 auto __v = self.readFile(path);
                 return py::bytes(
                     reinterpret_cast<const char*>(__v.data()), __v.size());

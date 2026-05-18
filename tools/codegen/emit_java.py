@@ -540,6 +540,7 @@ def _emit_module_info() -> str:
     buf.write('    exports whiteout.host;\n')
     buf.write('    exports whiteout.interfaces;\n')
     buf.write('    exports whiteout.mpq;\n')
+    buf.write('    exports whiteout.casc;\n')
     buf.write('}\n')
     return buf.getvalue()
 

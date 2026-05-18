@@ -116,6 +116,7 @@ static constexpr u32 FullLazy = LoadOnDemand | LazyVfsSubmanifest |
 // ============================================================================
 
 /// Root manifest format.
+/// @bind js_name=RootFormat
 enum class RootFormat : u8 {
     Unknown,  ///< Could not determine format.
     Wow,      ///< World of Warcraft root (FileDataId-based, legacy MFST).
@@ -136,6 +137,7 @@ enum class RootFormat : u8 {
 /// In Diablo IV, a single SNO ID can map to multiple entries (child, meta,
 /// payload, etc.).  The hint tells the root which variant to return.
 /// Roots that don't use sub-types (e.g. WoW) ignore the hint.
+/// @bind js_name=FileIdHint
 enum class FileIdHint : u8 {
     None,      ///< Default — return the primary entry (child/main content).
     Meta,      ///< Metadata entry.
@@ -262,6 +264,7 @@ struct OpenOptions {
 };
 
 /// Options for creating a new empty CASC storage.
+/// @bind value_object
 struct CreateOptions {
     std::string product = "custom";
     std::string version = "1.0.0";
@@ -271,6 +274,7 @@ struct CreateOptions {
 };
 
 /// Options for writing a file into a CASC storage.
+/// @bind value_object
 struct WriteOptions {
     u32 localeFlags = LocaleMasks::All;
     u32 contentFlags = 0;

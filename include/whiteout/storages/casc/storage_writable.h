@@ -35,6 +35,7 @@ namespace whiteout::storages::casc {
  *
  * Only local-backed storages can be writable (CDN is read-only).
  */
+/// @bind methods, move_only, no_default_ctor, js_name=CascStorageWritable, extends=whiteout::storages::casc::Storage
 class StorageWritable : public Storage {
 public:
     StorageWritable();
@@ -53,12 +54,14 @@ public:
      * @param opts Open options (same as Storage::open).
      * @return A valid StorageWritable, or std::nullopt on failure.
      */
+    /// @bind skip — OpenOptions unbindable (std::span, std::function fields).
     static std::optional<StorageWritable> open(const OpenOptions& opts);
 
     /// @overload Convenience: open by base path.
     static std::optional<StorageWritable> open(const std::string& basePath);
 
     /// @overload Convenience: open with error string and optional pool.
+    /// @bind skip — out-param `std::string* errorString`.
     static std::optional<StorageWritable> open(const std::string& basePath,
                                                std::string* errorString,
                                                interfaces::WorkerPool* pool = nullptr);

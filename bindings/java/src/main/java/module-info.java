@@ -15,4 +15,5 @@ module whiteout {
     exports whiteout.host;
     exports whiteout.interfaces;
     exports whiteout.mpq;
+    exports whiteout.casc;
 }

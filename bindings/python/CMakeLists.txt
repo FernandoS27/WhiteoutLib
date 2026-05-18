@@ -39,12 +39,17 @@ pybind11_add_module(whiteout MODULE
     utils_bindings.cpp
     host_bindings.cpp
     $<$<BOOL:${WHITEOUT_ENABLE_MPQ}>:${CMAKE_CURRENT_SOURCE_DIR}/mpq_bindings.cpp>
+    $<$<BOOL:${WHITEOUT_ENABLE_CASC}>:${CMAKE_CURRENT_SOURCE_DIR}/casc_bindings.cpp>
 )
 
 target_link_libraries(whiteout PRIVATE whiteout_lib)
 if(WHITEOUT_ENABLE_MPQ)
     target_link_libraries(whiteout PRIVATE whiteout_mpq)
     target_compile_definitions(whiteout PRIVATE WHITEOUT_HAS_MPQ=1)
+endif()
+if(WHITEOUT_ENABLE_CASC)
+    target_link_libraries(whiteout PRIVATE whiteout_casc)
+    target_compile_definitions(whiteout PRIVATE WHITEOUT_HAS_CASC=1)
 endif()
 target_include_directories(whiteout PRIVATE
     ${CMAKE_SOURCE_DIR}/include

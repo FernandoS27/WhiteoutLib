@@ -63,6 +63,7 @@ class StorageWritable;
  *
  * @see StorageWritable for write + persist operations.
  */
+/// @bind methods, move_only, no_default_ctor, js_name=CascStorage
 class Storage {
 public:
     /// Destructor (defined in .cpp for incomplete type).
@@ -89,6 +90,7 @@ public:
                                        interfaces::WorkerPool* pool = nullptr);
 
     /// @overload Open with diagnostic error message output.
+    /// @bind skip — `std::string* error` out-param needs a value-return shape.
     static std::optional<Storage> open(const std::string& path, std::string* error,
                                        interfaces::WorkerPool* pool = nullptr);
 
@@ -97,6 +99,8 @@ public:
                                        interfaces::WorkerPool* pool = nullptr);
 
     /// @overload Open with full options.
+    /// @bind skip — OpenOptions has unsupported field shapes (std::span,
+    /// std::function). Use the (path, localeMask, pool) overloads for now.
     static std::optional<Storage> open(const OpenOptions& opts);
 
     // ── Online construction ──────────────────────────────────────────
@@ -110,6 +114,8 @@ public:
      * @param opts Online open options (product, region, http handler, etc.).
      * @return A valid Storage, or std::nullopt on failure.
      */
+    /// @bind skip — OnlineOpenOptions has unsupported field shapes
+    /// (HttpHandler*, std::function progress callback).
     static std::optional<Storage> openOnline(const OnlineOpenOptions& opts);
 
     /// Release all resources and invalidate the storage.
@@ -162,8 +168,10 @@ public:
     std::optional<u64> fileSize(i32 fileId, FileIdHint hint = FileIdHint::None) const;
 
     /// @return Full metadata for the file, or std::nullopt if not found.
+    /// @bind skip — FileFullInfo not yet bound (has std::array<u8,16> fields).
     std::optional<FileFullInfo> fileInfo(const std::string& cascPath) const;
     /// @overload
+    /// @bind skip — see above.
     std::optional<FileFullInfo> fileInfo(i32 fileId, FileIdHint hint = FileIdHint::None) const;
 
     /**
@@ -172,6 +180,7 @@ public:
      *        The EnumerateEntry is a view — its path field is valid only
      *        during the callback invocation.
      */
+    /// @bind skip — std::function param not auto-marshalled; use listFiles().
     void enumerate(std::function<bool(const EnumerateEntry&)> callback) const;
 
     /**
@@ -187,6 +196,7 @@ public:
      * @param mask    Wildcard pattern (e.g. `"*.dds"`, `"data\\global\\*"`).
      * @param callback Invoked for each matching entry; return false to stop.
      */
+    /// @bind skip — std::function param not auto-marshalled.
     void enumerate(const std::string& mask,
                    std::function<bool(const EnumerateEntry&)> callback) const;
 
@@ -194,6 +204,8 @@ public:
     std::vector<std::string> listFiles() const;
 
     /// @return All entries with metadata.
+    /// @bind skip — returns vector<FindEntry>; vector<value_object>
+    /// returns need codegen marshalling not yet implemented.
     std::vector<FindEntry> listEntries() const;
 
     /// @return Total number of files in the root manifest.
@@ -209,15 +221,20 @@ public:
      * @param requests Array of file read requests.
      * @return One result per request, in the same order.
      */
+    /// @bind skip — vector<BatchReadRequest>/<BatchReadResult> need
+    /// vector<value_object> marshalling.
     std::vector<BatchReadResult> readBatch(
         std::span<const BatchReadRequest> requests) const;
 
     /// @return Product identification info, or std::nullopt if unavailable.
+    /// @bind skip — StorageProduct not yet bound.
     std::optional<StorageProduct> product() const;
 
     // ── Encryption ───────────────────────────────────────────────────
 
     /// Add a TACT encryption key (raw 16-byte array).
+    /// @bind skip — std::array<u8,16> param not yet auto-marshalled;
+    /// use the hex-string overload below.
     bool addEncryptionKey(u64 keyName, const std::array<u8, 16>& key);
 
     /// @overload Add a TACT encryption key from hex string.

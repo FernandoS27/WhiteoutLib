@@ -51,6 +51,9 @@ void bind_host    (py::module_& m);   // OsFileSystem, SimpleThreadPool,
 #if defined(WHITEOUT_HAS_MPQ)
 void bind_mpq     (py::module_& m);
 #endif
+#if defined(WHITEOUT_HAS_CASC)
+void bind_casc    (py::module_& m);
+#endif
 
 namespace {
 
@@ -274,6 +277,10 @@ PYBIND11_MODULE(whiteout, root) {
 #if defined(WHITEOUT_HAS_MPQ)
     auto mpq_m = root.def_submodule("mpq", "MPQ archives (Warcraft III, classic WoW, etc).");
     bind_mpq(mpq_m);
+#endif
+#if defined(WHITEOUT_HAS_CASC)
+    auto casc_m = root.def_submodule("casc", "CASC archives (modern Blizzard games).");
+    bind_casc(casc_m);
 #endif
 
     auto m2_m = root.def_submodule("m2", "World of Warcraft M2");

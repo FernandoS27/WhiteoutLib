@@ -25,6 +25,9 @@ set(_whiteout_c_sources
 if(WHITEOUT_ENABLE_MPQ)
     list(APPEND _whiteout_c_sources whiteout_mpq.cpp)
 endif()
+if(WHITEOUT_ENABLE_CASC)
+    list(APPEND _whiteout_c_sources whiteout_casc.cpp)
+endif()
 
 # JNI bridge sources are absorbed into whiteout_c when the JNI bindings
 # are enabled — Java consumers load a single DLL via System.loadLibrary
@@ -57,6 +60,9 @@ if(WHITEOUT_ENABLE_MPQ)
     # whiteout_mpq exports WHITEOUT_HAS_MPQ=1 PUBLIC so the storage
     # headers' `#error` gate is satisfied for this TU as well.
     target_link_libraries(whiteout_c PRIVATE whiteout_mpq)
+endif()
+if(WHITEOUT_ENABLE_CASC)
+    target_link_libraries(whiteout_c PRIVATE whiteout_casc)
 endif()
 target_include_directories(whiteout_c PRIVATE
     ${CMAKE_SOURCE_DIR}/include
