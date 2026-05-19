@@ -1,0 +1,15 @@
+The package whiteoutlib provides CMake targets:
+
+    find_package(WhiteoutLib CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE WhiteoutLib::whiteout_lib)
+
+When installed with features:
+
+    find_package(WhiteoutLib CONFIG REQUIRED COMPONENTS casc mpq)
+    target_link_libraries(main PRIVATE
+        WhiteoutLib::whiteout_lib
+        WhiteoutLib::whiteout_casc
+        WhiteoutLib::whiteout_mpq)
+
+Each component corresponds to the matching vcpkg feature
+(`whiteoutlib[casc]`, `whiteoutlib[mpq]`).

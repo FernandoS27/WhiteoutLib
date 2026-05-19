@@ -143,6 +143,42 @@ Useful options:
 | `WHITEOUT_BUILD_PYTHON_BINDINGS` | `OFF` | Build the Python bindings |
 | `WHITEOUT_ENABLE_CLANG_TIDY` | `OFF` | Run clang-tidy during the build |
 | `WHITEOUT_WARNINGS_AS_ERRORS` | `ON` for master project | Treat warnings as errors |
+| `WHITEOUT_INSTALL` | `ON` | Generate install + export rules for `find_package(WhiteoutLib)` |
+
+## Install / `find_package`
+
+After `cmake --install build --prefix <prefix>`, downstream CMake projects can pull WhiteoutLib in with:
+
+```cmake
+find_package(WhiteoutLib 1.0 REQUIRED COMPONENTS casc mpq)
+target_link_libraries(myapp PRIVATE
+    WhiteoutLib::whiteout_lib
+    WhiteoutLib::whiteout_casc
+    WhiteoutLib::whiteout_mpq
+)
+```
+
+`COMPONENTS casc` / `mpq` are optional; ask for them only if the install was built with the matching `-DWHITEOUT_ENABLE_*=ON` flag (the config script will fail loudly otherwise).
+
+## vcpkg
+
+A vcpkg overlay port lives under `ports/whiteoutlib/`. To install into a vcpkg environment:
+
+```bash
+vcpkg install --overlay-ports=path/to/WhiteoutLib/ports whiteoutlib[casc,mpq]
+```
+
+Then in your consuming project's `CMakeLists.txt`:
+
+```cmake
+find_package(WhiteoutLib CONFIG REQUIRED COMPONENTS casc mpq)
+target_link_libraries(app PRIVATE
+    WhiteoutLib::whiteout_lib WhiteoutLib::whiteout_casc WhiteoutLib::whiteout_mpq)
+```
+
+Features map directly to CMake flags: `whiteoutlib[casc]` ⇒ `WHITEOUT_ENABLE_CASC=ON`, `whiteoutlib[mpq]` ⇒ `WHITEOUT_ENABLE_MPQ=ON`, `whiteoutlib[curl]` ⇒ `WHITEOUT_ENABLE_CURL_HTTP=ON` + pulls `curl` from vcpkg (no-op on Windows, which always uses WinHTTP).
+
+When publishing the port to a custom vcpkg registry, bump `version` in `ports/whiteoutlib/vcpkg.json` and replace the `SHA512 0` placeholder in `portfile.cmake` with the real SHA — `vcpkg install` will print the expected value on first run.
 
 ## Static analysis (clang-tidy)
 

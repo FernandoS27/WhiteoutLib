@@ -342,7 +342,8 @@ if(NOT EMSCRIPTEN)
 endif()
 
 target_include_directories(whiteout_lib PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
 )
 
 target_link_libraries(whiteout_lib PRIVATE whiteout_strict_flags)
@@ -521,7 +522,8 @@ if(WHITEOUT_ENABLE_CASC)
     add_library(whiteout_casc STATIC ${CASC_SOURCES})
 
     target_include_directories(whiteout_casc PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
     )
 
     target_link_libraries(whiteout_casc PUBLIC whiteout_lib)
@@ -587,7 +589,8 @@ if(WHITEOUT_ENABLE_MPQ)
     )
 
     target_include_directories(whiteout_mpq PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
     )
 
     target_link_libraries(whiteout_mpq
@@ -643,4 +646,81 @@ endif()
 # =============================================================================
 if(WHITEOUT_BUILD_TESTS)
     add_subdirectory(tests)
+endif()
+
+# =============================================================================
+# Install + export — enables `find_package(WhiteoutLib)` for downstream
+# CMake consumers (vcpkg, FetchContent overlays, system installs, …).
+#
+# Opt out with `-DWHITEOUT_INSTALL=OFF` if you're using this repo strictly
+# as a build subtree and don't want the install targets generated.
+# =============================================================================
+option(WHITEOUT_INSTALL
+    "Generate install/export rules for find_package(WhiteoutLib)" ON)
+
+if(WHITEOUT_INSTALL)
+    include(GNUInstallDirs)
+    include(CMakePackageConfigHelpers)
+
+    set(_whiteout_install_targets whiteout_lib whiteout_strict_flags)
+    if(TARGET whiteout_casc)
+        list(APPEND _whiteout_install_targets whiteout_casc)
+    endif()
+    if(TARGET whiteout_mpq)
+        list(APPEND _whiteout_install_targets whiteout_mpq)
+    endif()
+
+    install(TARGETS ${_whiteout_install_targets}
+        EXPORT WhiteoutLibTargets
+        ARCHIVE  DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY  DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME  DESTINATION ${CMAKE_INSTALL_BINDIR}
+        INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    )
+
+    install(DIRECTORY include/whiteout
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        FILES_MATCHING
+            PATTERN "*.h"
+            PATTERN "*.hpp"
+            PATTERN "*.inl"
+    )
+
+    set(_whiteout_cmake_install_dir
+        ${CMAKE_INSTALL_LIBDIR}/cmake/WhiteoutLib)
+
+    install(EXPORT WhiteoutLibTargets
+        FILE       WhiteoutLibTargets.cmake
+        NAMESPACE  WhiteoutLib::
+        DESTINATION ${_whiteout_cmake_install_dir}
+    )
+
+    configure_package_config_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/WhiteoutLibConfig.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/WhiteoutLibConfig.cmake
+        INSTALL_DESTINATION ${_whiteout_cmake_install_dir}
+    )
+
+    # Version is keyed off the project() call at the top of this file —
+    # bump it there, not here. The version file is consumed by the
+    # `find_package(WhiteoutLib X.Y.Z)` version-matching machinery.
+    if(NOT PROJECT_VERSION)
+        set(PROJECT_VERSION "0.0.0")
+    endif()
+    write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/WhiteoutLibConfigVersion.cmake
+        VERSION       ${PROJECT_VERSION}
+        COMPATIBILITY SameMinorVersion
+    )
+
+    install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/WhiteoutLibConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/WhiteoutLibConfigVersion.cmake
+        DESTINATION ${_whiteout_cmake_install_dir}
+    )
+
+    install(FILES
+        LICENSE
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/licenses/WhiteoutLib
+    )
 endif()

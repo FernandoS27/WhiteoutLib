@@ -1,0 +1,15 @@
+{
+    "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+    "name": "whiteoutlib-dev",
+    "version-string": "1.0.0-dev",
+    "description": "Manifest used when building WhiteoutLib FROM SOURCE inside the repo. Lists the optional vcpkg-provided dependencies the C++ build can pick up (libcurl for non-Windows HTTP). Library consumers DO NOT use this file — they pull `whiteoutlib` itself from a vcpkg registry; see ports/whiteoutlib/ for the port definition.",
+    "dependencies": [],
+    "features": {
+        "curl": {
+            "description": "Enable libcurl HTTP backend for SimpleHttpHandler (non-Windows). On Windows the build uses WinHTTP unconditionally and ignores this feature.",
+            "dependencies": [
+                "curl"
+            ]
+        }
+    }
+}

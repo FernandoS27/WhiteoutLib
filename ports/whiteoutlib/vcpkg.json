@@ -1,0 +1,23 @@
+{
+    "name": "whiteoutlib",
+    "version": "1.0.0",
+    "description": "C++20 library for parsing & writing Blizzard model and texture formats (MDX, M2, M3, BLP, DDS, …), plus CASC and MPQ storage backends.",
+    "homepage": "https://github.com/fsahmkow/WhiteoutLib",
+    "license": "BSD-3-Clause",
+    "supports": "!uwp",
+    "default-features": [],
+    "features": {
+        "casc": {
+            "description": "Enable CASC archive support (Blizzard's modern format used by WoW, Diablo III/IV, StarCraft II, …)"
+        },
+        "mpq": {
+            "description": "Enable MPQ archive support (Blizzard's legacy format used by Warcraft III, classic WoW, …)"
+        },
+        "curl": {
+            "description": "Use libcurl as SimpleHttpHandler's transport on non-Windows hosts (Windows uses WinHTTP unconditionally).",
+            "dependencies": [
+                "curl"
+            ]
+        }
+    }
+}
