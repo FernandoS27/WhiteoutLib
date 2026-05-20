@@ -517,7 +517,7 @@ struct SnoValue {
         assert(isWord());
         return s_.word;
     }
-    std::string& asString() {
+    std::string& asString() { // NOLINT(readability-make-member-function-const)
         assert(isString());
         return *s_.str;
     }
@@ -541,7 +541,7 @@ struct SnoValue {
         assert(isVec3());
         return s_.vec3;
     }
-    SnoVec4& asVec4() {
+    SnoVec4& asVec4() { // NOLINT(readability-make-member-function-const)
         assert(isVec4());
         return *s_.vec4;
     }
@@ -565,7 +565,7 @@ struct SnoValue {
         assert(isColor());
         return s_.color;
     }
-    SnoColorF& asColorF() {
+    SnoColorF& asColorF() { // NOLINT(readability-make-member-function-const)
         assert(isColorF());
         return *s_.colorf;
     }
@@ -589,7 +589,7 @@ struct SnoValue {
         assert(isGbid());
         return s_.gbid;
     }
-    SnoArray& asArray() {
+    SnoArray& asArray() { // NOLINT(readability-make-member-function-const)
         assert(isArray());
         return *s_.arr;
     }
@@ -718,7 +718,7 @@ private:
 
 // -- deferred inline definitions (need both SnoValue and SnoObject complete) --
 
-inline SnoObject& SnoValue::asObject() {
+inline SnoObject& SnoValue::asObject() { // NOLINT(readability-make-member-function-const)
     assert(isObject());
     return *s_.obj;
 }

@@ -60,7 +60,7 @@ void CdnCache::writeFileBytes(const std::string& path, std::span<const u8> data)
     ensureDir(path);
 
     // Write to temp file, then rename for atomicity.
-    std::string tmpPath = path + ".tmp";
+    std::string const tmpPath = path + ".tmp";
     {
         auto f = whiteout::common::open_ofstream(tmpPath, std::ios::binary);
         if (!f) {

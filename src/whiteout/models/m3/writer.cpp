@@ -48,7 +48,7 @@ void Writer::write(const std::string& filePath, const Model& model) {
 
 std::vector<u8> Writer::write(const Model& model) {
     // Estimate output size from header
-    u32 estimatedSize = 1 * 1024 * 1024; // Start with 2 MB
+    u32 const estimatedSize = 1 * 1024 * 1024; // Start with 2 MB
     std::vector<u8> buffer;
     buffer.reserve(estimatedSize);
     common::vector_streambuf streambuf(buffer);

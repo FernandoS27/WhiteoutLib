@@ -53,7 +53,7 @@ std::unordered_map<u64, std::vector<u8>> prefetchVfsOnline(
 
         if (!enc) {
             if (wstate->completed.fetch_add(1, std::memory_order_acq_rel) + 1 == totalVfs) {
-                std::lock_guard<std::mutex> lk(wstate->mtx);
+                std::lock_guard<std::mutex> const lk(wstate->mtx);
                 wstate->cv.notify_one();
             }
             continue;
@@ -67,7 +67,7 @@ std::unordered_map<u64, std::vector<u8>> prefetchVfsOnline(
                 [&prefetchResults, i, wstate, totalVfs](std::optional<std::vector<u8>> data) {
                     if (data) prefetchResults[i].blteData = std::move(*data);
                     if (wstate->completed.fetch_add(1, std::memory_order_acq_rel) + 1 == totalVfs) {
-                        std::lock_guard<std::mutex> lk(wstate->mtx);
+                        std::lock_guard<std::mutex> const lk(wstate->mtx);
                         wstate->cv.notify_one();
                     }
                 });
@@ -77,7 +77,7 @@ std::unordered_map<u64, std::vector<u8>> prefetchVfsOnline(
                 [&prefetchResults, i, wstate, totalVfs](std::optional<std::vector<u8>> data) {
                     if (data) prefetchResults[i].blteData = std::move(*data);
                     if (wstate->completed.fetch_add(1, std::memory_order_acq_rel) + 1 == totalVfs) {
-                        std::lock_guard<std::mutex> lk(wstate->mtx);
+                        std::lock_guard<std::mutex> const lk(wstate->mtx);
                         wstate->cv.notify_one();
                     }
                 });
@@ -111,7 +111,7 @@ std::unordered_map<u64, std::vector<u8>> prefetchVfsOnline(
     vfsCache.reserve(batchDecoded.size());
     for (size_t d = 0; d < batchDecoded.size(); ++d) {
         if (batchDecoded[d].success) {
-            size_t ri = batchToResult[d];
+            size_t const ri = batchToResult[d];
             vfsCache[prefetchResults[ri].eKeyHash] = std::move(batchDecoded[d].data);
         }
     }
@@ -172,29 +172,30 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
         };
         auto ds = std::make_shared<DiscoveryState>();
 
-        bool needCdns = opts.cdnServers.empty();
-        bool needVersions = opts.directBuildConfigKey.empty() ||
-                            opts.directCdnConfigKey.empty();
+        bool const needCdns = opts.cdnServers.empty();
+        bool const needVersions =
+            opts.directBuildConfigKey.empty() || opts.directCdnConfigKey.empty();
 
         const u32 totalRequests = (needCdns ? 1u : 0u) + (needVersions ? 1u : 0u);
         if (needCdns) {
-            std::string cdnsUrl = "https://" + opts.region +
-                                  ".version.battle.net/v2/products/" + opts.product + "/cdns";
+            std::string const cdnsUrl = "https://" + opts.region +
+                                        ".version.battle.net/v2/products/" + opts.product + "/cdns";
             opts.http->getAsync(cdnsUrl, [ds, totalRequests](interfaces::HttpResponse resp) {
                 if (resp.statusCode == 200) ds->cdnsData = std::move(resp.body);
                 if (ds->done.fetch_add(1, std::memory_order_acq_rel) + 1 == totalRequests) {
-                    std::lock_guard<std::mutex> lk(ds->mtx);
+                    std::lock_guard<std::mutex> const lk(ds->mtx);
                     ds->cv.notify_one();
                 }
             });
         }
         if (needVersions) {
-            std::string versionsUrl = "https://" + opts.region +
-                                      ".version.battle.net/v2/products/" + opts.product + "/versions";
+            std::string const versionsUrl = "https://" + opts.region +
+                                            ".version.battle.net/v2/products/" + opts.product +
+                                            "/versions";
             opts.http->getAsync(versionsUrl, [ds, totalRequests](interfaces::HttpResponse resp) {
                 if (resp.statusCode == 200) ds->versionsData = std::move(resp.body);
                 if (ds->done.fetch_add(1, std::memory_order_acq_rel) + 1 == totalRequests) {
-                    std::lock_guard<std::mutex> lk(ds->mtx);
+                    std::lock_guard<std::mutex> const lk(ds->mtx);
                     ds->cv.notify_one();
                 }
             });
@@ -284,7 +285,7 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
             [cs](std::optional<std::vector<u8>> data) {
                 cs->buildData = std::move(data);
                 if (cs->done.fetch_add(1, std::memory_order_acq_rel) + 1 == 2) {
-                    std::lock_guard<std::mutex> lk(cs->mtx);
+                    std::lock_guard<std::mutex> const lk(cs->mtx);
                     cs->cv.notify_one();
                 }
             });
@@ -293,7 +294,7 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
             [cs](std::optional<std::vector<u8>> data) {
                 cs->cdnData = std::move(data);
                 if (cs->done.fetch_add(1, std::memory_order_acq_rel) + 1 == 2) {
-                    std::lock_guard<std::mutex> lk(cs->mtx);
+                    std::lock_guard<std::mutex> const lk(cs->mtx);
                     cs->cv.notify_one();
                 }
             });

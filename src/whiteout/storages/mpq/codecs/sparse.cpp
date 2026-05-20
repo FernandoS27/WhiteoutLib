@@ -13,8 +13,8 @@ std::vector<u8> sparseDecompress(std::span<const u8> src, size_t expectedSize) {
         return {};
 
     // Read the 4-byte big-endian original size.
-    u32 origSize = (static_cast<u32>(src[0]) << 24) | (static_cast<u32>(src[1]) << 16) |
-                   (static_cast<u32>(src[2]) << 8) | (static_cast<u32>(src[3]) << 0);
+    u32 const origSize = (static_cast<u32>(src[0]) << 24) | (static_cast<u32>(src[1]) << 16) |
+                         (static_cast<u32>(src[2]) << 8) | (static_cast<u32>(src[3]) << 0);
 
     if (origSize > expectedSize)
         return {};
@@ -25,22 +25,22 @@ std::vector<u8> sparseDecompress(std::span<const u8> src, size_t expectedSize) {
     size_t inPos = 4;
 
     while (inPos < src.size() && out.size() < origSize) {
-        u8 token = src[inPos++];
+        u8 const token = src[inPos++];
 
         if (token & 0x80) {
             // Literal run: (token & 0x7F) + 1 literal bytes follow.
-            size_t count = (token & 0x7F) + 1;
+            size_t const count = (token & 0x7F) + 1;
             if (inPos + count > src.size())
                 return {};
-            size_t room = origSize - out.size();
-            size_t toCopy = count < room ? count : room;
+            size_t const room = origSize - out.size();
+            size_t const toCopy = count < room ? count : room;
             out.insert(out.end(), src.data() + inPos, src.data() + inPos + toCopy);
             inPos += count;
         } else {
             // Zero run: (token & 0x7F) + 3 zero bytes.
-            size_t count = (token & 0x7F) + 3;
-            size_t room = origSize - out.size();
-            size_t toFill = count < room ? count : room;
+            size_t const count = (token & 0x7F) + 3;
+            size_t const room = origSize - out.size();
+            size_t const toFill = count < room ? count : room;
             out.resize(out.size() + toFill, 0);
         }
     }
@@ -56,7 +56,7 @@ std::vector<u8> sparseCompress(std::span<const u8> src) {
     out.reserve(4 + src.size());
 
     // 4-byte big-endian original size.
-    u32 origSize = static_cast<u32>(src.size());
+    u32 const origSize = static_cast<u32>(src.size());
     out.push_back(static_cast<u8>(origSize >> 24));
     out.push_back(static_cast<u8>(origSize >> 16));
     out.push_back(static_cast<u8>(origSize >> 8));
@@ -65,11 +65,11 @@ std::vector<u8> sparseCompress(std::span<const u8> src) {
     size_t pos = 0;
     while (pos < src.size()) {
         // Count consecutive zero bytes.
-        size_t zeroStart = pos;
+        size_t const zeroStart = pos;
         while (pos < src.size() && src[pos] == 0 && (pos - zeroStart) < (0x7F + 3)) {
             pos++;
         }
-        size_t zeroCount = pos - zeroStart;
+        size_t const zeroCount = pos - zeroStart;
 
         if (zeroCount >= 3) {
             // Emit zero-run token: (count - 3) with high bit clear.
@@ -79,7 +79,7 @@ std::vector<u8> sparseCompress(std::span<const u8> src) {
             pos = zeroStart;
 
             // Count literal bytes (non-zero, or short zero runs < 3).
-            size_t litStart = pos;
+            size_t const litStart = pos;
             while (pos < src.size() && (pos - litStart) < (0x7F + 1)) {
                 // Look ahead: if 3+ zeros, end the literal run.
                 if (src[pos] == 0) {

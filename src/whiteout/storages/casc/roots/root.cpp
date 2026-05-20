@@ -20,7 +20,7 @@ using storages::common::readLE32;
 std::unique_ptr<RootManifest> RootManifest::parse(std::span<const u8> data) {
     if (data.size() < 4) return nullptr;
 
-    u32 magic = readLE32(data.data());
+    u32 const magic = readLE32(data.data());
 
     // TVFS root (WC3 Reforged).
     if (magic == RootSignature::kTVFS)

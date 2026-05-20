@@ -6,6 +6,7 @@
 #include <whiteout/models/mdx/structures.h>
 #include <whiteout/vector_types.h>
 
+#include <charconv>
 #include <cmath>
 #include <cstring>
 #include <sstream>
@@ -91,24 +92,23 @@ private:
     // ========================================================================
 
     static std::string fmtFloat(f32 v) {
-        // Use enough precision but strip trailing zeros
+        // Emit the shortest decimal string that round-trips back to the exact
+        // same f32. A fixed "%.6f" silently truncates the mantissa, so an MDX
+        // model serialized to MDL and re-parsed would no longer be byte-equal;
+        // std::to_chars guarantees lossless round-tripping. MDL has no inf/nan
+        // literal, so non-finite values collapse to 0.0.
+        if (!std::isfinite(v))
+            return "0.0";
         char buf[64];
-        std::snprintf(buf, sizeof(buf), "%.6f", static_cast<double>(v));
-        // Trim trailing zeros after decimal point
-        char* dot = std::strchr(buf, '.');
-        if (dot) {
-            char* end = buf + std::strlen(buf) - 1;
-            while (end > dot && *end == '0')
-                --end;
-            if (end == dot)
-                *(end + 1) = '\0'; // keep one zero: "1.0"
-            else
-                *(end + 1) = '\0';
-            // Ensure at least one digit after dot
-            if (buf[std::strlen(buf) - 1] == '.')
-                std::strcat(buf, "0");
-        }
-        return buf;
+        auto res = std::to_chars(buf, buf + sizeof(buf), v);
+        std::string s(buf, res.ptr);
+        // to_chars yields "50", "0.8", "1.5e-08"; MDL convention keeps a
+        // decimal point on integral values ("50" -> "50.0").
+        if (s.find('.') == std::string::npos &&
+            s.find('e') == std::string::npos &&
+            s.find('E') == std::string::npos)
+            s += ".0";
+        return s;
     }
 
     static std::string fmtVec3(const Vector3f& v) {
@@ -171,7 +171,7 @@ private:
     void writeTrack(const std::string& name, const Track<T>& track) {
         if (!track.isUsed || track.keyCount == 0) return;
 
-        bool smooth = isSmoothInterpolation(track.interpolationType);
+        bool const smooth = isSmoothInterpolation(track.interpolationType);
 
         openBlock(name + " " + std::to_string(track.keyCount));
         line(std::string(interpName(track.interpolationType)) + ",");
@@ -182,7 +182,7 @@ private:
         // Timestamps and key values live in separate vectors after the
         // split-timestamp refactor. Index both by keyframe number i.
         if (smooth) {
-            auto tkeys = const_cast<Track<T>&>(track).tangentKeys();
+            auto tkeys = track.tangentKeys();
             for (size_t i = 0; i < track.keyCount; ++i) {
                 const auto& k = tkeys[i];
                 line(std::to_string(track.timestamps[i]) + ": " +
@@ -193,7 +193,7 @@ private:
                 dedent();
             }
         } else {
-            auto values = const_cast<Track<T>&>(track).keys();
+            auto values = track.keys();
             for (size_t i = 0; i < track.keyCount; ++i) {
                 line(std::to_string(track.timestamps[i]) + ": " +
                      fmtTrackValue(values[i]) + ",");
@@ -212,7 +212,7 @@ private:
         // Check if it's effectively a static value
         if (track.keyCount == 1 && track.interpolationType == InterpolationType::None &&
             !track.timestamps.empty() && track.timestamps[0] == 0) {
-            auto values = const_cast<Track<T>&>(track).keys();
+            auto values = track.keys();
             if (!values.empty()) {
                 line("static " + name + " " + fmtTrackValue(values[0]) + ",");
                 return;
@@ -469,7 +469,7 @@ private:
             if (tids.keyCount == 1 &&
                 tids.interpolationType == InterpolationType::None &&
                 !tids.timestamps.empty() && tids.timestamps[0] == 0) {
-                auto values = const_cast<Track<u32>&>(tids).keys();
+                auto values = tids.keys();
                 if (!values.empty()) {
                     if (m_format == MdlFormat::WarcraftIII) {
                         writeStaticTexEngine(values[0], 0);
@@ -661,7 +661,7 @@ private:
 
         // SkinWeights (Reforged)
         if (!geo.skinData.empty()) {
-            size_t vertCount = geo.skinData.size() / 8;
+            size_t const vertCount = geo.skinData.size() / 8;
             openBlock("SkinWeights " + std::to_string(vertCount));
             for (size_t i = 0; i < geo.skinData.size(); i += 8) {
                 writeIndent();

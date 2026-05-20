@@ -110,7 +110,7 @@ std::vector<interfaces::DirectoryEntry> CascPathFileSystem::listDirectory(
 
     m_impl->storage.enumerate([&](const EnumerateEntry& fe) {
         // Lowercase the entry path.
-        std::string pathLower = storages::common::toLower(std::string(fe.path));
+        std::string const pathLower = storages::common::toLower(std::string(fe.path));
 
         if (pathLower.size() <= prefixLower.size()) return true;
         if (pathLower.substr(0, prefixLower.size()) != prefixLower) return true;

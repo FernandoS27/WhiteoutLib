@@ -41,9 +41,9 @@ namespace {
 /// If the magnitude value is below 2^(category-1), the value is negative.
 /// Uses an arithmetic mask to avoid the branch.
 inline i32 extend_magnitude_to_signed(u32 magnitudeBits, i32 category) {
-    i32 threshold = 1 << (category - 1);
+    i32 const threshold = 1 << (category - 1);
     // mask = 0xFFFFFFFF when negative, 0x00000000 when positive.
-    i32 mask = -static_cast<i32>(static_cast<i32>(magnitudeBits) < threshold);
+    i32 const mask = -static_cast<i32>(static_cast<i32>(magnitudeBits) < threshold);
     return static_cast<i32>(magnitudeBits) + (mask & (1 - (2 * threshold)));
 }
 
@@ -237,7 +237,7 @@ struct JpegDecoder {
 
     // -- Helpers --
 
-    bool reportError(const std::string& message) {
+    bool reportError(const std::string& message) const {
         if (errorOutput) {
             *errorOutput = message;
         }
@@ -282,9 +282,9 @@ struct JpegDecoder {
                                   i32& dcPrediction);
     bool decodeProgressiveDcRefine(std::array<i32, BLOCK_PIXELS>& coeffs);
     bool decodeProgressiveAcFirst(BitstreamReader& bs, std::array<i32, BLOCK_PIXELS>& coeffs,
-                                  const HuffmanTable& acTable, u32& eobRunRef, u8 ss, u8 se, u8 al);
+                                  const HuffmanTable& acTable, u32& eobRunRef, u8 ss, u8 se, u8 al) const;
     bool decodeProgressiveAcRefine(BitstreamReader& bs, std::array<i32, BLOCK_PIXELS>& coeffs,
-                                   const HuffmanTable& acTable, u32& eobRunRef, u8 ss, u8 se, u8 al);
+                                   const HuffmanTable& acTable, u32& eobRunRef, u8 ss, u8 se, u8 al) const;
     bool finalizeProgressiveImage();
 
     /// Combined dequantize + IDCT + interleave for the no-subsampling case.
@@ -307,14 +307,14 @@ struct JpegDecoder {
 
 /// DQT — Define Quantization Table (ITU-T T.81, Section B.2.4.1)
 bool JpegDecoder::parseQuantizationTable(size_t dataOffset, size_t dataLength) {
-    size_t endOffset = dataOffset + dataLength;
+    size_t const endOffset = dataOffset + dataLength;
     while (dataOffset < endOffset) {
         if (dataOffset >= bitstream.size) {
             return reportError("DQT: unexpected end of data");
         }
-        u8 tableInfo = bitstream.data[dataOffset++];
-        i32 elementPrecision = (tableInfo >> 4) & 0x0F; // 0 = 8-bit, 1 = 16-bit
-        i32 tableIndex = tableInfo & 0x0F;
+        u8 const tableInfo = bitstream.data[dataOffset++];
+        i32 const elementPrecision = (tableInfo >> 4) & 0x0F; // 0 = 8-bit, 1 = 16-bit
+        i32 const tableIndex = tableInfo & 0x0F;
         if (tableIndex >= MAX_TABLES) {
             return reportError("DQT: table index " + std::to_string(tableIndex) +
                                " exceeds maximum");
@@ -348,7 +348,7 @@ bool JpegDecoder::parseFrameHeader(size_t dataOffset, size_t dataLength) {
     if (dataLength < 6) {
         return reportError("SOF0: segment too short");
     }
-    u8 samplePrecision = bitstream.data[dataOffset];
+    u8 const samplePrecision = bitstream.data[dataOffset];
     if (samplePrecision != 8) {
         return reportError("SOF0: only 8-bit sample precision is supported");
     }
@@ -368,9 +368,9 @@ bool JpegDecoder::parseFrameHeader(size_t dataOffset, size_t dataLength) {
     maxHorizontalSampling = 1;
     maxVerticalSampling = 1;
     for (u32 componentIndex = 0; componentIndex < componentCount; componentIndex++) {
-        size_t specOffset = dataOffset + 6 + componentIndex * 3;
+        size_t const specOffset = dataOffset + 6 + componentIndex * 3;
         components[componentIndex].componentId = bitstream.data[specOffset];
-        u8 samplingFactors = bitstream.data[specOffset + 1];
+        u8 const samplingFactors = bitstream.data[specOffset + 1];
         components[componentIndex].horizontalSampling = (samplingFactors >> 4) & 0x0F;
         components[componentIndex].verticalSampling = samplingFactors & 0x0F;
         components[componentIndex].quantTableIndex = bitstream.data[specOffset + 2];
@@ -395,20 +395,21 @@ bool JpegDecoder::parseFrameHeader(size_t dataOffset, size_t dataLength) {
 
     // Allocate per-component sample buffers (MCU-aligned dimensions).
     for (u32 componentIndex = 0; componentIndex < componentCount; componentIndex++) {
-        u32 bufferWidth =
+        u32 const bufferWidth =
             mcuColumnsCount * components[componentIndex].horizontalSampling * BLOCK_SIZE;
-        u32 bufferHeight = mcuRowsCount * components[componentIndex].verticalSampling * BLOCK_SIZE;
+        u32 const bufferHeight =
+            mcuRowsCount * components[componentIndex].verticalSampling * BLOCK_SIZE;
         components[componentIndex].sampleBufferStride = bufferWidth;
         components[componentIndex].sampleBuffer.resize(
             static_cast<size_t>(bufferWidth) * bufferHeight, 0);
 
         // For progressive mode, allocate per-block coefficient storage.
-        u32 bpr = mcuColumnsCount * components[componentIndex].horizontalSampling;
-        u32 bpc = mcuRowsCount * components[componentIndex].verticalSampling;
+        u32 const bpr = mcuColumnsCount * components[componentIndex].horizontalSampling;
+        u32 const bpc = mcuRowsCount * components[componentIndex].verticalSampling;
         components[componentIndex].blocksPerRow = bpr;
         components[componentIndex].blocksPerCol = bpc;
         if (isProgressive) {
-            std::array<i32, BLOCK_PIXELS> zeroBlock{};
+            std::array<i32, BLOCK_PIXELS> const zeroBlock{};
             components[componentIndex].coefficientBlocks.assign(static_cast<size_t>(bpr) * bpc,
                                                                 zeroBlock);
         }
@@ -418,14 +419,14 @@ bool JpegDecoder::parseFrameHeader(size_t dataOffset, size_t dataLength) {
 
 /// DHT — Define Huffman Table (ITU-T T.81, Section B.2.4.2)
 bool JpegDecoder::parseHuffmanTable(size_t dataOffset, size_t dataLength) {
-    size_t endOffset = dataOffset + dataLength;
+    size_t const endOffset = dataOffset + dataLength;
     while (dataOffset < endOffset) {
         if (dataOffset >= bitstream.size) {
             return reportError("DHT: unexpected end of data");
         }
-        u8 tableInfo = bitstream.data[dataOffset++];
-        i32 tableClass = (tableInfo >> 4) & 0x0F; // 0 = DC, 1 = AC
-        i32 tableIndex = tableInfo & 0x0F;
+        u8 const tableInfo = bitstream.data[dataOffset++];
+        i32 const tableClass = (tableInfo >> 4) & 0x0F; // 0 = DC, 1 = AC
+        i32 const tableIndex = tableInfo & 0x0F;
         if (tableClass > 1 || tableIndex >= MAX_TABLES) {
             return reportError("DHT: invalid table class/index");
         }
@@ -469,7 +470,7 @@ bool JpegDecoder::parseScanHeader(size_t dataOffset, size_t dataLength, size_t& 
     if (dataLength < 1) {
         return reportError("SOS: segment too short");
     }
-    u8 scanComponentCount = bitstream.data[dataOffset];
+    u8 const scanComponentCount = bitstream.data[dataOffset];
     if (scanComponentCount == 0 || scanComponentCount > componentCount) {
         return reportError("SOS: invalid scan component count " +
                            std::to_string(scanComponentCount));
@@ -483,8 +484,8 @@ bool JpegDecoder::parseScanHeader(size_t dataOffset, size_t dataLength, size_t& 
 
     scanComponentIndices.clear();
     for (u32 scanIndex = 0; scanIndex < scanComponentCount; scanIndex++) {
-        u8 selectorId = bitstream.data[dataOffset + 1 + scanIndex * 2];
-        u8 tableSelectors = bitstream.data[dataOffset + 1 + scanIndex * 2 + 1];
+        u8 const selectorId = bitstream.data[dataOffset + 1 + scanIndex * 2];
+        u8 const tableSelectors = bitstream.data[dataOffset + 1 + scanIndex * 2 + 1];
 
         bool foundMatchingComponent = false;
         for (u32 componentIndex = 0; componentIndex < componentCount; componentIndex++) {
@@ -507,10 +508,10 @@ bool JpegDecoder::parseScanHeader(size_t dataOffset, size_t dataLength, size_t& 
     }
 
     // Extract spectral selection and successive approximation.
-    size_t ssOffset = dataOffset + 1 + scanComponentCount * 2;
+    size_t const ssOffset = dataOffset + 1 + scanComponentCount * 2;
     scanSpectralStart = bitstream.data[ssOffset];
     scanSpectralEnd = bitstream.data[ssOffset + 1];
-    u8 ahAl = bitstream.data[ssOffset + 2];
+    u8 const ahAl = bitstream.data[ssOffset + 2];
     scanApproxHigh = (ahAl >> 4) & 0x0F;
     scanApproxLow = ahAl & 0x0F;
 
@@ -542,13 +543,13 @@ bool JpegDecoder::decodeDctBlock(std::array<i32, BLOCK_PIXELS>& coefficients,
     coefficients.fill(0);
 
     // DC coefficient: decode category, read magnitude bits, update prediction.
-    i32 dcCategory = dcTable.decodeSymbol(bitstream);
+    i32 const dcCategory = dcTable.decodeSymbol(bitstream);
     if (dcCategory < 0) {
         return reportError("Huffman DC decode error");
     }
     i32 dcDifference = 0;
     if (dcCategory > 0) {
-        u32 magnitudeBits = bitstream.readBits(dcCategory);
+        u32 const magnitudeBits = bitstream.readBits(dcCategory);
         dcDifference = extend_magnitude_to_signed(magnitudeBits, dcCategory);
     }
     dcPrediction += dcDifference;
@@ -557,12 +558,12 @@ bool JpegDecoder::decodeDctBlock(std::array<i32, BLOCK_PIXELS>& coefficients,
     // AC coefficients: decode run-length/category pairs.
     i32 coefficientIndex = 1;
     while (coefficientIndex < BLOCK_PIXELS) {
-        i32 runLengthCategory = acTable.decodeSymbol(bitstream);
+        i32 const runLengthCategory = acTable.decodeSymbol(bitstream);
         if (runLengthCategory < 0) {
             return reportError("Huffman AC decode error");
         }
-        i32 zeroRunLength = (runLengthCategory >> 4) & 0x0F;
-        i32 acCategory = runLengthCategory & 0x0F;
+        i32 const zeroRunLength = (runLengthCategory >> 4) & 0x0F;
+        i32 const acCategory = runLengthCategory & 0x0F;
 
         if (acCategory == 0) {
             if (zeroRunLength == 0) {
@@ -579,8 +580,8 @@ bool JpegDecoder::decodeDctBlock(std::array<i32, BLOCK_PIXELS>& coefficients,
         if (coefficientIndex >= BLOCK_PIXELS) {
             return reportError("AC coefficient index out of range");
         }
-        u32 magnitudeBits = bitstream.readBits(acCategory);
-        i32 acValue = extend_magnitude_to_signed(magnitudeBits, acCategory);
+        u32 const magnitudeBits = bitstream.readBits(acCategory);
+        i32 const acValue = extend_magnitude_to_signed(magnitudeBits, acCategory);
         // Dequantise and place at the natural-order position using the zig-zag map.
         coefficients[ZIGZAG_ORDER[coefficientIndex]] = acValue * quantTable[coefficientIndex];
         coefficientIndex++;
@@ -635,9 +636,9 @@ bool JpegDecoder::decodeScanData() {
                         }
 
                         // Write the IDCT output into the component sample buffer.
-                        u32 blockPixelX =
+                        u32 const blockPixelX =
                             (mcuColumn * component.horizontalSampling + blockColumn) * BLOCK_SIZE;
-                        u32 blockPixelY =
+                        u32 const blockPixelY =
                             (mcuRow * component.verticalSampling + blockRow) * BLOCK_SIZE;
                         inverse_dct_block(dctCoefficients,
                                           component.sampleBuffer.data() +
@@ -673,7 +674,7 @@ bool JpegDecoder::decodeScanDataToCoefficients() {
         auto& comp = components[ci];
         comp.blocksPerRow = mcuColumnsCount * comp.horizontalSampling;
         comp.blocksPerCol = mcuRowsCount * comp.verticalSampling;
-        u32 totalBlocks = comp.blocksPerRow * comp.blocksPerCol;
+        u32 const totalBlocks = comp.blocksPerRow * comp.blocksPerCol;
         static constexpr std::array<i32, BLOCK_PIXELS> kZeroBlock{};
         comp.coefficientBlocks.assign(totalBlocks, kZeroBlock);
     }
@@ -693,18 +694,18 @@ bool JpegDecoder::decodeScanDataToCoefficients() {
                 auto& comp = components[ci];
                 for (u32 blockRow = 0; blockRow < comp.verticalSampling; blockRow++) {
                     for (u32 blockCol = 0; blockCol < comp.horizontalSampling; blockCol++) {
-                        u32 bx = mcuCol * comp.horizontalSampling + blockCol;
-                        u32 by = mcuRow * comp.verticalSampling + blockRow;
+                        u32 const bx = mcuCol * comp.horizontalSampling + blockCol;
+                        u32 const by = mcuRow * comp.verticalSampling + blockRow;
                         auto& coeffs = comp.coefficientBlocks[by * comp.blocksPerRow + bx];
 
                         // Decode DC.
                         const auto& dcTable = dcHuffmanTables[comp.dcHuffmanIndex];
-                        i32 dcCategory = dcTable.decodeSymbol(bitstream);
+                        i32 const dcCategory = dcTable.decodeSymbol(bitstream);
                         if (dcCategory < 0)
                             return reportError("Huffman DC decode error");
                         i32 dcDifference = 0;
                         if (dcCategory > 0) {
-                            u32 magnitudeBits = bitstream.readBits(dcCategory);
+                            u32 const magnitudeBits = bitstream.readBits(dcCategory);
                             dcDifference = extend_magnitude_to_signed(magnitudeBits, dcCategory);
                         }
                         comp.dcPrediction += dcDifference;
@@ -714,11 +715,11 @@ bool JpegDecoder::decodeScanDataToCoefficients() {
                         const auto& acTable = acHuffmanTables[comp.acHuffmanIndex];
                         i32 coeffIdx = 1;
                         while (coeffIdx < BLOCK_PIXELS) {
-                            i32 sym = acTable.decodeSymbol(bitstream);
+                            i32 const sym = acTable.decodeSymbol(bitstream);
                             if (sym < 0)
                                 return reportError("Huffman AC decode error");
-                            i32 run = (sym >> 4) & 0x0F;
-                            i32 cat = sym & 0x0F;
+                            i32 const run = (sym >> 4) & 0x0F;
+                            i32 const cat = sym & 0x0F;
                             if (cat == 0) {
                                 if (run == 0)
                                     break; // EOB
@@ -732,8 +733,8 @@ bool JpegDecoder::decodeScanDataToCoefficients() {
                             if (coeffIdx >= BLOCK_PIXELS) {
                                 return reportError("AC coefficient index out of range");
                             }
-                            u32 mag = bitstream.readBits(cat);
-                            i32 acVal = extend_magnitude_to_signed(mag, cat);
+                            u32 const mag = bitstream.readBits(cat);
+                            i32 const acVal = extend_magnitude_to_signed(mag, cat);
                             // Store in zig-zag order (coefficients are NOT dequantized
                             // here — finalizeProgressiveImage handles dequantization).
                             coeffs[coeffIdx] = acVal;
@@ -780,7 +781,7 @@ bool JpegDecoder::decodeScanDataParallel(Image* directOutput) {
         size_t pos = bitstream.bytePos;
         while (pos + 1 < bitstream.size) {
             if (bitstream.data[pos] == 0xFF) {
-                u8 next = bitstream.data[pos + 1];
+                u8 const next = bitstream.data[pos + 1];
                 if (next == 0x00) {
                     pos += 2;
                     continue;
@@ -834,12 +835,12 @@ bool JpegDecoder::decodeScanDataParallel(Image* directOutput) {
                     localBs.init(bitstream.data, bitstream.size, (*intervalStarts)[interval]);
 
                     std::array<i32, MAX_COMPONENTS> dcPreds{};
-                    u32 mcuStart = interval * mcusPerInterval;
-                    u32 mcuEnd = std::min(mcuStart + mcusPerInterval, totalMCUs);
+                    u32 const mcuStart = interval * mcusPerInterval;
+                    u32 const mcuEnd = std::min(mcuStart + mcusPerInterval, totalMCUs);
 
                     for (u32 mcuIdx = mcuStart; mcuIdx < mcuEnd; ++mcuIdx) {
-                        u32 mcuRow = mcuIdx / mcuCols;
-                        u32 mcuCol = mcuIdx % mcuCols;
+                        u32 const mcuRow = mcuIdx / mcuCols;
+                        u32 const mcuCol = mcuIdx % mcuCols;
 
                         // Decode all component blocks for this MCU into temp arrays.
                         std::array<std::array<u8, BLOCK_PIXELS>, MAX_COMPONENTS> blks;  // NOLINT(cppcoreguidelines-pro-type-member-init)
@@ -851,10 +852,10 @@ bool JpegDecoder::decodeScanDataParallel(Image* directOutput) {
 
                             std::array<i32, BLOCK_PIXELS> dequant{};
 
-                            i32 dcCat = dcTable.decodeSymbol(localBs);
+                            i32 const dcCat = dcTable.decodeSymbol(localBs);
                             i32 dcDiff = 0;
                             if (dcCat > 0) {
-                                u32 mag = localBs.readBits(dcCat);
+                                u32 const mag = localBs.readBits(dcCat);
                                 dcDiff = extend_magnitude_to_signed(mag, dcCat);
                             }
                             dcPreds[ci] += dcDiff;
@@ -862,9 +863,9 @@ bool JpegDecoder::decodeScanDataParallel(Image* directOutput) {
 
                             i32 k = 1;
                             while (k < BLOCK_PIXELS) {
-                                i32 sym = acTable.decodeSymbol(localBs);
-                                i32 run = (sym >> 4) & 0x0F;
-                                i32 cat = sym & 0x0F;
+                                i32 const sym = acTable.decodeSymbol(localBs);
+                                i32 const run = (sym >> 4) & 0x0F;
+                                i32 const cat = sym & 0x0F;
                                 if (cat == 0) {
                                     if (run == 15) {
                                         k += 16;
@@ -875,8 +876,8 @@ bool JpegDecoder::decodeScanDataParallel(Image* directOutput) {
                                 k += run;
                                 if (k >= BLOCK_PIXELS)
                                     break;
-                                u32 mag = localBs.readBits(cat);
-                                i32 val = extend_magnitude_to_signed(mag, cat);
+                                u32 const mag = localBs.readBits(cat);
+                                i32 const val = extend_magnitude_to_signed(mag, cat);
                                 dequant[ZIGZAG_ORDER[k]] = val * qt[k];
                                 k++;
                             }
@@ -885,14 +886,14 @@ bool JpegDecoder::decodeScanDataParallel(Image* directOutput) {
                         }
 
                         // Interleave directly to output image.
-                        u32 px = mcuCol * BLOCK_SIZE;
-                        u32 py = mcuRow * BLOCK_SIZE;
-                        u32 rowEnd = std::min(py + static_cast<u32>(BLOCK_SIZE), imgH);
-                        u32 cols = std::min(px + static_cast<u32>(BLOCK_SIZE), imgW) - px;
+                        u32 const px = mcuCol * BLOCK_SIZE;
+                        u32 const py = mcuRow * BLOCK_SIZE;
+                        u32 const rowEnd = std::min(py + static_cast<u32>(BLOCK_SIZE), imgH);
+                        u32 const cols = std::min(px + static_cast<u32>(BLOCK_SIZE), imgW) - px;
 
                         for (u32 y = py; y < rowEnd; ++y) {
                             u8* dst = outputData + (static_cast<size_t>(y) * imgW + px) * compCnt;
-                            u32 bRow = y - py;
+                            u32 const bRow = y - py;
                             if (compCnt == 4) {
                                 const u8* s0 = blks[0].data() + bRow * BLOCK_SIZE;
                                 const u8* s1 = blks[1].data() + bRow * BLOCK_SIZE;
@@ -937,12 +938,12 @@ bool JpegDecoder::decodeScanDataParallel(Image* directOutput) {
                     localBs.init(bitstream.data, bitstream.size, (*intervalStarts)[interval]);
 
                     std::array<i32, MAX_COMPONENTS> dcPreds{};
-                    u32 mcuStart = interval * mcusPerInterval;
-                    u32 mcuEnd = std::min(mcuStart + mcusPerInterval, totalMCUs);
+                    u32 const mcuStart = interval * mcusPerInterval;
+                    u32 const mcuEnd = std::min(mcuStart + mcusPerInterval, totalMCUs);
 
                     for (u32 mcuIdx = mcuStart; mcuIdx < mcuEnd; ++mcuIdx) {
-                        u32 mcuRow = mcuIdx / mcuCols;
-                        u32 mcuCol = mcuIdx % mcuCols;
+                        u32 const mcuRow = mcuIdx / mcuCols;
+                        u32 const mcuCol = mcuIdx % mcuCols;
 
                         for (u32 ci = 0; ci < compCnt; ++ci) {
                             const auto& info = compInfo[ci];
@@ -954,10 +955,10 @@ bool JpegDecoder::decodeScanDataParallel(Image* directOutput) {
                                 for (u32 bc = 0; bc < info.hSampling; ++bc) {
                                     std::array<i32, BLOCK_PIXELS> dequant{};
 
-                                    i32 dcCat = dcTable.decodeSymbol(localBs);
+                                    i32 const dcCat = dcTable.decodeSymbol(localBs);
                                     i32 dcDiff = 0;
                                     if (dcCat > 0) {
-                                        u32 mag = localBs.readBits(dcCat);
+                                        u32 const mag = localBs.readBits(dcCat);
                                         dcDiff = extend_magnitude_to_signed(mag, dcCat);
                                     }
                                     dcPreds[ci] += dcDiff;
@@ -965,9 +966,9 @@ bool JpegDecoder::decodeScanDataParallel(Image* directOutput) {
 
                                     i32 k = 1;
                                     while (k < BLOCK_PIXELS) {
-                                        i32 sym = acTable.decodeSymbol(localBs);
-                                        i32 run = (sym >> 4) & 0x0F;
-                                        i32 cat = sym & 0x0F;
+                                        i32 const sym = acTable.decodeSymbol(localBs);
+                                        i32 const run = (sym >> 4) & 0x0F;
+                                        i32 const cat = sym & 0x0F;
                                         if (cat == 0) {
                                             if (run == 15) {
                                                 k += 16;
@@ -978,14 +979,14 @@ bool JpegDecoder::decodeScanDataParallel(Image* directOutput) {
                                         k += run;
                                         if (k >= BLOCK_PIXELS)
                                             break;
-                                        u32 mag = localBs.readBits(cat);
-                                        i32 val = extend_magnitude_to_signed(mag, cat);
+                                        u32 const mag = localBs.readBits(cat);
+                                        i32 const val = extend_magnitude_to_signed(mag, cat);
                                         dequant[ZIGZAG_ORDER[k]] = val * qt[k];
                                         k++;
                                     }
 
-                                    u32 px = (mcuCol * info.hSampling + bc) * BLOCK_SIZE;
-                                    u32 py = (mcuRow * info.vSampling + br) * BLOCK_SIZE;
+                                    u32 const px = (mcuCol * info.hSampling + bc) * BLOCK_SIZE;
+                                    u32 const py = (mcuRow * info.vSampling + br) * BLOCK_SIZE;
                                     inverse_dct_block(dequant,
                                                       components[ci].sampleBuffer.data() +
                                                           py * info.sampleStride + px,
@@ -1010,13 +1011,13 @@ bool JpegDecoder::decodeScanDataParallel(Image* directOutput) {
 bool JpegDecoder::decodeProgressiveDcFirst(u32 compIdx, std::array<i32, BLOCK_PIXELS>& coeffs,
                                            i32& dcPrediction) {
     const auto& dcTable = dcHuffmanTables[components[compIdx].dcHuffmanIndex];
-    i32 dcCategory = dcTable.decodeSymbol(bitstream);
+    i32 const dcCategory = dcTable.decodeSymbol(bitstream);
     if (dcCategory < 0) {
         return reportError("Progressive DC first: Huffman decode error");
     }
     i32 dcDifference = 0;
     if (dcCategory > 0) {
-        u32 magnitudeBits = bitstream.readBits(dcCategory);
+        u32 const magnitudeBits = bitstream.readBits(dcCategory);
         dcDifference = extend_magnitude_to_signed(magnitudeBits, dcCategory);
     }
     dcPrediction += dcDifference;
@@ -1027,7 +1028,7 @@ bool JpegDecoder::decodeProgressiveDcFirst(u32 compIdx, std::array<i32, BLOCK_PI
 /// Decode DC refinement for one block in a progressive scan.
 /// Ss=0, Se=0, Ah>0 — read one correction bit per block.
 bool JpegDecoder::decodeProgressiveDcRefine(std::array<i32, BLOCK_PIXELS>& coeffs) {
-    u32 bit = bitstream.readBits(1);
+    u32 const bit = bitstream.readBits(1);
     coeffs[0] |= static_cast<i32>(bit) << scanApproxLow;
     return true;
 }
@@ -1037,19 +1038,19 @@ bool JpegDecoder::decodeProgressiveDcRefine(std::array<i32, BLOCK_PIXELS>& coeff
 bool JpegDecoder::decodeProgressiveAcFirst(BitstreamReader& bs,
                                            std::array<i32, BLOCK_PIXELS>& coeffs,
                                            const HuffmanTable& acTable, u32& eobRunRef, u8 ss, u8 se,
-                                           u8 al) {
+                                           u8 al) const {
     if (eobRunRef > 0) {
         --eobRunRef;
         return true;
     }
 
     for (i32 k = ss; k <= se; ++k) {
-        i32 symbol = acTable.decodeSymbol(bs);
+        i32 const symbol = acTable.decodeSymbol(bs);
         if (symbol < 0) {
             return reportError("Progressive AC first: Huffman decode error");
         }
-        i32 runLength = (symbol >> 4) & 0x0F;
-        i32 category = symbol & 0x0F;
+        i32 const runLength = (symbol >> 4) & 0x0F;
+        i32 const category = symbol & 0x0F;
 
         if (category == 0) {
             if (runLength == 15) {
@@ -1069,8 +1070,8 @@ bool JpegDecoder::decodeProgressiveAcFirst(BitstreamReader& bs,
         if (k > se) {
             return reportError("Progressive AC first: coefficient index out of range");
         }
-        u32 magnitudeBits = bs.readBits(category);
-        i32 value = extend_magnitude_to_signed(magnitudeBits, category);
+        u32 const magnitudeBits = bs.readBits(category);
+        i32 const value = extend_magnitude_to_signed(magnitudeBits, category);
         coeffs[k] = value << al;
     }
     return true;
@@ -1096,9 +1097,9 @@ inline void applyRefinementBit(BitstreamReader& bs, i32& coeff, i32 correctionBi
 bool JpegDecoder::decodeProgressiveAcRefine(BitstreamReader& bs,
                                             std::array<i32, BLOCK_PIXELS>& coeffs,
                                             const HuffmanTable& acTable, u32& eobRunRef, u8 ss, u8 se,
-                                            u8 al) {
+                                            u8 al) const {
     i32 k = ss;
-    i32 correctionBit = 1 << al;
+    i32 const correctionBit = 1 << al;
 
     if (eobRunRef > 0) {
         // In an EOB run: just refine existing nonzero coefficients.
@@ -1112,12 +1113,12 @@ bool JpegDecoder::decodeProgressiveAcRefine(BitstreamReader& bs,
     }
 
     for (; k <= se; ++k) {
-        i32 symbol = acTable.decodeSymbol(bs);
+        i32 const symbol = acTable.decodeSymbol(bs);
         if (symbol < 0) {
             return reportError("Progressive AC refine: Huffman decode error");
         }
-        i32 runLength = (symbol >> 4) & 0x0F;
-        i32 category = symbol & 0x0F;
+        i32 const runLength = (symbol >> 4) & 0x0F;
+        i32 const category = symbol & 0x0F;
 
         i32 newValue = 0; // Will be set if a new nonzero coefficient is created.
         if (category == 0) {
@@ -1172,11 +1173,11 @@ bool JpegDecoder::decodeProgressiveAcRefine(BitstreamReader& bs,
 /// Decode one progressive scan (all MCUs). Dispatches to the appropriate
 /// progressive decode function based on Ss, Se, Ah, Al values.
 bool JpegDecoder::decodeProgressiveScan() {
-    bool isDcScan = (scanSpectralStart == 0);
-    bool isFirstPass = (scanApproxHigh == 0);
+    bool const isDcScan = (scanSpectralStart == 0);
+    bool const isFirstPass = (scanApproxHigh == 0);
 
     // Validate Huffman and quant tables for scan components.
-    for (u32 ci : scanComponentIndices) {
+    for (u32 const ci : scanComponentIndices) {
         if (isDcScan) {
             if (!dcHuffmanTables[components[ci].dcHuffmanIndex].isBuilt) {
                 return reportError("Missing DC Huffman table for progressive scan");
@@ -1198,19 +1199,19 @@ bool JpegDecoder::decodeProgressiveScan() {
             for (u32 mcuColumn = 0; mcuColumn < mcuColumnsCount; ++mcuColumn) {
                 if (restartInterval > 0 && mcuSequenceIndex > 0 &&
                     (mcuSequenceIndex % restartInterval) == 0) {
-                    for (u32 ci : scanComponentIndices) {
+                    for (u32 const ci : scanComponentIndices) {
                         components[ci].dcPrediction = 0;
                     }
                     bitstream.handleRestartMarker();
                     eobRun = 0;
                 }
 
-                for (u32 ci : scanComponentIndices) {
+                for (u32 const ci : scanComponentIndices) {
                     auto& comp = components[ci];
                     for (u32 blockRow = 0; blockRow < comp.verticalSampling; ++blockRow) {
                         for (u32 blockCol = 0; blockCol < comp.horizontalSampling; ++blockCol) {
-                            u32 bx = mcuColumn * comp.horizontalSampling + blockCol;
-                            u32 by = mcuRow * comp.verticalSampling + blockRow;
+                            u32 const bx = mcuColumn * comp.horizontalSampling + blockCol;
+                            u32 const by = mcuRow * comp.verticalSampling + blockRow;
                             auto& coeffs = comp.coefficientBlocks[by * comp.blocksPerRow + bx];
 
                             if (isFirstPass) {
@@ -1228,13 +1229,13 @@ bool JpegDecoder::decodeProgressiveScan() {
         }
     } else {
         // AC scan — always single component.
-        u32 ci = scanComponentIndices[0];
+        u32 const ci = scanComponentIndices[0];
         auto& comp = components[ci];
         const auto& acTable = acHuffmanTables[comp.acHuffmanIndex];
 
         // For non-interleaved scans the MCU is a single block.
-        u32 totalBlocksX = comp.blocksPerRow;
-        u32 totalBlocksY = comp.blocksPerCol;
+        u32 const totalBlocksX = comp.blocksPerRow;
+        u32 const totalBlocksY = comp.blocksPerCol;
         u32 mcuSequenceIndex = 0;
 
         for (u32 by = 0; by < totalBlocksY; ++by) {
@@ -1323,9 +1324,9 @@ bool JpegDecoder::finalizeProgressiveImage() {
                 while (ci + 1 < compCnt && flat >= info[ci + 1].blockOffset) {
                     ++ci;
                 }
-                u32 localIdx = flat - info[ci].blockOffset;
-                u32 bx = localIdx % info[ci].blocksPerRow;
-                u32 by = localIdx / info[ci].blocksPerRow;
+                u32 const localIdx = flat - info[ci].blockOffset;
+                u32 const bx = localIdx % info[ci].blocksPerRow;
+                u32 const by = localIdx / info[ci].blocksPerRow;
 
                 auto& comp = components[ci];
                 auto& coeffs = comp.coefficientBlocks[by * info[ci].blocksPerRow + bx];
@@ -1339,8 +1340,8 @@ bool JpegDecoder::finalizeProgressiveImage() {
                     dequantised[n] = coeffs[naturalToZigzag[n]] * nqt[n];
                 }
 
-                u32 pixelX = bx * BLOCK_SIZE;
-                u32 pixelY = by * BLOCK_SIZE;
+                u32 const pixelX = bx * BLOCK_SIZE;
+                u32 const pixelY = by * BLOCK_SIZE;
                 inverse_dct_block(dequantised,
                                   comp.sampleBuffer.data() + pixelY * comp.sampleBufferStride +
                                       pixelX,
@@ -1561,13 +1562,13 @@ bool JpegDecoder::assembleInterleavedImage(Image& outputImage) {
                     u8* dest = pixelBase + static_cast<size_t>(pixelY) * imgW * compCnt;
                     std::array<const u8*, MAX_COMPONENTS> srcRow{};
                     for (u32 ci = 0; ci < compCnt; ++ci) {
-                        u32 sampleY = pixelY * layouts[ci].verticalSampling / maxVS;
+                        u32 const sampleY = pixelY * layouts[ci].verticalSampling / maxVS;
                         srcRow[ci] =
                             layouts[ci].sampleData + sampleY * layouts[ci].sampleBufferStride;
                     }
                     for (u32 pixelX = 0; pixelX < imgW; ++pixelX) {
                         for (u32 ci = 0; ci < compCnt; ++ci) {
-                            u32 sampleX = pixelX * layouts[ci].horizontalSampling / maxHS;
+                            u32 const sampleX = pixelX * layouts[ci].horizontalSampling / maxHS;
                             dest[pixelX * compCnt + ci] = srcRow[ci][sampleX];
                         }
                     }
@@ -1599,7 +1600,7 @@ bool JpegDecoder::decode(const u8* data, size_t size, Image& outputImage) {
     auto skipEntropyData = [&]() {
         while (parsePosition + 1 < size) {
             if (data[parsePosition] == 0xFF) {
-                u8 next = data[parsePosition + 1];
+                u8 const next = data[parsePosition + 1];
                 if (next == 0x00) {
                     parsePosition += 2; // Byte-stuffed 0xFF value.
                     continue;
@@ -1648,7 +1649,7 @@ bool JpegDecoder::decode(const u8* data, size_t size, Image& outputImage) {
         if (parsePosition + 1 >= size) {
             break;
         }
-        u8 markerCode = data[parsePosition + 1];
+        u8 const markerCode = data[parsePosition + 1];
         parsePosition += 2;
 
         // Markers with no payload: stuffed byte, TEM, RST0-RST7.
@@ -1664,12 +1665,12 @@ bool JpegDecoder::decode(const u8* data, size_t size, Image& outputImage) {
         if (parsePosition + 2 > size) {
             return reportError("Truncated marker segment");
         }
-        u16 segmentLength = readBigEndianU16(parsePosition);
+        u16 const segmentLength = readBigEndianU16(parsePosition);
         if (segmentLength < 2 || parsePosition + segmentLength > size) {
             return reportError("Invalid marker segment length");
         }
-        size_t segmentDataOffset = parsePosition + 2;
-        size_t segmentDataLength = segmentLength - 2;
+        size_t const segmentDataOffset = parsePosition + 2;
+        size_t const segmentDataLength = segmentLength - 2;
 
         switch (markerCode) {
         case MARKER_DQT:
@@ -1700,7 +1701,7 @@ bool JpegDecoder::decode(const u8* data, size_t size, Image& outputImage) {
                     scanSpectralEnd = scan.se;
                     scanApproxHigh = scan.ah;
                     scanApproxLow = scan.al;
-                    for (u32 ci : scanComponentIndices) {
+                    for (u32 const ci : scanComponentIndices) {
                         components[ci].acHuffmanIndex = scan.acHuffIdx[ci];
                     }
                     bitstream.init(data, size, scan.entropyStart);
@@ -1740,12 +1741,12 @@ bool JpegDecoder::decode(const u8* data, size_t size, Image& outputImage) {
             }
 
             if (isProgressive) {
-                bool isDcScan = (scanSpectralStart == 0);
+                bool const isDcScan = (scanSpectralStart == 0);
 
                 if (isDcScan) {
                     // DC scans: always serial (inter-block prediction dependency).
                     bitstream.init(data, size, scanDataPosition);
-                    for (u32 ci : scanComponentIndices) {
+                    for (u32 const ci : scanComponentIndices) {
                         components[ci].dcPrediction = 0;
                     }
                     if (!decodeProgressiveScan()) {
@@ -1760,7 +1761,7 @@ bool JpegDecoder::decode(const u8* data, size_t size, Image& outputImage) {
                     info.ah = scanApproxHigh;
                     info.al = scanApproxLow;
                     info.entropyStart = scanDataPosition;
-                    for (u32 ci : scanComponentIndices) {
+                    for (u32 const ci : scanComponentIndices) {
                         info.acHuffIdx[ci] = components[ci].acHuffmanIndex;
                     }
                     collectedScans.push_back(std::move(info));
@@ -1774,7 +1775,7 @@ bool JpegDecoder::decode(const u8* data, size_t size, Image& outputImage) {
                 }
             } else {
                 // Baseline: choose parallel or serial path.
-                bool canParallelDecode =
+                bool const canParallelDecode =
                     ctx && ctx->pool && ctx->pool->threadCount() > 1 && restartInterval > 0;
                 if (canParallelDecode) {
                     bitstream.init(data, size, scanDataPosition);
@@ -1793,7 +1794,7 @@ bool JpegDecoder::decode(const u8* data, size_t size, Image& outputImage) {
                     parallelBaselineDone = true;
                 } else {
                     bitstream.init(data, size, scanDataPosition);
-                    bool useParallelIdct = ctx && ctx->pool && ctx->pool->threadCount() > 1;
+                    bool const useParallelIdct = ctx && ctx->pool && ctx->pool->threadCount() > 1;
                     if (useParallelIdct) {
                         if (!decodeScanDataToCoefficients()) {
                             return false;
@@ -1874,7 +1875,7 @@ bool JpegDecoder::decode(const u8* data, size_t size, Image& outputImage) {
 
         for (size_t i = 0; i < collectedScans.size(); ++i) {
             auto& scan = collectedScans[i];
-            u32 ci = scan.componentIndices[0]; // AC scans are single-component.
+            u32 const ci = scan.componentIndices[0]; // AC scans are single-component.
             if (hasConflict(ci, scan.ss, scan.se)) {
                 waves.push_back(std::move(currentWave));
                 currentWave.clear();
@@ -1890,14 +1891,14 @@ bool JpegDecoder::decode(const u8* data, size_t size, Image& outputImage) {
         // Process each wave — parallel when multiple scans, serial otherwise.
         for (auto& wave : waves) {
             if (wave.size() == 1 || !ctx || !ctx->pool) {
-                for (size_t idx : wave) {
+                for (size_t const idx : wave) {
                     auto& scan = collectedScans[idx];
                     scanComponentIndices = scan.componentIndices;
                     scanSpectralStart = scan.ss;
                     scanSpectralEnd = scan.se;
                     scanApproxHigh = scan.ah;
                     scanApproxLow = scan.al;
-                    for (u32 ci : scanComponentIndices) {
+                    for (u32 const ci : scanComponentIndices) {
                         components[ci].acHuffmanIndex = scan.acHuffIdx[ci];
                     }
                     bitstream.init(data, size, scan.entropyStart);
@@ -1917,7 +1918,7 @@ bool JpegDecoder::decode(const u8* data, size_t size, Image& outputImage) {
 
                 parallel_for_tasks(static_cast<u32>(wave.size()), &blockingCtx, [&](u32 taskIdx) {
                     auto& scan = collectedScans[wave[taskIdx]];
-                    u32 ci = scan.componentIndices[0];
+                    u32 const ci = scan.componentIndices[0];
                     auto& comp = components[ci];
                     const auto& acTable = acHuffmanTables[scan.acHuffIdx[ci]];
 
@@ -1925,8 +1926,8 @@ bool JpegDecoder::decode(const u8* data, size_t size, Image& outputImage) {
                     localBs.init(data, size, scan.entropyStart);
                     u32 localEobRun = 0;
 
-                    u32 totalBlocksX = comp.blocksPerRow;
-                    u32 totalBlocksY = comp.blocksPerCol;
+                    u32 const totalBlocksX = comp.blocksPerRow;
+                    u32 const totalBlocksY = comp.blocksPerCol;
                     u32 mcuSeqIdx = 0;
 
                     for (u32 by = 0; by < totalBlocksY; ++by) {

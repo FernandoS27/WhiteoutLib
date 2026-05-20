@@ -209,7 +209,7 @@ std::optional<Texture> parseD4Impl(std::span<const u8> texData, std::span<const 
                                    IssueSink& sink) {
     const bool has_lowres = !lowResPayloadData.empty();
     // ---- Parse SNO metadata ------------------------------------------------
-    sno::SnoReader reader;
+    sno::SnoReader const reader;
     auto snoFile = reader.parse(texData, sno::SnoGroup::Texture);
     if (!snoFile) {
         sink.fail("Failed to parse D4 TEX SNO structure");

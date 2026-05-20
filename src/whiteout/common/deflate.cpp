@@ -96,7 +96,7 @@ struct Inflater {
     size_t outPos = 0; ///< Current write position within output.
     std::string* errorOut;
 
-    bool error(const char* msg) {
+    bool error(const char* msg) const {
         if (errorOut)
             *errorOut = msg;
         return false;
@@ -104,7 +104,7 @@ struct Inflater {
 
     /// Ensure at least @p n bytes are available at outPos.
     void ensureSpace(size_t n) {
-        size_t needed = outPos + n;
+        size_t const needed = outPos + n;
         if (needed > output.size()) {
             // Grow by at least 2x to amortize reallocations.
             size_t newCap = output.size() * 2;
@@ -121,8 +121,8 @@ struct Inflater {
         // buffer, but bytePos has already been advanced past those bytes.
         // We read LEN/NLEN through the bit reader, then rewind bytePos to
         // account for any remaining buffered bytes before the bulk memcpy.
-        u32 len = br.readBits(16);
-        u32 nlen = br.readBits(16);
+        u32 const len = br.readBits(16);
+        u32 const nlen = br.readBits(16);
         if ((len ^ nlen) != 0xFFFF)
             return error("Stored block LEN/NLEN mismatch");
         // Rewind bytePos to the logical stream position (after LEN/NLEN).
@@ -150,7 +150,7 @@ struct Inflater {
         i32 bitsLeft = br.bitsAvail;
         const u8* brData = br.data;
         size_t brPos = br.bytePos;
-        size_t brSize = br.size;
+        size_t const brSize = br.size;
 
         // Raw table pointers for fast Huffman lookup (avoids std::array bounds).
         constexpr u32 FAST_MASK = HuffTable::FAST_SIZE - 1;
@@ -169,7 +169,7 @@ struct Inflater {
                     u64 next = 0;
                     std::memcpy(&next, brData + brPos, 8);
                     bits |= next << bitsLeft;
-                    i32 consume = (64 - bitsLeft) >> 3;
+                    i32 const consume = (64 - bitsLeft) >> 3;
                     brPos += consume;
                     bitsLeft += consume * 8;
                 } else {
@@ -183,8 +183,8 @@ struct Inflater {
             // ---- Decode literal/length symbol (inlined fast path) ----
             i32 sym;
             {
-                u32 peek = static_cast<u32>(bits) & FAST_MASK;
-                u8 codeLen = llLen[peek];
+                u32 const peek = static_cast<u32>(bits) & FAST_MASK;
+                u8 const codeLen = llLen[peek];
                 if (codeLen) {
                     sym = llSym[peek];
                     bits >>= codeLen;
@@ -226,11 +226,11 @@ struct Inflater {
 
             // ---- Length/Distance back-reference ----
             {
-                i32 lenIdx = sym - 257;
+                i32 const lenIdx = sym - 257;
                 if (lenIdx < 0 || lenIdx >= 29)
                     return error("Invalid length code");
                 u32 length = LENGTH_TABLE[lenIdx].base;
-                u32 lenExtra = LENGTH_TABLE[lenIdx].extraBits;
+                u32 const lenExtra = LENGTH_TABLE[lenIdx].extraBits;
                 if (lenExtra) {
                     length += static_cast<u32>(bits) & ((1u << lenExtra) - 1);
                     bits >>= lenExtra;
@@ -242,8 +242,8 @@ struct Inflater {
                 // distance code (max 15) + extra (max 13) = 28 bits).
                 i32 distSym;
                 {
-                    u32 dPeek = static_cast<u32>(bits) & FAST_MASK;
-                    u8 dCodeLen = dLen[dPeek];
+                    u32 const dPeek = static_cast<u32>(bits) & FAST_MASK;
+                    u8 const dCodeLen = dLen[dPeek];
                     if (dCodeLen) {
                         distSym = dSym[dPeek];
                         bits >>= dCodeLen;
@@ -262,7 +262,7 @@ struct Inflater {
                     return error("Invalid distance code");
 
                 u32 distance = DISTANCE_TABLE[distSym].base;
-                u32 distExtra = DISTANCE_TABLE[distSym].extraBits;
+                u32 const distExtra = DISTANCE_TABLE[distSym].extraBits;
                 if (distExtra) {
                     distance += static_cast<u32>(bits) & ((1u << distExtra) - 1);
                     bits >>= distExtra;
@@ -298,9 +298,9 @@ struct Inflater {
     }
 
     bool inflateDynamic() {
-        u32 hlit = br.readBits(5) + 257;
-        u32 hdist = br.readBits(5) + 1;
-        u32 hclen = br.readBits(4) + 4;
+        u32 const hlit = br.readBits(5) + 257;
+        u32 const hdist = br.readBits(5) + 1;
+        u32 const hclen = br.readBits(4) + 4;
 
         if (hlit > 286 || hdist > 30)
             return error("Invalid dynamic Huffman header");
@@ -316,11 +316,11 @@ struct Inflater {
             return error("Failed to build code length Huffman table");
 
         // Decode literal/length + distance code lengths.
-        u32 totalCodes = hlit + hdist;
+        u32 const totalCodes = hlit + hdist;
         std::vector<u8> codeLengths(totalCodes, 0);
         u32 idx = 0;
         while (idx < totalCodes) {
-            i32 sym = clTable.decode(br);
+            i32 const sym = clTable.decode(br);
             if (sym < 0)
                 return error("Invalid code length symbol");
 
@@ -329,16 +329,16 @@ struct Inflater {
             } else if (sym == 16) {
                 if (idx == 0)
                     return error("Repeat code with no previous length");
-                u32 rep = br.readBits(2) + 3;
-                u8 prev = codeLengths[idx - 1];
+                u32 const rep = br.readBits(2) + 3;
+                u8 const prev = codeLengths[idx - 1];
                 for (u32 r = 0; r < rep && idx < totalCodes; ++r)
                     codeLengths[idx++] = prev;
             } else if (sym == 17) {
-                u32 rep = br.readBits(3) + 3;
+                u32 const rep = br.readBits(3) + 3;
                 for (u32 r = 0; r < rep && idx < totalCodes; ++r)
                     codeLengths[idx++] = 0;
             } else if (sym == 18) {
-                u32 rep = br.readBits(7) + 11;
+                u32 const rep = br.readBits(7) + 11;
                 for (u32 r = 0; r < rep && idx < totalCodes; ++r)
                     codeLengths[idx++] = 0;
             } else {
@@ -362,7 +362,7 @@ struct Inflater {
         bool isFinal = false;
         while (!isFinal) {
             isFinal = br.readBits(1) != 0;
-            u32 btype = br.readBits(2);
+            u32 const btype = br.readBits(2);
 
             if (btype == 0) {
                 if (!inflateStored())
@@ -480,16 +480,16 @@ struct Deflater {
             u32 bestDist = 0;
 
             if (pos + MIN_MATCH <= srcLen) {
-                u32 h = hashFunc(pos);
+                u32 const h = hashFunc(pos);
                 i32 chainPos = head[h];
                 u32 chainCount = 0;
 
                 while (chainPos >= 0 && chainCount < MAX_CHAIN) {
-                    u32 dist = static_cast<u32>(pos - static_cast<size_t>(chainPos));
+                    u32 const dist = static_cast<u32>(pos - static_cast<size_t>(chainPos));
                     if (dist > WINDOW_SIZE)
                         break;
 
-                    u32 maxLen =
+                    u32 const maxLen =
                         static_cast<u32>(std::min(static_cast<size_t>(MAX_MATCH), srcLen - pos));
                     // Fast prefix check: skip chain entries that don't match first 4 bytes.
                     if (maxLen >= 4 && std::memcmp(src + pos, src + chainPos, 4) != 0) {
@@ -527,14 +527,14 @@ struct Deflater {
             }
 
             if (bestLen >= MIN_MATCH) {
-                i32 lenCode = lengthToCode(bestLen);
+                i32 const lenCode = lengthToCode(bestLen);
                 writeFixedLitLen(bw, 257 + lenCode);
                 if (LENGTH_TABLE[lenCode].extraBits > 0) {
                     bw.writeBits(bestLen - LENGTH_TABLE[lenCode].base,
                                  LENGTH_TABLE[lenCode].extraBits);
                 }
 
-                i32 distCode = distanceToCode(bestDist);
+                i32 const distCode = distanceToCode(bestDist);
                 writeFixedDist(bw, distCode);
                 if (DISTANCE_TABLE[distCode].extraBits > 0) {
                     bw.writeBits(bestDist - DISTANCE_TABLE[distCode].base,
@@ -542,9 +542,9 @@ struct Deflater {
                 }
 
                 for (u32 i = 1; i < bestLen; ++i) {
-                    size_t p = pos + i;
+                    size_t const p = pos + i;
                     if (p + MIN_MATCH <= srcLen) {
-                        u32 h = hashFunc(p);
+                        u32 const h = hashFunc(p);
                         prev[p & (WINDOW_SIZE - 1)] = head[h];
                         head[h] = static_cast<i32>(p);
                     }
@@ -576,20 +576,20 @@ std::vector<u8> zlib_decompress(std::span<const u8> data, std::string* out_error
     }
 
     // Parse zlib header (RFC 1950).
-    u8 cmf = data[0];
-    u8 flg = data[1];
+    u8 const cmf = data[0];
+    u8 const flg = data[1];
     if (((static_cast<u16>(cmf) << 8) | flg) % 31 != 0) {
         if (out_error)
             *out_error = "Invalid zlib header checksum";
         return {};
     }
-    u8 cm = cmf & 0x0F;
+    u8 const cm = cmf & 0x0F;
     if (cm != 8) {
         if (out_error)
             *out_error = "Unsupported zlib compression method";
         return {};
     }
-    bool hasDict = (flg & 0x20) != 0;
+    bool const hasDict = (flg & 0x20) != 0;
     if (hasDict) {
         if (out_error)
             *out_error = "Preset dictionaries not supported";
@@ -597,8 +597,8 @@ std::vector<u8> zlib_decompress(std::span<const u8> data, std::string* out_error
     }
 
     // DEFLATE data starts at byte 2.
-    size_t deflateStart = 2;
-    size_t deflateEnd = data.size() - 4; // Last 4 bytes are Adler-32.
+    size_t const deflateStart = 2;
+    size_t const deflateEnd = data.size() - 4; // Last 4 bytes are Adler-32.
 
     Inflater inflater;
     inflater.errorOut = out_error;
@@ -615,11 +615,11 @@ std::vector<u8> zlib_decompress(std::span<const u8> data, std::string* out_error
     inflater.output.resize(inflater.outPos);
 
     // Verify Adler-32.
-    u32 stored = (static_cast<u32>(data[data.size() - 4]) << 24) |
-                 (static_cast<u32>(data[data.size() - 3]) << 16) |
-                 (static_cast<u32>(data[data.size() - 2]) << 8) |
-                 static_cast<u32>(data[data.size() - 1]);
-    u32 computed = adler32(inflater.output);
+    u32 const stored = (static_cast<u32>(data[data.size() - 4]) << 24) |
+                       (static_cast<u32>(data[data.size() - 3]) << 16) |
+                       (static_cast<u32>(data[data.size() - 2]) << 8) |
+                       static_cast<u32>(data[data.size() - 1]);
+    u32 const computed = adler32(inflater.output);
     if (stored != computed) {
         if (out_error)
             *out_error = "Adler-32 checksum mismatch";
@@ -646,7 +646,7 @@ std::vector<u8> zlib_compress(std::span<const u8> data, std::string* /*out_error
     result.insert(result.end(), deflater.output.begin(), deflater.output.end());
 
     // Adler-32 checksum (big-endian).
-    u32 check = adler32(data);
+    u32 const check = adler32(data);
     result.push_back(static_cast<u8>((check >> 24) & 0xFF));
     result.push_back(static_cast<u8>((check >> 16) & 0xFF));
     result.push_back(static_cast<u8>((check >> 8) & 0xFF));

@@ -59,8 +59,8 @@ static u8 hexNibble(char c) {
 static bool parseHexKey(std::string_view hex, std::array<u8, 16>& out) {
     if (hex.size() != 32) return false;
     for (int i = 0; i < 16; ++i) {
-        u8 hi = hexNibble(hex[size_t(i * 2)]);
-        u8 lo = hexNibble(hex[size_t(i * 2 + 1)]);
+        u8 const hi = hexNibble(hex[size_t(i * 2)]);
+        u8 const lo = hexNibble(hex[size_t(i * 2 + 1)]);
         if (hi == 0xFF || lo == 0xFF) return false;
         out[size_t(i)] = u8((hi << 4) | lo);
     }
@@ -96,7 +96,7 @@ static std::vector<std::string_view> splitView(std::string_view sv, char delim) 
 /// Parse the Overwatch text root file into manifest entries.
 static bool parseTextRoot(std::span<const u8> data,
                           std::vector<OwRootFileEntry>& outEntries) {
-    std::string_view text(reinterpret_cast<const char*>(data.data()), data.size());
+    std::string_view const text(reinterpret_cast<const char*>(data.data()), data.size());
 
     // Split into lines.
     auto lines = splitView(text, '\n');
@@ -251,15 +251,15 @@ static bool parseCmfBody(std::span<const u8> body, const CmfHeader& header,
                          std::vector<RootEntry>& outEntries,
                          const std::string& cmfName) {
     // Skip CMF entries (we don't need them for root lookup, but must account for their size).
-    size_t entryBlockSize = size_t(header.entryCount) * kCmfEntrySize;
+    size_t const entryBlockSize = size_t(header.entryCount) * kCmfEntrySize;
     if (entryBlockSize > body.size()) return false;
 
     auto hashBody = body.subspan(entryBlockSize);
 
     // Determine hash data record size based on version.
-    bool useV25 = (header.version >= 25);
-    size_t recordSize = useV25 ? kHashData25Size : kHashData24Size;
-    size_t totalHashSize = size_t(header.dataCount) * recordSize;
+    bool const useV25 = (header.version >= 25);
+    size_t const recordSize = useV25 ? kHashData25Size : kHashData24Size;
+    size_t const totalHashSize = size_t(header.dataCount) * recordSize;
     if (totalHashSize > hashBody.size()) return false;
 
     // Parse hash data entries.
@@ -298,7 +298,7 @@ static bool parseCmf(std::span<const u8> data, const std::string& cmfName,
     if (header.encrypted) return false;
 
     // Determine header size.
-    size_t headerSize = (header.version >= 26) ? kCmfHeader26Size : kCmfHeader25Size;
+    size_t const headerSize = (header.version >= 26) ? kCmfHeader26Size : kCmfHeader25Size;
     if (headerSize > data.size()) return false;
 
     auto body = data.subspan(headerSize);

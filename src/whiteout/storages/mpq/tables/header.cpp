@@ -72,7 +72,7 @@ std::optional<MpqHeader> parseHeaderFields(BinaryReader& reader, size_t availabl
     h.hashTableEntries = reader.read<u32>();
     h.blockTableEntries = reader.read<u32>();
 
-    u32 minimumHeaderSize = minimumHeaderSizeForVersion(h.formatVersion);
+    u32 const minimumHeaderSize = minimumHeaderSizeForVersion(h.formatVersion);
     if (minimumHeaderSize == 0 || h.headerSize < minimumHeaderSize ||
         h.headerSize > availableBytes) {
         return std::nullopt;
@@ -140,18 +140,18 @@ std::optional<HeaderParseResult> findAndParseHeader(std::span<const u8> fileData
             std::istream udStream(&udBuf);
             BinaryReader udReader(udStream);
 
-            u32 udMagic = udReader.read<u32>();
+            u32 const udMagic = udReader.read<u32>();
             (void)udMagic;
-            u32 userDataSize = udReader.read<u32>();
-            u32 headerOff = udReader.read<u32>();
-            u32 userDataHeaderSize = udReader.read<u32>();
+            u32 const userDataSize = udReader.read<u32>();
+            u32 const headerOff = udReader.read<u32>();
+            u32 const userDataHeaderSize = udReader.read<u32>();
 
-            size_t realHeaderOffset = offset + headerOff;
+            size_t const realHeaderOffset = offset + headerOff;
             if (realHeaderOffset + 32 > fileData.size())
                 continue;
 
-            size_t avail = fileData.size() - realHeaderOffset;
-            size_t readSize = std::min<size_t>(avail, 512);
+            size_t const avail = fileData.size() - realHeaderOffset;
+            size_t const readSize = std::min<size_t>(avail, 512);
             span_streambuf hdrBufSmall(fileData.subspan(realHeaderOffset, readSize));
             std::istream hdrStreamSmall(&hdrBufSmall);
             BinaryReader hdrReaderSmall(hdrStreamSmall);
@@ -170,8 +170,8 @@ std::optional<HeaderParseResult> findAndParseHeader(std::span<const u8> fileData
             ud.headerOffset = headerOff;
             ud.userDataHeaderSize = userDataHeaderSize;
 
-            size_t udDataStart = offset + 16; // After the 16-byte user data header.
-            size_t udDataLen = std::min<size_t>(userDataSize, fileData.size() - udDataStart);
+            size_t const udDataStart = offset + 16; // After the 16-byte user data header.
+            size_t const udDataLen = std::min<size_t>(userDataSize, fileData.size() - udDataStart);
             ud.data.assign(fileData.data() + udDataStart,
                            fileData.data() + udDataStart + udDataLen);
 
@@ -180,12 +180,12 @@ std::optional<HeaderParseResult> findAndParseHeader(std::span<const u8> fileData
         }
 
         if (magic == kMpqMagic) {
-            size_t avail = fileData.size() - offset;
+            size_t const avail = fileData.size() - offset;
             // Clamp the span passed to BinaryReader to cover only the header.
             // V4 is the largest header at 208 bytes; 512 gives comfortable headroom.
             // Passing the full (potentially multi-GB) span causes BinaryReader's
             // seekg-to-end to leave the istream in a bad state on some implementations.
-            size_t readSize = std::min<size_t>(avail, 512);
+            size_t const readSize = std::min<size_t>(avail, 512);
             span_streambuf sbuf(fileData.subspan(offset, readSize));
             std::istream stream(&sbuf);
             BinaryReader reader(stream);
@@ -214,7 +214,7 @@ MpqHeader buildHeader(u16 formatVersion, u32 hashTableSize, u16 sectorSizeShift)
     h.formatVersion = formatVersion;
     h.sectorSizeShift = sectorSizeShift;
 
-    u32 htSize = nextPowerOf2(hashTableSize);
+    u32 const htSize = nextPowerOf2(hashTableSize);
     h.hashTableEntries = htSize;
     h.blockTableEntries = 0; // No files yet.
 

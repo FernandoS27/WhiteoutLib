@@ -104,17 +104,17 @@ std::unique_ptr<WowTvfsRoot> WowTvfsRoot::create(std::unique_ptr<TvfsRoot> tvfs,
 
     // Parallel entry processing.
     if (pool && entryCount > 1000) {
-        size_t numThreads = std::max<size_t>(pool->threadCount(), 1);
+        size_t const numThreads = std::max<size_t>(pool->threadCount(), 1);
         size_t chunkSize = (entryCount + numThreads - 1) / numThreads;
-        size_t chunks = (entryCount + chunkSize - 1) / chunkSize;
+        size_t const chunks = (entryCount + chunkSize - 1) / chunkSize;
 
         utils::JobGroup jobGroup;
         jobGroup.add(chunks);
         for (size_t c = 0; c < chunks; ++c) {
             interfaces::WorkerTask task;
             task.fn = [&, c]() {
-                size_t begin = c * chunkSize;
-                size_t end = std::min(begin + chunkSize, entryCount);
+                size_t const begin = c * chunkSize;
+                size_t const end = std::min(begin + chunkSize, entryCount);
                 for (size_t i = begin; i < end; ++i)
                     enrichEntry(i);
                 jobGroup.done();

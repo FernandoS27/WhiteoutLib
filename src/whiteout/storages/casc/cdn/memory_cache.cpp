@@ -10,7 +10,7 @@ namespace whiteout::storages::casc {
 MemoryCache::MemoryCache(size_t maxBytes) : m_maxBytes(maxBytes) {}
 
 std::optional<std::vector<u8>> MemoryCache::get(const std::array<u8, 16>& eKey) const {
-    std::lock_guard<std::mutex> lk(m_mutex);
+    std::lock_guard<std::mutex> const lk(m_mutex);
     auto it = m_map.find(eKey);
     if (it == m_map.end()) return std::nullopt;
 
@@ -34,7 +34,7 @@ std::optional<MemoryCache::CacheView> MemoryCache::view(const std::array<u8, 16>
 }
 
 void MemoryCache::put(const std::array<u8, 16>& eKey, const std::vector<u8>& data) {
-    std::lock_guard<std::mutex> lk(m_mutex);
+    std::lock_guard<std::mutex> const lk(m_mutex);
 
     // If already cached, update and promote.
     auto it = m_map.find(eKey);
@@ -59,7 +59,7 @@ void MemoryCache::put(const std::array<u8, 16>& eKey, const std::vector<u8>& dat
 }
 
 void MemoryCache::clear() {
-    std::lock_guard<std::mutex> lk(m_mutex);
+    std::lock_guard<std::mutex> const lk(m_mutex);
     m_lru.clear();
     m_map.clear();
     m_currentBytes = 0;

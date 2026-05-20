@@ -157,14 +157,14 @@ struct SharedPayloads {
             return v;
         };
         // i32 unk1 = read32(data.data());
-        i32 count = read32(data.data() + 4);
+        i32 const count = read32(data.data() + 4);
         if (count < 0 || static_cast<size_t>(count) * 8 + 8 > data.size()) return false;
 
         mapping.reserve(static_cast<size_t>(count));
         const u8* ptr = data.data() + 8;
         for (i32 i = 0; i < count; ++i) {
-            i32 snoId = read32(ptr);
-            i32 sharedSnoId = read32(ptr + 4);
+            i32 const snoId = read32(ptr);
+            i32 const sharedSnoId = read32(ptr + 4);
             mapping.emplace(snoId, sharedSnoId);
             ptr += 8;
         }
@@ -187,14 +187,14 @@ struct EncryptedSNOs {
             i32 v; std::memcpy(&v, p, 4); return v;
         };
         // i32 unkHash = read32(data.data());
-        i32 count = read32(data.data() + 4);
+        i32 const count = read32(data.data() + 4);
         if (count < 0 || static_cast<size_t>(count) * 16 + 8 > data.size()) return false;
 
         entries.reserve(static_cast<size_t>(count));
         const u8* ptr = data.data() + 8;
         for (i32 i = 0; i < count; ++i) {
-            i32 snoGroup = read32(ptr);
-            i32 snoId = read32(ptr + 4);
+            i32 const snoGroup = read32(ptr);
+            i32 const snoId = read32(ptr + 4);
             u64 keyId;
             std::memcpy(&keyId, ptr + 8, 8);
             entries.emplace(snoId, EncryptedSnoEntry{snoGroup, keyId});
@@ -226,14 +226,14 @@ std::vector<CombinedMetaEntry> parseCombinedMetaIndex(
     u32 fileCount = 0;
     std::memcpy(&fileCount, data.data() + 4, 4);
 
-    size_t indexEnd = 8 + static_cast<size_t>(fileCount) * 8;
+    size_t const indexEnd = 8 + static_cast<size_t>(fileCount) * 8;
     if (indexEnd > data.size()) return {};
 
     std::vector<CombinedMetaEntry> entries(fileCount);
 
     // First pass: read index pairs.
     for (u32 i = 0; i < fileCount; ++i) {
-        size_t off = 8 + static_cast<size_t>(i) * 8;
+        size_t const off = 8 + static_cast<size_t>(i) * 8;
         std::memcpy(&entries[i].snoId, data.data() + off, 4);
         std::memcpy(&entries[i].size, data.data() + off + 4, 4);
     }
@@ -282,7 +282,7 @@ u32 localeFromTag(std::string_view tag) {
     char lower[4];
     for (int i = 0; i < 4; ++i)
         lower[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(tag[i])));
-    std::string_view lv(lower, 4);
+    std::string_view const lv(lower, 4);
 
     for (auto& e : kTable)
         if (lv == e.tag) return e.mask;
@@ -355,7 +355,7 @@ sno::SnoGroup groupFromCombinedFileName(std::string_view path) {
         auto g = static_cast<sno::SnoGroup>(gid);
         const char* gname = sno::snoGroupName(g);
         if (!gname) continue;
-        std::string_view gnameView(gname);
+        std::string_view const gnameView(gname);
         if (gnameView.size() != groupStr.size()) continue;
         // Case-insensitive compare (TVFS paths are lowercased).
         bool match = true;
@@ -497,17 +497,17 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs,
     };
 
     if (pool && entryCount > 2000) {
-        size_t numThreads = std::max<size_t>(pool->threadCount(), 1);
+        size_t const numThreads = std::max<size_t>(pool->threadCount(), 1);
         size_t chunkSize = (entryCount + numThreads - 1) / numThreads;
-        size_t chunks = (entryCount + chunkSize - 1) / chunkSize;
+        size_t const chunks = (entryCount + chunkSize - 1) / chunkSize;
 
         utils::JobGroup jobGroup;
         jobGroup.add(chunks);
         for (size_t c = 0; c < chunks; ++c) {
             interfaces::WorkerTask task;
             task.fn = [&, c]() {
-                size_t start = c * chunkSize;
-                size_t end = std::min(start + chunkSize, entryCount);
+                size_t const start = c * chunkSize;
+                size_t const end = std::min(start + chunkSize, entryCount);
                 for (size_t i = start; i < end; ++i)
                     enrichEntry(i);
                 jobGroup.done();

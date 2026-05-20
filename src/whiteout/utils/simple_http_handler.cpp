@@ -48,7 +48,7 @@ struct ParsedUrl {
 
 static std::wstring toWide(const std::string& s) {
     if (s.empty()) return {};
-    int len = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
+    int const len = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
     std::wstring w(len, L'\0');
     MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), w.data(), len);
     return w;
@@ -127,7 +127,7 @@ struct SimpleHttpHandler::Impl {
 
     ~Impl() {
         {
-            std::lock_guard<std::mutex> lk(mutex);
+            std::lock_guard<std::mutex> const lk(mutex);
             shutdown.store(true, std::memory_order_relaxed);
         }
         cv.notify_all();
@@ -139,7 +139,7 @@ struct SimpleHttpHandler::Impl {
 
     void enqueue(HttpJob job) {
         {
-            std::lock_guard<std::mutex> lk(mutex);
+            std::lock_guard<std::mutex> const lk(mutex);
             queue.push_back(std::move(job));
         }
         cv.notify_one();
@@ -162,7 +162,7 @@ struct SimpleHttpHandler::Impl {
         }
     }
 
-    void executeJob(HttpJob job) {
+    void executeJob(HttpJob job) const {
         interfaces::HttpResponse resp;
 
         auto parsed = parseUrl(job.url);
@@ -181,7 +181,7 @@ struct SimpleHttpHandler::Impl {
             return;
         }
 
-        DWORD flags = parsed.https ? WINHTTP_FLAG_SECURE : 0;
+        DWORD const flags = parsed.https ? WINHTTP_FLAG_SECURE : 0;
         HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET",
                                                  parsed.path.c_str(),
                                                  nullptr, WINHTTP_NO_REFERER,
@@ -245,7 +245,7 @@ struct SimpleHttpHandler::Impl {
         DWORD bytesAvailable = 0;
         while (WinHttpQueryDataAvailable(hRequest, &bytesAvailable) &&
                bytesAvailable > 0) {
-            size_t prevSize = body.size();
+            size_t const prevSize = body.size();
             body.resize(prevSize + bytesAvailable);
             DWORD bytesRead = 0;
             if (!WinHttpReadData(hRequest,

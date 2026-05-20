@@ -71,8 +71,8 @@ std::optional<ParsedArchive> parseMappedArchive(const std::string& path,
     auto archiveSpan = mappedFile->data();
 
     // Parse hash table.
-    u64 htOffset = pa.archiveOffset + pa.header.hashTableByteOffset();
-    u64 htSize = static_cast<u64>(pa.header.hashTableEntries) * 16;
+    u64 const htOffset = pa.archiveOffset + pa.header.hashTableByteOffset();
+    u64 const htSize = static_cast<u64>(pa.header.hashTableEntries) * 16;
     if (htOffset + htSize > archiveSpan.size()) {
         setError("hash table extends past end of file (offset 0x" + std::to_string(htOffset) +
                  ", size " + std::to_string(htSize) + ", file size " +
@@ -85,8 +85,8 @@ std::optional<ParsedArchive> parseMappedArchive(const std::string& path,
     }
 
     // Parse block table.
-    u64 btOffset = pa.archiveOffset + pa.header.blockTableByteOffset();
-    u64 btSize = static_cast<u64>(pa.header.blockTableEntries) * 16;
+    u64 const btOffset = pa.archiveOffset + pa.header.blockTableByteOffset();
+    u64 const btSize = static_cast<u64>(pa.header.blockTableEntries) * 16;
     if (btOffset + btSize > archiveSpan.size()) {
         setError("block table extends past end of file (offset 0x" + std::to_string(btOffset) +
                  ", size " + std::to_string(btSize) + ", file size " +
@@ -100,8 +100,8 @@ std::optional<ParsedArchive> parseMappedArchive(const std::string& path,
 
     // Parse hi-block table (V2+).
     if (pa.header.formatVersion >= 1 && pa.header.hiBlockTableOffset != 0) {
-        u64 hiOffset = pa.archiveOffset + pa.header.hiBlockTableOffset;
-        u64 hiSize = static_cast<u64>(pa.header.blockTableEntries) * 2;
+        u64 const hiOffset = pa.archiveOffset + pa.header.hiBlockTableOffset;
+        u64 const hiSize = static_cast<u64>(pa.header.blockTableEntries) * 2;
         if (hiOffset + hiSize <= archiveSpan.size()) {
             pa.blockTable.parseHiBlockTable(archiveSpan.subspan(hiOffset, hiSize),
                                             pa.header.blockTableEntries);
@@ -114,7 +114,7 @@ std::optional<ParsedArchive> parseMappedArchive(const std::string& path,
         const auto& he = pa.hashTable.entry(*lfIdx);
         if (he.blockIndex < pa.blockTable.count()) {
             const auto& be = pa.blockTable.entry(he.blockIndex);
-            u32 fileKey = be.isEncrypted() ? deriveFileKey("(listfile)", be) : 0;
+            u32 const fileKey = be.isEncrypted() ? deriveFileKey("(listfile)", be) : 0;
             auto lfData = extractFileData(mappedFile->data(), pa.archiveOffset, be,
                                           pa.header.sectorSize(), fileKey);
             if (!lfData.empty())
@@ -143,8 +143,8 @@ struct OverlayKey {
 
 struct OverlayKeyHash {
     size_t operator()(const OverlayKey& k) const {
-        size_t h1 = std::hash<std::string>{}(k.normalizedName);
-        size_t h2 = std::hash<u16>{}(k.locale);
+        size_t const h1 = std::hash<std::string>{}(k.normalizedName);
+        size_t const h2 = std::hash<u16>{}(k.locale);
         return h1 ^ (h2 * 0x9E3779B97F4A7C15ULL + 0x9E3779B9 + (h1 << 6) + (h1 >> 2));
     }
 };
@@ -223,8 +223,8 @@ struct Storage::Impl {
     /// Shared readFile logic. Caller must hold at least a shared lock on mutex.
     std::optional<std::vector<u8>> readFileCore(const std::string& name, std::optional<u16> locale,
                                                 std::string* error) const {
-        std::string norm = normalizePath(name);
-        OverlayKey key{norm, locale.value_or(Locale::Neutral)};
+        std::string const norm = normalizePath(name);
+        OverlayKey const key{norm, locale.value_or(Locale::Neutral)};
 
         if (pendingDeletes.contains(key)) {
             if (error)
@@ -258,7 +258,7 @@ struct Storage::Impl {
 
         // 1. Source files (from listfile).
         for (const auto& name : sourceListfileNames) {
-            std::string norm = normalizePath(name);
+            std::string const norm = normalizePath(name);
             if (deleteSet.contains(norm))
                 continue; // Deleted in overlay.
 
@@ -280,7 +280,7 @@ struct Storage::Impl {
                 continue;
 
             // Get raw sector data span from source archive.
-            u64 dataStart = archiveOffset + be.fileOffset;
+            u64 const dataStart = archiveOffset + be.fileOffset;
             if (dataStart + be.compressedSize <= sourceArchive->data().size()) {
                 WriteEntry we;
                 we.filename = name;
@@ -389,7 +389,7 @@ Storage Storage::create(CreateOptions opts, interfaces::WorkerPool* pool) {
 
 void Storage::close() {
     if (m_impl) {
-        std::unique_lock lock(m_impl->mutex);
+        std::unique_lock const lock(m_impl->mutex);
         m_impl->invalidate();
     }
 }
@@ -405,7 +405,7 @@ Storage::operator bool() const noexcept {
 std::optional<std::vector<u8>> Storage::readFile(const std::string& name) const {
     if (!m_impl || !m_impl->isValid)
         return std::nullopt;
-    std::shared_lock lock(m_impl->mutex);
+    std::shared_lock const lock(m_impl->mutex);
     return m_impl->readFileCore(name, std::nullopt, nullptr);
 }
 
@@ -416,24 +416,24 @@ std::optional<std::vector<u8>> Storage::readFile(const std::string& name,
             *error = "storage not open";
         return std::nullopt;
     }
-    std::shared_lock lock(m_impl->mutex);
+    std::shared_lock const lock(m_impl->mutex);
     return m_impl->readFileCore(name, std::nullopt, error);
 }
 
 std::optional<std::vector<u8>> Storage::readFile(const std::string& name, u16 locale) const {
     if (!m_impl || !m_impl->isValid)
         return std::nullopt;
-    std::shared_lock lock(m_impl->mutex);
+    std::shared_lock const lock(m_impl->mutex);
     return m_impl->readFileCore(name, std::optional<u16>(locale), nullptr);
 }
 
 bool Storage::fileExists(const std::string& name) const {
     if (!m_impl || !m_impl->isValid)
         return false;
-    std::shared_lock lock(m_impl->mutex);
+    std::shared_lock const lock(m_impl->mutex);
 
-    std::string norm = normalizePath(name);
-    OverlayKey key{norm, Locale::Neutral};
+    std::string const norm = normalizePath(name);
+    OverlayKey const key{norm, Locale::Neutral};
 
     if (m_impl->pendingDeletes.contains(key))
         return false;
@@ -446,10 +446,10 @@ bool Storage::fileExists(const std::string& name) const {
 std::optional<FileInfo> Storage::fileInfo(const std::string& name) const {
     if (!m_impl || !m_impl->isValid)
         return std::nullopt;
-    std::shared_lock lock(m_impl->mutex);
+    std::shared_lock const lock(m_impl->mutex);
 
-    std::string norm = normalizePath(name);
-    OverlayKey key{norm, Locale::Neutral};
+    std::string const norm = normalizePath(name);
+    OverlayKey const key{norm, Locale::Neutral};
 
     if (m_impl->pendingDeletes.contains(key))
         return std::nullopt;
@@ -488,7 +488,7 @@ std::optional<FileInfo> Storage::fileInfo(const std::string& name) const {
 ArchiveInfo Storage::archiveInfo() const {
     if (!m_impl || !m_impl->isValid)
         return {};
-    std::shared_lock lock(m_impl->mutex);
+    std::shared_lock const lock(m_impl->mutex);
 
     ArchiveInfo info;
     info.formatVersion = m_impl->header.formatVersion;
@@ -503,7 +503,7 @@ ArchiveInfo Storage::archiveInfo() const {
 std::vector<std::string> Storage::listFiles() const {
     if (!m_impl || !m_impl->isValid)
         return {};
-    std::shared_lock lock(m_impl->mutex);
+    std::shared_lock const lock(m_impl->mutex);
 
     // Build normalized delete set.
     std::unordered_set<std::string> deleteSet;
@@ -516,7 +516,7 @@ std::vector<std::string> Storage::listFiles() const {
 
     // Source listfile names.
     for (const auto& name : m_impl->sourceListfileNames) {
-        std::string norm = normalizePath(name);
+        std::string const norm = normalizePath(name);
         if (deleteSet.contains(norm))
             continue;
         if (seen.insert(norm).second) {
@@ -549,10 +549,10 @@ void Storage::enumerate(std::function<bool(const std::string&)> callback) const 
 bool Storage::writeFile(const std::string& name, std::span<const u8> data, WriteOptions opts) {
     if (!m_impl || !m_impl->isValid)
         return false;
-    std::unique_lock lock(m_impl->mutex);
+    std::unique_lock const lock(m_impl->mutex);
 
-    std::string norm = normalizePath(name);
-    OverlayKey key{norm, opts.locale};
+    std::string const norm = normalizePath(name);
+    OverlayKey const key{norm, opts.locale};
 
     // Remove from deletes if present.
     m_impl->pendingDeletes.erase(key);
@@ -566,13 +566,14 @@ bool Storage::writeFile(const std::string& name, std::span<const u8> data, Write
 bool Storage::deleteFile(const std::string& name) {
     if (!m_impl || !m_impl->isValid)
         return false;
-    std::unique_lock lock(m_impl->mutex);
+    std::unique_lock const lock(m_impl->mutex);
 
-    std::string norm = normalizePath(name);
-    OverlayKey key{norm, Locale::Neutral};
+    std::string const norm = normalizePath(name);
+    OverlayKey const key{norm, Locale::Neutral};
 
     // Check if it exists in overlay or source.
-    bool exists = m_impl->pendingWrites.contains(key) || m_impl->hashTable.lookup(name).has_value();
+    bool const exists =
+        m_impl->pendingWrites.contains(key) || m_impl->hashTable.lookup(name).has_value();
     if (!exists)
         return false;
 
@@ -599,9 +600,9 @@ bool Storage::save() {
 bool Storage::save(const std::string& path) {
     if (!m_impl || !m_impl->isValid)
         return false;
-    std::unique_lock lock(m_impl->mutex);
+    std::unique_lock const lock(m_impl->mutex);
 
-    bool isSamePath = (path == m_impl->sourcePath);
+    bool const isSamePath = (path == m_impl->sourcePath);
 
     // Build write entries from source + overlay.
     auto entries = m_impl->buildWriteEntries();
@@ -617,7 +618,7 @@ bool Storage::save(const std::string& path) {
     // temp file first, then atomically rename after unmapping.
     std::string outputPath = path;
     std::string tempPath;
-    bool useTempFile = isSamePath && m_impl->sourceArchive;
+    bool const useTempFile = isSamePath && m_impl->sourceArchive;
 
     if (useTempFile) {
         tempPath = path + ".tmp";

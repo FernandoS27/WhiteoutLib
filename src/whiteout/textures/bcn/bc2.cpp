@@ -22,9 +22,9 @@ void decode_block(const u8* block, u8* out) {
 
     // ---- Replace alpha with explicit 4-bit values from bytes 0..7 ----
     for (u32 i = 0; i < 16; i += 2) {
-        u8 packed = block[i / 2];
-        u8 alpha0_4bit = packed & 0x0F;
-        u8 alpha1_4bit = (packed >> 4) & 0x0F;
+        u8 const packed = block[i / 2];
+        u8 const alpha0_4bit = packed & 0x0F;
+        u8 const alpha1_4bit = (packed >> 4) & 0x0F;
         // Expand 4-bit to 8-bit: a4 * 17 = a4 | (a4 << 4)
         out[i * 4 + 3] = static_cast<u8>(alpha0_4bit | (alpha0_4bit << 4));
         out[(i + 1) * 4 + 3] = static_cast<u8>(alpha1_4bit | (alpha1_4bit << 4));
@@ -52,8 +52,8 @@ namespace {
 void encode_block(const u8* rgba, u8* out) {
     // ---- Alpha: quantize each texel's A to 4 bits, pack 2 per byte ----
     for (u32 i = 0; i < 16; i += 2) {
-        u8 a0 = static_cast<u8>((rgba[i * 4 + 3] * 15 + 127) / 255);
-        u8 a1 = static_cast<u8>((rgba[(i + 1) * 4 + 3] * 15 + 127) / 255);
+        u8 const a0 = static_cast<u8>((rgba[i * 4 + 3] * 15 + 127) / 255);
+        u8 const a1 = static_cast<u8>((rgba[(i + 1) * 4 + 3] * 15 + 127) / 255);
         out[i / 2] = static_cast<u8>(a0 | (a1 << 4));
     }
 

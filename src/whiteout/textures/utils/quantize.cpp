@@ -437,7 +437,7 @@ void parallel_for_chunks(u32 count, QuantizeContext* ctx, Fn&& fn) {
             if (begin >= end)
                 break;
             group.add(1);
-            interfaces::WorkerTask task{[begin, end, &fn, &group]() {
+            interfaces::WorkerTask const task{[begin, end, &fn, &group]() {
                 fn(begin, end);
                 group.done();
             }};
@@ -977,7 +977,7 @@ void build_quantize_dag(std::shared_ptr<QuantizeState> state, QuantizeContext* c
                 if (begin >= end)
                     continue;
                 group.add(1);
-                interfaces::WorkerTask task{[&, t, begin, end]() {
+                interfaces::WorkerTask const task{[&, t, begin, end]() {
                     build_histogram_range(state->rgba, begin, end, state->threadMoments[t]);
                     group.done();
                 }};
@@ -1544,7 +1544,7 @@ void QuantizeResult::refineDitherAware(const u8* rgba, u32 width, u32 height, f3
                 if (begin >= end)
                     break;
                 group.add(1);
-                interfaces::WorkerTask task{[&, t, begin, end]() {
+                interfaces::WorkerTask const task{[&, t, begin, end]() {
                     f64 local_error = 0.0;
                     for (u32 i = begin; i < end; ++i) {
                         const auto px = read_pixel_rgb(rgba, i);

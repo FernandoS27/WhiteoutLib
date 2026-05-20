@@ -37,7 +37,7 @@ void TimelineSemaphore::signal(Value v) noexcept {
     
     // Acquire the mutex to prevent lost notifications. 
     {
-        std::lock_guard<std::mutex> lock(m_impl->mutex);
+        std::lock_guard<std::mutex> const lock(m_impl->mutex);
         m_impl->cv.notify_all();
     }
 }

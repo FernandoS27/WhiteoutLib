@@ -163,7 +163,7 @@ void Parser::Impl::parse(WoWFileSystem& wfs, Model& result) {
     }
 
     if (m2.expt_chunk) {
-        size_t numParticleEmitters = result.particleEmitters.size();
+        size_t const numParticleEmitters = result.particleEmitters.size();
         for (size_t i = 0; i < numParticleEmitters; ++i) {
             auto& emitter_extension = result.particleEmitters[i].extension;
             emitter_extension.emplace();
@@ -174,7 +174,7 @@ void Parser::Impl::parse(WoWFileSystem& wfs, Model& result) {
     }
 
     if (m2.exp2_chunk) {
-        size_t numParticleEmitters = result.particleEmitters.size();
+        size_t const numParticleEmitters = result.particleEmitters.size();
         for (size_t i = 0; i < numParticleEmitters; ++i) {
             auto emitter_externsion = m2.exp2_chunk->emitterExtensions[i];
             result.particleEmitters[i].extension = std::move(emitter_externsion);
@@ -256,8 +256,8 @@ void Parser::Impl::parseBase(BinaryReader& reader, BaseFile& file, WoWFileSystem
         chunkParser.parseChunkedBase(reader, file, wfs);
         return;
     }
-    std::string error = "Invalid M2 magic: expected MD20 or MD21, got '" +
-                        std::string(reinterpret_cast<char*>(&magic), 4) + "'";
+    std::string const error = "Invalid M2 magic: expected MD20 or MD21, got '" +
+                              std::string(reinterpret_cast<char*>(&magic), 4) + "'";
     if (parseMode == ParseMode::Strict) {
         throw std::runtime_error(error);
     }
@@ -275,8 +275,8 @@ void Parser::Impl::parseSkin(BinaryReader& reader, SkinFile& skinFile, WoWFileSy
         parser.read(skinFile.profile);
         return;
     }
-    std::string error = "Invalid M2 magic: expected SKIN, got '" +
-                        std::string(reinterpret_cast<char*>(&magic), 4) + "'";
+    std::string const error = "Invalid M2 magic: expected SKIN, got '" +
+                              std::string(reinterpret_cast<char*>(&magic), 4) + "'";
     if (parseMode == ParseMode::Strict) {
         throw std::runtime_error(error);
     }

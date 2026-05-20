@@ -21,14 +21,14 @@ std::vector<std::filesystem::path> scanLocalConfigs(const std::string& dataPath)
     namespace fs = std::filesystem;
     std::vector<fs::path> out;
 
-    fs::path configRoot = fs::path(dataPath) / "config";
+    fs::path const configRoot = fs::path(dataPath) / "config";
     std::error_code ec;
     if (!fs::exists(configRoot, ec) || !fs::is_directory(configRoot, ec))
         return out;
 
     auto isHex32 = [](const std::string& s) {
         if (s.size() != 32) return false;
-        for (char c : s) {
+        for (char const c : s) {
             if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
                   (c >= 'A' && c <= 'F')))
                 return false;
@@ -52,7 +52,9 @@ std::vector<std::filesystem::path> scanLocalConfigs(const std::string& dataPath)
 }
 
 bool keyNonZero(const std::array<u8, 16>& key) {
-    for (u8 b : key) if (b) return true;
+    for (u8 const b : key)
+        if (b)
+            return true;
     return false;
 }
 
@@ -75,7 +77,7 @@ std::optional<BuildConfig> findConsistentBuildConfig(
 std::optional<CdnConfig> findConsistentCdnConfig(const std::string& dataPath) {
     namespace fs = std::filesystem;
 
-    fs::path indicesRoot = fs::path(dataPath) / "indices";
+    fs::path const indicesRoot = fs::path(dataPath) / "indices";
     std::error_code ec;
     if (!fs::exists(indicesRoot, ec) || !fs::is_directory(indicesRoot, ec))
         return std::nullopt;
@@ -91,7 +93,10 @@ std::optional<CdnConfig> findConsistentCdnConfig(const std::string& dataPath) {
         static constexpr char hex[] = "0123456789abcdef";
         std::string s;
         s.reserve(32);
-        for (u8 b : key) { s += hex[b >> 4]; s += hex[b & 0xF]; }
+        for (u8 const b : key) {
+            s += hex[b >> 4];
+            s += hex[b & 0xF];
+        }
         return s;
     };
 
@@ -126,7 +131,7 @@ std::optional<CdnConfig> findConsistentCdnConfig(const std::string& dataPath) {
 bool LocalState::mapArchives(std::string* error) {
     namespace fs = std::filesystem;
 
-    std::string dataSubdir = dataPath + "/data";
+    std::string const dataSubdir = dataPath + "/data";
     if (!fs::exists(dataSubdir)) {
         if (error) *error = "Data subdirectory not found: " + dataSubdir;
         return false;
@@ -138,7 +143,7 @@ bool LocalState::mapArchives(std::string* error) {
         auto name = entry.path().filename().string();
         if (name.size() >= 8 && name.substr(0, 5) == "data.") {
             try {
-                u32 idx = std::stoul(name.substr(5));
+                u32 const idx = std::stoul(name.substr(5));
                 if (idx > maxIndex) maxIndex = idx;
             } catch (...) {}
         }
@@ -150,7 +155,7 @@ bool LocalState::mapArchives(std::string* error) {
     for (u32 i = 0; i <= maxIndex; ++i) {
         char archiveName[32];
         std::snprintf(archiveName, sizeof(archiveName), "data/data.%03u", i);
-        std::string path = dataPath + "/" + archiveName;
+        std::string const path = dataPath + "/" + archiveName;
         if (fs::exists(path)) {
             std::string mapErr;
             auto mapped = storages::common::MappedFile::open(
@@ -219,7 +224,7 @@ std::unordered_map<u64, std::vector<u8>> prefetchVfsLocal(
         for (auto& ek : vfsEKeys) {
             std::array<u8, 16> eKey16{};
             std::memcpy(eKey16.data(), ek.data(), std::min(size_t(16), ek.size()));
-            u64 h = keyHash64(eKey16);
+            u64 const h = keyHash64(eKey16);
             auto data = impl.resolveEKey(eKey16);
             if (data.empty()) {
                 auto cIt = vfsEKeyToCKey.find(h);

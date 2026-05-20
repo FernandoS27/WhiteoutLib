@@ -17,7 +17,7 @@ std::vector<std::string> parseListfile(std::span<const u8> data) {
     if (data.empty())
         return result;
 
-    std::string content(reinterpret_cast<const char*>(data.data()), data.size());
+    std::string const content(reinterpret_cast<const char*>(data.data()), data.size());
     std::istringstream stream(content);
     std::string line;
 
@@ -66,7 +66,7 @@ FileAttributes parseAttributes(std::span<const u8> data, u32 blockCount) {
 
     // Flag kCrc32: CRC32 array.
     if (hasFlag(flags, AttributeFlag::kCrc32)) {
-        size_t needed = static_cast<size_t>(blockCount) * sizeof(u32);
+        size_t const needed = static_cast<size_t>(blockCount) * sizeof(u32);
         if (offset + needed <= data.size()) {
             attrs.crc32s.resize(blockCount);
             std::memcpy(attrs.crc32s.data(), data.data() + offset, needed);
@@ -76,7 +76,7 @@ FileAttributes parseAttributes(std::span<const u8> data, u32 blockCount) {
 
     // Flag kFiletime: FILETIME array.
     if (hasFlag(flags, AttributeFlag::kFiletime)) {
-        size_t needed = static_cast<size_t>(blockCount) * sizeof(u64);
+        size_t const needed = static_cast<size_t>(blockCount) * sizeof(u64);
         if (offset + needed <= data.size()) {
             attrs.filetimes.resize(blockCount);
             std::memcpy(attrs.filetimes.data(), data.data() + offset, needed);
@@ -86,7 +86,7 @@ FileAttributes parseAttributes(std::span<const u8> data, u32 blockCount) {
 
     // Flag kMd5: MD5 array.
     if (hasFlag(flags, AttributeFlag::kMd5)) {
-        size_t needed = static_cast<size_t>(blockCount) * 16;
+        size_t const needed = static_cast<size_t>(blockCount) * 16;
         if (offset + needed <= data.size()) {
             attrs.md5s.resize(blockCount);
             for (u32 i = 0; i < blockCount; ++i) {
@@ -126,12 +126,12 @@ std::vector<u8> buildAttributes(const FileAttributes& attrs, u32 version) {
     offset += 4;
 
     if (hasFlag(flags, AttributeFlag::kCrc32)) {
-        size_t len = attrs.crc32s.size() * sizeof(u32);
+        size_t const len = attrs.crc32s.size() * sizeof(u32);
         std::memcpy(result.data() + offset, attrs.crc32s.data(), len);
         offset += len;
     }
     if (hasFlag(flags, AttributeFlag::kFiletime)) {
-        size_t len = attrs.filetimes.size() * sizeof(u64);
+        size_t const len = attrs.filetimes.size() * sizeof(u64);
         std::memcpy(result.data() + offset, attrs.filetimes.data(), len);
         offset += len;
     }

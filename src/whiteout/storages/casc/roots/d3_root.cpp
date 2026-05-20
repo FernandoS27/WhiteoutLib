@@ -146,7 +146,7 @@ static std::string buildAssetIdxPath(const std::string& prefix, u32 fileIndex,
 /// Known groups get their 3-letter extension; unknown groups get "unk_NN"
 /// (decimal group ID) so that different unknown groups don't collide.
 static std::string getGroupDir(u32 fileIndex) {
-    u32 group = fileIndex >> 16;
+    u32 const group = fileIndex >> 16;
     auto ext = getAssetExtension(group);
     if (ext) return ext;
     return "unk_" + std::to_string(group);
@@ -191,14 +191,14 @@ static bool parseDirectory(std::span<const u8> data, size_t& offset,
                            std::vector<NamedEntry>& namedEntries) {
     if (offset + 4 > data.size()) return false;
 
-    u32 signature = readLE32(data.data() + offset);
+    u32 const signature = readLE32(data.data() + offset);
 
     if (signature == RootSignature::kD3Dir) {
         offset += 4;
 
         // Asset entries.
         if (offset + 4 > data.size()) return false;
-        u32 assetCount = readLE32(data.data() + offset);
+        u32 const assetCount = readLE32(data.data() + offset);
         offset += 4;
 
         for (u32 i = 0; i < assetCount; ++i) {
@@ -212,7 +212,7 @@ static bool parseDirectory(std::span<const u8> data, size_t& offset,
 
         // AssetIdx entries.
         if (offset + 4 > data.size()) return false;
-        u32 assetIdxCount = readLE32(data.data() + offset);
+        u32 const assetIdxCount = readLE32(data.data() + offset);
         offset += 4;
 
         for (u32 i = 0; i < assetIdxCount; ++i) {
@@ -234,7 +234,7 @@ static bool parseDirectory(std::span<const u8> data, size_t& offset,
 
     // Named entries (always present after optional asset sections).
     if (offset + 4 > data.size()) return false;
-    u32 namedCount = readLE32(data.data() + offset);
+    u32 const namedCount = readLE32(data.data() + offset);
     offset += 4;
 
     for (u32 i = 0; i < namedCount; ++i) {
@@ -244,7 +244,7 @@ static bool parseDirectory(std::span<const u8> data, size_t& offset,
         offset += 16;
 
         // Null-terminated string.
-        size_t strStart = offset;
+        size_t const strStart = offset;
         while (offset < data.size() && data[offset] != 0) ++offset;
         if (offset >= data.size()) return false;
         ne.name = std::string(reinterpret_cast<const char*>(data.data() + strStart),
@@ -334,7 +334,7 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
             size_t subOffset = 0;
 
             if (parseDirectory(subdirData[si], subOffset, subAssets, subAssetIdx, subNamed)) {
-                std::string prefix = subNe.name.empty() ? "" : (subNe.name + "\\");
+                std::string const prefix = subNe.name.empty() ? "" : (subNe.name + "\\");
 
                 // Save asset entries for Phase 3 (after CoreTOC resolution).
                 for (auto& ae : subAssets)
@@ -424,7 +424,7 @@ bool D3Root::hasFileDataId(u32 fileDataId, FileIdHint /*hint*/) const {
 }
 
 void D3Root::buildIndices(interfaces::WorkerPool* pool) {
-    size_t n = m_entries.size();
+    size_t const n = m_entries.size();
 
     auto lowerPaths = normalizeEntryPaths(m_entries, pool);
 

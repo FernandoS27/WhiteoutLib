@@ -8,7 +8,7 @@ namespace m2 {
 using common::BinaryReader;
 
 void BinaryParseVisitor::visit(TXACChunk& chunk, BaseFile& file) {
-    size_t num_entries =
+    size_t const num_entries =
         file.header.model.materials.size() + file.header.model.particleEmitters.size();
     chunk.entries = reader.read<std::vector<std::array<u8, 2>>>(num_entries);
 }
@@ -19,7 +19,8 @@ void BinaryParseVisitor::visit(PFIDChunk& chunk, BaseFile& /*file*/) {
 
 void BinaryParseVisitor::visit(SFIDChunk& chunk, BaseFile& file) {
     chunk.skinFileDataIds = reader.read<std::vector<u32>>(file.header.model.numSkinProfiles);
-    u32 remainingBytes = maxSize - static_cast<u32>(chunk.skinFileDataIds.size() * sizeof(u32));
+    u32 const remainingBytes =
+        maxSize - static_cast<u32>(chunk.skinFileDataIds.size() * sizeof(u32));
     if (remainingBytes > 0) {
         chunk.lodSkinFileDataIds = reader.read<std::vector<u32>>(remainingBytes / sizeof(u32));
     }
@@ -92,7 +93,7 @@ void BinaryParseVisitor::visit(GPIDEntry& entry) {
 }
 
 void BinaryParseVisitor::visit(GPIDChunk& chunk) {
-    size_t entryCount = maxSize / sizeof(GPIDEntry);
+    size_t const entryCount = maxSize / sizeof(GPIDEntry);
     chunk.geometryParticleModels = reader.read<std::vector<GPIDEntry>>(entryCount);
 }
 

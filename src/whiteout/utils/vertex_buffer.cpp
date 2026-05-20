@@ -59,7 +59,7 @@ void encodeF32Components(u8* dst, const f32* src, size_t count, AttributeEncodin
         break;
     case AttributeEncoding::SNorm8:
         for (size_t c = 0; c < count; ++c) {
-            snorm8 s = snorm8::from_float(src[c]);
+            snorm8 const s = snorm8::from_float(src[c]);
             dst[c] = static_cast<u8>(s.value);
         }
         break;
@@ -71,7 +71,7 @@ void encodeF32Components(u8* dst, const f32* src, size_t count, AttributeEncodin
         break;
     case AttributeEncoding::UNorm8:
         for (size_t c = 0; c < count; ++c) {
-            unorm8 u = unorm8::from_float(src[c]);
+            unorm8 const u = unorm8::from_float(src[c]);
             dst[c] = u.value;
         }
         break;

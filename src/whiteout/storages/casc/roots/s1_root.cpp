@@ -63,7 +63,7 @@ bool S1Root::looksLikeS1Root(std::span<const u8> data) {
     if (data[0] < 0x20 || data[0] > 0x7E) return false;
 
     // Find the first pipe and first newline in the first 512 bytes.
-    size_t limit = std::min<size_t>(data.size(), 512);
+    size_t const limit = std::min<size_t>(data.size(), 512);
     size_t pipePos = 0, newlinePos = 0;
     bool foundPipe = false, foundNewline = false;
     for (size_t i = 0; i < limit; ++i) {
@@ -78,11 +78,11 @@ bool S1Root::looksLikeS1Root(std::span<const u8> data) {
 
     // The part after the pipe should be a hex string (32 chars for MD5).
     // Check that the characters after the pipe are hex digits.
-    size_t hexStart = pipePos + 1;
-    size_t hexEnd = foundNewline ? newlinePos : limit;
+    size_t const hexStart = pipePos + 1;
+    size_t const hexEnd = foundNewline ? newlinePos : limit;
     size_t hexLen = 0;
     for (size_t i = hexStart; i < hexEnd; ++i) {
-        char c = static_cast<char>(data[i]);
+        char const c = static_cast<char>(data[i]);
         if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))
             ++hexLen;
         else
@@ -114,7 +114,7 @@ std::unique_ptr<S1Root> S1Root::parse(std::span<const u8> data,
         size_t eol = text.find_first_of("\r\n", pos);
         if (eol == std::string_view::npos) eol = text.size();
 
-        std::string_view line = text.substr(pos, eol - pos);
+        std::string_view const line = text.substr(pos, eol - pos);
 
         // Advance past newline(s).
         pos = eol;
@@ -125,10 +125,10 @@ std::unique_ptr<S1Root> S1Root::parse(std::span<const u8> data,
         if (line.empty() || line[0] == '#') continue;
 
         // Format: filepath|ckey_hex  or  filepath:locale|ckey_hex
-        size_t pipe = line.find('|');
+        size_t const pipe = line.find('|');
         if (pipe == std::string_view::npos || pipe == 0) continue;
 
-        std::string_view pathPart = line.substr(0, pipe);
+        std::string_view const pathPart = line.substr(0, pipe);
         std::string_view ckeyHex = line.substr(pipe + 1);
 
         // Trim trailing whitespace from ckey hex.
@@ -142,7 +142,7 @@ std::unique_ptr<S1Root> S1Root::parse(std::span<const u8> data,
         // Check for locale suffix: "filepath:locale"
         std::string filePath;
         u32 localeFlags = 0xFFFFFFFF; // All by default.
-        size_t colon = pathPart.find(':');
+        size_t const colon = pathPart.find(':');
         if (colon != std::string_view::npos) {
             filePath = std::string(pathPart.substr(0, colon));
             localeFlags = parseLocaleFlags(pathPart.substr(colon + 1));
@@ -152,7 +152,7 @@ std::unique_ptr<S1Root> S1Root::parse(std::span<const u8> data,
 
         // Compute Jenkins hash for path lookup.
         auto hash = jenkinsHash(filePath);
-        u64 combinedHash = u64(hash.pc) | (u64(hash.pb) << 32);
+        u64 const combinedHash = u64(hash.pc) | (u64(hash.pb) << 32);
 
         RootEntry entry{};
         entry.cKey = cKey;

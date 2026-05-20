@@ -109,7 +109,7 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
                 const u8* src = asyncImage.pixels.data();
                 if (components == 1) {
                     for (u32 i = begin; i < end; ++i) {
-                        u8 y = src[i];
+                        u8 const y = src[i];
                         dest[i * 4 + 0] = y;
                         dest[i * 4 + 1] = y;
                         dest[i * 4 + 2] = y;
@@ -138,7 +138,7 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
 
         if (components == 1) {
             for (u32 i = 0; i < pixelCount; ++i) {
-                u8 y = src[i];
+                u8 const y = src[i];
                 dest[i * 4 + 0] = y;
                 dest[i * 4 + 1] = y;
                 dest[i * 4 + 2] = y;

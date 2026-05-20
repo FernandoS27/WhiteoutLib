@@ -733,7 +733,7 @@ SnoGroup snoGroupFromExtension(const char* ext) {
         164,165,166,167,168,169,170,172,175,176,177,178,179,180
     };
 
-    for (i32 id : kGroupIds) {
+    for (i32 const id : kGroupIds) {
         auto group = static_cast<SnoGroup>(id);
         const char* groupExt = snoGroupExtension(group);
         if (groupExt && std::strcmp(groupExt, ext) == 0)

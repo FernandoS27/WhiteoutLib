@@ -39,9 +39,9 @@ static u8 roundClampU8(f32 v) {
 }
 
 void ycbcr_to_rgb(u8 y, u8 cb, u8 cr, u8& r, u8& g, u8& b) {
-    f32 fy = static_cast<f32>(y);
-    f32 fcb = static_cast<f32>(cb) - 128.0f;
-    f32 fcr = static_cast<f32>(cr) - 128.0f;
+    f32 const fy = static_cast<f32>(y);
+    f32 const fcb = static_cast<f32>(cb) - 128.0f;
+    f32 const fcr = static_cast<f32>(cr) - 128.0f;
 
     r = roundClampU8(fy + 1.402f * fcr);
     g = roundClampU8(fy - 0.344136f * fcb - 0.714136f * fcr);
@@ -49,9 +49,9 @@ void ycbcr_to_rgb(u8 y, u8 cb, u8 cr, u8& r, u8& g, u8& b) {
 }
 
 void rgb_to_ycbcr(u8 r, u8 g, u8 b, u8& y, u8& cb, u8& cr) {
-    f32 fr = static_cast<f32>(r);
-    f32 fg = static_cast<f32>(g);
-    f32 fb = static_cast<f32>(b);
+    f32 const fr = static_cast<f32>(r);
+    f32 const fg = static_cast<f32>(g);
+    f32 const fb = static_cast<f32>(b);
 
     y  = roundClampU8(0.299f * fr + 0.587f * fg + 0.114f * fb);
     cb = roundClampU8(-0.168736f * fr - 0.331264f * fg + 0.5f * fb + 128.0f);

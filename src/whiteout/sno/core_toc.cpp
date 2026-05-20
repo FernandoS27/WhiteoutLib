@@ -219,7 +219,7 @@ bool CoreToc::parseD4(std::span<const u8> data, bool newFormat) {
     // Read format hashes (new format only).
     if (newFormat) {
         for (u32 c = 0; c < snoGroupsCount; ++c) {
-            u32 fh = reader.read<u32>();
+            u32 const fh = reader.read<u32>();
             if (c > 0 && fh != 0) {
                 m_formatHashes[static_cast<i32>(c)] = fh;
             }
@@ -336,9 +336,9 @@ bool CoreToc::addEntry(const TocEntry& entry) {
             // Non-contiguous — relocate the group's entries to end for contiguity.
             // This happens when entries from other groups were added in between.
             const size_t oldCount = count;
-            std::vector<TocEntry> groupEntries(
-                m_all.begin() + static_cast<ptrdiff_t>(start),
-                m_all.begin() + static_cast<ptrdiff_t>(start + oldCount));
+            std::vector<TocEntry> const groupEntries(m_all.begin() + static_cast<ptrdiff_t>(start),
+                                                     m_all.begin() +
+                                                         static_cast<ptrdiff_t>(start + oldCount));
             // The new entry is already at m_all.back() at idx.
             // We don't shuffle here — just track it as a separate range.
             // For serialization, we'll gather entries per group anyway.

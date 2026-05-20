@@ -1534,7 +1534,7 @@ static const D3GroupMap kGroupMap[12] = {
 } // namespace d3_detail
 
 const SnoTypeRegistry& SnoTypeRegistry::instance() {
-    static SnoTypeRegistry s;
+    static SnoTypeRegistry const s;
     return s;
 }
 
@@ -1564,7 +1564,7 @@ u32 SnoTypeRegistry::typeHashFromKey(u32 groupId) const {
 
 const char* SnoTypeRegistry::typeName(const SnoTypeDef& def) const {
     // type index = pointer offset from m_types
-    size_t idx = static_cast<size_t>(&def - m_types);
+    size_t const idx = static_cast<size_t>(&def - m_types);
     if (idx < m_typeCount)
         return m_typeNames[idx];
     return "unknown";

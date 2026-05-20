@@ -87,7 +87,7 @@ namespace {
 
 /// Sign-extend a value from `prec` bits.
 inline i32 sign_extend(u32 val, u32 prec) {
-    u32 sign_bit = 1u << (prec - 1);
+    u32 const sign_bit = 1u << (prec - 1);
     return static_cast<i32>((val ^ sign_bit) - sign_bit);
 }
 
@@ -98,7 +98,7 @@ u32 unquantize_uf16(u32 val, u32 prec) {
         return val;
     if (val == 0)
         return 0;
-    u32 max_val = (1u << prec) - 1u;
+    u32 const max_val = (1u << prec) - 1u;
     if (val == max_val)
         return UNQUANTIZE_MAX_15BIT;
     return ((val << 15) + UNQUANTIZE_ROUNDING_BIAS) >> prec;
@@ -129,12 +129,12 @@ namespace {
 /// then unquantizes + interpolates to produce 16 half-float pixels.
 void decode_block(const u8* block, u16* out) {
     // Determine mode from the first 2 or 5 bits.
-    u32 b0 = block[0] & 0x1F; // first 5 bits
+    u32 const b0 = block[0] & 0x1F; // first 5 bits
 
     u32 mode_id;
     [[maybe_unused]] u32 mode_bits;
 
-    u32 two_lsb = b0 & 3;
+    u32 const two_lsb = b0 & 3;
     if (two_lsb == 0) {
         mode_id = 1;
         mode_bits = 2;
@@ -144,7 +144,7 @@ void decode_block(const u8* block, u16* out) {
     } else {
         // 5-bit mode code
         mode_bits = 5;
-        u32 code5 = b0 & 0x1F;
+        u32 const code5 = b0 & 0x1F;
         switch (code5) {
         case 0b00010:
             mode_id = 3;
@@ -227,22 +227,22 @@ void decode_block(const u8* block, u16* out) {
     switch (mode_id) {
     case 1: {
         // Mode 1: 2 subsets, transformed, 10.5.5.5
-        u32 rw = get_bits(5, 10);
-        u32 gw = get_bits(15, 10);
-        u32 bw = get_bits(25, 10);
+        u32 const rw = get_bits(5, 10);
+        u32 const gw = get_bits(15, 10);
+        u32 const bw = get_bits(25, 10);
 
-        u32 rx = get_bits(35, 5);
-        u32 gx = get_bits(45, 5);
-        u32 bx = get_bits(55, 5);
+        u32 const rx = get_bits(35, 5);
+        u32 const gx = get_bits(45, 5);
+        u32 const bx = get_bits(55, 5);
 
-        u32 ry = get_bits(65, 5);
-        u32 gy = get_bits(41, 4) | (get_bit(2) << 4);
-        u32 by = get_bits(61, 4) | (get_bit(3) << 4);
+        u32 const ry = get_bits(65, 5);
+        u32 const gy = get_bits(41, 4) | (get_bit(2) << 4);
+        u32 const by = get_bits(61, 4) | (get_bit(3) << 4);
 
-        u32 rz = get_bits(71, 5);
-        u32 gz = get_bits(51, 4) | (get_bit(40) << 4);
-        u32 bz = get_bit(50) | (get_bit(60) << 1) | (get_bit(70) << 2) | (get_bit(76) << 3) |
-                 (get_bit(4) << 4);
+        u32 const rz = get_bits(71, 5);
+        u32 const gz = get_bits(51, 4) | (get_bit(40) << 4);
+        u32 const bz = get_bit(50) | (get_bit(60) << 1) | (get_bit(70) << 2) | (get_bit(76) << 3) |
+                       (get_bit(4) << 4);
 
         partition = get_bits(77, 5);
 
@@ -267,22 +267,22 @@ void decode_block(const u8* block, u16* out) {
 
     case 2: {
         // Mode 2: 2 subsets, transformed, 7.6.6.6
-        u32 rw = get_bits(5, 7);
-        u32 gw = get_bits(15, 7);
-        u32 bw = get_bits(25, 7);
+        u32 const rw = get_bits(5, 7);
+        u32 const gw = get_bits(15, 7);
+        u32 const bw = get_bits(25, 7);
 
-        u32 rx = get_bits(35, 6);
-        u32 gx = get_bits(45, 6);
-        u32 bx = get_bits(55, 6);
+        u32 const rx = get_bits(35, 6);
+        u32 const gx = get_bits(45, 6);
+        u32 const bx = get_bits(55, 6);
 
-        u32 ry = get_bits(65, 6);
-        u32 gy = get_bits(41, 4) | (get_bit(24) << 4) | (get_bit(2) << 5);
-        u32 by = get_bits(61, 4) | (get_bit(14) << 4) | (get_bit(22) << 5);
+        u32 const ry = get_bits(65, 6);
+        u32 const gy = get_bits(41, 4) | (get_bit(24) << 4) | (get_bit(2) << 5);
+        u32 const by = get_bits(61, 4) | (get_bit(14) << 4) | (get_bit(22) << 5);
 
-        u32 rz = get_bits(71, 6);
-        u32 gz = get_bits(51, 4) | (get_bit(3) << 4) | (get_bit(4) << 5);
-        u32 bz = get_bit(12) | (get_bit(13) << 1) | (get_bit(23) << 2) | (get_bit(32) << 3) |
-                 (get_bit(34) << 4) | (get_bit(33) << 5);
+        u32 const rz = get_bits(71, 6);
+        u32 const gz = get_bits(51, 4) | (get_bit(3) << 4) | (get_bit(4) << 5);
+        u32 const bz = get_bit(12) | (get_bit(13) << 1) | (get_bit(23) << 2) | (get_bit(32) << 3) |
+                       (get_bit(34) << 4) | (get_bit(33) << 5);
 
         partition = get_bits(77, 5);
 
@@ -307,12 +307,12 @@ void decode_block(const u8* block, u16* out) {
 
     case 11: {
         // Mode 11: 1 subset, no transform, 10.10
-        u32 rw = get_bits(5, 10);
-        u32 gw = get_bits(15, 10);
-        u32 bw = get_bits(25, 10);
-        u32 rx = get_bits(35, 10);
-        u32 gx = get_bits(45, 10);
-        u32 bx = get_bits(55, 10);
+        u32 const rw = get_bits(5, 10);
+        u32 const gw = get_bits(15, 10);
+        u32 const bw = get_bits(25, 10);
+        u32 const rx = get_bits(35, 10);
+        u32 const gx = get_bits(45, 10);
+        u32 const bx = get_bits(55, 10);
 
         endpoints[0][0] = rw;
         endpoints[0][1] = gw;
@@ -329,12 +329,12 @@ void decode_block(const u8* block, u16* out) {
 
     case 12: {
         // Mode 12: 1 subset, transformed, 11.9
-        u32 rw = get_bits(5, 10) | (get_bit(40) << 10);
-        u32 gw = get_bits(15, 10) | (get_bit(49) << 10);
-        u32 bw = get_bits(25, 10) | (get_bit(59) << 10);
-        u32 rx = get_bits(35, 5) | (get_bits(44, 4) << 5);
-        u32 gx = get_bits(45, 4) | (get_bits(55, 4) << 4) | (get_bit(41) << 8);
-        u32 bx = get_bits(50, 4) | (get_bits(60, 4) << 4) | (get_bit(42) << 8);
+        u32 const rw = get_bits(5, 10) | (get_bit(40) << 10);
+        u32 const gw = get_bits(15, 10) | (get_bit(49) << 10);
+        u32 const bw = get_bits(25, 10) | (get_bit(59) << 10);
+        u32 const rx = get_bits(35, 5) | (get_bits(44, 4) << 5);
+        u32 const gx = get_bits(45, 4) | (get_bits(55, 4) << 4) | (get_bit(41) << 8);
+        u32 const bx = get_bits(50, 4) | (get_bits(60, 4) << 4) | (get_bit(42) << 8);
 
         endpoints[0][0] = rw;
         endpoints[0][1] = gw;
@@ -351,13 +351,13 @@ void decode_block(const u8* block, u16* out) {
 
     case 13: {
         // Mode 13: 1 subset, transformed, 12.8
-        u32 rw = get_bits(5, 10) | (get_bit(40) << 10) | (get_bit(43) << 11);
-        u32 gw = get_bits(15, 10) | (get_bit(49) << 10) | (get_bit(44) << 11);
-        u32 bw = get_bits(25, 10) | (get_bit(59) << 10) | (get_bit(53) << 11);
-        u32 rx = get_bits(35, 5) | (get_bits(47, 2) << 5) | (get_bit(41) << 7);
-        u32 gx = get_bits(45, 2) | (get_bits(55, 4) << 2) | (get_bits(50, 2) << 6);
-        u32 bx = get_bits(60, 4) | (get_bits(42, 1) << 4) | (get_bits(54, 1) << 5) |
-                 (get_bits(51, 2) << 6);
+        u32 const rw = get_bits(5, 10) | (get_bit(40) << 10) | (get_bit(43) << 11);
+        u32 const gw = get_bits(15, 10) | (get_bit(49) << 10) | (get_bit(44) << 11);
+        u32 const bw = get_bits(25, 10) | (get_bit(59) << 10) | (get_bit(53) << 11);
+        u32 const rx = get_bits(35, 5) | (get_bits(47, 2) << 5) | (get_bit(41) << 7);
+        u32 const gx = get_bits(45, 2) | (get_bits(55, 4) << 2) | (get_bits(50, 2) << 6);
+        u32 const bx = get_bits(60, 4) | (get_bits(42, 1) << 4) | (get_bits(54, 1) << 5) |
+                       (get_bits(51, 2) << 6);
 
         endpoints[0][0] = rw;
         endpoints[0][1] = gw;
@@ -374,12 +374,12 @@ void decode_block(const u8* block, u16* out) {
 
     case 14: {
         // Mode 14: 1 subset, transformed, 16.4
-        u32 rw = get_bits(5, 10) | (get_bits(40, 6) << 10);
-        u32 gw = get_bits(15, 10) | (get_bits(49, 6) << 10);
-        u32 bw = get_bits(25, 10) | (get_bits(59, 6) << 10);
-        u32 rx = get_bits(35, 4);
-        u32 gx = get_bits(45, 4);
-        u32 bx = get_bits(55, 4);
+        u32 const rw = get_bits(5, 10) | (get_bits(40, 6) << 10);
+        u32 const gw = get_bits(15, 10) | (get_bits(49, 6) << 10);
+        u32 const bw = get_bits(25, 10) | (get_bits(59, 6) << 10);
+        u32 const rx = get_bits(35, 4);
+        u32 const gx = get_bits(45, 4);
+        u32 const bx = get_bits(55, 4);
 
         endpoints[0][0] = rw;
         endpoints[0][1] = gw;
@@ -398,12 +398,12 @@ void decode_block(const u8* block, u16* out) {
         // Modes 3-10: 2-subset modes with various bit distributions.
         // For modes we haven't fully mapped, fall back to mode 11 decoding
         // as a best-effort (output will be approximate for rarely used modes).
-        u32 rw = get_bits(5, 10);
-        u32 gw = get_bits(15, 10);
-        u32 bw = get_bits(25, 10);
-        u32 rx = get_bits(35, 10);
-        u32 gx = get_bits(45, 10);
-        u32 bx = get_bits(55, 10);
+        u32 const rw = get_bits(5, 10);
+        u32 const gw = get_bits(15, 10);
+        u32 const bw = get_bits(25, 10);
+        u32 const rx = get_bits(35, 10);
+        u32 const gx = get_bits(45, 10);
+        u32 const bx = get_bits(55, 10);
 
         endpoints[0][0] = rw;
         endpoints[0][1] = gw;
@@ -421,8 +421,8 @@ void decode_block(const u8* block, u16* out) {
 
     // ---- Apply delta transform ----
     if (transformed) {
-        u32 prec = endpoint_prec[0]; // all channels same for uniform modes
-        u32 mask = (1u << prec) - 1u;
+        u32 const prec = endpoint_prec[0]; // all channels same for uniform modes
+        u32 const mask = (1u << prec) - 1u;
 
         if (num_subsets == 1) {
             // endpoints[1] is delta from endpoints[0]
@@ -442,7 +442,7 @@ void decode_block(const u8* block, u16* out) {
                     delta_prec = prec;
                     break;
                 }
-                i32 delta = sign_extend(endpoints[1][c], delta_prec);
+                i32 const delta = sign_extend(endpoints[1][c], delta_prec);
                 endpoints[1][c] = (endpoints[0][c] + delta) & mask;
             }
         } else {
@@ -461,7 +461,7 @@ void decode_block(const u8* block, u16* out) {
             }
             for (u32 c = 0; c < 3; ++c) {
                 for (u32 e = 1; e < 4; ++e) {
-                    i32 delta = sign_extend(endpoints[e][c], delta_prec);
+                    i32 const delta = sign_extend(endpoints[e][c], delta_prec);
                     endpoints[e][c] = (endpoints[0][c] + delta) & mask;
                 }
             }
@@ -469,21 +469,21 @@ void decode_block(const u8* block, u16* out) {
     }
 
     // ---- Unquantize endpoints to 15-bit ----
-    u32 prec = endpoint_prec[0];
-    u32 total_ep = num_subsets * 2;
+    u32 const prec = endpoint_prec[0];
+    u32 const total_ep = num_subsets * 2;
     for (u32 e = 0; e < total_ep; ++e) {
         for (u32 c = 0; c < 3; ++c)
             endpoints[e][c] = unquantize_uf16(endpoints[e][c], prec);
     }
 
     // ---- Read indices ----
-    u32 idx_start = (num_subsets == 2) ? INDEX_START_2SUBSET : INDEX_START_1SUBSET;
+    u32 const idx_start = (num_subsets == 2) ? INDEX_START_2SUBSET : INDEX_START_1SUBSET;
 
-    u32 index_bits = (num_subsets == 1) ? 4 : 3;
+    u32 const index_bits = (num_subsets == 1) ? 4 : 3;
     const u32* weight_table = (index_bits == 4) ? BCN_WEIGHT_4.data() : BCN_WEIGHT_3.data();
 
-    u32 anchor0 = 0;
-    u32 anchor1 = (num_subsets == 2) ? BC6H_ANCHOR_2[partition] : 16; // 16 = no second anchor
+    u32 const anchor0 = 0;
+    u32 const anchor1 = (num_subsets == 2) ? BC6H_ANCHOR_2[partition] : 16; // 16 = no second anchor
 
     const u8* part_table = (num_subsets == 2) ? BC6H_PARTITION_TABLE[partition].data() : nullptr;
 
@@ -492,19 +492,19 @@ void decode_block(const u8* block, u16* out) {
 
     std::array<u32, 16> indices{};
     for (u32 i = 0; i < 16; ++i) {
-        bool is_anchor = (i == anchor0) || (i == anchor1);
+        bool const is_anchor = (i == anchor0) || (i == anchor1);
         indices[i] = reader.read(is_anchor ? (index_bits - 1) : index_bits);
     }
 
     // ---- Interpolate and output ----
     for (u32 i = 0; i < 16; ++i) {
-        u32 subset_index = part_table ? part_table[i] : 0;
-        u32 e0_idx = subset_index * 2;
-        u32 e1_idx = subset_index * 2 + 1;
-        u32 weight = weight_table[indices[i]];
+        u32 const subset_index = part_table ? part_table[i] : 0;
+        u32 const e0_idx = subset_index * 2;
+        u32 const e1_idx = subset_index * 2 + 1;
+        u32 const weight = weight_table[indices[i]];
 
         for (u32 c = 0; c < 3; ++c) {
-            u32 val = bcn_interpolate(endpoints[e0_idx][c], endpoints[e1_idx][c], weight);
+            u32 const val = bcn_interpolate(endpoints[e0_idx][c], endpoints[e1_idx][c], weight);
             out[i * 4 + c] = finish_unquantize(val);
         }
         out[i * 4 + 3] = HALF_FLOAT_ONE;
@@ -642,11 +642,11 @@ void encode_block(const u16* rgba_f16, u8* out) {
     // Build 16-entry palette and assign indices.
     std::array<std::array<f32, 3>, 16> palette{};
     for (u32 idx = 0; idx < 16; ++idx) {
-        u32 w = BCN_WEIGHT_4[idx];
+        u32 const w = BCN_WEIGHT_4[idx];
         for (u32 c = 0; c < 3; ++c) {
-            u16 h0 = dequantize_uf16_10bit(e0[c]);
-            u16 h1 = dequantize_uf16_10bit(e1[c]);
-            u16 interpolated_half = static_cast<u16>(bcn_interpolate(h0, h1, w));
+            u16 const h0 = dequantize_uf16_10bit(e0[c]);
+            u16 const h1 = dequantize_uf16_10bit(e1[c]);
+            u16 const interpolated_half = static_cast<u16>(bcn_interpolate(h0, h1, w));
             palette[idx][c] = half_to_float(interpolated_half);
         }
     }
@@ -656,10 +656,10 @@ void encode_block(const u16* rgba_f16, u8* out) {
         f32 best_err = std::numeric_limits<f32>::max();
         u32 best_idx = 0;
         for (u32 idx = 0; idx < 16; ++idx) {
-            f32 dr = pixels[i][0] - palette[idx][0];
-            f32 dg = pixels[i][1] - palette[idx][1];
-            f32 db = pixels[i][2] - palette[idx][2];
-            f32 err = dr * dr + dg * dg + db * db;
+            f32 const dr = pixels[i][0] - palette[idx][0];
+            f32 const dg = pixels[i][1] - palette[idx][1];
+            f32 const db = pixels[i][2] - palette[idx][2];
+            f32 const err = dr * dr + dg * dg + db * db;
             if (err < best_err) {
                 best_err = err;
                 best_idx = idx;

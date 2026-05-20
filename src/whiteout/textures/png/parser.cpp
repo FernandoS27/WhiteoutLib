@@ -63,22 +63,22 @@ u32 Parser::Impl::rawChannels() const {
 }
 
 u32 Parser::Impl::rawBytesPerPixel() const {
-    u32 ch = rawChannels();
-    u32 bitsPerPixel = ch * bitDepth;
+    u32 const ch = rawChannels();
+    u32 const bitsPerPixel = ch * bitDepth;
     return std::max(1u, bitsPerPixel / 8);
 }
 
 bool Parser::Impl::unfilterScanlines(u8* data, u32 width, u32 height, u32 bpp) {
     // Each scanline: 1 filter byte + ceil(width * bitsPerPixel / 8) data bytes.
-    u32 bitsPerPixel = rawChannels() * bitDepth;
-    u32 stride = (width * bitsPerPixel + 7) / 8;
+    u32 const bitsPerPixel = rawChannels() * bitDepth;
+    u32 const stride = (width * bitsPerPixel + 7) / 8;
 
-    u32 rowSize = 1 + stride; // filter byte + pixel data
+    u32 const rowSize = 1 + stride; // filter byte + pixel data
     // bpp for filter purposes = bytes per complete pixel (min 1).
 
     for (u32 y = 0; y < height; ++y) {
         u8* row = data + static_cast<size_t>(y) * rowSize;
-        u8 filterType = row[0];
+        u8 const filterType = row[0];
         u8* cur = row + 1;
         const u8* prev = (y > 0) ? (data + static_cast<size_t>(y - 1) * rowSize + 1) : nullptr;
 
@@ -102,17 +102,17 @@ bool Parser::Impl::unfilterScanlines(u8* data, u32 width, u32 height, u32 bpp) {
 
         case FILTER_AVERAGE:
             for (u32 x = 0; x < stride; ++x) {
-                u8 a = (x >= bpp) ? cur[x - bpp] : 0;
-                u8 b = prev ? prev[x] : 0;
+                u8 const a = (x >= bpp) ? cur[x - bpp] : 0;
+                u8 const b = prev ? prev[x] : 0;
                 cur[x] = static_cast<u8>(cur[x] + ((static_cast<u32>(a) + b) >> 1));
             }
             break;
 
         case FILTER_PAETH:
             for (u32 x = 0; x < stride; ++x) {
-                u8 a = (x >= bpp) ? cur[x - bpp] : 0;
-                u8 b = prev ? prev[x] : 0;
-                u8 c = (prev && x >= bpp) ? prev[x - bpp] : 0;
+                u8 const a = (x >= bpp) ? cur[x - bpp] : 0;
+                u8 const b = prev ? prev[x] : 0;
+                u8 const c = (prev && x >= bpp) ? prev[x - bpp] : 0;
                 cur[x] = static_cast<u8>(cur[x] + paethPredictor(a, b, c));
             }
             break;
@@ -126,7 +126,7 @@ bool Parser::Impl::unfilterScanlines(u8* data, u32 width, u32 height, u32 bpp) {
 }
 
 bool Parser::Impl::convertToRGBA8(const u8* raw, u32 rawStride, u8* dest) {
-    u32 rowBytes = rawStride; // Bytes of pixel data per row (after filter byte).
+    u32 const rowBytes = rawStride; // Bytes of pixel data per row (after filter byte).
 
     for (u32 y = 0; y < imgHeight; ++y) {
         const u8* row = raw + static_cast<size_t>(y) * (1 + rowBytes) + 1; // Skip filter byte.
@@ -143,10 +143,10 @@ bool Parser::Impl::convertToRGBA8(const u8* raw, u32 rawStride, u8* dest) {
             }
         } else if (colorType == COLOR_GRAYSCALE && bitDepth == 8) {
             // Check tRNS for transparent gray value.
-            bool hasTrns = trnsData.size() >= 2;
-            u8 trnsGray = hasTrns ? trnsData[1] : 0; // 16-bit BE, use low byte for 8-bit.
+            bool const hasTrns = trnsData.size() >= 2;
+            u8 const trnsGray = hasTrns ? trnsData[1] : 0; // 16-bit BE, use low byte for 8-bit.
             for (u32 x = 0; x < imgWidth; ++x) {
-                u8 g = row[x];
+                u8 const g = row[x];
                 out[x * 4 + 0] = g;
                 out[x * 4 + 1] = g;
                 out[x * 4 + 2] = g;
@@ -154,16 +154,16 @@ bool Parser::Impl::convertToRGBA8(const u8* raw, u32 rawStride, u8* dest) {
             }
         } else if (colorType == COLOR_GRAYSCALE_ALPHA && bitDepth == 8) {
             for (u32 x = 0; x < imgWidth; ++x) {
-                u8 g = row[x * 2 + 0];
+                u8 const g = row[x * 2 + 0];
                 out[x * 4 + 0] = g;
                 out[x * 4 + 1] = g;
                 out[x * 4 + 2] = g;
                 out[x * 4 + 3] = row[x * 2 + 1];
             }
         } else if (colorType == COLOR_INDEXED && bitDepth == 8) {
-            u32 paletteCount = static_cast<u32>(palette.size() / 3);
+            u32 const paletteCount = static_cast<u32>(palette.size() / 3);
             for (u32 x = 0; x < imgWidth; ++x) {
-                u8 idx = row[x];
+                u8 const idx = row[x];
                 if (idx >= paletteCount) {
                     out[x * 4 + 0] = 0;
                     out[x * 4 + 1] = 0;
@@ -178,13 +178,13 @@ bool Parser::Impl::convertToRGBA8(const u8* raw, u32 rawStride, u8* dest) {
             }
         } else if (colorType == COLOR_INDEXED && bitDepth < 8) {
             // Sub-byte indexed: 1, 2, or 4 bits per pixel.
-            u32 pixelsPerByte = 8 / bitDepth;
-            u32 mask = (1u << bitDepth) - 1;
-            u32 paletteCount = static_cast<u32>(palette.size() / 3);
+            u32 const pixelsPerByte = 8 / bitDepth;
+            u32 const mask = (1u << bitDepth) - 1;
+            u32 const paletteCount = static_cast<u32>(palette.size() / 3);
             for (u32 x = 0; x < imgWidth; ++x) {
-                u32 byteIdx = x / pixelsPerByte;
-                u32 bitIdx = (pixelsPerByte - 1 - (x % pixelsPerByte)) * bitDepth;
-                u8 idx = (row[byteIdx] >> bitIdx) & mask;
+                u32 const byteIdx = x / pixelsPerByte;
+                u32 const bitIdx = (pixelsPerByte - 1 - (x % pixelsPerByte)) * bitDepth;
+                u8 const idx = (row[byteIdx] >> bitIdx) & mask;
                 if (idx >= paletteCount) {
                     out[x * 4 + 0] = 0;
                     out[x * 4 + 1] = 0;
@@ -199,14 +199,15 @@ bool Parser::Impl::convertToRGBA8(const u8* raw, u32 rawStride, u8* dest) {
             }
         } else if (colorType == COLOR_GRAYSCALE && bitDepth < 8) {
             // Sub-byte grayscale: 1, 2, or 4 bits per pixel.
-            u32 pixelsPerByte = 8 / bitDepth;
-            u32 mask = (1u << bitDepth) - 1;
-            u32 maxVal = mask;
+            u32 const pixelsPerByte = 8 / bitDepth;
+            u32 const mask = (1u << bitDepth) - 1;
+            u32 const maxVal = mask;
             for (u32 x = 0; x < imgWidth; ++x) {
-                u32 byteIdx = x / pixelsPerByte;
-                u32 bitIdx = (pixelsPerByte - 1 - (x % pixelsPerByte)) * bitDepth;
-                u8 val = (row[byteIdx] >> bitIdx) & mask;
-                u8 expanded = static_cast<u8>((static_cast<u32>(val) * 255 + maxVal / 2) / maxVal);
+                u32 const byteIdx = x / pixelsPerByte;
+                u32 const bitIdx = (pixelsPerByte - 1 - (x % pixelsPerByte)) * bitDepth;
+                u8 const val = (row[byteIdx] >> bitIdx) & mask;
+                u8 const expanded =
+                    static_cast<u8>((static_cast<u32>(val) * 255 + maxVal / 2) / maxVal);
                 out[x * 4 + 0] = expanded;
                 out[x * 4 + 1] = expanded;
                 out[x * 4 + 2] = expanded;
@@ -214,7 +215,7 @@ bool Parser::Impl::convertToRGBA8(const u8* raw, u32 rawStride, u8* dest) {
             }
         } else if (bitDepth == 16) {
             // 16-bit channels — downsample to 8-bit.
-            u32 ch = rawChannels();
+            u32 const ch = rawChannels();
             for (u32 x = 0; x < imgWidth; ++x) {
                 const u8* px = row + static_cast<size_t>(x) * ch * 2;
                 if (colorType == COLOR_TRUECOLOR_ALPHA) {
@@ -270,8 +271,8 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
 
     while (pos + 12 <= buffer.size()) {
         bool exit = false;
-        u32 chunkLen = readU32BE(buffer.data() + pos);
-        u32 chunkType = readU32BE(buffer.data() + pos + 4);
+        u32 const chunkLen = readU32BE(buffer.data() + pos);
+        u32 const chunkType = readU32BE(buffer.data() + pos + 4);
 
         if (pos + 12 + chunkLen > buffer.size()) {
             fail("PNG chunk extends beyond file");
@@ -281,8 +282,8 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
         const u8* chunkData = buffer.data() + pos + 8;
 
         // Verify CRC (covers type + data).
-        u32 storedCrc = readU32BE(buffer.data() + pos + 8 + chunkLen);
-        u32 computedCrc = crc32(buffer.data() + pos + 4, 4 + chunkLen);
+        u32 const storedCrc = readU32BE(buffer.data() + pos + 8 + chunkLen);
+        u32 const computedCrc = crc32(buffer.data() + pos + 4, 4 + chunkLen);
         if (storedCrc != computedCrc) {
             fail("PNG chunk CRC mismatch");
             return std::nullopt;
@@ -298,8 +299,8 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
             imgHeight = readU32BE(chunkData + 4);
             bitDepth = chunkData[8];
             colorType = chunkData[9];
-            u8 compression = chunkData[10];
-            u8 filter = chunkData[11];
+            u8 const compression = chunkData[10];
+            u8 const filter = chunkData[11];
             interlaceMethod = chunkData[12];
 
             if (imgWidth == 0 || imgHeight == 0) {
@@ -410,9 +411,9 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
     }
 
     // Validate decompressed size.
-    u32 bitsPerPixel = rawChannels() * bitDepth;
-    u32 rawStride = (imgWidth * bitsPerPixel + 7) / 8;
-    size_t expectedSize = static_cast<size_t>(imgHeight) * (1 + rawStride);
+    u32 const bitsPerPixel = rawChannels() * bitDepth;
+    u32 const rawStride = (imgWidth * bitsPerPixel + 7) / 8;
+    size_t const expectedSize = static_cast<size_t>(imgHeight) * (1 + rawStride);
     if (rawData.size() < expectedSize) {
         fail("Decompressed PNG data too small (expected " + std::to_string(expectedSize) +
              ", got " + std::to_string(rawData.size()) + ")");
@@ -420,7 +421,7 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
     }
 
     // Unfilter scanlines.
-    u32 bpp = rawBytesPerPixel();
+    u32 const bpp = rawBytesPerPixel();
     if (!unfilterScanlines(rawData.data(), imgWidth, imgHeight, bpp)) {
         return std::nullopt;
     }

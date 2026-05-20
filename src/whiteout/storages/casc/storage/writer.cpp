@@ -208,7 +208,7 @@ static std::vector<u8> serializeTvfsRoot(const std::vector<WriteEntry>& entries,
     }
 
     // Determine CFT offset field size (for VFS table entries).
-    u32 cftOffsSize = getOffsFieldSize(static_cast<u32>(cft.size()));
+    u32 const cftOffsSize = getOffsFieldSize(static_cast<u32>(cft.size()));
 
     // --- Build EST (Encoding Specifier Table) ---
     // Layout: [string pool: null-terminated ESpec strings] +
@@ -230,7 +230,7 @@ static std::vector<u8> serializeTvfsRoot(const std::vector<WriteEntry>& entries,
 
         u32 poolPos = 0;
         for (auto& e : entries) {
-            std::string spec = buildESpec(e.compress, e.fileSize, blteFrameSize);
+            std::string const spec = buildESpec(e.compress, e.fileSize, blteFrameSize);
 
             // Linear search is fine — typically 1-3 unique strings.
             u32 offset = UINT32_MAX;
@@ -256,16 +256,16 @@ static std::vector<u8> serializeTvfsRoot(const std::vector<WriteEntry>& entries,
 
     // Determine estOffsSize iteratively: estOffsSize must be consistent with
     // total EST table size (estTableSize = poolSize + numEntries * estOffsSize).
-    u32 poolSize = static_cast<u32>(estStringPool.size());
-    u32 numEntries = static_cast<u32>(entries.size());
+    u32 const poolSize = static_cast<u32>(estStringPool.size());
+    u32 const numEntries = static_cast<u32>(entries.size());
     u32 estOffsSize = 1;
     for (int iter = 0; iter < 4; ++iter) {
-        u32 total = poolSize + numEntries * estOffsSize;
-        u32 needed = getOffsFieldSize(total);
+        u32 const total = poolSize + numEntries * estOffsSize;
+        u32 const needed = getOffsFieldSize(total);
         if (needed <= estOffsSize) break;
         estOffsSize = needed;
     }
-    u32 estTableSize = poolSize + numEntries * estOffsSize;
+    u32 const estTableSize = poolSize + numEntries * estOffsSize;
 
     // Build complete EST blob: string pool + offset index.
     std::vector<u8> est;
@@ -278,11 +278,11 @@ static std::vector<u8> serializeTvfsRoot(const std::vector<WriteEntry>& entries,
 
     // --- Build VFS table ---
     // Each file gets one VFS entry: spanCount(1) + FileOffset(4 BE) + SpanSize(4 BE) + CftOffset(var BE).
-    u32 vfsEntrySize = 1 + 4 + 4 + cftOffsSize;
+    u32 const vfsEntrySize = 1 + 4 + 4 + cftOffsSize;
     std::vector<u8> vfs;
     vfs.reserve(entries.size() * vfsEntrySize);
     for (size_t i = 0; i < entries.size(); ++i) {
-        u32 cftOff = static_cast<u32>(i * kCftEntrySize);
+        u32 const cftOff = static_cast<u32>(i * kCftEntrySize);
         vfs.push_back(1); // spanCount = 1
         pushBE32(vfs, 0); // fileOffset = 0 (not used for read)
         pushBE32(vfs, static_cast<u32>(entries[i].fileSize)); // spanSize
@@ -302,7 +302,7 @@ static std::vector<u8> serializeTvfsRoot(const std::vector<WriteEntry>& entries,
         auto& path = entries[i].path;
         // Write name as single fragment: [len][bytes...]
         // Paths can be >255 chars, but for simplicity limit to 255.
-        u8 nameLen = static_cast<u8>(std::min<size_t>(path.size(), 255));
+        u8 const nameLen = static_cast<u8>(std::min<size_t>(path.size(), 255));
         innerPathTable.push_back(nameLen);
         for (u8 j = 0; j < nameLen; ++j)
             innerPathTable.push_back(static_cast<u8>(path[j]));
@@ -321,21 +321,21 @@ static std::vector<u8> serializeTvfsRoot(const std::vector<WriteEntry>& entries,
     // Wrap in anonymous root folder:
     //   0xFF + nodeValue(u32 BE, bit31=1, lower 31 = folderDataLen)
     //   where folderDataLen = 4 (for the nodeValue itself) + innerLen.
-    u32 innerLen = static_cast<u32>(innerPathTable.size());
-    u32 folderDataLen = 4 + innerLen; // includes the 4-byte nodeValue
+    u32 const innerLen = static_cast<u32>(innerPathTable.size());
+    u32 const folderDataLen = 4 + innerLen; // includes the 4-byte nodeValue
     std::vector<u8> pathTable;
     pathTable.push_back(kTvfsNodeValueMarker);
     pushBE32(pathTable, kTvfsFolderNodeBit | folderDataLen);
     pathTable.insert(pathTable.end(), innerPathTable.begin(), innerPathTable.end());
 
     // --- Compute section offsets ---
-    u32 pathTableOffset = kTvfsHeaderSize;
-    u32 pathTableSize = static_cast<u32>(pathTable.size());
-    u32 vfsTableOffset = pathTableOffset + pathTableSize;
-    u32 vfsTableSize = static_cast<u32>(vfs.size());
-    u32 cftTableOffset = vfsTableOffset + vfsTableSize;
-    u32 cftTableSize = static_cast<u32>(cft.size());
-    u32 estTableOffset = cftTableOffset + cftTableSize;
+    u32 const pathTableOffset = kTvfsHeaderSize;
+    u32 const pathTableSize = static_cast<u32>(pathTable.size());
+    u32 const vfsTableOffset = pathTableOffset + pathTableSize;
+    u32 const vfsTableSize = static_cast<u32>(vfs.size());
+    u32 const cftTableOffset = vfsTableOffset + vfsTableSize;
+    u32 const cftTableSize = static_cast<u32>(cft.size());
+    u32 const estTableOffset = cftTableOffset + cftTableSize;
 
     // --- Build header ---
     std::vector<u8> result;
@@ -501,7 +501,7 @@ static std::vector<u8> serializeWowRoot(const std::vector<WriteEntry>& entries) 
         // Parser decodes: fdi += delta; ids[i] = fdi; fdi++ (implicit +1).
         u32 prevId = 0;
         for (auto idx : order) {
-            u32 id = entries[idx].fileDataId;
+            u32 const id = entries[idx].fileDataId;
             pushLE32(result, id - prevId);
             prevId = id + 1; // account for implicit +1 in parser.
         }
@@ -588,9 +588,9 @@ bool writeStorage(const std::string& outputDir,
     namespace fs = std::filesystem;
 
     // Create output directory structure.
-    std::string dataDir = outputDir + "/Data";
+    std::string const dataDir = outputDir + "/Data";
     std::string dataSubdir = dataDir + "/data";
-    std::string configDir = dataDir + "/config";
+    std::string const configDir = dataDir + "/config";
     fs::create_directories(dataSubdir);
     fs::create_directories(configDir);
 
@@ -625,7 +625,7 @@ bool writeStorage(const std::string& outputDir,
     if (pool && toEncode.size() > 1) {
         utils::JobGroup jobGroup;
         jobGroup.add(toEncode.size());
-        for (size_t idx : toEncode) {
+        for (size_t const idx : toEncode) {
             interfaces::WorkerTask task;
             task.fn = [&, idx]() {
                 encodeEntry(idx);
@@ -635,7 +635,7 @@ bool writeStorage(const std::string& outputDir,
         }
         jobGroup.wait();
     } else {
-        for (size_t idx : toEncode)
+        for (size_t const idx : toEncode)
             encodeEntry(idx);
     }
 
@@ -726,7 +726,7 @@ bool writeStorage(const std::string& outputDir,
     auto downloadCKey = storages::common::md5Hash(downloadRaw);
     auto downloadBlte = blteEncode(downloadRaw, blteOpts, pool);
     auto downloadEKey = storages::common::md5Hash(downloadBlte);
-    u64 downloadEncodedSize = downloadBlte.size();
+    u64 const downloadEncodedSize = downloadBlte.size();
 
     // Add download manifest to encoding table.
     {
@@ -744,7 +744,7 @@ bool writeStorage(const std::string& outputDir,
 
     auto encodingBlte = blteEncode(encodingRaw, blteOpts, pool);
     auto encodingEKey = storages::common::md5Hash(encodingBlte);
-    u64 encodingEncodedSize = encodingBlte.size();
+    u64 const encodingEncodedSize = encodingBlte.size();
 
     // -----------------------------------------------------------------------
     // Step 4: Write archive files (data.000, data.001, ...).
@@ -792,7 +792,7 @@ bool writeStorage(const std::string& outputDir,
 
         char archiveName[32];
         std::snprintf(archiveName, sizeof(archiveName), "data.%03u", archiveIndex);
-        std::string archivePath = dataSubdir + "/" + archiveName;
+        std::string const archivePath = dataSubdir + "/" + archiveName;
         writeFileBytes(archivePath, currentArchive.data(), currentArchive.size());
 
         archiveEKeys.push_back(archiveHasher.finalize());
@@ -804,7 +804,7 @@ bool writeStorage(const std::string& outputDir,
     };
 
     for (auto& blob : blobs) {
-        u32 encodedSize = static_cast<u32>(blob.encodedData.size()) + kArchiveEntryHeaderSize;
+        u32 const encodedSize = static_cast<u32>(blob.encodedData.size()) + kArchiveEntryHeaderSize;
 
         // Check if this blob would exceed the archive max size.
         if (!currentArchive.empty() &&
@@ -841,7 +841,7 @@ bool writeStorage(const std::string& outputDir,
 
     auto idxFiles = indexTable.serialize();
     for (auto& [name, data] : idxFiles) {
-        std::string idxPath = dataSubdir + "/" + name;
+        std::string const idxPath = dataSubdir + "/" + name;
         if (!writeFileBytes(idxPath, data.data(), data.size()))
             return false;
     }

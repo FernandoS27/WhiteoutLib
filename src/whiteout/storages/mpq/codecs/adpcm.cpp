@@ -118,8 +118,8 @@ std::vector<u8> adpcmDecompress(std::span<const u8> src, size_t expectedSize, in
             return out;
         predictedSamples[i] = initialSample;
         // Write initial sample to output (little-endian 16-bit).
-        u8 lo = static_cast<u8>(initialSample & 0xFF);
-        u8 hi = static_cast<u8>((initialSample >> 8) & 0xFF);
+        u8 const lo = static_cast<u8>(initialSample & 0xFF);
+        u8 const hi = static_cast<u8>((initialSample >> 8) & 0xFF);
         out.push_back(lo);
         out.push_back(hi);
     }
@@ -136,7 +136,7 @@ std::vector<u8> adpcmDecompress(std::span<const u8> src, size_t expectedSize, in
             if (stepIndexes[channelIndex] != 0)
                 stepIndexes[channelIndex]--;
 
-            short sample = predictedSamples[channelIndex];
+            short const sample = predictedSamples[channelIndex];
             out.push_back(static_cast<u8>(sample & 0xFF));
             out.push_back(static_cast<u8>((sample >> 8) & 0xFF));
         } else if (encodedSample == 0x81) {
@@ -148,13 +148,13 @@ std::vector<u8> adpcmDecompress(std::span<const u8> src, size_t expectedSize, in
             // Stay on the same channel for the next pass.
             channelIndex = (channelIndex + 1) % channelCount;
         } else {
-            int stepIndex = stepIndexes[channelIndex];
-            int stepSize = kStepSizeTable[stepIndex];
+            int const stepIndex = stepIndexes[channelIndex];
+            int const stepSize = kStepSizeTable[stepIndex];
 
             predictedSamples[channelIndex] = static_cast<short>(decodeSample(
                 predictedSamples[channelIndex], encodedSample, stepSize, stepSize >> bitShift));
 
-            short sample = predictedSamples[channelIndex];
+            short const sample = predictedSamples[channelIndex];
             out.push_back(static_cast<u8>(sample & 0xFF));
             out.push_back(static_cast<u8>((sample >> 8) & 0xFF));
 
@@ -206,7 +206,7 @@ std::vector<u8> adpcmCompress(std::span<const u8> src, int channelCount) {
     // Write initial sample for each channel.
     size_t samplePos = 0;
     for (int i = 0; i < channelCount; i++) {
-        short initialSample = samples[samplePos++];
+        short const initialSample = samples[samplePos++];
         predictedSamples[i] = initialSample;
         out.push_back(static_cast<u8>(initialSample & 0xFF));
         out.push_back(static_cast<u8>((initialSample >> 8) & 0xFF));
@@ -217,13 +217,13 @@ std::vector<u8> adpcmCompress(std::span<const u8> src, int channelCount) {
     while (samplePos < sampleCount) {
         channelIndex = (channelIndex + 1) % channelCount;
 
-        short targetSample = samples[samplePos++];
-        int predicted = predictedSamples[channelIndex];
-        int stepIndex = stepIndexes[channelIndex];
-        int stepSize = kStepSizeTable[stepIndex];
+        short const targetSample = samples[samplePos++];
+        int const predicted = predictedSamples[channelIndex];
+        int const stepIndex = stepIndexes[channelIndex];
+        int const stepSize = kStepSizeTable[stepIndex];
 
         int difference = targetSample - predicted;
-        bool negative = (difference < 0);
+        bool const negative = (difference < 0);
         if (negative)
             difference = -difference;
 
@@ -231,7 +231,7 @@ std::vector<u8> adpcmCompress(std::span<const u8> src, int channelCount) {
         // The decoder reconstructs: delta = sum of (stepSize >> k) for set bits + (stepSize >>
         // bitShift). We greedily pick bits from MSB to LSB of the magnitude portion.
         int encoded = 0;
-        int baseStep = stepSize >> kBitShift;
+        int const baseStep = stepSize >> kBitShift;
         int totalDelta = baseStep;
 
         if (difference >= totalDelta + (stepSize >> 0)) {

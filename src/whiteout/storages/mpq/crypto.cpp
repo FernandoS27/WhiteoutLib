@@ -22,10 +22,10 @@ std::array<u32, 1280> buildEncryptionTable() {
         u32 index2 = index1;
         for (u32 i = 0; i < 5; ++i) {
             seed = (seed * 125 + 3) % 0x2AAAAB;
-            u32 temp1 = (seed & 0xFFFF) << 16;
+            u32 const temp1 = (seed & 0xFFFF) << 16;
 
             seed = (seed * 125 + 3) % 0x2AAAAB;
-            u32 temp2 = seed & 0xFFFF;
+            u32 const temp2 = seed & 0xFFFF;
 
             table[index2] = temp1 | temp2;
             index2 += 256;
@@ -54,7 +54,7 @@ u32 hashString(const std::string& filename, HashType hashType) {
     u32 seed1 = 0x7FED7FED;
     u32 seed2 = 0xEEEEEEEE;
 
-    for (char ch : filename) {
+    for (char const ch : filename) {
         // Normalize: uppercase + '/' → '\\'
         unsigned char uc = static_cast<unsigned char>(ch);
         if (uc == '/')
@@ -77,7 +77,7 @@ void decryptBlock(u32* data, size_t count, u32 key) {
 
     for (size_t i = 0; i < count; ++i) {
         seed += table[0x400 + (key & 0xFF)];
-        u32 ch = data[i] ^ (key + seed);
+        u32 const ch = data[i] ^ (key + seed);
         key = ((~key << 21) + 0x11111111) | (key >> 11);
         seed = ch + seed + (seed << 5) + 3;
         data[i] = ch;
@@ -90,7 +90,7 @@ void encryptBlock(u32* data, size_t count, u32 key) {
 
     for (size_t i = 0; i < count; ++i) {
         seed += table[0x400 + (key & 0xFF)];
-        u32 ch = data[i];
+        u32 const ch = data[i];
         data[i] = ch ^ (key + seed);
         key = ((~key << 21) + 0x11111111) | (key >> 11);
         seed = ch + seed + (seed << 5) + 3;
@@ -106,8 +106,8 @@ u32 detectFileKey(const u32* encryptedBlock, u32 sectorSize, u32 fileSize) {
     // size of the sector offset table itself. For a file with N sectors the
     // table has (N+1) entries × 4 bytes each.
     // N = ceil(fileSize / sectorSize), so table size = (N + 1) * 4.
-    u32 numSectors = (fileSize + sectorSize - 1) / sectorSize;
-    u32 tableSize = (numSectors + 1) * 4;
+    u32 const numSectors = (fileSize + sectorSize - 1) / sectorSize;
+    u32 const tableSize = (numSectors + 1) * 4;
 
     const auto& table = encryptionTable();
 
@@ -118,12 +118,12 @@ u32 detectFileKey(const u32* encryptedBlock, u32 sectorSize, u32 fileSize) {
     // So: key + seed = encrypted[0] ^ tableSize
     //     key = (encrypted[0] ^ tableSize) - seed
     // We iterate over the 256 possible (key & 0xFF) values.
-    u32 encrypted0 = encryptedBlock[0];
-    u32 encrypted1 = encryptedBlock[1];
+    u32 const encrypted0 = encryptedBlock[0];
+    u32 const encrypted1 = encryptedBlock[1];
 
     for (u32 keyByte = 0; keyByte < 256; ++keyByte) {
-        u32 seed = 0xEEEEEEEE + table[0x400 + keyByte];
-        u32 candidateKey = (encrypted0 ^ tableSize) - seed;
+        u32 const seed = 0xEEEEEEEE + table[0x400 + keyByte];
+        u32 const candidateKey = (encrypted0 ^ tableSize) - seed;
 
         if ((candidateKey & 0xFF) != keyByte)
             continue;
@@ -139,7 +139,7 @@ u32 detectFileKey(const u32* encryptedBlock, u32 sectorSize, u32 fileSize) {
         key2 = ((~key2 << 21) + 0x11111111) | (key2 >> 11);
         seed2 += table[0x400 + (key2 & 0xFF)];
 
-        u32 decrypted1 = encrypted1 ^ (key2 + seed2);
+        u32 const decrypted1 = encrypted1 ^ (key2 + seed2);
 
         // Sector offset[1] should be reasonable: > tableSize and
         // <= tableSize + sectorSize (or slightly more due to compression expansion).

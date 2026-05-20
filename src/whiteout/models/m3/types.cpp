@@ -138,7 +138,7 @@ std::vector<Vector3f> VertexBuffer::getPositions() const {
     positions.reserve(impl->count);
 
     for (size_t i = 0; i < impl->count; ++i) {
-        size_t offset = i * impl->stride;
+        size_t const offset = i * impl->stride;
         Vector3f pos;
         std::memcpy(&pos, &data[offset], sizeof(Vector3f));
         positions.push_back(pos);
@@ -156,12 +156,12 @@ std::vector<Vector3f> VertexBuffer::getNormals() const {
     normals.reserve(impl->count);
 
     for (size_t i = 0; i < impl->count; ++i) {
-        size_t offset = i * impl->stride + 20; // Normal at offset 20
+        size_t const offset = i * impl->stride + 20; // Normal at offset 20
 
         // Read as signed bytes
-        i8 nx = static_cast<i8>(data[offset + 0]);
-        i8 ny = static_cast<i8>(data[offset + 1]);
-        i8 nz = static_cast<i8>(data[offset + 2]);
+        i8 const nx = static_cast<i8>(data[offset + 0]);
+        i8 const ny = static_cast<i8>(data[offset + 1]);
+        i8 const nz = static_cast<i8>(data[offset + 2]);
 
         // Normalize by dividing by 127.0
         Vector3f normal;
@@ -186,12 +186,12 @@ std::vector<Vector4f> VertexBuffer::getTangents() const {
     for (size_t i = 0; i < impl->count; ++i) {
         // Tangent is stored in the last 4 bytes of each vertex:
         // tangent[3] (i8 x,y,z) + tangentSign (i8 handedness)
-        size_t offset = i * impl->stride + (impl->stride - 4);
+        size_t const offset = i * impl->stride + (impl->stride - 4);
 
-        i8 tx = static_cast<i8>(data[offset + 0]);
-        i8 ty = static_cast<i8>(data[offset + 1]);
-        i8 tz = static_cast<i8>(data[offset + 2]);
-        i8 tw = static_cast<i8>(data[offset + 3]);
+        i8 const tx = static_cast<i8>(data[offset + 0]);
+        i8 const ty = static_cast<i8>(data[offset + 1]);
+        i8 const tz = static_cast<i8>(data[offset + 2]);
+        i8 const tw = static_cast<i8>(data[offset + 3]);
 
         Vector4f tangent;
         tangent.x = static_cast<f32>(tx) / 127.0f;
@@ -218,10 +218,10 @@ std::vector<Vector2f> VertexBuffer::getUVs(size_t which) const {
     uvs.reserve(impl->count);
 
     // UV data starts at uvOffset, each UV layer is 4 bytes (2 x i16)
-    size_t uvLayerOffset = impl->uvOffset + (which * 4);
+    size_t const uvLayerOffset = impl->uvOffset + (which * 4);
 
     for (size_t i = 0; i < impl->count; ++i) {
-        size_t offset = i * impl->stride + uvLayerOffset;
+        size_t const offset = i * impl->stride + uvLayerOffset;
 
         // Read as signed 16-bit integers
         i16 u, v;
@@ -248,10 +248,10 @@ std::vector<Vector2f> VertexBuffer::getUVs(size_t which, f32 uvMultiply, f32 uvO
     uvs.reserve(impl->count);
 
     // UV data starts at uvOffset, each UV layer is 4 bytes (2 x i16)
-    size_t uvLayerOffset = impl->uvOffset + (which * 4);
+    size_t const uvLayerOffset = impl->uvOffset + (which * 4);
 
     for (size_t i = 0; i < impl->count; ++i) {
-        size_t offset = i * impl->stride + uvLayerOffset;
+        size_t const offset = i * impl->stride + uvLayerOffset;
 
         // Read as signed 16-bit integers
         i16 u, v;
@@ -278,7 +278,7 @@ std::vector<ColorBGRA> VertexBuffer::getColors() const {
     colors.reserve(impl->count);
 
     for (size_t i = 0; i < impl->count; ++i) {
-        size_t offset = i * impl->stride + impl->colorOffset;
+        size_t const offset = i * impl->stride + impl->colorOffset;
         ColorBGRA color;
         std::memcpy(&color, &data[offset], sizeof(ColorBGRA));
         colors.push_back(color);
@@ -296,7 +296,7 @@ std::vector<std::array<u8, 4>> VertexBuffer::getBoneIndices() const {
     indices.reserve(impl->count);
 
     for (size_t i = 0; i < impl->count; ++i) {
-        size_t offset = i * impl->stride + 16; // Bone indices at offset 16
+        size_t const offset = i * impl->stride + 16; // Bone indices at offset 16
         std::array<u8, 4> boneIdx;
         std::memcpy(boneIdx.data(), &data[offset], 4);
         indices.push_back(boneIdx);
@@ -314,7 +314,7 @@ std::vector<std::array<u8, 4>> VertexBuffer::getBoneWeights() const {
     weights.reserve(impl->count);
 
     for (size_t i = 0; i < impl->count; ++i) {
-        size_t offset = i * impl->stride + 12; // Bone weights at offset 12
+        size_t const offset = i * impl->stride + 12; // Bone weights at offset 12
         std::array<u8, 4> boneWeight;
         std::memcpy(boneWeight.data(), &data[offset], 4);
         weights.push_back(boneWeight);

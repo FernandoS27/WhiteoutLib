@@ -161,7 +161,7 @@ void MD5::update(const void* data, size_t length) {
 
     // If we have buffered data, try to complete a block.
     if (m_bufferLen > 0) {
-        size_t needed = 64 - m_bufferLen;
+        size_t const needed = 64 - m_bufferLen;
         if (length < needed) {
             std::memcpy(m_buffer + m_bufferLen, input, length);
             m_bufferLen += length;
@@ -190,11 +190,11 @@ void MD5::update(const void* data, size_t length) {
 
 std::array<u8, 16> MD5::finalize() {
     // Padding: append 0x80, then zeros, then 64-bit length in bits (LE).
-    u64 totalBits = m_totalLen * 8;
+    u64 const totalBits = m_totalLen * 8;
 
     u8 padding[72]; // At most 64 + 8 bytes of padding needed.
     padding[0] = 0x80;
-    size_t padLen = (m_bufferLen < 56) ? (56 - m_bufferLen) : (120 - m_bufferLen);
+    size_t const padLen = (m_bufferLen < 56) ? (56 - m_bufferLen) : (120 - m_bufferLen);
     std::memset(padding + 1, 0, padLen - 1);
 
     // Append length in bits as 64-bit LE.

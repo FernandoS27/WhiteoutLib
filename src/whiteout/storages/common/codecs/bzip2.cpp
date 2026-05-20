@@ -39,15 +39,15 @@ struct Bz2BitReader {
     u32 readBits(i32 count) {
         if (count <= 24) {
             refill();
-            u32 val = bitBuf >> (32 - count);
+            u32 const val = bitBuf >> (32 - count);
             bitBuf <<= count;
             bitsAvail -= count;
             return val;
         }
         // For count > 24, split to avoid undefined behavior from shifting
         // a u32 by 32 or more bits.
-        u32 hi = readBits(16);
-        u32 lo = readBits(count - 16);
+        u32 const hi = readBits(16);
+        u32 const lo = readBits(count - 16);
         return (hi << (count - 16)) | lo;
     }
 
@@ -154,8 +154,8 @@ struct Bz2Decoder {
 
     bool decodeBlock() {
         // Read block header magic: 0x314159265359 (48 bits).
-        u32 hi = br.readBits(24);
-        u32 lo = br.readBits(24);
+        u32 const hi = br.readBits(24);
+        u32 const lo = br.readBits(24);
         if (hi == 0x177245 && lo == 0x385090) {
             // End-of-stream marker.
             return false;
@@ -165,22 +165,22 @@ struct Bz2Decoder {
         }
 
         // Block CRC (32 bits) — we skip verification for simplicity.
-        [[maybe_unused]] u32 blockCrc = br.readBits(32);
+        [[maybe_unused]] u32 const blockCrc = br.readBits(32);
 
         // Randomized flag (1 bit) — must be 0 in modern bzip2.
-        u32 blockRandomised = br.readBits(1);
+        u32 const blockRandomised = br.readBits(1);
 
         // Original pointer for BWT undo.
-        u32 origPtr = br.readBits(24);
+        u32 const origPtr = br.readBits(24);
 
         // Symbol map — which of 16 groups of 16 symbols are used.
-        u32 usedGroups = br.readBits(16);
+        u32 const usedGroups = br.readBits(16);
         std::array<bool, 256> inUse{};
         u32 nInUse = 0;
 
         for (u32 g = 0; g < 16; g++) {
             if (usedGroups & (1u << (15 - g))) {
-                u32 groupBits = br.readBits(16);
+                u32 const groupBits = br.readBits(16);
                 for (u32 b = 0; b < 16; b++) {
                     if (groupBits & (1u << (15 - b))) {
                         inUse[g * 16 + b] = true;
@@ -192,15 +192,15 @@ struct Bz2Decoder {
         if (nInUse == 0)
             return false;
 
-        u32 alphaSize = nInUse + 2; // +2 for RUNA and RUNB.
+        u32 const alphaSize = nInUse + 2; // +2 for RUNA and RUNB.
 
         // Number of Huffman coding groups.
-        u32 nGroups = br.readBits(3);
+        u32 const nGroups = br.readBits(3);
         if (nGroups < 2 || nGroups > kMaxGroups)
             return false;
 
         // Selector list via MTF encoding.
-        u32 nSelectors = br.readBits(15);
+        u32 const nSelectors = br.readBits(15);
         if (nSelectors == 0 || nSelectors > kMaxSelectors)
             return false;
 
@@ -218,7 +218,7 @@ struct Bz2Decoder {
                     return false;
             }
             // MTF undo.
-            u8 val = selectorMtfBuf[idx];
+            u8 const val = selectorMtfBuf[idx];
             for (u32 j = idx; j > 0; j--)
                 selectorMtfBuf[j] = selectorMtfBuf[j - 1];
             selectorMtfBuf[0] = val;
@@ -235,10 +235,10 @@ struct Bz2Decoder {
                 for (;;) {
                     if (curr < 1 || curr > 20)
                         return false;
-                    u32 bit = br.readBits(1);
+                    u32 const bit = br.readBits(1);
                     if (bit == 0)
                         break;
-                    u32 bit2 = br.readBits(1);
+                    u32 const bit2 = br.readBits(1);
                     curr += bit2 ? -1 : 1;
                 }
                 lengths[s] = static_cast<u8>(curr);
@@ -302,7 +302,7 @@ struct Bz2Decoder {
                 } while (sym == kRunA || sym == kRunB);
 
                 // The byte to repeat is the one at mtfSymbols[0].
-                u8 repeatByte = mtfSymbols[0];
+                u8 const repeatByte = mtfSymbols[0];
                 if (block.size() + runLen > kMaxBlockSize)
                     return false;
                 block.insert(block.end(), runLen, repeatByte);
@@ -315,10 +315,10 @@ struct Bz2Decoder {
                 break;                               // EOB from inner loop.
             if (sym >= kRunA + 1 && sym <= nInUse) { // sym is an MTF index + 1.
                 // MTF decode: sym-1 is the MTF position.
-                u32 mtfIdx = sym - 1;
+                u32 const mtfIdx = sym - 1;
                 if (mtfIdx >= mtfCount)
                     return false;
-                u8 byte = mtfSymbols[mtfIdx];
+                u8 const byte = mtfSymbols[mtfIdx];
                 // Move to front.
                 for (u32 j = mtfIdx; j > 0; j--)
                     mtfSymbols[j] = mtfSymbols[j - 1];
@@ -330,14 +330,14 @@ struct Bz2Decoder {
                 return false;
         }
 
-        u32 blockSize = static_cast<u32>(block.size());
+        u32 const blockSize = static_cast<u32>(block.size());
         if (origPtr >= blockSize)
             return false;
 
         // Inverse BWT Transform.
         // Step 1: Count character frequencies.
         std::array<u32, 256> charCount{};
-        for (u8 b : block)
+        for (u8 const b : block)
             charCount[b]++;
 
         // Step 2: Compute cumulative counts.
@@ -351,16 +351,16 @@ struct Bz2Decoder {
         // Step 3: Build the transformation vector T.
         std::vector<u32> T(blockSize);
         for (u32 i = 0; i < blockSize; i++) {
-            u8 ch = block[i];
+            u8 const ch = block[i];
             T[cumCount[ch]] = i;
             cumCount[ch]++;
         }
 
         // Step 4: Follow the transformation vector to produce output.
         u32 pos = T[origPtr];
-        size_t outStart = output.size();
+        size_t const outStart = output.size();
         for (u32 i = 0; i < blockSize; i++) {
-            u8 ch = block[pos];
+            u8 const ch = block[pos];
             output.push_back(ch);
             pos = T[pos];
             if (output.size() >= maxOutput)
@@ -374,14 +374,14 @@ struct Bz2Decoder {
         //
         // RLE format: if 4 consecutive identical bytes appear, the next byte N
         // means "repeat that byte N more times" (0-255 additional copies).
-        size_t rleStart = outStart;
-        size_t rleEnd = output.size();
+        size_t const rleStart = outStart;
+        size_t const rleEnd = output.size();
         std::vector<u8> decoded;
         decoded.reserve(rleEnd - rleStart);
 
         size_t rp = rleStart;
         while (rp < rleEnd) {
-            u8 ch = output[rp++];
+            u8 const ch = output[rp++];
             decoded.push_back(ch);
             u32 runCount = 1;
 
@@ -392,7 +392,7 @@ struct Bz2Decoder {
             }
 
             if (runCount == 4 && rp < rleEnd) {
-                u32 extra = output[rp++];
+                u32 const extra = output[rp++];
                 for (u32 j = 0; j < extra; j++) {
                     decoded.push_back(ch);
                 }
@@ -414,13 +414,13 @@ struct Bz2Decoder {
 
     bool decode() {
         // Stream header: 'B', 'Z', 'h', then block size digit '1'-'9'.
-        u8 b0 = br.readByte();
-        u8 b1 = br.readByte();
-        u8 b2 = br.readByte();
+        u8 const b0 = br.readByte();
+        u8 const b1 = br.readByte();
+        u8 const b2 = br.readByte();
         if (b0 != 'B' || b1 != 'Z' || b2 != 'h')
             return false;
 
-        u8 blockSizeChar = br.readByte();
+        u8 const blockSizeChar = br.readByte();
         if (blockSizeChar < '1' || blockSizeChar > '9')
             return false;
 
@@ -467,10 +467,10 @@ struct Bz2BitWriter {
 
     void writeBits(i32 count, u32 val) {
         while (count > 0) {
-            i32 space = 8 - bitsUsed;
-            i32 bits = (count < space) ? count : space;
+            i32 const space = 8 - bitsUsed;
+            i32 const bits = (count < space) ? count : space;
             // Take the top `bits` from val.
-            u32 chunk = (val >> (count - bits)) & ((1u << bits) - 1);
+            u32 const chunk = (val >> (count - bits)) & ((1u << bits) - 1);
             bitBuf = (bitBuf << bits) | chunk;
             bitsUsed += bits;
             count -= bits;
@@ -525,8 +525,8 @@ u32 bwtForward(const u8* input, u32 len, u8* output) {
 
     std::sort(sa.begin(), sa.end(), [&](u32 a, u32 b) {
         for (u32 i = 0; i < len; i++) {
-            u8 ca = input[(a + i) % len];
-            u8 cb = input[(b + i) % len];
+            u8 const ca = input[(a + i) % len];
+            u8 const cb = input[(b + i) % len];
             if (ca != cb)
                 return ca < cb;
         }
@@ -548,7 +548,7 @@ std::vector<u8> bz2RleEncode(const u8* data, size_t len) {
     out.reserve(len);
     size_t pos = 0;
     while (pos < len) {
-        u8 ch = data[pos];
+        u8 const ch = data[pos];
         size_t run = 1;
         while (pos + run < len && data[pos + run] == ch && run < 259)
             run++;
@@ -622,7 +622,7 @@ MtfResult mtfEncode(const u8* data, u32 len) {
     };
 
     for (u32 i = 0; i < len; i++) {
-        u8 ch = data[i];
+        u8 const ch = data[i];
         // Find position in MTF list.
         u32 pos = 0;
         while (mtf[pos] != ch)
@@ -692,7 +692,7 @@ void assignCodeLengths(const u32* freqs, u32 nSyms, u8* lengths, i32 maxLen = 20
         auto [f2, i2] = heap.back();
         heap.pop_back();
 
-        i32 newIdx = static_cast<i32>(nodes.size());
+        i32 const newIdx = static_cast<i32>(nodes.size());
         nodes.push_back({f1 + f2, i1, i2, 0});
         heap.push_back({f1 + f2, newIdx});
         std::push_heap(heap.begin(), heap.end(), cmp);
@@ -766,7 +766,7 @@ void encodeBlock(Bz2BitWriter& bw, const u8* data, u32 len, u32 blockCrc) {
 
     // Forward BWT.
     std::vector<u8> bwtOut(rled.size());
-    u32 origPtr = bwtForward(rled.data(), static_cast<u32>(rled.size()), bwtOut.data());
+    u32 const origPtr = bwtForward(rled.data(), static_cast<u32>(rled.size()), bwtOut.data());
 
     bw.writeBits(24, origPtr);
 
@@ -795,12 +795,12 @@ void encodeBlock(Bz2BitWriter& bw, const u8* data, u32 len, u32 blockCrc) {
         }
     }
 
-    u32 alphaSize = mtf.nInUse + 2;
-    u32 nSymbols = static_cast<u32>(mtf.symbols.size());
+    u32 const alphaSize = mtf.nInUse + 2;
+    u32 const nSymbols = static_cast<u32>(mtf.symbols.size());
 
     // Use a single Huffman group for simplicity.
-    u32 nGroups = 2; // BZip2 requires at least 2.
-    u32 nSelectors = (nSymbols + kGroupSize - 1) / kGroupSize;
+    u32 const nGroups = 2; // BZip2 requires at least 2.
+    u32 const nSelectors = (nSymbols + kGroupSize - 1) / kGroupSize;
 
     bw.writeBits(3, nGroups);
     bw.writeBits(15, nSelectors);
@@ -812,7 +812,7 @@ void encodeBlock(Bz2BitWriter& bw, const u8* data, u32 len, u32 blockCrc) {
 
     // Compute frequency table.
     std::vector<u32> freq(alphaSize, 0);
-    for (u32 sym : mtf.symbols) {
+    for (u32 const sym : mtf.symbols) {
         if (sym < alphaSize)
             freq[sym]++;
     }
@@ -830,7 +830,7 @@ void encodeBlock(Bz2BitWriter& bw, const u8* data, u32 len, u32 blockCrc) {
         i32 curr = codeLens[0];
         bw.writeBits(5, static_cast<u32>(curr));
         for (u32 s = 0; s < alphaSize; s++) {
-            i32 target = codeLens[s];
+            i32 const target = codeLens[s];
             while (curr < target) {
                 bw.writeBits(2, 0x2); // 1,0 = increment
                 curr++;
@@ -844,7 +844,7 @@ void encodeBlock(Bz2BitWriter& bw, const u8* data, u32 len, u32 blockCrc) {
     }
 
     // Encode symbols.
-    for (u32 sym : mtf.symbols) {
+    for (u32 const sym : mtf.symbols) {
         if (sym < alphaSize && codeLens[sym] > 0) {
             bw.writeBits(codeLens[sym], codes[sym]);
         }
@@ -869,7 +869,7 @@ std::vector<u8> bzip2Compress(std::span<const u8> src) {
     bw.writeByte('9'); // Block size 9 (900k) — standard for MPQ.
 
     // Compute CRC of original data.
-    u32 blockCrc = bz2Crc32(src.data(), src.size());
+    u32 const blockCrc = bz2Crc32(src.data(), src.size());
 
     // Encode all data as a single block (BZip2 max block = 900k).
     // For MPQ sectors, data is always < 900k.

@@ -113,7 +113,7 @@ const SnoValue* SnoValue::field(const std::string& name) const {
     if (!isObject())
         return nullptr;
     const SnoObject& obj = asObject();
-    SnoObject::const_iterator it = obj.find(name);
+    SnoObject::const_iterator const it = obj.find(name);
     return it != obj.end() ? &it->second : nullptr;
 }
 

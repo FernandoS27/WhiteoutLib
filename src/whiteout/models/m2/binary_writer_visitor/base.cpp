@@ -383,14 +383,14 @@ void BinaryWriterVisitor::visit(const AnimationTrackBase& track) {
 
 void BinaryWriterVisitor::visit(const std::string& str) {
     writer.write<u32>(static_cast<u32>(str.size()));
-    u32 offsetPos = writer.getPosition();
+    u32 const offsetPos = writer.getPosition();
     writer.write<u32>(0);
     if (str.empty()) {
         return;
     }
 
     deferredWrites.push_back([this, offsetPos, &str]() {
-        u32 currentPos = writer.getPosition();
+        u32 const currentPos = writer.getPosition();
         writer.setPosition(offsetPos);
         writer.write(currentPos - baseOffset);
         writer.setPosition(currentPos);

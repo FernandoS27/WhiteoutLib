@@ -1068,7 +1068,7 @@ std::optional<std::string> Texture::generateMipmaps(u32 newMipCount, interfaces:
     // Multikind: fill with default
     for (size_t i = 0; i < splitCount; ++i) {
         if (chKinds[i] == TextureKind::Unused) {
-            Channel ch = static_cast<Channel>(i);
+            Channel const ch = static_cast<Channel>(i);
             merged->fillChannel(ch, channelDefault(ch));
         }
     }

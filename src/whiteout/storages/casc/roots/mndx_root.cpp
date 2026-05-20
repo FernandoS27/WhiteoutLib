@@ -95,7 +95,7 @@ static SetBits getNumberOfSetBits(u32 value) {
     value = ((value >> 1) & 0x55555555) + (value & 0x55555555);
     value = ((value >> 2) & 0x33333333) + (value & 0x33333333);
     value = ((value >> 4) & 0x0F0F0F0F) + (value & 0x0F0F0F0F);
-    u32 all = value * 0x01010101;
+    u32 const all = value * 0x01010101;
     SetBits sb;
     sb.lower08 = static_cast<u8>(all & 0xFF);
     sb.lower16 = static_cast<u8>((all >> 8) & 0xFF);
@@ -165,12 +165,12 @@ public:
         if (!getU64(byteCount)) return false;
         if (byteCount > 0xFFFFFFFF || (byteCount % sizeof(T)) != 0) return false;
         outCount = static_cast<u32>(byteCount / sizeof(T));
-        u32 numBytes = static_cast<u32>(byteCount);
+        u32 const numBytes = static_cast<u32>(byteCount);
         auto ptr = getPointer(numBytes);
         if (!ptr) return false;
         outPtr = reinterpret_cast<const T*>(ptr);
         // Align to 8 bytes.
-        u32 pad = (~numBytes + 1) & 0x07;
+        u32 const pad = (~numBytes + 1) & 0x07;
         if (pad > 0 && !skip(pad)) return false;
         return true;
     }
@@ -269,7 +269,7 @@ public:
         if (index & 0x20)
             intValue += popcount32(m_itemBits[(index >> 5) - 1]);
 
-        u32 bitMask = (1u << (index & 0x1F)) - 1;
+        u32 const bitMask = (1u << (index & 0x1F)) - 1;
         return intValue + popcount32(m_itemBits[index >> 5] & bitMask);
     }
 
@@ -278,7 +278,7 @@ public:
         if ((index & kSparseGroupMask) == 0)
             return m_indexToItem0[index >> kSparseGroupBits];
 
-        u32 groupIndex = findGroup0(index);
+        u32 const groupIndex = findGroup0(index);
         u32 edx = index + m_baseVals[groupIndex].baseValue200 - (groupIndex << kSparseGroupBits);
         u32 dwordIndex = groupIndex << 4;
 
@@ -360,7 +360,7 @@ public:
         if ((index & kSparseGroupMask) == 0)
             return m_indexToItem1[index >> kSparseGroupBits];
 
-        u32 groupIndex = findGroup1(index);
+        u32 const groupIndex = findGroup1(index);
         u32 distFromBase = index - m_baseVals[groupIndex].baseValue200;
         u32 dwordIndex = groupIndex << 4;
 
@@ -444,7 +444,7 @@ private:
                 minGroup++;
         } else {
             while ((minGroup + 1) < maxGroup) {
-                u32 mid = (maxGroup + minGroup) >> 1;
+                u32 const mid = (maxGroup + minGroup) >> 1;
                 if (index < (maxGroup << kSparseGroupBits) - m_baseVals[maxGroup].baseValue200)
                     maxGroup = mid;
                 else
@@ -463,7 +463,7 @@ private:
                 startValue++;
         } else {
             while ((startValue + 1) < nextValue) {
-                u32 mid = (nextValue + startValue) >> 1;
+                u32 const mid = (nextValue + startValue) >> 1;
                 if (index < m_baseVals[mid].baseValue200)
                     nextValue = mid;
                 else
@@ -509,9 +509,9 @@ public:
     }
 
     u32 getItem(u32 entryIndex) const {
-        u32 dwItemIndex = (entryIndex * m_bitsPerEntry) >> 5;
-        u32 dwStartBit = (entryIndex * m_bitsPerEntry) & 0x1F;
-        u32 dwEndBit = dwStartBit + m_bitsPerEntry;
+        u32 const dwItemIndex = (entryIndex * m_bitsPerEntry) >> 5;
+        u32 const dwStartBit = (entryIndex * m_bitsPerEntry) & 0x1F;
+        u32 const dwEndBit = dwStartBit + m_bitsPerEntry;
         u32 result;
 
         if (dwEndBit > 32) {
@@ -720,7 +720,7 @@ public:
             for (;;) {
                 if (search.itemCount == search.pathStops.size()) {
                     auto& lastStop = search.pathStops.back();
-                    u32 colTableIndex = m_collisionTable.getItem0(lastStop.nodeIndex) + 1;
+                    u32 const colTableIndex = m_collisionTable.getItem0(lastStop.nodeIndex) + 1;
                     search.pathStops.emplace_back(
                         colTableIndex - lastStop.nodeIndex - 1, colTableIndex, 0);
                 }
@@ -731,8 +731,8 @@ public:
                     search.itemCount++;
 
                     if (isPathFragmentString(pathStop.nodeIndex)) {
-                        u32 fragOffset = getPathFragmentOffset2(
-                            pathStop.hiBitsIndex, pathStop.nodeIndex);
+                        u32 const fragOffset =
+                            getPathFragmentOffset2(pathStop.hiBitsIndex, pathStop.nodeIndex);
 
                         if (m_childDB) {
                             m_childDB->copyPathFragmentByIndex(search, fragOffset);
@@ -766,7 +766,7 @@ public:
                     }
 
                     search.pathStops[search.itemCount - 1].nodeIndex++;
-                    u32 prevCount = search.pathStops[search.itemCount - 2].savedPathLen;
+                    u32 const prevCount = search.pathStops[search.itemCount - 2].savedPathLen;
                     search.pathBuffer.resize(prevCount);
                     search.itemCount--;
                 }
@@ -819,7 +819,7 @@ private:
     }
 
     u32 getPathFragmentOffset1(u32 indexLoBits) const {
-        u32 indexHiBits = m_collisionHiBitsIndexes.getItemValueAt(indexLoBits);
+        u32 const indexHiBits = m_collisionHiBitsIndexes.getItemValueAt(indexLoBits);
         return (m_hiBitsTable.getItem(indexHiBits) << 8) | m_loBitsTable[indexLoBits];
     }
 
@@ -833,7 +833,7 @@ private:
     }
 
     bool comparePathFragment(SearchState& search) const {
-        u32 nodeIdx = search.calcHashValue() & m_hashTableMask;
+        u32 const nodeIdx = search.calcHashValue() & m_hashTableMask;
         auto entry = &m_hashTable[nodeIdx];
 
         if (entry->nodeIndex == search.nodeIndex) {
@@ -860,8 +860,8 @@ private:
 
         while (m_collisionTable.isItemPresent(colTableIndex)) {
             if (isPathFragmentString(search.nodeIndex)) {
-                u32 fragOffset = getPathFragmentOffset2(hiBitsIndex, search.nodeIndex);
-                u32 savePathLength = search.pathLength;
+                u32 const fragOffset = getPathFragmentOffset2(hiBitsIndex, search.nodeIndex);
+                u32 const savePathLength = search.pathLength;
 
                 if (m_childDB) {
                     if (m_childDB->comparePathFragmentByIndex(search, fragOffset))
@@ -909,7 +909,7 @@ private:
                 if (search.pathLength >= search.cchSearchMask) return false;
             } else {
                 if (isPathFragmentString(tableIndex)) {
-                    u32 fragOffset = getPathFragmentOffset1(tableIndex);
+                    u32 const fragOffset = getPathFragmentOffset1(tableIndex);
                     if (m_childDB) {
                         if (!m_childDB->comparePathFragmentByIndex(search, fragOffset))
                             return false;
@@ -932,7 +932,7 @@ private:
     }
 
     bool compareAndCopyPathFragment(SearchState& search) const {
-        u32 nodeIdx = search.calcHashValue() & m_hashTableMask;
+        u32 const nodeIdx = search.calcHashValue() & m_hashTableMask;
         auto entry = &m_hashTable[nodeIdx];
 
         if (search.nodeIndex == entry->nodeIndex) {
@@ -963,8 +963,8 @@ private:
 
         while (m_collisionTable.isItemPresent(colTableIndex)) {
             if (isPathFragmentString(search.nodeIndex)) {
-                u32 fragOffset = getPathFragmentOffset2(hiBitsIndex, search.nodeIndex);
-                u32 savePathLength = search.pathLength;
+                u32 const fragOffset = getPathFragmentOffset2(hiBitsIndex, search.nodeIndex);
+                u32 const savePathLength = search.pathLength;
 
                 if (m_childDB) {
                     if (m_childDB->compareAndCopyPathFragmentByIndex(search, fragOffset))
@@ -1017,7 +1017,7 @@ private:
                 if (tableIndex == 0) return true;
             } else {
                 if (isPathFragmentString(tableIndex)) {
-                    u32 fragOffset = getPathFragmentOffset1(tableIndex);
+                    u32 const fragOffset = getPathFragmentOffset1(tableIndex);
                     if (m_childDB) {
                         if (!m_childDB->compareAndCopyPathFragmentByIndex(search, fragOffset))
                             return false;
@@ -1064,7 +1064,7 @@ private:
                 if (tableIndex == 0) return;
             } else {
                 if (isPathFragmentString(tableIndex)) {
-                    u32 fragOffset = getPathFragmentOffset1(tableIndex);
+                    u32 const fragOffset = getPathFragmentOffset1(tableIndex);
                     if (m_childDB) {
                         m_childDB->copyPathFragmentByIndex(search, fragOffset);
                     } else {
@@ -1186,13 +1186,13 @@ std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
     // Read the MNDX info fields.
     if (offset + 0x1C > data.size()) return nullptr;
 
-    u32 marInfoOffset  = readLE32(ptr + offset + 0x00);
-    u32 marInfoCount   = readLE32(ptr + offset + 0x04);
-    u32 marInfoSize    = readLE32(ptr + offset + 0x08);
-    u32 ckeyOffset     = readLE32(ptr + offset + 0x0C);
-    u32 ckeyCount      = readLE32(ptr + offset + 0x10);
-    u32 fileNameCount  = readLE32(ptr + offset + 0x14);
-    u32 ckeyEntrySize  = readLE32(ptr + offset + 0x18);
+    u32 const marInfoOffset = readLE32(ptr + offset + 0x00);
+    u32 const marInfoCount = readLE32(ptr + offset + 0x04);
+    u32 const marInfoSize = readLE32(ptr + offset + 0x08);
+    u32 const ckeyOffset = readLE32(ptr + offset + 0x0C);
+    u32 const ckeyCount = readLE32(ptr + offset + 0x10);
+    u32 const fileNameCount = readLE32(ptr + offset + 0x14);
+    u32 const ckeyEntrySize = readLE32(ptr + offset + 0x18);
 
     if (marInfoCount > kMarCount) return nullptr;
     if (marInfoSize != sizeof(MarInfo)) return nullptr;
@@ -1202,14 +1202,14 @@ std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
     std::unique_ptr<MarFile> marFiles[kMarCount];
 
     for (u32 i = 0; i < marInfoCount; ++i) {
-        size_t marInfoPos = marInfoOffset + static_cast<size_t>(marInfoSize) * i;
+        size_t const marInfoPos = marInfoOffset + static_cast<size_t>(marInfoSize) * i;
         if (marInfoPos + sizeof(MarInfo) > data.size()) return nullptr;
 
         MarInfo mi;
         std::memcpy(&mi, ptr + marInfoPos, sizeof(mi));
 
-        size_t marDataOff = mi.marDataOffset;
-        size_t marDataSz  = mi.marDataSize;
+        size_t const marDataOff = mi.marDataOffset;
+        size_t const marDataSz = mi.marDataSize;
 
         if (marDataOff + marDataSz > data.size()) return nullptr;
 
@@ -1228,7 +1228,7 @@ std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
         return nullptr;
 
     // Load CKey entries.
-    size_t ckeyDataSize = static_cast<size_t>(ckeyCount) * ckeyEntrySize;
+    size_t const ckeyDataSize = static_cast<size_t>(ckeyCount) * ckeyEntrySize;
     if (ckeyOffset + ckeyDataSize > data.size()) return nullptr;
 
     auto* ckeyEntries = reinterpret_cast<const MndxCKeyEntry*>(ptr + ckeyOffset);
@@ -1256,7 +1256,7 @@ std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
         search.cchSearchMask = 0;
         bool found = false;
 
-        size_t expectedPackages = marFiles[kMarPackageNames]->fileNameCount();
+        size_t const expectedPackages = marFiles[kMarPackageNames]->fileNameCount();
         packages.resize(expectedPackages);
 
         while (marFiles[kMarPackageNames]->doSearch(search, found) && found) {
@@ -1277,14 +1277,14 @@ std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
         while (marFiles[kMarStrippedNames]->doSearch(search, found) && found) {
             if (search.nIndex >= fileNameCount) continue;
 
-            std::string strippedName(search.foundPath, search.cchFoundPath);
+            std::string const strippedName(search.foundPath, search.cchFoundPath);
 
             // Get all CKey entries for this file name (across packages).
             const MndxCKeyEntry* entryPtr = fileNameToCKey[search.nIndex];
             const MndxCKeyEntry* ckeyEnd = ckeyEntries + ckeyCount;
 
             while (entryPtr < ckeyEnd) {
-                u32 packageIndex = entryPtr->flags & kPackageIndexMask;
+                u32 const packageIndex = entryPtr->flags & kPackageIndexMask;
 
                 // Build full path: packageName/strippedName.
                 std::string fullPath;
@@ -1300,7 +1300,7 @@ std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
 
                 root->m_entries.push_back(std::move(entry));
 
-                bool isLast = (entryPtr->flags & kMndxLastCKeyEntry) != 0;
+                bool const isLast = (entryPtr->flags & kMndxLastCKeyEntry) != 0;
                 entryPtr++;
                 if (isLast) break;
             }

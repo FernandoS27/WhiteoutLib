@@ -81,14 +81,14 @@ namespace {
 
 #ifdef _WIN32
 std::string lastErrorString() {
-    DWORD err = GetLastError();
+    DWORD const err = GetLastError();
     if (err == 0)
         return "Unknown error";
     LPSTR buf = nullptr;
-    DWORD len = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
-                                   FORMAT_MESSAGE_IGNORE_INSERTS,
-                               nullptr, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-                               reinterpret_cast<LPSTR>(&buf), 0, nullptr);
+    DWORD const len = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
+                                         FORMAT_MESSAGE_IGNORE_INSERTS,
+                                     nullptr, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                                     reinterpret_cast<LPSTR>(&buf), 0, nullptr);
     std::string msg(buf, len);
     LocalFree(buf);
     // Trim trailing newline.
@@ -126,7 +126,7 @@ std::optional<MappedFile> MappedFile::open(const std::string& path, AccessHint h
         return std::nullopt;
     }
 
-    int wideLen =
+    int const wideLen =
         MultiByteToWideChar(CP_UTF8, 0, path.c_str(), static_cast<int>(path.size()), nullptr, 0);
     if (wideLen <= 0) {
         setError(error, "Failed to convert path to wide string");
@@ -158,7 +158,7 @@ std::optional<MappedFile> MappedFile::open(const std::string& path, AccessHint h
     // Get file size.
     LARGE_INTEGER fileSize;
     if (!GetFileSizeEx(hFile, &fileSize) || fileSize.QuadPart == 0) {
-        std::string reason =
+        std::string const reason =
             fileSize.QuadPart == 0 ? "File is empty" : "GetFileSizeEx failed: " + lastErrorString();
         setError(error, reason);
         CloseHandle(hFile);
@@ -174,7 +174,7 @@ std::optional<MappedFile> MappedFile::open(const std::string& path, AccessHint h
     }
 
     // Map view.
-    void* viewPtr = MapViewOfFile(hMapping, FILE_MAP_READ, 0, 0, 0);
+    void const* viewPtr = MapViewOfFile(hMapping, FILE_MAP_READ, 0, 0, 0);
     if (!viewPtr) {
         setError(error, "MapViewOfFile failed: " + lastErrorString());
         CloseHandle(hMapping);
@@ -207,7 +207,7 @@ std::optional<std::vector<u8>> readFileFully(const std::string& path,
         return std::nullopt;
     }
 
-    int wideLen =
+    int const wideLen =
         MultiByteToWideChar(CP_UTF8, 0, path.c_str(), static_cast<int>(path.size()), nullptr, 0);
     if (wideLen <= 0) {
         setError(error, "Failed to convert path to wide string");
@@ -228,7 +228,7 @@ std::optional<std::vector<u8>> readFileFully(const std::string& path,
 
     LARGE_INTEGER fileSize;
     if (!GetFileSizeEx(hFile, &fileSize) || fileSize.QuadPart == 0) {
-        std::string reason =
+        std::string const reason =
             fileSize.QuadPart == 0 ? "File is empty" : "GetFileSizeEx failed: " + lastErrorString();
         setError(error, reason);
         CloseHandle(hFile);
@@ -238,8 +238,8 @@ std::optional<std::vector<u8>> readFileFully(const std::string& path,
     std::vector<u8> buffer(static_cast<size_t>(fileSize.QuadPart));
     size_t totalRead = 0;
     while (totalRead < buffer.size()) {
-        size_t remaining = buffer.size() - totalRead;
-        DWORD chunk = remaining > (1u << 30) ? (1u << 30) : static_cast<DWORD>(remaining);
+        size_t const remaining = buffer.size() - totalRead;
+        DWORD const chunk = remaining > (1u << 30) ? (1u << 30) : static_cast<DWORD>(remaining);
         DWORD got = 0;
         if (!ReadFile(hFile, buffer.data() + totalRead, chunk, &got, nullptr) || got == 0) {
             setError(error, "ReadFile failed: " + lastErrorString());

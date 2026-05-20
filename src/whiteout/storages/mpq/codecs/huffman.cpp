@@ -449,7 +449,7 @@ struct HuffTree {
                 item->remove();
                 linkTwo(higher, item);
 
-                HTreeItem* childLo2 = childHi->parent->childLo;
+                HTreeItem const* childLo2 = childHi->parent->childLo;
                 HTreeItem* par = item->parent;
                 if (par->childLo == item)
                     par->childLo = childHi;
@@ -489,7 +489,7 @@ struct HuffTree {
         u32 linkIndex = 0;
         u32 bitCount = 0;
 
-        bool hasLink = is.peek7Bits(linkIndex);
+        bool const hasLink = is.peek7Bits(linkIndex);
 
         HTreeItem* item;
         if (hasLink && quickLinks[linkIndex].validValue > minValidValue) {
@@ -635,7 +635,7 @@ struct HuffBitWriter {
 // Encode a value by walking from the leaf to root and emitting bits.
 // childLo child = bit 0, childHi (childLo->prev) = bit 1
 void encodeValue(HuffTree& tree, HuffBitWriter& bw, u32 value) {
-    HTreeItem* leaf = tree.itemsByByte[value];
+    HTreeItem const* leaf = tree.itemsByByte[value];
     if (!leaf)
         return;
 
@@ -643,9 +643,9 @@ void encodeValue(HuffTree& tree, HuffBitWriter& bw, u32 value) {
     std::array<u32, 64> bits;
     u32 bitCount = 0;
 
-    HTreeItem* item = leaf;
+    HTreeItem const* item = leaf;
     while (item->parent != nullptr) {
-        HTreeItem* par = item->parent;
+        HTreeItem const* par = item->parent;
         // childLo = 0, childHi (childLo->prev) = 1
         bits[bitCount++] = (item == par->childLo) ? 0 : 1;
         item = par;
@@ -681,7 +681,7 @@ std::vector<u8> huffmanCompress(std::span<const u8> src, u32 compType) {
         return {};
 
     for (size_t i = 0; i < src.size(); i++) {
-        u8 byte = src[i];
+        u8 const byte = src[i];
 
         if (tree.itemsByByte[byte] != nullptr) {
             // Symbol already in tree — encode it.

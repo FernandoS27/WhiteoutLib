@@ -27,13 +27,13 @@ void decode_block(const u8* block, u8* out) {
     const u16 c0_raw = static_cast<u16>(block[0]) | (static_cast<u16>(block[1]) << 8);
     const u16 c1_raw = static_cast<u16>(block[2]) | (static_cast<u16>(block[3]) << 8);
 
-    u32 r0 = expand5_to_8((c0_raw >> 11) & 0x1F);
-    u32 g0 = expand6_to_8((c0_raw >> 5) & 0x3F);
-    u32 b0 = expand5_to_8(c0_raw & 0x1F);
+    u32 const r0 = expand5_to_8((c0_raw >> 11) & 0x1F);
+    u32 const g0 = expand6_to_8((c0_raw >> 5) & 0x3F);
+    u32 const b0 = expand5_to_8(c0_raw & 0x1F);
 
-    u32 r1 = expand5_to_8((c1_raw >> 11) & 0x1F);
-    u32 g1 = expand6_to_8((c1_raw >> 5) & 0x3F);
-    u32 b1 = expand5_to_8(c1_raw & 0x1F);
+    u32 const r1 = expand5_to_8((c1_raw >> 11) & 0x1F);
+    u32 const g1 = expand6_to_8((c1_raw >> 5) & 0x3F);
+    u32 const b1 = expand5_to_8(c1_raw & 0x1F);
 
     std::array<std::array<u8, 4>, 4> palette{}; // [index][RGBA]
 
@@ -72,11 +72,11 @@ void decode_block(const u8* block, u8* out) {
     }
 
     // Unpack 16 × 2-bit indices from bytes 4..7
-    u32 bits = static_cast<u32>(block[4]) | (static_cast<u32>(block[5]) << 8) |
-               (static_cast<u32>(block[6]) << 16) | (static_cast<u32>(block[7]) << 24);
+    u32 const bits = static_cast<u32>(block[4]) | (static_cast<u32>(block[5]) << 8) |
+                     (static_cast<u32>(block[6]) << 16) | (static_cast<u32>(block[7]) << 24);
 
     for (u32 i = 0; i < 16; ++i) {
-        u32 idx = (bits >> (i * 2)) & 3;
+        u32 const idx = (bits >> (i * 2)) & 3;
         out[i * 4 + 0] = palette[idx][0];
         out[i * 4 + 1] = palette[idx][1];
         out[i * 4 + 2] = palette[idx][2];
@@ -108,9 +108,9 @@ struct RGB {
 
 /// Pack an 8-bit RGB triple into a 16-bit RGB565 value.
 inline u16 pack_565(i32 r, i32 g, i32 b) {
-    u32 r5 = static_cast<u32>(std::clamp(r, 0, 255)) >> 3;
-    u32 g6 = static_cast<u32>(std::clamp(g, 0, 255)) >> 2;
-    u32 b5 = static_cast<u32>(std::clamp(b, 0, 255)) >> 3;
+    u32 const r5 = static_cast<u32>(std::clamp(r, 0, 255)) >> 3;
+    u32 const g6 = static_cast<u32>(std::clamp(g, 0, 255)) >> 2;
+    u32 const b5 = static_cast<u32>(std::clamp(b, 0, 255)) >> 3;
     return static_cast<u16>((r5 << 11) | (g6 << 5) | b5);
 }
 
@@ -155,7 +155,9 @@ void find_bbox(const u8* rgba, RGB& min_color, RGB& max_color) {
     min_color = {255, 255, 255};
     max_color = {0, 0, 0};
     for (u32 i = 0; i < 16; ++i) {
-        i32 r = rgba[i * 4 + 0], g = rgba[i * 4 + 1], b = rgba[i * 4 + 2];
+        i32 const r = rgba[i * 4 + 0];
+        i32 const g = rgba[i * 4 + 1];
+        i32 const b = rgba[i * 4 + 2];
         min_color.r = std::min(min_color.r, r);
         min_color.g = std::min(min_color.g, g);
         min_color.b = std::min(min_color.b, b);
@@ -167,9 +169,9 @@ void find_bbox(const u8* rgba, RGB& min_color, RGB& max_color) {
 
 /// Inset the bounding box by 1/16th to improve endpoint selection.
 void inset_bbox(RGB& min_color, RGB& max_color) {
-    i32 dr = max_color.r - min_color.r;
-    i32 dg = max_color.g - min_color.g;
-    i32 db = max_color.b - min_color.b;
+    i32 const dr = max_color.r - min_color.r;
+    i32 const dg = max_color.g - min_color.g;
+    i32 const db = max_color.b - min_color.b;
     min_color.r = std::clamp(min_color.r + dr / BBOX_INSET_DIVISOR, 0, 255);
     min_color.g = std::clamp(min_color.g + dg / BBOX_INSET_DIVISOR, 0, 255);
     min_color.b = std::clamp(min_color.b + db / BBOX_INSET_DIVISOR, 0, 255);
@@ -183,11 +185,11 @@ u64 assign_indices_4c(const u8* rgba, const std::array<RGB, 4>& palette,
                       std::array<u32, 16>& indices) {
     u64 total_err = 0;
     for (u32 i = 0; i < 16; ++i) {
-        RGB pixel = {rgba[i * 4 + 0], rgba[i * 4 + 1], rgba[i * 4 + 2]};
+        RGB const pixel = {rgba[i * 4 + 0], rgba[i * 4 + 1], rgba[i * 4 + 2]};
         u64 best_err = std::numeric_limits<u64>::max();
         u32 best_idx = 0;
         for (u32 j = 0; j < 4; ++j) {
-            u64 distance = colour_dist(pixel, palette[j]);
+            u64 const distance = colour_dist(pixel, palette[j]);
             if (distance < best_err) {
                 best_err = distance;
                 best_idx = j;
@@ -225,11 +227,11 @@ u64 assign_indices_3c(const u8* rgba, const std::array<RGB, 4>& palette,
             indices[i] = 3; // transparent
             continue;
         }
-        RGB pixel = {rgba[i * 4 + 0], rgba[i * 4 + 1], rgba[i * 4 + 2]};
+        RGB const pixel = {rgba[i * 4 + 0], rgba[i * 4 + 1], rgba[i * 4 + 2]};
         u64 best_err = std::numeric_limits<u64>::max();
         u32 best_idx = 0;
         for (u32 j = 0; j < 3; ++j) { // only 3 opaque colours
-            u64 distance = colour_dist(pixel, palette[j]);
+            u64 const distance = colour_dist(pixel, palette[j]);
             if (distance < best_err) {
                 best_err = distance;
                 best_idx = j;

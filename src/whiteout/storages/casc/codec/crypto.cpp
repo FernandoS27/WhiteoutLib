@@ -32,10 +32,10 @@ bool KeyRing::importFromString(const std::string& keyList) {
     std::string line;
     while (std::getline(ss, line)) {
         // Trim leading/trailing whitespace.
-        size_t start = line.find_first_not_of(" \t\r\n");
+        size_t const start = line.find_first_not_of(" \t\r\n");
         if (start == std::string::npos)
             continue;
-        size_t end = line.find_last_not_of(" \t\r\n");
+        size_t const end = line.find_last_not_of(" \t\r\n");
         line = line.substr(start, end - start + 1);
 
         // Skip comments and empty lines.
@@ -43,13 +43,13 @@ bool KeyRing::importFromString(const std::string& keyList) {
             continue;
 
         // Parse: keyNameHex keyValueHex
-        size_t sep = line.find_first_of(" \t");
+        size_t const sep = line.find_first_of(" \t");
         if (sep == std::string::npos)
             continue;
-        std::string nameHex = line.substr(0, sep);
-        std::string valueHex = line.substr(line.find_first_not_of(" \t", sep));
+        std::string const nameHex = line.substr(0, sep);
+        std::string const valueHex = line.substr(line.find_first_not_of(" \t", sep));
 
-        u64 keyName = storages::common::hexToU64(nameHex);
+        u64 const keyName = storages::common::hexToU64(nameHex);
         std::array<u8, 16> key{};
         if (storages::common::hexDecode(valueHex, key.data(), 16)) {
             m_keys[keyName] = key;
@@ -63,8 +63,8 @@ bool KeyRing::importFromFile(const std::string& path) {
     auto file = whiteout::common::open_ifstream(path);
     if (!file.is_open())
         return false;
-    std::string content((std::istreambuf_iterator<char>(file)),
-                        std::istreambuf_iterator<char>());
+    std::string const content((std::istreambuf_iterator<char>(file)),
+                              std::istreambuf_iterator<char>());
     return importFromString(content);
 }
 
@@ -181,7 +181,7 @@ void salsa20Decrypt(std::span<u8> data, std::span<const u8, 16> key,
     while (offset < data.size()) {
         salsa20Block(state, block);
 
-        size_t chunkSize = std::min<size_t>(64, data.size() - offset);
+        size_t const chunkSize = std::min<size_t>(64, data.size() - offset);
         for (size_t i = 0; i < chunkSize; ++i)
             data[offset + i] ^= block[i];
 
@@ -220,7 +220,7 @@ void arc4Transform(std::span<u8> data, std::span<const u8> key) {
         ii = static_cast<u8>(ii + 1);
         j = static_cast<u8>(j + S[ii]);
         std::swap(S[ii], S[j]);
-        u8 keyByte = S[static_cast<u8>(S[ii] + S[j])];
+        u8 const keyByte = S[static_cast<u8>(S[ii] + S[j])];
         data[k] ^= keyByte;
     }
 }

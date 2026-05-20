@@ -36,7 +36,7 @@ void BinaryWriterVisitor::write(const Model& model) {
     indexTable.emplace_back(IndexEntry{kWoemMagic, 0, 1, 0});
 
     // Reserve index slot 1 for model root
-    u32 modelRefIdx = static_cast<u32>(indexTable.size());
+    u32 const modelRefIdx = static_cast<u32>(indexTable.size());
     indexTable.emplace_back(IndexEntry{chunkTag<Model>, 0, 1, ChunkTagTraits<Model>::max_version});
 
     header.modelRef.entries = 1;
@@ -88,7 +88,7 @@ void BinaryWriterVisitor::transferDeferredWrites() {
 
 template <typename T>
 void BinaryWriterVisitor::visit(const std::vector<T>& container) {
-    Reference ref{};
+    Reference const ref{};
     if (container.empty()) {
         writer.write(ref);
         return;
@@ -125,7 +125,7 @@ void BinaryWriterVisitor::visit(const std::vector<T>& container) {
 }
 
 void BinaryWriterVisitor::visit(const std::string& str) {
-    Reference ref{};
+    Reference const ref{};
     if (str.empty()) {
         writer.write(ref);
         return;

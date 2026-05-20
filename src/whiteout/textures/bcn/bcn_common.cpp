@@ -9,8 +9,8 @@ void gather_channel_block(std::span<const u8> rgba, u32 width, u32 height, u32 b
                           std::array<u8, 16>& out, u32 stride, u32 channel_offset) {
     for (u32 pixel_y = 0; pixel_y < 4; ++pixel_y) {
         for (u32 pixel_x = 0; pixel_x < 4; ++pixel_x) {
-            u32 src_x = std::min(block_x * 4 + pixel_x, width - 1);
-            u32 src_y = std::min(block_y * 4 + pixel_y, height - 1);
+            u32 const src_x = std::min(block_x * 4 + pixel_x, width - 1);
+            u32 const src_y = std::min(block_y * 4 + pixel_y, height - 1);
             out[pixel_y * 4 + pixel_x] = rgba[(src_y * width + src_x) * stride + channel_offset];
         }
     }

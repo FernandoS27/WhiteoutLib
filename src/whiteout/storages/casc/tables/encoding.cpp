@@ -41,7 +41,7 @@ public:
 
     std::vector<u8> getRange(size_t offset, size_t length) override {
         if (offset >= m_data.size()) return {};
-        size_t take = std::min(length, m_data.size() - offset);
+        size_t const take = std::min(length, m_data.size() - offset);
         return std::vector<u8>(m_data.begin() + offset,
                                m_data.begin() + offset + take);
     }
@@ -65,9 +65,9 @@ public:
         auto hdrBytes = m_fetcher->fetchRange(m_archiveKey, m_baseOffset, 8);
         if (!hdrBytes || hdrBytes->size() < 8) return false;
 
-        u32 magic = storages::common::readBE32(hdrBytes->data());
+        u32 const magic = storages::common::readBE32(hdrBytes->data());
         if (magic != 0x424C5445u) return false; // 'BLTE'
-        u32 headerSize = storages::common::readBE32(hdrBytes->data() + 4);
+        u32 const headerSize = storages::common::readBE32(hdrBytes->data() + 4);
 
         if (headerSize == 0) {
             // Single-frame BLTE — no per-frame layout, no sub-range fetch
@@ -95,9 +95,8 @@ public:
 
         // flags(1) + frameCount(u24 BE), then frameCount * (compSize, uncompSize, md5).
         if (tableBytes->size() < 4) return false;
-        u32 frameCount = (u32((*tableBytes)[1]) << 16)
-                       | (u32((*tableBytes)[2]) << 8)
-                       |  u32((*tableBytes)[3]);
+        u32 const frameCount =
+            (u32((*tableBytes)[1]) << 16) | (u32((*tableBytes)[2]) << 8) | u32((*tableBytes)[3]);
 
         constexpr size_t kEntrySize = 4 + 4 + 16;
         if (tableBytes->size() < 4 + frameCount * kEntrySize) return false;
@@ -111,8 +110,8 @@ public:
         u64 cumUncomp = 0;
         for (u32 i = 0; i < frameCount; ++i) {
             const u8* entry = tableBytes->data() + 4 + i * kEntrySize;
-            u32 compSize   = storages::common::readBE32(entry);
-            u32 uncompSize = storages::common::readBE32(entry + 4);
+            u32 const compSize = storages::common::readBE32(entry);
+            u32 const uncompSize = storages::common::readBE32(entry + 4);
             m_layout.frames.push_back({compSize, uncompSize});
             m_layout.offsets.push_back(frameDataOff);
             cumUncomp += uncompSize;
@@ -131,7 +130,7 @@ public:
         if (!resolveLayout()) return {};
         if (offset >= m_totalDecoded) return {};
 
-        size_t end = std::min(offset + length, m_totalDecoded);
+        size_t const end = std::min(offset + length, m_totalDecoded);
         if (end <= offset) return {};
 
         if (m_isSingleFrame) {
@@ -144,20 +143,20 @@ public:
         auto upper = std::upper_bound(m_cumDecoded.begin(),
                                       m_cumDecoded.end(), uint64_t(offset));
         if (upper == m_cumDecoded.begin()) return {};
-        size_t firstFrame = size_t(std::distance(m_cumDecoded.begin(), upper) - 1);
+        size_t const firstFrame = size_t(std::distance(m_cumDecoded.begin(), upper) - 1);
 
         std::vector<u8> result;
         result.reserve(end - offset);
 
         for (size_t fi = firstFrame; fi < m_layout.frames.size(); ++fi) {
-            u64 frameStart = m_cumDecoded[fi];
+            u64 const frameStart = m_cumDecoded[fi];
             if (frameStart >= end) break;
 
             auto frameData = decodeFrameCached(u32(fi));
             if (frameData.empty()) return {};
 
-            size_t copyFrom = (offset > frameStart) ? size_t(offset - frameStart) : 0;
-            size_t copyTo   = std::min(size_t(end - frameStart), frameData.size());
+            size_t const copyFrom = (offset > frameStart) ? size_t(offset - frameStart) : 0;
+            size_t const copyTo = std::min(size_t(end - frameStart), frameData.size());
             if (copyTo > copyFrom) {
                 result.insert(result.end(),
                               frameData.begin() + copyFrom,
@@ -172,7 +171,7 @@ private:
 
     std::vector<u8> decodeFrameCached(u32 frameIdx) {
         {
-            std::lock_guard<std::mutex> lk(m_cacheMutex);
+            std::lock_guard<std::mutex> const lk(m_cacheMutex);
             auto it = m_frameCache.find(frameIdx);
             if (it != m_frameCache.end()) {
                 // Touch in LRU.
@@ -183,8 +182,8 @@ private:
         }
 
         // Range-fetch and decode this frame outside the lock.
-        u64 frameByteOffset = m_baseOffset + m_layout.offsets[frameIdx];
-        u32 compSize = m_layout.frames[frameIdx].compressedSize;
+        u64 const frameByteOffset = m_baseOffset + m_layout.offsets[frameIdx];
+        u32 const compSize = m_layout.frames[frameIdx].compressedSize;
         auto raw = m_fetcher->fetchRange(m_archiveKey, frameByteOffset, compSize);
         if (!raw) return {};
 
@@ -196,7 +195,7 @@ private:
         auto decoded = blteDecodeFrame(*raw, sl, 0, m_keys);
         if (!decoded.success) return {};
 
-        std::lock_guard<std::mutex> lk(m_cacheMutex);
+        std::lock_guard<std::mutex> const lk(m_cacheMutex);
         // Another thread may have inserted while we were decoding.
         auto it = m_frameCache.find(frameIdx);
         if (it != m_frameCache.end()) {
@@ -210,7 +209,7 @@ private:
         m_lruIters[frameIdx] = m_lruOrder.begin();
 
         while (m_lruOrder.size() > kMaxCachedFrames) {
-            u32 victim = m_lruOrder.back();
+            u32 const victim = m_lruOrder.back();
             m_lruOrder.pop_back();
             m_lruIters.erase(victim);
             m_frameCache.erase(victim);
@@ -316,9 +315,9 @@ EncodingHeader parseEncodingHeader(std::span<const u8> data) {
 
     hdr.cKeySize = data[3];
     hdr.eKeySize = data[4];
-    u16 cKeyPageSizeKB = readBE16(data.data() + 5);
+    u16 const cKeyPageSizeKB = readBE16(data.data() + 5);
     hdr.cKeyPageCount = readBE32(data.data() + 9);
-    u32 eSpecBlockSize = readBE32(data.data() + 18);
+    u32 const eSpecBlockSize = readBE32(data.data() + 18);
 
     hdr.cKeyPageSize = size_t(cKeyPageSizeKB) * 1024;
     // CKey TOC entry: firstCKey(cKeySize) + pageMD5(16).
@@ -334,25 +333,25 @@ void parseCKeyPageInto(std::span<const u8> data,
                         const EncodingHeader& hdr,
                         u32 pageIdx,
                         std::vector<EncodingEntry>& out) {
-    size_t pageStart = hdr.cKeyPagesStart + size_t(pageIdx) * hdr.cKeyPageSize;
+    size_t const pageStart = hdr.cKeyPagesStart + size_t(pageIdx) * hdr.cKeyPageSize;
     if (pageStart + 2 > data.size()) return;
 
     size_t pos = pageStart;
-    size_t pageEnd = std::min(pageStart + hdr.cKeyPageSize, data.size());
+    size_t const pageEnd = std::min(pageStart + hdr.cKeyPageSize, data.size());
 
     while (pos + 1 + 5 + hdr.cKeySize + hdr.eKeySize <= pageEnd) {
-        u8 keyCount = data[pos];
+        u8 const keyCount = data[pos];
         if (keyCount == 0) break;                      // zero-padded tail
 
-        u64 fileSize = readBE40(data.data() + pos + 1);
-        size_t cKeyOff = pos + 6;
+        u64 const fileSize = readBE40(data.data() + pos + 1);
+        size_t const cKeyOff = pos + 6;
         if (cKeyOff + hdr.cKeySize > pageEnd) break;
 
         EncodingEntry entry;
         std::memcpy(entry.cKey.data(), data.data() + cKeyOff, hdr.cKeySize);
         entry.fileSize = fileSize;
 
-        size_t eKeyOff = cKeyOff + hdr.cKeySize;
+        size_t const eKeyOff = cKeyOff + hdr.cKeySize;
         if (eKeyOff + hdr.eKeySize > pageEnd) break;
         std::memcpy(entry.eKey.data(), data.data() + eKeyOff, hdr.eKeySize);
 
@@ -375,7 +374,7 @@ EncodingTable EncodingTable::parse(std::span<const u8> data,
     if (!hdr.valid) return table;
 
     // Pre-reserve based on estimated entry count (~38 bytes per entry).
-    size_t estimatedEntries = size_t(hdr.cKeyPageCount) * (hdr.cKeyPageSize / 38);
+    size_t const estimatedEntries = size_t(hdr.cKeyPageCount) * (hdr.cKeyPageSize / 38);
     table.m_entries.reserve(estimatedEntries);
 
     // --- Phase 1: Parse all pages (sequential — order matters for stable
@@ -466,7 +465,7 @@ EncodingTable EncodingTable::openLazy(std::span<const u8> data,
 
     // Reserve so lazy push_backs never reallocate — keeps returned
     // Entry* stable across concurrent page faults.
-    size_t estimatedEntries = size_t(state->cKeyPageCount) * (state->cKeyPageSize / 38);
+    size_t const estimatedEntries = size_t(state->cKeyPageCount) * (state->cKeyPageSize / 38);
     table.m_entries.reserve(estimatedEntries);
     table.m_cKeyIndex.reserve(estimatedEntries);
     table.m_lazy = std::move(state);
@@ -488,7 +487,7 @@ EncodingTable EncodingTable::openLazyOnline(CdnFetcher* fetcher,
             fetcher, archiveKeyHex, archiveOffset, encodedSize, keys)))
         return table;
 
-    size_t estimatedEntries = size_t(state->cKeyPageCount) * (state->cKeyPageSize / 38);
+    size_t const estimatedEntries = size_t(state->cKeyPageCount) * (state->cKeyPageSize / 38);
     table.m_entries.reserve(estimatedEntries);
     table.m_cKeyIndex.reserve(estimatedEntries);
     table.m_lazy = std::move(state);
@@ -518,9 +517,9 @@ void EncodingTable::parseCKeyPage(u32 pageIdx) const {
         parseCKeyPageInto(pageBytes, hdr, /*pageIdx=*/0, pageEntries);
         if (pageEntries.empty()) return;
 
-        std::unique_lock<std::shared_mutex> lk(m_lazy->mutex);
+        std::unique_lock<std::shared_mutex> const lk(m_lazy->mutex);
         for (auto& e : pageEntries) {
-            size_t idx = m_entries.size();
+            size_t const idx = m_entries.size();
             m_entries.push_back(std::move(e));
             m_cKeyIndex.emplace(keyHash64(m_entries[idx].cKey), idx);
         }
@@ -537,7 +536,7 @@ void EncodingTable::ensureFullyParsed() const {
     // page-by-page parsing only fills m_cKeyIndex; m_eKeyIndex needs a
     // second pass once every entry is known.
     std::call_once(m_lazy->eKeyIndexFlag, [this]() {
-        std::unique_lock<std::shared_mutex> lk(m_lazy->mutex);
+        std::unique_lock<std::shared_mutex> const lk(m_lazy->mutex);
         m_eKeyIndex.reserve(m_entries.size());
         for (size_t i = 0; i < m_entries.size(); ++i)
             m_eKeyIndex.emplace(keyHash64(m_entries[i].eKey), i);
@@ -565,7 +564,7 @@ const EncodingEntry* EncodingTable::findByCKey(std::span<const u8, 16> cKey,
     if (!m_lazy) return checkHit();
 
     {
-        std::shared_lock<std::shared_mutex> lk(m_lazy->mutex);
+        std::shared_lock<std::shared_mutex> const lk(m_lazy->mutex);
         if (auto* hit = checkHit()) return hit;
     }
 
@@ -582,11 +581,11 @@ const EncodingEntry* EncodingTable::findByCKey(std::span<const u8, 16> cKey,
                                    return std::memcmp(a.data(), b.data(), 16) < 0;
                                });
     if (it == m_lazy->pageFirstCKey.begin()) return nullptr;
-    u32 pageIdx = u32(std::distance(m_lazy->pageFirstCKey.begin(), it) - 1);
+    u32 const pageIdx = u32(std::distance(m_lazy->pageFirstCKey.begin(), it) - 1);
 
     parseCKeyPage(pageIdx);
 
-    std::shared_lock<std::shared_mutex> lk(m_lazy->mutex);
+    std::shared_lock<std::shared_mutex> const lk(m_lazy->mutex);
     return checkHit();
 }
 
@@ -626,7 +625,7 @@ size_t EncodingTable::entryCount() const {
     // Lazy mode returns currently-parsed count; call ensureFullyParsed()
     // first if you need the total.
     if (m_lazy) {
-        std::shared_lock<std::shared_mutex> lk(m_lazy->mutex);
+        std::shared_lock<std::shared_mutex> const lk(m_lazy->mutex);
         return m_entries.size();
     }
     return m_entries.size();
@@ -638,7 +637,7 @@ const std::vector<EncodingEntry>& EncodingTable::entries() const {
 }
 
 void EncodingTable::insert(const EncodingEntry& entry) {
-    size_t idx = m_entries.size();
+    size_t const idx = m_entries.size();
     m_entries.push_back(entry);
 
     m_cKeyIndex.emplace(keyHash64(entry.cKey), idx);
@@ -670,7 +669,7 @@ std::vector<u8> EncodingTable::serialize() const {
         for (auto& [s, idx] : eSpecMap) {
             if (s == spec) return idx;
         }
-        u32 idx = static_cast<u32>(eSpecMap.size());
+        u32 const idx = static_cast<u32>(eSpecMap.size());
         eSpecMap.push_back({spec, idx});
         eSpecPool.insert(eSpecPool.end(), spec.begin(), spec.end());
         eSpecPool.push_back(0); // null terminator
@@ -684,7 +683,7 @@ std::vector<u8> EncodingTable::serialize() const {
         sortedESpecIndices.push_back(
             entry.eSpec.empty() ? getESpecIndex("n") : getESpecIndex(entry.eSpec));
     }
-    u32 eSpecBlockSize = static_cast<u32>(eSpecPool.size());
+    u32 const eSpecBlockSize = static_cast<u32>(eSpecPool.size());
 
     // --- Build CKey pages (CEKeyPageTable) ---
     struct PageData {
@@ -708,7 +707,7 @@ std::vector<u8> EncodingTable::serialize() const {
                 current.firstKey = entry.cKey;
 
             current.data.push_back(1); // keyCount = 1
-            size_t off = current.data.size();
+            size_t const off = current.data.size();
             current.data.resize(off + 5);
             writeBE40(current.data.data() + off, entry.fileSize);
             current.data.insert(current.data.end(), entry.cKey.begin(), entry.cKey.end());
@@ -733,9 +732,9 @@ std::vector<u8> EncodingTable::serialize() const {
     std::vector<PageData> eKeyPages;
     {
         PageData current;
-        for (size_t idx : eKeySortOrder) {
+        for (size_t const idx : eKeySortOrder) {
             auto& entry = sorted[idx];
-            u32 specIdx = sortedESpecIndices[idx];
+            u32 const specIdx = sortedESpecIndices[idx];
 
             // EKey page entry: eKey(16) + espec_index(4 BE) + file_size(5 BE) = 25 bytes.
             constexpr size_t kEKeyEntrySize = kEKeySize + 4 + 5;
@@ -763,19 +762,18 @@ std::vector<u8> EncodingTable::serialize() const {
         }
     }
 
-    u32 cKeyPageCount = static_cast<u32>(cKeyPages.size());
-    u32 eKeyPageCount = static_cast<u32>(eKeyPages.size());
+    u32 const cKeyPageCount = static_cast<u32>(cKeyPages.size());
+    u32 const eKeyPageCount = static_cast<u32>(eKeyPages.size());
 
     // --- Calculate total size ---
-    size_t headerSize = kEncodingMinHeaderSize;
-    size_t cKeyPageTableSize = cKeyPageCount * (kCKeySize + 16); // firstCKey + MD5
-    size_t eKeyPageTableSize = eKeyPageCount * (kEKeySize + 16); // firstEKey + MD5
-    size_t cKeyPagesSize = cKeyPageCount * kPageSize;
-    size_t eKeyPagesSize = eKeyPageCount * kPageSize;
+    size_t const headerSize = kEncodingMinHeaderSize;
+    size_t const cKeyPageTableSize = cKeyPageCount * (kCKeySize + 16); // firstCKey + MD5
+    size_t const eKeyPageTableSize = eKeyPageCount * (kEKeySize + 16); // firstEKey + MD5
+    size_t const cKeyPagesSize = cKeyPageCount * kPageSize;
+    size_t const eKeyPagesSize = eKeyPageCount * kPageSize;
 
-    size_t totalSize = headerSize + eSpecBlockSize +
-                       cKeyPageTableSize + cKeyPagesSize +
-                       eKeyPageTableSize + eKeyPagesSize;
+    size_t const totalSize = headerSize + eSpecBlockSize + cKeyPageTableSize + cKeyPagesSize +
+                             eKeyPageTableSize + eKeyPagesSize;
 
     std::vector<u8> output(totalSize, 0);
     size_t pos = 0;

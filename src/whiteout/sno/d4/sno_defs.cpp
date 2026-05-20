@@ -35150,14 +35150,14 @@ SnoTypeRegistry::SnoTypeRegistry() {
 }
 
 const SnoTypeRegistry& SnoTypeRegistry::instance() {
-    static SnoTypeRegistry reg;
+    static SnoTypeRegistry const reg;
     return reg;
 }
 
 const SnoTypeDef* SnoTypeRegistry::findType(u32 typeHash) const {
     u32 bucket = typeHash % kHashBuckets;
     for (;;) {
-        u32 idx = m_hashLookup[bucket];
+        u32 const idx = m_hashLookup[bucket];
         if (idx == 0xFFFFFFFF)
             return nullptr;
         if (m_types[idx].hash == typeHash)
@@ -35170,7 +35170,7 @@ u32 SnoTypeRegistry::typeHashFromKey(u32 formatHash) const {
     // Binary search on the sorted (formatHash, typeHash) array.
     size_t lo = 0, hi = m_formatMapCount;
     while (lo < hi) {
-        size_t mid = (lo + hi) / 2;
+        size_t const mid = (lo + hi) / 2;
         if (m_formatMap[mid].first < formatHash)
             lo = mid + 1;
         else
@@ -35183,7 +35183,7 @@ u32 SnoTypeRegistry::typeHashFromKey(u32 formatHash) const {
 
 const char* SnoTypeRegistry::typeName(const SnoTypeDef& def) const {
     // Find index of def in array
-    size_t idx = static_cast<size_t>(&def - m_types);
+    size_t const idx = static_cast<size_t>(&def - m_types);
     if (idx < m_typeCount)
         return m_typeNames[idx];
     return "<unknown>";

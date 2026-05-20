@@ -59,7 +59,7 @@ void BlockTable::createEmpty() {
 // ============================================================================
 
 u32 BlockTable::append(const BlockEntry& entry) {
-    u32 index = static_cast<u32>(m_entries.size());
+    u32 const index = static_cast<u32>(m_entries.size());
     m_entries.push_back(entry);
     return index;
 }
@@ -69,9 +69,9 @@ u32 BlockTable::append(const BlockEntry& entry) {
 // ============================================================================
 
 u64 BlockTable::fileOffset48(u32 index) const {
-    u64 lo = m_entries[index].fileOffset;
+    u64 const lo = m_entries[index].fileOffset;
     if (index < m_hiBlockOffsets.size()) {
-        u64 hi = m_hiBlockOffsets[index];
+        u64 const hi = m_hiBlockOffsets[index];
         return lo | (hi << 32);
     }
     return lo;

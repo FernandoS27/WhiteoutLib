@@ -444,7 +444,7 @@ ConvertResult M3Converter::fromM3(const m3::Model& m3Model) const {
             if (matMap.materialIndex >= m3Model.standardMaterials.size()) {
                 issues.push_back("MaterialMap references out-of-range StandardMaterial index " +
                                  std::to_string(matMap.materialIndex));
-                Material dummy;
+                Material const dummy{};
                 model.materials.push_back(dummy);
                 continue;
             }
@@ -506,7 +506,7 @@ ConvertResult M3Converter::fromM3(const m3::Model& m3Model) const {
             if (matMap.materialIndex >= m3Model.compositeMaterials.size()) {
                 issues.push_back("MaterialMap references out-of-range CompositeMaterial index " +
                                  std::to_string(matMap.materialIndex));
-                Material dummy;
+                Material const dummy{};
                 model.materials.push_back(dummy);
                 continue;
             }
@@ -544,8 +544,8 @@ ConvertResult M3Converter::fromM3(const m3::Model& m3Model) const {
     auto tangents = vb.getTangents();
     auto boneIndices = vb.getBoneIndices();
     auto boneWeights = vb.getBoneWeights();
-    size_t numUVs = vb.UVsNum();
-    bool hasColors = vb.hasVertexColors();
+    size_t const numUVs = vb.UVsNum();
+    bool const hasColors = vb.hasVertexColors();
 
     std::vector<std::vector<Vector2f>> allUVs(numUVs);
     for (size_t u = 0; u < numUVs; ++u) {
@@ -574,7 +574,7 @@ ConvertResult M3Converter::fromM3(const m3::Model& m3Model) const {
         for (const auto& reg : div.regions) {
             if (reg.firstVertex < minVertex)
                 minVertex = reg.firstVertex;
-            u32 endV = reg.firstVertex + reg.vertexCount;
+            u32 const endV = reg.firstVertex + reg.vertexCount;
             if (endV > maxVertex)
                 maxVertex = endV;
         }
@@ -583,7 +583,7 @@ ConvertResult M3Converter::fromM3(const m3::Model& m3Model) const {
             maxVertex = 0;
         }
 
-        u32 vertRange = maxVertex - minVertex;
+        u32 const vertRange = maxVertex - minVertex;
         mesh.positions.resize(vertRange);
         mesh.normals.resize(vertRange);
         mesh.tangents.resize(vertRange);
@@ -597,7 +597,7 @@ ConvertResult M3Converter::fromM3(const m3::Model& m3Model) const {
             mesh.vertexColors.resize(vertRange);
 
         for (u32 v = 0; v < vertRange; ++v) {
-            u32 srcIdx = minVertex + v;
+            u32 const srcIdx = minVertex + v;
             if (srcIdx < positions.size())
                 mesh.positions[v] = positions[srcIdx];
             if (srcIdx < normals.size())
@@ -618,8 +618,8 @@ ConvertResult M3Converter::fromM3(const m3::Model& m3Model) const {
 
         // Indices: u16 → u32, rebase from global to mesh-local
         mesh.indices.reserve(div.faces.size());
-        for (u16 idx : div.faces) {
-            u32 rebased =
+        for (u16 const idx : div.faces) {
+            u32 const rebased =
                 static_cast<u32>(idx) >= minVertex ? static_cast<u32>(idx) - minVertex : 0;
             mesh.indices.push_back(rebased);
         }
@@ -661,7 +661,7 @@ ConvertResult M3Converter::fromM3(const m3::Model& m3Model) const {
                     Vector3f(std::min(minP.x, p.x), std::min(minP.y, p.y), std::min(minP.z, p.z));
                 maxP =
                     Vector3f(std::max(maxP.x, p.x), std::max(maxP.y, p.y), std::max(maxP.z, p.z));
-                f32 distSq = p.x * p.x + p.y * p.y + p.z * p.z;
+                f32 const distSq = p.x * p.x + p.y * p.y + p.z * p.z;
                 if (distSq > maxDistSq)
                     maxDistSq = distSq;
             }
@@ -877,7 +877,7 @@ M3ConvertResult M3Converter::toM3(const Model& wemModel, u32 /*targetVersion*/) 
     // position (12B) + boneWeights (4B) + boneIndices (4B) + normal (4B packed) +
     // [vertexColor 4B] + [UV layers, 4B each] + tangent (4B packed)
     // Total stride = 24 + (color ? 4 : 0) + (numUVs * 4) + 4
-    size_t stride = 24 + (anyColors ? 4 : 0) + (maxUVs * 4) + 4;
+    size_t const stride = 24 + (anyColors ? 4 : 0) + (maxUVs * 4) + 4;
     size_t totalVerts = 0;
     for (const auto& mesh : wemModel.meshes)
         totalVerts += mesh.positions.size();
@@ -887,13 +887,13 @@ M3ConvertResult M3Converter::toM3(const Model& wemModel, u32 /*targetVersion*/) 
     u32 globalVertOffset = 0;
     for (size_t mi = 0; mi < wemModel.meshes.size(); ++mi) {
         const auto& mesh = wemModel.meshes[mi];
-        size_t vertCount = mesh.positions.size();
+        size_t const vertCount = mesh.positions.size();
 
         m3::MeshDivision div;
 
         // Write vertex data for this mesh
         for (size_t v = 0; v < vertCount; ++v) {
-            size_t base = (globalVertOffset + v) * stride;
+            size_t const base = (globalVertOffset + v) * stride;
             u8* ptr = m3.vertices.data.data() + base;
 
             // Position (12B float3)
@@ -954,7 +954,7 @@ M3ConvertResult M3Converter::toM3(const Model& wemModel, u32 /*targetVersion*/) 
             // UV layers (2xi16 each, scaled by 2048)
             for (size_t u = 0; u < maxUVs; ++u) {
                 if (u < mesh.uvSets.size() && v < mesh.uvSets[u].size()) {
-                    Vector2f uv = mesh.uvSets[u][v];
+                    Vector2f const uv = mesh.uvSets[u][v];
                     auto uvI16u =
                         static_cast<i16>(std::max(-32768.0f, std::min(32767.0f, uv.x * 2048.0f)));
                     auto uvI16v =
@@ -981,7 +981,7 @@ M3ConvertResult M3Converter::toM3(const Model& wemModel, u32 /*targetVersion*/) 
 
         // Faces: u32 → u16 (rebased to global vertex indices)
         div.faces.reserve(mesh.indices.size());
-        for (u32 idx : mesh.indices) {
+        for (u32 const idx : mesh.indices) {
             u32 globalIdx = idx + globalVertOffset;
             if (globalIdx > 0xFFFF) {
                 issues.push_back("Mesh " + std::to_string(mi) + " global index > 65535");

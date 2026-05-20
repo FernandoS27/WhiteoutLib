@@ -206,7 +206,7 @@ ConvertResult MdxConverter::fromMdx(const mdx::Model& mdxModel) const {
         } else {
             // Multi-layer → Composite material wrapping per-layer Standards
             // First, create one Standard per layer
-            [[maybe_unused]] u32 baseIdx = static_cast<u32>(model.materials.size());
+            [[maybe_unused]] u32 const baseIdx = static_cast<u32>(model.materials.size());
             std::vector<CompositeSection> sections;
             sections.reserve(mat.layers.size());
 
@@ -273,11 +273,11 @@ ConvertResult MdxConverter::fromMdx(const mdx::Model& mdxModel) const {
 
         // Skinning data: MDX stores as packed u8 array (4 bone indices + 4 bone weights per vertex)
         if (!geo.skinData.empty()) {
-            size_t vertCount = geo.vertexPositions.size();
+            size_t const vertCount = geo.vertexPositions.size();
             mesh.boneIndices.resize(vertCount);
             mesh.boneWeights.resize(vertCount);
             for (size_t v = 0; v < vertCount && (v * 8 + 7) < geo.skinData.size(); ++v) {
-                size_t offset = v * 8;
+                size_t const offset = v * 8;
                 mesh.boneIndices[v] = {geo.skinData[offset + 0], geo.skinData[offset + 1],
                                        geo.skinData[offset + 2], geo.skinData[offset + 3]};
                 mesh.boneWeights[v] = {geo.skinData[offset + 4], geo.skinData[offset + 5],
@@ -300,12 +300,12 @@ ConvertResult MdxConverter::fromMdx(const mdx::Model& mdxModel) const {
         // For single-layer materials this maps 1:1. For multi-layer materials,
         // the composite was appended after its per-layer standards.
         // We need to map this correctly.
-        u32 mdxMatIdx = geo.materialId;
+        u32 const mdxMatIdx = geo.materialId;
         if (mdxMatIdx < mdxModel.materials.size()) {
             // Walk through materials to find the correct WEM index
             u32 wemIdx = 0;
             for (u32 mi = 0; mi < mdxMatIdx; ++mi) {
-                size_t layerCount = mdxModel.materials[mi].layers.size();
+                size_t const layerCount = mdxModel.materials[mi].layers.size();
                 if (layerCount <= 1) {
                     wemIdx += 1;
                 } else {
@@ -313,7 +313,7 @@ ConvertResult MdxConverter::fromMdx(const mdx::Model& mdxModel) const {
                 }
             }
             // Point to the actual material for this geoset
-            size_t layerCount = mdxModel.materials[mdxMatIdx].layers.size();
+            size_t const layerCount = mdxModel.materials[mdxMatIdx].layers.size();
             if (layerCount <= 1) {
                 sub.materialIndex = wemIdx;
             } else {
@@ -490,10 +490,10 @@ MdxConvertResult MdxConverter::toMdx(const Model& wemModel, u32 targetVersion) c
 
         // Skinning data: pack bone indices + weights into u8 array
         if (!mesh.boneIndices.empty() && !mesh.boneWeights.empty()) {
-            size_t vertCount = mesh.positions.size();
+            size_t const vertCount = mesh.positions.size();
             geo.skinData.resize(vertCount * 8);
             for (size_t v = 0; v < vertCount; ++v) {
-                size_t offset = v * 8;
+                size_t const offset = v * 8;
                 const auto& bi = mesh.boneIndices[v];
                 const auto& bw = mesh.boneWeights[v];
                 geo.skinData[offset + 0] = bi[0];

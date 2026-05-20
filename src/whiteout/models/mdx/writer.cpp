@@ -38,8 +38,8 @@ struct SizeEnclosure {
     }
 
     ~SizeEnclosure() {
-        u32 endPos = writer.getPosition();
-        u32 actualSize = endPos - sizePos;
+        u32 const endPos = writer.getPosition();
+        u32 const actualSize = endPos - sizePos;
         writer.setPosition(startPos); // Move back to size field
         writer.write(actualSize);
         writer.setPosition(endPos); // Move back to end
@@ -284,7 +284,7 @@ void Writer::Impl::writeMODL(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeSEQS(BinaryWriter& writer, const Model& mdx) {
-    size_t size = mdx.sequences.size() * 132;
+    size_t const size = mdx.sequences.size() * 132;
     writeChunkHeader(writer, SEQS_TAG, size);
 
     for (const auto& seq : mdx.sequences) {
@@ -300,13 +300,13 @@ void Writer::Impl::writeSEQS(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeGLBS(BinaryWriter& writer, const Model& mdx) {
-    size_t size = mdx.globalSequences.size() * 4;
+    size_t const size = mdx.globalSequences.size() * 4;
     writeChunkHeader(writer, GLBS_TAG, size);
     writer.write(mdx.globalSequences);
 }
 
 void Writer::Impl::writeTEXS(BinaryWriter& writer, const Model& mdx) {
-    size_t size = mdx.textures.size() * 268;
+    size_t const size = mdx.textures.size() * 268;
     writeChunkHeader(writer, TEXS_TAG, size);
 
     for (const auto& tex : mdx.textures) {
@@ -317,7 +317,7 @@ void Writer::Impl::writeTEXS(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeSNDS(BinaryWriter& writer, const Model& mdx) {
-    size_t size = mdx.sounds.size() * 56;
+    size_t const size = mdx.sounds.size() * 56;
     writeChunkHeader(writer, SNDS_TAG, size);
 
     for (const auto& snd : mdx.sounds) {
@@ -329,7 +329,7 @@ void Writer::Impl::writeSNDS(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeSNEM(BinaryWriter& writer, const Model& mdx) {
-    SizeEnclosure sizeEnclosure(writer, SNEM_TAG);
+    SizeEnclosure const sizeEnclosure(writer, SNEM_TAG);
 
     for (const auto& snem : mdx.soundEmitters) {
         writeSoundEmitter(writer, snem);
@@ -337,7 +337,7 @@ void Writer::Impl::writeSNEM(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeSoundEmitter(BinaryWriter& writer, const SoundEmitter& snem) {
-    SizeEnclosure sizeEnclosure(writer);
+    SizeEnclosure const sizeEnclosure(writer);
 
     writeNode(writer, snem.node);
 
@@ -345,7 +345,7 @@ void Writer::Impl::writeSoundEmitter(BinaryWriter& writer, const SoundEmitter& s
 }
 
 void Writer::Impl::writeMTLS(BinaryWriter& writer, const Model& mdx) {
-    SizeEnclosure sizeEnclosure(writer, MTLS_TAG);
+    SizeEnclosure const sizeEnclosure(writer, MTLS_TAG);
 
     for (const auto& mat : mdx.materials) {
         writeMaterial(writer, mat, mdx);
@@ -353,7 +353,7 @@ void Writer::Impl::writeMTLS(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeMaterial(BinaryWriter& writer, const Material& mat, const Model& mdx) {
-    SizeEnclosure sizeEnclosure(writer);
+    SizeEnclosure const sizeEnclosure(writer);
 
     writer.write(mat.priorityPlane);
     writer.write(mat.flags);
@@ -372,7 +372,7 @@ void Writer::Impl::writeMaterial(BinaryWriter& writer, const Material& mat, cons
 }
 
 void Writer::Impl::writeLayer(BinaryWriter& writer, const Layer& layer, const Model& mdx) {
-    SizeEnclosure sizeEnclosure(writer);
+    SizeEnclosure const sizeEnclosure(writer);
 
     writer.write(static_cast<u32>(layer.filterMode));
     writer.write(static_cast<u32>(layer.shadingFlags));
@@ -415,7 +415,7 @@ void Writer::Impl::writeLayer(BinaryWriter& writer, const Layer& layer, const Mo
 }
 
 void Writer::Impl::writeTXAN(BinaryWriter& writer, const Model& mdx) {
-    SizeEnclosure sizeEnclosure(writer, TXAN_TAG);
+    SizeEnclosure const sizeEnclosure(writer, TXAN_TAG);
 
     for (const auto& anim : mdx.textureAnimations) {
         writeTextureAnimation(writer, anim);
@@ -423,7 +423,7 @@ void Writer::Impl::writeTXAN(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeTextureAnimation(BinaryWriter& writer, const TextureAnimation& anim) {
-    SizeEnclosure sizeEnclosure(writer);
+    SizeEnclosure const sizeEnclosure(writer);
 
     writeTrackChunk(writer, KTAT_TAG, anim.translationTracks);
     writeTrackChunk(writer, KTAR_TAG, anim.rotationTracks);
@@ -431,7 +431,7 @@ void Writer::Impl::writeTextureAnimation(BinaryWriter& writer, const TextureAnim
 }
 
 void Writer::Impl::writeGEOS(BinaryWriter& writer, const Model& mdx) {
-    SizeEnclosure sizeEnclosure(writer, GEOS_TAG);
+    SizeEnclosure const sizeEnclosure(writer, GEOS_TAG);
 
     for (const auto& geo : mdx.geosets) {
         writeGeoset(writer, geo, mdx);
@@ -439,7 +439,7 @@ void Writer::Impl::writeGEOS(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeGeoset(BinaryWriter& writer, const Geoset& geo, const Model& mdx) {
-    SizeEnclosure sizeEnclosure(writer);
+    SizeEnclosure const sizeEnclosure(writer);
 
     // Write VRTX
     writeChunkHeader(writer, VRTX_TAG, geo.vertexPositions.size());
@@ -515,7 +515,7 @@ void Writer::Impl::writeGeoset(BinaryWriter& writer, const Geoset& geo, const Mo
 }
 
 void Writer::Impl::writeGEOA(BinaryWriter& writer, const Model& mdx) {
-    SizeEnclosure sizeEnclosure(writer, GEOA_TAG);
+    SizeEnclosure const sizeEnclosure(writer, GEOA_TAG);
 
     for (const auto& anim : mdx.geosetAnimations) {
         writeGeosetAnimation(writer, anim);
@@ -523,7 +523,7 @@ void Writer::Impl::writeGEOA(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeGeosetAnimation(BinaryWriter& writer, const GeosetAnimation& anim) {
-    SizeEnclosure sizeEnclosure(writer);
+    SizeEnclosure const sizeEnclosure(writer);
 
     writer.write(anim.alpha);
     writer.write(anim.flags);
@@ -535,7 +535,7 @@ void Writer::Impl::writeGeosetAnimation(BinaryWriter& writer, const GeosetAnimat
 }
 
 void Writer::Impl::writeBONE(BinaryWriter& writer, const Model& mdx) {
-    SizeEnclosure sizeEnclosure(writer, BONE_TAG);
+    SizeEnclosure const sizeEnclosure(writer, BONE_TAG);
 
     for (const auto& bone : mdx.bones) {
         writeBone(writer, bone);
@@ -549,7 +549,7 @@ void Writer::Impl::writeBone(BinaryWriter& writer, const Bone& bone) {
 }
 
 void Writer::Impl::writeNode(BinaryWriter& writer, const Node& node) {
-    SizeEnclosure sizeEnclosure(writer);
+    SizeEnclosure const sizeEnclosure(writer);
 
     writer.writeString(node.name, 80);
     writer.write(node.objectId);
@@ -566,7 +566,7 @@ void Writer::Impl::writeNodeTracks(BinaryWriter& writer, const Node& node) {
 }
 
 void Writer::Impl::writeLITE(BinaryWriter& writer, const Model& mdx) {
-    SizeEnclosure sizeEnclosure(writer, LITE_TAG);
+    SizeEnclosure const sizeEnclosure(writer, LITE_TAG);
 
     for (const auto& light : mdx.lights) {
         writeLight(writer, light, mdx);
@@ -574,7 +574,7 @@ void Writer::Impl::writeLITE(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeLight(BinaryWriter& writer, const Light& light, const Model& mdx) {
-    SizeEnclosure sizeEnclosure(writer);
+    SizeEnclosure const sizeEnclosure(writer);
 
     writeNode(writer, light.node);
     writer.write(static_cast<u32>(light.type));
@@ -598,7 +598,7 @@ void Writer::Impl::writeLight(BinaryWriter& writer, const Light& light, const Mo
 }
 
 void Writer::Impl::writeHELP(BinaryWriter& writer, const Model& mdx) {
-    SizeEnclosure sizeEnclosure(writer, HELP_TAG);
+    SizeEnclosure const sizeEnclosure(writer, HELP_TAG);
 
     for (const auto& helper : mdx.helpers) {
         writeHelper(writer, helper);
@@ -610,7 +610,7 @@ void Writer::Impl::writeHelper(BinaryWriter& writer, const Helper& helper) {
 }
 
 void Writer::Impl::writeATCH(BinaryWriter& writer, const Model& mdx) {
-    SizeEnclosure sizeEnclosure(writer, ATCH_TAG);
+    SizeEnclosure const sizeEnclosure(writer, ATCH_TAG);
 
     for (const auto& att : mdx.attachments) {
         writeAttachment(writer, att);
@@ -618,7 +618,7 @@ void Writer::Impl::writeATCH(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeAttachment(BinaryWriter& writer, const Attachment& att) {
-    SizeEnclosure sizeEnclosure(writer);
+    SizeEnclosure const sizeEnclosure(writer);
 
     writeNode(writer, att.node);
     writer.writeString(att.path, 260);
@@ -628,13 +628,13 @@ void Writer::Impl::writeAttachment(BinaryWriter& writer, const Attachment& att) 
 }
 
 void Writer::Impl::writePIVT(BinaryWriter& writer, const Model& mdx) {
-    size_t size = mdx.pivotPoints.size() * 12;
+    size_t const size = mdx.pivotPoints.size() * 12;
     writeChunkHeader(writer, PIVT_TAG, size);
     writer.write(mdx.pivotPoints);
 }
 
 void Writer::Impl::writePREM(BinaryWriter& writer, const Model& mdx) {
-    SizeEnclosure sizeEnclosure(writer, PREM_TAG);
+    SizeEnclosure const sizeEnclosure(writer, PREM_TAG);
 
     for (const auto& pem : mdx.particleEmitters) {
         writeParticleEmitter(writer, pem);
@@ -642,7 +642,7 @@ void Writer::Impl::writePREM(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeParticleEmitter(BinaryWriter& writer, const ParticleEmitter& pem) {
-    SizeEnclosure sizeEnclosure(writer);
+    SizeEnclosure const sizeEnclosure(writer);
 
     writeNode(writer, pem.node);
     writer.write(pem.emissionRate);
@@ -663,7 +663,7 @@ void Writer::Impl::writeParticleEmitter(BinaryWriter& writer, const ParticleEmit
 }
 
 void Writer::Impl::writePRE2(BinaryWriter& writer, const Model& mdx) {
-    SizeEnclosure sizeEnclosure(writer, PRE2_TAG);
+    SizeEnclosure const sizeEnclosure(writer, PRE2_TAG);
 
     for (const auto& pem2 : mdx.particleEmitters2) {
         writeParticleEmitter2(writer, pem2);
@@ -671,7 +671,7 @@ void Writer::Impl::writePRE2(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeParticleEmitter2(BinaryWriter& writer, const ParticleEmitter2& pem2) {
-    SizeEnclosure sizeEnclosure(writer);
+    SizeEnclosure const sizeEnclosure(writer);
 
     writeNode(writer, pem2.node);
     writer.write(pem2.speed);
@@ -730,7 +730,7 @@ void Writer::Impl::writeParticleEmitter2(BinaryWriter& writer, const ParticleEmi
 }
 
 void Writer::Impl::writeRIBB(BinaryWriter& writer, const Model& mdx) {
-    SizeEnclosure sizeEnclosure(writer, RIBB_TAG);
+    SizeEnclosure const sizeEnclosure(writer, RIBB_TAG);
 
     for (const auto& ribb : mdx.ribbonEmitters) {
         writeRibbonEmitter(writer, ribb);
@@ -738,7 +738,7 @@ void Writer::Impl::writeRIBB(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeRibbonEmitter(BinaryWriter& writer, const RibbonEmitter& ribb) {
-    SizeEnclosure sizeEnclosure(writer);
+    SizeEnclosure const sizeEnclosure(writer);
 
     writeNode(writer, ribb.node);
     writer.write(ribb.heightAbove);
@@ -762,7 +762,7 @@ void Writer::Impl::writeRibbonEmitter(BinaryWriter& writer, const RibbonEmitter&
 }
 
 void Writer::Impl::writeEVTS(BinaryWriter& writer, const Model& mdx) {
-    SizeEnclosure sizeEnclosure(writer, EVTS_TAG);
+    SizeEnclosure const sizeEnclosure(writer, EVTS_TAG);
 
     for (const auto& evt : mdx.eventObjects) {
         writeEventObject(writer, evt);
@@ -779,7 +779,7 @@ void Writer::Impl::writeEventObject(BinaryWriter& writer, const EventObject& evt
 }
 
 void Writer::Impl::writeCAMS(BinaryWriter& writer, const Model& mdx) {
-    SizeEnclosure sizeEnclosure(writer, CAMS_TAG);
+    SizeEnclosure const sizeEnclosure(writer, CAMS_TAG);
 
     for (const auto& cam : mdx.cameras) {
         writeCamera(writer, cam);
@@ -787,7 +787,7 @@ void Writer::Impl::writeCAMS(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeCamera(BinaryWriter& writer, const Camera& cam) {
-    SizeEnclosure sizeEnclosure(writer);
+    SizeEnclosure const sizeEnclosure(writer);
 
     writer.writeString(cam.name, 80);
     writer.write(cam.position);
@@ -802,7 +802,7 @@ void Writer::Impl::writeCamera(BinaryWriter& writer, const Camera& cam) {
 }
 
 void Writer::Impl::writeCLID(BinaryWriter& writer, const Model& mdx) {
-    SizeEnclosure sizeEnclosure(writer, CLID_TAG);
+    SizeEnclosure const sizeEnclosure(writer, CLID_TAG);
 
     for (const auto& shape : mdx.collisionShapes) {
         writeCollisionShape(writer, shape);
@@ -822,7 +822,7 @@ void Writer::Impl::writeCollisionShape(BinaryWriter& writer, const CollisionShap
 }
 
 void Writer::Impl::writeBPOS(BinaryWriter& writer, const Model& mdx) {
-    size_t size = 4 + mdx.bindPoses.size() * 48; // count + matrices
+    size_t const size = 4 + mdx.bindPoses.size() * 48; // count + matrices
     writeChunkHeader(writer, BPOS_TAG, size);
 
     writer.write(static_cast<u32>(mdx.bindPoses.size()));
@@ -834,7 +834,7 @@ void Writer::Impl::writeBPOS(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeFFX(BinaryWriter& writer, const Model& mdx) {
-    size_t size = mdx.faceEffects.size() * 340;
+    size_t const size = mdx.faceEffects.size() * 340;
     writeChunkHeader(writer, FAFX_TAG, size);
 
     for (const auto& fx : mdx.faceEffects) {
@@ -844,7 +844,7 @@ void Writer::Impl::writeFFX(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeCORN(BinaryWriter& writer, const Model& mdx) {
-    SizeEnclosure sizeEnclosure(writer, CORN_TAG);
+    SizeEnclosure const sizeEnclosure(writer, CORN_TAG);
 
     for (const auto& corn : mdx.cornEmitters) {
         writeCornEmitter(writer, corn);
@@ -852,7 +852,7 @@ void Writer::Impl::writeCORN(BinaryWriter& writer, const Model& mdx) {
 }
 
 void Writer::Impl::writeCornEmitter(BinaryWriter& writer, const CornEmitter& corn) {
-    SizeEnclosure sizeEnclosure(writer);
+    SizeEnclosure const sizeEnclosure(writer);
 
     writeNode(writer, corn.node);
     writer.write(corn.lifeSpan);

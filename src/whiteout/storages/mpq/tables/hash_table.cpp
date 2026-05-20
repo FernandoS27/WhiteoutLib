@@ -57,10 +57,10 @@ std::optional<u32> probeFor(const std::vector<HashEntry>& entries, const std::st
     if (entries.empty())
         return std::nullopt;
 
-    u32 cap = static_cast<u32>(entries.size());
-    u32 hashA = hashString(filename, HashType::NameA);
-    u32 hashB = hashString(filename, HashType::NameB);
-    u32 startIndex = hashString(filename, HashType::TableOffset) & (cap - 1);
+    u32 const cap = static_cast<u32>(entries.size());
+    u32 const hashA = hashString(filename, HashType::NameA);
+    u32 const hashB = hashString(filename, HashType::NameB);
+    u32 const startIndex = hashString(filename, HashType::TableOffset) & (cap - 1);
 
     u32 index = startIndex;
     do {
@@ -95,9 +95,9 @@ std::optional<u32> HashTable::insert(const std::string& filename, u16 locale, u3
     if (m_entries.empty())
         return std::nullopt;
 
-    u32 hashA = hashString(filename, HashType::NameA);
-    u32 hashB = hashString(filename, HashType::NameB);
-    u32 startIndex = hashString(filename, HashType::TableOffset) & (capacity() - 1);
+    u32 const hashA = hashString(filename, HashType::NameA);
+    u32 const hashB = hashString(filename, HashType::NameB);
+    u32 const startIndex = hashString(filename, HashType::TableOffset) & (capacity() - 1);
 
     u32 index = startIndex;
     do {

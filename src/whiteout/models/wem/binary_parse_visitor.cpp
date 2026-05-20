@@ -23,7 +23,7 @@ BinaryParseVisitor::BinaryParseVisitor(BinaryReader& reader) : reader(reader) {}
 // ============================================================================
 
 void BinaryParseVisitor::read(Model& model) {
-    WEMHeader header = reader.read<WEMHeader>();
+    WEMHeader const header = reader.read<WEMHeader>();
 
     if (header.magic != kWoemMagic) {
         issues.push_back("Invalid WEM file: expected magic 'WOEM'");
@@ -60,7 +60,7 @@ void BinaryParseVisitor::read(Model& model) {
 
 template <typename T>
 void BinaryParseVisitor::visit(std::vector<T>& container) {
-    Reference ref = reader.read<Reference>();
+    Reference const ref = reader.read<Reference>();
     if (ref.entries == 0) {
         container.clear();
         return;
@@ -96,7 +96,7 @@ void BinaryParseVisitor::visit(std::vector<T>& container) {
 }
 
 void BinaryParseVisitor::visit(std::string& str) {
-    Reference ref = reader.read<Reference>();
+    Reference const ref = reader.read<Reference>();
     if (ref.entries == 0) {
         str.clear();
         return;
@@ -214,7 +214,7 @@ void BinaryParseVisitor::visit(Mesh& mesh) {
     visit(mesh.boneWeights);
 
     // UV sets: inline count followed by individual VEC2 references
-    u32 uvSetCount = reader.read<u32>();
+    u32 const uvSetCount = reader.read<u32>();
     mesh.uvSets.resize(uvSetCount);
     for (u32 i = 0; i < uvSetCount; ++i) {
         visit(mesh.uvSets[i]);

@@ -17,7 +17,10 @@ namespace common {
 class span_streambuf : public std::streambuf {
 public:
     span_streambuf(std::span<const u8> data) {
-        char* begin = const_cast<char*>(reinterpret_cast<const char*>(data.data()));
+        // setg() requires char* even for input-only streambufs (legacy API).
+        // We only ever read via eback()/gptr()/egptr(), so the cast is safe.
+        char* begin = const_cast<char*>( // NOLINT(cppcoreguidelines-pro-type-const-cast)
+            reinterpret_cast<const char*>(data.data()));
         setg(begin, begin, begin + data.size());
     }
 

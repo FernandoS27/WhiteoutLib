@@ -27,7 +27,7 @@ void MsbBitReader::refill() {
             byte = data[bytePos++];
             if (byte == 0xFF) {
                 if (bytePos < size) {
-                    u8 nextByte = data[bytePos];
+                    u8 const nextByte = data[bytePos];
                     if (nextByte == 0x00) {
                         bytePos++; // Byte-stuffing: literal 0xFF value
                     } else {
@@ -61,7 +61,7 @@ u32 MsbBitReader::readBits(i32 count) {
     if (count == 0) {
         return 0;
     }
-    u32 value = peekBits(count);
+    u32 const value = peekBits(count);
     consumeBits(count);
     return value;
 }
@@ -97,7 +97,7 @@ void MsbBitWriter::writeBits(u32 value, i32 count) {
 
     // Flush complete bytes.
     while (bitsUsed >= 8) {
-        u8 byte = static_cast<u8>(bitBuf >> 24);
+        u8 const byte = static_cast<u8>(bitBuf >> 24);
         out->push_back(byte);
         if (byte == 0xFF) {
             out->push_back(0x00); // Byte-stuffing.
@@ -109,7 +109,7 @@ void MsbBitWriter::writeBits(u32 value, i32 count) {
 
 void MsbBitWriter::flushWithPadding() {
     if (bitsUsed > 0) {
-        i32 padBits = 8 - bitsUsed;
+        i32 const padBits = 8 - bitsUsed;
         writeBits((1u << padBits) - 1, padBits);
     }
 }

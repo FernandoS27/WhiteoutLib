@@ -11,7 +11,7 @@ namespace {
 namespace fs = std::filesystem;
 
 std::string extractBaseStem(const std::string& m2Path) {
-    fs::path p(m2Path);
+    fs::path const p(m2Path);
     return (p.parent_path() / p.stem()).string();
 }
 
@@ -83,7 +83,7 @@ std::span<const u8> WoWFileSystem::getSkin(u32 skinId, bool isLod) {
         }
         data = m_cascFs->readFile(ids[skinId]);
     } else {
-        std::string path = buildSkinPath(skinId, isLod);
+        std::string const path = buildSkinPath(skinId, isLod);
         if (!m_pathFs->fileExists(path)) {
             return {};
         }
@@ -96,7 +96,7 @@ std::span<const u8> WoWFileSystem::getSkin(u32 skinId, bool isLod) {
 }
 
 std::span<const u8> WoWFileSystem::getAnimBuffer(u16 animId, u16 subAnimId) {
-    u32 key = animKey(animId, subAnimId);
+    u32 const key = animKey(animId, subAnimId);
     auto it = m_animCache.find(key);
     if (it != m_animCache.end()) {
         return it->second;
@@ -116,7 +116,7 @@ std::span<const u8> WoWFileSystem::getAnimBuffer(u16 animId, u16 subAnimId) {
         }
         data = m_cascFs->readFile(fileDataId);
     } else {
-        std::string path = buildAnimPath(animId, subAnimId);
+        std::string const path = buildAnimPath(animId, subAnimId);
         if (!m_pathFs->fileExists(path)) {
             return {};
         }
@@ -146,7 +146,7 @@ std::span<const u8> WoWFileSystem::getSkeleton() {
         if (m_isParentSkeleton) {
             return {};
         }
-        std::string path = buildSkelPath();
+        std::string const path = buildSkelPath();
         if (!m_pathFs->fileExists(path)) {
             return {};
         }
@@ -160,7 +160,7 @@ u32 WoWFileSystem::animKey(u16 animId, u16 subAnimId) {
 }
 
 std::string WoWFileSystem::buildSkinPath(u32 skinId, bool isLod) const {
-    std::string suffix = isLod ? "_lod" + zeroPad(skinId, 2) : zeroPad(skinId, 2);
+    std::string const suffix = isLod ? "_lod" + zeroPad(skinId, 2) : zeroPad(skinId, 2);
     return m_baseStem + suffix + ".skin";
 }
 
@@ -177,9 +177,9 @@ void WoWFileSystem::exploratorySearch() {
         return;
     }
 
-    fs::path basePath(m_baseStem);
-    fs::path dir = basePath.parent_path();
-    std::string stem = basePath.filename().string();
+    fs::path const basePath(m_baseStem);
+    fs::path const dir = basePath.parent_path();
+    std::string const stem = basePath.filename().string();
 
     auto entries = m_pathFs->listDirectory(dir.string());
 
@@ -193,7 +193,7 @@ void WoWFileSystem::exploratorySearch() {
             continue;
 
         std::string suffix = entry.name.substr(stem.size());
-        std::string fullPath = (dir / entry.name).string();
+        std::string const fullPath = (dir / entry.name).string();
 
         if (suffix == ".skel") {
             if (!m_skelLoaded) {
@@ -207,14 +207,14 @@ void WoWFileSystem::exploratorySearch() {
             std::string mid = suffix.substr(0, suffix.size() - 5);
             if (mid.size() == 2 && std::isdigit(static_cast<unsigned char>(mid[0])) &&
                 std::isdigit(static_cast<unsigned char>(mid[1]))) {
-                u32 skinId = static_cast<u32>(std::stoi(mid));
+                u32 const skinId = static_cast<u32>(std::stoi(mid));
                 if (!m_skinCache.contains(skinId)) {
                     m_skinCache[skinId] = m_pathFs->readFile(fullPath);
                 }
             } else if (mid.size() == 6 && mid.substr(0, 4) == "_lod" &&
                        std::isdigit(static_cast<unsigned char>(mid[4])) &&
                        std::isdigit(static_cast<unsigned char>(mid[5]))) {
-                u32 lodId = static_cast<u32>(std::stoi(mid.substr(4)));
+                u32 const lodId = static_cast<u32>(std::stoi(mid.substr(4)));
                 if (!m_lodSkinCache.contains(lodId)) {
                     m_lodSkinCache[lodId] = m_pathFs->readFile(fullPath);
                 }
@@ -225,17 +225,17 @@ void WoWFileSystem::exploratorySearch() {
         if (suffix.size() == 12 && suffix.substr(suffix.size() - 5) == ".anim" &&
             suffix[4] == '-') {
 
-            std::string animIdStr = suffix.substr(0, 4);
-            std::string subIdStr = suffix.substr(5, 2);
+            std::string const animIdStr = suffix.substr(0, 4);
+            std::string const subIdStr = suffix.substr(5, 2);
             bool allDigits = true;
-            for (char c : animIdStr)
+            for (char const c : animIdStr)
                 allDigits &= std::isdigit(static_cast<unsigned char>(c)) != 0;
-            for (char c : subIdStr)
+            for (char const c : subIdStr)
                 allDigits &= std::isdigit(static_cast<unsigned char>(c)) != 0;
             if (allDigits) {
-                u16 animId = static_cast<u16>(std::stoi(animIdStr));
-                u16 subAnimId = static_cast<u16>(std::stoi(subIdStr));
-                u32 key = animKey(animId, subAnimId);
+                u16 const animId = static_cast<u16>(std::stoi(animIdStr));
+                u16 const subAnimId = static_cast<u16>(std::stoi(subIdStr));
+                u32 const key = animKey(animId, subAnimId);
                 if (!m_animCache.contains(key)) {
                     m_animCache[key] = m_pathFs->readFile(fullPath);
                 }
@@ -255,30 +255,30 @@ u32 WoWFileSystem::allocateHandle(const std::string& pathHint) {
 
 u32 WoWFileSystem::newSkinFileEntry() {
     assert(m_mode == WoWFileSystemMode::Create);
-    u32 index = static_cast<u32>(m_registeredSkins.size());
-    u32 handle = allocateHandle(buildSkinPath(index, false));
+    u32 const index = static_cast<u32>(m_registeredSkins.size());
+    u32 const handle = allocateHandle(buildSkinPath(index, false));
     m_registeredSkins.push_back(handle);
     return handle;
 }
 
 u32 WoWFileSystem::newLodSkinFileEntry() {
     assert(m_mode == WoWFileSystemMode::Create);
-    u32 index = static_cast<u32>(m_registeredLodSkins.size());
-    u32 handle = allocateHandle(buildSkinPath(index, true));
+    u32 const index = static_cast<u32>(m_registeredLodSkins.size());
+    u32 const handle = allocateHandle(buildSkinPath(index, true));
     m_registeredLodSkins.push_back(handle);
     return handle;
 }
 
 u32 WoWFileSystem::newSkeletonFileEntry() {
     assert(m_mode == WoWFileSystemMode::Create);
-    u32 handle = allocateHandle(buildSkelPath());
+    u32 const handle = allocateHandle(buildSkelPath());
     m_registeredSkelId = handle;
     return handle;
 }
 
 u32 WoWFileSystem::newAnimFileEntry(u16 animId, u16 subAnimId) {
     assert(m_mode == WoWFileSystemMode::Create);
-    u32 handle = allocateHandle(buildAnimPath(animId, subAnimId));
+    u32 const handle = allocateHandle(buildAnimPath(animId, subAnimId));
     m_registeredAnims.push_back(AFIDEntry{animId, subAnimId, handle});
     return handle;
 }
@@ -351,7 +351,7 @@ void WoWFileSystem::flush() {
         }
 
         for (u32 i = 0; i < static_cast<u32>(m_registeredSkins.size()); ++i) {
-            u32 handle = m_registeredSkins[i];
+            u32 const handle = m_registeredSkins[i];
             auto it = m_skinCache.find(handle);
             if (it != m_skinCache.end()) {
                 m_pathFs->writeFile(buildSkinPath(i, false), it->second);
@@ -359,7 +359,7 @@ void WoWFileSystem::flush() {
         }
 
         for (u32 i = 0; i < static_cast<u32>(m_registeredLodSkins.size()); ++i) {
-            u32 handle = m_registeredLodSkins[i];
+            u32 const handle = m_registeredLodSkins[i];
             auto it = m_lodSkinCache.find(handle);
             if (it != m_lodSkinCache.end()) {
                 m_pathFs->writeFile(buildSkinPath(i, true), it->second);
@@ -378,14 +378,14 @@ void WoWFileSystem::flush() {
         }
     } else if (m_cascFs) {
 
-        for (u32 handle : m_registeredSkins) {
+        for (u32 const handle : m_registeredSkins) {
             auto it = m_skinCache.find(handle);
             if (it != m_skinCache.end() && handle != 0) {
                 m_cascFs->writeFile(handle, it->second);
             }
         }
 
-        for (u32 handle : m_registeredLodSkins) {
+        for (u32 const handle : m_registeredLodSkins) {
             auto it = m_lodSkinCache.find(handle);
             if (it != m_lodSkinCache.end() && handle != 0) {
                 m_cascFs->writeFile(handle, it->second);

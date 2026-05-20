@@ -32,7 +32,7 @@ std::string_view readCString(const u8* data, size_t size, size_t& pos) {
     const u8* start = data + pos;
     const u8* end = static_cast<const u8*>(std::memchr(start, 0, size - pos));
     if (!end) return {};
-    size_t len = static_cast<size_t>(end - start);
+    size_t const len = static_cast<size_t>(end - start);
     pos += len + 1; // skip past NUL
     return {reinterpret_cast<const char*>(start), len};
 }
@@ -56,10 +56,10 @@ std::unique_ptr<InstallRoot> InstallRoot::parse(std::span<const u8> data,
     // Validate magic: 'IN' (0x49, 0x4E).
     if (data[0] != 'I' || data[1] != 'N') return nullptr;
 
-    [[maybe_unused]] u8 version = data[2];
-    u8 hashSize = data[3];
-    u16 numTags = readBE16(data.data() + 4);
-    u32 numFiles = readBE32(data.data() + 6);
+    [[maybe_unused]] u8 const version = data[2];
+    u8 const hashSize = data[3];
+    u16 const numTags = readBE16(data.data() + 4);
+    u32 const numFiles = readBE32(data.data() + 6);
 
     // Sanity: hashSize is typically 16 (MD5).  Allow 16 or 32.
     if (hashSize != 16 && hashSize != 32) return nullptr;
@@ -68,7 +68,7 @@ std::unique_ptr<InstallRoot> InstallRoot::parse(std::span<const u8> data,
     if (numFiles > 10'000'000) return nullptr;
 
     size_t pos = 10;
-    u32 numMaskBytes = (numFiles + 7) / 8;
+    u32 const numMaskBytes = (numFiles + 7) / 8;
 
     auto root = std::make_unique<InstallRoot>();
 
@@ -82,7 +82,7 @@ std::unique_ptr<InstallRoot> InstallRoot::parse(std::span<const u8> data,
         auto name = readCString(data.data(), data.size(), pos);
         if (name.data() == nullptr) return nullptr;
         if (pos + 2 > data.size()) return nullptr;
-        i16 type = static_cast<i16>(readBE16(data.data() + pos));
+        i16 const type = static_cast<i16>(readBE16(data.data() + pos));
         pos += 2;
 
         if (pos + numMaskBytes > data.size()) return nullptr;

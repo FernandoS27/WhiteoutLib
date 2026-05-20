@@ -96,14 +96,14 @@ constexpr std::array<AscLutEntry, ASC_FAST_SIZE> buildAscLut() {
         table[i] = {0xFFFF, 0};
     }
     for (u32 sym = 0; sym < 256; ++sym) {
-        u32 codeLen = kChBitsAsc[sym];
+        u32 const codeLen = kChBitsAsc[sym];
         if (codeLen == 0)
             continue;
-        u16 code = kChCodeAsc[sym];
-        u32 padBits = ASC_FAST_BITS - codeLen;
-        u32 numEntries = 1u << padBits;
+        u16 const code = kChCodeAsc[sym];
+        u32 const padBits = ASC_FAST_BITS - codeLen;
+        u32 const numEntries = 1u << padBits;
         for (u32 p = 0; p < numEntries; ++p) {
-            u32 idx = code | (p << codeLen);
+            u32 const idx = code | (p << codeLen);
             if (idx < static_cast<u32>(ASC_FAST_SIZE)) {
                 table[idx] = {static_cast<u16>(sym), static_cast<u8>(codeLen)};
             }
@@ -137,7 +137,7 @@ struct ExplodeBitReader {
         return true;
     }
 
-    u32 peekBits(u32 count) {
+    u32 peekBits(u32 count) const {
         return bitBuf & ((1u << count) - 1);
     }
 
@@ -148,7 +148,7 @@ struct ExplodeBitReader {
 
     u32 readBits(u32 count) {
         ensureBits(count);
-        u32 val = peekBits(count);
+        u32 const val = peekBits(count);
         dropBits(count);
         return val;
     }
@@ -162,7 +162,7 @@ struct ExplodeBitReader {
 u32 decodeLengthValue(ExplodeBitReader& br) {
     if (!br.ensureBits(8))
         return 0;
-    u32 code = br.peekBits(8);
+    u32 const code = br.peekBits(8);
 
     // Find the length code index by searching the kLenCode table.
     // The 8-bit value is looked up from the Shannon-Fano tree structure.
@@ -176,7 +176,7 @@ u32 decodeLengthValue(ExplodeBitReader& br) {
         for (u32 i = 0; i < 16; ++i) {
             if (!br.ensureBits(kLenBits[i]))
                 return 0;
-            u32 val = br.peekBits(kLenBits[i]);
+            u32 const val = br.peekBits(kLenBits[i]);
             if (val == kLenCode[i]) {
                 br.dropBits(kLenBits[i]);
                 lengthCode = i;
@@ -190,7 +190,7 @@ u32 decodeLengthValue(ExplodeBitReader& br) {
 
     u32 length = kLenBase[lengthCode];
     if (kLenBits[lengthCode] > 0) {
-        u32 extra = br.readBits(kLenBits[lengthCode]);
+        u32 const extra = br.readBits(kLenBits[lengthCode]);
         length += extra;
     }
 
@@ -208,16 +208,16 @@ std::vector<u8> pkwareExplode(std::span<const u8> src, size_t expectedSize) {
         return {};
 
     // First byte: compression type (0 = binary, 1 = ASCII).
-    u8 compressionType = src[0];
+    u8 const compressionType = src[0];
     // Second byte: dictionary size log2 (4 = 1024, 5 = 2048, 6 = 4096).
-    u8 dictSizeBits = src[1];
+    u8 const dictSizeBits = src[1];
 
     if (compressionType > 1)
         return {};
     if (dictSizeBits < 4 || dictSizeBits > 6)
         return {};
 
-    [[maybe_unused]] u32 dictSize = 1u << dictSizeBits;
+    [[maybe_unused]] u32 const dictSize = 1u << dictSizeBits;
 
     ExplodeBitReader br(src.data() + 2, src.size() - 2);
     std::vector<u8> output;
@@ -233,7 +233,7 @@ std::vector<u8> pkwareExplode(std::span<const u8> src, size_t expectedSize) {
                 // ASCII mode: decode via Shannon-Fano tree using fast LUT.
                 if (!br.ensureBits(ASC_FAST_BITS))
                     break;
-                u32 val = br.peekBits(ASC_FAST_BITS);
+                u32 const val = br.peekBits(ASC_FAST_BITS);
                 const auto& entry = kAscLut[val];
                 if (entry.symbol == 0xFFFF)
                     break;
@@ -251,30 +251,30 @@ std::vector<u8> pkwareExplode(std::span<const u8> src, size_t expectedSize) {
                 break;
 
             // Read distance.
-            u32 distLow = br.readBits(dictSizeBits);
+            u32 const distLow = br.readBits(dictSizeBits);
 
             // Decode distance high byte using kDistBits table.
             u32 distHigh = 0;
             if (!br.ensureBits(6))
                 break;
-            u32 distCode = br.peekBits(6);
+            u32 const distCode = br.peekBits(6);
             // The distance code is a 6-bit index into kDistBits.
             // Actually, we need to decode it as a Shannon-Fano code.
             // Simplified: use the 6-bit value directly as the distance code index.
             br.dropBits(6);
 
             if (distCode < 64) {
-                u32 extraDist = kDistBits[distCode];
+                u32 const extraDist = kDistBits[distCode];
                 if (extraDist > 0 && !br.ensureBits(extraDist))
                     break;
-                u32 extra = (extraDist > 0) ? br.readBits(extraDist) : 0;
+                u32 const extra = (extraDist > 0) ? br.readBits(extraDist) : 0;
                 distHigh = (distCode << 2) | extra; // Approximate distance high.
             }
 
-            u32 distance = (distHigh << dictSizeBits) | distLow;
+            u32 const distance = (distHigh << dictSizeBits) | distLow;
 
             // Decode length.
-            u32 length = decodeLengthValue(br);
+            u32 const length = decodeLengthValue(br);
             if (length == 0)
                 break;
 
@@ -285,7 +285,7 @@ std::vector<u8> pkwareExplode(std::span<const u8> src, size_t expectedSize) {
             // Copy from dictionary (back-reference).
             if (distance >= output.size())
                 break;
-            size_t srcPos = output.size() - distance - 1;
+            size_t const srcPos = output.size() - distance - 1;
             for (u32 i = 0; i < length && output.size() < expectedSize; ++i) {
                 output.push_back(output[srcPos + i]);
             }
@@ -339,7 +339,7 @@ std::vector<u8> pkwareImplode(std::span<const u8> src) {
             flushByte();
     };
 
-    for (u8 byte : src) {
+    for (u8 const byte : src) {
         writeBits(1, 1);    // Literal flag.
         writeBits(byte, 8); // Literal value (binary mode).
     }

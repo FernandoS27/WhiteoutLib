@@ -76,7 +76,7 @@ using Results = std::vector<GameResult>;
 /// Crude JSON string value extractor — finds "key" : "value" pairs.
 [[maybe_unused]] std::string extractJsonValue(const std::string& text, size_t startPos,
                                     const std::string& key) {
-    std::string searchKey = "\"" + key + "\"";
+    std::string const searchKey = "\"" + key + "\"";
     size_t pos = text.find(searchKey, startPos);
     if (pos == std::string::npos)
         return {};
@@ -90,7 +90,7 @@ using Results = std::vector<GameResult>;
         return {};
     ++pos;
 
-    size_t end = text.find('"', pos);
+    size_t const end = text.find('"', pos);
     if (end == std::string::npos)
         return {};
 
@@ -99,7 +99,7 @@ using Results = std::vector<GameResult>;
     std::string unescaped;
     for (size_t i = 0; i < val.size(); ++i) {
         if (val[i] == '\\' && i + 1 < val.size()) {
-            char next = val[i + 1];
+            char const next = val[i + 1];
             if (next == '\\' || next == '/' || next == '"') {
                 unescaped += next;
                 ++i;
@@ -212,12 +212,13 @@ static constexpr SteamApp kSteamApps[] = {
     if (!file)
         return;
 
-    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    std::string const content((std::istreambuf_iterator<char>(file)),
+                              std::istreambuf_iterator<char>());
     file.close();
 
     for (auto& product : kBnetProducts) {
-        std::string uidStr = std::string("\"") + product.uid + "\"";
-        size_t uidPos = content.find(uidStr);
+        std::string const uidStr = std::string("\"") + product.uid + "\"";
+        size_t const uidPos = content.find(uidStr);
         if (uidPos == std::string::npos)
             continue;
 
@@ -253,11 +254,11 @@ static constexpr SteamApp kSteamApps[] = {
     for (auto& product : kBnetProducts) {
         size_t pos = 0;
         while ((pos = dbContent.find(product.uid, pos)) != std::string::npos) {
-            size_t searchStart = pos + std::strlen(product.uid);
-            size_t searchEnd = (std::min)(searchStart + size_t{512}, dbContent.size());
+            size_t const searchStart = pos + std::strlen(product.uid);
+            size_t const searchEnd = (std::min)(searchStart + size_t{512}, dbContent.size());
 
             for (size_t i = searchStart; i + 3 < searchEnd; ++i) {
-                char c = dbContent[i];
+                char const c = dbContent[i];
 #ifdef _WIN32
                 // Windows: drive letter pattern  X:\  or X:/
                 if (((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) &&
@@ -267,7 +268,7 @@ static constexpr SteamApp kSteamApps[] = {
                 // macOS: absolute path starting with /
                 if (c == '/' && dbContent[i + 1] >= 0x20 && dbContent[i + 1] != '"') {
 #endif
-                    size_t pathStart = i;
+                    size_t const pathStart = i;
                     size_t pathEnd = i;
                     while (pathEnd < searchEnd && dbContent[pathEnd] >= 0x20 &&
                            dbContent[pathEnd] != '"')
@@ -299,14 +300,14 @@ static constexpr SteamApp kSteamApps[] = {
 
     std::string line;
     while (std::getline(file, line)) {
-        size_t pathKey = line.find("\"path\"");
+        size_t const pathKey = line.find("\"path\"");
         if (pathKey == std::string::npos)
             continue;
 
         size_t valStart = line.find('"', pathKey + 6);
         if (valStart == std::string::npos) continue;
         ++valStart;
-        size_t valEnd = line.find('"', valStart);
+        size_t const valEnd = line.find('"', valStart);
         if (valEnd == std::string::npos) continue;
 
         std::string folderPath = line.substr(valStart, valEnd - valStart);
@@ -332,15 +333,16 @@ static constexpr SteamApp kSteamApps[] = {
     if (steamRoot.empty())
         return;
 
-    fs::path vdfPath = common::utf8_to_path(steamRoot) / "steamapps" / "libraryfolders.vdf";
+    fs::path const vdfPath = common::utf8_to_path(steamRoot) / "steamapps" / "libraryfolders.vdf";
     std::vector<std::string> libraries = parseSteamLibraryFolders(vdfPath);
     libraries.insert(libraries.begin(), steamRoot);
 
     for (auto& lib : libraries) {
-        fs::path steamAppsDir = common::utf8_to_path(lib) / "steamapps";
+        fs::path const steamAppsDir = common::utf8_to_path(lib) / "steamapps";
 
         for (auto& app : kSteamApps) {
-            fs::path manifest = steamAppsDir / (std::string("appmanifest_") + app.appId + ".acf");
+            fs::path const manifest =
+                steamAppsDir / (std::string("appmanifest_") + app.appId + ".acf");
             std::error_code ec;
             if (!fs::exists(manifest, ec))
                 continue;
@@ -351,13 +353,13 @@ static constexpr SteamApp kSteamApps[] = {
             std::string installDir;
             std::string mfLine;
             while (std::getline(mf, mfLine)) {
-                size_t key = mfLine.find("\"installdir\"");
+                size_t const key = mfLine.find("\"installdir\"");
                 if (key == std::string::npos)
                     continue;
                 size_t vs = mfLine.find('"', key + 12);
                 if (vs == std::string::npos) continue;
                 ++vs;
-                size_t ve = mfLine.find('"', vs);
+                size_t const ve = mfLine.find('"', vs);
                 if (ve == std::string::npos) continue;
                 installDir = mfLine.substr(vs, ve - vs);
                 break;
@@ -366,7 +368,7 @@ static constexpr SteamApp kSteamApps[] = {
             if (installDir.empty())
                 continue;
 
-            fs::path gamePath = steamAppsDir / "common" / installDir;
+            fs::path const gamePath = steamAppsDir / "common" / installDir;
             if (fs::is_directory(gamePath, ec))
                 addResult(results, seen, app.game, app.gameName, gamePath.string());
         }
@@ -381,7 +383,8 @@ static constexpr SteamApp kSteamApps[] = {
 
 [[maybe_unused]] static std::wstring toWide(const std::string& s) {
     if (s.empty()) return {};
-    int len = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
+    int const len =
+        MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
     std::wstring w(static_cast<size_t>(len), L'\0');
     MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), w.data(), len);
     return w;
@@ -389,7 +392,8 @@ static constexpr SteamApp kSteamApps[] = {
 
 [[maybe_unused]] std::string toUtf8(const std::wstring& w) {
     if (w.empty()) return {};
-    int len = WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), nullptr, 0, nullptr, nullptr);
+    int const len = WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), nullptr,
+                                        0, nullptr, nullptr);
     std::string s(static_cast<size_t>(len), '\0');
     WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), s.data(), len, nullptr, nullptr);
     return s;
@@ -504,11 +508,11 @@ static constexpr RegEntry kRegistryEntries[] = {
 
     for (auto* uninstallKey : kUninstallKeys) {
         for (auto& sub : enumSubKeys(HKEY_LOCAL_MACHINE, uninstallKey)) {
-            std::wstring fullKey = std::wstring(uninstallKey) + L"\\" + sub;
+            std::wstring const fullKey = std::wstring(uninstallKey) + L"\\" + sub;
 
-            std::string publisher =
+            std::string const publisher =
                 readRegString(HKEY_LOCAL_MACHINE, fullKey.c_str(), L"Publisher");
-            bool isBlizzard = publisher.find("Blizzard") != std::string::npos;
+            bool const isBlizzard = publisher.find("Blizzard") != std::string::npos;
             if (!isBlizzard)
                 continue;
 
@@ -517,7 +521,7 @@ static constexpr RegEntry kRegistryEntries[] = {
             std::string loc =
                 readRegString(HKEY_LOCAL_MACHINE, fullKey.c_str(), L"InstallLocation");
             if (!name.empty() && !loc.empty()) {
-                BlizzardGame g = blizzardGameFromName(name);
+                BlizzardGame const g = blizzardGameFromName(name);
                 addResult(results, seen, g, std::move(name), std::move(loc));
             }
         }
@@ -531,14 +535,14 @@ static constexpr RegEntry kRegistryEntries[] = {
 [[maybe_unused]] void scanBattleNetConfig(Results& results, std::unordered_set<std::string>& seen) {
     wchar_t* appDataPath = nullptr;
     if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &appDataPath))) {
-        fs::path configPath = fs::path(appDataPath) / "Battle.net" / "Battle.net.config";
+        fs::path const configPath = fs::path(appDataPath) / "Battle.net" / "Battle.net.config";
         CoTaskMemFree(appDataPath);
         scanBattleNetConfigFile(configPath, results, seen);
     }
 
     wchar_t* progDataPath = nullptr;
     if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_ProgramData, 0, nullptr, &progDataPath))) {
-        fs::path agentDir = fs::path(progDataPath) / "Battle.net" / "Agent";
+        fs::path const agentDir = fs::path(progDataPath) / "Battle.net" / "Agent";
         CoTaskMemFree(progDataPath);
         scanProductDb(agentDir / "product.db", results, seen);
     }

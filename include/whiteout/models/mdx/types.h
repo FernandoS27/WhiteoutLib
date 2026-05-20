@@ -278,6 +278,10 @@ struct Track {
         return std::span<T>(reinterpret_cast<T*>(keys_data.data()),
                               keys_data.size());
     }
+    std::span<const T> keys() const {
+        return std::span<const T>(reinterpret_cast<const T*>(keys_data.data()),
+                                  keys_data.size());
+    }
 
     /**
      * @brief Get keyframes with tangents (for Hermite/Bezier interpolation)
@@ -286,6 +290,11 @@ struct Track {
     std::span<TangentKey> tangentKeys() {
         return std::span<TangentKey>(reinterpret_cast<TangentKey*>(keys_data.data()),
                                      (sizeof(T) * keys_data.size()) / sizeof(TangentKey));
+    }
+    std::span<const TangentKey> tangentKeys() const {
+        return std::span<const TangentKey>(
+            reinterpret_cast<const TangentKey*>(keys_data.data()),
+            (sizeof(T) * keys_data.size()) / sizeof(TangentKey));
     }
 };
 

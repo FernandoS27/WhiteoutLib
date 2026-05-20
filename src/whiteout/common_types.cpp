@@ -37,7 +37,7 @@ u16 f16::from_float_impl(f32 input) {
     const u32 sign_bit = (float_bits >> 16) & F16_SIGN_MASK;
     i32 exponent =
         static_cast<i32>((float_bits & F32_EXPONENT_MASK) >> F32_MANTISSA_BITS) - F32_EXPONENT_BIAS;
-    u32 mantissa = float_bits & F32_MANTISSA_MASK;
+    u32 const mantissa = float_bits & F32_MANTISSA_MASK;
 
     // Inf / NaN — exponent is all 1s in f32
     if (exponent == (F32_EXPONENT_BIAS + 1)) {

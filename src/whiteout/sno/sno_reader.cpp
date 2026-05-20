@@ -292,7 +292,7 @@ static SnoArray readPolyElements(const ReadCtx& parentCtx, u32 baseTypeHash, siz
     for (i32 i = 0; i < count && remaining > 0; ++i) {
         u32 polyTypeHash = baseTypeHash;
         if (parentCtx.reg.findType(kPolyBaseHash) && off + 4 <= parentCtx.payloadSize) {
-            u32 dwType = readAt<u32>(parentCtx.reader, off);
+            u32 const dwType = readAt<u32>(parentCtx.reader, off);
             if (dwType != 0)
                 polyTypeHash = dwType;
         }
@@ -310,9 +310,9 @@ static SnoArray readPolyElements(const ReadCtx& parentCtx, u32 baseTypeHash, siz
 /// Read variable array elements, trying a bulk typed read first.
 static SnoValue readVarArray(const ReadCtx& arrCtx, const u32 sub[3], size_t off, i32 dataSize,
                              const SnoFieldDef* field) {
-    size_t elemSz = typedArrayElemSize(sub[0], field);
+    size_t const elemSz = typedArrayElemSize(sub[0], field);
     if (elemSz > 0) {
-        size_t count = static_cast<size_t>(dataSize) / elemSz;
+        size_t const count = static_cast<size_t>(dataSize) / elemSz;
         return SnoValue(readTypedArrayFromBuf(arrCtx.reader, off, count, sub[0]));
     }
     return SnoValue(readElementLoop(arrCtx, sub, off, dataSize, field));
@@ -354,7 +354,7 @@ static SnoValue readBasicType(ReadCtx& ctx, u32 typeHash, const u32 typeHashes[3
     // -- DT_SNO --
     case TypeHash::DT_SNO: {
         ctx.readLength += 4;
-        i32 raw = readAt<i32>(reader, offset);
+        i32 const raw = readAt<i32>(reader, offset);
         if (raw == -1 || raw == 0 || raw == static_cast<i32>(0xFFFFFFFF))
             return SnoValue();
         return SnoValue(SnoRef{field ? field->group : -1, raw});
@@ -365,7 +365,7 @@ static SnoValue readBasicType(ReadCtx& ctx, u32 typeHash, const u32 typeHashes[3
         ctx.readLength += 8;
         reader.setPosition(static_cast<u32>(offset));
         i32 group = reader.read<i32>();
-        i32 raw = reader.read<i32>();
+        i32 const raw = reader.read<i32>();
         if (raw == -1 || raw == 0 || raw == static_cast<i32>(0xFFFFFFFF))
             return SnoValue();
         if (group == 0 && field)
@@ -376,7 +376,7 @@ static SnoValue readBasicType(ReadCtx& ctx, u32 typeHash, const u32 typeHashes[3
     // -- DT_GBID --
     case TypeHash::DT_GBID: {
         ctx.readLength += 4;
-        u32 raw = readAt<u32>(reader, offset);
+        u32 const raw = readAt<u32>(reader, offset);
         if (raw == 0xFFFFFFFF)
             return SnoValue();
         return SnoValue(SnoGbid{field ? field->group : -1, raw});
@@ -386,8 +386,8 @@ static SnoValue readBasicType(ReadCtx& ctx, u32 typeHash, const u32 typeHashes[3
     case TypeHash::DT_CSTRING: {
         ctx.readLength += 16;
         reader.setPosition(static_cast<u32>(offset + 8));
-        i32 stringOffset = reader.read<i32>();
-        i32 stringSize = reader.read<i32>();
+        i32 const stringOffset = reader.read<i32>();
+        i32 const stringSize = reader.read<i32>();
         if (stringSize < 1 || stringOffset < 1 ||
             static_cast<size_t>(stringOffset + stringSize) > ctx.payloadSize)
             return SnoValue(std::string{});
@@ -397,7 +397,7 @@ static SnoValue readBasicType(ReadCtx& ctx, u32 typeHash, const u32 typeHashes[3
 
     // -- DT_CHARARRAY --
     case TypeHash::DT_CHARARRAY: {
-        i32 arrLen = field ? field->arrayLength : 0;
+        i32 const arrLen = field ? field->arrayLength : 0;
         if (arrLen <= 0)
             return SnoValue(std::string{});
         ctx.readLength += static_cast<size_t>(arrLen);
@@ -409,8 +409,8 @@ static SnoValue readBasicType(ReadCtx& ctx, u32 typeHash, const u32 typeHashes[3
     case TypeHash::DT_STRING_FORMULA: {
         ctx.readLength += 32;
         reader.setPosition(static_cast<u32>(offset + 8));
-        i32 formulaOffset = reader.read<i32>();
-        i32 formulaSize = reader.read<i32>();
+        i32 const formulaOffset = reader.read<i32>();
+        i32 const formulaSize = reader.read<i32>();
         if (formulaSize <= 0 || formulaOffset <= 0 ||
             static_cast<size_t>(formulaOffset + formulaSize) > ctx.payloadSize)
             return SnoValue(std::string{});
@@ -438,7 +438,7 @@ static SnoValue readBasicType(ReadCtx& ctx, u32 typeHash, const u32 typeHashes[3
         subTypeHashes(typeHashes, sub);
         ReadCtx subCtx = ctx.sub();
         SnoValue value = readStructure(subCtx, sub, offset, field);
-        i32 present = readAt<i32>(reader, offset);
+        i32 const present = readAt<i32>(reader, offset);
         ctx.readLength += 4;
         return present ? std::move(value) : SnoValue();
     }
@@ -459,7 +459,7 @@ static SnoValue readBasicType(ReadCtx& ctx, u32 typeHash, const u32 typeHashes[3
 
     // -- DT_FIXEDARRAY --
     case TypeHash::DT_FIXEDARRAY: {
-        i32 arrLen = field ? field->arrayLength : 0;
+        i32 const arrLen = field ? field->arrayLength : 0;
         if (arrLen <= 0)
             return emptyArray();
         u32 sub[3];
@@ -467,16 +467,16 @@ static SnoValue readBasicType(ReadCtx& ctx, u32 typeHash, const u32 typeHashes[3
 
         // D3: fixed byte arrays are null-terminated strings
         if (ctx.format == SnoFormat::D3 && sub[0] == TypeHash::DT_BYTE) {
-            size_t len = static_cast<size_t>(arrLen);
+            size_t const len = static_cast<size_t>(arrLen);
             ctx.readLength += len;
             reader.setPosition(static_cast<u32>(offset));
             return SnoValue(reader.readString(len, true));
         }
 
         // Try typed array for homogeneous basic types
-        size_t elemSz = typedArrayElemSize(sub[0], field);
+        size_t const elemSz = typedArrayElemSize(sub[0], field);
         if (elemSz > 0) {
-            size_t n = static_cast<size_t>(arrLen);
+            size_t const n = static_cast<size_t>(arrLen);
             if (offset + n * elemSz <= ctx.payloadSize) {
                 ctx.readLength += n * elemSz;
                 return SnoValue(readTypedArrayFromBuf(reader, offset, n, sub[0]));
@@ -498,10 +498,10 @@ static SnoValue readBasicType(ReadCtx& ctx, u32 typeHash, const u32 typeHashes[3
         ctx.readLength += 16;
         // D3 layout: {dataOffset(4), dataSize(4), 0(4), 0(4)}
         // D4 layout: {0(4), 0(4), dataOffset(4), dataSize(4)}
-        size_t descOff = (ctx.format == SnoFormat::D3) ? offset : offset + 8;
+        size_t const descOff = (ctx.format == SnoFormat::D3) ? offset : offset + 8;
         reader.setPosition(static_cast<u32>(descOff));
-        i32 dataOffset = reader.read<i32>();
-        i32 dataSize = reader.read<i32>();
+        i32 const dataOffset = reader.read<i32>();
+        i32 const dataSize = reader.read<i32>();
 
         u32 sub[3];
         subTypeHashes(typeHashes, sub);
@@ -525,15 +525,16 @@ static SnoValue readBasicType(ReadCtx& ctx, u32 typeHash, const u32 typeHashes[3
     case TypeHash::DT_POLYMORPHIC_VARIABLEARRAY: {
         ctx.readLength += 24;
         reader.setPosition(static_cast<u32>(offset + 8));
-        i32 dataOffset = reader.read<i32>();
-        i32 dataSize = reader.read<i32>();
-        i32 dataCount = reader.read<i32>();
+        i32 const dataOffset = reader.read<i32>();
+        i32 const dataSize = reader.read<i32>();
+        i32 const dataCount = reader.read<i32>();
 
         if (isExternalField(field)) {
             if (ctx.payloadDataReader && dataSize > 0 && dataCount > 0 && dataOffset >= 0 &&
                 static_cast<size_t>(dataOffset + dataSize) <= ctx.payloadDataSize) {
-                size_t off = static_cast<size_t>(dataOffset) + static_cast<size_t>(dataCount) * 8;
-                i32 remaining = dataSize - dataCount * 8;
+                size_t const off =
+                    static_cast<size_t>(dataOffset) + static_cast<size_t>(dataCount) * 8;
+                i32 const remaining = dataSize - dataCount * 8;
                 return SnoValue(readPolyElements(ctx.forExternalPayload(), typeHashes[1], off,
                                                  remaining, dataCount, field));
             }
@@ -544,8 +545,8 @@ static SnoValue readBasicType(ReadCtx& ctx, u32 typeHash, const u32 typeHashes[3
             static_cast<size_t>(dataOffset + dataSize) > ctx.payloadSize)
             return emptyArray();
 
-        size_t off = static_cast<size_t>(dataOffset) + static_cast<size_t>(dataCount) * 8;
-        i32 remaining = dataSize - dataCount * 8;
+        size_t const off = static_cast<size_t>(dataOffset) + static_cast<size_t>(dataCount) * 8;
+        i32 const remaining = dataSize - dataCount * 8;
         return SnoValue(readPolyElements(ctx, typeHashes[1], off, remaining, dataCount, field));
     }
 
@@ -554,10 +555,10 @@ static SnoValue readBasicType(ReadCtx& ctx, u32 typeHash, const u32 typeHashes[3
         ctx.readLength += 16;
         // D3 layout: {dataOffset(4), dataSize(4), 0(4), 0(4)}
         // D4 layout: {0(4), 0(4), dataOffset(4), dataSize(4)}
-        size_t tmDescOff = (ctx.format == SnoFormat::D3) ? offset : offset + 8;
+        size_t const tmDescOff = (ctx.format == SnoFormat::D3) ? offset : offset + 8;
         reader.setPosition(static_cast<u32>(tmDescOff));
-        i32 dataOffset = reader.read<i32>();
-        i32 dataSize = reader.read<i32>();
+        i32 const dataOffset = reader.read<i32>();
+        i32 const dataSize = reader.read<i32>();
 
         if (dataSize < 1 || dataOffset < 1)
             return SnoValue(SnoObject{});
@@ -567,7 +568,7 @@ static SnoValue readBasicType(ReadCtx& ctx, u32 typeHash, const u32 typeHashes[3
         size_t doff = static_cast<size_t>(dataOffset);
         [[maybe_unused]] i32 drem = dataSize;
 
-        i32 dataCount = readAt<i32>(reader, doff);
+        i32 const dataCount = readAt<i32>(reader, doff);
         doff += 4;
         drem -= 4;
 
@@ -610,10 +611,10 @@ static SnoValue readBasicType(ReadCtx& ctx, u32 typeHash, const u32 typeHashes[3
         // Step 2: read values
         SnoObject obj;
         for (i32 i = 0; i < dataCount; ++i) {
-            size_t reqAlign = getTypeAlignment(ctx.reg, tagFields[i].typeHashes, true);
-            size_t curAlign = doff % reqAlign;
+            size_t const reqAlign = getTypeAlignment(ctx.reg, tagFields[i].typeHashes, true);
+            size_t const curAlign = doff % reqAlign;
             if (curAlign) {
-                size_t padding = reqAlign - curAlign;
+                size_t const padding = reqAlign - curAlign;
                 doff += padding;
                 drem -= static_cast<i32>(padding);
             }
@@ -654,7 +655,7 @@ static SnoValue readBasicType(ReadCtx& ctx, u32 typeHash, const u32 typeHashes[3
 
         // padding + PropertyFlags + padding2 = 12 bytes
         // Then the sub-value
-        size_t subOffset = offset + 48;
+        size_t const subOffset = offset + 48;
         u32 sub[3] = {typeHashes[1], typeHashes[2], TypeHash::DT_NULL};
         ReadCtx sub3 = ctx.sub();
         obj["value"] = readStructure(sub3, sub, subOffset, field);
@@ -707,7 +708,7 @@ static SnoValue readStructure(ReadCtx& ctx, const u32 typeHashes[3], size_t offs
                 continue;
             if (fieldOff + 4 > ctx.payloadSize)
                 continue;
-            i32 ptrOff = readAt<i32>(ctx.reader, fieldOff);
+            i32 const ptrOff = readAt<i32>(ctx.reader, fieldOff);
             if (ptrOff <= 0 || static_cast<size_t>(ptrOff) + subType->size > ctx.payloadSize)
                 continue;
             fieldOff = static_cast<size_t>(ptrOff);
@@ -750,7 +751,7 @@ std::optional<SnoFile> SnoReader::parse(std::span<const u8> data, SnoGroup group
     std::istream dataStream(&dataBuf);
     BinaryReader dataReader(dataStream);
 
-    u32 magic = dataReader.read<u32>();
+    u32 const magic = dataReader.read<u32>();
     if (magic != kSnoMagic)
         return std::nullopt;
 
@@ -774,7 +775,7 @@ std::optional<SnoFile> SnoReader::parse(std::span<const u8> data, SnoGroup group
     // Without this check, the name-based fallback below would find the D4
     // type (e.g. "AnimationDefinition") and parse the D3 file incorrectly.
     if (rootTypeHash == 0 && group != SnoGroup::None) {
-        u32 d3TypeHash = m_d3Registry.typeHashFromKey(static_cast<u32>(group));
+        u32 const d3TypeHash = m_d3Registry.typeHashFromKey(static_cast<u32>(group));
         if (d3TypeHash != 0)
             return parseD3(data, group);
     }
@@ -785,7 +786,7 @@ std::optional<SnoFile> SnoReader::parse(std::span<const u8> data, SnoGroup group
     if (rootTypeHash == 0 && formatHash != 0 && group != SnoGroup::None) {
         const char* gn = snoGroupName(group);
         if (gn) {
-            std::string typeName = std::string(gn) + "Definition";
+            std::string const typeName = std::string(gn) + "Definition";
             rootTypeHash = m_registry.typeHashFromName(typeName.c_str());
         }
     }
@@ -811,7 +812,7 @@ std::optional<SnoFile> SnoReader::parseD4(std::span<const u8> data, u32 magic, u
     std::istream payloadStream(&payloadBuf);
     BinaryReader reader(payloadStream);
 
-    i32 snoId = reader.read<i32>();
+    i32 const snoId = reader.read<i32>();
 
     // Set up external payload data reader if provided
     span_streambuf pdBuf(payloadData);
@@ -843,14 +844,14 @@ std::optional<SnoFile> SnoReader::parseD3(std::span<const u8> data, SnoGroup gro
     std::istream dataStream(&dataBuf);
     BinaryReader dataReader(dataStream);
 
-    u32 magic = dataReader.read<u32>();
+    u32 const magic = dataReader.read<u32>();
     if (magic != kSnoMagic)
         return std::nullopt;
 
-    u32 version = dataReader.read<u32>();
+    u32 const version = dataReader.read<u32>();
 
-    u32 groupId = static_cast<u32>(group);
-    u32 rootTypeHash = m_d3Registry.typeHashFromKey(groupId);
+    u32 const groupId = static_cast<u32>(group);
+    u32 const rootTypeHash = m_d3Registry.typeHashFromKey(groupId);
     if (rootTypeHash == 0)
         return std::nullopt;
 
@@ -863,7 +864,7 @@ std::optional<SnoFile> SnoReader::parseD3(std::span<const u8> data, SnoGroup gro
     std::istream payloadStream(&payloadBuf);
     BinaryReader reader(payloadStream);
 
-    i32 snoId = reader.read<i32>();
+    i32 const snoId = reader.read<i32>();
 
     ReadCtx ctx{reader, nullptr, m_d3Registry, SnoFormat::D3, payload.size(), 0, 0};
     SnoValue root = readStructure(ctx, &rootTypeHash, 0, nullptr);

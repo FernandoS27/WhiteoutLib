@@ -26,7 +26,7 @@ public:
 
     EXP2Chunk buildEXP2FromModel(const Model& model);
 
-    BaseFile wrapModel(const Model& model);
+    BaseFile wrapModel(const Model& model) const;
 
     std::vector<u8> serializeBase(const BaseFile& base);
     std::vector<u8> serializeSkin(const SkinFile& skin);
@@ -95,7 +95,7 @@ size_t findChunkDataOffset(const std::vector<u8>& buffer, u32 tag) {
         std::memcpy(&chunkSize, buffer.data() + pos + 4, 4);
         if (chunkTag == tag)
             return pos + 8;
-        size_t next = pos + 8 + chunkSize;
+        size_t const next = pos + 8 + chunkSize;
         if (next <= pos)
             return SIZE_MAX;
         pos = next;
@@ -156,12 +156,12 @@ M2SerializeResult Writer::write(const Model& model) {
 
     if (base.format == Format::LegionMD21) {
         // SFID chunk layout: [skinFileDataIds: u32 × N][lodSkinFileDataIds: u32 × M]
-        size_t sfidData = findChunkDataOffset(result.m2Data, SFID_TAG);
+        size_t const sfidData = findChunkDataOffset(result.m2Data, SFID_TAG);
         if (sfidData != SIZE_MAX) {
             for (u32 i = 0; i < result.skinData.size(); ++i) {
                 result.skinData[i].pathOffset = sfidData + i * sizeof(u32);
             }
-            size_t lodBase = sfidData + numBaseSkins * sizeof(u32);
+            size_t const lodBase = sfidData + numBaseSkins * sizeof(u32);
             for (u32 i = 0; i < result.skinlodData.size(); ++i) {
                 result.skinlodData[i].pathOffset = lodBase + i * sizeof(u32);
             }
@@ -169,7 +169,7 @@ M2SerializeResult Writer::write(const Model& model) {
 
         // SKID chunk layout: [skeletonFileDataId: u32]
         if (result.skeletonData.has_value()) {
-            size_t skidData = findChunkDataOffset(result.m2Data, SKID_TAG);
+            size_t const skidData = findChunkDataOffset(result.m2Data, SKID_TAG);
             if (skidData != SIZE_MAX) {
                 result.skeletonData->pathOffset = skidData;
             }
@@ -177,9 +177,9 @@ M2SerializeResult Writer::write(const Model& model) {
 
         // AFID chunk layout: [AFIDEntry × N] where each entry is {u16 animId, u16 subAnimId, u32
         // fileDataId} AFID can live in m2Data or (when skeleton is emitted) in skeletonData.
-        std::vector<u8>& afidBuffer =
+        std::vector<u8> const& afidBuffer =
             result.skeletonData.has_value() ? result.skeletonData->data : result.m2Data;
-        size_t afidData = findChunkDataOffset(afidBuffer, AFID_TAG);
+        size_t const afidData = findChunkDataOffset(afidBuffer, AFID_TAG);
         if (afidData != SIZE_MAX) {
             constexpr size_t kAFIDEntrySize = sizeof(u16) + sizeof(u16) + sizeof(u32); // 8
             constexpr size_t kFileDataIdOffset = sizeof(u16) + sizeof(u16);            // 4
@@ -279,7 +279,7 @@ void Writer::Impl::decomposeBaseFile(BaseFile& base, std::vector<SkinFile>& skin
     base.expt_chunk = std::nullopt;
 }
 
-BaseFile Writer::Impl::wrapModel(const Model& model) {
+BaseFile Writer::Impl::wrapModel(const Model& model) const {
     BaseFile base;
     base.format = m_options.format;
     base.header.magic = MD20_TAG;
@@ -324,13 +324,13 @@ BaseFile Writer::Impl::wrapModel(const Model& model) {
     }
     if (!model.recursiveParticleModelIds.empty()) {
         M2RPIDChunk rpid;
-        for (u32 id : model.recursiveParticleModelIds)
+        for (u32 const id : model.recursiveParticleModelIds)
             rpid.recursiveParticleModels.push_back({id});
         base.rpid_chunk = std::move(rpid);
     }
     if (!model.geometryParticleModelIds.empty()) {
         GPIDChunk gpid;
-        for (u32 id : model.geometryParticleModelIds)
+        for (u32 const id : model.geometryParticleModelIds)
             gpid.geometryParticleModels.push_back({id});
         base.gpid_chunk = std::move(gpid);
     }
@@ -466,8 +466,8 @@ void Writer::Impl::writeViaWfs(WoWFileSystem& wfs, const BaseFile& base,
         skelHandle = wfs.newSkeletonFileEntry();
     }
 
-    SFIDChunk sfid = wfs.buildSFIDChunk();
-    SKIDChunk skid = wfs.buildSKIDChunk();
+    SFIDChunk const sfid = wfs.buildSFIDChunk();
+    SKIDChunk const skid = wfs.buildSKIDChunk();
 
     {
         BaseFile baseCopy = base;
@@ -522,15 +522,15 @@ void Writer::Impl::writeSkin(BinaryWriter& writer, const SkinFile& model) {
 void Writer::Impl::writeChunkedBase(BinaryWriter& writer, const BaseFile& model) {
     const auto write_chunk = ([&writer]<typename T>(u32 tag, const T& header) {
         writer.write(tag);
-        u32 sizePos = writer.getPosition();
+        u32 const sizePos = writer.getPosition();
         writer.write<u32>(0);
-        u32 chunkStart = writer.getPosition();
+        u32 const chunkStart = writer.getPosition();
 
         BinaryWriterVisitor visitor(writer);
         visitor.write(header);
 
-        u32 chunkEnd = writer.getPosition();
-        u32 chunkSize = chunkEnd - chunkStart;
+        u32 const chunkEnd = writer.getPosition();
+        u32 const chunkSize = chunkEnd - chunkStart;
 
         writer.setPosition(sizePos);
         writer.write(chunkSize);
@@ -627,15 +627,15 @@ void Writer::Impl::writeChunkedBase(BinaryWriter& writer, const BaseFile& model)
 void Writer::Impl::writeChunkedSkeleton(BinaryWriter& writer, const SkeletonFile& model) {
     const auto write_chunk = ([&writer]<typename T>(u32 tag, const T& chunk) {
         writer.write(tag);
-        u32 sizePos = writer.getPosition();
+        u32 const sizePos = writer.getPosition();
         writer.write<u32>(0);
-        u32 chunkStart = writer.getPosition();
+        u32 const chunkStart = writer.getPosition();
 
         BinaryWriterVisitor visitor(writer);
         visitor.write(chunk);
 
-        u32 chunkEnd = writer.getPosition();
-        u32 chunkSize = chunkEnd - chunkStart;
+        u32 const chunkEnd = writer.getPosition();
+        u32 const chunkSize = chunkEnd - chunkStart;
 
         writer.setPosition(sizePos);
         writer.write(chunkSize);
@@ -673,15 +673,15 @@ void Writer::Impl::writeChunkedBone(BinaryWriter& writer, const BoneFile& model)
 
     const auto write_chunk = ([&writer]<typename T>(u32 tag, const T& chunk) {
         writer.write(tag);
-        u32 sizePos = writer.getPosition();
+        u32 const sizePos = writer.getPosition();
         writer.write<u32>(0);
-        u32 chunkStart = writer.getPosition();
+        u32 const chunkStart = writer.getPosition();
 
         BinaryWriterVisitor visitor(writer);
         visitor.write(chunk);
 
-        u32 chunkEnd = writer.getPosition();
-        u32 chunkSize = chunkEnd - chunkStart;
+        u32 const chunkEnd = writer.getPosition();
+        u32 const chunkSize = chunkEnd - chunkStart;
 
         writer.setPosition(sizePos);
         writer.write(chunkSize);
@@ -702,15 +702,15 @@ void Writer::Impl::writeChunkedAnim(BinaryWriter& writer, const AnimFile& model)
 
         const auto write_chunk = ([&writer]<typename T>(u32 tag, const T& chunk) {
             writer.write(tag);
-            u32 sizePos = writer.getPosition();
+            u32 const sizePos = writer.getPosition();
             writer.write<u32>(0);
-            u32 chunkStart = writer.getPosition();
+            u32 const chunkStart = writer.getPosition();
 
             BinaryWriterVisitor visitor(writer);
             visitor.write(chunk);
 
-            u32 chunkEnd = writer.getPosition();
-            u32 chunkSize = chunkEnd - chunkStart;
+            u32 const chunkEnd = writer.getPosition();
+            u32 const chunkSize = chunkEnd - chunkStart;
 
             writer.setPosition(sizePos);
             writer.write(chunkSize);

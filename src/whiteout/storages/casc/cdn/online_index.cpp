@@ -40,10 +40,10 @@ OnlineIndexTable& OnlineIndexTable::operator=(OnlineIndexTable&&) noexcept = def
 u64 OnlineIndexTable::eKeyHash(std::span<const u8> eKey) {
     // Same approach as IndexTable: hash the first 9 bytes.
     u64 h = 0;
-    size_t n = std::min(eKey.size(), size_t(kEKeyTruncSize));
+    size_t const n = std::min(eKey.size(), size_t(kEKeyTruncSize));
     std::memcpy(&h, eKey.data(), std::min(n, size_t(8)));
     if (n > 8) {
-        u64 extra = eKey[8];
+        u64 const extra = eKey[8];
         h ^= (extra << 56);
     }
     return h;
@@ -100,12 +100,12 @@ OnlineIndexTable OnlineIndexTable::parse(std::span<const u8> data, u32 archiveIn
     if (footer.blockSizeKBytes == 0) return table;
     if (footer.keyBytes == 0) return table;
 
-    u32 blockSize = u32(footer.blockSizeKBytes) * 1024;
-    u8 keyBytes = footer.keyBytes;
-    u8 offsetBytes = footer.offsetBytes;
-    u8 sizeBytes = footer.sizeBytes;
-    u32 numElements = footer.numElements;
-    u8 hashBytes = footer.hashBytes;
+    u32 const blockSize = u32(footer.blockSizeKBytes) * 1024;
+    u8 const keyBytes = footer.keyBytes;
+    u8 const offsetBytes = footer.offsetBytes;
+    u8 const sizeBytes = footer.sizeBytes;
+    u32 const numElements = footer.numElements;
+    u8 const hashBytes = footer.hashBytes;
 
     // Re-validate footer position with actual hashBytes.
     if (hashBytes != kDefaultHashBytes) {
@@ -115,33 +115,33 @@ OnlineIndexTable OnlineIndexTable::parse(std::span<const u8> data, u32 archiveIn
         std::memcpy(&footer, data.data() + footerStart, sizeof(CdnIndexFooter));
     }
 
-    size_t entrySize = keyBytes + offsetBytes + sizeBytes;
+    size_t const entrySize = keyBytes + offsetBytes + sizeBytes;
     if (entrySize == 0) return table;
 
     // Before the footer is the table-of-contents (TOC).
     // TOC: one entry per block = (lastKey[keyBytes] + blockHash[hashBytes]) per block.
-    u32 entriesPerBlock = blockSize / u32(entrySize);
+    u32 const entriesPerBlock = blockSize / u32(entrySize);
     if (entriesPerBlock == 0) return table;
-    u32 numBlocks = (numElements + entriesPerBlock - 1) / entriesPerBlock;
+    u32 const numBlocks = (numElements + entriesPerBlock - 1) / entriesPerBlock;
 
-    size_t tocEntrySize = keyBytes + hashBytes;
-    size_t tocSize = numBlocks * tocEntrySize;
+    size_t const tocEntrySize = keyBytes + hashBytes;
+    size_t const tocSize = numBlocks * tocEntrySize;
 
     // Validate: tocHash(hashBytes) sits before the TOC.
-    size_t tocEnd = footerStart - hashBytes; // after tocHash
+    size_t const tocEnd = footerStart - hashBytes; // after tocHash
     if (tocEnd < tocSize) return table;
-    [[maybe_unused]] size_t tocStart = tocEnd - tocSize;
+    [[maybe_unused]] size_t const tocStart = tocEnd - tocSize;
 
     // Data blocks start at beginning of file.
-    size_t dataStart = 0;
+    size_t const dataStart = 0;
 
     // Parse entries from data blocks.
     u32 entriesParsed = 0;
     table.m_entries.reserve(numElements);
 
     for (u32 block = 0; block < numBlocks && entriesParsed < numElements; ++block) {
-        size_t blockOffset = dataStart + u64(block) * blockSize;
-        u32 entriesInBlock = std::min(entriesPerBlock, numElements - entriesParsed);
+        size_t const blockOffset = dataStart + u64(block) * blockSize;
+        u32 const entriesInBlock = std::min(entriesPerBlock, numElements - entriesParsed);
 
         for (u32 e = 0; e < entriesInBlock; ++e) {
             size_t pos = blockOffset + u64(e) * entrySize;
@@ -152,7 +152,7 @@ OnlineIndexTable OnlineIndexTable::parse(std::span<const u8> data, u32 archiveIn
 
             // Read EKey (keyBytes, typically 9).
             std::array<u8, 16> eKey{};
-            size_t copyBytes = std::min<size_t>(keyBytes, 16);
+            size_t const copyBytes = std::min<size_t>(keyBytes, 16);
             std::memcpy(eKey.data(), data.data() + pos, copyBytes);
             pos += keyBytes;
 
@@ -176,7 +176,7 @@ OnlineIndexTable OnlineIndexTable::parse(std::span<const u8> data, u32 archiveIn
                          (u64(data[pos + 2]) << 8) | u64(data[pos + 3]);
             } else if (offsetBytes == 6) {
                 // 6-byte big-endian: first 2 = archive index, last 4 = offset.
-                u32 archIdx = (u32(data[pos]) << 8) | u32(data[pos + 1]);
+                u32 const archIdx = (u32(data[pos]) << 8) | u32(data[pos + 1]);
                 entry.archiveIndex = archIdx;
                 offset = (u64(data[pos + 2]) << 24) | (u64(data[pos + 3]) << 16) |
                          (u64(data[pos + 4]) << 8) | u64(data[pos + 5]);
@@ -192,7 +192,7 @@ OnlineIndexTable OnlineIndexTable::parse(std::span<const u8> data, u32 archiveIn
             }
             if (isZero) continue;
 
-            u64 hash = eKeyHash(std::span<const u8>(eKey.data(), copyBytes));
+            u64 const hash = eKeyHash(std::span<const u8>(eKey.data(), copyBytes));
             table.m_entries[hash] = entry;
 
             ++entriesParsed;
@@ -207,7 +207,7 @@ OnlineIndexTable OnlineIndexTable::parse(std::span<const u8> data, u32 archiveIn
 // ============================================================================
 
 const OnlineIndexTable::Entry* OnlineIndexTable::find(std::span<const u8> eKeyPrefix) const {
-    u64 hash = eKeyHash(eKeyPrefix);
+    u64 const hash = eKeyHash(eKeyPrefix);
 
     if (!m_lazy) {
         auto it = m_entries.find(hash);
@@ -215,7 +215,7 @@ const OnlineIndexTable::Entry* OnlineIndexTable::find(std::span<const u8> eKeyPr
     }
 
     {
-        std::shared_lock<std::shared_mutex> lk(m_lazy->mutex);
+        std::shared_lock<std::shared_mutex> const lk(m_lazy->mutex);
         auto it = m_entries.find(hash);
         if (it != m_entries.end()) return &it->second;
     }
@@ -224,7 +224,7 @@ const OnlineIndexTable::Entry* OnlineIndexTable::find(std::span<const u8> eKeyPr
     const size_t N = m_lazy->archiveEKeys ? m_lazy->archiveEKeys->size() : 0;
     for (size_t i = 0; i < N; ++i) {
         loadArchive(u32(i));
-        std::shared_lock<std::shared_mutex> lk(m_lazy->mutex);
+        std::shared_lock<std::shared_mutex> const lk(m_lazy->mutex);
         auto it = m_entries.find(hash);
         if (it != m_entries.end()) return &it->second;
     }
@@ -239,7 +239,7 @@ void OnlineIndexTable::merge(const OnlineIndexTable& other) {
 
 size_t OnlineIndexTable::entryCount() const {
     if (m_lazy) {
-        std::shared_lock<std::shared_mutex> lk(m_lazy->mutex);
+        std::shared_lock<std::shared_mutex> const lk(m_lazy->mutex);
         return m_entries.size();
     }
     return m_entries.size();
@@ -277,7 +277,7 @@ void OnlineIndexTable::loadArchive(u32 archiveIndex) const {
 
         auto parsed = OnlineIndexTable::parse(*data, archiveIndex);
 
-        std::unique_lock<std::shared_mutex> lk(m_lazy->mutex);
+        std::unique_lock<std::shared_mutex> const lk(m_lazy->mutex);
         for (auto& [hash, entry] : parsed.m_entries) {
             m_entries.insert_or_assign(hash, entry);
         }
@@ -369,7 +369,7 @@ OnlineIndexTable OnlineIndexTable::loadAll(
                     }
                     // fetch_add returns old value; +1 == total completed.
                     if (state->completed.fetch_add(1, std::memory_order_acq_rel) + 1 == N) {
-                        std::lock_guard<std::mutex> lk(state->mtx);
+                        std::lock_guard<std::mutex> const lk(state->mtx);
                         state->cv.notify_one();
                     }
                 });

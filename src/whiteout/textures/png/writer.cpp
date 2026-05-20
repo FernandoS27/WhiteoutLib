@@ -28,7 +28,7 @@ private:
 };
 
 void Writer::Impl::writeChunk(std::vector<u8>& out, u32 chunkType, const u8* data, u32 length) {
-    size_t startPos = out.size();
+    size_t const startPos = out.size();
     out.resize(startPos + 12 + length);
 
     u8* p = out.data() + startPos;
@@ -43,7 +43,7 @@ void Writer::Impl::writeChunk(std::vector<u8>& out, u32 chunkType, const u8* dat
     }
 
     // CRC covers type + data.
-    u32 c = crc32(p + 4, 4 + length);
+    u32 const c = crc32(p + 4, 4 + length);
     writeU32BE(p + 8 + length, c);
 }
 
@@ -68,12 +68,12 @@ std::vector<u8> Writer::Impl::filterScanlines(const u8* rgba, u32 width, u32 hei
         for (u32 x = 0; x < stride; ++x) {
             sumNone += cur[x] > 127 ? (256 - cur[x]) : cur[x];
 
-            u8 a = (x >= bpp) ? cur[x - bpp] : 0;
-            u8 sub = static_cast<u8>(cur[x] - a);
+            u8 const a = (x >= bpp) ? cur[x - bpp] : 0;
+            u8 const sub = static_cast<u8>(cur[x] - a);
             sumSub += sub > 127 ? (256 - sub) : sub;
 
-            u8 b = prev ? prev[x] : 0;
-            u8 up = static_cast<u8>(cur[x] - b);
+            u8 const b = prev ? prev[x] : 0;
+            u8 const up = static_cast<u8>(cur[x] - b);
             sumUp += up > 127 ? (256 - up) : up;
         }
 
@@ -94,13 +94,13 @@ std::vector<u8> Writer::Impl::filterScanlines(const u8* rgba, u32 width, u32 hei
             break;
         case FILTER_SUB:
             for (u32 x = 0; x < stride; ++x) {
-                u8 a = (x >= bpp) ? cur[x - bpp] : 0;
+                u8 const a = (x >= bpp) ? cur[x - bpp] : 0;
                 out[1 + x] = static_cast<u8>(cur[x] - a);
             }
             break;
         case FILTER_UP:
             for (u32 x = 0; x < stride; ++x) {
-                u8 b = prev ? prev[x] : 0;
+                u8 const b = prev ? prev[x] : 0;
                 out[1 + x] = static_cast<u8>(cur[x] - b);
             }
             break;

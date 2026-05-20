@@ -29,8 +29,8 @@ std::optional<std::pair<int, int>> parseAnimSuffix(std::string_view s) {
     if (s[4] != '-' || s.substr(7) != ".anim")
         return std::nullopt;
 
-    int anim = std::stoi(std::string(s.substr(0, 4)));
-    int var = std::stoi(std::string(s.substr(5, 2)));
+    int const anim = std::stoi(std::string(s.substr(0, 4)));
+    int const var = std::stoi(std::string(s.substr(5, 2)));
     return {{anim, var}};
 }
 
@@ -147,26 +147,27 @@ GroupedFiles fromFileSystem(const FileSystem& fsys, std::filesystem::path whereT
 
     for (const SkinFile& skin : fsys.skins) {
         if (skin.isLodSkin) {
-            fs::path p =
+            fs::path const p =
                 dir / fs::path(base.string() + "_lod" + format_number(skin.lodLevel, 2) + ".skin");
 
             out.lodSkins[skin.lodLevel] = p;
         } else {
-            fs::path p = dir / fs::path(base.string() + format_number(skin.index, 2) + ".skin");
+            fs::path const p =
+                dir / fs::path(base.string() + format_number(skin.index, 2) + ".skin");
 
             out.baseSkins[skin.index] = p;
         }
     }
 
     for (const AnimFile& anim : fsys.anims) {
-        fs::path p =
+        fs::path const p =
             dir / fs::path(base.string() + format_anim_id(anim.animId, anim.variant) + ".anim");
 
         out.anims[anim.animId].variants[anim.variant] = p;
     }
 
     for (size_t i = 0; i < fsys.bones.size(); ++i) {
-        fs::path p =
+        fs::path const p =
             dir / fs::path(base.string() + "_" + format_number(static_cast<int>(i), 2) + ".bone");
 
         out.bones[static_cast<int>(i)] = p;

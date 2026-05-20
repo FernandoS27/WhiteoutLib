@@ -30,7 +30,7 @@ void decode_block(const u8* block, u8* out) {
         bits |= static_cast<u64>(block[2 + i]) << (i * 8);
 
     for (u32 i = 0; i < 16; ++i) {
-        u32 idx = static_cast<u32>((bits >> (i * 3)) & 0x7);
+        u32 const idx = static_cast<u32>((bits >> (i * 3)) & 0x7);
         out[i] = static_cast<u8>(palette[idx]);
     }
 }
@@ -84,11 +84,12 @@ u64 evaluate_endpoints(const u8* values, u32 e0, u32 e1, std::array<u8, 16>& ind
 
     u64 total_err = 0;
     for (u32 i = 0; i < 16; ++i) {
-        u32 value = values[i];
+        u32 const value = values[i];
         u32 best_idx = 0;
         u32 best_distance = 0xFFFFFFFFu;
         for (u32 j = 0; j < 8; ++j) {
-            u32 distance = (value >= palette[j]) ? (value - palette[j]) : (palette[j] - value);
+            u32 const distance =
+                (value >= palette[j]) ? (value - palette[j]) : (palette[j] - value);
             if (distance < best_distance) {
                 best_distance = distance;
                 best_idx = j;
@@ -162,8 +163,8 @@ u64 bc4_refine_mode(const u8* values, u32& best_e0, u32& best_e1,
             for (i32 de1 = -1; de1 <= 1; ++de1) {
                 if (de0 == 0 && de1 == 0)
                     continue;
-                i32 new_e0 = static_cast<i32>(best_e0) + de0;
-                i32 new_e1 = static_cast<i32>(best_e1) + de1;
+                i32 const new_e0 = static_cast<i32>(best_e0) + de0;
+                i32 const new_e1 = static_cast<i32>(best_e1) + de1;
                 if (new_e0 < 0 || new_e0 > 255 || new_e1 < 0 || new_e1 > 255)
                     continue;
                 if constexpr (e0_gt_e1) {
@@ -174,8 +175,8 @@ u64 bc4_refine_mode(const u8* values, u32& best_e0, u32& best_e1,
                         continue;
                 }
                 std::array<u8, 16> trial_indices{};
-                u64 trial_error = evaluate_endpoints(values, static_cast<u32>(new_e0),
-                                                     static_cast<u32>(new_e1), trial_indices);
+                u64 const trial_error = evaluate_endpoints(values, static_cast<u32>(new_e0),
+                                                           static_cast<u32>(new_e1), trial_indices);
                 if (trial_error < err) {
                     err = trial_error;
                     best_e0 = static_cast<u32>(new_e0);
@@ -199,8 +200,8 @@ void encode_block(const u8* values, u8* out) {
     u32 e0_6, e1_6, e0_4, e1_4;
     std::array<u8, 16> idx_6{}, idx_4{};
 
-    u64 err6 = bc4_refine_mode<true>(values, e0_6, e1_6, idx_6);
-    u64 err4 = bc4_refine_mode<false>(values, e0_4, e1_4, idx_4);
+    u64 const err6 = bc4_refine_mode<true>(values, e0_6, e1_6, idx_6);
+    u64 const err4 = bc4_refine_mode<false>(values, e0_4, e1_4, idx_4);
 
     if (err6 <= err4) {
         pack_block(e0_6, e1_6, idx_6, out);
@@ -226,7 +227,7 @@ std::vector<u8> encode_image(std::span<const u8> r8, u32 width, u32 height,
                 std::array<u8, 16> block{};
                 gather_channel_block(r8, width, height, block_x, block_y, block, 1, 0);
 
-                u32 block_offset = (block_y * blocks_wide + block_x) * 8;
+                u32 const block_offset = (block_y * blocks_wide + block_x) * 8;
                 encode_block(block.data(), result.data() + block_offset);
             }
         }

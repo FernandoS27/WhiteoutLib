@@ -30,7 +30,7 @@ inline std::optional<std::vector<u8>> sliceContainer(
     auto sz  = static_cast<size_t>(entry.containerSize);
     if (off + sz > data.size()) return std::nullopt;
 
-    size_t hdrSz = entry.headerSize;
+    size_t const hdrSz = entry.headerSize;
     std::vector<u8> result(hdrSz + sz);
     if (hdrSz > 0)
         std::memcpy(result.data(), entry.headerPrefix.data(), hdrSz);
@@ -121,12 +121,12 @@ std::optional<std::vector<u8>> StorageBackendImpl<DT, CT>::resolveRootEntry(
 
     // Container sub-entry: try cache first (no-op for NoCachePolicy).
     if (best->containerOffset != 0) {
-        std::array<u8, 16> cacheKey = !isZeroKey(best->eKey) ? best->eKey : best->cKey;
+        std::array<u8, 16> const cacheKey = !isZeroKey(best->eKey) ? best->eKey : best->cKey;
         if (auto cached = m_cache.view(cacheKey)) {
             auto off = static_cast<size_t>(best->containerOffset);
             auto sz  = static_cast<size_t>(best->containerSize);
             if (off + sz <= cached->size()) {
-                size_t hdrSz = best->headerSize;
+                size_t const hdrSz = best->headerSize;
                 std::vector<u8> result(hdrSz + sz);
                 if (hdrSz > 0)
                     std::memcpy(result.data(), best->headerPrefix.data(), hdrSz);
@@ -159,7 +159,7 @@ std::optional<std::vector<u8>> StorageBackendImpl<DT, CT>::resolveRootEntry(
         if (!decoded.success) return std::nullopt;
 
         if (best->containerOffset != 0) {
-            std::array<u8, 16> cacheKey = !isZeroKey(best->eKey) ? best->eKey : best->cKey;
+            std::array<u8, 16> const cacheKey = !isZeroKey(best->eKey) ? best->eKey : best->cKey;
             m_cache.put(cacheKey, decoded.data);
             return sliceContainer(decoded.data, *best);
         }
@@ -173,7 +173,8 @@ std::optional<std::vector<u8>> StorageBackendImpl<DT, CT>::resolveRootEntry(
             auto data = resolveEKey(best->eKey);
             if (!data.empty()) {
                 if (best->containerOffset != 0) {
-                    std::array<u8, 16> cacheKey = !isZeroKey(best->eKey) ? best->eKey : best->cKey;
+                    std::array<u8, 16> const cacheKey =
+                        !isZeroKey(best->eKey) ? best->eKey : best->cKey;
                     m_cache.put(cacheKey, data);
                     return sliceContainer(data, *best);
                 }
@@ -184,7 +185,8 @@ std::optional<std::vector<u8>> StorageBackendImpl<DT, CT>::resolveRootEntry(
             auto data = resolveCKey(best->cKey);
             if (!data.empty()) {
                 if (best->containerOffset != 0) {
-                    std::array<u8, 16> cacheKey = !isZeroKey(best->eKey) ? best->eKey : best->cKey;
+                    std::array<u8, 16> const cacheKey =
+                        !isZeroKey(best->eKey) ? best->eKey : best->cKey;
                     m_cache.put(cacheKey, data);
                     return sliceContainer(data, *best);
                 }
@@ -211,7 +213,7 @@ void StorageBackendImpl<DT, CT>::resolveBatch(
             const RootEntry* best = selectBestEntry(work[i].rootEntries, work[i].localeFlags);
             if (!best || best->containerOffset == 0) continue;
 
-            std::array<u8, 16> cacheKey = !isZeroKey(best->eKey) ? best->eKey : best->cKey;
+            std::array<u8, 16> const cacheKey = !isZeroKey(best->eKey) ? best->eKey : best->cKey;
             auto cached = m_cache.view(cacheKey);
             if (!cached) continue;
 
@@ -219,7 +221,7 @@ void StorageBackendImpl<DT, CT>::resolveBatch(
             auto sz  = static_cast<size_t>(best->containerSize);
             if (off + sz > cached->size()) continue;
 
-            size_t hdrSz = best->headerSize;
+            size_t const hdrSz = best->headerSize;
             std::vector<u8> sliced(hdrSz + sz);
             if (hdrSz > 0)
                 std::memcpy(sliced.data(), best->headerPrefix.data(), hdrSz);
@@ -373,7 +375,7 @@ void OnlineDataTraits::resolveBatchPhase1(
                     blobs[idx].error = "failed to fetch BLTE data from CDN";
                 }
                 if (state->completed.fetch_add(1, std::memory_order_acq_rel) + 1 >= state->total) {
-                    std::lock_guard<std::mutex> lk(state->mtx);
+                    std::lock_guard<std::mutex> const lk(state->mtx);
                     state->cv.notify_one();
                 }
             };

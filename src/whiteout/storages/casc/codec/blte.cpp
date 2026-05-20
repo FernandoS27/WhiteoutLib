@@ -67,7 +67,7 @@ static FrameDecodeResult decodeFramePayload(std::span<const u8> payload,
         return result;
     }
 
-    u8 mode = payload[0];
+    u8 const mode = payload[0];
     auto inner = payload.subspan(1);
 
     switch (mode) {
@@ -100,7 +100,7 @@ static FrameDecodeResult decodeFramePayload(std::span<const u8> payload,
 
         u64 keyName = 0;
         std::memcpy(&keyName, inner.data(), 8);
-        u8 ivSize = inner[8];
+        u8 const ivSize = inner[8];
 
         if (inner.size() < 9u + ivSize) {
             result.error = "encrypted frame truncated at IV";
@@ -168,13 +168,13 @@ BlteDecodeResult blteDecode(std::span<const u8> blteData,
     }
 
     // Verify magic
-    u32 magic = readBE32(blteData.data());
+    u32 const magic = readBE32(blteData.data());
     if (magic != kBlteMagic) {
         result.error = "invalid BLTE magic";
         return result;
     }
 
-    u32 headerSize = readBE32(blteData.data() + 4);
+    u32 const headerSize = readBE32(blteData.data() + 4);
 
     struct FrameInfo {
         u32 compressedSize;
@@ -197,19 +197,18 @@ BlteDecodeResult blteDecode(std::span<const u8> blteData,
         // Header starts at offset 8:
         //   flags (u8) + frameCount (u24 BE) = 4 bytes
         //   then frameCount * kBlteFrameTableEntrySize bytes each
-        size_t hdrStart = kBlteMinHeaderSize;
+        size_t const hdrStart = kBlteMinHeaderSize;
         if (blteData.size() < hdrStart + 4) {
             result.error = "truncated BLTE frame table header";
             return result;
         }
 
         // Flags (1 byte) + frame count (3 bytes, big-endian).
-        u32 frameCount = (u32(blteData[hdrStart + 1]) << 16) |
-                         (u32(blteData[hdrStart + 2]) << 8) |
-                         u32(blteData[hdrStart + 3]);
+        u32 const frameCount = (u32(blteData[hdrStart + 1]) << 16) |
+                               (u32(blteData[hdrStart + 2]) << 8) | u32(blteData[hdrStart + 3]);
 
-        size_t tableStart = hdrStart + 4;
-        size_t tableSize = frameCount * kBlteFrameTableEntrySize;
+        size_t const tableStart = hdrStart + 4;
+        size_t const tableSize = frameCount * kBlteFrameTableEntrySize;
 
         if (blteData.size() < tableStart + tableSize) {
             result.error = "truncated BLTE frame table";
@@ -258,7 +257,7 @@ BlteDecodeResult blteDecode(std::span<const u8> blteData,
                 auto payload = blteData.subspan(offsets[i], frames[i].compressedSize);
                 frameResults[i] = decodeFramePayload(payload, frames[i].uncompressedSize, keys);
                 if (!frameResults[i].success) {
-                    std::lock_guard<std::mutex> lock(errMutex);
+                    std::lock_guard<std::mutex> const lock(errMutex);
                     if (firstError.empty())
                         firstError = frameResults[i].error;
                 }
@@ -334,13 +333,13 @@ BlteFrameLayout blteParseFrameLayout(std::span<const u8> blob) {
         return layout;
     }
 
-    u32 magic = readBE32(blob.data());
+    u32 const magic = readBE32(blob.data());
     if (magic != kBlteMagic) {
         layout.error = "invalid BLTE magic";
         return layout;
     }
 
-    u32 headerSize = readBE32(blob.data() + 4);
+    u32 const headerSize = readBE32(blob.data() + 4);
 
     if (headerSize == 0) {
         // Single frame: entire remainder after 8-byte header.
@@ -354,18 +353,17 @@ BlteFrameLayout blteParseFrameLayout(std::span<const u8> blob) {
     }
 
     // Multi-frame header.
-    size_t hdrStart = kBlteMinHeaderSize;
+    size_t const hdrStart = kBlteMinHeaderSize;
     if (blob.size() < hdrStart + 4) {
         layout.error = "truncated BLTE frame table header";
         return layout;
     }
 
-    u32 frameCount = (u32(blob[hdrStart + 1]) << 16) |
-                     (u32(blob[hdrStart + 2]) << 8) |
-                     u32(blob[hdrStart + 3]);
+    u32 const frameCount =
+        (u32(blob[hdrStart + 1]) << 16) | (u32(blob[hdrStart + 2]) << 8) | u32(blob[hdrStart + 3]);
 
-    size_t tableStart = hdrStart + 4;
-    size_t tableSize = frameCount * kBlteFrameTableEntrySize;
+    size_t const tableStart = hdrStart + 4;
+    size_t const tableSize = frameCount * kBlteFrameTableEntrySize;
 
     if (blob.size() < tableStart + tableSize) {
         layout.error = "truncated BLTE frame table";
@@ -420,7 +418,7 @@ BlteBatchResult blteDecodeFrame(std::span<const u8> blteData,
         return result;
     }
     auto& frame = layout.frames[frameIdx];
-    size_t off = layout.offsets[frameIdx];
+    size_t const off = layout.offsets[frameIdx];
     if (off + frame.compressedSize > blteData.size()) {
         result.error = "frame extends past blob end";
         return result;
@@ -503,7 +501,7 @@ std::vector<BlteBatchResult> blteDecodeBatch(
         }
 
         // Multi-frame: set up DAG.
-        u32 frameCount = u32(layout.frames.size());
+        u32 const frameCount = u32(layout.frames.size());
         sems[i] = pool->createTimelineSemaphore();
         perFileFrameResults[i].resize(frameCount);
         decodeGroups[i] = std::make_shared<utils::JobGroup>();
@@ -596,7 +594,7 @@ std::vector<u8> blteEncode(std::span<const u8> rawData,
         frameSize = kDefaultBlteFrameSize;
 
     // Split into frames
-    size_t frameCount = rawData.empty() ? 1 : (rawData.size() + frameSize - 1) / frameSize;
+    size_t const frameCount = rawData.empty() ? 1 : (rawData.size() + frameSize - 1) / frameSize;
 
     struct EncodedFrame {
         std::vector<u8> data; // mode byte + compressed/raw payload
@@ -607,8 +605,8 @@ std::vector<u8> blteEncode(std::span<const u8> rawData,
     std::vector<EncodedFrame> encodedFrames(frameCount);
 
     auto encodeOneFrame = [&](size_t i) {
-        size_t start = i * frameSize;
-        size_t end = std::min(start + (size_t)frameSize, rawData.size());
+        size_t const start = i * frameSize;
+        size_t const end = std::min(start + (size_t)frameSize, rawData.size());
         auto chunk = rawData.subspan(start, end - start);
 
         EncodedFrame& ef = encodedFrames[i];
@@ -682,8 +680,8 @@ std::vector<u8> blteEncode(std::span<const u8> rawData,
         //   headerSize = 0x0C + frameCount * sizeof(BLTE_FRAME)
         // i.e. headerSize covers the entire range [byte 0 .. end of frame
         // table], including the magic and headerSize fields themselves.
-        u32 tableSize = u32(frameCount) * kBlteFrameTableEntrySize;
-        u32 headerSize = 0x0C + tableSize; // magic(4)+headerSize(4)+flags+count(4)+table
+        u32 const tableSize = u32(frameCount) * kBlteFrameTableEntrySize;
+        u32 const headerSize = 0x0C + tableSize; // magic(4)+headerSize(4)+flags+count(4)+table
 
         size_t totalFrameData = 0;
         for (auto& ef : encodedFrames)

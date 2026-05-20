@@ -65,7 +65,7 @@ static std::vector<CdnProductInfo> parseSummary(const std::vector<uint8_t>& data
     std::vector<CdnProductInfo> results;
     if (data.empty()) return results;
 
-    std::string_view text(reinterpret_cast<const char*>(data.data()), data.size());
+    std::string_view const text(reinterpret_cast<const char*>(data.data()), data.size());
     auto lines = splitLines(text);
     if (lines.size() < 2) return results;
 
@@ -123,7 +123,7 @@ static std::vector<CdnProductVersion> parseVersions(const std::vector<uint8_t>& 
     std::vector<CdnProductVersion> results;
     if (data.empty()) return results;
 
-    std::string_view text(reinterpret_cast<const char*>(data.data()), data.size());
+    std::string_view const text(reinterpret_cast<const char*>(data.data()), data.size());
     auto lines = splitLines(text);
     if (lines.size() < 2) return results;
 
@@ -175,7 +175,7 @@ static std::vector<CdnProductCdn> parseCdns(const std::vector<uint8_t>& data) {
     std::vector<CdnProductCdn> results;
     if (data.empty()) return results;
 
-    std::string_view text(reinterpret_cast<const char*>(data.data()), data.size());
+    std::string_view const text(reinterpret_cast<const char*>(data.data()), data.size());
     auto lines = splitLines(text);
     if (lines.size() < 2) return results;
 
@@ -254,7 +254,7 @@ static std::optional<std::vector<uint8_t>> fetchSync(
 
     http->getAsync(url, [state](interfaces::HttpResponse resp) {
         {
-            std::lock_guard<std::mutex> lk(state->mtx);
+            std::lock_guard<std::mutex> const lk(state->mtx);
             if (resp.statusCode == 200)
                 state->data = std::move(resp.body);
             state->done = true;
@@ -275,8 +275,7 @@ std::vector<CdnProductInfo> findCdnProducts(const CdnProductFinderOptions& opts)
     if (!opts.http) return {};
 
     // Step 1: Fetch the Ribbit v2 summary.
-    std::string summaryUrl = "https://" + opts.region +
-                             ".version.battle.net/v2/summary";
+    std::string const summaryUrl = "https://" + opts.region + ".version.battle.net/v2/summary";
 
     auto summaryData = fetchSync(opts.http, summaryUrl);
     if (!summaryData) return {};
@@ -303,7 +302,7 @@ std::vector<CdnProductInfo> findCdnProducts(const CdnProductFinderOptions& opts)
 
     auto onRequestDone = [ds]() {
         ds->completed.fetch_add(1, std::memory_order_acq_rel);
-        std::lock_guard<std::mutex> lk(ds->mtx);
+        std::lock_guard<std::mutex> const lk(ds->mtx);
         ds->cv.notify_one();
     };
 
@@ -313,8 +312,8 @@ std::vector<CdnProductInfo> findCdnProducts(const CdnProductFinderOptions& opts)
         const std::string& code = product.product;
 
         if (opts.queryVersions) {
-            std::string url = "https://" + opts.region +
-                              ".version.battle.net/v2/products/" + code + "/versions";
+            std::string const url =
+                "https://" + opts.region + ".version.battle.net/v2/products/" + code + "/versions";
             opts.http->getAsync(url, [&product, onRequestDone](interfaces::HttpResponse resp) {
                 if (resp.statusCode == 200)
                     product.versions = parseVersions(resp.body);
@@ -323,8 +322,8 @@ std::vector<CdnProductInfo> findCdnProducts(const CdnProductFinderOptions& opts)
         }
 
         if (opts.queryCdns) {
-            std::string url = "https://" + opts.region +
-                              ".version.battle.net/v2/products/" + code + "/cdns";
+            std::string const url =
+                "https://" + opts.region + ".version.battle.net/v2/products/" + code + "/cdns";
             opts.http->getAsync(url, [&product, onRequestDone](interfaces::HttpResponse resp) {
                 if (resp.statusCode == 200)
                     product.cdns = parseCdns(resp.body);
@@ -337,9 +336,9 @@ std::vector<CdnProductInfo> findCdnProducts(const CdnProductFinderOptions& opts)
     {
         std::unique_lock<std::mutex> lk(ds->mtx);
         ds->cv.wait_for(lk, std::chrono::seconds(120), [&] {
-            uint32_t done = ds->completed.load(std::memory_order_acquire);
+            uint32_t const done = ds->completed.load(std::memory_order_acquire);
             if (opts.progressCallback) {
-                uint32_t productsDone = done / requestsPerProduct;
+                uint32_t const productsDone = done / requestsPerProduct;
                 if (!opts.progressCallback(productsDone, total))
                     return true; // cancelled — stop waiting
             }

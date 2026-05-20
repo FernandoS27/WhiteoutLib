@@ -123,7 +123,7 @@ std::vector<u8> mpqDecompress(std::span<const u8> src, size_t uncompressedSize,
     if (src.empty())
         return {};
 
-    CompressionFlag compressionMask = static_cast<CompressionFlag>(src[0]);
+    CompressionFlag const compressionMask = static_cast<CompressionFlag>(src[0]);
     auto compressedData = src.subspan(1); // Skip the compression byte.
 
     // If no compression flags set, data is uncompressed (shouldn't happen in
@@ -145,7 +145,7 @@ std::vector<u8> mpqDecompress(std::span<const u8> src, size_t uncompressedSize,
     }
 
     // Bitmask-based decompression for all other algorithms.
-    for (CompressionFlag flag : kDecompressOrder) {
+    for (CompressionFlag const flag : kDecompressOrder) {
         if (hasFlag(compressionMask, flag)) {
             if (!decompressStage(flag, buf, uncompressedSize, error))
                 return {};

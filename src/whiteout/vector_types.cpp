@@ -110,7 +110,7 @@ Matrix44f inverseGeneral(const Matrix44f& m)
 
         for (size_t r = col + 1; r < 4; ++r)
         {
-            f32 v = std::abs(a[r][col]);
+            f32 const v = std::abs(a[r][col]);
             if (v > maxAbs)
             {
                 maxAbs = v;
@@ -129,7 +129,7 @@ Matrix44f inverseGeneral(const Matrix44f& m)
         }
 
         // normalize pivot row
-        f32 invPivot = 1.0f / a[col][col];
+        f32 const invPivot = 1.0f / a[col][col];
         for (size_t c = 0; c < 8; ++c)
             a[col][c] *= invPivot;
 
@@ -138,7 +138,7 @@ Matrix44f inverseGeneral(const Matrix44f& m)
         {
             if (r == col) continue;
 
-            f32 factor = a[r][col];
+            f32 const factor = a[r][col];
             for (size_t c = 0; c < 8; ++c)
                 a[r][c] -= factor * a[col][c];
         }
@@ -160,10 +160,10 @@ Matrix44f inverseGeneral(const Matrix44f& m)
 // ============================================================================
 
 Quaternion& Quaternion::operator*=(const Quaternion& other) {
-    f32 newX = w * other.x + x * other.w + y * other.z - z * other.y;
-    f32 newY = w * other.y - x * other.z + y * other.w + z * other.x;
-    f32 newZ = w * other.z + x * other.y - y * other.x + z * other.w;
-    f32 newW = w * other.w - x * other.x - y * other.y - z * other.z;
+    f32 const newX = w * other.x + x * other.w + y * other.z - z * other.y;
+    f32 const newY = w * other.y - x * other.z + y * other.w + z * other.x;
+    f32 const newZ = w * other.z + x * other.y - y * other.x + z * other.w;
+    f32 const newW = w * other.w - x * other.x - y * other.y - z * other.z;
     x = newX;
     y = newY;
     z = newZ;
@@ -182,32 +182,32 @@ Quaternion Quaternion::conjugate() const {
 }
 
 Quaternion Quaternion::inverse() const {
-    f32 n = length_squared();
+    f32 const n = length_squared();
     if (n < 1e-12f)
         return Quaternion(0, 0, 0, 0);
-    f32 inv_n = 1.0f / n;
+    f32 const inv_n = 1.0f / n;
     return Quaternion(-x * inv_n, -y * inv_n, -z * inv_n, w * inv_n);
 }
 
 Quaternion Quaternion::log() const {
     // For unit quaternion q = (sin(θ)·axis, cos(θ)):
     // log(q) = (θ·axis, 0)
-    f32 cw = w < -1.0f ? -1.0f : (w > 1.0f ? 1.0f : w);
-    f32 theta = std::acos(cw);
-    f32 sin_theta = std::sin(theta);
+    f32 const cw = w < -1.0f ? -1.0f : (w > 1.0f ? 1.0f : w);
+    f32 const theta = std::acos(cw);
+    f32 const sin_theta = std::sin(theta);
     if (std::abs(sin_theta) < 1e-6f)
         return Quaternion(0, 0, 0, 0);
-    f32 coeff = theta / sin_theta;
+    f32 const coeff = theta / sin_theta;
     return Quaternion(x * coeff, y * coeff, z * coeff, 0.0f);
 }
 
 Quaternion Quaternion::exp() const {
     // For pure quaternion q = (v, 0):
     // exp(q) = (sin(|v|)/|v| · v, cos(|v|))
-    f32 theta = std::sqrt(x * x + y * y + z * z);
+    f32 const theta = std::sqrt(x * x + y * y + z * z);
     if (theta < 1e-6f)
         return Quaternion(0, 0, 0, 1);
-    f32 coeff = std::sin(theta) / theta;
+    f32 const coeff = std::sin(theta) / theta;
     return Quaternion(x * coeff, y * coeff, z * coeff, std::cos(theta));
 }
 
@@ -216,18 +216,18 @@ Quaternion Quaternion::identity() {
 }
 
 Quaternion Quaternion::from_axis_angle(const Vector3f& axis, f32 angle_rad) {
-    f32 half_angle = angle_rad * 0.5f;
-    f32 s = std::sin(half_angle);
+    f32 const half_angle = angle_rad * 0.5f;
+    f32 const s = std::sin(half_angle);
     return Quaternion(axis.x * s, axis.y * s, axis.z * s, std::cos(half_angle));
 }
 
 Quaternion Quaternion::from_euler_angles(const Vector3f& euler_rad) {
-    f32 cx = std::cos(euler_rad.x * 0.5f);
-    f32 sx = std::sin(euler_rad.x * 0.5f);
-    f32 cy = std::cos(euler_rad.y * 0.5f);
-    f32 sy = std::sin(euler_rad.y * 0.5f);
-    f32 cz = std::cos(euler_rad.z * 0.5f);
-    f32 sz = std::sin(euler_rad.z * 0.5f);
+    f32 const cx = std::cos(euler_rad.x * 0.5f);
+    f32 const sx = std::sin(euler_rad.x * 0.5f);
+    f32 const cy = std::cos(euler_rad.y * 0.5f);
+    f32 const sy = std::sin(euler_rad.y * 0.5f);
+    f32 const cz = std::cos(euler_rad.z * 0.5f);
+    f32 const sz = std::sin(euler_rad.z * 0.5f);
     return Quaternion(sx * cy * cz - cx * sy * sz, cx * sy * cz + sx * cy * sz,
                       cx * cy * sz - sx * sy * cz, cx * cy * cz + sx * sy * sz);
 }
@@ -385,27 +385,23 @@ Quaternion Quaternion::slerp(const Quaternion& a, const Quaternion& b, f32 t) {
     const f32 DOT_THRESHOLD = 0.9995f;
     if (d > DOT_THRESHOLD) {
         // If the quaternions are close, use linear interpolation
-        Quaternion result = Quaternion(
-            a.x + t * (end.x - a.x),
-            a.y + t * (end.y - a.y),
-            a.z + t * (end.z - a.z),
-            a.w + t * (end.w - a.w)
-        );
+        Quaternion const result = Quaternion(a.x + t * (end.x - a.x), a.y + t * (end.y - a.y),
+                                             a.z + t * (end.z - a.z), a.w + t * (end.w - a.w));
         return result.normalized();
     }
 
     // Calculate the angle between the quaternions
-    f32 theta_0 = std::acos(d); // angle between input quaternions
-    f32 theta = theta_0 * t;    // angle between a and result
+    f32 const theta_0 = std::acos(d); // angle between input quaternions
+    f32 const theta = theta_0 * t;    // angle between a and result
 
-    f32 sin_theta = std::sin(theta);
-    f32 sin_theta_0 = std::sin(theta_0);
+    f32 const sin_theta = std::sin(theta);
+    f32 const sin_theta_0 = std::sin(theta_0);
 
     if (sin_theta_0 < 1e-6f)
         return a;
 
-    f32 s0 = std::sin(theta_0 - theta) / sin_theta_0;
-    f32 s1 = sin_theta / sin_theta_0;
+    f32 const s0 = std::sin(theta_0 - theta) / sin_theta_0;
+    f32 const s1 = sin_theta / sin_theta_0;
 
     return Quaternion(
         a.x * s0 + end.x * s1,
@@ -417,8 +413,8 @@ Quaternion Quaternion::slerp(const Quaternion& a, const Quaternion& b, f32 t) {
 
 Quaternion Quaternion::squad(const Quaternion& start, const Quaternion& outtan,
                              const Quaternion& inttan, const Quaternion& end, f32 t) {
-    Quaternion slerp1 = slerp(start, end, t);
-    Quaternion slerp2 = slerp(outtan, inttan, t);
+    Quaternion const slerp1 = slerp(start, end, t);
+    Quaternion const slerp2 = slerp(outtan, inttan, t);
     return slerp(slerp1, slerp2, 2 * t * (1 - t));
 }
 
@@ -436,15 +432,15 @@ Matrix44f Matrix44f::translation(const Vector3f& t) {
 
 Matrix44f Matrix44f::rotation(const Quaternion& q) {
     Matrix44f result = identity();
-    f32 xx = q.x * q.x;
-    f32 yy = q.y * q.y;
-    f32 zz = q.z * q.z;
-    f32 xy = q.x * q.y;
-    f32 xz = q.x * q.z;
-    f32 yz = q.y * q.z;
-    f32 wx = q.w * q.x;
-    f32 wy = q.w * q.y;
-    f32 wz = q.w * q.z;
+    f32 const xx = q.x * q.x;
+    f32 const yy = q.y * q.y;
+    f32 const zz = q.z * q.z;
+    f32 const xy = q.x * q.y;
+    f32 const xz = q.x * q.z;
+    f32 const yz = q.y * q.z;
+    f32 const wx = q.w * q.x;
+    f32 const wy = q.w * q.y;
+    f32 const wz = q.w * q.z;
 
     result.data[0][0] = 1.0f - 2.0f * (yy + zz);
     result.data[0][1] = 2.0f * (xy - wz);
@@ -488,9 +484,12 @@ Matrix44f Matrix44f::inverse(const Matrix44f& m, MatrixLayout layout) {
 
 Vector3f Matrix44f::extract_scale() const {
     // Scale = length of each column of the upper-left 3x3 (R * S has columns = R_col * s)
-    f32 sx = std::sqrt(data[0][0] * data[0][0] + data[1][0] * data[1][0] + data[2][0] * data[2][0]);
-    f32 sy = std::sqrt(data[0][1] * data[0][1] + data[1][1] * data[1][1] + data[2][1] * data[2][1]);
-    f32 sz = std::sqrt(data[0][2] * data[0][2] + data[1][2] * data[1][2] + data[2][2] * data[2][2]);
+    f32 const sx =
+        std::sqrt(data[0][0] * data[0][0] + data[1][0] * data[1][0] + data[2][0] * data[2][0]);
+    f32 const sy =
+        std::sqrt(data[0][1] * data[0][1] + data[1][1] * data[1][1] + data[2][1] * data[2][1]);
+    f32 const sz =
+        std::sqrt(data[0][2] * data[0][2] + data[1][2] * data[1][2] + data[2][2] * data[2][2]);
     return {sx, sy, sz};
 }
 

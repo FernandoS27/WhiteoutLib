@@ -138,7 +138,7 @@ void jenkinsHashlittle2(const void* key, size_t length, u32& pc, u32& pb) {
 std::string normalizePath(const std::string& name) {
     std::string result;
     result.reserve(name.size());
-    for (char ch : name) {
+    for (char const ch : name) {
         if (ch == '/')
             result.push_back('\\');
         else

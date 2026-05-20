@@ -140,7 +140,7 @@ Track<T> Parser::Impl::readTrackChunk(BinaryReader& reader, u32 trackCount, u32 
 }
 
 void Parser::Impl::SkipUnknownChunk(BinaryReader& reader, u32 tag, u32 size) {
-    std::string error =
+    std::string const error =
         "Unknown chunk: " + std::string((char*)&tag, 4) + " (size: " + std::to_string(size) + ")";
     if (parseMode == ParseMode::Strict) {
         throw std::runtime_error(error);
@@ -151,8 +151,8 @@ void Parser::Impl::SkipUnknownChunk(BinaryReader& reader, u32 tag, u32 size) {
 
 void Parser::Impl::SkipUnknownTrack(BinaryReader& reader, u32 tag, u32 trackCount,
                                     u32 interpolationType) {
-    std::string error = "Unknown track: " + std::string((char*)&tag, 4) +
-                        " (count: " + std::to_string(trackCount) + ")";
+    std::string const error = "Unknown track: " + std::string((char*)&tag, 4) +
+                              " (count: " + std::to_string(trackCount) + ")";
     if (parseMode == ParseMode::Strict) {
         throw std::runtime_error(error);
     }
@@ -211,7 +211,7 @@ Model Parser::parse(const std::string& filePath) {
 
 Model Parser::parse(std::span<const u8> buffer, MDLXFormat format) {
     if (format == MDLXFormat::MDL) {
-        std::string_view source(reinterpret_cast<const char*>(buffer.data()), buffer.size());
+        std::string_view const source(reinterpret_cast<const char*>(buffer.data()), buffer.size());
         Model model = convertMdlToModel(source, pImpl->issues);
         return model;
     }
@@ -241,8 +241,8 @@ Model Parser::Impl::parse(BinaryReader& reader) {
     // Read magic number
     u32 magic = reader.read<u32>();
     if (magic != MDLX_TAG) {
-        std::string error = "Invalid MDX file: expected magic 'MDLX', got '" +
-                            std::string(reinterpret_cast<char*>(&magic), 4) + "'";
+        std::string const error = "Invalid MDX file: expected magic 'MDLX', got '" +
+                                  std::string(reinterpret_cast<char*>(&magic), 4) + "'";
         if (parseMode == ParseMode::Strict) {
             throw std::runtime_error(error);
         }
@@ -252,13 +252,13 @@ Model Parser::Impl::parse(BinaryReader& reader) {
 
     // Parse chunks
     while (reader.hasRemaining()) {
-        ChunkHeader header = readChunkHeader(reader);
+        ChunkHeader const header = readChunkHeader(reader);
 
         switch (header.tag) {
         case VERS_TAG:
             parseVERS(reader, header.size, mdx);
             if (mdx.version > CurrentVersion) {
-                std::string error = "Unsupported MDX version: " + std::to_string(mdx.version);
+                std::string const error = "Unsupported MDX version: " + std::to_string(mdx.version);
                 if (parseMode == ParseMode::Strict) {
                     throw std::runtime_error(error);
                 }
@@ -349,8 +349,8 @@ Model Parser::Impl::parse(BinaryReader& reader) {
 }
 
 Parser::Impl::ChunkHeader Parser::Impl::readChunkHeader(BinaryReader& reader) {
-    u32 tag = reader.read<u32>();
-    u32 size = reader.read<u32>();
+    u32 const tag = reader.read<u32>();
+    u32 const size = reader.read<u32>();
     return {tag, size};
 }
 
@@ -366,7 +366,7 @@ void Parser::Impl::parseMODL(BinaryReader& reader, u32 /*size*/, Model& mdx) {
 }
 
 void Parser::Impl::parseSEQS(BinaryReader& reader, u32 size, Model& mdx) {
-    u32 count = size / 132;
+    u32 const count = size / 132;
     mdx.sequences.resize(count);
 
     for (u32 i = 0; i < count; i++) {
@@ -383,12 +383,12 @@ void Parser::Impl::parseSEQS(BinaryReader& reader, u32 size, Model& mdx) {
 }
 
 void Parser::Impl::parseGLBS(BinaryReader& reader, u32 size, Model& mdx) {
-    u32 count = size / 4;
+    u32 const count = size / 4;
     mdx.globalSequences = reader.read<std::vector<u32>>(count);
 }
 
 void Parser::Impl::parseTEXS(BinaryReader& reader, u32 size, Model& mdx) {
-    u32 count = size / 268;
+    u32 const count = size / 268;
     mdx.textures.resize(count);
 
     for (u32 i = 0; i < count; i++) {
@@ -399,7 +399,7 @@ void Parser::Impl::parseTEXS(BinaryReader& reader, u32 size, Model& mdx) {
 }
 
 void Parser::Impl::parseSNDS(BinaryReader& reader, u32 size, Model& mdx) {
-    u32 count = size / 56;
+    u32 const count = size / 56;
 
     for (u32 i = 0; i < count; i++) {
         Sound snd;
@@ -416,7 +416,7 @@ void Parser::Impl::parseSNEM(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
-        u32 posBefore = reader.getPosition();
+        u32 const posBefore = reader.getPosition();
         SoundEmitter snem = parseSoundEmitter(reader, size - totalRead);
         snem.node.nodeFamilyId = static_cast<u32>(mdx.soundEmitters.size());
         mdx.soundEmitters.push_back(snem);
@@ -426,18 +426,18 @@ void Parser::Impl::parseSNEM(BinaryReader& reader, u32 size, Model& mdx) {
 
 SoundEmitter Parser::Impl::parseSoundEmitter(BinaryReader& reader, u32 /*maxSize*/) {
     SoundEmitter snem;
-    u32 startPos = reader.getPosition();
+    u32 const startPos = reader.getPosition();
 
-    u32 inclusiveSize = reader.read<u32>();
+    u32 const inclusiveSize = reader.read<u32>();
     snem.node = parseNode(reader);
 
     // Parse animation tracks (KSEK)
-    u32 endPos = startPos + inclusiveSize;
+    u32 const endPos = startPos + inclusiveSize;
     while (reader.getPosition() < endPos) {
-        u32 trackTag = reader.read<u32>();
-        u32 trackCount = reader.read<u32>();
-        u32 interpolationType = reader.read<u32>();
-        u32 globalSequenceId = reader.read<u32>();
+        u32 const trackTag = reader.read<u32>();
+        u32 const trackCount = reader.read<u32>();
+        u32 const interpolationType = reader.read<u32>();
+        u32 const globalSequenceId = reader.read<u32>();
 
         switch (trackTag) {
         case KSEK_TAG: // KSEK - sound track
@@ -457,8 +457,8 @@ void Parser::Impl::parseMTLS(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
-        u32 posBefore = reader.getPosition();
-        Material mat = parseMaterial(reader, size - totalRead, mdx);
+        u32 const posBefore = reader.getPosition();
+        Material const mat = parseMaterial(reader, size - totalRead, mdx);
         mdx.materials.push_back(mat);
         totalRead += reader.getPosition() - posBefore;
     }
@@ -466,10 +466,10 @@ void Parser::Impl::parseMTLS(BinaryReader& reader, u32 size, Model& mdx) {
 
 Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 /*chunkSize*/, Model& mdx) {
     Material mat;
-    [[maybe_unused]] u32 startPos = reader.getPosition();
+    [[maybe_unused]] u32 const startPos = reader.getPosition();
     bool is_hd = false;
 
-    [[maybe_unused]] u32 inclusiveSize = reader.read<u32>();
+    [[maybe_unused]] u32 const inclusiveSize = reader.read<u32>();
     mat.priorityPlane = reader.read<u32>();
     mat.flags = reader.read<Material::Flag>();
 
@@ -479,8 +479,8 @@ Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 /*chunkSize*/, Mo
     }
 
     // Read LAYS chunk
-    [[maybe_unused]] u32 laysTag = reader.read<u32>();
-    u32 layerCount = reader.read<u32>();
+    [[maybe_unused]] u32 const laysTag = reader.read<u32>();
+    u32 const layerCount = reader.read<u32>();
 
     mat.layers.resize(layerCount);
     for (u32 i = 0; i < layerCount; i++) {
@@ -554,9 +554,9 @@ Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 /*chunkSize*/, Mo
 
 Layer Parser::Impl::parseLayer(BinaryReader& reader, Model& mdx) {
     Layer layer;
-    u32 startPos = reader.getPosition();
+    u32 const startPos = reader.getPosition();
 
-    u32 inclusiveSize = reader.read<u32>();
+    u32 const inclusiveSize = reader.read<u32>();
     layer.filterMode = static_cast<Layer::FilterMode>(reader.read<u32>());
     layer.shadingFlags = static_cast<Layer::ShadingFlag>(reader.read<u32>());
     layer.textureId = reader.read<u32>();
@@ -580,12 +580,12 @@ Layer Parser::Impl::parseLayer(BinaryReader& reader, Model& mdx) {
             subTex.textureId = reader.read<u32>();
             subTex.slot = static_cast<Layer::SlotType>(reader.read<u32>());
 
-            u32 subTexStart = reader.getPosition();
-            u32 peek_tag = reader.read<u32>();
+            u32 const subTexStart = reader.getPosition();
+            u32 const peek_tag = reader.read<u32>();
             if (peek_tag == KMTF_TAG) {
-                u32 trackCount = reader.read<u32>();
-                u32 interpolationType = reader.read<u32>();
-                u32 globalSequenceId = reader.read<u32>();
+                u32 const trackCount = reader.read<u32>();
+                u32 const interpolationType = reader.read<u32>();
+                u32 const globalSequenceId = reader.read<u32>();
                 subTex.tracks =
                     readTrackChunk<u32>(reader, trackCount, interpolationType, globalSequenceId);
             } else {
@@ -597,12 +597,12 @@ Layer Parser::Impl::parseLayer(BinaryReader& reader, Model& mdx) {
 
     const u32 endPos = startPos + inclusiveSize;
     while (reader.getPosition() < endPos) {
-        [[maybe_unused]] u32 currentPos = reader.getPosition();
+        [[maybe_unused]] u32 const currentPos = reader.getPosition();
 
-        u32 trackTag = reader.read<u32>();
-        u32 trackCount = reader.read<u32>();
-        u32 interpolationType = reader.read<u32>();
-        u32 globalSequenceId = reader.read<u32>();
+        u32 const trackTag = reader.read<u32>();
+        u32 const trackCount = reader.read<u32>();
+        u32 const interpolationType = reader.read<u32>();
+        u32 const globalSequenceId = reader.read<u32>();
 
         switch (trackTag) {
         case KMTF_TAG: // Texture ID (for older versions 800-1100)
@@ -648,8 +648,8 @@ void Parser::Impl::parseTXAN(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
-        u32 posBefore = reader.getPosition();
-        TextureAnimation anim = parseTextureAnimation(reader, size - totalRead);
+        u32 const posBefore = reader.getPosition();
+        TextureAnimation const anim = parseTextureAnimation(reader, size - totalRead);
         mdx.textureAnimations.push_back(anim);
         totalRead += reader.getPosition() - posBefore;
     }
@@ -657,17 +657,17 @@ void Parser::Impl::parseTXAN(BinaryReader& reader, u32 size, Model& mdx) {
 
 TextureAnimation Parser::Impl::parseTextureAnimation(BinaryReader& reader, u32 /*maxSize*/) {
     TextureAnimation anim;
-    u32 startPos = reader.getPosition();
+    u32 const startPos = reader.getPosition();
 
-    u32 inclusiveSize = reader.read<u32>();
+    u32 const inclusiveSize = reader.read<u32>();
 
     // Parse animation tracks (KTAT, KTAR, KTAS)
-    u32 endPos = startPos + inclusiveSize;
+    u32 const endPos = startPos + inclusiveSize;
     while (reader.getPosition() < endPos) {
-        u32 trackTag = reader.read<u32>();
-        u32 trackCount = reader.read<u32>();
-        u32 interpolationType = reader.read<u32>();
-        u32 globalSequenceId = reader.read<u32>();
+        u32 const trackTag = reader.read<u32>();
+        u32 const trackCount = reader.read<u32>();
+        u32 const interpolationType = reader.read<u32>();
+        u32 const globalSequenceId = reader.read<u32>();
 
         switch (trackTag) {
         case KTAT_TAG: // KTAT - translation
@@ -694,8 +694,8 @@ void Parser::Impl::parseGEOS(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
-        u32 posBefore = reader.getPosition();
-        Geoset geo = parseGeoset(reader, size - totalRead, mdx);
+        u32 const posBefore = reader.getPosition();
+        Geoset const geo = parseGeoset(reader, size - totalRead, mdx);
 
         mdx.geosets.push_back(geo);
         totalRead += reader.getPosition() - posBefore;
@@ -704,48 +704,48 @@ void Parser::Impl::parseGEOS(BinaryReader& reader, u32 size, Model& mdx) {
 
 Geoset Parser::Impl::parseGeoset(BinaryReader& reader, u32 /*maxSize*/, Model& mdx) {
     Geoset geoset;
-    u32 startPos = reader.getPosition();
+    u32 const startPos = reader.getPosition();
 
-    u32 inclusiveSize = reader.read<u32>();
+    u32 const inclusiveSize = reader.read<u32>();
 
     // Parse VRTX - vertex positions
-    [[maybe_unused]] u32 vrtxTag = reader.read<u32>();
-    u32 vertexCount = reader.read<u32>();
+    [[maybe_unused]] u32 const vrtxTag = reader.read<u32>();
+    u32 const vertexCount = reader.read<u32>();
     geoset.vertexPositions = reader.read<std::vector<Vector3f>>(vertexCount);
 
     // Parse NRMS - normals
-    [[maybe_unused]] u32 nrmsTag = reader.read<u32>();
-    u32 normalCount = reader.read<u32>();
+    [[maybe_unused]] u32 const nrmsTag = reader.read<u32>();
+    u32 const normalCount = reader.read<u32>();
     geoset.vertexNormals = reader.read<std::vector<Vector3f>>(normalCount);
 
     // Parse PTYP - face type groups
-    [[maybe_unused]] u32 ptypTag = reader.read<u32>();
-    u32 faceTypeGroupCount = reader.read<u32>();
+    [[maybe_unused]] u32 const ptypTag = reader.read<u32>();
+    u32 const faceTypeGroupCount = reader.read<u32>();
     geoset.faceTypeGroups = reader.read<std::vector<u32>>(faceTypeGroupCount);
 
     // Parse PCNT - face groups
-    [[maybe_unused]] u32 pcntTag = reader.read<u32>();
-    u32 faceGroupCount = reader.read<u32>();
+    [[maybe_unused]] u32 const pcntTag = reader.read<u32>();
+    u32 const faceGroupCount = reader.read<u32>();
     geoset.faceGroups = reader.read<std::vector<u32>>(faceGroupCount);
 
     // Parse PVTX - face indices
-    [[maybe_unused]] u32 pvtxTag = reader.read<u32>();
-    u32 faceCount = reader.read<u32>();
+    [[maybe_unused]] u32 const pvtxTag = reader.read<u32>();
+    u32 const faceCount = reader.read<u32>();
     geoset.faces = reader.read<std::vector<u16>>(faceCount);
 
     // Parse GNDX - vertex groups
-    [[maybe_unused]] u32 gndxTag = reader.read<u32>();
-    u32 vertexGroupCount = reader.read<u32>();
+    [[maybe_unused]] u32 const gndxTag = reader.read<u32>();
+    u32 const vertexGroupCount = reader.read<u32>();
     geoset.vertexGroups = reader.read<std::vector<u8>>(vertexGroupCount);
 
     // Parse MTGC - matrix groups
-    [[maybe_unused]] u32 mtgcTag = reader.read<u32>();
-    u32 matrixGroupCount = reader.read<u32>();
+    [[maybe_unused]] u32 const mtgcTag = reader.read<u32>();
+    u32 const matrixGroupCount = reader.read<u32>();
     geoset.matrixGroups = reader.read<std::vector<u32>>(matrixGroupCount);
 
     // Parse MATS - matrix indices
-    [[maybe_unused]] u32 matsTag = reader.read<u32>();
-    u32 matrixIndexCount = reader.read<u32>();
+    [[maybe_unused]] u32 const matsTag = reader.read<u32>();
+    u32 const matrixIndexCount = reader.read<u32>();
     geoset.matrixIndices = reader.read<std::vector<u32>>(matrixIndexCount);
 
     // Material ID, selection group, selection flags
@@ -766,7 +766,7 @@ Geoset Parser::Impl::parseGeoset(BinaryReader& reader, u32 /*maxSize*/, Model& m
     geoset.extent = reader.read<Extent>();
 
     // Sequence extents
-    u32 extentsCount = reader.read<u32>();
+    u32 const extentsCount = reader.read<u32>();
     geoset.sequenceExtents.resize(extentsCount);
     for (u32 i = 0; i < extentsCount; i++) {
         geoset.sequenceExtents[i] = reader.read<Extent>();
@@ -774,40 +774,40 @@ Geoset Parser::Impl::parseGeoset(BinaryReader& reader, u32 /*maxSize*/, Model& m
 
     // Parse UVAS - texture coordinate sets
     u32 currentPos = reader.getPosition();
-    u32 endPos = startPos + inclusiveSize;
+    u32 const endPos = startPos + inclusiveSize;
 
     while (currentPos < endPos) {
         u32 peekTag = reader.read<u32>();
         switch (peekTag) {
         case UVAS_TAG: {
-            u32 uvSetCount = reader.read<u32>();
+            u32 const uvSetCount = reader.read<u32>();
 
             geoset.textureCoordinateSets.resize(uvSetCount);
             for (u32 i = 0; i < uvSetCount; i++) {
-                [[maybe_unused]] u32 uvbsTag = reader.read<u32>();
-                u32 uvCount = reader.read<u32>();
+                [[maybe_unused]] u32 const uvbsTag = reader.read<u32>();
+                u32 const uvCount = reader.read<u32>();
                 geoset.textureCoordinateSets[i] = reader.read<std::vector<Vector2f>>(uvCount);
             }
             break;
         }
         case TANG_TAG: {
-            u32 tangentCount = reader.read<u32>();
+            u32 const tangentCount = reader.read<u32>();
             geoset.tangents = reader.read<std::vector<Vector4f>>(tangentCount);
             break;
         }
         case SKIN_TAG: {
-            u32 skinDataCount = reader.read<u32>();
+            u32 const skinDataCount = reader.read<u32>();
             geoset.skinData = reader.read<std::vector<u8>>(skinDataCount);
             break;
         }
         default: {
-            std::string error = "Unknown chunk in geoset: " + std::string((char*)&peekTag, 4);
+            std::string const error = "Unknown chunk in geoset: " + std::string((char*)&peekTag, 4);
             if (parseMode == ParseMode::Strict) {
                 throw std::runtime_error(error);
             }
             issues.push_back(error);
             reader.skip(4); // Skip the size field of the unknown chunk
-            u32 unknownSize = reader.read<u32>();
+            u32 const unknownSize = reader.read<u32>();
             reader.skip(unknownSize * 4);
             break;
         }
@@ -825,22 +825,22 @@ void Parser::Impl::parseGEOA(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
-        u32 startPos = reader.getPosition();
+        u32 const startPos = reader.getPosition();
 
         GeosetAnimation anim;
-        u32 inclusiveSize = reader.read<u32>();
+        u32 const inclusiveSize = reader.read<u32>();
         anim.alpha = reader.read<f32>();
         anim.flags = reader.read<GeosetAnimation::Flag>();
         anim.color = reader.read<Vector3f>();
         anim.geosetId = reader.read<u32>();
 
         // Parse animation tracks (KGAO, KGAC)
-        u32 endPos = startPos + inclusiveSize;
+        u32 const endPos = startPos + inclusiveSize;
         while (reader.getPosition() < endPos) {
-            u32 trackTag = reader.read<u32>();
-            u32 trackCount = reader.read<u32>();
-            u32 interpolationType = reader.read<u32>();
-            u32 globalSequenceId = reader.read<u32>();
+            u32 const trackTag = reader.read<u32>();
+            u32 const trackCount = reader.read<u32>();
+            u32 const interpolationType = reader.read<u32>();
+            u32 const globalSequenceId = reader.read<u32>();
 
             switch (trackTag) {
             case KGAO_TAG: // KGAO - alpha
@@ -868,7 +868,7 @@ void Parser::Impl::parseBONE(BinaryReader& reader, u32 size, Model& mdx) {
     while (totalRead < size) {
         Bone bone;
 
-        u32 startPos = reader.getPosition();
+        u32 const startPos = reader.getPosition();
         bone.node = parseNode(reader);
 
         bone.geosetId = reader.read<u32>();
@@ -880,15 +880,15 @@ void Parser::Impl::parseBONE(BinaryReader& reader, u32 size, Model& mdx) {
 
         mdx.bones.push_back(bone);
 
-        u32 endPos = reader.getPosition();
+        u32 const endPos = reader.getPosition();
         totalRead += (endPos - startPos);
     }
 }
 
 Node Parser::Impl::parseNode(BinaryReader& reader) {
     Node node;
-    [[maybe_unused]] u32 startPos = reader.getPosition();
-    [[maybe_unused]] u32 nodeSize = reader.read<u32>();
+    [[maybe_unused]] u32 const startPos = reader.getPosition();
+    [[maybe_unused]] u32 const nodeSize = reader.read<u32>();
 
     node.name = reader.readString(80);
     node.objectId = reader.read<u32>();
@@ -901,19 +901,20 @@ Node Parser::Impl::parseNode(BinaryReader& reader) {
 }
 
 void Parser::Impl::parseNodeTracks(BinaryReader& reader, Node& node, u32 nodeSize) {
-    u32 nodeDataSize = 4 + 80 + 4 + 4 + 4; // inclusiveSize + name + objectId + parentId + flags
-    u32 tracksSize = nodeSize - nodeDataSize;
+    u32 const nodeDataSize =
+        4 + 80 + 4 + 4 + 4; // inclusiveSize + name + objectId + parentId + flags
+    u32 const tracksSize = nodeSize - nodeDataSize;
 
-    u32 startPos = reader.getPosition();
+    u32 const startPos = reader.getPosition();
 
     while (reader.getPosition() - startPos < tracksSize) {
         if (reader.getPosition() - startPos >= tracksSize)
             break;
 
-        u32 trackTag = reader.read<u32>();
-        u32 trackCount = reader.read<u32>();
-        u32 interpolationType = reader.read<u32>();
-        u32 globalSequenceId = reader.read<u32>();
+        u32 const trackTag = reader.read<u32>();
+        u32 const trackCount = reader.read<u32>();
+        u32 const interpolationType = reader.read<u32>();
+        u32 const globalSequenceId = reader.read<u32>();
 
         switch (trackTag) {
         case KGTR_TAG:
@@ -939,7 +940,7 @@ void Parser::Impl::parseLITE(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
-        u32 posBefore = reader.getPosition();
+        u32 const posBefore = reader.getPosition();
         Light light = parseLight(reader, size - totalRead, mdx);
         light.node.type = Node::NodeType::Light; // Set node type to Light
         light.node.nodeFamilyId = static_cast<u32>(
@@ -951,9 +952,9 @@ void Parser::Impl::parseLITE(BinaryReader& reader, u32 size, Model& mdx) {
 
 Light Parser::Impl::parseLight(BinaryReader& reader, u32 /*maxSize*/, Model& mdx) {
     Light light;
-    u32 startPos = reader.getPosition();
+    u32 const startPos = reader.getPosition();
 
-    u32 inclusiveSize = reader.read<u32>();
+    u32 const inclusiveSize = reader.read<u32>();
     light.node = parseNode(reader);
     light.type = static_cast<Light::LightType>(reader.read<u32>());
     light.attenuationStart = reader.read<f32>();
@@ -969,12 +970,12 @@ Light Parser::Impl::parseLight(BinaryReader& reader, u32 /*maxSize*/, Model& mdx
     }
 
     // Parse animation tracks (KLAS, KLAE, KLAC, KLAI, KLBI, KLBC, KLAV)
-    u32 endPos = startPos + inclusiveSize;
+    u32 const endPos = startPos + inclusiveSize;
     while (reader.getPosition() < endPos) {
-        u32 trackTag = reader.read<u32>();
-        u32 trackCount = reader.read<u32>();
-        u32 interpolationType = reader.read<u32>();
-        u32 globalSequenceId = reader.read<u32>();
+        u32 const trackTag = reader.read<u32>();
+        u32 const trackCount = reader.read<u32>();
+        u32 const interpolationType = reader.read<u32>();
+        u32 const globalSequenceId = reader.read<u32>();
 
         switch (trackTag) {
         case KLAS_TAG: // KLAS - attenuationStart
@@ -1018,7 +1019,7 @@ void Parser::Impl::parseHELP(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
-        u32 startPos = reader.getPosition();
+        u32 const startPos = reader.getPosition();
 
         Helper helper;
         helper.node = parseNode(reader);
@@ -1029,7 +1030,7 @@ void Parser::Impl::parseHELP(BinaryReader& reader, u32 size, Model& mdx) {
 
         mdx.helpers.push_back(helper);
 
-        u32 endPos = reader.getPosition();
+        u32 const endPos = reader.getPosition();
         totalRead += (endPos - startPos);
     }
 }
@@ -1038,7 +1039,7 @@ void Parser::Impl::parseATCH(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
-        u32 posBefore = reader.getPosition();
+        u32 const posBefore = reader.getPosition();
         Attachment att = parseAttachment(reader, size - totalRead);
 
         att.node.type = Node::NodeType::Attachment; // Set node type to Attachment
@@ -1052,20 +1053,20 @@ void Parser::Impl::parseATCH(BinaryReader& reader, u32 size, Model& mdx) {
 
 Attachment Parser::Impl::parseAttachment(BinaryReader& reader, u32 /*maxSize*/) {
     Attachment att;
-    u32 startPos = reader.getPosition();
+    u32 const startPos = reader.getPosition();
 
-    u32 inclusiveSize = reader.read<u32>();
+    u32 const inclusiveSize = reader.read<u32>();
     att.node = parseNode(reader);
     att.path = reader.readString(260);
     att.attachmentId = reader.read<u32>();
 
     // Parse animation tracks (KATV)
-    u32 endPos = startPos + inclusiveSize;
+    u32 const endPos = startPos + inclusiveSize;
     while (reader.getPosition() < endPos) {
-        u32 trackTag = reader.read<u32>();
-        u32 trackCount = reader.read<u32>();
-        u32 interpolationType = reader.read<u32>();
-        u32 globalSequenceId = reader.read<u32>();
+        u32 const trackTag = reader.read<u32>();
+        u32 const trackCount = reader.read<u32>();
+        u32 const interpolationType = reader.read<u32>();
+        u32 const globalSequenceId = reader.read<u32>();
 
         switch (trackTag) {
         case KATV_TAG: // KATV - visibility
@@ -1082,7 +1083,7 @@ Attachment Parser::Impl::parseAttachment(BinaryReader& reader, u32 /*maxSize*/) 
 }
 
 void Parser::Impl::parsePIVT(BinaryReader& reader, u32 size, Model& mdx) {
-    u32 count = size / 12;
+    u32 const count = size / 12;
     mdx.pivotPoints.resize(count);
 
     for (u32 i = 0; i < count; i++) {
@@ -1094,7 +1095,7 @@ void Parser::Impl::parsePREM(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
-        u32 posBefore = reader.getPosition();
+        u32 const posBefore = reader.getPosition();
         ParticleEmitter pem = parseParticleEmitter(reader, size - totalRead);
         pem.node.type = Node::NodeType::ParticleEmitter; // Set node type to ParticleEmitter
         pem.node.nodeFamilyId = static_cast<u32>(
@@ -1108,9 +1109,9 @@ void Parser::Impl::parsePREM(BinaryReader& reader, u32 size, Model& mdx) {
 
 ParticleEmitter Parser::Impl::parseParticleEmitter(BinaryReader& reader, u32 /*maxSize*/) {
     ParticleEmitter pem;
-    u32 startPos = reader.getPosition();
+    u32 const startPos = reader.getPosition();
 
-    u32 inclusiveSize = reader.read<u32>();
+    u32 const inclusiveSize = reader.read<u32>();
     pem.node = parseNode(reader);
     pem.emissionRate = reader.read<f32>();
     pem.gravity = reader.read<f32>();
@@ -1121,12 +1122,12 @@ ParticleEmitter Parser::Impl::parseParticleEmitter(BinaryReader& reader, u32 /*m
     pem.initialVelocity = reader.read<f32>();
 
     // Parse animation tracks (KPEE, KPEG, KPLN, KPLT, KPEL, KPES, KPEV)
-    u32 endPos = startPos + inclusiveSize;
+    u32 const endPos = startPos + inclusiveSize;
     while (reader.getPosition() < endPos) {
-        u32 trackTag = reader.read<u32>();
-        u32 trackCount = reader.read<u32>();
-        u32 interpolationType = reader.read<u32>();
-        u32 globalSequenceId = reader.read<u32>();
+        u32 const trackTag = reader.read<u32>();
+        u32 const trackCount = reader.read<u32>();
+        u32 const interpolationType = reader.read<u32>();
+        u32 const globalSequenceId = reader.read<u32>();
 
         switch (trackTag) {
         case KPEE_TAG: // KPEE - emissionRate
@@ -1170,7 +1171,7 @@ void Parser::Impl::parsePRE2(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
-        u32 posBefore = reader.getPosition();
+        u32 const posBefore = reader.getPosition();
         ParticleEmitter2 pem2 = parseParticleEmitter2(reader, size - totalRead);
         pem2.node.type = Node::NodeType::ParticleEmitter2; // Set node type to ParticleEmitter2
         pem2.node.nodeFamilyId = static_cast<u32>(
@@ -1184,9 +1185,9 @@ void Parser::Impl::parsePRE2(BinaryReader& reader, u32 size, Model& mdx) {
 
 ParticleEmitter2 Parser::Impl::parseParticleEmitter2(BinaryReader& reader, u32 /*maxSize*/) {
     ParticleEmitter2 pem2;
-    u32 startPos = reader.getPosition();
+    u32 const startPos = reader.getPosition();
 
-    u32 inclusiveSize = reader.read<u32>();
+    u32 const inclusiveSize = reader.read<u32>();
     pem2.node = parseNode(reader);
     pem2.speed = reader.read<f32>();
     pem2.variation = reader.read<f32>();
@@ -1234,12 +1235,12 @@ ParticleEmitter2 Parser::Impl::parseParticleEmitter2(BinaryReader& reader, u32 /
     pem2.replaceableId = reader.read<u32>();
 
     // Parse animation tracks (KP2S, KP2R, KP2L, KP2G, KP2E, KP2N, KP2W, KP2V)
-    u32 endPos = startPos + inclusiveSize;
+    u32 const endPos = startPos + inclusiveSize;
     while (reader.getPosition() < endPos) {
-        u32 trackTag = reader.read<u32>();
-        u32 trackCount = reader.read<u32>();
-        u32 interpolationType = reader.read<u32>();
-        u32 globalSequenceId = reader.read<u32>();
+        u32 const trackTag = reader.read<u32>();
+        u32 const trackCount = reader.read<u32>();
+        u32 const interpolationType = reader.read<u32>();
+        u32 const globalSequenceId = reader.read<u32>();
 
         switch (trackTag) {
         case KP2S_TAG: // KP2S - speed
@@ -1287,7 +1288,7 @@ void Parser::Impl::parseRIBB(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
-        u32 posBefore = reader.getPosition();
+        u32 const posBefore = reader.getPosition();
         RibbonEmitter ribb = parseRibbonEmitter(reader, size - totalRead);
         ribb.node.type = Node::NodeType::RibbonEmitter; // Set node type to RibbonEmitter
         ribb.node.nodeFamilyId = static_cast<u32>(
@@ -1301,9 +1302,9 @@ void Parser::Impl::parseRIBB(BinaryReader& reader, u32 size, Model& mdx) {
 
 RibbonEmitter Parser::Impl::parseRibbonEmitter(BinaryReader& reader, u32 /*maxSize*/) {
     RibbonEmitter ribb;
-    u32 startPos = reader.getPosition();
+    u32 const startPos = reader.getPosition();
 
-    u32 inclusiveSize = reader.read<u32>();
+    u32 const inclusiveSize = reader.read<u32>();
     ribb.node = parseNode(reader);
     ribb.heightAbove = reader.read<f32>();
     ribb.heightBelow = reader.read<f32>();
@@ -1318,12 +1319,12 @@ RibbonEmitter Parser::Impl::parseRibbonEmitter(BinaryReader& reader, u32 /*maxSi
     ribb.gravity = reader.read<f32>();
 
     // Parse animation tracks (KRHA, KRHB, KRAL, KRCO, KRTX, KRVS)
-    u32 endPos = startPos + inclusiveSize;
+    u32 const endPos = startPos + inclusiveSize;
     while (reader.getPosition() < endPos) {
-        u32 trackTag = reader.read<u32>();
-        u32 trackCount = reader.read<u32>();
-        u32 interpolationType = reader.read<u32>();
-        u32 globalSequenceId = reader.read<u32>();
+        u32 const trackTag = reader.read<u32>();
+        u32 const trackCount = reader.read<u32>();
+        u32 const interpolationType = reader.read<u32>();
+        u32 const globalSequenceId = reader.read<u32>();
 
         switch (trackTag) {
         case KRHA_TAG: // KRHA - heightAbove
@@ -1363,7 +1364,7 @@ void Parser::Impl::parseEVTS(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
-        u32 startPos = reader.getPosition();
+        u32 const startPos = reader.getPosition();
 
         EventObject evt;
         evt.node = parseNode(reader);
@@ -1373,8 +1374,8 @@ void Parser::Impl::parseEVTS(BinaryReader& reader, u32 size, Model& mdx) {
                 .size()); // Assign a unique family ID based on current event object count
 
         // Read KEVT chunk
-        [[maybe_unused]] u32 kevtTag = reader.read<u32>();
-        u32 trackCount = reader.read<u32>();
+        [[maybe_unused]] u32 const kevtTag = reader.read<u32>();
+        u32 const trackCount = reader.read<u32>();
         evt.globalSequenceId = reader.read<u32>();
 
         for (u32 i = 0; i < trackCount; i++) {
@@ -1383,7 +1384,7 @@ void Parser::Impl::parseEVTS(BinaryReader& reader, u32 size, Model& mdx) {
 
         mdx.eventObjects.push_back(evt);
 
-        u32 endPos = reader.getPosition();
+        u32 const endPos = reader.getPosition();
         totalRead += (endPos - startPos);
     }
 }
@@ -1392,8 +1393,8 @@ void Parser::Impl::parseCAMS(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
-        u32 posBefore = reader.getPosition();
-        Camera cam = parseCamera(reader, size - totalRead);
+        u32 const posBefore = reader.getPosition();
+        Camera const cam = parseCamera(reader, size - totalRead);
         mdx.cameras.push_back(cam);
         totalRead += reader.getPosition() - posBefore;
     }
@@ -1401,9 +1402,9 @@ void Parser::Impl::parseCAMS(BinaryReader& reader, u32 size, Model& mdx) {
 
 Camera Parser::Impl::parseCamera(BinaryReader& reader, u32 /*maxSize*/) {
     Camera cam;
-    u32 startPos = reader.getPosition();
+    u32 const startPos = reader.getPosition();
 
-    u32 inclusiveSize = reader.read<u32>();
+    u32 const inclusiveSize = reader.read<u32>();
     cam.name = reader.readString(80);
     cam.position = reader.read<Vector3f>();
     cam.fieldOfView = reader.read<f32>();
@@ -1412,12 +1413,12 @@ Camera Parser::Impl::parseCamera(BinaryReader& reader, u32 /*maxSize*/) {
     cam.targetPosition = reader.read<Vector3f>();
 
     // Parse animation tracks (KCTR, KCRL, KTTR)
-    u32 endPos = startPos + inclusiveSize;
+    u32 const endPos = startPos + inclusiveSize;
     while (reader.getPosition() < endPos) {
-        u32 trackTag = reader.read<u32>();
-        u32 trackCount = reader.read<u32>();
-        u32 interpolationType = reader.read<u32>();
-        u32 globalSequenceId = reader.read<u32>();
+        u32 const trackTag = reader.read<u32>();
+        u32 const trackCount = reader.read<u32>();
+        u32 const interpolationType = reader.read<u32>();
+        u32 const globalSequenceId = reader.read<u32>();
 
         switch (trackTag) {
         case KCTR_TAG: // KCTR - position
@@ -1445,7 +1446,7 @@ void Parser::Impl::parseCLID(BinaryReader& reader, u32 size, Model& mdx) {
     u32 totalRead = 0;
 
     while (totalRead < size) {
-        u32 startPos = reader.getPosition();
+        u32 const startPos = reader.getPosition();
 
         CollisionShape shape = parseCollisionShape(reader);
         shape.node.type = Node::NodeType::CollisionShape; // Set node type to CollisionShape
@@ -1454,7 +1455,7 @@ void Parser::Impl::parseCLID(BinaryReader& reader, u32 size, Model& mdx) {
                 .size()); // Assign a unique family ID based on current collision shape count
         mdx.collisionShapes.push_back(shape);
 
-        u32 endPos = reader.getPosition();
+        u32 const endPos = reader.getPosition();
         totalRead += (endPos - startPos);
     }
 }
@@ -1462,12 +1463,12 @@ void Parser::Impl::parseCLID(BinaryReader& reader, u32 size, Model& mdx) {
 CollisionShape Parser::Impl::parseCollisionShape(BinaryReader& reader) {
     CollisionShape shape;
     shape.node = parseNode(reader);
-    u32 type_index = reader.read<u32>();
+    u32 const type_index = reader.read<u32>();
     shape.type = static_cast<CollisionShape::ShapeType>(type_index);
 
     constexpr std::array<size_t, 4> shapeVertexCounts = {2, 2, 1, 2};
 
-    u32 vertexCount = static_cast<u32>(shapeVertexCounts[type_index]);
+    u32 const vertexCount = static_cast<u32>(shapeVertexCounts[type_index]);
 
     shape.vertices.resize(vertexCount);
     for (u32 i = 0; i < vertexCount; i++) {
@@ -1483,7 +1484,7 @@ CollisionShape Parser::Impl::parseCollisionShape(BinaryReader& reader) {
 }
 
 void Parser::Impl::parseBPOS(BinaryReader& reader, u32 /*size*/, Model& mdx) {
-    u32 count = reader.read<u32>();
+    u32 const count = reader.read<u32>();
     mdx.bindPoses.resize(count);
 
     for (u32 i = 0; i < count; i++) {
@@ -1494,7 +1495,7 @@ void Parser::Impl::parseBPOS(BinaryReader& reader, u32 /*size*/, Model& mdx) {
 }
 
 void Parser::Impl::parseFAFX(BinaryReader& reader, u32 size, Model& mdx) {
-    u32 count = size / 340;
+    u32 const count = size / 340;
     mdx.faceEffects.resize(count);
 
     for (u32 i = 0; i < count; i++) {
@@ -1508,9 +1509,9 @@ void Parser::Impl::parseCORN(BinaryReader& reader, u32 size, Model& mdx) {
 
     while (totalRead < size) {
         CornEmitter corn;
-        u32 startPos = reader.getPosition();
+        u32 const startPos = reader.getPosition();
 
-        u32 inclusiveSize = reader.read<u32>();
+        u32 const inclusiveSize = reader.read<u32>();
         corn.node = parseNode(reader);
         corn.node.type = Node::NodeType::CornEmitter; // Set node type to CornEmitter
         corn.node.nodeFamilyId = static_cast<u32>(
@@ -1526,12 +1527,12 @@ void Parser::Impl::parseCORN(BinaryReader& reader, u32 size, Model& mdx) {
         corn.path = reader.readString(260);
         corn.animVisibilityGuide = reader.readString(260);
 
-        u32 endPos = startPos + inclusiveSize;
+        u32 const endPos = startPos + inclusiveSize;
         while (reader.getPosition() < endPos) {
-            u32 trackTag = reader.read<u32>();
-            u32 trackCount = reader.read<u32>();
-            u32 interpolationType = reader.read<u32>();
-            u32 globalSequenceId = reader.read<u32>();
+            u32 const trackTag = reader.read<u32>();
+            u32 const trackCount = reader.read<u32>();
+            u32 const interpolationType = reader.read<u32>();
+            u32 const globalSequenceId = reader.read<u32>();
 
             switch (trackTag) {
             case KPPL_TAG: // lifespan

@@ -134,7 +134,7 @@ void serializeHeader(std::vector<u8>& archive, const MpqHeader& hdr) {
 std::vector<u8> writeArchive(const MpqHeader& header, const std::vector<WriteEntry>& entries,
                              u32 hashTableCapacity, interfaces::WorkerPool* pool) {
     // Ensure capacity is power of 2.
-    u32 htCapacity = nextPowerOf2(hashTableCapacity);
+    u32 const htCapacity = nextPowerOf2(hashTableCapacity);
 
     // Build the archive in memory.
     std::vector<u8> archive;
@@ -148,7 +148,7 @@ std::vector<u8> writeArchive(const MpqHeader& header, const std::vector<WriteEnt
         hdr.headerSize = 32;
     }
 
-    size_t headerSize = hdr.headerSize;
+    size_t const headerSize = hdr.headerSize;
     archive.resize(headerSize, 0);
 
     // Step 2: Write file data.
@@ -171,7 +171,7 @@ std::vector<u8> writeArchive(const MpqHeader& header, const std::vector<WriteEnt
 
     // --- Helper: append a single entry (raw-copy or pre-encoded) to the archive ---
     auto appendEntry = [&](const WriteEntry& entry, EncodedFile* encoded) {
-        u32 fileOffset = static_cast<u32>(archive.size());
+        u32 const fileOffset = static_cast<u32>(archive.size());
         BlockEntry be;
 
         if (!entry.rawSectors.empty()) {
@@ -187,7 +187,7 @@ std::vector<u8> writeArchive(const MpqHeader& header, const std::vector<WriteEnt
             be = makeBlockEntry(fileOffset, *encoded, static_cast<u32>(entry.rawData.size()));
         }
 
-        u32 blockIndex = blockTable.append(be);
+        u32 const blockIndex = blockTable.append(be);
         (void)hashTable.insert(entry.filename, entry.locale, blockIndex);
         listfileNames.push_back(entry.filename);
     };
@@ -241,8 +241,8 @@ std::vector<u8> writeArchive(const MpqHeader& header, const std::vector<WriteEnt
 
     // --- Helper: encode and append a special file (listfile, attributes) ---
     auto appendSpecialFile = [&](const std::string& name, std::vector<u8>& rawData) {
-        u32 uncompressedSize = static_cast<u32>(rawData.size());
-        u32 fileOffset = static_cast<u32>(archive.size());
+        u32 const uncompressedSize = static_cast<u32>(rawData.size());
+        u32 const fileOffset = static_cast<u32>(archive.size());
 
         EncodeOptions opts;
         opts.compression = CompressionFlag::kZlib;
@@ -257,8 +257,8 @@ std::vector<u8> writeArchive(const MpqHeader& header, const std::vector<WriteEnt
         }
 
         archive.insert(archive.end(), encoded.data.begin(), encoded.data.end());
-        BlockEntry be = makeBlockEntry(fileOffset, encoded, uncompressedSize);
-        u32 blockIndex = blockTable.append(be);
+        BlockEntry const be = makeBlockEntry(fileOffset, encoded, uncompressedSize);
+        u32 const blockIndex = blockTable.append(be);
         (void)hashTable.insert(name, 0, blockIndex);
     };
 
@@ -276,12 +276,12 @@ std::vector<u8> writeArchive(const MpqHeader& header, const std::vector<WriteEnt
     appendSpecialFile("(attributes)", attrData);
 
     // Step 5: Write hash table.
-    u32 hashTableOffset = static_cast<u32>(archive.size());
+    u32 const hashTableOffset = static_cast<u32>(archive.size());
     auto hashTableData = hashTable.serialize();
     archive.insert(archive.end(), hashTableData.begin(), hashTableData.end());
 
     // Step 6: Write block table.
-    u32 blockTableOffset = static_cast<u32>(archive.size());
+    u32 const blockTableOffset = static_cast<u32>(archive.size());
     auto blockTableData = blockTable.serialize();
     archive.insert(archive.end(), blockTableData.begin(), blockTableData.end());
 

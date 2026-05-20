@@ -65,7 +65,7 @@ static u64 mixBits(u64 h) {
 /// Hash a path string for use as FlatHashMap key.
 /// Guaranteed non-zero (FlatHashMap uses 0 as empty sentinel).
 static u64 pathHash64(const std::string& s) {
-    u64 h = mixBits(fnv1a64(s.data(), s.size()));
+    u64 const h = mixBits(fnv1a64(s.data(), s.size()));
     return h == 0 ? 1 : h;
 }
 
@@ -227,8 +227,8 @@ static bool tryEmitSubContainer(TraversalCtx& ctx,
 
     if (vfsPos + spanEntrySize > hdr.vfsTableSize) return false;
 
-    u32 cftOffset = readBEVar(vfsBase + vfsPos + 8, ctx.cftOffsSize);
-    u32 cftEntrySize = hasCKey ? (hdr.eKeySize * 2) : hdr.eKeySize;
+    u32 const cftOffset = readBEVar(vfsBase + vfsPos + 8, ctx.cftOffsSize);
+    u32 const cftEntrySize = hasCKey ? (hdr.eKeySize * 2) : hdr.eKeySize;
     if (cftOffset + cftEntrySize > hdr.cftTableSize) return false;
 
     const u8* eKeyPtr = cftBase + cftOffset;
@@ -258,7 +258,7 @@ static bool tryEmitSubContainer(TraversalCtx& ctx,
     if (!subData.empty()) {
         TvfsHeader subHdr;
         if (parseHeader(subData, subHdr)) {
-            u32 subCftOffsSize = getCftOffsSize(subHdr.cftTableSize);
+            u32 const subCftOffsSize = getCftOffsSize(subHdr.cftTableSize);
             TraversalCtx subCtx{subData, subHdr, subCftOffsSize, ctx.entries,
                                 ctx.resolver, ctx.vfsEKeys};
             parsePathTable(subCtx, containerPath);
@@ -276,12 +276,12 @@ static void processFileEntry(TraversalCtx& ctx, const std::string& path, u32 vfs
     if (vfsOffset >= hdr.vfsTableSize) return;
 
     // VFS entry: SpanCount(u8), then per span: FileOffset(u32 BE) + SpanSize(u32 BE) + CftOffset(var BE).
-    u8 spanCount = vfsBase[vfsOffset];
+    u8 const spanCount = vfsBase[vfsOffset];
     if (spanCount == 0 || spanCount > 224) return;
 
     size_t vfsPos = vfsOffset + 1;
-    u32 spanEntrySize = 4 + 4 + ctx.cftOffsSize;
-    bool hasCKey = (hdr.flags & kTvfsFlagIncludeCKey) != 0;
+    u32 const spanEntrySize = 4 + 4 + ctx.cftOffsSize;
+    bool const hasCKey = (hdr.flags & kTvfsFlagIncludeCKey) != 0;
 
     if (spanCount == 1 && tryEmitSubContainer(ctx, path, vfsPos, spanEntrySize, hasCKey))
         return;
@@ -289,11 +289,11 @@ static void processFileEntry(TraversalCtx& ctx, const std::string& path, u32 vfs
     for (u8 s = 0; s < spanCount; ++s) {
         if (vfsPos + spanEntrySize > hdr.vfsTableSize) return;
 
-        u32 cftOffset = readBEVar(vfsBase + vfsPos + 8, ctx.cftOffsSize);
+        u32 const cftOffset = readBEVar(vfsBase + vfsPos + 8, ctx.cftOffsSize);
         vfsPos += spanEntrySize;
 
         // CFT entry: EKey(eKeySize) [+ CKey(eKeySize) if IncludeCKey].
-        u32 cftEntrySize = hasCKey ? (hdr.eKeySize * 2) : hdr.eKeySize;
+        u32 const cftEntrySize = hasCKey ? (hdr.eKeySize * 2) : hdr.eKeySize;
         if (cftOffset + cftEntrySize > hdr.cftTableSize) continue;
 
         RootEntry entry;
@@ -345,7 +345,7 @@ static void traversePathTree(TraversalCtx& ctx, const u8* node, const u8* nodeEn
         // already normalized for lookup (avoids a post-pass over all entries).
         std::string name;
         if (node < nodeEnd && *node != kTvfsNodeValueMarker) {
-            u8 nameLen = *node++;
+            u8 const nameLen = *node++;
             if (node + nameLen > nodeEnd) return;
             if (nameLen > 0) {
                 name.assign(reinterpret_cast<const char*>(node), nameLen);
@@ -390,9 +390,9 @@ static void traversePathTree(TraversalCtx& ctx, const u8* node, const u8* nodeEn
         if (hasNodeValue) {
             if (nodeValue & kTvfsFolderNodeBit) {
                 // Folder node: recurse into children.
-                u32 folderDataLen = nodeValue & ~kTvfsFolderNodeBit;
+                u32 const folderDataLen = nodeValue & ~kTvfsFolderNodeBit;
                 if (folderDataLen < 4) break;
-                u32 innerLen = folderDataLen - 4;
+                u32 const innerLen = folderDataLen - 4;
                 if (node + innerLen > nodeEnd) break;
 
                 if (ctx.pendingSubtrees) {
@@ -436,11 +436,11 @@ static void parsePathTable(TraversalCtx& ctx, const std::string& pathPrefix) {
     // Most TVFS blobs start with an anonymous root folder: 0xFF + folder nodeValue.
     if (node < nodeEnd && *node == kTvfsNodeValueMarker) {
         if (node + 5 > nodeEnd) return;
-        u32 nodeValue = readBE32(node + 1);
+        u32 const nodeValue = readBE32(node + 1);
         if (nodeValue & kTvfsFolderNodeBit) {
-            u32 folderDataLen = nodeValue & ~kTvfsFolderNodeBit;
+            u32 const folderDataLen = nodeValue & ~kTvfsFolderNodeBit;
             if (folderDataLen < 4) return;
-            u32 innerLen = folderDataLen - 4;
+            u32 const innerLen = folderDataLen - 4;
             const u8* childStart = node + 5; // past 0xFF + 4-byte value
             const u8* childEnd = childStart + innerLen;
             if (childEnd > nodeEnd) return;
@@ -488,7 +488,7 @@ struct ParallelTraverseState {
 
     void emit(std::vector<RootEntry>&& local) {
         if (local.empty()) return;
-        std::lock_guard<std::mutex> lk(bufMutex);
+        std::lock_guard<std::mutex> const lk(bufMutex);
         buffers.push_back(std::move(local));
     }
 };
@@ -510,7 +510,7 @@ static void traverseSmallManifestJob(ParallelTraverseState& st, const SubManifes
     if (!subData.empty()) {
         TvfsHeader subHdr;
         if (parseHeader(subData, subHdr)) {
-            u32 subCftOffsSize = getCftOffsSize(subHdr.cftTableSize);
+            u32 const subCftOffsSize = getCftOffsSize(subHdr.cftTableSize);
             TraversalCtx ctx{subData, subHdr, subCftOffsSize, local,
                              st.resolver, st.vfsEKeys};
             parsePathTable(ctx, job.containerPath);
@@ -545,7 +545,7 @@ bool traverseTvfsBlob(std::span<const u8> data,
     if (hdr.eKeySize > 0)
         outEntries.reserve(hdr.cftTableSize / hdr.eKeySize);
 
-    u32 cftOffsSize = getCftOffsSize(hdr.cftTableSize);
+    u32 const cftOffsSize = getCftOffsSize(hdr.cftTableSize);
 
     // No sub-container resolution, or no pool — single-threaded recursion.
     if (!resolver || !vfsEKeys || !pool) {
@@ -595,8 +595,7 @@ bool traverseTvfsBlob(std::span<const u8> data,
             if (blob.empty()) continue;
             TvfsHeader subHdr;
             if (!parseHeader(blob, subHdr)) continue;
-            u32 approxEntries = subHdr.eKeySize
-                ? subHdr.cftTableSize / subHdr.eKeySize : 0;
+            u32 const approxEntries = subHdr.eKeySize ? subHdr.cftTableSize / subHdr.eKeySize : 0;
             if (approxEntries < kBigBlobMinEntries) {
                 smallManifests.push_back(std::move(ref));
                 continue;
@@ -610,7 +609,7 @@ bool traverseTvfsBlob(std::span<const u8> data,
         // Split big folders; accept small ones as jobs.
         while (wCursor < worklist.size()) {
             SubtreeJob job = std::move(worklist[wCursor++]);
-            size_t bytes = static_cast<size_t>(job.nodeEnd - job.node);
+            size_t const bytes = static_cast<size_t>(job.nodeEnd - job.node);
             if (bytes <= kSubtreeSplitBytes || job.depth >= kMaxSplitDepth) {
                 readyJobs.push_back(std::move(job));
                 continue;
@@ -707,14 +706,14 @@ std::vector<RootEntry> TvfsRoot::takeEntries() {
 }
 
 void TvfsRoot::merge(const TvfsRoot& other) {
-    size_t base = m_entries.size();
+    size_t const base = m_entries.size();
     m_entries.insert(m_entries.end(), other.m_entries.begin(), other.m_entries.end());
     m_chainNext.resize(m_entries.size(), kNoChain);
     for (size_t i = base; i < m_entries.size(); ++i) {
         if (m_entries[i].path.empty()) continue;
         auto normalized = normalizeCascPath(m_entries[i].path);
         m_entries[i].path = normalized;
-        u64 h = pathHash64(normalized);
+        u64 const h = pathHash64(normalized);
         auto* head = m_byPathMap.find(h);
         if (head) {
             m_chainNext[i] = *head;
@@ -759,13 +758,13 @@ void TvfsRoot::enumerateUnder(const std::string& normalizedPrefix,
                                std::function<bool(const RootEntry&)> callback) const {
     if (!callback) return;
     ensureTrie();
-    u32 startNode = trieWalkTo(m_trie, normalizedPrefix);
+    u32 const startNode = trieWalkTo(m_trie, normalizedPrefix);
     if (startNode == UINT32_MAX) return;
     trieDfs(m_trie, startNode, m_entries, callback);
 }
 
 void TvfsRoot::buildIndices(interfaces::WorkerPool* pool, bool preNormalized) {
-    size_t n = m_entries.size();
+    size_t const n = m_entries.size();
     m_chainNext.assign(n, kNoChain);
     m_byPathMap.reserve(n);
 
@@ -778,7 +777,7 @@ void TvfsRoot::buildIndices(interfaces::WorkerPool* pool, bool preNormalized) {
 
     for (size_t i = 0; i < n; ++i) {
         if (m_entries[i].path.empty()) continue;
-        u64 h = pathHash64(m_entries[i].path);
+        u64 const h = pathHash64(m_entries[i].path);
         auto* head = m_byPathMap.find(h);
         if (head) {
             m_chainNext[i] = *head;
@@ -793,7 +792,7 @@ void TvfsRoot::buildIndices(interfaces::WorkerPool* pool, bool preNormalized) {
 
 void TvfsRoot::ensureTrie() const {
     if (!m_trie.empty()) return;
-    size_t n = m_entries.size();
+    size_t const n = m_entries.size();
     m_trie.reserve(n / 4);
     m_trie.emplace_back();
     for (size_t i = 0; i < n; ++i) {

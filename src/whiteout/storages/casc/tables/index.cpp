@@ -135,7 +135,7 @@ static void parseIdxFile(const u8* data, size_t fileSize,
     if (!parseIdxHeader(data, fileSize, hdr))
         return;
 
-    size_t eSz = entrySize(hdr);
+    size_t const eSz = entrySize(hdr);
     if (eSz == 0 || eSz > 64)
         return;
 
@@ -151,14 +151,14 @@ static void parseIdxFile(const u8* data, size_t fileSize,
     u32 segmentSize = 0;
     std::memcpy(&segmentSize, data + 32, 4);
 
-    size_t entryDataStart = kIdxEntryDataOffset;
+    size_t const entryDataStart = kIdxEntryDataOffset;
     if (entryDataStart + segmentSize > fileSize)
         segmentSize = u32(fileSize - entryDataStart);
 
-    size_t numEntries = segmentSize / eSz;
+    size_t const numEntries = segmentSize / eSz;
     entries.reserve(entries.size() + numEntries);
 
-    u32 offsetMask = (1u << hdr.offsetHighBits) - 1;
+    u32 const offsetMask = (1u << hdr.offsetHighBits) - 1;
 
     for (size_t i = 0; i < numEntries; ++i) {
         const u8* entry = data + entryDataStart + i * eSz;
@@ -206,7 +206,7 @@ u64 IndexTable::eKeyHash(std::span<const u8> eKey) {
     // ensures byte 9 participates in the hash, preventing collisions between
     // entries that differ only in the last byte.
     u64 h = 0;
-    size_t len = std::min(eKey.size(), size_t(8));
+    size_t const len = std::min(eKey.size(), size_t(8));
     std::memcpy(&h, eKey.data(), len);
     for (size_t i = 8; i < eKey.size(); ++i)
         h ^= static_cast<u64>(eKey[i]) << ((i - 8) * 8);
@@ -227,7 +227,7 @@ discoverIdxFilesByBucket(const std::string& dataDir) {
     // Try the known primary index directories first (matching CascLib).
     std::string primaryDir;
     for (auto& name : {"data", "darch"}) {
-        std::string candidate = dataDir + "/" + name;
+        std::string const candidate = dataDir + "/" + name;
         if (fs::exists(candidate) && fs::is_directory(candidate)) {
             primaryDir = candidate;
             break;
@@ -263,7 +263,7 @@ discoverIdxFilesByBucket(const std::string& dataDir) {
     auto parseBucket = [](const std::string& stem) -> u8 {
         u8 bucket = 0;
         for (int i = 0; i < 2 && i < int(stem.size()); ++i) {
-            char c = stem[i];
+            char const c = stem[i];
             u8 nibble = 0;
             if (c >= '0' && c <= '9') nibble = u8(c - '0');
             else if (c >= 'a' && c <= 'f') nibble = u8(c - 'a' + 10);
@@ -279,7 +279,7 @@ discoverIdxFilesByBucket(const std::string& dataDir) {
     for (auto& p : idxPaths) {
         auto stem = p.stem().string();
         if (stem.size() < 4) continue;
-        u8 bucket = parseBucket(stem);
+        u8 const bucket = parseBucket(stem);
         auto& slot = bestByDirBucket[p.parent_path().string()][bucket];
         if (slot.empty() || stem > slot.stem().string())
             slot = p;
@@ -323,7 +323,7 @@ IndexTable IndexTable::load(const std::string& dataDir,
     // Try the known primary index directories first (matching CascLib).
     std::string primaryDir;
     for (auto& name : {"data", "darch"}) {
-        std::string candidate = dataDir + "/" + name;
+        std::string const candidate = dataDir + "/" + name;
         if (fs::exists(candidate) && fs::is_directory(candidate)) {
             primaryDir = candidate;
             break;
@@ -363,7 +363,7 @@ IndexTable IndexTable::load(const std::string& dataDir,
     auto parseBucket = [](const std::string& stem) -> u8 {
         u8 bucket = 0;
         for (int i = 0; i < 2; ++i) {
-            char c = stem[i];
+            char const c = stem[i];
             u8 nibble = 0;
             if (c >= '0' && c <= '9') nibble = u8(c - '0');
             else if (c >= 'a' && c <= 'f') nibble = u8(c - 'a' + 10);
@@ -388,7 +388,7 @@ IndexTable IndexTable::load(const std::string& dataDir,
         std::unordered_map<u8, std::filesystem::path> bestPerBucket;
         for (auto& p : paths) {
             auto stem = p.stem().string();
-            u8 bucket = parseBucket(stem);
+            u8 const bucket = parseBucket(stem);
             auto it = bestPerBucket.find(bucket);
             if (it == bestPerBucket.end() || stem > it->second.stem().string())
                 bestPerBucket[bucket] = p;
@@ -469,7 +469,7 @@ static bool parseArchiveIndexFooter(const u8* data, size_t fileSize,
     const u8* f = data + fileSize - kArcIdxFooterSize8;
 
     // Validate: Version == 1, Reserved == {0, 0}, FooterHashBytes == 8.
-    u8 version = f[16];
+    u8 const version = f[16];
     if (version != 1)
         return false;
     if (f[17] != 0 || f[18] != 0)
@@ -523,20 +523,20 @@ static void parseArchiveIndexFile(const u8* data, size_t fileSize,
 
     // File layout: contiguous pages of pageLength bytes, then page hashes,
     // then footer. Page count = (fileSize - footerLength) / (pageLength + 16).
-    size_t dataSize = fileSize - footer.footerLength;
-    size_t pageCount = dataSize / (footer.pageLength + 16);  // 16 = MD5 hash per page
-    size_t entryDataEnd = pageCount * footer.pageLength;
+    size_t const dataSize = fileSize - footer.footerLength;
+    size_t const pageCount = dataSize / (footer.pageLength + 16); // 16 = MD5 hash per page
+    size_t const entryDataEnd = pageCount * footer.pageLength;
 
     entries.reserve(entries.size() + footer.elementCount);
 
     u32 remaining = footer.elementCount;
     for (size_t page = 0; page < pageCount && remaining > 0; ++page) {
-        size_t pageStart = page * footer.pageLength;
-        size_t itemsOnPage = (footer.pageLength) / footer.itemLength;
-        size_t count = std::min<size_t>(itemsOnPage, remaining);
+        size_t const pageStart = page * footer.pageLength;
+        size_t const itemsOnPage = (footer.pageLength) / footer.itemLength;
+        size_t const count = std::min<size_t>(itemsOnPage, remaining);
 
         for (size_t i = 0; i < count; ++i) {
-            size_t entryOffset = pageStart + i * footer.itemLength;
+            size_t const entryOffset = pageStart + i * footer.itemLength;
             if (entryOffset + footer.itemLength > entryDataEnd)
                 break;
 
@@ -559,8 +559,8 @@ static void parseArchiveIndexFile(const u8* data, size_t fileSize,
             ie.encodedSize = u32(readBEVar(entry + footer.eKeyLength, footer.sizeBytes));
 
             // Archive offset (offsetBytes, BE) after size.
-            u64 offset = readBEVar(entry + footer.eKeyLength + footer.sizeBytes,
-                                    footer.offsetBytes);
+            u64 const offset =
+                readBEVar(entry + footer.eKeyLength + footer.sizeBytes, footer.offsetBytes);
             ie.archiveOffset = u32(offset);
             ie.archiveIndex = archiveIndex;
             ie.directBLTE = true;
@@ -608,7 +608,7 @@ void IndexTable::loadArchiveIndices(const std::string& dataDir,
         static constexpr char hex[] = "0123456789abcdef";
         std::string s;
         s.reserve(32);
-        for (u8 b : key) {
+        for (u8 const b : key) {
             s += hex[b >> 4];
             s += hex[b & 0xF];
         }
@@ -623,8 +623,8 @@ void IndexTable::loadArchiveIndices(const std::string& dataDir,
     std::vector<IndexFileJob> jobs;
 
     for (size_t i = 0; i < archiveEKeys.size(); ++i) {
-        std::string hexName = toHex(archiveEKeys[i]);
-        fs::path indexPath = fs::path(indicesDir) / (hexName + ".index");
+        std::string const hexName = toHex(archiveEKeys[i]);
+        fs::path const indexPath = fs::path(indicesDir) / (hexName + ".index");
         if (fs::exists(indexPath))
             jobs.push_back({indexPath, u32(i)});
     }
@@ -632,7 +632,7 @@ void IndexTable::loadArchiveIndices(const std::string& dataDir,
     if (jobs.empty())
         return;
 
-    [[maybe_unused]] size_t prevEntries = m_entries.size();
+    [[maybe_unused]] size_t const prevEntries = m_entries.size();
 
     if (pool && jobs.size() > 1) {
         // Parallel parse.
@@ -693,7 +693,7 @@ const IndexEntry* IndexTable::find(std::span<const u8> eKeyPrefix) const {
 
     if (m_lazyBuckets) {
         auto checkLazyBuckets = [&]() -> const IndexEntry* {
-            std::shared_lock<std::shared_mutex> lk(m_lazyBuckets->mutex);
+            std::shared_lock<std::shared_mutex> const lk(m_lazyBuckets->mutex);
             auto it = m_lazyBuckets->entries.find(h);
             if (it != m_lazyBuckets->entries.end() &&
                 std::memcmp(it->second.eKey.data(), eKeyPrefix.data(), cmpLen) == 0)
@@ -703,7 +703,7 @@ const IndexEntry* IndexTable::find(std::span<const u8> eKeyPrefix) const {
         if (auto* hit = checkLazyBuckets()) return hit;
 
         if (!eKeyPrefix.empty()) {
-            u8 firstBucket = u8((eKeyPrefix[0] >> 4) & 0x0F);
+            u8 const firstBucket = u8((eKeyPrefix[0] >> 4) & 0x0F);
             loadBucket(firstBucket);
             if (auto* hit = checkLazyBuckets()) return hit;
 
@@ -720,7 +720,7 @@ const IndexEntry* IndexTable::find(std::span<const u8> eKeyPrefix) const {
         return nullptr;
 
     {
-        std::shared_lock<std::shared_mutex> lk(m_lazyArchives->mutex);
+        std::shared_lock<std::shared_mutex> const lk(m_lazyArchives->mutex);
         auto it = m_lazyArchives->entries.find(h);
         if (it != m_lazyArchives->entries.end() &&
             std::memcmp(it->second.eKey.data(), eKeyPrefix.data(), cmpLen) == 0) {
@@ -732,7 +732,7 @@ const IndexEntry* IndexTable::find(std::span<const u8> eKeyPrefix) const {
     for (size_t i = 0; i < N; ++i) {
         if (m_lazyArchives->archivePaths[i].empty()) continue;
         loadArchive(u32(i));
-        std::shared_lock<std::shared_mutex> lk(m_lazyArchives->mutex);
+        std::shared_lock<std::shared_mutex> const lk(m_lazyArchives->mutex);
         auto it = m_lazyArchives->entries.find(h);
         if (it != m_lazyArchives->entries.end() &&
             std::memcmp(it->second.eKey.data(), eKeyPrefix.data(), cmpLen) == 0) {
@@ -745,11 +745,11 @@ const IndexEntry* IndexTable::find(std::span<const u8> eKeyPrefix) const {
 size_t IndexTable::entryCount() const {
     size_t n = m_entries.size();
     if (m_lazyArchives) {
-        std::shared_lock<std::shared_mutex> lk(m_lazyArchives->mutex);
+        std::shared_lock<std::shared_mutex> const lk(m_lazyArchives->mutex);
         n += m_lazyArchives->entries.size();
     }
     if (m_lazyBuckets) {
-        std::shared_lock<std::shared_mutex> lk(m_lazyBuckets->mutex);
+        std::shared_lock<std::shared_mutex> const lk(m_lazyBuckets->mutex);
         n += m_lazyBuckets->entries.size();
     }
     return n;
@@ -796,7 +796,10 @@ ArchiveDiscovery discoverArchiveIndices(
         static constexpr char hex[] = "0123456789abcdef";
         std::string s;
         s.reserve(32);
-        for (u8 b : key) { s += hex[b >> 4]; s += hex[b & 0xF]; }
+        for (u8 const b : key) {
+            s += hex[b >> 4];
+            s += hex[b & 0xF];
+        }
         return s;
     };
 
@@ -841,9 +844,9 @@ void IndexTable::loadArchive(u32 archiveIdx) const {
         parseArchiveIndexFile(mf->ptr(), mf->size(), archiveIdx, entries);
         if (entries.empty()) return;
 
-        std::unique_lock<std::shared_mutex> lk(m_lazyArchives->mutex);
+        std::unique_lock<std::shared_mutex> const lk(m_lazyArchives->mutex);
         for (auto& e : entries) {
-            u64 h = eKeyHash(std::span(e.eKey.data(), 9));
+            u64 const h = eKeyHash(std::span(e.eKey.data(), 9));
             m_lazyArchives->entries.emplace(h, e);
         }
     });
@@ -887,9 +890,9 @@ void IndexTable::loadBucket(u8 bucket) const {
             parseIdxFileIntoVector(path, entries);
         if (entries.empty()) return;
 
-        std::unique_lock<std::shared_mutex> lk(m_lazyBuckets->mutex);
+        std::unique_lock<std::shared_mutex> const lk(m_lazyBuckets->mutex);
         for (auto& e : entries) {
-            u64 h = eKeyHash(std::span(e.eKey.data(), 9));
+            u64 const h = eKeyHash(std::span(e.eKey.data(), 9));
             m_lazyBuckets->entries.emplace(h, e);
         }
     });
@@ -913,7 +916,7 @@ bool IndexTable::isValid() const {
 // ============================================================================
 
 void IndexTable::insert(const IndexEntry& entry) {
-    u64 h = eKeyHash(std::span(entry.eKey.data(), 9));
+    u64 const h = eKeyHash(std::span(entry.eKey.data(), 9));
     m_entries.insertOrAssign(h, entry);
 }
 
@@ -931,17 +934,17 @@ std::vector<std::pair<std::string, std::vector<u8>>> IndexTable::serialize() con
     std::vector<std::vector<const IndexEntry*>> buckets(kIdxNumBuckets);
 
     auto add = [&buckets](const IndexEntry& entry) {
-        u8 bucket = (entry.eKey[0] >> 4) & 0x0F;
+        u8 const bucket = (entry.eKey[0] >> 4) & 0x0F;
         buckets[bucket].push_back(&entry);
     };
 
     m_entries.forEach([&add](u64 /*key*/, const IndexEntry& entry) { add(entry); });
     if (m_lazyBuckets) {
-        std::shared_lock<std::shared_mutex> lk(m_lazyBuckets->mutex);
+        std::shared_lock<std::shared_mutex> const lk(m_lazyBuckets->mutex);
         for (auto& [_, entry] : m_lazyBuckets->entries) add(entry);
     }
     if (m_lazyArchives) {
-        std::shared_lock<std::shared_mutex> lk(m_lazyArchives->mutex);
+        std::shared_lock<std::shared_mutex> const lk(m_lazyArchives->mutex);
         for (auto& [_, entry] : m_lazyArchives->entries) add(entry);
     }
 
@@ -961,8 +964,8 @@ std::vector<std::pair<std::string, std::vector<u8>>> IndexTable::serialize() con
         constexpr u8 kHighBits = kIdxDefaultOffsetHighBits;
         constexpr size_t kEntrySize = kEKeyLen + kOffsetLen + kSizeLen;
 
-        size_t numEntries = buckets[b].size();
-        u32 dataSize = u32(numEntries * kEntrySize);
+        size_t const numEntries = buckets[b].size();
+        u32 const dataSize = u32(numEntries * kEntrySize);
 
         // CascLib's CaptureGuardedBlock2 rejects BlockSize=0.  For empty
         // buckets we write BlockSize=1 so the guarded-block is accepted, but
@@ -973,8 +976,8 @@ std::vector<std::pair<std::string, std::vector<u8>>> IndexTable::serialize() con
         // Build idx file: header area + entry data + padding to 4096
         // Layout: [headerDataSize:4][headerHash:4][headerFields:16][padding:8]
         //         [segmentSize:4][segmentHash:4][entryData...]
-        size_t entryDataStart = kIdxEntryDataOffset;
-        size_t fileSize = entryDataStart + dataSize;
+        size_t const entryDataStart = kIdxEntryDataOffset;
+        size_t const fileSize = entryDataStart + dataSize;
         // Pad to 4096-byte boundary, plus 16 bytes for footer hash.
         size_t padded = ((fileSize + 4095) / 4096) * 4096;
         if (padded < fileSize + 16)
@@ -1006,7 +1009,7 @@ std::vector<std::pair<std::string, std::vector<u8>>> IndexTable::serialize() con
 
             std::memcpy(dst, e.eKey.data(), kEKeyLen);
 
-            u64 offsetField = (u64(e.archiveIndex) << kHighBits) | u64(e.archiveOffset);
+            u64 const offsetField = (u64(e.archiveIndex) << kHighBits) | u64(e.archiveOffset);
             // Write storage offset in big-endian (parser reads BE byte-by-byte).
             for (int j = kOffsetLen - 1; j >= 0; --j) {
                 dst[kEKeyLen + (kOffsetLen - 1 - j)] = u8(offsetField >> (j * 8));

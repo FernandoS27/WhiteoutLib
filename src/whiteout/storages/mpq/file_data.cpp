@@ -33,7 +33,7 @@ std::string getBaseName(const std::string& path) {
 } // anonymous namespace
 
 u32 deriveFileKey(const std::string& filename, const BlockEntry& block) {
-    std::string baseName = getBaseName(filename);
+    std::string const baseName = getBaseName(filename);
     u32 key = hashString(baseName, HashType::FileKey);
     if (block.hasFixKey()) {
         key = (key + block.fileOffset) ^ block.uncompressedSize;
@@ -59,7 +59,7 @@ std::vector<u8> extractFileData(std::span<const u8> archiveData, size_t archiveO
     if (block.uncompressedSize == 0)
         return {};
 
-    u64 dataStart = archiveOffset + block.fileOffset;
+    u64 const dataStart = archiveOffset + block.fileOffset;
     if (dataStart + block.compressedSize > archiveData.size()) {
         setErr("data out of bounds");
         return {};
@@ -73,7 +73,7 @@ std::vector<u8> extractFileData(std::span<const u8> archiveData, size_t archiveO
 
         // Decrypt if needed.
         if (block.isEncrypted() && fileKey != 0) {
-            size_t alignedCount = buf.size() / 4;
+            size_t const alignedCount = buf.size() / 4;
             if (alignedCount > 0) {
                 decryptBlock(reinterpret_cast<u32*>(buf.data()), alignedCount, fileKey);
             }
@@ -98,14 +98,14 @@ std::vector<u8> extractFileData(std::span<const u8> archiveData, size_t archiveO
 
     // -- Multi-sector file --
     u32 numSectors = (block.uncompressedSize + sectorSize - 1) / sectorSize;
-    bool hasCrc = block.hasSectorCrc();
+    bool const hasCrc = block.hasSectorCrc();
     // When sector CRC is present the offset table has one extra entry pointing
     // to the CRC block at the end of the file data, making it numSectors + 2
     // entries total instead of numSectors + 1.
-    u32 numOffsetEntries = numSectors + 1 + (hasCrc ? 1u : 0u);
+    u32 const numOffsetEntries = numSectors + 1 + (hasCrc ? 1u : 0u);
 
     // Read and decrypt the sector offset table.
-    u32 offsetTableSize = numOffsetEntries * sizeof(u32);
+    u32 const offsetTableSize = numOffsetEntries * sizeof(u32);
     if (fileSpan.size() < offsetTableSize) {
         setErr("sector offset table truncated: have=" + std::to_string(fileSpan.size()) +
                " need=" + std::to_string(offsetTableSize));
@@ -129,8 +129,8 @@ std::vector<u8> extractFileData(std::span<const u8> archiveData, size_t archiveO
 
     // Validate all sector offsets up-front (serial — required before parallel submission).
     for (u32 i = 0; i < numSectors; ++i) {
-        u32 sectorStart = sectorOffsets[i];
-        u32 sectorEnd = sectorOffsets[i + 1];
+        u32 const sectorStart = sectorOffsets[i];
+        u32 const sectorEnd = sectorOffsets[i + 1];
         if (sectorEnd < sectorStart || sectorEnd > block.compressedSize) {
             setErr("sector " + std::to_string(i) + " bounds invalid: start=" +
                    std::to_string(sectorStart) + " end=" + std::to_string(sectorEnd) +
@@ -143,10 +143,10 @@ std::vector<u8> extractFileData(std::span<const u8> archiveData, size_t archiveO
     auto decodeSector = [&](u32 sectorIdx, u32 sectorStart, u32 sectorEnd,
                             u32 expectedUncompressed) -> std::pair<std::vector<u8>, std::string> {
         std::vector<u8> sectorBuf(fileSpan.data() + sectorStart, fileSpan.data() + sectorEnd);
-        u32 sectorLen = sectorEnd - sectorStart;
+        u32 const sectorLen = sectorEnd - sectorStart;
 
         if (block.isEncrypted() && fileKey != 0) {
-            size_t alignedCount = sectorBuf.size() / 4;
+            size_t const alignedCount = sectorBuf.size() / 4;
             if (alignedCount > 0) {
                 decryptBlock(reinterpret_cast<u32*>(sectorBuf.data()), alignedCount,
                              fileKey + sectorIdx);
@@ -286,7 +286,7 @@ EncodedFile encodeFileData(std::span<const u8> rawData, const EncodeOptions& opt
             fileKey =
                 deriveFileKey(opts.filename, BlockEntry{0, static_cast<u32>(encoded.size()),
                                                         static_cast<u32>(rawData.size()), flags});
-            size_t alignedCount = encoded.size() / 4;
+            size_t const alignedCount = encoded.size() / 4;
             if (alignedCount > 0) {
                 encryptBlock(reinterpret_cast<u32*>(encoded.data()), alignedCount, fileKey);
             }
@@ -300,15 +300,15 @@ EncodedFile encodeFileData(std::span<const u8> rawData, const EncodeOptions& opt
 
     // -- Multi-sector mode --
     u32 sectorSize = opts.sectorSize;
-    u32 numSectors = (static_cast<u32>(rawData.size()) + sectorSize - 1) / sectorSize;
+    u32 const numSectors = (static_cast<u32>(rawData.size()) + sectorSize - 1) / sectorSize;
 
     std::vector<std::vector<u8>> sectorData(numSectors);
     bool anyCompressed = false;
 
     // --- Sector compress: compress a single raw sector ---
     auto compressSector = [&](u32 i) -> bool {
-        size_t srcStart = static_cast<size_t>(i) * sectorSize;
-        size_t srcLen = std::min<size_t>(sectorSize, rawData.size() - srcStart);
+        size_t const srcStart = static_cast<size_t>(i) * sectorSize;
+        size_t const srcLen = std::min<size_t>(sectorSize, rawData.size() - srcStart);
         auto sectorRaw = rawData.subspan(srcStart, srcLen);
 
         if (opts.compression != CompressionFlag::None) {
@@ -390,7 +390,7 @@ EncodedFile encodeFileData(std::span<const u8> rawData, const EncodeOptions& opt
     // Encrypt each sector.
     if (fileKey != 0) {
         for (u32 i = 0; i < numSectors; ++i) {
-            size_t alignedCount = sectorData[i].size() / 4;
+            size_t const alignedCount = sectorData[i].size() / 4;
             if (alignedCount > 0) {
                 encryptBlock(reinterpret_cast<u32*>(sectorData[i].data()), alignedCount,
                              fileKey + i);
@@ -514,9 +514,8 @@ BatchEncodeResult encodeBatch(std::span<const std::pair<std::span<const u8>, Enc
         compressGroup->signalOnComplete(state.sem.get(), compressDone);
 
         for (u32 j = 0; j < numSectors; ++j) {
-            size_t srcStart = static_cast<size_t>(j) * opts.sectorSize;
-            size_t srcLen =
-                std::min<size_t>(opts.sectorSize, rawData.size() - srcStart);
+            size_t const srcStart = static_cast<size_t>(j) * opts.sectorSize;
+            size_t const srcLen = std::min<size_t>(opts.sectorSize, rawData.size() - srcStart);
 
             interfaces::WorkerTask task;
             task.fn = [j, srcStart, srcLen, i, &items, &states, &failed, compressGroup]() {
@@ -597,7 +596,7 @@ BatchEncodeResult encodeBatch(std::span<const std::pair<std::span<const u8>, Enc
                 // Encrypt each sector.
                 if (fileKey != 0) {
                     for (u32 j = 0; j < numSectors; ++j) {
-                        size_t aligned = state.sectorResults[j].data.size() / 4;
+                        size_t const aligned = state.sectorResults[j].data.size() / 4;
                         if (aligned > 0)
                             encryptBlock(
                                 reinterpret_cast<u32*>(
@@ -703,7 +702,7 @@ std::vector<std::optional<std::vector<u8>>> extractBatch(
             continue;
         }
 
-        u64 dataStart = archiveOffset + block.fileOffset;
+        u64 const dataStart = archiveOffset + block.fileOffset;
         if (dataStart + block.compressedSize > archiveData.size()) {
             // Out of bounds — skip.
             state.completeDone = state.sem->next();
@@ -720,11 +719,11 @@ std::vector<std::optional<std::vector<u8>>> extractBatch(
             task.fn = [i, &files, &results, fileSpan]() {
                 try {
                     const auto& block = files[i].block;
-                    u32 fileKey = files[i].fileKey;
+                    u32 const fileKey = files[i].fileKey;
                     std::vector<u8> buf(fileSpan.begin(), fileSpan.end());
 
                     if (block.isEncrypted() && fileKey != 0) {
-                        size_t alignedCount = buf.size() / 4;
+                        size_t const alignedCount = buf.size() / 4;
                         if (alignedCount > 0)
                             decryptBlock(reinterpret_cast<u32*>(buf.data()), alignedCount, fileKey);
                     }
@@ -751,10 +750,10 @@ std::vector<std::optional<std::vector<u8>>> extractBatch(
         }
 
         // Multi-sector file: validate + decrypt sector offset table (serial).
-        u32 numSectors = (block.uncompressedSize + sectorSize - 1) / sectorSize;
-        bool hasCrc = block.hasSectorCrc();
-        u32 numOffsetEntries = numSectors + 1 + (hasCrc ? 1u : 0u);
-        u32 offsetTableSize = numOffsetEntries * sizeof(u32);
+        u32 const numSectors = (block.uncompressedSize + sectorSize - 1) / sectorSize;
+        bool const hasCrc = block.hasSectorCrc();
+        u32 const numOffsetEntries = numSectors + 1 + (hasCrc ? 1u : 0u);
+        u32 const offsetTableSize = numOffsetEntries * sizeof(u32);
 
         if (fileSpan.size() < offsetTableSize) {
             state.completeDone = state.sem->next();
@@ -809,19 +808,19 @@ std::vector<std::optional<std::vector<u8>>> extractBatch(
                     }
 
                     const auto& block = files[i].block;
-                    u32 fileKey = files[i].fileKey;
-                    u32 sectorStart = (*sectorOffsets)[j];
-                    u32 sectorEnd = (*sectorOffsets)[j + 1];
-                    u32 expectedSize = (j < numSectors - 1)
-                                           ? sectorSize
-                                           : (block.uncompressedSize - j * sectorSize);
+                    u32 const fileKey = files[i].fileKey;
+                    u32 const sectorStart = (*sectorOffsets)[j];
+                    u32 const sectorEnd = (*sectorOffsets)[j + 1];
+                    u32 const expectedSize = (j < numSectors - 1)
+                                                 ? sectorSize
+                                                 : (block.uncompressedSize - j * sectorSize);
 
                     std::vector<u8> sectorBuf(fileSpan.data() + sectorStart,
                                               fileSpan.data() + sectorEnd);
-                    u32 sectorLen = sectorEnd - sectorStart;
+                    u32 const sectorLen = sectorEnd - sectorStart;
 
                     if (block.isEncrypted() && fileKey != 0) {
-                        size_t alignedCount = sectorBuf.size() / 4;
+                        size_t const alignedCount = sectorBuf.size() / 4;
                         if (alignedCount > 0)
                             decryptBlock(reinterpret_cast<u32*>(sectorBuf.data()), alignedCount,
                                          fileKey + j);

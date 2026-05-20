@@ -178,7 +178,7 @@ ConvertResult M2Converter::fromM2(const m2::Model& header) const {
         mesh.lodLevel = static_cast<u32>(skinRef.lodLevel);
 
         // Resolve skin vertex indices → copy from global vertex array
-        size_t vertCount = skin.vertices.size();
+        size_t const vertCount = skin.vertices.size();
         mesh.positions.resize(vertCount);
         mesh.normals.resize(vertCount);
         mesh.boneIndices.resize(vertCount);
@@ -188,7 +188,7 @@ ConvertResult M2Converter::fromM2(const m2::Model& header) const {
         mesh.uvSets[1].resize(vertCount);
 
         for (size_t v = 0; v < vertCount; ++v) {
-            u32 globalIdx = static_cast<u32>(skin.vertices[v]) + skin.lodVertexBase;
+            u32 const globalIdx = static_cast<u32>(skin.vertices[v]) + skin.lodVertexBase;
             if (globalIdx < header.vertices.size()) {
                 const auto& vert = header.vertices[globalIdx];
                 mesh.positions[v] = vert.position;
@@ -233,7 +233,8 @@ ConvertResult M2Converter::fromM2(const m2::Model& header) const {
 
                     // Resolve texture from combo table and attach to material
                     if (batch.textureComboIndex < header.textureCombos.size()) {
-                        [[maybe_unused]] u16 texIdx = header.textureCombos[batch.textureComboIndex];
+                        [[maybe_unused]] u16 const texIdx =
+                            header.textureCombos[batch.textureComboIndex];
                         if (sub.materialIndex < model.materials.size()) {
                             auto& mat = model.materials[sub.materialIndex];
                             // Only add if not already populated
@@ -241,16 +242,16 @@ ConvertResult M2Converter::fromM2(const m2::Model& header) const {
                                 mat.shaderId = batch.shaderId;
                                 mat.priorityPlane = batch.priorityPlane;
                                 for (u16 t = 0; t < batch.textureCount; ++t) {
-                                    u16 comboIdx = batch.textureComboIndex + t;
+                                    u16 const comboIdx = batch.textureComboIndex + t;
                                     if (comboIdx < header.textureCombos.size()) {
                                         TextureSlot slot;
                                         slot.textureIndex = header.textureCombos[comboIdx];
                                         slot.semantic = (t == 0) ? TextureSlotSemantic::Diffuse
                                                                  : TextureSlotSemantic::Custom;
                                         // Resolve UV set from textureCoordCombos
-                                        u16 uvComboIdx = batch.textureCoordComboIndex + t;
+                                        u16 const uvComboIdx = batch.textureCoordComboIndex + t;
                                         if (uvComboIdx < header.textureCoordCombos.size()) {
-                                            u16 uvSel = header.textureCoordCombos[uvComboIdx];
+                                            u16 const uvSel = header.textureCoordCombos[uvComboIdx];
                                             slot.uvSetIndex = (uvSel <= 1) ? uvSel : 0;
                                         }
                                         mat.textureSlots.push_back(std::move(slot));
@@ -282,7 +283,7 @@ ConvertResult M2Converter::fromM2(const m2::Model& header) const {
                     Vector3f(std::min(minP.x, p.x), std::min(minP.y, p.y), std::min(minP.z, p.z));
                 maxP =
                     Vector3f(std::max(maxP.x, p.x), std::max(maxP.y, p.y), std::max(maxP.z, p.z));
-                f32 distSq = p.x * p.x + p.y * p.y + p.z * p.z;
+                f32 const distSq = p.x * p.x + p.y * p.y + p.z * p.z;
                 if (distSq > maxDistSq)
                     maxDistSq = distSq;
             }
@@ -371,7 +372,7 @@ M2ConvertResult M2Converter::toM2(const Model& wemModel, u32 /*targetVersion*/) 
         skin.lodVertexBase = globalVertexOffset;
 
         // vertices[] is just the identity mapping for this mesh's range
-        size_t meshVertCount = mesh.positions.size();
+        size_t const meshVertCount = mesh.positions.size();
         skin.vertices.resize(meshVertCount);
         for (size_t v = 0; v < meshVertCount; ++v) {
             skin.vertices[v] = static_cast<u16>(v);

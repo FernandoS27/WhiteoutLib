@@ -67,7 +67,7 @@ TsvTable parseTsv(std::span<const u8> data) {
     TsvTable table;
     if (data.empty()) return table;
 
-    std::string_view text(reinterpret_cast<const char*>(data.data()), data.size());
+    std::string_view const text(reinterpret_cast<const char*>(data.data()), data.size());
     auto lines = splitLines(text);
     if (lines.size() < 2) return table;
 
@@ -111,13 +111,13 @@ std::vector<BuildInfo> parseBuildInfo(std::span<const u8> data) {
         return -1;
     };
 
-    int iBranch = findCol("Branch");
-    int iActive = findCol("Active");
-    int iBuildKey = findCol("Build Key");
-    int iCdnKey = findCol("CDN Key");
-    int iCdnPath = findCol("CDN Path");
-    int iVersion = findCol("Version");
-    int iProduct = findCol("Product");
+    int const iBranch = findCol("Branch");
+    int const iActive = findCol("Active");
+    int const iBuildKey = findCol("Build Key");
+    int const iCdnKey = findCol("CDN Key");
+    int const iCdnPath = findCol("CDN Path");
+    int const iVersion = findCol("Version");
+    int const iProduct = findCol("Product");
 
     std::vector<BuildInfo> results;
     for (auto& row : table.rows) {
@@ -152,7 +152,7 @@ static KVMap parseKeyValueFile(std::span<const u8> data) {
     KVMap kvs;
     if (data.empty()) return kvs;
 
-    std::string_view text(reinterpret_cast<const char*>(data.data()), data.size());
+    std::string_view const text(reinterpret_cast<const char*>(data.data()), data.size());
     auto lines = splitLines(text);
 
     for (auto& line : lines) {
@@ -316,13 +316,13 @@ std::vector<VersionInfo> parseVersionsResponse(std::span<const u8> data) {
         return -1;
     };
 
-    int iRegion = findCol("Region");
-    int iBuildConfig = findCol("BuildConfig");
-    int iCdnConfig = findCol("CDNConfig");
-    int iKeyRing = findCol("KeyRing");
-    int iBuildId = findCol("BuildId");
-    int iVersion = findCol("VersionsName");
-    int iProdCfg = findCol("ProductConfig");
+    int const iRegion = findCol("Region");
+    int const iBuildConfig = findCol("BuildConfig");
+    int const iCdnConfig = findCol("CDNConfig");
+    int const iKeyRing = findCol("KeyRing");
+    int const iBuildId = findCol("BuildId");
+    int const iVersion = findCol("VersionsName");
+    int const iProdCfg = findCol("ProductConfig");
 
     std::vector<VersionInfo> results;
     for (auto& row : table.rows) {
@@ -360,11 +360,11 @@ std::vector<CdnInfo> parseCdnsResponse(std::span<const u8> data) {
         return -1;
     };
 
-    int iName = findCol("Name");
-    int iPath = findCol("Path");
-    int iHosts = findCol("Hosts");
-    int iServers = findCol("Servers");
-    int iConfigPath = findCol("ConfigPath");
+    int const iName = findCol("Name");
+    int const iPath = findCol("Path");
+    int const iHosts = findCol("Hosts");
+    int const iServers = findCol("Servers");
+    int const iConfigPath = findCol("ConfigPath");
 
     std::vector<CdnInfo> results;
     for (auto& row : table.rows) {

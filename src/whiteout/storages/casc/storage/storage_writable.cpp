@@ -92,11 +92,11 @@ bool StorageWritable::writeFile(const std::string& path,
                                 const std::vector<u8>& data,
                                 WriteOptions opts) {
     if (!m_impl) { s_lastError = kNotValid; return false; }
-    std::unique_lock lock(m_impl->mutex);
+    std::unique_lock const lock(m_impl->mutex);
     if (!m_impl->writeOverlay) { s_lastError = kNotValid; return false; }
 
     auto normalized = storages::common::normalizeCascPath(path);
-    OverlayKey key{normalized, std::nullopt};
+    OverlayKey const key{normalized, std::nullopt};
 
     m_impl->writeOverlay->pendingDeletes.erase(key);
     m_impl->writeOverlay->pendingWrites[key] = OverlayEntry{data, opts};
@@ -106,10 +106,10 @@ bool StorageWritable::writeFile(const std::string& path,
 bool StorageWritable::writeFile(i32 fileId, const std::vector<u8>& data,
                                 WriteOptions opts, FileIdHint hint) {
     if (!m_impl) { s_lastError = kNotValid; return false; }
-    std::unique_lock lock(m_impl->mutex);
+    std::unique_lock const lock(m_impl->mutex);
     if (!m_impl->writeOverlay) { s_lastError = kNotValid; return false; }
 
-    OverlayKey key{"", static_cast<u32>(fileId), hint};
+    OverlayKey const key{"", static_cast<u32>(fileId), hint};
     m_impl->writeOverlay->pendingDeletes.erase(key);
     m_impl->writeOverlay->pendingWrites[key] = OverlayEntry{data, opts};
     return true;
@@ -118,15 +118,15 @@ bool StorageWritable::writeFile(i32 fileId, const std::vector<u8>& data,
 bool StorageWritable::deleteFile(const std::string& path) {
     if (!m_impl) { s_lastError = kNotValid; return false; }
     if (!m_impl->ensureLoaded()) { s_lastError = kNotValid; return false; }
-    std::unique_lock lock(m_impl->mutex);
+    std::unique_lock const lock(m_impl->mutex);
     if (!m_impl->writeOverlay) { s_lastError = kNotValid; return false; }
 
     auto normalized = storages::common::normalizeCascPath(path);
-    OverlayKey key{normalized, std::nullopt};
+    OverlayKey const key{normalized, std::nullopt};
 
     m_impl->writeOverlay->pendingWrites.erase(key);
 
-    bool existsInSource = m_impl->root && m_impl->root->hasPath(normalized);
+    bool const existsInSource = m_impl->root && m_impl->root->hasPath(normalized);
     if (!existsInSource) {
         s_lastError = kFileNotFound;
         return false;
@@ -139,14 +139,14 @@ bool StorageWritable::deleteFile(const std::string& path) {
 bool StorageWritable::deleteFile(i32 fileId, FileIdHint hint) {
     if (!m_impl) { s_lastError = kNotValid; return false; }
     if (!m_impl->ensureLoaded()) { s_lastError = kNotValid; return false; }
-    std::unique_lock lock(m_impl->mutex);
+    std::unique_lock const lock(m_impl->mutex);
     if (!m_impl->writeOverlay) { s_lastError = kNotValid; return false; }
 
-    OverlayKey key{"", static_cast<u32>(fileId), hint};
+    OverlayKey const key{"", static_cast<u32>(fileId), hint};
     m_impl->writeOverlay->pendingWrites.erase(key);
 
-    bool existsInSource = m_impl->root &&
-                          m_impl->root->hasFileDataId(static_cast<u32>(fileId), hint);
+    bool const existsInSource =
+        m_impl->root && m_impl->root->hasFileDataId(static_cast<u32>(fileId), hint);
     if (!existsInSource) {
         s_lastError = kFileNotFound;
         return false;
@@ -192,7 +192,7 @@ static void ensureCoreToc(WriteOverlay& overlay, const RootManifest* root,
         // D4: "base:coretoc.dat"
         auto d4Results = root->findByNormalizedPath("base:coretoc.dat");
         if (!d4Results.empty()) {
-            OverlayKey key{"base:coretoc.dat", std::nullopt};
+            OverlayKey const key{"base:coretoc.dat", std::nullopt};
             if (auto data = impl->readFileResolved(key, d4Results, 0))
                 overlay.coreToc->parse(*data);
             return;
@@ -201,7 +201,7 @@ static void ensureCoreToc(WriteOverlay& overlay, const RootManifest* root,
         // D3: normalised as "base/coretoc.dat"
         auto d3Results = root->findByNormalizedPath("base/coretoc.dat");
         if (!d3Results.empty()) {
-            OverlayKey key{"base/coretoc.dat", std::nullopt};
+            OverlayKey const key{"base/coretoc.dat", std::nullopt};
             if (auto data = impl->readFileResolved(key, d3Results, 0))
                 overlay.coreToc->parse(*data);
         }
@@ -210,7 +210,7 @@ static void ensureCoreToc(WriteOverlay& overlay, const RootManifest* root,
 
 std::optional<u32> StorageWritable::reserveFileId(const std::string& name) {
     if (!m_impl) { s_lastError = kNotValid; return std::nullopt; }
-    std::unique_lock lock(m_impl->mutex);
+    std::unique_lock const lock(m_impl->mutex);
     if (!m_impl->writeOverlay) { s_lastError = kNotValid; return std::nullopt; }
 
     auto& overlay = *m_impl->writeOverlay;
@@ -251,8 +251,8 @@ std::optional<u32> StorageWritable::reserveFileId(const std::string& name) {
     if (dotPos == std::string::npos || dotPos == 0)
         return std::nullopt;
 
-    std::string snoName = name.substr(0, dotPos);
-    std::string ext = name.substr(dotPos + 1);
+    std::string const snoName = name.substr(0, dotPos);
+    std::string const ext = name.substr(dotPos + 1);
 
     auto group = sno::snoGroupFromExtension(ext.c_str());
     if (group == sno::SnoGroup::None)
@@ -266,7 +266,7 @@ std::optional<u32> StorageWritable::reserveFileId(const std::string& name) {
         return std::nullopt;
 
     // Allocate snoId.
-    i32 maxSno = overlay.coreToc->maxSnoId();
+    i32 const maxSno = overlay.coreToc->maxSnoId();
     if (static_cast<u32>(maxSno) >= overlay.nextFileDataId)
         overlay.nextFileDataId = static_cast<u32>(maxSno) + 1;
 
@@ -315,7 +315,7 @@ bool StorageWritable::save() {
 bool StorageWritable::save(const std::string& outputPath) {
     if (!m_impl) { s_lastError = kNotValid; return false; }
     if (!m_impl->ensureLoaded()) { s_lastError = kNotValid; return false; }
-    std::unique_lock lock(m_impl->mutex);
+    std::unique_lock const lock(m_impl->mutex);
 
     if (!m_impl->writeOverlay) { s_lastError = kNotValid; return false; }
 
@@ -352,7 +352,7 @@ bool StorageWritable::save(const std::string& outputPath) {
 
     if (m_impl->root) {
         m_impl->root->enumerate([&](const RootEntry& re) -> bool {
-            OverlayKey pathKey{storages::common::normalizeCascPath(re.path), std::nullopt};
+            OverlayKey const pathKey{storages::common::normalizeCascPath(re.path), std::nullopt};
             if (m_impl->writeOverlay->pendingDeletes.count(pathKey))
                 return true;
 
@@ -366,7 +366,7 @@ bool StorageWritable::save(const std::string& outputPath) {
             }
 
             if (re.fileDataId != kInvalidFileDataId) {
-                OverlayKey idKey{"", re.fileDataId};
+                OverlayKey const idKey{"", re.fileDataId};
                 if (m_impl->writeOverlay->pendingDeletes.count(idKey))
                     return true;
             }
@@ -375,7 +375,7 @@ bool StorageWritable::save(const std::string& outputPath) {
                 return true;
 
             if (re.fileDataId != kInvalidFileDataId) {
-                OverlayKey idKey{"", re.fileDataId};
+                OverlayKey const idKey{"", re.fileDataId};
                 if (m_impl->writeOverlay->pendingWrites.count(idKey))
                     return true;
             }
@@ -554,11 +554,11 @@ bool StorageWritable::save(const std::string& outputPath) {
     writerOpts.rootFormat = rootFmt;
 
     // 5. Write to temp dir, then rename.
-    std::string tempDir = outputPath + ".tmp_save";
+    std::string const tempDir = outputPath + ".tmp_save";
     std::error_code ec;
     fs::remove_all(tempDir, ec);
 
-    bool ok = writeStorage(tempDir, entries, writerOpts, m_impl->pool);
+    bool const ok = writeStorage(tempDir, entries, writerOpts, m_impl->pool);
     if (!ok) {
         fs::remove_all(tempDir, ec);
         s_lastError = kSaveFailed;
@@ -572,7 +572,7 @@ bool StorageWritable::save(const std::string& outputPath) {
     m_impl->root.reset();
     m_impl->isValid = false;
 
-    std::string basePath = m_impl->localState ? m_impl->localState->basePath : "";
+    std::string const basePath = m_impl->localState ? m_impl->localState->basePath : "";
 
     if (outputPath != basePath) {
         fs::rename(tempDir, outputPath, ec);
@@ -582,7 +582,7 @@ bool StorageWritable::save(const std::string& outputPath) {
             return false;
         }
     } else {
-        std::string oldDir = outputPath + ".old_save";
+        std::string const oldDir = outputPath + ".old_save";
         fs::remove_all(oldDir, ec);
         fs::rename(outputPath, oldDir, ec);
         if (ec) {

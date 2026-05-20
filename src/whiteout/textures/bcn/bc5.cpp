@@ -93,7 +93,7 @@ std::vector<u8> encode_image(std::span<const u8> rg8, u32 width, u32 height,
                 gather_channel_block(rg8, width, height, block_x, block_y, block0, 2, 0);
                 gather_channel_block(rg8, width, height, block_x, block_y, block1, 2, 1);
 
-                u32 block_offset = (block_y * blocks_wide + block_x) * 16;
+                u32 const block_offset = (block_y * blocks_wide + block_x) * 16;
                 encode_block(block0.data(), block1.data(), result.data() + block_offset);
             }
         }

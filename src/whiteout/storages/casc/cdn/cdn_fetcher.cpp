@@ -53,7 +53,7 @@ std::optional<std::vector<u8>> CdnFetcher::fetchUrl(const std::string& url) {
     auto sync = std::make_shared<SyncState>();
 
     m_http->getAsync(url, [sync](interfaces::HttpResponse resp) {
-        std::lock_guard<std::mutex> lk(sync->mtx);
+        std::lock_guard<std::mutex> const lk(sync->mtx);
         sync->result = std::move(resp);
         sync->done = true;
         sync->cv.notify_one();
@@ -72,16 +72,16 @@ std::optional<std::vector<u8>> CdnFetcher::fetchWithFailover(
     const std::string& pathType, const std::string& keyHex) {
     if (m_servers.empty()) return std::nullopt;
 
-    size_t startIdx = m_currentCdn.load(std::memory_order_relaxed);
+    size_t const startIdx = m_currentCdn.load(std::memory_order_relaxed);
     for (size_t attempt = 0; attempt < m_servers.size(); ++attempt) {
-        size_t idx = (startIdx + attempt) % m_servers.size();
+        size_t const idx = (startIdx + attempt) % m_servers.size();
         auto url = buildUrl(m_servers[idx], pathType, keyHex);
         if (url.empty()) continue;
 
         auto sync = std::make_shared<SyncState>();
 
         m_http->getAsync(url, [sync](interfaces::HttpResponse resp) {
-            std::lock_guard<std::mutex> lk(sync->mtx);
+            std::lock_guard<std::mutex> const lk(sync->mtx);
             sync->result = std::move(resp);
             sync->done = true;
             sync->cv.notify_one();
@@ -129,9 +129,9 @@ std::optional<std::vector<u8>> CdnFetcher::fetchRange(
 
     if (m_servers.empty()) return std::nullopt;
 
-    size_t startIdx = m_currentCdn.load(std::memory_order_relaxed);
+    size_t const startIdx = m_currentCdn.load(std::memory_order_relaxed);
     for (size_t attempt = 0; attempt < m_servers.size(); ++attempt) {
-        size_t idx = (startIdx + attempt) % m_servers.size();
+        size_t const idx = (startIdx + attempt) % m_servers.size();
         auto url = buildUrl(m_servers[idx], "data", archiveKeyHex);
         if (url.empty()) continue;
 
@@ -139,11 +139,11 @@ std::optional<std::vector<u8>> CdnFetcher::fetchRange(
 
         m_http->getRangeAsync(url, offset, offset + size - 1,
                               [sync](interfaces::HttpResponse resp) {
-            std::lock_guard<std::mutex> lk(sync->mtx);
-            sync->result = std::move(resp);
-            sync->done = true;
-            sync->cv.notify_one();
-        });
+                                  std::lock_guard<std::mutex> const lk(sync->mtx);
+                                  sync->result = std::move(resp);
+                                  sync->done = true;
+                                  sync->cv.notify_one();
+                              });
 
         std::unique_lock<std::mutex> lk(sync->mtx);
         if (!sync->cv.wait_for(lk, std::chrono::seconds(60), [&] { return sync->done; }))
@@ -187,7 +187,7 @@ void CdnFetcher::fetchAsync(const std::string& pathType,
 
     // Fire request against current best CDN server. On success, cache + callback.
     // On failure, callback with nullopt (simplified — no async failover chain).
-    size_t idx = m_currentCdn.load(std::memory_order_relaxed);
+    size_t const idx = m_currentCdn.load(std::memory_order_relaxed);
     auto url = buildUrl(m_servers[idx], pathType, keyHex);
     if (url.empty()) {
         callback(std::nullopt);
@@ -229,7 +229,7 @@ void CdnFetcher::fetchRangeAsync(const std::string& archiveKeyHex,
         return;
     }
 
-    size_t idx = m_currentCdn.load(std::memory_order_relaxed);
+    size_t const idx = m_currentCdn.load(std::memory_order_relaxed);
     auto url = buildUrl(m_servers[idx], "data", archiveKeyHex);
     if (url.empty()) {
         callback(std::nullopt);

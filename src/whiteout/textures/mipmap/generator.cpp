@@ -332,7 +332,7 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
     utils::JobGroup jobGroup;
 
     auto captureError = [&](const std::string& errMsg) {
-        std::lock_guard<std::mutex> guard(errorMutex);
+        std::lock_guard<std::mutex> const guard(errorMutex);
         if (!firstError) {
             firstError = errMsg;
             hasError.store(true, std::memory_order_release);
@@ -500,7 +500,7 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
                                 scaleImage(src, 1.0f / static_cast<f32>(sliceCount));
 
                             const MipmapPipeline pipeline = pipelineForKind(texKind, texSrgb);
-                            MipImage result =
+                            MipImage const result =
                                 pipeline.execute(src, targetLevel.width, targetLevel.height);
 
                             if (needNormalExpansion)
@@ -514,7 +514,7 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
                     submitJob([&, layer, mip, texKind, texSrgb]() {
                         const MipmapPipeline pipeline = pipelineForKind(texKind, texSrgb);
                         const auto& targetLevel = tex.mipLevel(mip, layer);
-                        MipImage mipResult = pipeline.execute(
+                        MipImage const mipResult = pipeline.execute(
                             originalByLayer[layer], targetLevel.width, targetLevel.height);
                         if (needNormalExpansion)
                             writeMip(tex, mip, layer,

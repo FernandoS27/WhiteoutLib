@@ -273,13 +273,13 @@ CategoryMagnitude compute_category_magnitude(i32 value) {
 /// Each table entry is clamped to [1, 255] for 8-bit DQT precision.
 std::array<u16, BLOCK_PIXELS> build_quant_table(i32 quality) {
     quality = std::clamp(quality, 1, 100);
-    i32 scaleFactor =
+    i32 const scaleFactor =
         (quality < 50) ? (QUALITY_LOW_NUMERATOR / quality) : (QUALITY_HIGH_BASE - quality * 2);
 
     std::array<u16, BLOCK_PIXELS> quantTableZigzag{};
     for (i32 zigzagIndex = 0; zigzagIndex < BLOCK_PIXELS; zigzagIndex++) {
-        i32 naturalPosition = ZIGZAG_ORDER[zigzagIndex];
-        i32 baseValue = static_cast<i32>(STD_LUMINANCE_QUANT_NATURAL[naturalPosition]);
+        i32 const naturalPosition = ZIGZAG_ORDER[zigzagIndex];
+        i32 const baseValue = static_cast<i32>(STD_LUMINANCE_QUANT_NATURAL[naturalPosition]);
         i32 scaledValue = (baseValue * scaleFactor + 50) / 100;
         scaledValue = std::clamp(scaledValue, 1, 255);
         quantTableZigzag[zigzagIndex] = static_cast<u16>(scaledValue);
@@ -328,7 +328,7 @@ void write_sof(std::vector<u8>& out, u8 sofMarker, u32 width, u32 height, u32 co
     write_marker(out, sofMarker);
     // Length: 2 + 1 (precision) + 2 (height) + 2 (width) + 1 (num components)
     //       + componentCount * 3
-    u16 segmentLength = static_cast<u16>(8 + componentCount * 3);
+    u16 const segmentLength = static_cast<u16>(8 + componentCount * 3);
     write_u16_be(out, segmentLength);
     write_u8(out, 8); // 8-bit sample precision.
     write_u16_be(out, static_cast<u16>(height));
@@ -348,7 +348,7 @@ void write_dht(std::vector<u8>& out, u8 tableClass, u8 tableIndex, const u8* len
                const u8* symbols, i32 symbolCount) {
     write_marker(out, MARKER_DHT);
     // Length: 2 + 1 (table info) + 16 (length counts) + symbolCount
-    u16 segmentLength = static_cast<u16>(2 + 1 + 16 + symbolCount);
+    u16 const segmentLength = static_cast<u16>(2 + 1 + 16 + symbolCount);
     write_u16_be(out, segmentLength);
     write_u8(out, static_cast<u8>((tableClass << 4) | tableIndex));
     for (i32 lengthIndex = 0; lengthIndex < 16; lengthIndex++) {
@@ -489,7 +489,7 @@ struct JpegEncoder {
 
     // -- Helpers --
 
-    bool reportError(const std::string& message) {
+    bool reportError(const std::string& message) const {
         if (errorOutput) {
             *errorOutput = message;
         }
@@ -509,7 +509,7 @@ struct JpegEncoder {
     /// edge pixels replicated to fill partial MCUs.
     void buildComponentBuffers(const Image& image,
                                std::array<std::vector<u8>, MAX_COMPONENTS>& buffers,
-                               std::array<u32, MAX_COMPONENTS>& strides);
+                               std::array<u32, MAX_COMPONENTS>& strides) const;
 
     /// Encode all MCUs from precomputed coefficient blocks (baseline path).
     /// Entropy coding is inherently serial.
@@ -520,7 +520,7 @@ struct JpegEncoder {
     void buildCoefficientBlocks(
         const std::array<std::vector<u8>, MAX_COMPONENTS>& buffers,
         const std::array<u32, MAX_COMPONENTS>& strides,
-        std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>& coeffBlocks);
+        std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>& coeffBlocks) const;
 
     /// Encode progressive DC first-pass scan (all components interleaved).
     /// @param al  Successive approximation low bit (0 = no SA).
@@ -625,9 +625,9 @@ void JpegEncoder::writeAllDhtMarkers() {
 /// are replicated to avoid boundary artefacts in the DCT.
 void JpegEncoder::buildComponentBuffers(const Image& image,
                                         std::array<std::vector<u8>, MAX_COMPONENTS>& buffers,
-                                        std::array<u32, MAX_COMPONENTS>& strides) {
-    u32 paddedWidth = ((imageWidth + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE;
-    u32 paddedHeight = ((imageHeight + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE;
+                                        std::array<u32, MAX_COMPONENTS>& strides) const {
+    u32 const paddedWidth = ((imageWidth + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE;
+    u32 const paddedHeight = ((imageHeight + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE;
 
     for (u32 componentIndex = 0; componentIndex < componentCount; componentIndex++) {
         strides[componentIndex] = paddedWidth;
@@ -700,15 +700,15 @@ bool JpegEncoder::encodeScanDataFromCoeffs(
     writer.init(&outputBuffer);
 
     std::array<i32, MAX_COMPONENTS> dcPredictions{};
-    u32 totalBlocks = mcuColumnsCount * mcuRowsCount;
+    u32 const totalBlocks = mcuColumnsCount * mcuRowsCount;
 
     for (u32 blockIdx = 0; blockIdx < totalBlocks; blockIdx++) {
         for (u32 componentIndex = 0; componentIndex < componentCount; componentIndex++) {
             const auto& quantisedCoefficients = coeffBlocks[componentIndex][blockIdx];
-            u8 tblIdx = huffTableIndex(componentIndex, componentCount);
+            u8 const tblIdx = huffTableIndex(componentIndex, componentCount);
 
             // DC: differential coding.
-            i32 dcDifference = quantisedCoefficients[0] - dcPredictions[componentIndex];
+            i32 const dcDifference = quantisedCoefficients[0] - dcPredictions[componentIndex];
             dcPredictions[componentIndex] = quantisedCoefficients[0];
             encode_dc_coefficient(writer, dcHuffTables[tblIdx], dcDifference);
 
@@ -728,9 +728,9 @@ bool JpegEncoder::encodeScanDataFromCoeffs(
 void JpegEncoder::buildCoefficientBlocks(
     const std::array<std::vector<u8>, MAX_COMPONENTS>& buffers,
     const std::array<u32, MAX_COMPONENTS>& strides,
-    std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>& coeffBlocks) {
+    std::array<std::vector<std::array<i32, BLOCK_PIXELS>>, MAX_COMPONENTS>& coeffBlocks) const {
 
-    u32 totalBlocks = mcuColumnsCount * mcuRowsCount;
+    u32 const totalBlocks = mcuColumnsCount * mcuRowsCount;
     for (u32 c = 0; c < componentCount; c++) {
         coeffBlocks[c].resize(totalBlocks);
     }
@@ -764,15 +764,15 @@ bool JpegEncoder::encodeProgressiveDcScan(
     writer.init(&outputBuffer);
 
     std::array<i32, MAX_COMPONENTS> dcPredictions{};
-    u32 totalBlocks = mcuColumnsCount * mcuRowsCount;
+    u32 const totalBlocks = mcuColumnsCount * mcuRowsCount;
 
     for (u32 blockIdx = 0; blockIdx < totalBlocks; blockIdx++) {
         for (u32 c = 0; c < componentCount; c++) {
-            i32 dc = coeffBlocks[c][blockIdx][0];
-            i32 dcShifted = dc >> al;
-            i32 diff = dcShifted - dcPredictions[c];
+            i32 const dc = coeffBlocks[c][blockIdx][0];
+            i32 const dcShifted = dc >> al;
+            i32 const diff = dcShifted - dcPredictions[c];
             dcPredictions[c] = dcShifted;
-            u8 tblIdx = huffTableIndex(c, componentCount);
+            u8 const tblIdx = huffTableIndex(c, componentCount);
             encode_dc_coefficient(writer, dcHuffTables[tblIdx], diff);
         }
     }
@@ -788,12 +788,12 @@ bool JpegEncoder::encodeProgressiveDcRefineScan(
     BitstreamWriter writer;
     writer.init(&outputBuffer);
 
-    u32 totalBlocks = mcuColumnsCount * mcuRowsCount;
+    u32 const totalBlocks = mcuColumnsCount * mcuRowsCount;
 
     for (u32 blockIdx = 0; blockIdx < totalBlocks; blockIdx++) {
         for (u32 c = 0; c < componentCount; c++) {
-            i32 dc = coeffBlocks[c][blockIdx][0];
-            u32 bit = (static_cast<u32>(dc) >> al) & 1u;
+            i32 const dc = coeffBlocks[c][blockIdx][0];
+            u32 const bit = (static_cast<u32>(dc) >> al) & 1u;
             writer.writeBits(bit, 1);
         }
     }
@@ -806,7 +806,7 @@ bool JpegEncoder::encodeProgressiveAcScan(
     const std::vector<std::array<i32, BLOCK_PIXELS>>& coeffBlocks, u32 compIndex, i32 ss, i32 se,
     i32 al, std::vector<u8>& output) {
 
-    u8 tblIdx = huffTableIndex(compIndex, componentCount);
+    u8 const tblIdx = huffTableIndex(compIndex, componentCount);
     const auto& acTable = acHuffTables[tblIdx];
 
     BitstreamWriter writer;
@@ -877,7 +877,7 @@ bool JpegEncoder::encodeProgressiveAcRefineScan(
     const std::vector<std::array<i32, BLOCK_PIXELS>>& coeffBlocks, u32 compIndex, i32 ss, i32 se,
     i32 al, std::vector<u8>& output) {
 
-    u8 tblIdx = huffTableIndex(compIndex, componentCount);
+    u8 const tblIdx = huffTableIndex(compIndex, componentCount);
     const auto& acTable = acHuffTables[tblIdx];
 
     BitstreamWriter writer;
@@ -1099,9 +1099,9 @@ std::vector<u8> encode_raw(const Image& image, i32 quality, std::string* out_err
 
     // --- Entropy encoding stages ---
     // Determine whether parallel entropy encoding is feasible.
-    bool canParallel = ctx && ctx->pool && ctx->pool->threadCount() > 1;
-    bool useParallelBaseline = canParallel && !progressive && enc->mcuRowsCount >= 2;
-    bool useParallelProgressive = canParallel && progressive && enc->componentCount >= 2;
+    bool const canParallel = ctx && ctx->pool && ctx->pool->threadCount() > 1;
+    bool const useParallelBaseline = canParallel && !progressive && enc->mcuRowsCount >= 2;
+    bool const useParallelProgressive = canParallel && progressive && enc->componentCount >= 2;
 
     if (useParallelBaseline) {
         // ---- Parallel baseline: restart-interval encoding via timeline ----
@@ -1138,11 +1138,11 @@ std::vector<u8> encode_raw(const Image& image, i32 quality, std::string* out_err
                 writer.init(&(*intervalBufs)[interval]);
                 std::array<i32, MAX_COMPONENTS> dcPreds{};
                 for (u32 mcuCol = 0; mcuCol < enc->mcuColumnsCount; ++mcuCol) {
-                    u32 blockIdx = interval * enc->mcuColumnsCount + mcuCol;
+                    u32 const blockIdx = interval * enc->mcuColumnsCount + mcuCol;
                     for (u32 ci = 0; ci < enc->componentCount; ++ci) {
                         const auto& qc = (*coeffs)[ci][blockIdx];
-                        u8 tblIdx = huffTableIndex(ci, enc->componentCount);
-                        i32 dcDiff = qc[0] - dcPreds[ci];
+                        u8 const tblIdx = huffTableIndex(ci, enc->componentCount);
+                        i32 const dcDiff = qc[0] - dcPreds[ci];
                         dcPreds[ci] = qc[0];
                         encode_dc_coefficient(writer, enc->dcHuffTables[tblIdx], dcDiff);
                         encode_ac_coefficients(writer, enc->acHuffTables[tblIdx], qc);
@@ -1200,8 +1200,8 @@ std::vector<u8> encode_raw(const Image& image, i32 quality, std::string* out_err
         auto acFirstBufs = std::make_shared<std::vector<std::vector<u8>>>(totalAcScans);
         parallel_for_tasks(totalAcScans, ctx, [=](u32 scanIdx) {
             constexpr i32 al = 1; // SA_AL
-            u32 c = scanIdx / numBands;
-            u32 b = scanIdx % numBands;
+            u32 const c = scanIdx / numBands;
+            u32 const b = scanIdx % numBands;
             const auto& band = DEFAULT_AC_BANDS[b];
             enc->encodeProgressiveAcScan((*coeffs)[c], c, band.ss, band.se, al,
                                          (*acFirstBufs)[scanIdx]);
@@ -1212,7 +1212,7 @@ std::vector<u8> encode_raw(const Image& image, i32 quality, std::string* out_err
             constexpr i32 SA_AL = 1;
             // Assemble AC first-pass scan data with SOS markers.
             for (u32 c = 0; c < enc->componentCount; ++c) {
-                u8 tblIdx = huffTableIndex(c, enc->componentCount);
+                u8 const tblIdx = huffTableIndex(c, enc->componentCount);
                 for (u32 b = 0; b < numBands; ++b) {
                     const auto& band = DEFAULT_AC_BANDS[b];
                     const u8 compId = static_cast<u8>(c + 1);
@@ -1242,8 +1242,8 @@ std::vector<u8> encode_raw(const Image& image, i32 quality, std::string* out_err
         // Stage 6: Encode AC refinement scans in parallel (on timeline).
         auto acRefineBufs = std::make_shared<std::vector<std::vector<u8>>>(totalAcScans);
         parallel_for_tasks(totalAcScans, ctx, [=](u32 scanIdx) {
-            u32 c = scanIdx / numBands;
-            u32 b = scanIdx % numBands;
+            u32 const c = scanIdx / numBands;
+            u32 const b = scanIdx % numBands;
             const auto& band = DEFAULT_AC_BANDS[b];
             enc->encodeProgressiveAcRefineScan((*coeffs)[c], c, band.ss, band.se, 0,
                                                (*acRefineBufs)[scanIdx]);
@@ -1253,7 +1253,7 @@ std::vector<u8> encode_raw(const Image& image, i32 quality, std::string* out_err
         submitSingleTask(ctx, [=]() {
             constexpr i32 SA_AL = 1;
             for (u32 c = 0; c < enc->componentCount; ++c) {
-                u8 tblIdx = huffTableIndex(c, enc->componentCount);
+                u8 const tblIdx = huffTableIndex(c, enc->componentCount);
                 for (u32 b = 0; b < numBands; ++b) {
                     const auto& band = DEFAULT_AC_BANDS[b];
                     const u8 compId = static_cast<u8>(c + 1);

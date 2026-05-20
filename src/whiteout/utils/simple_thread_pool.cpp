@@ -39,7 +39,7 @@ struct SimpleThreadPool::Impl {
 
                     if (task.waitSemaphore && task.waitSemaphore->value() < task.waitValue) {
                         {
-                            std::unique_lock<std::mutex> lock(mutex);
+                            std::unique_lock<std::mutex> const lock(mutex);
                             jobs.push(std::move(task));
                         }
                         cv.notify_one();
@@ -53,7 +53,7 @@ struct SimpleThreadPool::Impl {
                         task.signalSemaphore->signal(task.signalValue);
 
                     {
-                        std::unique_lock<std::mutex> lock(mutex);
+                        std::unique_lock<std::mutex> const lock(mutex);
                         if (--pendingCount == 0)
                             doneCv.notify_all();
                     }
@@ -67,7 +67,7 @@ struct SimpleThreadPool::Impl {
 
     ~Impl() {
         {
-            std::unique_lock<std::mutex> lock(mutex);
+            std::unique_lock<std::mutex> const lock(mutex);
             stop = true;
         }
         cv.notify_all();
@@ -82,7 +82,7 @@ SimpleThreadPool::~SimpleThreadPool() = default;
 
 void SimpleThreadPool::submit(const interfaces::WorkerTask& task) {
     {
-        std::unique_lock<std::mutex> lock(m_impl->mutex);
+        std::unique_lock<std::mutex> const lock(m_impl->mutex);
         ++m_impl->pendingCount;
         m_impl->jobs.push(task);
     }

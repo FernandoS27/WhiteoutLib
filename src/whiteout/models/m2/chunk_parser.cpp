@@ -22,8 +22,8 @@ void ChunkParser::reportIssue(const std::string& message) {
 }
 
 void ChunkParser::skipUnknownChunk(BinaryReader& reader, u32 tag, u32 size) {
-    std::string error = "Unknown chunk: " + std::string(reinterpret_cast<char*>(&tag), 4) +
-                        " (size: " + std::to_string(size) + ")";
+    std::string const error = "Unknown chunk: " + std::string(reinterpret_cast<char*>(&tag), 4) +
+                              " (size: " + std::to_string(size) + ")";
     reportIssue(error);
     reader.skip(size);
 }
@@ -37,9 +37,9 @@ void ChunkParser::drainIssues(std::vector<std::string>& target) {
 std::vector<ChunkParser::ChunkEntry> ChunkParser::collectChunks(BinaryReader& reader) {
     std::vector<ChunkEntry> chunks;
     while (reader.hasRemaining()) {
-        u32 tag = reader.read<u32>();
-        u32 size = reader.read<u32>();
-        u32 dataOffset = reader.getPosition();
+        u32 const tag = reader.read<u32>();
+        u32 const size = reader.read<u32>();
+        u32 const dataOffset = reader.getPosition();
         chunks.push_back({tag, size, dataOffset});
         reader.skip(size);
     }
@@ -363,7 +363,7 @@ void ChunkParser::parseChunkedAnim(BinaryReader& reader, AnimFile& animFile, WoW
 
     if (!isChunked) {
 
-        u32 fileSize = reader.getRemainingBytes();
+        u32 const fileSize = reader.getRemainingBytes();
         animFile.profile.afm2_chunk.emplace();
         animFile.profile.isChunked = true;
         animFile.profile.afm2_chunk->animationData = reader.read<std::vector<u8>>(fileSize);

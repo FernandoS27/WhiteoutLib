@@ -85,7 +85,7 @@ class RangeDecoder {
 
     u32 decodeBit(Prob& probability) {
         normalize();
-        u32 bound = (range >> kNumBitModelTotalBits) * probability;
+        u32 const bound = (range >> kNumBitModelTotalBits) * probability;
         if (code < bound) {
             range = bound;
             probability += static_cast<Prob>((kBitModelTotal - probability) >> kNumMoveBits);
@@ -104,7 +104,7 @@ class RangeDecoder {
             normalize();
             range >>= 1;
             code -= range;
-            u32 signMask = 0 - (code >> 31); // 0 if code >= 0 (bit=1), ~0 if code < 0 (bit=0)
+            u32 const signMask = 0 - (code >> 31); // 0 if code >= 0 (bit=1), ~0 if code < 0 (bit=0)
             code += range & signMask;         // correct code if bit was 0
             result = (result << 1) | (1 - (signMask & 1));
         }
@@ -153,7 +153,7 @@ u32 bitTreeReverseDecode(Prob* probabilities, u32 numBits, RangeDecoder& rangeDe
     u32 treeNode = 1;
     u32 symbol = 0;
     for (u32 i = 0; i < numBits; ++i) {
-        u32 bit = rangeDecoder.decodeBit(probabilities[treeNode]);
+        u32 const bit = rangeDecoder.decodeBit(probabilities[treeNode]);
         treeNode = (treeNode << 1) | bit;
         symbol |= bit << i;
     }
@@ -249,7 +249,7 @@ class OutputWindow {
 
     void copyMatch(u32 distance, u32 length) {
         for (u32 i = 0; i < length && writePosition < outputCapacity; ++i) {
-            u8 value = getByte(distance);
+            u8 const value = getByte(distance);
             putByte(value);
         }
     }
@@ -384,8 +384,9 @@ std::vector<u8> lzmaDecompress(std::span<const u8> src, size_t expectedSize) {
                 u32 matchContextOffset = 0x100;
                 do {
                     matchByte <<= 1;
-                    u32 matchBit = (matchByte >> 8) & 1;
-                    u32 bit = rangeDecoder.decodeBit(contextProbs[matchContextOffset + (matchBit << 8) + symbol]);
+                    u32 const matchBit = (matchByte >> 8) & 1;
+                    u32 const bit = rangeDecoder.decodeBit(
+                        contextProbs[matchContextOffset + (matchBit << 8) + symbol]);
                     symbol = (symbol << 1) | bit;
                     // Stay in match-context while bits agree; once they differ, offset→0 permanently
                     matchContextOffset = (matchBit == bit) ? matchContextOffset : 0;
@@ -413,13 +414,14 @@ std::vector<u8> lzmaDecompress(std::span<const u8> src, size_t expectedSize) {
                 state = stateUpdateMatch(state);
 
                 // Decode distance
-                u32 lengthState = getLenToPosState(matchLength);
-                u32 distanceSlot = bitTreeDecode(&distSlotProbs[lengthState * 64], 6, rangeDecoder);
+                u32 const lengthState = getLenToPosState(matchLength);
+                u32 const distanceSlot =
+                    bitTreeDecode(&distSlotProbs[lengthState * 64], 6, rangeDecoder);
 
                 if (distanceSlot < kStartPosModelIndex) {
                     repDist0 = distanceSlot;
                 } else {
-                    u32 numDirectBits = (distanceSlot >> 1) - 1;
+                    u32 const numDirectBits = (distanceSlot >> 1) - 1;
                     repDist0 = (2 | (distanceSlot & 1)) << numDirectBits;
 
                     if (distanceSlot < kEndPosModelIndex) {

@@ -269,7 +269,7 @@ Track<T> getTrack(const MdlNode& node, std::string_view name) {
     // Check for static property
     if (auto* p = findProp(node, name)) {
         if (p->isStatic && !p->values.empty()) {
-            MdlValue val = p->values[0];
+            MdlValue const val = p->values[0];
             return buildStaticTrack<T>(convertValue<T>(val));
         }
     }
@@ -621,7 +621,7 @@ void convertMaterials(const MdlNode& block, Model& model) {
                             continue;
                         }
                         // HiveWorkshop named-slot form (handles both static and animated)
-                        Layer::SlotType namedSlot = slotForName(prop->name);
+                        Layer::SlotType const namedSlot = slotForName(prop->name);
                         if (namedSlot != Layer::SlotType::Unknown) {
                             Layer::SubTexture sub;
                             if (!prop->values.empty() && prop->values[0].isNumber())
@@ -639,7 +639,7 @@ void convertMaterials(const MdlNode& block, Model& model) {
                     for (auto& mc2 : layerNode->children) {
                         auto* track = std::get_if<MdlAnimTrack>(&mc2);
                         if (!track) continue;
-                        Layer::SlotType namedSlot = slotForName(track->name);
+                        Layer::SlotType const namedSlot = slotForName(track->name);
                         if (namedSlot == Layer::SlotType::Unknown) continue;
                         // Skip if a static prop with the same name was already added above.
                         bool already = false;
@@ -1309,7 +1309,7 @@ void convertBindPose(const MdlNode& block, Model& model) {
 // ============================================================================
 
 Model convertMdlToModel(std::string_view source, std::vector<std::string>& issues) {
-    MdlDocument doc = MdlParser::parse(source);
+    MdlDocument const doc = MdlParser::parse(source);
 
     // Forward parse errors
     for (auto& err : doc.errors) {
