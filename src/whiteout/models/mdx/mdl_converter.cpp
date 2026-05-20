@@ -259,19 +259,16 @@ Track<T> buildStaticTrack(const T& value) {
     return track;
 }
 
-// Try to get a Track<T> from a node. Looks for an anim track first,
-// then falls back to a static property of the same name.
+// Get a Track<T> from a node. Only an animated `Name { N { ... } }` block
+// yields a track; a `static Name value` property does NOT — it carries the
+// scalar field, which every caller reads separately via getFloatOrStatic /
+// floatProp / vec3Prop. Promoting `static` to a one-key track here would make
+// the MDX writer emit a spurious K*** animation chunk that the source model
+// never had, breaking the binary round-trip.
 template <typename T>
 Track<T> getTrack(const MdlNode& node, std::string_view name) {
     if (auto* t = findTrack(node, name)) {
         return buildTrack<T>(*t);
-    }
-    // Check for static property
-    if (auto* p = findProp(node, name)) {
-        if (p->isStatic && !p->values.empty()) {
-            MdlValue const val = p->values[0];
-            return buildStaticTrack<T>(convertValue<T>(val));
-        }
     }
     return Track<T>{};
 }
@@ -336,6 +333,9 @@ Node parseNodeFields(const MdlNode& block, Node::NodeType type) {
             break;
         case Node::NodeType::RibbonEmitter:
             node.flags = node.flags | Node::NodeFlag::RibbonEmitter;
+            break;
+        case Node::NodeType::CornEmitter:
+            node.flags = node.flags | Node::NodeFlag::ParticleEmitter;
             break;
         default:
             break;
@@ -548,9 +548,8 @@ void convertMaterials(const MdlNode& block, Model& model) {
                     }
                     // HiveWorkshop fallback: `ShaderTypeId 1,` for HD detection
                     if (auto* p = findProp(*layerNode, "ShaderTypeId")) {
-                        if (!p->values.empty() && p->values[0].isNumber() &&
-                            static_cast<u32>(p->values[0].asNumber()) == 1) {
-                            layer.shader = Layer::ShaderType::HD;
+                        if (!p->values.empty() && p->values[0].isNumber()) {
+                            layer.shader = static_cast<Layer::ShaderType>(p->values[0].asNumber());;
                         }
                     }
                     layer.is_hd = (layer.shader == Layer::ShaderType::HD ||
@@ -570,126 +569,34 @@ void convertMaterials(const MdlNode& block, Model& model) {
                         return Layer::SlotType::Unknown;
                     };
 
-                    // Helpers for the texture walk below.
-                    // findStaticProp:  match property by name, ignoring slot-form props
-                    // findAnimTrack:   match an MdlAnimTrack child by name
-                    auto findStaticProp =
-                        [](const MdlNode& n, const std::string& name) -> const MdlProperty* {
-                        for (auto& c : n.children) {
-                            if (auto* p = std::get_if<MdlProperty>(&c)) {
-                                if (p->name == name && !p->slot.has_value()) return p;
-                            }
-                        }
-                        return nullptr;
-                    };
-                    auto findAnimTrackByName =
-                        [](const MdlNode& n, const std::string& name) -> const MdlAnimTrack* {
-                        for (auto& c : n.children) {
-                            if (auto* t = std::get_if<MdlAnimTrack>(&c)) {
-                                if (t->name == name) return t;
-                            }
-                        }
-                        return nullptr;
-                    };
 
-                    // Build a Track<u32> from either the animated form or a single
-                    // static-property keyframe; nullptr/missing -> empty track.
-                    auto resolveTexTrack =
-                        [&](const std::string& name, u32 staticVal) -> Track<u32> {
-                        if (auto* t = findAnimTrackByName(*layerNode, name)) {
-                            return buildTrack<u32>(*t);
-                        }
-                        if (auto* p = findStaticProp(*layerNode, name); p && p->isStatic) {
-                            return buildStaticTrack<u32>(staticVal);
-                        }
-                        return Track<u32>{};
+                    auto texSlotForProp = [&](const MdlProperty& p) -> Layer::SlotType {
+                        if (p.name == "TextureID")
+                            return p.slot.has_value()
+                                       ? static_cast<Layer::SlotType>(p.slot.value())
+                                       : Layer::SlotType::DiffuseMap;
+                        return slotForName(p.name);
                     };
-
-                    bool sawSlotForm = false;
                     for (auto& mc2 : layerNode->children) {
-                        auto* prop = std::get_if<MdlProperty>(&mc2);
-                        if (!prop) continue;
-
-                        // Warcraft III slot form: `static TextureID N <= S,`
-                        if (prop->name == "TextureID" && prop->slot.has_value()) {
+                        if (auto* prop = std::get_if<MdlProperty>(&mc2)) {
+                            Layer::SlotType const slot = texSlotForProp(*prop);
+                            if (slot == Layer::SlotType::Unknown) continue;
                             Layer::SubTexture sub;
+                            sub.slot = slot;
                             if (!prop->values.empty() && prop->values[0].isNumber())
-                                sub.textureId = static_cast<u32>(prop->values[0].asNumber());
-                            sub.slot = static_cast<Layer::SlotType>(prop->slot.value());
+                                sub.textureId =
+                                    static_cast<u32>(prop->values[0].asNumber());
                             layer.subTextures.push_back(std::move(sub));
-                            sawSlotForm = true;
-                            continue;
-                        }
-                        // HiveWorkshop named-slot form (handles both static and animated)
-                        Layer::SlotType const namedSlot = slotForName(prop->name);
-                        if (namedSlot != Layer::SlotType::Unknown) {
+                        } else if (auto* track = std::get_if<MdlAnimTrack>(&mc2)) {
+                            Layer::SlotType slot = Layer::SlotType::DiffuseMap;
+                            if (track->name != "TextureID") {
+                                slot = slotForName(track->name);
+                                if (slot == Layer::SlotType::Unknown) continue;
+                            }
                             Layer::SubTexture sub;
-                            if (!prop->values.empty() && prop->values[0].isNumber())
-                                sub.textureId = static_cast<u32>(prop->values[0].asNumber());
-                            sub.slot = namedSlot;
-                            sub.tracks = resolveTexTrack(prop->name, sub.textureId);
+                            sub.slot = slot;
+                            sub.tracks = buildTrack<u32>(*track);
                             layer.subTextures.push_back(std::move(sub));
-                            sawSlotForm = true;
-                        }
-                    }
-                    // Animated HiveWorkshop named slots without a matching static prop
-                    // (e.g. `NormalTextureID 5 { Linear, ... },` with no separate
-                    // `NormalTextureID 5,`) are parsed as MdlAnimTrack children, so
-                    // also walk those:
-                    for (auto& mc2 : layerNode->children) {
-                        auto* track = std::get_if<MdlAnimTrack>(&mc2);
-                        if (!track) continue;
-                        Layer::SlotType const namedSlot = slotForName(track->name);
-                        if (namedSlot == Layer::SlotType::Unknown) continue;
-                        // Skip if a static prop with the same name was already added above.
-                        bool already = false;
-                        for (auto& s : layer.subTextures) {
-                            if (s.slot == namedSlot && s.tracks.isUsed) { already = true; break; }
-                        }
-                        if (already) continue;
-
-                        Layer::SubTexture sub;
-                        sub.slot = namedSlot;
-                        sub.tracks = buildTrack<u32>(*track);
-                        layer.subTextures.push_back(std::move(sub));
-                        sawSlotForm = true;
-                    }
-
-                    // Plain `TextureID` (no slot suffix, no named-slot equivalent).
-                    // Two MDL forms feed in here:
-                    //   - MdlProperty:  `TextureID 5,` / `static TextureID 5,`
-                    //   - MdlAnimTrack: `TextureID 5 { Linear, 0:5, 100:6 },` (animated flipbook)
-                    {
-                        const MdlProperty*  plainProp  = findStaticProp(*layerNode, "TextureID");
-                        const MdlAnimTrack* plainTrack = findAnimTrackByName(*layerNode, "TextureID");
-
-                        if (plainProp || plainTrack) {
-                            u32 texId = 0;
-                            if (plainProp && !plainProp->values.empty() &&
-                                plainProp->values[0].isNumber())
-                                texId = static_cast<u32>(plainProp->values[0].asNumber());
-
-                            Track<u32> tracks;
-                            if (plainTrack) {
-                                tracks = buildTrack<u32>(*plainTrack);
-                            } else if (plainProp && plainProp->isStatic) {
-                                tracks = buildStaticTrack<u32>(texId);
-                            }
-
-                            if (sawSlotForm) {
-                                // Multi-slot layer: engine puts an animated-only
-                                // TextureID into slot 0, and a HiveWorkshop diffuse
-                                // is also slot 0 by convention.
-                                Layer::SubTexture sub;
-                                sub.textureId = texId;
-                                sub.slot = Layer::SlotType::DiffuseMap;
-                                sub.tracks = std::move(tracks);
-                                layer.subTextures.push_back(std::move(sub));
-                            } else {
-                                // Legacy single-texture (SD) layer
-                                layer.textureId = texId;
-                                layer.textureIdTracks = std::move(tracks);
-                            }
                         }
                     }
 
@@ -701,8 +608,11 @@ void convertMaterials(const MdlNode& block, Model& model) {
                     // Animation tracks
                     layer.alphaTracks = getTrack<f32>(*layerNode, "Alpha");
 
-                    // Reforged PBR
-                    layer.emissiveGain = floatProp(*layerNode, "EmissiveGain");
+                    // Reforged PBR. emissiveGain's default value is 1.0, so a
+                    // layer with no `static EmissiveGain` line (absent, or
+                    // animated by a track that shadows the base scalar) reads
+                    // back as 1.0.
+                    layer.emissiveGain = floatProp(*layerNode, "EmissiveGain", 1.0f);
                     layer.fresnelColor =
                         vec3Prop(*layerNode, "FresnelColor", Vector3f(1, 1, 1));
                     layer.fresnelOpacity = floatProp(*layerNode, "FresnelOpacity");
@@ -972,8 +882,10 @@ void convertLight(const MdlNode& block, Model& model) {
     light.intensity = getFloatOrStatic(block, "Intensity");
     light.ambientIntensity = getFloatOrStatic(block, "AmbIntensity");
 
+    // Both colour fields default to white (1,1,1) — the value the war3.w3mod
+    // game assets carry when the colour is shadowed by an animation track.
     light.color = vec3Prop(block, "Color", Vector3f(1, 1, 1));
-    light.ambientColor = vec3Prop(block, "AmbColor", Vector3f(0, 0, 0));
+    light.ambientColor = vec3Prop(block, "AmbColor", Vector3f(1, 1, 1));
 
     light.attenuationStartTracks = getTrack<f32>(block, "AttenuationStart");
     light.attenuationEndTracks = getTrack<f32>(block, "AttenuationEnd");
@@ -1070,7 +982,7 @@ void convertParticleEmitter2(const MdlNode& block, Model& model) {
     else if (hasFlag(block, "Both"))
         pe2.headOrTail = 2;
 
-    pe2.tailLength = floatProp(block, "TailLength");
+    pe2.tailLength = floatProp(block, "TailLength", 1.0f);
     pe2.time = floatProp(block, "Time");
 
     pe2.textureId = u32Prop(block, "TextureID");
@@ -1079,21 +991,25 @@ void convertParticleEmitter2(const MdlNode& block, Model& model) {
     pe2.replaceableId = u32Prop(block, "ReplaceableId");
 
     // SegmentColor { Color { r, g, b }, Color { r, g, b }, Color { r, g, b }, }
+    // Each `Color { r, g, b },` has a number as the first token inside the
+    // brace, so the MDL parser yields an MdlProperty (name "Color", one array
+    // value) — not an MdlNode. Reading it as a node left segmentColor
+    // uninitialized, which surfaced as garbage floats on the round-trip.
     if (auto* seg = findBlock(block, "SegmentColor")) {
         int colorIdx = 0;
         for (auto& sc : seg->children) {
-            if (auto* cn = std::get_if<MdlNode>(&sc)) {
-                if (cn->name == "Color" && colorIdx < 3) {
-                    // Color as headerParams: Color { r, g, b }
-                    // Actually parsed as a sub-block with properties
-                    // The values are in headerParams
-                    if (cn->headerParams.size() >= 3) {
-                        pe2.segmentColor[colorIdx] = Vector3f(
-                            static_cast<f32>(cn->headerParams[0].asNumber()),
-                            static_cast<f32>(cn->headerParams[1].asNumber()),
-                            static_cast<f32>(cn->headerParams[2].asNumber()));
-                    }
-                    colorIdx++;
+            if (colorIdx >= 3) break;
+            if (auto* cp = std::get_if<MdlProperty>(&sc)) {
+                if (cp->name == "Color" && !cp->values.empty() &&
+                    cp->values[0].isArray()) {
+                    pe2.segmentColor[colorIdx++] = valueToVec3(cp->values[0]);
+                }
+            } else if (auto* cn = std::get_if<MdlNode>(&sc)) {
+                if (cn->name == "Color" && cn->headerParams.size() >= 3) {
+                    pe2.segmentColor[colorIdx++] = Vector3f(
+                        static_cast<f32>(cn->headerParams[0].asNumber()),
+                        static_cast<f32>(cn->headerParams[1].asNumber()),
+                        static_cast<f32>(cn->headerParams[2].asNumber()));
                 }
             }
         }
@@ -1261,11 +1177,14 @@ void convertCornEmitter(const MdlNode& block, Model& model) {
     CornEmitter ce;
     ce.node = parseNodeFields(block, Node::NodeType::CornEmitter);
 
-    // Static defaults (each may also be present as an animated track below).
-    ce.lifeSpan = getFloatOrStatic(block, "LifeSpan");
-    ce.emissionRate = getFloatOrStatic(block, "EmissionRate");
-    ce.speed = getFloatOrStatic(block, "Speed");
-    ce.alpha = getFloatOrStatic(block, "Alpha");
+    // Static base value of each field. When an animated track shadows the
+    // field, MDL carries only the track and the base value is absent — the
+    // war3.w3mod PopcornFX game assets keep that shadowed base at 1.0 (not the
+    // struct's 0.0), so fall back to 1.0 to keep the MDX round-trip exact.
+    ce.lifeSpan = getFloatOrStatic(block, "LifeSpan", 1.0f);
+    ce.emissionRate = getFloatOrStatic(block, "EmissionRate", 1.0f);
+    ce.speed = getFloatOrStatic(block, "Speed", 1.0f);
+    ce.alpha = getFloatOrStatic(block, "Alpha", 1.0f);
     ce.color = vec3Prop(block, "Color", Vector3f(1, 1, 1));
     ce.replaceableId = u32Prop(block, "ReplaceableId");
     ce.path = stringProp(block, "Path");

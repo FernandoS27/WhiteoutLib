@@ -381,8 +381,12 @@ void Writer::Impl::writeLayer(BinaryWriter& writer, const Layer& layer, const Mo
     writer.write(layer.coordId);
     writer.write(layer.alpha);
 
+    // emissiveGain exists from v900, the fresnel fields only from v1000 —
+    // must match parseLayer's gating (and the KFC3/KFCA/KFTC track gate below).
     if (mdx.version > 800) {
         writer.write(layer.emissiveGain);
+    }
+    if (mdx.version > 900) {
         writer.write(layer.fresnelColor);
         writer.write(layer.fresnelOpacity);
         writer.write(layer.fresnelTeamColor);

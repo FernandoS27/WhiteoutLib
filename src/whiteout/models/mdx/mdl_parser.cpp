@@ -72,7 +72,7 @@ static i32 toInt(std::string_view text) {
     auto len = text.size() < 31 ? text.size() : 31;
     std::memcpy(buf, text.data(), len);
     buf[len] = '\0';
-    return static_cast<i32>(std::strtol(buf, nullptr, 10));
+    return static_cast<i32>(std::strtoll(buf, nullptr, 10));
 }
 
 // ─── Parser core ─────────────────────────────────────────────────────────────

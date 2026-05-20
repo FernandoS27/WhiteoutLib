@@ -564,8 +564,15 @@ Layer Parser::Impl::parseLayer(BinaryReader& reader, Model& mdx) {
     layer.coordId = reader.read<u32>();
     layer.alpha = reader.read<f32>();
 
+    // emissiveGain appeared in v900; the fresnel fields only in v1000. Gating
+    // both on `> 800` made v900 layers consume 16 bytes of the following track
+    // chunk as fresnel data — surfacing as NaN fresnel values and misaligned
+    // track parsing. The fresnel *track* chunks (KFC3/KFCA/KFTC) are already
+    // correctly gated on `> 900` further below.
     if (mdx.version > 800) {
         layer.emissiveGain = reader.read<f32>();
+    }
+    if (mdx.version > 900) {
         layer.fresnelColor = reader.read<Vector3f>();
         layer.fresnelOpacity = reader.read<f32>();
         layer.fresnelTeamColor = reader.read<f32>();

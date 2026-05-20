@@ -95,10 +95,13 @@ private:
         // Emit the shortest decimal string that round-trips back to the exact
         // same f32. A fixed "%.6f" silently truncates the mantissa, so an MDX
         // model serialized to MDL and re-parsed would no longer be byte-equal;
-        // std::to_chars guarantees lossless round-tripping. MDL has no inf/nan
-        // literal, so non-finite values collapse to 0.0.
-        if (!std::isfinite(v))
-            return "0.0";
+        // std::to_chars guarantees lossless round-tripping. NaN/infinity (which
+        // do occur in shipped models) round-trip via the `nan`/`inf` literals
+        // the MDL tokenizer now accepts.
+        if (std::isnan(v))
+            return "nan";
+        if (std::isinf(v))
+            return v < 0.0f ? "-inf" : "inf";
         char buf[64];
         auto res = std::to_chars(buf, buf + sizeof(buf), v);
         std::string s(buf, res.ptr);
@@ -181,11 +184,14 @@ private:
 
         // Timestamps and key values live in separate vectors after the
         // split-timestamp refactor. Index both by keyframe number i.
+        // Keyframe times are signed (i32) — game assets place frames at
+        // negative times; emitting them unsigned would not survive the
+        // parser's integer round-trip.
         if (smooth) {
             auto tkeys = track.tangentKeys();
             for (size_t i = 0; i < track.keyCount; ++i) {
                 const auto& k = tkeys[i];
-                line(std::to_string(track.timestamps[i]) + ": " +
+                line(std::to_string(static_cast<i32>(track.timestamps[i])) + ": " +
                      fmtTrackValue(k.value) + ",");
                 indent();
                 line("InTan " + fmtTrackValue(k.inTan) + ",");
@@ -195,7 +201,7 @@ private:
         } else {
             auto values = track.keys();
             for (size_t i = 0; i < track.keyCount; ++i) {
-                line(std::to_string(track.timestamps[i]) + ": " +
+                line(std::to_string(static_cast<i32>(track.timestamps[i])) + ": " +
                      fmtTrackValue(values[i]) + ",");
             }
         }
@@ -490,7 +496,7 @@ private:
             }
         }
 
-        if (layer.textureAnimationId != 0 && layer.textureAnimationId != 0xFFFFFFFF)
+        if (layer.textureAnimationId != 0xFFFFFFFF)
             line("TVertexAnimId " + std::to_string(layer.textureAnimationId) + ",");
         if (layer.coordId != 0)
             line("CoordId " + std::to_string(layer.coordId) + ",");
@@ -502,8 +508,9 @@ private:
             line("static Alpha " + fmtFloat(layer.alpha) + ",");
         }
 
-        // Reforged PBR properties
-        if (layer.emissiveGain != 0.0f || layer.emissiveGainTracks.isUsed) {
+        // Reforged PBR properties. emissiveGain defaults to 1.0, so only emit
+        // a `static EmissiveGain` line when it differs from that default.
+        if (layer.emissiveGain != 1.0f || layer.emissiveGainTracks.isUsed) {
             if (layer.emissiveGainTracks.isUsed) {
                 writeTrackOrStatic<f32>("EmissiveGain", layer.emissiveGainTracks,
                                         layer.emissiveGain);
@@ -1098,7 +1105,8 @@ private:
             if (!ev.eventTrackTimes.empty()) {
                 openBlock("EventTrack " + std::to_string(ev.eventTrackTimes.size()));
                 for (auto t : ev.eventTrackTimes) {
-                    line(std::to_string(t) + ",");
+                    // Signed: event frames, like keyframe times, can be negative.
+                    line(std::to_string(static_cast<i32>(t)) + ",");
                 }
                 closeBlock();
             }

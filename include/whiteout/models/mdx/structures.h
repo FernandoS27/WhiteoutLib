@@ -338,7 +338,7 @@ struct Layer {
     f32 alpha = 1.0f;                             ///< Layer opacity
 
     // Reforged PBR properties (version > 800)
-    f32 emissiveGain = 0.0f;                   ///< Emissive light intensity
+    f32 emissiveGain = 1.0f;                   ///< Emissive light intensity (default 1.0)
     Vector3f fresnelColor = Vector3f(1, 1, 1); ///< Fresnel effect color
     f32 fresnelOpacity = 0.0f;                 ///< Fresnel effect opacity
     f32 fresnelTeamColor = 0.0f;               ///< Fresnel team color factor
@@ -627,14 +627,14 @@ struct ParticleEmitter2 {
     f32 tailLength = 0.0f; ///< Tail particle length
     f32 time = 0.0f;       ///< Middle time for segment animation
 
-    std::array<Vector3f, 3> segmentColor; ///< Color at start/middle/end
-    std::array<u8, 3> segmentAlpha;       ///< Alpha at start/middle/end
-    std::array<f32, 3> segmentScaling;    ///< Scale at start/middle/end
+    std::array<Vector3f, 3> segmentColor{}; ///< Color at start/middle/end
+    std::array<u8, 3> segmentAlpha{};       ///< Alpha at start/middle/end
+    std::array<f32, 3> segmentScaling{};    ///< Scale at start/middle/end
 
-    std::array<u32, 3> headInterval;      ///< Head lifetime intervals
-    std::array<u32, 3> headDecayInterval; ///< Head decay intervals
-    std::array<u32, 3> tailInterval;      ///< Tail lifetime intervals
-    std::array<u32, 3> tailDecayInterval; ///< Tail decay intervals
+    std::array<u32, 3> headInterval{};      ///< Head lifetime intervals
+    std::array<u32, 3> headDecayInterval{}; ///< Head decay intervals
+    std::array<u32, 3> tailInterval{};      ///< Tail lifetime intervals
+    std::array<u32, 3> tailDecayInterval{}; ///< Tail decay intervals
 
     u32 textureId = 0;     ///< Texture index
     u32 squirt = 0;        ///< Squirt flag (burst mode)

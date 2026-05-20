@@ -3,6 +3,7 @@
 
 #include "mdl_tokenizer.h"
 
+#include <cctype>
 #include <cstring>
 
 namespace whiteout {
@@ -63,6 +64,33 @@ inline u8 classify(char c) {
 inline bool isDigit(char c)    { return (classify(c) & CC_DIGIT) != 0; }
 [[maybe_unused]] inline bool isAlpha(char c)    { return (classify(c) & CC_ALPHA) != 0; }
 inline bool isAlphaNum(char c) { return (classify(c) & (CC_ALPHA | CC_DIGIT)) != 0; }
+
+// Length of a non-finite float keyword (`nan`, `inf`, `infinity`, optionally
+// signed) starting at p, or 0 if none. The HiveWorkshop MDL tooling emits
+// these literally for NaN/infinity values (a NaN written by some authoring
+// tools genuinely occurs in shipped models), and strtod parses them — they
+// just need to tokenize as Number rather than as a bare identifier. The
+// keyword must not run into a longer identifier (so "influence" is not "inf").
+std::size_t matchFloatKeyword(const char* p, const char* end) {
+    const char* s = p;
+    if (s < end && (*s == '+' || *s == '-'))
+        ++s;
+    auto tryWord = [&](const char* w) -> const char* {
+        const char* q = s;
+        for (; *w; ++w, ++q) {
+            if (q >= end ||
+                std::tolower(static_cast<unsigned char>(*q)) != *w)
+                return nullptr;
+        }
+        if (q < end && (isAlphaNum(*q) || *q == '.'))
+            return nullptr; // part of a longer token
+        return q;
+    };
+    const char* e = tryWord("infinity");
+    if (!e) e = tryWord("inf");
+    if (!e) e = tryWord("nan");
+    return e ? static_cast<std::size_t>(e - p) : 0;
+}
 
 } // anonymous namespace
 
@@ -136,6 +164,17 @@ void MdlTokenizer::run() {
             break; // fall through to error path
         default:
             break;
+        }
+
+        // ── Non-finite float keywords (nan / inf / infinity, signed) ──
+        // Checked before identifiers so a bare `nan` tokenizes as a Number.
+        if (cls & (CC_ALPHA | CC_SIGN)) {
+            if (std::size_t kw = matchFloatKeyword(m_cursor, m_end)) {
+                m_tokens.push_back(
+                    {MdlTokenType::Number, {m_cursor, kw}, m_line, col});
+                m_cursor += kw;
+                continue;
+            }
         }
 
         // ── Numbers ──
@@ -260,8 +299,13 @@ void MdlTokenizer::readString() {
     ++m_cursor; // skip opening quote
     const char* start = m_cursor;
 
-    while (m_cursor < m_end && *m_cursor != '"' && *m_cursor != '\n')
+    while (m_cursor < m_end && *m_cursor != '"') {
+        if (*m_cursor == '\n') {
+            ++m_line;
+            m_lineStart = m_cursor + 1;
+        }
         ++m_cursor;
+    }
 
     const auto len = static_cast<std::size_t>(m_cursor - start);
 
