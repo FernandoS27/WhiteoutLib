@@ -89,6 +89,8 @@ public:
     CollisionShape parseCollisionShape(BinaryReader& reader);
     SoundEmitter parseSoundEmitter(BinaryReader& reader, u32 maxSize);
 
+    void upgradeMaterials(Model& mdx);
+
     /**
      * @brief Parse animation tracks
      * @tparam T Track value type (f32, Vector3f, etc.)
@@ -197,6 +199,7 @@ Model Parser::parse(const std::string& filePath) {
             std::string source(static_cast<size_t>(size), '\0');
             file.read(source.data(), size);
             Model model = convertMdlToModel(source, pImpl->issues);
+            pImpl->upgradeMaterials(model); // Upgrade materials if needed
             return model;
         }
     }
@@ -213,6 +216,7 @@ Model Parser::parse(std::span<const u8> buffer, MDLXFormat format) {
     if (format == MDLXFormat::MDL) {
         std::string_view const source(reinterpret_cast<const char*>(buffer.data()), buffer.size());
         Model model = convertMdlToModel(source, pImpl->issues);
+        pImpl->upgradeMaterials(model); // Upgrade materials if needed
         return model;
     }
 
@@ -342,6 +346,7 @@ Model Parser::Impl::parse(BinaryReader& reader) {
             break;
         }
     }
+    upgradeMaterials(mdx); // Upgrade materials if needed
     if (upgradeMode == UpgradeMode::UpgradeOldVersions && mdx.version < CurrentVersion && mdx.version > 800) {
         mdx.version = CurrentVersion;
     }
@@ -466,16 +471,12 @@ void Parser::Impl::parseMTLS(BinaryReader& reader, u32 size, Model& mdx) {
 
 Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 /*chunkSize*/, Model& mdx) {
     Material mat;
-    [[maybe_unused]] u32 const startPos = reader.getPosition();
-    bool is_hd = false;
-
     [[maybe_unused]] u32 const inclusiveSize = reader.read<u32>();
     mat.priorityPlane = reader.read<u32>();
     mat.flags = reader.read<Material::Flag>();
 
     if (mdx.version >= 900 && mdx.version < 1100) {
         mat.shader = reader.readString(80);
-        is_hd = mat.shader == "Shader_HD_DefaultUnit" || mat.shader == "Shader_HD_Crystal";
     }
 
     // Read LAYS chunk
@@ -485,68 +486,6 @@ Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 /*chunkSize*/, Mo
     mat.layers.resize(layerCount);
     for (u32 i = 0; i < layerCount; i++) {
         mat.layers[i] = parseLayer(reader, mdx);
-    }
-
-    // Upgrade older versions to newer format.
-    if (upgradeMode == UpgradeMode::UpgradeOldVersions && mdx.version < 1100) {
-        const bool engineHdMerge =
-            is_hd && mdx.version >= 900 && mat.layers.size() == 6;
-
-        if (engineHdMerge) {
-            // For HD-collapsed layers, layer index is the slot value.
-            static constexpr Layer::SlotType kHdSlotOrder[] = {
-                Layer::SlotType::DiffuseMap,
-                Layer::SlotType::NormalMap,
-                Layer::SlotType::ORMMap,
-                Layer::SlotType::EmissiveMap,
-                Layer::SlotType::TeamColor,
-                Layer::SlotType::EnvironmentMap,
-            };
-
-            // Convert to HD layer format
-            std::vector<Layer> hdLayers;
-            hdLayers.resize(1);
-            hdLayers[0] = mat.layers[0]; // First layer is the HD layer
-
-            hdLayers[0].textureId = 0;
-            hdLayers[0].textureIdTracks = Track<u32>();
-            for (size_t i = 0; i < mat.layers.size(); i++) {
-                auto& layer = mat.layers[i];
-                Layer::SubTexture subTex;
-                subTex.textureId = layer.textureId;
-                subTex.slot = kHdSlotOrder[i];
-                subTex.tracks = std::move(layer.textureIdTracks);
-                hdLayers[0].subTextures.push_back(subTex);
-            }
-            if (mat.shader == "Shader_SD_FixedFunction") {
-                hdLayers[0].shader = Layer::ShaderType::SDOnHD;
-            } else if (mat.shader == "Shader_HD_DefaultUnit") {
-                hdLayers[0].shader = Layer::ShaderType::HD;
-            } else if (mat.shader == "Shader_HD_Crystal") {
-                hdLayers[0].shader = Layer::ShaderType::Crystal;
-            } else {
-                hdLayers[0].shader = Layer::ShaderType::SD; // Unknown shader, set to 0
-            }
-
-            // Material-level TwoSided propagates onto the merged layer.
-            if (hasFlag(mat.flags, Material::Flag::TwoSided)) {
-                hdLayers[0].shadingFlags |= Layer::ShadingFlag::TwoSided;
-            }
-
-            mat.layers = std::move(hdLayers);
-        } else {
-            // Non-HD path: seed subTextures[0] for each layer so the writer
-            // can emit the unified v1100 layout consistently.
-            for (auto& layer : mat.layers) {
-                Layer::SubTexture subTex;
-                subTex.textureId = layer.textureId;
-                subTex.slot = Layer::SlotType::DiffuseMap;
-                subTex.tracks = std::move(layer.textureIdTracks);
-                layer.subTextures.push_back(subTex);
-                layer.textureId = 0; // Clear textureId since it will be in subTextures
-                layer.textureIdTracks = Track<u32>(); // Clear old tracks
-            }
-        }
     }
 
     return mat;
@@ -604,8 +543,6 @@ Layer Parser::Impl::parseLayer(BinaryReader& reader, Model& mdx) {
 
     const u32 endPos = startPos + inclusiveSize;
     while (reader.getPosition() < endPos) {
-        [[maybe_unused]] u32 const currentPos = reader.getPosition();
-
         u32 const trackTag = reader.read<u32>();
         u32 const trackCount = reader.read<u32>();
         u32 const interpolationType = reader.read<u32>();
@@ -1574,6 +1511,81 @@ void Parser::Impl::parseCORN(BinaryReader& reader, u32 size, Model& mdx) {
 
         mdx.cornEmitters.push_back(corn);
         totalRead += reader.getPosition() - startPos;
+    }
+}
+
+void Parser::Impl::upgradeMaterials(Model& mdx) {
+    if (mdx.version <= 800 || mdx.version > 1000) {
+        return;
+    }
+
+    if (upgradeMode != UpgradeMode::UpgradeOldVersions)
+    {
+        return;
+    }
+
+    // If the model is from Reforged and has no materials but has geosets, create default materials
+    for (auto& mat : mdx.materials) {
+        const bool is_hd = mat.shader == "Shader_HD_DefaultUnit" || mat.shader == "Shader_HD_Crystal";
+        // Upgrade older versions to newer format.
+        const bool engineHdMerge =
+            is_hd && mdx.version >= 900 && mat.layers.size() == 6;
+
+        if (engineHdMerge) {
+            // For HD-collapsed layers, layer index is the slot value.
+            static constexpr Layer::SlotType kHdSlotOrder[] = {
+                Layer::SlotType::DiffuseMap,
+                Layer::SlotType::NormalMap,
+                Layer::SlotType::ORMMap,
+                Layer::SlotType::EmissiveMap,
+                Layer::SlotType::TeamColor,
+                Layer::SlotType::EnvironmentMap,
+            };
+
+            // Convert to HD layer format
+            std::vector<Layer> hdLayers;
+            hdLayers.resize(1);
+            hdLayers[0] = mat.layers[0]; // First layer is the HD layer
+
+            hdLayers[0].textureId = 0;
+            hdLayers[0].textureIdTracks = Track<u32>();
+            for (size_t i = 0; i < mat.layers.size(); i++) {
+                auto& layer = mat.layers[i];
+                Layer::SubTexture subTex;
+                subTex.textureId = layer.textureId;
+                subTex.slot = kHdSlotOrder[i];
+                subTex.tracks = std::move(layer.textureIdTracks);
+                hdLayers[0].subTextures.push_back(subTex);
+            }
+            if (mat.shader == "Shader_SD_FixedFunction") {
+                hdLayers[0].shader = Layer::ShaderType::SDOnHD;
+            } else if (mat.shader == "Shader_HD_DefaultUnit") {
+                hdLayers[0].shader = Layer::ShaderType::HD;
+            } else if (mat.shader == "Shader_HD_Crystal") {
+                hdLayers[0].shader = Layer::ShaderType::Crystal;
+            } else {
+                hdLayers[0].shader = Layer::ShaderType::SD; // Unknown shader, set to 0
+            }
+
+            // Material-level TwoSided propagates onto the merged layer.
+            if (hasFlag(mat.flags, Material::Flag::TwoSided)) {
+                hdLayers[0].shadingFlags |= Layer::ShadingFlag::TwoSided;
+            }
+
+            mat.layers = std::move(hdLayers);
+        } else {
+            // Non-HD path: seed subTextures[0] for each layer so the writer
+            // can emit the unified v1100 layout consistently.
+            for (auto& layer : mat.layers) {
+                Layer::SubTexture subTex;
+                subTex.textureId = layer.textureId;
+                subTex.slot = Layer::SlotType::DiffuseMap;
+                subTex.tracks = std::move(layer.textureIdTracks);
+                layer.subTextures.push_back(subTex);
+                layer.textureId = 0; // Clear textureId since it will be in subTextures
+                layer.textureIdTracks = Track<u32>(); // Clear old tracks
+            }
+        }
     }
 }
 

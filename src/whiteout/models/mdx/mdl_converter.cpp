@@ -22,7 +22,7 @@ namespace {
 // ============================================================================
 
 // Case-insensitive string comparison
-[[maybe_unused]] bool iequals(std::string_view a, std::string_view b) {
+bool iequals(std::string_view a, std::string_view b) {
     if (a.size() != b.size()) return false;
     for (size_t i = 0; i < a.size(); ++i) {
         if (std::tolower(static_cast<unsigned char>(a[i])) !=
@@ -110,6 +110,18 @@ Vector3f vec3Prop(const MdlNode& node, std::string_view name,
 // Check if a bare flag property exists
 bool hasFlag(const MdlNode& node, std::string_view name) {
     return findProp(node, name) != nullptr;
+}
+
+// Case-insensitive flag check. MDL exporters disagree on casing for
+// acronym-bearing flags — e.g. Blizzard's exporter writes `EmitterUsesMDL`
+// while some tools emit `EmitterUsesMdl`.
+bool hasFlagCI(const MdlNode& node, std::string_view name) {
+    for (auto& child : node.children) {
+        if (auto* p = std::get_if<MdlProperty>(&child)) {
+            if (iequals(p->name, name)) return true;
+        }
+    }
+    return false;
 }
 
 // Parse an Extent from a node's MinimumExtent/MaximumExtent/BoundsRadius properties
@@ -549,7 +561,7 @@ void convertMaterials(const MdlNode& block, Model& model) {
                     // HiveWorkshop fallback: `ShaderTypeId 1,` for HD detection
                     if (auto* p = findProp(*layerNode, "ShaderTypeId")) {
                         if (!p->values.empty() && p->values[0].isNumber()) {
-                            layer.shader = static_cast<Layer::ShaderType>(p->values[0].asNumber());;
+                            layer.shader = static_cast<Layer::ShaderType>(p->values[0].asNumber());
                         }
                     }
                     layer.is_hd = (layer.shader == Layer::ShaderType::HD ||
@@ -566,6 +578,7 @@ void convertMaterials(const MdlNode& block, Model& model) {
                         if (n == "EmissiveTextureID")      return Layer::SlotType::EmissiveMap;
                         if (n == "TeamColorTextureID")     return Layer::SlotType::TeamColor;
                         if (n == "ReflectionsTextureID")   return Layer::SlotType::EnvironmentMap;
+                        if (n == "TextureID")              return Layer::SlotType::DiffuseMap;
                         return Layer::SlotType::Unknown;
                     };
 
@@ -577,27 +590,67 @@ void convertMaterials(const MdlNode& block, Model& model) {
                                        : Layer::SlotType::DiffuseMap;
                         return slotForName(p.name);
                     };
+
                     for (auto& mc2 : layerNode->children) {
-                        if (auto* prop = std::get_if<MdlProperty>(&mc2)) {
-                            Layer::SlotType const slot = texSlotForProp(*prop);
-                            if (slot == Layer::SlotType::Unknown) continue;
+                        auto* prop = std::get_if<MdlProperty>(&mc2);
+                        if (!prop) continue;
+
+                        if (model.version < 1100) {
+                            if (prop->name == "TextureID") {
+                                if (!prop->values.empty() && prop->values[0].isNumber()) {
+                                    layer.textureId = static_cast<u32>(prop->values[0].asNumber());
+                                }
+                                continue;
+                            }
+                        }
+
+                        // Warcraft III slot form: `static TextureID N <= S,`
+                        if (prop->name == "TextureID" && prop->slot.has_value()) {
                             Layer::SubTexture sub;
                             sub.slot = slot;
                             if (!prop->values.empty() && prop->values[0].isNumber())
                                 sub.textureId =
                                     static_cast<u32>(prop->values[0].asNumber());
                             layer.subTextures.push_back(std::move(sub));
-                        } else if (auto* track = std::get_if<MdlAnimTrack>(&mc2)) {
-                            Layer::SlotType slot = Layer::SlotType::DiffuseMap;
-                            if (track->name != "TextureID") {
-                                slot = slotForName(track->name);
-                                if (slot == Layer::SlotType::Unknown) continue;
-                            }
+                            continue;
+                        }
+                        // HiveWorkshop named-slot form (handles both static and animated)
+                        Layer::SlotType namedSlot = slotForName(prop->name);
+                        if (namedSlot != Layer::SlotType::Unknown) {
                             Layer::SubTexture sub;
                             sub.slot = slot;
                             sub.tracks = buildTrack<u32>(*track);
                             layer.subTextures.push_back(std::move(sub));
                         }
+                    }
+                    // Animated HiveWorkshop named slots without a matching static prop
+                    // (e.g. `NormalTextureID 5 { Linear, ... },` with no separate
+                    // `NormalTextureID 5,`) are parsed as MdlAnimTrack children, so
+                    // also walk those:
+                    for (auto& mc2 : layerNode->children) {
+                        auto* track = std::get_if<MdlAnimTrack>(&mc2);
+                        if (!track) continue;
+
+                        if (model.version < 1100) {
+                            if (track->name == "TextureID") {
+                                layer.textureIdTracks = buildTrack<u32>(*track);
+                                continue;
+                            }
+                        }
+
+                        Layer::SlotType namedSlot = slotForName(track->name);
+                        if (namedSlot == Layer::SlotType::Unknown) continue;
+                        // Skip if a static prop with the same name was already added above.
+                        bool already = false;
+                        for (auto& s : layer.subTextures) {
+                            if (s.slot == namedSlot && s.tracks.isUsed) { already = true; break; }
+                        }
+                        if (already) continue;
+
+                        Layer::SubTexture sub;
+                        sub.slot = namedSlot;
+                        sub.tracks = buildTrack<u32>(*track);
+                        layer.subTextures.push_back(std::move(sub));
                     }
 
                     layer.alpha = floatProp(*layerNode, "Alpha", 1.0f);
@@ -921,26 +974,34 @@ void convertParticleEmitter(const MdlNode& block, Model& model) {
     ParticleEmitter pe;
     pe.node = parseNodeFields(block, Node::NodeType::ParticleEmitter);
 
+    // MDL nests the per-particle fields (LifeSpan / InitVelocity / Path and
+    // their tracks) inside a `Particle { ... }` sub-block; binary MDX stores
+    // them inline on the emitter. Read those from the sub-block when present,
+    // falling back to the emitter block so a flattened MDL still works.
+    const MdlNode* particle = findBlock(block, "Particle");
+    const MdlNode& pblock = particle ? *particle : block;
+
     pe.emissionRate = getFloatOrStatic(block, "EmissionRate");
     pe.gravity = getFloatOrStatic(block, "Gravity");
     pe.longitude = getFloatOrStatic(block, "Longitude");
     pe.latitude = getFloatOrStatic(block, "Latitude");
-    pe.lifespan = getFloatOrStatic(block, "LifeSpan");
-    pe.initialVelocity = getFloatOrStatic(block, "InitVelocity");
-    pe.spawnModelFileName = stringProp(block, "Path");
+    pe.lifespan = getFloatOrStatic(pblock, "LifeSpan");
+    pe.initialVelocity = getFloatOrStatic(pblock, "InitVelocity");
+    pe.spawnModelFileName = stringProp(pblock, "Path");
 
-    // Check EmitterUsesMdl / EmitterUsesTga flags
-    if (hasFlag(block, "EmitterUsesMdl"))
+    // Check EmitterUsesMdl / EmitterUsesTga flags (case-insensitive — the
+    // canonical MDL spelling is the all-caps acronym EmitterUsesMDL/TGA).
+    if (hasFlagCI(block, "EmitterUsesMdl"))
         pe.node.flags = pe.node.flags | Node::NodeFlag::EmitterUsesMdl;
-    if (hasFlag(block, "EmitterUsesTga"))
+    if (hasFlagCI(block, "EmitterUsesTga"))
         pe.node.flags = pe.node.flags | Node::NodeFlag::EmitterUsesTga;
 
     pe.emissionRateTracks = getTrack<f32>(block, "EmissionRate");
     pe.gravityTracks = getTrack<f32>(block, "Gravity");
     pe.longitudeTracks = getTrack<f32>(block, "Longitude");
     pe.latitudeTracks = getTrack<f32>(block, "Latitude");
-    pe.lifespanTracks = getTrack<f32>(block, "LifeSpan");
-    pe.speedTracks = getTrack<f32>(block, "InitVelocity");
+    pe.lifespanTracks = getTrack<f32>(pblock, "LifeSpan");
+    pe.speedTracks = getTrack<f32>(pblock, "InitVelocity");
     pe.visibilityTracks = getTrack<f32>(block, "Visibility");
 
     model.particleEmitters.push_back(std::move(pe));
@@ -990,28 +1051,35 @@ void convertParticleEmitter2(const MdlNode& block, Model& model) {
     pe2.priorityPlane = u32Prop(block, "PriorityPlane");
     pe2.replaceableId = u32Prop(block, "ReplaceableId");
 
+    // ParticleEmitter2::segmentColor has no in-class initializer, so default
+    // to neutral white — a model that omits SegmentColor entirely then reads
+    // as full-bright instead of uninitialised garbage (which clamps to black).
+    pe2.segmentColor = {Vector3f(1, 1, 1), Vector3f(1, 1, 1), Vector3f(1, 1, 1)};
+
     // SegmentColor { Color { r, g, b }, Color { r, g, b }, Color { r, g, b }, }
-    // Each `Color { r, g, b },` has a number as the first token inside the
-    // brace, so the MDL parser yields an MdlProperty (name "Color", one array
-    // value) — not an MdlNode. Reading it as a node left segmentColor
-    // uninitialized, which surfaced as garbage floats on the round-trip.
+    // Each `Color { ... }` is an IDENT followed by a brace list of bare
+    // numbers, which the parser classifies as an array-valued MdlProperty
+    // (same shape as Alpha / ParticleScaling below) — NOT a sub-block. Read
+    // them that way; the old MdlNode/headerParams path never matched, leaving
+    // segmentColor uninitialised so every PE2 particle rendered black.
     if (auto* seg = findBlock(block, "SegmentColor")) {
         int colorIdx = 0;
         for (auto& sc : seg->children) {
-            if (colorIdx >= 3) break;
-            if (auto* cp = std::get_if<MdlProperty>(&sc)) {
-                if (cp->name == "Color" && !cp->values.empty() &&
-                    cp->values[0].isArray()) {
-                    pe2.segmentColor[colorIdx++] = valueToVec3(cp->values[0]);
-                }
-            } else if (auto* cn = std::get_if<MdlNode>(&sc)) {
-                if (cn->name == "Color" && cn->headerParams.size() >= 3) {
-                    pe2.segmentColor[colorIdx++] = Vector3f(
-                        static_cast<f32>(cn->headerParams[0].asNumber()),
-                        static_cast<f32>(cn->headerParams[1].asNumber()),
-                        static_cast<f32>(cn->headerParams[2].asNumber()));
+            if (colorIdx >= 3)
+                break;
+            auto* cp = std::get_if<MdlProperty>(&sc);
+            if (!cp || cp->name != "Color")
+                continue;
+            if (!cp->values.empty() && cp->values[0].isArray()) {
+                auto& arr = cp->values[0].asArray();
+                if (arr.size() >= 3) {
+                    pe2.segmentColor[colorIdx] =
+                        Vector3f(static_cast<f32>(arr[0].asNumber()),
+                                 static_cast<f32>(arr[1].asNumber()),
+                                 static_cast<f32>(arr[2].asNumber()));
                 }
             }
+            colorIdx++;
         }
     }
 
