@@ -384,7 +384,7 @@ struct Material {
         FullResolution = 0x20, ///< Force full-resolution textures
     };
 
-    u32 priorityPlane = 0;     ///< Rendering priority (higher = render last)
+    i32 priorityPlane = 0;     ///< Rendering priority (higher = render last); signed
     Flag flags = Flag::None;   ///< Material flags
     std::string shader;        ///< Shader name (Reforged)
     std::vector<Layer> layers; ///< Rendering layers
@@ -638,7 +638,7 @@ struct ParticleEmitter2 {
 
     u32 textureId = 0;     ///< Texture index
     u32 squirt = 0;        ///< Squirt flag (burst mode)
-    u32 priorityPlane = 0; ///< Rendering priority
+    i32 priorityPlane = 0; ///< Rendering priority; signed
     u32 replaceableId = 0; ///< Replaceable texture ID
 
     // Animation tracks

@@ -89,6 +89,7 @@ public:
     CollisionShape parseCollisionShape(BinaryReader& reader);
     SoundEmitter parseSoundEmitter(BinaryReader& reader, u32 maxSize);
 
+    void upgradeModel(Model& mdx);
     void upgradeMaterials(Model& mdx);
 
     /**
@@ -199,7 +200,7 @@ Model Parser::parse(const std::string& filePath) {
             std::string source(static_cast<size_t>(size), '\0');
             file.read(source.data(), size);
             Model model = convertMdlToModel(source, pImpl->issues);
-            pImpl->upgradeMaterials(model); // Upgrade materials if needed
+            pImpl->upgradeModel(model); // Upgrade materials if needed
             return model;
         }
     }
@@ -216,7 +217,7 @@ Model Parser::parse(std::span<const u8> buffer, MDLXFormat format) {
     if (format == MDLXFormat::MDL) {
         std::string_view const source(reinterpret_cast<const char*>(buffer.data()), buffer.size());
         Model model = convertMdlToModel(source, pImpl->issues);
-        pImpl->upgradeMaterials(model); // Upgrade materials if needed
+        pImpl->upgradeModel(model); // Upgrade materials if needed
         return model;
     }
 
@@ -346,10 +347,7 @@ Model Parser::Impl::parse(BinaryReader& reader) {
             break;
         }
     }
-    upgradeMaterials(mdx); // Upgrade materials if needed
-    if (upgradeMode == UpgradeMode::UpgradeOldVersions && mdx.version < CurrentVersion && mdx.version > 800) {
-        mdx.version = CurrentVersion;
-    }
+    upgradeModel(mdx); // Upgrade materials if needed
     return mdx;
 }
 
@@ -472,7 +470,7 @@ void Parser::Impl::parseMTLS(BinaryReader& reader, u32 size, Model& mdx) {
 Material Parser::Impl::parseMaterial(BinaryReader& reader, u32 /*chunkSize*/, Model& mdx) {
     Material mat;
     [[maybe_unused]] u32 const inclusiveSize = reader.read<u32>();
-    mat.priorityPlane = reader.read<u32>();
+    mat.priorityPlane = reader.read<i32>();
     mat.flags = reader.read<Material::Flag>();
 
     if (mdx.version >= 900 && mdx.version < 1100) {
@@ -1175,7 +1173,7 @@ ParticleEmitter2 Parser::Impl::parseParticleEmitter2(BinaryReader& reader, u32 /
 
     pem2.textureId = reader.read<u32>();
     pem2.squirt = reader.read<u32>();
-    pem2.priorityPlane = reader.read<u32>();
+    pem2.priorityPlane = reader.read<i32>();
     pem2.replaceableId = reader.read<u32>();
 
     // Parse animation tracks (KP2S, KP2R, KP2L, KP2G, KP2E, KP2N, KP2W, KP2V)
@@ -1514,7 +1512,7 @@ void Parser::Impl::parseCORN(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-void Parser::Impl::upgradeMaterials(Model& mdx) {
+void Parser::Impl::upgradeModel(Model& mdx)  {
     if (mdx.version <= 800 || mdx.version > 1000) {
         return;
     }
@@ -1524,6 +1522,11 @@ void Parser::Impl::upgradeMaterials(Model& mdx) {
         return;
     }
 
+    upgradeMaterials(mdx);
+    mdx.version = CurrentVersion;
+}
+
+void Parser::Impl::upgradeMaterials(Model& mdx) {
     // If the model is from Reforged and has no materials but has geosets, create default materials
     for (auto& mat : mdx.materials) {
         const bool is_hd = mat.shader == "Shader_HD_DefaultUnit" || mat.shader == "Shader_HD_Crystal";

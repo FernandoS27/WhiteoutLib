@@ -81,6 +81,17 @@ u32 u32Prop(const MdlNode& node, std::string_view name, u32 def = 0) {
     return def;
 }
 
+// Extract a signed i32 from a property's first value. Distinct from u32Prop
+// for genuinely-signed fields (e.g. PriorityPlane) — routing a negative MDL
+// literal through static_cast<u32> would be malformed.
+i32 i32Prop(const MdlNode& node, std::string_view name, i32 def = 0) {
+    if (auto* p = findProp(node, name)) {
+        if (!p->values.empty() && p->values[0].isNumber())
+            return static_cast<i32>(p->values[0].asNumber());
+    }
+    return def;
+}
+
 // Extract a string from a property's first value
 std::string stringProp(const MdlNode& node, std::string_view name,
                        const std::string& def = "") {
@@ -482,7 +493,7 @@ void convertMaterials(const MdlNode& block, Model& model) {
         if (auto* matNode = std::get_if<MdlNode>(&child)) {
             if (matNode->name != "Material") continue;
             Material mat;
-            mat.priorityPlane = u32Prop(*matNode, "PriorityPlane");
+            mat.priorityPlane = i32Prop(*matNode, "PriorityPlane");
             mat.flags = static_cast<Material::Flag>(u32Prop(*matNode, "Flags"));
             mat.shader = stringProp(*matNode, "Shader");
 
@@ -604,6 +615,8 @@ void convertMaterials(const MdlNode& block, Model& model) {
                             }
                         }
 
+                        Layer::SlotType const slot = texSlotForProp(*prop);
+
                         // Warcraft III slot form: `static TextureID N <= S,`
                         if (prop->name == "TextureID" && prop->slot.has_value()) {
                             Layer::SubTexture sub;
@@ -619,7 +632,7 @@ void convertMaterials(const MdlNode& block, Model& model) {
                         if (namedSlot != Layer::SlotType::Unknown) {
                             Layer::SubTexture sub;
                             sub.slot = slot;
-                            sub.tracks = buildTrack<u32>(*track);
+                            sub.textureId = static_cast<u32>(prop->values[0].asNumber());
                             layer.subTextures.push_back(std::move(sub));
                         }
                     }
@@ -1048,7 +1061,7 @@ void convertParticleEmitter2(const MdlNode& block, Model& model) {
 
     pe2.textureId = u32Prop(block, "TextureID");
     pe2.squirt = u32Prop(block, "Squirt");
-    pe2.priorityPlane = u32Prop(block, "PriorityPlane");
+    pe2.priorityPlane = i32Prop(block, "PriorityPlane");
     pe2.replaceableId = u32Prop(block, "ReplaceableId");
 
     // ParticleEmitter2::segmentColor has no in-class initializer, so default
