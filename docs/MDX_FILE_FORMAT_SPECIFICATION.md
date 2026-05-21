@@ -4,6 +4,7 @@
 **Byte Order**: Little-endian
 **File Magic**: `MDLX`
 **Supported Versions**: 800 (Classic), 900–1200 (Reforged)
+**Companion format**: [MDL](MDL_FILE_FORMAT_SPECIFICATION.md) — the equivalent human-readable text format
 
 This document describes the MDX format used by Warcraft III (Classic and Reforged). 
 The format is chunk-based and supports skeletal animation, particle effects, cameras, and collision volumes.
@@ -90,6 +91,7 @@ pre {
 | Date | Version | Description |
 |------|---------|-------------|
 | 2025-07-18 | 2.0 | Complete rewrite based on WhiteoutLib parser/writer implementation, GhostWolf's HiveWorkshop reference, and validation against 5081-file Reforged corpus |
+| 2026-05-21 | 2.1 | Corrected the Layer fresnel-field version gate (v1000, not v900); documented the v≥1100 layer `shader` field as a `ShaderType` enum (was mislabelled `isHD`); fixed the KEVT field order (`globalSequenceId` precedes the track times — v2.0 had it backwards); added field defaults, signed keyframe-time notes, and the precise version→release mapping. Validated by a byte-exact MDX→MDL→MDX round-trip over the full `war3.w3mod` game-asset corpus. |
 
 ## Table of Contents
 
@@ -122,11 +124,11 @@ The format is **chunk-based**: the file consists of a 4-byte magic number follow
 
 | Version | Game |
 |---------|------|
-| 800 | Warcraft III: Reign of Chaos / The Frozen Throne |
-| 900 | Warcraft III: Reforged (early beta) |
-| 1000 | Warcraft III: Reforged (beta) |
-| 1100 | Warcraft III: Reforged |
-| 1200 | Warcraft III: Reforged (current) |
+| 800 | Warcraft III: Reign of Chaos / The Frozen Throne (Classic) |
+| 900 | Warcraft III: Reforged — Beta |
+| 1000 | Warcraft III: Reforged — First Release (1.32) |
+| 1100 | Warcraft III: Reforged — 2.0.0 and later |
+| 1200 | Warcraft III: Reforged — current 2.0.x |
 
 > **Corpus note:** A corpus of 5081 MDX files extracted from Warcraft III: Reforged consists entirely of version 1200 files. Classic v800 models exist in older game data.
 
@@ -436,13 +438,15 @@ Layer {
     f32         alpha               // Layer opacity (0.0–1.0)
 
     // version > 800:
-    f32         emissiveGain
-    float[3]    fresnelColor        // RGB
+    f32         emissiveGain        // Emissive intensity; default 1.0 (not 0.0)
+
+    // version > 900:
+    float[3]    fresnelColor        // RGB; default (1, 1, 1)
     f32         fresnelOpacity
     f32         fresnelTeamColor
 
     // version >= 1100 (SubTexture system):
-    u32         isHD                // 1 = HD textures, 0 = SD
+    u32         shader              // ShaderType enum (0 = SD, 1 = HD, …)
     u32         numSubTextures
     SubTexture[numSubTextures] subTextures
 
@@ -455,6 +459,17 @@ Layer {
     (KFTC)                          // version > 900
 }
 ```
+
+> **Version gate — fresnel fields:** `emissiveGain` exists when `version > 800`,
+> but `fresnelColor`, `fresnelOpacity`, and `fresnelTeamColor` exist only when
+> `version > 900`. Gating all four on `version > 800` (a common mistake) makes a
+> v900 layer consume 16 bytes of the following track chunk as fresnel data,
+> yielding NaN fresnel values and a desynchronised track stream. The fresnel
+> *track* chunks (KFC3/KFCA/KFTC) share the same `version > 900` gate.
+
+> **`shader` field (version ≥ 1100):** A `u32` holding a `ShaderType` enum value
+> — **not** a boolean `isHD`. SD layers use `0`, HD (PBR) layers use `1`; other
+> values exist for engine-internal post-process shaders (see ShaderType enum).
 
 #### SubTexture (version ≥ 1100)
 
@@ -470,7 +485,7 @@ When `version >= 1100`, the KMTF track is stored per-SubTexture rather than on t
 
 #### SubTextureSlot Enum
 
-HD layers in Reforged use a PBR (Physically Based Rendering) texture pipeline. Each slot identifies the role of the texture in the shading model. An HD layer (`isHD = 1`) typically has 6 SubTextures — one per slot — while SD layers (`isHD = 0`) have a single SubTexture at slot 0.
+HD layers in Reforged use a PBR (Physically Based Rendering) texture pipeline. Each slot identifies the role of the texture in the shading model. An HD layer (`shader == 1`) typically has 6 SubTextures — one per slot — while SD layers (`shader == 0`) have a single SubTexture at slot 0.
 
 | Value | Name | Description |
 |-------|------|-------------|
@@ -486,6 +501,19 @@ HD layers in Reforged use a PBR (Physically Based Rendering) texture pipeline. E
 > - **1,349 layers** use a single slot 0 (SD diffuse-only).
 > - **82 layers** use `{0, 2, 3, 4, 5}` (HD without normal map).
 > - Slots 1–5 never appear without slot 0. Slot values outside 0–5 were not observed.
+
+#### ShaderType Enum (Layer `shader`, version ≥ 1100)
+
+The `u32` `shader` field selects the shading pipeline for the layer. Models on
+disk use only `0` (SD) and `1` (HD); the remaining values name engine-internal
+shaders (post-processing, terrain, UI, …) and are listed for completeness.
+
+| Value | Name | Notes |
+|------:|------|-------|
+| 0 | SD | Classic fixed-function shading; single diffuse SubTexture at slot 0. |
+| 1 | HD | Reforged PBR shading; the 6-slot SubTexture set. |
+| 2 | SDOnHD | SD content rendered through the HD pipeline. |
+| 3–25 | *(engine-internal)* | Terrain, Water, Fog, Foliage, Sprite, post-process (DepthOfField, Bloom\*, GaussianBlur, Tonemap, CMAA\*), Distortion, Crystal, Imgui, … — not used by on-disk model layers. |
 
 #### FilterMode Enum
 
@@ -1289,18 +1317,22 @@ The following table lists all track tags, their data type `T`, parent object, an
 
 ### 8.3 KEVT — Event Tracks
 
-Event object tracks have a unique structure that differs from all other track types. They store only frame times with no interpolation or value data.
+Event object tracks have a unique structure that differs from all other track types. They store only frame times with no interpolation or value data — there is no `interpolationType` field.
 
 ```
 KEVT {
     FourCC      "KEVT"              // 0x5456454B
     u32         trackCount          // Number of event times
-    u32[trackCount] tracks          // Frame times (ms) when event fires
     u32         globalSequenceId    // Index into GLBS, or 0xFFFFFFFF (-1)
+    i32[trackCount] tracks          // Frame times (ms) when the event fires
 }
 ```
 
-> **Critical field order:** The `globalSequenceId` comes **after** the track data, not before it. This is the opposite of standard animation tracks where `globalSequenceId` follows `interpolationType` in the header. Implementations that place `globalSequenceId` before the tracks will produce corrupt data.
+> **Field order:** `globalSequenceId` sits **between** `trackCount` and the
+> track data — the same position it occupies in a standard track header, just
+> with the `interpolationType` field omitted. (Verified against war3.w3mod game
+> assets and the mdx-m3-viewer reference reader.) The track times are signed
+> `i32`, consistent with keyframe `frame` values elsewhere.
 
 ---
 
@@ -1375,7 +1407,7 @@ The base format. All structures documented above without version conditions appl
 
 Added to existing structures:
 - **Material**: `char[80] shader` field after `flags`
-- **Layer**: `emissiveGain`, `fresnelColor[3]`, `fresnelOpacity`, `fresnelTeamColor` fields after `alpha`; KMTE track
+- **Layer**: `emissiveGain` field after `alpha`; KMTE track
 - **Geoset**: `lod` (`u32`) and `lodName` (`char[80]`) after `selectionFlags`; optional TANG and SKIN sub-chunks
 
 New chunks:
@@ -1383,16 +1415,19 @@ New chunks:
 - **FAFX**: Face animation effects (FaceFX)
 - **CORN**: Popcorn particle emitters
 
-### Version 1000 (Reforged Beta)
+### Version 1000 (Reforged — First Release)
 
 Added to existing structures:
-- **Layer**: KFC3, KFCA, KFTC Fresnel animation tracks (version > 900)
+- **Layer**: `fresnelColor[3]`, `fresnelOpacity`, `fresnelTeamColor` fields after `emissiveGain`; KFC3, KFCA, KFTC Fresnel animation tracks
 
-### Version 1100 (Reforged)
+> The fresnel **fields** and fresnel **tracks** were added together in v1000.
+> A v900 layer has `emissiveGain` but no fresnel data at all.
+
+### Version 1100 (Reforged — 2.0.0)
 
 Major layer system change:
-- **Material**: `shader` field **removed** (was only for 800 < version < 1100)
-- **Layer**: SubTexture system added — `isHD`, `numSubTextures`, and per-subtexture `{textureId, slot, KMTF}`
+- **Material**: `shader` string field **removed** (was only for 800 < version < 1100)
+- **Layer**: SubTexture system added — `shader` (`ShaderType` `u32`), `numSubTextures`, and per-subtexture `{textureId, slot, KMTF}`
 - **Layer**: KMTF track moved from Layer level to per-SubTexture
 
 ### Version 1200 (Reforged Current)
@@ -1663,7 +1698,10 @@ This dual system lets artists achieve common patterns efficiently:
 |------|----------|-----------|
 | KTAR data type | `f32` (scalar angle) | `float[4]` (quaternion XYZW) |
 | KPPC data type | `float[3]` (RGB) | `float[4]` (RGBA) |
-| KEVT field order | globalSequenceId before tracks | globalSequenceId **after** tracks |
+| KEVT field order | (v2.0 of this doc placed `globalSequenceId` **after** the track times) | `globalSequenceId` sits **between** `trackCount` and the track times — verified against game assets and mdx-m3-viewer |
 | Material shader | Present when `version > 800` | Present when `version > 800 && version < 1100` |
 | Light shadowIntensity | Not documented | Present when `version >= 1200` |
 | Layer SubTexture system | Not documented | New in version ≥ 1100 |
+| Layer fresnel fields | Present when `version > 800` (with `emissiveGain`) | `emissiveGain` is `version > 800`; `fresnelColor`/`fresnelOpacity`/`fresnelTeamColor` are `version > 900` |
+| Layer v≥1100 field | `u32 isHD` (boolean) | `u32 shader` — a `ShaderType` enum (0 = SD, 1 = HD, …) |
+| Keyframe `frame` | Unsigned time | Signed `i32`; negative frames occur in shipped models |
