@@ -425,10 +425,17 @@ private:
             }
         }
 
-        // Texture(s)
+        // Texture(s). Called only from the Warcraft III dialect paths below.
+        // The `<= slot` HD sub-texture designator was introduced in MDX
+        // v1100 — older versions' parsers only understand the plain
+        // `static TextureID <id>,` form, so omit the suffix there.
         auto writeStaticTexEngine = [&](u32 texId, u32 slot) {
-            line("static TextureID " + std::to_string(texId) +
-                 " <= " + std::to_string(slot) + ",");
+            if (m_model.version >= 1100) {
+                line("static TextureID " + std::to_string(texId) +
+                     " <= " + std::to_string(slot) + ",");
+            } else {
+                line("static TextureID " + std::to_string(texId) + ",");
+            }
         };
         auto slotName = [](Layer::SlotType slot) -> const char* {
             switch (slot) {
@@ -638,15 +645,19 @@ private:
         // Properties
         line("MaterialID " + std::to_string(geo.materialId) + ",");
         line("SelectionGroup " + std::to_string(geo.selectionGroup) + ",");
-        if (geo.selectionFlags == 4) {
+        if (geo.selectionFlags & 4u) {
             line("Unselectable,");
-        } else if (geo.selectionFlags != 0) {
+        } else if (geo.selectionFlags != 0 && m_format != MdlFormat::WarcraftIII) {
             line("SelectionFlags " + std::to_string(geo.selectionFlags) + ",");
         }
         if (geo.lod != 0)
             line("LevelOfDetail " + std::to_string(geo.lod) + ",");
-        if (!geo.lodName.empty())
-            line("LevelOfDetailName " + quoted(geo.lodName) + ",");
+        if (!geo.lodName.empty()) {
+            if (m_format == MdlFormat::WarcraftIII)
+                line("Name " + quoted(geo.lodName) + ",");
+            else
+                line("LevelOfDetailName " + quoted(geo.lodName) + ",");
+        }
 
         writeExtent(geo.extent);
 
@@ -666,18 +677,30 @@ private:
             closeBlock();
         }
 
-        // SkinWeights (Reforged)
+        // SkinWeights (Reforged), 8 ints per vertex. The Warcraft III client's
+        // reader expects them *bare* (comma-separated, no per-vertex braces) —
+        // a leading `{` makes its parse loop stop and then fail the `}` it
+        // expects, rejecting the model. The HiveWorkshop dialect wraps each
+        // vertex in `{ }`, which its community tooling expects.
         if (!geo.skinData.empty()) {
             size_t const vertCount = geo.skinData.size() / 8;
             openBlock("SkinWeights " + std::to_string(vertCount));
+            const bool braced = (m_format == MdlFormat::Hiveworkshop);
             for (size_t i = 0; i < geo.skinData.size(); i += 8) {
                 writeIndent();
-                m_out << "{ ";
-                for (size_t j = 0; j < 8 && (i + j) < geo.skinData.size(); ++j) {
-                    if (j > 0) m_out << ", ";
-                    m_out << static_cast<u32>(geo.skinData[i + j]);
+                if (braced) {
+                    m_out << "{ ";
+                    for (size_t j = 0; j < 8 && (i + j) < geo.skinData.size(); ++j) {
+                        if (j > 0) m_out << ", ";
+                        m_out << static_cast<u32>(geo.skinData[i + j]);
+                    }
+                    m_out << " },\n";
+                } else {
+                    for (size_t j = 0; j < 8 && (i + j) < geo.skinData.size(); ++j) {
+                        m_out << static_cast<u32>(geo.skinData[i + j]) << ", ";
+                    }
+                    m_out << "\n";
                 }
-                m_out << " },\n";
             }
             closeBlock();
         }

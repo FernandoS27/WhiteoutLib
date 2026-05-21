@@ -819,17 +819,25 @@ void convertGeoset(const MdlNode& block, Model& model) {
                     }
                 }
             } else if (sub->name == "SkinWeights") {
-                // SkinWeights N { { b0 b1 b2 b3 w0 w1 w2 w3 }, ... }
+                // SkinWeights, 8 ints per vertex. Two dialects in the wild:
+                //   Warcraft III : bare values   -> { N0, N1, N2, ... }
+                //   HiveWorkshop : braced groups  -> { { N0..N7 }, { ... } }
+                // The parser emits one anonymous MdlProperty child per entry;
+                // its value is a lone number (bare) or an array (braced).
+                // Accept both so a file written in either dialect round-trips.
                 for (auto& vc : sub->children) {
-                    if (auto* vp = std::get_if<MdlProperty>(&vc)) {
-                        if (!vp->values.empty() && vp->values[0].isArray()) {
-                            auto& arr = vp->values[0].asArray();
-                            for (auto& elem : arr) {
-                                if (elem.isNumber())
-                                    geo.skinData.push_back(static_cast<u8>(
-                                        elem.asNumber()));
-                            }
+                    auto* vp = std::get_if<MdlProperty>(&vc);
+                    if (!vp || vp->values.empty())
+                        continue;
+                    const MdlValue& v = vp->values[0];
+                    if (v.isArray()) {
+                        for (auto& elem : v.asArray()) {
+                            if (elem.isNumber())
+                                geo.skinData.push_back(
+                                    static_cast<u8>(elem.asNumber()));
                         }
+                    } else if (v.isNumber()) {
+                        geo.skinData.push_back(static_cast<u8>(v.asNumber()));
                     }
                 }
             } else if (sub->name == "Anim") {
@@ -859,6 +867,8 @@ void convertGeoset(const MdlNode& block, Model& model) {
             else if (prop->name == "LevelOfDetail" && !prop->values.empty())
                 geo.lod = static_cast<u32>(prop->values[0].asNumber());
             else if (prop->name == "LevelOfDetailName" && !prop->values.empty())
+                geo.lodName = prop->values[0].asString();
+            else if (prop->name == "Name" && !prop->values.empty())
                 geo.lodName = prop->values[0].asString();
             else if (prop->name == "MinimumExtent" || prop->name == "MaximumExtent" ||
                      prop->name == "BoundsRadius") {
