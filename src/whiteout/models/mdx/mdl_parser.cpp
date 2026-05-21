@@ -250,6 +250,13 @@ private:
             ++lookahead;
         }
 
+        // Optional engine HD-texture slot suffix between the count and the
+        // '{': `TextureID 3 <= 2 { ... }`. Skip it so the brace is still found.
+        if (m_ts.peek(lookahead).type == MdlTokenType::LessEqual &&
+            m_ts.peek(lookahead + 1).type == MdlTokenType::Number) {
+            lookahead += 2;
+        }
+
         if (m_ts.peek(lookahead).type != MdlTokenType::OpenBrace) {
             // Not a block/track — must be a property: IDENT NUMBER ','
             parent.children.push_back(parseProperty(false));
@@ -270,12 +277,17 @@ private:
             }
         }
 
-        // Check for bare number followed by colon → keyframes (EventTrack-like)
-        // Or bare number followed by comma → EventTrack values
+        // Check for bare number followed by colon → keyframes (EventTrack-like).
+        // A bare `NUMBER,` body is shared by EventTrack and by data blocks such
+        // as `SkinWeights N { 1, 2, ... }` (engine dialect); only EventTrack is
+        // actually a track, so gate the comma case on the block name.
         if (!isTrack && insideToken.type == MdlTokenType::Number) {
             auto& afterNum = m_ts.peek(insideIdx + 1);
-            if (afterNum.type == MdlTokenType::Colon || afterNum.type == MdlTokenType::Comma) {
+            if (afterNum.type == MdlTokenType::Colon) {
                 isTrack = true;
+            } else if (afterNum.type == MdlTokenType::Comma ||
+                       afterNum.type == MdlTokenType::CloseBrace) {
+                isTrack = (m_ts.peek().text == "EventTrack");
             }
         }
 
@@ -389,6 +401,19 @@ private:
         // Parse count
         if (m_ts.check(MdlTokenType::Number)) {
             track.count = static_cast<u32>(toNumber(m_ts.advance().text));
+        }
+
+        // Optional engine HD-texture slot suffix: `TextureID 3 <= 2 { ... }`.
+        if (m_ts.check(MdlTokenType::LessEqual)) {
+            m_ts.advance(); // consume "<="
+            if (m_ts.check(MdlTokenType::Number)) {
+                track.slot = static_cast<i32>(toNumber(m_ts.advance().text));
+            } else {
+                auto& t = m_ts.peek();
+                m_errors.push_back({"expected slot number after '<=', got '" +
+                                        std::string(t.text) + "'",
+                                    t.line, t.column});
+            }
         }
 
         m_ts.expect(MdlTokenType::OpenBrace, m_errors, "'{'");

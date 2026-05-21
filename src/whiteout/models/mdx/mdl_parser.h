@@ -89,6 +89,9 @@ struct MdlAnimTrack {
     u32 count = 0;
     std::string interpolation; // "Linear", "Hermite", "Bezier", "DontInterp", or "" for EventTrack
     u32 globalSequenceId = 0xFFFFFFFF; ///< 0xFFFFFFFF if track is not driven by a global sequence
+    /// Engine-style HD-texture slot designator from a "<= N" suffix on the
+    /// track header (e.g. `TextureID 3 <= 2 { ... }`). Set only when present.
+    std::optional<i32> slot;
     std::vector<MdlKeyframe> keyframes;
 };
 

@@ -522,7 +522,16 @@ Layer Parser::Impl::parseLayer(BinaryReader& reader, Model& mdx) {
         for (u32 i = 0; i < num_textures; i++) {
             Layer::SubTexture subTex;
             subTex.textureId = reader.read<u32>();
-            subTex.slot = static_cast<Layer::SlotType>(reader.read<u32>());
+            // HD-layer sub-textures are positional — index 0 = Diffuse,
+            // 1 = Normal, 2 = ORM, 3 = Emissive, 4 = TeamColor,
+            // 5 = Reflections. The stored texSemantic field is NOT reliable:
+            // the game's MDL reader leaves it 0 for animated (flipbook)
+            // textures, so a round-tripped MDX carries 0 there for, e.g., an
+            // animated normal map. The slot index is the source of truth
+            // (this is what the client itself uses); read and discard the
+            // stored value.
+            (void)reader.read<u32>(); // stored texSemantic — unreliable
+            subTex.slot = static_cast<Layer::SlotType>(i);
 
             u32 const subTexStart = reader.getPosition();
             u32 const peek_tag = reader.read<u32>();

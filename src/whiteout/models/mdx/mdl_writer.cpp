@@ -9,6 +9,7 @@
 #include <charconv>
 #include <cmath>
 #include <cstring>
+#include <optional>
 #include <sstream>
 #include <string>
 
@@ -170,13 +171,20 @@ private:
     static std::string fmtTrackValue(const Vector4f& v) { return fmtVec4(v); }
     static std::string fmtTrackValue(const Quaternion& q) { return fmtQuat(q); }
 
+    // `slot`, when set, appends the engine HD-texture `<= N` designator to the
+    // track header (`TextureID 3 <= 2 { ... }`). Only the animated-TextureID
+    // caller uses it; every other track passes nullopt.
     template <typename T>
-    void writeTrack(const std::string& name, const Track<T>& track) {
+    void writeTrack(const std::string& name, const Track<T>& track,
+                    std::optional<u32> slot = std::nullopt) {
         if (!track.isUsed || track.keyCount == 0) return;
 
         bool const smooth = isSmoothInterpolation(track.interpolationType);
 
-        openBlock(name + " " + std::to_string(track.keyCount));
+        std::string header = name + " " + std::to_string(track.keyCount);
+        if (slot)
+            header += " <= " + std::to_string(*slot);
+        openBlock(header);
         line(std::string(interpName(track.interpolationType)) + ",");
         if (track.globalSequenceId != 0xFFFFFFFF) {
             line("GlobalSeqId " + std::to_string(track.globalSequenceId) + ",");
@@ -456,9 +464,15 @@ private:
 
                 if (m_format == MdlFormat::WarcraftIII) {
                     // Warcraft III dialect: `static TextureID id <= slot,` for
-                    // static textures; animated flipbooks carry no slot suffix.
+                    // static textures. Animated flipbooks normally carry no
+                    // slot suffix (Diffuse), but a non-Diffuse animated slot —
+                    // which the plain form cannot express — is written as
+                    // `TextureID <n> <= <slot> { ... }`.
                     if (animated) {
-                        writeTrack<u32>("TextureID", subTex.tracks);
+                        const u32 slot = static_cast<u32>(subTex.slot);
+                        writeTrack<u32>("TextureID", subTex.tracks,
+                                        slot != 0 ? std::optional<u32>(slot)
+                                                  : std::nullopt);
                     } else {
                         writeStaticTexEngine(subTex.textureId,
                                              static_cast<u32>(subTex.slot));

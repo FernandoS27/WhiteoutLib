@@ -653,6 +653,11 @@ void convertMaterials(const MdlNode& block, Model& model) {
 
                         Layer::SlotType namedSlot = slotForName(track->name);
                         if (namedSlot == Layer::SlotType::Unknown) continue;
+                        // Warcraft III animated form `TextureID <n> <= <slot> { ... }`
+                        // carries the slot on the track header; honour it
+                        // (HiveWorkshop named-slot tracks keep their keyword slot).
+                        if (track->name == "TextureID" && track->slot.has_value())
+                            namedSlot = static_cast<Layer::SlotType>(track->slot.value());
                         // Skip if a static prop with the same name was already added above.
                         bool already = false;
                         for (auto& s : layer.subTextures) {
@@ -665,6 +670,18 @@ void convertMaterials(const MdlNode& block, Model& model) {
                         sub.tracks = buildTrack<u32>(*track);
                         layer.subTextures.push_back(std::move(sub));
                     }
+
+                    // Sub-textures are positional in the MDX layer chunk —
+                    // the array index is the slot. The two passes above append
+                    // statics then animated tracks in document order, which
+                    // interleaves slots; restore slot order so a round-trip
+                    // matches the MDX and consumers indexing by position hit
+                    // the right slot.
+                    std::stable_sort(
+                        layer.subTextures.begin(), layer.subTextures.end(),
+                        [](const Layer::SubTexture& a, const Layer::SubTexture& b) {
+                            return a.slot < b.slot;
+                        });
 
                     layer.alpha = floatProp(*layerNode, "Alpha", 1.0f);
                     layer.textureAnimationId =
