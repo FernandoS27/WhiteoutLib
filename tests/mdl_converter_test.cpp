@@ -486,14 +486,14 @@ Model "ParserTest" {
 // Corpus integration tests
 // ============================================================================
 
-static const char* CORPUS_SAURUS = "Corpus/MDL/saurus_warrior_unit_run.mdl";
+static const char* CORPUS_V800 = "Corpus/MDL/Ace/Ace.mdl";
 static const char* CORPUS_ZOVAAL = "Corpus/MDL/Zovaal/Zovaal the Banished One.mdl";
-static const char* CORPUS_ARTHAS = "Corpus/MDL/arthas.mdl";
+static const char* CORPUS_ARTHAS = "Corpus/MDL/war3.w3mod/units/human/arthas/arthas.mdl";
 static const char* CORPUS_DEMONHUNTER =
     "Corpus/MDL/Hero Female Demon Hunter Dominated/HeroFemaleDemonHunterDominated.mdl";
 
-TEST_CASE("corpus_saurus_warrior", "[mdl_converter][corpus]") {
-    auto source = readFile(CORPUS_SAURUS);
+TEST_CASE("corpus_v800_model", "[mdl_converter][corpus]") {
+    auto source = readFile(CORPUS_V800);
     REQUIRE(!source.empty());
 
     std::vector<std::string> issues;
@@ -579,7 +579,7 @@ TEST_CASE("corpus_demonhunter", "[mdl_converter][corpus]") {
 TEST_CASE("parser_file_extension_detection", "[mdl_converter]") {
     // Test the file-path parse method with a real .mdl file
     Parser parser;
-    Model model = parser.parse(std::string(CORPUS_SAURUS));
+    Model model = parser.parse(std::string(CORPUS_V800));
     CHECK(model.version == 800);
     CHECK(model.geosets.size() > 0);
 }
