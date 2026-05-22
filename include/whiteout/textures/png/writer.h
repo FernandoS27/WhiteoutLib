@@ -28,10 +28,31 @@
 namespace whiteout::textures::png {
 
 // ============================================================================
+// APNG frame / options
+// ============================================================================
+
+/// One frame of an animated PNG (APNG), with its display duration.
+/// @bind value_object, js_name=PngApngFrame
+struct ApngFrame {
+    Texture image;     ///< Full-canvas frame image (converted to RGBA8 on write).
+    u32 delayMs = 100; ///< Display duration in milliseconds.
+};
+
+/// Options controlling animated PNG (APNG) encoding.
+/// @bind value_object, js_name=PngApngSaveOptions
+struct ApngSaveOptions {
+    u32 loopCount = 0; ///< Number of times to loop; 0 means loop forever.
+};
+
+// ============================================================================
 // Writer
 // ============================================================================
 
 /// Encodes a Texture into PNG format.
+///
+/// In addition to single-image PNG, the writer can emit an animated PNG
+/// (APNG) from a sequence of frames via `writeAnimated()`. Each frame is
+/// written full-canvas with no inter-frame optimisation.
 /// @bind methods=buffer_only, js_name=PngWriter
 class Writer : public textures::Writer {
 public:
@@ -52,6 +73,25 @@ public:
 
     /// Serialize the texture to a PNG byte buffer.
     std::vector<u8> write(const Texture& texture) override;
+
+    // ── APNG (Animated PNG) ─────────────────────────────────────────────
+
+    /// Serialize a sequence of frames into an animated PNG (APNG) byte buffer.
+    ///
+    /// All frames must share the same dimensions (frame 0 defines the canvas).
+    /// Each frame is emitted full-canvas with disposal NONE and blend SOURCE.
+    /// Returns an empty buffer on failure (lenient mode).
+    /// @param frames Ordered animation frames; must be non-empty.
+    /// @param opts   Encoding options (loop count).
+    std::vector<u8> writeAnimated(const std::vector<ApngFrame>& frames,
+                                  const ApngSaveOptions& opts = {});
+
+    /// Serialize a sequence of frames into an animated PNG (APNG) file on disk.
+    /// @param filePath Destination path.
+    /// @param frames   Ordered animation frames; must be non-empty.
+    /// @param opts     Encoding options (loop count).
+    void writeAnimated(const std::string& filePath, const std::vector<ApngFrame>& frames,
+                       const ApngSaveOptions& opts = {});
 
     /// @return true if the last write produced any issues.
     bool hasIssues() const;

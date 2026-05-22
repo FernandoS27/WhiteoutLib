@@ -20,6 +20,13 @@ class Parser::Impl : public IssueSink {
 public:
     std::optional<Texture> parse(std::span<const u8> buffer);
 
+    // APNG results — populated by parse(), read by the public accessors.
+    bool isApng = false;
+    u32 actlFrames = 0;
+    u32 actlPlays = 0;
+    std::vector<Texture> compositedFrames;
+    std::vector<ApngFrameInfo> frameInfos;
+
 private:
     // IHDR fields.
     u32 imgWidth = 0;
@@ -32,6 +39,16 @@ private:
     std::vector<u8> palette;  // PLTE: R,G,B triples.
     std::vector<u8> trnsData; // tRNS chunk raw data.
 
+    // APNG decode state.
+    struct FrameRecord {
+        FcTL fctl;
+        std::vector<u8> stream; // Concatenated zlib stream for this frame.
+    };
+    std::vector<FrameRecord> frameRecords;
+    bool sawIDAT = false;
+    bool sawFcTLBeforeIDAT = false;
+    u32 expectedSeq = 0;
+
     /// Number of channels for the raw image (before expansion to RGBA).
     u32 rawChannels() const;
 
@@ -41,8 +58,18 @@ private:
     /// Reconstruct filtered scanlines in-place.
     bool unfilterScanlines(u8* data, u32 width, u32 height, u32 bpp);
 
-    /// Convert defiltered raw data to RGBA8 pixels.
-    bool convertToRGBA8(const u8* raw, u32 rawStride, u8* dest);
+    /// Convert defiltered raw data to a tight or strided RGBA8 buffer.
+    bool convertToRGBA8(const u8* raw, u32 rawStride, u32 frameW, u32 frameH, u8* dest,
+                        u32 destStride);
+
+    /// Decompress + unfilter + convert one frame's zlib stream into a tight
+    /// RGBA8 buffer (frameW * frameH * 4 bytes). Returns nullopt on failure.
+    std::optional<std::vector<u8>> decodeFrameStream(std::span<const u8> zlibStream, u32 frameW,
+                                                     u32 frameH);
+
+    /// Decode every APNG frame record and composite it onto the canvas,
+    /// populating compositedFrames / frameInfos. Returns false on failure.
+    bool compositeFrames();
 };
 
 u32 Parser::Impl::rawChannels() const {
@@ -125,17 +152,18 @@ bool Parser::Impl::unfilterScanlines(u8* data, u32 width, u32 height, u32 bpp) {
     return true;
 }
 
-bool Parser::Impl::convertToRGBA8(const u8* raw, u32 rawStride, u8* dest) {
+bool Parser::Impl::convertToRGBA8(const u8* raw, u32 rawStride, u32 frameW, u32 frameH, u8* dest,
+                                  u32 destStride) {
     u32 const rowBytes = rawStride; // Bytes of pixel data per row (after filter byte).
 
-    for (u32 y = 0; y < imgHeight; ++y) {
+    for (u32 y = 0; y < frameH; ++y) {
         const u8* row = raw + static_cast<size_t>(y) * (1 + rowBytes) + 1; // Skip filter byte.
-        u8* out = dest + static_cast<size_t>(y) * imgWidth * 4;
+        u8* out = dest + static_cast<size_t>(y) * destStride;
 
         if (colorType == COLOR_TRUECOLOR_ALPHA && bitDepth == 8) {
-            std::memcpy(out, row, imgWidth * 4);
+            std::memcpy(out, row, static_cast<size_t>(frameW) * 4);
         } else if (colorType == COLOR_TRUECOLOR && bitDepth == 8) {
-            for (u32 x = 0; x < imgWidth; ++x) {
+            for (u32 x = 0; x < frameW; ++x) {
                 out[x * 4 + 0] = row[x * 3 + 0];
                 out[x * 4 + 1] = row[x * 3 + 1];
                 out[x * 4 + 2] = row[x * 3 + 2];
@@ -145,7 +173,7 @@ bool Parser::Impl::convertToRGBA8(const u8* raw, u32 rawStride, u8* dest) {
             // Check tRNS for transparent gray value.
             bool const hasTrns = trnsData.size() >= 2;
             u8 const trnsGray = hasTrns ? trnsData[1] : 0; // 16-bit BE, use low byte for 8-bit.
-            for (u32 x = 0; x < imgWidth; ++x) {
+            for (u32 x = 0; x < frameW; ++x) {
                 u8 const g = row[x];
                 out[x * 4 + 0] = g;
                 out[x * 4 + 1] = g;
@@ -153,7 +181,7 @@ bool Parser::Impl::convertToRGBA8(const u8* raw, u32 rawStride, u8* dest) {
                 out[x * 4 + 3] = (hasTrns && g == trnsGray) ? 0 : 255;
             }
         } else if (colorType == COLOR_GRAYSCALE_ALPHA && bitDepth == 8) {
-            for (u32 x = 0; x < imgWidth; ++x) {
+            for (u32 x = 0; x < frameW; ++x) {
                 u8 const g = row[x * 2 + 0];
                 out[x * 4 + 0] = g;
                 out[x * 4 + 1] = g;
@@ -162,7 +190,7 @@ bool Parser::Impl::convertToRGBA8(const u8* raw, u32 rawStride, u8* dest) {
             }
         } else if (colorType == COLOR_INDEXED && bitDepth == 8) {
             u32 const paletteCount = static_cast<u32>(palette.size() / 3);
-            for (u32 x = 0; x < imgWidth; ++x) {
+            for (u32 x = 0; x < frameW; ++x) {
                 u8 const idx = row[x];
                 if (idx >= paletteCount) {
                     out[x * 4 + 0] = 0;
@@ -181,7 +209,7 @@ bool Parser::Impl::convertToRGBA8(const u8* raw, u32 rawStride, u8* dest) {
             u32 const pixelsPerByte = 8 / bitDepth;
             u32 const mask = (1u << bitDepth) - 1;
             u32 const paletteCount = static_cast<u32>(palette.size() / 3);
-            for (u32 x = 0; x < imgWidth; ++x) {
+            for (u32 x = 0; x < frameW; ++x) {
                 u32 const byteIdx = x / pixelsPerByte;
                 u32 const bitIdx = (pixelsPerByte - 1 - (x % pixelsPerByte)) * bitDepth;
                 u8 const idx = (row[byteIdx] >> bitIdx) & mask;
@@ -202,7 +230,7 @@ bool Parser::Impl::convertToRGBA8(const u8* raw, u32 rawStride, u8* dest) {
             u32 const pixelsPerByte = 8 / bitDepth;
             u32 const mask = (1u << bitDepth) - 1;
             u32 const maxVal = mask;
-            for (u32 x = 0; x < imgWidth; ++x) {
+            for (u32 x = 0; x < frameW; ++x) {
                 u32 const byteIdx = x / pixelsPerByte;
                 u32 const bitIdx = (pixelsPerByte - 1 - (x % pixelsPerByte)) * bitDepth;
                 u8 const val = (row[byteIdx] >> bitIdx) & mask;
@@ -216,7 +244,7 @@ bool Parser::Impl::convertToRGBA8(const u8* raw, u32 rawStride, u8* dest) {
         } else if (bitDepth == 16) {
             // 16-bit channels — downsample to 8-bit.
             u32 const ch = rawChannels();
-            for (u32 x = 0; x < imgWidth; ++x) {
+            for (u32 x = 0; x < frameW; ++x) {
                 const u8* px = row + static_cast<size_t>(x) * ch * 2;
                 if (colorType == COLOR_TRUECOLOR_ALPHA) {
                     out[x * 4 + 0] = px[0]; // High byte of R
@@ -253,6 +281,17 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
     issues.clear();
     palette.clear();
     trnsData.clear();
+
+    // Reset APNG state.
+    isApng = false;
+    actlFrames = 0;
+    actlPlays = 0;
+    compositedFrames.clear();
+    frameInfos.clear();
+    frameRecords.clear();
+    sawIDAT = false;
+    sawFcTLBeforeIDAT = false;
+    expectedSeq = 0;
 
     // Verify PNG signature.
     if (buffer.size() < 8 + 25) { // Signature + minimum IHDR chunk
@@ -367,6 +406,62 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
 
         case CHUNK_IDAT: {
             compressedData.insert(compressedData.end(), chunkData, chunkData + chunkLen);
+            sawIDAT = true;
+            // When an fcTL precedes IDAT, IDAT also carries frame 0's data.
+            if (sawFcTLBeforeIDAT && !frameRecords.empty()) {
+                frameRecords.front().stream.insert(frameRecords.front().stream.end(), chunkData,
+                                                   chunkData + chunkLen);
+            }
+            break;
+        }
+
+        case CHUNK_acTL: {
+            if (chunkLen != 8) {
+                fail("APNG acTL chunk has invalid size");
+                return std::nullopt;
+            }
+            actlFrames = readU32BE(chunkData);
+            actlPlays = readU32BE(chunkData + 4);
+            isApng = true;
+            break;
+        }
+
+        case CHUNK_fcTL: {
+            if (chunkLen != 26) {
+                fail("APNG fcTL chunk has invalid size");
+                return std::nullopt;
+            }
+            FcTL fctl = readFcTL(chunkData);
+            if (fctl.sequenceNumber != expectedSeq) {
+                fail("APNG fcTL sequence number out of order (expected " +
+                     std::to_string(expectedSeq) + ", got " +
+                     std::to_string(fctl.sequenceNumber) + ")");
+            }
+            expectedSeq = fctl.sequenceNumber + 1;
+            if (!sawIDAT) {
+                sawFcTLBeforeIDAT = true;
+            }
+            frameRecords.push_back(FrameRecord{fctl, {}});
+            break;
+        }
+
+        case CHUNK_fdAT: {
+            if (chunkLen < 4) {
+                fail("APNG fdAT chunk too small");
+                return std::nullopt;
+            }
+            u32 const seq = readU32BE(chunkData);
+            if (seq != expectedSeq) {
+                fail("APNG fdAT sequence number out of order (expected " +
+                     std::to_string(expectedSeq) + ", got " + std::to_string(seq) + ")");
+            }
+            expectedSeq = seq + 1;
+            if (frameRecords.empty()) {
+                fail("APNG fdAT chunk before any fcTL chunk");
+            } else {
+                frameRecords.back().stream.insert(frameRecords.back().stream.end(),
+                                                  chunkData + 4, chunkData + chunkLen);
+            }
             break;
         }
 
@@ -401,38 +496,157 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
         return std::nullopt;
     }
 
-    // Decompress the IDAT data.
+    // Decode the default image (the concatenated IDAT data).
+    auto defaultRgba = decodeFrameStream(std::span<const u8>(compressedData), imgWidth, imgHeight);
+    if (!defaultRgba) {
+        return std::nullopt;
+    }
+    Texture texture = Texture::create2D(PixelFormat::RGBA8, imgWidth, imgHeight, 1);
+    std::memcpy(texture.dataPtr(), defaultRgba->data(), defaultRgba->size());
+
+    // Decode and composite APNG animation frames, if present.
+    if (isApng && !frameRecords.empty()) {
+        if (!compositeFrames()) {
+            compositedFrames.clear();
+            frameInfos.clear();
+        }
+    }
+
+    return texture;
+}
+
+std::optional<std::vector<u8>> Parser::Impl::decodeFrameStream(std::span<const u8> zlibStream,
+                                                               u32 frameW, u32 frameH) {
     std::string zlibError;
-    auto rawData = zlib_decompress(
-        std::span<const u8>(compressedData.data(), compressedData.size()), &zlibError);
+    auto rawData = zlib_decompress(zlibStream, &zlibError);
     if (rawData.empty()) {
         fail("Failed to decompress PNG data: " + zlibError);
         return std::nullopt;
     }
 
-    // Validate decompressed size.
+    // Validate decompressed size against the frame's own dimensions.
     u32 const bitsPerPixel = rawChannels() * bitDepth;
-    u32 const rawStride = (imgWidth * bitsPerPixel + 7) / 8;
-    size_t const expectedSize = static_cast<size_t>(imgHeight) * (1 + rawStride);
+    u32 const rawStride = (frameW * bitsPerPixel + 7) / 8;
+    size_t const expectedSize = static_cast<size_t>(frameH) * (1 + rawStride);
     if (rawData.size() < expectedSize) {
         fail("Decompressed PNG data too small (expected " + std::to_string(expectedSize) +
              ", got " + std::to_string(rawData.size()) + ")");
         return std::nullopt;
     }
 
-    // Unfilter scanlines.
     u32 const bpp = rawBytesPerPixel();
-    if (!unfilterScanlines(rawData.data(), imgWidth, imgHeight, bpp)) {
+    if (!unfilterScanlines(rawData.data(), frameW, frameH, bpp)) {
         return std::nullopt;
     }
 
-    // Convert to RGBA8.
-    Texture texture = Texture::create2D(PixelFormat::RGBA8, imgWidth, imgHeight, 1);
-    if (!convertToRGBA8(rawData.data(), rawStride, texture.dataPtr())) {
+    std::vector<u8> rgba(static_cast<size_t>(frameW) * frameH * 4);
+    if (!convertToRGBA8(rawData.data(), rawStride, frameW, frameH, rgba.data(), frameW * 4)) {
         return std::nullopt;
     }
+    return rgba;
+}
 
-    return texture;
+bool Parser::Impl::compositeFrames() {
+    u32 const cw = imgWidth;
+    u32 const ch = imgHeight;
+    std::vector<u8> canvas(static_cast<size_t>(cw) * ch * 4, 0); // transparent black
+    std::vector<u8> prevSnapshot;
+
+    compositedFrames.clear();
+    frameInfos.clear();
+    compositedFrames.reserve(frameRecords.size());
+    frameInfos.reserve(frameRecords.size());
+
+    for (size_t i = 0; i < frameRecords.size(); ++i) {
+        const FcTL& f = frameRecords[i].fctl;
+
+        // Validate the frame rectangle against the canvas.
+        if (f.width == 0 || f.height == 0 ||
+            static_cast<u64>(f.xOffset) + f.width > cw ||
+            static_cast<u64>(f.yOffset) + f.height > ch) {
+            fail("APNG frame rectangle is out of canvas bounds");
+            return false;
+        }
+
+        auto sub = decodeFrameStream(std::span<const u8>(frameRecords[i].stream), f.width,
+                                     f.height);
+        if (!sub) {
+            return false;
+        }
+
+        // PREVIOUS on the first frame is treated as BACKGROUND per the spec.
+        u8 dispose = f.disposeOp;
+        if (i == 0 && dispose == DISPOSE_PREVIOUS) {
+            dispose = DISPOSE_BACKGROUND;
+        }
+        if (dispose == DISPOSE_PREVIOUS) {
+            prevSnapshot = canvas; // snapshot before drawing
+        }
+
+        // Composite the frame's sub-rectangle onto the canvas.
+        for (u32 y = 0; y < f.height; ++y) {
+            for (u32 x = 0; x < f.width; ++x) {
+                const u8* src = sub->data() + (static_cast<size_t>(y) * f.width + x) * 4;
+                u8* dst = canvas.data() +
+                          (static_cast<size_t>(f.yOffset + y) * cw + (f.xOffset + x)) * 4;
+                if (f.blendOp == BLEND_SOURCE) {
+                    dst[0] = src[0];
+                    dst[1] = src[1];
+                    dst[2] = src[2];
+                    dst[3] = src[3];
+                } else {
+                    // BLEND_OVER — 8-bit straight-alpha "over" composite.
+                    u32 const sa = src[3];
+                    u32 const da = dst[3];
+                    u32 const oa = sa + da * (255 - sa) / 255;
+                    if (oa == 0) {
+                        dst[0] = dst[1] = dst[2] = dst[3] = 0;
+                    } else {
+                        for (int c = 0; c < 3; ++c) {
+                            u32 const v = static_cast<u32>(src[c]) * sa +
+                                          static_cast<u32>(dst[c]) * da * (255 - sa) / 255;
+                            dst[c] = static_cast<u8>((v + oa / 2) / oa);
+                        }
+                        dst[3] = static_cast<u8>(oa);
+                    }
+                }
+            }
+        }
+
+        // The fully-composited canvas is this frame's output image.
+        Texture frameTex = Texture::create2D(PixelFormat::RGBA8, cw, ch, 1);
+        std::memcpy(frameTex.dataPtr(), canvas.data(), canvas.size());
+        compositedFrames.push_back(std::move(frameTex));
+
+        ApngFrameInfo info;
+        info.width = f.width;
+        info.height = f.height;
+        info.xOffset = f.xOffset;
+        info.yOffset = f.yOffset;
+        info.delayMs = static_cast<u32>(static_cast<u64>(f.delayNum) * 1000 /
+                                        (f.delayDen == 0 ? 100 : f.delayDen));
+        info.disposeOp = f.disposeOp;
+        info.blendOp = f.blendOp;
+        frameInfos.push_back(info);
+
+        // Apply disposal in preparation for the next frame.
+        switch (dispose) {
+        case DISPOSE_BACKGROUND:
+            for (u32 y = 0; y < f.height; ++y) {
+                std::memset(canvas.data() +
+                                (static_cast<size_t>(f.yOffset + y) * cw + f.xOffset) * 4,
+                            0, static_cast<size_t>(f.width) * 4);
+            }
+            break;
+        case DISPOSE_PREVIOUS:
+            canvas = prevSnapshot;
+            break;
+        case DISPOSE_NONE:
+        default:
+            break;
+        }
+    }
+    return true;
 }
 
 Parser::Parser(ParseMode parseMode) : pImpl(std::make_unique<Impl>()) {
@@ -460,6 +674,50 @@ bool Parser::hasIssues() const {
 
 const std::vector<std::string>& Parser::getIssues() const {
     return pImpl->issues;
+}
+
+bool Parser::isAnimated() const {
+    return pImpl->isApng;
+}
+
+u32 Parser::frameCount() const {
+    return pImpl->isApng ? pImpl->actlFrames : 0u;
+}
+
+u32 Parser::loopCount() const {
+    return pImpl->actlPlays;
+}
+
+const Texture& Parser::frame(u32 index) const {
+    if (index >= pImpl->compositedFrames.size()) {
+        if (pImpl->strict_mode) {
+            throw std::out_of_range("APNG frame index out of range");
+        }
+        static const Texture empty;
+        return empty;
+    }
+    return pImpl->compositedFrames[index];
+}
+
+u32 Parser::frameDelayMs(u32 index) const {
+    if (index >= pImpl->frameInfos.size()) {
+        if (pImpl->strict_mode) {
+            throw std::out_of_range("APNG frame index out of range");
+        }
+        return 0;
+    }
+    return pImpl->frameInfos[index].delayMs;
+}
+
+const ApngFrameInfo& Parser::frameInfo(u32 index) const {
+    if (index >= pImpl->frameInfos.size()) {
+        if (pImpl->strict_mode) {
+            throw std::out_of_range("APNG frame index out of range");
+        }
+        static const ApngFrameInfo empty;
+        return empty;
+    }
+    return pImpl->frameInfos[index];
 }
 
 } // namespace whiteout::textures::png

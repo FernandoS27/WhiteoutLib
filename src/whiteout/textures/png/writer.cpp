@@ -11,12 +11,17 @@
 
 #include <cstring>
 #include <memory>
+#include <span>
+#include <utility>
+#include <vector>
 
 namespace whiteout::textures::png {
 
 class Writer::Impl : public IssueSink {
 public:
     std::vector<u8> write(const Texture& texture);
+    std::vector<u8> writeAnimated(const std::vector<ApngFrame>& frames,
+                                  const ApngSaveOptions& opts);
 
 private:
     /// Append a PNG chunk (type + data + CRC32) to the output buffer.
@@ -161,6 +166,100 @@ std::vector<u8> Writer::Impl::write(const Texture& texture) {
     return output;
 }
 
+std::vector<u8> Writer::Impl::writeAnimated(const std::vector<ApngFrame>& frames,
+                                            const ApngSaveOptions& opts) {
+    issues.clear();
+
+    if (frames.empty()) {
+        fail("Cannot write an APNG with no frames");
+        return {};
+    }
+
+    // Frame 0 defines the canvas dimensions.
+    Texture canvas0 = frames[0].image.copyAsFormat(PixelFormat::RGBA8);
+    const u32 canvasW = canvas0.width();
+    const u32 canvasH = canvas0.height();
+    if (canvasW == 0 || canvasH == 0) {
+        fail("Cannot write an APNG frame with zero dimensions");
+        return {};
+    }
+
+    std::vector<u8> output;
+    output.reserve(64 + static_cast<size_t>(canvasW) * canvasH * 4 * frames.size());
+
+    // PNG signature.
+    output.insert(output.end(), PNG_SIGNATURE.begin(), PNG_SIGNATURE.end());
+
+    // IHDR chunk: 13 bytes.
+    u8 ihdr[13];
+    writeU32BE(ihdr + 0, canvasW);
+    writeU32BE(ihdr + 4, canvasH);
+    ihdr[8] = 8;                     // bit depth
+    ihdr[9] = COLOR_TRUECOLOR_ALPHA; // color type 6 (RGBA)
+    ihdr[10] = 0;                    // compression method
+    ihdr[11] = 0;                    // filter method
+    ihdr[12] = 0;                    // interlace method (none)
+    writeChunk(output, CHUNK_IHDR, ihdr, 13);
+
+    // acTL chunk: 8 bytes — must precede IDAT.
+    u8 actl[8];
+    writeU32BE(actl + 0, static_cast<u32>(frames.size()));
+    writeU32BE(actl + 4, opts.loopCount);
+    writeChunk(output, CHUNK_acTL, actl, 8);
+
+    u32 seq = 0;
+    for (size_t i = 0; i < frames.size(); ++i) {
+        Texture rgba =
+            (i == 0) ? std::move(canvas0) : frames[i].image.copyAsFormat(PixelFormat::RGBA8);
+        if (rgba.width() != canvasW || rgba.height() != canvasH) {
+            fail("All APNG frames must share the same dimensions");
+            return {};
+        }
+
+        // fcTL chunk: 26 bytes — one per frame.
+        // delayMs is encoded exactly as delayMs/1000 s; clamp the numerator.
+        u32 const dm = frames[i].delayMs;
+        u16 const delayNum = (dm > 0xFFFF) ? 0xFFFF : static_cast<u16>(dm);
+        u8 fctl[26];
+        writeU32BE(fctl + 0, seq++);
+        writeU32BE(fctl + 4, canvasW);
+        writeU32BE(fctl + 8, canvasH);
+        writeU32BE(fctl + 12, 0); // x_offset
+        writeU32BE(fctl + 16, 0); // y_offset
+        writeU16BE(fctl + 20, delayNum);
+        writeU16BE(fctl + 22, 1000); // delay denominator
+        fctl[24] = DISPOSE_NONE;
+        fctl[25] = BLEND_SOURCE;
+        writeChunk(output, CHUNK_fcTL, fctl, 26);
+
+        // Filter + compress this frame as its own independent zlib stream.
+        std::vector<u8> filtered = filterScanlines(rgba.dataPtr(), canvasW, canvasH);
+        std::string compressError;
+        auto compressed =
+            zlib_compress(std::span<const u8>(filtered.data(), filtered.size()), &compressError);
+        if (compressed.empty()) {
+            fail("Failed to compress APNG frame data: " + compressError);
+            return {};
+        }
+
+        if (i == 0) {
+            // Frame 0's pixel data goes in IDAT.
+            writeChunk(output, CHUNK_IDAT, compressed.data(), static_cast<u32>(compressed.size()));
+        } else {
+            // Subsequent frames go in fdAT: a 4-byte sequence number + frame data.
+            std::vector<u8> fdat(4 + compressed.size());
+            writeU32BE(fdat.data(), seq++);
+            std::memcpy(fdat.data() + 4, compressed.data(), compressed.size());
+            writeChunk(output, CHUNK_fdAT, fdat.data(), static_cast<u32>(fdat.size()));
+        }
+    }
+
+    // IEND chunk: 0 bytes of data.
+    writeChunk(output, CHUNK_IEND, nullptr, 0);
+
+    return output;
+}
+
 Writer::Writer(WriteMode writeMode) : pImpl(std::make_unique<Impl>()) {
     pImpl->strict_mode = (writeMode == WriteMode::Strict);
 }
@@ -179,6 +278,20 @@ void Writer::write(const std::string& filePath, const Texture& texture) {
 
 std::vector<u8> Writer::write(const Texture& texture) {
     return pImpl->write(texture);
+}
+
+std::vector<u8> Writer::writeAnimated(const std::vector<ApngFrame>& frames,
+                                      const ApngSaveOptions& opts) {
+    return pImpl->writeAnimated(frames, opts);
+}
+
+void Writer::writeAnimated(const std::string& filePath, const std::vector<ApngFrame>& frames,
+                           const ApngSaveOptions& opts) {
+    auto data = pImpl->writeAnimated(frames, opts);
+    if (data.empty()) {
+        return;
+    }
+    write_file_bytes(filePath, data, *pImpl);
 }
 
 bool Writer::hasIssues() const {

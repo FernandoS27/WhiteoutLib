@@ -37,6 +37,7 @@
 #include <whiteout/textures/bmp/writer.h>
 #include <whiteout/textures/tga/parser.h>
 #include <whiteout/textures/tga/writer.h>
+#include <whiteout/textures/gif/writer.h>
 
 
 namespace {
@@ -135,16 +136,43 @@ EMSCRIPTEN_BINDINGS(textures) {
         .value("Strict", whiteout::textures::tga::Writer::WriteMode::Strict)
         .value("Lenient", whiteout::textures::tga::Writer::WriteMode::Lenient);
 
+    enum_<whiteout::textures::gif::Writer::WriteMode>("GifWriteMode")
+        .value("Strict", whiteout::textures::gif::Writer::WriteMode::Strict)
+        .value("Lenient", whiteout::textures::gif::Writer::WriteMode::Lenient);
+
+    // ── Value-object types (plain JS objects) ────────────────────────────
+    value_object<whiteout::textures::png::ApngFrameInfo>("PngApngFrameInfo")
+        .field("width", &whiteout::textures::png::ApngFrameInfo::width)
+        .field("height", &whiteout::textures::png::ApngFrameInfo::height)
+        .field("xOffset", &whiteout::textures::png::ApngFrameInfo::xOffset)
+        .field("yOffset", &whiteout::textures::png::ApngFrameInfo::yOffset)
+        .field("delayMs", &whiteout::textures::png::ApngFrameInfo::delayMs)
+        .field("disposeOp", &whiteout::textures::png::ApngFrameInfo::disposeOp)
+        .field("blendOp", &whiteout::textures::png::ApngFrameInfo::blendOp)
+    ;
+
+    value_object<whiteout::textures::png::ApngFrame>("PngApngFrame")
+        .field("image", &whiteout::textures::png::ApngFrame::image)
+        .field("delayMs", &whiteout::textures::png::ApngFrame::delayMs)
+    ;
+
+    value_object<whiteout::textures::png::ApngSaveOptions>("PngApngSaveOptions")
+        .field("loopCount", &whiteout::textures::png::ApngSaveOptions::loopCount)
+    ;
+
+    value_object<whiteout::textures::gif::SaveOptions>("GifSaveOptions")
+        .field("delayCs", &whiteout::textures::gif::SaveOptions::delayCs)
+        .field("loopCount", &whiteout::textures::gif::SaveOptions::loopCount)
+        .field("dither", &whiteout::textures::gif::SaveOptions::dither)
+        .field("ditherStrength", &whiteout::textures::gif::SaveOptions::ditherStrength)
+    ;
+
     // ── Classes ──────────────────────────────────────────────────────────
     class_<whiteout::textures::Texture>("Texture")
         .constructor<>()
-        .function("format", select_overload<whiteout::textures::PixelFormat() const>(&whiteout::textures::Texture::format))
-        .function("copyAsFormat",
-                  optional_override([](
-                      whiteout::textures::Texture& self,
-                      whiteout::textures::PixelFormat new_fmt) {
-                      return self.copyAsFormat(new_fmt);
-                  }))
+        .function("format", select_overload<void(PixelFormat)>(&whiteout::textures::Texture::format))
+        .function("format_overload2", select_overload<whiteout::textures::PixelFormat() const>(&whiteout::textures::Texture::format))
+        .function("copyAsFormat", &whiteout::textures::Texture::copyAsFormat)
         .function("swapChannels", &whiteout::textures::Texture::swapChannels)
         .function("invertChannel", &whiteout::textures::Texture::invertChannel)
         .function("expandNormal", &whiteout::textures::Texture::expandNormal)
@@ -158,21 +186,13 @@ EMSCRIPTEN_BINDINGS(textures) {
                   }), allow_raw_pointers())
         .function("copyFromNormalToRGBA",
                   optional_override([](
-                      whiteout::textures::Texture& self) {
-                      return whiteout::wasm::to_optional_ptr<whiteout::textures::Texture>(self.copyFromNormalToRGBA());
+                      whiteout::textures::Texture& self,
+                      whiteout::interfaces::WorkerPool pool) {
+                      return whiteout::wasm::to_optional_ptr<whiteout::textures::Texture>(self.copyFromNormalToRGBA(pool));
                   }), allow_raw_pointers())
-        .function("generateMipmaps",
-                  optional_override([](
-                      whiteout::textures::Texture& self,
-                      whiteout::u32 newMipCount) {
-                      return self.generateMipmaps(newMipCount);
-                  }))
-        .function("downscale",
-                  optional_override([](
-                      whiteout::textures::Texture& self,
-                      whiteout::u32 levels) {
-                      return self.downscale(levels);
-                  }))
+        .function("generateMipmaps", select_overload<std::optional<std::string>(whiteout::u32, interfaces::WorkerPool *)>(&whiteout::textures::Texture::generateMipmaps))
+        .function("generateMipmaps_pool", select_overload<std::optional<std::string>(interfaces::WorkerPool *)>(&whiteout::textures::Texture::generateMipmaps))
+        .function("downscale", &whiteout::textures::Texture::downscale)
         .class_function("create2D", &whiteout::textures::Texture::create2D)
         .class_function("create3D", &whiteout::textures::Texture::create3D)
         .class_function("createCube", &whiteout::textures::Texture::createCube)
@@ -228,6 +248,7 @@ EMSCRIPTEN_BINDINGS(textures) {
 
     class_<whiteout::textures::blp::Writer>("BlpWriter")
         .constructor<>()
+        .constructor<whiteout::textures::blp::Writer::WriteMode, whiteout::interfaces::WorkerPool>()
         .function("write",
                   optional_override([](
                       whiteout::textures::blp::Writer& self,
@@ -251,6 +272,22 @@ EMSCRIPTEN_BINDINGS(textures) {
                   }), allow_raw_pointers())
         .function("hasIssues", &whiteout::textures::png::Parser::hasIssues)
         .function("getIssues", &whiteout::textures::png::Parser::getIssues)
+        .function("isAnimated", &whiteout::textures::png::Parser::isAnimated)
+        .function("frameCount", &whiteout::textures::png::Parser::frameCount)
+        .function("loopCount", &whiteout::textures::png::Parser::loopCount)
+        .function("frame",
+                  optional_override([](
+                      whiteout::textures::png::Parser& self,
+                      whiteout::u32 index) {
+                      return &(self.frame(index));
+                  }), allow_raw_pointers())
+        .function("frameDelayMs", &whiteout::textures::png::Parser::frameDelayMs)
+        .function("frameInfo",
+                  optional_override([](
+                      whiteout::textures::png::Parser& self,
+                      whiteout::u32 index) {
+                      return &(self.frameInfo(index));
+                  }), allow_raw_pointers())
     ;
 
     class_<whiteout::textures::png::Writer>("PngWriter")
@@ -262,12 +299,20 @@ EMSCRIPTEN_BINDINGS(textures) {
                       whiteout::textures::Texture texture) {
                       return self.write(texture);
                   }))
+        .function("writeAnimated",
+                  optional_override([](
+                      whiteout::textures::png::Writer& self,
+                      std::vector<whiteout::textures::png::ApngFrame> frames,
+                      whiteout::textures::png::ApngSaveOptions opts) {
+                      return self.writeAnimated(frames, opts);
+                  }))
         .function("hasIssues", &whiteout::textures::png::Writer::hasIssues)
         .function("getIssues", &whiteout::textures::png::Writer::getIssues)
     ;
 
     class_<whiteout::textures::jpeg::Parser>("JpegParser")
         .constructor<>()
+        .constructor<whiteout::textures::jpeg::Parser::ParseMode, whiteout::interfaces::WorkerPool>()
         .function("parse",
                   optional_override([](
                       whiteout::textures::jpeg::Parser& self,
@@ -282,6 +327,7 @@ EMSCRIPTEN_BINDINGS(textures) {
 
     class_<whiteout::textures::jpeg::Writer>("JpegWriter")
         .constructor<>()
+        .constructor<whiteout::i32, whiteout::textures::jpeg::Writer::WriteMode, whiteout::interfaces::WorkerPool, bool>()
         .function("write",
                   optional_override([](
                       whiteout::textures::jpeg::Writer& self,
@@ -376,6 +422,28 @@ EMSCRIPTEN_BINDINGS(textures) {
         .function("getIssues", &whiteout::textures::tga::Writer::getIssues)
     ;
 
+    class_<whiteout::textures::gif::Writer>("GifWriter")
+        .constructor<>()
+        .constructor<whiteout::textures::gif::Writer::WriteMode, whiteout::interfaces::WorkerPool>()
+        .function("write", select_overload<void(const std::string &, const std::vector<Texture> &)>(&whiteout::textures::gif::Writer::write))
+        .function("write_frames",
+                  optional_override([](
+                      whiteout::textures::gif::Writer& self,
+                      std::vector<whiteout::textures::Texture> frames) {
+                      return self.write(frames);
+                  }))
+        .function("write_filePath_frames_opts", select_overload<void(const std::string &, const std::vector<Texture> &, const SaveOptions &)>(&whiteout::textures::gif::Writer::write))
+        .function("write_frames_opts",
+                  optional_override([](
+                      whiteout::textures::gif::Writer& self,
+                      std::vector<whiteout::textures::Texture> frames,
+                      whiteout::textures::gif::SaveOptions opts) {
+                      return self.write(frames, opts);
+                  }))
+        .function("hasIssues", &whiteout::textures::gif::Writer::hasIssues)
+        .function("getIssues", &whiteout::textures::gif::Writer::getIssues)
+    ;
+
     // ── Runtime registration for std::optional<T> returns ────────────────
     register_optional<std::vector<whiteout::textures::Texture>>();
     register_optional<whiteout::textures::Texture>();
@@ -384,5 +452,6 @@ EMSCRIPTEN_BINDINGS(textures) {
     // ── Vector containers ────────────────────────────────────────────────
     register_vector<whiteout::textures::Channel>("VectorChannel");
     register_vector<whiteout::textures::Texture>("VectorTexture");
+    register_vector<whiteout::textures::png::ApngFrame>("VectorApngFrame");
 
 }

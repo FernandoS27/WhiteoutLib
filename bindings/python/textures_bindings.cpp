@@ -42,6 +42,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::textures::Channel>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::textures::Texture>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::textures::png::ApngFrame>);
 
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
@@ -143,6 +144,52 @@ Uncompressed formats store one pixel per "block"; BCn formats store a 4×4 pixel
     py::enum_<whiteout::textures::gif::Writer::WriteMode>(m, "GifWriteMode")
         .value("STRICT", whiteout::textures::gif::Writer::WriteMode::Strict, R"doc(Throw on any issue.)doc")
         .value("LENIENT", whiteout::textures::gif::Writer::WriteMode::Lenient, R"doc(Collect issues, return empty data on failure.)doc")
+    ;
+
+    py::class_<whiteout::textures::png::ApngFrameInfo>(m, "PngApngFrameInfo", R"doc(Per-frame metadata for an animated PNG (APNG).)doc")
+        .def(py::init<>())
+        .def(py::init([](whiteout::u32 width, whiteout::u32 height, whiteout::u32 x_offset, whiteout::u32 y_offset, whiteout::u32 delay_ms, whiteout::u32 dispose_op, whiteout::u32 blend_op) {
+            return whiteout::textures::png::ApngFrameInfo{width, height, x_offset, y_offset, delay_ms, dispose_op, blend_op};
+        }), py::arg("width"), py::arg("height"), py::arg("x_offset"), py::arg("y_offset"), py::arg("delay_ms"), py::arg("dispose_op"), py::arg("blend_op"))
+        .def("__repr__", [](const whiteout::textures::png::ApngFrameInfo& self) {
+            std::ostringstream oss;
+            oss << "PngApngFrameInfo(";
+            oss << "width=" << self.width << ", ";
+            oss << "height=" << self.height << ", ";
+            oss << "x_offset=" << self.xOffset << ", ";
+            oss << "y_offset=" << self.yOffset << ", ";
+            oss << "delay_ms=" << self.delayMs << ", ";
+            oss << "dispose_op=" << self.disposeOp << ", ";
+            oss << "blend_op=" << self.blendOp << ")";
+            return oss.str();
+        })
+        .def_readwrite("width", &whiteout::textures::png::ApngFrameInfo::width, R"doc(Frame sub-rectangle width.)doc")
+        .def_readwrite("height", &whiteout::textures::png::ApngFrameInfo::height, R"doc(Frame sub-rectangle height.)doc")
+        .def_readwrite("x_offset", &whiteout::textures::png::ApngFrameInfo::xOffset, R"doc(Frame sub-rectangle X offset on the canvas.)doc")
+        .def_readwrite("y_offset", &whiteout::textures::png::ApngFrameInfo::yOffset, R"doc(Frame sub-rectangle Y offset on the canvas.)doc")
+        .def_readwrite("delay_ms", &whiteout::textures::png::ApngFrameInfo::delayMs, R"doc(Frame display duration in milliseconds.)doc")
+        .def_readwrite("dispose_op", &whiteout::textures::png::ApngFrameInfo::disposeOp, R"doc(0 = NONE, 1 = BACKGROUND, 2 = PREVIOUS.)doc")
+        .def_readwrite("blend_op", &whiteout::textures::png::ApngFrameInfo::blendOp, R"doc(0 = SOURCE, 1 = OVER.)doc")
+    ;
+
+    py::class_<whiteout::textures::png::ApngFrame>(m, "PngApngFrame", R"doc(One frame of an animated PNG (APNG), with its display duration.)doc")
+        .def(py::init<>())
+        .def_readwrite("image", &whiteout::textures::png::ApngFrame::image, R"doc(Full-canvas frame image (converted to RGBA8 on write).)doc")
+        .def_readwrite("delay_ms", &whiteout::textures::png::ApngFrame::delayMs, R"doc(Display duration in milliseconds.)doc")
+    ;
+
+    py::class_<whiteout::textures::png::ApngSaveOptions>(m, "PngApngSaveOptions", R"doc(Options controlling animated PNG (APNG) encoding.)doc")
+        .def(py::init<>())
+        .def(py::init([](whiteout::u32 loop_count) {
+            return whiteout::textures::png::ApngSaveOptions{loop_count};
+        }), py::arg("loop_count"))
+        .def("__repr__", [](const whiteout::textures::png::ApngSaveOptions& self) {
+            std::ostringstream oss;
+            oss << "PngApngSaveOptions(";
+            oss << "loop_count=" << self.loopCount << ")";
+            return oss.str();
+        })
+        .def_readwrite("loop_count", &whiteout::textures::png::ApngSaveOptions::loopCount, R"doc(Number of times to loop; 0 means loop forever.)doc")
     ;
 
     py::class_<whiteout::textures::gif::SaveOptions>(m, "GifSaveOptions", R"doc(Per-write options for GIF encoding.)doc")
@@ -339,7 +386,9 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
         .def("get_issues", &whiteout::textures::blp::Writer::getIssues, R"doc(Get list of issues encountered during writing @return Vector of issue description strings)doc")
     ;
 
-    py::class_<whiteout::textures::png::Parser>(m, "PngParser", R"doc(Reads a PNG file or byte buffer and decodes it into a Texture.)doc")
+    py::class_<whiteout::textures::png::Parser>(m, "PngParser", R"doc(Reads a PNG file or byte buffer and decodes it into a Texture.
+
+Animated PNG (APNG) is supported: `parse()` still returns the single default image, while the animation frames are exposed via `isAnimated()`, `frameCount()`, `frame()`, `frameDelayMs()` and `frameInfo()`.)doc")
         .def(py::init<>())
         .def(py::init<whiteout::textures::png::Parser::ParseMode>(), py::arg("parse_mode"))
         .def("parse",
@@ -350,9 +399,17 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
             }, py::arg("buffer"), R"doc(Parse a PNG byte buffer.)doc")
         .def("has_issues", &whiteout::textures::png::Parser::hasIssues, R"doc(@return true if the last parse produced any issues.)doc")
         .def("get_issues", &whiteout::textures::png::Parser::getIssues, R"doc(@return accumulated issues from the last parse call.)doc")
+        .def("is_animated", &whiteout::textures::png::Parser::isAnimated, R"doc(@return true if the last parsed PNG carried APNG animation chunks.)doc")
+        .def("frame_count", &whiteout::textures::png::Parser::frameCount, R"doc(@return number of animation frames (0 when not animated).)doc")
+        .def("loop_count", &whiteout::textures::png::Parser::loopCount, R"doc(@return APNG loop count from the `acTL` chunk; 0 means loop forever.)doc")
+        .def("frame", &whiteout::textures::png::Parser::frame, py::arg("index"), R"doc(@return animation frame @p index, fully composited to the canvas size as an RGBA8 texture. In lenient mode an out-of-range index yields an empty texture; in strict mode it throws. @param index Zero-based frame index.)doc")
+        .def("frame_delay_ms", &whiteout::textures::png::Parser::frameDelayMs, py::arg("index"), R"doc(@return display duration of frame @p index in milliseconds. @param index Zero-based frame index.)doc")
+        .def("frame_info", &whiteout::textures::png::Parser::frameInfo, py::arg("index"), R"doc(@return raw per-frame metadata for frame @p index. @param index Zero-based frame index.)doc")
     ;
 
-    py::class_<whiteout::textures::png::Writer>(m, "PngWriter", R"doc(Encodes a Texture into PNG format.)doc")
+    py::class_<whiteout::textures::png::Writer>(m, "PngWriter", R"doc(Encodes a Texture into PNG format.
+
+In addition to single-image PNG, the writer can emit an animated PNG (APNG) from a sequence of frames via `writeAnimated()`. Each frame is written full-canvas with no inter-frame optimisation.)doc")
         .def(py::init<>())
         .def(py::init<whiteout::textures::png::Writer::WriteMode>(), py::arg("write_mode"))
         .def("write",
@@ -361,6 +418,14 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
                 return py::bytes(
                     reinterpret_cast<const char*>(__v.data()), __v.size());
             }, py::arg("texture"), R"doc(Serialize the texture to a PNG byte buffer.)doc")
+        .def("write_animated",
+            [](whiteout::textures::png::Writer& self, const std::vector<whiteout::textures::png::ApngFrame>& frames, const whiteout::textures::png::ApngSaveOptions& opts) {
+                auto __v = self.writeAnimated(frames, opts);
+                return py::bytes(
+                    reinterpret_cast<const char*>(__v.data()), __v.size());
+            }, py::arg("frames"), py::arg("opts") = whiteout::textures::png::ApngSaveOptions{}, R"doc(Serialize a sequence of frames into an animated PNG (APNG) byte buffer.
+
+All frames must share the same dimensions (frame 0 defines the canvas). Each frame is emitted full-canvas with disposal NONE and blend SOURCE. Returns an empty buffer on failure (lenient mode). @param frames Ordered animation frames; must be non-empty. @param opts   Encoding options (loop count).)doc")
         .def("has_issues", &whiteout::textures::png::Writer::hasIssues, R"doc(@return true if the last write produced any issues.)doc")
         .def("get_issues", &whiteout::textures::png::Writer::getIssues, R"doc(@return accumulated issues from the last write call.)doc")
     ;
@@ -494,5 +559,6 @@ Unlike the single-image writers (BMP, TGA, …), this writer accepts a vector of
 
     py::bind_vector<std::vector<whiteout::textures::Channel>>(m, "VectorChannel");
     py::bind_vector<std::vector<whiteout::textures::Texture>>(m, "VectorTexture");
+    py::bind_vector<std::vector<whiteout::textures::png::ApngFrame>>(m, "VectorApngFrame");
 
 }

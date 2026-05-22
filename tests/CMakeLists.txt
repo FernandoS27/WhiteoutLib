@@ -48,6 +48,10 @@ whiteout_add_test(bc7_roundtrip_test bc7_roundtrip_test.cpp)
 whiteout_add_test(bc7_block_decode_test bc7_block_decode_test.cpp)
 whiteout_add_test(blp0_test blp0_test.cpp)
 whiteout_add_test(jpeg_test jpeg_test.cpp)
+
+whiteout_add_test(apng_test apng_test.cpp)
+target_include_directories(apng_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 whiteout_add_test(quantize_test quantize_test.cpp)
 whiteout_add_test(texture_array_test texture_array_test.cpp)
 
