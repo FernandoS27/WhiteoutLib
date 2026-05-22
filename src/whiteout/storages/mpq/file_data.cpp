@@ -98,6 +98,27 @@ std::vector<u8> extractFileData(std::span<const u8> archiveData, size_t archiveO
 
     // -- Multi-sector file --
     u32 numSectors = (block.uncompressedSize + sectorSize - 1) / sectorSize;
+
+    // -- Uncompressed (stored) file --
+    // A file with no compression flag has no sector offset table — its data
+    // is stored verbatim. Only encryption is applied, still per sector.
+    if (!block.isCompressed()) {
+        std::vector<u8> buf(fileSpan.begin(), fileSpan.end());
+        if (block.isEncrypted() && fileKey != 0) {
+            for (u32 i = 0; i < numSectors; ++i) {
+                u32 const off = i * sectorSize;
+                u32 const len = std::min(sectorSize, block.uncompressedSize - off);
+                size_t const alignedCount = len / 4;
+                if (alignedCount > 0) {
+                    decryptBlock(reinterpret_cast<u32*>(buf.data() + off), alignedCount,
+                                 fileKey + i);
+                }
+            }
+        }
+        buf.resize(block.uncompressedSize);
+        return buf;
+    }
+
     bool const hasCrc = block.hasSectorCrc();
     // When sector CRC is present the offset table has one extra entry pointing
     // to the CRC block at the end of the file data, making it numSectors + 2
