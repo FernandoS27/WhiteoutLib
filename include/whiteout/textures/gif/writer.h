@@ -57,6 +57,12 @@ struct SaveOptions {
 
     /// Dither strength in [0, 1].  0 = no visible dithering, 1 = full.
     f32 ditherStrength = 0.8f;
+
+    /// Emit a transparent background. Pixels whose source alpha is below 50%
+    /// become the GIF's transparent palette index; the rest are quantised
+    /// normally. GIF transparency is 1-bit, so partially-covered (anti-
+    /// aliased) edge pixels are forced fully opaque or fully transparent.
+    bool transparent = false;
 };
 
 // ============================================================================

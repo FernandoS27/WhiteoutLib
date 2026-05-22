@@ -248,10 +248,14 @@ std::vector<u8> Writer::Impl::write(const std::vector<Texture>& frames, const Sa
         offset += data.size();
     }
 
-    // Build a single global 256-color palette from all frames.
+    // Build a single global palette from all frames. A transparent GIF caps
+    // the palette at 255 colours so index 255 is free for the transparent
+    // entry.
     auto quantizer = wu::Quantizer();
     if (pool)
         quantizer.workerPool(pool);
+    if (opts.transparent)
+        quantizer.maxColors(255);
     auto quantized =
         quantizer.quantize(all_rgba.data(), static_cast<u32>(pixel_count * frames.size()));
     const u32 color_count = quantized.color_count;
@@ -281,7 +285,9 @@ std::vector<u8> Writer::Impl::write(const std::vector<Texture>& frames, const Sa
     lsd.height = static_cast<u16>(height);
     // packed: GCT flag=1, color resolution=7 (8 bits), sort=0, GCT size=7 (256 entries)
     lsd.packed = 0x80 | (7 << 4) | 7; // 0xF7
-    lsd.bgColorIndex = 0;
+    // For a transparent GIF the canvas background is the transparent index,
+    // so disposal-2 "restore to background" clears to transparent.
+    lsd.bgColorIndex = opts.transparent ? 255 : 0;
     lsd.pixelAspectRatio = 0;
     output.insert(output.end(), reinterpret_cast<const u8*>(&lsd),
                   reinterpret_cast<const u8*>(&lsd) + sizeof(lsd));
@@ -297,15 +303,18 @@ std::vector<u8> Writer::Impl::write(const std::vector<Texture>& frames, const Sa
     // --- Encode each frame ---
     std::vector<u8> frame_indices(pixel_count);
     for (size_t f = 0; f < rgba_frames.size(); ++f) {
-        // Graphic Control Extension (delay + disposal).
-        if (animated || opts.delayCs > 0) {
+        // Graphic Control Extension (delay + disposal + transparency).
+        if (animated || opts.delayCs > 0 || opts.transparent) {
             GraphicControlExtension gce{};
             gce.introducer = GIF_EXTENSION_INTRODUCER;
             gce.label = GIF_GRAPHIC_CONTROL_LABEL;
             gce.blockSize = 4;
-            gce.packed = 0x00; // disposal=none, no transparency
+            // packed: [reserved:3][disposal:3][userInput:1][transparency:1].
+            // Transparent frames use disposal method 2 (restore to background)
+            // so a moving subject doesn't ghost through transparent pixels.
+            gce.packed = opts.transparent ? static_cast<u8>((2u << 2) | 0x01u) : 0x00;
             gce.delayTime = opts.delayCs;
-            gce.transparentIdx = 0;
+            gce.transparentIdx = opts.transparent ? 255 : 0;
             gce.terminator = GIF_BLOCK_TERMINATOR;
             output.insert(output.end(), reinterpret_cast<const u8*>(&gce),
                           reinterpret_cast<const u8*>(&gce) + sizeof(gce));
@@ -329,6 +338,13 @@ std::vector<u8> Writer::Impl::write(const std::vector<Texture>& frames, const Sa
                                         frame_indices.data());
         } else {
             quantized.mapPixels(frame_rgba, pixel_count, frame_indices.data());
+        }
+
+        // 1-bit transparency: pixels below 50% alpha take the reserved index.
+        if (opts.transparent) {
+            for (u32 p = 0; p < pixel_count; ++p)
+                if (frame_rgba[p * 4 + 3] < 128)
+                    frame_indices[p] = 255;
         }
 
         // LZW-compress the index stream.
