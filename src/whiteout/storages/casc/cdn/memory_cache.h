@@ -30,8 +30,12 @@ public:
         CacheView(CacheView&&) = default;
         CacheView& operator=(CacheView&&) = default;
 
-        std::span<const u8> data() const noexcept { return m_data; }
-        size_t size() const noexcept { return m_data.size(); }
+        std::span<const u8> data() const noexcept {
+            return m_data;
+        }
+        size_t size() const noexcept {
+            return m_data.size();
+        }
 
     private:
         friend class MemoryCache;
@@ -56,7 +60,9 @@ public:
     void clear();
 
     /// @return The maximum cache budget in bytes.
-    size_t maxBytes() const noexcept { return m_maxBytes; }
+    size_t maxBytes() const noexcept {
+        return m_maxBytes;
+    }
 
 private:
     struct CacheEntry {

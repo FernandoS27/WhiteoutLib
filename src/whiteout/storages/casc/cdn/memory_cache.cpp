@@ -12,7 +12,8 @@ MemoryCache::MemoryCache(size_t maxBytes) : m_maxBytes(maxBytes) {}
 std::optional<std::vector<u8>> MemoryCache::get(const std::array<u8, 16>& eKey) const {
     std::lock_guard<std::mutex> const lk(m_mutex);
     auto it = m_map.find(eKey);
-    if (it == m_map.end()) return std::nullopt;
+    if (it == m_map.end())
+        return std::nullopt;
 
     // Promote to front (MRU).
     m_lru.splice(m_lru.begin(), m_lru, it->second);
@@ -22,7 +23,8 @@ std::optional<std::vector<u8>> MemoryCache::get(const std::array<u8, 16>& eKey) 
 std::optional<MemoryCache::CacheView> MemoryCache::view(const std::array<u8, 16>& eKey) const {
     std::unique_lock<std::mutex> lk(m_mutex);
     auto it = m_map.find(eKey);
-    if (it == m_map.end()) return std::nullopt;
+    if (it == m_map.end())
+        return std::nullopt;
 
     // Promote to front (MRU).
     m_lru.splice(m_lru.begin(), m_lru, it->second);
@@ -48,7 +50,8 @@ void MemoryCache::put(const std::array<u8, 16>& eKey, const std::vector<u8>& dat
     }
 
     // Don't cache entries larger than the entire budget.
-    if (data.size() > m_maxBytes) return;
+    if (data.size() > m_maxBytes)
+        return;
 
     // Insert at front.
     m_lru.push_front(CacheEntry{eKey, data});

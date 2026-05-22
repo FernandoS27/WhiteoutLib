@@ -6,13 +6,15 @@
 /// Internal header — not part of the public include path.
 #pragma once
 
-#include "root.h"
 #include "common/entry_index.h"
+#include "root.h"
 
 #include <span>
 #include <vector>
 
-namespace whiteout::interfaces { class WorkerPool; }
+namespace whiteout::interfaces {
+class WorkerPool;
+}
 
 namespace whiteout::storages::casc {
 
@@ -23,21 +25,28 @@ public:
     /// @param resolver Callback that resolves CKey → file data (for sub-directories).
     ///                 May be nullptr if sub-directory resolution is not needed.
     /// @return Parsed root, or nullptr on failure.
-    static std::unique_ptr<D3Root> parse(std::span<const u8> data,
-                                         CKeyResolver resolver = nullptr,
+    static std::unique_ptr<D3Root> parse(std::span<const u8> data, CKeyResolver resolver = nullptr,
                                          interfaces::WorkerPool* pool = nullptr);
 
     // --- RootManifest interface ---
     std::vector<const RootEntry*> findByPath(const std::string& path) const override;
-    std::vector<const RootEntry*> findByNormalizedPath(const std::string& normalizedPath) const override;
+    std::vector<const RootEntry*> findByNormalizedPath(
+        const std::string& normalizedPath) const override;
     bool hasPath(const std::string& normalizedPath) const override;
-    std::vector<const RootEntry*> findByFileDataId(u32 fileDataId, FileIdHint hint = FileIdHint::None) const override;
+    std::vector<const RootEntry*> findByFileDataId(
+        u32 fileDataId, FileIdHint hint = FileIdHint::None) const override;
     bool hasFileDataId(u32 fileDataId, FileIdHint hint = FileIdHint::None) const override;
-    RootFormat format() const override { return RootFormat::Diablo3; }
+    RootFormat format() const override {
+        return RootFormat::Diablo3;
+    }
 
 protected:
-    const std::vector<RootEntry>& entries() const override { return m_entries; }
-    std::vector<RootEntry>& mutableEntries() override { return m_entries; }
+    const std::vector<RootEntry>& entries() const override {
+        return m_entries;
+    }
+    std::vector<RootEntry>& mutableEntries() override {
+        return m_entries;
+    }
 
 private:
     /// All entries in flat storage.

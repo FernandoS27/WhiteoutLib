@@ -43,12 +43,16 @@ struct WorkerTask {
     TimelineSemaphore::Value signalValue = 0;
 };
 
-/// @bind methods, subclassable, no_default_ctor, jni_package=whiteout.interfaces, java_package=whiteout.utils — abstract opaque base. Concrete impl: utils::SimpleThreadPool.
+/// @bind methods, subclassable, no_default_ctor, jni_package=whiteout.interfaces,
+/// java_package=whiteout.utils — abstract opaque base. Concrete impl: utils::SimpleThreadPool.
 class WorkerPool {
 public:
     virtual ~WorkerPool() = default;
 
-    /// @bind submit_workertask — JNI bridge: Java sees `submit(WorkerTask task)` with the std::function exposed as a Runnable and the two TimelineSemaphore pointers wrapped in opaque Java handles. WorkerTask implements Runnable; its default `run()` honours wait → fn → signal so simple pools can just `exec.submit(task)`.
+    /// @bind submit_workertask — JNI bridge: Java sees `submit(WorkerTask task)` with the
+    /// std::function exposed as a Runnable and the two TimelineSemaphore pointers wrapped in opaque
+    /// Java handles. WorkerTask implements Runnable; its default `run()` honours wait → fn → signal
+    /// so simple pools can just `exec.submit(task)`.
     virtual void submit(const WorkerTask& task) = 0;
 
     /// @bind — Block until every submitted task has completed.
@@ -66,7 +70,9 @@ public:
     }
 };
 
-/// @bind methods, subclassable, no_default_ctor, jni_package=whiteout.interfaces, java_package=whiteout.utils — abstract file system that resolves files by numeric data ID (e.g. CASC).
+/// @bind methods, subclassable, no_default_ctor, jni_package=whiteout.interfaces,
+/// java_package=whiteout.utils — abstract file system that resolves files by numeric data ID (e.g.
+/// CASC).
 class CascFileSystem {
 public:
     virtual ~CascFileSystem() = default;
@@ -90,7 +96,8 @@ struct DirectoryEntry {
     bool isDirectory;
 };
 
-/// @bind methods, subclassable, no_default_ctor, jni_package=whiteout.interfaces, java_package=whiteout.utils — abstract base. Concrete impl: utils::OsFileSystem.
+/// @bind methods, subclassable, no_default_ctor, jni_package=whiteout.interfaces,
+/// java_package=whiteout.utils — abstract base. Concrete impl: utils::OsFileSystem.
 class VirtualPathFileSystem {
 public:
     virtual ~VirtualPathFileSystem() = default;
@@ -114,9 +121,9 @@ public:
 
 /// @bind value_object, java_package=whiteout.utils — HTTP GET result handed to user callbacks.
 struct HttpResponse {
-    i32 statusCode = 0;          ///< HTTP status code (200, 206, 404, …).
-    std::vector<u8> body;        ///< Response body.
-    std::string error;           ///< Transport-level error (empty on success).
+    i32 statusCode = 0;   ///< HTTP status code (200, 206, 404, …).
+    std::vector<u8> body; ///< Response body.
+    std::string error;    ///< Transport-level error (empty on success).
 };
 
 /// Completion callback for async HTTP requests.
@@ -124,9 +131,9 @@ using HttpCallback = std::function<void(HttpResponse)>;
 
 /// Capability flags reported by the handler.
 namespace HttpCapability {
-    static constexpr u32 None              = 0;
-    static constexpr u32 Http2Multiplexing = 0x1; ///< Connection multiplexing (HTTP/2).
-}
+static constexpr u32 None = 0;
+static constexpr u32 Http2Multiplexing = 0x1; ///< Connection multiplexing (HTTP/2).
+} // namespace HttpCapability
 
 /// Abstract HTTP handler.  The library calls these methods to fetch CDN data.
 /// Users must provide a concrete implementation.
@@ -137,17 +144,19 @@ namespace HttpCapability {
 ///
 /// Thread safety: methods may be called concurrently from multiple
 /// WorkerPool threads.  The implementation must be thread-safe.
-/// @bind methods, subclassable, no_default_ctor, jni_package=whiteout.interfaces, java_package=whiteout.utils — abstract opaque base. Concrete impl: utils::SimpleHttpHandler.
+/// @bind methods, subclassable, no_default_ctor, jni_package=whiteout.interfaces,
+/// java_package=whiteout.utils — abstract opaque base. Concrete impl: utils::SimpleHttpHandler.
 class HttpHandler {
 public:
     virtual ~HttpHandler() = default;
 
     /// @bind — Reported handler capability flags.
-    virtual u32 capabilities() const noexcept { return HttpCapability::None; }
+    virtual u32 capabilities() const noexcept {
+        return HttpCapability::None;
+    }
 
     /// @bind — Issue an async GET. The callback receives the response and is fired exactly once.
-    virtual void getAsync(const std::string& url,
-                          HttpCallback callback) = 0;
+    virtual void getAsync(const std::string& url, HttpCallback callback) = 0;
 
     /// @bind — Issue an async range-GET (inclusive byte range).
     virtual void getRangeAsync(const std::string& url, u64 start, u64 end,

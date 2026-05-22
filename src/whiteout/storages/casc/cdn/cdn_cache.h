@@ -34,32 +34,27 @@ public:
                                         const std::string& keyHex) const;
 
     /// Write a resource to cache.
-    void write(const std::string& pathType, const std::string& keyHex,
-               std::span<const u8> data);
+    void write(const std::string& pathType, const std::string& keyHex, std::span<const u8> data);
 
     /// Check if a partial archive range is cached.
-    bool hasRange(const std::string& archiveKeyHex,
-                  u64 offset, u32 size) const;
+    bool hasRange(const std::string& archiveKeyHex, u64 offset, u32 size) const;
 
     /// Read a cached archive range.
-    std::optional<std::vector<u8>> readRange(const std::string& archiveKeyHex,
-                                             u64 offset, u32 size) const;
+    std::optional<std::vector<u8>> readRange(const std::string& archiveKeyHex, u64 offset,
+                                             u32 size) const;
 
     /// Write a partial archive range to cache.
-    void writeRange(const std::string& archiveKeyHex,
-                    u64 offset, u32 size,
+    void writeRange(const std::string& archiveKeyHex, u64 offset, u32 size,
                     std::span<const u8> data);
 
 private:
     std::string m_cacheDir;
 
     /// Build path: <cacheDir>/<pathType>/XX/YY/<keyHex>
-    std::string resourcePath(const std::string& pathType,
-                             const std::string& keyHex) const;
+    std::string resourcePath(const std::string& pathType, const std::string& keyHex) const;
 
     /// Build path: <cacheDir>/archives/XX/YY/<archiveKeyHex>/<offset>_<size>.blte
-    std::string rangePath(const std::string& archiveKeyHex,
-                          u64 offset, u32 size) const;
+    std::string rangePath(const std::string& archiveKeyHex, u64 offset, u32 size) const;
 
     /// Ensure directory exists (creates parents).
     static void ensureDir(const std::string& path);

@@ -13,8 +13,7 @@ namespace mdx {
 /// Convert a Model to MDL text format.
 /// @param model   The model to serialize.
 /// @param format  Which MDL dialect to emit (default: engine-faithful).
-std::string writeModelToMdl(const Model& model,
-                            MdlFormat format = MdlFormat::WarcraftIII);
+std::string writeModelToMdl(const Model& model, MdlFormat format = MdlFormat::WarcraftIII);
 
 } // namespace mdx
 } // namespace whiteout

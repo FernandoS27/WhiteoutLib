@@ -266,31 +266,29 @@ void separableDownsampleImpl(const MipImage& src, MipImage& dst, WeightFn buildW
     const u32 srcW = src.width;
     const u32 srcH = src.height;
 
-    parallelForRows(srcH, ctx,
-                    [=](u32 y0, u32 y1) {
-                        for (u32 srcY = y0; srcY < y1; ++srcY) {
-                            for (u32 dstX = 0; dstX < dstWidth; ++dstX) {
-                                const u32 tapCount = hWeights->tapCounts[dstX];
-                                const f32* tapW = hWeights->weightsFor(dstX);
-                                const i32* tapI = hWeights->indicesFor(dstX);
+    parallelForRows(srcH, ctx, [=](u32 y0, u32 y1) {
+        for (u32 srcY = y0; srcY < y1; ++srcY) {
+            for (u32 dstX = 0; dstX < dstWidth; ++dstX) {
+                const u32 tapCount = hWeights->tapCounts[dstX];
+                const f32* tapW = hWeights->weightsFor(dstX);
+                const i32* tapI = hWeights->indicesFor(dstX);
 
-                                f32* outPixel = hp->pixel(dstX, srcY);
-                                for (u32 channel = 0; channel < numChannels; ++channel)
-                                    outPixel[channel] = 0.0f;
-                                for (u32 tap = 0; tap < tapCount; ++tap) {
-                                    // Hoist the weight into a local scalar so the compiler
-                                    // does not need to reload it through tapW on each channel
-                                    // iteration (removes a potential aliasing barrier).
-                                    const f32 w = tapW[tap];
-                                    const f32* srcPixel =
-                                        srcPixels + (static_cast<size_t>(srcY) * srcW + tapI[tap]) *
-                                                        numChannels;
-                                    for (u32 channel = 0; channel < numChannels; ++channel)
-                                        outPixel[channel] += srcPixel[channel] * w;
-                                }
-                            }
-                        }
-                    });
+                f32* outPixel = hp->pixel(dstX, srcY);
+                for (u32 channel = 0; channel < numChannels; ++channel)
+                    outPixel[channel] = 0.0f;
+                for (u32 tap = 0; tap < tapCount; ++tap) {
+                    // Hoist the weight into a local scalar so the compiler
+                    // does not need to reload it through tapW on each channel
+                    // iteration (removes a potential aliasing barrier).
+                    const f32 w = tapW[tap];
+                    const f32* srcPixel =
+                        srcPixels + (static_cast<size_t>(srcY) * srcW + tapI[tap]) * numChannels;
+                    for (u32 channel = 0; channel < numChannels; ++channel)
+                        outPixel[channel] += srcPixel[channel] * w;
+                }
+            }
+        }
+    });
 
     // Pass 2 — vertical: src.height → dstHeight, keep dstWidth.
     //
@@ -607,15 +605,15 @@ void sphericalKaiserFilter(const MipImage& src, MipImage& dst, PipelineContext* 
 
                     // Expand the sampling footprint by half a texel on each side
                     // (floor for the start, ceil for the end).
-                    const u32 srcY0 = static_cast<u32>(std::max(
-                        0.0f, std::floor((tv - dvPad) * static_cast<f32>(src.height))));
+                    const u32 srcY0 = static_cast<u32>(
+                        std::max(0.0f, std::floor((tv - dvPad) * static_cast<f32>(src.height))));
                     const u32 srcY1 = std::min(
                         static_cast<u32>(std::ceil((tv + dvPad) * static_cast<f32>(src.height))),
                         src.height - 1u);
-                    const i32 srcX0 = static_cast<i32>(
-                        std::floor((tu - duPad) * static_cast<f32>(src.width)));
-                    const i32 srcX1 = static_cast<i32>(
-                        std::ceil((tu + duPad) * static_cast<f32>(src.width)));
+                    const i32 srcX0 =
+                        static_cast<i32>(std::floor((tu - duPad) * static_cast<f32>(src.width)));
+                    const i32 srcX1 =
+                        static_cast<i32>(std::ceil((tu + duPad) * static_cast<f32>(src.width)));
 
                     f32 color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
                     f64 weightSum = 0.0;

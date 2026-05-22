@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "crypto.h"
-#include "../../common/hex.h"
 #include "../../../common/unicode_path.h"
+#include "../../common/hex.h"
+#include "crypto.h"
 
 #include <algorithm>
 #include <cstring>
@@ -74,15 +74,15 @@ const std::array<u8, 16>* KeyRing::findKey(u64 keyName) const {
         return &it->second;
     // Record first miss atomically (first-writer-wins).
     u64 expected = 0;
-    m_firstMissing.compare_exchange_strong(expected, keyName,
-                                           std::memory_order_relaxed,
+    m_firstMissing.compare_exchange_strong(expected, keyName, std::memory_order_relaxed,
                                            std::memory_order_relaxed);
     return nullptr;
 }
 
 std::optional<u64> KeyRing::firstMissingKey() const {
     u64 val = m_firstMissing.load(std::memory_order_relaxed);
-    if (val == 0) return std::nullopt;
+    if (val == 0)
+        return std::nullopt;
     return val;
 }
 
@@ -97,8 +97,8 @@ inline u32 rotl32(u32 v, int n) {
 }
 
 inline u32 leLoad32(const u8* p) {
-    return static_cast<u32>(p[0]) | (static_cast<u32>(p[1]) << 8) |
-           (static_cast<u32>(p[2]) << 16) | (static_cast<u32>(p[3]) << 24);
+    return static_cast<u32>(p[0]) | (static_cast<u32>(p[1]) << 8) | (static_cast<u32>(p[2]) << 16) |
+           (static_cast<u32>(p[3]) << 24);
 }
 
 inline void leStore32(u8* p, u32 v) {
@@ -146,8 +146,7 @@ constexpr u32 kSigma3 = 0x6B206574; // "te k"
 
 } // anonymous namespace
 
-void salsa20Decrypt(std::span<u8> data, std::span<const u8, 16> key,
-                    std::span<const u8, 8> iv) {
+void salsa20Decrypt(std::span<u8> data, std::span<const u8, 16> key, std::span<const u8, 8> iv) {
     if (data.empty())
         return;
 

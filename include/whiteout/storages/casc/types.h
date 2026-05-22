@@ -45,27 +45,27 @@ static constexpr i32 kInvalidId = 0;
 // ============================================================================
 
 namespace LocaleMasks {
-static constexpr u32 None    = 0x00000000;
-static constexpr u32 All     = 0xFFFFFFFF;
-static constexpr u32 enUS    = 0x00000002;
-static constexpr u32 koKR    = 0x00000004;
-static constexpr u32 frFR    = 0x00000010;
-static constexpr u32 deDE    = 0x00000020;
-static constexpr u32 zhCN    = 0x00000040;
-static constexpr u32 esES    = 0x00000080;
-static constexpr u32 zhTW    = 0x00000100;
-static constexpr u32 enGB    = 0x00000200;
-static constexpr u32 enCN    = 0x00000400;
-static constexpr u32 enTW    = 0x00000800;
-static constexpr u32 esMX    = 0x00001000;
-static constexpr u32 ruRU    = 0x00002000;
-static constexpr u32 ptBR    = 0x00004000;
-static constexpr u32 itIT    = 0x00008000;
-static constexpr u32 ptPT    = 0x00010000;
-static constexpr u32 jaJP    = 0x00020000;
-static constexpr u32 plPL    = 0x00040000;
-static constexpr u32 thTH    = 0x00080000;
-static constexpr u32 trTR    = 0x00100000;
+static constexpr u32 None = 0x00000000;
+static constexpr u32 All = 0xFFFFFFFF;
+static constexpr u32 enUS = 0x00000002;
+static constexpr u32 koKR = 0x00000004;
+static constexpr u32 frFR = 0x00000010;
+static constexpr u32 deDE = 0x00000020;
+static constexpr u32 zhCN = 0x00000040;
+static constexpr u32 esES = 0x00000080;
+static constexpr u32 zhTW = 0x00000100;
+static constexpr u32 enGB = 0x00000200;
+static constexpr u32 enCN = 0x00000400;
+static constexpr u32 enTW = 0x00000800;
+static constexpr u32 esMX = 0x00001000;
+static constexpr u32 ruRU = 0x00002000;
+static constexpr u32 ptBR = 0x00004000;
+static constexpr u32 itIT = 0x00008000;
+static constexpr u32 ptPT = 0x00010000;
+static constexpr u32 jaJP = 0x00020000;
+static constexpr u32 plPL = 0x00040000;
+static constexpr u32 thTH = 0x00080000;
+static constexpr u32 trTR = 0x00100000;
 } // namespace LocaleMasks
 
 // ============================================================================
@@ -73,15 +73,15 @@ static constexpr u32 trTR    = 0x00100000;
 // ============================================================================
 
 namespace ContentFlags {
-static constexpr u32 None            = 0x00000000;
-static constexpr u32 LoadOnWindows   = 0x00000008;
-static constexpr u32 LoadOnMacOS     = 0x00000010;
-static constexpr u32 LowViolence     = 0x00000080;
-static constexpr u32 DoNotLoad       = 0x00000100;
-static constexpr u32 Encrypted       = 0x08000000;
-static constexpr u32 NoNameHash      = 0x10000000;
-static constexpr u32 Bundle          = 0x40000000;
-static constexpr u32 NoCompression   = 0x80000000;
+static constexpr u32 None = 0x00000000;
+static constexpr u32 LoadOnWindows = 0x00000008;
+static constexpr u32 LoadOnMacOS = 0x00000010;
+static constexpr u32 LowViolence = 0x00000080;
+static constexpr u32 DoNotLoad = 0x00000100;
+static constexpr u32 Encrypted = 0x08000000;
+static constexpr u32 NoNameHash = 0x10000000;
+static constexpr u32 Bundle = 0x40000000;
+static constexpr u32 NoCompression = 0x80000000;
 } // namespace ContentFlags
 
 // ============================================================================
@@ -89,8 +89,8 @@ static constexpr u32 NoCompression   = 0x80000000;
 // ============================================================================
 
 namespace FileOpenFlags {
-static constexpr u32 None           = 0x00000000;
-static constexpr u32 IgnoreLocale   = 0x00000001; ///< Return first match regardless of locale.
+static constexpr u32 None = 0x00000000;
+static constexpr u32 IgnoreLocale = 0x00000001; ///< Return first match regardless of locale.
 } // namespace FileOpenFlags
 
 // ============================================================================
@@ -98,17 +98,20 @@ static constexpr u32 IgnoreLocale   = 0x00000001; ///< Return first match regard
 // ============================================================================
 
 namespace StorageFeatureFlags {
-static constexpr u32 None               = 0x00000000;
-static constexpr u32 LoadOnDemand       = 0x00000001; ///< Defer encoding/root loading until first use.
-static constexpr u32 LazyVfsSubmanifest = 0x00000002; ///< Resolve VFS sub-manifests on demand, not via upfront prefetch.
-static constexpr u32 LazyArchiveIndex   = 0x00000004; ///< Fault in archive .index files per archive on first miss.
-static constexpr u32 LazyEncodingFrames = 0x00000008; ///< Decode encoding-table BLTE frames on demand.
-static constexpr u32 LazyIdxBuckets     = 0x00000010; ///< Local-only: parse .idx buckets on first lookup.
+static constexpr u32 None = 0x00000000;
+static constexpr u32 LoadOnDemand = 0x00000001; ///< Defer encoding/root loading until first use.
+static constexpr u32 LazyVfsSubmanifest =
+    0x00000002; ///< Resolve VFS sub-manifests on demand, not via upfront prefetch.
+static constexpr u32 LazyArchiveIndex =
+    0x00000004; ///< Fault in archive .index files per archive on first miss.
+static constexpr u32 LazyEncodingFrames =
+    0x00000008; ///< Decode encoding-table BLTE frames on demand.
+static constexpr u32 LazyIdxBuckets =
+    0x00000010; ///< Local-only: parse .idx buckets on first lookup.
 
 /// Convenience alias enabling every lazy behaviour. Default for online storage.
-static constexpr u32 FullLazy = LoadOnDemand | LazyVfsSubmanifest |
-                                LazyArchiveIndex | LazyEncodingFrames |
-                                LazyIdxBuckets;
+static constexpr u32 FullLazy =
+    LoadOnDemand | LazyVfsSubmanifest | LazyArchiveIndex | LazyEncodingFrames | LazyIdxBuckets;
 } // namespace StorageFeatureFlags
 
 // ============================================================================
@@ -118,15 +121,15 @@ static constexpr u32 FullLazy = LoadOnDemand | LazyVfsSubmanifest |
 /// Root manifest format.
 /// @bind js_name=RootFormat
 enum class RootFormat : u8 {
-    Unknown,  ///< Could not determine format.
-    Wow,      ///< World of Warcraft root (FileDataId-based, legacy MFST).
-    WowTvfs,  ///< World of Warcraft root (FileDataId-based, TVFS-backed, 11.x+).
-    Diablo3,  ///< Diablo III root (hierarchical directory).
-    Diablo4,  ///< Diablo IV root (TVFS enriched with CoreTOC paths).
-    Tvfs,     ///< TVFS prefix-tree root (WC3 Reforged and general purpose).
-    Mndx,     ///< MNDX trie-based root (StarCraft II, Heroes of the Storm).
-    Overwatch,///< Overwatch root (text manifest + CMF content manifests).
-    Agent,   ///< Agent/S1 text root (SC:R, Hearthstone, etc.).
+    Unknown,   ///< Could not determine format.
+    Wow,       ///< World of Warcraft root (FileDataId-based, legacy MFST).
+    WowTvfs,   ///< World of Warcraft root (FileDataId-based, TVFS-backed, 11.x+).
+    Diablo3,   ///< Diablo III root (hierarchical directory).
+    Diablo4,   ///< Diablo IV root (TVFS enriched with CoreTOC paths).
+    Tvfs,      ///< TVFS prefix-tree root (WC3 Reforged and general purpose).
+    Mndx,      ///< MNDX trie-based root (StarCraft II, Heroes of the Storm).
+    Overwatch, ///< Overwatch root (text manifest + CMF content manifests).
+    Agent,     ///< Agent/S1 text root (SC:R, Hearthstone, etc.).
 };
 
 // ============================================================================
@@ -139,11 +142,11 @@ enum class RootFormat : u8 {
 /// Roots that don't use sub-types (e.g. WoW) ignore the hint.
 /// @bind js_name=FileIdHint
 enum class FileIdHint : u8 {
-    None,      ///< Default — return the primary entry (child/main content).
-    Meta,      ///< Metadata entry.
-    Payload,   ///< Full-resolution payload.
-    Paylow,    ///< Low-resolution payload.
-    Paymed,    ///< Medium-resolution payload.
+    None,    ///< Default — return the primary entry (child/main content).
+    Meta,    ///< Metadata entry.
+    Payload, ///< Full-resolution payload.
+    Paylow,  ///< Low-resolution payload.
+    Paymed,  ///< Medium-resolution payload.
 };
 
 // ============================================================================
@@ -184,9 +187,9 @@ struct FileSpanInfo {
 
 /// Full metadata for a CASC file.
 struct FileFullInfo {
-    std::array<u8, 16> cKey{};   ///< Content key (MD5 of raw data).
-    std::array<u8, 16> eKey{};   ///< First encoding key.
-    u64 fileSize = 0;            ///< Uncompressed file size.
+    std::array<u8, 16> cKey{}; ///< Content key (MD5 of raw data).
+    std::array<u8, 16> eKey{}; ///< First encoding key.
+    u64 fileSize = 0;          ///< Uncompressed file size.
     u32 localeFlags = 0;
     u32 contentFlags = 0;
     i32 fileDataId = kInvalidId; ///< WoW-specific file data ID.
@@ -268,8 +271,8 @@ struct OpenOptions {
 struct CreateOptions {
     std::string product = "custom";
     std::string version = "1.0.0";
-    u32 archiveMaxSize = 0x40000000;  ///< 1 GB.
-    u32 blteFrameSize = 0x10000;      ///< 64 KB.
+    u32 archiveMaxSize = 0x40000000; ///< 1 GB.
+    u32 blteFrameSize = 0x10000;     ///< 64 KB.
     RootFormat rootFormat = RootFormat::Tvfs;
 };
 
@@ -287,18 +290,18 @@ struct WriteOptions {
 
 /// Request for a single file in a batch read.
 struct BatchReadRequest {
-    std::string path;                             ///< CASC path (mutually exclusive with fileDataId).
-    i32 fileDataId = kInvalidId;                  ///< WoW-style FileDataId.
-    FileIdHint fileIdHint = FileIdHint::None;     ///< Sub-type hint for FileDataId lookups.
-    u32 localeFlags = LocaleMasks::None;          ///< Locale filter (0 = accept all).
-    u32 openFlags = 0;                            ///< FileOpenFlags.
+    std::string path;                         ///< CASC path (mutually exclusive with fileDataId).
+    i32 fileDataId = kInvalidId;              ///< WoW-style FileDataId.
+    FileIdHint fileIdHint = FileIdHint::None; ///< Sub-type hint for FileDataId lookups.
+    u32 localeFlags = LocaleMasks::None;      ///< Locale filter (0 = accept all).
+    u32 openFlags = 0;                        ///< FileOpenFlags.
 };
 
 /// Result of a single file in a batch read.
 struct BatchReadResult {
-    std::vector<u8> data;                         ///< File data (empty on failure).
-    bool success = false;                         ///< True if the file was read successfully.
-    std::string error;                            ///< Diagnostic message (empty on success).
+    std::vector<u8> data; ///< File data (empty on failure).
+    bool success = false; ///< True if the file was read successfully.
+    std::string error;    ///< Diagnostic message (empty on success).
 };
 
 // ============================================================================
@@ -380,13 +383,13 @@ struct OnlineOpenOptions {
 // ============================================================================
 
 namespace CascError {
-static constexpr u32 None                  = 0x00;
-static constexpr u32 HttpRequestFailed     = 0x10;
-static constexpr u32 CdnServerUnavailable  = 0x11;
-static constexpr u32 RemoteFileNotFound    = 0x12;
-static constexpr u32 VersionInfoNotFound   = 0x13;
-static constexpr u32 CdnInfoNotFound       = 0x14;
-static constexpr u32 NoHttpHandler         = 0x15;
+static constexpr u32 None = 0x00;
+static constexpr u32 HttpRequestFailed = 0x10;
+static constexpr u32 CdnServerUnavailable = 0x11;
+static constexpr u32 RemoteFileNotFound = 0x12;
+static constexpr u32 VersionInfoNotFound = 0x13;
+static constexpr u32 CdnInfoNotFound = 0x14;
+static constexpr u32 NoHttpHandler = 0x15;
 } // namespace CascError
 
 } // namespace whiteout::storages::casc

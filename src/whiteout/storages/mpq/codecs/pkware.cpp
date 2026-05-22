@@ -19,12 +19,13 @@ namespace {
 static constexpr std::array<u8, 16> kLenBits = {3, 2, 3, 3, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 7, 7};
 
 // Base lengths for each length code.
-static constexpr std::array<u8, 16> kLenBase = {0, 4, 8, 16, 32, 64, 128, 0, 1, 2, 3, 4, 5, 6, 7, 8};
+static constexpr std::array<u8, 16> kLenBase = {0, 4, 8, 16, 32, 64, 128, 0,
+                                                1, 2, 3, 4,  5,  6,  7,   8};
 
 // Extra bits for distance codes.
-static constexpr std::array<u8, 66> kDistBits = {2, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
-                                   7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-                                   7, 7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8};
+static constexpr std::array<u8, 66> kDistBits = {
+    2, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8};
 
 // Shannon-Fano decode table for literal bytes (ASCII mode).
 static constexpr std::array<u8, 256> kChBitsAsc = {
@@ -75,7 +76,7 @@ static constexpr std::array<u16, 256> kChCodeAsc = {
 
 // Length code extra bits.
 static constexpr std::array<u8, 16> kLenCode = {0x05, 0x03, 0x01, 0x06, 0x0A, 0x02, 0x0C, 0x14,
-                                  0x04, 0x18, 0x08, 0x30, 0x10, 0x20, 0x40, 0x00};
+                                                0x04, 0x18, 0x08, 0x30, 0x10, 0x20, 0x40, 0x00};
 
 // ============================================================================
 // ASCII mode fast lookup table (built once at startup)

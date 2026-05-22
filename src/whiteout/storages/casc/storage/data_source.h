@@ -38,9 +38,7 @@ public:
     virtual std::vector<u8> fetchBlte(const std::array<u8, 16>& eKey) = 0;
 
     /// Fetch BLTE-encoded data from a specific archive location.
-    virtual std::vector<u8> fetchBlte(u32 archiveIndex,
-                                      u64 offset,
-                                      u32 encodedSize) = 0;
+    virtual std::vector<u8> fetchBlte(u32 archiveIndex, u64 offset, u32 encodedSize) = 0;
 
     /// Fetch BLTE-encoded data using a resolved index location.
     /// Default implementation delegates to the 3-arg fetchBlte.
@@ -50,8 +48,7 @@ public:
 
     /// Find an entry in the index by EKey prefix.
     /// Returns std::nullopt if the key is not indexed.
-    virtual std::optional<IndexLocation> findInIndex(
-        std::span<const u8> eKeyPrefix) const = 0;
+    virtual std::optional<IndexLocation> findInIndex(std::span<const u8> eKeyPrefix) const = 0;
 };
 
 } // namespace whiteout::storages::casc

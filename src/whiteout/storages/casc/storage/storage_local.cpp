@@ -3,10 +3,10 @@
 /// @file storage_local.cpp
 /// @brief Local (disk) factory, archive mapping, VFS prefetch.
 
-#include "storage_impl.h"
-#include "storage_backend_impl.h"
-#include "constants.h"
 #include "../../common/md5.h"
+#include "constants.h"
+#include "storage_backend_impl.h"
+#include "storage_impl.h"
 
 #include <cstring>
 #include <filesystem>
@@ -27,22 +27,26 @@ std::vector<std::filesystem::path> scanLocalConfigs(const std::string& dataPath)
         return out;
 
     auto isHex32 = [](const std::string& s) {
-        if (s.size() != 32) return false;
+        if (s.size() != 32)
+            return false;
         for (char const c : s) {
-            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
-                  (c >= 'A' && c <= 'F')))
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
                 return false;
         }
         return true;
     };
 
     for (auto& xx : fs::directory_iterator(configRoot, ec)) {
-        if (!xx.is_directory()) continue;
+        if (!xx.is_directory())
+            continue;
         for (auto& yy : fs::directory_iterator(xx.path(), ec)) {
-            if (!yy.is_directory()) continue;
+            if (!yy.is_directory())
+                continue;
             for (auto& f : fs::directory_iterator(yy.path(), ec)) {
-                if (!f.is_regular_file()) continue;
-                if (!isHex32(f.path().filename().string())) continue;
+                if (!f.is_regular_file())
+                    continue;
+                if (!isHex32(f.path().filename().string()))
+                    continue;
                 out.push_back(f.path());
             }
         }
@@ -58,15 +62,17 @@ bool keyNonZero(const std::array<u8, 16>& key) {
     return false;
 }
 
-std::optional<BuildConfig> findConsistentBuildConfig(
-    const std::string& dataPath, const IndexTable& indexTable) {
+std::optional<BuildConfig> findConsistentBuildConfig(const std::string& dataPath,
+                                                     const IndexTable& indexTable) {
 
     for (auto& path : scanLocalConfigs(dataPath)) {
         auto data = storages::common::readFileFully(path.string());
-        if (!data) continue;
+        if (!data)
+            continue;
 
         auto cfg = parseBuildConfig(*data);
-        if (!keyNonZero(cfg.encodingEKey)) continue;
+        if (!keyNonZero(cfg.encodingEKey))
+            continue;
 
         if (indexTable.find(std::span(cfg.encodingEKey.data(), 9)))
             return cfg;
@@ -87,7 +93,8 @@ std::optional<CdnConfig> findConsistentCdnConfig(const std::string& dataPath) {
         if (e.is_regular_file() && e.path().extension() == ".index")
             localArchives.insert(e.path().stem().string());
     }
-    if (localArchives.empty()) return std::nullopt;
+    if (localArchives.empty())
+        return std::nullopt;
 
     auto toHex = [](const std::array<u8, 16>& key) {
         static constexpr char hex[] = "0123456789abcdef";
@@ -105,14 +112,17 @@ std::optional<CdnConfig> findConsistentCdnConfig(const std::string& dataPath) {
 
     for (auto& path : scanLocalConfigs(dataPath)) {
         auto data = storages::common::readFileFully(path.string());
-        if (!data) continue;
+        if (!data)
+            continue;
 
         auto cfg = parseCdnConfig(*data);
-        if (cfg.archiveEKeys.empty()) continue;  // not a CDN config
+        if (cfg.archiveEKeys.empty())
+            continue; // not a CDN config
 
         size_t overlap = 0;
         for (auto& k : cfg.archiveEKeys)
-            if (localArchives.count(toHex(k))) ++overlap;
+            if (localArchives.count(toHex(k)))
+                ++overlap;
 
         if (overlap > bestOverlap) {
             bestOverlap = overlap;
@@ -133,7 +143,8 @@ bool LocalState::mapArchives(std::string* error) {
 
     std::string const dataSubdir = dataPath + "/data";
     if (!fs::exists(dataSubdir)) {
-        if (error) *error = "Data subdirectory not found: " + dataSubdir;
+        if (error)
+            *error = "Data subdirectory not found: " + dataSubdir;
         return false;
     }
 
@@ -144,8 +155,10 @@ bool LocalState::mapArchives(std::string* error) {
         if (name.size() >= 8 && name.substr(0, 5) == "data.") {
             try {
                 u32 const idx = std::stoul(name.substr(5));
-                if (idx > maxIndex) maxIndex = idx;
-            } catch (...) {}
+                if (idx > maxIndex)
+                    maxIndex = idx;
+            } catch (...) {
+            }
         }
     }
 
@@ -182,8 +195,7 @@ bool LocalState::mapArchives(std::string* error) {
 // ============================================================================
 
 std::unordered_map<u64, std::vector<u8>> prefetchVfsLocal(
-    const Storage::Impl& impl,
-    const std::vector<std::array<u8, 16>>& vfsEKeys,
+    const Storage::Impl& impl, const std::vector<std::array<u8, 16>>& vfsEKeys,
     const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey) {
 
     std::unordered_map<u64, std::vector<u8>> vfsCache;
@@ -243,8 +255,7 @@ std::unordered_map<u64, std::vector<u8>> prefetchVfsLocal(
 // Storage::open (local disk)
 // ============================================================================
 
-std::optional<Storage> Storage::open(const std::string& path,
-                                     interfaces::WorkerPool* pool) {
+std::optional<Storage> Storage::open(const std::string& path, interfaces::WorkerPool* pool) {
     OpenOptions opts;
     opts.path = path;
     opts.pool = pool;
@@ -299,7 +310,8 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
 
     // Progress callback.
     auto progress = [&](ProgressStep step, u32 current = 0, u32 total = 0) -> bool {
-        if (opts.progressCallback) return opts.progressCallback(step, current, total);
+        if (opts.progressCallback)
+            return opts.progressCallback(step, current, total);
         return true;
     };
 
@@ -325,8 +337,8 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     if (buildInfoPath.empty()) {
         s_lastError = kBuildInfoNotFound;
         if (opts.errorOut)
-            *opts.errorOut = "'.build.info' not found under '" + basePath +
-                             "' or '" + dataPath + "'";
+            *opts.errorOut =
+                "'.build.info' not found under '" + basePath + "' or '" + dataPath + "'";
         return std::nullopt;
     }
 
@@ -357,10 +369,14 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     }
     if (!activeBuild) {
         for (auto& b : builds) {
-            if (b.active) { activeBuild = &b; break; }
+            if (b.active) {
+                activeBuild = &b;
+                break;
+            }
         }
     }
-    if (!activeBuild) activeBuild = &builds[0];
+    if (!activeBuild)
+        activeBuild = &builds[0];
 
     // Step 2: Create Impl with LocalState.
     auto implPtr = std::make_unique<Impl>();
@@ -401,8 +417,7 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     if (buildConfigFile) {
         impl.buildConfig = parseBuildConfig(*buildConfigFile);
     } else {
-        auto fallback = findConsistentBuildConfig(dataPath,
-                                                   impl.localState->indexTable);
+        auto fallback = findConsistentBuildConfig(dataPath, impl.localState->indexTable);
         if (!fallback) {
             reportFileError(buildConfigPath, sysErr, kBuildConfigNotFound);
             return std::nullopt;
@@ -427,8 +442,8 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
             impl.localState->indexTable.loadArchiveIndicesLazy(
                 dataPath, impl.cdnConfig.archiveEKeys, opts.pool);
         } else {
-            impl.localState->indexTable.loadArchiveIndices(
-                dataPath, impl.cdnConfig.archiveEKeys, opts.pool);
+            impl.localState->indexTable.loadArchiveIndices(dataPath, impl.cdnConfig.archiveEKeys,
+                                                           opts.pool);
         }
     }
 
@@ -449,16 +464,14 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
         *opts.errorOut = mapError;
 
     // Step 7: Create LocalDataSource.
-    impl.localState->dataSource = std::make_unique<LocalDataSource>(
-        &impl.localState->indexTable,
-        &impl.localState->dataArchives);
+    impl.localState->dataSource = std::make_unique<LocalDataSource>(&impl.localState->indexTable,
+                                                                    &impl.localState->dataArchives);
     impl.dataSource = impl.localState->dataSource.get();
 
     // Step 7b: Construct specialised backend (NoCachePolicy; D4 upgrades to MemCacheEnabled later).
     impl.backend = std::make_unique<StorageBackendImpl<LocalDataTraits, NoCachePolicy>>(
         LocalDataTraits{&impl.localState->indexTable, impl.localState->dataSource.get()},
-        NoCachePolicy{},
-        impl.encodingTable, impl.keyRing, impl.pool);
+        NoCachePolicy{}, impl.encodingTable, impl.keyRing, impl.pool);
 
     // Step 8: Load encoding + root (or defer).
     if (opts.flags & StorageFeatureFlags::LoadOnDemand) {

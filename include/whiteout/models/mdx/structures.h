@@ -26,7 +26,7 @@ namespace mdx {
 
 // Helper macro: defines bitwise operators and a hasFlag overload for a scoped
 // flag enum backed by u32. Must be invoked at the same scope as the enum.
-#define WHITEOUT_MDX_DEFINE_FLAG_OPERATORS(EnumType)                                                \
+#define WHITEOUT_MDX_DEFINE_FLAG_OPERATORS(EnumType)                                               \
     inline EnumType operator|(EnumType lhs, EnumType rhs) {                                        \
         return static_cast<EnumType>(static_cast<u32>(lhs) | static_cast<u32>(rhs));               \
     }                                                                                              \
@@ -41,7 +41,9 @@ namespace mdx {
         lhs = lhs & rhs;                                                                           \
         return lhs;                                                                                \
     }                                                                                              \
-    inline EnumType operator~(EnumType v) { return static_cast<EnumType>(~static_cast<u32>(v)); }  \
+    inline EnumType operator~(EnumType v) {                                                        \
+        return static_cast<EnumType>(~static_cast<u32>(v));                                        \
+    }                                                                                              \
     inline bool hasFlag(EnumType flags, EnumType flag) {                                           \
         return (static_cast<u32>(flags) & static_cast<u32>(flag)) != 0;                            \
     }
@@ -186,20 +188,21 @@ struct Node {
         RibbonEmitter = 0x4000,       ///< This is a ribbon emitter
         // Bits 0x8000..0x40000 carry different meanings depending on node type.
         // Aliases below give each context its own readable name.
-        Unshaded = 0x8000,            ///< Unshaded (PE2/Popcorn) / EmitterUsesMdl (PE)
-        EmitterUsesMdl = 0x8000,      ///< Particle emitter uses MDL model
-        SortPrimitives = 0x10000,     ///< Sort primitives (PE2/Popcorn)
-        SortPrimsFarZ = 0x10000,      ///< Alias of SortPrimitives
-        EmitterUsesTga = 0x10000,     ///< Particle emitter uses TGA (PE only)
-        LineEmitter = 0x20000,        ///< Line-shaped emitter (PE2)
-        PopcornUnfogged = 0x20000,    ///< Unfogged (Popcorn emitter)
-        Unfogged = 0x40000,           ///< Not affected by fog (PE2)
-        PopcornScaling = 0x40000,     ///< Particle scaling (Popcorn emitter)
-        ModelSpace = 0x80000,         ///< Use model space coordinates
-        XYQuad = 0x100000             ///< XY quad billboarding
+        Unshaded = 0x8000,         ///< Unshaded (PE2/Popcorn) / EmitterUsesMdl (PE)
+        EmitterUsesMdl = 0x8000,   ///< Particle emitter uses MDL model
+        SortPrimitives = 0x10000,  ///< Sort primitives (PE2/Popcorn)
+        SortPrimsFarZ = 0x10000,   ///< Alias of SortPrimitives
+        EmitterUsesTga = 0x10000,  ///< Particle emitter uses TGA (PE only)
+        LineEmitter = 0x20000,     ///< Line-shaped emitter (PE2)
+        PopcornUnfogged = 0x20000, ///< Unfogged (Popcorn emitter)
+        Unfogged = 0x40000,        ///< Not affected by fog (PE2)
+        PopcornScaling = 0x40000,  ///< Particle scaling (Popcorn emitter)
+        ModelSpace = 0x80000,      ///< Use model space coordinates
+        XYQuad = 0x100000          ///< XY quad billboarding
     };
 
-    static constexpr u32 NO_PARENT = 0xFFFFFFFF; ///< @bind js_name=MdxNoParent — Value indicating no parent node
+    static constexpr u32 NO_PARENT =
+        0xFFFFFFFF; ///< @bind js_name=MdxNoParent — Value indicating no parent node
 
     std::string name;                 ///< Node name (for debugging/reference)
     u32 objectId = 0;                 ///< Unique ID for this node
@@ -264,34 +267,34 @@ struct Layer {
     // is a raw uint32, so any of these values can appear on disk.
     /// @bind
     enum class ShaderType : u32 {
-        SD                      = 0,
-        HD                      = 1,
-        SDOnHD                  = 2,
-        Terrain                 = 3,
-        Water                   = 4,
-        Fog                     = 5,
-        Foliage                 = 6,
-        FoliagePush             = 7,
-        Sprite                  = 8,
-        DebugTexture            = 9,
-        DepthOfField            = 10,
-        BloomCombine            = 11,
-        BloomExtract            = 12,
-        GaussianBlur            = 13,
-        Tonemap                 = 14,
-        Movie                   = 15,
-        FFXCMAAEdge0            = 16,
-        FFXCMAAEdge1            = 17,
-        FFXCMAAEdgeCombine      = 18,
-        FFXCMAAProcessAndApply  = 19,
-        PopcornFX               = 20,
-        ConeIndicator           = 21,
-        CliffBlightMiscTerrain  = 22,
-        Distortion              = 23,
-        Crystal                 = 24,
-        Imgui                   = 25,
+        SD = 0,
+        HD = 1,
+        SDOnHD = 2,
+        Terrain = 3,
+        Water = 4,
+        Fog = 5,
+        Foliage = 6,
+        FoliagePush = 7,
+        Sprite = 8,
+        DebugTexture = 9,
+        DepthOfField = 10,
+        BloomCombine = 11,
+        BloomExtract = 12,
+        GaussianBlur = 13,
+        Tonemap = 14,
+        Movie = 15,
+        FFXCMAAEdge0 = 16,
+        FFXCMAAEdge1 = 17,
+        FFXCMAAEdgeCombine = 18,
+        FFXCMAAProcessAndApply = 19,
+        PopcornFX = 20,
+        ConeIndicator = 21,
+        CliffBlightMiscTerrain = 22,
+        Distortion = 23,
+        Crystal = 24,
+        Imgui = 25,
     };
-    
+
     /**
      * @brief Shader and rendering flags
      */
@@ -343,9 +346,9 @@ struct Layer {
     f32 fresnelOpacity = 0.0f;                 ///< Fresnel effect opacity
     f32 fresnelTeamColor = 0.0f;               ///< Fresnel team color factor
 
-    ShaderType shader = ShaderType::SD;   ///< Shader to use for this layer
-    bool is_hd = false;                   ///< @bind rename=isHd — True if using Reforged HD shading
-    std::vector<SubTexture> subTextures;  ///< Multi-texture support (version 1200+)
+    ShaderType shader = ShaderType::SD;  ///< Shader to use for this layer
+    bool is_hd = false;                  ///< @bind rename=isHd — True if using Reforged HD shading
+    std::vector<SubTexture> subTextures; ///< Multi-texture support (version 1200+)
 
     // Animation tracks
     Track<u32> textureIdTracks;         ///< Texture ID animation (versions 800-1100)
@@ -486,7 +489,8 @@ WHITEOUT_MDX_DEFINE_FLAG_OPERATORS(GeosetAnimation::Flag)
  * in the hierarchy and can affect one or more geosets.
  */
 struct Bone {
-    static constexpr u32 MULTIPLE_GEOSETS = 0xFFFFFFFF; ///< @bind js_name=MdxMultipleGeosets — Bone affects all geosets
+    static constexpr u32 MULTIPLE_GEOSETS =
+        0xFFFFFFFF; ///< @bind js_name=MdxMultipleGeosets — Bone affects all geosets
 
     Node node;                                ///< Base node data with transform
     u32 geosetId = MULTIPLE_GEOSETS;          ///< Geoset this bone affects
@@ -769,23 +773,23 @@ struct FaceEffect {
  * animation tracks.
  */
 struct CornEmitter {
-    Node node;                             ///< Base node data
-    f32 lifeSpan = 0.0f;                   ///< Particle lifetime (default)
-    f32 emissionRate = 0.0f;               ///< Emission rate (default)
-    f32 speed = 0.0f;                      ///< Particle speed (default)
-    Vector3f color = Vector3f(1, 1, 1);    ///< Particle color (RGB)
-    f32 alpha = 1.0f;                      ///< Particle alpha (default)
-    u32 replaceableId = 0;                 ///< Replaceable texture ID
-    std::string path;                      ///< Path to PopcornFX effect
-    std::string animVisibilityGuide;       ///< Animation visibility guide
+    Node node;                          ///< Base node data
+    f32 lifeSpan = 0.0f;                ///< Particle lifetime (default)
+    f32 emissionRate = 0.0f;            ///< Emission rate (default)
+    f32 speed = 0.0f;                   ///< Particle speed (default)
+    Vector3f color = Vector3f(1, 1, 1); ///< Particle color (RGB)
+    f32 alpha = 1.0f;                   ///< Particle alpha (default)
+    u32 replaceableId = 0;              ///< Replaceable texture ID
+    std::string path;                   ///< Path to PopcornFX effect
+    std::string animVisibilityGuide;    ///< Animation visibility guide
 
     // Animation tracks
-    Track<f32> lifeSpanTracks;       ///< Lifespan animation
-    Track<f32> emissionRateTracks;   ///< Emission rate animation
-    Track<f32> speedTracks;          ///< Speed animation
-    Track<Vector3f> colorTracks;     ///< Color animation
-    Track<f32> alphaTracks;          ///< Alpha animation
-    Track<f32> visibilityTracks;     ///< Visibility animation
+    Track<f32> lifeSpanTracks;     ///< Lifespan animation
+    Track<f32> emissionRateTracks; ///< Emission rate animation
+    Track<f32> speedTracks;        ///< Speed animation
+    Track<Vector3f> colorTracks;   ///< Color animation
+    Track<f32> alphaTracks;        ///< Alpha animation
+    Track<f32> visibilityTracks;   ///< Visibility animation
 };
 
 } // namespace mdx

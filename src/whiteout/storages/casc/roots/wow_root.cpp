@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "wow_root.h"
 #include "common/listfile_parser.h"
+#include "wow_root.h"
 
 #include "../../common/byte_order.h"
 #include "../../common/jenkins.h"
@@ -34,36 +34,43 @@ namespace {
 struct WowRootHeader {
     u32 totalFileCount = 0;
     u32 namedFileCount = 0;
-    u32 headerVersion = 0;   ///< 0 = legacy headerless, 1 = v2 (30080), 2+ = v3 (50893)
-    size_t dataOffset = 0;   ///< Where block data begins.
+    u32 headerVersion = 0; ///< 0 = legacy headerless, 1 = v2 (30080), 2+ = v3 (50893)
+    size_t dataOffset = 0; ///< Where block data begins.
 };
 
 /// Try v3 header (build 50893+): MFST + headerSize + version + totalFiles + namedFiles + padding.
 static bool tryParseHeaderV3(std::span<const u8> data, WowRootHeader& out) {
-    if (data.size() < 24) return false;
+    if (data.size() < 24)
+        return false;
     u32 const magic = readLE32(data.data());
-    if (magic != RootSignature::kMFST) return false;
+    if (magic != RootSignature::kMFST)
+        return false;
 
     u32 const headerSize = readLE32(data.data() + 4);
     u32 const version = readLE32(data.data() + 8);
     // V3 header: version must be 1 or 2, headerSize must be >= 16 (version+total+named+padding).
-    if (version < 1 || version > 2) return false;
-    if (headerSize < 16) return false;
+    if (version < 1 || version > 2)
+        return false;
+    if (headerSize < 16)
+        return false;
 
     out.totalFileCount = readLE32(data.data() + 12);
     out.namedFileCount = readLE32(data.data() + 16);
     out.headerVersion = version + 1; // internal: 2 = v2-in-v3, 3 = v3 manifest version 2
     out.dataOffset = headerSize + 4; // headerSize is relative to after the magic
-    if (out.dataOffset > data.size()) return false;
+    if (out.dataOffset > data.size())
+        return false;
 
     return true;
 }
 
 /// Try v2 header (build 30080+): MFST + totalFiles + namedFiles.
 static bool tryParseHeaderV2(std::span<const u8> data, WowRootHeader& out) {
-    if (data.size() < 12) return false;
+    if (data.size() < 12)
+        return false;
     u32 const magic = readLE32(data.data());
-    if (magic != RootSignature::kMFST) return false;
+    if (magic != RootSignature::kMFST)
+        return false;
 
     out.totalFileCount = readLE32(data.data() + 4);
     out.namedFileCount = readLE32(data.data() + 8);
@@ -76,11 +83,13 @@ static bool tryParseHeaderV2(std::span<const u8> data, WowRootHeader& out) {
 static bool tryParseHeaderLegacy(std::span<const u8> data, WowRootHeader& out) {
     // Sanity: first 12 bytes should be a valid group header.
     // numRecords(u32) + contentFlags(u32) + localeFlags(u32).
-    if (data.size() < 12) return false;
+    if (data.size() < 12)
+        return false;
 
     u32 const numRecords = readLE32(data.data());
     // Reasonable bounds check: numRecords should be > 0 and not absurdly large.
-    if (numRecords == 0 || numRecords > 10000000) return false;
+    if (numRecords == 0 || numRecords > 10000000)
+        return false;
 
     out.totalFileCount = 0; // not available in legacy
     out.namedFileCount = 0;
@@ -102,15 +111,16 @@ struct BlockHeader {
 
 /// Parse one block header at the given offset.
 /// Returns false if there isn't enough data.
-static bool parseBlockHeader(std::span<const u8> data, size_t offset,
-                             u32 manifestVersion, BlockHeader& out) {
+static bool parseBlockHeader(std::span<const u8> data, size_t offset, u32 manifestVersion,
+                             BlockHeader& out) {
     // Manifest version 2 (in v3 container) has extended header:
     //   numRecords(4) + localeFlags(4) + unk1(4) + unk2(4) + unk3(1) = 17 bytes
     // All other versions:
     //   numRecords(4) + contentFlags(4) + localeFlags(4) = 12 bytes
     if (manifestVersion >= 3) {
         // v3 manifest version 2: numRecords, localeFlags, unk1, unk2, unk3
-        if (offset + kWowBlockHeaderSizeV3 > data.size()) return false;
+        if (offset + kWowBlockHeaderSizeV3 > data.size())
+            return false;
         const u8* p = data.data() + offset;
         out.numRecords = readLE32(p);
         out.localeFlags = readLE32(p + 4);
@@ -121,7 +131,8 @@ static bool parseBlockHeader(std::span<const u8> data, size_t offset,
         out.contentFlags = unk1 | unk2 | (u32(unk3) << 17);
         out.headerSize = kWowBlockHeaderSizeV3;
     } else {
-        if (offset + kWowBlockHeaderSizeStandard > data.size()) return false;
+        if (offset + kWowBlockHeaderSizeStandard > data.size())
+            return false;
         const u8* p = data.data() + offset;
         out.numRecords = readLE32(p);
         out.contentFlags = readLE32(p + 4);
@@ -150,7 +161,8 @@ static bool parseBlocks(std::span<const u8> data, const WowRootHeader& header,
 
         // Delta-encoded FileDataIds (i32 deltas).
         size_t const deltaSize = size_t(bh.numRecords) * 4;
-        if (offset + deltaSize > data.size()) return false;
+        if (offset + deltaSize > data.size())
+            return false;
 
         // Decode FileDataIds from deltas.
         std::vector<u32> fileDataIds(bh.numRecords);
@@ -170,7 +182,8 @@ static bool parseBlocks(std::span<const u8> data, const WowRootHeader& header,
         if (useOldRecordFormat) {
             // Old interleaved format: [CKey(16) + NameHash(8)] per entry.
             size_t const recordSize = size_t(bh.numRecords) * kWowOldRecordSize;
-            if (offset + recordSize > data.size()) return false;
+            if (offset + recordSize > data.size())
+                return false;
 
             for (u32 i = 0; i < bh.numRecords; ++i) {
                 RootEntry entry;
@@ -186,13 +199,15 @@ static bool parseBlocks(std::span<const u8> data, const WowRootHeader& header,
         } else {
             // Split format: CKey[numRecords], then optional NameHash[numRecords].
             size_t const cKeySize = size_t(bh.numRecords) * 16;
-            if (offset + cKeySize > data.size()) return false;
+            if (offset + cKeySize > data.size())
+                return false;
 
             bool const hasNameHash =
                 !(allowNonNamedFiles && (bh.contentFlags & ContentFlags::NoNameHash));
 
             size_t const nameHashSize = hasNameHash ? (size_t(bh.numRecords) * 8) : 0;
-            if (offset + cKeySize + nameHashSize > data.size()) return false;
+            if (offset + cKeySize + nameHashSize > data.size())
+                return false;
 
             const u8* cKeyBase = data.data() + offset;
             const u8* nameBase = hasNameHash ? (data.data() + offset + cKeySize) : nullptr;
@@ -220,14 +235,13 @@ static bool parseBlocks(std::span<const u8> data, const WowRootHeader& header,
 // WowRoot public API
 // ============================================================================
 
-std::unique_ptr<WowRoot> WowRoot::parse(std::span<const u8> data,
-                                        interfaces::WorkerPool* pool,
+std::unique_ptr<WowRoot> WowRoot::parse(std::span<const u8> data, interfaces::WorkerPool* pool,
                                         std::span<const u8> listfile) {
-    if (data.size() < 12) return nullptr;
+    if (data.size() < 12)
+        return nullptr;
 
     WowRootHeader header;
-    if (!tryParseHeaderV3(data, header) &&
-        !tryParseHeaderV2(data, header) &&
+    if (!tryParseHeaderV3(data, header) && !tryParseHeaderV2(data, header) &&
         !tryParseHeaderLegacy(data, header)) {
         return nullptr;
     }
@@ -247,13 +261,14 @@ std::unique_ptr<WowRoot> WowRoot::parse(std::span<const u8> data,
             root->m_byListfilePath.reserve(pathMap.size());
             for (size_t i = 0; i < root->m_entries.size(); ++i) {
                 auto& entry = root->m_entries[i];
-                if (entry.fileDataId == kInvalidFileDataId) continue;
+                if (entry.fileDataId == kInvalidFileDataId)
+                    continue;
                 auto it = pathMap.find(entry.fileDataId);
-                if (it == pathMap.end()) continue;
+                if (it == pathMap.end())
+                    continue;
                 entry.path = it->second;
                 auto h = common::jenkinsHash(entry.path);
-                root->m_byListfilePath.emplace(
-                    u64(h.pc) | (u64(h.pb) << 32), i);
+                root->m_byListfilePath.emplace(u64(h.pc) | (u64(h.pb) << 32), i);
             }
         }
     }
@@ -269,7 +284,8 @@ std::vector<const RootEntry*> WowRoot::findByPath(const std::string& path) const
     // provided, free hit for the WoW + listfile common case.
     if (!m_byListfilePath.empty()) {
         auto results = m_byListfilePath.findAll(m_entries, combined);
-        if (!results.empty()) return results;
+        if (!results.empty())
+            return results;
     }
 
     // Fallback: in-blob name-hash index. Built lazily.
@@ -289,8 +305,8 @@ std::vector<const RootEntry*> WowRoot::findByCKey(std::span<const u8, 16> cKey) 
     // WoW root has a special zero-key check before comparison.
     std::vector<const RootEntry*> results;
     for (auto& e : m_entries) {
-        if (e.cKey == std::array<u8, 16>{} ? false :
-            std::memcmp(e.cKey.data(), cKey.data(), 16) == 0)
+        if (e.cKey == std::array<u8, 16>{} ? false
+                                           : std::memcmp(e.cKey.data(), cKey.data(), 16) == 0)
             results.push_back(&e);
     }
     return results;

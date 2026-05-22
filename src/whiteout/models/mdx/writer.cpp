@@ -70,8 +70,8 @@ static void writeTrackChunk(BinaryWriter& writer, u32 tag, const Track<T>& track
     std::vector<u8> buffer(track.keyCount * stride);
     for (size_t i = 0; i < track.keyCount; ++i) {
         std::memcpy(buffer.data() + i * stride, &track.timestamps[i], sizeof(u32));
-        std::memcpy(buffer.data() + i * stride + sizeof(u32),
-                    &track.keys_data[i * keyComponents], valueStride);
+        std::memcpy(buffer.data() + i * stride + sizeof(u32), &track.keys_data[i * keyComponents],
+                    valueStride);
     }
     writer.writeBytes(reinterpret_cast<const char*>(buffer.data()),
                       static_cast<u32>(buffer.size()));

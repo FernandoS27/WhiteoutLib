@@ -47,8 +47,7 @@ public:
     static OnlineIndexTable loadAll(CdnFetcher& fetcher,
                                     const std::vector<std::array<u8, 16>>& archiveEKeys,
                                     interfaces::WorkerPool* pool = nullptr);
-    static OnlineIndexTable loadLoose(CdnFetcher& fetcher,
-                                      const std::string& fileIndexKey);
+    static OnlineIndexTable loadLoose(CdnFetcher& fetcher, const std::string& fileIndexKey);
 
     /// Lazy variant — pointer args must outlive the table.
     static OnlineIndexTable makeLazy(CdnFetcher* fetcher,

@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "writer.h"
-#include "../codec/blte.h"
-#include "../tables/config.h"
-#include "constants.h"
-#include "../tables/encoding.h"
-#include "../tables/index.h"
-#include "../roots/root.h"
+#include "../../../common/unicode_path.h"
 #include "../../common/byte_order.h"
 #include "../../common/hex.h"
 #include "../../common/jenkins.h"
 #include "../../common/md5.h"
-#include "../../../common/unicode_path.h"
+#include "../codec/blte.h"
+#include "../roots/root.h"
+#include "../tables/config.h"
+#include "../tables/encoding.h"
+#include "../tables/index.h"
+#include "constants.h"
+#include "writer.h"
 
 #include <whiteout/common_types.h>
 #include <whiteout/utils/job_group.h>
@@ -25,12 +25,12 @@
 
 namespace whiteout::storages::casc {
 
-using storages::common::writeBE32;
-using storages::common::writeLE32;
+using storages::common::hexEncode16;
 using storages::common::pushBE16;
 using storages::common::pushBE32;
 using storages::common::pushLE32;
-using storages::common::hexEncode16;
+using storages::common::writeBE32;
+using storages::common::writeLE32;
 
 // ---- Constants local to writer ----
 
@@ -75,15 +75,14 @@ static std::array<u8, kArchiveEntryHeaderSize> makeArchiveEntryHeader(
 
 /// Generate `.build.info` content.
 static std::string generateBuildInfo(const std::array<u8, 16>& buildKey,
-                                     const std::array<u8, 16>& cdnKey,
-                                     const std::string& product,
+                                     const std::array<u8, 16>& cdnKey, const std::string& product,
                                      const std::string& version) {
     std::string content;
     content += "Branch!STRING:0|Active!DEC:1|Build Key!HEX:16|"
                "CDN Key!HEX:16|Version!STRING:0|Product!STRING:0\n";
     // Single build row.
-    content += "master|1|" + hexEncode16(buildKey) + "|" + hexEncode16(cdnKey) +
-               "|" + version + "|" + product + "\n";
+    content += "master|1|" + hexEncode16(buildKey) + "|" + hexEncode16(cdnKey) + "|" + version +
+               "|" + product + "\n";
     return content;
 }
 
@@ -91,14 +90,11 @@ static std::string generateBuildInfo(const std::array<u8, 16>& buildKey,
 static std::string generateBuildConfig(const std::array<u8, 16>& rootCKey,
                                        const std::array<u8, 16>& encodingCKey,
                                        const std::array<u8, 16>& encodingEKey,
-                                       u64 encodingDecodedSize,
-                                       u64 encodingEncodedSize,
+                                       u64 encodingDecodedSize, u64 encodingEncodedSize,
                                        const std::array<u8, 16>& downloadCKey,
                                        const std::array<u8, 16>& downloadEKey,
-                                       u64 downloadDecodedSize,
-                                       u64 downloadEncodedSize,
-                                       const std::string& product,
-                                       const std::string& version) {
+                                       u64 downloadDecodedSize, u64 downloadEncodedSize,
+                                       const std::string& product, const std::string& version) {
     std::string content;
     content += "# Build Configuration\n";
     content += "root = " + hexEncode16(rootCKey) + "\n";
@@ -120,7 +116,8 @@ static std::string generateCdnConfig(const std::vector<std::array<u8, 16>>& arch
     content += "# CDN Configuration\n";
     content += "archives = ";
     for (size_t i = 0; i < archiveEKeys.size(); ++i) {
-        if (i > 0) content += " ";
+        if (i > 0)
+            content += " ";
         content += hexEncode16(archiveEKeys[i]);
     }
     content += "\n";
@@ -132,7 +129,8 @@ static bool writeFileBytes(const std::string& path, const void* data, size_t siz
     namespace fs = std::filesystem;
     fs::create_directories(fs::path(path).parent_path());
     auto ofs = whiteout::common::open_ofstream(path, std::ios::binary);
-    if (!ofs) return false;
+    if (!ofs)
+        return false;
     ofs.write(static_cast<const char*>(data), static_cast<std::streamsize>(size));
     return ofs.good();
 }
@@ -165,9 +163,12 @@ static std::string buildESpec(bool compress, u64 fileSize, u32 frameSize) {
 /// Compute variable-width offset field size for a given table size.
 /// Mirrors getCftOffsSize() in the TVFS parser.
 static u32 getOffsFieldSize(u32 tableSize) {
-    if (tableSize <= 0xFF)     return 1;
-    if (tableSize <= 0xFFFF)   return 2;
-    if (tableSize <= 0xFFFFFF) return 3;
+    if (tableSize <= 0xFF)
+        return 1;
+    if (tableSize <= 0xFFFF)
+        return 2;
+    if (tableSize <= 0xFFFFFF)
+        return 3;
     return 4;
 }
 
@@ -180,7 +181,7 @@ static u32 getOffsFieldSize(u32 tableSize) {
 /// Includes CKey in CFT entries and an EST (Encoding Specifier Table) that
 /// records the BLTE ESpec string for each file.
 static std::vector<u8> serializeTvfsRoot(const std::vector<WriteEntry>& entries,
-                                          u32 blteFrameSize) {
+                                         u32 blteFrameSize) {
     // TVFS root format matching the real parser:
     //   Header (46 bytes): mixed LE/BE fields
     //   Path table: prefix-trie encoded (we use flat single-level)
@@ -225,7 +226,9 @@ static std::vector<u8> serializeTvfsRoot(const std::vector<WriteEntry>& entries,
     entryPoolOffsets.reserve(entries.size());
     {
         // Map ESpec string → byte offset in the string pool.
-        struct SpecEntry { u32 poolOffset; };
+        struct SpecEntry {
+            u32 poolOffset;
+        };
         std::vector<std::pair<std::string, SpecEntry>> specMap;
 
         u32 poolPos = 0;
@@ -235,7 +238,10 @@ static std::vector<u8> serializeTvfsRoot(const std::vector<WriteEntry>& entries,
             // Linear search is fine — typically 1-3 unique strings.
             u32 offset = UINT32_MAX;
             for (auto& [s, se] : specMap) {
-                if (s == spec) { offset = se.poolOffset; break; }
+                if (s == spec) {
+                    offset = se.poolOffset;
+                    break;
+                }
             }
             if (offset == UINT32_MAX) {
                 offset = poolPos;
@@ -262,7 +268,8 @@ static std::vector<u8> serializeTvfsRoot(const std::vector<WriteEntry>& entries,
     for (int iter = 0; iter < 4; ++iter) {
         u32 const total = poolSize + numEntries * estOffsSize;
         u32 const needed = getOffsFieldSize(total);
-        if (needed <= estOffsSize) break;
+        if (needed <= estOffsSize)
+            break;
         estOffsSize = needed;
     }
     u32 const estTableSize = poolSize + numEntries * estOffsSize;
@@ -277,14 +284,15 @@ static std::vector<u8> serializeTvfsRoot(const std::vector<WriteEntry>& entries,
     }
 
     // --- Build VFS table ---
-    // Each file gets one VFS entry: spanCount(1) + FileOffset(4 BE) + SpanSize(4 BE) + CftOffset(var BE).
+    // Each file gets one VFS entry: spanCount(1) + FileOffset(4 BE) + SpanSize(4 BE) +
+    // CftOffset(var BE).
     u32 const vfsEntrySize = 1 + 4 + 4 + cftOffsSize;
     std::vector<u8> vfs;
     vfs.reserve(entries.size() * vfsEntrySize);
     for (size_t i = 0; i < entries.size(); ++i) {
         u32 const cftOff = static_cast<u32>(i * kCftEntrySize);
-        vfs.push_back(1); // spanCount = 1
-        pushBE32(vfs, 0); // fileOffset = 0 (not used for read)
+        vfs.push_back(1);                                     // spanCount = 1
+        pushBE32(vfs, 0);                                     // fileOffset = 0 (not used for read)
         pushBE32(vfs, static_cast<u32>(entries[i].fileSize)); // spanSize
         // CftOffset (variable-length BE).
         for (int b = cftOffsSize - 1; b >= 0; --b)
@@ -341,21 +349,21 @@ static std::vector<u8> serializeTvfsRoot(const std::vector<WriteEntry>& entries,
     std::vector<u8> result;
     result.reserve(kTvfsHeaderSize + pathTableSize + vfsTableSize + cftTableSize + estTableSize);
 
-    pushLE32(result, RootSignature::kTVFS); // offset 0: magic (LE)
-    result.push_back(kFormatVersion);       // offset 4: formatVersion (u8)
+    pushLE32(result, RootSignature::kTVFS);             // offset 0: magic (LE)
+    result.push_back(kFormatVersion);                   // offset 4: formatVersion (u8)
     result.push_back(static_cast<u8>(kTvfsHeaderSize)); // offset 5: headerSize (u8)
-    result.push_back(kEKeySizeTvfs);        // offset 6: eKeySize (u8)
-    result.push_back(kPatchKeySize);        // offset 7: patchKeySize (u8)
-    pushLE32(result, kFlags);               // offset 8: flags (LE)
-    pushBE32(result, pathTableOffset);      // offset 12: pathTableOffset (BE)
-    pushBE32(result, pathTableSize);        // offset 16: pathTableSize (BE)
-    pushBE32(result, vfsTableOffset);       // offset 20: vfsTableOffset (BE)
-    pushBE32(result, vfsTableSize);         // offset 24: vfsTableSize (BE)
-    pushBE32(result, cftTableOffset);       // offset 28: cftTableOffset (BE)
-    pushBE32(result, cftTableSize);         // offset 32: cftTableSize (BE)
-    pushBE16(result, 1);                    // offset 36: maxDepth (BE)
-    pushBE32(result, estTableOffset);       // offset 38: estTableOffset (BE)
-    pushBE32(result, estTableSize);         // offset 42: estTableSize (BE)
+    result.push_back(kEKeySizeTvfs);                    // offset 6: eKeySize (u8)
+    result.push_back(kPatchKeySize);                    // offset 7: patchKeySize (u8)
+    pushLE32(result, kFlags);                           // offset 8: flags (LE)
+    pushBE32(result, pathTableOffset);                  // offset 12: pathTableOffset (BE)
+    pushBE32(result, pathTableSize);                    // offset 16: pathTableSize (BE)
+    pushBE32(result, vfsTableOffset);                   // offset 20: vfsTableOffset (BE)
+    pushBE32(result, vfsTableSize);                     // offset 24: vfsTableSize (BE)
+    pushBE32(result, cftTableOffset);                   // offset 28: cftTableOffset (BE)
+    pushBE32(result, cftTableSize);                     // offset 32: cftTableSize (BE)
+    pushBE16(result, 1);                                // offset 36: maxDepth (BE)
+    pushBE32(result, estTableOffset);                   // offset 38: estTableOffset (BE)
+    pushBE32(result, estTableSize);                     // offset 42: estTableSize (BE)
 
     // --- Append sections ---
     result.insert(result.end(), pathTable.begin(), pathTable.end());
@@ -375,8 +383,8 @@ static std::vector<u8> serializeTvfsRoot(const std::vector<WriteEntry>& entries,
 /// that actually contains the file entries.  Both blobs must be stored in the
 /// CASC archive and encoding table.
 struct D3RootBlobs {
-    std::vector<u8> rootData;    ///< Root blob (kD3Root + one "Base" named entry).
-    std::vector<u8> subdirData;  ///< Subdirectory blob (kD3Dir + named entries for files).
+    std::vector<u8> rootData;        ///< Root blob (kD3Root + one "Base" named entry).
+    std::vector<u8> subdirData;      ///< Subdirectory blob (kD3Dir + named entries for files).
     std::array<u8, 16> subdirCKey{}; ///< Content key of subdirData.
 };
 
@@ -396,7 +404,6 @@ static D3RootBlobs serializeD3Root(const std::vector<WriteEntry>& entries) {
         else
             namedIndices.push_back(i);
     }
-
 
     // Step 1: Build the "Base" subdirectory blob (kD3Dir).
     // Format:
@@ -453,7 +460,7 @@ static D3RootBlobs serializeD3Root(const std::vector<WriteEntry>& entries) {
     root.push_back(0); // empty string + null terminator
     // Dummy entry — CKey not in encoding table, so CascLib skips it.
     root.insert(root.end(), 16, 0); // all-zero CKey.
-    root.push_back(0); // empty string + null terminator
+    root.push_back(0);              // empty string + null terminator
 
     return result;
 }
@@ -476,7 +483,8 @@ static std::vector<u8> serializeWowRoot(const std::vector<WriteEntry>& entries) 
     // Count entries that have paths or preserved hashes (for name hashes).
     u32 namedCount = 0;
     for (auto& e : entries)
-        if (!e.path.empty() || e.fileNameHash != 0) ++namedCount;
+        if (!e.path.empty() || e.fileNameHash != 0)
+            ++namedCount;
 
     pushLE32(result, RootSignature::kMFST);
     pushLE32(result, static_cast<u32>(entries.size())); // total file count.
@@ -486,9 +494,9 @@ static std::vector<u8> serializeWowRoot(const std::vector<WriteEntry>& entries) 
         const bool writingNameHashes = (namedCount > 0);
 
         // Block header.
-        pushLE32(result, static_cast<u32>(entries.size())); // numRecords.
+        pushLE32(result, static_cast<u32>(entries.size()));                  // numRecords.
         pushLE32(result, writingNameHashes ? 0u : ContentFlags::NoNameHash); // contentFlags.
-        pushLE32(result, kWowLocaleAll);                    // localeFlags.
+        pushLE32(result, kWowLocaleAll);                                     // localeFlags.
 
         // Sort by fileDataId for delta encoding.
         std::vector<size_t> order(entries.size());
@@ -547,7 +555,8 @@ static std::vector<u8> serializeOwRoot(const std::vector<WriteEntry>& entries) {
     csv += "#FILEID|MD5|CHUNK_ID|PRIORITY|MPRIORITY|FILENAME|INSTALLPATH\n";
 
     for (auto& e : entries) {
-        if (e.path.empty()) continue;
+        if (e.path.empty())
+            continue;
 
         // Encode CKey as uppercase hex (32 chars).
         std::string ckeyHex;
@@ -581,10 +590,8 @@ static std::vector<u8> serializeOwRoot(const std::vector<WriteEntry>& entries) {
 // writeStorage
 // ============================================================================
 
-bool writeStorage(const std::string& outputDir,
-                  std::vector<WriteEntry>& entries,
-                  const WriterOptions& opts,
-                  interfaces::WorkerPool* pool) {
+bool writeStorage(const std::string& outputDir, std::vector<WriteEntry>& entries,
+                  const WriterOptions& opts, interfaces::WorkerPool* pool) {
     namespace fs = std::filesystem;
 
     // Create output directory structure.
@@ -651,16 +658,24 @@ bool writeStorage(const std::string& outputDir,
 
     std::vector<u8> rootRaw;
     switch (opts.rootFormat) {
-        case RootFormat::Tvfs:    rootRaw = serializeTvfsRoot(entries, opts.blteFrameSize); break;
-        case RootFormat::Diablo3: {
-            auto d3 = serializeD3Root(entries);
-            rootRaw = std::move(d3.rootData);
-            d3SubdirRaw = std::move(d3.subdirData);
-            break;
-        }
-        case RootFormat::Wow:       rootRaw = serializeWowRoot(entries);  break;
-        case RootFormat::Overwatch: rootRaw = serializeOwRoot(entries);  break;
-        default:                    rootRaw = serializeTvfsRoot(entries, opts.blteFrameSize); break;
+    case RootFormat::Tvfs:
+        rootRaw = serializeTvfsRoot(entries, opts.blteFrameSize);
+        break;
+    case RootFormat::Diablo3: {
+        auto d3 = serializeD3Root(entries);
+        rootRaw = std::move(d3.rootData);
+        d3SubdirRaw = std::move(d3.subdirData);
+        break;
+    }
+    case RootFormat::Wow:
+        rootRaw = serializeWowRoot(entries);
+        break;
+    case RootFormat::Overwatch:
+        rootRaw = serializeOwRoot(entries);
+        break;
+    default:
+        rootRaw = serializeTvfsRoot(entries, opts.blteFrameSize);
+        break;
     }
 
     auto rootCKey = storages::common::md5Hash(rootRaw);
@@ -719,8 +734,8 @@ bool writeStorage(const std::string& outputDir,
     std::vector<u8> downloadRaw(16, 0);
     downloadRaw[0] = 'D';
     downloadRaw[1] = 'L';
-    downloadRaw[2] = 1;   // Version
-    downloadRaw[3] = 16;  // EKeyLength
+    downloadRaw[2] = 1;  // Version
+    downloadRaw[3] = 16; // EKeyLength
     // Bytes 4-15: zero (EntryHasChecksum=0, EntryCount=0, TagCount=0, padding)
 
     auto downloadCKey = storages::common::md5Hash(downloadRaw);
@@ -788,7 +803,8 @@ bool writeStorage(const std::string& outputDir,
     storages::common::MD5 archiveHasher;
 
     auto flushArchive = [&]() {
-        if (currentArchive.empty()) return;
+        if (currentArchive.empty())
+            return;
 
         char archiveName[32];
         std::snprintf(archiveName, sizeof(archiveName), "data.%03u", archiveIndex);
@@ -824,7 +840,8 @@ bool writeStorage(const std::string& outputDir,
         auto hdr = makeArchiveEntryHeader(blob.eKey, static_cast<u32>(blob.encodedData.size()),
                                           archiveOffset);
         currentArchive.insert(currentArchive.end(), hdr.begin(), hdr.end());
-        currentArchive.insert(currentArchive.end(), blob.encodedData.begin(), blob.encodedData.end());
+        currentArchive.insert(currentArchive.end(), blob.encodedData.begin(),
+                              blob.encodedData.end());
 
         archiveHasher.update(std::span<const u8>(hdr.data(), hdr.size()));
         archiveHasher.update(std::span<const u8>(blob.encodedData.data(), blob.encodedData.size()));
@@ -851,11 +868,9 @@ bool writeStorage(const std::string& outputDir,
     // -----------------------------------------------------------------------
 
     // Build config.
-    auto buildConfigStr = generateBuildConfig(rootCKey, encodingCKey, encodingEKey,
-                                              encodingRaw.size(), encodingEncodedSize,
-                                              downloadCKey, downloadEKey,
-                                              downloadRaw.size(), downloadEncodedSize,
-                                              opts.product, opts.version);
+    auto buildConfigStr = generateBuildConfig(
+        rootCKey, encodingCKey, encodingEKey, encodingRaw.size(), encodingEncodedSize, downloadCKey,
+        downloadEKey, downloadRaw.size(), downloadEncodedSize, opts.product, opts.version);
     std::vector<u8> buildConfigBytes(buildConfigStr.begin(), buildConfigStr.end());
     auto buildKey = storages::common::md5Hash(buildConfigBytes);
 

@@ -16,13 +16,21 @@ namespace whiteout::storages::casc {
 /// A multimap index that maps keys to indices into a flat RootEntry vector.
 /// Wraps std::unordered_multimap to eliminate repeated lookup boilerplate
 /// across root implementations.
-template<typename Key>
+template <typename Key>
 class EntryIndex {
 public:
-    void reserve(size_t n) { m_map.reserve(n); }
-    void clear() { m_map.clear(); }
-    void emplace(const Key& key, size_t index) { m_map.emplace(key, index); }
-    void emplace(Key&& key, size_t index) { m_map.emplace(std::move(key), index); }
+    void reserve(size_t n) {
+        m_map.reserve(n);
+    }
+    void clear() {
+        m_map.clear();
+    }
+    void emplace(const Key& key, size_t index) {
+        m_map.emplace(key, index);
+    }
+    void emplace(Key&& key, size_t index) {
+        m_map.emplace(std::move(key), index);
+    }
 
     /// Look up all entries matching a key.
     std::vector<const RootEntry*> findAll(const std::vector<RootEntry>& entries,
@@ -40,10 +48,14 @@ public:
     }
 
     /// Check if the index is empty.
-    bool empty() const { return m_map.empty(); }
+    bool empty() const {
+        return m_map.empty();
+    }
 
     /// Number of entries in the index.
-    size_t size() const { return m_map.size(); }
+    size_t size() const {
+        return m_map.size();
+    }
 
 private:
     std::unordered_multimap<Key, size_t> m_map;

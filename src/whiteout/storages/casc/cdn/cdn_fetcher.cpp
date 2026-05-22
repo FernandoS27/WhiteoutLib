@@ -9,16 +9,15 @@
 
 namespace whiteout::storages::casc {
 
-CdnFetcher::CdnFetcher(interfaces::HttpHandler* http,
-                         std::vector<CdnServer> servers,
-                         CdnCache* cache)
+CdnFetcher::CdnFetcher(interfaces::HttpHandler* http, std::vector<CdnServer> servers,
+                       CdnCache* cache)
     : m_http(http), m_servers(std::move(servers)), m_cache(cache) {}
 
-std::string CdnFetcher::buildUrl(const CdnServer& server,
-                                  const std::string& pathType,
-                                  const std::string& keyHex) const {
+std::string CdnFetcher::buildUrl(const CdnServer& server, const std::string& pathType,
+                                 const std::string& keyHex) const {
     // https://<host>/<path>/<pathType>/XX/YY/<keyHex>
-    if (keyHex.size() < 4) return {};
+    if (keyHex.size() < 4)
+        return {};
     return "https://" + server.host + "/" + server.path + "/" + pathType + "/" +
            keyHex.substr(0, 2) + "/" + keyHex.substr(2, 2) + "/" + keyHex;
 }
@@ -68,15 +67,17 @@ std::optional<std::vector<u8>> CdnFetcher::fetchUrl(const std::string& url) {
     return std::nullopt;
 }
 
-std::optional<std::vector<u8>> CdnFetcher::fetchWithFailover(
-    const std::string& pathType, const std::string& keyHex) {
-    if (m_servers.empty()) return std::nullopt;
+std::optional<std::vector<u8>> CdnFetcher::fetchWithFailover(const std::string& pathType,
+                                                             const std::string& keyHex) {
+    if (m_servers.empty())
+        return std::nullopt;
 
     size_t const startIdx = m_currentCdn.load(std::memory_order_relaxed);
     for (size_t attempt = 0; attempt < m_servers.size(); ++attempt) {
         size_t const idx = (startIdx + attempt) % m_servers.size();
         auto url = buildUrl(m_servers[idx], pathType, keyHex);
-        if (url.empty()) continue;
+        if (url.empty())
+            continue;
 
         auto sync = std::make_shared<SyncState>();
 
@@ -105,7 +106,7 @@ std::optional<std::vector<u8>> CdnFetcher::fetchWithFailover(
 }
 
 std::optional<std::vector<u8>> CdnFetcher::fetch(const std::string& pathType,
-                                                   const std::string& keyHex) {
+                                                 const std::string& keyHex) {
     // Check disk cache first.
     if (m_cache) {
         if (auto cached = m_cache->read(pathType, keyHex))
@@ -119,21 +120,23 @@ std::optional<std::vector<u8>> CdnFetcher::fetch(const std::string& pathType,
     return result;
 }
 
-std::optional<std::vector<u8>> CdnFetcher::fetchRange(
-    const std::string& archiveKeyHex, u64 offset, u32 size) {
+std::optional<std::vector<u8>> CdnFetcher::fetchRange(const std::string& archiveKeyHex, u64 offset,
+                                                      u32 size) {
     // Check disk cache first.
     if (m_cache) {
         if (auto cached = m_cache->readRange(archiveKeyHex, offset, size))
             return cached;
     }
 
-    if (m_servers.empty()) return std::nullopt;
+    if (m_servers.empty())
+        return std::nullopt;
 
     size_t const startIdx = m_currentCdn.load(std::memory_order_relaxed);
     for (size_t attempt = 0; attempt < m_servers.size(); ++attempt) {
         size_t const idx = (startIdx + attempt) % m_servers.size();
         auto url = buildUrl(m_servers[idx], "data", archiveKeyHex);
-        if (url.empty()) continue;
+        if (url.empty())
+            continue;
 
         auto sync = std::make_shared<SyncState>();
 
@@ -165,13 +168,12 @@ std::optional<std::vector<u8>> CdnFetcher::fetchRange(
 // ── Async API ─────────────────────────────────────────────────────
 
 void CdnFetcher::getUrlAsync(const std::string& url,
-                               std::function<void(interfaces::HttpResponse)> callback) {
+                             std::function<void(interfaces::HttpResponse)> callback) {
     m_http->getAsync(url, std::move(callback));
 }
 
-void CdnFetcher::fetchAsync(const std::string& pathType,
-                              const std::string& keyHex,
-                              FetchCallback callback) {
+void CdnFetcher::fetchAsync(const std::string& pathType, const std::string& keyHex,
+                            FetchCallback callback) {
     // Check disk cache first.
     if (m_cache) {
         if (auto cached = m_cache->read(pathType, keyHex)) {
@@ -200,8 +202,8 @@ void CdnFetcher::fetchAsync(const std::string& pathType,
     auto* currentCdnPtr = &m_currentCdn;
     auto serverIdx = idx;
 
-    m_http->getAsync(url, [cache, pt, kh, callback = std::move(callback),
-                           currentCdnPtr, serverIdx](interfaces::HttpResponse resp) {
+    m_http->getAsync(url, [cache, pt, kh, callback = std::move(callback), currentCdnPtr,
+                           serverIdx](interfaces::HttpResponse resp) {
         if (resp.statusCode == 200) {
             currentCdnPtr->store(serverIdx, std::memory_order_relaxed);
             if (cache)
@@ -213,9 +215,8 @@ void CdnFetcher::fetchAsync(const std::string& pathType,
     });
 }
 
-void CdnFetcher::fetchRangeAsync(const std::string& archiveKeyHex,
-                                   u64 offset, u32 size,
-                                   FetchCallback callback) {
+void CdnFetcher::fetchRangeAsync(const std::string& archiveKeyHex, u64 offset, u32 size,
+                                 FetchCallback callback) {
     // Check disk cache first.
     if (m_cache) {
         if (auto cached = m_cache->readRange(archiveKeyHex, offset, size)) {
@@ -244,17 +245,17 @@ void CdnFetcher::fetchRangeAsync(const std::string& archiveKeyHex,
     auto serverIdx = idx;
 
     m_http->getRangeAsync(url, offset, offset + size - 1,
-                          [cache, akh, off, sz, callback = std::move(callback),
-                           currentCdnPtr, serverIdx](interfaces::HttpResponse resp) {
-        if (resp.statusCode == 200 || resp.statusCode == 206) {
-            currentCdnPtr->store(serverIdx, std::memory_order_relaxed);
-            if (cache)
-                cache->writeRange(akh, off, sz, resp.body);
-            callback(std::move(resp.body));
-        } else {
-            callback(std::nullopt);
-        }
-    });
+                          [cache, akh, off, sz, callback = std::move(callback), currentCdnPtr,
+                           serverIdx](interfaces::HttpResponse resp) {
+                              if (resp.statusCode == 200 || resp.statusCode == 206) {
+                                  currentCdnPtr->store(serverIdx, std::memory_order_relaxed);
+                                  if (cache)
+                                      cache->writeRange(akh, off, sz, resp.body);
+                                  callback(std::move(resp.body));
+                              } else {
+                                  callback(std::nullopt);
+                              }
+                          });
 }
 
 } // namespace whiteout::storages::casc

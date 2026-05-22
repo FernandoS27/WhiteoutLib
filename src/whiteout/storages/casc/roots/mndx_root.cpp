@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "mndx_root.h"
-#include "common/root_build_utils.h"
 #include "../../common/byte_order.h"
 #include "../../common/string_utils.h"
+#include "common/root_build_utils.h"
+#include "mndx_root.h"
 
 #include <algorithm>
 #include <cassert>
@@ -15,38 +15,40 @@
 
 namespace whiteout::storages::casc {
 
+using storages::common::normalizeCascPath;
 using storages::common::readLE32;
 using storages::common::readLE64;
-using storages::common::normalizeCascPath;
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-static constexpr u32 kMndxSignature   = 0x58444E4D; // 'MNDX'
-static constexpr u32 kMarSignature    = 0x0052414D; // 'MAR\0'
-static constexpr u32 kMarCount        = 3;
+static constexpr u32 kMndxSignature = 0x58444E4D; // 'MNDX'
+static constexpr u32 kMarSignature = 0x0052414D;  // 'MAR\0'
+static constexpr u32 kMarCount = 3;
 static constexpr u32 kMarPackageNames = 0;
 static constexpr u32 kMarStrippedNames = 1;
-static constexpr u32 kMarFullNames    = 2;
+static constexpr u32 kMarFullNames = 2;
 
 static constexpr u32 kMndxLastCKeyEntry = 0x80000000;
-static constexpr u32 kCKeySize           = 16;
-[[maybe_unused]] static constexpr u32 kMndxCKeyEntrySize  = 24; // Flags(4) + CKey(16) + ContentSize(4)
+static constexpr u32 kCKeySize = 16;
+[[maybe_unused]] static constexpr u32 kMndxCKeyEntrySize =
+    24; // Flags(4) + CKey(16) + ContentSize(4)
 
 static constexpr u32 kSearchInitializing = 0;
-static constexpr u32 kSearchSearching    = 2;
-static constexpr u32 kSearchFinished     = 4;
+static constexpr u32 kSearchSearching = 2;
+static constexpr u32 kSearchFinished = 4;
 
 static constexpr u32 kInvalidIndex = 0xFFFFFFFF;
 
-static constexpr u32 kPackageIndexMask  = 0x00FFFFFF; ///< Low 24 bits of CKey flags = package index.
-static constexpr u32 kSingleCharMarker  = 0xFFFFFF00; ///< Hash entry sentinel: fragment is a single char.
+static constexpr u32 kPackageIndexMask = 0x00FFFFFF; ///< Low 24 bits of CKey flags = package index.
+static constexpr u32 kSingleCharMarker =
+    0xFFFFFF00; ///< Hash entry sentinel: fragment is a single char.
 
 // Sparse array group geometry.
 static constexpr u32 kSparseGroupBits = 9;                      ///< log2(group size).
-static constexpr u32 kSparseGroupSize = 1u << kSparseGroupBits;  ///< 512 entries per BASEVALS group.
-static constexpr u32 kSparseGroupMask = kSparseGroupSize - 1;    ///< 0x1FF.
+static constexpr u32 kSparseGroupSize = 1u << kSparseGroupBits; ///< 512 entries per BASEVALS group.
+static constexpr u32 kSparseGroupMask = kSparseGroupSize - 1;   ///< 0x1FF.
 
 // ============================================================================
 // Bit position lookup table
@@ -124,35 +126,40 @@ public:
     }
 
     bool getU32(u32& out) {
-        if (m_pos + 4 > m_size) return false;
+        if (m_pos + 4 > m_size)
+            return false;
         std::memcpy(&out, m_data + m_pos, 4);
         m_pos += 4;
         return true;
     }
 
     bool getU64(u64& out) {
-        if (m_pos + 8 > m_size) return false;
+        if (m_pos + 8 > m_size)
+            return false;
         std::memcpy(&out, m_data + m_pos, 8);
         m_pos += 8;
         return true;
     }
 
     bool getBytes(void* dst, size_t count) {
-        if (m_pos + count > m_size) return false;
+        if (m_pos + count > m_size)
+            return false;
         std::memcpy(dst, m_data + m_pos, count);
         m_pos += count;
         return true;
     }
 
     const u8* getPointer(size_t count) {
-        if (m_pos + count > m_size) return nullptr;
+        if (m_pos + count > m_size)
+            return nullptr;
         auto p = m_data + m_pos;
         m_pos += count;
         return p;
     }
 
     bool skip(size_t count) {
-        if (m_pos + count > m_size) return false;
+        if (m_pos + count > m_size)
+            return false;
         m_pos += count;
         return true;
     }
@@ -162,20 +169,26 @@ public:
     template <typename T>
     bool getArray(const T*& outPtr, u32& outCount) {
         u64 byteCount;
-        if (!getU64(byteCount)) return false;
-        if (byteCount > 0xFFFFFFFF || (byteCount % sizeof(T)) != 0) return false;
+        if (!getU64(byteCount))
+            return false;
+        if (byteCount > 0xFFFFFFFF || (byteCount % sizeof(T)) != 0)
+            return false;
         outCount = static_cast<u32>(byteCount / sizeof(T));
         u32 const numBytes = static_cast<u32>(byteCount);
         auto ptr = getPointer(numBytes);
-        if (!ptr) return false;
+        if (!ptr)
+            return false;
         outPtr = reinterpret_cast<const T*>(ptr);
         // Align to 8 bytes.
         u32 const pad = (~numBytes + 1) & 0x07;
-        if (pad > 0 && !skip(pad)) return false;
+        if (pad > 0 && !skip(pad))
+            return false;
         return true;
     }
 
-    size_t remaining() const { return m_size - m_pos; }
+    size_t remaining() const {
+        return m_size - m_pos;
+    }
 
 private:
     const u8* m_data = nullptr;
@@ -191,14 +204,14 @@ private:
 struct BaseVals {
     u32 baseValue200;
     // Bitfields for sub-group shortcuts (packed into 2 DWORDs).
-    u32 addValue40  : 7;
-    u32 addValue80  : 8;
-    u32 addValueC0  : 8;
+    u32 addValue40 : 7;
+    u32 addValue80 : 8;
+    u32 addValueC0 : 8;
     u32 addValue100 : 9;
     u32 addValue140 : 9;
     u32 addValue180 : 9;
     u32 addValue1C0 : 9;
-    u32 __padding   : 5;
+    u32 __padding : 5;
 };
 #pragma pack(pop)
 
@@ -228,27 +241,41 @@ class SparseArray {
 public:
     bool loadFromStream(ByteStream& stream) {
         // Load ItemBits.
-        if (!stream.getArray(m_itemBits, m_itemBitsCount)) return false;
+        if (!stream.getArray(m_itemBits, m_itemBitsCount))
+            return false;
 
         u32 total, valid;
-        if (!stream.getU32(total)) return false;
-        if (!stream.getU32(valid)) return false;
-        if (valid > total) return false;
+        if (!stream.getU32(total))
+            return false;
+        if (!stream.getU32(valid))
+            return false;
+        if (valid > total)
+            return false;
         m_totalItemCount = total;
         m_validItemCount = valid;
 
-        if (!stream.getArray(m_baseVals, m_baseValsCount)) return false;
-        if (!stream.getArray(m_indexToItem0, m_indexToItem0Count)) return false;
-        if (!stream.getArray(m_indexToItem1, m_indexToItem1Count)) return false;
+        if (!stream.getArray(m_baseVals, m_baseValsCount))
+            return false;
+        if (!stream.getArray(m_indexToItem0, m_indexToItem0Count))
+            return false;
+        if (!stream.getArray(m_indexToItem1, m_indexToItem1Count))
+            return false;
         return true;
     }
 
-    bool isEmpty() const { return m_totalItemCount == 0; }
-    size_t totalItemCount() const { return m_totalItemCount; }
-    size_t validItemCount() const { return m_validItemCount; }
+    bool isEmpty() const {
+        return m_totalItemCount == 0;
+    }
+    size_t totalItemCount() const {
+        return m_totalItemCount;
+    }
+    size_t validItemCount() const {
+        return m_validItemCount;
+    }
 
     bool isItemPresent(size_t index) const {
-        if (index >= m_totalItemCount) return false;
+        if (index >= m_totalItemCount)
+            return false;
         return (m_itemBits[index >> 5] & (1u << (index & 0x1F))) != 0;
     }
 
@@ -257,13 +284,27 @@ public:
         u32 intValue = sv.baseValue200;
 
         switch (((index >> 6) & 7) - 1) {
-            case 0: intValue += sv.addValue40;  break;
-            case 1: intValue += sv.addValue80;  break;
-            case 2: intValue += sv.addValueC0;  break;
-            case 3: intValue += sv.addValue100; break;
-            case 4: intValue += sv.addValue140; break;
-            case 5: intValue += sv.addValue180; break;
-            case 6: intValue += sv.addValue1C0; break;
+        case 0:
+            intValue += sv.addValue40;
+            break;
+        case 1:
+            intValue += sv.addValue80;
+            break;
+        case 2:
+            intValue += sv.addValueC0;
+            break;
+        case 3:
+            intValue += sv.addValue100;
+            break;
+        case 4:
+            intValue += sv.addValue140;
+            break;
+        case 5:
+            intValue += sv.addValue180;
+            break;
+        case 6:
+            intValue += sv.addValue1C0;
+            break;
         }
 
         if (index & 0x20)
@@ -437,10 +478,12 @@ public:
 private:
     u32 findGroup0(u32 index) const {
         u32 minGroup = m_indexToItem0[index >> kSparseGroupBits] >> kSparseGroupBits;
-        u32 maxGroup = (m_indexToItem0[(index >> kSparseGroupBits) + 1] + kSparseGroupMask) >> kSparseGroupBits;
+        u32 maxGroup = (m_indexToItem0[(index >> kSparseGroupBits) + 1] + kSparseGroupMask) >>
+                       kSparseGroupBits;
 
         if ((maxGroup - minGroup) < 10) {
-            while (index >= (minGroup + 1) * kSparseGroupSize - m_baseVals[minGroup + 1].baseValue200)
+            while (index >=
+                   (minGroup + 1) * kSparseGroupSize - m_baseVals[minGroup + 1].baseValue200)
                 minGroup++;
         } else {
             while ((minGroup + 1) < maxGroup) {
@@ -456,7 +499,8 @@ private:
 
     u32 findGroup1(u32 index) const {
         u32 startValue = m_indexToItem1[index >> kSparseGroupBits] >> kSparseGroupBits;
-        u32 nextValue = (m_indexToItem1[(index >> kSparseGroupBits) + 1] + kSparseGroupMask) >> kSparseGroupBits;
+        u32 nextValue = (m_indexToItem1[(index >> kSparseGroupBits) + 1] + kSparseGroupMask) >>
+                        kSparseGroupBits;
 
         if ((nextValue - startValue) < 10) {
             while (index >= m_baseVals[startValue + 1].baseValue200)
@@ -493,16 +537,22 @@ class BitEntryArray {
 public:
     bool loadFromStream(ByteStream& stream) {
         // Load base DWORD array.
-        if (!stream.getArray(m_items, m_itemCount)) return false;
+        if (!stream.getArray(m_items, m_itemCount))
+            return false;
 
-        if (!stream.getU32(m_bitsPerEntry)) return false;
-        if (m_bitsPerEntry > 32) return false;
+        if (!stream.getU32(m_bitsPerEntry))
+            return false;
+        if (m_bitsPerEntry > 32)
+            return false;
 
-        if (!stream.getU32(m_entryBitMask)) return false;
+        if (!stream.getU32(m_entryBitMask))
+            return false;
 
         u64 val64;
-        if (!stream.getU64(val64)) return false;
-        if (val64 > 0xFFFFFFFF) return false;
+        if (!stream.getU64(val64))
+            return false;
+        if (val64 > 0xFFFFFFFF)
+            return false;
         m_totalEntries = static_cast<u32>(val64);
 
         return true;
@@ -538,8 +588,10 @@ private:
 class PathFragmentTable {
 public:
     bool loadFromStream(ByteStream& stream) {
-        if (!stream.getArray(m_fragments, m_fragmentCount)) return false;
-        if (!m_pathMarks.loadFromStream(stream)) return false;
+        if (!stream.getArray(m_fragments, m_fragmentCount))
+            return false;
+        if (!m_pathMarks.loadFromStream(stream))
+            return false;
         return true;
     }
 
@@ -548,14 +600,16 @@ public:
             while (m_fragments[offset] == searchMask[pathLength]) {
                 pathLength++;
                 offset++;
-                if (m_fragments[offset] == 0) return true;
+                if (m_fragments[offset] == 0)
+                    return true;
                 // Caller ensures pathLength < cchSearchMask before calling.
             }
             return false;
         } else {
             while (m_fragments[offset] == searchMask[pathLength]) {
                 pathLength++;
-                if (m_pathMarks.isItemPresent(offset++)) return true;
+                if (m_pathMarks.isItemPresent(offset++))
+                    return true;
             }
             return false;
         }
@@ -576,19 +630,23 @@ public:
                                 size_t offset) const {
         if (m_pathMarks.isEmpty()) {
             while (pathLength < cchSearchMask) {
-                if (m_fragments[offset] != searchMask[pathLength]) return false;
+                if (m_fragments[offset] != searchMask[pathLength])
+                    return false;
                 pathBuffer.push_back(m_fragments[offset++]);
                 pathLength++;
-                if (m_fragments[offset] == 0) return true;
+                if (m_fragments[offset] == 0)
+                    return true;
             }
             while (m_fragments[offset] != 0)
                 pathBuffer.push_back(m_fragments[offset++]);
         } else {
             while (pathLength < cchSearchMask) {
-                if (m_fragments[offset] != searchMask[pathLength]) return false;
+                if (m_fragments[offset] != searchMask[pathLength])
+                    return false;
                 pathBuffer.push_back(m_fragments[offset]);
                 pathLength++;
-                if (m_pathMarks.isItemPresent(offset++)) return true;
+                if (m_pathMarks.isItemPresent(offset++))
+                    return true;
             }
             while (!m_pathMarks.isItemPresent(offset))
                 pathBuffer.push_back(m_fragments[offset++]);
@@ -596,7 +654,9 @@ public:
         return true;
     }
 
-    bool empty() const { return m_fragmentCount == 0; }
+    bool empty() const {
+        return m_fragmentCount == 0;
+    }
 
 private:
     const char* m_fragments = nullptr;
@@ -609,10 +669,10 @@ private:
 // ============================================================================
 
 struct PathStop {
-    u32 nodeIndex = 0;              ///< Current trie node index.
-    u32 collisionPos = 0;           ///< Position in the collision table.
-    u32 savedPathLen = 0;           ///< Path buffer length at this checkpoint.
-    u32 hiBitsIndex = kInvalidIndex; ///< Hi-bits table index for path fragments.
+    u32 nodeIndex = 0;                 ///< Current trie node index.
+    u32 collisionPos = 0;              ///< Position in the collision table.
+    u32 savedPathLen = 0;              ///< Path buffer length at this checkpoint.
+    u32 hiBitsIndex = kInvalidIndex;   ///< Hi-bits table index for path fragments.
     u32 fileNameIndex = kInvalidIndex; ///< Cached file name index.
 
     PathStop() = default;
@@ -666,11 +726,14 @@ class FileNameDatabase {
 public:
     bool load(const u8* data, size_t size) {
         ByteStream stream;
-        if (!stream.init(data, size)) return false;
+        if (!stream.init(data, size))
+            return false;
 
         u32 sig;
-        if (!stream.getU32(sig)) return false;
-        if (sig != kMarSignature) return false;
+        if (!stream.getU32(sig))
+            return false;
+        if (sig != kMarSignature)
+            return false;
 
         return loadFromStream(stream);
     }
@@ -681,10 +744,12 @@ public:
         search.searchPhase = kSearchInitializing;
 
         while (search.pathLength < search.cchSearchMask) {
-            if (!comparePathFragment(search)) return false;
+            if (!comparePathFragment(search))
+                return false;
         }
 
-        if (!m_fileNameIndexes.isItemPresent(search.nodeIndex)) return false;
+        if (!m_fileNameIndexes.isItemPresent(search.nodeIndex))
+            return false;
 
         search.foundPath = search.searchMask;
         search.cchFoundPath = search.cchSearchMask;
@@ -721,8 +786,8 @@ public:
                 if (search.itemCount == search.pathStops.size()) {
                     auto& lastStop = search.pathStops.back();
                     u32 const colTableIndex = m_collisionTable.getItem0(lastStop.nodeIndex) + 1;
-                    search.pathStops.emplace_back(
-                        colTableIndex - lastStop.nodeIndex - 1, colTableIndex, 0);
+                    search.pathStops.emplace_back(colTableIndex - lastStop.nodeIndex - 1,
+                                                  colTableIndex, 0);
                 }
 
                 auto& pathStop = search.pathStops[search.itemCount];
@@ -748,8 +813,8 @@ public:
 
                     if (m_fileNameIndexes.isItemPresent(pathStop.nodeIndex)) {
                         if (pathStop.fileNameIndex == kInvalidIndex) {
-                            pathStop.fileNameIndex = m_fileNameIndexes.getItemValueAt(
-                                pathStop.nodeIndex);
+                            pathStop.fileNameIndex =
+                                m_fileNameIndexes.getItemValueAt(pathStop.nodeIndex);
                         } else {
                             pathStop.fileNameIndex++;
                         }
@@ -778,33 +843,44 @@ public:
         return false;
     }
 
-    size_t fileNameCount() const { return m_fileNameIndexes.validItemCount(); }
+    size_t fileNameCount() const {
+        return m_fileNameIndexes.validItemCount();
+    }
 
 private:
     bool loadFromStream(ByteStream& stream) {
-        if (!m_collisionTable.loadFromStream(stream)) return false;
-        if (!m_fileNameIndexes.loadFromStream(stream)) return false;
-        if (!m_collisionHiBitsIndexes.loadFromStream(stream)) return false;
+        if (!m_collisionTable.loadFromStream(stream))
+            return false;
+        if (!m_fileNameIndexes.loadFromStream(stream))
+            return false;
+        if (!m_collisionHiBitsIndexes.loadFromStream(stream))
+            return false;
 
-        if (!stream.getArray(m_loBitsTable, m_loBitsCount)) return false;
-        if (!m_hiBitsTable.loadFromStream(stream)) return false;
-        if (!m_pathFragmentTable.loadFromStream(stream)) return false;
+        if (!stream.getArray(m_loBitsTable, m_loBitsCount))
+            return false;
+        if (!m_hiBitsTable.loadFromStream(stream))
+            return false;
+        if (!m_pathFragmentTable.loadFromStream(stream))
+            return false;
 
         // If collision hi-bits are present but path fragments are empty,
         // there's a child database with the actual fragment data.
-        if (m_collisionHiBitsIndexes.validItemCount() != 0 &&
-            m_pathFragmentTable.empty()) {
+        if (m_collisionHiBitsIndexes.validItemCount() != 0 && m_pathFragmentTable.empty()) {
             m_childDB = std::make_unique<FileNameDatabase>();
-            if (!m_childDB->loadFromStream(stream)) return false;
+            if (!m_childDB->loadFromStream(stream))
+                return false;
         }
 
-        if (!stream.getArray(m_hashTable, m_hashTableCount)) return false;
+        if (!stream.getArray(m_hashTable, m_hashTableCount))
+            return false;
         m_hashTableMask = m_hashTableCount - 1;
 
-        if (!stream.getU32(m_leafNodeBound)) return false;
+        if (!stream.getU32(m_leafNodeBound))
+            return false;
 
         u32 bitMask;
-        if (!stream.getU32(bitMask)) return false;
+        if (!stream.getU32(bitMask))
+            return false;
         // Struct10::sub_1957800 — just validate, we don't need the config values.
 
         return true;
@@ -842,8 +918,8 @@ private:
                     if (!m_childDB->comparePathFragmentByIndex(search, entry->childTableIndex))
                         return false;
                 } else {
-                    if (!m_pathFragmentTable.compareFragment(search.searchMask,
-                            search.pathLength, entry->fragmentOffset))
+                    if (!m_pathFragmentTable.compareFragment(search.searchMask, search.pathLength,
+                                                             entry->fragmentOffset))
                         return false;
                 }
             } else {
@@ -867,11 +943,12 @@ private:
                     if (m_childDB->comparePathFragmentByIndex(search, fragOffset))
                         return true;
                 } else {
-                    if (m_pathFragmentTable.compareFragment(search.searchMask,
-                            search.pathLength, fragOffset))
+                    if (m_pathFragmentTable.compareFragment(search.searchMask, search.pathLength,
+                                                            fragOffset))
                         return true;
                 }
-                if (search.pathLength != savePathLength) return false;
+                if (search.pathLength != savePathLength)
+                    return false;
             } else {
                 if (m_loBitsTable[search.nodeIndex] ==
                     static_cast<u8>(search.searchMask[search.pathLength])) {
@@ -891,12 +968,11 @@ private:
             if (tableIndex == entry->nextIndex) {
                 if (!isPathFragmentSingleChar(entry)) {
                     if (m_childDB) {
-                        if (!m_childDB->comparePathFragmentByIndex(search,
-                                entry->childTableIndex))
+                        if (!m_childDB->comparePathFragmentByIndex(search, entry->childTableIndex))
                             return false;
                     } else {
-                        if (!m_pathFragmentTable.compareFragment(search.searchMask,
-                                search.pathLength, entry->fragmentOffset))
+                        if (!m_pathFragmentTable.compareFragment(
+                                search.searchMask, search.pathLength, entry->fragmentOffset))
                             return false;
                     }
                 } else {
@@ -905,8 +981,10 @@ private:
                     search.pathLength++;
                 }
                 tableIndex = entry->nodeIndex;
-                if (tableIndex == 0) return true;
-                if (search.pathLength >= search.cchSearchMask) return false;
+                if (tableIndex == 0)
+                    return true;
+                if (search.pathLength >= search.cchSearchMask)
+                    return false;
             } else {
                 if (isPathFragmentString(tableIndex)) {
                     u32 const fragOffset = getPathFragmentOffset1(tableIndex);
@@ -915,7 +993,7 @@ private:
                             return false;
                     } else {
                         if (!m_pathFragmentTable.compareFragment(search.searchMask,
-                                search.pathLength, fragOffset))
+                                                                 search.pathLength, fragOffset))
                             return false;
                     }
                 } else {
@@ -924,8 +1002,10 @@ private:
                         return false;
                     search.pathLength++;
                 }
-                if (tableIndex <= m_leafNodeBound) return true;
-                if (search.pathLength >= search.cchSearchMask) return false;
+                if (tableIndex <= m_leafNodeBound)
+                    return true;
+                if (search.pathLength >= search.cchSearchMask)
+                    return false;
                 tableIndex = m_collisionTable.getItem1(tableIndex) - tableIndex - 1;
             }
         }
@@ -939,13 +1019,12 @@ private:
             if (!isPathFragmentSingleChar(entry)) {
                 if (m_childDB) {
                     if (!m_childDB->compareAndCopyPathFragmentByIndex(search,
-                            entry->childTableIndex))
+                                                                      entry->childTableIndex))
                         return false;
                 } else {
                     if (!m_pathFragmentTable.compareAndCopyFragment(
-                            search.searchMask, search.cchSearchMask,
-                            search.pathBuffer, search.pathLength,
-                            entry->fragmentOffset))
+                            search.searchMask, search.cchSearchMask, search.pathBuffer,
+                            search.pathLength, entry->fragmentOffset))
                         return false;
                 }
             } else {
@@ -971,16 +1050,16 @@ private:
                         return true;
                 } else {
                     if (m_pathFragmentTable.compareAndCopyFragment(
-                            search.searchMask, search.cchSearchMask,
-                            search.pathBuffer, search.pathLength, fragOffset))
+                            search.searchMask, search.cchSearchMask, search.pathBuffer,
+                            search.pathLength, fragOffset))
                         return true;
                 }
-                if (savePathLength != search.pathLength) return false;
+                if (savePathLength != search.pathLength)
+                    return false;
             } else {
                 if (m_loBitsTable[search.nodeIndex] ==
                     static_cast<u8>(search.searchMask[search.pathLength])) {
-                    search.pathBuffer.push_back(
-                        static_cast<char>(m_loBitsTable[search.nodeIndex]));
+                    search.pathBuffer.push_back(static_cast<char>(m_loBitsTable[search.nodeIndex]));
                     search.pathLength++;
                     return true;
                 }
@@ -998,13 +1077,12 @@ private:
                 if (!isPathFragmentSingleChar(entry)) {
                     if (m_childDB) {
                         if (!m_childDB->compareAndCopyPathFragmentByIndex(search,
-                                entry->childTableIndex))
+                                                                          entry->childTableIndex))
                             return false;
                     } else {
                         if (!m_pathFragmentTable.compareAndCopyFragment(
-                                search.searchMask, search.cchSearchMask,
-                                search.pathBuffer, search.pathLength,
-                                entry->fragmentOffset))
+                                search.searchMask, search.cchSearchMask, search.pathBuffer,
+                                search.pathLength, entry->fragmentOffset))
                             return false;
                     }
                 } else {
@@ -1014,7 +1092,8 @@ private:
                     search.pathLength++;
                 }
                 tableIndex = entry->nodeIndex;
-                if (tableIndex == 0) return true;
+                if (tableIndex == 0)
+                    return true;
             } else {
                 if (isPathFragmentString(tableIndex)) {
                     u32 const fragOffset = getPathFragmentOffset1(tableIndex);
@@ -1023,23 +1102,25 @@ private:
                             return false;
                     } else {
                         if (!m_pathFragmentTable.compareAndCopyFragment(
-                                search.searchMask, search.cchSearchMask,
-                                search.pathBuffer, search.pathLength, fragOffset))
+                                search.searchMask, search.cchSearchMask, search.pathBuffer,
+                                search.pathLength, fragOffset))
                             return false;
                     }
                 } else {
                     if (m_loBitsTable[tableIndex] !=
                         static_cast<u8>(search.searchMask[search.pathLength]))
                         return false;
-                    search.pathBuffer.push_back(
-                        static_cast<char>(m_loBitsTable[tableIndex]));
+                    search.pathBuffer.push_back(static_cast<char>(m_loBitsTable[tableIndex]));
                     search.pathLength++;
                 }
-                if (tableIndex <= m_leafNodeBound) return true;
-                if (search.pathLength >= search.cchSearchMask) break;
+                if (tableIndex <= m_leafNodeBound)
+                    return true;
+                if (search.pathLength >= search.cchSearchMask)
+                    break;
                 tableIndex = ~tableIndex + m_collisionTable.getItem1(tableIndex);
             }
-            if (search.pathLength >= search.cchSearchMask) break;
+            if (search.pathLength >= search.cchSearchMask)
+                break;
         }
 
         copyPathFragmentByIndex(search, tableIndex);
@@ -1054,14 +1135,14 @@ private:
                     if (m_childDB) {
                         m_childDB->copyPathFragmentByIndex(search, entry->childTableIndex);
                     } else {
-                        m_pathFragmentTable.copyFragment(search.pathBuffer,
-                                                         entry->fragmentOffset);
+                        m_pathFragmentTable.copyFragment(search.pathBuffer, entry->fragmentOffset);
                     }
                 } else {
                     search.pathBuffer.push_back(entry->singleChar);
                 }
                 tableIndex = entry->nodeIndex;
-                if (tableIndex == 0) return;
+                if (tableIndex == 0)
+                    return;
             } else {
                 if (isPathFragmentString(tableIndex)) {
                     u32 const fragOffset = getPathFragmentOffset1(tableIndex);
@@ -1071,10 +1152,10 @@ private:
                         m_pathFragmentTable.copyFragment(search.pathBuffer, fragOffset);
                     }
                 } else {
-                    search.pathBuffer.push_back(
-                        static_cast<char>(m_loBitsTable[tableIndex]));
+                    search.pathBuffer.push_back(static_cast<char>(m_loBitsTable[tableIndex]));
                 }
-                if (tableIndex <= m_leafNodeBound) return;
+                if (tableIndex <= m_leafNodeBound)
+                    return;
                 tableIndex = ~tableIndex + m_collisionTable.getItem1(tableIndex);
             }
         }
@@ -1115,7 +1196,9 @@ public:
         return true;
     }
 
-    size_t fileNameCount() const { return m_database.fileNameCount(); }
+    size_t fileNameCount() const {
+        return m_database.fileNameCount();
+    }
 
 private:
     std::vector<u8> m_data;
@@ -1155,7 +1238,7 @@ static_assert(sizeof(MndxCKeyEntry) == 24, "MndxCKeyEntry must be 24 bytes");
 // ============================================================================
 
 std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
-                                           interfaces::WorkerPool* /*pool*/) {
+                                          interfaces::WorkerPool* /*pool*/) {
     ensureBitPosTable();
 
     if (data.size() < sizeof(MndxHeader))
@@ -1179,12 +1262,14 @@ std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
 
     // Header version 2 has 2 extra DWORDs.
     if (header.headerVersion == 2) {
-        if (offset + 8 > data.size()) return nullptr;
+        if (offset + 8 > data.size())
+            return nullptr;
         offset += 8; // Skip field_1C and field_20.
     }
 
     // Read the MNDX info fields.
-    if (offset + 0x1C > data.size()) return nullptr;
+    if (offset + 0x1C > data.size())
+        return nullptr;
 
     u32 const marInfoOffset = readLE32(ptr + offset + 0x00);
     u32 const marInfoCount = readLE32(ptr + offset + 0x04);
@@ -1194,16 +1279,20 @@ std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
     u32 const fileNameCount = readLE32(ptr + offset + 0x14);
     u32 const ckeyEntrySize = readLE32(ptr + offset + 0x18);
 
-    if (marInfoCount > kMarCount) return nullptr;
-    if (marInfoSize != sizeof(MarInfo)) return nullptr;
-    if (ckeyEntrySize != sizeof(MndxCKeyEntry)) return nullptr;
+    if (marInfoCount > kMarCount)
+        return nullptr;
+    if (marInfoSize != sizeof(MarInfo))
+        return nullptr;
+    if (ckeyEntrySize != sizeof(MndxCKeyEntry))
+        return nullptr;
 
     // Load MAR files.
     std::unique_ptr<MarFile> marFiles[kMarCount];
 
     for (u32 i = 0; i < marInfoCount; ++i) {
         size_t const marInfoPos = marInfoOffset + static_cast<size_t>(marInfoSize) * i;
-        if (marInfoPos + sizeof(MarInfo) > data.size()) return nullptr;
+        if (marInfoPos + sizeof(MarInfo) > data.size())
+            return nullptr;
 
         MarInfo mi;
         std::memcpy(&mi, ptr + marInfoPos, sizeof(mi));
@@ -1211,7 +1300,8 @@ std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
         size_t const marDataOff = mi.marDataOffset;
         size_t const marDataSz = mi.marDataSize;
 
-        if (marDataOff + marDataSz > data.size()) return nullptr;
+        if (marDataOff + marDataSz > data.size())
+            return nullptr;
 
         marFiles[i] = std::make_unique<MarFile>();
         if (!marFiles[i]->load(ptr + marDataOff, marDataSz))
@@ -1219,8 +1309,7 @@ std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
     }
 
     // Validate all 3 MAR files loaded.
-    if (!marFiles[kMarPackageNames] || !marFiles[kMarStrippedNames] ||
-        !marFiles[kMarFullNames])
+    if (!marFiles[kMarPackageNames] || !marFiles[kMarStrippedNames] || !marFiles[kMarFullNames])
         return nullptr;
 
     // Validate file name count.
@@ -1229,7 +1318,8 @@ std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
 
     // Load CKey entries.
     size_t const ckeyDataSize = static_cast<size_t>(ckeyCount) * ckeyEntrySize;
-    if (ckeyOffset + ckeyDataSize > data.size()) return nullptr;
+    if (ckeyOffset + ckeyDataSize > data.size())
+        return nullptr;
 
     auto* ckeyEntries = reinterpret_cast<const MndxCKeyEntry*>(ptr + ckeyOffset);
 
@@ -1239,7 +1329,8 @@ std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
         u32 nameIndex = 0;
         fileNameToCKey[nameIndex++] = ckeyEntries;
         for (u32 i = 0; i < ckeyCount; ++i) {
-            if (nameIndex > fileNameCount) break;
+            if (nameIndex > fileNameCount)
+                break;
             if (ckeyEntries[i].flags & kMndxLastCKeyEntry) {
                 fileNameToCKey[nameIndex++] = &ckeyEntries[i] + 1;
             }
@@ -1275,7 +1366,8 @@ std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
         bool found = false;
 
         while (marFiles[kMarStrippedNames]->doSearch(search, found) && found) {
-            if (search.nIndex >= fileNameCount) continue;
+            if (search.nIndex >= fileNameCount)
+                continue;
 
             std::string const strippedName(search.foundPath, search.cchFoundPath);
 
@@ -1302,7 +1394,8 @@ std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
 
                 bool const isLast = (entryPtr->flags & kMndxLastCKeyEntry) != 0;
                 entryPtr++;
-                if (isLast) break;
+                if (isLast)
+                    break;
             }
         }
     }
@@ -1316,7 +1409,8 @@ std::vector<const RootEntry*> MndxRoot::findByPath(const std::string& path) cons
     return findByNormalizedPath(key);
 }
 
-std::vector<const RootEntry*> MndxRoot::findByNormalizedPath(const std::string& normalizedPath) const {
+std::vector<const RootEntry*> MndxRoot::findByNormalizedPath(
+    const std::string& normalizedPath) const {
     return m_byPath.findAll(m_entries, normalizedPath);
 }
 
@@ -1324,7 +1418,8 @@ bool MndxRoot::hasPath(const std::string& normalizedPath) const {
     return m_byPath.contains(normalizedPath);
 }
 
-std::vector<const RootEntry*> MndxRoot::findByFileDataId(u32 /*fileDataId*/, FileIdHint /*hint*/) const {
+std::vector<const RootEntry*> MndxRoot::findByFileDataId(u32 /*fileDataId*/,
+                                                         FileIdHint /*hint*/) const {
     // MNDX roots don't use FileDataId.
     return {};
 }

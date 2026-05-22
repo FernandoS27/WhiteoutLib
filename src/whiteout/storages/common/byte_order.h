@@ -28,8 +28,7 @@ inline u32 readBE32(const u8* p) {
 }
 
 inline u64 readBE40(const u8* p) {
-    return (u64(p[0]) << 32) | (u64(p[1]) << 24) | (u64(p[2]) << 16) |
-           (u64(p[3]) << 8) | u64(p[4]);
+    return (u64(p[0]) << 32) | (u64(p[1]) << 24) | (u64(p[2]) << 16) | (u64(p[3]) << 8) | u64(p[4]);
 }
 
 /// Read a variable-length big-endian integer (1–4 bytes).

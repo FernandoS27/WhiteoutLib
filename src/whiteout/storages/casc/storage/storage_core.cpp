@@ -3,19 +3,19 @@
 /// @file storage_core.cpp
 /// @brief Shared Storage implementation: resolution, read, enumerate, encryption.
 
-#include "storage_impl.h"
-#include "storage_backend_impl.h"
-#include "constants.h"
-#include "../roots/wow_root.h"
 #include "../roots/d3_root.h"
-#include "../roots/tvfs_root.h"
-#include "../roots/mndx_root.h"
 #include "../roots/d4_root.h"
-#include "../roots/wow_tvfs_root.h"
-#include "../roots/ow_root.h"
-#include "../roots/s1_root.h"
 #include "../roots/generic_root.h"
 #include "../roots/install_root.h"
+#include "../roots/mndx_root.h"
+#include "../roots/ow_root.h"
+#include "../roots/s1_root.h"
+#include "../roots/tvfs_root.h"
+#include "../roots/wow_root.h"
+#include "../roots/wow_tvfs_root.h"
+#include "constants.h"
+#include "storage_backend_impl.h"
+#include "storage_impl.h"
 
 #include <algorithm>
 #include <cctype>
@@ -42,9 +42,9 @@ using storages::common::normalizeCascPath;
 
 /// Which decorator to apply on top of a plain TvfsRoot.
 enum class TvfsDecorator : u8 {
-    None,     ///< Plain TVFS (WC3 Reforged, etc.)
-    Diablo4,  ///< D4Root — enrich with CoreTOC paths.
-    WowTvfs,  ///< WowTvfsRoot — extract FileDataId/locale/content from encoded paths.
+    None,    ///< Plain TVFS (WC3 Reforged, etc.)
+    Diablo4, ///< D4Root — enrich with CoreTOC paths.
+    WowTvfs, ///< WowTvfsRoot — extract FileDataId/locale/content from encoded paths.
 };
 
 /// Classify the TVFS decorator from the build config product identifiers.
@@ -87,18 +87,17 @@ static TvfsDecorator classifyTvfsProduct(const BuildConfig& cfg) {
 /// Takes ownership of @p tvfs and returns the decorated root, or the plain
 /// TvfsRoot if no decorator applies or decoration fails.
 static std::unique_ptr<RootManifest> decorateTvfsRoot(
-    std::unique_ptr<TvfsRoot> tvfs,
-    TvfsDecorator hint,
+    std::unique_ptr<TvfsRoot> tvfs, TvfsDecorator hint,
     const std::function<std::vector<u8>(std::span<const u8, 16>)>& eKeyReader,
-    interfaces::WorkerPool* pool,
-    std::span<const u8> listfile = {})
-{
-    if (!tvfs) return nullptr;
+    interfaces::WorkerPool* pool, std::span<const u8> listfile = {}) {
+    if (!tvfs)
+        return nullptr;
 
     switch (hint) {
     case TvfsDecorator::Diablo4: {
         auto d4 = D4Root::create(std::move(tvfs), eKeyReader, pool);
-        if (d4) return d4;
+        if (d4)
+            return d4;
         // D4Root::create consumes tvfs on success but returns nullptr on failure;
         // tvfs is moved-from, so we can't fall back — return nullptr.
         return nullptr;
@@ -106,7 +105,8 @@ static std::unique_ptr<RootManifest> decorateTvfsRoot(
     case TvfsDecorator::WowTvfs: {
         if (WowTvfsRoot::looksLikeWowTvfs(*tvfs)) {
             auto wow = WowTvfsRoot::create(std::move(tvfs), pool, listfile);
-            if (wow) return wow;
+            if (wow)
+                return wow;
             return nullptr; // moved-from, can't recover
         }
         // Entries aren't hex-encoded WoW paths — return as plain TVFS.
@@ -124,9 +124,10 @@ static std::unique_ptr<RootManifest> decorateTvfsRoot(
 // Resolution helpers — delegate to backend
 // ============================================================================
 
-std::vector<u8> Storage::Impl::resolveCKey(
-    std::span<const u8, 16> cKey, interfaces::WorkerPool* poolToUse) const {
-    if (backend) return backend->resolveCKey(cKey, poolToUse);
+std::vector<u8> Storage::Impl::resolveCKey(std::span<const u8, 16> cKey,
+                                           interfaces::WorkerPool* poolToUse) const {
+    if (backend)
+        return backend->resolveCKey(cKey, poolToUse);
 
     // Fallback for Impl without backend (e.g. StorageWritable::create).
     std::array<u8, 16> cKey16{};
@@ -137,7 +138,8 @@ std::vector<u8> Storage::Impl::resolveCKey(
     }
 
     auto encEntry = encodingTable.findByCKey(cKey, kEKeyTruncSize);
-    if (!encEntry) return {};
+    if (!encEntry)
+        return {};
 
     auto loc = dataSource->findInIndex(eKeyTrunc(encEntry->eKey));
     std::vector<u8> blteData;
@@ -146,19 +148,22 @@ std::vector<u8> Storage::Impl::resolveCKey(
     } else {
         blteData = dataSource->fetchBlte(encEntry->eKey);
     }
-    if (blteData.empty()) return {};
+    if (blteData.empty())
+        return {};
 
     auto decoded = blteDecode(blteData, &keyRing, poolToUse);
-    if (!decoded.success) return {};
+    if (!decoded.success)
+        return {};
 
     if (memCache)
         memCache->put(cKey16, decoded.data);
     return std::move(decoded.data);
 }
 
-std::vector<u8> Storage::Impl::resolveEKey(
-    std::span<const u8, 16> eKey, interfaces::WorkerPool* poolToUse) const {
-    if (backend) return backend->resolveEKey(eKey, poolToUse);
+std::vector<u8> Storage::Impl::resolveEKey(std::span<const u8, 16> eKey,
+                                           interfaces::WorkerPool* poolToUse) const {
+    if (backend)
+        return backend->resolveEKey(eKey, poolToUse);
 
     // Fallback for Impl without backend.
     std::array<u8, 16> eKey16{};
@@ -175,10 +180,12 @@ std::vector<u8> Storage::Impl::resolveEKey(
     } else {
         blteData = dataSource->fetchBlte(eKey16);
     }
-    if (blteData.empty()) return {};
+    if (blteData.empty())
+        return {};
 
     auto decoded = blteDecode(blteData, &keyRing, poolToUse);
-    if (!decoded.success) return {};
+    if (!decoded.success)
+        return {};
 
     if (memCache)
         memCache->put(eKey16, decoded.data);
@@ -187,18 +194,21 @@ std::vector<u8> Storage::Impl::resolveEKey(
 
 std::optional<std::vector<u8>> Storage::Impl::resolveRootEntry(
     const std::vector<const RootEntry*>& entries, u32 localeFlags) const {
-    if (backend) return backend->resolveRootEntry(entries, localeFlags);
-    if (entries.empty()) return std::nullopt;
+    if (backend)
+        return backend->resolveRootEntry(entries, localeFlags);
+    if (entries.empty())
+        return std::nullopt;
 
     const RootEntry* best = selectBestEntry(entries, localeFlags);
-    if (!best) return std::nullopt;
+    if (!best)
+        return std::nullopt;
 
     // Container sub-entry: try the in-memory decoded-data cache first.
     if (best->containerOffset != 0 && memCache) {
         std::array<u8, 16> const cacheKey = !isZeroKey(best->eKey) ? best->eKey : best->cKey;
         if (auto cached = memCache->view(cacheKey)) {
             auto off = static_cast<size_t>(best->containerOffset);
-            auto sz  = static_cast<size_t>(best->containerSize);
+            auto sz = static_cast<size_t>(best->containerSize);
             if (off + sz <= cached->size()) {
                 size_t const hdrSz = best->headerSize;
                 std::vector<u8> result(hdrSz + sz);
@@ -228,9 +238,11 @@ std::optional<std::vector<u8>> Storage::Impl::resolveRootEntry(
                 idxEntry = localState->indexTable.find(eKeyTrunc(encEntry->eKey));
             }
         }
-        if (!idxEntry) return std::nullopt;
+        if (!idxEntry)
+            return std::nullopt;
         auto span = localDS.readBlteFromIndex(*idxEntry);
-        if (span.empty()) return std::nullopt;
+        if (span.empty())
+            return std::nullopt;
         blteData.assign(span.begin(), span.end());
     } else {
         // Online path: use DataSource for fetch. Prefer the entry's own EKey
@@ -241,8 +253,9 @@ std::optional<std::vector<u8>> Storage::Impl::resolveRootEntry(
             if (!data.empty()) {
                 if (best->containerOffset != 0) {
                     auto off = static_cast<size_t>(best->containerOffset);
-                    auto sz  = static_cast<size_t>(best->containerSize);
-                    if (off + sz > data.size()) return std::nullopt;
+                    auto sz = static_cast<size_t>(best->containerSize);
+                    if (off + sz > data.size())
+                        return std::nullopt;
                     if (memCache) {
                         std::array<u8, 16> const cacheKey =
                             !isZeroKey(best->eKey) ? best->eKey : best->cKey;
@@ -264,8 +277,9 @@ std::optional<std::vector<u8>> Storage::Impl::resolveRootEntry(
                 // resolveCKey already decoded — handle container slicing.
                 if (best->containerOffset != 0) {
                     auto off = static_cast<size_t>(best->containerOffset);
-                    auto sz  = static_cast<size_t>(best->containerSize);
-                    if (off + sz > data.size()) return std::nullopt;
+                    auto sz = static_cast<size_t>(best->containerSize);
+                    if (off + sz > data.size())
+                        return std::nullopt;
                     if (memCache) {
                         std::array<u8, 16> const cacheKey =
                             !isZeroKey(best->eKey) ? best->eKey : best->cKey;
@@ -286,12 +300,14 @@ std::optional<std::vector<u8>> Storage::Impl::resolveRootEntry(
 
     // Local path: decode BLTE.
     auto decoded = blteDecode(blteData, &keyRing, pool);
-    if (!decoded.success) return std::nullopt;
+    if (!decoded.success)
+        return std::nullopt;
 
     if (best->containerOffset != 0) {
         auto off = static_cast<size_t>(best->containerOffset);
-        auto sz  = static_cast<size_t>(best->containerSize);
-        if (off + sz > decoded.data.size()) return std::nullopt;
+        auto sz = static_cast<size_t>(best->containerSize);
+        if (off + sz > decoded.data.size())
+            return std::nullopt;
         if (memCache) {
             std::array<u8, 16> const cacheKey = !isZeroKey(best->eKey) ? best->eKey : best->cKey;
             memCache->put(cacheKey, decoded.data);
@@ -310,7 +326,8 @@ std::optional<std::vector<u8>> Storage::Impl::resolveRootEntry(
 const EncodingEntry* Storage::Impl::resolveEncoding(const RootEntry& re) const {
     if (!isZeroKey(re.cKey)) {
         auto enc = encodingTable.findByCKey(re.cKey, kEKeyTruncSize);
-        if (enc) return enc;
+        if (enc)
+            return enc;
     }
     if (!isZeroKey(re.eKey))
         return encodingTable.findByEKey(re.eKey, kEKeyTruncSize);
@@ -322,7 +339,8 @@ void Storage::Impl::ensureEncodingReferenced() const {
         // entries() forces ensureFullyParsed, which we need for pointer math.
         const auto& encEntries = encodingTable.entries();
         m_encodingReferenced.assign(encEntries.size(), false);
-        if (!root) return;
+        if (!root)
+            return;
 
         const auto* encBase = encEntries.data();
         root->resolveEntries([&](RootEntry& e) {
@@ -341,9 +359,7 @@ void Storage::Impl::ensureEncodingReferenced() const {
 }
 
 std::optional<std::vector<u8>> Storage::Impl::readFileResolved(
-    const OverlayKey& key,
-    const std::vector<const RootEntry*>& entries,
-    u32 localeFlags) const {
+    const OverlayKey& key, const std::vector<const RootEntry*>& entries, u32 localeFlags) const {
 
     // Check write overlay.
     if (writeOverlay) {
@@ -371,7 +387,8 @@ std::optional<std::vector<u8>> Storage::Impl::readFileResolved(
 
 std::optional<FileFullInfo> Storage::Impl::fileInfoResolved(
     const std::vector<const RootEntry*>& entries) const {
-    if (entries.empty()) return std::nullopt;
+    if (entries.empty())
+        return std::nullopt;
 
     auto* re = entries[0];
     FileFullInfo info;
@@ -400,10 +417,9 @@ std::optional<FileFullInfo> Storage::Impl::fileInfoResolved(
 // ============================================================================
 
 bool Storage::Impl::ensureLoaded() const {
-    if (!deferMode) return true;
-    std::call_once(deferOnce, [this]() {
-        deferLoadOk = loadEncodingAndRoot();
-    });
+    if (!deferMode)
+        return true;
+    std::call_once(deferOnce, [this]() { deferLoadOk = loadEncodingAndRoot(); });
     return deferLoadOk;
 }
 
@@ -419,15 +435,14 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
     if (onlineState && onlineState->fetcher &&
         (featureFlags & StorageFeatureFlags::LazyEncodingFrames) != 0 &&
         prefetchedEncodingBlte.empty()) {
-        auto encLoc = (backend
-            ? backend->findInIndex(eKeyTrunc(buildConfig.encodingEKey))
-            : dataSource->findInIndex(eKeyTrunc(buildConfig.encodingEKey)));
+        auto encLoc = (backend ? backend->findInIndex(eKeyTrunc(buildConfig.encodingEKey))
+                               : dataSource->findInIndex(eKeyTrunc(buildConfig.encodingEKey)));
         if (encLoc && encLoc->archiveIndex < cdnConfig.archiveEKeys.size()) {
-            auto archiveKeyHex = storages::common::hexEncode16(
-                cdnConfig.archiveEKeys[encLoc->archiveIndex]);
-            encodingTable = EncodingTable::openLazyOnline(
-                onlineState->fetcher.get(), archiveKeyHex,
-                encLoc->offset, encLoc->encodedSize, &keyRing, pool);
+            auto archiveKeyHex =
+                storages::common::hexEncode16(cdnConfig.archiveEKeys[encLoc->archiveIndex]);
+            encodingTable =
+                EncodingTable::openLazyOnline(onlineState->fetcher.get(), archiveKeyHex,
+                                              encLoc->offset, encLoc->encodedSize, &keyRing, pool);
             if (encodingTable.isValid()) {
                 encodingReady = true;
             } else {
@@ -493,7 +508,8 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
         std::vector<std::array<u8, 16>> vfsEKeys;
         std::unordered_map<u64, std::array<u8, 16>> vfsEKeyToCKey;
         for (auto& sub : buildConfig.vfsSubManifests) {
-            if (sub.cKey == buildConfig.vfsRootCKey) continue;
+            if (sub.cKey == buildConfig.vfsRootCKey)
+                continue;
             vfsEKeys.push_back(sub.eKey);
             vfsEKeyToCKey[keyHash64(sub.eKey)] = sub.cKey;
         }
@@ -577,7 +593,8 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
                         return resolveEKey(eKey);
                     };
                     auto hint = classifyTvfsProduct(buildConfig);
-                    root = decorateTvfsRoot(std::move(tvfsPlain), hint, eKeyReader, pool, listfileData);
+                    root = decorateTvfsRoot(std::move(tvfsPlain), hint, eKeyReader, pool,
+                                            listfileData);
                 }
             } else if (magic == RootSignature::kMFST) {
                 root = WowRoot::parse(rootData, pool, listfileData);
@@ -654,19 +671,14 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
         if (backend && !backend->hasCache()) {
             MemCacheEnabled cacheTraits{std::make_unique<MemoryCache>(kD4MinCacheSize)};
             if (backend->isLocal()) {
-                LocalDataTraits dataTraits{
-                    &localState->indexTable,
-                    localState->dataSource.get()};
+                LocalDataTraits dataTraits{&localState->indexTable, localState->dataSource.get()};
                 backend = std::make_unique<StorageBackendImpl<LocalDataTraits, MemCacheEnabled>>(
-                    std::move(dataTraits), std::move(cacheTraits),
-                    encodingTable, keyRing, pool);
+                    std::move(dataTraits), std::move(cacheTraits), encodingTable, keyRing, pool);
             } else {
-                OnlineDataTraits dataTraits{
-                    onlineState->dataSource.get(),
-                    &onlineState->onlineIndex};
+                OnlineDataTraits dataTraits{onlineState->dataSource.get(),
+                                            &onlineState->onlineIndex};
                 backend = std::make_unique<StorageBackendImpl<OnlineDataTraits, MemCacheEnabled>>(
-                    std::move(dataTraits), std::move(cacheTraits),
-                    encodingTable, keyRing, pool);
+                    std::move(dataTraits), std::move(cacheTraits), encodingTable, keyRing, pool);
             }
         }
     }
@@ -683,8 +695,7 @@ Storage::~Storage() = default;
 Storage::Storage(Storage&&) noexcept = default;
 Storage& Storage::operator=(Storage&&) noexcept = default;
 
-Storage::Storage(std::unique_ptr<Impl> impl)
-    : m_impl(std::move(impl)) {}
+Storage::Storage(std::unique_ptr<Impl> impl) : m_impl(std::move(impl)) {}
 
 void Storage::close() {
     if (m_impl) {
@@ -718,7 +729,8 @@ bool Storage::isWritable() const noexcept {
 }
 
 RootFormat Storage::rootFormat() const noexcept {
-    if (!m_impl || !m_impl->root) return RootFormat::Unknown;
+    if (!m_impl || !m_impl->root)
+        return RootFormat::Unknown;
     return m_impl->root->format();
 }
 
@@ -730,10 +742,16 @@ std::optional<std::vector<u8>> Storage::readFile(const std::string& cascPath) co
     return readFile(cascPath, 0, 0);
 }
 
-std::optional<std::vector<u8>> Storage::readFile(const std::string& cascPath,
-                                                  u32 localeFlags, u32 /*openFlags*/) const {
-    if (!m_impl || !m_impl->isValid) { s_lastError = kNotValid; return std::nullopt; }
-    if (!m_impl->ensureLoaded()) { s_lastError = kNotValid; return std::nullopt; }
+std::optional<std::vector<u8>> Storage::readFile(const std::string& cascPath, u32 localeFlags,
+                                                 u32 /*openFlags*/) const {
+    if (!m_impl || !m_impl->isValid) {
+        s_lastError = kNotValid;
+        return std::nullopt;
+    }
+    if (!m_impl->ensureLoaded()) {
+        s_lastError = kNotValid;
+        return std::nullopt;
+    }
 
     std::shared_lock const lock(m_impl->mutex);
     auto normalized = normalizeCascPath(cascPath);
@@ -747,11 +765,16 @@ std::optional<std::vector<u8>> Storage::readFile(i32 fileId, FileIdHint hint) co
     return readFile(fileId, 0, 0, hint);
 }
 
-std::optional<std::vector<u8>> Storage::readFile(i32 fileId,
-                                                  u32 localeFlags, u32 /*openFlags*/,
-                                                  FileIdHint hint) const {
-    if (!m_impl || !m_impl->isValid) { s_lastError = kNotValid; return std::nullopt; }
-    if (!m_impl->ensureLoaded()) { s_lastError = kNotValid; return std::nullopt; }
+std::optional<std::vector<u8>> Storage::readFile(i32 fileId, u32 localeFlags, u32 /*openFlags*/,
+                                                 FileIdHint hint) const {
+    if (!m_impl || !m_impl->isValid) {
+        s_lastError = kNotValid;
+        return std::nullopt;
+    }
+    if (!m_impl->ensureLoaded()) {
+        s_lastError = kNotValid;
+        return std::nullopt;
+    }
 
     std::shared_lock const lock(m_impl->mutex);
     OverlayKey const key{"", static_cast<u32>(fileId), hint};
@@ -764,18 +787,20 @@ std::optional<std::vector<u8>> Storage::readFile(i32 fileId,
 // readBatch (unified local + online)
 // ============================================================================
 
-std::vector<BatchReadResult> Storage::readBatch(
-    std::span<const BatchReadRequest> requests) const {
+std::vector<BatchReadResult> Storage::readBatch(std::span<const BatchReadRequest> requests) const {
 
     std::vector<BatchReadResult> results(requests.size());
-    if (requests.empty()) return results;
+    if (requests.empty())
+        return results;
 
     if (!m_impl || !m_impl->isValid) {
-        for (auto& r : results) r.error = "storage not valid";
+        for (auto& r : results)
+            r.error = "storage not valid";
         return results;
     }
     if (!m_impl->ensureLoaded()) {
-        for (auto& r : results) r.error = "deferred load failed";
+        for (auto& r : results)
+            r.error = "deferred load failed";
         return results;
     }
 
@@ -821,7 +846,8 @@ std::vector<BatchReadResult> Storage::readBatch(
             if (byPath)
                 entries = m_impl->root->findByNormalizedPath(normalizeCascPath(req.path));
             else
-                entries = m_impl->root->findByFileDataId(static_cast<u32>(req.fileDataId), req.fileIdHint);
+                entries = m_impl->root->findByFileDataId(static_cast<u32>(req.fileDataId),
+                                                         req.fileIdHint);
         }
 
         if (entries.empty()) {
@@ -833,7 +859,8 @@ std::vector<BatchReadResult> Storage::readBatch(
         toResolve.push_back({i, std::move(entries), locale});
     }
 
-    if (toResolve.empty()) return results;
+    if (toResolve.empty())
+        return results;
 
     // Phase 0.5 (cache) + Phase 1 (fetch) — delegate to backend when available.
     std::vector<ResolvedBlob> resolvedBlobs(toResolve.size());
@@ -855,16 +882,19 @@ std::vector<BatchReadResult> Storage::readBatch(
         if (m_impl->memCache) {
             for (auto& work : toResolve) {
                 const RootEntry* best = selectBestEntry(work.rootEntries, work.localeFlags);
-                if (!best || best->containerOffset == 0) continue;
+                if (!best || best->containerOffset == 0)
+                    continue;
 
                 std::array<u8, 16> const cacheKey =
                     !isZeroKey(best->eKey) ? best->eKey : best->cKey;
                 auto cached = m_impl->memCache->view(cacheKey);
-                if (!cached) continue;
+                if (!cached)
+                    continue;
 
                 auto off = static_cast<size_t>(best->containerOffset);
-                auto sz  = static_cast<size_t>(best->containerSize);
-                if (off + sz > cached->size()) continue;
+                auto sz = static_cast<size_t>(best->containerSize);
+                if (off + sz > cached->size())
+                    continue;
 
                 size_t const hdrSz = best->headerSize;
                 std::vector<u8> sliced(hdrSz + sz);
@@ -882,10 +912,14 @@ std::vector<BatchReadResult> Storage::readBatch(
             auto resolveOne = [&](size_t idx) {
                 auto& work = toResolve[idx];
                 auto& blob = resolvedBlobs[idx];
-                if (work.cachedResult) return;
+                if (work.cachedResult)
+                    return;
 
                 const RootEntry* best = selectBestEntry(work.rootEntries, work.localeFlags);
-                if (!best) { blob.error = "no matching root entry"; return; }
+                if (!best) {
+                    blob.error = "no matching root entry";
+                    return;
+                }
 
                 const IndexEntry* idxEntry = nullptr;
                 if (!isZeroKey(best->cKey)) {
@@ -896,7 +930,10 @@ std::vector<BatchReadResult> Storage::readBatch(
                 if (!idxEntry && !isZeroKey(best->eKey)) {
                     idxEntry = m_impl->localState->indexTable.find(eKeyTrunc(best->eKey));
                 }
-                if (!idxEntry) { blob.error = "file not found in index"; return; }
+                if (!idxEntry) {
+                    blob.error = "file not found in index";
+                    return;
+                }
 
                 blob.blteSpan = m_impl->localState->dataSource->readBlteFromIndex(*idxEntry);
                 if (blob.blteSpan.empty()) {
@@ -914,7 +951,10 @@ std::vector<BatchReadResult> Storage::readBatch(
                 resolveGroup.add(toResolve.size());
                 for (size_t idx = 0; idx < toResolve.size(); ++idx) {
                     interfaces::WorkerTask task;
-                    task.fn = [&, idx]() { resolveOne(idx); resolveGroup.done(); };
+                    task.fn = [&, idx]() {
+                        resolveOne(idx);
+                        resolveGroup.done();
+                    };
                     m_impl->pool->submit(task);
                 }
                 resolveGroup.wait();
@@ -938,10 +978,14 @@ std::vector<BatchReadResult> Storage::readBatch(
                 auto& work = toResolve[idx];
                 auto& blob = resolvedBlobs[idx];
                 auto& fp = fetchParams[idx];
-                if (work.cachedResult) continue;
+                if (work.cachedResult)
+                    continue;
 
                 const RootEntry* best = selectBestEntry(work.rootEntries, work.localeFlags);
-                if (!best) { blob.error = "no matching root entry"; continue; }
+                if (!best) {
+                    blob.error = "no matching root entry";
+                    continue;
+                }
 
                 const OnlineIndexTable::Entry* idxEntry = nullptr;
                 std::array<u8, 16> eKey{};
@@ -981,7 +1025,8 @@ std::vector<BatchReadResult> Storage::readBatch(
             };
             auto state = std::make_shared<WaitState>();
             for (auto& fp : fetchParams)
-                if (fp.needsFetch) ++state->total;
+                if (fp.needsFetch)
+                    ++state->total;
 
             if (state->total > 0) {
                 auto makeCallback = [&resolvedBlobs, state](size_t idx) {
@@ -992,7 +1037,8 @@ std::vector<BatchReadResult> Storage::readBatch(
                         } else {
                             resolvedBlobs[idx].error = "failed to fetch BLTE data from CDN";
                         }
-                        if (state->completed.fetch_add(1, std::memory_order_acq_rel) + 1 >= state->total) {
+                        if (state->completed.fetch_add(1, std::memory_order_acq_rel) + 1 >=
+                            state->total) {
                             std::lock_guard<std::mutex> const lk(state->mtx);
                             state->cv.notify_one();
                         }
@@ -1001,14 +1047,13 @@ std::vector<BatchReadResult> Storage::readBatch(
 
                 for (size_t idx = 0; idx < toResolve.size(); ++idx) {
                     auto& fp = fetchParams[idx];
-                    if (!fp.needsFetch) continue;
+                    if (!fp.needsFetch)
+                        continue;
                     if (fp.useArchive) {
                         m_impl->onlineState->dataSource->fetchBlteAsync(
-                            fp.archiveIndex, fp.archiveOffset, fp.encodedSize,
-                            makeCallback(idx));
+                            fp.archiveIndex, fp.archiveOffset, fp.encodedSize, makeCallback(idx));
                     } else {
-                        m_impl->onlineState->dataSource->fetchBlteAsync(
-                            fp.eKey, makeCallback(idx));
+                        m_impl->onlineState->dataSource->fetchBlteAsync(fp.eKey, makeCallback(idx));
                     }
                 }
 
@@ -1027,15 +1072,16 @@ std::vector<BatchReadResult> Storage::readBatch(
     batchToResolveIdx.reserve(toResolve.size());
 
     for (size_t idx = 0; idx < toResolve.size(); ++idx) {
-        if (toResolve[idx].cachedResult) continue;
+        if (toResolve[idx].cachedResult)
+            continue;
         if (!resolvedBlobs[idx].resolved) {
             results[toResolve[idx].requestIndex].error = std::move(resolvedBlobs[idx].error);
             continue;
         }
         BlteBatchEntry entry;
         entry.blteData = resolvedBlobs[idx].useSpan
-            ? resolvedBlobs[idx].blteSpan
-            : std::span<const u8>(resolvedBlobs[idx].blteData);
+                             ? resolvedBlobs[idx].blteSpan
+                             : std::span<const u8>(resolvedBlobs[idx].blteData);
         batchEntries.push_back(entry);
         batchToResolveIdx.push_back(idx);
     }
@@ -1055,12 +1101,11 @@ std::vector<BatchReadResult> Storage::readBatch(
                 continue;
             }
 
-            const RootEntry* best = selectBestEntry(
-                toResolve[resolveIdx].rootEntries,
-                toResolve[resolveIdx].localeFlags);
+            const RootEntry* best = selectBestEntry(toResolve[resolveIdx].rootEntries,
+                                                    toResolve[resolveIdx].localeFlags);
             if (best && best->containerOffset != 0) {
                 auto off = static_cast<size_t>(best->containerOffset);
-                auto sz  = static_cast<size_t>(best->containerSize);
+                auto sz = static_cast<size_t>(best->containerSize);
                 if (off + sz <= decoded[d].data.size()) {
                     if (m_impl->memCache) {
                         std::array<u8, 16> const cacheKey =
@@ -1093,30 +1138,38 @@ std::vector<BatchReadResult> Storage::readBatch(
 // ============================================================================
 
 bool Storage::fileExists(const std::string& cascPath) const {
-    if (!m_impl || !m_impl->isValid) return false;
-    if (!m_impl->ensureLoaded()) return false;
+    if (!m_impl || !m_impl->isValid)
+        return false;
+    if (!m_impl->ensureLoaded())
+        return false;
     std::shared_lock const lock(m_impl->mutex);
 
     auto normalized = normalizeCascPath(cascPath);
 
     if (m_impl->writeOverlay) {
         OverlayKey const key{normalized, std::nullopt};
-        if (m_impl->writeOverlay->pendingWrites.count(key)) return true;
-        if (m_impl->writeOverlay->pendingDeletes.count(key)) return false;
+        if (m_impl->writeOverlay->pendingWrites.count(key))
+            return true;
+        if (m_impl->writeOverlay->pendingDeletes.count(key))
+            return false;
     }
 
     return m_impl->root && m_impl->root->hasPath(normalized);
 }
 
 bool Storage::fileExists(i32 fileId, FileIdHint hint) const {
-    if (!m_impl || !m_impl->isValid) return false;
-    if (!m_impl->ensureLoaded()) return false;
+    if (!m_impl || !m_impl->isValid)
+        return false;
+    if (!m_impl->ensureLoaded())
+        return false;
     std::shared_lock const lock(m_impl->mutex);
 
     if (m_impl->writeOverlay) {
         OverlayKey const key{"", static_cast<u32>(fileId), hint};
-        if (m_impl->writeOverlay->pendingWrites.count(key)) return true;
-        if (m_impl->writeOverlay->pendingDeletes.count(key)) return false;
+        if (m_impl->writeOverlay->pendingWrites.count(key))
+            return true;
+        if (m_impl->writeOverlay->pendingDeletes.count(key))
+            return false;
     }
 
     return m_impl->root && m_impl->root->hasFileDataId(static_cast<u32>(fileId), hint);
@@ -1127,30 +1180,40 @@ bool Storage::fileExists(i32 fileId, FileIdHint hint) const {
 // ============================================================================
 
 std::optional<u64> Storage::fileSize(const std::string& cascPath) const {
-    if (!m_impl || !m_impl->isValid) return std::nullopt;
-    if (!m_impl->ensureLoaded()) return std::nullopt;
+    if (!m_impl || !m_impl->isValid)
+        return std::nullopt;
+    if (!m_impl->ensureLoaded())
+        return std::nullopt;
     std::shared_lock const lock(m_impl->mutex);
 
     auto entries = m_impl->root->findByNormalizedPath(normalizeCascPath(cascPath));
-    if (entries.empty()) return std::nullopt;
-    if (entries[0]->fileSize > 0) return entries[0]->fileSize;
+    if (entries.empty())
+        return std::nullopt;
+    if (entries[0]->fileSize > 0)
+        return entries[0]->fileSize;
 
     auto encEntry = m_impl->resolveEncoding(*entries[0]);
-    if (!encEntry) return std::nullopt;
+    if (!encEntry)
+        return std::nullopt;
     return encEntry->fileSize;
 }
 
 std::optional<u64> Storage::fileSize(i32 fileId, FileIdHint hint) const {
-    if (!m_impl || !m_impl->isValid) return std::nullopt;
-    if (!m_impl->ensureLoaded()) return std::nullopt;
+    if (!m_impl || !m_impl->isValid)
+        return std::nullopt;
+    if (!m_impl->ensureLoaded())
+        return std::nullopt;
     std::shared_lock const lock(m_impl->mutex);
 
     auto entries = m_impl->root->findByFileDataId(static_cast<u32>(fileId), hint);
-    if (entries.empty()) return std::nullopt;
-    if (entries[0]->fileSize > 0) return entries[0]->fileSize;
+    if (entries.empty())
+        return std::nullopt;
+    if (entries[0]->fileSize > 0)
+        return entries[0]->fileSize;
 
     auto encEntry = m_impl->resolveEncoding(*entries[0]);
-    if (!encEntry) return std::nullopt;
+    if (!encEntry)
+        return std::nullopt;
     return encEntry->fileSize;
 }
 
@@ -1159,19 +1222,22 @@ std::optional<u64> Storage::fileSize(i32 fileId, FileIdHint hint) const {
 // ============================================================================
 
 std::optional<FileFullInfo> Storage::fileInfo(const std::string& cascPath) const {
-    if (!m_impl || !m_impl->isValid) return std::nullopt;
-    if (!m_impl->ensureLoaded()) return std::nullopt;
+    if (!m_impl || !m_impl->isValid)
+        return std::nullopt;
+    if (!m_impl->ensureLoaded())
+        return std::nullopt;
     std::shared_lock const lock(m_impl->mutex);
     return m_impl->fileInfoResolved(
         m_impl->root->findByNormalizedPath(normalizeCascPath(cascPath)));
 }
 
 std::optional<FileFullInfo> Storage::fileInfo(i32 fileId, FileIdHint hint) const {
-    if (!m_impl || !m_impl->isValid) return std::nullopt;
-    if (!m_impl->ensureLoaded()) return std::nullopt;
+    if (!m_impl || !m_impl->isValid)
+        return std::nullopt;
+    if (!m_impl->ensureLoaded())
+        return std::nullopt;
     std::shared_lock const lock(m_impl->mutex);
-    return m_impl->fileInfoResolved(
-        m_impl->root->findByFileDataId(static_cast<u32>(fileId), hint));
+    return m_impl->fileInfoResolved(m_impl->root->findByFileDataId(static_cast<u32>(fileId), hint));
 }
 
 // ============================================================================
@@ -1179,8 +1245,10 @@ std::optional<FileFullInfo> Storage::fileInfo(i32 fileId, FileIdHint hint) const
 // ============================================================================
 
 void Storage::enumerate(std::function<bool(const EnumerateEntry&)> callback) const {
-    if (!m_impl || !m_impl->isValid || !callback) return;
-    if (!m_impl->ensureLoaded()) return;
+    if (!m_impl || !m_impl->isValid || !callback)
+        return;
+    if (!m_impl->ensureLoaded())
+        return;
     std::shared_lock const lock(m_impl->mutex);
 
     EnumerateEntry fe;
@@ -1205,12 +1273,13 @@ void Storage::enumerate(std::function<bool(const EnumerateEntry&)> callback) con
     char hexBuf[33];
     for (size_t i = 0; i < encEntries.size(); ++i) {
         auto& enc = encEntries[i];
-        if (isZeroKey(enc.cKey)) continue;
+        if (isZeroKey(enc.cKey))
+            continue;
         if (i < m_impl->m_encodingReferenced.size() && m_impl->m_encodingReferenced[i])
             continue;
 
         for (int j = 0; j < 16; ++j) {
-            hexBuf[j * 2]     = kHex[enc.cKey[j] >> 4];
+            hexBuf[j * 2] = kHex[enc.cKey[j] >> 4];
             hexBuf[j * 2 + 1] = kHex[enc.cKey[j] & 0xF];
         }
         hexBuf[32] = '\0';
@@ -1221,7 +1290,8 @@ void Storage::enumerate(std::function<bool(const EnumerateEntry&)> callback) con
         fe.contentFlags = 0;
         fe.fileDataId = kInvalidId;
         fe.path = std::string_view(hexBuf, 32);
-        if (!callback(fe)) break;
+        if (!callback(fe))
+            break;
     }
 }
 
@@ -1230,7 +1300,8 @@ void Storage::enumerate(std::function<bool(const EnumerateEntry&)> callback) con
 namespace {
 
 inline char normChar(char ch) noexcept {
-    if (ch == '/') return '\\';
+    if (ch == '/')
+        return '\\';
     return (ch >= 'A' && ch <= 'Z') ? static_cast<char>(ch + 32) : ch;
 }
 
@@ -1247,16 +1318,20 @@ static bool wildcardMatch(std::string_view pat, std::string_view str) noexcept {
     size_t starPat = std::string_view::npos, starStr = 0;
     while (si < str.size()) {
         if (pi < pat.size() && (pat[pi] == '?' || pat[pi] == normChar(str[si]))) {
-            ++pi; ++si;
+            ++pi;
+            ++si;
         } else if (pi < pat.size() && pat[pi] == '*') {
-            starPat = pi++; starStr = si;
+            starPat = pi++;
+            starStr = si;
         } else if (starPat != std::string_view::npos) {
-            pi = starPat + 1; si = ++starStr;
+            pi = starPat + 1;
+            si = ++starStr;
         } else {
             return false;
         }
     }
-    while (pi < pat.size() && pat[pi] == '*') ++pi;
+    while (pi < pat.size() && pat[pi] == '*')
+        ++pi;
     return pi == pat.size();
 }
 
@@ -1269,25 +1344,32 @@ static bool isTrivialMask(std::string_view mask) noexcept {
 
 static std::string_view extractPrefix(std::string_view mask) noexcept {
     size_t wild = 0;
-    while (wild < mask.size() && mask[wild] != '*' && mask[wild] != '?') ++wild;
-    if (wild == 0) return {};
+    while (wild < mask.size() && mask[wild] != '*' && mask[wild] != '?')
+        ++wild;
+    if (wild == 0)
+        return {};
     size_t const lastSep = mask.rfind('\\', wild - 1);
-    if (lastSep == std::string_view::npos) return {};
+    if (lastSep == std::string_view::npos)
+        return {};
     return mask.substr(0, lastSep + 1);
 }
 
 static std::string_view extractPureSuffix(std::string_view mask) noexcept {
-    if (mask.size() < 2 || mask[0] != '*') return {};
+    if (mask.size() < 2 || mask[0] != '*')
+        return {};
     for (size_t i = 1; i < mask.size(); ++i)
-        if (mask[i] == '*' || mask[i] == '?') return {};
+        if (mask[i] == '*' || mask[i] == '?')
+            return {};
     return mask.substr(1);
 }
 
 static bool endsWithNorm(std::string_view str, std::string_view suffix) noexcept {
-    if (str.size() < suffix.size()) return false;
+    if (str.size() < suffix.size())
+        return false;
     size_t const off = str.size() - suffix.size();
     for (size_t i = 0; i < suffix.size(); ++i)
-        if (normChar(str[off + i]) != suffix[i]) return false;
+        if (normChar(str[off + i]) != suffix[i])
+            return false;
     return true;
 }
 
@@ -1295,9 +1377,12 @@ static bool endsWithNorm(std::string_view str, std::string_view suffix) noexcept
 
 void Storage::enumerate(const std::string& mask,
                         std::function<bool(const EnumerateEntry&)> callback) const {
-    if (!callback) return;
-    if (!m_impl || !m_impl->isValid) return;
-    if (!m_impl->ensureLoaded()) return;
+    if (!callback)
+        return;
+    if (!m_impl || !m_impl->isValid)
+        return;
+    if (!m_impl->ensureLoaded())
+        return;
 
     if (mask.empty() || isTrivialMask(mask)) {
         enumerate(std::move(callback));
@@ -1313,14 +1398,17 @@ void Storage::enumerate(const std::string& mask,
     EnumerateEntry fe;
     auto rootCallback = [&](const RootEntry& re) -> bool {
         if (!prefix.empty()) {
-            if (re.path.size() < prefix.size()) return true;
+            if (re.path.size() < prefix.size())
+                return true;
             for (size_t i = 0; i < prefix.size(); ++i)
-                if (normChar(re.path[i]) != prefix[i]) return true;
+                if (normChar(re.path[i]) != prefix[i])
+                    return true;
         }
 
         bool const match = !pureSuffix.empty() ? endsWithNorm(re.path, pureSuffix)
                                                : wildcardMatch(normMask, re.path);
-        if (!match) return true;
+        if (!match)
+            return true;
 
         fe.cKey = re.cKey;
         fe.fileSize = re.fileSize;
@@ -1340,7 +1428,8 @@ void Storage::enumerate(const std::string& mask,
 
     // Orphan phase — skip if mask can't match hex-string paths.
     bool const canMatchOrphan = pureSuffix.empty() && prefix.empty();
-    if (!canMatchOrphan) return;
+    if (!canMatchOrphan)
+        return;
 
     m_impl->ensureEncodingReferenced();
     static constexpr char kHex[] = "0123456789abcdef";
@@ -1348,18 +1437,20 @@ void Storage::enumerate(const std::string& mask,
     char hexBuf[33];
     for (size_t i = 0; i < encEntries.size(); ++i) {
         auto& enc = encEntries[i];
-        if (isZeroKey(enc.cKey)) continue;
+        if (isZeroKey(enc.cKey))
+            continue;
         if (i < m_impl->m_encodingReferenced.size() && m_impl->m_encodingReferenced[i])
             continue;
 
         for (int j = 0; j < 16; ++j) {
-            hexBuf[j * 2]     = kHex[enc.cKey[j] >> 4];
+            hexBuf[j * 2] = kHex[enc.cKey[j] >> 4];
             hexBuf[j * 2 + 1] = kHex[enc.cKey[j] & 0xF];
         }
         hexBuf[32] = '\0';
 
         std::string_view const hexPath(hexBuf, 32);
-        if (!wildcardMatch(normMask, hexPath)) continue;
+        if (!wildcardMatch(normMask, hexPath))
+            continue;
 
         fe.cKey = enc.cKey;
         fe.fileSize = enc.fileSize;
@@ -1367,7 +1458,8 @@ void Storage::enumerate(const std::string& mask,
         fe.contentFlags = 0;
         fe.fileDataId = kInvalidId;
         fe.path = hexPath;
-        if (!callback(fe)) break;
+        if (!callback(fe))
+            break;
     }
 }
 
@@ -1377,11 +1469,14 @@ void Storage::enumerate(const std::string& mask,
 
 std::vector<std::string> Storage::listFiles() const {
     std::vector<std::string> result;
-    if (!m_impl || !m_impl->isValid) return result;
-    if (!m_impl->ensureLoaded()) return result;
+    if (!m_impl || !m_impl->isValid)
+        return result;
+    if (!m_impl->ensureLoaded())
+        return result;
     std::shared_lock const lock(m_impl->mutex);
     m_impl->root->enumerate([&](const RootEntry& re) -> bool {
-        if (!re.path.empty()) result.push_back(re.path);
+        if (!re.path.empty())
+            result.push_back(re.path);
         return true;
     });
     return result;
@@ -1403,8 +1498,10 @@ std::vector<FindEntry> Storage::listEntries() const {
 }
 
 std::optional<u32> Storage::totalFileCount() const {
-    if (!m_impl || !m_impl->isValid) return std::nullopt;
-    if (!m_impl->ensureLoaded()) return std::nullopt;
+    if (!m_impl || !m_impl->isValid)
+        return std::nullopt;
+    if (!m_impl->ensureLoaded())
+        return std::nullopt;
     return static_cast<u32>(m_impl->root->entryCount());
 }
 
@@ -1413,7 +1510,8 @@ std::optional<u32> Storage::totalFileCount() const {
 // ============================================================================
 
 std::optional<StorageProduct> Storage::product() const {
-    if (!m_impl || !m_impl->isValid) return std::nullopt;
+    if (!m_impl || !m_impl->isValid)
+        return std::nullopt;
 
     if (m_impl->isOnline()) {
         return m_impl->onlineState->productInfo;
@@ -1431,31 +1529,37 @@ std::optional<StorageProduct> Storage::product() const {
 // ============================================================================
 
 bool Storage::addEncryptionKey(u64 keyName, const std::array<u8, 16>& key) {
-    if (!m_impl) return false;
+    if (!m_impl)
+        return false;
     m_impl->keyRing.addKey(keyName, key);
     return true;
 }
 
 bool Storage::addEncryptionKey(u64 keyName, const std::string& keyHex) {
-    if (!m_impl) return false;
+    if (!m_impl)
+        return false;
     m_impl->keyRing.addKey(keyName, keyHex);
     return true;
 }
 
 bool Storage::importKeysFromString(const std::string& keyList) {
-    if (!m_impl) return false;
+    if (!m_impl)
+        return false;
     return m_impl->keyRing.importFromString(keyList);
 }
 
 bool Storage::importKeysFromFile(const std::string& keyFilePath) {
-    if (!m_impl) return false;
+    if (!m_impl)
+        return false;
     return m_impl->keyRing.importFromFile(keyFilePath);
 }
 
 std::optional<std::array<u8, 16>> Storage::findEncryptionKey(u64 keyName) const {
-    if (!m_impl) return std::nullopt;
+    if (!m_impl)
+        return std::nullopt;
     auto key = m_impl->keyRing.findKey(keyName);
-    if (key) return *key;
+    if (key)
+        return *key;
     return std::nullopt;
 }
 
@@ -1473,9 +1577,11 @@ void Storage::flushCache() {
 }
 
 bool Storage::prefetch() {
-    if (!m_impl || !m_impl->isValid) return false;
+    if (!m_impl || !m_impl->isValid)
+        return false;
 
-    if (!m_impl->ensureLoaded()) return false;
+    if (!m_impl->ensureLoaded())
+        return false;
 
     std::shared_lock const lock(m_impl->mutex);
 

@@ -9,14 +9,14 @@
 /// Internal header — not part of the public include path.
 #pragma once
 
-#include "data_source.h"
-#include "key_utils.h"
 #include "../roots/root.h"
 #include "../tables/encoding.h"
+#include "data_source.h"
+#include "key_utils.h"
 
-#include <whiteout/storages/casc/storage.h>
 #include <whiteout/common_types.h>
 #include <whiteout/interfaces.h>
+#include <whiteout/storages/casc/storage.h>
 
 #include <array>
 #include <optional>
@@ -63,34 +63,28 @@ public:
     // ── Resolution (hot path) ────────────────────────────────────
 
     /// CKey → encoding → index → BLTE decode → raw file data.
-    virtual std::vector<u8> resolveCKey(
-        std::span<const u8, 16> cKey,
-        interfaces::WorkerPool* pool = nullptr) const = 0;
+    virtual std::vector<u8> resolveCKey(std::span<const u8, 16> cKey,
+                                        interfaces::WorkerPool* pool = nullptr) const = 0;
 
     /// EKey → index → BLTE decode → raw file data (skip encoding table).
-    virtual std::vector<u8> resolveEKey(
-        std::span<const u8, 16> eKey,
-        interfaces::WorkerPool* pool = nullptr) const = 0;
+    virtual std::vector<u8> resolveEKey(std::span<const u8, 16> eKey,
+                                        interfaces::WorkerPool* pool = nullptr) const = 0;
 
     /// RootEntry → decoded file data (locale filter + container slicing).
     virtual std::optional<std::vector<u8>> resolveRootEntry(
-        const std::vector<const RootEntry*>& entries,
-        u32 localeFlags) const = 0;
+        const std::vector<const RootEntry*>& entries, u32 localeFlags) const = 0;
 
     // ── Batch resolution ─────────────────────────────────────────
 
     /// Phase 0.5/1/3 of readBatch: cache lookup, data fetch, cache store.
     /// Phase 0 (overlay) and Phase 2 (BLTE decode) remain in storage_core.
-    virtual void resolveBatch(
-        std::span<ResolveWork> work,
-        std::span<ResolvedBlob> blobs,
-        interfaces::WorkerPool* pool) const = 0;
+    virtual void resolveBatch(std::span<ResolveWork> work, std::span<ResolvedBlob> blobs,
+                              interfaces::WorkerPool* pool) const = 0;
 
     // ── Data access (used by loadEncodingAndRoot) ────────────────
 
     /// Find an entry in the index by EKey prefix.
-    virtual std::optional<IndexLocation> findInIndex(
-        std::span<const u8> eKeyPrefix) const = 0;
+    virtual std::optional<IndexLocation> findInIndex(std::span<const u8> eKeyPrefix) const = 0;
 
     /// Fetch BLTE-encoded data from a resolved index location.
     virtual std::vector<u8> fetchBlte(const IndexLocation& loc) const = 0;
@@ -102,8 +96,7 @@ public:
 
     /// Parallel-resolve VFS sub-manifests (dispatch to local/online path).
     virtual std::unordered_map<u64, std::vector<u8>> prefetchVfs(
-        const Storage::Impl& impl,
-        const std::vector<std::array<u8, 16>>& vfsEKeys,
+        const Storage::Impl& impl, const std::vector<std::array<u8, 16>>& vfsEKeys,
         const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey) const = 0;
 
     // ── Cache management ─────────────────────────────────────────

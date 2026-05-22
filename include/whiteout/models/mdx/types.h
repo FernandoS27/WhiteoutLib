@@ -256,31 +256,32 @@ struct Track {
      * Used for Hermite and Bezier interpolation.
      */
     struct TangentKey {
-        T value{};     ///< Value at this frame
-        T inTan{};     ///< Incoming tangent for curve interpolation
-        T outTan{};    ///< Outgoing tangent for curve interpolation
+        T value{};  ///< Value at this frame
+        T inTan{};  ///< Incoming tangent for curve interpolation
+        T outTan{}; ///< Outgoing tangent for curve interpolation
     };
 
-    static constexpr u32 kNoGlobalSequence = 0xFFFFFFFF; ///< @bind js_name=MdxNoGlobalSequence, cpp_expr=whiteout::mdx::Track<whiteout::f32>::kNoGlobalSequence — Sentinel value
+    static constexpr u32 kNoGlobalSequence =
+        0xFFFFFFFF; ///< @bind js_name=MdxNoGlobalSequence,
+                    ///< cpp_expr=whiteout::mdx::Track<whiteout::f32>::kNoGlobalSequence
+                    ///< — Sentinel value
 
     bool isUsed = false; ///< Whether this track contains animation data
     InterpolationType interpolationType = InterpolationType::None; ///< Interpolation type
-    u32 globalSequenceId = kNoGlobalSequence;  ///< Global sequence ID if applicable
-    size_t keyCount = 0;       ///< Number of keyframes
-    std::vector<u32> timestamps; ///< Keyframe timestamps (in frames)
-    std::vector<T> keys_data; ///< @bind rename=keys — Raw keyframe data
+    u32 globalSequenceId = kNoGlobalSequence; ///< Global sequence ID if applicable
+    size_t keyCount = 0;                      ///< Number of keyframes
+    std::vector<u32> timestamps;              ///< Keyframe timestamps (in frames)
+    std::vector<T> keys_data;                 ///< @bind rename=keys — Raw keyframe data
 
     /**
      * @brief Get keyframes as a span (for linear/no interpolation)
      * @return Span of Key structures
      */
     std::span<T> keys() {
-        return std::span<T>(reinterpret_cast<T*>(keys_data.data()),
-                              keys_data.size());
+        return std::span<T>(reinterpret_cast<T*>(keys_data.data()), keys_data.size());
     }
     std::span<const T> keys() const {
-        return std::span<const T>(reinterpret_cast<const T*>(keys_data.data()),
-                                  keys_data.size());
+        return std::span<const T>(reinterpret_cast<const T*>(keys_data.data()), keys_data.size());
     }
 
     /**
@@ -292,9 +293,8 @@ struct Track {
                                      (sizeof(T) * keys_data.size()) / sizeof(TangentKey));
     }
     std::span<const TangentKey> tangentKeys() const {
-        return std::span<const TangentKey>(
-            reinterpret_cast<const TangentKey*>(keys_data.data()),
-            (sizeof(T) * keys_data.size()) / sizeof(TangentKey));
+        return std::span<const TangentKey>(reinterpret_cast<const TangentKey*>(keys_data.data()),
+                                           (sizeof(T) * keys_data.size()) / sizeof(TangentKey));
     }
 };
 

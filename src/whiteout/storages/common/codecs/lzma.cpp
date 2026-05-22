@@ -39,11 +39,11 @@ constexpr u32 kNumFullDistances = 1u << (kEndPosModelIndex >> 1); // 128
 
 constexpr u32 kMatchMinLen = 2;
 constexpr u32 kLenNumLowBits = 3;
-constexpr u32 kLenNumLowSymbols = 1u << kLenNumLowBits;   // 8
+constexpr u32 kLenNumLowSymbols = 1u << kLenNumLowBits; // 8
 constexpr u32 kLenNumMidBits = 3;
-constexpr u32 kLenNumMidSymbols = 1u << kLenNumMidBits;   // 8
+constexpr u32 kLenNumMidSymbols = 1u << kLenNumMidBits; // 8
 constexpr u32 kLenNumHighBits = 8;
-constexpr u32 kLenNumHighSymbols = 1u << kLenNumHighBits;  // 256
+constexpr u32 kLenNumHighSymbols = 1u << kLenNumHighBits; // 256
 
 constexpr u16 kProbInitValue = kBitModelTotal / 2; // 1024
 
@@ -58,9 +58,10 @@ using Prob = u16;
 // ---------------------------------------------------------------------------
 
 class RangeDecoder {
-  public:
+public:
     bool init(const u8* data, size_t size) {
-        if (size < 5) return false;
+        if (size < 5)
+            return false;
         streamBytes = data;
         streamLength = size;
         readPosition = 0;
@@ -81,7 +82,9 @@ class RangeDecoder {
         return readPosition >= streamLength && code == 0;
     }
 
-    bool isCorrupted() const { return corrupted; }
+    bool isCorrupted() const {
+        return corrupted;
+    }
 
     u32 decodeBit(Prob& probability) {
         normalize();
@@ -105,13 +108,13 @@ class RangeDecoder {
             range >>= 1;
             code -= range;
             u32 const signMask = 0 - (code >> 31); // 0 if code >= 0 (bit=1), ~0 if code < 0 (bit=0)
-            code += range & signMask;         // correct code if bit was 0
+            code += range & signMask;              // correct code if bit was 0
             result = (result << 1) | (1 - (signMask & 1));
         }
         return result;
     }
 
-  private:
+private:
     void normalize() {
         if (range < kTopValue) {
             range <<= 8;
@@ -179,11 +182,12 @@ struct LenDecoder {
 
     u32 decode(RangeDecoder& rangeDecoder, u32 posState) {
         if (rangeDecoder.decodeBit(choiceLow) == 0) {
-            return bitTreeDecode(&lowProbs[posState * kLenNumLowSymbols], kLenNumLowBits, rangeDecoder);
+            return bitTreeDecode(&lowProbs[posState * kLenNumLowSymbols], kLenNumLowBits,
+                                 rangeDecoder);
         }
         if (rangeDecoder.decodeBit(choiceHigh) == 0) {
-            return kLenNumLowSymbols +
-                   bitTreeDecode(&midProbs[posState * kLenNumMidSymbols], kLenNumMidBits, rangeDecoder);
+            return kLenNumLowSymbols + bitTreeDecode(&midProbs[posState * kLenNumMidSymbols],
+                                                     kLenNumMidBits, rangeDecoder);
         }
         return kLenNumLowSymbols + kLenNumMidSymbols +
                bitTreeDecode(highProbs.data(), kLenNumHighBits, rangeDecoder);
@@ -195,8 +199,10 @@ struct LenDecoder {
 // ---------------------------------------------------------------------------
 
 u32 stateUpdateLiteral(u32 state) {
-    if (state < 4) return 0;
-    if (state < 10) return state - 3;
+    if (state < 4)
+        return 0;
+    if (state < 10)
+        return state - 3;
     return state - 6;
 }
 
@@ -226,7 +232,7 @@ u32 getLenToPosState(u32 len) {
 // ---------------------------------------------------------------------------
 
 class OutputWindow {
-  public:
+public:
     void init(size_t dictSize, size_t expectedSize) {
         buffer.resize(expectedSize);
         writePosition = 0;
@@ -234,7 +240,9 @@ class OutputWindow {
         outputCapacity = expectedSize;
     }
 
-    bool isFull() const { return writePosition >= outputCapacity; }
+    bool isFull() const {
+        return writePosition >= outputCapacity;
+    }
 
     void putByte(u8 value) {
         if (writePosition < outputCapacity)
@@ -243,7 +251,8 @@ class OutputWindow {
 
     u8 getByte(u32 distance) const {
         // distance is 0-based: 0 = last byte written
-        if (distance + 1 > writePosition) return 0;
+        if (distance + 1 > writePosition)
+            return 0;
         return buffer[writePosition - 1 - distance];
     }
 
@@ -259,9 +268,11 @@ class OutputWindow {
         return std::move(buffer);
     }
 
-    size_t pos() const { return writePosition; }
+    size_t pos() const {
+        return writePosition;
+    }
 
-  private:
+private:
     std::vector<u8> buffer;
     size_t writePosition = 0;
     size_t dictionarySize = 0;
@@ -293,7 +304,8 @@ std::vector<u8> lzmaDecompress(std::span<const u8> src, size_t expectedSize) {
 
     u32 dictionarySize = 0;
     std::memcpy(&dictionarySize, src.data() + 1, 4); // little-endian on x86
-    if (dictionarySize < 1) dictionarySize = 1;
+    if (dictionarySize < 1)
+        dictionarySize = 1;
 
     // Stream data starts at offset 5
     const u8* streamData = src.data() + 5;
@@ -324,7 +336,7 @@ std::vector<u8> lzmaDecompress(std::span<const u8> src, size_t expectedSize) {
     std::vector<Prob> literalProbs(numLiteralProbSets * kLiteralCoderSize, kProbInitValue);
 
     // Distance probs
-    std::array<Prob, kNumLenToPosStates * 64> distSlotProbs{};  // 64 = 1<<6, bit-tree of 6 bits
+    std::array<Prob, kNumLenToPosStates * 64> distSlotProbs{}; // 64 = 1<<6, bit-tree of 6 bits
     std::array<Prob, kNumFullDistances - kEndPosModelIndex> distSpecialProbs{};
     std::array<Prob, kAlignTableSize> distAlignProbs{};
 
@@ -367,7 +379,8 @@ std::vector<u8> lzmaDecompress(std::span<const u8> src, size_t expectedSize) {
             // -----------------------------------------------------------
             const u32 previousByte = (output.pos() > 0) ? output.getByte(0) : 0;
             const u32 literalState =
-                ((static_cast<u32>(output.pos()) & ((1u << literalPosBits) - 1)) << literalContextBits) |
+                ((static_cast<u32>(output.pos()) & ((1u << literalPosBits) - 1))
+                 << literalContextBits) |
                 (previousByte >> (8 - literalContextBits));
 
             Prob* contextProbs = &literalProbs[literalState * kLiteralCoderSize];
@@ -388,7 +401,8 @@ std::vector<u8> lzmaDecompress(std::span<const u8> src, size_t expectedSize) {
                     u32 const bit = rangeDecoder.decodeBit(
                         contextProbs[matchContextOffset + (matchBit << 8) + symbol]);
                     symbol = (symbol << 1) | bit;
-                    // Stay in match-context while bits agree; once they differ, offset→0 permanently
+                    // Stay in match-context while bits agree; once they differ, offset→0
+                    // permanently
                     matchContextOffset = (matchBit == bit) ? matchContextOffset : 0;
                 } while (symbol < 0x100);
             }
@@ -426,13 +440,15 @@ std::vector<u8> lzmaDecompress(std::span<const u8> src, size_t expectedSize) {
 
                     if (distanceSlot < kEndPosModelIndex) {
                         // Context-encoded bits (reverse bit-tree)
-                        repDist0 += bitTreeReverseDecode(
-                            &distSpecialProbs[repDist0 - distanceSlot - 1],
-                            numDirectBits, rangeDecoder);
+                        repDist0 +=
+                            bitTreeReverseDecode(&distSpecialProbs[repDist0 - distanceSlot - 1],
+                                                 numDirectBits, rangeDecoder);
                     } else {
                         // Fixed-probability bits + align bits
-                        repDist0 += rangeDecoder.decodeDirectBits(numDirectBits - kNumAlignBits) << kNumAlignBits;
-                        repDist0 += bitTreeReverseDecode(distAlignProbs.data(), kNumAlignBits, rangeDecoder);
+                        repDist0 += rangeDecoder.decodeDirectBits(numDirectBits - kNumAlignBits)
+                                    << kNumAlignBits;
+                        repDist0 += bitTreeReverseDecode(distAlignProbs.data(), kNumAlignBits,
+                                                         rangeDecoder);
                     }
                 }
 
@@ -452,7 +468,8 @@ std::vector<u8> lzmaDecompress(std::span<const u8> src, size_t expectedSize) {
                 // ---------------------------------------------------
                 if (rangeDecoder.decodeBit(isRepG0Probs[state]) == 0) {
                     // repDist0 stays as is
-                    if (rangeDecoder.decodeBit(isRep0LongProbs[state * kNumPosStatesMax + posState]) == 0) {
+                    if (rangeDecoder.decodeBit(
+                            isRep0LongProbs[state * kNumPosStatesMax + posState]) == 0) {
                         // SHORT REP (length 1)
                         if (output.pos() == 0)
                             return {}; // can't rep from empty dict

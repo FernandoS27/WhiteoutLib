@@ -37,4 +37,6 @@ constexpr int MINOR_VERSION = 0;
 constexpr int PATCH_VERSION = 0;
 } // namespace whiteout::textures::gif
 
-namespace whiteout { namespace gif = textures::gif; }
+namespace whiteout {
+namespace gif = textures::gif;
+}

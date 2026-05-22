@@ -8,12 +8,12 @@
 
 #include <whiteout/common_types.h>
 
-#include "tables/block_table.h"
 #include "codecs/compression.h"
 #include "file_data.h"
+#include "special_files.h"
+#include "tables/block_table.h"
 #include "tables/hash_table.h"
 #include "tables/header.h"
-#include "special_files.h"
 
 #include <span>
 #include <string>

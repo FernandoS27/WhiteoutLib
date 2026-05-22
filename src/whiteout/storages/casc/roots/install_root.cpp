@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "install_root.h"
-#include "common/root_build_utils.h"
 #include "../../common/hex.h"
 #include "../../common/jenkins.h"
+#include "common/root_build_utils.h"
+#include "install_root.h"
 
 #include <algorithm>
 #include <cstring>
@@ -28,10 +28,12 @@ u32 readBE32(const u8* p) {
 /// Read a null-terminated string starting at data[pos].
 /// Advances pos past the terminator.  Returns empty on overflow.
 std::string_view readCString(const u8* data, size_t size, size_t& pos) {
-    if (pos >= size) return {};
+    if (pos >= size)
+        return {};
     const u8* start = data + pos;
     const u8* end = static_cast<const u8*>(std::memchr(start, 0, size - pos));
-    if (!end) return {};
+    if (!end)
+        return {};
     size_t const len = static_cast<size_t>(end - start);
     pos += len + 1; // skip past NUL
     return {reinterpret_cast<const char*>(start), len};
@@ -49,12 +51,14 @@ inline u8 reverseBits(u8 b) {
 // ── Parser ──────────────────────────────────────────────────────────────────
 
 std::unique_ptr<InstallRoot> InstallRoot::parse(std::span<const u8> data,
-                                                 interfaces::WorkerPool* /*pool*/) {
+                                                interfaces::WorkerPool* /*pool*/) {
     // Minimum header size: 2 (magic) + 1 (version) + 1 (hashSize) + 2 (numTags) + 4 (numFiles) = 10
-    if (data.size() < 10) return nullptr;
+    if (data.size() < 10)
+        return nullptr;
 
     // Validate magic: 'IN' (0x49, 0x4E).
-    if (data[0] != 'I' || data[1] != 'N') return nullptr;
+    if (data[0] != 'I' || data[1] != 'N')
+        return nullptr;
 
     [[maybe_unused]] u8 const version = data[2];
     u8 const hashSize = data[3];
@@ -62,10 +66,12 @@ std::unique_ptr<InstallRoot> InstallRoot::parse(std::span<const u8> data,
     u32 const numFiles = readBE32(data.data() + 6);
 
     // Sanity: hashSize is typically 16 (MD5).  Allow 16 or 32.
-    if (hashSize != 16 && hashSize != 32) return nullptr;
+    if (hashSize != 16 && hashSize != 32)
+        return nullptr;
 
     // Upper bound sanity.
-    if (numFiles > 10'000'000) return nullptr;
+    if (numFiles > 10'000'000)
+        return nullptr;
 
     size_t pos = 10;
     u32 const numMaskBytes = (numFiles + 7) / 8;
@@ -80,16 +86,20 @@ std::unique_ptr<InstallRoot> InstallRoot::parse(std::span<const u8> data,
     tagBits.reserve(numTags);
     for (u16 t = 0; t < numTags; ++t) {
         auto name = readCString(data.data(), data.size(), pos);
-        if (name.data() == nullptr) return nullptr;
-        if (pos + 2 > data.size()) return nullptr;
+        if (name.data() == nullptr)
+            return nullptr;
+        if (pos + 2 > data.size())
+            return nullptr;
         i16 const type = static_cast<i16>(readBE16(data.data() + pos));
         pos += 2;
 
-        if (pos + numMaskBytes > data.size()) return nullptr;
+        if (pos + numMaskBytes > data.size())
+            return nullptr;
 
         // Read and bit-reverse the mask bytes (CascLib compat).
         std::vector<u8> bits(data.data() + pos, data.data() + pos + numMaskBytes);
-        for (auto& b : bits) b = reverseBits(b);
+        for (auto& b : bits)
+            b = reverseBits(b);
         pos += numMaskBytes;
 
         InstallTag tag;
@@ -103,14 +113,15 @@ std::unique_ptr<InstallRoot> InstallRoot::parse(std::span<const u8> data,
     root->m_entries.reserve(numFiles);
     for (u32 i = 0; i < numFiles; ++i) {
         auto name = readCString(data.data(), data.size(), pos);
-        if (name.data() == nullptr) return nullptr;
-        if (pos + hashSize + 4 > data.size()) return nullptr;
+        if (name.data() == nullptr)
+            return nullptr;
+        if (pos + hashSize + 4 > data.size())
+            return nullptr;
 
         RootEntry entry{};
 
         // CKey: first 16 bytes of the hash (even if hashSize > 16).
-        std::memcpy(entry.cKey.data(), data.data() + pos,
-                    std::min<size_t>(hashSize, 16));
+        std::memcpy(entry.cKey.data(), data.data() + pos, std::min<size_t>(hashSize, 16));
         pos += hashSize;
 
         // Size: 4 bytes big-endian.
@@ -133,7 +144,8 @@ std::unique_ptr<InstallRoot> InstallRoot::parse(std::span<const u8> data,
         root->m_entries.push_back(std::move(entry));
     }
 
-    if (root->m_entries.empty()) return nullptr;
+    if (root->m_entries.empty())
+        return nullptr;
 
     root->buildIndices();
     return root;
@@ -145,7 +157,8 @@ std::vector<const RootEntry*> InstallRoot::findByPath(const std::string& path) c
     return findByPathOrHash(path, m_entries, m_byPath, m_byNameHash);
 }
 
-std::vector<const RootEntry*> InstallRoot::findByFileDataId(u32 /*fileDataId*/, FileIdHint /*hint*/) const {
+std::vector<const RootEntry*> InstallRoot::findByFileDataId(u32 /*fileDataId*/,
+                                                            FileIdHint /*hint*/) const {
     return {}; // Install manifest does not use FileDataId.
 }
 

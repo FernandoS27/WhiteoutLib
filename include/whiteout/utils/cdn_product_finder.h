@@ -4,36 +4,38 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
-#include <functional>
 
-namespace whiteout::interfaces { class HttpHandler; }
+namespace whiteout::interfaces {
+class HttpHandler;
+}
 
 namespace whiteout::utils {
 
 /// Version information for one region of a CDN product.
 struct CdnProductVersion {
-    std::string region;         ///< e.g. "us", "eu", "kr", "cn", "tw".
-    std::string buildConfig;    ///< Build config key (hex MD5).
-    std::string cdnConfig;      ///< CDN config key (hex MD5).
-    uint32_t    buildId = 0;    ///< Numeric build ID (0 if not available).
-    std::string versionName;    ///< Human-readable version string.
+    std::string region;      ///< e.g. "us", "eu", "kr", "cn", "tw".
+    std::string buildConfig; ///< Build config key (hex MD5).
+    std::string cdnConfig;   ///< CDN config key (hex MD5).
+    uint32_t buildId = 0;    ///< Numeric build ID (0 if not available).
+    std::string versionName; ///< Human-readable version string.
 };
 
 /// CDN host information for one region of a CDN product.
 struct CdnProductCdn {
-    std::string              region;     ///< e.g. "us", "eu", "kr".
-    std::string              path;       ///< CDN data path, e.g. "tpr/wow".
-    std::vector<std::string> hosts;      ///< CDN hostnames.
-    std::string              configPath; ///< Config path, e.g. "tpr/configs".
+    std::string region;             ///< e.g. "us", "eu", "kr".
+    std::string path;               ///< CDN data path, e.g. "tpr/wow".
+    std::vector<std::string> hosts; ///< CDN hostnames.
+    std::string configPath;         ///< Config path, e.g. "tpr/configs".
 };
 
 /// A single product entry discovered on the Blizzard CDN.
 struct CdnProductInfo {
-    std::string product;     ///< Product code (e.g. "wow", "fenris", "hero").
-    uint32_t    seqn = 0;   ///< Sequence number from the summary endpoint.
-    std::string flags;       ///< Flags column from the summary (often empty).
+    std::string product; ///< Product code (e.g. "wow", "fenris", "hero").
+    uint32_t seqn = 0;   ///< Sequence number from the summary endpoint.
+    std::string flags;   ///< Flags column from the summary (often empty).
 
     /// Populated only when CdnProductFinderOptions::queryVersions is true.
     std::vector<CdnProductVersion> versions;

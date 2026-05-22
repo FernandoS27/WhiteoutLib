@@ -9,8 +9,8 @@
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
-#include <windows.h>
 #include <shlobj.h>
+#include <windows.h>
 #endif
 
 #if defined(__APPLE__) || defined(__linux__)
@@ -37,7 +37,8 @@ namespace {
 /// Normalize path to forward slashes and strip trailing separator.
 [[maybe_unused]] std::string normalizePath(std::string p) {
     for (auto& c : p)
-        if (c == '\\') c = '/';
+        if (c == '\\')
+            c = '/';
     while (p.size() > 1 && p.back() == '/')
         p.pop_back();
     return p;
@@ -51,15 +52,15 @@ namespace {
 
 struct GameResult {
     BlizzardGame game;
-    std::string  name;
-    std::string  path;
+    std::string name;
+    std::string path;
 };
 
 using Results = std::vector<GameResult>;
 
 /// Insert a result, checking for duplicate paths.
 [[maybe_unused]] void addResult(Results& results, std::unordered_set<std::string>& seen,
-                      BlizzardGame game, std::string name, std::string path) {
+                                BlizzardGame game, std::string name, std::string path) {
     path = normalizePath(std::move(path));
     if (path.empty() || !directoryExists(path))
         return;
@@ -75,7 +76,7 @@ using Results = std::vector<GameResult>;
 
 /// Crude JSON string value extractor — finds "key" : "value" pairs.
 [[maybe_unused]] std::string extractJsonValue(const std::string& text, size_t startPos,
-                                    const std::string& key) {
+                                              const std::string& key) {
     std::string const searchKey = "\"" + key + "\"";
     size_t pos = text.find(searchKey, startPos);
     if (pos == std::string::npos)
@@ -116,32 +117,32 @@ using Results = std::vector<GameResult>;
 // ---------------------------------------------------------------------------
 
 struct GameNameEntry {
-    const char*  name;
+    const char* name;
     BlizzardGame game;
 };
 
 static constexpr GameNameEntry kGameNames[] = {
-    {"World of Warcraft",             BlizzardGame::WorldOfWarcraft},
-    {"World of Warcraft Classic",     BlizzardGame::WorldOfWarcraftClassic},
+    {"World of Warcraft", BlizzardGame::WorldOfWarcraft},
+    {"World of Warcraft Classic", BlizzardGame::WorldOfWarcraftClassic},
     {"World of Warcraft Classic Era", BlizzardGame::WorldOfWarcraftClassicEra},
     {"Warcraft II: Battle.net Edition", BlizzardGame::WarcraftIIBattleNetEdition},
-    {"Warcraft II Remastered",        BlizzardGame::WarcraftIIRemastered},
-    {"Warcraft III",                  BlizzardGame::WarcraftIII},
-    {"Warcraft III Reforged",         BlizzardGame::WarcraftIIIReforged},
-    {"StarCraft",                     BlizzardGame::StarCraft},
-    {"StarCraft Remastered",          BlizzardGame::StarCraftRemastered},
-    {"StarCraft II",                  BlizzardGame::StarCraftII},
-    {"Diablo",                        BlizzardGame::Diablo},
-    {"Diablo II",                     BlizzardGame::DiabloII},
-    {"Diablo II Resurrected",         BlizzardGame::DiabloIIResurrected},
-    {"Diablo III",                    BlizzardGame::DiabloIII},
-    {"Diablo IV",                     BlizzardGame::DiabloIV},
-    {"Diablo Immortal",               BlizzardGame::DiabloImmortal},
-    {"Heroes of the Storm",           BlizzardGame::HeroesOfTheStorm},
-    {"Overwatch 2",                   BlizzardGame::Overwatch2},
-    {"Hearthstone",                   BlizzardGame::Hearthstone},
-    {"Blizzard Arcade Collection",    BlizzardGame::BlizzardArcadeCollection},
-    {"Battle.net",                    BlizzardGame::BattleNet},
+    {"Warcraft II Remastered", BlizzardGame::WarcraftIIRemastered},
+    {"Warcraft III", BlizzardGame::WarcraftIII},
+    {"Warcraft III Reforged", BlizzardGame::WarcraftIIIReforged},
+    {"StarCraft", BlizzardGame::StarCraft},
+    {"StarCraft Remastered", BlizzardGame::StarCraftRemastered},
+    {"StarCraft II", BlizzardGame::StarCraftII},
+    {"Diablo", BlizzardGame::Diablo},
+    {"Diablo II", BlizzardGame::DiabloII},
+    {"Diablo II Resurrected", BlizzardGame::DiabloIIResurrected},
+    {"Diablo III", BlizzardGame::DiabloIII},
+    {"Diablo IV", BlizzardGame::DiabloIV},
+    {"Diablo Immortal", BlizzardGame::DiabloImmortal},
+    {"Heroes of the Storm", BlizzardGame::HeroesOfTheStorm},
+    {"Overwatch 2", BlizzardGame::Overwatch2},
+    {"Hearthstone", BlizzardGame::Hearthstone},
+    {"Blizzard Arcade Collection", BlizzardGame::BlizzardArcadeCollection},
+    {"Battle.net", BlizzardGame::BattleNet},
 };
 
 // ---------------------------------------------------------------------------
@@ -149,34 +150,34 @@ static constexpr GameNameEntry kGameNames[] = {
 // ---------------------------------------------------------------------------
 
 struct BnetProduct {
-    const char*  uid;
-    const char*  gameName;
+    const char* uid;
+    const char* gameName;
     BlizzardGame game;
 };
 
 static constexpr BnetProduct kBnetProducts[] = {
     // Warcraft
-    {"wow",             "World of Warcraft",             BlizzardGame::WorldOfWarcraft},
-    {"wow_classic",     "World of Warcraft Classic",     BlizzardGame::WorldOfWarcraftClassic},
+    {"wow", "World of Warcraft", BlizzardGame::WorldOfWarcraft},
+    {"wow_classic", "World of Warcraft Classic", BlizzardGame::WorldOfWarcraftClassic},
     {"wow_classic_era", "World of Warcraft Classic Era", BlizzardGame::WorldOfWarcraftClassicEra},
-    {"w2",              "Warcraft II Remastered",        BlizzardGame::WarcraftIIRemastered},
-    {"w3",              "Warcraft III Reforged",         BlizzardGame::WarcraftIIIReforged},
+    {"w2", "Warcraft II Remastered", BlizzardGame::WarcraftIIRemastered},
+    {"w3", "Warcraft III Reforged", BlizzardGame::WarcraftIIIReforged},
 
     // StarCraft
-    {"s1",              "StarCraft Remastered",          BlizzardGame::StarCraftRemastered},
-    {"s2",              "StarCraft II",                  BlizzardGame::StarCraftII},
+    {"s1", "StarCraft Remastered", BlizzardGame::StarCraftRemastered},
+    {"s2", "StarCraft II", BlizzardGame::StarCraftII},
 
     // Diablo
-    {"d3",              "Diablo III",                    BlizzardGame::DiabloIII},
-    {"osi",             "Diablo II Resurrected",         BlizzardGame::DiabloIIResurrected},
-    {"fenris",          "Diablo IV",                     BlizzardGame::DiabloIV},
-    {"anbs",            "Diablo Immortal",               BlizzardGame::DiabloImmortal},
+    {"d3", "Diablo III", BlizzardGame::DiabloIII},
+    {"osi", "Diablo II Resurrected", BlizzardGame::DiabloIIResurrected},
+    {"fenris", "Diablo IV", BlizzardGame::DiabloIV},
+    {"anbs", "Diablo Immortal", BlizzardGame::DiabloImmortal},
 
     // Other Blizzard
-    {"hero",            "Heroes of the Storm",           BlizzardGame::HeroesOfTheStorm},
-    {"pro",             "Overwatch 2",                   BlizzardGame::Overwatch2},
-    {"hs_beta",         "Hearthstone",                   BlizzardGame::Hearthstone},
-    {"rtro",            "Blizzard Arcade Collection",    BlizzardGame::BlizzardArcadeCollection},
+    {"hero", "Heroes of the Storm", BlizzardGame::HeroesOfTheStorm},
+    {"pro", "Overwatch 2", BlizzardGame::Overwatch2},
+    {"hs_beta", "Hearthstone", BlizzardGame::Hearthstone},
+    {"rtro", "Blizzard Arcade Collection", BlizzardGame::BlizzardArcadeCollection},
 };
 
 // ---------------------------------------------------------------------------
@@ -184,17 +185,17 @@ static constexpr BnetProduct kBnetProducts[] = {
 // ---------------------------------------------------------------------------
 
 struct SteamApp {
-    const char*  appId;
-    const char*  gameName;
+    const char* appId;
+    const char* gameName;
     BlizzardGame game;
 };
 
 static constexpr SteamApp kSteamApps[] = {
-    {"2357570",  "Overwatch 2",           BlizzardGame::Overwatch2},
-    {"1515950",  "Diablo IV",             BlizzardGame::DiabloIV},
-    {"2344520",  "Diablo II Resurrected", BlizzardGame::DiabloIIResurrected},
-    {"1620",     "Warcraft III",          BlizzardGame::WarcraftIII},
-    {"3042860",  "Warcraft II Remastered",BlizzardGame::WarcraftIIRemastered},
+    {"2357570", "Overwatch 2", BlizzardGame::Overwatch2},
+    {"1515950", "Diablo IV", BlizzardGame::DiabloIV},
+    {"2344520", "Diablo II Resurrected", BlizzardGame::DiabloIIResurrected},
+    {"1620", "Warcraft III", BlizzardGame::WarcraftIII},
+    {"3042860", "Warcraft II Remastered", BlizzardGame::WarcraftIIRemastered},
 };
 
 // ---------------------------------------------------------------------------
@@ -202,8 +203,8 @@ static constexpr SteamApp kSteamApps[] = {
 // ---------------------------------------------------------------------------
 
 /// Scan a Battle.net config file for per-product install paths.
-[[maybe_unused]] void scanBattleNetConfigFile(const fs::path& configPath,
-                                    Results& results, std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanBattleNetConfigFile(const fs::path& configPath, Results& results,
+                                              std::unordered_set<std::string>& seen) {
     std::error_code ec;
     if (!fs::exists(configPath, ec))
         return;
@@ -237,8 +238,8 @@ static constexpr SteamApp kSteamApps[] = {
 /// Scan a Battle.net product.db for embedded install paths.
 /// Called from the Windows and macOS code paths; not referenced on Linux,
 /// which is fine — anonymous-namespace functions don't trip -Wunused-function.
-[[maybe_unused]] void scanProductDb(const fs::path& prodDb,
-                   Results& results, std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanProductDb(const fs::path& prodDb, Results& results,
+                                    std::unordered_set<std::string>& seen) {
     std::error_code ec;
     if (!fs::exists(prodDb, ec))
         return;
@@ -248,7 +249,7 @@ static constexpr SteamApp kSteamApps[] = {
         return;
 
     std::string dbContent((std::istreambuf_iterator<char>(dbFile)),
-                           std::istreambuf_iterator<char>());
+                          std::istreambuf_iterator<char>());
     dbFile.close();
 
     for (auto& product : kBnetProducts) {
@@ -261,8 +262,7 @@ static constexpr SteamApp kSteamApps[] = {
                 char const c = dbContent[i];
 #ifdef _WIN32
                 // Windows: drive letter pattern  X:\  or X:/
-                if (((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) &&
-                    dbContent[i + 1] == ':' &&
+                if (((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) && dbContent[i + 1] == ':' &&
                     (dbContent[i + 2] == '\\' || dbContent[i + 2] == '/')) {
 #else
                 // macOS: absolute path starting with /
@@ -305,10 +305,12 @@ static constexpr SteamApp kSteamApps[] = {
             continue;
 
         size_t valStart = line.find('"', pathKey + 6);
-        if (valStart == std::string::npos) continue;
+        if (valStart == std::string::npos)
+            continue;
         ++valStart;
         size_t const valEnd = line.find('"', valStart);
-        if (valEnd == std::string::npos) continue;
+        if (valEnd == std::string::npos)
+            continue;
 
         std::string folderPath = line.substr(valStart, valEnd - valStart);
         // Unescape double backslashes
@@ -328,8 +330,8 @@ static constexpr SteamApp kSteamApps[] = {
 }
 
 /// Scan Steam library folders for installed Blizzard games.
-[[maybe_unused]] void scanSteamLibraries(const std::string& steamRoot,
-                               Results& results, std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanSteamLibraries(const std::string& steamRoot, Results& results,
+                                         std::unordered_set<std::string>& seen) {
     if (steamRoot.empty())
         return;
 
@@ -348,7 +350,8 @@ static constexpr SteamApp kSteamApps[] = {
                 continue;
 
             std::ifstream mf(manifest);
-            if (!mf) continue;
+            if (!mf)
+                continue;
 
             std::string installDir;
             std::string mfLine;
@@ -357,10 +360,12 @@ static constexpr SteamApp kSteamApps[] = {
                 if (key == std::string::npos)
                     continue;
                 size_t vs = mfLine.find('"', key + 12);
-                if (vs == std::string::npos) continue;
+                if (vs == std::string::npos)
+                    continue;
                 ++vs;
                 size_t const ve = mfLine.find('"', vs);
-                if (ve == std::string::npos) continue;
+                if (ve == std::string::npos)
+                    continue;
                 installDir = mfLine.substr(vs, ve - vs);
                 break;
             }
@@ -382,7 +387,8 @@ static constexpr SteamApp kSteamApps[] = {
 #ifdef _WIN32
 
 [[maybe_unused]] static std::wstring toWide(const std::string& s) {
-    if (s.empty()) return {};
+    if (s.empty())
+        return {};
     int const len =
         MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
     std::wstring w(static_cast<size_t>(len), L'\0');
@@ -391,15 +397,18 @@ static constexpr SteamApp kSteamApps[] = {
 }
 
 [[maybe_unused]] std::string toUtf8(const std::wstring& w) {
-    if (w.empty()) return {};
+    if (w.empty())
+        return {};
     int const len = WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), nullptr,
                                         0, nullptr, nullptr);
     std::string s(static_cast<size_t>(len), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), s.data(), len, nullptr, nullptr);
+    WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), s.data(), len, nullptr,
+                        nullptr);
     return s;
 }
 
-[[maybe_unused]] std::string readRegString(HKEY root, const wchar_t* subkey, const wchar_t* valueName) {
+[[maybe_unused]] std::string readRegString(HKEY root, const wchar_t* subkey,
+                                           const wchar_t* valueName) {
     HKEY hKey = nullptr;
     if (RegOpenKeyExW(root, subkey, 0, KEY_READ | KEY_WOW64_32KEY, &hKey) != ERROR_SUCCESS)
         return {};
@@ -413,8 +422,8 @@ static constexpr SteamApp kSteamApps[] = {
     }
 
     std::wstring buf(size / sizeof(wchar_t), L'\0');
-    if (RegQueryValueExW(hKey, valueName, nullptr, nullptr,
-                         reinterpret_cast<BYTE*>(buf.data()), &size) != ERROR_SUCCESS) {
+    if (RegQueryValueExW(hKey, valueName, nullptr, nullptr, reinterpret_cast<BYTE*>(buf.data()),
+                         &size) != ERROR_SUCCESS) {
         RegCloseKey(hKey);
         return {};
     }
@@ -451,45 +460,44 @@ static constexpr SteamApp kSteamApps[] = {
 struct RegEntry {
     const wchar_t* subkey;
     const wchar_t* valueName;
-    const char*    gameName;
-    BlizzardGame   game;
+    const char* gameName;
+    BlizzardGame game;
 };
 
 static constexpr RegEntry kRegistryEntries[] = {
-    {L"SOFTWARE\\Blizzard Entertainment\\World of Warcraft", L"InstallPath",
-     "World of Warcraft", BlizzardGame::WorldOfWarcraft},
+    {L"SOFTWARE\\Blizzard Entertainment\\World of Warcraft", L"InstallPath", "World of Warcraft",
+     BlizzardGame::WorldOfWarcraft},
     {L"SOFTWARE\\Blizzard Entertainment\\Warcraft II BNE", L"InstallPath",
      "Warcraft II: Battle.net Edition", BlizzardGame::WarcraftIIBattleNetEdition},
-    {L"SOFTWARE\\Blizzard Entertainment\\Warcraft II", L"InstallPath",
-     "Warcraft II Remastered", BlizzardGame::WarcraftIIRemastered},
-    {L"SOFTWARE\\Blizzard Entertainment\\Warcraft III", L"InstallPath",
-     "Warcraft III", BlizzardGame::WarcraftIII},
-    {L"SOFTWARE\\Blizzard Entertainment\\Warcraft III", L"GamePath",
-     "Warcraft III", BlizzardGame::WarcraftIII},
+    {L"SOFTWARE\\Blizzard Entertainment\\Warcraft II", L"InstallPath", "Warcraft II Remastered",
+     BlizzardGame::WarcraftIIRemastered},
+    {L"SOFTWARE\\Blizzard Entertainment\\Warcraft III", L"InstallPath", "Warcraft III",
+     BlizzardGame::WarcraftIII},
+    {L"SOFTWARE\\Blizzard Entertainment\\Warcraft III", L"GamePath", "Warcraft III",
+     BlizzardGame::WarcraftIII},
     {L"SOFTWARE\\Blizzard Entertainment\\Warcraft III Reforged", L"InstallPath",
      "Warcraft III Reforged", BlizzardGame::WarcraftIIIReforged},
-    {L"SOFTWARE\\Blizzard Entertainment\\StarCraft", L"InstallPath",
-     "StarCraft", BlizzardGame::StarCraft},
-    {L"SOFTWARE\\Blizzard Entertainment\\StarCraft II", L"InstallPath",
-     "StarCraft II", BlizzardGame::StarCraftII},
+    {L"SOFTWARE\\Blizzard Entertainment\\StarCraft", L"InstallPath", "StarCraft",
+     BlizzardGame::StarCraft},
+    {L"SOFTWARE\\Blizzard Entertainment\\StarCraft II", L"InstallPath", "StarCraft II",
+     BlizzardGame::StarCraftII},
     {L"SOFTWARE\\Blizzard Entertainment\\Heroes of the Storm", L"InstallPath",
      "Heroes of the Storm", BlizzardGame::HeroesOfTheStorm},
-    {L"SOFTWARE\\Blizzard Entertainment\\Diablo", L"InstallPath",
-     "Diablo", BlizzardGame::Diablo},
-    {L"SOFTWARE\\Blizzard Entertainment\\Diablo II", L"InstallPath",
-     "Diablo II", BlizzardGame::DiabloII},
+    {L"SOFTWARE\\Blizzard Entertainment\\Diablo", L"InstallPath", "Diablo", BlizzardGame::Diablo},
+    {L"SOFTWARE\\Blizzard Entertainment\\Diablo II", L"InstallPath", "Diablo II",
+     BlizzardGame::DiabloII},
     {L"SOFTWARE\\Blizzard Entertainment\\Diablo II Resurrected", L"InstallPath",
      "Diablo II Resurrected", BlizzardGame::DiabloIIResurrected},
-    {L"SOFTWARE\\Blizzard Entertainment\\Diablo III", L"InstallPath",
-     "Diablo III", BlizzardGame::DiabloIII},
-    {L"SOFTWARE\\Blizzard Entertainment\\Diablo IV", L"InstallPath",
-     "Diablo IV", BlizzardGame::DiabloIV},
-    {L"SOFTWARE\\Blizzard Entertainment\\Diablo Immortal", L"InstallPath",
-     "Diablo Immortal", BlizzardGame::DiabloImmortal},
-    {L"SOFTWARE\\Blizzard Entertainment\\Overwatch", L"InstallPath",
-     "Overwatch 2", BlizzardGame::Overwatch2},
-    {L"SOFTWARE\\Blizzard Entertainment\\Hearthstone", L"InstallPath",
-     "Hearthstone", BlizzardGame::Hearthstone},
+    {L"SOFTWARE\\Blizzard Entertainment\\Diablo III", L"InstallPath", "Diablo III",
+     BlizzardGame::DiabloIII},
+    {L"SOFTWARE\\Blizzard Entertainment\\Diablo IV", L"InstallPath", "Diablo IV",
+     BlizzardGame::DiabloIV},
+    {L"SOFTWARE\\Blizzard Entertainment\\Diablo Immortal", L"InstallPath", "Diablo Immortal",
+     BlizzardGame::DiabloImmortal},
+    {L"SOFTWARE\\Blizzard Entertainment\\Overwatch", L"InstallPath", "Overwatch 2",
+     BlizzardGame::Overwatch2},
+    {L"SOFTWARE\\Blizzard Entertainment\\Hearthstone", L"InstallPath", "Hearthstone",
+     BlizzardGame::Hearthstone},
     {L"SOFTWARE\\Blizzard Entertainment\\Blizzard Arcade Collection", L"InstallPath",
      "Blizzard Arcade Collection", BlizzardGame::BlizzardArcadeCollection},
 };
@@ -516,8 +524,7 @@ static constexpr RegEntry kRegistryEntries[] = {
             if (!isBlizzard)
                 continue;
 
-            std::string name =
-                readRegString(HKEY_LOCAL_MACHINE, fullKey.c_str(), L"DisplayName");
+            std::string name = readRegString(HKEY_LOCAL_MACHINE, fullKey.c_str(), L"DisplayName");
             std::string loc =
                 readRegString(HKEY_LOCAL_MACHINE, fullKey.c_str(), L"InstallLocation");
             if (!name.empty() && !loc.empty()) {
@@ -556,8 +563,7 @@ static constexpr RegEntry kRegistryEntries[] = {
     std::string steamRoot =
         readRegString(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Valve\\Steam", L"InstallPath");
     if (steamRoot.empty())
-        steamRoot =
-            readRegString(HKEY_CURRENT_USER, L"SOFTWARE\\Valve\\Steam", L"SteamPath");
+        steamRoot = readRegString(HKEY_CURRENT_USER, L"SOFTWARE\\Valve\\Steam", L"SteamPath");
 
     scanSteamLibraries(steamRoot, results, seen);
 }
@@ -592,29 +598,30 @@ static constexpr RegEntry kRegistryEntries[] = {
 // ---------------------------------------------------------------------------
 
 struct AppEntry {
-    const char*  dirName;
-    const char*  gameName;
+    const char* dirName;
+    const char* gameName;
     BlizzardGame game;
 };
 
 static constexpr AppEntry kMacAppEntries[] = {
-    {"World of Warcraft",           "World of Warcraft",          BlizzardGame::WorldOfWarcraft},
-    {"Warcraft II",                 "Warcraft II Remastered",     BlizzardGame::WarcraftIIRemastered},
-    {"Warcraft III",                "Warcraft III",               BlizzardGame::WarcraftIII},
-    {"Warcraft III Reforged",       "Warcraft III Reforged",      BlizzardGame::WarcraftIIIReforged},
-    {"StarCraft",                   "StarCraft",                  BlizzardGame::StarCraft},
-    {"StarCraft Remastered",        "StarCraft Remastered",       BlizzardGame::StarCraftRemastered},
-    {"StarCraft II",                "StarCraft II",               BlizzardGame::StarCraftII},
-    {"Diablo",                      "Diablo",                     BlizzardGame::Diablo},
-    {"Diablo II",                   "Diablo II",                  BlizzardGame::DiabloII},
-    {"Diablo II Resurrected",       "Diablo II Resurrected",      BlizzardGame::DiabloIIResurrected},
-    {"Diablo III",                  "Diablo III",                 BlizzardGame::DiabloIII},
-    {"Diablo IV",                   "Diablo IV",                  BlizzardGame::DiabloIV},
-    {"Heroes of the Storm",         "Heroes of the Storm",        BlizzardGame::HeroesOfTheStorm},
-    {"Overwatch",                   "Overwatch 2",                BlizzardGame::Overwatch2},
-    {"Hearthstone",                 "Hearthstone",                BlizzardGame::Hearthstone},
-    {"Battle.net",                  "Battle.net",                 BlizzardGame::BattleNet},
-    {"Blizzard Arcade Collection",  "Blizzard Arcade Collection", BlizzardGame::BlizzardArcadeCollection},
+    {"World of Warcraft", "World of Warcraft", BlizzardGame::WorldOfWarcraft},
+    {"Warcraft II", "Warcraft II Remastered", BlizzardGame::WarcraftIIRemastered},
+    {"Warcraft III", "Warcraft III", BlizzardGame::WarcraftIII},
+    {"Warcraft III Reforged", "Warcraft III Reforged", BlizzardGame::WarcraftIIIReforged},
+    {"StarCraft", "StarCraft", BlizzardGame::StarCraft},
+    {"StarCraft Remastered", "StarCraft Remastered", BlizzardGame::StarCraftRemastered},
+    {"StarCraft II", "StarCraft II", BlizzardGame::StarCraftII},
+    {"Diablo", "Diablo", BlizzardGame::Diablo},
+    {"Diablo II", "Diablo II", BlizzardGame::DiabloII},
+    {"Diablo II Resurrected", "Diablo II Resurrected", BlizzardGame::DiabloIIResurrected},
+    {"Diablo III", "Diablo III", BlizzardGame::DiabloIII},
+    {"Diablo IV", "Diablo IV", BlizzardGame::DiabloIV},
+    {"Heroes of the Storm", "Heroes of the Storm", BlizzardGame::HeroesOfTheStorm},
+    {"Overwatch", "Overwatch 2", BlizzardGame::Overwatch2},
+    {"Hearthstone", "Hearthstone", BlizzardGame::Hearthstone},
+    {"Battle.net", "Battle.net", BlizzardGame::BattleNet},
+    {"Blizzard Arcade Collection", "Blizzard Arcade Collection",
+     BlizzardGame::BlizzardArcadeCollection},
 };
 
 [[maybe_unused]] void scanApplications(Results& results, std::unordered_set<std::string>& seen) {
@@ -643,8 +650,8 @@ static constexpr AppEntry kMacAppEntries[] = {
         return;
 
     // Battle.net.config lives at ~/Library/Application Support/Battle.net/
-    fs::path configPath = fs::path(home) / "Library" / "Application Support" / "Battle.net" /
-                          "Battle.net.config";
+    fs::path configPath =
+        fs::path(home) / "Library" / "Application Support" / "Battle.net" / "Battle.net.config";
     scanBattleNetConfigFile(configPath, results, seen);
 
     // product.db may be under /Users/Shared/Battle.net/Agent/ or under
@@ -664,8 +671,7 @@ static constexpr AppEntry kMacAppEntries[] = {
     if (home.empty())
         return;
 
-    std::string steamRoot =
-        (fs::path(home) / "Library" / "Application Support" / "Steam").string();
+    std::string steamRoot = (fs::path(home) / "Library" / "Application Support" / "Steam").string();
     scanSteamLibraries(steamRoot, results, seen);
 }
 
@@ -678,7 +684,8 @@ static constexpr AppEntry kMacAppEntries[] = {
 #ifdef __linux__
 
 /// Translate a Windows path (C:\...) to a real path inside a Wine/Proton prefix.
-[[maybe_unused]] std::string translateWinePath(const std::string& winePath, const fs::path& driveC) {
+[[maybe_unused]] std::string translateWinePath(const std::string& winePath,
+                                               const fs::path& driveC) {
     if (winePath.size() < 3)
         return {};
 
@@ -693,14 +700,15 @@ static constexpr AppEntry kMacAppEntries[] = {
 
     std::string rest = winePath.substr(3);
     for (auto& c : rest)
-        if (c == '\\') c = '/';
+        if (c == '\\')
+            c = '/';
 
     return (driveC / rest).string();
 }
 
 /// Scan a single Wine/Proton prefix for Battle.net config and product.db.
-[[maybe_unused]] void scanWinePrefix(const fs::path& pfxRoot,
-                           Results& results, std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanWinePrefix(const fs::path& pfxRoot, Results& results,
+                                     std::unordered_set<std::string>& seen) {
     fs::path driveC = pfxRoot / "drive_c";
     std::error_code ec;
     if (!fs::is_directory(driveC, ec))
@@ -712,8 +720,8 @@ static constexpr AppEntry kMacAppEntries[] = {
         for (auto& userEntry : fs::directory_iterator(usersDir, ec)) {
             if (!userEntry.is_directory(ec))
                 continue;
-            fs::path configPath = userEntry.path() / "AppData" / "Roaming" /
-                                  "Battle.net" / "Battle.net.config";
+            fs::path configPath =
+                userEntry.path() / "AppData" / "Roaming" / "Battle.net" / "Battle.net.config";
             if (!fs::exists(configPath, ec))
                 continue;
 
@@ -725,7 +733,7 @@ static constexpr AppEntry kMacAppEntries[] = {
             file.close();
 
             for (auto& product : kBnetProducts) {
-                std::string uidStr = std::string("\"" ) + product.uid + "\"";
+                std::string uidStr = std::string("\"") + product.uid + "\"";
                 size_t uidPos = content.find(uidStr);
                 if (uidPos == std::string::npos)
                     continue;
@@ -762,8 +770,7 @@ static constexpr AppEntry kMacAppEntries[] = {
             for (size_t i = searchStart; i + 3 < searchEnd; ++i) {
                 char c = dbContent[i];
                 // Look for Windows drive letter pattern: X:\ or X:/
-                if (((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) &&
-                    dbContent[i + 1] == ':' &&
+                if (((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) && dbContent[i + 1] == ':' &&
                     (dbContent[i + 2] == '\\' || dbContent[i + 2] == '/')) {
                     size_t pathStart = i;
                     size_t pathEnd = i;

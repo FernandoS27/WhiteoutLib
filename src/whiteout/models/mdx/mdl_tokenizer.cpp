@@ -15,15 +15,15 @@ namespace mdx {
 namespace {
 
 enum CharClass : u8 {
-    CC_OTHER      = 0,        // anything not in the categories below
-    CC_SPACE      = 1 << 0,   // whitespace (space, tab, \r)
-    CC_NEWLINE    = 1 << 1,   // \n
-    CC_DIGIT      = 1 << 2,   // 0-9
-    CC_ALPHA      = 1 << 3,   // a-z A-Z _
-    CC_DOT        = 1 << 4,   // .
-    CC_SLASH      = 1 << 5,   // /
-    CC_QUOTE      = 1 << 6,   // "
-    CC_SIGN       = 1 << 7,   // + -  (for number sign prefix)
+    CC_OTHER = 0,        // anything not in the categories below
+    CC_SPACE = 1 << 0,   // whitespace (space, tab, \r)
+    CC_NEWLINE = 1 << 1, // \n
+    CC_DIGIT = 1 << 2,   // 0-9
+    CC_ALPHA = 1 << 3,   // a-z A-Z _
+    CC_DOT = 1 << 4,     // .
+    CC_SLASH = 1 << 5,   // /
+    CC_QUOTE = 1 << 6,   // "
+    CC_SIGN = 1 << 7,    // + -  (for number sign prefix)
 };
 
 struct CharLUT {
@@ -33,7 +33,7 @@ struct CharLUT {
         for (int i = 0; i < 256; ++i)
             table[i] = CC_OTHER;
 
-        table[static_cast<u8>(' ')]  = CC_SPACE;
+        table[static_cast<u8>(' ')] = CC_SPACE;
         table[static_cast<u8>('\t')] = CC_SPACE;
         table[static_cast<u8>('\r')] = CC_SPACE;
         table[static_cast<u8>('\n')] = CC_NEWLINE;
@@ -61,9 +61,15 @@ inline u8 classify(char c) {
     return kLUT.table[static_cast<u8>(c)];
 }
 
-inline bool isDigit(char c)    { return (classify(c) & CC_DIGIT) != 0; }
-[[maybe_unused]] inline bool isAlpha(char c)    { return (classify(c) & CC_ALPHA) != 0; }
-inline bool isAlphaNum(char c) { return (classify(c) & (CC_ALPHA | CC_DIGIT)) != 0; }
+inline bool isDigit(char c) {
+    return (classify(c) & CC_DIGIT) != 0;
+}
+[[maybe_unused]] inline bool isAlpha(char c) {
+    return (classify(c) & CC_ALPHA) != 0;
+}
+inline bool isAlphaNum(char c) {
+    return (classify(c) & (CC_ALPHA | CC_DIGIT)) != 0;
+}
 
 // Length of a non-finite float keyword (`nan`, `inf`, `infinity`, optionally
 // signed) starting at p, or 0 if none. The HiveWorkshop MDL tooling emits
@@ -78,8 +84,7 @@ std::size_t matchFloatKeyword(const char* p, const char* end) {
     auto tryWord = [&](const char* w) -> const char* {
         const char* q = s;
         for (; *w; ++w, ++q) {
-            if (q >= end ||
-                std::tolower(static_cast<unsigned char>(*q)) != *w)
+            if (q >= end || std::tolower(static_cast<unsigned char>(*q)) != *w)
                 return nullptr;
         }
         if (q < end && (isAlphaNum(*q) || *q == '.'))
@@ -87,8 +92,10 @@ std::size_t matchFloatKeyword(const char* p, const char* end) {
         return q;
     };
     const char* e = tryWord("infinity");
-    if (!e) e = tryWord("inf");
-    if (!e) e = tryWord("nan");
+    if (!e)
+        e = tryWord("inf");
+    if (!e)
+        e = tryWord("nan");
     return e ? static_cast<std::size_t>(e - p) : 0;
 }
 
@@ -97,11 +104,8 @@ std::size_t matchFloatKeyword(const char* p, const char* end) {
 // ─── MdlTokenizer implementation ────────────────────────────────────────────
 
 MdlTokenizer::MdlTokenizer(std::string_view source)
-    : m_source(source)
-    , m_cursor(source.data())
-    , m_end(source.data() + source.size())
-    , m_lineStart(source.data())
-    , m_line(1) {
+    : m_source(source), m_cursor(source.data()), m_end(source.data() + source.size()),
+      m_lineStart(source.data()), m_line(1) {
     // Estimate ~1 token per 6 chars as a reasonable pre-allocation.
     m_tokens.reserve(source.size() / 6 + 64);
 }
@@ -170,8 +174,7 @@ void MdlTokenizer::run() {
         // Checked before identifiers so a bare `nan` tokenizes as a Number.
         if (cls & (CC_ALPHA | CC_SIGN)) {
             if (std::size_t kw = matchFloatKeyword(m_cursor, m_end)) {
-                m_tokens.push_back(
-                    {MdlTokenType::Number, {m_cursor, kw}, m_line, col});
+                m_tokens.push_back({MdlTokenType::Number, {m_cursor, kw}, m_line, col});
                 m_cursor += kw;
                 continue;
             }

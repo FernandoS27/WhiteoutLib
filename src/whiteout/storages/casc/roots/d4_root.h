@@ -12,8 +12,8 @@
 /// Internal header — not part of the public include path.
 #pragma once
 
-#include "root.h"
 #include "common/entry_index.h"
+#include "root.h"
 #include "tvfs_root.h"
 
 #include <memory>
@@ -21,7 +21,9 @@
 #include <string>
 #include <vector>
 
-namespace whiteout::interfaces { class WorkerPool; }
+namespace whiteout::interfaces {
+class WorkerPool;
+}
 
 namespace whiteout::storages::casc {
 
@@ -36,16 +38,19 @@ public:
     /// @param reader   Callback that resolves EKey → decoded file bytes.
     /// @param pool     Optional worker pool for parallel operations.
     /// @return Enriched root, or nullptr on failure (e.g. CoreTOC not found).
-    static std::unique_ptr<D4Root> create(std::unique_ptr<TvfsRoot> tvfs,
-                                          const EKeyReader& reader,
+    static std::unique_ptr<D4Root> create(std::unique_ptr<TvfsRoot> tvfs, const EKeyReader& reader,
                                           interfaces::WorkerPool* pool = nullptr);
 
     // --- RootManifest interface ---
     std::vector<const RootEntry*> findByPath(const std::string& path) const override;
-    std::vector<const RootEntry*> findByNormalizedPath(const std::string& normalizedPath) const override;
+    std::vector<const RootEntry*> findByNormalizedPath(
+        const std::string& normalizedPath) const override;
     bool hasPath(const std::string& normalizedPath) const override;
-    std::vector<const RootEntry*> findByFileDataId(u32 fileDataId, FileIdHint hint = FileIdHint::None) const override;
-    RootFormat format() const override { return RootFormat::Diablo4; }
+    std::vector<const RootEntry*> findByFileDataId(
+        u32 fileDataId, FileIdHint hint = FileIdHint::None) const override;
+    RootFormat format() const override {
+        return RootFormat::Diablo4;
+    }
 
     void enumerateUnder(const std::string& normalizedPrefix,
                         std::function<bool(const RootEntry&)> callback) const override;

@@ -24,16 +24,20 @@ inline std::string toLower(const std::string& s) {
 inline std::string normalizeCascPath(const std::string& s) {
     std::string r = s;
     for (auto& c : r) {
-        if (c == '/') c = '\\';
+        if (c == '/')
+            c = '\\';
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     }
     // Strip leading separators without O(n²) erase(begin).
     size_t start = 0;
-    while (start < r.size() && r[start] == '\\') ++start;
+    while (start < r.size() && r[start] == '\\')
+        ++start;
     // Strip trailing separators.
     size_t end = r.size();
-    while (end > start && r[end - 1] == '\\') --end;
-    if (start == 0 && end == r.size()) return r;
+    while (end > start && r[end - 1] == '\\')
+        --end;
+    if (start == 0 && end == r.size())
+        return r;
     return r.substr(start, end - start);
 }
 

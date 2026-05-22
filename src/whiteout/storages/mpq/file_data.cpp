@@ -457,8 +457,8 @@ BatchEncodeResult encodeBatch(std::span<const std::pair<std::span<const u8>, Enc
             jobGroup.wait();
         } else {
             for (size_t i = 0; i < items.size(); ++i) {
-                result.files[i] = encodeFileData(items[i].first, items[i].second,
-                                                 usePool ? pool : nullptr);
+                result.files[i] =
+                    encodeFileData(items[i].first, items[i].second, usePool ? pool : nullptr);
             }
         }
         return result;
@@ -492,8 +492,7 @@ BatchEncodeResult encodeBatch(std::span<const std::pair<std::span<const u8>, Enc
             task.fn = [i, &items, &result, &failed]() {
                 try {
                     if (!failed.load(std::memory_order_acquire))
-                        result.files[i] =
-                            encodeFileData(items[i].first, items[i].second, nullptr);
+                        result.files[i] = encodeFileData(items[i].first, items[i].second, nullptr);
                 } catch (...) {
                     failed.store(true, std::memory_order_release);
                 }
@@ -573,8 +572,7 @@ BatchEncodeResult encodeBatch(std::span<const std::pair<std::span<const u8>, Enc
                 u32 currentOffset = (numSectors + 1) * sizeof(u32);
                 sectorOffsets.push_back(currentOffset);
                 for (u32 j = 0; j < numSectors; ++j) {
-                    currentOffset +=
-                        static_cast<u32>(state.sectorResults[j].data.size());
+                    currentOffset += static_cast<u32>(state.sectorResults[j].data.size());
                     sectorOffsets.push_back(currentOffset);
                 }
 
@@ -584,8 +582,7 @@ BatchEncodeResult encodeBatch(std::span<const std::pair<std::span<const u8>, Enc
                     flags |= FileFlag::kEncrypted;
                     fileKey = deriveFileKey(
                         opts.filename,
-                        BlockEntry{0, currentOffset,
-                                   static_cast<u32>(rawData.size()), flags});
+                        BlockEntry{0, currentOffset, static_cast<u32>(rawData.size()), flags});
                 }
 
                 // Encrypt sector offsets.
@@ -598,22 +595,18 @@ BatchEncodeResult encodeBatch(std::span<const std::pair<std::span<const u8>, Enc
                     for (u32 j = 0; j < numSectors; ++j) {
                         size_t const aligned = state.sectorResults[j].data.size() / 4;
                         if (aligned > 0)
-                            encryptBlock(
-                                reinterpret_cast<u32*>(
-                                    state.sectorResults[j].data.data()),
-                                aligned, fileKey + j);
+                            encryptBlock(reinterpret_cast<u32*>(state.sectorResults[j].data.data()),
+                                         aligned, fileKey + j);
                     }
                 }
 
                 // Assemble final data.
                 EncodedFile& ef = result.files[i];
                 ef.data.resize(currentOffset);
-                std::memcpy(ef.data.data(), encOffsets.data(),
-                            encOffsets.size() * sizeof(u32));
+                std::memcpy(ef.data.data(), encOffsets.data(), encOffsets.size() * sizeof(u32));
                 size_t writePos = encOffsets.size() * sizeof(u32);
                 for (u32 j = 0; j < numSectors; ++j) {
-                    std::memcpy(ef.data.data() + writePos,
-                                state.sectorResults[j].data.data(),
+                    std::memcpy(ef.data.data() + writePos, state.sectorResults[j].data.data(),
                                 state.sectorResults[j].data.size());
                     writePos += state.sectorResults[j].data.size();
                 }
@@ -642,10 +635,11 @@ BatchEncodeResult encodeBatch(std::span<const std::pair<std::span<const u8>, Enc
 // Batch Extraction (Flattened Pipeline)
 // ============================================================================
 
-std::vector<std::optional<std::vector<u8>>> extractBatch(
-    std::span<const u8> archiveData, size_t archiveOffset,
-    std::span<const ExtractFileInfo> files, u32 sectorSize,
-    interfaces::WorkerPool* pool) {
+std::vector<std::optional<std::vector<u8>>> extractBatch(std::span<const u8> archiveData,
+                                                         size_t archiveOffset,
+                                                         std::span<const ExtractFileInfo> files,
+                                                         u32 sectorSize,
+                                                         interfaces::WorkerPool* pool) {
 
     std::vector<std::optional<std::vector<u8>>> results(files.size());
 
@@ -728,8 +722,7 @@ std::vector<std::optional<std::vector<u8>>> extractBatch(
                             decryptBlock(reinterpret_cast<u32*>(buf.data()), alignedCount, fileKey);
                     }
 
-                    if (block.isCompressed() &&
-                        block.compressedSize < block.uncompressedSize) {
+                    if (block.isCompressed() && block.compressedSize < block.uncompressedSize) {
                         auto decompressed =
                             mpqDecompress(std::span<const u8>(buf), block.uncompressedSize);
                         if (!decompressed.empty()) {

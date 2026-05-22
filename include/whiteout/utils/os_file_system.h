@@ -21,7 +21,8 @@ namespace whiteout::utils {
 ///   utils::OsFileSystem fs("C:/Games/Warcraft III/Data");
 ///   auto data = fs.readFile("units/human/arthas/arthas.mdx");
 ///
-/// @bind methods, ctors=string, move_only, extends=whiteout::interfaces::VirtualPathFileSystem, java_package=whiteout.utils
+/// @bind methods, ctors=string, move_only, extends=whiteout::interfaces::VirtualPathFileSystem,
+/// java_package=whiteout.utils
 class OsFileSystem : public interfaces::VirtualPathFileSystem {
 public:
     /// Construct with a root directory. The path is stored as-is;

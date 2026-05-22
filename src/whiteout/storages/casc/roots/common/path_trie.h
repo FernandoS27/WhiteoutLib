@@ -25,15 +25,15 @@ namespace whiteout::storages::casc {
 struct PathTrieNode {
     struct Child {
         std::string segment;
-        u32 nodeIndex;          ///< Index into the flat trie node array.
+        u32 nodeIndex; ///< Index into the flat trie node array.
     };
     std::vector<Child> children;
-    std::vector<u32> entryIndices;  ///< Entries at exactly this path (leaf).
+    std::vector<u32> entryIndices; ///< Entries at exactly this path (leaf).
 };
 
 /// Find a child by segment using binary search (children must be sorted).
 inline const PathTrieNode::Child* trieFindChild(const PathTrieNode& node,
-                                                 std::string_view segment) {
+                                                std::string_view segment) {
     auto it = std::lower_bound(
         node.children.begin(), node.children.end(), segment,
         [](const PathTrieNode::Child& c, std::string_view s) { return c.segment < s; });
@@ -44,10 +44,11 @@ inline const PathTrieNode::Child* trieFindChild(const PathTrieNode& node,
 
 /// Walk the trie to the node matching a normalized prefix path.
 /// Returns the node index, or UINT32_MAX if not found.
-inline u32 trieWalkTo(const std::vector<PathTrieNode>& nodes,
-                       const std::string& normalizedPrefix) {
-    if (nodes.empty()) return UINT32_MAX;
-    if (normalizedPrefix.empty()) return 0; // root
+inline u32 trieWalkTo(const std::vector<PathTrieNode>& nodes, const std::string& normalizedPrefix) {
+    if (nodes.empty())
+        return UINT32_MAX;
+    if (normalizedPrefix.empty())
+        return 0; // root
 
     u32 cur = 0;
     size_t pos = 0;
@@ -61,10 +62,12 @@ inline u32 trieWalkTo(const std::vector<PathTrieNode>& nodes,
             segment = std::string_view(normalizedPrefix).substr(pos, sep - pos);
             pos = sep + 1;
         }
-        if (segment.empty()) continue;
+        if (segment.empty())
+            continue;
 
         auto* child = trieFindChild(nodes[cur], segment);
-        if (!child) return UINT32_MAX;
+        if (!child)
+            return UINT32_MAX;
         cur = child->nodeIndex;
     }
     return cur;
@@ -77,18 +80,19 @@ inline bool trieDfs(const std::vector<PathTrieNode>& nodes, u32 nodeIdx,
                     std::function<bool(const RootEntry&)>& callback) {
     const auto& node = nodes[nodeIdx];
     for (u32 idx : node.entryIndices) {
-        if (!callback(entries[idx])) return false;
+        if (!callback(entries[idx]))
+            return false;
     }
     for (const auto& child : node.children) {
-        if (!trieDfs(nodes, child.nodeIndex, entries, callback)) return false;
+        if (!trieDfs(nodes, child.nodeIndex, entries, callback))
+            return false;
     }
     return true;
 }
 
 /// Insert a path into the trie, creating nodes as needed.
 /// Children are unsorted during building; call trieSortAll() when done.
-inline void trieInsert(std::vector<PathTrieNode>& nodes,
-                       const std::string& path, u32 entryIndex) {
+inline void trieInsert(std::vector<PathTrieNode>& nodes, const std::string& path, u32 entryIndex) {
     u32 cur = 0; // root
     size_t pos = 0;
     while (pos < path.size()) {
@@ -101,7 +105,8 @@ inline void trieInsert(std::vector<PathTrieNode>& nodes,
             segment = std::string_view(path).substr(pos, sep - pos);
             pos = sep + 1;
         }
-        if (segment.empty()) continue;
+        if (segment.empty())
+            continue;
 
         // Linear scan during building (children unsorted).
         auto& children = nodes[cur].children;

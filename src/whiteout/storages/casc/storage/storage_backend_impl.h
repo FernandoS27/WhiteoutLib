@@ -6,12 +6,12 @@
 /// Internal header — not part of the public include path.
 #pragma once
 
-#include "storage_backend.h"
-#include "cache_traits.h"
-#include "data_traits.h"
 #include "../codec/blte.h"
 #include "../codec/crypto.h"
 #include "../tables/encoding.h"
+#include "cache_traits.h"
+#include "data_traits.h"
+#include "storage_backend.h"
 
 #include <whiteout/interfaces.h>
 
@@ -24,42 +24,30 @@ namespace whiteout::storages::casc {
 template <typename DataTraits, typename CacheTraits>
 class StorageBackendImpl final : public StorageBackend {
 public:
-    StorageBackendImpl(DataTraits data,
-                       CacheTraits cache,
-                       const EncodingTable& encoding,
-                       const KeyRing& keyRing,
-                       interfaces::WorkerPool* pool)
-        : m_data(std::move(data))
-        , m_cache(std::move(cache))
-        , m_encoding(encoding)
-        , m_keyRing(keyRing)
-        , m_pool(pool) {}
+    StorageBackendImpl(DataTraits data, CacheTraits cache, const EncodingTable& encoding,
+                       const KeyRing& keyRing, interfaces::WorkerPool* pool)
+        : m_data(std::move(data)), m_cache(std::move(cache)), m_encoding(encoding),
+          m_keyRing(keyRing), m_pool(pool) {}
 
     // ── Resolution ───────────────────────────────────────────────
 
-    std::vector<u8> resolveCKey(
-        std::span<const u8, 16> cKey,
-        interfaces::WorkerPool* pool = nullptr) const override;
+    std::vector<u8> resolveCKey(std::span<const u8, 16> cKey,
+                                interfaces::WorkerPool* pool = nullptr) const override;
 
-    std::vector<u8> resolveEKey(
-        std::span<const u8, 16> eKey,
-        interfaces::WorkerPool* pool = nullptr) const override;
+    std::vector<u8> resolveEKey(std::span<const u8, 16> eKey,
+                                interfaces::WorkerPool* pool = nullptr) const override;
 
-    std::optional<std::vector<u8>> resolveRootEntry(
-        const std::vector<const RootEntry*>& entries,
-        u32 localeFlags) const override;
+    std::optional<std::vector<u8>> resolveRootEntry(const std::vector<const RootEntry*>& entries,
+                                                    u32 localeFlags) const override;
 
     // ── Batch ────────────────────────────────────────────────────
 
-    void resolveBatch(
-        std::span<ResolveWork> work,
-        std::span<ResolvedBlob> blobs,
-        interfaces::WorkerPool* pool) const override;
+    void resolveBatch(std::span<ResolveWork> work, std::span<ResolvedBlob> blobs,
+                      interfaces::WorkerPool* pool) const override;
 
     // ── Data access ──────────────────────────────────────────────
 
-    std::optional<IndexLocation> findInIndex(
-        std::span<const u8> eKeyPrefix) const override {
+    std::optional<IndexLocation> findInIndex(std::span<const u8> eKeyPrefix) const override {
         return m_data.findInIndex(eKeyPrefix);
     }
 
@@ -74,27 +62,34 @@ public:
     // ── VFS prefetch ─────────────────────────────────────────────
 
     std::unordered_map<u64, std::vector<u8>> prefetchVfs(
-        const Storage::Impl& impl,
-        const std::vector<std::array<u8, 16>>& vfsEKeys,
+        const Storage::Impl& impl, const std::vector<std::array<u8, 16>>& vfsEKeys,
         const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey) const override {
         return m_data.prefetchVfs(impl, vfsEKeys, vfsEKeyToCKey);
     }
 
     // ── Cache management ─────────────────────────────────────────
 
-    void flushCache() override { m_cache.flush(); }
-    bool hasCache() const noexcept override { return CacheTraits::hasCache(); }
+    void flushCache() override {
+        m_cache.flush();
+    }
+    bool hasCache() const noexcept override {
+        return CacheTraits::hasCache();
+    }
 
     // ── Queries ──────────────────────────────────────────────────
 
-    bool isLocal() const noexcept override { return DataTraits::isLocal(); }
-    bool isOnline() const noexcept override { return DataTraits::isOnline(); }
+    bool isLocal() const noexcept override {
+        return DataTraits::isLocal();
+    }
+    bool isOnline() const noexcept override {
+        return DataTraits::isOnline();
+    }
 
 private:
-    DataTraits  m_data;
+    DataTraits m_data;
     mutable CacheTraits m_cache;
     const EncodingTable& m_encoding;
-    const KeyRing&       m_keyRing;
+    const KeyRing& m_keyRing;
     interfaces::WorkerPool* m_pool;
 };
 

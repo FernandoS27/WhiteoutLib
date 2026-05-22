@@ -561,7 +561,7 @@ struct Quaternion : public VectorMethods<Quaternion, f32> {
 
 enum class MatrixLayout {
     RowMajor,
-    ColumnMajor
+    ColumnMajor,
 };
 
 template <typename T, size_t Rows, size_t Cols>
@@ -669,22 +669,28 @@ struct Matrix44f : public MatrixMethods<Matrix44f, 4, 4> {
     static Matrix44f rotation_x(f32 angle) {
         const f32 c = std::cos(angle), s = std::sin(angle);
         Matrix44f r = identity();
-        r.data[1][1] =  c; r.data[1][2] =  s;
-        r.data[2][1] = -s; r.data[2][2] =  c;
+        r.data[1][1] = c;
+        r.data[1][2] = s;
+        r.data[2][1] = -s;
+        r.data[2][2] = c;
         return r;
     }
     static Matrix44f rotation_y(f32 angle) {
         const f32 c = std::cos(angle), s = std::sin(angle);
         Matrix44f r = identity();
-        r.data[0][0] =  c; r.data[0][2] = -s;
-        r.data[2][0] =  s; r.data[2][2] =  c;
+        r.data[0][0] = c;
+        r.data[0][2] = -s;
+        r.data[2][0] = s;
+        r.data[2][2] = c;
         return r;
     }
     static Matrix44f rotation_z(f32 angle) {
         const f32 c = std::cos(angle), s = std::sin(angle);
         Matrix44f r = identity();
-        r.data[0][0] =  c; r.data[0][1] =  s;
-        r.data[1][0] = -s; r.data[1][1] =  c;
+        r.data[0][0] = c;
+        r.data[0][1] = s;
+        r.data[1][0] = -s;
+        r.data[1][1] = c;
         return r;
     }
     Matrix44f transpose() const {
@@ -699,24 +705,46 @@ struct Matrix44f : public MatrixMethods<Matrix44f, 4, 4> {
         Vector3f xaxis = cross(up, zaxis).normalized();
         Vector3f yaxis = cross(zaxis, xaxis);
         Matrix44f r{};
-        r.data[0][0] = xaxis.x; r.data[0][1] = yaxis.x; r.data[0][2] = zaxis.x; r.data[0][3] = 0.0f;
-        r.data[1][0] = xaxis.y; r.data[1][1] = yaxis.y; r.data[1][2] = zaxis.y; r.data[1][3] = 0.0f;
-        r.data[2][0] = xaxis.z; r.data[2][1] = yaxis.z; r.data[2][2] = zaxis.z; r.data[2][3] = 0.0f;
-        r.data[3][0] = -xaxis.dot(eye); r.data[3][1] = -yaxis.dot(eye);
-        r.data[3][2] = -zaxis.dot(eye); r.data[3][3] = 1.0f;
+        r.data[0][0] = xaxis.x;
+        r.data[0][1] = yaxis.x;
+        r.data[0][2] = zaxis.x;
+        r.data[0][3] = 0.0f;
+        r.data[1][0] = xaxis.y;
+        r.data[1][1] = yaxis.y;
+        r.data[1][2] = zaxis.y;
+        r.data[1][3] = 0.0f;
+        r.data[2][0] = xaxis.z;
+        r.data[2][1] = yaxis.z;
+        r.data[2][2] = zaxis.z;
+        r.data[2][3] = 0.0f;
+        r.data[3][0] = -xaxis.dot(eye);
+        r.data[3][1] = -yaxis.dot(eye);
+        r.data[3][2] = -zaxis.dot(eye);
+        r.data[3][3] = 1.0f;
         return r;
     }
 
     static Matrix44f look_at_lh(const Vector3f& eye, const Vector3f& target, const Vector3f& up) {
-        Vector3f zaxis = (target - eye).normalized();  // LH: forward = +Z
+        Vector3f zaxis = (target - eye).normalized(); // LH: forward = +Z
         Vector3f xaxis = cross(up, zaxis).normalized();
         Vector3f yaxis = cross(zaxis, xaxis);
         Matrix44f r{};
-        r.data[0][0] = xaxis.x; r.data[0][1] = yaxis.x; r.data[0][2] = zaxis.x; r.data[0][3] = 0.0f;
-        r.data[1][0] = xaxis.y; r.data[1][1] = yaxis.y; r.data[1][2] = zaxis.y; r.data[1][3] = 0.0f;
-        r.data[2][0] = xaxis.z; r.data[2][1] = yaxis.z; r.data[2][2] = zaxis.z; r.data[2][3] = 0.0f;
-        r.data[3][0] = -xaxis.dot(eye); r.data[3][1] = -yaxis.dot(eye);
-        r.data[3][2] = -zaxis.dot(eye); r.data[3][3] = 1.0f;
+        r.data[0][0] = xaxis.x;
+        r.data[0][1] = yaxis.x;
+        r.data[0][2] = zaxis.x;
+        r.data[0][3] = 0.0f;
+        r.data[1][0] = xaxis.y;
+        r.data[1][1] = yaxis.y;
+        r.data[1][2] = zaxis.y;
+        r.data[1][3] = 0.0f;
+        r.data[2][0] = xaxis.z;
+        r.data[2][1] = yaxis.z;
+        r.data[2][2] = zaxis.z;
+        r.data[2][3] = 0.0f;
+        r.data[3][0] = -xaxis.dot(eye);
+        r.data[3][1] = -yaxis.dot(eye);
+        r.data[3][2] = -zaxis.dot(eye);
+        r.data[3][3] = 1.0f;
         return r;
     }
     static Matrix44f perspective_fov_rh(f32 fovY, f32 aspect, f32 nearZ, f32 farZ) {
@@ -739,34 +767,46 @@ struct Matrix44f : public MatrixMethods<Matrix44f, 4, 4> {
         r.data[0][0] = xScale;
         r.data[1][1] = yScale;
         r.data[2][2] = fRange;
-        r.data[2][3] = 1.0f;                  // LH: +Z forward, w_clip = +z_view
+        r.data[2][3] = 1.0f; // LH: +Z forward, w_clip = +z_view
         r.data[3][2] = -fRange * nearZ;
         return r;
     }
-    static Matrix44f look_at_lh_sgcompat(const Vector3f& eye, const Vector3f& target, const Vector3f& up) {
+    static Matrix44f look_at_lh_sgcompat(const Vector3f& eye, const Vector3f& target,
+                                         const Vector3f& up) {
         Vector3f zaxis = (target - eye).normalized();   // forward = target - eye
         Vector3f xaxis = cross(zaxis, up).normalized(); // SgCompat: zv × up (not up × zv)
         Vector3f yaxis = cross(xaxis, zaxis);           // SgCompat: xv × zv (not zv × xv)
         Matrix44f r{};
-        r.data[0][0] = xaxis.x; r.data[0][1] = yaxis.x; r.data[0][2] = zaxis.x; r.data[0][3] = 0.0f;
-        r.data[1][0] = xaxis.y; r.data[1][1] = yaxis.y; r.data[1][2] = zaxis.y; r.data[1][3] = 0.0f;
-        r.data[2][0] = xaxis.z; r.data[2][1] = yaxis.z; r.data[2][2] = zaxis.z; r.data[2][3] = 0.0f;
-        r.data[3][0] = -xaxis.dot(eye); r.data[3][1] = -yaxis.dot(eye);
-        r.data[3][2] = -zaxis.dot(eye); r.data[3][3] = 1.0f;
+        r.data[0][0] = xaxis.x;
+        r.data[0][1] = yaxis.x;
+        r.data[0][2] = zaxis.x;
+        r.data[0][3] = 0.0f;
+        r.data[1][0] = xaxis.y;
+        r.data[1][1] = yaxis.y;
+        r.data[1][2] = zaxis.y;
+        r.data[1][3] = 0.0f;
+        r.data[2][0] = xaxis.z;
+        r.data[2][1] = yaxis.z;
+        r.data[2][2] = zaxis.z;
+        r.data[2][3] = 0.0f;
+        r.data[3][0] = -xaxis.dot(eye);
+        r.data[3][1] = -yaxis.dot(eye);
+        r.data[3][2] = -zaxis.dot(eye);
+        r.data[3][3] = 1.0f;
         return r;
     }
     static Matrix44f perspective_diag_sgcompat(f32 fovDiagonal, f32 aspect, f32 nearZ, f32 farZ) {
         const f32 invDiag = 1.0f / std::sqrt(aspect * aspect + 1.0f);
         const f32 halfTan = std::tan(0.5f * fovDiagonal * invDiag);
-        const f32 xScale  = 1.0f / (halfTan * aspect);
-        const f32 yScale  = 1.0f / halfTan;
-        const f32 zScale  = farZ / (farZ - nearZ);
+        const f32 xScale = 1.0f / (halfTan * aspect);
+        const f32 yScale = 1.0f / halfTan;
+        const f32 zScale = farZ / (farZ - nearZ);
         const f32 zOffset = -nearZ * farZ / (farZ - nearZ);
         Matrix44f r{};
         r.data[0][0] = xScale;
         r.data[1][1] = yScale;
         r.data[2][2] = zScale;
-        r.data[2][3] = 1.0f;      // LH: w_clip = +view.z
+        r.data[2][3] = 1.0f; // LH: w_clip = +view.z
         r.data[3][2] = zOffset;
         return r;
     }
@@ -795,20 +835,16 @@ struct Matrix33f : public MatrixMethods<Matrix33f, 3, 3> {
 
 // Transform a point (w=1) by a row-major 4x4 matrix: v * M
 inline Vector3f transform_point(const Vector3f& v, const Matrix44f& m) {
-    return {
-        v.x * m.data[0][0] + v.y * m.data[1][0] + v.z * m.data[2][0] + m.data[3][0],
-        v.x * m.data[0][1] + v.y * m.data[1][1] + v.z * m.data[2][1] + m.data[3][1],
-        v.x * m.data[0][2] + v.y * m.data[1][2] + v.z * m.data[2][2] + m.data[3][2]
-    };
+    return {v.x * m.data[0][0] + v.y * m.data[1][0] + v.z * m.data[2][0] + m.data[3][0],
+            v.x * m.data[0][1] + v.y * m.data[1][1] + v.z * m.data[2][1] + m.data[3][1],
+            v.x * m.data[0][2] + v.y * m.data[1][2] + v.z * m.data[2][2] + m.data[3][2]};
 }
 
 // Transform a direction (w=0) by a row-major 4x4 matrix: v * M (no translation)
 inline Vector3f transform_normal(const Vector3f& v, const Matrix44f& m) {
-    return {
-        v.x * m.data[0][0] + v.y * m.data[1][0] + v.z * m.data[2][0],
-        v.x * m.data[0][1] + v.y * m.data[1][1] + v.z * m.data[2][1],
-        v.x * m.data[0][2] + v.y * m.data[1][2] + v.z * m.data[2][2]
-    };
+    return {v.x * m.data[0][0] + v.y * m.data[1][0] + v.z * m.data[2][0],
+            v.x * m.data[0][1] + v.y * m.data[1][1] + v.z * m.data[2][1],
+            v.x * m.data[0][2] + v.y * m.data[1][2] + v.z * m.data[2][2]};
 }
 
 } // namespace whiteout

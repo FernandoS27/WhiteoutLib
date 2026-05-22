@@ -50,7 +50,8 @@ struct BitReader {
     }
 
     void refill() {
-        if (bitsAvail > 56) return;
+        if (bitsAvail > 56)
+            return;
         if (bytePos + 8 <= size) {
             u64 next = 0;
             std::memcpy(&next, data + bytePos, 8);
@@ -67,7 +68,8 @@ struct BitReader {
     }
 
     u32 readBits(i32 count) {
-        if (bitsAvail < count) refill();
+        if (bitsAvail < count)
+            refill();
         u32 val = static_cast<u32>(bitBuf) & ((1u << count) - 1);
         bitBuf >>= count;
         bitsAvail -= count;
@@ -109,8 +111,7 @@ struct HuffTable {
 
     /// Slow-path decode operating directly on the caller's local bit
     /// variables, avoiding save/restore overhead through BitReader.
-    i32 decodeSlow(u64& bits, i32& bitsLeft,
-                   const u8* brData, size_t& brPos, size_t brSize) const {
+    i32 decodeSlow(u64& bits, i32& bitsLeft, const u8* brData, size_t& brPos, size_t brSize) const {
         if (bitsLeft < HUFF_MAX_BITS) {
             if (brPos + 8 <= brSize) {
                 u64 next = 0;
@@ -189,8 +190,7 @@ struct HuffTable {
             for (i32 b = 0; b < len; ++b)
                 rev |= ((c >> (len - 1 - b)) & 1) << b;
             // Build packed fast entry: symbol | (codeLength << 16).
-            u32 packed = static_cast<u32>(static_cast<u16>(i))
-                       | (static_cast<u32>(len) << 16);
+            u32 packed = static_cast<u32>(static_cast<u16>(i)) | (static_cast<u32>(len) << 16);
             for (i32 fill = rev; fill < HUFF_FAST_SIZE; fill += (1 << len))
                 fast[fill] = packed;
         }
@@ -283,9 +283,9 @@ inline HuffTable buildFixedDistTable() {
 
 struct Inflater {
     BitReader br;
-    u8* output;         ///< Pre-allocated output buffer (caller owns).
-    size_t outSize;     ///< Total capacity of output buffer.
-    size_t outPos = 0;  ///< Current write position.
+    u8* output;        ///< Pre-allocated output buffer (caller owns).
+    size_t outSize;    ///< Total capacity of output buffer.
+    size_t outPos = 0; ///< Current write position.
 
     bool inflateStored() {
         br.alignToByte();
@@ -599,7 +599,8 @@ struct Inflater {
             if (sym < 16) {
                 codeLengths[idx++] = static_cast<u8>(sym);
             } else if (sym == 16) {
-                if (idx == 0) return false;
+                if (idx == 0)
+                    return false;
                 u32 rep = br.readBits(2) + 3;
                 u8 prev = codeLengths[idx - 1];
                 for (u32 r = 0; r < rep && idx < totalCodes; ++r)
@@ -633,13 +634,16 @@ struct Inflater {
             isFinal = br.readBits(1) != 0;
             u32 btype = br.readBits(2);
             if (btype == 0) {
-                if (!inflateStored()) return false;
+                if (!inflateStored())
+                    return false;
             } else if (btype == 1) {
                 static const HuffTable fixedLitLen = buildFixedLitLenTable();
                 static const HuffTable fixedDist = buildFixedDistTable();
-                if (!inflateBlock(fixedLitLen, fixedDist)) return false;
+                if (!inflateBlock(fixedLitLen, fixedDist))
+                    return false;
             } else if (btype == 2) {
-                if (!inflateDynamic()) return false;
+                if (!inflateDynamic())
+                    return false;
             } else {
                 return false;
             }
@@ -682,7 +686,8 @@ inline std::vector<u8> zlibInflateFast(std::span<const u8> src, size_t expectedS
 
     // Determine output size.
     size_t outSize = expectedSize > 0 ? expectedSize : src.size() * 4;
-    if (outSize < 4096) outSize = 4096;
+    if (outSize < 4096)
+        outSize = 4096;
 
     std::vector<u8> output(outSize);
 

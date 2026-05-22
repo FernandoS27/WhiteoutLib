@@ -8,8 +8,8 @@
 
 #include <whiteout/common_types.h>
 
-#include "tables/block_table.h"
 #include "codecs/compression.h"
+#include "tables/block_table.h"
 
 #include <optional>
 #include <span>
@@ -53,8 +53,8 @@ namespace whiteout::storages::mpq {
 
 /// Result of encoding file data for writing.
 struct EncodedFile {
-    std::vector<u8> data;         ///< Encoded file data (sector offset table + sectors).
-    u32 compressedSize = 0;       ///< Total compressed size.
+    std::vector<u8> data;            ///< Encoded file data (sector offset table + sectors).
+    u32 compressedSize = 0;          ///< Total compressed size.
     FileFlag flags = FileFlag::None; ///< Block entry flags to use.
 };
 
@@ -78,7 +78,7 @@ struct EncodeOptions {
 
 /// Per-sector compression result for the flattened write pipeline.
 struct SectorResult {
-    std::vector<u8> data;  ///< Compressed (or stored) sector data.
+    std::vector<u8> data;       ///< Compressed (or stored) sector data.
     bool wasCompressed = false; ///< True if compression was effective.
 };
 
@@ -105,8 +105,7 @@ struct ExtractFileInfo {
 /// All sector decompression tasks are submitted as top-level pool tasks.
 /// Returns one entry per input file: the decompressed data, or std::nullopt on failure.
 [[nodiscard]] std::vector<std::optional<std::vector<u8>>> extractBatch(
-    std::span<const u8> archiveData, size_t archiveOffset,
-    std::span<const ExtractFileInfo> files, u32 sectorSize,
-    interfaces::WorkerPool* pool);
+    std::span<const u8> archiveData, size_t archiveOffset, std::span<const ExtractFileInfo> files,
+    u32 sectorSize, interfaces::WorkerPool* pool);
 
 } // namespace whiteout::storages::mpq

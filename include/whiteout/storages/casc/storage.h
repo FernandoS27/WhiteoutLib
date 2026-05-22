@@ -27,7 +27,7 @@
 #pragma once
 
 #if !defined(WHITEOUT_HAS_CASC)
-#error \
+#error                                                                                             \
     "<whiteout/storages/casc/storage.h> requires CASC support. Configure with -DWHITEOUT_ENABLE_CASC=ON and link against the whiteout_casc target."
 #endif
 
@@ -144,16 +144,14 @@ public:
     std::optional<std::vector<u8>> readFile(const std::string& cascPath) const;
 
     /// @overload Read a file by path with locale and open flags.
-    std::optional<std::vector<u8>> readFile(const std::string& cascPath,
-                                            u32 localeFlags, u32 openFlags = 0) const;
+    std::optional<std::vector<u8>> readFile(const std::string& cascPath, u32 localeFlags,
+                                            u32 openFlags = 0) const;
 
     /// @overload Read a file by WoW-style FileDataId.
-    std::optional<std::vector<u8>> readFile(i32 fileId,
-                                            FileIdHint hint = FileIdHint::None) const;
+    std::optional<std::vector<u8>> readFile(i32 fileId, FileIdHint hint = FileIdHint::None) const;
 
     /// @overload Read a file by FileDataId with locale and open flags.
-    std::optional<std::vector<u8>> readFile(i32 fileId, u32 localeFlags,
-                                            u32 openFlags = 0,
+    std::optional<std::vector<u8>> readFile(i32 fileId, u32 localeFlags, u32 openFlags = 0,
                                             FileIdHint hint = FileIdHint::None) const;
 
     /// @return True if the path resolves to a known file.
@@ -223,8 +221,7 @@ public:
      */
     /// @bind skip — vector<BatchReadRequest>/<BatchReadResult> need
     /// vector<value_object> marshalling.
-    std::vector<BatchReadResult> readBatch(
-        std::span<const BatchReadRequest> requests) const;
+    std::vector<BatchReadResult> readBatch(std::span<const BatchReadRequest> requests) const;
 
     /// @return Product identification info, or std::nullopt if unavailable.
     /// @bind skip — StorageProduct not yet bound.
@@ -262,7 +259,7 @@ public:
     static u32 lastError() noexcept;
 
     /// @cond INTERNAL
-    struct Impl;  // defined in storage_impl.h (internal)
+    struct Impl; // defined in storage_impl.h (internal)
     /// @endcond
 
 protected:

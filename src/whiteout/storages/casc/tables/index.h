@@ -21,11 +21,11 @@
 namespace whiteout::storages::casc {
 
 struct IndexEntry {
-    std::array<u8, 16> eKey{};  ///< Full or prefix EKey (only first EntrySizeEKey bytes valid).
-    u32 archiveIndex = 0;       ///< Archive number (from shmem/CDN config).
-    u32 archiveOffset = 0;      ///< Byte offset within data.XXX.
-    u32 encodedSize = 0;        ///< BLTE-encoded size.
-    bool directBLTE = false;    ///< True for .index entries: offset points directly to BLTE data.
+    std::array<u8, 16> eKey{}; ///< Full or prefix EKey (only first EntrySizeEKey bytes valid).
+    u32 archiveIndex = 0;      ///< Archive number (from shmem/CDN config).
+    u32 archiveOffset = 0;     ///< Byte offset within data.XXX.
+    u32 encodedSize = 0;       ///< BLTE-encoded size.
+    bool directBLTE = false;   ///< True for .index entries: offset points directly to BLTE data.
 };
 
 class IndexTable {
@@ -38,8 +38,7 @@ public:
     IndexTable& operator=(const IndexTable&) = delete;
 
     /// Eagerly parse every .idx in the Data dir.
-    static IndexTable load(const std::string& dataDir,
-                           interfaces::WorkerPool* pool = nullptr);
+    static IndexTable load(const std::string& dataDir, interfaces::WorkerPool* pool = nullptr);
 
     /// Discover .idx files but defer parsing each bucket until find() needs it.
     static IndexTable loadLazyBuckets(const std::string& dataDir,

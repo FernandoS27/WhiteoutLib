@@ -35,7 +35,8 @@ namespace whiteout::storages::casc {
  *
  * Only local-backed storages can be writable (CDN is read-only).
  */
-/// @bind methods, move_only, no_default_ctor, js_name=CascStorageWritable, extends=whiteout::storages::casc::Storage
+/// @bind methods, move_only, no_default_ctor, js_name=CascStorageWritable,
+/// extends=whiteout::storages::casc::Storage
 class StorageWritable : public Storage {
 public:
     StorageWritable();
@@ -75,8 +76,7 @@ public:
      * @param pool Optional WorkerPool for parallel I/O.
      * @return A valid empty StorageWritable ready for writeFile() calls.
      */
-    static StorageWritable create(CreateOptions opts = {},
-                                  interfaces::WorkerPool* pool = nullptr);
+    static StorageWritable create(CreateOptions opts = {}, interfaces::WorkerPool* pool = nullptr);
 
     // ── Write operations ─────────────────────────────────────────────
 
@@ -112,12 +112,11 @@ public:
      * @param opts Write options (locale, content flags, compression).
      * @return True on success.
      */
-    bool writeFile(const std::string& path, const std::vector<u8>& data,
-                   WriteOptions opts = {});
+    bool writeFile(const std::string& path, const std::vector<u8>& data, WriteOptions opts = {});
 
     /// @overload Write a file by FileDataId.
-    bool writeFile(i32 fileId, const std::vector<u8>& data,
-                   WriteOptions opts = {}, FileIdHint hint = FileIdHint::None);
+    bool writeFile(i32 fileId, const std::vector<u8>& data, WriteOptions opts = {},
+                   FileIdHint hint = FileIdHint::None);
 
     /// Mark a file for deletion (effective on next save).
     bool deleteFile(const std::string& path);

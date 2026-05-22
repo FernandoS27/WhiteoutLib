@@ -140,16 +140,20 @@ std::optional<MappedFile> MappedFile::open(const std::string& path, AccessHint h
     // Map AccessHint to CreateFile flags.
     DWORD flagsAndAttrs = FILE_ATTRIBUTE_NORMAL;
     switch (hint) {
-    case AccessHint::Sequential: flagsAndAttrs |= FILE_FLAG_SEQUENTIAL_SCAN; break;
-    case AccessHint::Random: flagsAndAttrs |= FILE_FLAG_RANDOM_ACCESS; break;
-    default: break;
+    case AccessHint::Sequential:
+        flagsAndAttrs |= FILE_FLAG_SEQUENTIAL_SCAN;
+        break;
+    case AccessHint::Random:
+        flagsAndAttrs |= FILE_FLAG_RANDOM_ACCESS;
+        break;
+    default:
+        break;
     }
 
     constexpr DWORD kReadAccess = FILE_READ_DATA | FILE_READ_ATTRIBUTES;
-    constexpr DWORD kShareAll =
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
-    HANDLE hFile = CreateFileW(widePath.c_str(), kReadAccess, kShareAll, nullptr,
-                               OPEN_EXISTING, flagsAndAttrs, nullptr);
+    constexpr DWORD kShareAll = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+    HANDLE hFile = CreateFileW(widePath.c_str(), kReadAccess, kShareAll, nullptr, OPEN_EXISTING,
+                               flagsAndAttrs, nullptr);
     if (hFile == INVALID_HANDLE_VALUE) {
         setError(error, "CreateFileW failed: " + lastErrorString());
         return std::nullopt;
@@ -200,8 +204,7 @@ void MappedFile::advise(AccessHint /*hint*/) const noexcept {
     // This is a no-op for already-opened mappings.
 }
 
-std::optional<std::vector<u8>> readFileFully(const std::string& path,
-                                             std::string* error) {
+std::optional<std::vector<u8>> readFileFully(const std::string& path, std::string* error) {
     if (path.empty()) {
         setError(error, "Empty path");
         return std::nullopt;
@@ -289,9 +292,14 @@ std::optional<MappedFile> MappedFile::open(const std::string& path, AccessHint h
     // Apply access hint.
     int advice = MADV_NORMAL;
     switch (hint) {
-    case AccessHint::Sequential: advice = MADV_SEQUENTIAL; break;
-    case AccessHint::Random: advice = MADV_RANDOM; break;
-    default: break;
+    case AccessHint::Sequential:
+        advice = MADV_SEQUENTIAL;
+        break;
+    case AccessHint::Random:
+        advice = MADV_RANDOM;
+        break;
+    default:
+        break;
     }
     if (advice != MADV_NORMAL)
         madvise(mapped, fileSize, advice);
@@ -308,15 +316,19 @@ void MappedFile::advise(AccessHint hint) const noexcept {
         return;
     int advice = MADV_NORMAL;
     switch (hint) {
-    case AccessHint::Sequential: advice = MADV_SEQUENTIAL; break;
-    case AccessHint::Random: advice = MADV_RANDOM; break;
-    default: break;
+    case AccessHint::Sequential:
+        advice = MADV_SEQUENTIAL;
+        break;
+    case AccessHint::Random:
+        advice = MADV_RANDOM;
+        break;
+    default:
+        break;
     }
     madvise(const_cast<u8*>(m_data), m_size, advice);
 }
 
-std::optional<std::vector<u8>> readFileFully(const std::string& path,
-                                             std::string* error) {
+std::optional<std::vector<u8>> readFileFully(const std::string& path, std::string* error) {
     if (path.empty()) {
         setError(error, "Empty path");
         return std::nullopt;

@@ -118,21 +118,27 @@ template <>
 struct vertex_traits<f32> {
     static const size_t component_count = 1;
     static const bool is_integer = false;
-    static f32 get_float(f32 v, size_t) { return v; }
+    static f32 get_float(f32 v, size_t) {
+        return v;
+    }
 };
 
 template <>
 struct vertex_traits<f64> {
     static const size_t component_count = 1;
     static const bool is_integer = false;
-    static f32 get_float(f64 v, size_t) { return static_cast<f32>(v); }
+    static f32 get_float(f64 v, size_t) {
+        return static_cast<f32>(v);
+    }
 };
 
 template <>
 struct vertex_traits<f16> {
     static const size_t component_count = 1;
     static const bool is_integer = false;
-    static f32 get_float(f16 v, size_t) { return v.to_float(); }
+    static f32 get_float(f16 v, size_t) {
+        return v.to_float();
+    }
 };
 
 // --- Unsigned integer scalars ------------------------------------------------
@@ -141,21 +147,27 @@ template <>
 struct vertex_traits<u8> {
     static const size_t component_count = 1;
     static const bool is_integer = true;
-    static u32 get_uint(u8 v, size_t) { return static_cast<u32>(v); }
+    static u32 get_uint(u8 v, size_t) {
+        return static_cast<u32>(v);
+    }
 };
 
 template <>
 struct vertex_traits<u16> {
     static const size_t component_count = 1;
     static const bool is_integer = true;
-    static u32 get_uint(u16 v, size_t) { return static_cast<u32>(v); }
+    static u32 get_uint(u16 v, size_t) {
+        return static_cast<u32>(v);
+    }
 };
 
 template <>
 struct vertex_traits<u32> {
     static const size_t component_count = 1;
     static const bool is_integer = true;
-    static u32 get_uint(u32 v, size_t) { return v; }
+    static u32 get_uint(u32 v, size_t) {
+        return v;
+    }
 };
 
 // --- Signed integer scalars --------------------------------------------------
@@ -203,14 +215,18 @@ template <typename SInt>
 struct vertex_traits<snorm<SInt>> {
     static const size_t component_count = 1;
     static const bool is_integer = false;
-    static f32 get_float(snorm<SInt> v, size_t) { return static_cast<f32>(v); }
+    static f32 get_float(snorm<SInt> v, size_t) {
+        return static_cast<f32>(v);
+    }
 };
 
 template <typename UInt>
 struct vertex_traits<unorm<UInt>> {
     static const size_t component_count = 1;
     static const bool is_integer = false;
-    static f32 get_float(unorm<UInt> v, size_t) { return static_cast<f32>(v); }
+    static f32 get_float(unorm<UInt> v, size_t) {
+        return static_cast<f32>(v);
+    }
 };
 
 // --- Vector2<T> --------------------------------------------------------------
@@ -279,13 +295,16 @@ template <>
 struct vertex_traits<Quaternion> {
     static const size_t component_count = 4;
     static const bool is_integer = false;
-    static f32 get_float(const Quaternion& v, size_t i) { return v.data[i]; }
+    static f32 get_float(const Quaternion& v, size_t i) {
+        return v.data[i];
+    }
 };
 
 // --- std::array<T, N> --------------------------------------------------------
 
 template <typename T, size_t N>
-struct vertex_traits<std::array<T, N>, typename std::enable_if<!vertex_traits<T>::is_integer>::type> {
+struct vertex_traits<std::array<T, N>,
+                     typename std::enable_if<!vertex_traits<T>::is_integer>::type> {
     static const size_t component_count = N;
     static const bool is_integer = false;
     static f32 get_float(const std::array<T, N>& v, size_t i) {
@@ -294,7 +313,8 @@ struct vertex_traits<std::array<T, N>, typename std::enable_if<!vertex_traits<T>
 };
 
 template <typename T, size_t N>
-struct vertex_traits<std::array<T, N>, typename std::enable_if<vertex_traits<T>::is_integer>::type> {
+struct vertex_traits<std::array<T, N>,
+                     typename std::enable_if<vertex_traits<T>::is_integer>::type> {
     static const size_t component_count = N;
     static const bool is_integer = true;
     static u32 get_uint(const std::array<T, N>& v, size_t i) {
@@ -325,38 +345,33 @@ public:
     ///              snorm<S>, unorm<U>, Vector2<T>, Vector3<T>, Vector4<T>,
     ///              Quaternion, std::array<T,N>.
     template <typename T>
-    VertexBufferBuilder& declareAttribute(const std::vector<T>& src_data,
-                                          AttributeClass attr_class,
-                                          AttributeEncoding encoding,
-                                          size_t align = 0) {
-        return declareAttributeDispatch(src_data, attr_class, encoding, align,
-                                        std::integral_constant<bool, vertex_traits<T>::is_integer>{});
+    VertexBufferBuilder& declareAttribute(const std::vector<T>& src_data, AttributeClass attr_class,
+                                          AttributeEncoding encoding, size_t align = 0) {
+        return declareAttributeDispatch(
+            src_data, attr_class, encoding, align,
+            std::integral_constant<bool, vertex_traits<T>::is_integer>{});
     }
 
     /// Non-template float-attribute entry point — accepts an already-
     /// flattened `f32` array as a `std::span` so the binding layer can
     /// aim straight at numpy buffers / `Float32Array` views with no
     /// intermediate copy (vertex_count = data.size() / components).
-    VertexBufferBuilder& declareFloatAttribute(std::span<const f32> data,
-                                                size_t components,
-                                                AttributeClass attr_class,
-                                                AttributeEncoding encoding,
-                                                size_t align = 0) {
-        return declareAttributeFloat(data.data(), data.size() / components,
-                                     components, attr_class, encoding, align);
+    VertexBufferBuilder& declareFloatAttribute(std::span<const f32> data, size_t components,
+                                               AttributeClass attr_class,
+                                               AttributeEncoding encoding, size_t align = 0) {
+        return declareAttributeFloat(data.data(), data.size() / components, components, attr_class,
+                                     encoding, align);
     }
 
     /// Non-template integer-attribute entry point — accepts an already-
     /// flattened `u32` array. Smaller integer types (u8/u16/i8/i16/i32)
     /// are upcast at the call site. `std::span` keeps the boundary
     /// zero-copy.
-    VertexBufferBuilder& declareIntAttribute(std::span<const u32> data,
-                                              size_t components,
-                                              AttributeClass attr_class,
-                                              AttributeEncoding encoding,
-                                              size_t align = 0) {
-        return declareAttributeUint(data.data(), data.size() / components,
-                                    components, attr_class, encoding, align);
+    VertexBufferBuilder& declareIntAttribute(std::span<const u32> data, size_t components,
+                                             AttributeClass attr_class, AttributeEncoding encoding,
+                                             size_t align = 0) {
+        return declareAttributeUint(data.data(), data.size() / components, components, attr_class,
+                                    encoding, align);
     }
 
     /// Build the interleaved vertex buffer from all declared attributes.
@@ -386,8 +401,7 @@ private:
     template <typename T>
     VertexBufferBuilder& declareAttributeDispatch(const std::vector<T>& src_data,
                                                   AttributeClass attr_class,
-                                                  AttributeEncoding encoding,
-                                                  size_t align,
+                                                  AttributeEncoding encoding, size_t align,
                                                   std::false_type /*is_integer*/) {
         typedef vertex_traits<T> Traits;
         const size_t N = Traits::component_count;
@@ -403,8 +417,7 @@ private:
     template <typename T>
     VertexBufferBuilder& declareAttributeDispatch(const std::vector<T>& src_data,
                                                   AttributeClass attr_class,
-                                                  AttributeEncoding encoding,
-                                                  size_t align,
+                                                  AttributeEncoding encoding, size_t align,
                                                   std::true_type /*is_integer*/) {
         typedef vertex_traits<T> Traits;
         const size_t N = Traits::component_count;
@@ -426,39 +439,40 @@ template <>
 inline VertexBufferBuilder& VertexBufferBuilder::declareAttributeDispatch<Vector2f>(
     const std::vector<Vector2f>& src_data, AttributeClass attr_class, AttributeEncoding encoding,
     size_t align, std::false_type) {
-    return declareAttributeFloatDirect(
-        reinterpret_cast<const f32*>(src_data.data()), src_data.size(), 2, attr_class, encoding, align);
+    return declareAttributeFloatDirect(reinterpret_cast<const f32*>(src_data.data()),
+                                       src_data.size(), 2, attr_class, encoding, align);
 }
 
 template <>
 inline VertexBufferBuilder& VertexBufferBuilder::declareAttributeDispatch<Vector3f>(
     const std::vector<Vector3f>& src_data, AttributeClass attr_class, AttributeEncoding encoding,
     size_t align, std::false_type) {
-    return declareAttributeFloatDirect(
-        reinterpret_cast<const f32*>(src_data.data()), src_data.size(), 3, attr_class, encoding, align);
+    return declareAttributeFloatDirect(reinterpret_cast<const f32*>(src_data.data()),
+                                       src_data.size(), 3, attr_class, encoding, align);
 }
 
 template <>
 inline VertexBufferBuilder& VertexBufferBuilder::declareAttributeDispatch<Vector4f>(
     const std::vector<Vector4f>& src_data, AttributeClass attr_class, AttributeEncoding encoding,
     size_t align, std::false_type) {
-    return declareAttributeFloatDirect(
-        reinterpret_cast<const f32*>(src_data.data()), src_data.size(), 4, attr_class, encoding, align);
+    return declareAttributeFloatDirect(reinterpret_cast<const f32*>(src_data.data()),
+                                       src_data.size(), 4, attr_class, encoding, align);
 }
 
 template <>
 inline VertexBufferBuilder& VertexBufferBuilder::declareAttributeDispatch<Quaternion>(
     const std::vector<Quaternion>& src_data, AttributeClass attr_class, AttributeEncoding encoding,
     size_t align, std::false_type) {
-    return declareAttributeFloatDirect(
-        reinterpret_cast<const f32*>(src_data.data()), src_data.size(), 4, attr_class, encoding, align);
+    return declareAttributeFloatDirect(reinterpret_cast<const f32*>(src_data.data()),
+                                       src_data.size(), 4, attr_class, encoding, align);
 }
 
 template <>
 inline VertexBufferBuilder& VertexBufferBuilder::declareAttributeDispatch<f32>(
     const std::vector<f32>& src_data, AttributeClass attr_class, AttributeEncoding encoding,
     size_t align, std::false_type) {
-    return declareAttributeFloatDirect(src_data.data(), src_data.size(), 1, attr_class, encoding, align);
+    return declareAttributeFloatDirect(src_data.data(), src_data.size(), 1, attr_class, encoding,
+                                       align);
 }
 
 } // namespace whiteout::utils

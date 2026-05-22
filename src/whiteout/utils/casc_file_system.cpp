@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include <whiteout/utils/casc_file_system.h>
 #include <whiteout/storages/casc/storage.h>
 #include <whiteout/storages/casc/storage_writable.h>
+#include <whiteout/utils/casc_file_system.h>
 #include "../storages/common/string_utils.h"
 
 #include <algorithm>
@@ -11,9 +11,9 @@
 
 namespace whiteout::utils {
 
+using storages::casc::EnumerateEntry;
 using storages::casc::Storage;
 using storages::casc::StorageWritable;
-using storages::casc::EnumerateEntry;
 
 // ============================================================================
 // CascFileSystem (numeric file-data-ID based)
@@ -21,8 +21,8 @@ using storages::casc::EnumerateEntry;
 
 struct CascFileSystem::Impl {
     explicit Impl(Storage& storage)
-        : storage(storage)
-        , writable(storage.isWritable() ? static_cast<StorageWritable*>(&storage) : nullptr) {}
+        : storage(storage),
+          writable(storage.isWritable() ? static_cast<StorageWritable*>(&storage) : nullptr) {}
 
     Storage& storage;
     StorageWritable* writable;
@@ -41,7 +41,8 @@ std::vector<u8> CascFileSystem::readFile(u32 fileId) const {
 }
 
 std::optional<u32> CascFileSystem::reserveFileId(const std::string& path) {
-    if (!m_impl->writable) return std::nullopt;
+    if (!m_impl->writable)
+        return std::nullopt;
     auto id = m_impl->writable->reserveFileId(path);
     if (!id) {
         auto filedesc = m_impl->storage.fileInfo(path);
@@ -53,7 +54,8 @@ std::optional<u32> CascFileSystem::reserveFileId(const std::string& path) {
 }
 
 bool CascFileSystem::writeFile(u32 fileId, const std::vector<u8>& data) {
-    if (!m_impl->writable) return false;
+    if (!m_impl->writable)
+        return false;
     return m_impl->writable->writeFile(static_cast<i32>(fileId), data);
 }
 
@@ -67,8 +69,8 @@ bool CascFileSystem::fileExists(u32 fileId) const {
 
 struct CascPathFileSystem::Impl {
     explicit Impl(Storage& storage)
-        : storage(storage)
-        , writable(storage.isWritable() ? static_cast<StorageWritable*>(&storage) : nullptr) {}
+        : storage(storage),
+          writable(storage.isWritable() ? static_cast<StorageWritable*>(&storage) : nullptr) {}
 
     Storage& storage;
     StorageWritable* writable;
@@ -87,7 +89,8 @@ std::vector<u8> CascPathFileSystem::readFile(const std::string& path) const {
 }
 
 bool CascPathFileSystem::writeFile(const std::string& path, const std::vector<u8>& data) {
-    if (!m_impl->writable) return false;
+    if (!m_impl->writable)
+        return false;
     return m_impl->writable->writeFile(path, data);
 }
 
@@ -112,8 +115,10 @@ std::vector<interfaces::DirectoryEntry> CascPathFileSystem::listDirectory(
         // Lowercase the entry path.
         std::string const pathLower = storages::common::toLower(std::string(fe.path));
 
-        if (pathLower.size() <= prefixLower.size()) return true;
-        if (pathLower.substr(0, prefixLower.size()) != prefixLower) return true;
+        if (pathLower.size() <= prefixLower.size())
+            return true;
+        if (pathLower.substr(0, prefixLower.size()) != prefixLower)
+            return true;
 
         // Extract the immediate child name.
         auto rest = std::string(fe.path.substr(prefix.size()));

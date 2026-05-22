@@ -6,14 +6,16 @@
 /// Internal header — not part of the public include path.
 #pragma once
 
-#include "root.h"
 #include "common/entry_index.h"
+#include "root.h"
 
 #include <mutex>
 #include <span>
 #include <vector>
 
-namespace whiteout::interfaces { class WorkerPool; }
+namespace whiteout::interfaces {
+class WorkerPool;
+}
 
 namespace whiteout::storages::casc {
 
@@ -31,18 +33,25 @@ public:
 
     // --- RootManifest interface ---
     std::vector<const RootEntry*> findByPath(const std::string& path) const override;
-    std::vector<const RootEntry*> findByFileDataId(u32 fileDataId, FileIdHint hint = FileIdHint::None) const override;
+    std::vector<const RootEntry*> findByFileDataId(
+        u32 fileDataId, FileIdHint hint = FileIdHint::None) const override;
     bool hasFileDataId(u32 fileDataId, FileIdHint hint = FileIdHint::None) const override;
     std::vector<const RootEntry*> findByCKey(std::span<const u8, 16> cKey) const override;
-    RootFormat format() const override { return RootFormat::Wow; }
+    RootFormat format() const override {
+        return RootFormat::Wow;
+    }
 
     /// Force the lazy name-hash index to be built. No-op if already built.
     /// Storage::prefetch() calls this.
     void ensureFullyIndexed() const;
 
 protected:
-    const std::vector<RootEntry>& entries() const override { return m_entries; }
-    std::vector<RootEntry>& mutableEntries() override { return m_entries; }
+    const std::vector<RootEntry>& entries() const override {
+        return m_entries;
+    }
+    std::vector<RootEntry>& mutableEntries() override {
+        return m_entries;
+    }
 
 private:
     std::vector<RootEntry> m_entries;

@@ -3,9 +3,9 @@
 /// @file storage_backend_impl.cpp
 /// @brief Template method bodies + explicit instantiations for StorageBackendImpl.
 
+#include "constants.h"
 #include "storage_backend_impl.h"
 #include "storage_impl.h"
-#include "constants.h"
 
 #include <whiteout/utils/job_group.h>
 
@@ -23,12 +23,12 @@ namespace whiteout::storages::casc {
 namespace {
 
 /// Slice a container sub-entry from decoded data, prepending header bytes.
-inline std::optional<std::vector<u8>> sliceContainer(
-    const std::vector<u8>& data,
-    const RootEntry& entry) {
+inline std::optional<std::vector<u8>> sliceContainer(const std::vector<u8>& data,
+                                                     const RootEntry& entry) {
     auto off = static_cast<size_t>(entry.containerOffset);
-    auto sz  = static_cast<size_t>(entry.containerSize);
-    if (off + sz > data.size()) return std::nullopt;
+    auto sz = static_cast<size_t>(entry.containerSize);
+    if (off + sz > data.size())
+        return std::nullopt;
 
     size_t const hdrSz = entry.headerSize;
     std::vector<u8> result(hdrSz + sz);
@@ -45,8 +45,8 @@ inline std::optional<std::vector<u8>> sliceContainer(
 // ============================================================================
 
 template <typename DT, typename CT>
-std::vector<u8> StorageBackendImpl<DT, CT>::resolveCKey(
-    std::span<const u8, 16> cKey, interfaces::WorkerPool* poolToUse) const {
+std::vector<u8> StorageBackendImpl<DT, CT>::resolveCKey(std::span<const u8, 16> cKey,
+                                                        interfaces::WorkerPool* poolToUse) const {
 
     std::array<u8, 16> cKey16{};
     std::memcpy(cKey16.data(), cKey.data(), 16);
@@ -56,7 +56,8 @@ std::vector<u8> StorageBackendImpl<DT, CT>::resolveCKey(
         return std::move(*cached);
 
     auto encEntry = m_encoding.findByCKey(cKey, kEKeyTruncSize);
-    if (!encEntry) return {};
+    if (!encEntry)
+        return {};
 
     // Index first, then loose-file fallback.
     auto loc = m_data.findInIndex(eKeyTrunc(encEntry->eKey));
@@ -66,10 +67,12 @@ std::vector<u8> StorageBackendImpl<DT, CT>::resolveCKey(
     } else {
         blteData = m_data.fetchBlte(encEntry->eKey);
     }
-    if (blteData.empty()) return {};
+    if (blteData.empty())
+        return {};
 
     auto decoded = blteDecode(blteData, &m_keyRing, poolToUse);
-    if (!decoded.success) return {};
+    if (!decoded.success)
+        return {};
 
     // Cache store (no-op for NoCachePolicy).
     m_cache.put(cKey16, decoded.data);
@@ -81,8 +84,8 @@ std::vector<u8> StorageBackendImpl<DT, CT>::resolveCKey(
 // ============================================================================
 
 template <typename DT, typename CT>
-std::vector<u8> StorageBackendImpl<DT, CT>::resolveEKey(
-    std::span<const u8, 16> eKey, interfaces::WorkerPool* poolToUse) const {
+std::vector<u8> StorageBackendImpl<DT, CT>::resolveEKey(std::span<const u8, 16> eKey,
+                                                        interfaces::WorkerPool* poolToUse) const {
 
     std::array<u8, 16> eKey16{};
     std::memcpy(eKey16.data(), eKey.data(), 16);
@@ -97,10 +100,12 @@ std::vector<u8> StorageBackendImpl<DT, CT>::resolveEKey(
     } else {
         blteData = m_data.fetchBlte(eKey16);
     }
-    if (blteData.empty()) return {};
+    if (blteData.empty())
+        return {};
 
     auto decoded = blteDecode(blteData, &m_keyRing, poolToUse);
-    if (!decoded.success) return {};
+    if (!decoded.success)
+        return {};
 
     m_cache.put(eKey16, decoded.data);
     return std::move(decoded.data);
@@ -114,17 +119,19 @@ template <typename DT, typename CT>
 std::optional<std::vector<u8>> StorageBackendImpl<DT, CT>::resolveRootEntry(
     const std::vector<const RootEntry*>& entries, u32 localeFlags) const {
 
-    if (entries.empty()) return std::nullopt;
+    if (entries.empty())
+        return std::nullopt;
 
     const RootEntry* best = selectBestEntry(entries, localeFlags);
-    if (!best) return std::nullopt;
+    if (!best)
+        return std::nullopt;
 
     // Container sub-entry: try cache first (no-op for NoCachePolicy).
     if (best->containerOffset != 0) {
         std::array<u8, 16> const cacheKey = !isZeroKey(best->eKey) ? best->eKey : best->cKey;
         if (auto cached = m_cache.view(cacheKey)) {
             auto off = static_cast<size_t>(best->containerOffset);
-            auto sz  = static_cast<size_t>(best->containerSize);
+            auto sz = static_cast<size_t>(best->containerSize);
             if (off + sz <= cached->size()) {
                 size_t const hdrSz = best->headerSize;
                 std::vector<u8> result(hdrSz + sz);
@@ -149,14 +156,17 @@ std::optional<std::vector<u8>> StorageBackendImpl<DT, CT>::resolveRootEntry(
             if (encEntry)
                 idxEntry = m_data.indexTable->find(eKeyTrunc(encEntry->eKey));
         }
-        if (!idxEntry) return std::nullopt;
+        if (!idxEntry)
+            return std::nullopt;
 
         auto span = m_data.readBlteFromIndex(*idxEntry);
-        if (span.empty()) return std::nullopt;
+        if (span.empty())
+            return std::nullopt;
 
         std::vector<u8> blteData(span.begin(), span.end());
         auto decoded = blteDecode(blteData, &m_keyRing, m_pool);
-        if (!decoded.success) return std::nullopt;
+        if (!decoded.success)
+            return std::nullopt;
 
         if (best->containerOffset != 0) {
             std::array<u8, 16> const cacheKey = !isZeroKey(best->eKey) ? best->eKey : best->cKey;
@@ -202,24 +212,26 @@ std::optional<std::vector<u8>> StorageBackendImpl<DT, CT>::resolveRootEntry(
 // ============================================================================
 
 template <typename DT, typename CT>
-void StorageBackendImpl<DT, CT>::resolveBatch(
-    std::span<ResolveWork> work,
-    std::span<ResolvedBlob> blobs,
-    interfaces::WorkerPool* pool) const {
+void StorageBackendImpl<DT, CT>::resolveBatch(std::span<ResolveWork> work,
+                                              std::span<ResolvedBlob> blobs,
+                                              interfaces::WorkerPool* pool) const {
 
     // Phase 0.5: Container cache lookup.
     if constexpr (CT::hasCache()) {
         for (size_t i = 0; i < work.size(); ++i) {
             const RootEntry* best = selectBestEntry(work[i].rootEntries, work[i].localeFlags);
-            if (!best || best->containerOffset == 0) continue;
+            if (!best || best->containerOffset == 0)
+                continue;
 
             std::array<u8, 16> const cacheKey = !isZeroKey(best->eKey) ? best->eKey : best->cKey;
             auto cached = m_cache.view(cacheKey);
-            if (!cached) continue;
+            if (!cached)
+                continue;
 
             auto off = static_cast<size_t>(best->containerOffset);
-            auto sz  = static_cast<size_t>(best->containerSize);
-            if (off + sz > cached->size()) continue;
+            auto sz = static_cast<size_t>(best->containerSize);
+            if (off + sz > cached->size())
+                continue;
 
             size_t const hdrSz = best->headerSize;
             std::vector<u8> sliced(hdrSz + sz);
@@ -242,19 +254,21 @@ void StorageBackendImpl<DT, CT>::resolveBatch(
 // LocalDataTraits::resolveBatchPhase1 — parallel mmap reads
 // ============================================================================
 
-void LocalDataTraits::resolveBatchPhase1(
-    const EncodingTable& encoding,
-    std::span<ResolveWork> work,
-    std::span<ResolvedBlob> blobs,
-    interfaces::WorkerPool* pool) const {
+void LocalDataTraits::resolveBatchPhase1(const EncodingTable& encoding, std::span<ResolveWork> work,
+                                         std::span<ResolvedBlob> blobs,
+                                         interfaces::WorkerPool* pool) const {
 
     auto resolveOne = [&](size_t idx) {
         auto& w = work[idx];
         auto& blob = blobs[idx];
-        if (w.cachedResult) return;
+        if (w.cachedResult)
+            return;
 
         const RootEntry* best = selectBestEntry(w.rootEntries, w.localeFlags);
-        if (!best) { blob.error = "no matching root entry"; return; }
+        if (!best) {
+            blob.error = "no matching root entry";
+            return;
+        }
 
         const IndexEntry* idxEntry = nullptr;
         if (!isZeroKey(best->eKey)) {
@@ -265,7 +279,10 @@ void LocalDataTraits::resolveBatchPhase1(
             if (encEntry)
                 idxEntry = indexTable->find(eKeyTrunc(encEntry->eKey));
         }
-        if (!idxEntry) { blob.error = "file not found in index"; return; }
+        if (!idxEntry) {
+            blob.error = "file not found in index";
+            return;
+        }
 
         blob.blteSpan = dataSource->readBlteFromIndex(*idxEntry);
         if (blob.blteSpan.empty()) {
@@ -282,7 +299,10 @@ void LocalDataTraits::resolveBatchPhase1(
         resolveGroup.add(work.size());
         for (size_t idx = 0; idx < work.size(); ++idx) {
             interfaces::WorkerTask task;
-            task.fn = [&, idx]() { resolveOne(idx); resolveGroup.done(); };
+            task.fn = [&, idx]() {
+                resolveOne(idx);
+                resolveGroup.done();
+            };
             pool->submit(task);
         }
         resolveGroup.wait();
@@ -296,11 +316,10 @@ void LocalDataTraits::resolveBatchPhase1(
 // OnlineDataTraits::resolveBatchPhase1 — async HTTP fetch
 // ============================================================================
 
-void OnlineDataTraits::resolveBatchPhase1(
-    const EncodingTable& encoding,
-    std::span<ResolveWork> work,
-    std::span<ResolvedBlob> blobs,
-    interfaces::WorkerPool* /*pool*/) const {
+void OnlineDataTraits::resolveBatchPhase1(const EncodingTable& encoding,
+                                          std::span<ResolveWork> work,
+                                          std::span<ResolvedBlob> blobs,
+                                          interfaces::WorkerPool* /*pool*/) const {
 
     // Pass 1: Resolve each to fetch parameters.
     struct FetchParams {
@@ -317,10 +336,14 @@ void OnlineDataTraits::resolveBatchPhase1(
         auto& w = work[idx];
         auto& blob = blobs[idx];
         auto& fp = fetchParams[idx];
-        if (w.cachedResult) continue;
+        if (w.cachedResult)
+            continue;
 
         const RootEntry* best = selectBestEntry(w.rootEntries, w.localeFlags);
-        if (!best) { blob.error = "no matching root entry"; continue; }
+        if (!best) {
+            blob.error = "no matching root entry";
+            continue;
+        }
 
         const OnlineIndexTable::Entry* idxEntry = nullptr;
         std::array<u8, 16> eKey{};
@@ -363,7 +386,8 @@ void OnlineDataTraits::resolveBatchPhase1(
     };
     auto state = std::make_shared<WaitState>();
     for (auto& fp : fetchParams)
-        if (fp.needsFetch) ++state->total;
+        if (fp.needsFetch)
+            ++state->total;
 
     if (state->total > 0) {
         auto makeCallback = [&blobs, state](size_t idx) {
@@ -383,14 +407,13 @@ void OnlineDataTraits::resolveBatchPhase1(
 
         for (size_t idx = 0; idx < work.size(); ++idx) {
             auto& fp = fetchParams[idx];
-            if (!fp.needsFetch) continue;
+            if (!fp.needsFetch)
+                continue;
             if (fp.useArchive) {
-                dataSource->fetchBlteAsync(
-                    fp.archiveIndex, fp.archiveOffset, fp.encodedSize,
-                    makeCallback(idx));
+                dataSource->fetchBlteAsync(fp.archiveIndex, fp.archiveOffset, fp.encodedSize,
+                                           makeCallback(idx));
             } else {
-                dataSource->fetchBlteAsync(
-                    fp.eKey, makeCallback(idx));
+                dataSource->fetchBlteAsync(fp.eKey, makeCallback(idx));
             }
         }
 
@@ -406,8 +429,7 @@ void OnlineDataTraits::resolveBatchPhase1(
 // ============================================================================
 
 std::unordered_map<u64, std::vector<u8>> LocalDataTraits::prefetchVfs(
-    const Storage::Impl& impl,
-    const std::vector<std::array<u8, 16>>& vfsEKeys,
+    const Storage::Impl& impl, const std::vector<std::array<u8, 16>>& vfsEKeys,
     const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey) const {
     return prefetchVfsLocal(impl, vfsEKeys, vfsEKeyToCKey);
 }
@@ -417,8 +439,7 @@ std::unordered_map<u64, std::vector<u8>> LocalDataTraits::prefetchVfs(
 // ============================================================================
 
 std::unordered_map<u64, std::vector<u8>> OnlineDataTraits::prefetchVfs(
-    const Storage::Impl& impl,
-    const std::vector<std::array<u8, 16>>& vfsEKeys,
+    const Storage::Impl& impl, const std::vector<std::array<u8, 16>>& vfsEKeys,
     const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey) const {
     return prefetchVfsOnline(impl, vfsEKeys, vfsEKeyToCKey);
 }

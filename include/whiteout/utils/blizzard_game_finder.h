@@ -51,9 +51,9 @@ enum class BlizzardGame {
 /// Result entry from findBlizzardGames().
 /// @bind value_object, java_package=whiteout.utils
 struct BlizzardGameInfo {
-    BlizzardGame game;      ///< Identified game. `Unknown` if not recognized.
-    std::string  name;      ///< Human-readable display name.
-    std::string  path;      ///< Install directory path.
+    BlizzardGame game; ///< Identified game. `Unknown` if not recognized.
+    std::string name;  ///< Human-readable display name.
+    std::string path;  ///< Install directory path.
 };
 
 /// Map a display name string to a BlizzardGame enum value.
@@ -109,11 +109,15 @@ public:
     BlizzardGameInfoList& operator=(BlizzardGameInfoList&&) = default;
 
     /// Number of game entries in the list.
-    size_t size() const noexcept { return m_games.size(); }
+    size_t size() const noexcept {
+        return m_games.size();
+    }
 
     /// Borrowed reference to entry at @p index. Valid until this list
     /// is destroyed.
-    const BlizzardGameInfo& at(size_t index) const { return m_games.at(index); }
+    const BlizzardGameInfo& at(size_t index) const {
+        return m_games.at(index);
+    }
 
 private:
     std::vector<BlizzardGameInfo> m_games;

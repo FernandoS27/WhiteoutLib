@@ -46,9 +46,12 @@ struct Info {
 namespace detail {
 
 inline u8 hexDigit(char c) noexcept {
-    if (c >= '0' && c <= '9') return static_cast<u8>(c - '0');
-    if (c >= 'a' && c <= 'f') return static_cast<u8>(c - 'a' + 10);
-    if (c >= 'A' && c <= 'F') return static_cast<u8>(c - 'A' + 10);
+    if (c >= '0' && c <= '9')
+        return static_cast<u8>(c - '0');
+    if (c >= 'a' && c <= 'f')
+        return static_cast<u8>(c - 'a' + 10);
+    if (c >= 'A' && c <= 'F')
+        return static_cast<u8>(c - 'A' + 10);
     return 0xFF;
 }
 
@@ -58,7 +61,8 @@ inline bool parseHexU32(const char* s, size_t len, u32& out) noexcept {
     out = 0;
     for (size_t i = 0; i < len; ++i) {
         u8 d = hexDigit(s[i]);
-        if (d == 0xFF) return false;
+        if (d == 0xFF)
+            return false;
         out = (out << 4) | d;
     }
     return true;
@@ -70,7 +74,8 @@ inline bool parseHexKey(const char* s, std::array<u8, 16>& out) noexcept {
     for (size_t i = 0; i < 16; ++i) {
         u8 hi = hexDigit(s[i * 2]);
         u8 lo = hexDigit(s[i * 2 + 1]);
-        if (hi == 0xFF || lo == 0xFF) return false;
+        if (hi == 0xFF || lo == 0xFF)
+            return false;
         out[i] = static_cast<u8>((hi << 4) | lo);
     }
     return true;
@@ -81,19 +86,25 @@ inline bool parseHexKey(const char* s, std::array<u8, 16>& out) noexcept {
 /// The window's total length must equal `colonPos + 1 + 40`.
 inline bool parseSegment(std::string_view seg, size_t colonPos, Info& info) noexcept {
     const size_t expected = colonPos + 1 + 40;
-    if (seg.size() != expected) return false;
-    if (seg[colonPos] != ':') return false;
+    if (seg.size() != expected)
+        return false;
+    if (seg[colonPos] != ':')
+        return false;
 
     // Locale flags: always 8 hex digits.
-    if (!parseHexU32(seg.data(), 8, info.localeFlags)) return false;
+    if (!parseHexU32(seg.data(), 8, info.localeFlags))
+        return false;
 
     // Content flags: (colonPos - 8) hex digits, i.e. 4 or 8.
     const size_t contentLen = colonPos - 8;
-    if (!parseHexU32(seg.data() + 8, contentLen, info.contentFlags)) return false;
+    if (!parseHexU32(seg.data() + 8, contentLen, info.contentFlags))
+        return false;
 
     // After the colon: 8-hex FileDataId + 32-hex CKey.
-    if (!parseHexU32(seg.data() + colonPos + 1, 8, info.fileDataId)) return false;
-    if (!parseHexKey(seg.data() + colonPos + 9, info.cKey)) return false;
+    if (!parseHexU32(seg.data() + colonPos + 1, 8, info.fileDataId))
+        return false;
+    if (!parseHexKey(seg.data() + colonPos + 9, info.cKey))
+        return false;
     return true;
 }
 

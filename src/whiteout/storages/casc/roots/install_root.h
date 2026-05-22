@@ -18,13 +18,15 @@
 /// Internal header — not part of the public include path.
 #pragma once
 
-#include "root.h"
 #include "common/entry_index.h"
+#include "root.h"
 
 #include <span>
 #include <vector>
 
-namespace whiteout::interfaces { class WorkerPool; }
+namespace whiteout::interfaces {
+class WorkerPool;
+}
 
 namespace whiteout::storages::casc {
 
@@ -41,21 +43,32 @@ public:
     /// @param pool  Optional worker pool (unused, for API symmetry).
     /// @return Parsed root, or nullptr on failure / unrecognised format.
     static std::unique_ptr<InstallRoot> parse(std::span<const u8> data,
-                                               interfaces::WorkerPool* pool = nullptr);
+                                              interfaces::WorkerPool* pool = nullptr);
 
     // --- RootManifest interface ---
     std::vector<const RootEntry*> findByPath(const std::string& path) const override;
-    std::vector<const RootEntry*> findByFileDataId(u32 fileDataId, FileIdHint hint = FileIdHint::None) const override;
-    bool hasFileDataId(u32, FileIdHint = FileIdHint::None) const override { return false; }
+    std::vector<const RootEntry*> findByFileDataId(
+        u32 fileDataId, FileIdHint hint = FileIdHint::None) const override;
+    bool hasFileDataId(u32, FileIdHint = FileIdHint::None) const override {
+        return false;
+    }
 
-    RootFormat format() const override { return RootFormat::Agent; }
+    RootFormat format() const override {
+        return RootFormat::Agent;
+    }
 
     /// Access the tag list.
-    const std::vector<InstallTag>& tags() const { return m_tags; }
+    const std::vector<InstallTag>& tags() const {
+        return m_tags;
+    }
 
 protected:
-    const std::vector<RootEntry>& entries() const override { return m_entries; }
-    std::vector<RootEntry>& mutableEntries() override { return m_entries; }
+    const std::vector<RootEntry>& entries() const override {
+        return m_entries;
+    }
+    std::vector<RootEntry>& mutableEntries() override {
+        return m_entries;
+    }
 
 private:
     std::vector<RootEntry> m_entries;

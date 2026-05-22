@@ -54,8 +54,7 @@ static constexpr u32 kTvfsFolderNodeBit = 0x80000000;
 
 /// Build a config file path from a base directory and a 16-byte hash key.
 /// Result: <baseDir>/config/XX/YY/<hex32>
-inline std::string configFilePath(const std::string& baseDir,
-                                  const std::array<u8, 16>& key) {
+inline std::string configFilePath(const std::string& baseDir, const std::array<u8, 16>& key) {
     auto hash = storages::common::hexEncode16(key);
     return baseDir + "/config/" + hash.substr(0, 2) + "/" + hash.substr(2, 2) + "/" + hash;
 }

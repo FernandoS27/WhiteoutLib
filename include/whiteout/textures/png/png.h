@@ -49,4 +49,6 @@ constexpr int MINOR_VERSION = 0;
 constexpr int PATCH_VERSION = 0;
 } // namespace whiteout::textures::png
 
-namespace whiteout { namespace png = textures::png; }
+namespace whiteout {
+namespace png = textures::png;
+}

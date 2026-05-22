@@ -19,10 +19,10 @@ namespace whiteout::storages::mpq {
 // ============================================================================
 
 enum class AttributeFlag : u32 {
-    None      = 0,
-    kCrc32    = 0x00000001, ///< CRC32 array is present.
+    None = 0,
+    kCrc32 = 0x00000001,    ///< CRC32 array is present.
     kFiletime = 0x00000002, ///< FILETIME array is present.
-    kMd5      = 0x00000004, ///< MD5 array is present.
+    kMd5 = 0x00000004,      ///< MD5 array is present.
 };
 
 inline AttributeFlag operator|(AttributeFlag a, AttributeFlag b) noexcept {
@@ -31,7 +31,10 @@ inline AttributeFlag operator|(AttributeFlag a, AttributeFlag b) noexcept {
 inline AttributeFlag operator&(AttributeFlag a, AttributeFlag b) noexcept {
     return static_cast<AttributeFlag>(static_cast<u32>(a) & static_cast<u32>(b));
 }
-inline AttributeFlag& operator|=(AttributeFlag& a, AttributeFlag b) noexcept { a = a | b; return a; }
+inline AttributeFlag& operator|=(AttributeFlag& a, AttributeFlag b) noexcept {
+    a = a | b;
+    return a;
+}
 inline bool hasFlag(AttributeFlag flags, AttributeFlag flag) noexcept {
     return (flags & flag) != AttributeFlag::None;
 }

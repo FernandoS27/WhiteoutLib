@@ -19,14 +19,14 @@ namespace whiteout::storages::mpq {
 // ============================================================================
 
 enum class CompressionFlag : u8 {
-    None        = 0,
-    kHuffman    = 0x01,
-    kZlib       = 0x02,
-    kPKware     = 0x08,
-    kBZip2      = 0x10,
-    kLZMA       = 0x12,
-    kSparse     = 0x20,
-    kAdpcmMono  = 0x40,
+    None = 0,
+    kHuffman = 0x01,
+    kZlib = 0x02,
+    kPKware = 0x08,
+    kBZip2 = 0x10,
+    kLZMA = 0x12,
+    kSparse = 0x20,
+    kAdpcmMono = 0x40,
     kAdpcmStereo = 0x80,
 };
 
@@ -39,8 +39,14 @@ inline CompressionFlag operator&(CompressionFlag a, CompressionFlag b) noexcept 
 inline CompressionFlag operator~(CompressionFlag a) noexcept {
     return static_cast<CompressionFlag>(~static_cast<u8>(a));
 }
-inline CompressionFlag& operator|=(CompressionFlag& a, CompressionFlag b) noexcept { a = a | b; return a; }
-inline CompressionFlag& operator&=(CompressionFlag& a, CompressionFlag b) noexcept { a = a & b; return a; }
+inline CompressionFlag& operator|=(CompressionFlag& a, CompressionFlag b) noexcept {
+    a = a | b;
+    return a;
+}
+inline CompressionFlag& operator&=(CompressionFlag& a, CompressionFlag b) noexcept {
+    a = a & b;
+    return a;
+}
 inline bool hasFlag(CompressionFlag flags, CompressionFlag flag) noexcept {
     return (flags & flag) != CompressionFlag::None;
 }

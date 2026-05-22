@@ -3,11 +3,11 @@
 /// @file storage_writable.cpp
 /// @brief StorageWritable: write overlay + save-to-disk operations.
 
-#include "storage_impl.h"
-#include "storage_backend_impl.h"
-#include "constants.h"
-#include "../../common/md5.h"
 #include "../../common/jenkins.h"
+#include "../../common/md5.h"
+#include "constants.h"
+#include "storage_backend_impl.h"
+#include "storage_impl.h"
 
 #include <whiteout/storages/casc/storage_writable.h>
 
@@ -32,7 +32,8 @@ StorageWritable& StorageWritable::operator=(StorageWritable&&) noexcept = defaul
 std::optional<StorageWritable> StorageWritable::open(const OpenOptions& opts) {
     // Open as a normal local storage first.
     auto base = Storage::open(opts);
-    if (!base) return std::nullopt;
+    if (!base)
+        return std::nullopt;
 
     // Enable write overlay.
     base->m_impl->writeOverlay = std::make_unique<WriteOverlay>();
@@ -63,8 +64,7 @@ std::optional<StorageWritable> StorageWritable::open(const std::string& basePath
 // StorageWritable::create (new empty)
 // ============================================================================
 
-StorageWritable StorageWritable::create(CreateOptions opts,
-                                        interfaces::WorkerPool* pool) {
+StorageWritable StorageWritable::create(CreateOptions opts, interfaces::WorkerPool* pool) {
     auto implPtr = std::make_unique<Impl>();
     auto& impl = *implPtr;
     impl.pool = pool;
@@ -88,12 +88,17 @@ StorageWritable StorageWritable::create(CreateOptions opts,
 // Write operations
 // ============================================================================
 
-bool StorageWritable::writeFile(const std::string& path,
-                                const std::vector<u8>& data,
+bool StorageWritable::writeFile(const std::string& path, const std::vector<u8>& data,
                                 WriteOptions opts) {
-    if (!m_impl) { s_lastError = kNotValid; return false; }
+    if (!m_impl) {
+        s_lastError = kNotValid;
+        return false;
+    }
     std::unique_lock const lock(m_impl->mutex);
-    if (!m_impl->writeOverlay) { s_lastError = kNotValid; return false; }
+    if (!m_impl->writeOverlay) {
+        s_lastError = kNotValid;
+        return false;
+    }
 
     auto normalized = storages::common::normalizeCascPath(path);
     OverlayKey const key{normalized, std::nullopt};
@@ -103,11 +108,17 @@ bool StorageWritable::writeFile(const std::string& path,
     return true;
 }
 
-bool StorageWritable::writeFile(i32 fileId, const std::vector<u8>& data,
-                                WriteOptions opts, FileIdHint hint) {
-    if (!m_impl) { s_lastError = kNotValid; return false; }
+bool StorageWritable::writeFile(i32 fileId, const std::vector<u8>& data, WriteOptions opts,
+                                FileIdHint hint) {
+    if (!m_impl) {
+        s_lastError = kNotValid;
+        return false;
+    }
     std::unique_lock const lock(m_impl->mutex);
-    if (!m_impl->writeOverlay) { s_lastError = kNotValid; return false; }
+    if (!m_impl->writeOverlay) {
+        s_lastError = kNotValid;
+        return false;
+    }
 
     OverlayKey const key{"", static_cast<u32>(fileId), hint};
     m_impl->writeOverlay->pendingDeletes.erase(key);
@@ -116,10 +127,19 @@ bool StorageWritable::writeFile(i32 fileId, const std::vector<u8>& data,
 }
 
 bool StorageWritable::deleteFile(const std::string& path) {
-    if (!m_impl) { s_lastError = kNotValid; return false; }
-    if (!m_impl->ensureLoaded()) { s_lastError = kNotValid; return false; }
+    if (!m_impl) {
+        s_lastError = kNotValid;
+        return false;
+    }
+    if (!m_impl->ensureLoaded()) {
+        s_lastError = kNotValid;
+        return false;
+    }
     std::unique_lock const lock(m_impl->mutex);
-    if (!m_impl->writeOverlay) { s_lastError = kNotValid; return false; }
+    if (!m_impl->writeOverlay) {
+        s_lastError = kNotValid;
+        return false;
+    }
 
     auto normalized = storages::common::normalizeCascPath(path);
     OverlayKey const key{normalized, std::nullopt};
@@ -137,10 +157,19 @@ bool StorageWritable::deleteFile(const std::string& path) {
 }
 
 bool StorageWritable::deleteFile(i32 fileId, FileIdHint hint) {
-    if (!m_impl) { s_lastError = kNotValid; return false; }
-    if (!m_impl->ensureLoaded()) { s_lastError = kNotValid; return false; }
+    if (!m_impl) {
+        s_lastError = kNotValid;
+        return false;
+    }
+    if (!m_impl->ensureLoaded()) {
+        s_lastError = kNotValid;
+        return false;
+    }
     std::unique_lock const lock(m_impl->mutex);
-    if (!m_impl->writeOverlay) { s_lastError = kNotValid; return false; }
+    if (!m_impl->writeOverlay) {
+        s_lastError = kNotValid;
+        return false;
+    }
 
     OverlayKey const key{"", static_cast<u32>(fileId), hint};
     m_impl->writeOverlay->pendingWrites.erase(key);
@@ -174,14 +203,14 @@ static void ensureNextFileDataId(WriteOverlay& overlay, const RootManifest* root
         });
     }
     for (auto& [id, _] : overlay.reservedFileIds) {
-        if (id > maxId) maxId = id;
+        if (id > maxId)
+            maxId = id;
     }
     overlay.nextFileDataId = maxId + 1;
 }
 
 /// Initialise the overlay's CoreTOC lazily, reading from the existing archive.
-static void ensureCoreToc(WriteOverlay& overlay, const RootManifest* root,
-                          Storage::Impl* impl) {
+static void ensureCoreToc(WriteOverlay& overlay, const RootManifest* root, Storage::Impl* impl) {
     if (overlay.coreToc)
         return;
 
@@ -209,9 +238,15 @@ static void ensureCoreToc(WriteOverlay& overlay, const RootManifest* root,
 }
 
 std::optional<u32> StorageWritable::reserveFileId(const std::string& name) {
-    if (!m_impl) { s_lastError = kNotValid; return std::nullopt; }
+    if (!m_impl) {
+        s_lastError = kNotValid;
+        return std::nullopt;
+    }
     std::unique_lock const lock(m_impl->mutex);
-    if (!m_impl->writeOverlay) { s_lastError = kNotValid; return std::nullopt; }
+    if (!m_impl->writeOverlay) {
+        s_lastError = kNotValid;
+        return std::nullopt;
+    }
 
     auto& overlay = *m_impl->writeOverlay;
 
@@ -289,13 +324,13 @@ std::optional<u32> StorageWritable::reserveFileId(const std::string& name) {
 
     if (rootFmt == RootFormat::Diablo3) {
         const char* dirName = sno::snoGroupDirD3(group);
-        res.enrichedPath = std::string("Base\\") + (dirName ? dirName : "Unknown")
-                           + "\\" + snoName + "." + ext;
+        res.enrichedPath =
+            std::string("Base\\") + (dirName ? dirName : "Unknown") + "\\" + snoName + "." + ext;
     } else {
         // D4 / TVFS — use the D4 enriched path format.
         const char* dirName = sno::snoGroupDir(group);
-        res.enrichedPath = std::string("base:child\\") + (dirName ? dirName : "Unknown")
-                           + "\\" + snoName + "." + ext;
+        res.enrichedPath = std::string("base:child\\") + (dirName ? dirName : "Unknown") + "\\" +
+                           snoName + "." + ext;
     }
 
     overlay.reservedFileIds[id] = std::move(res);
@@ -307,17 +342,32 @@ std::optional<u32> StorageWritable::reserveFileId(const std::string& name) {
 // ============================================================================
 
 bool StorageWritable::save() {
-    if (!m_impl || !m_impl->isValid) { s_lastError = kNotValid; return false; }
-    if (!m_impl->localState) { s_lastError = kNotValid; return false; }
+    if (!m_impl || !m_impl->isValid) {
+        s_lastError = kNotValid;
+        return false;
+    }
+    if (!m_impl->localState) {
+        s_lastError = kNotValid;
+        return false;
+    }
     return save(m_impl->localState->basePath);
 }
 
 bool StorageWritable::save(const std::string& outputPath) {
-    if (!m_impl) { s_lastError = kNotValid; return false; }
-    if (!m_impl->ensureLoaded()) { s_lastError = kNotValid; return false; }
+    if (!m_impl) {
+        s_lastError = kNotValid;
+        return false;
+    }
+    if (!m_impl->ensureLoaded()) {
+        s_lastError = kNotValid;
+        return false;
+    }
     std::unique_lock const lock(m_impl->mutex);
 
-    if (!m_impl->writeOverlay) { s_lastError = kNotValid; return false; }
+    if (!m_impl->writeOverlay) {
+        s_lastError = kNotValid;
+        return false;
+    }
 
     namespace fs = std::filesystem;
 
@@ -394,12 +444,11 @@ bool StorageWritable::save(const std::string& outputPath) {
                 we.fileSize = encEntry->fileSize;
 
                 if (m_impl->localState) {
-                    auto idxEntry = m_impl->localState->indexTable.find(
-                        eKeyTrunc(encEntry->eKey));
+                    auto idxEntry = m_impl->localState->indexTable.find(eKeyTrunc(encEntry->eKey));
                     if (idxEntry) {
-                        pendingReads.push_back({entries.size(),
-                            idxEntry->archiveIndex, idxEntry->archiveOffset,
-                            idxEntry->encodedSize, idxEntry->directBLTE});
+                        pendingReads.push_back({entries.size(), idxEntry->archiveIndex,
+                                                idxEntry->archiveOffset, idxEntry->encodedSize,
+                                                idxEntry->directBLTE});
                     }
                 }
             }
@@ -416,9 +465,8 @@ bool StorageWritable::save(const std::string& outputPath) {
                 jobGroup.add(pendingReads.size());
                 for (auto& pr : pendingReads) {
                     interfaces::WorkerTask task;
-                    task.fn = [&, idx = pr.entryIndex, ai = pr.archiveIndex,
-                               ao = pr.archiveOffset, es = pr.encodedSize,
-                               direct = pr.directBLTE]() {
+                    task.fn = [&, idx = pr.entryIndex, ai = pr.archiveIndex, ao = pr.archiveOffset,
+                               es = pr.encodedSize, direct = pr.directBLTE]() {
                         auto span = localDS.readRawBlteDirect(ai, ao, es);
                         if (!direct) {
                             // Use header-aware read.
@@ -439,13 +487,14 @@ bool StorageWritable::save(const std::string& outputPath) {
             } else {
                 for (auto& pr : pendingReads) {
                     auto span = pr.directBLTE
-                        ? localDS.readRawBlteDirect(pr.archiveIndex, pr.archiveOffset, pr.encodedSize)
-                        : localDS.readBlteFromIndex(IndexEntry{
-                              .archiveIndex = pr.archiveIndex,
-                              .archiveOffset = pr.archiveOffset,
-                              .encodedSize = pr.encodedSize,
-                              .directBLTE = pr.directBLTE,
-                          });
+                                    ? localDS.readRawBlteDirect(pr.archiveIndex, pr.archiveOffset,
+                                                                pr.encodedSize)
+                                    : localDS.readBlteFromIndex(IndexEntry{
+                                          .archiveIndex = pr.archiveIndex,
+                                          .archiveOffset = pr.archiveOffset,
+                                          .encodedSize = pr.encodedSize,
+                                          .directBLTE = pr.directBLTE,
+                                      });
                     entries[pr.entryIndex].encodedBlob.assign(span.begin(), span.end());
                     entries[pr.entryIndex].hasPreEncoded = true;
                 }
@@ -465,21 +514,29 @@ bool StorageWritable::save(const std::string& outputPath) {
                 if (resIt != m_impl->writeOverlay->reservedFileIds.end()) {
                     auto& res = resIt->second;
                     // For D4/TVFS with a hint, build a sub-folder specific path.
-                    if (key.hint != FileIdHint::None &&
-                        res.snoGroup != sno::SnoGroup::None) {
+                    if (key.hint != FileIdHint::None && res.snoGroup != sno::SnoGroup::None) {
                         const char* subfolder = "child";
                         switch (key.hint) {
-                            case FileIdHint::Meta:    subfolder = "meta";    break;
-                            case FileIdHint::Payload: subfolder = "payload"; break;
-                            case FileIdHint::Paylow:  subfolder = "paylow";  break;
-                            case FileIdHint::Paymed:  subfolder = "paymed";  break;
-                            default: break;
+                        case FileIdHint::Meta:
+                            subfolder = "meta";
+                            break;
+                        case FileIdHint::Payload:
+                            subfolder = "payload";
+                            break;
+                        case FileIdHint::Paylow:
+                            subfolder = "paylow";
+                            break;
+                        case FileIdHint::Paymed:
+                            subfolder = "paymed";
+                            break;
+                        default:
+                            break;
                         }
                         const char* dirName = sno::snoGroupDir(res.snoGroup);
                         const char* ext = sno::snoGroupExtension(res.snoGroup);
-                        we.path = std::string("base:") + subfolder + "\\"
-                                  + (dirName ? dirName : "Unknown") + "\\"
-                                  + res.snoName + "." + (ext ? ext : "dat");
+                        we.path = std::string("base:") + subfolder + "\\" +
+                                  (dirName ? dirName : "Unknown") + "\\" + res.snoName + "." +
+                                  (ext ? ext : "dat");
                     } else {
                         we.path = res.enrichedPath;
                     }
@@ -500,8 +557,7 @@ bool StorageWritable::save(const std::string& outputPath) {
         rootFmt = m_impl->root->format();
 
     // 3a. Serialize CoreTOC for D3/D4 formats and add as a file entry.
-    if (m_impl->writeOverlay->coreToc &&
-        !m_impl->writeOverlay->reservedFileIds.empty()) {
+    if (m_impl->writeOverlay->coreToc && !m_impl->writeOverlay->reservedFileIds.empty()) {
 
         std::vector<u8> tocData;
         std::string tocPath;
@@ -547,10 +603,10 @@ bool StorageWritable::save(const std::string& outputPath) {
 
     // 4. Writer options.
     WriterOptions writerOpts;
-    writerOpts.product = m_impl->buildConfig.buildProduct.empty()
-                             ? "custom" : m_impl->buildConfig.buildProduct;
-    writerOpts.version = m_impl->buildConfig.buildName.empty()
-                             ? "1.0.0" : m_impl->buildConfig.buildName;
+    writerOpts.product =
+        m_impl->buildConfig.buildProduct.empty() ? "custom" : m_impl->buildConfig.buildProduct;
+    writerOpts.version =
+        m_impl->buildConfig.buildName.empty() ? "1.0.0" : m_impl->buildConfig.buildName;
     writerOpts.rootFormat = rootFmt;
 
     // 5. Write to temp dir, then rename.
@@ -616,15 +672,14 @@ bool StorageWritable::save(const std::string& outputPath) {
         if (reopened->m_impl->localState) {
             m_impl->localState = std::move(reopened->m_impl->localState);
             m_impl->localState->dataSource = std::make_unique<LocalDataSource>(
-                &m_impl->localState->indexTable,
-                &m_impl->localState->dataArchives);
+                &m_impl->localState->indexTable, &m_impl->localState->dataArchives);
             m_impl->dataSource = m_impl->localState->dataSource.get();
 
             // Reconstruct backend for the reloaded local state.
             m_impl->backend = std::make_unique<StorageBackendImpl<LocalDataTraits, NoCachePolicy>>(
-                LocalDataTraits{&m_impl->localState->indexTable, m_impl->localState->dataSource.get()},
-                NoCachePolicy{},
-                m_impl->encodingTable, m_impl->keyRing, m_impl->pool);
+                LocalDataTraits{&m_impl->localState->indexTable,
+                                m_impl->localState->dataSource.get()},
+                NoCachePolicy{}, m_impl->encodingTable, m_impl->keyRing, m_impl->pool);
         }
         m_impl->isValid = true;
     }

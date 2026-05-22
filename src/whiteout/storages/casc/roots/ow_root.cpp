@@ -49,19 +49,24 @@ static constexpr size_t kCmfEntrySize = 20;
 
 /// Parse a hex character to nibble value. Returns 0xFF on invalid input.
 static u8 hexNibble(char c) {
-    if (c >= '0' && c <= '9') return u8(c - '0');
-    if (c >= 'a' && c <= 'f') return u8(c - 'a' + 10);
-    if (c >= 'A' && c <= 'F') return u8(c - 'A' + 10);
+    if (c >= '0' && c <= '9')
+        return u8(c - '0');
+    if (c >= 'a' && c <= 'f')
+        return u8(c - 'a' + 10);
+    if (c >= 'A' && c <= 'F')
+        return u8(c - 'A' + 10);
     return 0xFF;
 }
 
 /// Parse a 32-character hex string into a 16-byte MD5 key.
 static bool parseHexKey(std::string_view hex, std::array<u8, 16>& out) {
-    if (hex.size() != 32) return false;
+    if (hex.size() != 32)
+        return false;
     for (int i = 0; i < 16; ++i) {
         u8 const hi = hexNibble(hex[size_t(i * 2)]);
         u8 const lo = hexNibble(hex[size_t(i * 2 + 1)]);
-        if (hi == 0xFF || lo == 0xFF) return false;
+        if (hi == 0xFF || lo == 0xFF)
+            return false;
         out[size_t(i)] = u8((hi << 4) | lo);
     }
     return true;
@@ -94,13 +99,13 @@ static std::vector<std::string_view> splitView(std::string_view sv, char delim) 
 }
 
 /// Parse the Overwatch text root file into manifest entries.
-static bool parseTextRoot(std::span<const u8> data,
-                          std::vector<OwRootFileEntry>& outEntries) {
+static bool parseTextRoot(std::span<const u8> data, std::vector<OwRootFileEntry>& outEntries) {
     std::string_view const text(reinterpret_cast<const char*>(data.data()), data.size());
 
     // Split into lines.
     auto lines = splitView(text, '\n');
-    if (lines.empty()) return false;
+    if (lines.empty())
+        return false;
 
     // First line is the header: #COLUMN1|COLUMN2|...
     auto headerLine = lines[0];
@@ -108,7 +113,8 @@ static bool parseTextRoot(std::span<const u8> data,
     if (!headerLine.empty() && headerLine.back() == '\r')
         headerLine.remove_suffix(1);
 
-    if (headerLine.empty() || headerLine[0] != '#') return false;
+    if (headerLine.empty() || headerLine[0] != '#')
+        return false;
 
     // Parse column names.
     auto columns = splitView(headerLine.substr(1), '|');
@@ -124,24 +130,33 @@ static bool parseTextRoot(std::span<const u8> data,
         if (!col.empty() && col.back() == '\r')
             col.remove_suffix(1);
 
-        if (col == "FILEID")      idxFileId = int(i);
-        else if (col == "MD5")    idxMd5 = int(i);
-        else if (col == "CHUNK_ID") idxChunkId = int(i);
-        else if (col == "PRIORITY") idxPriority = int(i);
-        else if (col == "MPRIORITY") idxMPriority = int(i);
-        else if (col == "FILENAME") idxFileName = int(i);
-        else if (col == "INSTALLPATH") idxInstallPath = int(i);
+        if (col == "FILEID")
+            idxFileId = int(i);
+        else if (col == "MD5")
+            idxMd5 = int(i);
+        else if (col == "CHUNK_ID")
+            idxChunkId = int(i);
+        else if (col == "PRIORITY")
+            idxPriority = int(i);
+        else if (col == "MPRIORITY")
+            idxMPriority = int(i);
+        else if (col == "FILENAME")
+            idxFileName = int(i);
+        else if (col == "INSTALLPATH")
+            idxInstallPath = int(i);
     }
 
     // MD5 and FILENAME are required.
-    if (idxMd5 < 0 || idxFileName < 0) return false;
+    if (idxMd5 < 0 || idxFileName < 0)
+        return false;
 
     // Parse data rows.
     for (size_t lineIdx = 1; lineIdx < lines.size(); ++lineIdx) {
         auto line = lines[lineIdx];
         if (!line.empty() && line.back() == '\r')
             line.remove_suffix(1);
-        if (line.empty()) continue;
+        if (line.empty())
+            continue;
 
         auto fields = splitView(line, '|');
 
@@ -194,7 +209,8 @@ static bool parseTextRoot(std::span<const u8> data,
 
 /// Parse CMF header. Supports v25 (pre-1.48) and v26+ (1.48+).
 static bool parseCmfHeader(std::span<const u8> data, CmfHeader& out) {
-    if (data.size() < kCmfHeader25Size) return false;
+    if (data.size() < kCmfHeader25Size)
+        return false;
 
     // Read as v26 first (larger header).
     if (data.size() >= kCmfHeader26Size) {
@@ -218,7 +234,8 @@ static bool parseCmfHeader(std::span<const u8> data, CmfHeader& out) {
                 out.version = u8((out.magic >> 24) & 0xFF);
 
             // Validate: version should be >= 26 for this header layout.
-            if (out.version >= 26) return true;
+            if (out.version >= 26)
+                return true;
         }
     }
 
@@ -248,11 +265,11 @@ static bool parseCmfHeader(std::span<const u8> data, CmfHeader& out) {
 /// @param outEntries Appended with root entries from the CMF.
 /// @param cmfName  Name of the CMF file (used for path prefix).
 static bool parseCmfBody(std::span<const u8> body, const CmfHeader& header,
-                         std::vector<RootEntry>& outEntries,
-                         const std::string& cmfName) {
+                         std::vector<RootEntry>& outEntries, const std::string& cmfName) {
     // Skip CMF entries (we don't need them for root lookup, but must account for their size).
     size_t const entryBlockSize = size_t(header.entryCount) * kCmfEntrySize;
-    if (entryBlockSize > body.size()) return false;
+    if (entryBlockSize > body.size())
+        return false;
 
     auto hashBody = body.subspan(entryBlockSize);
 
@@ -260,7 +277,8 @@ static bool parseCmfBody(std::span<const u8> body, const CmfHeader& header,
     bool const useV25 = (header.version >= 25);
     size_t const recordSize = useV25 ? kHashData25Size : kHashData24Size;
     size_t const totalHashSize = size_t(header.dataCount) * recordSize;
-    if (totalHashSize > hashBody.size()) return false;
+    if (totalHashSize > hashBody.size())
+        return false;
 
     // Parse hash data entries.
     for (i32 i = 0; i < header.dataCount; ++i) {
@@ -292,14 +310,17 @@ static bool parseCmfBody(std::span<const u8> body, const CmfHeader& header,
 static bool parseCmf(std::span<const u8> data, const std::string& cmfName,
                      std::vector<RootEntry>& outEntries) {
     CmfHeader header;
-    if (!parseCmfHeader(data, header)) return false;
+    if (!parseCmfHeader(data, header))
+        return false;
 
     // We do not support encrypted CMFs in this implementation.
-    if (header.encrypted) return false;
+    if (header.encrypted)
+        return false;
 
     // Determine header size.
     size_t const headerSize = (header.version >= 26) ? kCmfHeader26Size : kCmfHeader25Size;
-    if (headerSize > data.size()) return false;
+    if (headerSize > data.size())
+        return false;
 
     auto body = data.subspan(headerSize);
     return parseCmfBody(body, header, outEntries, cmfName);
@@ -308,7 +329,8 @@ static bool parseCmf(std::span<const u8> data, const std::string& cmfName,
 /// Check if a file has the OW text root format.
 /// Returns true if data starts with '#' (header line).
 static bool isOwTextRoot(std::span<const u8> data) {
-    if (data.empty()) return false;
+    if (data.empty())
+        return false;
     return data[0] == '#';
 }
 
@@ -318,10 +340,10 @@ static bool isOwTextRoot(std::span<const u8> data) {
 // OwRoot public API
 // ============================================================================
 
-std::unique_ptr<OwRoot> OwRoot::parse(std::span<const u8> data,
-                                      CKeyResolver resolver,
+std::unique_ptr<OwRoot> OwRoot::parse(std::span<const u8> data, CKeyResolver resolver,
                                       interfaces::WorkerPool* /*pool*/) {
-    if (!isOwTextRoot(data)) return nullptr;
+    if (!isOwTextRoot(data))
+        return nullptr;
 
     std::vector<OwRootFileEntry> manifestEntries;
     if (!parseTextRoot(data, manifestEntries))
@@ -330,10 +352,9 @@ std::unique_ptr<OwRoot> OwRoot::parse(std::span<const u8> data,
     return fromManifestEntries(std::move(manifestEntries), std::move(resolver));
 }
 
-std::unique_ptr<OwRoot> OwRoot::fromManifestEntries(
-    std::vector<OwRootFileEntry> manifestEntries,
-    CKeyResolver resolver,
-    interfaces::WorkerPool* /*pool*/) {
+std::unique_ptr<OwRoot> OwRoot::fromManifestEntries(std::vector<OwRootFileEntry> manifestEntries,
+                                                    CKeyResolver resolver,
+                                                    interfaces::WorkerPool* /*pool*/) {
 
     auto root = std::make_unique<OwRoot>();
     root->m_manifestEntries = std::move(manifestEntries);
@@ -352,12 +373,12 @@ std::unique_ptr<OwRoot> OwRoot::fromManifestEntries(
             // Only process .cmf files.
             auto fileName = mf.fileName;
             toLowerInPlace(fileName);
-            if (fileName.size() < 4 ||
-                fileName.substr(fileName.size() - 4) != ".cmf")
+            if (fileName.size() < 4 || fileName.substr(fileName.size() - 4) != ".cmf")
                 continue;
 
             auto cmfData = resolver(mf.md5);
-            if (cmfData.empty()) continue;
+            if (cmfData.empty())
+                continue;
 
             std::string cmfName = storages::common::normalizeCascPath(mf.fileName);
             // Strip .cmf extension for prefix.
@@ -377,7 +398,8 @@ std::vector<const RootEntry*> OwRoot::findByPath(const std::string& path) const 
     return m_byPath.findAll(m_entries, normalizedPath);
 }
 
-std::vector<const RootEntry*> OwRoot::findByFileDataId(u32 /*fileDataId*/, FileIdHint /*hint*/) const {
+std::vector<const RootEntry*> OwRoot::findByFileDataId(u32 /*fileDataId*/,
+                                                       FileIdHint /*hint*/) const {
     // Overwatch does not use FileDataIds.
     return {};
 }

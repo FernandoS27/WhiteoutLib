@@ -253,8 +253,7 @@ Texture Texture::create2DArray(PixelFormat fmt, u32 width, u32 height, u32 array
     tex.impl_->depth = 1;
     tex.impl_->arraySize = arraySize;
 
-    const u64 total =
-        build_mip_chain(fmt, width, height, 1, mipCount, arraySize, tex.impl_->mips);
+    const u64 total = build_mip_chain(fmt, width, height, 1, mipCount, arraySize, tex.impl_->mips);
     tex.impl_->data.resize(static_cast<size_t>(total), 0);
     return tex;
 }
@@ -275,8 +274,7 @@ Texture Texture::createCubeArray(PixelFormat fmt, u32 size, u32 arraySize, u32 m
     tex.impl_->arraySize = arraySize;
 
     const u32 totalLayers = 6u * arraySize;
-    const u64 total =
-        build_mip_chain(fmt, size, size, 1, mipCount, totalLayers, tex.impl_->mips);
+    const u64 total = build_mip_chain(fmt, size, size, 1, mipCount, totalLayers, tex.impl_->mips);
     tex.impl_->data.resize(static_cast<size_t>(total), 0);
     return tex;
 }
@@ -524,7 +522,8 @@ Texture convert_uncompressed(const Texture& src, PixelFormat new_fmt) {
     return dst;
 }
 
-[[maybe_unused]] std::optional<Texture> copy_normal_to_rgba8(const Texture& src, PixelFormat orig_fmt) {
+[[maybe_unused]] std::optional<Texture> copy_normal_to_rgba8(const Texture& src,
+                                                             PixelFormat orig_fmt) {
     const bool is_rg = is_rg_normal_format(src.format());
     const bool is_rgba = is_rgba_normal_format(src.format());
     if (!is_rg && !is_rgba)

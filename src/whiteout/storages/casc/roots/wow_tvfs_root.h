@@ -14,8 +14,8 @@
 /// Internal header — not part of the public include path.
 #pragma once
 
-#include "root.h"
 #include "common/entry_index.h"
+#include "root.h"
 #include "tvfs_root.h"
 
 #include <memory>
@@ -24,7 +24,9 @@
 #include <unordered_map>
 #include <vector>
 
-namespace whiteout::interfaces { class WorkerPool; }
+namespace whiteout::interfaces {
+class WorkerPool;
+}
 
 namespace whiteout::storages::casc {
 
@@ -41,14 +43,17 @@ public:
     ///                 When provided, entries are enriched with human-readable paths.
     /// @return Enriched root, or nullptr if entries don't match expected format.
     static std::unique_ptr<WowTvfsRoot> create(std::unique_ptr<TvfsRoot> tvfs,
-                                                interfaces::WorkerPool* pool = nullptr,
-                                                std::span<const u8> listfile = {});
+                                               interfaces::WorkerPool* pool = nullptr,
+                                               std::span<const u8> listfile = {});
 
     // --- RootManifest interface ---
     std::vector<const RootEntry*> findByPath(const std::string& path) const override;
-    std::vector<const RootEntry*> findByFileDataId(u32 fileDataId, FileIdHint hint = FileIdHint::None) const override;
+    std::vector<const RootEntry*> findByFileDataId(
+        u32 fileDataId, FileIdHint hint = FileIdHint::None) const override;
     bool hasFileDataId(u32 fileDataId, FileIdHint hint = FileIdHint::None) const override;
-    RootFormat format() const override { return RootFormat::WowTvfs; }
+    RootFormat format() const override {
+        return RootFormat::WowTvfs;
+    }
 
 protected:
     const std::vector<RootEntry>& entries() const override;

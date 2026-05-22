@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "s1_root.h"
-#include "common/root_build_utils.h"
 #include "../../common/hex.h"
 #include "../../common/jenkins.h"
+#include "common/root_build_utils.h"
+#include "s1_root.h"
 
 #include <algorithm>
 #include <cstring>
@@ -26,25 +26,44 @@ namespace {
 /// system as WoW/CASC.
 u32 parseLocaleFlags(std::string_view name) {
     // Standard CASC locale flags (matches Blizzard's LocaleFlags enum).
-    if (name == "All")   return 0xFFFFFFFF;
-    if (name == "enUS")  return 0x2;
-    if (name == "koKR")  return 0x4;
-    if (name == "frFR")  return 0x10;
-    if (name == "deDE")  return 0x20;
-    if (name == "zhCN")  return 0x40;
-    if (name == "esES")  return 0x80;
-    if (name == "zhTW")  return 0x100;
-    if (name == "enGB")  return 0x200;
-    if (name == "enCN")  return 0x400;
-    if (name == "enTW")  return 0x800;
-    if (name == "esMX")  return 0x1000;
-    if (name == "ruRU")  return 0x2000;
-    if (name == "ptBR")  return 0x4000;
-    if (name == "itIT")  return 0x8000;
-    if (name == "ptPT")  return 0x10000;
-    if (name == "plPL")  return 0x20000;
-    if (name == "jaJP")  return 0x40000;
-    if (name == "thTH")  return 0x80000;
+    if (name == "All")
+        return 0xFFFFFFFF;
+    if (name == "enUS")
+        return 0x2;
+    if (name == "koKR")
+        return 0x4;
+    if (name == "frFR")
+        return 0x10;
+    if (name == "deDE")
+        return 0x20;
+    if (name == "zhCN")
+        return 0x40;
+    if (name == "esES")
+        return 0x80;
+    if (name == "zhTW")
+        return 0x100;
+    if (name == "enGB")
+        return 0x200;
+    if (name == "enCN")
+        return 0x400;
+    if (name == "enTW")
+        return 0x800;
+    if (name == "esMX")
+        return 0x1000;
+    if (name == "ruRU")
+        return 0x2000;
+    if (name == "ptBR")
+        return 0x4000;
+    if (name == "itIT")
+        return 0x8000;
+    if (name == "ptPT")
+        return 0x10000;
+    if (name == "plPL")
+        return 0x20000;
+    if (name == "jaJP")
+        return 0x40000;
+    if (name == "thTH")
+        return 0x80000;
     // Unknown locale → treat as All.
     return 0xFFFFFFFF;
 }
@@ -54,27 +73,36 @@ u32 parseLocaleFlags(std::string_view name) {
 // ── Heuristic detection ─────────────────────────────────────────────────────
 
 bool S1Root::looksLikeS1Root(std::span<const u8> data) {
-    if (data.empty()) return false;
+    if (data.empty())
+        return false;
 
     // Must not start with '#' (that's Overwatch).
-    if (data[0] == '#') return false;
+    if (data[0] == '#')
+        return false;
 
     // Must start with a printable ASCII character (file path).
-    if (data[0] < 0x20 || data[0] > 0x7E) return false;
+    if (data[0] < 0x20 || data[0] > 0x7E)
+        return false;
 
     // Find the first pipe and first newline in the first 512 bytes.
     size_t const limit = std::min<size_t>(data.size(), 512);
     size_t pipePos = 0, newlinePos = 0;
     bool foundPipe = false, foundNewline = false;
     for (size_t i = 0; i < limit; ++i) {
-        if (!foundPipe && data[i] == '|') { pipePos = i; foundPipe = true; }
-        if (!foundNewline && (data[i] == '\n' || data[i] == '\r')) {
-            newlinePos = i; foundNewline = true;
+        if (!foundPipe && data[i] == '|') {
+            pipePos = i;
+            foundPipe = true;
         }
-        if (foundPipe && foundNewline) break;
+        if (!foundNewline && (data[i] == '\n' || data[i] == '\r')) {
+            newlinePos = i;
+            foundNewline = true;
+        }
+        if (foundPipe && foundNewline)
+            break;
     }
 
-    if (!foundPipe) return false;
+    if (!foundPipe)
+        return false;
 
     // The part after the pipe should be a hex string (32 chars for MD5).
     // Check that the characters after the pipe are hex digits.
@@ -95,9 +123,9 @@ bool S1Root::looksLikeS1Root(std::span<const u8> data) {
 
 // ── Parser ──────────────────────────────────────────────────────────────────
 
-std::unique_ptr<S1Root> S1Root::parse(std::span<const u8> data,
-                                       interfaces::WorkerPool* /*pool*/) {
-    if (data.empty()) return nullptr;
+std::unique_ptr<S1Root> S1Root::parse(std::span<const u8> data, interfaces::WorkerPool* /*pool*/) {
+    if (data.empty())
+        return nullptr;
 
     std::string_view text(reinterpret_cast<const char*>(data.data()), data.size());
 
@@ -112,21 +140,26 @@ std::unique_ptr<S1Root> S1Root::parse(std::span<const u8> data,
     while (pos < text.size()) {
         // Find end of line.
         size_t eol = text.find_first_of("\r\n", pos);
-        if (eol == std::string_view::npos) eol = text.size();
+        if (eol == std::string_view::npos)
+            eol = text.size();
 
         std::string_view const line = text.substr(pos, eol - pos);
 
         // Advance past newline(s).
         pos = eol;
-        if (pos < text.size() && text[pos] == '\r') ++pos;
-        if (pos < text.size() && text[pos] == '\n') ++pos;
+        if (pos < text.size() && text[pos] == '\r')
+            ++pos;
+        if (pos < text.size() && text[pos] == '\n')
+            ++pos;
 
         // Skip empty lines and comments.
-        if (line.empty() || line[0] == '#') continue;
+        if (line.empty() || line[0] == '#')
+            continue;
 
         // Format: filepath|ckey_hex  or  filepath:locale|ckey_hex
         size_t const pipe = line.find('|');
-        if (pipe == std::string_view::npos || pipe == 0) continue;
+        if (pipe == std::string_view::npos || pipe == 0)
+            continue;
 
         std::string_view const pathPart = line.substr(0, pipe);
         std::string_view ckeyHex = line.substr(pipe + 1);
@@ -136,7 +169,8 @@ std::unique_ptr<S1Root> S1Root::parse(std::span<const u8> data,
             ckeyHex.remove_suffix(1);
 
         // Parse CKey.
-        if (ckeyHex.size() < 32) continue; // Need at least 32 hex chars.
+        if (ckeyHex.size() < 32)
+            continue; // Need at least 32 hex chars.
         auto cKey = hexDecode16(ckeyHex.substr(0, 32));
 
         // Check for locale suffix: "filepath:locale"
@@ -165,7 +199,8 @@ std::unique_ptr<S1Root> S1Root::parse(std::span<const u8> data,
         root->m_entries.push_back(std::move(entry));
     }
 
-    if (root->m_entries.empty()) return nullptr;
+    if (root->m_entries.empty())
+        return nullptr;
 
     root->buildIndices();
     return root;
@@ -177,7 +212,8 @@ std::vector<const RootEntry*> S1Root::findByPath(const std::string& path) const 
     return findByPathOrHash(path, m_entries, m_byPath, m_byNameHash);
 }
 
-std::vector<const RootEntry*> S1Root::findByFileDataId(u32 /*fileDataId*/, FileIdHint /*hint*/) const {
+std::vector<const RootEntry*> S1Root::findByFileDataId(u32 /*fileDataId*/,
+                                                       FileIdHint /*hint*/) const {
     return {}; // S1 root does not use FileDataId.
 }
 

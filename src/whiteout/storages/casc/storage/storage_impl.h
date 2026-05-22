@@ -7,30 +7,30 @@
 /// storage_online.cpp, and storage_writable.cpp.
 #pragma once
 
-#include "../codec/blte.h"
-#include "../tables/config.h"
-#include "../codec/crypto.h"
-#include "data_source.h"
-#include "storage_backend.h"
-#include "../tables/encoding.h"
-#include "../tables/index.h"
-#include "key_utils.h"
-#include "../cdn/memory_cache.h"
-#include "../cdn/online_index.h"
+#include "../../common/hex.h"
+#include "../../common/mapped_file.h"
+#include "../../common/string_utils.h"
 #include "../cdn/cdn_cache.h"
 #include "../cdn/cdn_fetcher.h"
+#include "../cdn/memory_cache.h"
 #include "../cdn/online_data_source.h"
-#include "local_data_source.h"
+#include "../cdn/online_index.h"
+#include "../codec/blte.h"
+#include "../codec/crypto.h"
 #include "../roots/root.h"
+#include "../tables/config.h"
+#include "../tables/encoding.h"
+#include "../tables/index.h"
+#include "data_source.h"
+#include "key_utils.h"
+#include "local_data_source.h"
+#include "storage_backend.h"
 #include "writer.h"
-#include "../../common/mapped_file.h"
-#include "../../common/hex.h"
-#include "../../common/string_utils.h"
 
-#include <whiteout/storages/casc/storage.h>
 #include <whiteout/interfaces.h>
 #include <whiteout/sno/core_toc.h>
 #include <whiteout/sno/sno_types.h>
+#include <whiteout/storages/casc/storage.h>
 #include <whiteout/utils/job_group.h>
 
 #include <algorithm>
@@ -70,12 +70,12 @@ enum ErrorCode : u32 {
     kSharingViolation = 16,
 
     // Online-specific (aligned with CascError public constants).
-    kHttpRequestFailed    = CascError::HttpRequestFailed,    // 0x10
+    kHttpRequestFailed = CascError::HttpRequestFailed,       // 0x10
     kCdnServerUnavailable = CascError::CdnServerUnavailable, // 0x11
-    kRemoteFileNotFound   = CascError::RemoteFileNotFound,   // 0x12
-    kVersionInfoNotFound  = CascError::VersionInfoNotFound,  // 0x13
-    kCdnInfoNotFound      = CascError::CdnInfoNotFound,     // 0x14
-    kNoHttpHandler        = CascError::NoHttpHandler,        // 0x15
+    kRemoteFileNotFound = CascError::RemoteFileNotFound,     // 0x12
+    kVersionInfoNotFound = CascError::VersionInfoNotFound,   // 0x13
+    kCdnInfoNotFound = CascError::CdnInfoNotFound,           // 0x14
+    kNoHttpHandler = CascError::NoHttpHandler,               // 0x15
 
     kSaveFailed = 0x20,
 };
@@ -85,8 +85,8 @@ enum ErrorCode : u32 {
 // ============================================================================
 
 struct OverlayKey {
-    std::string path;               ///< Normalized, lowercase, forward-slash.
-    std::optional<u32> fileDataId;  ///< For WoW-style writes.
+    std::string path;                   ///< Normalized, lowercase, forward-slash.
+    std::optional<u32> fileDataId;      ///< For WoW-style writes.
     FileIdHint hint = FileIdHint::None; ///< Sub-type hint for FileDataId lookups.
 
     bool operator==(const OverlayKey& o) const {
@@ -115,8 +115,8 @@ struct OverlayEntry {
 
 /// Local-only state: disk paths, index table, memory-mapped archives.
 struct LocalState {
-    std::string basePath;   ///< Game root dir (parent of Data/).
-    std::string dataPath;   ///< basePath + "/Data".
+    std::string basePath; ///< Game root dir (parent of Data/).
+    std::string dataPath; ///< basePath + "/Data".
     IndexTable indexTable;
     std::vector<storages::common::MappedFile> dataArchives;
     std::unique_ptr<LocalDataSource> dataSource;
@@ -147,11 +147,11 @@ struct OnlineState {
 /// Write overlay (pending writes/deletes, flushed on save).
 /// A reserved file-ID entry, created by reserveFileId().
 struct FileIdReservation {
-    std::string name;               ///< Original name passed by the caller.
-    std::string enrichedPath;       ///< Full root path for the entry.
-    sno::SnoGroup snoGroup = sno::SnoGroup::None;  ///< D3/D4: SNO group.
-    std::string snoName;            ///< D3/D4: asset name (without extension).
-    i32 snoId = 0;                  ///< D3/D4: allocated SNO ID.
+    std::string name;                             ///< Original name passed by the caller.
+    std::string enrichedPath;                     ///< Full root path for the entry.
+    sno::SnoGroup snoGroup = sno::SnoGroup::None; ///< D3/D4: SNO group.
+    std::string snoName;                          ///< D3/D4: asset name (without extension).
+    i32 snoId = 0;                                ///< D3/D4: allocated SNO ID.
 };
 
 struct WriteOverlay {
@@ -176,7 +176,8 @@ struct WriteOverlay {
 struct Storage::Impl {
     interfaces::WorkerPool* pool = nullptr;
     u32 localeMask = 0;
-    u32 featureFlags = StorageFeatureFlags::None; ///< From OpenOptions::flags / OnlineOpenOptions::flags.
+    u32 featureFlags =
+        StorageFeatureFlags::None; ///< From OpenOptions::flags / OnlineOpenOptions::flags.
 
     /// External listfile data (caller-owned, must outlive Storage).
     std::span<const u8> listfileData;
@@ -219,8 +220,12 @@ struct Storage::Impl {
 
     // ── State queries ────────────────────────────────────────────
 
-    bool isLocal() const noexcept { return localState != nullptr; }
-    bool isOnline() const noexcept { return onlineState != nullptr; }
+    bool isLocal() const noexcept {
+        return localState != nullptr;
+    }
+    bool isOnline() const noexcept {
+        return onlineState != nullptr;
+    }
 
     // ── Resolution helpers ───────────────────────────────────────
 
@@ -233,18 +238,16 @@ struct Storage::Impl {
                                 interfaces::WorkerPool* poolToUse = nullptr) const;
 
     /// RootEntry → decoded file data (locale filter + container slicing).
-    std::optional<std::vector<u8>> resolveRootEntry(
-        const std::vector<const RootEntry*>& entries,
-        u32 localeFlags) const;
+    std::optional<std::vector<u8>> resolveRootEntry(const std::vector<const RootEntry*>& entries,
+                                                    u32 localeFlags) const;
 
     /// Resolve encoding entry from a RootEntry (tries CKey first, then EKey).
     const EncodingEntry* resolveEncoding(const RootEntry& re) const;
 
     /// Read a file (overlay check + root resolution).
-    std::optional<std::vector<u8>> readFileResolved(
-        const OverlayKey& key,
-        const std::vector<const RootEntry*>& entries,
-        u32 localeFlags) const;
+    std::optional<std::vector<u8>> readFileResolved(const OverlayKey& key,
+                                                    const std::vector<const RootEntry*>& entries,
+                                                    u32 localeFlags) const;
 
     /// File info from pre-resolved entries.
     std::optional<FileFullInfo> fileInfoResolved(
@@ -261,14 +264,12 @@ struct Storage::Impl {
 
 /// Parallel-resolve VFS sub-manifests using local archives + JobGroup.
 std::unordered_map<u64, std::vector<u8>> prefetchVfsLocal(
-    const Storage::Impl& impl,
-    const std::vector<std::array<u8, 16>>& vfsEKeys,
+    const Storage::Impl& impl, const std::vector<std::array<u8, 16>>& vfsEKeys,
     const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey);
 
 /// Parallel-resolve VFS sub-manifests using async HTTP + WaitState.
 std::unordered_map<u64, std::vector<u8>> prefetchVfsOnline(
-    const Storage::Impl& impl,
-    const std::vector<std::array<u8, 16>>& vfsEKeys,
+    const Storage::Impl& impl, const std::vector<std::array<u8, 16>>& vfsEKeys,
     const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey);
 
 } // namespace whiteout::storages::casc

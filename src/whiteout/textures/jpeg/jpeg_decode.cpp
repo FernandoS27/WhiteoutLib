@@ -282,9 +282,11 @@ struct JpegDecoder {
                                   i32& dcPrediction);
     bool decodeProgressiveDcRefine(std::array<i32, BLOCK_PIXELS>& coeffs);
     bool decodeProgressiveAcFirst(BitstreamReader& bs, std::array<i32, BLOCK_PIXELS>& coeffs,
-                                  const HuffmanTable& acTable, u32& eobRunRef, u8 ss, u8 se, u8 al) const;
+                                  const HuffmanTable& acTable, u32& eobRunRef, u8 ss, u8 se,
+                                  u8 al) const;
     bool decodeProgressiveAcRefine(BitstreamReader& bs, std::array<i32, BLOCK_PIXELS>& coeffs,
-                                   const HuffmanTable& acTable, u32& eobRunRef, u8 ss, u8 se, u8 al) const;
+                                   const HuffmanTable& acTable, u32& eobRunRef, u8 ss, u8 se,
+                                   u8 al) const;
     bool finalizeProgressiveImage();
 
     /// Combined dequantize + IDCT + interleave for the no-subsampling case.
@@ -627,7 +629,8 @@ bool JpegDecoder::decodeScanData() {
                     for (u32 blockColumn = 0; blockColumn < component.horizontalSampling;
                          blockColumn++) {
                         // No zero-init needed: decodeDctBlock starts with fill(0).
-                        std::array<i32, BLOCK_PIXELS> dctCoefficients;  // NOLINT(cppcoreguidelines-pro-type-member-init)
+                        std::array<i32, BLOCK_PIXELS>
+                            dctCoefficients; // NOLINT(cppcoreguidelines-pro-type-member-init)
                         if (!decodeDctBlock(
                                 dctCoefficients, dcHuffmanTables[component.dcHuffmanIndex],
                                 acHuffmanTables[component.acHuffmanIndex], component.dcPrediction,
@@ -843,7 +846,8 @@ bool JpegDecoder::decodeScanDataParallel(Image* directOutput) {
                         u32 const mcuCol = mcuIdx % mcuCols;
 
                         // Decode all component blocks for this MCU into temp arrays.
-                        std::array<std::array<u8, BLOCK_PIXELS>, MAX_COMPONENTS> blks;  // NOLINT(cppcoreguidelines-pro-type-member-init)
+                        std::array<std::array<u8, BLOCK_PIXELS>, MAX_COMPONENTS>
+                            blks; // NOLINT(cppcoreguidelines-pro-type-member-init)
                         for (u32 ci = 0; ci < compCnt; ++ci) {
                             const auto& info = compInfo[ci];
                             const auto& dcTable = dcHuffmanTables[info.dcHuffIdx];
@@ -1037,8 +1041,8 @@ bool JpegDecoder::decodeProgressiveDcRefine(std::array<i32, BLOCK_PIXELS>& coeff
 /// Ss>0, Ah=0 — initial AC coefficients in range [Ss, Se] with point transform Al.
 bool JpegDecoder::decodeProgressiveAcFirst(BitstreamReader& bs,
                                            std::array<i32, BLOCK_PIXELS>& coeffs,
-                                           const HuffmanTable& acTable, u32& eobRunRef, u8 ss, u8 se,
-                                           u8 al) const {
+                                           const HuffmanTable& acTable, u32& eobRunRef, u8 ss,
+                                           u8 se, u8 al) const {
     if (eobRunRef > 0) {
         --eobRunRef;
         return true;
@@ -1096,8 +1100,8 @@ inline void applyRefinementBit(BitstreamReader& bs, i32& coeff, i32 correctionBi
 ///  - EOBRUN mechanism skips remaining zero positions.
 bool JpegDecoder::decodeProgressiveAcRefine(BitstreamReader& bs,
                                             std::array<i32, BLOCK_PIXELS>& coeffs,
-                                            const HuffmanTable& acTable, u32& eobRunRef, u8 ss, u8 se,
-                                            u8 al) const {
+                                            const HuffmanTable& acTable, u32& eobRunRef, u8 ss,
+                                            u8 se, u8 al) const {
     i32 k = ss;
     i32 const correctionBit = 1 << al;
 
@@ -1335,7 +1339,8 @@ bool JpegDecoder::finalizeProgressiveImage() {
                 // Dequantize in natural (row-major) order: gather from zigzag,
                 // multiply by natural-order quant table, write contiguously.
                 // The contiguous write pattern is auto-vectorisation friendly.
-                std::array<i32, BLOCK_PIXELS> dequantised;  // NOLINT(cppcoreguidelines-pro-type-member-init)
+                std::array<i32, BLOCK_PIXELS>
+                    dequantised; // NOLINT(cppcoreguidelines-pro-type-member-init)
                 for (i32 n = 0; n < BLOCK_PIXELS; ++n) {
                     dequantised[n] = coeffs[naturalToZigzag[n]] * nqt[n];
                 }
@@ -1408,13 +1413,15 @@ bool JpegDecoder::finalizeAndAssembleImage(Image& outputImage) {
                 const u32 py = mcuRow * BLOCK_SIZE;
 
                 // Dequantize + IDCT each component block into temp arrays.
-                std::array<std::array<u8, BLOCK_PIXELS>, MAX_COMPONENTS> blks;  // NOLINT(cppcoreguidelines-pro-type-member-init)
+                std::array<std::array<u8, BLOCK_PIXELS>, MAX_COMPONENTS>
+                    blks; // NOLINT(cppcoreguidelines-pro-type-member-init)
                 for (u32 ci = 0; ci < compCnt; ++ci) {
                     auto& coeffs =
                         components[ci].coefficientBlocks[mcuRow * layout[ci].blocksPerRow + mcuCol];
                     const auto& nqt = naturalQuantTables[layout[ci].quantTableIndex];
 
-                    std::array<i32, BLOCK_PIXELS> dequantised;  // NOLINT(cppcoreguidelines-pro-type-member-init)
+                    std::array<i32, BLOCK_PIXELS>
+                        dequantised; // NOLINT(cppcoreguidelines-pro-type-member-init)
                     for (i32 n = 0; n < BLOCK_PIXELS; ++n) {
                         dequantised[n] = coeffs[naturalToZigzag[n]] * nqt[n];
                     }

@@ -22,7 +22,7 @@ class KeyRing; // forward declaration
 // ============================================================================
 
 struct BlteDecodeResult {
-    std::vector<u8> data;   ///< Uncompressed file content.
+    std::vector<u8> data; ///< Uncompressed file content.
     bool success = false;
     std::string error;
 };
@@ -31,8 +31,7 @@ struct BlteDecodeResult {
 /// @param blteData Raw BLTE-encoded data (starts with 'BLTE' magic).
 /// @param keys     Optional key ring for decrypting 'E' frames.
 /// @param pool     Optional worker pool for parallel frame decoding.
-BlteDecodeResult blteDecode(std::span<const u8> blteData,
-                            const KeyRing* keys = nullptr,
+BlteDecodeResult blteDecode(std::span<const u8> blteData, const KeyRing* keys = nullptr,
                             interfaces::WorkerPool* pool = nullptr);
 
 // ============================================================================
@@ -54,10 +53,8 @@ struct BlteFrameLayout {
 BlteFrameLayout blteParseFrameLayout(std::span<const u8> blteData);
 
 struct BlteBatchResult;
-BlteBatchResult blteDecodeFrame(std::span<const u8> blteData,
-                                const BlteFrameLayout& layout,
-                                size_t frameIdx,
-                                const KeyRing* keys = nullptr);
+BlteBatchResult blteDecodeFrame(std::span<const u8> blteData, const BlteFrameLayout& layout,
+                                size_t frameIdx, const KeyRing* keys = nullptr);
 
 // ============================================================================
 // BLTE Batch Decode
@@ -90,10 +87,9 @@ struct BlteBatchResult {
 /// @param keys      Encryption key ring (shared by all entries; may be nullptr).
 /// @param pool      Worker pool (may be nullptr → serial).
 /// @return Per-file results in the same order as entries.
-std::vector<BlteBatchResult> blteDecodeBatch(
-    std::span<const BlteBatchEntry> entries,
-    const KeyRing* keys = nullptr,
-    interfaces::WorkerPool* pool = nullptr);
+std::vector<BlteBatchResult> blteDecodeBatch(std::span<const BlteBatchEntry> entries,
+                                             const KeyRing* keys = nullptr,
+                                             interfaces::WorkerPool* pool = nullptr);
 
 // ============================================================================
 // BLTE Encode
@@ -109,8 +105,7 @@ struct BlteEncodeOptions {
 /// @param opts     Encoding options.
 /// @param pool     Optional worker pool for parallel frame encoding.
 /// @return The BLTE-encoded blob.
-std::vector<u8> blteEncode(std::span<const u8> rawData,
-                           const BlteEncodeOptions& opts = {},
+std::vector<u8> blteEncode(std::span<const u8> rawData, const BlteEncodeOptions& opts = {},
                            interfaces::WorkerPool* pool = nullptr);
 
 } // namespace whiteout::storages::casc

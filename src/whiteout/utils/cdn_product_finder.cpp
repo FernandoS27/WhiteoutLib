@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include <whiteout/utils/cdn_product_finder.h>
 #include <whiteout/interfaces.h>
+#include <whiteout/utils/cdn_product_finder.h>
 
 #include <atomic>
 #include <charconv>
@@ -31,7 +31,8 @@ static std::vector<std::string_view> splitLines(std::string_view text) {
     while (!text.empty()) {
         auto nl = text.find('\n');
         if (nl == std::string_view::npos) {
-            if (!text.empty()) lines.push_back(text);
+            if (!text.empty())
+                lines.push_back(text);
             break;
         }
         lines.push_back(text.substr(0, nl));
@@ -63,11 +64,13 @@ static std::vector<std::string_view> split(std::string_view sv, char delim) {
 /// followed by data rows like "wow|12345|\n".
 static std::vector<CdnProductInfo> parseSummary(const std::vector<uint8_t>& data) {
     std::vector<CdnProductInfo> results;
-    if (data.empty()) return results;
+    if (data.empty())
+        return results;
 
     std::string_view const text(reinterpret_cast<const char*>(data.data()), data.size());
     auto lines = splitLines(text);
-    if (lines.size() < 2) return results;
+    if (lines.size() < 2)
+        return results;
 
     // Parse header to find column indices.
     auto headerCols = split(lines[0], '|');
@@ -77,17 +80,23 @@ static std::vector<CdnProductInfo> parseSummary(const std::vector<uint8_t>& data
         auto col = trim(headerCols[i]);
         // Strip !TYPE:SIZE suffix.
         auto bang = col.find('!');
-        if (bang != std::string_view::npos) col = col.substr(0, bang);
-        if (col == "Product") iProduct = i;
-        else if (col == "Seqn") iSeqn = i;
-        else if (col == "Flags") iFlags = i;
+        if (bang != std::string_view::npos)
+            col = col.substr(0, bang);
+        if (col == "Product")
+            iProduct = i;
+        else if (col == "Seqn")
+            iSeqn = i;
+        else if (col == "Flags")
+            iFlags = i;
     }
 
-    if (iProduct < 0) return results;
+    if (iProduct < 0)
+        return results;
 
     for (size_t row = 1; row < lines.size(); ++row) {
         auto line = trim(lines[row]);
-        if (line.empty()) continue;
+        if (line.empty())
+            continue;
 
         auto fields = split(line, '|');
 
@@ -99,7 +108,8 @@ static std::vector<CdnProductInfo> parseSummary(const std::vector<uint8_t>& data
 
         CdnProductInfo info;
         auto prod = getField(iProduct);
-        if (prod.empty()) continue;
+        if (prod.empty())
+            continue;
         info.product = std::string(prod);
 
         if (iSeqn >= 0) {
@@ -121,28 +131,37 @@ static std::vector<CdnProductInfo> parseSummary(const std::vector<uint8_t>& data
 
 static std::vector<CdnProductVersion> parseVersions(const std::vector<uint8_t>& data) {
     std::vector<CdnProductVersion> results;
-    if (data.empty()) return results;
+    if (data.empty())
+        return results;
 
     std::string_view const text(reinterpret_cast<const char*>(data.data()), data.size());
     auto lines = splitLines(text);
-    if (lines.size() < 2) return results;
+    if (lines.size() < 2)
+        return results;
 
     auto headerCols = split(lines[0], '|');
     int iRegion = -1, iBuildConfig = -1, iCdnConfig = -1, iBuildId = -1, iVersion = -1;
     for (int i = 0; i < static_cast<int>(headerCols.size()); ++i) {
         auto col = trim(headerCols[i]);
         auto bang = col.find('!');
-        if (bang != std::string_view::npos) col = col.substr(0, bang);
-        if (col == "Region") iRegion = i;
-        else if (col == "BuildConfig") iBuildConfig = i;
-        else if (col == "CDNConfig") iCdnConfig = i;
-        else if (col == "BuildId") iBuildId = i;
-        else if (col == "VersionsName") iVersion = i;
+        if (bang != std::string_view::npos)
+            col = col.substr(0, bang);
+        if (col == "Region")
+            iRegion = i;
+        else if (col == "BuildConfig")
+            iBuildConfig = i;
+        else if (col == "CDNConfig")
+            iCdnConfig = i;
+        else if (col == "BuildId")
+            iBuildId = i;
+        else if (col == "VersionsName")
+            iVersion = i;
     }
 
     for (size_t row = 1; row < lines.size(); ++row) {
         auto line = trim(lines[row]);
-        if (line.empty()) continue;
+        if (line.empty())
+            continue;
 
         auto fields = split(line, '|');
         auto getField = [&](int idx) -> std::string_view {
@@ -152,14 +171,18 @@ static std::vector<CdnProductVersion> parseVersions(const std::vector<uint8_t>& 
         };
 
         CdnProductVersion v;
-        if (iRegion >= 0) v.region = std::string(getField(iRegion));
-        if (iBuildConfig >= 0) v.buildConfig = std::string(getField(iBuildConfig));
-        if (iCdnConfig >= 0) v.cdnConfig = std::string(getField(iCdnConfig));
+        if (iRegion >= 0)
+            v.region = std::string(getField(iRegion));
+        if (iBuildConfig >= 0)
+            v.buildConfig = std::string(getField(iBuildConfig));
+        if (iCdnConfig >= 0)
+            v.cdnConfig = std::string(getField(iCdnConfig));
         if (iBuildId >= 0) {
             auto sv = getField(iBuildId);
             std::from_chars(sv.data(), sv.data() + sv.size(), v.buildId);
         }
-        if (iVersion >= 0) v.versionName = std::string(getField(iVersion));
+        if (iVersion >= 0)
+            v.versionName = std::string(getField(iVersion));
 
         results.push_back(std::move(v));
     }
@@ -173,28 +196,37 @@ static std::vector<CdnProductVersion> parseVersions(const std::vector<uint8_t>& 
 
 static std::vector<CdnProductCdn> parseCdns(const std::vector<uint8_t>& data) {
     std::vector<CdnProductCdn> results;
-    if (data.empty()) return results;
+    if (data.empty())
+        return results;
 
     std::string_view const text(reinterpret_cast<const char*>(data.data()), data.size());
     auto lines = splitLines(text);
-    if (lines.size() < 2) return results;
+    if (lines.size() < 2)
+        return results;
 
     auto headerCols = split(lines[0], '|');
     int iName = -1, iPath = -1, iHosts = -1, iServers = -1, iConfigPath = -1;
     for (int i = 0; i < static_cast<int>(headerCols.size()); ++i) {
         auto col = trim(headerCols[i]);
         auto bang = col.find('!');
-        if (bang != std::string_view::npos) col = col.substr(0, bang);
-        if (col == "Name") iName = i;
-        else if (col == "Path") iPath = i;
-        else if (col == "Hosts") iHosts = i;
-        else if (col == "Servers") iServers = i;
-        else if (col == "ConfigPath") iConfigPath = i;
+        if (bang != std::string_view::npos)
+            col = col.substr(0, bang);
+        if (col == "Name")
+            iName = i;
+        else if (col == "Path")
+            iPath = i;
+        else if (col == "Hosts")
+            iHosts = i;
+        else if (col == "Servers")
+            iServers = i;
+        else if (col == "ConfigPath")
+            iConfigPath = i;
     }
 
     for (size_t row = 1; row < lines.size(); ++row) {
         auto line = trim(lines[row]);
-        if (line.empty()) continue;
+        if (line.empty())
+            continue;
 
         auto fields = split(line, '|');
         auto getField = [&](int idx) -> std::string_view {
@@ -204,9 +236,12 @@ static std::vector<CdnProductCdn> parseCdns(const std::vector<uint8_t>& data) {
         };
 
         CdnProductCdn c;
-        if (iName >= 0) c.region = std::string(getField(iName));
-        if (iPath >= 0) c.path = std::string(getField(iPath));
-        if (iConfigPath >= 0) c.configPath = std::string(getField(iConfigPath));
+        if (iName >= 0)
+            c.region = std::string(getField(iName));
+        if (iPath >= 0)
+            c.path = std::string(getField(iPath));
+        if (iConfigPath >= 0)
+            c.configPath = std::string(getField(iConfigPath));
 
         // Hosts are space-separated; Servers field has full URLs.
         auto hostsField = getField(iHosts);
@@ -214,7 +249,8 @@ static std::vector<CdnProductCdn> parseCdns(const std::vector<uint8_t>& data) {
             auto parts = split(hostsField, ' ');
             for (auto& p : parts) {
                 auto h = trim(p);
-                if (!h.empty()) c.hosts.emplace_back(h);
+                if (!h.empty())
+                    c.hosts.emplace_back(h);
             }
         } else {
             auto serversField = getField(iServers);
@@ -222,11 +258,15 @@ static std::vector<CdnProductCdn> parseCdns(const std::vector<uint8_t>& data) {
                 auto parts = split(serversField, ' ');
                 for (auto& p : parts) {
                     auto sv = trim(p);
-                    if (sv.substr(0, 8) == "https://") sv.remove_prefix(8);
-                    else if (sv.substr(0, 7) == "http://") sv.remove_prefix(7);
+                    if (sv.substr(0, 8) == "https://")
+                        sv.remove_prefix(8);
+                    else if (sv.substr(0, 7) == "http://")
+                        sv.remove_prefix(7);
                     // Strip trailing slash.
-                    if (!sv.empty() && sv.back() == '/') sv.remove_suffix(1);
-                    if (!sv.empty()) c.hosts.emplace_back(sv);
+                    if (!sv.empty() && sv.back() == '/')
+                        sv.remove_suffix(1);
+                    if (!sv.empty())
+                        c.hosts.emplace_back(sv);
                 }
             }
         }
@@ -241,9 +281,8 @@ static std::vector<CdnProductCdn> parseCdns(const std::vector<uint8_t>& data) {
 // Synchronous HTTP fetch helper
 // ============================================================================
 
-static std::optional<std::vector<uint8_t>> fetchSync(
-    interfaces::HttpHandler* http, const std::string& url)
-{
+static std::optional<std::vector<uint8_t>> fetchSync(interfaces::HttpHandler* http,
+                                                     const std::string& url) {
     struct State {
         std::optional<std::vector<uint8_t>> data;
         std::mutex mtx;
@@ -272,23 +311,26 @@ static std::optional<std::vector<uint8_t>> fetchSync(
 // ============================================================================
 
 std::vector<CdnProductInfo> findCdnProducts(const CdnProductFinderOptions& opts) {
-    if (!opts.http) return {};
+    if (!opts.http)
+        return {};
 
     // Step 1: Fetch the Ribbit v2 summary.
     std::string const summaryUrl = "https://" + opts.region + ".version.battle.net/v2/summary";
 
     auto summaryData = fetchSync(opts.http, summaryUrl);
-    if (!summaryData) return {};
+    if (!summaryData)
+        return {};
 
     auto products = parseSummary(*summaryData);
-    if (products.empty()) return products;
+    if (products.empty())
+        return products;
 
     // Step 2: Optionally fetch per-product details.
-    if (!opts.queryVersions && !opts.queryCdns) return products;
+    if (!opts.queryVersions && !opts.queryCdns)
+        return products;
 
     const uint32_t total = static_cast<uint32_t>(products.size());
-    const uint32_t requestsPerProduct = (opts.queryVersions ? 1u : 0u) +
-                                        (opts.queryCdns ? 1u : 0u);
+    const uint32_t requestsPerProduct = (opts.queryVersions ? 1u : 0u) + (opts.queryCdns ? 1u : 0u);
 
     // Shared state for all pending requests.
     struct DetailState {

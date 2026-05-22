@@ -20,9 +20,10 @@ namespace whiteout::storages::common {
 
 /// Advisory access-pattern hint for memory-mapped files.
 enum class AccessHint : u8 {
-    Normal,       ///< Default OS behavior.
-    Sequential,   ///< Hint for sequential access (madvise MADV_SEQUENTIAL / FILE_FLAG_SEQUENTIAL_SCAN).
-    Random,       ///< Hint for random access (madvise MADV_RANDOM / FILE_FLAG_RANDOM_ACCESS).
+    Normal,     ///< Default OS behavior.
+    Sequential, ///< Hint for sequential access (madvise MADV_SEQUENTIAL /
+                ///< FILE_FLAG_SEQUENTIAL_SCAN).
+    Random,     ///< Hint for random access (madvise MADV_RANDOM / FILE_FLAG_RANDOM_ACCESS).
 };
 
 /// RAII wrapper for a read-only memory-mapped file.
@@ -58,7 +59,9 @@ public:
                                           std::string* error = nullptr);
 
     /// Return the path this file was mapped from. Empty if default-constructed.
-    const std::string& path() const noexcept { return m_path; }
+    const std::string& path() const noexcept {
+        return m_path;
+    }
 
     /// Apply advisory hint to an already-opened mapping.
     void advise(AccessHint hint) const noexcept;
@@ -126,7 +129,6 @@ inline bool isSharingViolation(const std::string& errorMsg) noexcept {
 /// @param error Optional output for a human-readable error description.
 /// @return File contents, or nullopt on failure (file not found, empty,
 ///         permission denied, read error).
-std::optional<std::vector<u8>> readFileFully(const std::string& path,
-                                             std::string* error = nullptr);
+std::optional<std::vector<u8>> readFileFully(const std::string& path, std::string* error = nullptr);
 
 } // namespace whiteout::storages::common

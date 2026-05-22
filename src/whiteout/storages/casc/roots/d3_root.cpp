@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "d3_root.h"
-#include "root.h"
-#include "common/root_build_utils.h"
 #include "../../common/byte_order.h"
 #include "../../common/string_utils.h"
+#include "common/root_build_utils.h"
+#include "d3_root.h"
+#include "root.h"
 
 #include <whiteout/interfaces.h>
 #include <whiteout/sno/core_toc.h>
@@ -18,14 +18,14 @@
 
 namespace whiteout::storages::casc {
 
-using storages::common::readLE32;
 using storages::common::normalizeCascPath;
+using storages::common::readLE32;
 
 // ---- Constants local to D3 root parser ----
 
 /// D3 asset entry sizes.
 static constexpr size_t kD3AssetEntrySize = 20;    ///< CKey(16) + fileIndex(4).
-static constexpr size_t kD3AssetIdxEntrySize = 24;  ///< CKey(16) + fileIndex(4) + subIndex(4).
+static constexpr size_t kD3AssetIdxEntrySize = 24; ///< CKey(16) + fileIndex(4) + subIndex(4).
 
 namespace {
 
@@ -38,70 +38,38 @@ struct AssetTypeInfo {
 
 // D3 SNO asset types. Indices and extensions match CascLib's D3AssetTypes[].
 static constexpr AssetTypeInfo kAssetTypes[] = {
-    {0x01, "acr", "Actor"},
-    {0x02, "adv", "Adventure"},
-    {0x05, "ams", "AmbientSound"},
-    {0x06, "ani", "Anim"},
-    {0x07, "an2", "Anim2D"},
-    {0x08, "ans", "AnimSet"},
-    {0x09, "app", "Appearance"},
-    {0x0B, "clt", "Cloth"},
-    {0x0C, "cnv", "Conversation"},
-    {0x0E, "efg", "EffectGroup"},
-    {0x0F, "enc", "Encounter"},
-    {0x11, "xpl", "Explosion"},
-    {0x13, "fnt", "Font"},
-    {0x14, "gam", "GameBalance"},
-    {0x15, "glo", "Globals"},
-    {0x16, "lvl", "LevelArea"},
-    {0x17, "lit", "Light"},
-    {0x18, "mrk", "MarkerSet"},
-    {0x19, "mon", "Monster"},
-    {0x1A, "obs", "Observer"},
-    {0x1B, "prt", "Particle"},
-    {0x1C, "phy", "Physics"},
-    {0x1D, "pow", "Power"},
-    {0x1F, "qst", "Quest"},
-    {0x20, "rop", "Rope"},
-    {0x21, "scn", "Scene"},
-    {0x22, "scg", "SceneGroup"},
-    {0x24, "shm", "ShaderMap"},
-    {0x25, "shd", "Shaders"},
-    {0x26, "shk", "Shakes"},
-    {0x27, "skl", "SkillKit"},
-    {0x28, "snd", "Sound"},
-    {0x29, "sbk", "SoundBank"},
-    {0x2A, "stl", "StringList"},
-    {0x2B, "srf", "Surface"},
-    {0x2C, "tex", "Textures"},
-    {0x2D, "trl", "Trail"},
-    {0x2E, "ui",  "UI"},
-    {0x2F, "wth", "Weather"},
-    {0x30, "wrl", "Worlds"},
-    {0x31, "rcp", "Recipe"},
-    {0x33, "cnd", "Condition"},
-    {0x38, "act", "Act"},
-    {0x39, "mat", "Material"},
-    {0x3A, "qsr", "QuestRange"},
-    {0x3B, "lor", "Lore"},
-    {0x3C, "rev", "Reverb"},
-    {0x3D, "phm", "PhysMesh"},
-    {0x3E, "mus", "Music"},
-    {0x3F, "tut", "Tutorial"},
-    {0x40, "bos", "BossEncounter"},
+    {0x01, "acr", "Actor"},       {0x02, "adv", "Adventure"},   {0x05, "ams", "AmbientSound"},
+    {0x06, "ani", "Anim"},        {0x07, "an2", "Anim2D"},      {0x08, "ans", "AnimSet"},
+    {0x09, "app", "Appearance"},  {0x0B, "clt", "Cloth"},       {0x0C, "cnv", "Conversation"},
+    {0x0E, "efg", "EffectGroup"}, {0x0F, "enc", "Encounter"},   {0x11, "xpl", "Explosion"},
+    {0x13, "fnt", "Font"},        {0x14, "gam", "GameBalance"}, {0x15, "glo", "Globals"},
+    {0x16, "lvl", "LevelArea"},   {0x17, "lit", "Light"},       {0x18, "mrk", "MarkerSet"},
+    {0x19, "mon", "Monster"},     {0x1A, "obs", "Observer"},    {0x1B, "prt", "Particle"},
+    {0x1C, "phy", "Physics"},     {0x1D, "pow", "Power"},       {0x1F, "qst", "Quest"},
+    {0x20, "rop", "Rope"},        {0x21, "scn", "Scene"},       {0x22, "scg", "SceneGroup"},
+    {0x24, "shm", "ShaderMap"},   {0x25, "shd", "Shaders"},     {0x26, "shk", "Shakes"},
+    {0x27, "skl", "SkillKit"},    {0x28, "snd", "Sound"},       {0x29, "sbk", "SoundBank"},
+    {0x2A, "stl", "StringList"},  {0x2B, "srf", "Surface"},     {0x2C, "tex", "Textures"},
+    {0x2D, "trl", "Trail"},       {0x2E, "ui", "UI"},           {0x2F, "wth", "Weather"},
+    {0x30, "wrl", "Worlds"},      {0x31, "rcp", "Recipe"},      {0x33, "cnd", "Condition"},
+    {0x38, "act", "Act"},         {0x39, "mat", "Material"},    {0x3A, "qsr", "QuestRange"},
+    {0x3B, "lor", "Lore"},        {0x3C, "rev", "Reverb"},      {0x3D, "phm", "PhysMesh"},
+    {0x3E, "mus", "Music"},       {0x3F, "tut", "Tutorial"},    {0x40, "bos", "BossEncounter"},
     {0x42, "aco", "Accolade"},
 };
 
 static const char* getAssetExtension(u32 assetIndex) {
     for (auto& t : kAssetTypes) {
-        if (t.index == assetIndex) return t.extension;
+        if (t.index == assetIndex)
+            return t.extension;
     }
     return nullptr;
 }
 
 static const char* getAssetDirName(u32 assetIndex) {
     for (auto& t : kAssetTypes) {
-        if (t.index == assetIndex) return t.name;
+        if (t.index == assetIndex)
+            return t.name;
     }
     return nullptr;
 }
@@ -110,32 +78,38 @@ static const char* getAssetDirName(u32 assetIndex) {
 /// Returns empty string if the CoreTOC does not contain the entry.
 static std::string buildAssetPath(const std::string& prefix, u32 fileIndex,
                                   const sno::CoreToc* coreToc) {
-    if (!coreToc) return {};
+    if (!coreToc)
+        return {};
 
     auto* tocEntry = coreToc->findById(static_cast<i32>(fileIndex));
-    if (!tocEntry || tocEntry->name.empty()) return {};
+    if (!tocEntry || tocEntry->name.empty())
+        return {};
 
     auto group = static_cast<u32>(tocEntry->group);
     const char* dirName = getAssetDirName(group);
     const char* ext = getAssetExtension(group);
-    if (!dirName || !ext) return {};
+    if (!dirName || !ext)
+        return {};
 
     return prefix + dirName + "\\" + tocEntry->name + "." + ext;
 }
 
 /// Build a CascLib-compatible path for an assetIdx entry using CoreTOC.
 /// SubIndex entries get a subfolder: Dir\Name\NNNN.ext
-static std::string buildAssetIdxPath(const std::string& prefix, u32 fileIndex,
-                                     u32 subIndex, const sno::CoreToc* coreToc) {
-    if (!coreToc) return {};
+static std::string buildAssetIdxPath(const std::string& prefix, u32 fileIndex, u32 subIndex,
+                                     const sno::CoreToc* coreToc) {
+    if (!coreToc)
+        return {};
 
     auto* tocEntry = coreToc->findById(static_cast<i32>(fileIndex));
-    if (!tocEntry || tocEntry->name.empty()) return {};
+    if (!tocEntry || tocEntry->name.empty())
+        return {};
 
     auto group = static_cast<u32>(tocEntry->group);
     const char* dirName = getAssetDirName(group);
     const char* ext = getAssetExtension(group);
-    if (!dirName || !ext) return {};
+    if (!dirName || !ext)
+        return {};
 
     char subBuf[16];
     std::snprintf(subBuf, sizeof(subBuf), "%04u", subIndex);
@@ -148,7 +122,8 @@ static std::string buildAssetIdxPath(const std::string& prefix, u32 fileIndex,
 static std::string getGroupDir(u32 fileIndex) {
     u32 const group = fileIndex >> 16;
     auto ext = getAssetExtension(group);
-    if (ext) return ext;
+    if (ext)
+        return ext;
     return "unk_" + std::to_string(group);
 }
 
@@ -159,8 +134,8 @@ static std::string buildFallbackAssetPath(const std::string& prefix, u32 fileInd
 
 static std::string buildFallbackAssetIdxPath(const std::string& prefix, u32 fileIndex,
                                              u32 subIndex) {
-    return prefix + getGroupDir(fileIndex) + "\\" +
-           std::to_string(fileIndex) + "." + std::to_string(subIndex);
+    return prefix + getGroupDir(fileIndex) + "\\" + std::to_string(fileIndex) + "." +
+           std::to_string(subIndex);
 }
 
 // ============================================================================
@@ -189,7 +164,8 @@ static bool parseDirectory(std::span<const u8> data, size_t& offset,
                            std::vector<AssetEntry>& assetEntries,
                            std::vector<AssetIdxEntry>& assetIdxEntries,
                            std::vector<NamedEntry>& namedEntries) {
-    if (offset + 4 > data.size()) return false;
+    if (offset + 4 > data.size())
+        return false;
 
     u32 const signature = readLE32(data.data() + offset);
 
@@ -197,12 +173,14 @@ static bool parseDirectory(std::span<const u8> data, size_t& offset,
         offset += 4;
 
         // Asset entries.
-        if (offset + 4 > data.size()) return false;
+        if (offset + 4 > data.size())
+            return false;
         u32 const assetCount = readLE32(data.data() + offset);
         offset += 4;
 
         for (u32 i = 0; i < assetCount; ++i) {
-            if (offset + kD3AssetEntrySize > data.size()) return false;
+            if (offset + kD3AssetEntrySize > data.size())
+                return false;
             AssetEntry ae;
             std::memcpy(ae.cKey.data(), data.data() + offset, 16);
             ae.fileIndex = readLE32(data.data() + offset + 16);
@@ -211,12 +189,14 @@ static bool parseDirectory(std::span<const u8> data, size_t& offset,
         }
 
         // AssetIdx entries.
-        if (offset + 4 > data.size()) return false;
+        if (offset + 4 > data.size())
+            return false;
         u32 const assetIdxCount = readLE32(data.data() + offset);
         offset += 4;
 
         for (u32 i = 0; i < assetIdxCount; ++i) {
-            if (offset + kD3AssetIdxEntrySize > data.size()) return false;
+            if (offset + kD3AssetIdxEntrySize > data.size())
+                return false;
             AssetIdxEntry aie;
             std::memcpy(aie.cKey.data(), data.data() + offset, 16);
             aie.fileIndex = readLE32(data.data() + offset + 16);
@@ -233,22 +213,26 @@ static bool parseDirectory(std::span<const u8> data, size_t& offset,
     }
 
     // Named entries (always present after optional asset sections).
-    if (offset + 4 > data.size()) return false;
+    if (offset + 4 > data.size())
+        return false;
     u32 const namedCount = readLE32(data.data() + offset);
     offset += 4;
 
     for (u32 i = 0; i < namedCount; ++i) {
-        if (offset + 16 > data.size()) return false;
+        if (offset + 16 > data.size())
+            return false;
         NamedEntry ne;
         std::memcpy(ne.cKey.data(), data.data() + offset, 16);
         offset += 16;
 
         // Null-terminated string.
         size_t const strStart = offset;
-        while (offset < data.size() && data[offset] != 0) ++offset;
-        if (offset >= data.size()) return false;
-        ne.name = std::string(reinterpret_cast<const char*>(data.data() + strStart),
-                              offset - strStart);
+        while (offset < data.size() && data[offset] != 0)
+            ++offset;
+        if (offset >= data.size())
+            return false;
+        ne.name =
+            std::string(reinterpret_cast<const char*>(data.data() + strStart), offset - strStart);
         ++offset; // skip null terminator
         namedEntries.push_back(std::move(ne));
     }
@@ -264,7 +248,8 @@ static bool parseDirectory(std::span<const u8> data, size_t& offset,
 
 std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver resolver,
                                       interfaces::WorkerPool* pool) {
-    if (data.size() < 4) return nullptr;
+    if (data.size() < 4)
+        return nullptr;
 
     auto root = std::make_unique<D3Root>();
 
@@ -279,8 +264,14 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
 
     // Collect root-level asset entries for later path generation.
     // CascLib resolves these AFTER loading CoreTOC in Phase 2.
-    struct PendingAsset { AssetEntry ae; std::string prefix; };
-    struct PendingAssetIdx { AssetIdxEntry aie; std::string prefix; };
+    struct PendingAsset {
+        AssetEntry ae;
+        std::string prefix;
+    };
+    struct PendingAssetIdx {
+        AssetIdxEntry aie;
+        std::string prefix;
+    };
     std::vector<PendingAsset> pendingAssets;
     std::vector<PendingAssetIdx> pendingAssetIdx;
 
@@ -324,7 +315,8 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
 
         // Parse resolved sub-directories.
         for (size_t si = 0; si < subdirEntries.size(); ++si) {
-            if (subdirData[si].empty()) continue;
+            if (subdirData[si].empty())
+                continue;
 
             auto& subNe = subdirEntries[si];
 
@@ -377,9 +369,8 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
         re.fileDataId = pa.ae.fileIndex;
 
         auto path = buildAssetPath(pa.prefix, pa.ae.fileIndex, tocPtr);
-        re.path = path.empty()
-            ? buildFallbackAssetPath(pa.prefix, pa.ae.fileIndex)
-            : std::move(path);
+        re.path =
+            path.empty() ? buildFallbackAssetPath(pa.prefix, pa.ae.fileIndex) : std::move(path);
         root->m_entries.push_back(std::move(re));
     }
 
@@ -388,12 +379,10 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
         re.cKey = pia.aie.cKey;
         re.fileDataId = pia.aie.fileIndex;
 
-        auto path = buildAssetIdxPath(pia.prefix, pia.aie.fileIndex,
-                                      pia.aie.subIndex, tocPtr);
+        auto path = buildAssetIdxPath(pia.prefix, pia.aie.fileIndex, pia.aie.subIndex, tocPtr);
         re.path = path.empty()
-            ? buildFallbackAssetIdxPath(pia.prefix, pia.aie.fileIndex,
-                                        pia.aie.subIndex)
-            : std::move(path);
+                      ? buildFallbackAssetIdxPath(pia.prefix, pia.aie.fileIndex, pia.aie.subIndex)
+                      : std::move(path);
         root->m_entries.push_back(std::move(re));
     }
 
@@ -407,7 +396,8 @@ std::vector<const RootEntry*> D3Root::findByPath(const std::string& path) const 
     return findByNormalizedPath(key);
 }
 
-std::vector<const RootEntry*> D3Root::findByNormalizedPath(const std::string& normalizedPath) const {
+std::vector<const RootEntry*> D3Root::findByNormalizedPath(
+    const std::string& normalizedPath) const {
     return m_byPath.findAll(m_entries, normalizedPath);
 }
 

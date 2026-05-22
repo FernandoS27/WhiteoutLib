@@ -3,9 +3,9 @@
 /// @file storage_online.cpp
 /// @brief Online (CDN) factory, VFS prefetch via async HTTP.
 
-#include "storage_impl.h"
-#include "storage_backend_impl.h"
 #include "constants.h"
+#include "storage_backend_impl.h"
+#include "storage_impl.h"
 
 #include <atomic>
 #include <chrono>
@@ -18,15 +18,15 @@ namespace whiteout::storages::casc {
 // ============================================================================
 
 std::unordered_map<u64, std::vector<u8>> prefetchVfsOnline(
-    const Storage::Impl& impl,
-    const std::vector<std::array<u8, 16>>& vfsEKeys,
+    const Storage::Impl& impl, const std::vector<std::array<u8, 16>>& vfsEKeys,
     const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey) {
 
     if (!impl.onlineState || !impl.onlineState->fetcher)
         return {};
 
     const size_t totalVfs = vfsEKeys.size();
-    if (totalVfs == 0) return {};
+    if (totalVfs == 0)
+        return {};
 
     // Pre-fetch results.
     struct PrefetchResult {
@@ -65,7 +65,8 @@ std::unordered_map<u64, std::vector<u8>> prefetchVfsOnline(
             impl.onlineState->dataSource->fetchBlteAsync(
                 idxEntry->archiveIndex, idxEntry->archiveOffset, idxEntry->encodedSize,
                 [&prefetchResults, i, wstate, totalVfs](std::optional<std::vector<u8>> data) {
-                    if (data) prefetchResults[i].blteData = std::move(*data);
+                    if (data)
+                        prefetchResults[i].blteData = std::move(*data);
                     if (wstate->completed.fetch_add(1, std::memory_order_acq_rel) + 1 == totalVfs) {
                         std::lock_guard<std::mutex> const lk(wstate->mtx);
                         wstate->cv.notify_one();
@@ -75,7 +76,8 @@ std::unordered_map<u64, std::vector<u8>> prefetchVfsOnline(
             impl.onlineState->dataSource->fetchBlteAsync(
                 enc->eKey,
                 [&prefetchResults, i, wstate, totalVfs](std::optional<std::vector<u8>> data) {
-                    if (data) prefetchResults[i].blteData = std::move(*data);
+                    if (data)
+                        prefetchResults[i].blteData = std::move(*data);
                     if (wstate->completed.fetch_add(1, std::memory_order_acq_rel) + 1 == totalVfs) {
                         std::lock_guard<std::mutex> const lk(wstate->mtx);
                         wstate->cv.notify_one();
@@ -98,7 +100,8 @@ std::unordered_map<u64, std::vector<u8>> prefetchVfsOnline(
     batchEntries.reserve(totalVfs);
     batchToResult.reserve(totalVfs);
     for (size_t i = 0; i < totalVfs; ++i) {
-        if (prefetchResults[i].blteData.empty()) continue;
+        if (prefetchResults[i].blteData.empty())
+            continue;
         BlteBatchEntry entry;
         entry.blteData = prefetchResults[i].blteData;
         batchEntries.push_back(entry);
@@ -149,7 +152,8 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
     impl.memCache = std::make_unique<MemoryCache>(opts.memoryCacheSize);
 
     auto reportProgress = [&](ProgressStep step, u32 current = 0, u32 total = 0) -> bool {
-        if (opts.progressCallback) return opts.progressCallback(step, current, total);
+        if (opts.progressCallback)
+            return opts.progressCallback(step, current, total);
         return true;
     };
 
@@ -157,8 +161,8 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
     std::array<u8, 16> buildConfigKey{};
     std::array<u8, 16> cdnConfigKey{};
 
-    if (!opts.cdnServers.empty() &&
-        !opts.directBuildConfigKey.empty() && !opts.directCdnConfigKey.empty()) {
+    if (!opts.cdnServers.empty() && !opts.directBuildConfigKey.empty() &&
+        !opts.directCdnConfigKey.empty()) {
         impl.onlineState->cdnServers = opts.cdnServers;
         buildConfigKey = storages::common::hexDecode16(opts.directBuildConfigKey);
         cdnConfigKey = storages::common::hexDecode16(opts.directCdnConfigKey);
@@ -181,7 +185,8 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
             std::string const cdnsUrl = "https://" + opts.region +
                                         ".version.battle.net/v2/products/" + opts.product + "/cdns";
             opts.http->getAsync(cdnsUrl, [ds, totalRequests](interfaces::HttpResponse resp) {
-                if (resp.statusCode == 200) ds->cdnsData = std::move(resp.body);
+                if (resp.statusCode == 200)
+                    ds->cdnsData = std::move(resp.body);
                 if (ds->done.fetch_add(1, std::memory_order_acq_rel) + 1 == totalRequests) {
                     std::lock_guard<std::mutex> const lk(ds->mtx);
                     ds->cv.notify_one();
@@ -193,7 +198,8 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
                                             ".version.battle.net/v2/products/" + opts.product +
                                             "/versions";
             opts.http->getAsync(versionsUrl, [ds, totalRequests](interfaces::HttpResponse resp) {
-                if (resp.statusCode == 200) ds->versionsData = std::move(resp.body);
+                if (resp.statusCode == 200)
+                    ds->versionsData = std::move(resp.body);
                 if (ds->done.fetch_add(1, std::memory_order_acq_rel) + 1 == totalRequests) {
                     std::lock_guard<std::mutex> const lk(ds->mtx);
                     ds->cv.notify_one();
@@ -243,9 +249,13 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
             auto versions = parseVersionsResponse(*ds->versionsData);
             const VersionInfo* selected = nullptr;
             for (auto& v : versions) {
-                if (v.region == opts.region) { selected = &v; break; }
+                if (v.region == opts.region) {
+                    selected = &v;
+                    break;
+                }
             }
-            if (!selected && !versions.empty()) selected = &versions[0];
+            if (!selected && !versions.empty())
+                selected = &versions[0];
             if (!selected) {
                 s_lastError = kVersionInfoNotFound;
                 return std::nullopt;
@@ -265,11 +275,11 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
 
     // Create fetcher.
     impl.onlineState->fetcher = std::make_unique<CdnFetcher>(
-        impl.onlineState->http, impl.onlineState->cdnServers,
-        impl.onlineState->cache.get());
+        impl.onlineState->http, impl.onlineState->cdnServers, impl.onlineState->cache.get());
 
     // Steps 4+5: Fetch build config + CDN config in parallel.
-    if (!reportProgress(ProgressStep::LoadingBuildConfig)) return std::nullopt;
+    if (!reportProgress(ProgressStep::LoadingBuildConfig))
+        return std::nullopt;
     {
         struct ConfigState {
             std::optional<std::vector<u8>> buildData;
@@ -300,9 +310,8 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
             });
 
         std::unique_lock<std::mutex> lk(cs->mtx);
-        cs->cv.wait_for(lk, std::chrono::seconds(60), [&] {
-            return cs->done.load(std::memory_order_acquire) >= 2;
-        });
+        cs->cv.wait_for(lk, std::chrono::seconds(60),
+                        [&] { return cs->done.load(std::memory_order_acquire) >= 2; });
 
         if (!cs->buildData) {
             s_lastError = kHttpRequestFailed;
@@ -319,7 +328,8 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
     }
 
     // Step 6: Set up archive index (lazy or eager).
-    if (!reportProgress(ProgressStep::LoadingIndexFiles)) return std::nullopt;
+    if (!reportProgress(ProgressStep::LoadingIndexFiles))
+        return std::nullopt;
 
     if ((opts.flags & StorageFeatureFlags::LazyArchiveIndex) != 0) {
         impl.onlineState->onlineIndex = OnlineIndexTable::makeLazy(
@@ -337,33 +347,33 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
 
     // Load loose file index if available.
     if (!impl.cdnConfig.fileIndex.empty()) {
-        impl.onlineState->looseIndex = OnlineIndexTable::loadLoose(
-            *impl.onlineState->fetcher, impl.cdnConfig.fileIndex);
+        impl.onlineState->looseIndex =
+            OnlineIndexTable::loadLoose(*impl.onlineState->fetcher, impl.cdnConfig.fileIndex);
     }
 
     // Create data source.
     impl.onlineState->dataSource = std::make_unique<OnlineDataSource>(
-        impl.onlineState->fetcher.get(),
-        &impl.onlineState->onlineIndex,
-        &impl.onlineState->looseIndex,
-        &impl.cdnConfig.archiveEKeys);
+        impl.onlineState->fetcher.get(), &impl.onlineState->onlineIndex,
+        &impl.onlineState->looseIndex, &impl.cdnConfig.archiveEKeys);
     impl.dataSource = impl.onlineState->dataSource.get();
 
     // Construct specialised backend (NoCachePolicy; D4 upgrades later).
     impl.backend = std::make_unique<StorageBackendImpl<OnlineDataTraits, NoCachePolicy>>(
         OnlineDataTraits{impl.onlineState->dataSource.get(), &impl.onlineState->onlineIndex},
-        NoCachePolicy{},
-        impl.encodingTable, impl.keyRing, impl.pool);
+        NoCachePolicy{}, impl.encodingTable, impl.keyRing, impl.pool);
 
     // Step 7-8: Load encoding + root (or defer).
     if (opts.flags & StorageFeatureFlags::LoadOnDemand) {
         impl.deferMode = true;
     } else {
-        if (!reportProgress(ProgressStep::LoadingEncodingTable)) return std::nullopt;
-        if (!impl.loadEncodingAndRoot()) return std::nullopt;
+        if (!reportProgress(ProgressStep::LoadingEncodingTable))
+            return std::nullopt;
+        if (!impl.loadEncodingAndRoot())
+            return std::nullopt;
     }
 
-    if (!reportProgress(ProgressStep::Ready)) return std::nullopt;
+    if (!reportProgress(ProgressStep::Ready))
+        return std::nullopt;
     impl.isValid = true;
     Storage storage(std::move(implPtr));
     return storage;

@@ -204,8 +204,14 @@ static constexpr std::array<u8, 258> kWeightTable8 = {{
 }};
 
 static constexpr std::array<const u8*, 9> kWeightTables = {{
-    kWeightTable0.data(), kWeightTable1.data(), kWeightTable2.data(), kWeightTable3.data(),
-    kWeightTable4.data(), kWeightTable5.data(), kWeightTable6.data(), kWeightTable7.data(),
+    kWeightTable0.data(),
+    kWeightTable1.data(),
+    kWeightTable2.data(),
+    kWeightTable3.data(),
+    kWeightTable4.data(),
+    kWeightTable5.data(),
+    kWeightTable6.data(),
+    kWeightTable7.data(),
     kWeightTable8.data(),
 }};
 

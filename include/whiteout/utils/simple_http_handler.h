@@ -35,8 +35,7 @@ public:
     u32 capabilities() const noexcept override;
 
     /// @bind skip — std::function callback isn't auto-bindable
-    void getAsync(const std::string& url,
-                  interfaces::HttpCallback callback) override;
+    void getAsync(const std::string& url, interfaces::HttpCallback callback) override;
 
     /// @bind skip — std::function callback isn't auto-bindable
     void getRangeAsync(const std::string& url, u64 start, u64 end,

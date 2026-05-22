@@ -24,9 +24,9 @@ class KeyRing;    // forward decl — defined in codec/crypto.h
 
 struct EncodingEntry {
     std::array<u8, 16> cKey{};
-    std::array<u8, 16> eKey{};  ///< Primary EKey (first encoding key).
-    u64 fileSize = 0;           ///< Uncompressed file size.
-    std::string eSpec;          ///< BLTE encoding specification (e.g. "z", "n", "b:{65536*=z}").
+    std::array<u8, 16> eKey{}; ///< Primary EKey (first encoding key).
+    u64 fileSize = 0;          ///< Uncompressed file size.
+    std::string eSpec;         ///< BLTE encoding specification (e.g. "z", "n", "b:{65536*=z}").
 };
 
 class EncodingTable {
@@ -39,19 +39,15 @@ public:
     EncodingTable& operator=(const EncodingTable&) = delete;
 
     /// Eager parse — full table in memory, lookups are pure hash hits.
-    static EncodingTable parse(std::span<const u8> data,
-                               interfaces::WorkerPool* pool = nullptr);
+    static EncodingTable parse(std::span<const u8> data, interfaces::WorkerPool* pool = nullptr);
 
     /// Lazy parse — only header + CKey page TOC up front; pages decoded
     /// on findByCKey miss. findByEKey forces ensureFullyParsed.
-    static EncodingTable openLazy(std::span<const u8> data,
-                                  interfaces::WorkerPool* pool = nullptr);
+    static EncodingTable openLazy(std::span<const u8> data, interfaces::WorkerPool* pool = nullptr);
 
     /// Lazy + range-fetched over CDN. fetcher must outlive the table.
-    static EncodingTable openLazyOnline(CdnFetcher* fetcher,
-                                        const std::string& archiveKeyHex,
-                                        u64 archiveOffset,
-                                        u32 encodedSize,
+    static EncodingTable openLazyOnline(CdnFetcher* fetcher, const std::string& archiveKeyHex,
+                                        u64 archiveOffset, u32 encodedSize,
                                         const KeyRing* keys = nullptr,
                                         interfaces::WorkerPool* pool = nullptr);
 
@@ -83,8 +79,7 @@ private:
     mutable std::unique_ptr<LazyState> m_lazy;
 
     void parseCKeyPage(u32 pageIdx) const;
-    static bool initLazyFromBlob(LazyState& state,
-                                 std::unique_ptr<LazyEncodingBlob> blob);
+    static bool initLazyFromBlob(LazyState& state, std::unique_ptr<LazyEncodingBlob> blob);
 };
 
 } // namespace whiteout::storages::casc

@@ -31,7 +31,8 @@ inline void parseListfileRange(std::string_view text,
     size_t pos = 0;
     while (pos < text.size()) {
         size_t eol = text.find('\n', pos);
-        if (eol == std::string_view::npos) eol = text.size();
+        if (eol == std::string_view::npos)
+            eol = text.size();
 
         std::string_view line = text.substr(pos, eol - pos);
         pos = eol + 1;
@@ -74,10 +75,11 @@ inline std::string_view stripBom(std::string_view text) {
 /// Parse a community-listfile into a FileDataId → path map.
 inline std::unordered_map<u32, std::string> parseListfile(std::span<const u8> data) {
     std::unordered_map<u32, std::string> result;
-    if (data.empty()) return result;
+    if (data.empty())
+        return result;
 
-    auto text = detail::stripBom(
-        std::string_view(reinterpret_cast<const char*>(data.data()), data.size()));
+    auto text =
+        detail::stripBom(std::string_view(reinterpret_cast<const char*>(data.data()), data.size()));
     detail::parseListfileRange(text, result);
     return result;
 }
@@ -87,28 +89,25 @@ inline std::unordered_map<u32, std::string> parseListfile(std::span<const u8> da
 /// Falls back to the single-threaded parser for small inputs or when no pool
 /// is given. Community listfiles are ~140 MB / millions of lines, so the
 /// scan + per-path string allocation dominates and parallelizes well.
-inline std::unordered_map<u32, std::string> parseListfile(
-    std::span<const u8> data, interfaces::WorkerPool* pool) {
+inline std::unordered_map<u32, std::string> parseListfile(std::span<const u8> data,
+                                                          interfaces::WorkerPool* pool) {
 
     constexpr size_t kMinParallelBytes = 8 * 1024 * 1024; // 8 MB
     if (!pool || data.size() < kMinParallelBytes)
         return parseListfile(data);
 
-    auto text = detail::stripBom(
-        std::string_view(reinterpret_cast<const char*>(data.data()), data.size()));
+    auto text =
+        detail::stripBom(std::string_view(reinterpret_cast<const char*>(data.data()), data.size()));
 
     // Split into line-aligned chunks: each chunk ends just past a '\n'.
-    const size_t nChunks = std::min<size_t>(
-        std::max<size_t>(pool->threadCount(), 1), 64);
+    const size_t nChunks = std::min<size_t>(std::max<size_t>(pool->threadCount(), 1), 64);
     std::vector<std::string_view> chunks;
     chunks.reserve(nChunks);
     {
         const size_t approx = text.size() / nChunks;
         size_t start = 0;
         for (size_t c = 0; c < nChunks && start < text.size(); ++c) {
-            size_t end = (c + 1 == nChunks)
-                ? text.size()
-                : std::min(text.size(), start + approx);
+            size_t end = (c + 1 == nChunks) ? text.size() : std::min(text.size(), start + approx);
             if (end < text.size()) {
                 size_t nl = text.find('\n', end);
                 end = (nl == std::string_view::npos) ? text.size() : nl + 1;
@@ -141,7 +140,8 @@ inline std::unordered_map<u32, std::string> parseListfile(
     size_t total = 0, largest = 0;
     for (size_t i = 0; i < partials.size(); ++i) {
         total += partials[i].size();
-        if (partials[i].size() > partials[largest].size()) largest = i;
+        if (partials[i].size() > partials[largest].size())
+            largest = i;
     }
     auto result = std::move(partials[largest]);
     result.reserve(total);

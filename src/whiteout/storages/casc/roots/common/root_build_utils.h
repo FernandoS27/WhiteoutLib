@@ -6,10 +6,10 @@
 /// Internal header — not part of the public include path.
 #pragma once
 
-#include "../root.h"
-#include "entry_index.h"
 #include "../../../common/jenkins.h"
 #include "../../../common/string_utils.h"
+#include "../root.h"
+#include "entry_index.h"
 
 #include <whiteout/interfaces.h>
 #include <whiteout/utils/job_group.h>
@@ -23,9 +23,8 @@ namespace whiteout::storages::casc {
 /// Normalize all entry paths in parallel (when a pool is available and the
 /// entry count exceeds a threshold). Returns a vector of lowercased,
 /// normalized path strings aligned 1:1 with @p entries.
-inline std::vector<std::string> normalizeEntryPaths(
-    const std::vector<RootEntry>& entries,
-    interfaces::WorkerPool* pool) {
+inline std::vector<std::string> normalizeEntryPaths(const std::vector<RootEntry>& entries,
+                                                    interfaces::WorkerPool* pool) {
 
     using storages::common::normalizeCascPath;
 
@@ -66,18 +65,18 @@ inline std::vector<std::string> normalizeEntryPaths(
 /// Look up entries by path, trying exact-path index first, then falling
 /// back to Jenkins hash lookup.  Used by roots that maintain both a
 /// normalised-path index and a Jenkins-hash index (S1, Install).
-inline std::vector<const RootEntry*> findByPathOrHash(
-    const std::string& path,
-    const std::vector<RootEntry>& entries,
-    const EntryIndex<std::string>& byPath,
-    const EntryIndex<u64>& byNameHash) {
+inline std::vector<const RootEntry*> findByPathOrHash(const std::string& path,
+                                                      const std::vector<RootEntry>& entries,
+                                                      const EntryIndex<std::string>& byPath,
+                                                      const EntryIndex<u64>& byNameHash) {
 
-    using storages::common::normalizePath;
     using storages::common::jenkinsHash;
+    using storages::common::normalizePath;
 
     auto normalized = normalizePath(path);
     auto results = byPath.findAll(entries, normalized);
-    if (!results.empty()) return results;
+    if (!results.empty())
+        return results;
 
     auto hash = jenkinsHash(path);
     u64 combined = u64(hash.pc) | (u64(hash.pb) << 32);
@@ -86,10 +85,8 @@ inline std::vector<const RootEntry*> findByPathOrHash(
 
 /// Build both a normalised-path index and a Jenkins-hash index from entries.
 /// Used by roots that maintain dual-index lookup (S1, Install).
-inline void buildPathAndHashIndex(
-    EntryIndex<std::string>& byPath,
-    EntryIndex<u64>& byNameHash,
-    const std::vector<RootEntry>& entries) {
+inline void buildPathAndHashIndex(EntryIndex<std::string>& byPath, EntryIndex<u64>& byNameHash,
+                                  const std::vector<RootEntry>& entries) {
 
     using storages::common::normalizePath;
 

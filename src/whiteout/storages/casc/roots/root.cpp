@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "root.h"
-#include "wow_root.h"
+#include "../../common/byte_order.h"
 #include "d3_root.h"
-#include "tvfs_root.h"
+#include "generic_root.h"
 #include "mndx_root.h"
 #include "ow_root.h"
+#include "root.h"
 #include "s1_root.h"
-#include "generic_root.h"
-#include "../../common/byte_order.h"
+#include "tvfs_root.h"
+#include "wow_root.h"
 
 #include <cstring>
 
@@ -18,7 +18,8 @@ namespace whiteout::storages::casc {
 using storages::common::readLE32;
 
 std::unique_ptr<RootManifest> RootManifest::parse(std::span<const u8> data) {
-    if (data.size() < 4) return nullptr;
+    if (data.size() < 4)
+        return nullptr;
 
     u32 const magic = readLE32(data.data());
 
@@ -48,7 +49,8 @@ std::unique_ptr<RootManifest> RootManifest::parse(std::span<const u8> data) {
 
     // Fallback: try headerless WoW root (legacy, build 18125+).
     auto wowLegacy = WowRoot::parse(data);
-    if (wowLegacy) return wowLegacy;
+    if (wowLegacy)
+        return wowLegacy;
 
     // Last resort: generic (empty) root for products with opaque root data.
     return GenericRoot::create();

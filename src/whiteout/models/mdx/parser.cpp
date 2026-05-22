@@ -114,7 +114,7 @@ public:
 
 template <typename T>
 Track<T> Parser::Impl::readTrackChunk(BinaryReader& reader, u32 trackCount, u32 interpolationType,
-                        u32 globalSequenceId) {
+                                      u32 globalSequenceId) {
     Track<T> track;
     track.isUsed = true;
     track.interpolationType = static_cast<InterpolationType>(interpolationType);
@@ -164,10 +164,10 @@ void Parser::Impl::SkipUnknownTrack(BinaryReader& reader, u32 tag, u32 trackCoun
     // We don't know the actual T for an unknown track, so this assumes a 4-byte
     // value -- matches the prior behavior; large-typed unknown tracks (Vector3f,
     // Quaternion, ...) would still mis-skip just as before.
-    const bool smooth =
-        isSmoothInterpolation(static_cast<InterpolationType>(interpolationType));
+    const bool smooth = isSmoothInterpolation(static_cast<InterpolationType>(interpolationType));
     size_t bytesPerKey = sizeof(u32) + sizeof(u32);
-    if (smooth) bytesPerKey += 2 * sizeof(u32);
+    if (smooth)
+        bytesPerKey += 2 * sizeof(u32);
     reader.skip(static_cast<u32>(trackCount * bytesPerKey));
 }
 
@@ -1521,13 +1521,12 @@ void Parser::Impl::parseCORN(BinaryReader& reader, u32 size, Model& mdx) {
     }
 }
 
-void Parser::Impl::upgradeModel(Model& mdx)  {
+void Parser::Impl::upgradeModel(Model& mdx) {
     if (mdx.version <= 800 || mdx.version > 1000) {
         return;
     }
 
-    if (upgradeMode != UpgradeMode::UpgradeOldVersions)
-    {
+    if (upgradeMode != UpgradeMode::UpgradeOldVersions) {
         return;
     }
 
@@ -1538,20 +1537,17 @@ void Parser::Impl::upgradeModel(Model& mdx)  {
 void Parser::Impl::upgradeMaterials(Model& mdx) {
     // If the model is from Reforged and has no materials but has geosets, create default materials
     for (auto& mat : mdx.materials) {
-        const bool is_hd = mat.shader == "Shader_HD_DefaultUnit" || mat.shader == "Shader_HD_Crystal";
+        const bool is_hd =
+            mat.shader == "Shader_HD_DefaultUnit" || mat.shader == "Shader_HD_Crystal";
         // Upgrade older versions to newer format.
-        const bool engineHdMerge =
-            is_hd && mdx.version >= 900 && mat.layers.size() == 6;
+        const bool engineHdMerge = is_hd && mdx.version >= 900 && mat.layers.size() == 6;
 
         if (engineHdMerge) {
             // For HD-collapsed layers, layer index is the slot value.
             static constexpr Layer::SlotType kHdSlotOrder[] = {
-                Layer::SlotType::DiffuseMap,
-                Layer::SlotType::NormalMap,
-                Layer::SlotType::ORMMap,
-                Layer::SlotType::EmissiveMap,
-                Layer::SlotType::TeamColor,
-                Layer::SlotType::EnvironmentMap,
+                Layer::SlotType::DiffuseMap, Layer::SlotType::NormalMap,
+                Layer::SlotType::ORMMap,     Layer::SlotType::EmissiveMap,
+                Layer::SlotType::TeamColor,  Layer::SlotType::EnvironmentMap,
             };
 
             // Convert to HD layer format

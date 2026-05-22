@@ -108,8 +108,10 @@ struct Inflater {
         if (needed > output.size()) {
             // Grow by at least 2x to amortize reallocations.
             size_t newCap = output.size() * 2;
-            if (newCap < needed) newCap = needed;
-            if (newCap < 4096) newCap = 4096;
+            if (newCap < needed)
+                newCap = needed;
+            if (newCap < 4096)
+                newCap = 4096;
             output.resize(newCap);
         }
     }
@@ -287,7 +289,8 @@ struct Inflater {
                     std::memcpy(dst, src, distance);
                     while (copied < length) {
                         size_t chunk = copied;
-                        if (chunk > length - copied) chunk = length - copied;
+                        if (chunk > length - copied)
+                            chunk = length - copied;
                         std::memcpy(dst + copied, dst, chunk);
                         copied += chunk;
                     }
@@ -604,7 +607,8 @@ std::vector<u8> zlib_decompress(std::span<const u8> data, std::string* out_error
     inflater.errorOut = out_error;
     // Pre-size to expectedSize when known, so the inner loop rarely re-allocates.
     size_t initSize = expectedSize > 0 ? expectedSize : data.size() * 4;
-    if (initSize < 4096) initSize = 4096;
+    if (initSize < 4096)
+        initSize = 4096;
     inflater.output.resize(initSize);
 
     if (!inflater.run(data.data() + deflateStart, deflateEnd - deflateStart)) {

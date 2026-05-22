@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "config.h"
 #include "../../common/hex.h"
+#include "config.h"
 
 #include <algorithm>
 #include <charconv>
@@ -29,7 +29,8 @@ static std::vector<std::string_view> splitLines(std::string_view text) {
     while (!text.empty()) {
         auto nl = text.find('\n');
         if (nl == std::string_view::npos) {
-            if (!text.empty()) lines.push_back(text);
+            if (!text.empty())
+                lines.push_back(text);
             break;
         }
         lines.push_back(text.substr(0, nl));
@@ -65,11 +66,13 @@ static std::array<u8, 16> parseHex16(std::string_view hex) {
 
 TsvTable parseTsv(std::span<const u8> data) {
     TsvTable table;
-    if (data.empty()) return table;
+    if (data.empty())
+        return table;
 
     std::string_view const text(reinterpret_cast<const char*>(data.data()), data.size());
     auto lines = splitLines(text);
-    if (lines.size() < 2) return table;
+    if (lines.size() < 2)
+        return table;
 
     // Parse header: "ColumnName!TYPE:SIZE|ColumnName!TYPE:SIZE|..."
     auto headerCols = split(lines[0], '|');
@@ -86,7 +89,8 @@ TsvTable parseTsv(std::span<const u8> data) {
     // Parse data rows
     for (size_t row = 1; row < lines.size(); ++row) {
         auto line = trim(lines[row]);
-        if (line.empty()) continue;
+        if (line.empty())
+            continue;
 
         auto fields = split(line, '|');
         std::vector<std::string> rowData;
@@ -103,11 +107,13 @@ TsvTable parseTsv(std::span<const u8> data) {
 
 std::vector<BuildInfo> parseBuildInfo(std::span<const u8> data) {
     auto table = parseTsv(data);
-    if (table.columns.empty()) return {};
+    if (table.columns.empty())
+        return {};
 
     auto findCol = [&](const std::string& name) -> int {
         for (size_t i = 0; i < table.columns.size(); ++i)
-            if (table.columns[i] == name) return int(i);
+            if (table.columns[i] == name)
+                return int(i);
         return -1;
     };
 
@@ -124,17 +130,25 @@ std::vector<BuildInfo> parseBuildInfo(std::span<const u8> data) {
         BuildInfo info;
 
         auto getField = [&](int idx) -> std::string_view {
-            if (idx >= 0 && size_t(idx) < row.size()) return row[idx];
+            if (idx >= 0 && size_t(idx) < row.size())
+                return row[idx];
             return {};
         };
 
-        if (iBranch >= 0) info.branch = std::string(getField(iBranch));
-        if (iActive >= 0) info.active = (getField(iActive) == "1");
-        if (iBuildKey >= 0) info.buildKey = parseHex16(getField(iBuildKey));
-        if (iCdnKey >= 0) info.cdnKey = parseHex16(getField(iCdnKey));
-        if (iCdnPath >= 0) info.cdnPath = std::string(getField(iCdnPath));
-        if (iVersion >= 0) info.version = std::string(getField(iVersion));
-        if (iProduct >= 0) info.product = std::string(getField(iProduct));
+        if (iBranch >= 0)
+            info.branch = std::string(getField(iBranch));
+        if (iActive >= 0)
+            info.active = (getField(iActive) == "1");
+        if (iBuildKey >= 0)
+            info.buildKey = parseHex16(getField(iBuildKey));
+        if (iCdnKey >= 0)
+            info.cdnKey = parseHex16(getField(iCdnKey));
+        if (iCdnPath >= 0)
+            info.cdnPath = std::string(getField(iCdnPath));
+        if (iVersion >= 0)
+            info.version = std::string(getField(iVersion));
+        if (iProduct >= 0)
+            info.product = std::string(getField(iProduct));
 
         results.push_back(std::move(info));
     }
@@ -150,17 +164,20 @@ using KVMap = std::vector<std::pair<std::string, std::string>>;
 
 static KVMap parseKeyValueFile(std::span<const u8> data) {
     KVMap kvs;
-    if (data.empty()) return kvs;
+    if (data.empty())
+        return kvs;
 
     std::string_view const text(reinterpret_cast<const char*>(data.data()), data.size());
     auto lines = splitLines(text);
 
     for (auto& line : lines) {
         auto l = trim(line);
-        if (l.empty() || l[0] == '#') continue;
+        if (l.empty() || l[0] == '#')
+            continue;
 
         auto eq = l.find(" = ");
-        if (eq == std::string_view::npos) continue;
+        if (eq == std::string_view::npos)
+            continue;
 
         auto key = trim(l.substr(0, eq));
         auto val = trim(l.substr(eq + 3));
@@ -171,7 +188,8 @@ static KVMap parseKeyValueFile(std::span<const u8> data) {
 
 static std::string kvGet(const KVMap& kvs, const std::string& key) {
     for (auto& [k, v] : kvs)
-        if (k == key) return v;
+        if (k == key)
+            return v;
     return {};
 }
 
@@ -183,7 +201,8 @@ static std::string firstToken(const std::string& s) {
 
 static std::string secondToken(const std::string& s) {
     auto pos = s.find(' ');
-    if (pos == std::string::npos) return {};
+    if (pos == std::string::npos)
+        return {};
     std::string_view rest = std::string_view(s).substr(pos + 1);
     rest = trim(rest);
     auto pos2 = rest.find(' ');
@@ -192,18 +211,21 @@ static std::string secondToken(const std::string& s) {
 
 BuildConfig parseBuildConfig(std::span<const u8> data) {
     BuildConfig cfg;
-    if (data.empty()) return cfg;
+    if (data.empty())
+        return cfg;
 
     auto kvs = parseKeyValueFile(data);
 
     auto root = kvGet(kvs, "root");
-    if (!root.empty()) cfg.rootCKey = parseHex16(root);
+    if (!root.empty())
+        cfg.rootCKey = parseHex16(root);
 
     auto encoding = kvGet(kvs, "encoding");
     if (!encoding.empty()) {
         cfg.encodingCKey = parseHex16(firstToken(encoding));
         auto second = secondToken(encoding);
-        if (!second.empty()) cfg.encodingEKey = parseHex16(second);
+        if (!second.empty())
+            cfg.encodingEKey = parseHex16(second);
     }
 
     auto encodingSize = kvGet(kvs, "encoding-size");
@@ -213,10 +235,12 @@ BuildConfig parseBuildConfig(std::span<const u8> data) {
     }
 
     auto download = kvGet(kvs, "download");
-    if (!download.empty()) cfg.downloadCKey = parseHex16(firstToken(download));
+    if (!download.empty())
+        cfg.downloadCKey = parseHex16(firstToken(download));
 
     auto install = kvGet(kvs, "install");
-    if (!install.empty()) cfg.installCKey = parseHex16(firstToken(install));
+    if (!install.empty())
+        cfg.installCKey = parseHex16(firstToken(install));
 
     cfg.buildName = kvGet(kvs, "build-name");
     cfg.buildProduct = kvGet(kvs, "build-product");
@@ -226,7 +250,8 @@ BuildConfig parseBuildConfig(std::span<const u8> data) {
     if (!vfsRoot.empty()) {
         cfg.vfsRootCKey = parseHex16(firstToken(vfsRoot));
         auto second = secondToken(vfsRoot);
-        if (!second.empty()) cfg.vfsRootEKey = parseHex16(second);
+        if (!second.empty())
+            cfg.vfsRootEKey = parseHex16(second);
     }
 
     // Collect CKey+EKey pairs of vfs-1 .. vfs-N sub-manifests.
@@ -245,7 +270,8 @@ BuildConfig parseBuildConfig(std::span<const u8> data) {
 
 CdnConfig parseCdnConfig(std::span<const u8> data) {
     CdnConfig cdn;
-    if (data.empty()) return cdn;
+    if (data.empty())
+        return cdn;
 
     auto kvs = parseKeyValueFile(data);
 
@@ -255,11 +281,13 @@ CdnConfig parseCdnConfig(std::span<const u8> data) {
         std::string_view sv(archives);
         while (!sv.empty()) {
             sv = trim(sv);
-            if (sv.empty()) break;
+            if (sv.empty())
+                break;
             auto sp = sv.find(' ');
             auto token = (sp != std::string_view::npos) ? sv.substr(0, sp) : sv;
             cdn.archiveEKeys.push_back(parseHex16(token));
-            if (sp == std::string_view::npos) break;
+            if (sp == std::string_view::npos)
+                break;
             sv.remove_prefix(sp + 1);
         }
     }
@@ -269,13 +297,15 @@ CdnConfig parseCdnConfig(std::span<const u8> data) {
         std::string_view sv(indexSizes);
         while (!sv.empty()) {
             sv = trim(sv);
-            if (sv.empty()) break;
+            if (sv.empty())
+                break;
             auto sp = sv.find(' ');
             auto token = (sp != std::string_view::npos) ? sv.substr(0, sp) : sv;
             u32 val = 0;
             std::from_chars(token.data(), token.data() + token.size(), val);
             cdn.archiveIndexSizes.push_back(val);
-            if (sp == std::string_view::npos) break;
+            if (sp == std::string_view::npos)
+                break;
             sv.remove_prefix(sp + 1);
         }
     }
@@ -294,7 +324,8 @@ CdnConfig parseCdnConfig(std::span<const u8> data) {
 
 ShmemInfo parseShmem(std::span<const u8> data) {
     ShmemInfo info;
-    if (data.size() < 8) return info;
+    if (data.size() < 8)
+        return info;
 
     // Shmem layout: archiveCount(4 LE) + version(4 LE).
     std::memcpy(&info.archiveCount, data.data(), 4);
@@ -308,11 +339,13 @@ ShmemInfo parseShmem(std::span<const u8> data) {
 
 std::vector<VersionInfo> parseVersionsResponse(std::span<const u8> data) {
     auto table = parseTsv(data);
-    if (table.columns.empty()) return {};
+    if (table.columns.empty())
+        return {};
 
     auto findCol = [&](const std::string& name) -> int {
         for (size_t i = 0; i < table.columns.size(); ++i)
-            if (table.columns[i] == name) return int(i);
+            if (table.columns[i] == name)
+                return int(i);
         return -1;
     };
 
@@ -329,20 +362,27 @@ std::vector<VersionInfo> parseVersionsResponse(std::span<const u8> data) {
         VersionInfo vi;
 
         auto getField = [&](int idx) -> std::string_view {
-            if (idx >= 0 && size_t(idx) < row.size()) return row[idx];
+            if (idx >= 0 && size_t(idx) < row.size())
+                return row[idx];
             return {};
         };
 
-        if (iRegion >= 0) vi.region = std::string(getField(iRegion));
-        if (iBuildConfig >= 0) vi.buildConfigKey = parseHex16(getField(iBuildConfig));
-        if (iCdnConfig >= 0) vi.cdnConfigKey = parseHex16(getField(iCdnConfig));
-        if (iKeyRing >= 0) vi.keyRing = parseHex16(getField(iKeyRing));
+        if (iRegion >= 0)
+            vi.region = std::string(getField(iRegion));
+        if (iBuildConfig >= 0)
+            vi.buildConfigKey = parseHex16(getField(iBuildConfig));
+        if (iCdnConfig >= 0)
+            vi.cdnConfigKey = parseHex16(getField(iCdnConfig));
+        if (iKeyRing >= 0)
+            vi.keyRing = parseHex16(getField(iKeyRing));
         if (iBuildId >= 0) {
             auto f = getField(iBuildId);
             std::from_chars(f.data(), f.data() + f.size(), vi.buildId);
         }
-        if (iVersion >= 0) vi.versionName = std::string(getField(iVersion));
-        if (iProdCfg >= 0) vi.productConfig = std::string(getField(iProdCfg));
+        if (iVersion >= 0)
+            vi.versionName = std::string(getField(iVersion));
+        if (iProdCfg >= 0)
+            vi.productConfig = std::string(getField(iProdCfg));
 
         results.push_back(std::move(vi));
     }
@@ -352,11 +392,13 @@ std::vector<VersionInfo> parseVersionsResponse(std::span<const u8> data) {
 
 std::vector<CdnInfo> parseCdnsResponse(std::span<const u8> data) {
     auto table = parseTsv(data);
-    if (table.columns.empty()) return {};
+    if (table.columns.empty())
+        return {};
 
     auto findCol = [&](const std::string& name) -> int {
         for (size_t i = 0; i < table.columns.size(); ++i)
-            if (table.columns[i] == name) return int(i);
+            if (table.columns[i] == name)
+                return int(i);
         return -1;
     };
 
@@ -371,13 +413,17 @@ std::vector<CdnInfo> parseCdnsResponse(std::span<const u8> data) {
         CdnInfo ci;
 
         auto getField = [&](int idx) -> std::string_view {
-            if (idx >= 0 && size_t(idx) < row.size()) return row[idx];
+            if (idx >= 0 && size_t(idx) < row.size())
+                return row[idx];
             return {};
         };
 
-        if (iName >= 0) ci.region = std::string(getField(iName));
-        if (iPath >= 0) ci.path = std::string(getField(iPath));
-        if (iConfigPath >= 0) ci.configPath = std::string(getField(iConfigPath));
+        if (iName >= 0)
+            ci.region = std::string(getField(iName));
+        if (iPath >= 0)
+            ci.path = std::string(getField(iPath));
+        if (iConfigPath >= 0)
+            ci.configPath = std::string(getField(iConfigPath));
 
         // Hosts are space-separated; Servers field has full URLs.
         // Prefer Hosts if available, parse Servers as fallback.
@@ -396,8 +442,10 @@ std::vector<CdnInfo> parseCdnsResponse(std::span<const u8> data) {
                 for (auto& p : parts) {
                     auto sv = trim(p);
                     // Strip "https://" prefix to get bare host.
-                    if (sv.substr(0, 8) == "https://") sv.remove_prefix(8);
-                    else if (sv.substr(0, 7) == "http://") sv.remove_prefix(7);
+                    if (sv.substr(0, 8) == "https://")
+                        sv.remove_prefix(8);
+                    else if (sv.substr(0, 7) == "http://")
+                        sv.remove_prefix(7);
                     if (!sv.empty())
                         ci.hosts.emplace_back(sv);
                 }

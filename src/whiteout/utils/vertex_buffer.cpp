@@ -194,30 +194,29 @@ void encodeU32Components(u8* dst, const u32* src, size_t count, AttributeEncodin
 struct VertexBufferBuilder::Impl {
 
     struct PendingAttribute {
-        std::vector<f32> float_data;   // populated for float sources
-        std::vector<u32> uint_data;    // populated for integer sources
-        const f32* direct_float_ptr;   // non-null for zero-copy fast path
+        std::vector<f32> float_data; // populated for float sources
+        std::vector<u32> uint_data;  // populated for integer sources
+        const f32* direct_float_ptr; // non-null for zero-copy fast path
         AttributeClass attr_class;
         AttributeEncoding encoding;
         size_t component_count;
         size_t vertex_count;
-        size_t align;                  // 0 = natural (no extra padding)
+        size_t align; // 0 = natural (no extra padding)
         bool is_uint_source;
 
         PendingAttribute()
             : direct_float_ptr(nullptr), attr_class(AttributeClass::Position),
-              encoding(AttributeEncoding::Float32), component_count(0), vertex_count(0),
-              align(0), is_uint_source(false) {}
+              encoding(AttributeEncoding::Float32), component_count(0), vertex_count(0), align(0),
+              is_uint_source(false) {}
 
         void encodeInto(u8* destination, size_t vertex_index) const {
             const size_t src_base = vertex_index * component_count;
             if (is_uint_source) {
-                encodeU32Components(destination, uint_data.data() + src_base,
-                                    component_count, encoding);
+                encodeU32Components(destination, uint_data.data() + src_base, component_count,
+                                    encoding);
             } else {
                 const f32* fptr = direct_float_ptr ? direct_float_ptr : float_data.data();
-                encodeF32Components(destination, fptr + src_base,
-                                      component_count, encoding);
+                encodeF32Components(destination, fptr + src_base, component_count, encoding);
             }
         }
     };
@@ -241,12 +240,9 @@ VertexBufferBuilder& VertexBufferBuilder::operator=(VertexBufferBuilder&&) noexc
 // declareAttributeFloat — copies float data into pending attribute
 // ============================================================================
 
-VertexBufferBuilder& VertexBufferBuilder::declareAttributeFloat(const f32* data,
-                                                                size_t vertex_count,
-                                                                size_t components,
-                                                                AttributeClass attr_class,
-                                                                AttributeEncoding encoding,
-                                                                size_t align) {
+VertexBufferBuilder& VertexBufferBuilder::declareAttributeFloat(
+    const f32* data, size_t vertex_count, size_t components, AttributeClass attr_class,
+    AttributeEncoding encoding, size_t align) {
     Impl::PendingAttribute attr;
     attr.float_data.assign(data, data + vertex_count * components);
     attr.attr_class = attr_class;
@@ -263,8 +259,7 @@ VertexBufferBuilder& VertexBufferBuilder::declareAttributeFloat(const f32* data,
 // declareAttributeUint — copies u32 data into pending attribute
 // ============================================================================
 
-VertexBufferBuilder& VertexBufferBuilder::declareAttributeUint(const u32* data,
-                                                               size_t vertex_count,
+VertexBufferBuilder& VertexBufferBuilder::declareAttributeUint(const u32* data, size_t vertex_count,
                                                                size_t components,
                                                                AttributeClass attr_class,
                                                                AttributeEncoding encoding,
@@ -288,12 +283,9 @@ VertexBufferBuilder& VertexBufferBuilder::declareAttributeUint(const u32* data,
 // The "direct" path here avoids the flatten loop in the header template.
 // ============================================================================
 
-VertexBufferBuilder& VertexBufferBuilder::declareAttributeFloatDirect(const f32* data,
-                                                                      size_t vertex_count,
-                                                                      size_t components,
-                                                                      AttributeClass attr_class,
-                                                                      AttributeEncoding encoding,
-                                                                      size_t align) {
+VertexBufferBuilder& VertexBufferBuilder::declareAttributeFloatDirect(
+    const f32* data, size_t vertex_count, size_t components, AttributeClass attr_class,
+    AttributeEncoding encoding, size_t align) {
     return declareAttributeFloat(data, vertex_count, components, attr_class, encoding, align);
 }
 
@@ -402,7 +394,8 @@ const VertexBuffer::Attribute* findAttr(const VertexBuffer& vb, AttributeClass c
     size_t found = 0;
     for (const auto& a : vb.layout) {
         if (a.attr_class == cls) {
-            if (found == nth) return &a;
+            if (found == nth)
+                return &a;
             ++found;
         }
     }
@@ -411,36 +404,98 @@ const VertexBuffer::Attribute* findAttr(const VertexBuffer& vb, AttributeClass c
 
 f32 decodeFloat(const u8* src, AttributeEncoding enc) {
     switch (enc) {
-    case AttributeEncoding::Float32: { f32 v; std::memcpy(&v, src, 4); return v; }
-    case AttributeEncoding::Float16: { u16 r; std::memcpy(&r, src, 2); return f16::from_raw(r).to_float(); }
-    case AttributeEncoding::SNorm8:  return static_cast<f32>(static_cast<i8>(*src)) / 127.0f;
-    case AttributeEncoding::SNorm16: { i16 v; std::memcpy(&v, src, 2); return static_cast<f32>(v) / 32767.0f; }
-    case AttributeEncoding::UNorm8:  return static_cast<f32>(*src) / 255.0f;
-    case AttributeEncoding::UNorm16: { u16 v; std::memcpy(&v, src, 2); return static_cast<f32>(v) / 65535.0f; }
-    case AttributeEncoding::UInt8:   return static_cast<f32>(*src);
-    case AttributeEncoding::UInt16:  { u16 v; std::memcpy(&v, src, 2); return static_cast<f32>(v); }
-    case AttributeEncoding::UInt32:  { u32 v; std::memcpy(&v, src, 4); return static_cast<f32>(v); }
-    case AttributeEncoding::Int8:    return static_cast<f32>(static_cast<i8>(*src));
-    case AttributeEncoding::Int16:   { i16 v; std::memcpy(&v, src, 2); return static_cast<f32>(v); }
-    case AttributeEncoding::Int32:   { i32 v; std::memcpy(&v, src, 4); return static_cast<f32>(v); }
+    case AttributeEncoding::Float32: {
+        f32 v;
+        std::memcpy(&v, src, 4);
+        return v;
+    }
+    case AttributeEncoding::Float16: {
+        u16 r;
+        std::memcpy(&r, src, 2);
+        return f16::from_raw(r).to_float();
+    }
+    case AttributeEncoding::SNorm8:
+        return static_cast<f32>(static_cast<i8>(*src)) / 127.0f;
+    case AttributeEncoding::SNorm16: {
+        i16 v;
+        std::memcpy(&v, src, 2);
+        return static_cast<f32>(v) / 32767.0f;
+    }
+    case AttributeEncoding::UNorm8:
+        return static_cast<f32>(*src) / 255.0f;
+    case AttributeEncoding::UNorm16: {
+        u16 v;
+        std::memcpy(&v, src, 2);
+        return static_cast<f32>(v) / 65535.0f;
+    }
+    case AttributeEncoding::UInt8:
+        return static_cast<f32>(*src);
+    case AttributeEncoding::UInt16: {
+        u16 v;
+        std::memcpy(&v, src, 2);
+        return static_cast<f32>(v);
+    }
+    case AttributeEncoding::UInt32: {
+        u32 v;
+        std::memcpy(&v, src, 4);
+        return static_cast<f32>(v);
+    }
+    case AttributeEncoding::Int8:
+        return static_cast<f32>(static_cast<i8>(*src));
+    case AttributeEncoding::Int16: {
+        i16 v;
+        std::memcpy(&v, src, 2);
+        return static_cast<f32>(v);
+    }
+    case AttributeEncoding::Int32: {
+        i32 v;
+        std::memcpy(&v, src, 4);
+        return static_cast<f32>(v);
+    }
     }
     return 0.0f;
 }
 
 f32 decodeRaw(const u8* src, AttributeEncoding enc) {
     switch (enc) {
-    case AttributeEncoding::Float32: { f32 v; std::memcpy(&v, src, 4); return v; }
-    case AttributeEncoding::Float16: { u16 r; std::memcpy(&r, src, 2); return f16::from_raw(r).to_float(); }
+    case AttributeEncoding::Float32: {
+        f32 v;
+        std::memcpy(&v, src, 4);
+        return v;
+    }
+    case AttributeEncoding::Float16: {
+        u16 r;
+        std::memcpy(&r, src, 2);
+        return f16::from_raw(r).to_float();
+    }
     case AttributeEncoding::SNorm8:
-    case AttributeEncoding::Int8:    return static_cast<f32>(static_cast<i8>(*src));
+    case AttributeEncoding::Int8:
+        return static_cast<f32>(static_cast<i8>(*src));
     case AttributeEncoding::SNorm16:
-    case AttributeEncoding::Int16:   { i16 v; std::memcpy(&v, src, 2); return static_cast<f32>(v); }
-    case AttributeEncoding::Int32:   { i32 v; std::memcpy(&v, src, 4); return static_cast<f32>(v); }
+    case AttributeEncoding::Int16: {
+        i16 v;
+        std::memcpy(&v, src, 2);
+        return static_cast<f32>(v);
+    }
+    case AttributeEncoding::Int32: {
+        i32 v;
+        std::memcpy(&v, src, 4);
+        return static_cast<f32>(v);
+    }
     case AttributeEncoding::UNorm8:
-    case AttributeEncoding::UInt8:   return static_cast<f32>(*src);
+    case AttributeEncoding::UInt8:
+        return static_cast<f32>(*src);
     case AttributeEncoding::UNorm16:
-    case AttributeEncoding::UInt16:  { u16 v; std::memcpy(&v, src, 2); return static_cast<f32>(v); }
-    case AttributeEncoding::UInt32:  { u32 v; std::memcpy(&v, src, 4); return static_cast<f32>(v); }
+    case AttributeEncoding::UInt16: {
+        u16 v;
+        std::memcpy(&v, src, 2);
+        return static_cast<f32>(v);
+    }
+    case AttributeEncoding::UInt32: {
+        u32 v;
+        std::memcpy(&v, src, 4);
+        return static_cast<f32>(v);
+    }
     }
     return 0.0f;
 }
@@ -448,17 +503,43 @@ f32 decodeRaw(const u8* src, AttributeEncoding enc) {
 u32 decodeUint(const u8* src, AttributeEncoding enc) {
     switch (enc) {
     case AttributeEncoding::UInt8:
-    case AttributeEncoding::UNorm8:  return *src;
+    case AttributeEncoding::UNorm8:
+        return *src;
     case AttributeEncoding::UInt16:
-    case AttributeEncoding::UNorm16: { u16 v; std::memcpy(&v, src, 2); return v; }
-    case AttributeEncoding::UInt32:  { u32 v; std::memcpy(&v, src, 4); return v; }
+    case AttributeEncoding::UNorm16: {
+        u16 v;
+        std::memcpy(&v, src, 2);
+        return v;
+    }
+    case AttributeEncoding::UInt32: {
+        u32 v;
+        std::memcpy(&v, src, 4);
+        return v;
+    }
     case AttributeEncoding::Int8:
-    case AttributeEncoding::SNorm8:  return static_cast<u32>(static_cast<u8>(*src));
+    case AttributeEncoding::SNorm8:
+        return static_cast<u32>(static_cast<u8>(*src));
     case AttributeEncoding::Int16:
-    case AttributeEncoding::SNorm16: { u16 v; std::memcpy(&v, src, 2); return static_cast<u32>(v); }
-    case AttributeEncoding::Int32:   { u32 v; std::memcpy(&v, src, 4); return v; }
-    case AttributeEncoding::Float32: { f32 v; std::memcpy(&v, src, 4); return static_cast<u32>(v); }
-    case AttributeEncoding::Float16: { u16 r; std::memcpy(&r, src, 2); return static_cast<u32>(f16::from_raw(r).to_float()); }
+    case AttributeEncoding::SNorm16: {
+        u16 v;
+        std::memcpy(&v, src, 2);
+        return static_cast<u32>(v);
+    }
+    case AttributeEncoding::Int32: {
+        u32 v;
+        std::memcpy(&v, src, 4);
+        return v;
+    }
+    case AttributeEncoding::Float32: {
+        f32 v;
+        std::memcpy(&v, src, 4);
+        return static_cast<u32>(v);
+    }
+    case AttributeEncoding::Float16: {
+        u16 r;
+        std::memcpy(&r, src, 2);
+        return static_cast<u32>(f16::from_raw(r).to_float());
+    }
     }
     return 0;
 }
@@ -480,19 +561,22 @@ size_t VertexBuffer::vertexSize() const {
 size_t VertexBuffer::UVsNum() const {
     size_t count = 0;
     for (const auto& a : layout)
-        if (a.attr_class == AttributeClass::UV) ++count;
+        if (a.attr_class == AttributeClass::UV)
+            ++count;
     return count;
 }
 
 bool VertexBuffer::hasVertexColors() const {
     for (const auto& a : layout)
-        if (a.attr_class == AttributeClass::Color) return true;
+        if (a.attr_class == AttributeClass::Color)
+            return true;
     return false;
 }
 
 std::vector<Vector3f> VertexBuffer::getPositions() const {
     const auto* attr = findAttr(*this, AttributeClass::Position);
-    if (!attr) return {};
+    if (!attr)
+        return {};
     const size_t n = vertexCount();
     const size_t bpe = bytesPerEncoding(attr->encoding);
     const size_t comps = std::min(attr->component_count, size_t{3});
@@ -507,7 +591,8 @@ std::vector<Vector3f> VertexBuffer::getPositions() const {
 
 std::vector<Vector3f> VertexBuffer::getNormals() const {
     const auto* attr = findAttr(*this, AttributeClass::Normal);
-    if (!attr) return {};
+    if (!attr)
+        return {};
     const size_t n = vertexCount();
     const size_t bpe = bytesPerEncoding(attr->encoding);
     const size_t comps = std::min(attr->component_count, size_t{3});
@@ -522,7 +607,8 @@ std::vector<Vector3f> VertexBuffer::getNormals() const {
 
 std::vector<Vector4f> VertexBuffer::getTangents() const {
     const auto* attr = findAttr(*this, AttributeClass::Tangent);
-    if (!attr) return {};
+    if (!attr)
+        return {};
     const size_t n = vertexCount();
     const size_t bpe = bytesPerEncoding(attr->encoding);
     const size_t comps = std::min(attr->component_count, size_t{4});
@@ -541,7 +627,8 @@ std::vector<Vector2f> VertexBuffer::getUVs(size_t which) const {
 
 std::vector<Vector2f> VertexBuffer::getUVs(size_t which, f32 uvMultiply, f32 uvOffset) const {
     const auto* attr = findAttr(*this, AttributeClass::UV, which);
-    if (!attr) return {};
+    if (!attr)
+        return {};
     const size_t n = vertexCount();
     const size_t bpe = bytesPerEncoding(attr->encoding);
     const size_t comps = std::min(attr->component_count, size_t{2});
@@ -556,7 +643,8 @@ std::vector<Vector2f> VertexBuffer::getUVs(size_t which, f32 uvMultiply, f32 uvO
 
 std::vector<Vector4f> VertexBuffer::getColors() const {
     const auto* attr = findAttr(*this, AttributeClass::Color);
-    if (!attr) return {};
+    if (!attr)
+        return {};
     const size_t n = vertexCount();
     const size_t bpe = bytesPerEncoding(attr->encoding);
     const size_t comps = std::min(attr->component_count, size_t{4});
@@ -572,7 +660,8 @@ std::vector<Vector4f> VertexBuffer::getColors() const {
 
 std::vector<std::array<u32, 4>> VertexBuffer::getBoneIndices() const {
     const auto* attr = findAttr(*this, AttributeClass::BlendIndices);
-    if (!attr) return {};
+    if (!attr)
+        return {};
     const size_t n = vertexCount();
     const size_t bpe = bytesPerEncoding(attr->encoding);
     const size_t comps = std::min(attr->component_count, size_t{4});
@@ -587,7 +676,8 @@ std::vector<std::array<u32, 4>> VertexBuffer::getBoneIndices() const {
 
 std::vector<std::array<f32, 4>> VertexBuffer::getBoneWeights() const {
     const auto* attr = findAttr(*this, AttributeClass::BlendWeights);
-    if (!attr) return {};
+    if (!attr)
+        return {};
     const size_t n = vertexCount();
     const size_t bpe = bytesPerEncoding(attr->encoding);
     const size_t comps = std::min(attr->component_count, size_t{4});

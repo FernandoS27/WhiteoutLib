@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "wow_tvfs_root.h"
+#include "../../common/string_utils.h"
 #include "common/listfile_parser.h"
 #include "common/wow_tvfs_path.h"
-#include "../../common/string_utils.h"
+#include "wow_tvfs_root.h"
 
 #include <whiteout/interfaces.h>
 #include <whiteout/utils/job_group.h>
@@ -32,7 +32,8 @@ bool WowTvfsRoot::looksLikeWowTvfs(const TvfsRoot& tvfs) {
     size_t nonMatches = 0;
     tvfs.enumerate([&](const RootEntry& e) {
         if (wow_tvfs_path::matches(e.path)) {
-            if (++matched >= kRequiredMatches) return false; // confirmed
+            if (++matched >= kRequiredMatches)
+                return false; // confirmed
         } else if (++nonMatches >= kMaxNonMatches) {
             return false; // give up
         }
@@ -46,10 +47,12 @@ bool WowTvfsRoot::looksLikeWowTvfs(const TvfsRoot& tvfs) {
 // ============================================================================
 
 std::unique_ptr<WowTvfsRoot> WowTvfsRoot::create(std::unique_ptr<TvfsRoot> tvfs,
-                                                   interfaces::WorkerPool* pool,
-                                                   std::span<const u8> listfile) {
-    if (!tvfs) return nullptr;
-    if (!looksLikeWowTvfs(*tvfs)) return nullptr;
+                                                 interfaces::WorkerPool* pool,
+                                                 std::span<const u8> listfile) {
+    if (!tvfs)
+        return nullptr;
+    if (!looksLikeWowTvfs(*tvfs))
+        return nullptr;
 
     // Parse listfile if provided (parallel — community listfiles are ~140 MB).
     std::unordered_map<u32, std::string> listfilePaths;
@@ -142,7 +145,8 @@ std::vector<const RootEntry*> WowTvfsRoot::findByPath(const std::string& path) c
     return m_byPath.findAll(m_entries, key);
 }
 
-std::vector<const RootEntry*> WowTvfsRoot::findByFileDataId(u32 fileDataId, FileIdHint /*hint*/) const {
+std::vector<const RootEntry*> WowTvfsRoot::findByFileDataId(u32 fileDataId,
+                                                            FileIdHint /*hint*/) const {
     return m_byFileDataId.findAll(m_entries, fileDataId);
 }
 
@@ -185,9 +189,15 @@ void WowTvfsRoot::buildIndex(interfaces::WorkerPool* pool) {
         utils::JobGroup jobGroup;
         jobGroup.add(2);
         interfaces::WorkerTask t1;
-        t1.fn = [&]() { buildFileDataIdIndex(); jobGroup.done(); };
+        t1.fn = [&]() {
+            buildFileDataIdIndex();
+            jobGroup.done();
+        };
         interfaces::WorkerTask t2;
-        t2.fn = [&]() { buildPathIndex(); jobGroup.done(); };
+        t2.fn = [&]() {
+            buildPathIndex();
+            jobGroup.done();
+        };
         pool->submit(t1);
         pool->submit(t2);
         jobGroup.wait();

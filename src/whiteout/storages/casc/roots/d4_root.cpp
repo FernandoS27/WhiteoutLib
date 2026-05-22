@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "d4_root.h"
-#include "common/root_build_utils.h"
 #include "../../common/byte_order.h"
 #include "../../common/string_utils.h"
+#include "common/root_build_utils.h"
+#include "d4_root.h"
 
 #include <whiteout/interfaces.h>
 #include <whiteout/sno/core_toc.h>
@@ -50,7 +50,6 @@ inline bool tryParseInt(std::string_view sv, i32& out) {
     return ec == std::errc{} && ptr == sv.data() + sv.size();
 }
 
-
 /// Parse a D4 file stem like "12345" or "12345-2" into snoId and optional subId.
 /// Returns false if the stem doesn't match the expected numeric pattern.
 bool parseSnoStem(std::string_view stem, i32& snoId, i32& subId) {
@@ -59,7 +58,8 @@ bool parseSnoStem(std::string_view stem, i32& snoId, i32& subId) {
     if (dashPos == std::string_view::npos) {
         return tryParseInt(stem, snoId);
     }
-    if (!tryParseInt(stem.substr(0, dashPos), snoId)) return false;
+    if (!tryParseInt(stem.substr(0, dashPos), snoId))
+        return false;
     return tryParseInt(stem.substr(dashPos + 1), subId);
 }
 
@@ -73,13 +73,12 @@ std::string buildEnrichedPath(std::string_view folder, std::string_view subfolde
 
     std::string path;
     // Pre-calculate approximate capacity to avoid reallocs.
-    path.reserve(folder.size() + 1 + subfolder.size() + 1 +
-                 (groupDir ? std::strlen(groupDir) : 4) + 1 +
-                 (nameOverride ? std::strlen(nameOverride) : toc.name.size()) + 8 +
+    path.reserve(folder.size() + 1 + subfolder.size() + 1 + (groupDir ? std::strlen(groupDir) : 4) +
+                 1 + (nameOverride ? std::strlen(nameOverride) : toc.name.size()) + 8 +
                  (ext ? std::strlen(ext) + 1 : 4));
 
     path.append(folder);
-    path.push_back(':');   // D4 uses colon between folder and subfolder
+    path.push_back(':'); // D4 uses colon between folder and subfolder
     path.append(subfolder);
     path.push_back('\\');
     path.append(groupDir ? groupDir : "Unknown");
@@ -103,8 +102,8 @@ std::string buildEnrichedPath(std::string_view folder, std::string_view subfolde
 
 /// Describes a parsed D4 TVFS entry that refers to a numeric SNO file.
 struct ParsedSnoPath {
-    std::string_view folder;     ///< e.g. "base", "enus_base"
-    std::string_view subfolder;  ///< e.g. "child", "payload"
+    std::string_view folder;    ///< e.g. "base", "enus_base"
+    std::string_view subfolder; ///< e.g. "child", "payload"
     i32 snoId = 0;
     i32 subId = -1;
     bool valid = false;
@@ -118,27 +117,35 @@ ParsedSnoPath classifySnoPath(std::string_view path) {
 
     // Find the colon that separates folder from the rest.
     auto colonPos = path.find(':');
-    if (colonPos == std::string_view::npos || colonPos == 0) return result;
+    if (colonPos == std::string_view::npos || colonPos == 0)
+        return result;
 
     result.folder = path.substr(0, colonPos);
     auto rest = path.substr(colonPos + 1);
 
     // rest should be "subfolder\stem".
     auto bsPos = rest.find('\\');
-    if (bsPos == std::string_view::npos || bsPos == 0) return result;
+    if (bsPos == std::string_view::npos || bsPos == 0)
+        return result;
 
     auto subfolder = rest.substr(0, bsPos);
     auto stem = rest.substr(bsPos + 1);
-    if (stem.empty()) return result;
+    if (stem.empty())
+        return result;
 
     // Validate subfolder is one of the known D4 sub-folders.
     bool knownSub = false;
     for (auto sf : kSubFolders) {
-        if (subfolder == sf) { knownSub = true; break; }
+        if (subfolder == sf) {
+            knownSub = true;
+            break;
+        }
     }
-    if (!knownSub) return result;
+    if (!knownSub)
+        return result;
 
-    if (!parseSnoStem(stem, result.snoId, result.subId)) return result;
+    if (!parseSnoStem(stem, result.snoId, result.subId))
+        return result;
 
     result.subfolder = subfolder;
     result.valid = true;
@@ -150,7 +157,8 @@ struct SharedPayloads {
     std::unordered_map<i32, i32> mapping;
 
     bool parse(std::span<const u8> data) {
-        if (data.size() < 8) return false;
+        if (data.size() < 8)
+            return false;
         auto read32 = [](const u8* p) -> i32 {
             i32 v;
             std::memcpy(&v, p, 4);
@@ -158,7 +166,8 @@ struct SharedPayloads {
         };
         // i32 unk1 = read32(data.data());
         i32 const count = read32(data.data() + 4);
-        if (count < 0 || static_cast<size_t>(count) * 8 + 8 > data.size()) return false;
+        if (count < 0 || static_cast<size_t>(count) * 8 + 8 > data.size())
+            return false;
 
         mapping.reserve(static_cast<size_t>(count));
         const u8* ptr = data.data() + 8;
@@ -182,13 +191,17 @@ struct EncryptedSNOs {
     std::unordered_map<i32, EncryptedSnoEntry> entries;
 
     bool parse(std::span<const u8> data) {
-        if (data.size() < 8) return false;
+        if (data.size() < 8)
+            return false;
         auto read32 = [](const u8* p) -> i32 {
-            i32 v; std::memcpy(&v, p, 4); return v;
+            i32 v;
+            std::memcpy(&v, p, 4);
+            return v;
         };
         // i32 unkHash = read32(data.data());
         i32 const count = read32(data.data() + 4);
-        if (count < 0 || static_cast<size_t>(count) * 16 + 8 > data.size()) return false;
+        if (count < 0 || static_cast<size_t>(count) * 16 + 8 > data.size())
+            return false;
 
         entries.reserve(static_cast<size_t>(count));
         const u8* ptr = data.data() + 8;
@@ -208,26 +221,28 @@ struct EncryptedSNOs {
 struct CombinedMetaEntry {
     i32 snoId;
     u32 size;
-    size_t offset;   ///< Byte offset of this entry's data within the container.
+    size_t offset; ///< Byte offset of this entry's data within the container.
 };
 
 /// Parse the index of a combined meta file and compute each entry's data offset.
 /// Entries are 8-byte aligned.  Texture groups (group 44) have an extra
 /// 8-byte gap before each entry.
 /// Returns an empty vector on failure or if the magic doesn't match.
-std::vector<CombinedMetaEntry> parseCombinedMetaIndex(
-    std::span<const u8> data, bool isTexture) {
-    if (data.size() < 8) return {};
+std::vector<CombinedMetaEntry> parseCombinedMetaIndex(std::span<const u8> data, bool isTexture) {
+    if (data.size() < 8)
+        return {};
 
     u32 sig = 0;
     std::memcpy(&sig, data.data(), 4);
-    if (sig != kCombinedMetaMagic) return {};
+    if (sig != kCombinedMetaMagic)
+        return {};
 
     u32 fileCount = 0;
     std::memcpy(&fileCount, data.data() + 4, 4);
 
     size_t const indexEnd = 8 + static_cast<size_t>(fileCount) * 8;
-    if (indexEnd > data.size()) return {};
+    if (indexEnd > data.size())
+        return {};
 
     std::vector<CombinedMetaEntry> entries(fileCount);
 
@@ -249,7 +264,7 @@ std::vector<CombinedMetaEntry> parseCombinedMetaIndex(
         entries[i].offset = pos;
 
         if (pos + entries[i].size > data.size()) {
-            entries.resize(i);  // truncated file
+            entries.resize(i); // truncated file
             break;
         }
 
@@ -263,21 +278,22 @@ std::vector<CombinedMetaEntry> parseCombinedMetaIndex(
 /// Case-insensitive.  Returns LocaleMasks::All for "Global" or unknown tags.
 u32 localeFromTag(std::string_view tag) {
     // Build a small static lookup table.
-    struct Entry { const char* tag; u32 mask; };
+    struct Entry {
+        const char* tag;
+        u32 mask;
+    };
     static constexpr Entry kTable[] = {
-        {"enus", LocaleMasks::enUS}, {"kokr", LocaleMasks::koKR},
-        {"frfr", LocaleMasks::frFR}, {"dede", LocaleMasks::deDE},
-        {"zhcn", LocaleMasks::zhCN}, {"eses", LocaleMasks::esES},
-        {"zhtw", LocaleMasks::zhTW}, {"engb", LocaleMasks::enGB},
-        {"encn", LocaleMasks::enCN}, {"entw", LocaleMasks::enTW},
-        {"esmx", LocaleMasks::esMX}, {"ruru", LocaleMasks::ruRU},
-        {"ptbr", LocaleMasks::ptBR}, {"itit", LocaleMasks::itIT},
-        {"ptpt", LocaleMasks::ptPT}, {"jajp", LocaleMasks::jaJP},
-        {"plpl", LocaleMasks::plPL}, {"thth", LocaleMasks::thTH},
+        {"enus", LocaleMasks::enUS}, {"kokr", LocaleMasks::koKR}, {"frfr", LocaleMasks::frFR},
+        {"dede", LocaleMasks::deDE}, {"zhcn", LocaleMasks::zhCN}, {"eses", LocaleMasks::esES},
+        {"zhtw", LocaleMasks::zhTW}, {"engb", LocaleMasks::enGB}, {"encn", LocaleMasks::enCN},
+        {"entw", LocaleMasks::enTW}, {"esmx", LocaleMasks::esMX}, {"ruru", LocaleMasks::ruRU},
+        {"ptbr", LocaleMasks::ptBR}, {"itit", LocaleMasks::itIT}, {"ptpt", LocaleMasks::ptPT},
+        {"jajp", LocaleMasks::jaJP}, {"plpl", LocaleMasks::plPL}, {"thth", LocaleMasks::thTH},
         {"trtr", LocaleMasks::trTR},
     };
 
-    if (tag.size() != 4) return LocaleMasks::All;
+    if (tag.size() != 4)
+        return LocaleMasks::All;
 
     char lower[4];
     for (int i = 0; i < 4; ++i)
@@ -285,7 +301,8 @@ u32 localeFromTag(std::string_view tag) {
     std::string_view const lv(lower, 4);
 
     for (auto& e : kTable)
-        if (lv == e.tag) return e.mask;
+        if (lv == e.tag)
+            return e.mask;
 
     return LocaleMasks::All;
 }
@@ -304,19 +321,23 @@ u32 localeFromCombinedFileName(std::string_view path) {
 
     // Find 2nd and 3rd dash-separated segments.
     auto d1 = path.find('-');
-    if (d1 == std::string_view::npos) return LocaleMasks::All;
+    if (d1 == std::string_view::npos)
+        return LocaleMasks::All;
     auto d2 = path.find('-', d1 + 1);
-    if (d2 == std::string_view::npos) return LocaleMasks::All;
+    if (d2 == std::string_view::npos)
+        return LocaleMasks::All;
 
     auto d3 = path.find('-', d2 + 1);
-    auto langTag = path.substr(d2 + 1, (d3 != std::string_view::npos) ? d3 - d2 - 1 : std::string_view::npos);
+    auto langTag =
+        path.substr(d2 + 1, (d3 != std::string_view::npos) ? d3 - d2 - 1 : std::string_view::npos);
 
     // "Global" means all locales.
     if (langTag.size() == 6) {
         char buf[6];
         for (int i = 0; i < 6; ++i)
             buf[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(langTag[i])));
-        if (std::string_view(buf, 6) == "global") return LocaleMasks::All;
+        if (std::string_view(buf, 6) == "global")
+            return LocaleMasks::All;
     }
 
     return localeFromTag(langTag);
@@ -339,8 +360,10 @@ sno::SnoGroup groupFromCombinedFileName(std::string_view path) {
 
     // Need at least 2 dashes: GroupName-Category-Language.
     auto dash1 = path.find('-');
-    if (dash1 == std::string_view::npos) return sno::SnoGroup::None;
-    if (path.find('-', dash1 + 1) == std::string_view::npos) return sno::SnoGroup::None;
+    if (dash1 == std::string_view::npos)
+        return sno::SnoGroup::None;
+    if (path.find('-', dash1 + 1) == std::string_view::npos)
+        return sno::SnoGroup::None;
 
     // Skip encrypted variants: last segment starts with "0x".
     auto lastDash = path.rfind('-');
@@ -354,9 +377,11 @@ sno::SnoGroup groupFromCombinedFileName(std::string_view path) {
     for (int gid = -1; gid <= 180; ++gid) {
         auto g = static_cast<sno::SnoGroup>(gid);
         const char* gname = sno::snoGroupName(g);
-        if (!gname) continue;
+        if (!gname)
+            continue;
         std::string_view const gnameView(gname);
-        if (gnameView.size() != groupStr.size()) continue;
+        if (gnameView.size() != groupStr.size())
+            continue;
         // Case-insensitive compare (TVFS paths are lowercased).
         bool match = true;
         for (size_t i = 0; i < gnameView.size(); ++i) {
@@ -366,7 +391,8 @@ sno::SnoGroup groupFromCombinedFileName(std::string_view path) {
                 break;
             }
         }
-        if (match) return g;
+        if (match)
+            return g;
     }
     return sno::SnoGroup::None;
 }
@@ -377,24 +403,28 @@ sno::SnoGroup groupFromCombinedFileName(std::string_view path) {
 // D4Root::create
 // ============================================================================
 
-std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs,
-                                       const EKeyReader& reader,
+std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs, const EKeyReader& reader,
                                        interfaces::WorkerPool* pool) {
-    if (!tvfs) return nullptr;
+    if (!tvfs)
+        return nullptr;
 
     // --- Phase 1: Find CoreTOC.dat in the TVFS tree ---
     // D4 TVFS uses ':' as the sub-container separator: "base:coretoc.dat".
     auto tocResults = tvfs->findByNormalizedPath("base:coretoc.dat");
-    if (tocResults.empty()) return nullptr;
+    if (tocResults.empty())
+        return nullptr;
 
     const RootEntry* tocEntry = tocResults[0];
-    if (tocEntry->eKey == std::array<u8, 16>{}) return nullptr;
+    if (tocEntry->eKey == std::array<u8, 16>{})
+        return nullptr;
 
     auto tocData = reader(tocEntry->eKey);
-    if (tocData.empty()) return nullptr;
+    if (tocData.empty())
+        return nullptr;
 
     sno::CoreToc coreToc;
-    if (!coreToc.parse(tocData)) return nullptr;
+    if (!coreToc.parse(tocData))
+        return nullptr;
 
     // --- Phase 2: Parse optional side-tables ---
 
@@ -492,8 +522,8 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs,
             nameOverride = encIt->second.c_str();
         }
 
-        dst.path = buildEnrichedPath(parsed.folder, parsed.subfolder,
-                                     *toc, parsed.subId, nameOverride);
+        dst.path =
+            buildEnrichedPath(parsed.folder, parsed.subfolder, *toc, parsed.subId, nameOverride);
     };
 
     if (pool && entryCount > 2000) {
@@ -530,11 +560,15 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs,
         for (size_t i = 0; i < entryCount; ++i) {
             const auto& origPath = tvfsEntryPtrs[i]->path;
             auto parsed = classifySnoPath(origPath);
-            if (!parsed.valid) continue;
+            if (!parsed.valid)
+                continue;
 
             bool isPayload = false;
             for (auto pf : kPayloadSubFolders) {
-                if (parsed.subfolder == pf) { isPayload = true; break; }
+                if (parsed.subfolder == pf) {
+                    isPayload = true;
+                    break;
+                }
             }
             if (isPayload) {
                 payloadBySnoId.emplace(parsed.snoId, i);
@@ -543,7 +577,8 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs,
 
         for (auto& [snoId, sharedSnoId] : sharedPayloads.mapping) {
             const sno::TocEntry* toc = coreToc.findById(snoId);
-            if (!toc || toc->name.empty()) continue;
+            if (!toc || toc->name.empty())
+                continue;
 
             auto range = payloadBySnoId.equal_range(sharedSnoId);
             for (auto it = range.first; it != range.second; ++it) {
@@ -559,8 +594,8 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs,
                 alias.localeFlags = sharedEntry.localeFlags;
                 alias.contentFlags = sharedEntry.contentFlags;
                 alias.fileSize = sharedEntry.fileSize;
-                alias.path = buildEnrichedPath(sharedParsed.folder, sharedParsed.subfolder,
-                                               *toc, sharedParsed.subId);
+                alias.path = buildEnrichedPath(sharedParsed.folder, sharedParsed.subfolder, *toc,
+                                               sharedParsed.subId);
                 result->m_entries.push_back(std::move(alias));
             }
         }
@@ -578,28 +613,29 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs,
     {
         // Collect combined meta file candidates first (before mutating m_entries).
         struct CombinedMetaCandidate {
-            std::string folder;  // e.g. "base"
+            std::string folder; // e.g. "base"
             sno::SnoGroup group;
             std::array<u8, 16> eKey;
             std::array<u8, 16> cKey;
             u32 fileDataId;
             u32 fileNameHash;
-            u32 localeFlags;     // from filename language tag
+            u32 localeFlags; // from filename language tag
             u32 contentFlags;
         };
 
         std::vector<CombinedMetaCandidate> candidates;
         for (size_t i = 0; i < entryCount; ++i) {
             const auto& entry = result->m_entries[i];
-            if (entry.path.empty()) continue;
+            if (entry.path.empty())
+                continue;
 
             auto group = groupFromCombinedFileName(entry.path);
-            if (group == sno::SnoGroup::None) continue;
+            if (group == sno::SnoGroup::None)
+                continue;
 
             auto colonPos = entry.path.find(':');
             CombinedMetaCandidate cand;
-            cand.folder = (colonPos != std::string::npos)
-                ? entry.path.substr(0, colonPos) : "base";
+            cand.folder = (colonPos != std::string::npos) ? entry.path.substr(0, colonPos) : "base";
             cand.group = group;
             cand.eKey = entry.eKey;
             cand.cKey = entry.cKey;
@@ -611,19 +647,21 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs,
         }
 
         for (auto& cand : candidates) {
-            if (cand.eKey == std::array<u8, 16>{}) continue;
+            if (cand.eKey == std::array<u8, 16>{})
+                continue;
 
             auto fileData = reader(cand.eKey);
-            if (fileData.empty()) continue;
+            if (fileData.empty())
+                continue;
 
             const bool isTexture = (cand.group == sno::SnoGroup::Texture);
             auto cmEntries = parseCombinedMetaIndex(fileData, isTexture);
-            if (cmEntries.empty()) continue;
+            if (cmEntries.empty())
+                continue;
 
             // Resolve the format hash for this group's SNO header.
             u32 fmtHash = 0;
-            auto fhIt = coreToc.formatHashes().find(
-                static_cast<i32>(cand.group));
+            auto fhIt = coreToc.formatHashes().find(static_cast<i32>(cand.group));
             if (fhIt != coreToc.formatHashes().end())
                 fmtHash = fhIt->second;
 
@@ -640,7 +678,8 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs,
 
             for (auto& cm : cmEntries) {
                 const sno::TocEntry* toc = coreToc.findById(cm.snoId);
-                if (!toc || toc->name.empty()) continue;
+                if (!toc || toc->name.empty())
+                    continue;
 
                 RootEntry virtEntry;
                 virtEntry.cKey = cand.cKey;
@@ -649,13 +688,12 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs,
                 virtEntry.fileNameHash = cand.fileNameHash;
                 virtEntry.localeFlags = cand.localeFlags;
                 virtEntry.contentFlags = cand.contentFlags;
-                virtEntry.fileSize = 16 + cm.size;  // header + entry data
+                virtEntry.fileSize = 16 + cm.size; // header + entry data
                 virtEntry.containerOffset = static_cast<u64>(cm.offset);
                 virtEntry.containerSize = cm.size;
                 virtEntry.headerSize = 16;
                 virtEntry.headerPrefix = hdrPrefix;
-                virtEntry.path = buildEnrichedPath(cand.folder, "meta",
-                                                   *toc, -1);
+                virtEntry.path = buildEnrichedPath(cand.folder, "meta", *toc, -1);
                 result->m_entries.push_back(std::move(virtEntry));
             }
         }
@@ -696,7 +734,8 @@ std::vector<const RootEntry*> D4Root::findByPath(const std::string& path) const 
     return findByNormalizedPath(normalized);
 }
 
-std::vector<const RootEntry*> D4Root::findByNormalizedPath(const std::string& normalizedPath) const {
+std::vector<const RootEntry*> D4Root::findByNormalizedPath(
+    const std::string& normalizedPath) const {
     return m_byPath.findAll(m_entries, normalizedPath);
 }
 
@@ -708,11 +747,16 @@ bool D4Root::hasPath(const std::string& normalizedPath) const {
 /// Returns empty string_view for None (meaning: return "child" subfolder).
 static std::string_view hintToSubfolder(FileIdHint hint) {
     switch (hint) {
-    case FileIdHint::None:    return "child";
-    case FileIdHint::Meta:    return "meta";
-    case FileIdHint::Payload: return "payload";
-    case FileIdHint::Paylow:  return "paylow";
-    case FileIdHint::Paymed:  return "paymed";
+    case FileIdHint::None:
+        return "child";
+    case FileIdHint::Meta:
+        return "meta";
+    case FileIdHint::Payload:
+        return "payload";
+    case FileIdHint::Paylow:
+        return "paylow";
+    case FileIdHint::Paymed:
+        return "paymed";
     }
     return "child";
 }
@@ -721,10 +765,12 @@ static std::string_view hintToSubfolder(FileIdHint hint) {
 /// Enriched paths have the form: <folder>:<subfolder>\<rest>
 static std::string_view extractSubfolder(std::string_view path) {
     auto colonPos = path.find(':');
-    if (colonPos == std::string_view::npos) return {};
+    if (colonPos == std::string_view::npos)
+        return {};
     auto rest = path.substr(colonPos + 1);
     auto bsPos = rest.find('\\');
-    if (bsPos == std::string_view::npos) return rest;
+    if (bsPos == std::string_view::npos)
+        return rest;
     return rest.substr(0, bsPos);
 }
 
@@ -732,7 +778,8 @@ std::vector<const RootEntry*> D4Root::findByFileDataId(u32 fileDataId, FileIdHin
     // In D4, fileDataId == snoId.  Use the snoId index, then filter by
     // the subfolder implied by the hint.
     auto all = m_bySnoId.findAll(m_entries, fileDataId);
-    if (all.empty() || hint == FileIdHint::None) return all;
+    if (all.empty() || hint == FileIdHint::None)
+        return all;
 
     auto targetSub = hintToSubfolder(hint);
     std::vector<const RootEntry*> filtered;
@@ -745,14 +792,16 @@ std::vector<const RootEntry*> D4Root::findByFileDataId(u32 fileDataId, FileIdHin
 
 void D4Root::enumerateUnder(const std::string& normalizedPrefix,
                             std::function<bool(const RootEntry&)> callback) const {
-    if (!callback) return;
+    if (!callback)
+        return;
     // Linear scan over our entries — could be optimized with a trie if needed,
     // but D4Root is a wrapper and the common case is full enumeration or
     // lookup by exact path.
     for (auto& e : m_entries) {
         if (e.path.size() >= normalizedPrefix.size() &&
             e.path.compare(0, normalizedPrefix.size(), normalizedPrefix) == 0) {
-            if (!callback(e)) break;
+            if (!callback(e))
+                break;
         }
     }
 }

@@ -55,16 +55,13 @@ private:
 /// Salsa20 decrypt (20-round, 256-bit key variant).
 /// For 128-bit CASC keys, the key is expanded to 256 bits by repeating.
 /// Operates in-place on `data`.
-void salsa20Decrypt(std::span<u8> data,
-                    std::span<const u8, 16> key,
-                    std::span<const u8, 8> iv);
+void salsa20Decrypt(std::span<u8> data, std::span<const u8, 16> key, std::span<const u8, 8> iv);
 
 // ============================================================================
 // ARC4 (RC4)
 // ============================================================================
 
 /// ARC4 (RC4) decrypt/encrypt (symmetric). Operates in-place.
-void arc4Transform(std::span<u8> data,
-                   std::span<const u8> key);
+void arc4Transform(std::span<u8> data, std::span<const u8> key);
 
 } // namespace whiteout::storages::casc

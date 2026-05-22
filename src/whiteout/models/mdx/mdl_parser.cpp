@@ -16,38 +16,54 @@ namespace {
 
 class TokenStream {
 public:
-    explicit TokenStream(std::vector<MdlToken> tokens)
-        : m_tokens(std::move(tokens)), m_pos(0) {}
+    explicit TokenStream(std::vector<MdlToken> tokens) : m_tokens(std::move(tokens)), m_pos(0) {}
 
-    const MdlToken& peek() const { return m_tokens[m_pos]; }
+    const MdlToken& peek() const {
+        return m_tokens[m_pos];
+    }
     const MdlToken& peek(std::size_t ahead) const {
         auto idx = m_pos + ahead;
         return idx < m_tokens.size() ? m_tokens[idx] : m_tokens.back();
     }
     const MdlToken& advance() {
-        if (m_pos + 1 < m_tokens.size()) return m_tokens[m_pos++];
+        if (m_pos + 1 < m_tokens.size())
+            return m_tokens[m_pos++];
         return m_tokens[m_pos]; // stay on EOF sentinel
     }
-    bool atEnd() const { return m_tokens[m_pos].type == MdlTokenType::EndOfFile; }
+    bool atEnd() const {
+        return m_tokens[m_pos].type == MdlTokenType::EndOfFile;
+    }
 
-    bool check(MdlTokenType type) const { return peek().type == type; }
+    bool check(MdlTokenType type) const {
+        return peek().type == type;
+    }
     bool match(MdlTokenType type) {
-        if (check(type)) { advance(); return true; }
+        if (check(type)) {
+            advance();
+            return true;
+        }
         return false;
     }
 
     // Consume a token of the given type, or record an error and return false.
     bool expect(MdlTokenType type, std::vector<MdlParseError>& errors, const char* context) {
-        if (check(type)) { advance(); return true; }
+        if (check(type)) {
+            advance();
+            return true;
+        }
         auto& t = peek();
-        errors.push_back({std::string("expected ") + context + " but got '" +
-                              std::string(t.text) + "'",
-                          t.line, t.column});
+        errors.push_back(
+            {std::string("expected ") + context + " but got '" + std::string(t.text) + "'", t.line,
+             t.column});
         return false;
     }
 
-    std::size_t pos() const { return m_pos; }
-    void setPos(std::size_t p) { m_pos = p; }
+    std::size_t pos() const {
+        return m_pos;
+    }
+    void setPos(std::size_t p) {
+        m_pos = p;
+    }
 
 private:
     std::vector<MdlToken> m_tokens;
@@ -91,8 +107,7 @@ public:
             } else {
                 // Skip unexpected tokens at top level.
                 auto& t = m_ts.advance();
-                m_errors.push_back({"unexpected token at top level: '" +
-                                        std::string(t.text) + "'",
+                m_errors.push_back({"unexpected token at top level: '" + std::string(t.text) + "'",
                                     t.line, t.column});
             }
         }
@@ -141,8 +156,7 @@ private:
                     continue;
                 }
                 auto& t = m_ts.advance();
-                m_errors.push_back({"unexpected token in block body: '" +
-                                        std::string(t.text) + "'",
+                m_errors.push_back({"unexpected token in block body: '" + std::string(t.text) + "'",
                                     t.line, t.column});
                 continue;
             }
@@ -181,7 +195,8 @@ private:
             // Disambiguate by peeking inside the brace:
             //   - First token is Number → property (e.g. Alpha {255, 200, 0},)
             //   - First token is Identifier → sub-block (e.g. Layer { FilterMode None, })
-            //   - First token is OpenBrace → sub-block with vector data (e.g. Vertices { {1,2,3}, })
+            //   - First token is OpenBrace → sub-block with vector data (e.g. Vertices { {1,2,3},
+            //   })
             //   - First token is CloseBrace → empty sub-block
             if (second.type == MdlTokenType::OpenBrace) {
                 auto& insideBrace = m_ts.peek(2);
@@ -208,8 +223,7 @@ private:
             // IDENT STRING ... → block or property
             if (second.type == MdlTokenType::String) {
                 auto& third = m_ts.peek(2);
-                if (third.type == MdlTokenType::OpenBrace ||
-                    third.type == MdlTokenType::Number) {
+                if (third.type == MdlTokenType::OpenBrace || third.type == MdlTokenType::Number) {
                     // sub-block with string param: Anim "Stand 1" { ... }
                     // or: Bone "name" { ... } — third could be number then '{'
                     node.children.push_back(parseBlock());
@@ -271,8 +285,7 @@ private:
         bool isTrack = false;
         if (insideToken.type == MdlTokenType::Identifier) {
             auto txt = insideToken.text;
-            if (txt == "Linear" || txt == "Hermite" || txt == "Bezier" ||
-                txt == "DontInterp") {
+            if (txt == "Linear" || txt == "Hermite" || txt == "Bezier" || txt == "DontInterp") {
                 isTrack = true;
             }
         }
@@ -315,8 +328,7 @@ private:
         // which indicates we've left the property's value context and
         // reached the next entry in the parent block.
         while (!m_ts.atEnd() && !m_ts.check(MdlTokenType::Comma) &&
-               !m_ts.check(MdlTokenType::CloseBrace) &&
-               !m_ts.check(MdlTokenType::LessEqual)) {
+               !m_ts.check(MdlTokenType::CloseBrace) && !m_ts.check(MdlTokenType::LessEqual)) {
             prop.values.push_back(parseValue());
             if (m_ts.check(MdlTokenType::Identifier) || m_ts.check(MdlTokenType::OpenBrace) ||
                 m_ts.check(MdlTokenType::Number)) {
@@ -331,9 +343,9 @@ private:
                 prop.slot = static_cast<i32>(toNumber(m_ts.advance().text));
             } else {
                 auto& t = m_ts.peek();
-                m_errors.push_back({"expected slot number after '<=', got '" +
-                                        std::string(t.text) + "'",
-                                    t.line, t.column});
+                m_errors.push_back(
+                    {"expected slot number after '<=', got '" + std::string(t.text) + "'", t.line,
+                     t.column});
             }
         }
 
@@ -373,8 +385,8 @@ private:
 
         // Error recovery
         auto& t = m_ts.advance();
-        m_errors.push_back({"unexpected token in value: '" + std::string(t.text) + "'",
-                            t.line, t.column});
+        m_errors.push_back(
+            {"unexpected token in value: '" + std::string(t.text) + "'", t.line, t.column});
         return MdlValue{0.0};
     }
 
@@ -410,9 +422,9 @@ private:
                 track.slot = static_cast<i32>(toNumber(m_ts.advance().text));
             } else {
                 auto& t = m_ts.peek();
-                m_errors.push_back({"expected slot number after '<=', got '" +
-                                        std::string(t.text) + "'",
-                                    t.line, t.column});
+                m_errors.push_back(
+                    {"expected slot number after '<=', got '" + std::string(t.text) + "'", t.line,
+                     t.column});
             }
         }
 
@@ -421,8 +433,7 @@ private:
         // Check for interpolation type keyword
         if (m_ts.check(MdlTokenType::Identifier)) {
             auto txt = m_ts.peek().text;
-            if (txt == "Linear" || txt == "Hermite" || txt == "Bezier" ||
-                txt == "DontInterp") {
+            if (txt == "Linear" || txt == "Hermite" || txt == "Bezier" || txt == "DontInterp") {
                 track.interpolation = std::string(m_ts.advance().text);
                 m_ts.match(MdlTokenType::Comma);
             }
@@ -443,8 +454,8 @@ private:
                 auto& nextAfterNum = m_ts.peek(1);
                 if (nextAfterNum.type == MdlTokenType::Colon) {
                     // Standard keyframe: TIME: value,
-                    track.keyframes.push_back(parseKeyframe(
-                        track.interpolation == "Hermite" || track.interpolation == "Bezier"));
+                    track.keyframes.push_back(parseKeyframe(track.interpolation == "Hermite" ||
+                                                            track.interpolation == "Bezier"));
                 } else {
                     // EventTrack-style bare value: TIME,
                     MdlKeyframe kf;
@@ -456,9 +467,9 @@ private:
             } else {
                 // Unexpected token in track body
                 auto& t = m_ts.advance();
-                m_errors.push_back({"unexpected token in animation track: '" +
-                                        std::string(t.text) + "'",
-                                    t.line, t.column});
+                m_errors.push_back(
+                    {"unexpected token in animation track: '" + std::string(t.text) + "'", t.line,
+                     t.column});
             }
         }
 
@@ -468,14 +479,13 @@ private:
 
     MdlKeyframe parseKeyframe(bool expectTangents) {
         MdlKeyframe kf;
-        kf.time = toInt(m_ts.advance().text);     // consume timestamp
+        kf.time = toInt(m_ts.advance().text); // consume timestamp
         m_ts.expect(MdlTokenType::Colon, m_errors, "':'");
         kf.value = parseValue();
         m_ts.match(MdlTokenType::Comma);
 
         // Check for InTan / OutTan (Hermite/Bezier)
-        if (expectTangents && m_ts.check(MdlTokenType::Identifier) &&
-            m_ts.peek().text == "InTan") {
+        if (expectTangents && m_ts.check(MdlTokenType::Identifier) && m_ts.peek().text == "InTan") {
             m_ts.advance(); // consume "InTan"
             kf.inTan = parseValue();
             m_ts.match(MdlTokenType::Comma);

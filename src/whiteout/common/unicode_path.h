@@ -42,17 +42,13 @@ namespace whiteout::common {
 inline std::wstring utf8_to_wide(const std::string& utf8) {
     if (utf8.empty())
         return {};
-    const int wlen = ::MultiByteToWideChar(
-        CP_UTF8, 0,
-        utf8.c_str(), static_cast<int>(utf8.size()),
-        nullptr, 0);
+    const int wlen =
+        ::MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), static_cast<int>(utf8.size()), nullptr, 0);
     if (wlen <= 0)
         return {};
     std::wstring wide(static_cast<size_t>(wlen), L'\0');
-    ::MultiByteToWideChar(
-        CP_UTF8, 0,
-        utf8.c_str(), static_cast<int>(utf8.size()),
-        wide.data(), wlen);
+    ::MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), static_cast<int>(utf8.size()), wide.data(),
+                          wlen);
     return wide;
 }
 

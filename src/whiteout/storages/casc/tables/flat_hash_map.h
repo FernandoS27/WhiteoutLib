@@ -23,16 +23,18 @@ namespace whiteout::storages::casc {
 /// Uses identity masking (key & mask) instead of std::hash, exploiting the
 /// uniform distribution of MD5-derived keys. Power-of-2 bucket count with
 /// linear probing gives excellent cache locality.
-template<typename Value>
+template <typename Value>
 class FlatHashMap {
 public:
     FlatHashMap() = default;
 
     /// Pre-allocate buckets for at least @p capacity entries at ~75% load.
     void reserve(size_t capacity) {
-        if (capacity == 0) return;
+        if (capacity == 0)
+            return;
         size_t needed = nextPow2(capacity + capacity / 3 + 16);
-        if (needed <= m_buckets.size()) return;
+        if (needed <= m_buckets.size())
+            return;
         rehash(needed);
     }
 
@@ -104,10 +106,12 @@ public:
         }
     }
 
-    size_t size() const { return m_size; }
+    size_t size() const {
+        return m_size;
+    }
 
     /// Iterate over all entries. Callback signature: void(u64 key, const Value& value).
-    template<typename Fn>
+    template <typename Fn>
     void forEach(Fn&& fn) const {
         if (m_hasZero)
             fn(u64(0), m_zeroValue);
@@ -127,7 +131,8 @@ private:
     };
 
     static size_t nextPow2(size_t v) {
-        if (v == 0) return 1;
+        if (v == 0)
+            return 1;
         v--;
         v |= v >> 1;
         v |= v >> 2;

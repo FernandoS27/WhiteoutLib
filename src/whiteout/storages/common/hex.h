@@ -19,9 +19,12 @@ namespace whiteout::storages::common {
 /// Convert a single hex character to its 4-bit value (0–15).
 /// Returns -1 for invalid characters.
 inline int hexDigit(char c) {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
-    if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'a' && c <= 'f')
+        return 10 + (c - 'a');
+    if (c >= 'A' && c <= 'F')
+        return 10 + (c - 'A');
     return -1;
 }
 
@@ -47,7 +50,8 @@ inline std::array<u8, 16> hexDecode16(std::string_view hex) {
     for (size_t i = 0; i < len; ++i) {
         int hi = hexDigit(hex[i * 2]);
         int lo = hexDigit(hex[i * 2 + 1]);
-        if (hi < 0 || lo < 0) break;
+        if (hi < 0 || lo < 0)
+            break;
         result[i] = static_cast<u8>((hi << 4) | lo);
     }
     return result;
@@ -58,7 +62,8 @@ inline u64 hexToU64(std::string_view hex) {
     u64 result = 0;
     for (char c : hex) {
         int d = hexDigit(c);
-        if (d < 0) return 0;
+        if (d < 0)
+            return 0;
         result = (result << 4) | static_cast<u64>(d);
     }
     return result;

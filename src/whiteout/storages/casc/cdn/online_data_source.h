@@ -6,10 +6,10 @@
 /// Internal header — not part of the public include path.
 #pragma once
 
+#include "../../common/hex.h"
 #include "../storage/data_source.h"
 #include "cdn_fetcher.h"
 #include "online_index.h"
-#include "../../common/hex.h"
 
 #include <vector>
 
@@ -22,14 +22,11 @@ namespace whiteout::storages::casc {
 /// (members are destroyed in reverse declaration order).
 class OnlineDataSource : public DataSource {
 public:
-    OnlineDataSource(CdnFetcher* fetcher,
-                     const OnlineIndexTable* archiveIndex,
+    OnlineDataSource(CdnFetcher* fetcher, const OnlineIndexTable* archiveIndex,
                      const OnlineIndexTable* looseIndex,
                      const std::vector<std::array<u8, 16>>* archiveEKeys)
-        : m_fetcher(fetcher)
-        , m_archiveIndex(archiveIndex)
-        , m_looseIndex(looseIndex)
-        , m_archiveEKeys(archiveEKeys) {}
+        : m_fetcher(fetcher), m_archiveIndex(archiveIndex), m_looseIndex(looseIndex),
+          m_archiveEKeys(archiveEKeys) {}
 
     std::vector<u8> fetchBlte(const std::array<u8, 16>& eKey) override {
         // Loose-file fetch by EKey (full 16-byte hex).
@@ -46,10 +43,10 @@ public:
         return data.value_or(std::vector<u8>{});
     }
 
-    std::optional<IndexLocation> findInIndex(
-        std::span<const u8> eKeyPrefix) const override {
+    std::optional<IndexLocation> findInIndex(std::span<const u8> eKeyPrefix) const override {
         auto entry = m_archiveIndex->find(eKeyPrefix);
-        if (!entry) return std::nullopt;
+        if (!entry)
+            return std::nullopt;
         return IndexLocation{
             entry->archiveIndex,
             entry->archiveOffset,
@@ -67,8 +64,7 @@ public:
         m_fetcher->fetchAsync("data", keyHex, std::move(callback));
     }
 
-    void fetchBlteAsync(u32 archiveIndex, u64 offset, u32 encodedSize,
-                        FetchCallback callback) {
+    void fetchBlteAsync(u32 archiveIndex, u64 offset, u32 encodedSize, FetchCallback callback) {
         if (!m_archiveEKeys || archiveIndex >= m_archiveEKeys->size()) {
             callback(std::nullopt);
             return;

@@ -47,4 +47,6 @@ constexpr int MINOR_VERSION = 0;
 constexpr int PATCH_VERSION = 0;
 } // namespace whiteout::textures::blp
 
-namespace whiteout { namespace blp = textures::blp; }
+namespace whiteout {
+namespace blp = textures::blp;
+}

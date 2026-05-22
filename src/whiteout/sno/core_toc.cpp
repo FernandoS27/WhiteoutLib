@@ -408,7 +408,8 @@ std::vector<u8> CoreToc::serializeD3Legacy() const {
 
     for (u32 g = 0; g < kNumGroups; ++g) {
         auto& entries = perGroup[g];
-        if (entries.empty()) continue;
+        if (entries.empty())
+            continue;
 
         auto& sec = sections[g];
         sec.entryCount = static_cast<u32>(entries.size());
@@ -479,7 +480,8 @@ std::vector<u8> CoreToc::serializeD4New() const {
     i32 maxGroupId = 0;
     for (auto& e : m_all) {
         const auto gid = static_cast<i32>(e.group);
-        if (gid > maxGroupId) maxGroupId = gid;
+        if (gid > maxGroupId)
+            maxGroupId = gid;
         perGroup[gid].push_back(&e);
     }
 
@@ -493,7 +495,8 @@ std::vector<u8> CoreToc::serializeD4New() const {
     std::vector<GroupBlob> groupBlobs(snoGroupsCount);
 
     for (auto& [gid, entries] : perGroup) {
-        if (gid < 0 || static_cast<u32>(gid) >= snoGroupsCount) continue;
+        if (gid < 0 || static_cast<u32>(gid) >= snoGroupsCount)
+            continue;
 
         auto& blob = groupBlobs[static_cast<u32>(gid)];
         blob.entryCount = static_cast<u32>(entries.size());

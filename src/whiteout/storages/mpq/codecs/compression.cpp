@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "../../common/zlib.h"
 #include "../../common/codecs/bzip2.h"
 #include "../../common/codecs/lzma.h"
+#include "../../common/zlib.h"
 #include "adpcm.h"
 
 #include <array>
@@ -83,7 +83,8 @@ const CodecEntry* findCodec(CompressionFlag flag) {
 
 /// Apply a single decompression stage to an intermediate buffer.
 /// Returns true on success, replacing `buf` with the decompressed data.
-bool decompressStage(CompressionFlag flag, std::vector<u8>& buf, size_t finalSize, std::string* error) {
+bool decompressStage(CompressionFlag flag, std::vector<u8>& buf, size_t finalSize,
+                     std::string* error) {
     const auto* codec = findCodec(flag);
     if (!codec) {
         if (error)
@@ -107,8 +108,12 @@ bool decompressStage(CompressionFlag flag, std::vector<u8>& buf, size_t finalSiz
 
 /// Canonical decompression order (innermost first).
 static constexpr std::array<CompressionFlag, 7> kDecompressOrder = {{
-    CompressionFlag::kBZip2,   CompressionFlag::kPKware,    CompressionFlag::kZlib,
-    CompressionFlag::kHuffman, CompressionFlag::kAdpcmMono, CompressionFlag::kAdpcmStereo,
+    CompressionFlag::kBZip2,
+    CompressionFlag::kPKware,
+    CompressionFlag::kZlib,
+    CompressionFlag::kHuffman,
+    CompressionFlag::kAdpcmMono,
+    CompressionFlag::kAdpcmStereo,
     CompressionFlag::kSparse,
 }};
 
@@ -159,7 +164,8 @@ std::vector<u8> mpqDecompress(std::span<const u8> src, size_t uncompressedSize,
 // Compression
 // ============================================================================
 
-std::vector<u8> mpqCompress(std::span<const u8> src, CompressionFlag compressionType, std::string* error) {
+std::vector<u8> mpqCompress(std::span<const u8> src, CompressionFlag compressionType,
+                            std::string* error) {
     if (src.empty())
         return {};
 

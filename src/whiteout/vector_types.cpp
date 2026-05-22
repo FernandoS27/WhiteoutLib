@@ -11,73 +11,63 @@ namespace whiteout {
 namespace {
 
 template <MatrixLayout layout>
-bool isAffine(const Matrix44f& m,
-              float eps = 1e-6f)
-{
+bool isAffine(const Matrix44f& m, float eps = 1e-6f) {
     auto absf = [](float x) { return std::abs(x); };
 
-    if constexpr (layout == MatrixLayout::RowMajor)
+    if constexpr (layout == MatrixLayout::RowMajor) {
+        return absf(m.data[3][0]) < eps && absf(m.data[3][1]) < eps && absf(m.data[3][2]) < eps &&
+               absf(m.data[3][3] - 1.0f) < eps;
+    } else // ColumnMajor
     {
-        return
-            absf(m.data[3][0]) < eps &&
-            absf(m.data[3][1]) < eps &&
-            absf(m.data[3][2]) < eps &&
-            absf(m.data[3][3] - 1.0f) < eps;
-    }
-    else // ColumnMajor
-    {
-        return
-            absf(m.data[0][3]) < eps &&
-            absf(m.data[1][3]) < eps &&
-            absf(m.data[2][3]) < eps &&
-            absf(m.data[3][3] - 1.0f) < eps;
+        return absf(m.data[0][3]) < eps && absf(m.data[1][3]) < eps && absf(m.data[2][3]) < eps &&
+               absf(m.data[3][3] - 1.0f) < eps;
     }
 }
 
-template<MatrixLayout layout>
-Matrix44f inverseAffine(const Matrix44f& m)
-{
+template <MatrixLayout layout>
+Matrix44f inverseAffine(const Matrix44f& m) {
     Matrix44f r{};
 
     // Extract basis vectors depending on layout
     Vector3f x, y, z, t;
 
-    if constexpr (layout == MatrixLayout::RowMajor)
+    if constexpr (layout == MatrixLayout::RowMajor) {
+        x = {m.data[0][0], m.data[0][1], m.data[0][2]};
+        y = {m.data[1][0], m.data[1][1], m.data[1][2]};
+        z = {m.data[2][0], m.data[2][1], m.data[2][2]};
+        t = {m.data[3][0], m.data[3][1], m.data[3][2]};
+    } else // ColumnMajor
     {
-        x = { m.data[0][0], m.data[0][1], m.data[0][2] };
-        y = { m.data[1][0], m.data[1][1], m.data[1][2] };
-        z = { m.data[2][0], m.data[2][1], m.data[2][2] };
-        t = { m.data[3][0], m.data[3][1], m.data[3][2] };
-    }
-    else // ColumnMajor
-    {
-        x = { m.data[0][0], m.data[1][0], m.data[2][0] };
-        y = { m.data[0][1], m.data[1][1], m.data[2][1] };
-        z = { m.data[0][2], m.data[1][2], m.data[2][2] };
-        t = { m.data[0][3], m.data[1][3], m.data[2][3] };
+        x = {m.data[0][0], m.data[1][0], m.data[2][0]};
+        y = {m.data[0][1], m.data[1][1], m.data[2][1]};
+        z = {m.data[0][2], m.data[1][2], m.data[2][2]};
+        t = {m.data[0][3], m.data[1][3], m.data[2][3]};
     }
 
     // Transpose rotation
-    r.data[0][0] = x.x; r.data[0][1] = y.x; r.data[0][2] = z.x;
-    r.data[1][0] = x.y; r.data[1][1] = y.y; r.data[1][2] = z.y;
-    r.data[2][0] = x.z; r.data[2][1] = y.z; r.data[2][2] = z.z;
+    r.data[0][0] = x.x;
+    r.data[0][1] = y.x;
+    r.data[0][2] = z.x;
+    r.data[1][0] = x.y;
+    r.data[1][1] = y.y;
+    r.data[1][2] = z.y;
+    r.data[2][0] = x.z;
+    r.data[2][1] = y.z;
+    r.data[2][2] = z.z;
 
     // Compute -R^T * t
     Vector3f invT;
-    invT.x = -(r.data[0][0]*t.x + r.data[0][1]*t.y + r.data[0][2]*t.z);
-    invT.y = -(r.data[1][0]*t.x + r.data[1][1]*t.y + r.data[1][2]*t.z);
-    invT.z = -(r.data[2][0]*t.x + r.data[2][1]*t.y + r.data[2][2]*t.z);
+    invT.x = -(r.data[0][0] * t.x + r.data[0][1] * t.y + r.data[0][2] * t.z);
+    invT.y = -(r.data[1][0] * t.x + r.data[1][1] * t.y + r.data[1][2] * t.z);
+    invT.z = -(r.data[2][0] * t.x + r.data[2][1] * t.y + r.data[2][2] * t.z);
 
     // Write translation back
-    if constexpr (layout == MatrixLayout::RowMajor)
-    {
+    if constexpr (layout == MatrixLayout::RowMajor) {
         r.data[3][0] = invT.x;
         r.data[3][1] = invT.y;
         r.data[3][2] = invT.z;
         r.data[3][3] = 1.0f;
-    }
-    else
-    {
+    } else {
         r.data[0][3] = invT.x;
         r.data[1][3] = invT.y;
         r.data[2][3] = invT.z;
@@ -87,13 +77,11 @@ Matrix44f inverseAffine(const Matrix44f& m)
     return r;
 }
 
-Matrix44f inverseGeneral(const Matrix44f& m)
-{
+Matrix44f inverseGeneral(const Matrix44f& m) {
     f32 a[4][8];
 
     // Build augmented matrix [M | I]
-    for (size_t r = 0; r < 4; ++r)
-    {
+    for (size_t r = 0; r < 4; ++r) {
         for (size_t c = 0; c < 4; ++c)
             a[r][c] = m.data[r][c];
 
@@ -102,17 +90,14 @@ Matrix44f inverseGeneral(const Matrix44f& m)
     }
 
     // Gauss-Jordan elimination
-    for (size_t col = 0; col < 4; ++col)
-    {
+    for (size_t col = 0; col < 4; ++col) {
         // pivot selection (partial pivoting)
         size_t pivot = col;
         f32 maxAbs = std::abs(a[col][col]);
 
-        for (size_t r = col + 1; r < 4; ++r)
-        {
+        for (size_t r = col + 1; r < 4; ++r) {
             f32 const v = std::abs(a[r][col]);
-            if (v > maxAbs)
-            {
+            if (v > maxAbs) {
                 maxAbs = v;
                 pivot = r;
             }
@@ -122,8 +107,7 @@ Matrix44f inverseGeneral(const Matrix44f& m)
             return Matrix44f{}; // singular
 
         // swap rows
-        if (pivot != col)
-        {
+        if (pivot != col) {
             for (size_t c = 0; c < 8; ++c)
                 std::swap(a[col][c], a[pivot][c]);
         }
@@ -134,9 +118,9 @@ Matrix44f inverseGeneral(const Matrix44f& m)
             a[col][c] *= invPivot;
 
         // eliminate other rows
-        for (size_t r = 0; r < 4; ++r)
-        {
-            if (r == col) continue;
+        for (size_t r = 0; r < 4; ++r) {
+            if (r == col)
+                continue;
 
             f32 const factor = a[r][col];
             for (size_t c = 0; c < 8; ++c)
@@ -403,12 +387,8 @@ Quaternion Quaternion::slerp(const Quaternion& a, const Quaternion& b, f32 t) {
     f32 const s0 = std::sin(theta_0 - theta) / sin_theta_0;
     f32 const s1 = sin_theta / sin_theta_0;
 
-    return Quaternion(
-        a.x * s0 + end.x * s1,
-        a.y * s0 + end.y * s1,
-        a.z * s0 + end.z * s1,
-        a.w * s0 + end.w * s1
-    );
+    return Quaternion(a.x * s0 + end.x * s1, a.y * s0 + end.y * s1, a.z * s0 + end.z * s1,
+                      a.w * s0 + end.w * s1);
 }
 
 Quaternion Quaternion::squad(const Quaternion& start, const Quaternion& outtan,
@@ -480,7 +460,6 @@ Matrix44f Matrix44f::inverse(const Matrix44f& m, MatrixLayout layout) {
     }
     return inverseGeneral(m);
 }
-
 
 Vector3f Matrix44f::extract_scale() const {
     // Scale = length of each column of the upper-left 3x3 (R * S has columns = R_col * s)

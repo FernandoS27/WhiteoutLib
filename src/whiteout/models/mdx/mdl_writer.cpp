@@ -24,8 +24,7 @@ namespace {
 
 class MdlTextWriter {
 public:
-    MdlTextWriter(const Model& model, MdlFormat format)
-        : m_model(model), m_format(format) {}
+    MdlTextWriter(const Model& model, MdlFormat format) : m_model(model), m_format(format) {}
 
     std::string write() {
         writeVersion();
@@ -64,8 +63,12 @@ private:
     // Indentation / basic output
     // ========================================================================
 
-    void indent() { ++m_indent; }
-    void dedent() { --m_indent; }
+    void indent() {
+        ++m_indent;
+    }
+    void dedent() {
+        --m_indent;
+    }
 
     void writeIndent() {
         for (int i = 0; i < m_indent; ++i)
@@ -108,8 +111,7 @@ private:
         std::string s(buf, res.ptr);
         // to_chars yields "50", "0.8", "1.5e-08"; MDL convention keeps a
         // decimal point on integral values ("50" -> "50.0").
-        if (s.find('.') == std::string::npos &&
-            s.find('e') == std::string::npos &&
+        if (s.find('.') == std::string::npos && s.find('e') == std::string::npos &&
             s.find('E') == std::string::npos)
             s += ".0";
         return s;
@@ -134,9 +136,9 @@ private:
     }
 
     static std::string fmtExtent(const Extent& e, const std::string& prefix) {
-        return prefix + "MinimumExtent " + fmtVec3(e.minimum) + ",\n" + prefix +
-               "MaximumExtent " + fmtVec3(e.maximum) + ",\n" + prefix + "BoundsRadius " +
-               fmtFloat(e.boundsRadius) + ",";
+        return prefix + "MinimumExtent " + fmtVec3(e.minimum) + ",\n" + prefix + "MaximumExtent " +
+               fmtVec3(e.maximum) + ",\n" + prefix + "BoundsRadius " + fmtFloat(e.boundsRadius) +
+               ",";
     }
 
     void writeExtent(const Extent& e) {
@@ -145,7 +147,9 @@ private:
         line("BoundsRadius " + fmtFloat(e.boundsRadius) + ",");
     }
 
-    static std::string quoted(const std::string& s) { return "\"" + s + "\""; }
+    static std::string quoted(const std::string& s) {
+        return "\"" + s + "\"";
+    }
 
     // ========================================================================
     // Interpolation type string
@@ -153,10 +157,14 @@ private:
 
     static const char* interpName(InterpolationType t) {
         switch (t) {
-            case InterpolationType::Linear: return "Linear";
-            case InterpolationType::Hermite: return "Hermite";
-            case InterpolationType::Bezier: return "Bezier";
-            default: return "DontInterp";
+        case InterpolationType::Linear:
+            return "Linear";
+        case InterpolationType::Hermite:
+            return "Hermite";
+        case InterpolationType::Bezier:
+            return "Bezier";
+        default:
+            return "DontInterp";
         }
     }
 
@@ -165,11 +173,21 @@ private:
     // ========================================================================
 
     // Format a value for track output
-    static std::string fmtTrackValue(f32 v) { return fmtFloat(v); }
-    static std::string fmtTrackValue(u32 v) { return std::to_string(v); }
-    static std::string fmtTrackValue(const Vector3f& v) { return fmtVec3(v); }
-    static std::string fmtTrackValue(const Vector4f& v) { return fmtVec4(v); }
-    static std::string fmtTrackValue(const Quaternion& q) { return fmtQuat(q); }
+    static std::string fmtTrackValue(f32 v) {
+        return fmtFloat(v);
+    }
+    static std::string fmtTrackValue(u32 v) {
+        return std::to_string(v);
+    }
+    static std::string fmtTrackValue(const Vector3f& v) {
+        return fmtVec3(v);
+    }
+    static std::string fmtTrackValue(const Vector4f& v) {
+        return fmtVec4(v);
+    }
+    static std::string fmtTrackValue(const Quaternion& q) {
+        return fmtQuat(q);
+    }
 
     // `slot`, when set, appends the engine HD-texture `<= N` designator to the
     // track header (`TextureID 3 <= 2 { ... }`). Only the animated-TextureID
@@ -177,7 +195,8 @@ private:
     template <typename T>
     void writeTrack(const std::string& name, const Track<T>& track,
                     std::optional<u32> slot = std::nullopt) {
-        if (!track.isUsed || track.keyCount == 0) return;
+        if (!track.isUsed || track.keyCount == 0)
+            return;
 
         bool const smooth = isSmoothInterpolation(track.interpolationType);
 
@@ -220,8 +239,10 @@ private:
     // Write a track or a static value for properties that can be either.
     // If the track has exactly 1 key with frame 0 and None interpolation, write static.
     template <typename T>
-    void writeTrackOrStatic(const std::string& name, const Track<T>& track, const T& /*staticVal*/) {
-        if (!track.isUsed) return;
+    void writeTrackOrStatic(const std::string& name, const Track<T>& track,
+                            const T& /*staticVal*/) {
+        if (!track.isUsed)
+            return;
 
         // Check if it's effectively a static value
         if (track.keyCount == 1 && track.interpolationType == InterpolationType::None &&
@@ -249,14 +270,16 @@ private:
             line("DontInheritRotation,");
         if (mdx::hasFlag(flags, Node::NodeFlag::DontInheritScaling))
             line("DontInheritScaling,");
-        if (mdx::hasFlag(flags, Node::NodeFlag::Billboarded)) line("Billboarded,");
+        if (mdx::hasFlag(flags, Node::NodeFlag::Billboarded))
+            line("Billboarded,");
         if (mdx::hasFlag(flags, Node::NodeFlag::BillboardedLockX))
             line("BillboardedLockX,");
         if (mdx::hasFlag(flags, Node::NodeFlag::BillboardedLockY))
             line("BillboardedLockY,");
         if (mdx::hasFlag(flags, Node::NodeFlag::BillboardedLockZ))
             line("BillboardedLockZ,");
-        if (mdx::hasFlag(flags, Node::NodeFlag::CameraAnchored)) line("CameraAnchored,");
+        if (mdx::hasFlag(flags, Node::NodeFlag::CameraAnchored))
+            line("CameraAnchored,");
     }
 
     // ========================================================================
@@ -297,13 +320,15 @@ private:
     }
 
     void writeSequences() {
-        if (m_model.sequences.empty()) return;
+        if (m_model.sequences.empty())
+            return;
         openBlock("Sequences " + std::to_string(m_model.sequences.size()));
         for (auto& seq : m_model.sequences) {
             openBlock("Anim " + quoted(seq.name));
             line("Interval { " + std::to_string(seq.intervalStart) + ", " +
                  std::to_string(seq.intervalEnd) + " },");
-            if (mdx::hasFlag(seq.flags, Sequence::Flag::NonLooping)) line("NonLooping,");
+            if (mdx::hasFlag(seq.flags, Sequence::Flag::NonLooping))
+                line("NonLooping,");
             if (seq.moveSpeed != 0.0f)
                 line("MoveSpeed " + fmtFloat(seq.moveSpeed) + ",");
             if (seq.rarity != 0.0f)
@@ -315,7 +340,8 @@ private:
     }
 
     void writeGlobalSequences() {
-        if (m_model.globalSequences.empty()) return;
+        if (m_model.globalSequences.empty())
+            return;
         openBlock("GlobalSequences " + std::to_string(m_model.globalSequences.size()));
         for (auto dur : m_model.globalSequences) {
             line("Duration " + std::to_string(dur) + ",");
@@ -324,22 +350,26 @@ private:
     }
 
     void writeTextures() {
-        if (m_model.textures.empty()) return;
+        if (m_model.textures.empty())
+            return;
         openBlock("Textures " + std::to_string(m_model.textures.size()));
         for (auto& tex : m_model.textures) {
             openBlock("Bitmap");
             line("Image " + quoted(tex.fileName) + ",");
             if (tex.replaceableId != 0)
                 line("ReplaceableId " + std::to_string(tex.replaceableId) + ",");
-            if (mdx::hasFlag(tex.flags, Texture::Flag::WrapWidth)) line("WrapWidth,");
-            if (mdx::hasFlag(tex.flags, Texture::Flag::WrapHeight)) line("WrapHeight,");
+            if (mdx::hasFlag(tex.flags, Texture::Flag::WrapWidth))
+                line("WrapWidth,");
+            if (mdx::hasFlag(tex.flags, Texture::Flag::WrapHeight))
+                line("WrapHeight,");
             closeBlock();
         }
         closeBlock();
     }
 
     void writeMaterials() {
-        if (m_model.materials.empty()) return;
+        if (m_model.materials.empty())
+            return;
         openBlock("Materials " + std::to_string(m_model.materials.size()));
         for (auto& mat : m_model.materials) {
             openBlock("Material");
@@ -349,20 +379,30 @@ private:
             if (m_format == MdlFormat::Hiveworkshop) {
                 // HiveWorkshop tools don't recognize the Unfogged / SortPrimsNearZ
                 // material flags, so we skip them in this dialect.
-                if (mdx::hasFlag(mat.flags, Material::Flag::ConstantColor))   line("ConstantColor,");
-                if (mdx::hasFlag(mat.flags, Material::Flag::SortPrimsFarZ))   line("SortPrimitives,");
-                if (mdx::hasFlag(mat.flags, Material::Flag::FullResolution))  line("FullResolution,");
-                if (mdx::hasFlag(mat.flags, Material::Flag::TwoSided))        line("TwoSided,");
+                if (mdx::hasFlag(mat.flags, Material::Flag::ConstantColor))
+                    line("ConstantColor,");
+                if (mdx::hasFlag(mat.flags, Material::Flag::SortPrimsFarZ))
+                    line("SortPrimitives,");
+                if (mdx::hasFlag(mat.flags, Material::Flag::FullResolution))
+                    line("FullResolution,");
+                if (mdx::hasFlag(mat.flags, Material::Flag::TwoSided))
+                    line("TwoSided,");
                 if (!mat.shader.empty())
                     line("Shader " + quoted(mat.shader) + ",");
             } else {
                 // Warcraft III dialect: Shader is emitted per-layer (below).
-                if (mdx::hasFlag(mat.flags, Material::Flag::ConstantColor))   line("ConstantColor,");
-                if (mdx::hasFlag(mat.flags, Material::Flag::TwoSided))        line("TwoSided,");
-                if (mdx::hasFlag(mat.flags, Material::Flag::Unfogged))        line("Unfogged,");
-                if (mdx::hasFlag(mat.flags, Material::Flag::SortPrimsNearZ))  line("SortPrimsNearZ,");
-                if (mdx::hasFlag(mat.flags, Material::Flag::SortPrimsFarZ))   line("SortPrimsFarZ,");
-                if (mdx::hasFlag(mat.flags, Material::Flag::FullResolution))  line("FullResolution,");
+                if (mdx::hasFlag(mat.flags, Material::Flag::ConstantColor))
+                    line("ConstantColor,");
+                if (mdx::hasFlag(mat.flags, Material::Flag::TwoSided))
+                    line("TwoSided,");
+                if (mdx::hasFlag(mat.flags, Material::Flag::Unfogged))
+                    line("Unfogged,");
+                if (mdx::hasFlag(mat.flags, Material::Flag::SortPrimsNearZ))
+                    line("SortPrimsNearZ,");
+                if (mdx::hasFlag(mat.flags, Material::Flag::SortPrimsFarZ))
+                    line("SortPrimsFarZ,");
+                if (mdx::hasFlag(mat.flags, Material::Flag::FullResolution))
+                    line("FullResolution,");
             }
 
             for (auto& layer : mat.layers) {
@@ -378,14 +418,29 @@ private:
         // FilterMode
         const char* fmName = "None";
         switch (layer.filterMode) {
-            case Layer::FilterMode::None: fmName = "None"; break;
-            case Layer::FilterMode::Transparent: fmName = "Transparent"; break;
-            case Layer::FilterMode::Blend: fmName = "Blend"; break;
-            case Layer::FilterMode::Additive: fmName = "Additive"; break;
-            case Layer::FilterMode::AddAlpha: fmName = "AddAlpha"; break;
-            case Layer::FilterMode::Modulate: fmName = "Modulate"; break;
-            case Layer::FilterMode::Modulate2x: fmName = "Modulate2x"; break;
-            default: break;
+        case Layer::FilterMode::None:
+            fmName = "None";
+            break;
+        case Layer::FilterMode::Transparent:
+            fmName = "Transparent";
+            break;
+        case Layer::FilterMode::Blend:
+            fmName = "Blend";
+            break;
+        case Layer::FilterMode::Additive:
+            fmName = "Additive";
+            break;
+        case Layer::FilterMode::AddAlpha:
+            fmName = "AddAlpha";
+            break;
+        case Layer::FilterMode::Modulate:
+            fmName = "Modulate";
+            break;
+        case Layer::FilterMode::Modulate2x:
+            fmName = "Modulate2x";
+            break;
+        default:
+            break;
         }
         line(std::string("FilterMode ") + fmName + ",");
 
@@ -418,11 +473,20 @@ private:
         if (m_format == MdlFormat::WarcraftIII) {
             const char* shaderName = nullptr;
             switch (layer.shader) {
-                case Layer::ShaderType::SD:      shaderName = "Shader_SD_Legacy"; break;
-                case Layer::ShaderType::HD:      shaderName = "Shader_HD_DefaultUnit"; break;
-                case Layer::ShaderType::SDOnHD:  shaderName = "Shader_SD_FixedFunction"; break;
-                case Layer::ShaderType::Crystal: shaderName = "Shader_HD_Crystal"; break;
-                default: break;
+            case Layer::ShaderType::SD:
+                shaderName = "Shader_SD_Legacy";
+                break;
+            case Layer::ShaderType::HD:
+                shaderName = "Shader_HD_DefaultUnit";
+                break;
+            case Layer::ShaderType::SDOnHD:
+                shaderName = "Shader_SD_FixedFunction";
+                break;
+            case Layer::ShaderType::Crystal:
+                shaderName = "Shader_HD_Crystal";
+                break;
+            default:
+                break;
             }
             if (shaderName && layer.shader != Layer::ShaderType::SD)
                 line(std::string("Shader \"") + shaderName + "\",");
@@ -439,28 +503,34 @@ private:
         // `static TextureID <id>,` form, so omit the suffix there.
         auto writeStaticTexEngine = [&](u32 texId, u32 slot) {
             if (m_model.version >= 1100) {
-                line("static TextureID " + std::to_string(texId) +
-                     " <= " + std::to_string(slot) + ",");
+                line("static TextureID " + std::to_string(texId) + " <= " + std::to_string(slot) +
+                     ",");
             } else {
                 line("static TextureID " + std::to_string(texId) + ",");
             }
         };
         auto slotName = [](Layer::SlotType slot) -> const char* {
             switch (slot) {
-                case Layer::SlotType::DiffuseMap:     return "TextureID";
-                case Layer::SlotType::NormalMap:      return "NormalTextureID";
-                case Layer::SlotType::ORMMap:         return "ORMTextureID";
-                case Layer::SlotType::EmissiveMap:    return "EmissiveTextureID";
-                case Layer::SlotType::TeamColor:      return "TeamColorTextureID";
-                case Layer::SlotType::EnvironmentMap: return "ReflectionsTextureID";
-                default:                              return "TextureID";
+            case Layer::SlotType::DiffuseMap:
+                return "TextureID";
+            case Layer::SlotType::NormalMap:
+                return "NormalTextureID";
+            case Layer::SlotType::ORMMap:
+                return "ORMTextureID";
+            case Layer::SlotType::EmissiveMap:
+                return "EmissiveTextureID";
+            case Layer::SlotType::TeamColor:
+                return "TeamColorTextureID";
+            case Layer::SlotType::EnvironmentMap:
+                return "ReflectionsTextureID";
+            default:
+                return "TextureID";
             }
         };
 
         if (!layer.subTextures.empty()) {
             for (const auto& subTex : layer.subTextures) {
-                const bool animated =
-                    subTex.tracks.isUsed && subTex.tracks.keyCount > 0;
+                const bool animated = subTex.tracks.isUsed && subTex.tracks.keyCount > 0;
 
                 if (m_format == MdlFormat::WarcraftIII) {
                     // Warcraft III dialect: `static TextureID id <= slot,` for
@@ -471,11 +541,9 @@ private:
                     if (animated) {
                         const u32 slot = static_cast<u32>(subTex.slot);
                         writeTrack<u32>("TextureID", subTex.tracks,
-                                        slot != 0 ? std::optional<u32>(slot)
-                                                  : std::nullopt);
+                                        slot != 0 ? std::optional<u32>(slot) : std::nullopt);
                     } else {
-                        writeStaticTexEngine(subTex.textureId,
-                                             static_cast<u32>(subTex.slot));
+                        writeStaticTexEngine(subTex.textureId, static_cast<u32>(subTex.slot));
                     }
                 } else {
                     // HiveWorkshop: named-slot properties. The single-key
@@ -493,8 +561,7 @@ private:
             // Single-key static-form tracks collapse to `static TextureID N,`;
             // multi-key tracks write the animated form.
             const auto& tids = layer.textureIdTracks;
-            if (tids.keyCount == 1 &&
-                tids.interpolationType == InterpolationType::None &&
+            if (tids.keyCount == 1 && tids.interpolationType == InterpolationType::None &&
                 !tids.timestamps.empty() && tids.timestamps[0] == 0) {
                 auto values = tids.keys();
                 if (!values.empty()) {
@@ -541,20 +608,20 @@ private:
         }
         if (layer.fresnelColorTracks.isUsed) {
             writeTrackOrStatic<Vector3f>("FresnelColor", layer.fresnelColorTracks,
-                                          layer.fresnelColor);
+                                         layer.fresnelColor);
         } else if (layer.fresnelColor.x != 1.0f || layer.fresnelColor.y != 1.0f ||
                    layer.fresnelColor.z != 1.0f) {
             line("static FresnelColor " + fmtVec3(layer.fresnelColor) + ",");
         }
         if (layer.fresnelAlphaTracks.isUsed) {
             writeTrackOrStatic<f32>("FresnelOpacity", layer.fresnelAlphaTracks,
-                                     layer.fresnelOpacity);
+                                    layer.fresnelOpacity);
         } else if (layer.fresnelOpacity != 0.0f) {
             line("static FresnelOpacity " + fmtFloat(layer.fresnelOpacity) + ",");
         }
         if (layer.fresnelTeamColorTracks.isUsed) {
             writeTrackOrStatic<f32>("FresnelTeamColor", layer.fresnelTeamColorTracks,
-                                     layer.fresnelTeamColor);
+                                    layer.fresnelTeamColor);
         } else if (layer.fresnelTeamColor != 0.0f) {
             line("static FresnelTeamColor " + fmtFloat(layer.fresnelTeamColor) + ",");
         }
@@ -563,7 +630,8 @@ private:
     }
 
     void writeTextureAnims() {
-        if (m_model.textureAnimations.empty()) return;
+        if (m_model.textureAnimations.empty())
+            return;
         openBlock("TextureAnims " + std::to_string(m_model.textureAnimations.size()));
         for (auto& ta : m_model.textureAnimations) {
             openBlock("TVertexAnim");
@@ -576,7 +644,8 @@ private:
     }
 
     void writeGeosets() {
-        if (m_model.geosets.empty()) return;
+        if (m_model.geosets.empty())
+            return;
         for (auto& geo : m_model.geosets) {
             writeGeoset(geo);
         }
@@ -626,7 +695,8 @@ private:
             writeIndent();
             m_out << "{ ";
             for (size_t i = 0; i < geo.faces.size(); ++i) {
-                if (i > 0) m_out << ", ";
+                if (i > 0)
+                    m_out << ", ";
                 m_out << geo.faces[i];
             }
             m_out << " },\n";
@@ -647,7 +717,8 @@ private:
                 writeIndent();
                 m_out << "Matrices { ";
                 for (u32 j = 0; j < count; ++j) {
-                    if (j > 0) m_out << ", ";
+                    if (j > 0)
+                        m_out << ", ";
                     m_out << geo.matrixIndices[offset + j];
                 }
                 m_out << " },\n";
@@ -705,7 +776,8 @@ private:
                 if (braced) {
                     m_out << "{ ";
                     for (size_t j = 0; j < 8 && (i + j) < geo.skinData.size(); ++j) {
-                        if (j > 0) m_out << ", ";
+                        if (j > 0)
+                            m_out << ", ";
                         m_out << static_cast<u32>(geo.skinData[i + j]);
                     }
                     m_out << " },\n";
@@ -723,7 +795,8 @@ private:
     }
 
     void writeGeosetAnims() {
-        if (m_model.geosetAnimations.empty()) return;
+        if (m_model.geosetAnimations.empty())
+            return;
         for (auto& ga : m_model.geosetAnimations) {
             writeGeosetAnim(ga);
         }
@@ -739,7 +812,8 @@ private:
             line("static Alpha " + fmtFloat(ga.alpha) + ",");
         }
 
-        if (mdx::hasFlag(ga.flags, GeosetAnimation::Flag::DropShadow)) line("DropShadow,");
+        if (mdx::hasFlag(ga.flags, GeosetAnimation::Flag::DropShadow))
+            line("DropShadow,");
 
         line("GeosetId " + std::to_string(ga.geosetId) + ",");
 
@@ -783,22 +857,28 @@ private:
 
             // Light type
             switch (light.type) {
-                case Light::LightType::Omni: line("Omnidirectional,"); break;
-                case Light::LightType::Directional: line("Directional,"); break;
-                case Light::LightType::Ambient: line("Ambient,"); break;
+            case Light::LightType::Omni:
+                line("Omnidirectional,");
+                break;
+            case Light::LightType::Directional:
+                line("Directional,");
+                break;
+            case Light::LightType::Ambient:
+                line("Ambient,");
+                break;
             }
 
             // Static properties or tracks
             if (light.attenuationStartTracks.isUsed) {
                 writeTrackOrStatic<f32>("AttenuationStart", light.attenuationStartTracks,
-                                         light.attenuationStart);
+                                        light.attenuationStart);
             } else {
                 line("static AttenuationStart " + fmtFloat(light.attenuationStart) + ",");
             }
 
             if (light.attenuationEndTracks.isUsed) {
                 writeTrackOrStatic<f32>("AttenuationEnd", light.attenuationEndTracks,
-                                         light.attenuationEnd);
+                                        light.attenuationEnd);
             } else {
                 line("static AttenuationEnd " + fmtFloat(light.attenuationEnd) + ",");
             }
@@ -817,14 +897,14 @@ private:
 
             if (light.ambientIntensityTracks.isUsed) {
                 writeTrackOrStatic<f32>("AmbIntensity", light.ambientIntensityTracks,
-                                         light.ambientIntensity);
+                                        light.ambientIntensity);
             } else {
                 line("static AmbIntensity " + fmtFloat(light.ambientIntensity) + ",");
             }
 
             if (light.ambientColorTracks.isUsed) {
                 writeTrackOrStatic<Vector3f>("AmbColor", light.ambientColorTracks,
-                                              light.ambientColor);
+                                             light.ambientColor);
             } else {
                 line("static AmbColor " + fmtVec3(light.ambientColor) + ",");
             }
@@ -848,14 +928,16 @@ private:
             openBlock("Attachment " + quoted(att.node.name));
             writeNodeFields(att.node);
             line("AttachmentID " + std::to_string(att.attachmentId) + ",");
-            if (!att.path.empty()) line("Path " + quoted(att.path) + ",");
+            if (!att.path.empty())
+                line("Path " + quoted(att.path) + ",");
             writeTrack<f32>("Visibility", att.visibilityTracks);
             closeBlock();
         }
     }
 
     void writePivotPoints() {
-        if (m_model.pivotPoints.empty()) return;
+        if (m_model.pivotPoints.empty())
+            return;
         openBlock("PivotPoints " + std::to_string(m_model.pivotPoints.size()));
         for (auto& p : m_model.pivotPoints) {
             line(fmtVec3(p) + ",");
@@ -928,11 +1010,14 @@ private:
                 line("SortPrimsFarZ,");
             if (mdx::hasFlag(pe2.node.flags, Node::NodeFlag::LineEmitter))
                 line("LineEmitter,");
-            if (mdx::hasFlag(pe2.node.flags, Node::NodeFlag::Unfogged)) line("Unfogged,");
+            if (mdx::hasFlag(pe2.node.flags, Node::NodeFlag::Unfogged))
+                line("Unfogged,");
             if (mdx::hasFlag(pe2.node.flags, Node::NodeFlag::ModelSpace))
                 line("ModelSpace,");
-            if (mdx::hasFlag(pe2.node.flags, Node::NodeFlag::Unshaded)) line("Unshaded,");
-            if (mdx::hasFlag(pe2.node.flags, Node::NodeFlag::XYQuad)) line("XYQuad,");
+            if (mdx::hasFlag(pe2.node.flags, Node::NodeFlag::Unshaded))
+                line("Unshaded,");
+            if (mdx::hasFlag(pe2.node.flags, Node::NodeFlag::XYQuad))
+                line("XYQuad,");
 
             // Properties with potential tracks
             if (pe2.speedTracks.isUsed) {
@@ -962,8 +1047,7 @@ private:
             line("LifeSpan " + fmtFloat(pe2.lifespan) + ",");
 
             if (pe2.emissionRateTracks.isUsed) {
-                writeTrackOrStatic<f32>("EmissionRate", pe2.emissionRateTracks,
-                                         pe2.emissionRate);
+                writeTrackOrStatic<f32>("EmissionRate", pe2.emissionRateTracks, pe2.emissionRate);
             } else {
                 line("static EmissionRate " + fmtFloat(pe2.emissionRate) + ",");
             }
@@ -982,12 +1066,23 @@ private:
 
             // FilterMode as bare identifier
             switch (pe2.filterMode) {
-                case 0: line("Blend,"); break;
-                case 1: line("Additive,"); break;
-                case 2: line("Modulate,"); break;
-                case 3: line("Modulate2x,"); break;
-                case 4: line("AlphaKey,"); break;
-                default: break;
+            case 0:
+                line("Blend,");
+                break;
+            case 1:
+                line("Additive,");
+                break;
+            case 2:
+                line("Modulate,");
+                break;
+            case 3:
+                line("Modulate2x,");
+                break;
+            case 4:
+                line("AlphaKey,");
+                break;
+            default:
+                break;
             }
 
             line("Rows " + std::to_string(pe2.rows) + ",");
@@ -995,10 +1090,17 @@ private:
 
             // Head/Tail
             switch (pe2.headOrTail) {
-                case 0: line("Head,"); break;
-                case 1: line("Tail,"); break;
-                case 2: line("Both,"); break;
-                default: break;
+            case 0:
+                line("Head,");
+                break;
+            case 1:
+                line("Tail,");
+                break;
+            case 2:
+                line("Both,");
+                break;
+            default:
+                break;
             }
 
             line("TailLength " + fmtFloat(pe2.tailLength) + ",");
@@ -1018,8 +1120,7 @@ private:
 
             // ParticleScaling { s, s, s }
             line("ParticleScaling { " + fmtFloat(pe2.segmentScaling[0]) + ", " +
-                 fmtFloat(pe2.segmentScaling[1]) + ", " + fmtFloat(pe2.segmentScaling[2]) +
-                 " },");
+                 fmtFloat(pe2.segmentScaling[1]) + ", " + fmtFloat(pe2.segmentScaling[2]) + " },");
 
             // UV anim intervals
             auto fmtInterval = [](const std::array<u32, 3>& arr) {
@@ -1084,7 +1185,8 @@ private:
             line("Rows " + std::to_string(re.rows) + ",");
             line("Columns " + std::to_string(re.columns) + ",");
             line("MaterialID " + std::to_string(re.materialId) + ",");
-            if (re.gravity != 0.0f) line("Gravity " + fmtFloat(re.gravity) + ",");
+            if (re.gravity != 0.0f)
+                line("Gravity " + fmtFloat(re.gravity) + ",");
 
             writeTrack<f32>("Visibility", re.visibilityTracks);
 
@@ -1108,14 +1210,15 @@ private:
                 line("PopcornScaling,");
 
             // Each field emits either the animated track or a `static` fallback.
-            auto trackOrStaticF32 = [&](const std::string& name, const Track<f32>& track,
-                                        f32 def) {
-                if (track.isUsed) writeTrackOrStatic<f32>(name, track, def);
-                else              line("static " + name + " " + fmtFloat(def) + ",");
+            auto trackOrStaticF32 = [&](const std::string& name, const Track<f32>& track, f32 def) {
+                if (track.isUsed)
+                    writeTrackOrStatic<f32>(name, track, def);
+                else
+                    line("static " + name + " " + fmtFloat(def) + ",");
             };
-            trackOrStaticF32("LifeSpan",     ce.lifeSpanTracks,     ce.lifeSpan);
+            trackOrStaticF32("LifeSpan", ce.lifeSpanTracks, ce.lifeSpan);
             trackOrStaticF32("EmissionRate", ce.emissionRateTracks, ce.emissionRate);
-            trackOrStaticF32("Speed",        ce.speedTracks,        ce.speed);
+            trackOrStaticF32("Speed", ce.speedTracks, ce.speed);
             if (ce.colorTracks.isUsed)
                 writeTrackOrStatic<Vector3f>("Color", ce.colorTracks, ce.color);
             else
@@ -1178,10 +1281,18 @@ private:
             writeNodeFields(cs.node);
 
             switch (cs.type) {
-                case CollisionShape::ShapeType::Box: line("Box,"); break;
-                case CollisionShape::ShapeType::Plane: line("Plane,"); break;
-                case CollisionShape::ShapeType::Sphere: line("Sphere,"); break;
-                case CollisionShape::ShapeType::Cylinder: line("Cylinder,"); break;
+            case CollisionShape::ShapeType::Box:
+                line("Box,");
+                break;
+            case CollisionShape::ShapeType::Plane:
+                line("Plane,");
+                break;
+            case CollisionShape::ShapeType::Sphere:
+                line("Sphere,");
+                break;
+            case CollisionShape::ShapeType::Cylinder:
+                line("Cylinder,");
+                break;
             }
 
             if (!cs.vertices.empty()) {
@@ -1210,14 +1321,16 @@ private:
     }
 
     void writeBindPose() {
-        if (m_model.bindPoses.empty()) return;
+        if (m_model.bindPoses.empty())
+            return;
         openBlock("BindPose");
         openBlock("Matrices " + std::to_string(m_model.bindPoses.size()));
         for (auto& mat : m_model.bindPoses) {
             writeIndent();
             m_out << "{ ";
             for (size_t i = 0; i < 12; ++i) {
-                if (i > 0) m_out << ", ";
+                if (i > 0)
+                    m_out << ", ";
                 m_out << fmtFloat(mat[i]);
             }
             m_out << " },\n";

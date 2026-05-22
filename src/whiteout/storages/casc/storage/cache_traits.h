@@ -21,13 +21,14 @@ namespace whiteout::storages::casc {
 struct MemCacheEnabled {
     mutable std::unique_ptr<MemoryCache> cache;
 
-    explicit MemCacheEnabled(std::unique_ptr<MemoryCache> c)
-        : cache(std::move(c)) {}
+    explicit MemCacheEnabled(std::unique_ptr<MemoryCache> c) : cache(std::move(c)) {}
 
     MemCacheEnabled(MemCacheEnabled&&) = default;
     MemCacheEnabled& operator=(MemCacheEnabled&&) = default;
 
-    static constexpr bool hasCache() noexcept { return true; }
+    static constexpr bool hasCache() noexcept {
+        return true;
+    }
 
     std::optional<std::vector<u8>> get(const std::array<u8, 16>& key) const {
         return cache->get(key);
@@ -41,12 +42,16 @@ struct MemCacheEnabled {
         cache->put(key, data);
     }
 
-    void flush() const { cache->clear(); }
+    void flush() const {
+        cache->clear();
+    }
 };
 
 /// No-op cache trait.  All methods compile to nothing.
 struct NoCachePolicy {
-    static constexpr bool hasCache() noexcept { return false; }
+    static constexpr bool hasCache() noexcept {
+        return false;
+    }
 
     std::optional<std::vector<u8>> get(const std::array<u8, 16>&) const {
         return std::nullopt;

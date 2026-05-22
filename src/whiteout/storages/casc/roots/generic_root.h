@@ -24,14 +24,25 @@ public:
         return std::make_unique<GenericRoot>();
     }
 
-    std::vector<const RootEntry*> findByPath(const std::string&) const override { return {}; }
-    std::vector<const RootEntry*> findByFileDataId(u32, FileIdHint = FileIdHint::None) const override { return {}; }
+    std::vector<const RootEntry*> findByPath(const std::string&) const override {
+        return {};
+    }
+    std::vector<const RootEntry*> findByFileDataId(u32,
+                                                   FileIdHint = FileIdHint::None) const override {
+        return {};
+    }
 
-    RootFormat format() const override { return RootFormat::Unknown; }
+    RootFormat format() const override {
+        return RootFormat::Unknown;
+    }
 
 protected:
-    const std::vector<RootEntry>& entries() const override { return m_entries; }
-    std::vector<RootEntry>& mutableEntries() override { return m_entries; }
+    const std::vector<RootEntry>& entries() const override {
+        return m_entries;
+    }
+    std::vector<RootEntry>& mutableEntries() override {
+        return m_entries;
+    }
 
 private:
     std::vector<RootEntry> m_entries;

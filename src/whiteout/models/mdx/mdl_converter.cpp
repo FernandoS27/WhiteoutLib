@@ -23,7 +23,8 @@ namespace {
 
 // Case-insensitive string comparison
 bool iequals(std::string_view a, std::string_view b) {
-    if (a.size() != b.size()) return false;
+    if (a.size() != b.size())
+        return false;
     for (size_t i = 0; i < a.size(); ++i) {
         if (std::tolower(static_cast<unsigned char>(a[i])) !=
             std::tolower(static_cast<unsigned char>(b[i])))
@@ -37,7 +38,8 @@ bool iequals(std::string_view a, std::string_view b) {
 const MdlProperty* findProp(const MdlNode& node, std::string_view name) {
     for (auto& child : node.children) {
         if (auto* p = std::get_if<MdlProperty>(&child)) {
-            if (p->name == name) return p;
+            if (p->name == name)
+                return p;
         }
     }
     return nullptr;
@@ -47,7 +49,8 @@ const MdlProperty* findProp(const MdlNode& node, std::string_view name) {
 const MdlNode* findBlock(const MdlNode& node, std::string_view name) {
     for (auto& child : node.children) {
         if (auto* n = std::get_if<MdlNode>(&child)) {
-            if (n->name == name) return n;
+            if (n->name == name)
+                return n;
         }
     }
     return nullptr;
@@ -57,7 +60,8 @@ const MdlNode* findBlock(const MdlNode& node, std::string_view name) {
 const MdlAnimTrack* findTrack(const MdlNode& node, std::string_view name) {
     for (auto& child : node.children) {
         if (auto* t = std::get_if<MdlAnimTrack>(&child)) {
-            if (t->name == name) return t;
+            if (t->name == name)
+                return t;
         }
     }
     return nullptr;
@@ -93,22 +97,20 @@ i32 i32Prop(const MdlNode& node, std::string_view name, i32 def = 0) {
 }
 
 // Extract a string from a property's first value
-std::string stringProp(const MdlNode& node, std::string_view name,
-                       const std::string& def = "") {
+std::string stringProp(const MdlNode& node, std::string_view name, const std::string& def = "") {
     if (auto* p = findProp(node, name)) {
-        if (!p->values.empty() && p->values[0].isString()) return p->values[0].asString();
+        if (!p->values.empty() && p->values[0].isString())
+            return p->values[0].asString();
     }
     return def;
 }
 
 // Extract a Vector3f from a property's first value (which should be an array of 3)
-Vector3f vec3Prop(const MdlNode& node, std::string_view name,
-                  Vector3f def = Vector3f(0, 0, 0)) {
+Vector3f vec3Prop(const MdlNode& node, std::string_view name, Vector3f def = Vector3f(0, 0, 0)) {
     if (auto* p = findProp(node, name)) {
         if (!p->values.empty() && p->values[0].isArray()) {
             auto& arr = p->values[0].asArray();
-            if (arr.size() >= 3 && arr[0].isNumber() && arr[1].isNumber() &&
-                arr[2].isNumber()) {
+            if (arr.size() >= 3 && arr[0].isNumber() && arr[1].isNumber() && arr[2].isNumber()) {
                 return Vector3f(static_cast<f32>(arr[0].asNumber()),
                                 static_cast<f32>(arr[1].asNumber()),
                                 static_cast<f32>(arr[2].asNumber()));
@@ -129,7 +131,8 @@ bool hasFlag(const MdlNode& node, std::string_view name) {
 bool hasFlagCI(const MdlNode& node, std::string_view name) {
     for (auto& child : node.children) {
         if (auto* p = std::get_if<MdlProperty>(&child)) {
-            if (iequals(p->name, name)) return true;
+            if (iequals(p->name, name))
+                return true;
         }
     }
     return false;
@@ -146,21 +149,26 @@ Extent parseExtent(const MdlNode& node) {
 
 // Convert interpolation string to enum
 InterpolationType parseInterpolation(const std::string& s) {
-    if (s == "Linear") return InterpolationType::Linear;
-    if (s == "Hermite") return InterpolationType::Hermite;
-    if (s == "Bezier") return InterpolationType::Bezier;
+    if (s == "Linear")
+        return InterpolationType::Linear;
+    if (s == "Hermite")
+        return InterpolationType::Hermite;
+    if (s == "Bezier")
+        return InterpolationType::Bezier;
     return InterpolationType::None; // "DontInterp" or empty
 }
 
 // Extract a float value from an MdlValue
 f32 valueToFloat(const MdlValue& v) {
-    if (v.isNumber()) return static_cast<f32>(v.asNumber());
+    if (v.isNumber())
+        return static_cast<f32>(v.asNumber());
     return 0.0f;
 }
 
 // Extract a u32 value from an MdlValue
 u32 valueToU32(const MdlValue& v) {
-    if (v.isNumber()) return static_cast<u32>(v.asNumber());
+    if (v.isNumber())
+        return static_cast<u32>(v.asNumber());
     return 0;
 }
 
@@ -181,10 +189,9 @@ Quaternion valueToQuat(const MdlValue& v) {
     if (v.isArray()) {
         auto& arr = v.asArray();
         if (arr.size() >= 4)
-            return Quaternion(static_cast<f32>(arr[0].asNumber()),
-                              static_cast<f32>(arr[1].asNumber()),
-                              static_cast<f32>(arr[2].asNumber()),
-                              static_cast<f32>(arr[3].asNumber()));
+            return Quaternion(
+                static_cast<f32>(arr[0].asNumber()), static_cast<f32>(arr[1].asNumber()),
+                static_cast<f32>(arr[2].asNumber()), static_cast<f32>(arr[3].asNumber()));
     }
     return Quaternion(0, 0, 0, 1);
 }
@@ -194,10 +201,9 @@ Vector4f valueToVec4(const MdlValue& v) {
     if (v.isArray()) {
         auto& arr = v.asArray();
         if (arr.size() >= 4)
-            return Vector4f(static_cast<f32>(arr[0].asNumber()),
-                            static_cast<f32>(arr[1].asNumber()),
-                            static_cast<f32>(arr[2].asNumber()),
-                            static_cast<f32>(arr[3].asNumber()));
+            return Vector4f(
+                static_cast<f32>(arr[0].asNumber()), static_cast<f32>(arr[1].asNumber()),
+                static_cast<f32>(arr[2].asNumber()), static_cast<f32>(arr[3].asNumber()));
     }
     return Vector4f(0, 0, 0, 0);
 }
@@ -333,35 +339,35 @@ Node parseNodeFields(const MdlNode& block, Node::NodeType type) {
 
     // Set type flags
     switch (type) {
-        case Node::NodeType::Bone:
-            node.flags = node.flags | Node::NodeFlag::Bone;
-            break;
-        case Node::NodeType::Light:
-            node.flags = node.flags | Node::NodeFlag::Light;
-            break;
-        case Node::NodeType::EventObject:
-            node.flags = node.flags | Node::NodeFlag::EventObject;
-            break;
-        case Node::NodeType::Attachment:
-            node.flags = node.flags | Node::NodeFlag::Attachment;
-            break;
-        case Node::NodeType::ParticleEmitter:
-            node.flags = node.flags | Node::NodeFlag::ParticleEmitter;
-            break;
-        case Node::NodeType::ParticleEmitter2:
-            node.flags = node.flags | Node::NodeFlag::ParticleEmitter;
-            break;
-        case Node::NodeType::CollisionShape:
-            node.flags = node.flags | Node::NodeFlag::CollisionShape;
-            break;
-        case Node::NodeType::RibbonEmitter:
-            node.flags = node.flags | Node::NodeFlag::RibbonEmitter;
-            break;
-        case Node::NodeType::CornEmitter:
-            node.flags = node.flags | Node::NodeFlag::ParticleEmitter;
-            break;
-        default:
-            break;
+    case Node::NodeType::Bone:
+        node.flags = node.flags | Node::NodeFlag::Bone;
+        break;
+    case Node::NodeType::Light:
+        node.flags = node.flags | Node::NodeFlag::Light;
+        break;
+    case Node::NodeType::EventObject:
+        node.flags = node.flags | Node::NodeFlag::EventObject;
+        break;
+    case Node::NodeType::Attachment:
+        node.flags = node.flags | Node::NodeFlag::Attachment;
+        break;
+    case Node::NodeType::ParticleEmitter:
+        node.flags = node.flags | Node::NodeFlag::ParticleEmitter;
+        break;
+    case Node::NodeType::ParticleEmitter2:
+        node.flags = node.flags | Node::NodeFlag::ParticleEmitter;
+        break;
+    case Node::NodeType::CollisionShape:
+        node.flags = node.flags | Node::NodeFlag::CollisionShape;
+        break;
+    case Node::NodeType::RibbonEmitter:
+        node.flags = node.flags | Node::NodeFlag::RibbonEmitter;
+        break;
+    case Node::NodeType::CornEmitter:
+        node.flags = node.flags | Node::NodeFlag::ParticleEmitter;
+        break;
+    default:
+        break;
     }
 
     // Parse flag identifiers
@@ -394,9 +400,9 @@ Node parseNodeFields(const MdlNode& block, Node::NodeType type) {
             node.flags = node.flags | Node::NodeFlag::PopcornScaling;
     } else {
         if (hasFlag(block, "LineEmitter"))
-            node.flags = node.flags | Node::NodeFlag::LineEmitter;     // 0x20000
+            node.flags = node.flags | Node::NodeFlag::LineEmitter; // 0x20000
         if (hasFlag(block, "Unfogged"))
-            node.flags = node.flags | Node::NodeFlag::Unfogged;        // 0x40000
+            node.flags = node.flags | Node::NodeFlag::Unfogged; // 0x40000
     }
     if (hasFlag(block, "ModelSpace"))
         node.flags = node.flags | Node::NodeFlag::ModelSpace;
@@ -432,7 +438,8 @@ void convertModel(const MdlNode& block, Model& model) {
 void convertSequences(const MdlNode& block, Model& model) {
     for (auto& child : block.children) {
         if (auto* anim = std::get_if<MdlNode>(&child)) {
-            if (anim->name != "Anim") continue;
+            if (anim->name != "Anim")
+                continue;
             Sequence seq;
             if (!anim->headerParams.empty() && anim->headerParams[0].isString()) {
                 seq.name = anim->headerParams[0].asString();
@@ -449,7 +456,8 @@ void convertSequences(const MdlNode& block, Model& model) {
             }
             seq.moveSpeed = floatProp(*anim, "MoveSpeed");
             seq.rarity = floatProp(*anim, "Rarity");
-            if (hasFlag(*anim, "NonLooping")) seq.flags |= Sequence::Flag::NonLooping;
+            if (hasFlag(*anim, "NonLooping"))
+                seq.flags |= Sequence::Flag::NonLooping;
             seq.extent = parseExtent(*anim);
             model.sequences.push_back(std::move(seq));
         }
@@ -477,12 +485,15 @@ void convertGlobalSequences(const MdlNode& block, Model& model) {
 void convertTextures(const MdlNode& block, Model& model) {
     for (auto& child : block.children) {
         if (auto* bitmap = std::get_if<MdlNode>(&child)) {
-            if (bitmap->name != "Bitmap") continue;
+            if (bitmap->name != "Bitmap")
+                continue;
             Texture tex;
             tex.fileName = stringProp(*bitmap, "Image");
             tex.replaceableId = u32Prop(*bitmap, "ReplaceableId");
-            if (hasFlag(*bitmap, "WrapWidth")) tex.flags |= Texture::Flag::WrapWidth;
-            if (hasFlag(*bitmap, "WrapHeight")) tex.flags |= Texture::Flag::WrapHeight;
+            if (hasFlag(*bitmap, "WrapWidth"))
+                tex.flags |= Texture::Flag::WrapWidth;
+            if (hasFlag(*bitmap, "WrapHeight"))
+                tex.flags |= Texture::Flag::WrapHeight;
             model.textures.push_back(std::move(tex));
         }
     }
@@ -491,25 +502,34 @@ void convertTextures(const MdlNode& block, Model& model) {
 void convertMaterials(const MdlNode& block, Model& model) {
     for (auto& child : block.children) {
         if (auto* matNode = std::get_if<MdlNode>(&child)) {
-            if (matNode->name != "Material") continue;
+            if (matNode->name != "Material")
+                continue;
             Material mat;
             mat.priorityPlane = i32Prop(*matNode, "PriorityPlane");
             mat.flags = static_cast<Material::Flag>(u32Prop(*matNode, "Flags"));
             mat.shader = stringProp(*matNode, "Shader");
 
             // Flags -- accept both HiveWorkshop and Warcraft III dialect names
-            if (hasFlag(*matNode, "ConstantColor"))   mat.flags |= Material::Flag::ConstantColor;
-            if (hasFlag(*matNode, "TwoSided"))        mat.flags |= Material::Flag::TwoSided;
-            if (hasFlag(*matNode, "Unfogged"))        mat.flags |= Material::Flag::Unfogged;
-            if (hasFlag(*matNode, "SortPrimsNearZ"))  mat.flags |= Material::Flag::SortPrimsNearZ;
-            if (hasFlag(*matNode, "SortPrimsFarZ"))   mat.flags |= Material::Flag::SortPrimsFarZ;
-            if (hasFlag(*matNode, "SortPrimitives"))  mat.flags |= Material::Flag::SortPrimsFarZ;
-            if (hasFlag(*matNode, "FullResolution"))  mat.flags |= Material::Flag::FullResolution;
+            if (hasFlag(*matNode, "ConstantColor"))
+                mat.flags |= Material::Flag::ConstantColor;
+            if (hasFlag(*matNode, "TwoSided"))
+                mat.flags |= Material::Flag::TwoSided;
+            if (hasFlag(*matNode, "Unfogged"))
+                mat.flags |= Material::Flag::Unfogged;
+            if (hasFlag(*matNode, "SortPrimsNearZ"))
+                mat.flags |= Material::Flag::SortPrimsNearZ;
+            if (hasFlag(*matNode, "SortPrimsFarZ"))
+                mat.flags |= Material::Flag::SortPrimsFarZ;
+            if (hasFlag(*matNode, "SortPrimitives"))
+                mat.flags |= Material::Flag::SortPrimsFarZ;
+            if (hasFlag(*matNode, "FullResolution"))
+                mat.flags |= Material::Flag::FullResolution;
 
             // Parse layers
             for (auto& mc : matNode->children) {
                 if (auto* layerNode = std::get_if<MdlNode>(&mc)) {
-                    if (layerNode->name != "Layer") continue;
+                    if (layerNode->name != "Layer")
+                        continue;
                     Layer layer;
 
                     // FilterMode
@@ -584,27 +604,32 @@ void convertMaterials(const MdlNode& block, Model& model) {
                     // Both produce entries in layer.subTextures. Plain `TextureID 5,`
                     // without a slot suffix falls back to legacy layer.textureId.
                     auto slotForName = [](const std::string& n) -> Layer::SlotType {
-                        if (n == "NormalTextureID")        return Layer::SlotType::NormalMap;
-                        if (n == "ORMTextureID")           return Layer::SlotType::ORMMap;
-                        if (n == "EmissiveTextureID")      return Layer::SlotType::EmissiveMap;
-                        if (n == "TeamColorTextureID")     return Layer::SlotType::TeamColor;
-                        if (n == "ReflectionsTextureID")   return Layer::SlotType::EnvironmentMap;
-                        if (n == "TextureID")              return Layer::SlotType::DiffuseMap;
+                        if (n == "NormalTextureID")
+                            return Layer::SlotType::NormalMap;
+                        if (n == "ORMTextureID")
+                            return Layer::SlotType::ORMMap;
+                        if (n == "EmissiveTextureID")
+                            return Layer::SlotType::EmissiveMap;
+                        if (n == "TeamColorTextureID")
+                            return Layer::SlotType::TeamColor;
+                        if (n == "ReflectionsTextureID")
+                            return Layer::SlotType::EnvironmentMap;
+                        if (n == "TextureID")
+                            return Layer::SlotType::DiffuseMap;
                         return Layer::SlotType::Unknown;
                     };
 
-
                     auto texSlotForProp = [&](const MdlProperty& p) -> Layer::SlotType {
                         if (p.name == "TextureID")
-                            return p.slot.has_value()
-                                       ? static_cast<Layer::SlotType>(p.slot.value())
-                                       : Layer::SlotType::DiffuseMap;
+                            return p.slot.has_value() ? static_cast<Layer::SlotType>(p.slot.value())
+                                                      : Layer::SlotType::DiffuseMap;
                         return slotForName(p.name);
                     };
 
                     for (auto& mc2 : layerNode->children) {
                         auto* prop = std::get_if<MdlProperty>(&mc2);
-                        if (!prop) continue;
+                        if (!prop)
+                            continue;
 
                         if (model.version < 1100) {
                             if (prop->name == "TextureID") {
@@ -622,8 +647,7 @@ void convertMaterials(const MdlNode& block, Model& model) {
                             Layer::SubTexture sub;
                             sub.slot = slot;
                             if (!prop->values.empty() && prop->values[0].isNumber())
-                                sub.textureId =
-                                    static_cast<u32>(prop->values[0].asNumber());
+                                sub.textureId = static_cast<u32>(prop->values[0].asNumber());
                             layer.subTextures.push_back(std::move(sub));
                             continue;
                         }
@@ -642,7 +666,8 @@ void convertMaterials(const MdlNode& block, Model& model) {
                     // also walk those:
                     for (auto& mc2 : layerNode->children) {
                         auto* track = std::get_if<MdlAnimTrack>(&mc2);
-                        if (!track) continue;
+                        if (!track)
+                            continue;
 
                         if (model.version < 1100) {
                             if (track->name == "TextureID") {
@@ -652,7 +677,8 @@ void convertMaterials(const MdlNode& block, Model& model) {
                         }
 
                         Layer::SlotType namedSlot = slotForName(track->name);
-                        if (namedSlot == Layer::SlotType::Unknown) continue;
+                        if (namedSlot == Layer::SlotType::Unknown)
+                            continue;
                         // Warcraft III animated form `TextureID <n> <= <slot> { ... }`
                         // carries the slot on the track header; honour it
                         // (HiveWorkshop named-slot tracks keep their keyword slot).
@@ -661,9 +687,13 @@ void convertMaterials(const MdlNode& block, Model& model) {
                         // Skip if a static prop with the same name was already added above.
                         bool already = false;
                         for (auto& s : layer.subTextures) {
-                            if (s.slot == namedSlot && s.tracks.isUsed) { already = true; break; }
+                            if (s.slot == namedSlot && s.tracks.isUsed) {
+                                already = true;
+                                break;
+                            }
                         }
-                        if (already) continue;
+                        if (already)
+                            continue;
 
                         Layer::SubTexture sub;
                         sub.slot = namedSlot;
@@ -677,15 +707,13 @@ void convertMaterials(const MdlNode& block, Model& model) {
                     // interleaves slots; restore slot order so a round-trip
                     // matches the MDX and consumers indexing by position hit
                     // the right slot.
-                    std::stable_sort(
-                        layer.subTextures.begin(), layer.subTextures.end(),
-                        [](const Layer::SubTexture& a, const Layer::SubTexture& b) {
-                            return a.slot < b.slot;
-                        });
+                    std::stable_sort(layer.subTextures.begin(), layer.subTextures.end(),
+                                     [](const Layer::SubTexture& a, const Layer::SubTexture& b) {
+                                         return a.slot < b.slot;
+                                     });
 
                     layer.alpha = floatProp(*layerNode, "Alpha", 1.0f);
-                    layer.textureAnimationId =
-                        u32Prop(*layerNode, "TVertexAnimId", 0xFFFFFFFF);
+                    layer.textureAnimationId = u32Prop(*layerNode, "TVertexAnimId", 0xFFFFFFFF);
                     layer.coordId = u32Prop(*layerNode, "CoordId");
 
                     // Animation tracks
@@ -696,20 +724,14 @@ void convertMaterials(const MdlNode& block, Model& model) {
                     // animated by a track that shadows the base scalar) reads
                     // back as 1.0.
                     layer.emissiveGain = floatProp(*layerNode, "EmissiveGain", 1.0f);
-                    layer.fresnelColor =
-                        vec3Prop(*layerNode, "FresnelColor", Vector3f(1, 1, 1));
+                    layer.fresnelColor = vec3Prop(*layerNode, "FresnelColor", Vector3f(1, 1, 1));
                     layer.fresnelOpacity = floatProp(*layerNode, "FresnelOpacity");
-                    layer.fresnelTeamColor =
-                        floatProp(*layerNode, "FresnelTeamColor");
+                    layer.fresnelTeamColor = floatProp(*layerNode, "FresnelTeamColor");
 
-                    layer.emissiveGainTracks =
-                        getTrack<f32>(*layerNode, "EmissiveGain");
-                    layer.fresnelColorTracks =
-                        getTrack<Vector3f>(*layerNode, "FresnelColor");
-                    layer.fresnelAlphaTracks =
-                        getTrack<f32>(*layerNode, "FresnelOpacity");
-                    layer.fresnelTeamColorTracks =
-                        getTrack<f32>(*layerNode, "FresnelTeamColor");
+                    layer.emissiveGainTracks = getTrack<f32>(*layerNode, "EmissiveGain");
+                    layer.fresnelColorTracks = getTrack<Vector3f>(*layerNode, "FresnelColor");
+                    layer.fresnelAlphaTracks = getTrack<f32>(*layerNode, "FresnelOpacity");
+                    layer.fresnelTeamColorTracks = getTrack<f32>(*layerNode, "FresnelTeamColor");
 
                     mat.layers.push_back(std::move(layer));
                 }
@@ -722,7 +744,8 @@ void convertMaterials(const MdlNode& block, Model& model) {
 void convertTextureAnims(const MdlNode& block, Model& model) {
     for (auto& child : block.children) {
         if (auto* taNode = std::get_if<MdlNode>(&child)) {
-            if (taNode->name != "TVertexAnim") continue;
+            if (taNode->name != "TVertexAnim")
+                continue;
             TextureAnimation ta;
             ta.translationTracks = getTrack<Vector3f>(*taNode, "Translation");
             ta.rotationTracks = getTrack<Quaternion>(*taNode, "Rotation");
@@ -741,8 +764,7 @@ void convertGeoset(const MdlNode& block, Model& model) {
                 for (auto& vc : sub->children) {
                     if (auto* vp = std::get_if<MdlProperty>(&vc)) {
                         if (!vp->values.empty() && vp->values[0].isArray()) {
-                            geo.vertexPositions.push_back(
-                                valueToVec3(vp->values[0]));
+                            geo.vertexPositions.push_back(valueToVec3(vp->values[0]));
                         }
                     }
                 }
@@ -750,8 +772,7 @@ void convertGeoset(const MdlNode& block, Model& model) {
                 for (auto& vc : sub->children) {
                     if (auto* vp = std::get_if<MdlProperty>(&vc)) {
                         if (!vp->values.empty() && vp->values[0].isArray()) {
-                            geo.vertexNormals.push_back(
-                                valueToVec3(vp->values[0]));
+                            geo.vertexNormals.push_back(valueToVec3(vp->values[0]));
                         }
                     }
                 }
@@ -762,9 +783,8 @@ void convertGeoset(const MdlNode& block, Model& model) {
                         if (!vp->values.empty() && vp->values[0].isArray()) {
                             auto& arr = vp->values[0].asArray();
                             if (arr.size() >= 2) {
-                                uvs.push_back(Vector2f(
-                                    static_cast<f32>(arr[0].asNumber()),
-                                    static_cast<f32>(arr[1].asNumber())));
+                                uvs.push_back(Vector2f(static_cast<f32>(arr[0].asNumber()),
+                                                       static_cast<f32>(arr[1].asNumber())));
                             }
                         }
                     }
@@ -775,8 +795,7 @@ void convertGeoset(const MdlNode& block, Model& model) {
                 for (auto& vc : sub->children) {
                     if (auto* vp = std::get_if<MdlProperty>(&vc)) {
                         if (!vp->values.empty() && vp->values[0].isNumber()) {
-                            geo.vertexGroups.push_back(static_cast<u8>(
-                                vp->values[0].asNumber()));
+                            geo.vertexGroups.push_back(static_cast<u8>(vp->values[0].asNumber()));
                         }
                     }
                 }
@@ -787,14 +806,11 @@ void convertGeoset(const MdlNode& block, Model& model) {
                         if (triBlock->name == "Triangles") {
                             for (auto& tc : triBlock->children) {
                                 if (auto* tp = std::get_if<MdlProperty>(&tc)) {
-                                    if (!tp->values.empty() &&
-                                        tp->values[0].isArray()) {
-                                        for (auto& idx :
-                                             tp->values[0].asArray()) {
+                                    if (!tp->values.empty() && tp->values[0].isArray()) {
+                                        for (auto& idx : tp->values[0].asArray()) {
                                             if (idx.isNumber())
                                                 geo.faces.push_back(
-                                                    static_cast<u16>(
-                                                        idx.asNumber()));
+                                                    static_cast<u16>(idx.asNumber()));
                                         }
                                     }
                                 }
@@ -805,8 +821,7 @@ void convertGeoset(const MdlNode& block, Model& model) {
                 // Set face type/groups
                 if (!geo.faces.empty()) {
                     geo.faceTypeGroups.push_back(4); // triangles
-                    geo.faceGroups.push_back(
-                        static_cast<u32>(geo.faces.size()));
+                    geo.faceGroups.push_back(static_cast<u32>(geo.faces.size()));
                 }
             } else if (sub->name == "Groups") {
                 // Groups N M { Matrices { idx, idx, ... }, ... }
@@ -818,11 +833,9 @@ void convertGeoset(const MdlNode& block, Model& model) {
                             auto& arr = mp->values[0].asArray();
                             for (auto& v : arr) {
                                 if (v.isNumber())
-                                    geo.matrixIndices.push_back(
-                                        static_cast<u32>(v.asNumber()));
+                                    geo.matrixIndices.push_back(static_cast<u32>(v.asNumber()));
                             }
-                            geo.matrixGroups.push_back(
-                                static_cast<u32>(arr.size()));
+                            geo.matrixGroups.push_back(static_cast<u32>(arr.size()));
                         }
                     }
                 }
@@ -830,8 +843,7 @@ void convertGeoset(const MdlNode& block, Model& model) {
                 for (auto& vc : sub->children) {
                     if (auto* vp = std::get_if<MdlProperty>(&vc)) {
                         if (!vp->values.empty() && vp->values[0].isArray()) {
-                            geo.tangents.push_back(
-                                valueToVec4(vp->values[0]));
+                            geo.tangents.push_back(valueToVec4(vp->values[0]));
                         }
                     }
                 }
@@ -850,8 +862,7 @@ void convertGeoset(const MdlNode& block, Model& model) {
                     if (v.isArray()) {
                         for (auto& elem : v.asArray()) {
                             if (elem.isNumber())
-                                geo.skinData.push_back(
-                                    static_cast<u8>(elem.asNumber()));
+                                geo.skinData.push_back(static_cast<u8>(elem.asNumber()));
                         }
                     } else if (v.isNumber()) {
                         geo.skinData.push_back(static_cast<u8>(v.asNumber()));
@@ -867,18 +878,15 @@ void convertGeoset(const MdlNode& block, Model& model) {
                 if (!prop->values.empty() && prop->values[0].isArray()) {
                     for (auto& v : prop->values[0].asArray()) {
                         if (v.isNumber())
-                            geo.vertexGroups.push_back(
-                                static_cast<u8>(v.asNumber()));
+                            geo.vertexGroups.push_back(static_cast<u8>(v.asNumber()));
                     }
                 }
             } else if (prop->name == "MaterialID" && !prop->values.empty())
                 geo.materialId = static_cast<u32>(prop->values[0].asNumber());
             else if (prop->name == "SelectionGroup" && !prop->values.empty())
-                geo.selectionGroup =
-                    static_cast<u32>(prop->values[0].asNumber());
+                geo.selectionGroup = static_cast<u32>(prop->values[0].asNumber());
             else if (prop->name == "SelectionFlags" && !prop->values.empty())
-                geo.selectionFlags =
-                    static_cast<u32>(prop->values[0].asNumber());
+                geo.selectionFlags = static_cast<u32>(prop->values[0].asNumber());
             else if (prop->name == "Unselectable")
                 geo.selectionFlags = 4;
             else if (prop->name == "LevelOfDetail" && !prop->values.empty())
@@ -905,7 +913,8 @@ void convertGeosetAnim(const MdlNode& block, Model& model) {
     ga.flags = static_cast<GeosetAnimation::Flag>(u32Prop(block, "Flags"));
 
     // DropShadow flag
-    if (hasFlag(block, "DropShadow")) ga.flags |= GeosetAnimation::Flag::DropShadow;
+    if (hasFlag(block, "DropShadow"))
+        ga.flags |= GeosetAnimation::Flag::DropShadow;
 
     // Color
     if (auto* p = findProp(block, "Color")) {
@@ -917,7 +926,8 @@ void convertGeosetAnim(const MdlNode& block, Model& model) {
 
     ga.alphaTracks = getTrack<f32>(block, "Alpha");
     ga.colorTracks = getTrack<Vector3f>(block, "Color");
-    if (ga.colorTracks.isUsed) ga.flags |= GeosetAnimation::Flag::Color;
+    if (ga.colorTracks.isUsed)
+        ga.flags |= GeosetAnimation::Flag::Color;
 
     model.geosetAnimations.push_back(std::move(ga));
 }
@@ -943,8 +953,7 @@ void convertBone(const MdlNode& block, Model& model) {
             if (p->values[0].isString() && p->values[0].asString() == "None") {
                 bone.geosetAnimationId = 0xFFFFFFFF;
             } else if (p->values[0].isNumber()) {
-                bone.geosetAnimationId =
-                    static_cast<u32>(p->values[0].asNumber());
+                bone.geosetAnimationId = static_cast<u32>(p->values[0].asNumber());
             }
         }
     }
@@ -1113,10 +1122,9 @@ void convertParticleEmitter2(const MdlNode& block, Model& model) {
             if (!cp->values.empty() && cp->values[0].isArray()) {
                 auto& arr = cp->values[0].asArray();
                 if (arr.size() >= 3) {
-                    pe2.segmentColor[colorIdx] =
-                        Vector3f(static_cast<f32>(arr[0].asNumber()),
-                                 static_cast<f32>(arr[1].asNumber()),
-                                 static_cast<f32>(arr[2].asNumber()));
+                    pe2.segmentColor[colorIdx] = Vector3f(static_cast<f32>(arr[0].asNumber()),
+                                                          static_cast<f32>(arr[1].asNumber()),
+                                                          static_cast<f32>(arr[2].asNumber()));
                 }
             }
             colorIdx++;
@@ -1299,12 +1307,12 @@ void convertCornEmitter(const MdlNode& block, Model& model) {
     ce.animVisibilityGuide = stringProp(block, "AnimVisibilityGuide");
 
     // Animation tracks. Color and Alpha are separate sections in MDL.
-    ce.lifeSpanTracks     = getTrack<f32>(block, "LifeSpan");
+    ce.lifeSpanTracks = getTrack<f32>(block, "LifeSpan");
     ce.emissionRateTracks = getTrack<f32>(block, "EmissionRate");
-    ce.speedTracks        = getTrack<f32>(block, "Speed");
-    ce.colorTracks        = getTrack<Vector3f>(block, "Color");
-    ce.alphaTracks        = getTrack<f32>(block, "Alpha");
-    ce.visibilityTracks   = getTrack<f32>(block, "Visibility");
+    ce.speedTracks = getTrack<f32>(block, "Speed");
+    ce.colorTracks = getTrack<Vector3f>(block, "Color");
+    ce.alphaTracks = getTrack<f32>(block, "Alpha");
+    ce.visibilityTracks = getTrack<f32>(block, "Visibility");
 
     model.cornEmitters.push_back(std::move(ce));
 }

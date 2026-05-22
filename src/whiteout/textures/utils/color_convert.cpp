@@ -53,7 +53,7 @@ void rgb_to_ycbcr(u8 r, u8 g, u8 b, u8& y, u8& cb, u8& cr) {
     f32 const fg = static_cast<f32>(g);
     f32 const fb = static_cast<f32>(b);
 
-    y  = roundClampU8(0.299f * fr + 0.587f * fg + 0.114f * fb);
+    y = roundClampU8(0.299f * fr + 0.587f * fg + 0.114f * fb);
     cb = roundClampU8(-0.168736f * fr - 0.331264f * fg + 0.5f * fb + 128.0f);
     cr = roundClampU8(0.5f * fr - 0.418688f * fg - 0.081312f * fb + 128.0f);
 }

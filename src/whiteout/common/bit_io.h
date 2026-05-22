@@ -170,7 +170,8 @@ struct LsbBitReader {
 
     /// Bulk-refill: load up to 7 bytes at once so bitsAvail >= 56.
     void refill() {
-        if (bitsAvail > 56) return; // Already have enough bits.
+        if (bitsAvail > 56)
+            return; // Already have enough bits.
         // Fast path: if at least 8 bytes remain, load a full u64 and mask in.
         if (bytePos + 8 <= size) {
             u64 next = 0;
@@ -189,7 +190,8 @@ struct LsbBitReader {
     }
 
     u32 readBits(i32 count) {
-        if (bitsAvail < count) refill();
+        if (bitsAvail < count)
+            refill();
         u32 val = static_cast<u32>(bitBuf) & ((1u << count) - 1);
         bitBuf >>= count;
         bitsAvail -= count;
@@ -197,7 +199,8 @@ struct LsbBitReader {
     }
 
     u32 peekBits(i32 count) {
-        if (bitsAvail < count) refill();
+        if (bitsAvail < count)
+            refill();
         return static_cast<u32>(bitBuf) & ((1u << count) - 1);
     }
 

@@ -367,8 +367,8 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
             bool validCombo = false;
             switch (colorType) {
             case COLOR_GRAYSCALE:
-                validCombo = (bitDepth == 1 || bitDepth == 2 || bitDepth == 4 ||
-                              bitDepth == 8 || bitDepth == 16);
+                validCombo = (bitDepth == 1 || bitDepth == 2 || bitDepth == 4 || bitDepth == 8 ||
+                              bitDepth == 16);
                 break;
             case COLOR_INDEXED:
                 validCombo = (bitDepth == 1 || bitDepth == 2 || bitDepth == 4 || bitDepth == 8);
@@ -434,8 +434,8 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
             FcTL fctl = readFcTL(chunkData);
             if (fctl.sequenceNumber != expectedSeq) {
                 fail("APNG fcTL sequence number out of order (expected " +
-                     std::to_string(expectedSeq) + ", got " +
-                     std::to_string(fctl.sequenceNumber) + ")");
+                     std::to_string(expectedSeq) + ", got " + std::to_string(fctl.sequenceNumber) +
+                     ")");
             }
             expectedSeq = fctl.sequenceNumber + 1;
             if (!sawIDAT) {
@@ -459,8 +459,8 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
             if (frameRecords.empty()) {
                 fail("APNG fdAT chunk before any fcTL chunk");
             } else {
-                frameRecords.back().stream.insert(frameRecords.back().stream.end(),
-                                                  chunkData + 4, chunkData + chunkLen);
+                frameRecords.back().stream.insert(frameRecords.back().stream.end(), chunkData + 4,
+                                                  chunkData + chunkLen);
             }
             break;
         }
@@ -561,15 +561,14 @@ bool Parser::Impl::compositeFrames() {
         const FcTL& f = frameRecords[i].fctl;
 
         // Validate the frame rectangle against the canvas.
-        if (f.width == 0 || f.height == 0 ||
-            static_cast<u64>(f.xOffset) + f.width > cw ||
+        if (f.width == 0 || f.height == 0 || static_cast<u64>(f.xOffset) + f.width > cw ||
             static_cast<u64>(f.yOffset) + f.height > ch) {
             fail("APNG frame rectangle is out of canvas bounds");
             return false;
         }
 
-        auto sub = decodeFrameStream(std::span<const u8>(frameRecords[i].stream), f.width,
-                                     f.height);
+        auto sub =
+            decodeFrameStream(std::span<const u8>(frameRecords[i].stream), f.width, f.height);
         if (!sub) {
             return false;
         }
@@ -587,8 +586,8 @@ bool Parser::Impl::compositeFrames() {
         for (u32 y = 0; y < f.height; ++y) {
             for (u32 x = 0; x < f.width; ++x) {
                 const u8* src = sub->data() + (static_cast<size_t>(y) * f.width + x) * 4;
-                u8* dst = canvas.data() +
-                          (static_cast<size_t>(f.yOffset + y) * cw + (f.xOffset + x)) * 4;
+                u8* dst =
+                    canvas.data() + (static_cast<size_t>(f.yOffset + y) * cw + (f.xOffset + x)) * 4;
                 if (f.blendOp == BLEND_SOURCE) {
                     dst[0] = src[0];
                     dst[1] = src[1];

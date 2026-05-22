@@ -19,16 +19,16 @@ namespace whiteout::storages::mpq {
 // ============================================================================
 
 enum class FileFlag : u32 {
-    None         = 0,
-    kImplode     = 0x00000100, ///< File compressed with PKware DCL.
-    kCompress    = 0x00000200, ///< File compressed with combination of codecs.
-    kEncrypted   = 0x00010000, ///< File is encrypted.
-    kFixKey      = 0x00020000, ///< Encryption key adjusted by file offset.
-    kPatchFile   = 0x00100000, ///< Patch file (incremental update).
-    kSingleUnit  = 0x01000000, ///< File stored as single unit (no sector splitting).
+    None = 0,
+    kImplode = 0x00000100,      ///< File compressed with PKware DCL.
+    kCompress = 0x00000200,     ///< File compressed with combination of codecs.
+    kEncrypted = 0x00010000,    ///< File is encrypted.
+    kFixKey = 0x00020000,       ///< Encryption key adjusted by file offset.
+    kPatchFile = 0x00100000,    ///< Patch file (incremental update).
+    kSingleUnit = 0x01000000,   ///< File stored as single unit (no sector splitting).
     kDeleteMarker = 0x02000000, ///< File is a delete marker (patch archives).
-    kSectorCrc   = 0x04000000, ///< Per-sector CRC appended to sectors.
-    kExists      = 0x80000000, ///< File exists.
+    kSectorCrc = 0x04000000,    ///< Per-sector CRC appended to sectors.
+    kExists = 0x80000000,       ///< File exists.
 };
 
 inline FileFlag operator|(FileFlag a, FileFlag b) noexcept {
@@ -40,8 +40,14 @@ inline FileFlag operator&(FileFlag a, FileFlag b) noexcept {
 inline FileFlag operator~(FileFlag a) noexcept {
     return static_cast<FileFlag>(~static_cast<u32>(a));
 }
-inline FileFlag& operator|=(FileFlag& a, FileFlag b) noexcept { a = a | b; return a; }
-inline FileFlag& operator&=(FileFlag& a, FileFlag b) noexcept { a = a & b; return a; }
+inline FileFlag& operator|=(FileFlag& a, FileFlag b) noexcept {
+    a = a | b;
+    return a;
+}
+inline FileFlag& operator&=(FileFlag& a, FileFlag b) noexcept {
+    a = a & b;
+    return a;
+}
 inline bool hasFlag(FileFlag flags, FileFlag flag) noexcept {
     return (flags & flag) != FileFlag::None;
 }

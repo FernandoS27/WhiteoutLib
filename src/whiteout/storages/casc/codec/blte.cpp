@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-#include "blte.h"
-#include "crypto.h"
 #include "../../common/byte_order.h"
 #include "../../common/inflate_fast.h"
 #include "../../common/md5.h"
 #include "../../common/zlib.h"
+#include "blte.h"
+#include "crypto.h"
 
 #include <whiteout/interfaces.h>
 #include <whiteout/utils/job_group.h>
@@ -41,10 +41,10 @@ static constexpr u8 kBlteMultiFrameFlags = 0x0F;
 
 /// BLTE frame encoding mode bytes.
 namespace BlteFrameMode {
-    static constexpr u8 kRaw       = 'N'; ///< Uncompressed.
-    static constexpr u8 kZlib      = 'Z'; ///< zlib-compressed.
-    static constexpr u8 kEncrypted = 'E'; ///< Encrypted (Salsa20).
-    static constexpr u8 kRecursive = 'F'; ///< Recursive BLTE container.
+static constexpr u8 kRaw = 'N';       ///< Uncompressed.
+static constexpr u8 kZlib = 'Z';      ///< zlib-compressed.
+static constexpr u8 kEncrypted = 'E'; ///< Encrypted (Salsa20).
+static constexpr u8 kRecursive = 'F'; ///< Recursive BLTE container.
 } // namespace BlteFrameMode
 
 // ============================================================================
@@ -58,8 +58,7 @@ struct FrameDecodeResult {
 };
 
 static FrameDecodeResult decodeFramePayload(std::span<const u8> payload,
-                                            u32 expectedUncompressedSize,
-                                            const KeyRing* keys) {
+                                            u32 expectedUncompressedSize, const KeyRing* keys) {
     FrameDecodeResult result;
 
     if (payload.empty()) {
@@ -114,8 +113,7 @@ static FrameDecodeResult decodeFramePayload(std::span<const u8> payload,
 
         const auto* key = keys->findKey(keyName);
         if (!key) {
-            result.error = "missing encryption key 0x" +
-                           std::to_string(keyName); // simplified
+            result.error = "missing encryption key 0x" + std::to_string(keyName); // simplified
             return result;
         }
 
@@ -127,8 +125,7 @@ static FrameDecodeResult decodeFramePayload(std::span<const u8> payload,
         if (ivSize >= 8) {
             std::array<u8, 8> iv{};
             std::memcpy(iv.data(), inner.data() + 9, 8);
-            salsa20Decrypt(decrypted, *key,
-                           std::span<const u8, 8>(iv));
+            salsa20Decrypt(decrypted, *key, std::span<const u8, 8>(iv));
         }
 
         // Recursively dispatch on decrypted inner mode byte
@@ -157,8 +154,7 @@ static FrameDecodeResult decodeFramePayload(std::span<const u8> payload,
 // BLTE Decode
 // ============================================================================
 
-BlteDecodeResult blteDecode(std::span<const u8> blteData,
-                            const KeyRing* keys,
+BlteDecodeResult blteDecode(std::span<const u8> blteData, const KeyRing* keys,
                             interfaces::WorkerPool* pool) {
     BlteDecodeResult result;
 
@@ -278,8 +274,7 @@ BlteDecodeResult blteDecode(std::span<const u8> blteData,
             totalSize += fr.data.size();
         result.data.reserve(totalSize);
         for (auto& fr : frameResults) {
-            result.data.insert(result.data.end(),
-                               std::make_move_iterator(fr.data.begin()),
+            result.data.insert(result.data.end(), std::make_move_iterator(fr.data.begin()),
                                std::make_move_iterator(fr.data.end()));
             fr.data.clear();
             fr.data.shrink_to_fit();
@@ -393,8 +388,8 @@ BlteFrameLayout blteParseFrameLayout(std::span<const u8> blob) {
 }
 
 /// Decode a single-frame BLTE blob inline (no parallel overhead).
-static BlteBatchResult decodeSingleFrameBlte(
-    std::span<const u8> blob, const BlteFrameLayout& layout, const KeyRing* keys) {
+static BlteBatchResult decodeSingleFrameBlte(std::span<const u8> blob,
+                                             const BlteFrameLayout& layout, const KeyRing* keys) {
     BlteBatchResult result;
     auto payload = blob.subspan(layout.offsets[0], layout.frames[0].compressedSize);
     auto fr = decodeFramePayload(payload, layout.frames[0].uncompressedSize, keys);
@@ -408,10 +403,8 @@ static BlteBatchResult decodeSingleFrameBlte(
 // Public frame-level API
 // ============================================================================
 
-BlteBatchResult blteDecodeFrame(std::span<const u8> blteData,
-                                const BlteFrameLayout& layout,
-                                size_t frameIdx,
-                                const KeyRing* keys) {
+BlteBatchResult blteDecodeFrame(std::span<const u8> blteData, const BlteFrameLayout& layout,
+                                size_t frameIdx, const KeyRing* keys) {
     BlteBatchResult result;
     if (!layout.valid || frameIdx >= layout.frames.size()) {
         result.error = "invalid frame index";
@@ -435,10 +428,8 @@ BlteBatchResult blteDecodeFrame(std::span<const u8> blteData,
 // BLTE Batch Decode (DAG pipeline)
 // ============================================================================
 
-std::vector<BlteBatchResult> blteDecodeBatch(
-    std::span<const BlteBatchEntry> entries,
-    const KeyRing* keys,
-    interfaces::WorkerPool* pool) {
+std::vector<BlteBatchResult> blteDecodeBatch(std::span<const BlteBatchEntry> entries,
+                                             const KeyRing* keys, interfaces::WorkerPool* pool) {
 
     std::vector<BlteBatchResult> results(entries.size());
 
@@ -479,7 +470,8 @@ std::vector<BlteBatchResult> blteDecodeBatch(
     std::vector<std::vector<FrameDecodeResult>> perFileFrameResults(entries.size());
     // Per-file error flag.
     std::vector<std::atomic<bool>> fileFailed(entries.size());
-    for (auto& f : fileFailed) f.store(false, std::memory_order_relaxed);
+    for (auto& f : fileFailed)
+        f.store(false, std::memory_order_relaxed);
     // Per-file job groups (only for multi-frame files).
     std::vector<std::shared_ptr<utils::JobGroup>> decodeGroups(entries.size());
 
@@ -515,8 +507,8 @@ std::vector<BlteBatchResult> blteDecodeBatch(
         // Submit frame decode tasks.
         for (u32 j = 0; j < frameCount; ++j) {
             interfaces::WorkerTask task;
-            task.fn = [&entries, &perFileFrameResults, &fileFailed, &layouts,
-                       &decodeGroups, keys, i, j]() {
+            task.fn = [&entries, &perFileFrameResults, &fileFailed, &layouts, &decodeGroups, keys,
+                       i, j]() {
                 if (fileFailed[i].load(std::memory_order_relaxed)) {
                     decodeGroups[i]->done();
                     return;
@@ -524,8 +516,8 @@ std::vector<BlteBatchResult> blteDecodeBatch(
                 auto& blob = entries[i].blteData;
                 auto& layout = layouts[i];
                 auto payload = blob.subspan(layout.offsets[j], layout.frames[j].compressedSize);
-                perFileFrameResults[i][j] = decodeFramePayload(
-                    payload, layout.frames[j].uncompressedSize, keys);
+                perFileFrameResults[i][j] =
+                    decodeFramePayload(payload, layout.frames[j].uncompressedSize, keys);
                 if (!perFileFrameResults[i][j].success)
                     fileFailed[i].store(true, std::memory_order_relaxed);
                 decodeGroups[i]->done();
@@ -586,8 +578,7 @@ std::vector<BlteBatchResult> blteDecodeBatch(
 // BLTE Encode
 // ============================================================================
 
-std::vector<u8> blteEncode(std::span<const u8> rawData,
-                           const BlteEncodeOptions& opts,
+std::vector<u8> blteEncode(std::span<const u8> rawData, const BlteEncodeOptions& opts,
                            interfaces::WorkerPool* pool) {
     u32 frameSize = opts.frameSize;
     if (frameSize == 0)
@@ -668,7 +659,7 @@ std::vector<u8> blteEncode(std::span<const u8> rawData,
         writeBE32(output.data(), kBlteMagic);
         writeBE32(output.data() + 4, 0); // headerSize = 0
         std::memcpy(output.data() + kBlteMinHeaderSize, encodedFrames[0].data.data(),
-                     encodedFrames[0].data.size());
+                    encodedFrames[0].data.size());
     } else {
         // Multi-frame format:
         //   magic(4) + headerSize(4) +

@@ -33,22 +33,23 @@ using CKeyResolver = std::function<std::vector<u8>(std::span<const u8, 16> cKey)
 /// A single entry from a root manifest.
 struct RootEntry {
     std::array<u8, 16> cKey{};
-    std::array<u8, 16> eKey{};                    ///< EKey (if available, e.g. from TVFS).
-    u32 fileDataId = kInvalidFileDataId;          ///< WoW-specific file-data ID.
-    u64 fileNameHash = 0;                         ///< Jenkins hash (WoW path lookup).
+    std::array<u8, 16> eKey{};           ///< EKey (if available, e.g. from TVFS).
+    u32 fileDataId = kInvalidFileDataId; ///< WoW-specific file-data ID.
+    u64 fileNameHash = 0;                ///< Jenkins hash (WoW path lookup).
     u32 localeFlags = 0;
     u32 contentFlags = 0;
-    u64 fileSize = 0;                             ///< Cached uncompressed size (resolved from encoding).
-    std::string path;                             ///< Resolved path (if available).
+    u64 fileSize = 0; ///< Cached uncompressed size (resolved from encoding).
+    std::string path; ///< Resolved path (if available).
 
     /// Container sub-entry support.  When containerOffset != 0 this entry
     /// refers to a slice of a larger container file (e.g. D4 combined meta).
     /// The storage layer will decode the full container, then return
     /// headerPrefix[0..headerSize) + decoded[containerOffset..+containerSize).
-    u64 containerOffset = 0;    ///< Byte offset within the decoded container (0 = whole file).
-    u32 containerSize = 0;      ///< Size of the sub-entry within the container.
-    u8  headerSize = 0;         ///< Number of valid bytes in headerPrefix (0–16).
-    std::array<u8, 16> headerPrefix{}; ///< Prepended to the extracted data (e.g. synthetic SNO header).
+    u64 containerOffset = 0; ///< Byte offset within the decoded container (0 = whole file).
+    u32 containerSize = 0;   ///< Size of the sub-entry within the container.
+    u8 headerSize = 0;       ///< Number of valid bytes in headerPrefix (0–16).
+    std::array<u8, 16>
+        headerPrefix{}; ///< Prepended to the extracted data (e.g. synthetic SNO header).
 };
 
 /// Select the best matching root entry based on locale/content flags.
@@ -56,7 +57,8 @@ struct RootEntry {
 inline const RootEntry* selectBestEntry(const std::vector<const RootEntry*>& entries,
                                         u32 localeFlags) {
     for (auto* e : entries) {
-        if (e->contentFlags & ContentFlags::DoNotLoad) continue;
+        if (e->contentFlags & ContentFlags::DoNotLoad)
+            continue;
         if (localeFlags != 0 && e->localeFlags != 0 && (e->localeFlags & localeFlags) == 0)
             continue;
         return e;
@@ -75,7 +77,8 @@ public:
     /// Find entries matching an already-normalized path (lowercase, backslash-separated,
     /// no leading/trailing separators). Skips the redundant normalizeCascPath() call.
     /// Default implementation delegates to findByPath().
-    virtual std::vector<const RootEntry*> findByNormalizedPath(const std::string& normalizedPath) const {
+    virtual std::vector<const RootEntry*> findByNormalizedPath(
+        const std::string& normalizedPath) const {
         return findByPath(normalizedPath);
     }
 
@@ -109,7 +112,8 @@ public:
     /// Enumerate all entries. Callback returns false to stop.
     virtual void enumerate(std::function<bool(const RootEntry&)> callback) const {
         for (auto& e : entries()) {
-            if (!callback(e)) break;
+            if (!callback(e))
+                break;
         }
     }
 
@@ -120,24 +124,27 @@ public:
     /// for O(prefix-depth + matches) performance.
     virtual void enumerateUnder(const std::string& normalizedPrefix,
                                 std::function<bool(const RootEntry&)> callback) const {
-        if (!callback) return;
+        if (!callback)
+            return;
         for (auto& e : entries()) {
             if (e.path.size() >= normalizedPrefix.size() &&
-                e.path.compare(0, normalizedPrefix.size(), normalizedPrefix) == 0)
-            {
-                if (!callback(e)) break;
+                e.path.compare(0, normalizedPrefix.size(), normalizedPrefix) == 0) {
+                if (!callback(e))
+                    break;
             }
         }
     }
 
     /// Total number of root entries.
-    virtual size_t entryCount() const { return entries().size(); }
+    virtual size_t entryCount() const {
+        return entries().size();
+    }
 
     /// Which root format this manifest represents.
     virtual RootFormat format() const = 0;
 
     /// Pre-resolve additional data for all entries (e.g. file sizes from encoding).
-    template<typename Fn>
+    template <typename Fn>
     void resolveEntries(Fn&& fn) {
         for (auto& e : mutableEntries())
             fn(e);
@@ -159,12 +166,12 @@ protected:
 
 // Well-known root format magic signatures.
 namespace RootSignature {
-    constexpr u32 kMFST   = 0x4D465354; ///< 'TSFM' WoW root signature (build 30080+).
-    constexpr u32 kTVFS   = 0x53465654; ///< 'TVFS' (WC3 Reforged / TVFS root).
-    constexpr u32 kMNDX   = 0x58444E4D; ///< 'MNDX' (SC2, HotS trie-based root).
-    constexpr u32 kD3Root     = 0x8007D0C4; ///< Diablo 3 root directory signature.
-    constexpr u32 kD3Dir      = 0xEAF1FE87; ///< Diablo 3 subdirectory signature.
-    constexpr u32 kD3Packages = 0xAABB0002; ///< Diablo 3 packages signature.
+constexpr u32 kMFST = 0x4D465354;       ///< 'TSFM' WoW root signature (build 30080+).
+constexpr u32 kTVFS = 0x53465654;       ///< 'TVFS' (WC3 Reforged / TVFS root).
+constexpr u32 kMNDX = 0x58444E4D;       ///< 'MNDX' (SC2, HotS trie-based root).
+constexpr u32 kD3Root = 0x8007D0C4;     ///< Diablo 3 root directory signature.
+constexpr u32 kD3Dir = 0xEAF1FE87;      ///< Diablo 3 subdirectory signature.
+constexpr u32 kD3Packages = 0xAABB0002; ///< Diablo 3 packages signature.
 } // namespace RootSignature
 
 } // namespace whiteout::storages::casc

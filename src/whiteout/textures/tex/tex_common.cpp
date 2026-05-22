@@ -210,9 +210,11 @@ void decode_mip_face(u32 pixel_format, const u8* face_data, std::span<u8> destin
     if (is_shuffled) {
         // bc_block_shuffle is bidirectional; under Unshuffle the `shuffled`
         // arg is the read side, so the cast doesn't actually drop const.
-        bc_block_shuffle(pixel_format,
-                         const_cast<u8*>(face_data + BC_MIP_PREFIX_SIZE), // NOLINT(cppcoreguidelines-pro-type-const-cast)
-                         destination.data(), standard_data_size, BCShuffleDir::Unshuffle);
+        bc_block_shuffle(
+            pixel_format,
+            const_cast<u8*>(face_data +
+                            BC_MIP_PREFIX_SIZE), // NOLINT(cppcoreguidelines-pro-type-const-cast)
+            destination.data(), standard_data_size, BCShuffleDir::Unshuffle);
         return;
     }
     const u64 copy_size =
@@ -231,9 +233,10 @@ void encode_mip_face(u32 tex_format, std::span<const u8> source, u8* destination
         // 16-byte prefix is already zeroed; write shuffled data after it.
         // Under Shuffle direction `interleaved` is the read side, so the cast
         // doesn't actually drop const (see bc_block_shuffle's bidirectional API).
-        bc_block_shuffle(tex_format, destination + BC_MIP_PREFIX_SIZE,
-                         const_cast<u8*>(source.data()), // NOLINT(cppcoreguidelines-pro-type-const-cast)
-                         standard_data_size, BCShuffleDir::Shuffle);
+        bc_block_shuffle(
+            tex_format, destination + BC_MIP_PREFIX_SIZE,
+            const_cast<u8*>(source.data()), // NOLINT(cppcoreguidelines-pro-type-const-cast)
+            standard_data_size, BCShuffleDir::Shuffle);
         return;
     }
     const u64 copy_size =

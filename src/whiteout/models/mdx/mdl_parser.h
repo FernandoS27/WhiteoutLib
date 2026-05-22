@@ -42,21 +42,33 @@ struct MdlValue {
     using Array = std::vector<MdlValue>;
     std::variant<f64, std::string, Array> data;
 
-    bool isNumber() const { return std::holds_alternative<f64>(data); }
-    bool isString() const { return std::holds_alternative<std::string>(data); }
-    bool isArray() const { return std::holds_alternative<Array>(data); }
+    bool isNumber() const {
+        return std::holds_alternative<f64>(data);
+    }
+    bool isString() const {
+        return std::holds_alternative<std::string>(data);
+    }
+    bool isArray() const {
+        return std::holds_alternative<Array>(data);
+    }
 
-    f64 asNumber() const { return std::get<f64>(data); }
-    const std::string& asString() const { return std::get<std::string>(data); }
-    const Array& asArray() const { return std::get<Array>(data); }
+    f64 asNumber() const {
+        return std::get<f64>(data);
+    }
+    const std::string& asString() const {
+        return std::get<std::string>(data);
+    }
+    const Array& asArray() const {
+        return std::get<Array>(data);
+    }
 };
 
 // ─── Keyframe ────────────────────────────────────────────────────────────────
 
 struct MdlKeyframe {
     i32 time;
-    MdlValue value;             // scalar or { vector }
-    MdlValue inTan;             // empty (no data member) when not present
+    MdlValue value; // scalar or { vector }
+    MdlValue inTan; // empty (no data member) when not present
     MdlValue outTan;
     bool hasTangents = false;
 };
@@ -127,7 +139,9 @@ struct MdlDocument {
     std::vector<MdlNode> roots; // top-level blocks (Version, Model, Sequences, ...)
     std::vector<MdlParseError> errors;
 
-    bool hasErrors() const { return !errors.empty(); }
+    bool hasErrors() const {
+        return !errors.empty();
+    }
 };
 
 // ─── Parser ──────────────────────────────────────────────────────────────────
