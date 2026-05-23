@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m2.internal.Native;
 
 /**
@@ -40,22 +41,18 @@ public final class Bone implements AutoCloseable {
     }
 
     public Bone() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m2_M2Bone_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Bone allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Bone_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Bone allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m2_M2Bone_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Bone_delete, handle);
         }
     }
 
@@ -96,33 +93,27 @@ public final class Bone implements AutoCloseable {
     }
     /** @return the translation field of this M2Bone. */
     public AnimationTrackVector3f getTranslation() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Bone_get_translation.invoke(handle);
-            return new AnimationTrackVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Bone_get_translation, handle);
+        return new AnimationTrackVector3f(__h, false);
     }
     public void setTranslation(AnimationTrackVector3f value) {
-        try { Native.whiteout_m2_M2Bone_set_translation.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Bone_set_translation, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the rotation field of this M2Bone. */
     public AnimationTrackM2CompatQuaternion getRotation() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Bone_get_rotation.invoke(handle);
-            return new AnimationTrackM2CompatQuaternion(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Bone_get_rotation, handle);
+        return new AnimationTrackM2CompatQuaternion(__h, false);
     }
     public void setRotation(AnimationTrackM2CompatQuaternion value) {
-        try { Native.whiteout_m2_M2Bone_set_rotation.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Bone_set_rotation, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the scale field of this M2Bone. */
     public AnimationTrackVector3f getScale() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Bone_get_scale.invoke(handle);
-            return new AnimationTrackVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Bone_get_scale, handle);
+        return new AnimationTrackVector3f(__h, false);
     }
     public void setScale(AnimationTrackVector3f value) {
-        try { Native.whiteout_m2_M2Bone_set_scale.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Bone_set_scale, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the pivot field of this M2Bone. */
     public Vector3f getPivot() {
@@ -130,8 +121,7 @@ public final class Bone implements AutoCloseable {
     }
     public void setPivot(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m2_M2Bone_set_pivot.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Bone_set_pivot, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 184L, 12L);

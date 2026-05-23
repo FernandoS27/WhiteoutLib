@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class RigidBody implements AutoCloseable {
     }
 
     public RigidBody() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3RigidBody_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("RigidBody allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RigidBody_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("RigidBody allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3RigidBody_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3RigidBody_delete, handle);
         }
     }
 
@@ -156,13 +153,11 @@ public final class RigidBody implements AutoCloseable {
      * @return the dynamicState field of this M3RigidBody.
      */
     public AnimRefU32 getDynamicState() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RigidBody_get_dynamicState.invoke(handle);
-            return new AnimRefU32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RigidBody_get_dynamicState, handle);
+        return new AnimRefU32(__h, false);
     }
     public void setDynamicState(AnimRefU32 value) {
-        try { Native.whiteout_m3_M3RigidBody_set_dynamicState.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RigidBody_set_dynamicState, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Dynamic blend-out duration (v4+)
@@ -179,17 +174,14 @@ public final class RigidBody implements AutoCloseable {
      * @return the rigidBodyShape field of this M3RigidBody.
      */
     public int getRigidBodyShapeCount() {
-        try { return (int) (long) Native.whiteout_m3_M3RigidBody_get_rigidBodyShape_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3RigidBody_get_rigidBodyShape_count, handle);
     }
     public PhysicsShape getRigidBodyShapeAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RigidBody_get_rigidBodyShape_at.invoke(handle, (long) index);
-            return new PhysicsShape(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RigidBody_get_rigidBodyShape_at, handle, (long) index);
+        return new PhysicsShape(__h, false);
     }
     public void resizeRigidBodyShape(int count) {
-        try { Native.whiteout_m3_M3RigidBody_resize_rigidBodyShape.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RigidBody_resize_rigidBodyShape, handle, (long) count);
     }
     public java.util.List<PhysicsShape> rigidBodyShapeView() {
         return new java.util.AbstractList<PhysicsShape>() {

@@ -701,8 +701,8 @@ public final class Native {
     // -- MdxParser --
     public static final MethodHandle whiteout_mdx_MdxParser_new = find(
         "whiteout_mdx_MdxParser_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_mdx_MdxParser_new_parseMode_upgradeMode = find(
-        "whiteout_mdx_MdxParser_new_parseMode_upgradeMode", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_mdx_MdxParser_new_upgradeMode = find(
+        "whiteout_mdx_MdxParser_new_upgradeMode", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_mdx_MdxParser_delete = find(
         "whiteout_mdx_MdxParser_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mdx_MdxParser_parse = find(

@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class PhysicsConstraint implements AutoCloseable {
     }
 
     public PhysicsConstraint() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3PhysicsConstraint_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("PhysicsConstraint allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsConstraint_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("PhysicsConstraint allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3PhysicsConstraint_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsConstraint_delete, handle);
         }
     }
 
@@ -66,29 +63,25 @@ public final class PhysicsConstraint implements AutoCloseable {
      * @return the dependents field of this M3PhysicsConstraint.
      */
     public int getDependentsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3PhysicsConstraint_get_dependents_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsConstraint_get_dependents_count, handle);
     }
     public short[] getDependents() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3PhysicsConstraint_get_dependents_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3PhysicsConstraint_get_dependents_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsConstraint_get_dependents_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsConstraint_get_dependents_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setDependents(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m3_M3PhysicsConstraint_assign_dependents.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsConstraint_assign_dependents, handle, __seg, __count);
+        }
     }
     public void resizeDependents(int count) {
-        try { Native.whiteout_m3_M3PhysicsConstraint_resize_dependents.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsConstraint_resize_dependents, handle, (long) count);
     }
     /**
      * First rigid body index

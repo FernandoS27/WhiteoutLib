@@ -34,6 +34,8 @@
 #include <whiteout/models/m3/structures/physics.h>
 #include <whiteout/models/m3/structures/scene.h>
 #include <whiteout/models/m3/structures.h>
+#include <whiteout/models/m3/parser.h>
+#include <whiteout/models/m3/writer.h>
 
 
 namespace {
@@ -1555,6 +1557,32 @@ EMSCRIPTEN_BINDINGS(m3) {
         .property("trailingModels", &whiteout::m3::Model::trailingModels)
         .property("m3aAnimHash", &whiteout::m3::Model::m3aAnimHash)
         .property("m3aAnimHashes", &whiteout::m3::Model::m3aAnimHashes)
+    ;
+
+    class_<whiteout::m3::Parser>("M3Parser")
+        .constructor<>()
+        .function("parse", select_overload<whiteout::m3::Model(const std::string &)>(&whiteout::m3::Parser::parse))
+        .function("parse_buffer",
+                  optional_override([](
+                      whiteout::m3::Parser& self,
+                      const emscripten::val& __js_arr_0) {
+                      auto __vec_0 = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_arr_0);
+                      std::span<const whiteout::u8> buffer(__vec_0.data(), __vec_0.size());
+                      return self.parse(buffer);
+                  }))
+        .function("hasIssues", &whiteout::m3::Parser::hasIssues)
+        .function("getIssues", &whiteout::m3::Parser::getIssues)
+    ;
+
+    class_<whiteout::m3::Writer>("M3Writer")
+        .constructor<>()
+        .function("write", select_overload<void(const std::string &, const Model &)>(&whiteout::m3::Writer::write))
+        .function("write_model",
+                  optional_override([](
+                      whiteout::m3::Writer& self,
+                      whiteout::m3::Model model) {
+                      return self.write(model);
+                  }))
     ;
 
     class_<whiteout::m3::AnimRef<whiteout::f32>>("M3AnimRefF32")

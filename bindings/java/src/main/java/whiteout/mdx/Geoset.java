@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.mdx.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class Geoset implements AutoCloseable {
     }
 
     public Geoset() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_mdx_MdxGeoset_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Geoset allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Geoset allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_mdx_MdxGeoset_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_delete, handle);
         }
     }
 
@@ -66,232 +63,200 @@ public final class Geoset implements AutoCloseable {
      * @return the vertexPositions field of this MdxGeoset.
      */
     public int getVertexPositionsCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxGeoset_get_vertexPositions_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_vertexPositions_count, handle);
     }
     public float[] getVertexPositions() {
-        try {
-            long __count = (long) Native.whiteout_mdx_MdxGeoset_get_vertexPositions_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_mdx_MdxGeoset_get_vertexPositions_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
-            long __scalars = __count * 3L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_vertexPositions_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_vertexPositions_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
+        long __scalars = __count * 3L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
     }
     public void setVertexPositions(float[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 3;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
-            Native.whiteout_mdx_MdxGeoset_assign_vertexPositions.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_assign_vertexPositions, handle, __seg, __count);
+        }
     }
     public void resizeVertexPositions(int count) {
-        try { Native.whiteout_mdx_MdxGeoset_resize_vertexPositions.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_resize_vertexPositions, handle, (long) count);
     }
     /**
      * Vertex normals
      * @return the vertexNormals field of this MdxGeoset.
      */
     public int getVertexNormalsCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxGeoset_get_vertexNormals_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_vertexNormals_count, handle);
     }
     public float[] getVertexNormals() {
-        try {
-            long __count = (long) Native.whiteout_mdx_MdxGeoset_get_vertexNormals_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_mdx_MdxGeoset_get_vertexNormals_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
-            long __scalars = __count * 3L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_vertexNormals_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_vertexNormals_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
+        long __scalars = __count * 3L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
     }
     public void setVertexNormals(float[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 3;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
-            Native.whiteout_mdx_MdxGeoset_assign_vertexNormals.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_assign_vertexNormals, handle, __seg, __count);
+        }
     }
     public void resizeVertexNormals(int count) {
-        try { Native.whiteout_mdx_MdxGeoset_resize_vertexNormals.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_resize_vertexNormals, handle, (long) count);
     }
     /**
      * Face type groups (4 = triangles)
      * @return the faceTypeGroups field of this MdxGeoset.
      */
     public int getFaceTypeGroupsCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxGeoset_get_faceTypeGroups_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_faceTypeGroups_count, handle);
     }
     public int[] getFaceTypeGroups() {
-        try {
-            long __count = (long) Native.whiteout_mdx_MdxGeoset_get_faceTypeGroups_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_mdx_MdxGeoset_get_faceTypeGroups_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_faceTypeGroups_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_faceTypeGroups_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
     }
     public void setFaceTypeGroups(int[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
-            Native.whiteout_mdx_MdxGeoset_assign_faceTypeGroups.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_assign_faceTypeGroups, handle, __seg, __count);
+        }
     }
     public void resizeFaceTypeGroups(int count) {
-        try { Native.whiteout_mdx_MdxGeoset_resize_faceTypeGroups.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_resize_faceTypeGroups, handle, (long) count);
     }
     /**
      * Number of indices per group
      * @return the faceGroups field of this MdxGeoset.
      */
     public int getFaceGroupsCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxGeoset_get_faceGroups_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_faceGroups_count, handle);
     }
     public int[] getFaceGroups() {
-        try {
-            long __count = (long) Native.whiteout_mdx_MdxGeoset_get_faceGroups_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_mdx_MdxGeoset_get_faceGroups_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_faceGroups_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_faceGroups_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
     }
     public void setFaceGroups(int[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
-            Native.whiteout_mdx_MdxGeoset_assign_faceGroups.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_assign_faceGroups, handle, __seg, __count);
+        }
     }
     public void resizeFaceGroups(int count) {
-        try { Native.whiteout_mdx_MdxGeoset_resize_faceGroups.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_resize_faceGroups, handle, (long) count);
     }
     /**
      * Vertex indices (triangles)
      * @return the faces field of this MdxGeoset.
      */
     public int getFacesCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxGeoset_get_faces_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_faces_count, handle);
     }
     public short[] getFaces() {
-        try {
-            long __count = (long) Native.whiteout_mdx_MdxGeoset_get_faces_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_mdx_MdxGeoset_get_faces_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_faces_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_faces_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setFaces(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_mdx_MdxGeoset_assign_faces.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_assign_faces, handle, __seg, __count);
+        }
     }
     public void resizeFaces(int count) {
-        try { Native.whiteout_mdx_MdxGeoset_resize_faces.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_resize_faces, handle, (long) count);
     }
     /**
      * Bone groups per vertex
      * @return the vertexGroups field of this MdxGeoset.
      */
     public int getVertexGroupsCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxGeoset_get_vertexGroups_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_vertexGroups_count, handle);
     }
     public byte[] getVertexGroups() {
-        try {
-            long __count = (long) Native.whiteout_mdx_MdxGeoset_get_vertexGroups_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_mdx_MdxGeoset_get_vertexGroups_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new byte[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 1L).toArray(ValueLayout.JAVA_BYTE);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_vertexGroups_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_vertexGroups_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new byte[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 1L).toArray(ValueLayout.JAVA_BYTE);
     }
     public void setVertexGroups(byte[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 1L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_BYTE, 0, values.length);
-            Native.whiteout_mdx_MdxGeoset_assign_vertexGroups.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_assign_vertexGroups, handle, __seg, __count);
+        }
     }
     public void resizeVertexGroups(int count) {
-        try { Native.whiteout_mdx_MdxGeoset_resize_vertexGroups.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_resize_vertexGroups, handle, (long) count);
     }
     /**
      * Number of matrices per group
      * @return the matrixGroups field of this MdxGeoset.
      */
     public int getMatrixGroupsCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxGeoset_get_matrixGroups_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_matrixGroups_count, handle);
     }
     public int[] getMatrixGroups() {
-        try {
-            long __count = (long) Native.whiteout_mdx_MdxGeoset_get_matrixGroups_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_mdx_MdxGeoset_get_matrixGroups_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_matrixGroups_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_matrixGroups_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
     }
     public void setMatrixGroups(int[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
-            Native.whiteout_mdx_MdxGeoset_assign_matrixGroups.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_assign_matrixGroups, handle, __seg, __count);
+        }
     }
     public void resizeMatrixGroups(int count) {
-        try { Native.whiteout_mdx_MdxGeoset_resize_matrixGroups.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_resize_matrixGroups, handle, (long) count);
     }
     /**
      * Bone indices
      * @return the matrixIndices field of this MdxGeoset.
      */
     public int getMatrixIndicesCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxGeoset_get_matrixIndices_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_matrixIndices_count, handle);
     }
     public int[] getMatrixIndices() {
-        try {
-            long __count = (long) Native.whiteout_mdx_MdxGeoset_get_matrixIndices_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_mdx_MdxGeoset_get_matrixIndices_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_matrixIndices_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_matrixIndices_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
     }
     public void setMatrixIndices(int[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
-            Native.whiteout_mdx_MdxGeoset_assign_matrixIndices.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_assign_matrixIndices, handle, __seg, __count);
+        }
     }
     public void resizeMatrixIndices(int count) {
-        try { Native.whiteout_mdx_MdxGeoset_resize_matrixIndices.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_resize_matrixIndices, handle, (long) count);
     }
     /**
      * Material index
@@ -339,14 +304,14 @@ public final class Geoset implements AutoCloseable {
      */
     public String getLodName() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __s = (MemorySegment) Native.whiteout_mdx_MdxGeoset_get_lodName.invoke(arena, handle);
+            MemorySegment __s = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_lodName, arena, handle);
             MemorySegment __chars = __s.get(ValueLayout.ADDRESS, 0);
             long __len = __s.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__chars == null || __chars.equals(MemorySegment.NULL)) return "";
             byte[] __bytes = __chars.reinterpret(__len).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_CString_free.invoke(__s);
+            NativeCommon.invokeNative(Native.whiteout_CString_free, __s);
             return new String(__bytes, StandardCharsets.UTF_8);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
     public void setLodName(String value) {
         try (Arena arena = Arena.ofConfined()) {
@@ -354,8 +319,8 @@ public final class Geoset implements AutoCloseable {
             MemorySegment __seg = arena.allocate(__utf.length + 1);
             MemorySegment.copy(__utf, 0, __seg, ValueLayout.JAVA_BYTE, 0, __utf.length);
             __seg.set(ValueLayout.JAVA_BYTE, __utf.length, (byte) 0);
-            Native.whiteout_mdx_MdxGeoset_set_lodName.invoke(handle, __seg);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_set_lodName, handle, __seg);
+        }
     }
     /**
      * Bounding volume
@@ -366,8 +331,7 @@ public final class Geoset implements AutoCloseable {
     }
     public void setExtent(Extent value) {
         if (value == null) {
-            try { Native.whiteout_mdx_MdxGeoset_set_extent.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_set_extent, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(value.handle, 0L, handle, 240L, 28L);
@@ -377,17 +341,14 @@ public final class Geoset implements AutoCloseable {
      * @return the sequenceExtents field of this MdxGeoset.
      */
     public int getSequenceExtentsCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxGeoset_get_sequenceExtents_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_sequenceExtents_count, handle);
     }
     public Extent getSequenceExtentsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxGeoset_get_sequenceExtents_at.invoke(handle, (long) index);
-            return new Extent(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_sequenceExtents_at, handle, (long) index);
+        return new Extent(__h, false);
     }
     public void resizeSequenceExtents(int count) {
-        try { Native.whiteout_mdx_MdxGeoset_resize_sequenceExtents.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_resize_sequenceExtents, handle, (long) count);
     }
     public java.util.List<Extent> sequenceExtentsView() {
         return new java.util.AbstractList<Extent>() {
@@ -400,95 +361,81 @@ public final class Geoset implements AutoCloseable {
      * @return the tangents field of this MdxGeoset.
      */
     public int getTangentsCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxGeoset_get_tangents_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_tangents_count, handle);
     }
     public float[] getTangents() {
-        try {
-            long __count = (long) Native.whiteout_mdx_MdxGeoset_get_tangents_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_mdx_MdxGeoset_get_tangents_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
-            long __scalars = __count * 4L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_tangents_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_tangents_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
+        long __scalars = __count * 4L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
     }
     public void setTangents(float[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 4;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
-            Native.whiteout_mdx_MdxGeoset_assign_tangents.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_assign_tangents, handle, __seg, __count);
+        }
     }
     public void resizeTangents(int count) {
-        try { Native.whiteout_mdx_MdxGeoset_resize_tangents.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_resize_tangents, handle, (long) count);
     }
     /**
      * Bone indices and weights
      * @return the skinData field of this MdxGeoset.
      */
     public int getSkinDataCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxGeoset_get_skinData_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_skinData_count, handle);
     }
     public byte[] getSkinData() {
-        try {
-            long __count = (long) Native.whiteout_mdx_MdxGeoset_get_skinData_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_mdx_MdxGeoset_get_skinData_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new byte[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 1L).toArray(ValueLayout.JAVA_BYTE);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_skinData_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_skinData_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new byte[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 1L).toArray(ValueLayout.JAVA_BYTE);
     }
     public void setSkinData(byte[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 1L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_BYTE, 0, values.length);
-            Native.whiteout_mdx_MdxGeoset_assign_skinData.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_assign_skinData, handle, __seg, __count);
+        }
     }
     public void resizeSkinData(int count) {
-        try { Native.whiteout_mdx_MdxGeoset_resize_skinData.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_resize_skinData, handle, (long) count);
     }
     /**
      * UV coordinates (multiple sets)
      * @return the textureCoordinateSets field of this MdxGeoset.
      */
     public int getTextureCoordinateSetsCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxGeoset_get_textureCoordinateSets_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_textureCoordinateSets_count, handle);
     }
     public int getTextureCoordinateSetsInnerCount(int outerIdx) {
-        try { return (int) (long) Native.whiteout_mdx_MdxGeoset_get_textureCoordinateSets_inner_count.invoke(handle, (long) outerIdx); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_textureCoordinateSets_inner_count, handle, (long) outerIdx);
     }
     public void resizeTextureCoordinateSets(int count) {
-        try { Native.whiteout_mdx_MdxGeoset_resize_textureCoordinateSets.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_resize_textureCoordinateSets, handle, (long) count);
     }
     public void resizeTextureCoordinateSetsInner(int outerIdx, int innerCount) {
-        try { Native.whiteout_mdx_MdxGeoset_resize_textureCoordinateSets_inner.invoke(handle, (long) outerIdx, (long) innerCount); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_resize_textureCoordinateSets_inner, handle, (long) outerIdx, (long) innerCount);
     }
     public float[] getTextureCoordinateSetsAt(int outerIdx) {
-        try {
-            long __count = (long) Native.whiteout_mdx_MdxGeoset_get_textureCoordinateSets_inner_count.invoke(handle, (long) outerIdx);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_mdx_MdxGeoset_get_textureCoordinateSets_inner_data.invoke(handle, (long) outerIdx);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
-            long __scalars = __count * 2L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_textureCoordinateSets_inner_count, handle, (long) outerIdx);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_get_textureCoordinateSets_inner_data, handle, (long) outerIdx);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
+        long __scalars = __count * 2L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
     }
     public void setTextureCoordinateSetsAt(int outerIdx, float[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 2;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
-            Native.whiteout_mdx_MdxGeoset_assign_textureCoordinateSets_inner.invoke(handle, (long) outerIdx, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxGeoset_assign_textureCoordinateSets_inner, handle, (long) outerIdx, __seg, __count);
+        }
     }
     public java.util.List<float[]> getTextureCoordinateSets() {
         int __outer = getTextureCoordinateSetsCount();

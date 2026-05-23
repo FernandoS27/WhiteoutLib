@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class LensFlare implements AutoCloseable {
     }
 
     public LensFlare() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3LensFlare_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("LensFlare allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("LensFlare allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3LensFlare_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_delete, handle);
         }
     }
 
@@ -67,14 +64,14 @@ public final class LensFlare implements AutoCloseable {
      */
     public String getName() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __s = (MemorySegment) Native.whiteout_m3_M3LensFlare_get_name.invoke(arena, handle);
+            MemorySegment __s = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_get_name, arena, handle);
             MemorySegment __chars = __s.get(ValueLayout.ADDRESS, 0);
             long __len = __s.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__chars == null || __chars.equals(MemorySegment.NULL)) return "";
             byte[] __bytes = __chars.reinterpret(__len).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_CString_free.invoke(__s);
+            NativeCommon.invokeNative(Native.whiteout_CString_free, __s);
             return new String(__bytes, StandardCharsets.UTF_8);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
     public void setName(String value) {
         try (Arena arena = Arena.ofConfined()) {
@@ -82,25 +79,22 @@ public final class LensFlare implements AutoCloseable {
             MemorySegment __seg = arena.allocate(__utf.length + 1);
             MemorySegment.copy(__utf, 0, __seg, ValueLayout.JAVA_BYTE, 0, __utf.length);
             __seg.set(ValueLayout.JAVA_BYTE, __utf.length, (byte) 0);
-            Native.whiteout_m3_M3LensFlare_set_name.invoke(handle, __seg);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_set_name, handle, __seg);
+        }
     }
     /**
      * Sub-flare elements (LFSB)
      * @return the subFlares field of this M3LensFlare.
      */
     public int getSubFlaresCount() {
-        try { return (int) (long) Native.whiteout_m3_M3LensFlare_get_subFlares_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_get_subFlares_count, handle);
     }
     public SubFlare getSubFlaresAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3LensFlare_get_subFlares_at.invoke(handle, (long) index);
-            return new SubFlare(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_get_subFlares_at, handle, (long) index);
+        return new SubFlare(__h, false);
     }
     public void resizeSubFlares(int count) {
-        try { Native.whiteout_m3_M3LensFlare_resize_subFlares.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_resize_subFlares, handle, (long) count);
     }
     public java.util.List<SubFlare> subFlaresView() {
         return new java.util.AbstractList<SubFlare>() {
@@ -144,14 +138,14 @@ public final class LensFlare implements AutoCloseable {
      */
     public String getLibName() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __s = (MemorySegment) Native.whiteout_m3_M3LensFlare_get_libName.invoke(arena, handle);
+            MemorySegment __s = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_get_libName, arena, handle);
             MemorySegment __chars = __s.get(ValueLayout.ADDRESS, 0);
             long __len = __s.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__chars == null || __chars.equals(MemorySegment.NULL)) return "";
             byte[] __bytes = __chars.reinterpret(__len).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_CString_free.invoke(__s);
+            NativeCommon.invokeNative(Native.whiteout_CString_free, __s);
             return new String(__bytes, StandardCharsets.UTF_8);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
     public void setLibName(String value) {
         try (Arena arena = Arena.ofConfined()) {
@@ -159,60 +153,52 @@ public final class LensFlare implements AutoCloseable {
             MemorySegment __seg = arena.allocate(__utf.length + 1);
             MemorySegment.copy(__utf, 0, __seg, ValueLayout.JAVA_BYTE, 0, __utf.length);
             __seg.set(ValueLayout.JAVA_BYTE, __utf.length, (byte) 0);
-            Native.whiteout_m3_M3LensFlare_set_libName.invoke(handle, __seg);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_set_libName, handle, __seg);
+        }
     }
     /**
      * Animated intensity
      * @return the intensity field of this M3LensFlare.
      */
     public AnimRefF32 getIntensity() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3LensFlare_get_intensity.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_get_intensity, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setIntensity(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3LensFlare_set_intensity.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_set_intensity, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated color
      * @return the color field of this M3LensFlare.
      */
     public AnimRefM3ColorBGRA getColor() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3LensFlare_get_color.invoke(handle);
-            return new AnimRefM3ColorBGRA(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_get_color, handle);
+        return new AnimRefM3ColorBGRA(__h, false);
     }
     public void setColor(AnimRefM3ColorBGRA value) {
-        try { Native.whiteout_m3_M3LensFlare_set_color.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_set_color, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated HDR multiplier
      * @return the hdr field of this M3LensFlare.
      */
     public AnimRefF32 getHdr() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3LensFlare_get_hdr.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_get_hdr, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setHdr(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3LensFlare_set_hdr.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_set_hdr, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated size
      * @return the size field of this M3LensFlare.
      */
     public AnimRefF32 getSize() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3LensFlare_get_size.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_get_size, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setSize(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3LensFlare_set_size.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3LensFlare_set_size, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "LensFlare(" + "name=" + getName() + ", " + "columns=" + getColumns() + ", " + "rows=" + getRows() + ", " + "distanceFade=" + getDistanceFade() + ", " + "libName=" + getLibName() + ")";

@@ -41,16 +41,6 @@ typedef enum {
     whiteout_textures_TextureType_TextureCubeArray,
 } whiteout_textures_TextureType;
 
-typedef enum {
-    whiteout_textures_ParseMode_Strict,
-    whiteout_textures_ParseMode_Lenient,
-} whiteout_textures_ParseMode;
-
-typedef enum {
-    whiteout_textures_WriteMode_Strict,
-    whiteout_textures_WriteMode_Lenient,
-} whiteout_textures_WriteMode;
-
 /* ── Opaque handles ───────────────────────────────────────── */
 
 typedef struct whiteout_Texture whiteout_Texture;
@@ -173,14 +163,13 @@ void whiteout_textures_Texture_setData(whiteout_Texture* self, const uint8_t* ne
 
 /* Parser for BLP texture files */
 /*  */
-/* The Parser reads binary BLP files and converts them into the Texture structure. It supports multiple parsing modes and can handle both BLP1 (Warcraft III) and BLP2 (World of Warcraft) variants. */
+/* The Parser reads binary BLP files and converts them into the Texture structure. It can handle both BLP1 (Warcraft III) and BLP2 (World of Warcraft) variants. Parsing is non-throwing — issues are collected via `hasIssues()` / `getIssues()` and `parse()` returns `std::nullopt` on failure. */
 /*  */
 /* Uses the PImpl (Pointer to Implementation) idiom to hide implementation details. */
 whiteout_BlpParser* whiteout_textures_BlpParser_new(void);
-whiteout_BlpParser* whiteout_textures_BlpParser_new_parseMode(int32_t parseMode);
 void whiteout_textures_BlpParser_delete(whiteout_BlpParser* self);
 
-/* Parse a BLP file from memory buffer @param buffer Memory buffer containing BLP data @return Parsed texture data, or std::nullopt on failure (in Lenient mode) @throws std::runtime_error If parsing fails in strict mode */
+/* Parse a BLP file from memory buffer @param buffer Memory buffer containing BLP data @return Parsed texture data, or std::nullopt on failure @throws std::runtime_error If parsing fails in strict mode */
 struct whiteout_Texture* whiteout_textures_BlpParser_parse(whiteout_BlpParser* self, const uint8_t* buffer, size_t buffer_size);
 /* Check if parsing encountered any issues @return True if there were warnings or recoverable errors */
 int32_t whiteout_textures_BlpParser_hasIssues(const whiteout_BlpParser* self);
@@ -193,7 +182,7 @@ int32_t whiteout_textures_BlpParser_hasIssues(const whiteout_BlpParser* self);
 /*  */
 /* Uses the PImpl (Pointer to Implementation) idiom to hide implementation details. */
 whiteout_BlpWriter* whiteout_textures_BlpWriter_new(void);
-whiteout_BlpWriter* whiteout_textures_BlpWriter_new_writeMode_pool(int32_t writeMode, void* pool);
+whiteout_BlpWriter* whiteout_textures_BlpWriter_new_pool(void* pool);
 void whiteout_textures_BlpWriter_delete(whiteout_BlpWriter* self);
 
 /* Write a BLP file to a byte buffer with default options */
@@ -235,7 +224,6 @@ void whiteout_textures_PngApngFrameInfo_set_blendOp(whiteout_PngApngFrameInfo* s
 /*  */
 /* Animated PNG (APNG) is supported: `parse()` still returns the single default image, while the animation frames are exposed via `isAnimated()`, `frameCount()`, `frame()`, `frameDelayMs()` and `frameInfo()`. */
 whiteout_PngParser* whiteout_textures_PngParser_new(void);
-whiteout_PngParser* whiteout_textures_PngParser_new_parseMode(int32_t parseMode);
 void whiteout_textures_PngParser_delete(whiteout_PngParser* self);
 
 /* Parse a PNG byte buffer. */
@@ -284,7 +272,6 @@ void whiteout_textures_PngApngSaveOptions_set_loopCount(whiteout_PngApngSaveOpti
 /*  */
 /* In addition to single-image PNG, the writer can emit an animated PNG (APNG) from a sequence of frames via `writeAnimated()`. Each frame is written full-canvas with no inter-frame optimisation. */
 whiteout_PngWriter* whiteout_textures_PngWriter_new(void);
-whiteout_PngWriter* whiteout_textures_PngWriter_new_writeMode(int32_t writeMode);
 void whiteout_textures_PngWriter_delete(whiteout_PngWriter* self);
 
 /* Serialize the texture to a PNG byte buffer. */
@@ -300,7 +287,7 @@ int32_t whiteout_textures_PngWriter_hasIssues(const whiteout_PngWriter* self);
 
 /* Reads a JPEG file or byte buffer and decodes it into a Texture. */
 whiteout_JpegParser* whiteout_textures_JpegParser_new(void);
-whiteout_JpegParser* whiteout_textures_JpegParser_new_parseMode_pool(int32_t parseMode, void* pool);
+whiteout_JpegParser* whiteout_textures_JpegParser_new_pool(void* pool);
 void whiteout_textures_JpegParser_delete(whiteout_JpegParser* self);
 
 /* Parse a JPEG byte buffer. */
@@ -312,7 +299,7 @@ int32_t whiteout_textures_JpegParser_hasIssues(const whiteout_JpegParser* self);
 
 /* Encodes a Texture into JPEG format. */
 whiteout_JpegWriter* whiteout_textures_JpegWriter_new(void);
-whiteout_JpegWriter* whiteout_textures_JpegWriter_new_quality_writeMode_pool_progressive(int32_t quality, int32_t writeMode, void* pool, int32_t progressive);
+whiteout_JpegWriter* whiteout_textures_JpegWriter_new_quality_pool_progressive(int32_t quality, void* pool, int32_t progressive);
 void whiteout_textures_JpegWriter_delete(whiteout_JpegWriter* self);
 
 /* Serialize the texture to a JPEG byte buffer. */
@@ -324,7 +311,6 @@ int32_t whiteout_textures_JpegWriter_hasIssues(const whiteout_JpegWriter* self);
 
 /* Reads a DDS file or byte buffer and decodes it into a Texture. */
 whiteout_DdsParser* whiteout_textures_DdsParser_new(void);
-whiteout_DdsParser* whiteout_textures_DdsParser_new_parseMode(int32_t parseMode);
 void whiteout_textures_DdsParser_delete(whiteout_DdsParser* self);
 
 /* Parse a DDS byte buffer. */
@@ -336,7 +322,6 @@ int32_t whiteout_textures_DdsParser_hasIssues(const whiteout_DdsParser* self);
 
 /* Encodes a Texture into DDS format. */
 whiteout_DdsWriter* whiteout_textures_DdsWriter_new(void);
-whiteout_DdsWriter* whiteout_textures_DdsWriter_new_writeMode(int32_t writeMode);
 void whiteout_textures_DdsWriter_delete(whiteout_DdsWriter* self);
 
 /* Serialize the texture to a DDS byte buffer. */
@@ -348,7 +333,6 @@ int32_t whiteout_textures_DdsWriter_hasIssues(const whiteout_DdsWriter* self);
 
 /* Reads a BMP file or byte buffer and decodes it into a Texture. */
 whiteout_BmpParser* whiteout_textures_BmpParser_new(void);
-whiteout_BmpParser* whiteout_textures_BmpParser_new_parseMode(int32_t parseMode);
 void whiteout_textures_BmpParser_delete(whiteout_BmpParser* self);
 
 /* Parse a BMP byte buffer. */
@@ -360,7 +344,6 @@ int32_t whiteout_textures_BmpParser_hasIssues(const whiteout_BmpParser* self);
 
 /* Encodes a Texture into BMP format. */
 whiteout_BmpWriter* whiteout_textures_BmpWriter_new(void);
-whiteout_BmpWriter* whiteout_textures_BmpWriter_new_writeMode(int32_t writeMode);
 void whiteout_textures_BmpWriter_delete(whiteout_BmpWriter* self);
 
 /* Serialize the texture to a BMP byte buffer. */
@@ -372,7 +355,6 @@ int32_t whiteout_textures_BmpWriter_hasIssues(const whiteout_BmpWriter* self);
 
 /* Reads a TGA file or byte buffer and decodes it into a Texture. */
 whiteout_TgaParser* whiteout_textures_TgaParser_new(void);
-whiteout_TgaParser* whiteout_textures_TgaParser_new_parseMode(int32_t parseMode);
 void whiteout_textures_TgaParser_delete(whiteout_TgaParser* self);
 
 /* Parse a TGA byte buffer. */
@@ -384,7 +366,6 @@ int32_t whiteout_textures_TgaParser_hasIssues(const whiteout_TgaParser* self);
 
 /* Encodes a Texture into TGA format. */
 whiteout_TgaWriter* whiteout_textures_TgaWriter_new(void);
-whiteout_TgaWriter* whiteout_textures_TgaWriter_new_writeMode(int32_t writeMode);
 void whiteout_textures_TgaWriter_delete(whiteout_TgaWriter* self);
 
 /* Serialize the texture to a TGA byte buffer. */
@@ -420,7 +401,7 @@ void whiteout_textures_GifSaveOptions_set_transparent(whiteout_GifSaveOptions* s
 /*  */
 /* Unlike the single-image writers (BMP, TGA, …), this writer accepts a vector of frames.  It does **not** inherit from `textures::Writer`. */
 whiteout_GifWriter* whiteout_textures_GifWriter_new(void);
-whiteout_GifWriter* whiteout_textures_GifWriter_new_writeMode_pool(int32_t writeMode, void* pool);
+whiteout_GifWriter* whiteout_textures_GifWriter_new_pool(void* pool);
 void whiteout_textures_GifWriter_delete(whiteout_GifWriter* self);
 
 /* Write frames to a GIF file on disk using default options. */

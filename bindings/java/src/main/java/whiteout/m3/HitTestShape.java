@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class HitTestShape implements AutoCloseable {
     }
 
     public HitTestShape() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3HitTestShape_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("HitTestShape allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3HitTestShape_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("HitTestShape allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3HitTestShape_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3HitTestShape_delete, handle);
         }
     }
 
@@ -96,58 +93,50 @@ public final class HitTestShape implements AutoCloseable {
      * @return the vertexPositions field of this M3HitTestShape.
      */
     public int getVertexPositionsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3HitTestShape_get_vertexPositions_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3HitTestShape_get_vertexPositions_count, handle);
     }
     public float[] getVertexPositions() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3HitTestShape_get_vertexPositions_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3HitTestShape_get_vertexPositions_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
-            long __scalars = __count * 3L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3HitTestShape_get_vertexPositions_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3HitTestShape_get_vertexPositions_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
+        long __scalars = __count * 3L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
     }
     public void setVertexPositions(float[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 3;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
-            Native.whiteout_m3_M3HitTestShape_assign_vertexPositions.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3HitTestShape_assign_vertexPositions, handle, __seg, __count);
+        }
     }
     public void resizeVertexPositions(int count) {
-        try { Native.whiteout_m3_M3HitTestShape_resize_vertexPositions.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3HitTestShape_resize_vertexPositions, handle, (long) count);
     }
     /**
      * Mesh triangle indices (U16_, mesh type only)
      * @return the faceIndices field of this M3HitTestShape.
      */
     public int getFaceIndicesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3HitTestShape_get_faceIndices_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3HitTestShape_get_faceIndices_count, handle);
     }
     public short[] getFaceIndices() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3HitTestShape_get_faceIndices_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3HitTestShape_get_faceIndices_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3HitTestShape_get_faceIndices_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3HitTestShape_get_faceIndices_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setFaceIndices(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m3_M3HitTestShape_assign_faceIndices.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3HitTestShape_assign_faceIndices, handle, __seg, __count);
+        }
     }
     public void resizeFaceIndices(int count) {
-        try { Native.whiteout_m3_M3HitTestShape_resize_faceIndices.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3HitTestShape_resize_faceIndices, handle, (long) count);
     }
     /**
      * X dimension (radius for sphere/capsule)

@@ -26,6 +26,8 @@
 #include <whiteout/vector_types.h>
 #include <whiteout/models/mdx/types.h>
 #include <whiteout/models/mdx/structures.h>
+#include <whiteout/models/mdx/parser.h>
+#include <whiteout/models/mdx/writer.h>
 
 
 namespace {
@@ -49,11 +51,6 @@ void vecToArray(std::array<T, N>& a, const std::vector<T>& v) {
 
 EMSCRIPTEN_BINDINGS(mdx) {
     using namespace emscripten;
-
-    // ── Sentinel constants ───────────────────────────────────────────────
-    constant("MdxNoGlobalSequence", static_cast<whiteout::u32>(whiteout::mdx::Track<whiteout::f32>::kNoGlobalSequence));
-    constant("MdxNoParent", static_cast<whiteout::u32>(whiteout::mdx::Node::NO_PARENT));
-    constant("MdxMultipleGeosets", static_cast<whiteout::u32>(whiteout::mdx::Bone::MULTIPLE_GEOSETS));
 
     // ── Enums ────────────────────────────────────────────────────────────
     enum_<whiteout::mdx::InterpolationType>("MdxInterpolationType")
@@ -198,6 +195,18 @@ EMSCRIPTEN_BINDINGS(mdx) {
         .value("Plane", whiteout::mdx::CollisionShape::ShapeType::Plane)
         .value("Sphere", whiteout::mdx::CollisionShape::ShapeType::Sphere)
         .value("Cylinder", whiteout::mdx::CollisionShape::ShapeType::Cylinder);
+
+    enum_<whiteout::mdx::MDLXFormat>("MdxMDLXFormat")
+        .value("MDX", whiteout::mdx::MDLXFormat::MDX)
+        .value("MDL", whiteout::mdx::MDLXFormat::MDL);
+
+    enum_<whiteout::mdx::Parser::UpgradeMode>("MdxUpgradeMode")
+        .value("UpgradeOldVersions", whiteout::mdx::Parser::UpgradeMode::UpgradeOldVersions)
+        .value("PreserveOriginal", whiteout::mdx::Parser::UpgradeMode::PreserveOriginal);
+
+    enum_<whiteout::mdx::MdlFormat>("MdxMdlFormat")
+        .value("WarcraftIII", whiteout::mdx::MdlFormat::WarcraftIII)
+        .value("Hiveworkshop", whiteout::mdx::MdlFormat::Hiveworkshop);
 
     // ── Value-object types (plain JS objects) ────────────────────────────
     value_object<whiteout::Vector2f>("Vector2f")
@@ -586,6 +595,36 @@ EMSCRIPTEN_BINDINGS(mdx) {
         .property("colorTracks", &whiteout::mdx::CornEmitter::colorTracks)
         .property("alphaTracks", &whiteout::mdx::CornEmitter::alphaTracks)
         .property("visibilityTracks", &whiteout::mdx::CornEmitter::visibilityTracks)
+    ;
+
+    class_<whiteout::mdx::Parser>("MdxParser")
+        .constructor<>()
+        .constructor<whiteout::mdx::Parser::UpgradeMode>()
+        .function("parse", select_overload<whiteout::mdx::Model(const std::string &)>(&whiteout::mdx::Parser::parse))
+        .function("parse_buffer_format",
+                  optional_override([](
+                      whiteout::mdx::Parser& self,
+                      const emscripten::val& __js_arr_0,
+                      whiteout::mdx::MDLXFormat format) {
+                      auto __vec_0 = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_arr_0);
+                      std::span<const whiteout::u8> buffer(__vec_0.data(), __vec_0.size());
+                      return self.parse(buffer, format);
+                  }))
+        .function("hasIssues", &whiteout::mdx::Parser::hasIssues)
+        .function("getIssues", &whiteout::mdx::Parser::getIssues)
+    ;
+
+    class_<whiteout::mdx::Writer>("MdxWriter")
+        .constructor<>()
+        .function("write", select_overload<void(const std::string &, const Model &, MdlFormat)>(&whiteout::mdx::Writer::write))
+        .function("write_mdx_format_mdlFormat",
+                  optional_override([](
+                      whiteout::mdx::Writer& self,
+                      whiteout::mdx::Model mdx,
+                      whiteout::mdx::MDLXFormat format,
+                      whiteout::mdx::MdlFormat mdlFormat) {
+                      return self.write(mdx, format, mdlFormat);
+                  }))
     ;
 
     class_<whiteout::mdx::Track<whiteout::Vector3f>>("MdxTrackVector3f")

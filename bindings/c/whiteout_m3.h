@@ -440,11 +440,6 @@ typedef enum {
     whiteout_m3_RigidBodyFlag_Unknown9,
 } whiteout_m3_RigidBodyFlag;
 
-typedef enum {
-    whiteout_m3_ParseMode_Strict,
-    whiteout_m3_ParseMode_Lenient,
-} whiteout_m3_ParseMode;
-
 /* ── Opaque handles ───────────────────────────────────────── */
 
 typedef struct whiteout_M3ColorBGRA whiteout_M3ColorBGRA;
@@ -3670,7 +3665,6 @@ void whiteout_m3_M3Model_assign_m3aAnimHashes(whiteout_M3Model* self, const uint
 /*  */
 /* Uses the PImpl (Pointer to Implementation) idiom to hide implementation details. */
 whiteout_M3Parser* whiteout_m3_M3Parser_new(void);
-whiteout_M3Parser* whiteout_m3_M3Parser_new_mode(int32_t mode);
 void whiteout_m3_M3Parser_delete(whiteout_M3Parser* self);
 
 /* Parse an M3 file from disk @param filePath Path to the M3 file @return Parsed M3 model data @throws std::runtime_error If file cannot be opened or parsing fails in strict mode */

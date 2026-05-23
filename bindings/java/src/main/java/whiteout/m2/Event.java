@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m2.internal.Native;
 
 /**
@@ -40,22 +41,18 @@ public final class Event implements AutoCloseable {
     }
 
     public Event() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m2_M2Event_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Event allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Event_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Event allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m2_M2Event_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Event_delete, handle);
         }
     }
 
@@ -86,8 +83,7 @@ public final class Event implements AutoCloseable {
     }
     public void setPosition(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m2_M2Event_set_position.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Event_set_position, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 12L, 12L);
@@ -97,8 +93,7 @@ public final class Event implements AutoCloseable {
         return new AnimationTrackBase(handle.asSlice(24L, 32L), false);
     }
     public void setEnabled(AnimationTrackBase value) {
-        try { Native.whiteout_m2_M2Event_set_enabled.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Event_set_enabled, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "Event(" + "identifier=" + getIdentifier() + ", " + "data=" + getData() + ", " + "boneId=" + getBoneId() + ")";

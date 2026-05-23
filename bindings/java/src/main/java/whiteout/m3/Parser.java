@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -44,31 +45,18 @@ public final class Parser implements AutoCloseable {
     }
 
     public Parser() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3Parser_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Parser allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
-    }
-
-    public static Parser createMode(ParseMode mode) {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3Parser_new_mode.invoke(mode.value);
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Parser allocation failed");
-            return new Parser(__raw, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Parser_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Parser allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3Parser_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3Parser_delete, handle);
         }
     }
 
@@ -82,9 +70,9 @@ public final class Parser implements AutoCloseable {
             MemorySegment filePath_seg = filePath == null
                 ? MemorySegment.NULL
                 : arena.allocateFrom(filePath, StandardCharsets.UTF_8);
-            MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Parser_parse.invoke(handle, filePath_seg);
+            MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Parser_parse, handle, filePath_seg);
             return new Model(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -96,18 +84,16 @@ public final class Parser implements AutoCloseable {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment buffer_seg = arena.allocate(buffer.length * 1L);
             MemorySegment.copy(buffer, 0, buffer_seg, ValueLayout.JAVA_BYTE, 0, buffer.length);
-            MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Parser_parse_buffer.invoke(handle, buffer_seg, (long) buffer.length);
+            MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Parser_parse_buffer, handle, buffer_seg, (long) buffer.length);
             return new Model(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
      * Check if parsing encountered any issues @return True if there were warnings or recoverable errors
      */
     public boolean hasIssues() {
-        try {
-        return ((int) Native.whiteout_m3_M3Parser_hasIssues.invoke(handle)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_m3_M3Parser_hasIssues, handle)) != 0;
     }
 
     @Override public String toString() {

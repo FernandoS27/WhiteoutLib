@@ -2160,8 +2160,6 @@ public final class Native {
     // -- M3Parser --
     public static final MethodHandle whiteout_m3_M3Parser_new = find(
         "whiteout_m3_M3Parser_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3Parser_new_mode = find(
-        "whiteout_m3_M3Parser_new_mode", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_m3_M3Parser_delete = find(
         "whiteout_m3_M3Parser_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3Parser_parse = find(

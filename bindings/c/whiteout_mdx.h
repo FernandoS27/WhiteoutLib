@@ -153,11 +153,6 @@ typedef enum {
 } whiteout_mdx_MDLXFormat;
 
 typedef enum {
-    whiteout_mdx_ParseMode_Strict,
-    whiteout_mdx_ParseMode_Lenient,
-} whiteout_mdx_ParseMode;
-
-typedef enum {
     whiteout_mdx_UpgradeMode_UpgradeOldVersions,
     whiteout_mdx_UpgradeMode_PreserveOriginal,
 } whiteout_mdx_UpgradeMode;
@@ -481,7 +476,7 @@ void whiteout_mdx_MdxLayer_set_coordId(whiteout_MdxLayer* self, uint32_t value);
 /* Layer opacity */
 float whiteout_mdx_MdxLayer_get_alpha(const whiteout_MdxLayer* self);
 void whiteout_mdx_MdxLayer_set_alpha(whiteout_MdxLayer* self, float value);
-/* Emissive light intensity */
+/* Emissive light intensity (default 1.0) */
 float whiteout_mdx_MdxLayer_get_emissiveGain(const whiteout_MdxLayer* self);
 void whiteout_mdx_MdxLayer_set_emissiveGain(whiteout_MdxLayer* self, float value);
 /* Fresnel effect color */
@@ -546,9 +541,9 @@ void whiteout_mdx_MdxLayerSubTexture_set_tracks(whiteout_MdxLayerSubTexture* sel
 whiteout_MdxMaterial* whiteout_mdx_MdxMaterial_new(void);
 void whiteout_mdx_MdxMaterial_delete(whiteout_MdxMaterial* self);
 
-/* Rendering priority (higher = render last) */
-uint32_t whiteout_mdx_MdxMaterial_get_priorityPlane(const whiteout_MdxMaterial* self);
-void whiteout_mdx_MdxMaterial_set_priorityPlane(whiteout_MdxMaterial* self, uint32_t value);
+/* Rendering priority (higher = render last); signed */
+int32_t whiteout_mdx_MdxMaterial_get_priorityPlane(const whiteout_MdxMaterial* self);
+void whiteout_mdx_MdxMaterial_set_priorityPlane(whiteout_MdxMaterial* self, int32_t value);
 /* Material flags */
 int32_t whiteout_mdx_MdxMaterial_get_flags(const whiteout_MdxMaterial* self);
 void whiteout_mdx_MdxMaterial_set_flags(whiteout_MdxMaterial* self, int32_t value);
@@ -944,9 +939,9 @@ void whiteout_mdx_MdxParticleEmitter2_set_textureId(whiteout_MdxParticleEmitter2
 /* Squirt flag (burst mode) */
 uint32_t whiteout_mdx_MdxParticleEmitter2_get_squirt(const whiteout_MdxParticleEmitter2* self);
 void whiteout_mdx_MdxParticleEmitter2_set_squirt(whiteout_MdxParticleEmitter2* self, uint32_t value);
-/* Rendering priority */
-uint32_t whiteout_mdx_MdxParticleEmitter2_get_priorityPlane(const whiteout_MdxParticleEmitter2* self);
-void whiteout_mdx_MdxParticleEmitter2_set_priorityPlane(whiteout_MdxParticleEmitter2* self, uint32_t value);
+/* Rendering priority; signed */
+int32_t whiteout_mdx_MdxParticleEmitter2_get_priorityPlane(const whiteout_MdxParticleEmitter2* self);
+void whiteout_mdx_MdxParticleEmitter2_set_priorityPlane(whiteout_MdxParticleEmitter2* self, int32_t value);
 /* Replaceable texture ID */
 uint32_t whiteout_mdx_MdxParticleEmitter2_get_replaceableId(const whiteout_MdxParticleEmitter2* self);
 void whiteout_mdx_MdxParticleEmitter2_set_replaceableId(whiteout_MdxParticleEmitter2* self, uint32_t value);
@@ -1194,7 +1189,7 @@ void whiteout_mdx_MdxCornEmitter_set_visibilityTracks(whiteout_MdxCornEmitter* s
 /*  */
 /* Uses the PImpl (Pointer to Implementation) idiom to hide implementation details. */
 whiteout_MdxParser* whiteout_mdx_MdxParser_new(void);
-whiteout_MdxParser* whiteout_mdx_MdxParser_new_parseMode_upgradeMode(int32_t parseMode, int32_t upgradeMode);
+whiteout_MdxParser* whiteout_mdx_MdxParser_new_upgradeMode(int32_t upgradeMode);
 void whiteout_mdx_MdxParser_delete(whiteout_MdxParser* self);
 
 /* Parse an MDX file from disk */

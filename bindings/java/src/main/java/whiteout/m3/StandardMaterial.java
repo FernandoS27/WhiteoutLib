@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class StandardMaterial implements AutoCloseable {
     }
 
     public StandardMaterial() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3StandardMaterial_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("StandardMaterial allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3StandardMaterial_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("StandardMaterial allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3StandardMaterial_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3StandardMaterial_delete, handle);
         }
     }
 
@@ -67,14 +64,14 @@ public final class StandardMaterial implements AutoCloseable {
      */
     public String getName() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __s = (MemorySegment) Native.whiteout_m3_M3StandardMaterial_get_name.invoke(arena, handle);
+            MemorySegment __s = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3StandardMaterial_get_name, arena, handle);
             MemorySegment __chars = __s.get(ValueLayout.ADDRESS, 0);
             long __len = __s.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__chars == null || __chars.equals(MemorySegment.NULL)) return "";
             byte[] __bytes = __chars.reinterpret(__len).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_CString_free.invoke(__s);
+            NativeCommon.invokeNative(Native.whiteout_CString_free, __s);
             return new String(__bytes, StandardCharsets.UTF_8);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
     public void setName(String value) {
         try (Arena arena = Arena.ofConfined()) {
@@ -82,8 +79,8 @@ public final class StandardMaterial implements AutoCloseable {
             MemorySegment __seg = arena.allocate(__utf.length + 1);
             MemorySegment.copy(__utf, 0, __seg, ValueLayout.JAVA_BYTE, 0, __utf.length);
             __seg.set(ValueLayout.JAVA_BYTE, __utf.length, (byte) 0);
-            Native.whiteout_m3_M3StandardMaterial_set_name.invoke(handle, __seg);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3StandardMaterial_set_name, handle, __seg);
+        }
     }
     /**
      * Additional flags
@@ -270,43 +267,36 @@ public final class StandardMaterial implements AutoCloseable {
      * @return the parallaxHeight field of this M3StandardMaterial.
      */
     public AnimRefF32 getParallaxHeight() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3StandardMaterial_get_parallaxHeight.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3StandardMaterial_get_parallaxHeight, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setParallaxHeight(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3StandardMaterial_set_parallaxHeight.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3StandardMaterial_set_parallaxHeight, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated motion blur amount
      * @return the motionBlurAmount field of this M3StandardMaterial.
      */
     public AnimRefF32 getMotionBlurAmount() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3StandardMaterial_get_motionBlurAmount.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3StandardMaterial_get_motionBlurAmount, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setMotionBlurAmount(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3StandardMaterial_set_motionBlurAmount.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3StandardMaterial_set_motionBlurAmount, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Normal blend factors (v19+)
      * @return the normalBlendFactors field of this M3StandardMaterial.
      */
     public int getNormalBlendFactorsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3StandardMaterial_get_normalBlendFactors_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3StandardMaterial_get_normalBlendFactors_count, handle);
     }
     public AnimRefF32 getNormalBlendFactorsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3StandardMaterial_get_normalBlendFactors_at.invoke(handle, (long) index);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3StandardMaterial_get_normalBlendFactors_at, handle, (long) index);
+        return new AnimRefF32(__h, false);
     }
     public void resizeNormalBlendFactors(int count) {
-        try { Native.whiteout_m3_M3StandardMaterial_resize_normalBlendFactors.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3StandardMaterial_resize_normalBlendFactors, handle, (long) count);
     }
     public java.util.List<AnimRefF32> normalBlendFactorsView() {
         return new java.util.AbstractList<AnimRefF32>() {

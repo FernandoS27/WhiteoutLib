@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.textures.internal.Native;
 
 /**
@@ -48,22 +49,18 @@ public final class Texture implements AutoCloseable {
     }
 
     public Texture() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_Texture_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Texture allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_Texture_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Texture allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_textures_Texture_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_textures_Texture_delete, handle);
         }
     }
 
@@ -75,18 +72,14 @@ public final class Texture implements AutoCloseable {
      * @param new_fmt Target pixel format.
      */
     public void format(PixelFormat new_fmt) {
-        try {
-        Native.whiteout_textures_Texture_format.invoke(handle, new_fmt.value);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_textures_Texture_format, handle, new_fmt.value);
     }
 
     /**
      * @return The pixel format of the stored data.
      */
     public PixelFormat format() {
-        try {
-        return PixelFormat.fromInt((int) Native.whiteout_textures_Texture_format_overload2.invoke(handle));
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return PixelFormat.fromInt((int) NativeCommon.invokeNative(Native.whiteout_textures_Texture_format_overload2, handle));
     }
 
     /**
@@ -99,18 +92,16 @@ public final class Texture implements AutoCloseable {
      * @param pool WorkerPool input.
      */
     public Texture copyAsFormat(PixelFormat new_fmt, whiteout.interfaces.WorkerPool pool) {
-        try {
         long __pool_h = pool == null ? 0L
-            : whiteout.host.WorkerPools.resolveNative(pool, pool);
+        : whiteout.host.WorkerPools.resolveNative(pool, pool);
         MemorySegment __pool_seg = __pool_h == 0L
-            ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
+        ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
         try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_textures_Texture_copyAsFormat.invoke(handle, new_fmt.value, __pool_seg);
-            return new Texture(__h, true);
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_Texture_copyAsFormat, handle, new_fmt.value, __pool_seg);
+        return new Texture(__h, true);
         } finally {
-            java.lang.ref.Reference.reachabilityFence(pool);
+        java.lang.ref.Reference.reachabilityFence(pool);
         }
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
     /**
@@ -121,19 +112,17 @@ public final class Texture implements AutoCloseable {
      * @param pool Optional WorkerPool for parallel BCn decode work when the source texture is compressed. @return Expanded RGBA8 texture, or std::nullopt when unsupported.
      */
     public java.util.Optional<Texture> copyFromNormalToRGBA(whiteout.interfaces.WorkerPool pool) {
-        try {
         long __pool_h = pool == null ? 0L
-            : whiteout.host.WorkerPools.resolveNative(pool, pool);
+        : whiteout.host.WorkerPools.resolveNative(pool, pool);
         MemorySegment __pool_seg = __pool_h == 0L
-            ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
+        ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
         try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_textures_Texture_copyFromNormalToRGBA.invoke(handle, __pool_seg);
-            if (__h == null || __h.equals(MemorySegment.NULL)) return java.util.Optional.empty();
-            return java.util.Optional.of(new Texture(__h, true));
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_Texture_copyFromNormalToRGBA, handle, __pool_seg);
+        if (__h == null || __h.equals(MemorySegment.NULL)) return java.util.Optional.empty();
+        return java.util.Optional.of(new Texture(__h, true));
         } finally {
-            java.lang.ref.Reference.reachabilityFence(pool);
+        java.lang.ref.Reference.reachabilityFence(pool);
         }
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
     /**
@@ -156,20 +145,20 @@ public final class Texture implements AutoCloseable {
             MemorySegment __pool_seg = __pool_h == 0L
                 ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
             try {
-                MemorySegment __cstr = (MemorySegment) Native.whiteout_textures_Texture_generateMipmaps.invoke(arena, handle, newMipCount, __pool_seg);
+                MemorySegment __cstr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_Texture_generateMipmaps, arena, handle, newMipCount, __pool_seg);
                 MemorySegment __chars = __cstr.get(ValueLayout.ADDRESS, 0);
                 if (__chars == null || __chars.equals(MemorySegment.NULL)) {
-                    Native.whiteout_CString_free.invoke(__cstr);
+                    NativeCommon.invokeNative(Native.whiteout_CString_free, __cstr);
                     return java.util.Optional.empty();
                 }
                 long __slen = __cstr.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
                 String __out = __chars.reinterpret(__slen + 1).getString(0L);
-                Native.whiteout_CString_free.invoke(__cstr);
+                NativeCommon.invokeNative(Native.whiteout_CString_free, __cstr);
                 return java.util.Optional.of(__out);
             } finally {
                 java.lang.ref.Reference.reachabilityFence(pool);
             }
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -185,20 +174,20 @@ public final class Texture implements AutoCloseable {
             MemorySegment __pool_seg = __pool_h == 0L
                 ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
             try {
-                MemorySegment __cstr = (MemorySegment) Native.whiteout_textures_Texture_generateMipmaps_pool.invoke(arena, handle, __pool_seg);
+                MemorySegment __cstr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_Texture_generateMipmaps_pool, arena, handle, __pool_seg);
                 MemorySegment __chars = __cstr.get(ValueLayout.ADDRESS, 0);
                 if (__chars == null || __chars.equals(MemorySegment.NULL)) {
-                    Native.whiteout_CString_free.invoke(__cstr);
+                    NativeCommon.invokeNative(Native.whiteout_CString_free, __cstr);
                     return java.util.Optional.empty();
                 }
                 long __slen = __cstr.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
                 String __out = __chars.reinterpret(__slen + 1).getString(0L);
-                Native.whiteout_CString_free.invoke(__cstr);
+                NativeCommon.invokeNative(Native.whiteout_CString_free, __cstr);
                 return java.util.Optional.of(__out);
             } finally {
                 java.lang.ref.Reference.reachabilityFence(pool);
             }
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -219,20 +208,20 @@ public final class Texture implements AutoCloseable {
             MemorySegment __pool_seg = __pool_h == 0L
                 ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
             try {
-                MemorySegment __cstr = (MemorySegment) Native.whiteout_textures_Texture_downscale.invoke(arena, handle, levels, __pool_seg);
+                MemorySegment __cstr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_Texture_downscale, arena, handle, levels, __pool_seg);
                 MemorySegment __chars = __cstr.get(ValueLayout.ADDRESS, 0);
                 if (__chars == null || __chars.equals(MemorySegment.NULL)) {
-                    Native.whiteout_CString_free.invoke(__cstr);
+                    NativeCommon.invokeNative(Native.whiteout_CString_free, __cstr);
                     return java.util.Optional.empty();
                 }
                 long __slen = __cstr.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
                 String __out = __chars.reinterpret(__slen + 1).getString(0L);
-                Native.whiteout_CString_free.invoke(__cstr);
+                NativeCommon.invokeNative(Native.whiteout_CString_free, __cstr);
                 return java.util.Optional.of(__out);
             } finally {
                 java.lang.ref.Reference.reachabilityFence(pool);
             }
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -244,10 +233,8 @@ public final class Texture implements AutoCloseable {
      * @param mipCount int input.
      */
     public static Texture create2D(PixelFormat fmt, int width, int height, int mipCount) {
-        try {
-        MemorySegment __h = (MemorySegment) Native.whiteout_textures_Texture_create2D.invoke(fmt.value, width, height, mipCount);
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_Texture_create2D, fmt.value, width, height, mipCount);
         return new Texture(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
     /**
@@ -260,10 +247,8 @@ public final class Texture implements AutoCloseable {
      * @param mipCount int input.
      */
     public static Texture create3D(PixelFormat fmt, int width, int height, int depth, int mipCount) {
-        try {
-        MemorySegment __h = (MemorySegment) Native.whiteout_textures_Texture_create3D.invoke(fmt.value, width, height, depth, mipCount);
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_Texture_create3D, fmt.value, width, height, depth, mipCount);
         return new Texture(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
     /**
@@ -274,10 +259,8 @@ public final class Texture implements AutoCloseable {
      * @param mipCount int input.
      */
     public static Texture createCube(PixelFormat fmt, int size, int mipCount) {
-        try {
-        MemorySegment __h = (MemorySegment) Native.whiteout_textures_Texture_createCube.invoke(fmt.value, size, mipCount);
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_Texture_createCube, fmt.value, size, mipCount);
         return new Texture(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
     /**
@@ -290,10 +273,8 @@ public final class Texture implements AutoCloseable {
      * @param mipCount int input.
      */
     public static Texture create2DArray(PixelFormat fmt, int width, int height, int arraySize, int mipCount) {
-        try {
-        MemorySegment __h = (MemorySegment) Native.whiteout_textures_Texture_create2DArray.invoke(fmt.value, width, height, arraySize, mipCount);
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_Texture_create2DArray, fmt.value, width, height, arraySize, mipCount);
         return new Texture(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
     /**
@@ -305,28 +286,22 @@ public final class Texture implements AutoCloseable {
      * @param mipCount int input.
      */
     public static Texture createCubeArray(PixelFormat fmt, int size, int arraySize, int mipCount) {
-        try {
-        MemorySegment __h = (MemorySegment) Native.whiteout_textures_Texture_createCubeArray.invoke(fmt.value, size, arraySize, mipCount);
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_Texture_createCubeArray, fmt.value, size, arraySize, mipCount);
         return new Texture(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
     /**
      * @return The texture dimensionality / topology.
      */
     public TextureType type() {
-        try {
-        return TextureType.fromInt((int) Native.whiteout_textures_Texture_type.invoke(handle));
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return TextureType.fromInt((int) NativeCommon.invokeNative(Native.whiteout_textures_Texture_type, handle));
     }
 
     /**
      * @return True if the texture data is in sRGB colour space.
      */
     public boolean isSrgb() {
-        try {
-        return ((int) Native.whiteout_textures_Texture_isSrgb.invoke(handle)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_textures_Texture_isSrgb, handle)) != 0;
     }
 
     /**
@@ -335,72 +310,56 @@ public final class Texture implements AutoCloseable {
      * @param srgb boolean input.
      */
     public void setSrgb(boolean srgb) {
-        try {
-        Native.whiteout_textures_Texture_setSrgb.invoke(handle, (srgb ? 1 : 0));
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_textures_Texture_setSrgb, handle, (srgb ? 1 : 0));
     }
 
     /**
      * @return Base mip width in pixels.
      */
     public int width() {
-        try {
-        return (int) Native.whiteout_textures_Texture_width.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) NativeCommon.invokeNative(Native.whiteout_textures_Texture_width, handle);
     }
 
     /**
      * @return Base mip height in pixels.
      */
     public int height() {
-        try {
-        return (int) Native.whiteout_textures_Texture_height.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) NativeCommon.invokeNative(Native.whiteout_textures_Texture_height, handle);
     }
 
     /**
      * @return Base mip depth (1 for 2D / cube textures).
      */
     public int depth() {
-        try {
-        return (int) Native.whiteout_textures_Texture_depth.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) NativeCommon.invokeNative(Native.whiteout_textures_Texture_depth, handle);
     }
 
     /**
      * @return Number of array layers. - Texture2D / Texture3D: 1. - TextureCube: 6. - Texture2DArray: arraySize(). - TextureCubeArray: 6 × arraySize().
      */
     public int layerCount() {
-        try {
-        return (int) Native.whiteout_textures_Texture_layerCount.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) NativeCommon.invokeNative(Native.whiteout_textures_Texture_layerCount, handle);
     }
 
     /**
      * @return Number of array slices (1 for non-array textures). For a TextureCubeArray, this is the number of cube-maps in the array (the layer count is 6 × this value).
      */
     public int arraySize() {
-        try {
-        return (int) Native.whiteout_textures_Texture_arraySize.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) NativeCommon.invokeNative(Native.whiteout_textures_Texture_arraySize, handle);
     }
 
     /**
      * @return Number of mip levels per layer.
      */
     public int mipCount() {
-        try {
-        return (int) Native.whiteout_textures_Texture_mipCount.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) NativeCommon.invokeNative(Native.whiteout_textures_Texture_mipCount, handle);
     }
 
     /**
      * @return Total byte size of the pixel-data buffer.
      */
     public long dataSize() {
-        try {
-        return (long) Native.whiteout_textures_Texture_dataSize.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (long) NativeCommon.invokeNative(Native.whiteout_textures_Texture_dataSize, handle);
     }
 
     /**
@@ -408,14 +367,14 @@ public final class Texture implements AutoCloseable {
      */
     public byte[] data() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __struct = (MemorySegment) Native.whiteout_textures_Texture_data.invoke(arena, handle);
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_Texture_data, arena, handle);
             MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
             long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
             byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_Bytes_free.invoke(__struct);
+            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
             return __out;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -427,14 +386,14 @@ public final class Texture implements AutoCloseable {
      */
     public byte[] mipData(int mip, int layer) {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __struct = (MemorySegment) Native.whiteout_textures_Texture_mipData.invoke(arena, handle, mip, layer);
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_Texture_mipData, arena, handle, mip, layer);
             MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
             long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
             byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_Bytes_free.invoke(__struct);
+            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
             return __out;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -444,14 +403,14 @@ public final class Texture implements AutoCloseable {
      */
     public byte[] takeData() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __struct = (MemorySegment) Native.whiteout_textures_Texture_takeData.invoke(arena, handle);
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_Texture_takeData, arena, handle);
             MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
             long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
             byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_Bytes_free.invoke(__struct);
+            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
             return __out;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -469,8 +428,8 @@ public final class Texture implements AutoCloseable {
             if (new_data != null && new_data.length != 0) {
                 MemorySegment.copy(new_data, 0, new_data_seg, ValueLayout.JAVA_BYTE, 0, new_data.length);
             }
-            Native.whiteout_textures_Texture_setData.invoke(handle, new_data_seg, (long) (new_data == null ? 0 : new_data.length));
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_textures_Texture_setData, handle, new_data_seg, (long) (new_data == null ? 0 : new_data.length));
+        }
     }
 
     @Override public String toString() {

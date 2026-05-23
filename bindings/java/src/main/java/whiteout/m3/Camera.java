@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class Camera implements AutoCloseable {
     }
 
     public Camera() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3Camera_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Camera allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Camera allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3Camera_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_delete, handle);
         }
     }
 
@@ -77,14 +74,14 @@ public final class Camera implements AutoCloseable {
      */
     public String getName() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __s = (MemorySegment) Native.whiteout_m3_M3Camera_get_name.invoke(arena, handle);
+            MemorySegment __s = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_get_name, arena, handle);
             MemorySegment __chars = __s.get(ValueLayout.ADDRESS, 0);
             long __len = __s.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__chars == null || __chars.equals(MemorySegment.NULL)) return "";
             byte[] __bytes = __chars.reinterpret(__len).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_CString_free.invoke(__s);
+            NativeCommon.invokeNative(Native.whiteout_CString_free, __s);
             return new String(__bytes, StandardCharsets.UTF_8);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
     public void setName(String value) {
         try (Arena arena = Arena.ofConfined()) {
@@ -92,21 +89,19 @@ public final class Camera implements AutoCloseable {
             MemorySegment __seg = arena.allocate(__utf.length + 1);
             MemorySegment.copy(__utf, 0, __seg, ValueLayout.JAVA_BYTE, 0, __utf.length);
             __seg.set(ValueLayout.JAVA_BYTE, __utf.length, (byte) 0);
-            Native.whiteout_m3_M3Camera_set_name.invoke(handle, __seg);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_set_name, handle, __seg);
+        }
     }
     /**
      * Animated FOV in radians (v2+)
      * @return the fieldOfView field of this M3Camera.
      */
     public AnimRefF32 getFieldOfView() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Camera_get_fieldOfView.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_get_fieldOfView, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setFieldOfView(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Camera_set_fieldOfView.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_set_fieldOfView, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Use vertical FOV (0 or 1, v2+)
@@ -133,143 +128,121 @@ public final class Camera implements AutoCloseable {
      * @return the farClip field of this M3Camera.
      */
     public AnimRefF32 getFarClip() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Camera_get_farClip.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_get_farClip, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setFarClip(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Camera_set_farClip.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_set_farClip, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated near clip plane (v3+)
      * @return the nearClip field of this M3Camera.
      */
     public AnimRefF32 getNearClip() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Camera_get_nearClip.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_get_nearClip, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setNearClip(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Camera_set_nearClip.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_set_nearClip, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated shadow clip distance (v2+)
      * @return the shadowClipDistance field of this M3Camera.
      */
     public AnimRefF32 getShadowClipDistance() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Camera_get_shadowClipDistance.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_get_shadowClipDistance, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setShadowClipDistance(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Camera_set_shadowClipDistance.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_set_shadowClipDistance, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated DOF focal point distance (v2+)
      * @return the focusDistance field of this M3Camera.
      */
     public AnimRefF32 getFocusDistance() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Camera_get_focusDistance.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_get_focusDistance, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setFocusDistance(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Camera_set_focusDistance.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_set_focusDistance, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated DOF far focus range (v2+)
      * @return the farFocusRange field of this M3Camera.
      */
     public AnimRefF32 getFarFocusRange() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Camera_get_farFocusRange.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_get_farFocusRange, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setFarFocusRange(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Camera_set_farFocusRange.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_set_farFocusRange, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated DOF near focus range (v2+)
      * @return the nearFocusRange field of this M3Camera.
      */
     public AnimRefF32 getNearFocusRange() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Camera_get_nearFocusRange.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_get_nearFocusRange, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setNearFocusRange(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Camera_set_nearFocusRange.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_set_nearFocusRange, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated near falloff start (v4+)
      * @return the nearFalloffStart field of this M3Camera.
      */
     public AnimRefF32 getNearFalloffStart() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Camera_get_nearFalloffStart.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_get_nearFalloffStart, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setNearFalloffStart(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Camera_set_nearFalloffStart.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_set_nearFalloffStart, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated near falloff end (v4+)
      * @return the nearFalloffEnd field of this M3Camera.
      */
     public AnimRefF32 getNearFalloffEnd() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Camera_get_nearFalloffEnd.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_get_nearFalloffEnd, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setNearFalloffEnd(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Camera_set_nearFalloffEnd.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_set_nearFalloffEnd, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated DOF strength (v2+)
      * @return the dofAmount field of this M3Camera.
      */
     public AnimRefF32 getDofAmount() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Camera_get_dofAmount.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_get_dofAmount, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setDofAmount(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Camera_set_dofAmount.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_set_dofAmount, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated bokeh f-stop (v5+)
      * @return the bokehFStop field of this M3Camera.
      */
     public AnimRefF32 getBokehFStop() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Camera_get_bokehFStop.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_get_bokehFStop, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setBokehFStop(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Camera_set_bokehFStop.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_set_bokehFStop, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated bokeh max CoC diameter (v5+)
      * @return the bokehMaxCoCDiameter field of this M3Camera.
      */
     public AnimRefF32 getBokehMaxCoCDiameter() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Camera_get_bokehMaxCoCDiameter.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_get_bokehMaxCoCDiameter, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setBokehMaxCoCDiameter(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Camera_set_bokehMaxCoCDiameter.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Camera_set_bokehMaxCoCDiameter, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "Camera(" + "boneIndex=" + getBoneIndex() + ", " + "name=" + getName() + ", " + "useVerticalFOV=" + getUseVerticalFOV() + ", " + "dofType=" + getDofType() + ")";

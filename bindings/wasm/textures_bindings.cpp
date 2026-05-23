@@ -88,58 +88,6 @@ EMSCRIPTEN_BINDINGS(textures) {
         .value("Texture2DArray", whiteout::textures::TextureType::Texture2DArray)
         .value("TextureCubeArray", whiteout::textures::TextureType::TextureCubeArray);
 
-    enum_<whiteout::textures::blp::Parser::ParseMode>("BlpParseMode")
-        .value("Strict", whiteout::textures::blp::Parser::ParseMode::Strict)
-        .value("Lenient", whiteout::textures::blp::Parser::ParseMode::Lenient);
-
-    enum_<whiteout::textures::blp::Writer::WriteMode>("BlpWriteMode")
-        .value("Strict", whiteout::textures::blp::Writer::WriteMode::Strict)
-        .value("Lenient", whiteout::textures::blp::Writer::WriteMode::Lenient);
-
-    enum_<whiteout::textures::png::Parser::ParseMode>("PngParseMode")
-        .value("Strict", whiteout::textures::png::Parser::ParseMode::Strict)
-        .value("Lenient", whiteout::textures::png::Parser::ParseMode::Lenient);
-
-    enum_<whiteout::textures::png::Writer::WriteMode>("PngWriteMode")
-        .value("Strict", whiteout::textures::png::Writer::WriteMode::Strict)
-        .value("Lenient", whiteout::textures::png::Writer::WriteMode::Lenient);
-
-    enum_<whiteout::textures::jpeg::Parser::ParseMode>("JpegParseMode")
-        .value("Strict", whiteout::textures::jpeg::Parser::ParseMode::Strict)
-        .value("Lenient", whiteout::textures::jpeg::Parser::ParseMode::Lenient);
-
-    enum_<whiteout::textures::jpeg::Writer::WriteMode>("JpegWriteMode")
-        .value("Strict", whiteout::textures::jpeg::Writer::WriteMode::Strict)
-        .value("Lenient", whiteout::textures::jpeg::Writer::WriteMode::Lenient);
-
-    enum_<whiteout::textures::dds::Parser::ParseMode>("DdsParseMode")
-        .value("Strict", whiteout::textures::dds::Parser::ParseMode::Strict)
-        .value("Lenient", whiteout::textures::dds::Parser::ParseMode::Lenient);
-
-    enum_<whiteout::textures::dds::Writer::WriteMode>("DdsWriteMode")
-        .value("Strict", whiteout::textures::dds::Writer::WriteMode::Strict)
-        .value("Lenient", whiteout::textures::dds::Writer::WriteMode::Lenient);
-
-    enum_<whiteout::textures::bmp::Parser::ParseMode>("BmpParseMode")
-        .value("Strict", whiteout::textures::bmp::Parser::ParseMode::Strict)
-        .value("Lenient", whiteout::textures::bmp::Parser::ParseMode::Lenient);
-
-    enum_<whiteout::textures::bmp::Writer::WriteMode>("BmpWriteMode")
-        .value("Strict", whiteout::textures::bmp::Writer::WriteMode::Strict)
-        .value("Lenient", whiteout::textures::bmp::Writer::WriteMode::Lenient);
-
-    enum_<whiteout::textures::tga::Parser::ParseMode>("TgaParseMode")
-        .value("Strict", whiteout::textures::tga::Parser::ParseMode::Strict)
-        .value("Lenient", whiteout::textures::tga::Parser::ParseMode::Lenient);
-
-    enum_<whiteout::textures::tga::Writer::WriteMode>("TgaWriteMode")
-        .value("Strict", whiteout::textures::tga::Writer::WriteMode::Strict)
-        .value("Lenient", whiteout::textures::tga::Writer::WriteMode::Lenient);
-
-    enum_<whiteout::textures::gif::Writer::WriteMode>("GifWriteMode")
-        .value("Strict", whiteout::textures::gif::Writer::WriteMode::Strict)
-        .value("Lenient", whiteout::textures::gif::Writer::WriteMode::Lenient);
-
     // ── Value-object types (plain JS objects) ────────────────────────────
     value_object<whiteout::textures::png::ApngFrameInfo>("PngApngFrameInfo")
         .field("width", &whiteout::textures::png::ApngFrameInfo::width)
@@ -234,7 +182,6 @@ EMSCRIPTEN_BINDINGS(textures) {
 
     class_<whiteout::textures::blp::Parser>("BlpParser")
         .constructor<>()
-        .constructor<whiteout::textures::blp::Parser::ParseMode>()
         .function("parse",
                   optional_override([](
                       whiteout::textures::blp::Parser& self,
@@ -249,7 +196,7 @@ EMSCRIPTEN_BINDINGS(textures) {
 
     class_<whiteout::textures::blp::Writer>("BlpWriter")
         .constructor<>()
-        .constructor<whiteout::textures::blp::Writer::WriteMode, whiteout::interfaces::WorkerPool>()
+        .constructor<whiteout::interfaces::WorkerPool>()
         .function("write",
                   optional_override([](
                       whiteout::textures::blp::Writer& self,
@@ -262,7 +209,6 @@ EMSCRIPTEN_BINDINGS(textures) {
 
     class_<whiteout::textures::png::Parser>("PngParser")
         .constructor<>()
-        .constructor<whiteout::textures::png::Parser::ParseMode>()
         .function("parse",
                   optional_override([](
                       whiteout::textures::png::Parser& self,
@@ -293,7 +239,6 @@ EMSCRIPTEN_BINDINGS(textures) {
 
     class_<whiteout::textures::png::Writer>("PngWriter")
         .constructor<>()
-        .constructor<whiteout::textures::png::Writer::WriteMode>()
         .function("write",
                   optional_override([](
                       whiteout::textures::png::Writer& self,
@@ -313,7 +258,7 @@ EMSCRIPTEN_BINDINGS(textures) {
 
     class_<whiteout::textures::jpeg::Parser>("JpegParser")
         .constructor<>()
-        .constructor<whiteout::textures::jpeg::Parser::ParseMode, whiteout::interfaces::WorkerPool>()
+        .constructor<whiteout::interfaces::WorkerPool>()
         .function("parse",
                   optional_override([](
                       whiteout::textures::jpeg::Parser& self,
@@ -328,7 +273,7 @@ EMSCRIPTEN_BINDINGS(textures) {
 
     class_<whiteout::textures::jpeg::Writer>("JpegWriter")
         .constructor<>()
-        .constructor<whiteout::i32, whiteout::textures::jpeg::Writer::WriteMode, whiteout::interfaces::WorkerPool, bool>()
+        .constructor<whiteout::i32, whiteout::interfaces::WorkerPool, bool>()
         .function("write",
                   optional_override([](
                       whiteout::textures::jpeg::Writer& self,
@@ -341,7 +286,6 @@ EMSCRIPTEN_BINDINGS(textures) {
 
     class_<whiteout::textures::dds::Parser>("DdsParser")
         .constructor<>()
-        .constructor<whiteout::textures::dds::Parser::ParseMode>()
         .function("parse",
                   optional_override([](
                       whiteout::textures::dds::Parser& self,
@@ -356,7 +300,6 @@ EMSCRIPTEN_BINDINGS(textures) {
 
     class_<whiteout::textures::dds::Writer>("DdsWriter")
         .constructor<>()
-        .constructor<whiteout::textures::dds::Writer::WriteMode>()
         .function("write",
                   optional_override([](
                       whiteout::textures::dds::Writer& self,
@@ -369,7 +312,6 @@ EMSCRIPTEN_BINDINGS(textures) {
 
     class_<whiteout::textures::bmp::Parser>("BmpParser")
         .constructor<>()
-        .constructor<whiteout::textures::bmp::Parser::ParseMode>()
         .function("parse",
                   optional_override([](
                       whiteout::textures::bmp::Parser& self,
@@ -384,7 +326,6 @@ EMSCRIPTEN_BINDINGS(textures) {
 
     class_<whiteout::textures::bmp::Writer>("BmpWriter")
         .constructor<>()
-        .constructor<whiteout::textures::bmp::Writer::WriteMode>()
         .function("write",
                   optional_override([](
                       whiteout::textures::bmp::Writer& self,
@@ -397,7 +338,6 @@ EMSCRIPTEN_BINDINGS(textures) {
 
     class_<whiteout::textures::tga::Parser>("TgaParser")
         .constructor<>()
-        .constructor<whiteout::textures::tga::Parser::ParseMode>()
         .function("parse",
                   optional_override([](
                       whiteout::textures::tga::Parser& self,
@@ -412,7 +352,6 @@ EMSCRIPTEN_BINDINGS(textures) {
 
     class_<whiteout::textures::tga::Writer>("TgaWriter")
         .constructor<>()
-        .constructor<whiteout::textures::tga::Writer::WriteMode>()
         .function("write",
                   optional_override([](
                       whiteout::textures::tga::Writer& self,
@@ -425,7 +364,7 @@ EMSCRIPTEN_BINDINGS(textures) {
 
     class_<whiteout::textures::gif::Writer>("GifWriter")
         .constructor<>()
-        .constructor<whiteout::textures::gif::Writer::WriteMode, whiteout::interfaces::WorkerPool>()
+        .constructor<whiteout::interfaces::WorkerPool>()
         .function("write", select_overload<void(const std::string &, const std::vector<Texture> &)>(&whiteout::textures::gif::Writer::write))
         .function("write_frames",
                   optional_override([](

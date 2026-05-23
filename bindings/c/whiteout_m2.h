@@ -126,11 +126,6 @@ typedef enum {
     whiteout_m2_ParticleFlag_DynamicWind,
 } whiteout_m2_ParticleFlag;
 
-typedef enum {
-    whiteout_m2_ParseMode_Strict,
-    whiteout_m2_ParseMode_Lenient,
-} whiteout_m2_ParseMode;
-
 /* ── Opaque handles ───────────────────────────────────────── */
 
 typedef struct whiteout_M2CompatQuaternion whiteout_M2CompatQuaternion;
@@ -1103,7 +1098,6 @@ whiteout_M2TexturedLightData* whiteout_m2_M2Model_get_texturedLightEntries_at(wh
 /* ── M2Parser ─────────────────────────────────────────────── */
 
 whiteout_M2Parser* whiteout_m2_M2Parser_new(void);
-whiteout_M2Parser* whiteout_m2_M2Parser_new_mode(int32_t mode);
 void whiteout_m2_M2Parser_delete(whiteout_M2Parser* self);
 
 struct whiteout_M2Model* whiteout_m2_M2Parser_parse(whiteout_M2Parser* self, void* fs, const char* filePath);

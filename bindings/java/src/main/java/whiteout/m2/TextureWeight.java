@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m2.internal.Native;
 
 /**
@@ -40,34 +41,28 @@ public final class TextureWeight implements AutoCloseable {
     }
 
     public TextureWeight() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m2_M2TextureWeight_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("TextureWeight allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2TextureWeight_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("TextureWeight allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m2_M2TextureWeight_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2TextureWeight_delete, handle);
         }
     }
 
     /** @return the weight field of this M2TextureWeight. */
     public AnimationTrackI16 getWeight() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2TextureWeight_get_weight.invoke(handle);
-            return new AnimationTrackI16(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2TextureWeight_get_weight, handle);
+        return new AnimationTrackI16(__h, false);
     }
     public void setWeight(AnimationTrackI16 value) {
-        try { Native.whiteout_m2_M2TextureWeight_set_weight.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2TextureWeight_set_weight, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "TextureWeight@" + Long.toHexString(handle == null ? 0 : handle.address());

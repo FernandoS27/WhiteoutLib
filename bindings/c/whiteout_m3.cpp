@@ -8114,10 +8114,6 @@ whiteout_M3Parser* whiteout_m3_M3Parser_new(void) {
     return reinterpret_cast<whiteout_M3Parser*>(new whiteout::m3::Parser());
 }
 
-whiteout_M3Parser* whiteout_m3_M3Parser_new_mode(int32_t mode) {
-    return reinterpret_cast<whiteout_M3Parser*>(new whiteout::m3::Parser(static_cast<whiteout::m3::Parser::ParseMode>(mode)));
-}
-
 void whiteout_m3_M3Parser_delete(whiteout_M3Parser* self) {
     delete reinterpret_cast<whiteout::m3::Parser*>(self);
 }

@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.textures.internal.Native;
 
 /**
@@ -44,35 +45,29 @@ public final class BlpWriter implements AutoCloseable {
     }
 
     public BlpWriter() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_BlpWriter_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("BlpWriter allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_BlpWriter_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("BlpWriter allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
-    public static BlpWriter createWriteModePool(BlpWriteMode writeMode, whiteout.interfaces.WorkerPool pool) {
-        try {
-            long __pool_h = pool == null ? 0L
-                : whiteout.host.WorkerPools.resolveNative(pool, pool);
-            MemorySegment __pool_seg = __pool_h == 0L
-                ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
-            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_BlpWriter_new_writeMode_pool.invoke(writeMode.value, __pool_seg);
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("BlpWriter allocation failed");
-            return new BlpWriter(__raw, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    public static BlpWriter createPool(whiteout.interfaces.WorkerPool pool) {
+        long __pool_h = pool == null ? 0L
+            : whiteout.host.WorkerPools.resolveNative(pool, pool);
+        MemorySegment __pool_seg = __pool_h == 0L
+            ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_BlpWriter_new_pool, __pool_seg);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("BlpWriter allocation failed");
+        return new BlpWriter(__raw, true);
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_textures_BlpWriter_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_textures_BlpWriter_delete, handle);
         }
     }
 
@@ -84,23 +79,21 @@ public final class BlpWriter implements AutoCloseable {
      */
     public byte[] write(Texture texture) {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __struct = (MemorySegment) Native.whiteout_textures_BlpWriter_write.invoke(arena, handle, texture == null ? MemorySegment.NULL : texture.handle);
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_BlpWriter_write, arena, handle, texture == null ? MemorySegment.NULL : texture.handle);
             MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
             long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
             byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_Bytes_free.invoke(__struct);
+            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
             return __out;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
      * Check if writing encountered any issues @return True if there were warnings or recoverable errors
      */
     public boolean hasIssues() {
-        try {
-        return ((int) Native.whiteout_textures_BlpWriter_hasIssues.invoke(handle)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_textures_BlpWriter_hasIssues, handle)) != 0;
     }
 
     @Override public String toString() {

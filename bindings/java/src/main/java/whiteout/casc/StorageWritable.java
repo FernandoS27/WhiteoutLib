@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.casc.internal.Native;
 
 /**
@@ -15,6 +16,8 @@ import whiteout.casc.internal.Native;
  * Inherits all read operations from Storage. Adds write overlay and persist-to-disk support.
  * 
  * Only local-backed storages can be writable (CDN is read-only).
+ * 
+ * extends=whiteout::storages::casc::Storage
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * StorageWritable allocation. Always release them with
@@ -47,9 +50,7 @@ public final class StorageWritable implements AutoCloseable {
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_casc_CascStorageWritable_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_casc_CascStorageWritable_delete, handle);
         }
     }
 
@@ -63,18 +64,16 @@ public final class StorageWritable implements AutoCloseable {
      * @param pool WorkerPool input.
      */
     public static StorageWritable create(CreateOptions opts, whiteout.interfaces.WorkerPool pool) {
-        try {
         long __pool_h = pool == null ? 0L
-            : whiteout.host.WorkerPools.resolveNative(pool, pool);
+        : whiteout.host.WorkerPools.resolveNative(pool, pool);
         MemorySegment __pool_seg = __pool_h == 0L
-            ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
+        ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
         try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_casc_CascStorageWritable_create.invoke(opts == null ? MemorySegment.NULL : opts.handle, __pool_seg);
-            return new StorageWritable(__h, true);
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_casc_CascStorageWritable_create, opts == null ? MemorySegment.NULL : opts.handle, __pool_seg);
+        return new StorageWritable(__h, true);
         } finally {
-            java.lang.ref.Reference.reachabilityFence(pool);
+        java.lang.ref.Reference.reachabilityFence(pool);
         }
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
     /**
@@ -98,8 +97,8 @@ public final class StorageWritable implements AutoCloseable {
             if (data != null && data.length != 0) {
                 MemorySegment.copy(data, 0, data_seg, ValueLayout.JAVA_BYTE, 0, data.length);
             }
-            return ((int) Native.whiteout_casc_CascStorageWritable_writeFile.invoke(handle, path_seg, data_seg, (long) (data == null ? 0 : data.length), opts == null ? MemorySegment.NULL : opts.handle)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            return ((int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorageWritable_writeFile, handle, path_seg, data_seg, (long) (data == null ? 0 : data.length), opts == null ? MemorySegment.NULL : opts.handle)) != 0;
+        }
     }
 
     /**
@@ -119,8 +118,8 @@ public final class StorageWritable implements AutoCloseable {
             if (data != null && data.length != 0) {
                 MemorySegment.copy(data, 0, data_seg, ValueLayout.JAVA_BYTE, 0, data.length);
             }
-            return ((int) Native.whiteout_casc_CascStorageWritable_writeFile_fileId_data_opts_hint.invoke(handle, fileId, data_seg, (long) (data == null ? 0 : data.length), opts == null ? MemorySegment.NULL : opts.handle, hint.value)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            return ((int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorageWritable_writeFile_fileId_data_opts_hint, handle, fileId, data_seg, (long) (data == null ? 0 : data.length), opts == null ? MemorySegment.NULL : opts.handle, hint.value)) != 0;
+        }
     }
 
     /**
@@ -134,8 +133,8 @@ public final class StorageWritable implements AutoCloseable {
             MemorySegment path_seg = path == null
                 ? MemorySegment.NULL
                 : arena.allocateFrom(path, StandardCharsets.UTF_8);
-            return ((int) Native.whiteout_casc_CascStorageWritable_deleteFile.invoke(handle, path_seg)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            return ((int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorageWritable_deleteFile, handle, path_seg)) != 0;
+        }
     }
 
     /**
@@ -146,9 +145,7 @@ public final class StorageWritable implements AutoCloseable {
      * @return boolean result.
      */
     public boolean deleteFile(int fileId, FileIdHint hint) {
-        try {
-        return ((int) Native.whiteout_casc_CascStorageWritable_deleteFile_fileId_hint.invoke(handle, fileId, hint.value)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorageWritable_deleteFile_fileId_hint, handle, fileId, hint.value)) != 0;
     }
 
     /**
@@ -156,9 +153,7 @@ public final class StorageWritable implements AutoCloseable {
      * @return boolean result.
      */
     public boolean save() {
-        try {
-        return ((int) Native.whiteout_casc_CascStorageWritable_save.invoke(handle)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorageWritable_save, handle)) != 0;
     }
 
     /**
@@ -172,8 +167,8 @@ public final class StorageWritable implements AutoCloseable {
             MemorySegment path_seg = path == null
                 ? MemorySegment.NULL
                 : arena.allocateFrom(path, StandardCharsets.UTF_8);
-            return ((int) Native.whiteout_casc_CascStorageWritable_save_path.invoke(handle, path_seg)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            return ((int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorageWritable_save_path, handle, path_seg)) != 0;
+        }
     }
 
     @Override public String toString() {

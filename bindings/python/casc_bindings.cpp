@@ -152,11 +152,13 @@ Uses the PImpl (Pointer to Implementation) idiom to hide internals.
         .def_static("last_error", &whiteout::storages::casc::Storage::lastError, R"doc(@return Last error code (thread-local).)doc")
     ;
 
-    py::class_<whiteout::storages::casc::StorageWritable, whiteout::storages::casc::Storage>(m, "StorageWritable", R"doc(Writable CASC storage (read + write + save)
+    py::class_<whiteout::storages::casc::StorageWritable>(m, "StorageWritable", R"doc(Writable CASC storage (read + write + save)
 
 Inherits all read operations from Storage. Adds write overlay and persist-to-disk support.
 
-Only local-backed storages can be writable (CDN is read-only).)doc")
+Only local-backed storages can be writable (CDN is read-only).
+
+extends=whiteout::storages::casc::Storage)doc")
         .def_static("create", &whiteout::storages::casc::StorageWritable::create, py::arg("opts") = whiteout::storages::casc::CreateOptions{}, py::arg("pool") = nullptr, R"doc(Create a new empty storage in memory.
 
 No file is written to disk until save() is called.

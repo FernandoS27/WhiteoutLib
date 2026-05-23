@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class ParticleEmitter implements AutoCloseable {
     }
 
     public ParticleEmitter() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("ParticleEmitter allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("ParticleEmitter allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3ParticleEmitter_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_delete, handle);
         }
     }
 
@@ -93,104 +90,88 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the initialSpeed field of this M3ParticleEmitter.
      */
     public AnimRefF32 getInitialSpeed() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_initialSpeed.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_initialSpeed, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setInitialSpeed(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_initialSpeed.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_initialSpeed, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Random speed variation
      * @return the initialSpeedRandom field of this M3ParticleEmitter.
      */
     public AnimRefF32 getInitialSpeedRandom() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_initialSpeedRandom.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_initialSpeedRandom, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setInitialSpeedRandom(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_initialSpeedRandom.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_initialSpeedRandom, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Initial yaw angle
      * @return the initialYaw field of this M3ParticleEmitter.
      */
     public AnimRefF32 getInitialYaw() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_initialYaw.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_initialYaw, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setInitialYaw(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_initialYaw.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_initialYaw, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Initial pitch angle
      * @return the initialPitch field of this M3ParticleEmitter.
      */
     public AnimRefF32 getInitialPitch() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_initialPitch.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_initialPitch, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setInitialPitch(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_initialPitch.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_initialPitch, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Initial horizontal spread
      * @return the initialHorizontal field of this M3ParticleEmitter.
      */
     public AnimRefF32 getInitialHorizontal() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_initialHorizontal.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_initialHorizontal, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setInitialHorizontal(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_initialHorizontal.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_initialHorizontal, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Initial vertical spread
      * @return the initialVertical field of this M3ParticleEmitter.
      */
     public AnimRefF32 getInitialVertical() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_initialVertical.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_initialVertical, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setInitialVertical(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_initialVertical.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_initialVertical, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Base particle lifetime
      * @return the lifetime field of this M3ParticleEmitter.
      */
     public AnimRefF32 getLifetime() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_lifetime.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_lifetime, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setLifetime(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_lifetime.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_lifetime, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Random lifetime variation
      * @return the lifetimeRandom field of this M3ParticleEmitter.
      */
     public AnimRefF32 getLifetimeRandom() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_lifetimeRandom.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_lifetimeRandom, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setLifetimeRandom(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_lifetimeRandom.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_lifetimeRandom, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Kill radius (particles beyond this are destroyed)
@@ -317,65 +298,55 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the sizeAnimation field of this M3ParticleEmitter.
      */
     public AnimRefVector3f getSizeAnimation() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_sizeAnimation.invoke(handle);
-            return new AnimRefVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_sizeAnimation, handle);
+        return new AnimRefVector3f(__h, false);
     }
     public void setSizeAnimation(AnimRefVector3f value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_sizeAnimation.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_sizeAnimation, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Rotation curve (start, mid, end)
      * @return the rotationAnimation field of this M3ParticleEmitter.
      */
     public AnimRefVector3f getRotationAnimation() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_rotationAnimation.invoke(handle);
-            return new AnimRefVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_rotationAnimation, handle);
+        return new AnimRefVector3f(__h, false);
     }
     public void setRotationAnimation(AnimRefVector3f value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_rotationAnimation.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_rotationAnimation, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Color at birth
      * @return the colorStart field of this M3ParticleEmitter.
      */
     public AnimRefM3ColorBGRA getColorStart() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_colorStart.invoke(handle);
-            return new AnimRefM3ColorBGRA(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_colorStart, handle);
+        return new AnimRefM3ColorBGRA(__h, false);
     }
     public void setColorStart(AnimRefM3ColorBGRA value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_colorStart.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_colorStart, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Color at midpoint
      * @return the colorMid field of this M3ParticleEmitter.
      */
     public AnimRefM3ColorBGRA getColorMid() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_colorMid.invoke(handle);
-            return new AnimRefM3ColorBGRA(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_colorMid, handle);
+        return new AnimRefM3ColorBGRA(__h, false);
     }
     public void setColorMid(AnimRefM3ColorBGRA value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_colorMid.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_colorMid, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Color at death
      * @return the colorEnd field of this M3ParticleEmitter.
      */
     public AnimRefM3ColorBGRA getColorEnd() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_colorEnd.invoke(handle);
-            return new AnimRefM3ColorBGRA(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_colorEnd, handle);
+        return new AnimRefM3ColorBGRA(__h, false);
     }
     public void setColorEnd(AnimRefM3ColorBGRA value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_colorEnd.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_colorEnd, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Air drag coefficient
@@ -532,13 +503,11 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the emissionRate field of this M3ParticleEmitter.
      */
     public AnimRefF32 getEmissionRate() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_emissionRate.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_emissionRate, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setEmissionRate(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_emissionRate.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_emissionRate, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Emission shape
@@ -555,81 +524,69 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the shapeOuter field of this M3ParticleEmitter.
      */
     public AnimRefVector3f getShapeOuter() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_shapeOuter.invoke(handle);
-            return new AnimRefVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_shapeOuter, handle);
+        return new AnimRefVector3f(__h, false);
     }
     public void setShapeOuter(AnimRefVector3f value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_shapeOuter.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_shapeOuter, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated inner shape dimensions
      * @return the shapeInner field of this M3ParticleEmitter.
      */
     public AnimRefVector3f getShapeInner() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_shapeInner.invoke(handle);
-            return new AnimRefVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_shapeInner, handle);
+        return new AnimRefVector3f(__h, false);
     }
     public void setShapeInner(AnimRefVector3f value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_shapeInner.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_shapeInner, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated outer radius
      * @return the outerRadius field of this M3ParticleEmitter.
      */
     public AnimRefF32 getOuterRadius() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_outerRadius.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_outerRadius, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setOuterRadius(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_outerRadius.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_outerRadius, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated inner radius
      * @return the innerRadius field of this M3ParticleEmitter.
      */
     public AnimRefF32 getInnerRadius() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_innerRadius.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_innerRadius, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setInnerRadius(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_innerRadius.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_innerRadius, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Shape region indices (U32_, v14+), which mesh region from div to use
      * @return the shapeRegions field of this M3ParticleEmitter.
      */
     public int getShapeRegionsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3ParticleEmitter_get_shapeRegions_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_shapeRegions_count, handle);
     }
     public int[] getShapeRegions() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3ParticleEmitter_get_shapeRegions_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_shapeRegions_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_shapeRegions_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_shapeRegions_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
     }
     public void setShapeRegions(int[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
-            Native.whiteout_m3_M3ParticleEmitter_assign_shapeRegions.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_assign_shapeRegions, handle, __seg, __count);
+        }
     }
     public void resizeShapeRegions(int count) {
-        try { Native.whiteout_m3_M3ParticleEmitter_resize_shapeRegions.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_resize_shapeRegions, handle, (long) count);
     }
     /**
      * Velocity randomization type
@@ -656,13 +613,11 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the sizeRandomAnimation field of this M3ParticleEmitter.
      */
     public AnimRefVector3f getSizeRandomAnimation() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_sizeRandomAnimation.invoke(handle);
-            return new AnimRefVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_sizeRandomAnimation, handle);
+        return new AnimRefVector3f(__h, false);
     }
     public void setSizeRandomAnimation(AnimRefVector3f value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_sizeRandomAnimation.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_sizeRandomAnimation, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Enable rotation randomization
@@ -679,13 +634,11 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the rotationRandomAnimation field of this M3ParticleEmitter.
      */
     public AnimRefVector3f getRotationRandomAnimation() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_rotationRandomAnimation.invoke(handle);
-            return new AnimRefVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_rotationRandomAnimation, handle);
+        return new AnimRefVector3f(__h, false);
     }
     public void setRotationRandomAnimation(AnimRefVector3f value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_rotationRandomAnimation.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_rotationRandomAnimation, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Enable color randomization
@@ -702,39 +655,33 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the colorStartRandom field of this M3ParticleEmitter.
      */
     public AnimRefM3ColorBGRA getColorStartRandom() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_colorStartRandom.invoke(handle);
-            return new AnimRefM3ColorBGRA(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_colorStartRandom, handle);
+        return new AnimRefM3ColorBGRA(__h, false);
     }
     public void setColorStartRandom(AnimRefM3ColorBGRA value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_colorStartRandom.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_colorStartRandom, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Random color at midpoint
      * @return the colorMidRandom field of this M3ParticleEmitter.
      */
     public AnimRefM3ColorBGRA getColorMidRandom() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_colorMidRandom.invoke(handle);
-            return new AnimRefM3ColorBGRA(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_colorMidRandom, handle);
+        return new AnimRefM3ColorBGRA(__h, false);
     }
     public void setColorMidRandom(AnimRefM3ColorBGRA value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_colorMidRandom.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_colorMidRandom, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Random color at death
      * @return the colorEndRandom field of this M3ParticleEmitter.
      */
     public AnimRefM3ColorBGRA getColorEndRandom() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_colorEndRandom.invoke(handle);
-            return new AnimRefM3ColorBGRA(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_colorEndRandom, handle);
+        return new AnimRefM3ColorBGRA(__h, false);
     }
     public void setColorEndRandom(AnimRefM3ColorBGRA value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_colorEndRandom.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_colorEndRandom, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Enable alpha randomization
@@ -751,13 +698,11 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the squirtAmount field of this M3ParticleEmitter.
      */
     public AnimRefU16 getSquirtAmount() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_squirtAmount.invoke(handle);
-            return new AnimRefU16(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_squirtAmount, handle);
+        return new AnimRefU16(__h, false);
     }
     public void setSquirtAmount(AnimRefU16 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_squirtAmount.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_squirtAmount, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Flipbook start initial frame index
@@ -958,8 +903,7 @@ public final class ParticleEmitter implements AutoCloseable {
     }
     public void setInstanceAngle(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m3_M3ParticleEmitter_set_instanceAngle.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_instanceAngle, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 796L, 12L);
@@ -989,26 +933,22 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the pitchAmplitude field of this M3ParticleEmitter.
      */
     public AnimRefF32 getPitchAmplitude() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_pitchAmplitude.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_pitchAmplitude, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setPitchAmplitude(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_pitchAmplitude.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_pitchAmplitude, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Pitch variation frequency
      * @return the pitchFrequency field of this M3ParticleEmitter.
      */
     public AnimRefF32 getPitchFrequency() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_pitchFrequency.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_pitchFrequency, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setPitchFrequency(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_pitchFrequency.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_pitchFrequency, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Yaw variation type
@@ -1025,26 +965,22 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the yawAmplitude field of this M3ParticleEmitter.
      */
     public AnimRefF32 getYawAmplitude() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_yawAmplitude.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_yawAmplitude, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setYawAmplitude(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_yawAmplitude.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_yawAmplitude, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Yaw variation frequency
      * @return the yawFrequency field of this M3ParticleEmitter.
      */
     public AnimRefF32 getYawFrequency() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_yawFrequency.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_yawFrequency, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setYawFrequency(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_yawFrequency.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_yawFrequency, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Speed variation type
@@ -1061,26 +997,22 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the speedAmplitude field of this M3ParticleEmitter.
      */
     public AnimRefF32 getSpeedAmplitude() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_speedAmplitude.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_speedAmplitude, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setSpeedAmplitude(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_speedAmplitude.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_speedAmplitude, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Speed variation frequency
      * @return the speedFrequency field of this M3ParticleEmitter.
      */
     public AnimRefF32 getSpeedFrequency() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_speedFrequency.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_speedFrequency, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setSpeedFrequency(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_speedFrequency.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_speedFrequency, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Size variation type
@@ -1097,26 +1029,22 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the sizeAmplitude field of this M3ParticleEmitter.
      */
     public AnimRefF32 getSizeAmplitude() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_sizeAmplitude.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_sizeAmplitude, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setSizeAmplitude(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_sizeAmplitude.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_sizeAmplitude, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Size variation frequency
      * @return the sizeFrequency field of this M3ParticleEmitter.
      */
     public AnimRefF32 getSizeFrequency() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_sizeFrequency.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_sizeFrequency, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setSizeFrequency(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_sizeFrequency.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_sizeFrequency, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Alpha variation type
@@ -1133,26 +1061,22 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the alphaAmplitude field of this M3ParticleEmitter.
      */
     public AnimRefF32 getAlphaAmplitude() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_alphaAmplitude.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_alphaAmplitude, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setAlphaAmplitude(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_alphaAmplitude.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_alphaAmplitude, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Alpha variation frequency
      * @return the alphaFrequency field of this M3ParticleEmitter.
      */
     public AnimRefF32 getAlphaFrequency() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_alphaFrequency.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_alphaFrequency, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setAlphaFrequency(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_alphaFrequency.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_alphaFrequency, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Color variation type
@@ -1169,26 +1093,22 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the colorAmplitude field of this M3ParticleEmitter.
      */
     public AnimRefF32 getColorAmplitude() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_colorAmplitude.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_colorAmplitude, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setColorAmplitude(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_colorAmplitude.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_colorAmplitude, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Color variation frequency
      * @return the colorFrequency field of this M3ParticleEmitter.
      */
     public AnimRefF32 getColorFrequency() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_colorFrequency.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_colorFrequency, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setColorFrequency(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_colorFrequency.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_colorFrequency, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Rotation variation type
@@ -1205,26 +1125,22 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the rotationAmplitude field of this M3ParticleEmitter.
      */
     public AnimRefF32 getRotationAmplitude() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_rotationAmplitude.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_rotationAmplitude, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setRotationAmplitude(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_rotationAmplitude.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_rotationAmplitude, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Rotation variation frequency
      * @return the rotationFrequency field of this M3ParticleEmitter.
      */
     public AnimRefF32 getRotationFrequency() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_rotationFrequency.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_rotationFrequency, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setRotationFrequency(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_rotationFrequency.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_rotationFrequency, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Horizontal variation type
@@ -1241,26 +1157,22 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the horizontalAmplitude field of this M3ParticleEmitter.
      */
     public AnimRefF32 getHorizontalAmplitude() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_horizontalAmplitude.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_horizontalAmplitude, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setHorizontalAmplitude(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_horizontalAmplitude.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_horizontalAmplitude, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Horizontal variation frequency
      * @return the horizontalFrequency field of this M3ParticleEmitter.
      */
     public AnimRefF32 getHorizontalFrequency() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_horizontalFrequency.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_horizontalFrequency, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setHorizontalFrequency(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_horizontalFrequency.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_horizontalFrequency, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Vertical variation type
@@ -1277,52 +1189,44 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the verticalAmplitude field of this M3ParticleEmitter.
      */
     public AnimRefF32 getVerticalAmplitude() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_verticalAmplitude.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_verticalAmplitude, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setVerticalAmplitude(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_verticalAmplitude.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_verticalAmplitude, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Vertical variation frequency;
      * @return the verticalFrequency field of this M3ParticleEmitter.
      */
     public AnimRefF32 getVerticalFrequency() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_verticalFrequency.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_verticalFrequency, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setVerticalFrequency(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_verticalFrequency.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_verticalFrequency, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated parent velocity influence
      * @return the particleVelocity field of this M3ParticleEmitter.
      */
     public AnimRefF32 getParticleVelocity() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_particleVelocity.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_particleVelocity, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setParticleVelocity(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_particleVelocity.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_particleVelocity, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated phase shift (v22+)
      * @return the phaseShift field of this M3ParticleEmitter.
      */
     public AnimRefF32 getPhaseShift() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_phaseShift.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_phaseShift, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setPhaseShift(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_phaseShift.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_phaseShift, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Main particle flags
@@ -1376,69 +1280,58 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the alphaThreshold field of this M3ParticleEmitter.
      */
     public AnimRefF32 getAlphaThreshold() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_alphaThreshold.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_alphaThreshold, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setAlphaThreshold(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_alphaThreshold.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_alphaThreshold, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated UV offset
      * @return the uvOffset field of this M3ParticleEmitter.
      */
     public AnimRefVector2f getUvOffset() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_uvOffset.invoke(handle);
-            return new AnimRefVector2f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_uvOffset, handle);
+        return new AnimRefVector2f(__h, false);
     }
     public void setUvOffset(AnimRefVector2f value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_uvOffset.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_uvOffset, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated UV rotation angles
      * @return the uvAngle field of this M3ParticleEmitter.
      */
     public AnimRefVector3f getUvAngle() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_uvAngle.invoke(handle);
-            return new AnimRefVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_uvAngle, handle);
+        return new AnimRefVector3f(__h, false);
     }
     public void setUvAngle(AnimRefVector3f value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_uvAngle.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_uvAngle, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated UV tiling
      * @return the uvTiling field of this M3ParticleEmitter.
      */
     public AnimRefVector2f getUvTiling() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_uvTiling.invoke(handle);
-            return new AnimRefVector2f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_uvTiling, handle);
+        return new AnimRefVector2f(__h, false);
     }
     public void setUvTiling(AnimRefVector2f value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_uvTiling.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_uvTiling, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Spline control points (SVC3)
      * @return the splineLineData field of this M3ParticleEmitter.
      */
     public int getSplineLineDataCount() {
-        try { return (int) (long) Native.whiteout_m3_M3ParticleEmitter_get_splineLineData_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_splineLineData_count, handle);
     }
     public AnimRefVector3f getSplineLineDataAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_splineLineData_at.invoke(handle, (long) index);
-            return new AnimRefVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_splineLineData_at, handle, (long) index);
+        return new AnimRefVector3f(__h, false);
     }
     public void resizeSplineLineData(int count) {
-        try { Native.whiteout_m3_M3ParticleEmitter_resize_splineLineData.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_resize_splineLineData, handle, (long) count);
     }
     public java.util.List<AnimRefVector3f> splineLineDataView() {
         return new java.util.AbstractList<AnimRefVector3f>() {
@@ -1481,26 +1374,22 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the lowerBound field of this M3ParticleEmitter.
      */
     public AnimRefF32 getLowerBound() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_lowerBound.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_lowerBound, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setLowerBound(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_lowerBound.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_lowerBound, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated upper bound
      * @return the upperBound field of this M3ParticleEmitter.
      */
     public AnimRefF32 getUpperBound() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_upperBound.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_upperBound, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setUpperBound(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_upperBound.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_upperBound, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the trailLinkIndex field of this M3ParticleEmitter. */
     public int getTrailLinkIndex() {
@@ -1524,13 +1413,11 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the trailEmissionRate field of this M3ParticleEmitter.
      */
     public AnimRefF32 getTrailEmissionRate() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_trailEmissionRate.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_trailEmissionRate, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setTrailEmissionRate(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitter_set_trailEmissionRate.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_set_trailEmissionRate, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Linked projector index (-1 = none)
@@ -1557,29 +1444,25 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the copyIndices field of this M3ParticleEmitter.
      */
     public int getCopyIndicesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3ParticleEmitter_get_copyIndices_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_copyIndices_count, handle);
     }
     public int[] getCopyIndices() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3ParticleEmitter_get_copyIndices_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3ParticleEmitter_get_copyIndices_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_copyIndices_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_get_copyIndices_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
     }
     public void setCopyIndices(int[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
-            Native.whiteout_m3_M3ParticleEmitter_assign_copyIndices.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_assign_copyIndices, handle, __seg, __count);
+        }
     }
     public void resizeCopyIndices(int count) {
-        try { Native.whiteout_m3_M3ParticleEmitter_resize_copyIndices.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitter_resize_copyIndices, handle, (long) count);
     }
     /**
      * Ribbon spawn probability on bounce (v23+)

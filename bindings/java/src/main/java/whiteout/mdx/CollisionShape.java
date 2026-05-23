@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.mdx.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class CollisionShape implements AutoCloseable {
     }
 
     public CollisionShape() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_mdx_MdxCollisionShape_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("CollisionShape allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCollisionShape_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("CollisionShape allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_mdx_MdxCollisionShape_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxCollisionShape_delete, handle);
         }
     }
 
@@ -69,8 +66,7 @@ public final class CollisionShape implements AutoCloseable {
         return new Node(handle.asSlice(0L, 272L), false);
     }
     public void setNode(Node value) {
-        try { Native.whiteout_mdx_MdxCollisionShape_set_node.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxCollisionShape_set_node, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Shape type
@@ -87,29 +83,25 @@ public final class CollisionShape implements AutoCloseable {
      * @return the vertices field of this MdxCollisionShape.
      */
     public int getVerticesCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxCollisionShape_get_vertices_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCollisionShape_get_vertices_count, handle);
     }
     public float[] getVertices() {
-        try {
-            long __count = (long) Native.whiteout_mdx_MdxCollisionShape_get_vertices_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_mdx_MdxCollisionShape_get_vertices_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
-            long __scalars = __count * 3L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCollisionShape_get_vertices_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCollisionShape_get_vertices_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
+        long __scalars = __count * 3L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
     }
     public void setVertices(float[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 3;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
-            Native.whiteout_mdx_MdxCollisionShape_assign_vertices.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxCollisionShape_assign_vertices, handle, __seg, __count);
+        }
     }
     public void resizeVertices(int count) {
-        try { Native.whiteout_mdx_MdxCollisionShape_resize_vertices.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxCollisionShape_resize_vertices, handle, (long) count);
     }
     /**
      * Radius (sphere/cylinder only)

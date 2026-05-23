@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class BoneAnimationSet implements AutoCloseable {
     }
 
     public BoneAnimationSet() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3BoneAnimationSet_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("BoneAnimationSet allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3BoneAnimationSet_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("BoneAnimationSet allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3BoneAnimationSet_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3BoneAnimationSet_delete, handle);
         }
     }
 
@@ -87,14 +84,14 @@ public final class BoneAnimationSet implements AutoCloseable {
      */
     public String getName() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __s = (MemorySegment) Native.whiteout_m3_M3BoneAnimationSet_get_name.invoke(arena, handle);
+            MemorySegment __s = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3BoneAnimationSet_get_name, arena, handle);
             MemorySegment __chars = __s.get(ValueLayout.ADDRESS, 0);
             long __len = __s.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__chars == null || __chars.equals(MemorySegment.NULL)) return "";
             byte[] __bytes = __chars.reinterpret(__len).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_CString_free.invoke(__s);
+            NativeCommon.invokeNative(Native.whiteout_CString_free, __s);
             return new String(__bytes, StandardCharsets.UTF_8);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
     public void setName(String value) {
         try (Arena arena = Arena.ofConfined()) {
@@ -102,37 +99,33 @@ public final class BoneAnimationSet implements AutoCloseable {
             MemorySegment __seg = arena.allocate(__utf.length + 1);
             MemorySegment.copy(__utf, 0, __seg, ValueLayout.JAVA_BYTE, 0, __utf.length);
             __seg.set(ValueLayout.JAVA_BYTE, __utf.length, (byte) 0);
-            Native.whiteout_m3_M3BoneAnimationSet_set_name.invoke(handle, __seg);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3BoneAnimationSet_set_name, handle, __seg);
+        }
     }
     /**
      * Split item indices (U16_)
      * @return the splitItems field of this M3BoneAnimationSet.
      */
     public int getSplitItemsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3BoneAnimationSet_get_splitItems_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3BoneAnimationSet_get_splitItems_count, handle);
     }
     public short[] getSplitItems() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3BoneAnimationSet_get_splitItems_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3BoneAnimationSet_get_splitItems_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3BoneAnimationSet_get_splitItems_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3BoneAnimationSet_get_splitItems_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setSplitItems(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m3_M3BoneAnimationSet_assign_splitItems.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3BoneAnimationSet_assign_splitItems, handle, __seg, __count);
+        }
     }
     public void resizeSplitItems(int count) {
-        try { Native.whiteout_m3_M3BoneAnimationSet_resize_splitItems.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3BoneAnimationSet_resize_splitItems, handle, (long) count);
     }
     @Override public String toString() {
         return "BoneAnimationSet(" + "animationSequenceIndex=" + getAnimationSequenceIndex() + ", " + "fallbackSequenceIndex=" + getFallbackSequenceIndex() + ", " + "name=" + getName() + ")";

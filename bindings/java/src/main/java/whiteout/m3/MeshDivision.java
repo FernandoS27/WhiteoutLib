@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class MeshDivision implements AutoCloseable {
     }
 
     public MeshDivision() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3MeshDivision_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("MeshDivision allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3MeshDivision_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("MeshDivision allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3MeshDivision_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3MeshDivision_delete, handle);
         }
     }
 
@@ -66,46 +63,39 @@ public final class MeshDivision implements AutoCloseable {
      * @return the faces field of this M3MeshDivision.
      */
     public int getFacesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3MeshDivision_get_faces_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3MeshDivision_get_faces_count, handle);
     }
     public short[] getFaces() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3MeshDivision_get_faces_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3MeshDivision_get_faces_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3MeshDivision_get_faces_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3MeshDivision_get_faces_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setFaces(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m3_M3MeshDivision_assign_faces.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3MeshDivision_assign_faces, handle, __seg, __count);
+        }
     }
     public void resizeFaces(int count) {
-        try { Native.whiteout_m3_M3MeshDivision_resize_faces.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3MeshDivision_resize_faces, handle, (long) count);
     }
     /**
      * Regions / submeshes (REGN)
      * @return the regions field of this M3MeshDivision.
      */
     public int getRegionsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3MeshDivision_get_regions_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3MeshDivision_get_regions_count, handle);
     }
     public Region getRegionsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3MeshDivision_get_regions_at.invoke(handle, (long) index);
-            return new Region(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3MeshDivision_get_regions_at, handle, (long) index);
+        return new Region(__h, false);
     }
     public void resizeRegions(int count) {
-        try { Native.whiteout_m3_M3MeshDivision_resize_regions.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3MeshDivision_resize_regions, handle, (long) count);
     }
     public java.util.List<Region> regionsView() {
         return new java.util.AbstractList<Region>() {
@@ -118,17 +108,14 @@ public final class MeshDivision implements AutoCloseable {
      * @return the batches field of this M3MeshDivision.
      */
     public int getBatchesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3MeshDivision_get_batches_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3MeshDivision_get_batches_count, handle);
     }
     public Batch getBatchesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3MeshDivision_get_batches_at.invoke(handle, (long) index);
-            return new Batch(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3MeshDivision_get_batches_at, handle, (long) index);
+        return new Batch(__h, false);
     }
     public void resizeBatches(int count) {
-        try { Native.whiteout_m3_M3MeshDivision_resize_batches.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3MeshDivision_resize_batches, handle, (long) count);
     }
     public java.util.List<Batch> batchesView() {
         return new java.util.AbstractList<Batch>() {
@@ -141,17 +128,14 @@ public final class MeshDivision implements AutoCloseable {
      * @return the msec field of this M3MeshDivision.
      */
     public int getMsecCount() {
-        try { return (int) (long) Native.whiteout_m3_M3MeshDivision_get_msec_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3MeshDivision_get_msec_count, handle);
     }
     public MeshSection getMsecAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3MeshDivision_get_msec_at.invoke(handle, (long) index);
-            return new MeshSection(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3MeshDivision_get_msec_at, handle, (long) index);
+        return new MeshSection(__h, false);
     }
     public void resizeMsec(int count) {
-        try { Native.whiteout_m3_M3MeshDivision_resize_msec.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3MeshDivision_resize_msec, handle, (long) count);
     }
     public java.util.List<MeshSection> msecView() {
         return new java.util.AbstractList<MeshSection>() {

@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m2.internal.Native;
 
 /**
@@ -40,22 +41,18 @@ public final class Light implements AutoCloseable {
     }
 
     public Light() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m2_M2Light_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Light allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Light_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Light allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m2_M2Light_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Light_delete, handle);
         }
     }
 
@@ -79,81 +76,66 @@ public final class Light implements AutoCloseable {
     }
     public void setPosition(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m2_M2Light_set_position.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Light_set_position, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 4L, 12L);
     }
     /** @return the ambientColor field of this M2Light. */
     public AnimationTrackVector3f getAmbientColor() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Light_get_ambientColor.invoke(handle);
-            return new AnimationTrackVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Light_get_ambientColor, handle);
+        return new AnimationTrackVector3f(__h, false);
     }
     public void setAmbientColor(AnimationTrackVector3f value) {
-        try { Native.whiteout_m2_M2Light_set_ambientColor.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Light_set_ambientColor, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the ambientIntensity field of this M2Light. */
     public AnimationTrackF32 getAmbientIntensity() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Light_get_ambientIntensity.invoke(handle);
-            return new AnimationTrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Light_get_ambientIntensity, handle);
+        return new AnimationTrackF32(__h, false);
     }
     public void setAmbientIntensity(AnimationTrackF32 value) {
-        try { Native.whiteout_m2_M2Light_set_ambientIntensity.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Light_set_ambientIntensity, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the diffuseColor field of this M2Light. */
     public AnimationTrackVector3f getDiffuseColor() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Light_get_diffuseColor.invoke(handle);
-            return new AnimationTrackVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Light_get_diffuseColor, handle);
+        return new AnimationTrackVector3f(__h, false);
     }
     public void setDiffuseColor(AnimationTrackVector3f value) {
-        try { Native.whiteout_m2_M2Light_set_diffuseColor.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Light_set_diffuseColor, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the diffuseIntensity field of this M2Light. */
     public AnimationTrackF32 getDiffuseIntensity() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Light_get_diffuseIntensity.invoke(handle);
-            return new AnimationTrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Light_get_diffuseIntensity, handle);
+        return new AnimationTrackF32(__h, false);
     }
     public void setDiffuseIntensity(AnimationTrackF32 value) {
-        try { Native.whiteout_m2_M2Light_set_diffuseIntensity.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Light_set_diffuseIntensity, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the attenuationStart field of this M2Light. */
     public AnimationTrackF32 getAttenuationStart() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Light_get_attenuationStart.invoke(handle);
-            return new AnimationTrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Light_get_attenuationStart, handle);
+        return new AnimationTrackF32(__h, false);
     }
     public void setAttenuationStart(AnimationTrackF32 value) {
-        try { Native.whiteout_m2_M2Light_set_attenuationStart.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Light_set_attenuationStart, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the attenuationEnd field of this M2Light. */
     public AnimationTrackF32 getAttenuationEnd() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Light_get_attenuationEnd.invoke(handle);
-            return new AnimationTrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Light_get_attenuationEnd, handle);
+        return new AnimationTrackF32(__h, false);
     }
     public void setAttenuationEnd(AnimationTrackF32 value) {
-        try { Native.whiteout_m2_M2Light_set_attenuationEnd.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Light_set_attenuationEnd, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the visibility field of this M2Light. */
     public AnimationTrackU8 getVisibility() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Light_get_visibility.invoke(handle);
-            return new AnimationTrackU8(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Light_get_visibility, handle);
+        return new AnimationTrackU8(__h, false);
     }
     public void setVisibility(AnimationTrackU8 value) {
-        try { Native.whiteout_m2_M2Light_set_visibility.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Light_set_visibility, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "Light(" + "type=" + getType() + ", " + "boneId=" + getBoneId() + ")";

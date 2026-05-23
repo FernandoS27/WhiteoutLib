@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.mdx.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class Light implements AutoCloseable {
     }
 
     public Light() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_mdx_MdxLight_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Light allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Light allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_mdx_MdxLight_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_delete, handle);
         }
     }
 
@@ -69,8 +66,7 @@ public final class Light implements AutoCloseable {
         return new Node(handle.asSlice(0L, 272L), false);
     }
     public void setNode(Node value) {
-        try { Native.whiteout_mdx_MdxLight_set_node.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_set_node, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Type of light
@@ -111,8 +107,7 @@ public final class Light implements AutoCloseable {
     }
     public void setColor(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_mdx_MdxLight_set_color.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_set_color, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 284L, 12L);
@@ -136,8 +131,7 @@ public final class Light implements AutoCloseable {
     }
     public void setAmbientColor(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_mdx_MdxLight_set_ambientColor.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_set_ambientColor, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 300L, 12L);
@@ -167,104 +161,88 @@ public final class Light implements AutoCloseable {
      * @return the attenuationStartTracks field of this MdxLight.
      */
     public TrackF32 getAttenuationStartTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxLight_get_attenuationStartTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_get_attenuationStartTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setAttenuationStartTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxLight_set_attenuationStartTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_set_attenuationStartTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Attenuation end animation
      * @return the attenuationEndTracks field of this MdxLight.
      */
     public TrackF32 getAttenuationEndTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxLight_get_attenuationEndTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_get_attenuationEndTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setAttenuationEndTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxLight_set_attenuationEndTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_set_attenuationEndTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Color animation
      * @return the colorTracks field of this MdxLight.
      */
     public TrackVector3f getColorTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxLight_get_colorTracks.invoke(handle);
-            return new TrackVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_get_colorTracks, handle);
+        return new TrackVector3f(__h, false);
     }
     public void setColorTracks(TrackVector3f value) {
-        try { Native.whiteout_mdx_MdxLight_set_colorTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_set_colorTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Intensity animation
      * @return the intensityTracks field of this MdxLight.
      */
     public TrackF32 getIntensityTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxLight_get_intensityTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_get_intensityTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setIntensityTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxLight_set_intensityTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_set_intensityTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Ambient intensity animation
      * @return the ambientIntensityTracks field of this MdxLight.
      */
     public TrackF32 getAmbientIntensityTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxLight_get_ambientIntensityTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_get_ambientIntensityTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setAmbientIntensityTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxLight_set_ambientIntensityTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_set_ambientIntensityTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Ambient color animation
      * @return the ambientColorTracks field of this MdxLight.
      */
     public TrackVector3f getAmbientColorTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxLight_get_ambientColorTracks.invoke(handle);
-            return new TrackVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_get_ambientColorTracks, handle);
+        return new TrackVector3f(__h, false);
     }
     public void setAmbientColorTracks(TrackVector3f value) {
-        try { Native.whiteout_mdx_MdxLight_set_ambientColorTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_set_ambientColorTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Visibility animation
      * @return the visibilityTracks field of this MdxLight.
      */
     public TrackF32 getVisibilityTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxLight_get_visibilityTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_get_visibilityTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setVisibilityTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxLight_set_visibilityTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_set_visibilityTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Shadow intensity animation (Reforged)
      * @return the shadowIntensityTracks field of this MdxLight.
      */
     public TrackF32 getShadowIntensityTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxLight_get_shadowIntensityTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_get_shadowIntensityTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setShadowIntensityTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxLight_set_shadowIntensityTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxLight_set_shadowIntensityTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "Light(" + "type=" + getType() + ", " + "attenuationStart=" + getAttenuationStart() + ", " + "attenuationEnd=" + getAttenuationEnd() + ", " + "intensity=" + getIntensity() + ", " + "ambientIntensity=" + getAmbientIntensity() + ", " + "shadowIntensity=" + getShadowIntensity() + ")";

@@ -6,6 +6,7 @@ import java.lang.foreign.*;
 import java.lang.invoke.VarHandle;
 import java.util.Objects;
 import whiteout.common.internal.Native;
+import whiteout.common.internal.NativeCommon;
 
 /**
  * A 2-component single-precision vector backed by a native C struct. Components (`x`, `y`) are stored as a packed `float[2]` and accessed directly through VarHandles — no JNI round-trip per `getX()`/`setX()`.
@@ -36,11 +37,9 @@ public final class Vector2f implements AutoCloseable {
     }
 
     public Vector2f() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_Vector2f_new.invoke();
-            this.handle = __raw.reinterpret(LAYOUT.byteSize());
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector2f_new);
+        this.handle = __raw.reinterpret(LAYOUT.byteSize());
+        this.owned = true;
     }
 
     public Vector2f(float x, float y) {
@@ -57,8 +56,7 @@ public final class Vector2f implements AutoCloseable {
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try { Native.whiteout_Vector2f_delete.invoke(handle); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_Vector2f_delete, handle);
         }
     }
 
@@ -72,45 +70,35 @@ public final class Vector2f implements AutoCloseable {
      * @return float result.
      */
     public float dot(Vector2f other) {
-        try {
-            return (float) Native.whiteout_Vector2f_dot.invoke(handle, other.handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (float) NativeCommon.invokeNative(Native.whiteout_Vector2f_dot, handle, other.handle);
     }
     /**
      * Euclidean length (magnitude).
      * @return float result.
      */
     public float length() {
-        try {
-            return (float) Native.whiteout_Vector2f_length.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (float) NativeCommon.invokeNative(Native.whiteout_Vector2f_length, handle);
     }
     /**
      * Squared Euclidean length — avoids the {@code sqrt} of {@link #length()}.
      * @return float result.
      */
     public float lengthSquared() {
-        try {
-            return (float) Native.whiteout_Vector2f_length_squared.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (float) NativeCommon.invokeNative(Native.whiteout_Vector2f_length_squared, handle);
     }
     /**
      * In-place normalize to unit length (no-op when length is zero).
      */
     public void normalize() {
-        try {
-            Native.whiteout_Vector2f_normalize.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_Vector2f_normalize, handle);
     }
     /**
      * A new vector pointing in the same direction with unit length.
      * @return a fresh Vector2f owning a native allocation.
      */
     public Vector2f normalized() {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector2f_normalized.invoke(handle);
-            return new Vector2f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector2f_normalized, handle);
+        return new Vector2f(__h, true);
     }
     /**
      * Component-wise sum.
@@ -118,10 +106,8 @@ public final class Vector2f implements AutoCloseable {
      * @return a fresh Vector2f owning a native allocation.
      */
     public Vector2f add(Vector2f other) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector2f_add.invoke(handle, other.handle);
-            return new Vector2f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector2f_add, handle, other.handle);
+        return new Vector2f(__h, true);
     }
     /**
      * Component-wise difference.
@@ -129,10 +115,8 @@ public final class Vector2f implements AutoCloseable {
      * @return a fresh Vector2f owning a native allocation.
      */
     public Vector2f sub(Vector2f other) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector2f_sub.invoke(handle, other.handle);
-            return new Vector2f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector2f_sub, handle, other.handle);
+        return new Vector2f(__h, true);
     }
     /**
      * Component-wise product (Hamilton product for Quaternion).
@@ -140,10 +124,8 @@ public final class Vector2f implements AutoCloseable {
      * @return a fresh Vector2f owning a native allocation.
      */
     public Vector2f mul(Vector2f other) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector2f_mul.invoke(handle, other.handle);
-            return new Vector2f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector2f_mul, handle, other.handle);
+        return new Vector2f(__h, true);
     }
     /**
      * Component-wise quotient.
@@ -151,10 +133,8 @@ public final class Vector2f implements AutoCloseable {
      * @return a fresh Vector2f owning a native allocation.
      */
     public Vector2f div(Vector2f other) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector2f_div.invoke(handle, other.handle);
-            return new Vector2f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector2f_div, handle, other.handle);
+        return new Vector2f(__h, true);
     }
     /**
      * Scale every component by {@code scalar}.
@@ -162,10 +142,8 @@ public final class Vector2f implements AutoCloseable {
      * @return a fresh Vector2f owning a native allocation.
      */
     public Vector2f mulScalar(float scalar) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector2f_mul_scalar.invoke(handle, scalar);
-            return new Vector2f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector2f_mul_scalar, handle, scalar);
+        return new Vector2f(__h, true);
     }
     /**
      * Divide every component by {@code scalar}.
@@ -173,20 +151,16 @@ public final class Vector2f implements AutoCloseable {
      * @return a fresh Vector2f owning a native allocation.
      */
     public Vector2f divScalar(float scalar) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector2f_div_scalar.invoke(handle, scalar);
-            return new Vector2f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector2f_div_scalar, handle, scalar);
+        return new Vector2f(__h, true);
     }
     /**
      * Component-wise negation.
      * @return a fresh Vector2f owning a native allocation.
      */
     public Vector2f negate() {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector2f_negate.invoke(handle);
-            return new Vector2f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector2f_negate, handle);
+        return new Vector2f(__h, true);
     }
     /**
      * Linear interpolation from {@code start} to {@code end} by {@code t} ∈ [0, 1].
@@ -196,10 +170,8 @@ public final class Vector2f implements AutoCloseable {
      * @return a fresh Vector2f owning a native allocation.
      */
     public static Vector2f lerp(Vector2f start, Vector2f end, float t) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector2f_lerp.invoke(start.handle, end.handle, t);
-            return new Vector2f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector2f_lerp, start.handle, end.handle, t);
+        return new Vector2f(__h, true);
     }
     /**
      * Kochanek–Bartels in-tangent for the {@code current} keyframe.
@@ -212,10 +184,8 @@ public final class Vector2f implements AutoCloseable {
      * @return a fresh Vector2f owning a native allocation.
      */
     public static Vector2f tcbInTangent(Vector2f prev, Vector2f current, Vector2f next, float tension, float continuity, float bias) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector2f_tcb_in_tangent.invoke(prev.handle, current.handle, next.handle, tension, continuity, bias);
-            return new Vector2f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector2f_tcb_in_tangent, prev.handle, current.handle, next.handle, tension, continuity, bias);
+        return new Vector2f(__h, true);
     }
     /**
      * Kochanek–Bartels out-tangent for the {@code current} keyframe.
@@ -228,10 +198,8 @@ public final class Vector2f implements AutoCloseable {
      * @return a fresh Vector2f owning a native allocation.
      */
     public static Vector2f tcbOutTangent(Vector2f prev, Vector2f current, Vector2f next, float tension, float continuity, float bias) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector2f_tcb_out_tangent.invoke(prev.handle, current.handle, next.handle, tension, continuity, bias);
-            return new Vector2f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector2f_tcb_out_tangent, prev.handle, current.handle, next.handle, tension, continuity, bias);
+        return new Vector2f(__h, true);
     }
     /**
      * Cubic Bézier interpolation across four control points.
@@ -243,10 +211,8 @@ public final class Vector2f implements AutoCloseable {
      * @return a fresh Vector2f owning a native allocation.
      */
     public static Vector2f bezierLerp(Vector2f start, Vector2f outtan, Vector2f intan, Vector2f end, float t) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector2f_bezier_lerp.invoke(start.handle, outtan.handle, intan.handle, end.handle, t);
-            return new Vector2f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector2f_bezier_lerp, start.handle, outtan.handle, intan.handle, end.handle, t);
+        return new Vector2f(__h, true);
     }
     /**
      * Catmull–Rom / cubic Hermite interpolation.
@@ -258,18 +224,15 @@ public final class Vector2f implements AutoCloseable {
      * @return a fresh Vector2f owning a native allocation.
      */
     public static Vector2f hermiteLerp(Vector2f prev, Vector2f start, Vector2f end, Vector2f next, float t) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector2f_hermite_lerp.invoke(prev.handle, start.handle, end.handle, next.handle, t);
-            return new Vector2f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector2f_hermite_lerp, prev.handle, start.handle, end.handle, next.handle, t);
+        return new Vector2f(__h, true);
     }
     @Override
     public boolean equals(Object o) {
         if (o == this) return true;
         if (!(o instanceof Vector2f)) return false;
         Vector2f __other = (Vector2f) o;
-        try { return ((int) Native.whiteout_Vector2f_equals.invoke(handle, __other.handle)) != 0; }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_Vector2f_equals, handle, __other.handle)) != 0;
     }
 
     @Override

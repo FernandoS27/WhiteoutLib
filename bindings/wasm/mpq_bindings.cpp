@@ -106,13 +106,15 @@ EMSCRIPTEN_BINDINGS(mpq) {
     class_<whiteout::storages::mpq::Storage>("MpqStorage")
         .class_function("open",
                   optional_override([](
-                      std::string path) {
-                      return whiteout::wasm::to_optional_ptr<whiteout::storages::mpq::Storage>(whiteout::storages::mpq::Storage::open(path));
+                      std::string path,
+                      whiteout::interfaces::WorkerPool pool) {
+                      return whiteout::wasm::to_optional_ptr<whiteout::storages::mpq::Storage>(whiteout::storages::mpq::Storage::open(path, pool));
                   }), allow_raw_pointers())
         .class_function("create",
                   optional_override([](
-                      whiteout::storages::mpq::CreateOptions opts) {
-                      return whiteout::wasm::to_heap_ptr<whiteout::storages::mpq::Storage>(whiteout::storages::mpq::Storage::create(opts));
+                      whiteout::storages::mpq::CreateOptions opts,
+                      whiteout::interfaces::WorkerPool pool) {
+                      return whiteout::wasm::to_heap_ptr<whiteout::storages::mpq::Storage>(whiteout::storages::mpq::Storage::create(opts, pool));
                   }), allow_raw_pointers())
         .function("close", &whiteout::storages::mpq::Storage::close)
         .function("readFile",
@@ -120,6 +122,13 @@ EMSCRIPTEN_BINDINGS(mpq) {
                       whiteout::storages::mpq::Storage& self,
                       std::string name) {
                       return self.readFile(name);
+                  }))
+        .function("readFile_name_locale",
+                  optional_override([](
+                      whiteout::storages::mpq::Storage& self,
+                      std::string name,
+                      whiteout::u16 locale) {
+                      return self.readFile(name, locale);
                   }))
         .function("fileExists", &whiteout::storages::mpq::Storage::fileExists)
         .function("fileInfo",
@@ -142,6 +151,7 @@ EMSCRIPTEN_BINDINGS(mpq) {
                   }))
         .function("deleteFile", &whiteout::storages::mpq::Storage::deleteFile)
         .function("save", select_overload<bool()>(&whiteout::storages::mpq::Storage::save))
+        .function("save_path", select_overload<bool(const std::string &)>(&whiteout::storages::mpq::Storage::save))
     ;
 
     class_<whiteout::utils::MpqFileSystem, base<whiteout::interfaces::VirtualPathFileSystem>>("MpqFileSystem")

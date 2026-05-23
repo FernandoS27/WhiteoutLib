@@ -128,13 +128,6 @@ auto bindBufferVector(py::module_& m, const char* name) {
 
 } // namespace
 void bind_mdx(py::module_& m) {
-    // Sentinel value
-    m.attr("NO_GLOBAL_SEQUENCE") = static_cast<whiteout::u32>(whiteout::mdx::Track<whiteout::f32>::kNoGlobalSequence);
-    // Value indicating no parent node
-    m.attr("NO_PARENT") = static_cast<whiteout::u32>(whiteout::mdx::Node::NO_PARENT);
-    // Bone affects all geosets
-    m.attr("MULTIPLE_GEOSETS") = static_cast<whiteout::u32>(whiteout::mdx::Bone::MULTIPLE_GEOSETS);
-
     py::enum_<whiteout::mdx::InterpolationType>(m, "InterpolationType")
         .value("NONE", whiteout::mdx::InterpolationType::None)
         .value("LINEAR", whiteout::mdx::InterpolationType::Linear)
@@ -294,11 +287,6 @@ void bind_mdx(py::module_& m) {
     py::enum_<whiteout::mdx::MDLXFormat>(m, "MDLXFormat", R"doc(Source format selector for buffer-based parsing.)doc")
         .value("MDX", whiteout::mdx::MDLXFormat::MDX, R"doc(Binary MDX format)doc")
         .value("MDL", whiteout::mdx::MDLXFormat::MDL, R"doc(Text MDL format)doc")
-    ;
-
-    py::enum_<whiteout::mdx::Parser::ParseMode>(m, "ParseMode", R"doc(Parsing strictness mode)doc")
-        .value("STRICT", whiteout::mdx::Parser::ParseMode::Strict, R"doc(Throw exceptions on unknown chunks or invalid data)doc")
-        .value("LENIENT", whiteout::mdx::Parser::ParseMode::Lenient, R"doc(Skip unknown chunks and try to recover from errors (recommended))doc")
     ;
 
     py::enum_<whiteout::mdx::Parser::UpgradeMode>(m, "UpgradeMode", R"doc(Version handling mode)doc")
@@ -499,7 +487,7 @@ Materials can have multiple layers, each with its own texture and blending mode.
         .def_readwrite("texture_animation_id", &whiteout::mdx::Layer::textureAnimationId, R"doc(Texture animation index)doc")
         .def_readwrite("coord_id", &whiteout::mdx::Layer::coordId, R"doc(Texture coordinate set index)doc")
         .def_readwrite("alpha", &whiteout::mdx::Layer::alpha, R"doc(Layer opacity)doc")
-        .def_readwrite("emissive_gain", &whiteout::mdx::Layer::emissiveGain, R"doc(Emissive light intensity)doc")
+        .def_readwrite("emissive_gain", &whiteout::mdx::Layer::emissiveGain, R"doc(Emissive light intensity (default 1.0))doc")
         .def_readwrite("fresnel_color", &whiteout::mdx::Layer::fresnelColor, R"doc(Fresnel effect color)doc")
         .def_readwrite("fresnel_opacity", &whiteout::mdx::Layer::fresnelOpacity, R"doc(Fresnel effect opacity)doc")
         .def_readwrite("fresnel_team_color", &whiteout::mdx::Layer::fresnelTeamColor, R"doc(Fresnel team color factor)doc")
@@ -525,7 +513,7 @@ Materials can have multiple layers, each with its own texture and blending mode.
 
 Materials define how surfaces are rendered. Each material contains one or more layers that specify textures and blending modes.)doc")
         .def(py::init<>())
-        .def_readwrite("priority_plane", &whiteout::mdx::Material::priorityPlane, R"doc(Rendering priority (higher = render last))doc")
+        .def_readwrite("priority_plane", &whiteout::mdx::Material::priorityPlane, R"doc(Rendering priority (higher = render last); signed)doc")
         .def_readwrite("flags", &whiteout::mdx::Material::flags, R"doc(Material flags)doc")
         .def_readwrite("shader", &whiteout::mdx::Material::shader, R"doc(Shader name (Reforged))doc")
         .def_readwrite("layers", &whiteout::mdx::Material::layers, R"doc(Rendering layers)doc")
@@ -679,7 +667,7 @@ More advanced particle system that uses sprite textures. Supports various partic
         .def_readwrite("time", &whiteout::mdx::ParticleEmitter2::time, R"doc(Middle time for segment animation)doc")
         .def_readwrite("texture_id", &whiteout::mdx::ParticleEmitter2::textureId, R"doc(Texture index)doc")
         .def_readwrite("squirt", &whiteout::mdx::ParticleEmitter2::squirt, R"doc(Squirt flag (burst mode))doc")
-        .def_readwrite("priority_plane", &whiteout::mdx::ParticleEmitter2::priorityPlane, R"doc(Rendering priority)doc")
+        .def_readwrite("priority_plane", &whiteout::mdx::ParticleEmitter2::priorityPlane, R"doc(Rendering priority; signed)doc")
         .def_readwrite("replaceable_id", &whiteout::mdx::ParticleEmitter2::replaceableId, R"doc(Replaceable texture ID)doc")
         .def_readwrite("speed_tracks", &whiteout::mdx::ParticleEmitter2::speedTracks, R"doc(Speed animation)doc")
         .def_readwrite("variation_tracks", &whiteout::mdx::ParticleEmitter2::variationTracks, R"doc(Variation animation)doc")
@@ -861,7 +849,7 @@ The Parser reads binary MDX files and converts them into the Model structure. It
 
 Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::mdx::Parser::ParseMode, whiteout::mdx::Parser::UpgradeMode>(), py::arg("parse_mode"), py::arg("upgrade_mode"))
+        .def(py::init<whiteout::mdx::Parser::UpgradeMode>(), py::arg("upgrade_mode"))
         .def("parse", py::overload_cast<const std::string&>(&whiteout::mdx::Parser::parse), py::arg("filePath"), R"doc(Parse an MDX file from disk
 
 The format is detected from the file extension: `.mdl` for text MDL format, `.mdx` (or any other extension) for binary MDX format.

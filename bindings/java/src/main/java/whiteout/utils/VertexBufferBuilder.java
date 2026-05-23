@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.utils.internal.Native;
 
 /**
@@ -40,22 +41,18 @@ public final class VertexBufferBuilder implements AutoCloseable {
     }
 
     public VertexBufferBuilder() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_utils_UtilsVertexBufferBuilder_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("VertexBufferBuilder allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_utils_UtilsVertexBufferBuilder_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("VertexBufferBuilder allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_utils_UtilsVertexBufferBuilder_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_utils_UtilsVertexBufferBuilder_delete, handle);
         }
     }
 
@@ -73,9 +70,9 @@ public final class VertexBufferBuilder implements AutoCloseable {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment data_seg = arena.allocate(data.length * 4L);
             MemorySegment.copy(data, 0, data_seg, ValueLayout.JAVA_FLOAT, 0, data.length);
-            MemorySegment __h = (MemorySegment) Native.whiteout_utils_UtilsVertexBufferBuilder_declareFloatAttribute.invoke(handle, data_seg, (long) data.length, components, attr_class.value, encoding.value, align);
+            MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_utils_UtilsVertexBufferBuilder_declareFloatAttribute, handle, data_seg, (long) data.length, components, attr_class.value, encoding.value, align);
             return new VertexBufferBuilder(__h, false);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -92,9 +89,9 @@ public final class VertexBufferBuilder implements AutoCloseable {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment data_seg = arena.allocate(data.length * 4L);
             MemorySegment.copy(data, 0, data_seg, ValueLayout.JAVA_INT, 0, data.length);
-            MemorySegment __h = (MemorySegment) Native.whiteout_utils_UtilsVertexBufferBuilder_declareIntAttribute.invoke(handle, data_seg, (long) data.length, components, attr_class.value, encoding.value, align);
+            MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_utils_UtilsVertexBufferBuilder_declareIntAttribute, handle, data_seg, (long) data.length, components, attr_class.value, encoding.value, align);
             return new VertexBufferBuilder(__h, false);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -104,18 +101,16 @@ public final class VertexBufferBuilder implements AutoCloseable {
      * @return a fresh VertexBuffer owning a native allocation.
      */
     public VertexBuffer build(whiteout.interfaces.WorkerPool pool) {
-        try {
         long __pool_h = pool == null ? 0L
-            : whiteout.host.WorkerPools.resolveNative(pool, pool);
+        : whiteout.host.WorkerPools.resolveNative(pool, pool);
         MemorySegment __pool_seg = __pool_h == 0L
-            ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
+        ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
         try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_utils_UtilsVertexBufferBuilder_build.invoke(handle, __pool_seg);
-            return new VertexBuffer(__h, true);
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_utils_UtilsVertexBufferBuilder_build, handle, __pool_seg);
+        return new VertexBuffer(__h, true);
         } finally {
-            java.lang.ref.Reference.reachabilityFence(pool);
+        java.lang.ref.Reference.reachabilityFence(pool);
         }
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
     @Override public String toString() {

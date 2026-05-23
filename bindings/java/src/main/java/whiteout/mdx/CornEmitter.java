@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.mdx.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class CornEmitter implements AutoCloseable {
     }
 
     public CornEmitter() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_mdx_MdxCornEmitter_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("CornEmitter allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCornEmitter_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("CornEmitter allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_mdx_MdxCornEmitter_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxCornEmitter_delete, handle);
         }
     }
 
@@ -69,8 +66,7 @@ public final class CornEmitter implements AutoCloseable {
         return new Node(handle.asSlice(0L, 272L), false);
     }
     public void setNode(Node value) {
-        try { Native.whiteout_mdx_MdxCornEmitter_set_node.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxCornEmitter_set_node, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Particle lifetime (default)
@@ -111,8 +107,7 @@ public final class CornEmitter implements AutoCloseable {
     }
     public void setColor(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_mdx_MdxCornEmitter_set_color.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxCornEmitter_set_color, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 284L, 12L);
@@ -143,14 +138,14 @@ public final class CornEmitter implements AutoCloseable {
      */
     public String getPath() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __s = (MemorySegment) Native.whiteout_mdx_MdxCornEmitter_get_path.invoke(arena, handle);
+            MemorySegment __s = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCornEmitter_get_path, arena, handle);
             MemorySegment __chars = __s.get(ValueLayout.ADDRESS, 0);
             long __len = __s.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__chars == null || __chars.equals(MemorySegment.NULL)) return "";
             byte[] __bytes = __chars.reinterpret(__len).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_CString_free.invoke(__s);
+            NativeCommon.invokeNative(Native.whiteout_CString_free, __s);
             return new String(__bytes, StandardCharsets.UTF_8);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
     public void setPath(String value) {
         try (Arena arena = Arena.ofConfined()) {
@@ -158,8 +153,8 @@ public final class CornEmitter implements AutoCloseable {
             MemorySegment __seg = arena.allocate(__utf.length + 1);
             MemorySegment.copy(__utf, 0, __seg, ValueLayout.JAVA_BYTE, 0, __utf.length);
             __seg.set(ValueLayout.JAVA_BYTE, __utf.length, (byte) 0);
-            Native.whiteout_mdx_MdxCornEmitter_set_path.invoke(handle, __seg);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxCornEmitter_set_path, handle, __seg);
+        }
     }
     /**
      * Animation visibility guide
@@ -167,14 +162,14 @@ public final class CornEmitter implements AutoCloseable {
      */
     public String getAnimVisibilityGuide() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __s = (MemorySegment) Native.whiteout_mdx_MdxCornEmitter_get_animVisibilityGuide.invoke(arena, handle);
+            MemorySegment __s = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCornEmitter_get_animVisibilityGuide, arena, handle);
             MemorySegment __chars = __s.get(ValueLayout.ADDRESS, 0);
             long __len = __s.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__chars == null || __chars.equals(MemorySegment.NULL)) return "";
             byte[] __bytes = __chars.reinterpret(__len).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_CString_free.invoke(__s);
+            NativeCommon.invokeNative(Native.whiteout_CString_free, __s);
             return new String(__bytes, StandardCharsets.UTF_8);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
     public void setAnimVisibilityGuide(String value) {
         try (Arena arena = Arena.ofConfined()) {
@@ -182,86 +177,74 @@ public final class CornEmitter implements AutoCloseable {
             MemorySegment __seg = arena.allocate(__utf.length + 1);
             MemorySegment.copy(__utf, 0, __seg, ValueLayout.JAVA_BYTE, 0, __utf.length);
             __seg.set(ValueLayout.JAVA_BYTE, __utf.length, (byte) 0);
-            Native.whiteout_mdx_MdxCornEmitter_set_animVisibilityGuide.invoke(handle, __seg);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxCornEmitter_set_animVisibilityGuide, handle, __seg);
+        }
     }
     /**
      * Lifespan animation
      * @return the lifeSpanTracks field of this MdxCornEmitter.
      */
     public TrackF32 getLifeSpanTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxCornEmitter_get_lifeSpanTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCornEmitter_get_lifeSpanTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setLifeSpanTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxCornEmitter_set_lifeSpanTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxCornEmitter_set_lifeSpanTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Emission rate animation
      * @return the emissionRateTracks field of this MdxCornEmitter.
      */
     public TrackF32 getEmissionRateTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxCornEmitter_get_emissionRateTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCornEmitter_get_emissionRateTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setEmissionRateTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxCornEmitter_set_emissionRateTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxCornEmitter_set_emissionRateTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Speed animation
      * @return the speedTracks field of this MdxCornEmitter.
      */
     public TrackF32 getSpeedTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxCornEmitter_get_speedTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCornEmitter_get_speedTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setSpeedTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxCornEmitter_set_speedTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxCornEmitter_set_speedTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Color animation
      * @return the colorTracks field of this MdxCornEmitter.
      */
     public TrackVector3f getColorTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxCornEmitter_get_colorTracks.invoke(handle);
-            return new TrackVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCornEmitter_get_colorTracks, handle);
+        return new TrackVector3f(__h, false);
     }
     public void setColorTracks(TrackVector3f value) {
-        try { Native.whiteout_mdx_MdxCornEmitter_set_colorTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxCornEmitter_set_colorTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Alpha animation
      * @return the alphaTracks field of this MdxCornEmitter.
      */
     public TrackF32 getAlphaTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxCornEmitter_get_alphaTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCornEmitter_get_alphaTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setAlphaTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxCornEmitter_set_alphaTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxCornEmitter_set_alphaTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Visibility animation
      * @return the visibilityTracks field of this MdxCornEmitter.
      */
     public TrackF32 getVisibilityTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxCornEmitter_get_visibilityTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCornEmitter_get_visibilityTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setVisibilityTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxCornEmitter_set_visibilityTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxCornEmitter_set_visibilityTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "CornEmitter(" + "lifeSpan=" + getLifeSpan() + ", " + "emissionRate=" + getEmissionRate() + ", " + "speed=" + getSpeed() + ", " + "alpha=" + getAlpha() + ", " + "replaceableId=" + getReplaceableId() + ", " + "path=" + getPath() + ", " + "animVisibilityGuide=" + getAnimVisibilityGuide() + ")";

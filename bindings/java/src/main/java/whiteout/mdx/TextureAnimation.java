@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.mdx.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class TextureAnimation implements AutoCloseable {
     }
 
     public TextureAnimation() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_mdx_MdxTextureAnimation_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("TextureAnimation allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxTextureAnimation_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("TextureAnimation allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_mdx_MdxTextureAnimation_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxTextureAnimation_delete, handle);
         }
     }
 
@@ -66,39 +63,33 @@ public final class TextureAnimation implements AutoCloseable {
      * @return the translationTracks field of this MdxTextureAnimation.
      */
     public TrackVector3f getTranslationTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxTextureAnimation_get_translationTracks.invoke(handle);
-            return new TrackVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxTextureAnimation_get_translationTracks, handle);
+        return new TrackVector3f(__h, false);
     }
     public void setTranslationTracks(TrackVector3f value) {
-        try { Native.whiteout_mdx_MdxTextureAnimation_set_translationTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxTextureAnimation_set_translationTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * UV rotation animation (quaternion XYZW)
      * @return the rotationTracks field of this MdxTextureAnimation.
      */
     public TrackQuaternion getRotationTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxTextureAnimation_get_rotationTracks.invoke(handle);
-            return new TrackQuaternion(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxTextureAnimation_get_rotationTracks, handle);
+        return new TrackQuaternion(__h, false);
     }
     public void setRotationTracks(TrackQuaternion value) {
-        try { Native.whiteout_mdx_MdxTextureAnimation_set_rotationTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxTextureAnimation_set_rotationTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * UV scaling animation
      * @return the scalingTracks field of this MdxTextureAnimation.
      */
     public TrackVector3f getScalingTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxTextureAnimation_get_scalingTracks.invoke(handle);
-            return new TrackVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxTextureAnimation_get_scalingTracks, handle);
+        return new TrackVector3f(__h, false);
     }
     public void setScalingTracks(TrackVector3f value) {
-        try { Native.whiteout_mdx_MdxTextureAnimation_set_scalingTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxTextureAnimation_set_scalingTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "TextureAnimation@" + Long.toHexString(handle == null ? 0 : handle.address());

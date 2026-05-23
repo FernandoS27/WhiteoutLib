@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class SplineRibbon implements AutoCloseable {
     }
 
     public SplineRibbon() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3SplineRibbon_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("SplineRibbon allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("SplineRibbon allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3SplineRibbon_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_delete, handle);
         }
     }
 
@@ -70,8 +67,7 @@ public final class SplineRibbon implements AutoCloseable {
     }
     public void setEmissionOffset(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m3_M3SplineRibbon_set_emissionOffset.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_set_emissionOffset, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 0L, 12L);
@@ -85,8 +81,7 @@ public final class SplineRibbon implements AutoCloseable {
     }
     public void setEmissionVector(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m3_M3SplineRibbon_set_emissionVector.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_set_emissionVector, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 12L, 12L);
@@ -96,13 +91,11 @@ public final class SplineRibbon implements AutoCloseable {
      * @return the velocity field of this M3SplineRibbon.
      */
     public AnimRefF32 getVelocity() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3SplineRibbon_get_velocity.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_get_velocity, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setVelocity(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3SplineRibbon_set_velocity.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_set_velocity, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Reserved (always 0)
@@ -129,26 +122,22 @@ public final class SplineRibbon implements AutoCloseable {
      * @return the velocityBaseFactor field of this M3SplineRibbon.
      */
     public AnimRefF32 getVelocityBaseFactor() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3SplineRibbon_get_velocityBaseFactor.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_get_velocityBaseFactor, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setVelocityBaseFactor(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3SplineRibbon_set_velocityBaseFactor.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_set_velocityBaseFactor, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated end velocity factor
      * @return the velocityEndFactor field of this M3SplineRibbon.
      */
     public AnimRefF32 getVelocityEndFactor() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3SplineRibbon_get_velocityEndFactor.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_get_velocityEndFactor, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setVelocityEndFactor(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3SplineRibbon_set_velocityEndFactor.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_set_velocityEndFactor, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Yaw variation type
@@ -165,26 +154,22 @@ public final class SplineRibbon implements AutoCloseable {
      * @return the yawAmplitude field of this M3SplineRibbon.
      */
     public AnimRefF32 getYawAmplitude() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3SplineRibbon_get_yawAmplitude.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_get_yawAmplitude, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setYawAmplitude(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3SplineRibbon_set_yawAmplitude.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_set_yawAmplitude, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Yaw variation frequency
      * @return the yawFrequency field of this M3SplineRibbon.
      */
     public AnimRefF32 getYawFrequency() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3SplineRibbon_get_yawFrequency.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_get_yawFrequency, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setYawFrequency(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3SplineRibbon_set_yawFrequency.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_set_yawFrequency, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Pitch variation type
@@ -201,26 +186,22 @@ public final class SplineRibbon implements AutoCloseable {
      * @return the pitchAmplitude field of this M3SplineRibbon.
      */
     public AnimRefF32 getPitchAmplitude() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3SplineRibbon_get_pitchAmplitude.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_get_pitchAmplitude, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setPitchAmplitude(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3SplineRibbon_set_pitchAmplitude.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_set_pitchAmplitude, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Pitch variation frequency
      * @return the pitchFrequency field of this M3SplineRibbon.
      */
     public AnimRefF32 getPitchFrequency() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3SplineRibbon_get_pitchFrequency.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_get_pitchFrequency, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setPitchFrequency(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3SplineRibbon_set_pitchFrequency.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_set_pitchFrequency, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Velocity variation type
@@ -237,52 +218,44 @@ public final class SplineRibbon implements AutoCloseable {
      * @return the velocityAmplitude field of this M3SplineRibbon.
      */
     public AnimRefF32 getVelocityAmplitude() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3SplineRibbon_get_velocityAmplitude.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_get_velocityAmplitude, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setVelocityAmplitude(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3SplineRibbon_set_velocityAmplitude.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_set_velocityAmplitude, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Velocity variation frequency
      * @return the velocityFrequency field of this M3SplineRibbon.
      */
     public AnimRefF32 getVelocityFrequency() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3SplineRibbon_get_velocityFrequency.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_get_velocityFrequency, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setVelocityFrequency(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3SplineRibbon_set_velocityFrequency.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_set_velocityFrequency, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated yaw angle
      * @return the yaw field of this M3SplineRibbon.
      */
     public AnimRefF32 getYaw() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3SplineRibbon_get_yaw.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_get_yaw, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setYaw(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3SplineRibbon_set_yaw.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_set_yaw, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated pitch angle
      * @return the pitch field of this M3SplineRibbon.
      */
     public AnimRefF32 getPitch() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3SplineRibbon_get_pitch.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_get_pitch, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setPitch(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3SplineRibbon_set_pitch.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3SplineRibbon_set_pitch, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Precomputed ≈ 0.01 / |emissionVector|

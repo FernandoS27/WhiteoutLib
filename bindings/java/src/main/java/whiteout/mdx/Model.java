@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.mdx.internal.Native;
 
 /**
@@ -44,22 +45,18 @@ public final class Model implements AutoCloseable {
     }
 
     public Model() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_mdx_MdxModel_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Model allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Model allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_mdx_MdxModel_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_delete, handle);
         }
     }
 
@@ -79,14 +76,14 @@ public final class Model implements AutoCloseable {
      */
     public String getModelName() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __s = (MemorySegment) Native.whiteout_mdx_MdxModel_get_modelName.invoke(arena, handle);
+            MemorySegment __s = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_modelName, arena, handle);
             MemorySegment __chars = __s.get(ValueLayout.ADDRESS, 0);
             long __len = __s.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__chars == null || __chars.equals(MemorySegment.NULL)) return "";
             byte[] __bytes = __chars.reinterpret(__len).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_CString_free.invoke(__s);
+            NativeCommon.invokeNative(Native.whiteout_CString_free, __s);
             return new String(__bytes, StandardCharsets.UTF_8);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
     public void setModelName(String value) {
         try (Arena arena = Arena.ofConfined()) {
@@ -94,8 +91,8 @@ public final class Model implements AutoCloseable {
             MemorySegment __seg = arena.allocate(__utf.length + 1);
             MemorySegment.copy(__utf, 0, __seg, ValueLayout.JAVA_BYTE, 0, __utf.length);
             __seg.set(ValueLayout.JAVA_BYTE, __utf.length, (byte) 0);
-            Native.whiteout_mdx_MdxModel_set_modelName.invoke(handle, __seg);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_set_modelName, handle, __seg);
+        }
     }
     /**
      * Path to external animation file (rarely used)
@@ -103,14 +100,14 @@ public final class Model implements AutoCloseable {
      */
     public String getAnimationFileName() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __s = (MemorySegment) Native.whiteout_mdx_MdxModel_get_animationFileName.invoke(arena, handle);
+            MemorySegment __s = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_animationFileName, arena, handle);
             MemorySegment __chars = __s.get(ValueLayout.ADDRESS, 0);
             long __len = __s.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__chars == null || __chars.equals(MemorySegment.NULL)) return "";
             byte[] __bytes = __chars.reinterpret(__len).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_CString_free.invoke(__s);
+            NativeCommon.invokeNative(Native.whiteout_CString_free, __s);
             return new String(__bytes, StandardCharsets.UTF_8);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
     public void setAnimationFileName(String value) {
         try (Arena arena = Arena.ofConfined()) {
@@ -118,8 +115,8 @@ public final class Model implements AutoCloseable {
             MemorySegment __seg = arena.allocate(__utf.length + 1);
             MemorySegment.copy(__utf, 0, __seg, ValueLayout.JAVA_BYTE, 0, __utf.length);
             __seg.set(ValueLayout.JAVA_BYTE, __utf.length, (byte) 0);
-            Native.whiteout_mdx_MdxModel_set_animationFileName.invoke(handle, __seg);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_set_animationFileName, handle, __seg);
+        }
     }
     /**
      * Bounding volume for the entire model
@@ -130,8 +127,7 @@ public final class Model implements AutoCloseable {
     }
     public void setModelExtent(Extent value) {
         if (value == null) {
-            try { Native.whiteout_mdx_MdxModel_set_modelExtent.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_set_modelExtent, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(value.handle, 0L, handle, 72L, 28L);
@@ -151,46 +147,39 @@ public final class Model implements AutoCloseable {
      * @return the globalSequences field of this MdxModel.
      */
     public int getGlobalSequencesCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_globalSequences_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_globalSequences_count, handle);
     }
     public int[] getGlobalSequences() {
-        try {
-            long __count = (long) Native.whiteout_mdx_MdxModel_get_globalSequences_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_mdx_MdxModel_get_globalSequences_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_globalSequences_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_globalSequences_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
     }
     public void setGlobalSequences(int[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
-            Native.whiteout_mdx_MdxModel_assign_globalSequences.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_assign_globalSequences, handle, __seg, __count);
+        }
     }
     public void resizeGlobalSequences(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_globalSequences.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_globalSequences, handle, (long) count);
     }
     /**
      * Named animation sequences
      * @return the sequences field of this MdxModel.
      */
     public int getSequencesCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_sequences_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_sequences_count, handle);
     }
     public Sequence getSequencesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxModel_get_sequences_at.invoke(handle, (long) index);
-            return new Sequence(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_sequences_at, handle, (long) index);
+        return new Sequence(__h, false);
     }
     public void resizeSequences(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_sequences.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_sequences, handle, (long) count);
     }
     public java.util.List<Sequence> sequencesView() {
         return new java.util.AbstractList<Sequence>() {
@@ -203,17 +192,14 @@ public final class Model implements AutoCloseable {
      * @return the textures field of this MdxModel.
      */
     public int getTexturesCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_textures_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_textures_count, handle);
     }
     public Texture getTexturesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxModel_get_textures_at.invoke(handle, (long) index);
-            return new Texture(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_textures_at, handle, (long) index);
+        return new Texture(__h, false);
     }
     public void resizeTextures(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_textures.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_textures, handle, (long) count);
     }
     public java.util.List<Texture> texturesView() {
         return new java.util.AbstractList<Texture>() {
@@ -226,17 +212,14 @@ public final class Model implements AutoCloseable {
      * @return the sounds field of this MdxModel.
      */
     public int getSoundsCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_sounds_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_sounds_count, handle);
     }
     public Sound getSoundsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxModel_get_sounds_at.invoke(handle, (long) index);
-            return new Sound(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_sounds_at, handle, (long) index);
+        return new Sound(__h, false);
     }
     public void resizeSounds(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_sounds.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_sounds, handle, (long) count);
     }
     public java.util.List<Sound> soundsView() {
         return new java.util.AbstractList<Sound>() {
@@ -249,17 +232,14 @@ public final class Model implements AutoCloseable {
      * @return the soundEmitters field of this MdxModel.
      */
     public int getSoundEmittersCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_soundEmitters_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_soundEmitters_count, handle);
     }
     public SoundEmitter getSoundEmittersAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxModel_get_soundEmitters_at.invoke(handle, (long) index);
-            return new SoundEmitter(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_soundEmitters_at, handle, (long) index);
+        return new SoundEmitter(__h, false);
     }
     public void resizeSoundEmitters(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_soundEmitters.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_soundEmitters, handle, (long) count);
     }
     public java.util.List<SoundEmitter> soundEmittersView() {
         return new java.util.AbstractList<SoundEmitter>() {
@@ -272,17 +252,14 @@ public final class Model implements AutoCloseable {
      * @return the materials field of this MdxModel.
      */
     public int getMaterialsCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_materials_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_materials_count, handle);
     }
     public Material getMaterialsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxModel_get_materials_at.invoke(handle, (long) index);
-            return new Material(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_materials_at, handle, (long) index);
+        return new Material(__h, false);
     }
     public void resizeMaterials(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_materials.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_materials, handle, (long) count);
     }
     public java.util.List<Material> materialsView() {
         return new java.util.AbstractList<Material>() {
@@ -295,17 +272,14 @@ public final class Model implements AutoCloseable {
      * @return the textureAnimations field of this MdxModel.
      */
     public int getTextureAnimationsCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_textureAnimations_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_textureAnimations_count, handle);
     }
     public TextureAnimation getTextureAnimationsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxModel_get_textureAnimations_at.invoke(handle, (long) index);
-            return new TextureAnimation(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_textureAnimations_at, handle, (long) index);
+        return new TextureAnimation(__h, false);
     }
     public void resizeTextureAnimations(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_textureAnimations.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_textureAnimations, handle, (long) count);
     }
     public java.util.List<TextureAnimation> textureAnimationsView() {
         return new java.util.AbstractList<TextureAnimation>() {
@@ -318,17 +292,14 @@ public final class Model implements AutoCloseable {
      * @return the geosets field of this MdxModel.
      */
     public int getGeosetsCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_geosets_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_geosets_count, handle);
     }
     public Geoset getGeosetsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxModel_get_geosets_at.invoke(handle, (long) index);
-            return new Geoset(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_geosets_at, handle, (long) index);
+        return new Geoset(__h, false);
     }
     public void resizeGeosets(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_geosets.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_geosets, handle, (long) count);
     }
     public java.util.List<Geoset> geosetsView() {
         return new java.util.AbstractList<Geoset>() {
@@ -341,17 +312,14 @@ public final class Model implements AutoCloseable {
      * @return the geosetAnimations field of this MdxModel.
      */
     public int getGeosetAnimationsCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_geosetAnimations_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_geosetAnimations_count, handle);
     }
     public GeosetAnimation getGeosetAnimationsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxModel_get_geosetAnimations_at.invoke(handle, (long) index);
-            return new GeosetAnimation(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_geosetAnimations_at, handle, (long) index);
+        return new GeosetAnimation(__h, false);
     }
     public void resizeGeosetAnimations(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_geosetAnimations.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_geosetAnimations, handle, (long) count);
     }
     public java.util.List<GeosetAnimation> geosetAnimationsView() {
         return new java.util.AbstractList<GeosetAnimation>() {
@@ -364,17 +332,14 @@ public final class Model implements AutoCloseable {
      * @return the bones field of this MdxModel.
      */
     public int getBonesCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_bones_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_bones_count, handle);
     }
     public Bone getBonesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxModel_get_bones_at.invoke(handle, (long) index);
-            return new Bone(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_bones_at, handle, (long) index);
+        return new Bone(__h, false);
     }
     public void resizeBones(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_bones.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_bones, handle, (long) count);
     }
     public java.util.List<Bone> bonesView() {
         return new java.util.AbstractList<Bone>() {
@@ -387,17 +352,14 @@ public final class Model implements AutoCloseable {
      * @return the helpers field of this MdxModel.
      */
     public int getHelpersCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_helpers_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_helpers_count, handle);
     }
     public Helper getHelpersAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxModel_get_helpers_at.invoke(handle, (long) index);
-            return new Helper(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_helpers_at, handle, (long) index);
+        return new Helper(__h, false);
     }
     public void resizeHelpers(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_helpers.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_helpers, handle, (long) count);
     }
     public java.util.List<Helper> helpersView() {
         return new java.util.AbstractList<Helper>() {
@@ -410,17 +372,14 @@ public final class Model implements AutoCloseable {
      * @return the attachments field of this MdxModel.
      */
     public int getAttachmentsCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_attachments_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_attachments_count, handle);
     }
     public Attachment getAttachmentsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxModel_get_attachments_at.invoke(handle, (long) index);
-            return new Attachment(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_attachments_at, handle, (long) index);
+        return new Attachment(__h, false);
     }
     public void resizeAttachments(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_attachments.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_attachments, handle, (long) count);
     }
     public java.util.List<Attachment> attachmentsView() {
         return new java.util.AbstractList<Attachment>() {
@@ -433,46 +392,39 @@ public final class Model implements AutoCloseable {
      * @return the pivotPoints field of this MdxModel.
      */
     public int getPivotPointsCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_pivotPoints_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_pivotPoints_count, handle);
     }
     public float[] getPivotPoints() {
-        try {
-            long __count = (long) Native.whiteout_mdx_MdxModel_get_pivotPoints_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_mdx_MdxModel_get_pivotPoints_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
-            long __scalars = __count * 3L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_pivotPoints_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_pivotPoints_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
+        long __scalars = __count * 3L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
     }
     public void setPivotPoints(float[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 3;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
-            Native.whiteout_mdx_MdxModel_assign_pivotPoints.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_assign_pivotPoints, handle, __seg, __count);
+        }
     }
     public void resizePivotPoints(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_pivotPoints.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_pivotPoints, handle, (long) count);
     }
     /**
      * Light sources
      * @return the lights field of this MdxModel.
      */
     public int getLightsCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_lights_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_lights_count, handle);
     }
     public Light getLightsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxModel_get_lights_at.invoke(handle, (long) index);
-            return new Light(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_lights_at, handle, (long) index);
+        return new Light(__h, false);
     }
     public void resizeLights(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_lights.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_lights, handle, (long) count);
     }
     public java.util.List<Light> lightsView() {
         return new java.util.AbstractList<Light>() {
@@ -485,17 +437,14 @@ public final class Model implements AutoCloseable {
      * @return the particleEmitters field of this MdxModel.
      */
     public int getParticleEmittersCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_particleEmitters_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_particleEmitters_count, handle);
     }
     public ParticleEmitter getParticleEmittersAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxModel_get_particleEmitters_at.invoke(handle, (long) index);
-            return new ParticleEmitter(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_particleEmitters_at, handle, (long) index);
+        return new ParticleEmitter(__h, false);
     }
     public void resizeParticleEmitters(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_particleEmitters.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_particleEmitters, handle, (long) count);
     }
     public java.util.List<ParticleEmitter> particleEmittersView() {
         return new java.util.AbstractList<ParticleEmitter>() {
@@ -508,17 +457,14 @@ public final class Model implements AutoCloseable {
      * @return the particleEmitters2 field of this MdxModel.
      */
     public int getParticleEmitters2Count() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_particleEmitters2_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_particleEmitters2_count, handle);
     }
     public ParticleEmitter2 getParticleEmitters2At(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxModel_get_particleEmitters2_at.invoke(handle, (long) index);
-            return new ParticleEmitter2(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_particleEmitters2_at, handle, (long) index);
+        return new ParticleEmitter2(__h, false);
     }
     public void resizeParticleEmitters2(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_particleEmitters2.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_particleEmitters2, handle, (long) count);
     }
     public java.util.List<ParticleEmitter2> particleEmitters2View() {
         return new java.util.AbstractList<ParticleEmitter2>() {
@@ -531,17 +477,14 @@ public final class Model implements AutoCloseable {
      * @return the ribbonEmitters field of this MdxModel.
      */
     public int getRibbonEmittersCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_ribbonEmitters_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_ribbonEmitters_count, handle);
     }
     public RibbonEmitter getRibbonEmittersAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxModel_get_ribbonEmitters_at.invoke(handle, (long) index);
-            return new RibbonEmitter(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_ribbonEmitters_at, handle, (long) index);
+        return new RibbonEmitter(__h, false);
     }
     public void resizeRibbonEmitters(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_ribbonEmitters.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_ribbonEmitters, handle, (long) count);
     }
     public java.util.List<RibbonEmitter> ribbonEmittersView() {
         return new java.util.AbstractList<RibbonEmitter>() {
@@ -554,17 +497,14 @@ public final class Model implements AutoCloseable {
      * @return the cornEmitters field of this MdxModel.
      */
     public int getCornEmittersCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_cornEmitters_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_cornEmitters_count, handle);
     }
     public CornEmitter getCornEmittersAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxModel_get_cornEmitters_at.invoke(handle, (long) index);
-            return new CornEmitter(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_cornEmitters_at, handle, (long) index);
+        return new CornEmitter(__h, false);
     }
     public void resizeCornEmitters(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_cornEmitters.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_cornEmitters, handle, (long) count);
     }
     public java.util.List<CornEmitter> cornEmittersView() {
         return new java.util.AbstractList<CornEmitter>() {
@@ -577,17 +517,14 @@ public final class Model implements AutoCloseable {
      * @return the eventObjects field of this MdxModel.
      */
     public int getEventObjectsCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_eventObjects_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_eventObjects_count, handle);
     }
     public EventObject getEventObjectsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxModel_get_eventObjects_at.invoke(handle, (long) index);
-            return new EventObject(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_eventObjects_at, handle, (long) index);
+        return new EventObject(__h, false);
     }
     public void resizeEventObjects(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_eventObjects.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_eventObjects, handle, (long) count);
     }
     public java.util.List<EventObject> eventObjectsView() {
         return new java.util.AbstractList<EventObject>() {
@@ -600,17 +537,14 @@ public final class Model implements AutoCloseable {
      * @return the cameras field of this MdxModel.
      */
     public int getCamerasCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_cameras_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_cameras_count, handle);
     }
     public Camera getCamerasAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxModel_get_cameras_at.invoke(handle, (long) index);
-            return new Camera(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_cameras_at, handle, (long) index);
+        return new Camera(__h, false);
     }
     public void resizeCameras(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_cameras.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_cameras, handle, (long) count);
     }
     public java.util.List<Camera> camerasView() {
         return new java.util.AbstractList<Camera>() {
@@ -623,17 +557,14 @@ public final class Model implements AutoCloseable {
      * @return the collisionShapes field of this MdxModel.
      */
     public int getCollisionShapesCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_collisionShapes_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_collisionShapes_count, handle);
     }
     public CollisionShape getCollisionShapesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxModel_get_collisionShapes_at.invoke(handle, (long) index);
-            return new CollisionShape(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_collisionShapes_at, handle, (long) index);
+        return new CollisionShape(__h, false);
     }
     public void resizeCollisionShapes(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_collisionShapes.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_collisionShapes, handle, (long) count);
     }
     public java.util.List<CollisionShape> collisionShapesView() {
         return new java.util.AbstractList<CollisionShape>() {
@@ -646,17 +577,14 @@ public final class Model implements AutoCloseable {
      * @return the faceEffects field of this MdxModel.
      */
     public int getFaceEffectsCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxModel_get_faceEffects_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_faceEffects_count, handle);
     }
     public FaceEffect getFaceEffectsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxModel_get_faceEffects_at.invoke(handle, (long) index);
-            return new FaceEffect(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_get_faceEffects_at, handle, (long) index);
+        return new FaceEffect(__h, false);
     }
     public void resizeFaceEffects(int count) {
-        try { Native.whiteout_mdx_MdxModel_resize_faceEffects.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxModel_resize_faceEffects, handle, (long) count);
     }
     public java.util.List<FaceEffect> faceEffectsView() {
         return new java.util.AbstractList<FaceEffect>() {

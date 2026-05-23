@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.textures.internal.Native;
 
 /**
@@ -40,35 +41,29 @@ public final class JpegWriter implements AutoCloseable {
     }
 
     public JpegWriter() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_JpegWriter_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("JpegWriter allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_JpegWriter_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("JpegWriter allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
-    public static JpegWriter createQualityWriteModePoolProgressive(int quality, JpegWriteMode writeMode, whiteout.interfaces.WorkerPool pool, byte progressive) {
-        try {
-            long __pool_h = pool == null ? 0L
-                : whiteout.host.WorkerPools.resolveNative(pool, pool);
-            MemorySegment __pool_seg = __pool_h == 0L
-                ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
-            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_JpegWriter_new_quality_writeMode_pool_progressive.invoke(quality, writeMode.value, __pool_seg, progressive);
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("JpegWriter allocation failed");
-            return new JpegWriter(__raw, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    public static JpegWriter createQualityPoolProgressive(int quality, whiteout.interfaces.WorkerPool pool, byte progressive) {
+        long __pool_h = pool == null ? 0L
+            : whiteout.host.WorkerPools.resolveNative(pool, pool);
+        MemorySegment __pool_seg = __pool_h == 0L
+            ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_JpegWriter_new_quality_pool_progressive, quality, __pool_seg, progressive);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("JpegWriter allocation failed");
+        return new JpegWriter(__raw, true);
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_textures_JpegWriter_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_textures_JpegWriter_delete, handle);
         }
     }
 
@@ -80,23 +75,21 @@ public final class JpegWriter implements AutoCloseable {
      */
     public byte[] write(Texture texture) {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __struct = (MemorySegment) Native.whiteout_textures_JpegWriter_write.invoke(arena, handle, texture == null ? MemorySegment.NULL : texture.handle);
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_JpegWriter_write, arena, handle, texture == null ? MemorySegment.NULL : texture.handle);
             MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
             long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
             byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_Bytes_free.invoke(__struct);
+            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
             return __out;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
      * @return true if the last write produced any issues.
      */
     public boolean hasIssues() {
-        try {
-        return ((int) Native.whiteout_textures_JpegWriter_hasIssues.invoke(handle)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_textures_JpegWriter_hasIssues, handle)) != 0;
     }
 
     @Override public String toString() {

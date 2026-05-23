@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m2.internal.Native;
 
 /**
@@ -40,31 +41,25 @@ public final class Writer implements AutoCloseable {
     }
 
     public Writer() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m2_M2Writer_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Writer allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Writer_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Writer allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     public static Writer createOptions(WriteOptions options) {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m2_M2Writer_new_options.invoke(options == null ? MemorySegment.NULL : options.handle);
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Writer allocation failed");
-            return new Writer(__raw, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Writer_new_options, options == null ? MemorySegment.NULL : options.handle);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Writer allocation failed");
+        return new Writer(__raw, true);
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m2_M2Writer_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Writer_delete, handle);
         }
     }
 
@@ -84,11 +79,11 @@ public final class Writer implements AutoCloseable {
                 ? MemorySegment.NULL
                 : arena.allocateFrom(filePath, StandardCharsets.UTF_8);
             try {
-                Native.whiteout_m2_M2Writer_write.invoke(handle, __fs_seg, filePath_seg, model == null ? MemorySegment.NULL : model.handle);
+                NativeCommon.invokeNative(Native.whiteout_m2_M2Writer_write, handle, __fs_seg, filePath_seg, model == null ? MemorySegment.NULL : model.handle);
             } finally {
                 java.lang.ref.Reference.reachabilityFence(fs);
             }
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -97,17 +92,15 @@ public final class Writer implements AutoCloseable {
      * @param model Model input.
      */
     public void write(whiteout.interfaces.CascFileSystem cascFs, Model model) {
-        try {
         long __cascFs_h = cascFs == null ? 0L
-            : whiteout.host.CascFileSystems.resolveNative(cascFs, cascFs);
+        : whiteout.host.CascFileSystems.resolveNative(cascFs, cascFs);
         MemorySegment __cascFs_seg = __cascFs_h == 0L
-            ? MemorySegment.NULL : MemorySegment.ofAddress(__cascFs_h);
+        ? MemorySegment.NULL : MemorySegment.ofAddress(__cascFs_h);
         try {
-            Native.whiteout_m2_M2Writer_write_cascFs_model.invoke(handle, __cascFs_seg, model == null ? MemorySegment.NULL : model.handle);
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Writer_write_cascFs_model, handle, __cascFs_seg, model == null ? MemorySegment.NULL : model.handle);
         } finally {
-            java.lang.ref.Reference.reachabilityFence(cascFs);
+        java.lang.ref.Reference.reachabilityFence(cascFs);
         }
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
     /**
@@ -116,10 +109,8 @@ public final class Writer implements AutoCloseable {
      * @return a fresh SerializeResult owning a native allocation.
      */
     public SerializeResult write(Model model) {
-        try {
-        MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Writer_write_model.invoke(handle, model == null ? MemorySegment.NULL : model.handle);
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Writer_write_model, handle, model == null ? MemorySegment.NULL : model.handle);
         return new SerializeResult(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
     /**
@@ -127,9 +118,7 @@ public final class Writer implements AutoCloseable {
      * @return boolean result.
      */
     public boolean hasIssues() {
-        try {
-        return ((int) Native.whiteout_m2_M2Writer_hasIssues.invoke(handle)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_m2_M2Writer_hasIssues, handle)) != 0;
     }
 
     @Override public String toString() {

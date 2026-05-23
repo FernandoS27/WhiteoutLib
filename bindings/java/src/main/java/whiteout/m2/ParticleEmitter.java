@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m2.internal.Native;
 
 /**
@@ -40,22 +41,18 @@ public final class ParticleEmitter implements AutoCloseable {
     }
 
     public ParticleEmitter() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m2_M2ParticleEmitter_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("ParticleEmitter allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("ParticleEmitter allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m2_M2ParticleEmitter_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_delete, handle);
         }
     }
 
@@ -79,8 +76,7 @@ public final class ParticleEmitter implements AutoCloseable {
     }
     public void setPosition(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m2_M2ParticleEmitter_set_position.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_position, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 8L, 12L);
@@ -95,14 +91,14 @@ public final class ParticleEmitter implements AutoCloseable {
     /** @return the particleModelFilename field of this M2ParticleEmitter. */
     public String getParticleModelFilename() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __s = (MemorySegment) Native.whiteout_m2_M2ParticleEmitter_get_particleModelFilename.invoke(arena, handle);
+            MemorySegment __s = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_get_particleModelFilename, arena, handle);
             MemorySegment __chars = __s.get(ValueLayout.ADDRESS, 0);
             long __len = __s.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__chars == null || __chars.equals(MemorySegment.NULL)) return "";
             byte[] __bytes = __chars.reinterpret(__len).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_CString_free.invoke(__s);
+            NativeCommon.invokeNative(Native.whiteout_CString_free, __s);
             return new String(__bytes, StandardCharsets.UTF_8);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
     public void setParticleModelFilename(String value) {
         try (Arena arena = Arena.ofConfined()) {
@@ -110,20 +106,20 @@ public final class ParticleEmitter implements AutoCloseable {
             MemorySegment __seg = arena.allocate(__utf.length + 1);
             MemorySegment.copy(__utf, 0, __seg, ValueLayout.JAVA_BYTE, 0, __utf.length);
             __seg.set(ValueLayout.JAVA_BYTE, __utf.length, (byte) 0);
-            Native.whiteout_m2_M2ParticleEmitter_set_particleModelFilename.invoke(handle, __seg);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_particleModelFilename, handle, __seg);
+        }
     }
     /** @return the childEmittersModelFilename field of this M2ParticleEmitter. */
     public String getChildEmittersModelFilename() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __s = (MemorySegment) Native.whiteout_m2_M2ParticleEmitter_get_childEmittersModelFilename.invoke(arena, handle);
+            MemorySegment __s = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_get_childEmittersModelFilename, arena, handle);
             MemorySegment __chars = __s.get(ValueLayout.ADDRESS, 0);
             long __len = __s.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__chars == null || __chars.equals(MemorySegment.NULL)) return "";
             byte[] __bytes = __chars.reinterpret(__len).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_CString_free.invoke(__s);
+            NativeCommon.invokeNative(Native.whiteout_CString_free, __s);
             return new String(__bytes, StandardCharsets.UTF_8);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
     public void setChildEmittersModelFilename(String value) {
         try (Arena arena = Arena.ofConfined()) {
@@ -131,8 +127,8 @@ public final class ParticleEmitter implements AutoCloseable {
             MemorySegment __seg = arena.allocate(__utf.length + 1);
             MemorySegment.copy(__utf, 0, __seg, ValueLayout.JAVA_BYTE, 0, __utf.length);
             __seg.set(ValueLayout.JAVA_BYTE, __utf.length, (byte) 0);
-            Native.whiteout_m2_M2ParticleEmitter_set_childEmittersModelFilename.invoke(handle, __seg);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_childEmittersModelFilename, handle, __seg);
+        }
     }
     /** @return the blendingType field of this M2ParticleEmitter. */
     public ParticleBlending getBlendingType() {
@@ -178,63 +174,51 @@ public final class ParticleEmitter implements AutoCloseable {
     }
     /** @return the emissionSpeed field of this M2ParticleEmitter. */
     public AnimationTrackF32 getEmissionSpeed() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2ParticleEmitter_get_emissionSpeed.invoke(handle);
-            return new AnimationTrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_get_emissionSpeed, handle);
+        return new AnimationTrackF32(__h, false);
     }
     public void setEmissionSpeed(AnimationTrackF32 value) {
-        try { Native.whiteout_m2_M2ParticleEmitter_set_emissionSpeed.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_emissionSpeed, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the speedVariation field of this M2ParticleEmitter. */
     public AnimationTrackF32 getSpeedVariation() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2ParticleEmitter_get_speedVariation.invoke(handle);
-            return new AnimationTrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_get_speedVariation, handle);
+        return new AnimationTrackF32(__h, false);
     }
     public void setSpeedVariation(AnimationTrackF32 value) {
-        try { Native.whiteout_m2_M2ParticleEmitter_set_speedVariation.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_speedVariation, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the verticalRange field of this M2ParticleEmitter. */
     public AnimationTrackF32 getVerticalRange() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2ParticleEmitter_get_verticalRange.invoke(handle);
-            return new AnimationTrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_get_verticalRange, handle);
+        return new AnimationTrackF32(__h, false);
     }
     public void setVerticalRange(AnimationTrackF32 value) {
-        try { Native.whiteout_m2_M2ParticleEmitter_set_verticalRange.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_verticalRange, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the horizontalRange field of this M2ParticleEmitter. */
     public AnimationTrackF32 getHorizontalRange() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2ParticleEmitter_get_horizontalRange.invoke(handle);
-            return new AnimationTrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_get_horizontalRange, handle);
+        return new AnimationTrackF32(__h, false);
     }
     public void setHorizontalRange(AnimationTrackF32 value) {
-        try { Native.whiteout_m2_M2ParticleEmitter_set_horizontalRange.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_horizontalRange, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the gravity field of this M2ParticleEmitter. */
     public AnimationTrackF32 getGravity() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2ParticleEmitter_get_gravity.invoke(handle);
-            return new AnimationTrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_get_gravity, handle);
+        return new AnimationTrackF32(__h, false);
     }
     public void setGravity(AnimationTrackF32 value) {
-        try { Native.whiteout_m2_M2ParticleEmitter_set_gravity.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_gravity, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the lifespan field of this M2ParticleEmitter. */
     public AnimationTrackF32 getLifespan() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2ParticleEmitter_get_lifespan.invoke(handle);
-            return new AnimationTrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_get_lifespan, handle);
+        return new AnimationTrackF32(__h, false);
     }
     public void setLifespan(AnimationTrackF32 value) {
-        try { Native.whiteout_m2_M2ParticleEmitter_set_lifespan.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_lifespan, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the lifespanVariation field of this M2ParticleEmitter. */
     public float getLifespanVariation() {
@@ -245,13 +229,11 @@ public final class ParticleEmitter implements AutoCloseable {
     }
     /** @return the emissionRate field of this M2ParticleEmitter. */
     public AnimationTrackF32 getEmissionRate() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2ParticleEmitter_get_emissionRate.invoke(handle);
-            return new AnimationTrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_get_emissionRate, handle);
+        return new AnimationTrackF32(__h, false);
     }
     public void setEmissionRate(AnimationTrackF32 value) {
-        try { Native.whiteout_m2_M2ParticleEmitter_set_emissionRate.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_emissionRate, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the emissionRateVariation field of this M2ParticleEmitter. */
     public float getEmissionRateVariation() {
@@ -262,53 +244,43 @@ public final class ParticleEmitter implements AutoCloseable {
     }
     /** @return the emissionAreaWidth field of this M2ParticleEmitter. */
     public AnimationTrackF32 getEmissionAreaWidth() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2ParticleEmitter_get_emissionAreaWidth.invoke(handle);
-            return new AnimationTrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_get_emissionAreaWidth, handle);
+        return new AnimationTrackF32(__h, false);
     }
     public void setEmissionAreaWidth(AnimationTrackF32 value) {
-        try { Native.whiteout_m2_M2ParticleEmitter_set_emissionAreaWidth.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_emissionAreaWidth, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the emissionAreaLength field of this M2ParticleEmitter. */
     public AnimationTrackF32 getEmissionAreaLength() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2ParticleEmitter_get_emissionAreaLength.invoke(handle);
-            return new AnimationTrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_get_emissionAreaLength, handle);
+        return new AnimationTrackF32(__h, false);
     }
     public void setEmissionAreaLength(AnimationTrackF32 value) {
-        try { Native.whiteout_m2_M2ParticleEmitter_set_emissionAreaLength.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_emissionAreaLength, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the zSource field of this M2ParticleEmitter. */
     public AnimationTrackF32 getZSource() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2ParticleEmitter_get_zSource.invoke(handle);
-            return new AnimationTrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_get_zSource, handle);
+        return new AnimationTrackF32(__h, false);
     }
     public void setZSource(AnimationTrackF32 value) {
-        try { Native.whiteout_m2_M2ParticleEmitter_set_zSource.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_zSource, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the colorTrack field of this M2ParticleEmitter. */
     public ParticleAnimationTrackVector3f getColorTrack() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2ParticleEmitter_get_colorTrack.invoke(handle);
-            return new ParticleAnimationTrackVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_get_colorTrack, handle);
+        return new ParticleAnimationTrackVector3f(__h, false);
     }
     public void setColorTrack(ParticleAnimationTrackVector3f value) {
-        try { Native.whiteout_m2_M2ParticleEmitter_set_colorTrack.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_colorTrack, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the scaleTrack field of this M2ParticleEmitter. */
     public ParticleAnimationTrackVector2f getScaleTrack() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2ParticleEmitter_get_scaleTrack.invoke(handle);
-            return new ParticleAnimationTrackVector2f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_get_scaleTrack, handle);
+        return new ParticleAnimationTrackVector2f(__h, false);
     }
     public void setScaleTrack(ParticleAnimationTrackVector2f value) {
-        try { Native.whiteout_m2_M2ParticleEmitter_set_scaleTrack.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_scaleTrack, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the scaleVary field of this M2ParticleEmitter. */
     public Vector2f getScaleVary() {
@@ -316,8 +288,7 @@ public final class ParticleEmitter implements AutoCloseable {
     }
     public void setScaleVary(Vector2f value) {
         if (value == null) {
-            try { Native.whiteout_m2_M2ParticleEmitter_set_scaleVary.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_scaleVary, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 824L, 8L);
@@ -349,8 +320,7 @@ public final class ParticleEmitter implements AutoCloseable {
     }
     public void setTwinkleScale(Vector2f value) {
         if (value == null) {
-            try { Native.whiteout_m2_M2ParticleEmitter_set_twinkleScale.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_twinkleScale, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 940L, 8L);
@@ -403,8 +373,7 @@ public final class ParticleEmitter implements AutoCloseable {
     }
     public void setTumble(Box value) {
         if (value == null) {
-            try { Native.whiteout_m2_M2ParticleEmitter_set_tumble.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_tumble, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(value.handle, 0L, handle, 972L, 24L);
@@ -415,8 +384,7 @@ public final class ParticleEmitter implements AutoCloseable {
     }
     public void setWindVector(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m2_M2ParticleEmitter_set_windVector.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_windVector, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 996L, 12L);
@@ -458,39 +426,33 @@ public final class ParticleEmitter implements AutoCloseable {
     }
     /** @return the splinePoints field of this M2ParticleEmitter. */
     public int getSplinePointsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2ParticleEmitter_get_splinePoints_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_get_splinePoints_count, handle);
     }
     public float[] getSplinePoints() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2ParticleEmitter_get_splinePoints_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2ParticleEmitter_get_splinePoints_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
-            long __scalars = __count * 3L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_get_splinePoints_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_get_splinePoints_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
+        long __scalars = __count * 3L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
     }
     public void setSplinePoints(float[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 3;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
-            Native.whiteout_m2_M2ParticleEmitter_assign_splinePoints.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_assign_splinePoints, handle, __seg, __count);
+        }
     }
     public void resizeSplinePoints(int count) {
-        try { Native.whiteout_m2_M2ParticleEmitter_resize_splinePoints.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_resize_splinePoints, handle, (long) count);
     }
     /** @return the enabledIn field of this M2ParticleEmitter. */
     public AnimationTrackU8 getEnabledIn() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2ParticleEmitter_get_enabledIn.invoke(handle);
-            return new AnimationTrackU8(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_get_enabledIn, handle);
+        return new AnimationTrackU8(__h, false);
     }
     public void setEnabledIn(AnimationTrackU8 value) {
-        try { Native.whiteout_m2_M2ParticleEmitter_set_enabledIn.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_enabledIn, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "ParticleEmitter(" + "particleId=" + getParticleId() + ", " + "flags=" + getFlags() + ", " + "boneId=" + getBoneId() + ", " + "particleModelFilename=" + getParticleModelFilename() + ", " + "childEmittersModelFilename=" + getChildEmittersModelFilename() + ", " + "blendingType=" + getBlendingType() + ", " + "emitterType=" + getEmitterType() + ", " + "particleColorIndex=" + getParticleColorIndex() + ", " + "textureTilerotation=" + getTextureTilerotation() + ", " + "rows=" + getRows() + ", " + "columns=" + getColumns() + ", " + "lifespanVariation=" + getLifespanVariation() + ", " + "emissionRateVariation=" + getEmissionRateVariation() + ", " + "tailLength=" + getTailLength() + ", " + "twinkleSpeed=" + getTwinkleSpeed() + ", " + "twinklePercent=" + getTwinklePercent() + ", " + "inheritVelocityScale=" + getInheritVelocityScale() + ", " + "drag=" + getDrag() + ", " + "baseSpin=" + getBaseSpin() + ", " + "baseSpinVariation=" + getBaseSpinVariation() + ", " + "spinSpeed=" + getSpinSpeed() + ", " + "spinSpeedVariation=" + getSpinSpeedVariation() + ", " + "windTime=" + getWindTime() + ", " + "followSpeed1=" + getFollowSpeed1() + ", " + "followScale1=" + getFollowScale1() + ", " + "followSpeed2=" + getFollowSpeed2() + ", " + "followScale2=" + getFollowScale2() + ")";

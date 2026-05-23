@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m2.internal.Native;
 
 /**
@@ -37,76 +38,62 @@ public final class AnimationTrackU16 implements AutoCloseable {
     }
 
     public AnimationTrackU16() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m2_M2AnimationTrackU16_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("AnimationTrackU16 allocation failed");
-            this.handle = __raw;
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackU16_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("AnimationTrackU16 allocation failed");
+        this.handle = __raw;
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m2_M2AnimationTrackU16_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackU16_delete, handle);
         }
     }
 
     /** @return the interpolationType field of this M2AnimationTrackU16. */
     public InterpolationType getInterpolationType() {
-        try { return InterpolationType.fromInt((int) Native.whiteout_m2_M2AnimationTrackU16_get_interpolationType.invoke(handle)); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return InterpolationType.fromInt((int) NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackU16_get_interpolationType, handle));
     }
     public void setInterpolationType(InterpolationType value) {
-        try { Native.whiteout_m2_M2AnimationTrackU16_set_interpolationType.invoke(handle, value.value); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackU16_set_interpolationType, handle, value.value);
     }
     /** @return the globalSequenceId field of this M2AnimationTrackU16. */
     public short getGlobalSequenceId() {
-        try { return (short) Native.whiteout_m2_M2AnimationTrackU16_get_globalSequenceId.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (short) NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackU16_get_globalSequenceId, handle);
     }
     public void setGlobalSequenceId(short value) {
-        try { Native.whiteout_m2_M2AnimationTrackU16_set_globalSequenceId.invoke(handle, value); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackU16_set_globalSequenceId, handle, value);
     }
     /** @return the timestamps field of this M2AnimationTrackU16. */
     public int getTimestampsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2AnimationTrackU16_get_timestamps_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackU16_get_timestamps_count, handle);
     }
     public int getTimestampsInnerCount(int outerIdx) {
-        try { return (int) (long) Native.whiteout_m2_M2AnimationTrackU16_get_timestamps_inner_count.invoke(handle, (long) outerIdx); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackU16_get_timestamps_inner_count, handle, (long) outerIdx);
     }
     public void resizeTimestamps(int count) {
-        try { Native.whiteout_m2_M2AnimationTrackU16_resize_timestamps.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackU16_resize_timestamps, handle, (long) count);
     }
     public void resizeTimestampsInner(int outerIdx, int innerCount) {
-        try { Native.whiteout_m2_M2AnimationTrackU16_resize_timestamps_inner.invoke(handle, (long) outerIdx, (long) innerCount); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackU16_resize_timestamps_inner, handle, (long) outerIdx, (long) innerCount);
     }
     public int[] getTimestampsAt(int outerIdx) {
-        try {
-            long __count = (long) Native.whiteout_m2_M2AnimationTrackU16_get_timestamps_inner_count.invoke(handle, (long) outerIdx);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2AnimationTrackU16_get_timestamps_inner_data.invoke(handle, (long) outerIdx);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackU16_get_timestamps_inner_count, handle, (long) outerIdx);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackU16_get_timestamps_inner_data, handle, (long) outerIdx);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
     }
     public void setTimestampsAt(int outerIdx, int[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
-            Native.whiteout_m2_M2AnimationTrackU16_assign_timestamps_inner.invoke(handle, (long) outerIdx, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackU16_assign_timestamps_inner, handle, (long) outerIdx, __seg, __count);
+        }
     }
     public java.util.List<int[]> getTimestamps() {
         int __outer = getTimestampsCount();
@@ -120,37 +107,31 @@ public final class AnimationTrackU16 implements AutoCloseable {
     }
     /** @return the values field of this M2AnimationTrackU16. */
     public int getValuesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2AnimationTrackU16_get_values_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackU16_get_values_count, handle);
     }
     public int getValuesInnerCount(int outerIdx) {
-        try { return (int) (long) Native.whiteout_m2_M2AnimationTrackU16_get_values_inner_count.invoke(handle, (long) outerIdx); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackU16_get_values_inner_count, handle, (long) outerIdx);
     }
     public void resizeValues(int count) {
-        try { Native.whiteout_m2_M2AnimationTrackU16_resize_values.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackU16_resize_values, handle, (long) count);
     }
     public void resizeValuesInner(int outerIdx, int innerCount) {
-        try { Native.whiteout_m2_M2AnimationTrackU16_resize_values_inner.invoke(handle, (long) outerIdx, (long) innerCount); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackU16_resize_values_inner, handle, (long) outerIdx, (long) innerCount);
     }
     public short[] getValuesAt(int outerIdx) {
-        try {
-            long __count = (long) Native.whiteout_m2_M2AnimationTrackU16_get_values_inner_count.invoke(handle, (long) outerIdx);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2AnimationTrackU16_get_values_inner_data.invoke(handle, (long) outerIdx);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackU16_get_values_inner_count, handle, (long) outerIdx);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackU16_get_values_inner_data, handle, (long) outerIdx);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setValuesAt(int outerIdx, short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m2_M2AnimationTrackU16_assign_values_inner.invoke(handle, (long) outerIdx, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackU16_assign_values_inner, handle, (long) outerIdx, __seg, __count);
+        }
     }
     public java.util.List<short[]> getValues() {
         int __outer = getValuesCount();

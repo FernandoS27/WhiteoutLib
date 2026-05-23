@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m2.internal.Native;
 
 /**
@@ -40,50 +41,42 @@ public final class SerializeResult implements AutoCloseable {
     }
 
     public SerializeResult() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m2_M2SerializeResult_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("SerializeResult allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2SerializeResult_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("SerializeResult allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m2_M2SerializeResult_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2SerializeResult_delete, handle);
         }
     }
 
     /** @return the m2Data field of this M2SerializeResult. */
     public int getM2DataCount() {
-        try { return (int) (long) Native.whiteout_m2_M2SerializeResult_get_m2Data_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2SerializeResult_get_m2Data_count, handle);
     }
     public byte[] getM2Data() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2SerializeResult_get_m2Data_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2SerializeResult_get_m2Data_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new byte[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 1L).toArray(ValueLayout.JAVA_BYTE);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2SerializeResult_get_m2Data_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2SerializeResult_get_m2Data_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new byte[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 1L).toArray(ValueLayout.JAVA_BYTE);
     }
     public void setM2Data(byte[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 1L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_BYTE, 0, values.length);
-            Native.whiteout_m2_M2SerializeResult_assign_m2Data.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2SerializeResult_assign_m2Data, handle, __seg, __count);
+        }
     }
     public void resizeM2Data(int count) {
-        try { Native.whiteout_m2_M2SerializeResult_resize_m2Data.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2SerializeResult_resize_m2Data, handle, (long) count);
     }
     @Override public String toString() {
         return "SerializeResult@" + Long.toHexString(handle == null ? 0 : handle.address());

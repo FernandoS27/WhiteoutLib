@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.mdx.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class RibbonEmitter implements AutoCloseable {
     }
 
     public RibbonEmitter() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_mdx_MdxRibbonEmitter_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("RibbonEmitter allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxRibbonEmitter_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("RibbonEmitter allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_mdx_MdxRibbonEmitter_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxRibbonEmitter_delete, handle);
         }
     }
 
@@ -69,8 +66,7 @@ public final class RibbonEmitter implements AutoCloseable {
         return new Node(handle.asSlice(0L, 272L), false);
     }
     public void setNode(Node value) {
-        try { Native.whiteout_mdx_MdxRibbonEmitter_set_node.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxRibbonEmitter_set_node, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Height above attachment point
@@ -111,8 +107,7 @@ public final class RibbonEmitter implements AutoCloseable {
     }
     public void setColor(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_mdx_MdxRibbonEmitter_set_color.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxRibbonEmitter_set_color, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 284L, 12L);
@@ -192,78 +187,66 @@ public final class RibbonEmitter implements AutoCloseable {
      * @return the heightAboveTracks field of this MdxRibbonEmitter.
      */
     public TrackF32 getHeightAboveTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxRibbonEmitter_get_heightAboveTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxRibbonEmitter_get_heightAboveTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setHeightAboveTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxRibbonEmitter_set_heightAboveTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxRibbonEmitter_set_heightAboveTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Height below animation
      * @return the heightBelowTracks field of this MdxRibbonEmitter.
      */
     public TrackF32 getHeightBelowTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxRibbonEmitter_get_heightBelowTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxRibbonEmitter_get_heightBelowTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setHeightBelowTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxRibbonEmitter_set_heightBelowTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxRibbonEmitter_set_heightBelowTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Alpha animation
      * @return the alphaTracks field of this MdxRibbonEmitter.
      */
     public TrackF32 getAlphaTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxRibbonEmitter_get_alphaTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxRibbonEmitter_get_alphaTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setAlphaTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxRibbonEmitter_set_alphaTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxRibbonEmitter_set_alphaTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Color animation
      * @return the colorTracks field of this MdxRibbonEmitter.
      */
     public TrackVector3f getColorTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxRibbonEmitter_get_colorTracks.invoke(handle);
-            return new TrackVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxRibbonEmitter_get_colorTracks, handle);
+        return new TrackVector3f(__h, false);
     }
     public void setColorTracks(TrackVector3f value) {
-        try { Native.whiteout_mdx_MdxRibbonEmitter_set_colorTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxRibbonEmitter_set_colorTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Texture slot animation
      * @return the textureSlotTracks field of this MdxRibbonEmitter.
      */
     public TrackU32 getTextureSlotTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxRibbonEmitter_get_textureSlotTracks.invoke(handle);
-            return new TrackU32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxRibbonEmitter_get_textureSlotTracks, handle);
+        return new TrackU32(__h, false);
     }
     public void setTextureSlotTracks(TrackU32 value) {
-        try { Native.whiteout_mdx_MdxRibbonEmitter_set_textureSlotTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxRibbonEmitter_set_textureSlotTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Visibility animation
      * @return the visibilityTracks field of this MdxRibbonEmitter.
      */
     public TrackF32 getVisibilityTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxRibbonEmitter_get_visibilityTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxRibbonEmitter_get_visibilityTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setVisibilityTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxRibbonEmitter_set_visibilityTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxRibbonEmitter_set_visibilityTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "RibbonEmitter(" + "heightAbove=" + getHeightAbove() + ", " + "heightBelow=" + getHeightBelow() + ", " + "alpha=" + getAlpha() + ", " + "lifespan=" + getLifespan() + ", " + "textureSlot=" + getTextureSlot() + ", " + "emissionRate=" + getEmissionRate() + ", " + "rows=" + getRows() + ", " + "columns=" + getColumns() + ", " + "materialId=" + getMaterialId() + ", " + "gravity=" + getGravity() + ")";

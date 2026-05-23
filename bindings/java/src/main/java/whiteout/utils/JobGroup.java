@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.host.internal.Native;
 
 /**
@@ -44,22 +45,18 @@ public final class JobGroup implements AutoCloseable {
     }
 
     public JobGroup() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_host_JobGroup_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("JobGroup allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_host_JobGroup_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("JobGroup allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_host_JobGroup_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_host_JobGroup_delete, handle);
         }
     }
 
@@ -69,9 +66,7 @@ public final class JobGroup implements AutoCloseable {
      * @param n Number of jobs to add to the group.
      */
     public void add(long n) {
-        try {
-        Native.whiteout_host_JobGroup_add.invoke(handle, n);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_host_JobGroup_add, handle, n);
     }
 
     /**
@@ -82,18 +77,14 @@ public final class JobGroup implements AutoCloseable {
      * @note done() calls must be balanced with prior add() calls.
      */
     public void done() {
-        try {
-        Native.whiteout_host_JobGroup_done.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_host_JobGroup_done, handle);
     }
 
     /**
      * Java's Object.wait() is final so the generated wrapper would fail to compile; expose as await(). Block until all pending jobs in the group are completed.
      */
     public void await() {
-        try {
-        Native.whiteout_host_JobGroup_await.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_host_JobGroup_await, handle);
     }
 
     /**
@@ -102,9 +93,7 @@ public final class JobGroup implements AutoCloseable {
      * @return true if pending count is zero, false otherwise.
      */
     public boolean isReady() {
-        try {
-        return ((int) Native.whiteout_host_JobGroup_isReady.invoke(handle)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_host_JobGroup_isReady, handle)) != 0;
     }
 
     @Override public String toString() {

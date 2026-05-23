@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class TextureLayer implements AutoCloseable {
     }
 
     public TextureLayer() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3TextureLayer_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("TextureLayer allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("TextureLayer allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3TextureLayer_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_delete, handle);
         }
     }
 
@@ -77,14 +74,14 @@ public final class TextureLayer implements AutoCloseable {
      */
     public String getTexturePath() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __s = (MemorySegment) Native.whiteout_m3_M3TextureLayer_get_texturePath.invoke(arena, handle);
+            MemorySegment __s = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_get_texturePath, arena, handle);
             MemorySegment __chars = __s.get(ValueLayout.ADDRESS, 0);
             long __len = __s.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__chars == null || __chars.equals(MemorySegment.NULL)) return "";
             byte[] __bytes = __chars.reinterpret(__len).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_CString_free.invoke(__s);
+            NativeCommon.invokeNative(Native.whiteout_CString_free, __s);
             return new String(__bytes, StandardCharsets.UTF_8);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
     public void setTexturePath(String value) {
         try (Arena arena = Arena.ofConfined()) {
@@ -92,21 +89,19 @@ public final class TextureLayer implements AutoCloseable {
             MemorySegment __seg = arena.allocate(__utf.length + 1);
             MemorySegment.copy(__utf, 0, __seg, ValueLayout.JAVA_BYTE, 0, __utf.length);
             __seg.set(ValueLayout.JAVA_BYTE, __utf.length, (byte) 0);
-            Native.whiteout_m3_M3TextureLayer_set_texturePath.invoke(handle, __seg);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_set_texturePath, handle, __seg);
+        }
     }
     /**
      * Animated color tint
      * @return the color field of this M3TextureLayer.
      */
     public AnimRefM3ColorBGRA getColor() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3TextureLayer_get_color.invoke(handle);
-            return new AnimRefM3ColorBGRA(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_get_color, handle);
+        return new AnimRefM3ColorBGRA(__h, false);
     }
     public void setColor(AnimRefM3ColorBGRA value) {
-        try { Native.whiteout_m3_M3TextureLayer_set_color.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_set_color, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Layer flags (wrap, flipbook, video, etc.)
@@ -143,26 +138,22 @@ public final class TextureLayer implements AutoCloseable {
      * @return the rgbMultiply field of this M3TextureLayer.
      */
     public AnimRefF32 getRgbMultiply() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3TextureLayer_get_rgbMultiply.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_get_rgbMultiply, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setRgbMultiply(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3TextureLayer_set_rgbMultiply.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_set_rgbMultiply, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * RGB additive factor
      * @return the rgbAdd field of this M3TextureLayer.
      */
     public AnimRefF32 getRgbAdd() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3TextureLayer_get_rgbAdd.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_get_rgbAdd, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setRgbAdd(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3TextureLayer_set_rgbAdd.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_set_rgbAdd, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * POC texture reference
@@ -259,26 +250,22 @@ public final class TextureLayer implements AutoCloseable {
      * @return the aviPlay field of this M3TextureLayer.
      */
     public AnimRefU32 getAviPlay() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3TextureLayer_get_aviPlay.invoke(handle);
-            return new AnimRefU32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_get_aviPlay, handle);
+        return new AnimRefU32(__h, false);
     }
     public void setAviPlay(AnimRefU32 value) {
-        try { Native.whiteout_m3_M3TextureLayer_set_aviPlay.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_set_aviPlay, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * AVI restart control
      * @return the aviRestart field of this M3TextureLayer.
      */
     public AnimRefU32 getAviRestart() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3TextureLayer_get_aviRestart.invoke(handle);
-            return new AnimRefU32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_get_aviRestart, handle);
+        return new AnimRefU32(__h, false);
     }
     public void setAviRestart(AnimRefU32 value) {
-        try { Native.whiteout_m3_M3TextureLayer_set_aviRestart.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_set_aviRestart, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Flipbook grid rows
@@ -305,117 +292,99 @@ public final class TextureLayer implements AutoCloseable {
      * @return the currentFrame field of this M3TextureLayer.
      */
     public AnimRefU16 getCurrentFrame() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3TextureLayer_get_currentFrame.invoke(handle);
-            return new AnimRefU16(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_get_currentFrame, handle);
+        return new AnimRefU16(__h, false);
     }
     public void setCurrentFrame(AnimRefU16 value) {
-        try { Native.whiteout_m3_M3TextureLayer_set_currentFrame.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_set_currentFrame, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated UV offset
      * @return the uvOffset field of this M3TextureLayer.
      */
     public AnimRefVector2f getUvOffset() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3TextureLayer_get_uvOffset.invoke(handle);
-            return new AnimRefVector2f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_get_uvOffset, handle);
+        return new AnimRefVector2f(__h, false);
     }
     public void setUvOffset(AnimRefVector2f value) {
-        try { Native.whiteout_m3_M3TextureLayer_set_uvOffset.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_set_uvOffset, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated UV rotation angles
      * @return the uvAngle field of this M3TextureLayer.
      */
     public AnimRefVector3f getUvAngle() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3TextureLayer_get_uvAngle.invoke(handle);
-            return new AnimRefVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_get_uvAngle, handle);
+        return new AnimRefVector3f(__h, false);
     }
     public void setUvAngle(AnimRefVector3f value) {
-        try { Native.whiteout_m3_M3TextureLayer_set_uvAngle.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_set_uvAngle, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated UV tiling
      * @return the uvTiling field of this M3TextureLayer.
      */
     public AnimRefVector2f getUvTiling() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3TextureLayer_get_uvTiling.invoke(handle);
-            return new AnimRefVector2f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_get_uvTiling, handle);
+        return new AnimRefVector2f(__h, false);
     }
     public void setUvTiling(AnimRefVector2f value) {
-        try { Native.whiteout_m3_M3TextureLayer_set_uvTiling.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_set_uvTiling, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated W offset (3D textures)
      * @return the wOffset field of this M3TextureLayer.
      */
     public AnimRefF32 getWOffset() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3TextureLayer_get_wOffset.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_get_wOffset, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setWOffset(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3TextureLayer_set_wOffset.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_set_wOffset, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated W tiling (3D textures)
      * @return the wTiling field of this M3TextureLayer.
      */
     public AnimRefF32 getWTiling() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3TextureLayer_get_wTiling.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_get_wTiling, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setWTiling(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3TextureLayer_set_wTiling.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_set_wTiling, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated map alpha
      * @return the mapAlpha field of this M3TextureLayer.
      */
     public AnimRefF32 getMapAlpha() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3TextureLayer_get_mapAlpha.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_get_mapAlpha, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setMapAlpha(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3TextureLayer_set_mapAlpha.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_set_mapAlpha, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Tri-planar UV offset (v23+)
      * @return the triplanarOffset field of this M3TextureLayer.
      */
     public AnimRefVector3f getTriplanarOffset() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3TextureLayer_get_triplanarOffset.invoke(handle);
-            return new AnimRefVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_get_triplanarOffset, handle);
+        return new AnimRefVector3f(__h, false);
     }
     public void setTriplanarOffset(AnimRefVector3f value) {
-        try { Native.whiteout_m3_M3TextureLayer_set_triplanarOffset.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_set_triplanarOffset, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Tri-planar UV scale (v23+)
      * @return the triplanarScale field of this M3TextureLayer.
      */
     public AnimRefVector3f getTriplanarScale() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3TextureLayer_get_triplanarScale.invoke(handle);
-            return new AnimRefVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_get_triplanarScale, handle);
+        return new AnimRefVector3f(__h, false);
     }
     public void setTriplanarScale(AnimRefVector3f value) {
-        try { Native.whiteout_m3_M3TextureLayer_set_triplanarScale.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_set_triplanarScale, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * UV source related field
@@ -476,8 +445,7 @@ public final class TextureLayer implements AutoCloseable {
     }
     public void setFresnelTranslation(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m3_M3TextureLayer_set_fresnelTranslation.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_set_fresnelTranslation, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 456L, 12L);
@@ -491,8 +459,7 @@ public final class TextureLayer implements AutoCloseable {
     }
     public void setFresnelMask(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m3_M3TextureLayer_set_fresnelMask.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_set_fresnelMask, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 468L, 12L);
@@ -506,8 +473,7 @@ public final class TextureLayer implements AutoCloseable {
     }
     public void setFresnelRotation(Vector2f value) {
         if (value == null) {
-            try { Native.whiteout_m3_M3TextureLayer_set_fresnelRotation.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3TextureLayer_set_fresnelRotation, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 480L, 8L);

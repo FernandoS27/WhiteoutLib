@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class Writer implements AutoCloseable {
     }
 
     public Writer() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3Writer_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Writer allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Writer_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Writer allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3Writer_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3Writer_delete, handle);
         }
     }
 
@@ -72,8 +69,8 @@ public final class Writer implements AutoCloseable {
             MemorySegment filePath_seg = filePath == null
                 ? MemorySegment.NULL
                 : arena.allocateFrom(filePath, StandardCharsets.UTF_8);
-            Native.whiteout_m3_M3Writer_write.invoke(handle, filePath_seg, model == null ? MemorySegment.NULL : model.handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3Writer_write, handle, filePath_seg, model == null ? MemorySegment.NULL : model.handle);
+        }
     }
 
     /**
@@ -83,14 +80,14 @@ public final class Writer implements AutoCloseable {
      */
     public byte[] write(Model model) {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __struct = (MemorySegment) Native.whiteout_m3_M3Writer_write_model.invoke(arena, handle, model == null ? MemorySegment.NULL : model.handle);
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Writer_write_model, arena, handle, model == null ? MemorySegment.NULL : model.handle);
             MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
             long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
             byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_Bytes_free.invoke(__struct);
+            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
             return __out;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     @Override public String toString() {

@@ -81,71 +81,6 @@ Uncompressed formats store one pixel per "block"; BCn formats store a 4×4 pixel
         .value("TEXTURE_CUBE_ARRAY", whiteout::textures::TextureType::TextureCubeArray, R"doc(Array of cube maps (6 × arraySize layers).)doc")
     ;
 
-    py::enum_<whiteout::textures::blp::Parser::ParseMode>(m, "BlpParseMode", R"doc(Parsing strictness mode)doc")
-        .value("STRICT", whiteout::textures::blp::Parser::ParseMode::Strict, R"doc(Throw exceptions on invalid data)doc")
-        .value("LENIENT", whiteout::textures::blp::Parser::ParseMode::Lenient, R"doc(Try to recover from errors and log issues (recommended))doc")
-    ;
-
-    py::enum_<whiteout::textures::blp::Writer::WriteMode>(m, "BlpWriteMode", R"doc(Writing strictness mode)doc")
-        .value("STRICT", whiteout::textures::blp::Writer::WriteMode::Strict, R"doc(Throw exceptions on encoding errors)doc")
-        .value("LENIENT", whiteout::textures::blp::Writer::WriteMode::Lenient, R"doc(Log issues and return empty result on errors (recommended))doc")
-    ;
-
-    py::enum_<whiteout::textures::png::Parser::ParseMode>(m, "PngParseMode")
-        .value("STRICT", whiteout::textures::png::Parser::ParseMode::Strict, R"doc(Throw on any issue.)doc")
-        .value("LENIENT", whiteout::textures::png::Parser::ParseMode::Lenient, R"doc(Collect issues, return nullopt on failure.)doc")
-    ;
-
-    py::enum_<whiteout::textures::png::Writer::WriteMode>(m, "PngWriteMode")
-        .value("STRICT", whiteout::textures::png::Writer::WriteMode::Strict, R"doc(Throw on any issue.)doc")
-        .value("LENIENT", whiteout::textures::png::Writer::WriteMode::Lenient, R"doc(Collect issues, return empty data on failure.)doc")
-    ;
-
-    py::enum_<whiteout::textures::jpeg::Parser::ParseMode>(m, "JpegParseMode")
-        .value("STRICT", whiteout::textures::jpeg::Parser::ParseMode::Strict, R"doc(Throw on any issue.)doc")
-        .value("LENIENT", whiteout::textures::jpeg::Parser::ParseMode::Lenient, R"doc(Collect issues, return nullopt on failure.)doc")
-    ;
-
-    py::enum_<whiteout::textures::jpeg::Writer::WriteMode>(m, "JpegWriteMode")
-        .value("STRICT", whiteout::textures::jpeg::Writer::WriteMode::Strict, R"doc(Throw on any issue.)doc")
-        .value("LENIENT", whiteout::textures::jpeg::Writer::WriteMode::Lenient, R"doc(Collect issues, return empty data on failure.)doc")
-    ;
-
-    py::enum_<whiteout::textures::dds::Parser::ParseMode>(m, "DdsParseMode")
-        .value("STRICT", whiteout::textures::dds::Parser::ParseMode::Strict, R"doc(Throw on any issue.)doc")
-        .value("LENIENT", whiteout::textures::dds::Parser::ParseMode::Lenient, R"doc(Collect issues, return nullopt on failure.)doc")
-    ;
-
-    py::enum_<whiteout::textures::dds::Writer::WriteMode>(m, "DdsWriteMode")
-        .value("STRICT", whiteout::textures::dds::Writer::WriteMode::Strict, R"doc(Throw on any issue.)doc")
-        .value("LENIENT", whiteout::textures::dds::Writer::WriteMode::Lenient, R"doc(Collect issues, return empty data on failure.)doc")
-    ;
-
-    py::enum_<whiteout::textures::bmp::Parser::ParseMode>(m, "BmpParseMode")
-        .value("STRICT", whiteout::textures::bmp::Parser::ParseMode::Strict, R"doc(Throw on any issue.)doc")
-        .value("LENIENT", whiteout::textures::bmp::Parser::ParseMode::Lenient, R"doc(Collect issues, return nullopt on failure.)doc")
-    ;
-
-    py::enum_<whiteout::textures::bmp::Writer::WriteMode>(m, "BmpWriteMode")
-        .value("STRICT", whiteout::textures::bmp::Writer::WriteMode::Strict, R"doc(Throw on any issue.)doc")
-        .value("LENIENT", whiteout::textures::bmp::Writer::WriteMode::Lenient, R"doc(Collect issues, return empty data on failure.)doc")
-    ;
-
-    py::enum_<whiteout::textures::tga::Parser::ParseMode>(m, "TgaParseMode")
-        .value("STRICT", whiteout::textures::tga::Parser::ParseMode::Strict, R"doc(Throw on any issue.)doc")
-        .value("LENIENT", whiteout::textures::tga::Parser::ParseMode::Lenient, R"doc(Collect issues, return nullopt on failure.)doc")
-    ;
-
-    py::enum_<whiteout::textures::tga::Writer::WriteMode>(m, "TgaWriteMode")
-        .value("STRICT", whiteout::textures::tga::Writer::WriteMode::Strict, R"doc(Throw on any issue.)doc")
-        .value("LENIENT", whiteout::textures::tga::Writer::WriteMode::Lenient, R"doc(Collect issues, return empty data on failure.)doc")
-    ;
-
-    py::enum_<whiteout::textures::gif::Writer::WriteMode>(m, "GifWriteMode")
-        .value("STRICT", whiteout::textures::gif::Writer::WriteMode::Strict, R"doc(Throw on any issue.)doc")
-        .value("LENIENT", whiteout::textures::gif::Writer::WriteMode::Lenient, R"doc(Collect issues, return empty data on failure.)doc")
-    ;
-
     py::class_<whiteout::textures::png::ApngFrameInfo>(m, "PngApngFrameInfo", R"doc(Per-frame metadata for an animated PNG (APNG).)doc")
         .def(py::init<>())
         .def(py::init([](whiteout::u32 width, whiteout::u32 height, whiteout::u32 x_offset, whiteout::u32 y_offset, whiteout::u32 delay_ms, whiteout::u32 dispose_op, whiteout::u32 blend_op) {
@@ -356,17 +291,16 @@ The new buffer must match the existing allocation size. @param new_data Replacem
 
     py::class_<whiteout::textures::blp::Parser>(m, "BlpParser", R"doc(Parser for BLP texture files
 
-The Parser reads binary BLP files and converts them into the Texture structure. It supports multiple parsing modes and can handle both BLP1 (Warcraft III) and BLP2 (World of Warcraft) variants.
+The Parser reads binary BLP files and converts them into the Texture structure. It can handle both BLP1 (Warcraft III) and BLP2 (World of Warcraft) variants. Parsing is non-throwing — issues are collected via `hasIssues()` / `getIssues()` and `parse()` returns `std::nullopt` on failure.
 
 Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::textures::blp::Parser::ParseMode>(), py::arg("parse_mode"))
         .def("parse",
             [](whiteout::textures::blp::Parser& self, py::bytes __py_bytes_0) {
                 std::string __s_0 = __py_bytes_0;
                 std::span<const whiteout::u8> buffer(reinterpret_cast<const whiteout::u8*>(__s_0.data()), __s_0.size());
                 return self.parse(buffer);
-            }, py::arg("buffer"), R"doc(Parse a BLP file from memory buffer @param buffer Memory buffer containing BLP data @return Parsed texture data, or std::nullopt on failure (in Lenient mode) @throws std::runtime_error If parsing fails in strict mode)doc")
+            }, py::arg("buffer"), R"doc(Parse a BLP file from memory buffer @param buffer Memory buffer containing BLP data @return Parsed texture data, or std::nullopt on failure @throws std::runtime_error If parsing fails in strict mode)doc")
         .def("has_issues", &whiteout::textures::blp::Parser::hasIssues, R"doc(Check if parsing encountered any issues @return True if there were warnings or recoverable errors)doc")
         .def("get_issues", &whiteout::textures::blp::Parser::getIssues, R"doc(Get list of issues encountered during parsing @return Vector of issue description strings)doc")
     ;
@@ -377,7 +311,7 @@ The Writer takes a Texture and encodes it into BLP1 or BLP2 binary format. It su
 
 Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::textures::blp::Writer::WriteMode, whiteout::interfaces::WorkerPool*>(), py::arg("write_mode"), py::arg("pool"))
+        .def(py::init<whiteout::interfaces::WorkerPool*>(), py::arg("pool"))
         .def("write",
             [](whiteout::textures::blp::Writer& self, const whiteout::textures::Texture& texture) {
                 auto __v = self.write(texture);
@@ -392,7 +326,6 @@ Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
 
 Animated PNG (APNG) is supported: `parse()` still returns the single default image, while the animation frames are exposed via `isAnimated()`, `frameCount()`, `frame()`, `frameDelayMs()` and `frameInfo()`.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::textures::png::Parser::ParseMode>(), py::arg("parse_mode"))
         .def("parse",
             [](whiteout::textures::png::Parser& self, py::bytes __py_bytes_0) {
                 std::string __s_0 = __py_bytes_0;
@@ -413,7 +346,6 @@ Animated PNG (APNG) is supported: `parse()` still returns the single default ima
 
 In addition to single-image PNG, the writer can emit an animated PNG (APNG) from a sequence of frames via `writeAnimated()`. Each frame is written full-canvas with no inter-frame optimisation.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::textures::png::Writer::WriteMode>(), py::arg("write_mode"))
         .def("write",
             [](whiteout::textures::png::Writer& self, const whiteout::textures::Texture& texture) {
                 auto __v = self.write(texture);
@@ -434,7 +366,7 @@ All frames must share the same dimensions (frame 0 defines the canvas). Each fra
 
     py::class_<whiteout::textures::jpeg::Parser>(m, "JpegParser", R"doc(Reads a JPEG file or byte buffer and decodes it into a Texture.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::textures::jpeg::Parser::ParseMode, whiteout::interfaces::WorkerPool*>(), py::arg("parse_mode"), py::arg("pool"))
+        .def(py::init<whiteout::interfaces::WorkerPool*>(), py::arg("pool"))
         .def("parse",
             [](whiteout::textures::jpeg::Parser& self, py::bytes __py_bytes_0) {
                 std::string __s_0 = __py_bytes_0;
@@ -447,7 +379,7 @@ All frames must share the same dimensions (frame 0 defines the canvas). Each fra
 
     py::class_<whiteout::textures::jpeg::Writer>(m, "JpegWriter", R"doc(Encodes a Texture into JPEG format.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::i32, whiteout::textures::jpeg::Writer::WriteMode, whiteout::interfaces::WorkerPool*, bool>(), py::arg("quality"), py::arg("write_mode"), py::arg("pool"), py::arg("progressive"))
+        .def(py::init<whiteout::i32, whiteout::interfaces::WorkerPool*, bool>(), py::arg("quality"), py::arg("pool"), py::arg("progressive"))
         .def("write",
             [](whiteout::textures::jpeg::Writer& self, const whiteout::textures::Texture& texture) {
                 auto __v = self.write(texture);
@@ -460,7 +392,6 @@ All frames must share the same dimensions (frame 0 defines the canvas). Each fra
 
     py::class_<whiteout::textures::dds::Parser>(m, "DdsParser", R"doc(Reads a DDS file or byte buffer and decodes it into a Texture.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::textures::dds::Parser::ParseMode>(), py::arg("parse_mode"))
         .def("parse",
             [](whiteout::textures::dds::Parser& self, py::bytes __py_bytes_0) {
                 std::string __s_0 = __py_bytes_0;
@@ -473,7 +404,6 @@ All frames must share the same dimensions (frame 0 defines the canvas). Each fra
 
     py::class_<whiteout::textures::dds::Writer>(m, "DdsWriter", R"doc(Encodes a Texture into DDS format.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::textures::dds::Writer::WriteMode>(), py::arg("write_mode"))
         .def("write",
             [](whiteout::textures::dds::Writer& self, const whiteout::textures::Texture& texture) {
                 auto __v = self.write(texture);
@@ -486,7 +416,6 @@ All frames must share the same dimensions (frame 0 defines the canvas). Each fra
 
     py::class_<whiteout::textures::bmp::Parser>(m, "BmpParser", R"doc(Reads a BMP file or byte buffer and decodes it into a Texture.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::textures::bmp::Parser::ParseMode>(), py::arg("parse_mode"))
         .def("parse",
             [](whiteout::textures::bmp::Parser& self, py::bytes __py_bytes_0) {
                 std::string __s_0 = __py_bytes_0;
@@ -499,7 +428,6 @@ All frames must share the same dimensions (frame 0 defines the canvas). Each fra
 
     py::class_<whiteout::textures::bmp::Writer>(m, "BmpWriter", R"doc(Encodes a Texture into BMP format.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::textures::bmp::Writer::WriteMode>(), py::arg("write_mode"))
         .def("write",
             [](whiteout::textures::bmp::Writer& self, const whiteout::textures::Texture& texture) {
                 auto __v = self.write(texture);
@@ -512,7 +440,6 @@ All frames must share the same dimensions (frame 0 defines the canvas). Each fra
 
     py::class_<whiteout::textures::tga::Parser>(m, "TgaParser", R"doc(Reads a TGA file or byte buffer and decodes it into a Texture.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::textures::tga::Parser::ParseMode>(), py::arg("parse_mode"))
         .def("parse",
             [](whiteout::textures::tga::Parser& self, py::bytes __py_bytes_0) {
                 std::string __s_0 = __py_bytes_0;
@@ -525,7 +452,6 @@ All frames must share the same dimensions (frame 0 defines the canvas). Each fra
 
     py::class_<whiteout::textures::tga::Writer>(m, "TgaWriter", R"doc(Encodes a Texture into TGA format.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::textures::tga::Writer::WriteMode>(), py::arg("write_mode"))
         .def("write",
             [](whiteout::textures::tga::Writer& self, const whiteout::textures::Texture& texture) {
                 auto __v = self.write(texture);
@@ -540,7 +466,7 @@ All frames must share the same dimensions (frame 0 defines the canvas). Each fra
 
 Unlike the single-image writers (BMP, TGA, …), this writer accepts a vector of frames.  It does **not** inherit from `textures::Writer`.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::textures::gif::Writer::WriteMode, whiteout::interfaces::WorkerPool*>(), py::arg("write_mode"), py::arg("pool"))
+        .def(py::init<whiteout::interfaces::WorkerPool*>(), py::arg("pool"))
         .def("write", py::overload_cast<const std::string&, const std::vector<whiteout::textures::Texture>&>(&whiteout::textures::gif::Writer::write), py::arg("filePath"), py::arg("frames"), R"doc(Write frames to a GIF file on disk using default options.)doc")
         .def("write",
             [](whiteout::textures::gif::Writer& self, const std::vector<whiteout::textures::Texture>& frames) {

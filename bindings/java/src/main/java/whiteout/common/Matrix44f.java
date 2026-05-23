@@ -6,6 +6,7 @@ import java.lang.foreign.*;
 import java.lang.invoke.VarHandle;
 import java.util.Objects;
 import whiteout.common.internal.Native;
+import whiteout.common.internal.NativeCommon;
 
 /**
  * A 4×4 row-major single-precision matrix backed by a native C struct (64 bytes of packed `float`). Use {@link #getAt(int,int)} and {@link #setAt(int,int,float)} for element access; static factories ({@link #identity()}, {@link #zero()}, …) wrap the native constructors.
@@ -31,19 +32,16 @@ public final class Matrix44f implements AutoCloseable {
     }
 
     public Matrix44f() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_Matrix44f_new.invoke();
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_new);
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try { Native.whiteout_Matrix44f_delete.invoke(handle); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_Matrix44f_delete, handle);
         }
     }
 
@@ -60,10 +58,8 @@ public final class Matrix44f implements AutoCloseable {
      * @return a fresh Matrix44f owning a native allocation.
      */
     public Matrix44f add(Matrix44f other) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_add.invoke(handle, other.handle);
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_add, handle, other.handle);
+        return new Matrix44f(__h, true);
     }
     /**
      * Component-wise difference.
@@ -71,10 +67,8 @@ public final class Matrix44f implements AutoCloseable {
      * @return a fresh Matrix44f owning a native allocation.
      */
     public Matrix44f sub(Matrix44f other) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_sub.invoke(handle, other.handle);
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_sub, handle, other.handle);
+        return new Matrix44f(__h, true);
     }
     /**
      * Component-wise product (Hamilton product for Quaternion).
@@ -82,10 +76,8 @@ public final class Matrix44f implements AutoCloseable {
      * @return a fresh Matrix44f owning a native allocation.
      */
     public Matrix44f mul(Matrix44f other) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_mul.invoke(handle, other.handle);
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_mul, handle, other.handle);
+        return new Matrix44f(__h, true);
     }
     /**
      * Scale every component by {@code scalar}.
@@ -93,30 +85,24 @@ public final class Matrix44f implements AutoCloseable {
      * @return a fresh Matrix44f owning a native allocation.
      */
     public Matrix44f mulScalar(float scalar) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_mul_scalar.invoke(handle, scalar);
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_mul_scalar, handle, scalar);
+        return new Matrix44f(__h, true);
     }
     /**
      * Identity element (no rotation / identity matrix).
      * @return a fresh Matrix44f owning a native allocation.
      */
     public static Matrix44f identity() {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_identity.invoke();
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_identity);
+        return new Matrix44f(__h, true);
     }
     /**
      * Zero-filled matrix.
      * @return a fresh Matrix44f owning a native allocation.
      */
     public static Matrix44f zero() {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_zero.invoke();
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_zero);
+        return new Matrix44f(__h, true);
     }
     /**
      * Translation matrix moving the origin by {@code t}.
@@ -124,10 +110,8 @@ public final class Matrix44f implements AutoCloseable {
      * @return a fresh Matrix44f owning a native allocation.
      */
     public static Matrix44f translation(Vector3f t) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_translation.invoke(t.handle);
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_translation, t.handle);
+        return new Matrix44f(__h, true);
     }
     /**
      * Rotation matrix equivalent to quaternion {@code q}.
@@ -135,10 +119,8 @@ public final class Matrix44f implements AutoCloseable {
      * @return a fresh Matrix44f owning a native allocation.
      */
     public static Matrix44f rotation(Quaternion q) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_rotation.invoke(q.handle);
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_rotation, q.handle);
+        return new Matrix44f(__h, true);
     }
     /**
      * Scale matrix multiplying components by {@code s}.
@@ -146,10 +128,8 @@ public final class Matrix44f implements AutoCloseable {
      * @return a fresh Matrix44f owning a native allocation.
      */
     public static Matrix44f scaling(Vector3f s) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_scaling.invoke(s.handle);
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_scaling, s.handle);
+        return new Matrix44f(__h, true);
     }
     /**
      * Compose translation, rotation, and scale into a transform matrix.
@@ -159,10 +139,8 @@ public final class Matrix44f implements AutoCloseable {
      * @return a fresh Matrix44f owning a native allocation.
      */
     public static Matrix44f compose(Vector3f translation, Quaternion rotation, Vector3f scale) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_compose.invoke(translation.handle, rotation.handle, scale.handle);
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_compose, translation.handle, rotation.handle, scale.handle);
+        return new Matrix44f(__h, true);
     }
     /**
      * Inverse of this rotation (conjugate / length²).
@@ -170,10 +148,8 @@ public final class Matrix44f implements AutoCloseable {
      * @return a fresh Matrix44f owning a native allocation.
      */
     public static Matrix44f inverse(Matrix44f m) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_inverse.invoke(m.handle);
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_inverse, m.handle);
+        return new Matrix44f(__h, true);
     }
     /**
      * Rotation by {@code angle} radians around the X axis.
@@ -181,10 +157,8 @@ public final class Matrix44f implements AutoCloseable {
      * @return a fresh Matrix44f owning a native allocation.
      */
     public static Matrix44f rotationX(float angle) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_rotation_x.invoke(angle);
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_rotation_x, angle);
+        return new Matrix44f(__h, true);
     }
     /**
      * Rotation by {@code angle} radians around the Y axis.
@@ -192,10 +166,8 @@ public final class Matrix44f implements AutoCloseable {
      * @return a fresh Matrix44f owning a native allocation.
      */
     public static Matrix44f rotationY(float angle) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_rotation_y.invoke(angle);
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_rotation_y, angle);
+        return new Matrix44f(__h, true);
     }
     /**
      * Rotation by {@code angle} radians around the Z axis.
@@ -203,10 +175,8 @@ public final class Matrix44f implements AutoCloseable {
      * @return a fresh Matrix44f owning a native allocation.
      */
     public static Matrix44f rotationZ(float angle) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_rotation_z.invoke(angle);
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_rotation_z, angle);
+        return new Matrix44f(__h, true);
     }
     /**
      * Right-handed view matrix looking from {@code eye} at {@code target} with {@code up}.
@@ -216,10 +186,8 @@ public final class Matrix44f implements AutoCloseable {
      * @return a fresh Matrix44f owning a native allocation.
      */
     public static Matrix44f lookAtRh(Vector3f eye, Vector3f target, Vector3f up) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_look_at_rh.invoke(eye.handle, target.handle, up.handle);
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_look_at_rh, eye.handle, target.handle, up.handle);
+        return new Matrix44f(__h, true);
     }
     /**
      * Left-handed view matrix looking from {@code eye} at {@code target} with {@code up}.
@@ -229,10 +197,8 @@ public final class Matrix44f implements AutoCloseable {
      * @return a fresh Matrix44f owning a native allocation.
      */
     public static Matrix44f lookAtLh(Vector3f eye, Vector3f target, Vector3f up) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_look_at_lh.invoke(eye.handle, target.handle, up.handle);
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_look_at_lh, eye.handle, target.handle, up.handle);
+        return new Matrix44f(__h, true);
     }
     /**
      * Left-handed view matrix with the SgCompat axis convention.
@@ -242,10 +208,8 @@ public final class Matrix44f implements AutoCloseable {
      * @return a fresh Matrix44f owning a native allocation.
      */
     public static Matrix44f lookAtLhSgcompat(Vector3f eye, Vector3f target, Vector3f up) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_look_at_lh_sgcompat.invoke(eye.handle, target.handle, up.handle);
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_look_at_lh_sgcompat, eye.handle, target.handle, up.handle);
+        return new Matrix44f(__h, true);
     }
     /**
      * Right-handed perspective projection with vertical FOV.
@@ -256,10 +220,8 @@ public final class Matrix44f implements AutoCloseable {
      * @return a fresh Matrix44f owning a native allocation.
      */
     public static Matrix44f perspectiveFovRh(float fovY, float aspect, float nearZ, float farZ) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_perspective_fov_rh.invoke(fovY, aspect, nearZ, farZ);
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_perspective_fov_rh, fovY, aspect, nearZ, farZ);
+        return new Matrix44f(__h, true);
     }
     /**
      * Left-handed perspective projection with vertical FOV.
@@ -270,10 +232,8 @@ public final class Matrix44f implements AutoCloseable {
      * @return a fresh Matrix44f owning a native allocation.
      */
     public static Matrix44f perspectiveFovLh(float fovY, float aspect, float nearZ, float farZ) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_perspective_fov_lh.invoke(fovY, aspect, nearZ, farZ);
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_perspective_fov_lh, fovY, aspect, nearZ, farZ);
+        return new Matrix44f(__h, true);
     }
     /**
      * SgCompat-style perspective projection with a diagonal FOV.
@@ -284,10 +244,8 @@ public final class Matrix44f implements AutoCloseable {
      * @return a fresh Matrix44f owning a native allocation.
      */
     public static Matrix44f perspectiveDiagSgcompat(float fovDiagonal, float aspect, float nearZ, float farZ) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_perspective_diag_sgcompat.invoke(fovDiagonal, aspect, nearZ, farZ);
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_perspective_diag_sgcompat, fovDiagonal, aspect, nearZ, farZ);
+        return new Matrix44f(__h, true);
     }
     /**
      * Right-handed orthographic projection of the given size.
@@ -298,50 +256,40 @@ public final class Matrix44f implements AutoCloseable {
      * @return a fresh Matrix44f owning a native allocation.
      */
     public static Matrix44f orthographicRh(float width, float height, float nearZ, float farZ) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_orthographic_rh.invoke(width, height, nearZ, farZ);
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_orthographic_rh, width, height, nearZ, farZ);
+        return new Matrix44f(__h, true);
     }
     /**
      * Transpose this matrix (swap rows and columns).
      * @return a fresh Matrix44f owning a native allocation.
      */
     public Matrix44f transpose() {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_transpose.invoke(handle);
-            return new Matrix44f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_transpose, handle);
+        return new Matrix44f(__h, true);
     }
     /**
      * Translation column of this transform matrix.
      * @return a fresh Vector3f owning a native allocation.
      */
     public Vector3f extractTranslation() {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_extract_translation.invoke(handle);
-            return new Vector3f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_extract_translation, handle);
+        return new Vector3f(__h, true);
     }
     /**
      * Rotation component as a quaternion.
      * @return a fresh Quaternion owning a native allocation.
      */
     public Quaternion extractRotation() {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_extract_rotation.invoke(handle);
-            return new Quaternion(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_extract_rotation, handle);
+        return new Quaternion(__h, true);
     }
     /**
      * Scale components of this transform matrix.
      * @return a fresh Vector3f owning a native allocation.
      */
     public Vector3f extractScale() {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix44f_extract_scale.invoke(handle);
-            return new Vector3f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix44f_extract_scale, handle);
+        return new Vector3f(__h, true);
     }
     @Override
     public String toString() {

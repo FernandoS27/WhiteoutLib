@@ -6,6 +6,7 @@ import java.lang.foreign.*;
 import java.lang.invoke.VarHandle;
 import java.util.Objects;
 import whiteout.common.internal.Native;
+import whiteout.common.internal.NativeCommon;
 
 /**
  * A 4-component single-precision vector backed by a native C struct. Components (`x`, `y`, `z`, `w`) are stored as a packed `float[4]` and accessed directly through VarHandles — no JNI round-trip per `getX()`/`setX()`.
@@ -40,11 +41,9 @@ public final class Vector4f implements AutoCloseable {
     }
 
     public Vector4f() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_Vector4f_new.invoke();
-            this.handle = __raw.reinterpret(LAYOUT.byteSize());
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector4f_new);
+        this.handle = __raw.reinterpret(LAYOUT.byteSize());
+        this.owned = true;
     }
 
     public Vector4f(float x, float y, float z, float w) {
@@ -63,8 +62,7 @@ public final class Vector4f implements AutoCloseable {
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try { Native.whiteout_Vector4f_delete.invoke(handle); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_Vector4f_delete, handle);
         }
     }
 
@@ -82,45 +80,35 @@ public final class Vector4f implements AutoCloseable {
      * @return float result.
      */
     public float dot(Vector4f other) {
-        try {
-            return (float) Native.whiteout_Vector4f_dot.invoke(handle, other.handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (float) NativeCommon.invokeNative(Native.whiteout_Vector4f_dot, handle, other.handle);
     }
     /**
      * Euclidean length (magnitude).
      * @return float result.
      */
     public float length() {
-        try {
-            return (float) Native.whiteout_Vector4f_length.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (float) NativeCommon.invokeNative(Native.whiteout_Vector4f_length, handle);
     }
     /**
      * Squared Euclidean length — avoids the {@code sqrt} of {@link #length()}.
      * @return float result.
      */
     public float lengthSquared() {
-        try {
-            return (float) Native.whiteout_Vector4f_length_squared.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (float) NativeCommon.invokeNative(Native.whiteout_Vector4f_length_squared, handle);
     }
     /**
      * In-place normalize to unit length (no-op when length is zero).
      */
     public void normalize() {
-        try {
-            Native.whiteout_Vector4f_normalize.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_Vector4f_normalize, handle);
     }
     /**
      * A new vector pointing in the same direction with unit length.
      * @return a fresh Vector4f owning a native allocation.
      */
     public Vector4f normalized() {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector4f_normalized.invoke(handle);
-            return new Vector4f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector4f_normalized, handle);
+        return new Vector4f(__h, true);
     }
     /**
      * Component-wise sum.
@@ -128,10 +116,8 @@ public final class Vector4f implements AutoCloseable {
      * @return a fresh Vector4f owning a native allocation.
      */
     public Vector4f add(Vector4f other) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector4f_add.invoke(handle, other.handle);
-            return new Vector4f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector4f_add, handle, other.handle);
+        return new Vector4f(__h, true);
     }
     /**
      * Component-wise difference.
@@ -139,10 +125,8 @@ public final class Vector4f implements AutoCloseable {
      * @return a fresh Vector4f owning a native allocation.
      */
     public Vector4f sub(Vector4f other) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector4f_sub.invoke(handle, other.handle);
-            return new Vector4f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector4f_sub, handle, other.handle);
+        return new Vector4f(__h, true);
     }
     /**
      * Component-wise product (Hamilton product for Quaternion).
@@ -150,10 +134,8 @@ public final class Vector4f implements AutoCloseable {
      * @return a fresh Vector4f owning a native allocation.
      */
     public Vector4f mul(Vector4f other) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector4f_mul.invoke(handle, other.handle);
-            return new Vector4f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector4f_mul, handle, other.handle);
+        return new Vector4f(__h, true);
     }
     /**
      * Component-wise quotient.
@@ -161,10 +143,8 @@ public final class Vector4f implements AutoCloseable {
      * @return a fresh Vector4f owning a native allocation.
      */
     public Vector4f div(Vector4f other) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector4f_div.invoke(handle, other.handle);
-            return new Vector4f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector4f_div, handle, other.handle);
+        return new Vector4f(__h, true);
     }
     /**
      * Scale every component by {@code scalar}.
@@ -172,10 +152,8 @@ public final class Vector4f implements AutoCloseable {
      * @return a fresh Vector4f owning a native allocation.
      */
     public Vector4f mulScalar(float scalar) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector4f_mul_scalar.invoke(handle, scalar);
-            return new Vector4f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector4f_mul_scalar, handle, scalar);
+        return new Vector4f(__h, true);
     }
     /**
      * Divide every component by {@code scalar}.
@@ -183,20 +161,16 @@ public final class Vector4f implements AutoCloseable {
      * @return a fresh Vector4f owning a native allocation.
      */
     public Vector4f divScalar(float scalar) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector4f_div_scalar.invoke(handle, scalar);
-            return new Vector4f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector4f_div_scalar, handle, scalar);
+        return new Vector4f(__h, true);
     }
     /**
      * Component-wise negation.
      * @return a fresh Vector4f owning a native allocation.
      */
     public Vector4f negate() {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector4f_negate.invoke(handle);
-            return new Vector4f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector4f_negate, handle);
+        return new Vector4f(__h, true);
     }
     /**
      * Linear interpolation from {@code start} to {@code end} by {@code t} ∈ [0, 1].
@@ -206,10 +180,8 @@ public final class Vector4f implements AutoCloseable {
      * @return a fresh Vector4f owning a native allocation.
      */
     public static Vector4f lerp(Vector4f start, Vector4f end, float t) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector4f_lerp.invoke(start.handle, end.handle, t);
-            return new Vector4f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector4f_lerp, start.handle, end.handle, t);
+        return new Vector4f(__h, true);
     }
     /**
      * Kochanek–Bartels in-tangent for the {@code current} keyframe.
@@ -222,10 +194,8 @@ public final class Vector4f implements AutoCloseable {
      * @return a fresh Vector4f owning a native allocation.
      */
     public static Vector4f tcbInTangent(Vector4f prev, Vector4f current, Vector4f next, float tension, float continuity, float bias) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector4f_tcb_in_tangent.invoke(prev.handle, current.handle, next.handle, tension, continuity, bias);
-            return new Vector4f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector4f_tcb_in_tangent, prev.handle, current.handle, next.handle, tension, continuity, bias);
+        return new Vector4f(__h, true);
     }
     /**
      * Kochanek–Bartels out-tangent for the {@code current} keyframe.
@@ -238,10 +208,8 @@ public final class Vector4f implements AutoCloseable {
      * @return a fresh Vector4f owning a native allocation.
      */
     public static Vector4f tcbOutTangent(Vector4f prev, Vector4f current, Vector4f next, float tension, float continuity, float bias) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector4f_tcb_out_tangent.invoke(prev.handle, current.handle, next.handle, tension, continuity, bias);
-            return new Vector4f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector4f_tcb_out_tangent, prev.handle, current.handle, next.handle, tension, continuity, bias);
+        return new Vector4f(__h, true);
     }
     /**
      * Cubic Bézier interpolation across four control points.
@@ -253,10 +221,8 @@ public final class Vector4f implements AutoCloseable {
      * @return a fresh Vector4f owning a native allocation.
      */
     public static Vector4f bezierLerp(Vector4f start, Vector4f outtan, Vector4f intan, Vector4f end, float t) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector4f_bezier_lerp.invoke(start.handle, outtan.handle, intan.handle, end.handle, t);
-            return new Vector4f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector4f_bezier_lerp, start.handle, outtan.handle, intan.handle, end.handle, t);
+        return new Vector4f(__h, true);
     }
     /**
      * Catmull–Rom / cubic Hermite interpolation.
@@ -268,18 +234,15 @@ public final class Vector4f implements AutoCloseable {
      * @return a fresh Vector4f owning a native allocation.
      */
     public static Vector4f hermiteLerp(Vector4f prev, Vector4f start, Vector4f end, Vector4f next, float t) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Vector4f_hermite_lerp.invoke(prev.handle, start.handle, end.handle, next.handle, t);
-            return new Vector4f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Vector4f_hermite_lerp, prev.handle, start.handle, end.handle, next.handle, t);
+        return new Vector4f(__h, true);
     }
     @Override
     public boolean equals(Object o) {
         if (o == this) return true;
         if (!(o instanceof Vector4f)) return false;
         Vector4f __other = (Vector4f) o;
-        try { return ((int) Native.whiteout_Vector4f_equals.invoke(handle, __other.handle)) != 0; }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_Vector4f_equals, handle, __other.handle)) != 0;
     }
 
     @Override

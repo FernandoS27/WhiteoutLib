@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m2.internal.Native;
 
 /**
@@ -40,44 +41,36 @@ public final class ColorAnimation implements AutoCloseable {
     }
 
     public ColorAnimation() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m2_M2ColorAnimation_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("ColorAnimation allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2ColorAnimation_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("ColorAnimation allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m2_M2ColorAnimation_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2ColorAnimation_delete, handle);
         }
     }
 
     /** @return the color field of this M2ColorAnimation. */
     public AnimationTrackVector3f getColor() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2ColorAnimation_get_color.invoke(handle);
-            return new AnimationTrackVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2ColorAnimation_get_color, handle);
+        return new AnimationTrackVector3f(__h, false);
     }
     public void setColor(AnimationTrackVector3f value) {
-        try { Native.whiteout_m2_M2ColorAnimation_set_color.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2ColorAnimation_set_color, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the alpha field of this M2ColorAnimation. */
     public AnimationTrackI16 getAlpha() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2ColorAnimation_get_alpha.invoke(handle);
-            return new AnimationTrackI16(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2ColorAnimation_get_alpha, handle);
+        return new AnimationTrackI16(__h, false);
     }
     public void setAlpha(AnimationTrackI16 value) {
-        try { Native.whiteout_m2_M2ColorAnimation_set_alpha.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2ColorAnimation_set_alpha, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "ColorAnimation@" + Long.toHexString(handle == null ? 0 : handle.address());

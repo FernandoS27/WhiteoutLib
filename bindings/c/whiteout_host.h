@@ -56,7 +56,7 @@ typedef struct whiteout_BlizzardGameFinder whiteout_BlizzardGameFinder;
 
 /* ── WorkerPool ─────────────────────────────────────────────── */
 
-/* abstract opaque base. Concrete impl: utils::SimpleThreadPool. */
+/* java_package=whiteout.utils — abstract opaque base. Concrete impl: utils::SimpleThreadPool. */
 void whiteout_host_WorkerPool_delete(whiteout_WorkerPool* self);
 
 /* Block until every submitted task has completed. */
@@ -66,7 +66,7 @@ uint64_t whiteout_host_WorkerPool_threadCount(const whiteout_WorkerPool* self);
 
 /* ── CascFileSystem ─────────────────────────────────────────────── */
 
-/* abstract file system that resolves files by numeric data ID (e.g. CASC). */
+/* java_package=whiteout.utils — abstract file system that resolves files by numeric data ID (e.g. CASC). */
 void whiteout_host_CascFileSystem_delete(whiteout_CascFileSystem* self);
 
 /* Read the entire contents of a file by its numeric data ID. */
@@ -78,7 +78,7 @@ int32_t whiteout_host_CascFileSystem_fileExists(const whiteout_CascFileSystem* s
 
 /* ── VirtualPathFileSystem ─────────────────────────────────────────────── */
 
-/* abstract base. Concrete impl: utils::OsFileSystem. */
+/* java_package=whiteout.utils — abstract base. Concrete impl: utils::OsFileSystem. */
 void whiteout_host_VirtualPathFileSystem_delete(whiteout_VirtualPathFileSystem* self);
 
 /* Read the entire contents of a file into a byte vector. */
@@ -112,7 +112,9 @@ void whiteout_host_HttpResponse_set_error(whiteout_HttpResponse* self, const cha
 /*  */
 /* Both methods are pure virtual — async support is mandatory. The handler invokes @p callback exactly once when the request completes (or fails). The callback may be invoked from any thread. */
 /*  */
-/* Thread safety: methods may be called concurrently from multiple WorkerPool threads.  The implementation must be thread-safe. abstract opaque base. Concrete impl: utils::SimpleHttpHandler. */
+/* Thread safety: methods may be called concurrently from multiple WorkerPool threads.  The implementation must be thread-safe. */
+/*  */
+/* java_package=whiteout.utils — abstract opaque base. Concrete impl: utils::SimpleHttpHandler. */
 void whiteout_host_HttpHandler_delete(whiteout_HttpHandler* self);
 
 /* Reported handler capability flags. */
@@ -125,6 +127,8 @@ uint32_t whiteout_host_HttpHandler_capabilities(const whiteout_HttpHandler* self
 /* All paths passed to readFile() / fileExists() are resolved relative to the root directory supplied at construction time. */
 /*  */
 /* Example: utils::OsFileSystem fs("C:/Games/Warcraft III/Data"); auto data = fs.readFile("units/human/arthas/arthas.mdx"); */
+/*  */
+/* java_package=whiteout.utils */
 whiteout_OsFileSystem* whiteout_host_OsFileSystem_new_rootPath(const char* rootPath);
 void whiteout_host_OsFileSystem_delete(whiteout_OsFileSystem* self);
 

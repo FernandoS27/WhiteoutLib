@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.textures.internal.Native;
 
 /**
@@ -42,31 +43,18 @@ public final class PngWriter implements AutoCloseable {
     }
 
     public PngWriter() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_PngWriter_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("PngWriter allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
-    }
-
-    public static PngWriter createWriteMode(PngWriteMode writeMode) {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_PngWriter_new_writeMode.invoke(writeMode.value);
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("PngWriter allocation failed");
-            return new PngWriter(__raw, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_PngWriter_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("PngWriter allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_textures_PngWriter_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_textures_PngWriter_delete, handle);
         }
     }
 
@@ -78,14 +66,14 @@ public final class PngWriter implements AutoCloseable {
      */
     public byte[] write(Texture texture) {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __struct = (MemorySegment) Native.whiteout_textures_PngWriter_write.invoke(arena, handle, texture == null ? MemorySegment.NULL : texture.handle);
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_PngWriter_write, arena, handle, texture == null ? MemorySegment.NULL : texture.handle);
             MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
             long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
             byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_Bytes_free.invoke(__struct);
+            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
             return __out;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -108,23 +96,21 @@ public final class PngWriter implements AutoCloseable {
                         frames[__i] == null ? MemorySegment.NULL : frames[__i].handle);
                 }
             }
-            MemorySegment __struct = (MemorySegment) Native.whiteout_textures_PngWriter_writeAnimated.invoke(arena, handle, frames_seg, (long) (frames == null ? 0 : frames.length), opts == null ? MemorySegment.NULL : opts.handle);
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_PngWriter_writeAnimated, arena, handle, frames_seg, (long) (frames == null ? 0 : frames.length), opts == null ? MemorySegment.NULL : opts.handle);
             MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
             long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
             byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_Bytes_free.invoke(__struct);
+            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
             return __out;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
      * @return true if the last write produced any issues.
      */
     public boolean hasIssues() {
-        try {
-        return ((int) Native.whiteout_textures_PngWriter_hasIssues.invoke(handle)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_textures_PngWriter_hasIssues, handle)) != 0;
     }
 
     @Override public String toString() {

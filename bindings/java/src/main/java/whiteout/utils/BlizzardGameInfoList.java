@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.host.internal.Native;
 
 /**
@@ -43,9 +44,7 @@ public final class BlizzardGameInfoList implements AutoCloseable {
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_host_BlizzardGameInfoList_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_host_BlizzardGameInfoList_delete, handle);
         }
     }
 
@@ -54,9 +53,7 @@ public final class BlizzardGameInfoList implements AutoCloseable {
      * @return long result.
      */
     public long size() {
-        try {
-        return (long) Native.whiteout_host_BlizzardGameInfoList_size.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (long) NativeCommon.invokeNative(Native.whiteout_host_BlizzardGameInfoList_size, handle);
     }
 
     /**
@@ -66,10 +63,8 @@ public final class BlizzardGameInfoList implements AutoCloseable {
      * @return a fresh BlizzardGameInfo owning a native allocation.
      */
     public BlizzardGameInfo at(long index) {
-        try {
-        MemorySegment __h = (MemorySegment) Native.whiteout_host_BlizzardGameInfoList_at.invoke(handle, index);
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_host_BlizzardGameInfoList_at, handle, index);
         return new BlizzardGameInfo(__h, false);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
     @Override public String toString() {

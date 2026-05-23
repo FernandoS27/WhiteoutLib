@@ -29,6 +29,8 @@
 #include <whiteout/models/m2/structures/extensions.h>
 #include <whiteout/models/m2/structures/skin.h>
 #include <whiteout/models/m2/structures.h>
+#include <whiteout/models/m2/parser.h>
+#include <whiteout/models/m2/writer.h>
 
 
 namespace {
@@ -634,6 +636,45 @@ EMSCRIPTEN_BINDINGS(m2) {
         .property("physicsCollision", &whiteout::m2::Model::physicsCollision)
         .property("dpivData", &whiteout::m2::Model::dpivData)
         .property("texturedLightEntries", &whiteout::m2::Model::texturedLightEntries)
+    ;
+
+    class_<whiteout::m2::Parser>("M2Parser")
+        .constructor<>()
+        .function("parse", select_overload<whiteout::m2::Model(interfaces::VirtualPathFileSystem &, const std::string &)>(&whiteout::m2::Parser::parse))
+        .function("parse_cascFs_buffer",
+                  optional_override([](
+                      whiteout::m2::Parser& self,
+                      whiteout::interfaces::CascFileSystem cascFs,
+                      const emscripten::val& __js_arr_1) {
+                      auto __vec_1 = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_arr_1);
+                      std::span<const whiteout::u8> buffer(__vec_1.data(), __vec_1.size());
+                      return self.parse(cascFs, buffer);
+                  }))
+        .function("hasIssues", &whiteout::m2::Parser::hasIssues)
+        .function("getIssues", &whiteout::m2::Parser::getIssues)
+    ;
+
+    class_<whiteout::m2::WriteOptions>("M2WriteOptions")
+        .constructor<>()
+        .property("m2Version", &whiteout::m2::WriteOptions::m2Version)
+        .property("emitSkeleton", &whiteout::m2::WriteOptions::emitSkeleton)
+        .property("baseStem", &whiteout::m2::WriteOptions::baseStem)
+    ;
+
+    class_<whiteout::m2::M2SerializeResult>("M2SerializeResult")
+        .constructor<>()
+        .property("m2Data", &whiteout::m2::M2SerializeResult::m2Data)
+        .property("skeletonData", &whiteout::m2::M2SerializeResult::skeletonData)
+    ;
+
+    class_<whiteout::m2::Writer>("M2Writer")
+        .constructor<>()
+        .constructor<whiteout::m2::WriteOptions>()
+        .function("write", select_overload<void(interfaces::VirtualPathFileSystem &, const std::string &, const Model &)>(&whiteout::m2::Writer::write))
+        .function("write_cascFs_model", select_overload<void(interfaces::CascFileSystem &, const Model &)>(&whiteout::m2::Writer::write))
+        .function("write_model", select_overload<whiteout::m2::M2SerializeResult(const Model &)>(&whiteout::m2::Writer::write))
+        .function("hasIssues", &whiteout::m2::Writer::hasIssues)
+        .function("getIssues", &whiteout::m2::Writer::getIssues)
     ;
 
     class_<whiteout::m2::AnimationTrack<whiteout::Vector3f>>("M2AnimationTrackVector3f")

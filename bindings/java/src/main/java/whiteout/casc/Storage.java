@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.casc.internal.Native;
 
 /**
@@ -51,9 +52,7 @@ public final class Storage implements AutoCloseable {
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_casc_CascStorage_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_delete, handle);
         }
     }
 
@@ -73,13 +72,13 @@ public final class Storage implements AutoCloseable {
             MemorySegment __pool_seg = __pool_h == 0L
                 ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
             try {
-                MemorySegment __h = (MemorySegment) Native.whiteout_casc_CascStorage_open.invoke(path_seg, __pool_seg);
+                MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_open, path_seg, __pool_seg);
                 if (__h == null || __h.equals(MemorySegment.NULL)) return java.util.Optional.empty();
                 return java.util.Optional.of(new Storage(__h, true));
             } finally {
                 java.lang.ref.Reference.reachabilityFence(pool);
             }
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -100,49 +99,41 @@ public final class Storage implements AutoCloseable {
             MemorySegment __pool_seg = __pool_h == 0L
                 ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
             try {
-                MemorySegment __h = (MemorySegment) Native.whiteout_casc_CascStorage_open_path_localeMask_pool.invoke(path_seg, localeMask, __pool_seg);
+                MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_open_path_localeMask_pool, path_seg, localeMask, __pool_seg);
                 if (__h == null || __h.equals(MemorySegment.NULL)) return java.util.Optional.empty();
                 return java.util.Optional.of(new Storage(__h, true));
             } finally {
                 java.lang.ref.Reference.reachabilityFence(pool);
             }
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
      * @return True if this storage reads from local disk.
      */
     public boolean isLocal() {
-        try {
-        return ((int) Native.whiteout_casc_CascStorage_isLocal.invoke(handle)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_isLocal, handle)) != 0;
     }
 
     /**
      * @return True if this storage reads from CDN.
      */
     public boolean isOnline() {
-        try {
-        return ((int) Native.whiteout_casc_CascStorage_isOnline.invoke(handle)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_isOnline, handle)) != 0;
     }
 
     /**
      * @return True if this storage has a write overlay (StorageWritable).
      */
     public boolean isWritable() {
-        try {
-        return ((int) Native.whiteout_casc_CascStorage_isWritable.invoke(handle)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_isWritable, handle)) != 0;
     }
 
     /**
      * @return The root manifest format, or RootFormat::Unknown.
      */
     public RootFormat rootFormat() {
-        try {
-        return RootFormat.fromInt((int) Native.whiteout_casc_CascStorage_rootFormat.invoke(handle));
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return RootFormat.fromInt((int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_rootFormat, handle));
     }
 
     /**
@@ -155,14 +146,14 @@ public final class Storage implements AutoCloseable {
             MemorySegment cascPath_seg = cascPath == null
                 ? MemorySegment.NULL
                 : arena.allocateFrom(cascPath, StandardCharsets.UTF_8);
-            MemorySegment __struct = (MemorySegment) Native.whiteout_casc_CascStorage_readFile.invoke(arena, handle, cascPath_seg);
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_readFile, arena, handle, cascPath_seg);
             MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
             long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
             byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_Bytes_free.invoke(__struct);
+            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
             return __out;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -178,14 +169,14 @@ public final class Storage implements AutoCloseable {
             MemorySegment cascPath_seg = cascPath == null
                 ? MemorySegment.NULL
                 : arena.allocateFrom(cascPath, StandardCharsets.UTF_8);
-            MemorySegment __struct = (MemorySegment) Native.whiteout_casc_CascStorage_readFile_cascPath_localeFlags_openFlags.invoke(arena, handle, cascPath_seg, localeFlags, openFlags);
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_readFile_cascPath_localeFlags_openFlags, arena, handle, cascPath_seg, localeFlags, openFlags);
             MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
             long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
             byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_Bytes_free.invoke(__struct);
+            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
             return __out;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -197,14 +188,14 @@ public final class Storage implements AutoCloseable {
      */
     public byte[] readFile(int fileId, FileIdHint hint) {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __struct = (MemorySegment) Native.whiteout_casc_CascStorage_readFile_fileId_hint.invoke(arena, handle, fileId, hint.value);
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_readFile_fileId_hint, arena, handle, fileId, hint.value);
             MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
             long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
             byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_Bytes_free.invoke(__struct);
+            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
             return __out;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -218,14 +209,14 @@ public final class Storage implements AutoCloseable {
      */
     public byte[] readFile(int fileId, int localeFlags, int openFlags, FileIdHint hint) {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __struct = (MemorySegment) Native.whiteout_casc_CascStorage_readFile_fileId_localeFlags_openFlags_hint.invoke(arena, handle, fileId, localeFlags, openFlags, hint.value);
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_readFile_fileId_localeFlags_openFlags_hint, arena, handle, fileId, localeFlags, openFlags, hint.value);
             MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
             long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
             byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_Bytes_free.invoke(__struct);
+            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
             return __out;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -238,8 +229,8 @@ public final class Storage implements AutoCloseable {
             MemorySegment cascPath_seg = cascPath == null
                 ? MemorySegment.NULL
                 : arena.allocateFrom(cascPath, StandardCharsets.UTF_8);
-            return ((int) Native.whiteout_casc_CascStorage_fileExists.invoke(handle, cascPath_seg)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            return ((int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_fileExists, handle, cascPath_seg)) != 0;
+        }
     }
 
     /**
@@ -250,9 +241,7 @@ public final class Storage implements AutoCloseable {
      * @return boolean result.
      */
     public boolean fileExists(int fileId, FileIdHint hint) {
-        try {
-        return ((int) Native.whiteout_casc_CascStorage_fileExists_fileId_hint.invoke(handle, fileId, hint.value)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_fileExists_fileId_hint, handle, fileId, hint.value)) != 0;
     }
 
     /**
@@ -266,8 +255,8 @@ public final class Storage implements AutoCloseable {
             MemorySegment keyList_seg = keyList == null
                 ? MemorySegment.NULL
                 : arena.allocateFrom(keyList, StandardCharsets.UTF_8);
-            return ((int) Native.whiteout_casc_CascStorage_importKeysFromString.invoke(handle, keyList_seg)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            return ((int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_importKeysFromString, handle, keyList_seg)) != 0;
+        }
     }
 
     /**
@@ -281,17 +270,15 @@ public final class Storage implements AutoCloseable {
             MemorySegment keyFilePath_seg = keyFilePath == null
                 ? MemorySegment.NULL
                 : arena.allocateFrom(keyFilePath, StandardCharsets.UTF_8);
-            return ((int) Native.whiteout_casc_CascStorage_importKeysFromFile.invoke(handle, keyFilePath_seg)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            return ((int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_importKeysFromFile, handle, keyFilePath_seg)) != 0;
+        }
     }
 
     /**
      * Clear the in-memory decoded-data cache (container cache).
      */
     public void flushCache() {
-        try {
-        Native.whiteout_casc_CascStorage_flushCache.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_flushCache, handle);
     }
 
     /**
@@ -299,18 +286,14 @@ public final class Storage implements AutoCloseable {
      * @return boolean result.
      */
     public boolean prefetch() {
-        try {
-        return ((int) Native.whiteout_casc_CascStorage_prefetch.invoke(handle)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_prefetch, handle)) != 0;
     }
 
     /**
      * @return Last error code (thread-local).
      */
     public static int lastError() {
-        try {
-        return (int) Native.whiteout_casc_CascStorage_lastError.invoke();
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_lastError);
     }
 
     @Override public String toString() {

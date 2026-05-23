@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m2.internal.Native;
 
 /**
@@ -40,37 +41,30 @@ public final class EdgeFadeData implements AutoCloseable {
     }
 
     public EdgeFadeData() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m2_M2EdgeFadeData_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("EdgeFadeData allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2EdgeFadeData_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("EdgeFadeData allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m2_M2EdgeFadeData_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2EdgeFadeData_delete, handle);
         }
     }
 
     /** @return the value0 field of this M2EdgeFadeData. */
     public int getValue0Count() {
-        try { return (int) (long) Native.whiteout_m2_M2EdgeFadeData_value0_size.invoke(); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2EdgeFadeData_value0_size);
     }
     public float getValue0At(int index) {
-        try { return (float) Native.whiteout_m2_M2EdgeFadeData_get_value0_at.invoke(handle, (long) index); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (float) NativeCommon.invokeNative(Native.whiteout_m2_M2EdgeFadeData_get_value0_at, handle, (long) index);
     }
     public void setValue0At(int index, float value) {
-        try { Native.whiteout_m2_M2EdgeFadeData_set_value0_at.invoke(handle, (long) index, value); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2EdgeFadeData_set_value0_at, handle, (long) index, value);
     }
     /** @return the value8 field of this M2EdgeFadeData. */
     public float getValue8() {
@@ -81,16 +75,13 @@ public final class EdgeFadeData implements AutoCloseable {
     }
     /** @return the valueC field of this M2EdgeFadeData. */
     public int getValueCCount() {
-        try { return (int) (long) Native.whiteout_m2_M2EdgeFadeData_valueC_size.invoke(); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2EdgeFadeData_valueC_size);
     }
     public byte getValueCAt(int index) {
-        try { return (byte) Native.whiteout_m2_M2EdgeFadeData_get_valueC_at.invoke(handle, (long) index); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (byte) NativeCommon.invokeNative(Native.whiteout_m2_M2EdgeFadeData_get_valueC_at, handle, (long) index);
     }
     public void setValueCAt(int index, byte value) {
-        try { Native.whiteout_m2_M2EdgeFadeData_set_valueC_at.invoke(handle, (long) index, value); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2EdgeFadeData_set_valueC_at, handle, (long) index, value);
     }
     @Override public String toString() {
         return "EdgeFadeData(" + "value8=" + getValue8() + ")";

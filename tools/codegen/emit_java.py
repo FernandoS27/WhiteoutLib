@@ -25,6 +25,7 @@ needed â€” we already understand the C++ surface via libclang.
 
 from __future__ import annotations
 
+import re
 from io import StringIO
 from .ir import (
     BindClass, BindEnum, BindField, BindMethod, BindMethodParam, BindModule,
@@ -411,6 +412,171 @@ def _param_javadoc_type(p, module: BindModule,
 # â”€â”€ whiteout.common emit (shared math types) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
+# ── Try/catch elision post-processor ────────────────────────────────────────
+#
+# The C library is exception-free, so every generated wrapper's `try { ... }
+# catch (Throwable __ex) { throw new RuntimeException(__ex); }` is dead code.
+# Java still forces handling because `MethodHandle.invoke(...)` declares
+# `throws Throwable`, so each `Native.X.invoke(args)` call is rewritten to
+# `NativeCommon.invokeNative(Native.X, args)` (which handles the rethrow in
+# one place) and the surrounding try/catch is removed.
+#
+# NativeCommon.java keeps its own try/catch (it defines `invokeNative`); and
+# the static initialiser in `Handles.java` catches `ReflectiveOperationException`
+# from `MethodHandles.privateLookupIn` / `findVarHandle` — both are required
+# by Java's checked-exception type system and aren't touched by the
+# Throwable-only patterns below.
+
+_INVOKE_PATTERN = re.compile(r'(Native\.\w+|CTOR_\w+)\.invoke\(')
+
+
+def _route_through_invoke_native(java: str) -> str:
+    """Rewrite every `Native.X.invoke(args)` → `NativeCommon.invokeNative(Native.X, args)`,
+    handling nested parentheses in the argument expressions."""
+    out: list[str] = []
+    i = 0
+    while i < len(java):
+        m = _INVOKE_PATTERN.search(java, i)
+        if not m:
+            out.append(java[i:])
+            break
+        handle_expr = m.group(1)
+        out.append(java[i:m.start()])
+        # Scan forward to the matching close-paren for the `.invoke(`.
+        depth = 1
+        j = m.end()
+        while j < len(java) and depth:
+            c = java[j]
+            if c == '(':
+                depth += 1
+            elif c == ')':
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        if j >= len(java):
+            # Unterminated — bail out unchanged.
+            out.append(java[m.start():])
+            break
+        args = java[m.end():j].strip()
+        if args:
+            out.append(f'NativeCommon.invokeNative({handle_expr}, {args})')
+        else:
+            out.append(f'NativeCommon.invokeNative({handle_expr})')
+        i = j + 1
+    return ''.join(out)
+
+
+# Multi-line: `<indent>try {<NL>...body...<NL><indent>} catch (Throwable __ex) ...<NL>`.
+# The body's negative lookahead skips lines containing *any* `} catch (` so we
+# never match across a nested try (e.g. the static initialiser's
+# ReflectiveOperationException catch).
+_TRY_THROWABLE_MULTI = re.compile(
+    r'^([ \t]*)try \{\n'
+    r'((?:(?!^[ \t]*\} catch \().*\n)*?)'
+    r'^\1\} catch \(Throwable __ex\) \{ throw new RuntimeException\(__ex\); \}\n',
+    re.MULTILINE,
+)
+
+# Two-line: `<indent>try { body; }<NL><indent>catch (Throwable __ex) ...<NL>`.
+_TRY_THROWABLE_TWOLINE = re.compile(
+    r'^([ \t]*)try \{ (.+?) \}\n'
+    r'^\1catch \(Throwable __ex\) \{ throw new RuntimeException\(__ex\); \}\n',
+    re.MULTILINE,
+)
+
+# Inline opener with multi-line body: `<indent>try { stmt1;\n<indent>    stmt2; }\n<indent>catch (Throwable __ex) ...`.
+# Captures the body (between `try { ` and ` }` allowing newlines).
+_TRY_THROWABLE_INLINE_OPEN_MULTI = re.compile(
+    r'^([ \t]*)try \{ (.+?) \}\n'
+    r'^\1catch \(Throwable __ex\) \{ throw new RuntimeException\(__ex\); \}\n',
+    re.MULTILINE | re.DOTALL,
+)
+
+# Inline (single line): `try { body; } catch (Throwable __ex) ...;`.
+_TRY_THROWABLE_INLINE = re.compile(
+    r'try \{ (.+?) \} catch \(Throwable __ex\) \{ throw new RuntimeException\(__ex\); \}'
+)
+
+# Standalone closing catch — appears when the opening was a try-with-resources
+# (`try (Arena arena = …) { … } catch (Throwable __ex) …`) whose body the
+# multi-line pattern can't consume. Strip the catch but keep the brace that
+# closes the try.
+_STANDALONE_THROWABLE_CATCH = re.compile(
+    r'^([ \t]*)\} catch \(Throwable __ex\) \{ throw new RuntimeException\(__ex\); \}\n',
+    re.MULTILINE,
+)
+
+
+def _strip_try_throwable(java: str) -> str:
+    """Remove try { ... } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    wrappers, dedenting the body by one indent level."""
+    def _replace_multi(m: re.Match) -> str:
+        indent = m.group(1)
+        body = m.group(2)
+        # Dedent each body line by 4 spaces if it begins with indent+'    '.
+        dedented: list[str] = []
+        for line in body.splitlines(keepends=True):
+            if line.startswith(indent + '    '):
+                dedented.append(indent + line[len(indent) + 4:])
+            else:
+                dedented.append(line)
+        return ''.join(dedented)
+    def _replace_inline_open_multi(m: re.Match) -> str:
+        indent = m.group(1)
+        body = m.group(2)
+        # Normalise each body line to the try's indent — flattens the
+        # inline-opener's mid-line code onto its own line.
+        normalised = [indent + line.lstrip() for line in body.split('\n')]
+        return '\n'.join(normalised) + '\n'
+    java = _TRY_THROWABLE_MULTI.sub(_replace_multi, java)
+    java = _TRY_THROWABLE_INLINE_OPEN_MULTI.sub(_replace_inline_open_multi, java)
+    java = _TRY_THROWABLE_TWOLINE.sub(lambda m: f'{m.group(1)}{m.group(2)}\n', java)
+    java = _TRY_THROWABLE_INLINE.sub(lambda m: m.group(1), java)
+    # Any `} catch (Throwable __ex)` line still present must belong to a
+    # try-with-resources; strip the catch and keep the closing brace.
+    java = _STANDALONE_THROWABLE_CATCH.sub(lambda m: f'{m.group(1)}}}\n', java)
+    return java
+
+
+def _ensure_native_common_import(java: str) -> str:
+    """Make sure `import whiteout.common.internal.NativeCommon;` is present
+    whenever the body references `NativeCommon.`."""
+    if 'NativeCommon.' not in java:
+        return java
+    if 'import whiteout.common.internal.NativeCommon;' in java:
+        return java
+    # Prefer to slot in next to an existing whiteout.common.internal import.
+    if re.search(r'import whiteout\.common\.internal\.', java):
+        return re.sub(
+            r'(import whiteout\.common\.internal\.\w+;\n)',
+            r'\1import whiteout.common.internal.NativeCommon;\n',
+            java, count=1,
+        )
+    # Otherwise insert after the package line.
+    return re.sub(
+        r'(package [^\n]+;\n)',
+        r'\1\nimport whiteout.common.internal.NativeCommon;\n',
+        java, count=1,
+    )
+
+
+def _postprocess_java_files(files: dict[str, str]) -> dict[str, str]:
+    """Apply the invoke→invokeNative rewrite and strip Throwable-catching
+    try/catch from each generated Java file. NativeCommon.java defines the
+    helper and is left untouched."""
+    out: dict[str, str] = {}
+    for path, content in files.items():
+        if path.endswith('NativeCommon.java'):
+            out[path] = content
+            continue
+        new_content = _route_through_invoke_native(content)
+        new_content = _strip_try_throwable(new_content)
+        new_content = _ensure_native_common_import(new_content)
+        out[path] = new_content
+    return out
+
+
 def emit_common_java() -> dict[str, str]:
     """Files for the `whiteout.common` Java package â€” one class per
     shared math type plus the `NativeCommon` FFM glue. Mirrors the C
@@ -458,7 +624,7 @@ def emit_common_java() -> dict[str, str]:
 
     files['bindings/java/src/main/java/module-info.java'] = _emit_module_info()
 
-    return files
+    return _postprocess_java_files(files)
 
 
 def _emit_common_handles(type_names: list[str]) -> str:
@@ -1091,7 +1257,7 @@ def emit(module: BindModule) -> dict[str, str]:
         iface_short = c.cpp_qualifier
         files[f'{base}/{iface_short}s.java'] = _emit_interface_dispatch(pkg, c)
 
-    return files
+    return _postprocess_java_files(files)
 
 
 def _emit_interface_dispatch(pkg: str, iface: BindClass) -> str:
@@ -1164,6 +1330,24 @@ public final class NativeCommon {
             LOOKUP.find(name).orElseThrow(() ->
                 new RuntimeException("symbol not found: " + name)),
             fd);
+    }
+
+    /**
+     * Invoke a downcall MethodHandle, wrapping any checked Throwable into
+     * an unchecked RuntimeException so generated bindings do not need to
+     * carry a try/catch around every native call. The C library is
+     * exception-free, so the catch path is dead — this helper exists only
+     * because {@link MethodHandle#invokeWithArguments(Object...)} declares
+     * {@code throws Throwable} as a Java language requirement.
+     */
+    public static Object invokeNative(MethodHandle h, Object... args) {
+        try {
+            return h.invokeWithArguments(args);
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public static final MemoryLayout BYTES_LAYOUT = MemoryLayout.structLayout(

@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m2.internal.Native;
 
 /**
@@ -40,22 +41,18 @@ public final class Vertex implements AutoCloseable {
     }
 
     public Vertex() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m2_M2Vertex_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Vertex allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Vertex_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Vertex allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m2_M2Vertex_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Vertex_delete, handle);
         }
     }
 
@@ -65,37 +62,30 @@ public final class Vertex implements AutoCloseable {
     }
     public void setPosition(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m2_M2Vertex_set_position.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Vertex_set_position, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 0L, 12L);
     }
     /** @return the boneWeights field of this M2Vertex. */
     public int getBoneWeightsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Vertex_boneWeights_size.invoke(); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Vertex_boneWeights_size);
     }
     public byte getBoneWeightsAt(int index) {
-        try { return (byte) Native.whiteout_m2_M2Vertex_get_boneWeights_at.invoke(handle, (long) index); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (byte) NativeCommon.invokeNative(Native.whiteout_m2_M2Vertex_get_boneWeights_at, handle, (long) index);
     }
     public void setBoneWeightsAt(int index, byte value) {
-        try { Native.whiteout_m2_M2Vertex_set_boneWeights_at.invoke(handle, (long) index, value); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Vertex_set_boneWeights_at, handle, (long) index, value);
     }
     /** @return the boneIndices field of this M2Vertex. */
     public int getBoneIndicesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Vertex_boneIndices_size.invoke(); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Vertex_boneIndices_size);
     }
     public byte getBoneIndicesAt(int index) {
-        try { return (byte) Native.whiteout_m2_M2Vertex_get_boneIndices_at.invoke(handle, (long) index); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (byte) NativeCommon.invokeNative(Native.whiteout_m2_M2Vertex_get_boneIndices_at, handle, (long) index);
     }
     public void setBoneIndicesAt(int index, byte value) {
-        try { Native.whiteout_m2_M2Vertex_set_boneIndices_at.invoke(handle, (long) index, value); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Vertex_set_boneIndices_at, handle, (long) index, value);
     }
     /** @return the normal field of this M2Vertex. */
     public Vector3f getNormal() {
@@ -103,21 +93,18 @@ public final class Vertex implements AutoCloseable {
     }
     public void setNormal(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m2_M2Vertex_set_normal.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Vertex_set_normal, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 20L, 12L);
     }
     /** @return the texCoords field of this M2Vertex. */
     public int getTexCoordsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Vertex_texCoords_size.invoke(); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Vertex_texCoords_size);
     }
     public Vector2f getTexCoordsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Vertex_get_texCoords_at.invoke(handle, (long) index);
-            return Handles.wrapVector2f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Vertex_get_texCoords_at, handle, (long) index);
+        return Handles.wrapVector2f(__h, false);
     }
     public java.util.List<Vector2f> texCoordsView() {
         return new java.util.AbstractList<Vector2f>() {

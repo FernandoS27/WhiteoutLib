@@ -923,8 +923,6 @@ public final class Native {
     // -- M2Parser --
     public static final MethodHandle whiteout_m2_M2Parser_new = find(
         "whiteout_m2_M2Parser_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2Parser_new_mode = find(
-        "whiteout_m2_M2Parser_new_mode", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_m2_M2Parser_delete = find(
         "whiteout_m2_M2Parser_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2Parser_parse = find(

@@ -195,7 +195,7 @@ def test_m3_blendmode_enum_rich():
 
 # ── Texture parsers/writers from the codegen ──────────────────────────────
 
-def test_blp_parse_mode_enum_snake():
-    # Generated codegen names: BlpParseMode.STRICT / .LENIENT (UPPER_SNAKE).
-    assert hasattr(w, 'BlpParseMode')
-    assert w.BlpParseMode.STRICT.value != w.BlpParseMode.LENIENT.value
+def test_blp_parser_constructs():
+    # ParseMode/WriteMode enums are gone — parsers are always lenient.
+    parser = w.BlpParser()
+    assert parser is not None

@@ -3388,10 +3388,6 @@ whiteout_M2Parser* whiteout_m2_M2Parser_new(void) {
     return reinterpret_cast<whiteout_M2Parser*>(new whiteout::m2::Parser());
 }
 
-whiteout_M2Parser* whiteout_m2_M2Parser_new_mode(int32_t mode) {
-    return reinterpret_cast<whiteout_M2Parser*>(new whiteout::m2::Parser(static_cast<whiteout::m2::Parser::ParseMode>(mode)));
-}
-
 void whiteout_m2_M2Parser_delete(whiteout_M2Parser* self) {
     delete reinterpret_cast<whiteout::m2::Parser*>(self);
 }

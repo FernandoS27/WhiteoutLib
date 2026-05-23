@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.utils.internal.Native;
 
 /**
@@ -40,22 +41,18 @@ public final class VertexBuffer implements AutoCloseable {
     }
 
     public VertexBuffer() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_utils_UtilsVertexBuffer_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("VertexBuffer allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_utils_UtilsVertexBuffer_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("VertexBuffer allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_utils_UtilsVertexBuffer_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_utils_UtilsVertexBuffer_delete, handle);
         }
     }
 
@@ -64,9 +61,7 @@ public final class VertexBuffer implements AutoCloseable {
      * @return long result.
      */
     public long vertexCount() {
-        try {
-        return (long) Native.whiteout_utils_UtilsVertexBuffer_vertexCount.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (long) NativeCommon.invokeNative(Native.whiteout_utils_UtilsVertexBuffer_vertexCount, handle);
     }
 
     /**
@@ -74,9 +69,7 @@ public final class VertexBuffer implements AutoCloseable {
      * @return long result.
      */
     public long vertexSize() {
-        try {
-        return (long) Native.whiteout_utils_UtilsVertexBuffer_vertexSize.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (long) NativeCommon.invokeNative(Native.whiteout_utils_UtilsVertexBuffer_vertexSize, handle);
     }
 
     /**
@@ -84,9 +77,7 @@ public final class VertexBuffer implements AutoCloseable {
      * @return long result.
      */
     public long UVsNum() {
-        try {
-        return (long) Native.whiteout_utils_UtilsVertexBuffer_UVsNum.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (long) NativeCommon.invokeNative(Native.whiteout_utils_UtilsVertexBuffer_UVsNum, handle);
     }
 
     /**
@@ -94,50 +85,41 @@ public final class VertexBuffer implements AutoCloseable {
      * @return boolean result.
      */
     public boolean hasVertexColors() {
-        try {
-        return ((int) Native.whiteout_utils_UtilsVertexBuffer_hasVertexColors.invoke(handle)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_utils_UtilsVertexBuffer_hasVertexColors, handle)) != 0;
     }
 
     /** @return the data field of this UtilsVertexBuffer. */
     public int getDataCount() {
-        try { return (int) (long) Native.whiteout_utils_UtilsVertexBuffer_get_data_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_utils_UtilsVertexBuffer_get_data_count, handle);
     }
     public byte[] getData() {
-        try {
-            long __count = (long) Native.whiteout_utils_UtilsVertexBuffer_get_data_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_utils_UtilsVertexBuffer_get_data_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new byte[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 1L).toArray(ValueLayout.JAVA_BYTE);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_utils_UtilsVertexBuffer_get_data_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_utils_UtilsVertexBuffer_get_data_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new byte[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 1L).toArray(ValueLayout.JAVA_BYTE);
     }
     public void setData(byte[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 1L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_BYTE, 0, values.length);
-            Native.whiteout_utils_UtilsVertexBuffer_assign_data.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_utils_UtilsVertexBuffer_assign_data, handle, __seg, __count);
+        }
     }
     public void resizeData(int count) {
-        try { Native.whiteout_utils_UtilsVertexBuffer_resize_data.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_utils_UtilsVertexBuffer_resize_data, handle, (long) count);
     }
     /** @return the layout field of this UtilsVertexBuffer. */
     public int getLayoutCount() {
-        try { return (int) (long) Native.whiteout_utils_UtilsVertexBuffer_get_layout_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_utils_UtilsVertexBuffer_get_layout_count, handle);
     }
     public VertexBufferAttribute getLayoutAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_utils_UtilsVertexBuffer_get_layout_at.invoke(handle, (long) index);
-            return new VertexBufferAttribute(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_utils_UtilsVertexBuffer_get_layout_at, handle, (long) index);
+        return new VertexBufferAttribute(__h, false);
     }
     public void resizeLayout(int count) {
-        try { Native.whiteout_utils_UtilsVertexBuffer_resize_layout.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_utils_UtilsVertexBuffer_resize_layout, handle, (long) count);
     }
     public java.util.List<VertexBufferAttribute> layoutView() {
         return new java.util.AbstractList<VertexBufferAttribute>() {

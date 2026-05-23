@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class AnimationState implements AutoCloseable {
     }
 
     public AnimationState() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3AnimationState_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("AnimationState allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3AnimationState_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("AnimationState allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3AnimationState_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3AnimationState_delete, handle);
         }
     }
 
@@ -66,45 +63,38 @@ public final class AnimationState implements AutoCloseable {
      * @return the animIds field of this M3AnimationState.
      */
     public int getAnimIdsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3AnimationState_get_animIds_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3AnimationState_get_animIds_count, handle);
     }
     public int[] getAnimIds() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3AnimationState_get_animIds_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3AnimationState_get_animIds_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3AnimationState_get_animIds_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3AnimationState_get_animIds_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
     }
     public void setAnimIds(int[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
-            Native.whiteout_m3_M3AnimationState_assign_animIds.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3AnimationState_assign_animIds, handle, __seg, __count);
+        }
     }
     public void resizeAnimIds(int count) {
-        try { Native.whiteout_m3_M3AnimationState_resize_animIds.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3AnimationState_resize_animIds, handle, (long) count);
     }
     /**
      * Unknown state data (16 bytes)
      * @return the unknown field of this M3AnimationState.
      */
     public int getUnknownCount() {
-        try { return (int) (long) Native.whiteout_m3_M3AnimationState_unknown_size.invoke(); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3AnimationState_unknown_size);
     }
     public byte getUnknownAt(int index) {
-        try { return (byte) Native.whiteout_m3_M3AnimationState_get_unknown_at.invoke(handle, (long) index); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (byte) NativeCommon.invokeNative(Native.whiteout_m3_M3AnimationState_get_unknown_at, handle, (long) index);
     }
     public void setUnknownAt(int index, byte value) {
-        try { Native.whiteout_m3_M3AnimationState_set_unknown_at.invoke(handle, (long) index, value); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3AnimationState_set_unknown_at, handle, (long) index, value);
     }
     @Override public String toString() {
         return "AnimationState@" + Long.toHexString(handle == null ? 0 : handle.address());

@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class ClothPhysics implements AutoCloseable {
     }
 
     public ClothPhysics() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3ClothPhysics_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("ClothPhysics allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("ClothPhysics allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3ClothPhysics_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_delete, handle);
         }
     }
 
@@ -86,133 +83,114 @@ public final class ClothPhysics implements AutoCloseable {
      * @return the skinBones field of this M3ClothPhysics.
      */
     public int getSkinBonesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3ClothPhysics_get_skinBones_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_get_skinBones_count, handle);
     }
     public short[] getSkinBones() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3ClothPhysics_get_skinBones_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3ClothPhysics_get_skinBones_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_get_skinBones_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_get_skinBones_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setSkinBones(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m3_M3ClothPhysics_assign_skinBones.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_assign_skinBones, handle, __seg, __count);
+        }
     }
     public void resizeSkinBones(int count) {
-        try { Native.whiteout_m3_M3ClothPhysics_resize_skinBones.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_resize_skinBones, handle, (long) count);
     }
     /**
      * Per-vertex simulation enable flags (U8__)
      * @return the simEnabled field of this M3ClothPhysics.
      */
     public int getSimEnabledCount() {
-        try { return (int) (long) Native.whiteout_m3_M3ClothPhysics_get_simEnabled_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_get_simEnabled_count, handle);
     }
     public byte[] getSimEnabled() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3ClothPhysics_get_simEnabled_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3ClothPhysics_get_simEnabled_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new byte[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 1L).toArray(ValueLayout.JAVA_BYTE);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_get_simEnabled_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_get_simEnabled_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new byte[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 1L).toArray(ValueLayout.JAVA_BYTE);
     }
     public void setSimEnabled(byte[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 1L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_BYTE, 0, values.length);
-            Native.whiteout_m3_M3ClothPhysics_assign_simEnabled.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_assign_simEnabled, handle, __seg, __count);
+        }
     }
     public void resizeSimEnabled(int count) {
-        try { Native.whiteout_m3_M3ClothPhysics_resize_simEnabled.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_resize_simEnabled, handle, (long) count);
     }
     /**
      * Per-vertex bone indices (U32_)
      * @return the vertexBones field of this M3ClothPhysics.
      */
     public int getVertexBonesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3ClothPhysics_get_vertexBones_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_get_vertexBones_count, handle);
     }
     public int[] getVertexBones() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3ClothPhysics_get_vertexBones_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3ClothPhysics_get_vertexBones_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_get_vertexBones_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_get_vertexBones_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
     }
     public void setVertexBones(int[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
-            Native.whiteout_m3_M3ClothPhysics_assign_vertexBones.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_assign_vertexBones, handle, __seg, __count);
+        }
     }
     public void resizeVertexBones(int count) {
-        try { Native.whiteout_m3_M3ClothPhysics_resize_vertexBones.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_resize_vertexBones, handle, (long) count);
     }
     /**
      * Per-vertex bone weights (U32_)
      * @return the vertexWeights field of this M3ClothPhysics.
      */
     public int getVertexWeightsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3ClothPhysics_get_vertexWeights_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_get_vertexWeights_count, handle);
     }
     public int[] getVertexWeights() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3ClothPhysics_get_vertexWeights_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3ClothPhysics_get_vertexWeights_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_get_vertexWeights_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_get_vertexWeights_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
     }
     public void setVertexWeights(int[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
-            Native.whiteout_m3_M3ClothPhysics_assign_vertexWeights.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_assign_vertexWeights, handle, __seg, __count);
+        }
     }
     public void resizeVertexWeights(int count) {
-        try { Native.whiteout_m3_M3ClothPhysics_resize_vertexWeights.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_resize_vertexWeights, handle, (long) count);
     }
     /**
      * Cloth colliders (PHCC)
      * @return the colliders field of this M3ClothPhysics.
      */
     public int getCollidersCount() {
-        try { return (int) (long) Native.whiteout_m3_M3ClothPhysics_get_colliders_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_get_colliders_count, handle);
     }
     public ClothCollider getCollidersAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ClothPhysics_get_colliders_at.invoke(handle, (long) index);
-            return new ClothCollider(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_get_colliders_at, handle, (long) index);
+        return new ClothCollider(__h, false);
     }
     public void resizeColliders(int count) {
-        try { Native.whiteout_m3_M3ClothPhysics_resize_colliders.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_resize_colliders, handle, (long) count);
     }
     public java.util.List<ClothCollider> collidersView() {
         return new java.util.AbstractList<ClothCollider>() {
@@ -225,17 +203,14 @@ public final class ClothPhysics implements AutoCloseable {
      * @return the proxies field of this M3ClothPhysics.
      */
     public int getProxiesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3ClothPhysics_get_proxies_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_get_proxies_count, handle);
     }
     public ClothProxy getProxiesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ClothPhysics_get_proxies_at.invoke(handle, (long) index);
-            return new ClothProxy(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_get_proxies_at, handle, (long) index);
+        return new ClothProxy(__h, false);
     }
     public void resizeProxies(int count) {
-        try { Native.whiteout_m3_M3ClothPhysics_resize_proxies.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_resize_proxies, handle, (long) count);
     }
     public java.util.List<ClothProxy> proxiesView() {
         return new java.util.AbstractList<ClothProxy>() {
@@ -398,13 +373,11 @@ public final class ClothPhysics implements AutoCloseable {
      * @return the active field of this M3ClothPhysics.
      */
     public AnimRefU32 getActive() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ClothPhysics_get_active.invoke(handle);
-            return new AnimRefU32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_get_active, handle);
+        return new AnimRefU32(__h, false);
     }
     public void setActive(AnimRefU32 value) {
-        try { Native.whiteout_m3_M3ClothPhysics_set_active.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_set_active, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Use skin mesh for collision
@@ -465,8 +438,7 @@ public final class ClothPhysics implements AutoCloseable {
     }
     public void setLocalWind(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m3_M3ClothPhysics_set_localWind.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3ClothPhysics_set_localWind, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 252L, 12L);

@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m2.internal.Native;
 
 /**
@@ -40,22 +41,18 @@ public final class RibbonEmitter implements AutoCloseable {
     }
 
     public RibbonEmitter() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m2_M2RibbonEmitter_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("RibbonEmitter allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("RibbonEmitter allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m2_M2RibbonEmitter_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_delete, handle);
         }
     }
 
@@ -79,103 +76,86 @@ public final class RibbonEmitter implements AutoCloseable {
     }
     public void setPosition(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m2_M2RibbonEmitter_set_position.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_set_position, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 8L, 12L);
     }
     /** @return the textureIndices field of this M2RibbonEmitter. */
     public int getTextureIndicesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2RibbonEmitter_get_textureIndices_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_get_textureIndices_count, handle);
     }
     public short[] getTextureIndices() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2RibbonEmitter_get_textureIndices_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2RibbonEmitter_get_textureIndices_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_get_textureIndices_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_get_textureIndices_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setTextureIndices(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m2_M2RibbonEmitter_assign_textureIndices.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_assign_textureIndices, handle, __seg, __count);
+        }
     }
     public void resizeTextureIndices(int count) {
-        try { Native.whiteout_m2_M2RibbonEmitter_resize_textureIndices.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_resize_textureIndices, handle, (long) count);
     }
     /** @return the materialIndices field of this M2RibbonEmitter. */
     public int getMaterialIndicesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2RibbonEmitter_get_materialIndices_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_get_materialIndices_count, handle);
     }
     public short[] getMaterialIndices() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2RibbonEmitter_get_materialIndices_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2RibbonEmitter_get_materialIndices_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_get_materialIndices_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_get_materialIndices_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setMaterialIndices(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m2_M2RibbonEmitter_assign_materialIndices.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_assign_materialIndices, handle, __seg, __count);
+        }
     }
     public void resizeMaterialIndices(int count) {
-        try { Native.whiteout_m2_M2RibbonEmitter_resize_materialIndices.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_resize_materialIndices, handle, (long) count);
     }
     /** @return the colorTrack field of this M2RibbonEmitter. */
     public AnimationTrackVector3f getColorTrack() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2RibbonEmitter_get_colorTrack.invoke(handle);
-            return new AnimationTrackVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_get_colorTrack, handle);
+        return new AnimationTrackVector3f(__h, false);
     }
     public void setColorTrack(AnimationTrackVector3f value) {
-        try { Native.whiteout_m2_M2RibbonEmitter_set_colorTrack.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_set_colorTrack, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the alphaTrack field of this M2RibbonEmitter. */
     public AnimationTrackI16 getAlphaTrack() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2RibbonEmitter_get_alphaTrack.invoke(handle);
-            return new AnimationTrackI16(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_get_alphaTrack, handle);
+        return new AnimationTrackI16(__h, false);
     }
     public void setAlphaTrack(AnimationTrackI16 value) {
-        try { Native.whiteout_m2_M2RibbonEmitter_set_alphaTrack.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_set_alphaTrack, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the heightAbove field of this M2RibbonEmitter. */
     public AnimationTrackF32 getHeightAbove() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2RibbonEmitter_get_heightAbove.invoke(handle);
-            return new AnimationTrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_get_heightAbove, handle);
+        return new AnimationTrackF32(__h, false);
     }
     public void setHeightAbove(AnimationTrackF32 value) {
-        try { Native.whiteout_m2_M2RibbonEmitter_set_heightAbove.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_set_heightAbove, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the heightBelow field of this M2RibbonEmitter. */
     public AnimationTrackF32 getHeightBelow() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2RibbonEmitter_get_heightBelow.invoke(handle);
-            return new AnimationTrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_get_heightBelow, handle);
+        return new AnimationTrackF32(__h, false);
     }
     public void setHeightBelow(AnimationTrackF32 value) {
-        try { Native.whiteout_m2_M2RibbonEmitter_set_heightBelow.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_set_heightBelow, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the edgesPerSecond field of this M2RibbonEmitter. */
     public float getEdgesPerSecond() {
@@ -214,23 +194,19 @@ public final class RibbonEmitter implements AutoCloseable {
     }
     /** @return the texSlot field of this M2RibbonEmitter. */
     public AnimationTrackU16 getTexSlot() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2RibbonEmitter_get_texSlot.invoke(handle);
-            return new AnimationTrackU16(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_get_texSlot, handle);
+        return new AnimationTrackU16(__h, false);
     }
     public void setTexSlot(AnimationTrackU16 value) {
-        try { Native.whiteout_m2_M2RibbonEmitter_set_texSlot.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_set_texSlot, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the visibility field of this M2RibbonEmitter. */
     public AnimationTrackU8 getVisibility() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2RibbonEmitter_get_visibility.invoke(handle);
-            return new AnimationTrackU8(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_get_visibility, handle);
+        return new AnimationTrackU8(__h, false);
     }
     public void setVisibility(AnimationTrackU8 value) {
-        try { Native.whiteout_m2_M2RibbonEmitter_set_visibility.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2RibbonEmitter_set_visibility, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the priorityPlane field of this M2RibbonEmitter. */
     public short getPriorityPlane() {

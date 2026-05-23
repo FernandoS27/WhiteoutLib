@@ -32,6 +32,24 @@ public final class NativeCommon {
             fd);
     }
 
+    /**
+     * Invoke a downcall MethodHandle, wrapping any checked Throwable into
+     * an unchecked RuntimeException so generated bindings do not need to
+     * carry a try/catch around every native call. The C library is
+     * exception-free, so the catch path is dead — this helper exists only
+     * because {@link MethodHandle#invokeWithArguments(Object...)} declares
+     * {@code throws Throwable} as a Java language requirement.
+     */
+    public static Object invokeNative(MethodHandle h, Object... args) {
+        try {
+            return h.invokeWithArguments(args);
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     public static final MemoryLayout BYTES_LAYOUT = MemoryLayout.structLayout(
         ValueLayout.ADDRESS.withName("data"),
         ValueLayout.JAVA_LONG.withName("size"),

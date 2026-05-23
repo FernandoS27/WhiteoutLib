@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m2.internal.Native;
 
 /**
@@ -40,36 +41,32 @@ public final class Model implements AutoCloseable {
     }
 
     public Model() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m2_M2Model_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Model allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Model allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m2_M2Model_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_delete, handle);
         }
     }
 
     /** @return the modelName field of this M2Model. */
     public String getModelName() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __s = (MemorySegment) Native.whiteout_m2_M2Model_get_modelName.invoke(arena, handle);
+            MemorySegment __s = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_modelName, arena, handle);
             MemorySegment __chars = __s.get(ValueLayout.ADDRESS, 0);
             long __len = __s.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__chars == null || __chars.equals(MemorySegment.NULL)) return "";
             byte[] __bytes = __chars.reinterpret(__len).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_CString_free.invoke(__s);
+            NativeCommon.invokeNative(Native.whiteout_CString_free, __s);
             return new String(__bytes, StandardCharsets.UTF_8);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
     public void setModelName(String value) {
         try (Arena arena = Arena.ofConfined()) {
@@ -77,30 +74,26 @@ public final class Model implements AutoCloseable {
             MemorySegment __seg = arena.allocate(__utf.length + 1);
             MemorySegment.copy(__utf, 0, __seg, ValueLayout.JAVA_BYTE, 0, __utf.length);
             __seg.set(ValueLayout.JAVA_BYTE, __utf.length, (byte) 0);
-            Native.whiteout_m2_M2Model_set_modelName.invoke(handle, __seg);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_set_modelName, handle, __seg);
+        }
     }
     /** @return the globalFlags field of this M2Model. */
     public GlobalFlags getGlobalFlags() {
         return new GlobalFlags(handle.asSlice(32L, 4L), false);
     }
     public void setGlobalFlags(GlobalFlags value) {
-        try { Native.whiteout_m2_M2Model_set_globalFlags.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_set_globalFlags, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the globalLoops field of this M2Model. */
     public int getGlobalLoopsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_globalLoops_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_globalLoops_count, handle);
     }
     public GlobalSequence getGlobalLoopsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_globalLoops_at.invoke(handle, (long) index);
-            return new GlobalSequence(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_globalLoops_at, handle, (long) index);
+        return new GlobalSequence(__h, false);
     }
     public void resizeGlobalLoops(int count) {
-        try { Native.whiteout_m2_M2Model_resize_globalLoops.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_globalLoops, handle, (long) count);
     }
     public java.util.List<GlobalSequence> globalLoopsView() {
         return new java.util.AbstractList<GlobalSequence>() {
@@ -110,17 +103,14 @@ public final class Model implements AutoCloseable {
     }
     /** @return the sequences field of this M2Model. */
     public int getSequencesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_sequences_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_sequences_count, handle);
     }
     public Sequence getSequencesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_sequences_at.invoke(handle, (long) index);
-            return new Sequence(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_sequences_at, handle, (long) index);
+        return new Sequence(__h, false);
     }
     public void resizeSequences(int count) {
-        try { Native.whiteout_m2_M2Model_resize_sequences.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_sequences, handle, (long) count);
     }
     public java.util.List<Sequence> sequencesView() {
         return new java.util.AbstractList<Sequence>() {
@@ -130,43 +120,36 @@ public final class Model implements AutoCloseable {
     }
     /** @return the sequenceIdxHashById field of this M2Model. */
     public int getSequenceIdxHashByIdCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_sequenceIdxHashById_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_sequenceIdxHashById_count, handle);
     }
     public short[] getSequenceIdxHashById() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2Model_get_sequenceIdxHashById_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2Model_get_sequenceIdxHashById_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_sequenceIdxHashById_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_sequenceIdxHashById_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setSequenceIdxHashById(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m2_M2Model_assign_sequenceIdxHashById.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_sequenceIdxHashById, handle, __seg, __count);
+        }
     }
     public void resizeSequenceIdxHashById(int count) {
-        try { Native.whiteout_m2_M2Model_resize_sequenceIdxHashById.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_sequenceIdxHashById, handle, (long) count);
     }
     /** @return the bones field of this M2Model. */
     public int getBonesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_bones_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_bones_count, handle);
     }
     public Bone getBonesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_bones_at.invoke(handle, (long) index);
-            return new Bone(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_bones_at, handle, (long) index);
+        return new Bone(__h, false);
     }
     public void resizeBones(int count) {
-        try { Native.whiteout_m2_M2Model_resize_bones.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_bones, handle, (long) count);
     }
     public java.util.List<Bone> bonesView() {
         return new java.util.AbstractList<Bone>() {
@@ -176,43 +159,36 @@ public final class Model implements AutoCloseable {
     }
     /** @return the keyBoneIds field of this M2Model. */
     public int getKeyBoneIdsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_keyBoneIds_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_keyBoneIds_count, handle);
     }
     public short[] getKeyBoneIds() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2Model_get_keyBoneIds_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2Model_get_keyBoneIds_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_keyBoneIds_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_keyBoneIds_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setKeyBoneIds(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m2_M2Model_assign_keyBoneIds.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_keyBoneIds, handle, __seg, __count);
+        }
     }
     public void resizeKeyBoneIds(int count) {
-        try { Native.whiteout_m2_M2Model_resize_keyBoneIds.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_keyBoneIds, handle, (long) count);
     }
     /** @return the vertices field of this M2Model. */
     public int getVerticesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_vertices_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_vertices_count, handle);
     }
     public Vertex getVerticesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_vertices_at.invoke(handle, (long) index);
-            return new Vertex(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_vertices_at, handle, (long) index);
+        return new Vertex(__h, false);
     }
     public void resizeVertices(int count) {
-        try { Native.whiteout_m2_M2Model_resize_vertices.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_vertices, handle, (long) count);
     }
     public java.util.List<Vertex> verticesView() {
         return new java.util.AbstractList<Vertex>() {
@@ -222,17 +198,14 @@ public final class Model implements AutoCloseable {
     }
     /** @return the skinProfiles field of this M2Model. */
     public int getSkinProfilesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_skinProfiles_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_skinProfiles_count, handle);
     }
     public SkinProfile getSkinProfilesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_skinProfiles_at.invoke(handle, (long) index);
-            return new SkinProfile(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_skinProfiles_at, handle, (long) index);
+        return new SkinProfile(__h, false);
     }
     public void resizeSkinProfiles(int count) {
-        try { Native.whiteout_m2_M2Model_resize_skinProfiles.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_skinProfiles, handle, (long) count);
     }
     public java.util.List<SkinProfile> skinProfilesView() {
         return new java.util.AbstractList<SkinProfile>() {
@@ -242,17 +215,14 @@ public final class Model implements AutoCloseable {
     }
     /** @return the lodProfiles field of this M2Model. */
     public int getLodProfilesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_lodProfiles_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_lodProfiles_count, handle);
     }
     public SkinProfile getLodProfilesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_lodProfiles_at.invoke(handle, (long) index);
-            return new SkinProfile(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_lodProfiles_at, handle, (long) index);
+        return new SkinProfile(__h, false);
     }
     public void resizeLodProfiles(int count) {
-        try { Native.whiteout_m2_M2Model_resize_lodProfiles.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_lodProfiles, handle, (long) count);
     }
     public java.util.List<SkinProfile> lodProfilesView() {
         return new java.util.AbstractList<SkinProfile>() {
@@ -269,17 +239,14 @@ public final class Model implements AutoCloseable {
     }
     /** @return the colors field of this M2Model. */
     public int getColorsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_colors_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_colors_count, handle);
     }
     public ColorAnimation getColorsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_colors_at.invoke(handle, (long) index);
-            return new ColorAnimation(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_colors_at, handle, (long) index);
+        return new ColorAnimation(__h, false);
     }
     public void resizeColors(int count) {
-        try { Native.whiteout_m2_M2Model_resize_colors.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_colors, handle, (long) count);
     }
     public java.util.List<ColorAnimation> colorsView() {
         return new java.util.AbstractList<ColorAnimation>() {
@@ -289,17 +256,14 @@ public final class Model implements AutoCloseable {
     }
     /** @return the textures field of this M2Model. */
     public int getTexturesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_textures_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textures_count, handle);
     }
     public Texture getTexturesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_textures_at.invoke(handle, (long) index);
-            return new Texture(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textures_at, handle, (long) index);
+        return new Texture(__h, false);
     }
     public void resizeTextures(int count) {
-        try { Native.whiteout_m2_M2Model_resize_textures.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_textures, handle, (long) count);
     }
     public java.util.List<Texture> texturesView() {
         return new java.util.AbstractList<Texture>() {
@@ -309,17 +273,14 @@ public final class Model implements AutoCloseable {
     }
     /** @return the textureWeights field of this M2Model. */
     public int getTextureWeightsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_textureWeights_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureWeights_count, handle);
     }
     public TextureWeight getTextureWeightsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_textureWeights_at.invoke(handle, (long) index);
-            return new TextureWeight(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureWeights_at, handle, (long) index);
+        return new TextureWeight(__h, false);
     }
     public void resizeTextureWeights(int count) {
-        try { Native.whiteout_m2_M2Model_resize_textureWeights.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_textureWeights, handle, (long) count);
     }
     public java.util.List<TextureWeight> textureWeightsView() {
         return new java.util.AbstractList<TextureWeight>() {
@@ -329,17 +290,14 @@ public final class Model implements AutoCloseable {
     }
     /** @return the textureTransforms field of this M2Model. */
     public int getTextureTransformsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_textureTransforms_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureTransforms_count, handle);
     }
     public TextureTransform getTextureTransformsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_textureTransforms_at.invoke(handle, (long) index);
-            return new TextureTransform(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureTransforms_at, handle, (long) index);
+        return new TextureTransform(__h, false);
     }
     public void resizeTextureTransforms(int count) {
-        try { Native.whiteout_m2_M2Model_resize_textureTransforms.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_textureTransforms, handle, (long) count);
     }
     public java.util.List<TextureTransform> textureTransformsView() {
         return new java.util.AbstractList<TextureTransform>() {
@@ -349,43 +307,36 @@ public final class Model implements AutoCloseable {
     }
     /** @return the textureIndicesById field of this M2Model. */
     public int getTextureIndicesByIdCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_textureIndicesById_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureIndicesById_count, handle);
     }
     public short[] getTextureIndicesById() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2Model_get_textureIndicesById_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2Model_get_textureIndicesById_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureIndicesById_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureIndicesById_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setTextureIndicesById(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m2_M2Model_assign_textureIndicesById.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_textureIndicesById, handle, __seg, __count);
+        }
     }
     public void resizeTextureIndicesById(int count) {
-        try { Native.whiteout_m2_M2Model_resize_textureIndicesById.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_textureIndicesById, handle, (long) count);
     }
     /** @return the materials field of this M2Model. */
     public int getMaterialsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_materials_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_materials_count, handle);
     }
     public Material getMaterialsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_materials_at.invoke(handle, (long) index);
-            return new Material(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_materials_at, handle, (long) index);
+        return new Material(__h, false);
     }
     public void resizeMaterials(int count) {
-        try { Native.whiteout_m2_M2Model_resize_materials.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_materials, handle, (long) count);
     }
     public java.util.List<Material> materialsView() {
         return new java.util.AbstractList<Material>() {
@@ -395,241 +346,204 @@ public final class Model implements AutoCloseable {
     }
     /** @return the boneCombos field of this M2Model. */
     public int getBoneCombosCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_boneCombos_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_boneCombos_count, handle);
     }
     public short[] getBoneCombos() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2Model_get_boneCombos_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2Model_get_boneCombos_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_boneCombos_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_boneCombos_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setBoneCombos(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m2_M2Model_assign_boneCombos.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_boneCombos, handle, __seg, __count);
+        }
     }
     public void resizeBoneCombos(int count) {
-        try { Native.whiteout_m2_M2Model_resize_boneCombos.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_boneCombos, handle, (long) count);
     }
     /** @return the textureCombos field of this M2Model. */
     public int getTextureCombosCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_textureCombos_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureCombos_count, handle);
     }
     public short[] getTextureCombos() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2Model_get_textureCombos_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2Model_get_textureCombos_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureCombos_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureCombos_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setTextureCombos(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m2_M2Model_assign_textureCombos.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_textureCombos, handle, __seg, __count);
+        }
     }
     public void resizeTextureCombos(int count) {
-        try { Native.whiteout_m2_M2Model_resize_textureCombos.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_textureCombos, handle, (long) count);
     }
     /** @return the textureCoordCombos field of this M2Model. */
     public int getTextureCoordCombosCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_textureCoordCombos_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureCoordCombos_count, handle);
     }
     public short[] getTextureCoordCombos() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2Model_get_textureCoordCombos_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2Model_get_textureCoordCombos_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureCoordCombos_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureCoordCombos_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setTextureCoordCombos(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m2_M2Model_assign_textureCoordCombos.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_textureCoordCombos, handle, __seg, __count);
+        }
     }
     public void resizeTextureCoordCombos(int count) {
-        try { Native.whiteout_m2_M2Model_resize_textureCoordCombos.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_textureCoordCombos, handle, (long) count);
     }
     /** @return the textureWeightCombos field of this M2Model. */
     public int getTextureWeightCombosCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_textureWeightCombos_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureWeightCombos_count, handle);
     }
     public short[] getTextureWeightCombos() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2Model_get_textureWeightCombos_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2Model_get_textureWeightCombos_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureWeightCombos_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureWeightCombos_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setTextureWeightCombos(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m2_M2Model_assign_textureWeightCombos.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_textureWeightCombos, handle, __seg, __count);
+        }
     }
     public void resizeTextureWeightCombos(int count) {
-        try { Native.whiteout_m2_M2Model_resize_textureWeightCombos.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_textureWeightCombos, handle, (long) count);
     }
     /** @return the textureTransformCombos field of this M2Model. */
     public int getTextureTransformCombosCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_textureTransformCombos_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureTransformCombos_count, handle);
     }
     public short[] getTextureTransformCombos() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2Model_get_textureTransformCombos_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2Model_get_textureTransformCombos_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureTransformCombos_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureTransformCombos_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setTextureTransformCombos(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m2_M2Model_assign_textureTransformCombos.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_textureTransformCombos, handle, __seg, __count);
+        }
     }
     public void resizeTextureTransformCombos(int count) {
-        try { Native.whiteout_m2_M2Model_resize_textureTransformCombos.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_textureTransformCombos, handle, (long) count);
     }
     /** @return the bounding field of this M2Model. */
     public Extent getBounding() {
         return new Extent(handle.asSlice(504L, 28L), false);
     }
     public void setBounding(Extent value) {
-        try { Native.whiteout_m2_M2Model_set_bounding.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_set_bounding, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the collision field of this M2Model. */
     public Extent getCollision() {
         return new Extent(handle.asSlice(532L, 28L), false);
     }
     public void setCollision(Extent value) {
-        try { Native.whiteout_m2_M2Model_set_collision.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_set_collision, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the collisionTriangleIndices field of this M2Model. */
     public int getCollisionTriangleIndicesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_collisionTriangleIndices_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_collisionTriangleIndices_count, handle);
     }
     public short[] getCollisionTriangleIndices() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2Model_get_collisionTriangleIndices_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2Model_get_collisionTriangleIndices_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_collisionTriangleIndices_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_collisionTriangleIndices_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setCollisionTriangleIndices(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m2_M2Model_assign_collisionTriangleIndices.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_collisionTriangleIndices, handle, __seg, __count);
+        }
     }
     public void resizeCollisionTriangleIndices(int count) {
-        try { Native.whiteout_m2_M2Model_resize_collisionTriangleIndices.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_collisionTriangleIndices, handle, (long) count);
     }
     /** @return the collisionVertices field of this M2Model. */
     public int getCollisionVerticesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_collisionVertices_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_collisionVertices_count, handle);
     }
     public float[] getCollisionVertices() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2Model_get_collisionVertices_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2Model_get_collisionVertices_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
-            long __scalars = __count * 3L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_collisionVertices_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_collisionVertices_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
+        long __scalars = __count * 3L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
     }
     public void setCollisionVertices(float[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 3;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
-            Native.whiteout_m2_M2Model_assign_collisionVertices.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_collisionVertices, handle, __seg, __count);
+        }
     }
     public void resizeCollisionVertices(int count) {
-        try { Native.whiteout_m2_M2Model_resize_collisionVertices.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_collisionVertices, handle, (long) count);
     }
     /** @return the collisionFaceNormals field of this M2Model. */
     public int getCollisionFaceNormalsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_collisionFaceNormals_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_collisionFaceNormals_count, handle);
     }
     public float[] getCollisionFaceNormals() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2Model_get_collisionFaceNormals_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2Model_get_collisionFaceNormals_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
-            long __scalars = __count * 3L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_collisionFaceNormals_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_collisionFaceNormals_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
+        long __scalars = __count * 3L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
     }
     public void setCollisionFaceNormals(float[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 3;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
-            Native.whiteout_m2_M2Model_assign_collisionFaceNormals.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_collisionFaceNormals, handle, __seg, __count);
+        }
     }
     public void resizeCollisionFaceNormals(int count) {
-        try { Native.whiteout_m2_M2Model_resize_collisionFaceNormals.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_collisionFaceNormals, handle, (long) count);
     }
     /** @return the attachments field of this M2Model. */
     public int getAttachmentsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_attachments_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_attachments_count, handle);
     }
     public Attachment getAttachmentsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_attachments_at.invoke(handle, (long) index);
-            return new Attachment(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_attachments_at, handle, (long) index);
+        return new Attachment(__h, false);
     }
     public void resizeAttachments(int count) {
-        try { Native.whiteout_m2_M2Model_resize_attachments.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_attachments, handle, (long) count);
     }
     public java.util.List<Attachment> attachmentsView() {
         return new java.util.AbstractList<Attachment>() {
@@ -639,43 +553,36 @@ public final class Model implements AutoCloseable {
     }
     /** @return the attachmentIndicesById field of this M2Model. */
     public int getAttachmentIndicesByIdCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_attachmentIndicesById_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_attachmentIndicesById_count, handle);
     }
     public short[] getAttachmentIndicesById() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2Model_get_attachmentIndicesById_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2Model_get_attachmentIndicesById_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_attachmentIndicesById_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_attachmentIndicesById_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setAttachmentIndicesById(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m2_M2Model_assign_attachmentIndicesById.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_attachmentIndicesById, handle, __seg, __count);
+        }
     }
     public void resizeAttachmentIndicesById(int count) {
-        try { Native.whiteout_m2_M2Model_resize_attachmentIndicesById.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_attachmentIndicesById, handle, (long) count);
     }
     /** @return the events field of this M2Model. */
     public int getEventsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_events_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_events_count, handle);
     }
     public Event getEventsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_events_at.invoke(handle, (long) index);
-            return new Event(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_events_at, handle, (long) index);
+        return new Event(__h, false);
     }
     public void resizeEvents(int count) {
-        try { Native.whiteout_m2_M2Model_resize_events.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_events, handle, (long) count);
     }
     public java.util.List<Event> eventsView() {
         return new java.util.AbstractList<Event>() {
@@ -685,17 +592,14 @@ public final class Model implements AutoCloseable {
     }
     /** @return the lights field of this M2Model. */
     public int getLightsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_lights_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_lights_count, handle);
     }
     public Light getLightsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_lights_at.invoke(handle, (long) index);
-            return new Light(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_lights_at, handle, (long) index);
+        return new Light(__h, false);
     }
     public void resizeLights(int count) {
-        try { Native.whiteout_m2_M2Model_resize_lights.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_lights, handle, (long) count);
     }
     public java.util.List<Light> lightsView() {
         return new java.util.AbstractList<Light>() {
@@ -705,17 +609,14 @@ public final class Model implements AutoCloseable {
     }
     /** @return the cameras field of this M2Model. */
     public int getCamerasCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_cameras_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_cameras_count, handle);
     }
     public Camera getCamerasAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_cameras_at.invoke(handle, (long) index);
-            return new Camera(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_cameras_at, handle, (long) index);
+        return new Camera(__h, false);
     }
     public void resizeCameras(int count) {
-        try { Native.whiteout_m2_M2Model_resize_cameras.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_cameras, handle, (long) count);
     }
     public java.util.List<Camera> camerasView() {
         return new java.util.AbstractList<Camera>() {
@@ -725,43 +626,36 @@ public final class Model implements AutoCloseable {
     }
     /** @return the cameraIndicesById field of this M2Model. */
     public int getCameraIndicesByIdCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_cameraIndicesById_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_cameraIndicesById_count, handle);
     }
     public short[] getCameraIndicesById() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2Model_get_cameraIndicesById_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2Model_get_cameraIndicesById_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_cameraIndicesById_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_cameraIndicesById_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setCameraIndicesById(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m2_M2Model_assign_cameraIndicesById.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_cameraIndicesById, handle, __seg, __count);
+        }
     }
     public void resizeCameraIndicesById(int count) {
-        try { Native.whiteout_m2_M2Model_resize_cameraIndicesById.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_cameraIndicesById, handle, (long) count);
     }
     /** @return the ribbonEmitters field of this M2Model. */
     public int getRibbonEmittersCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_ribbonEmitters_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_ribbonEmitters_count, handle);
     }
     public RibbonEmitter getRibbonEmittersAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_ribbonEmitters_at.invoke(handle, (long) index);
-            return new RibbonEmitter(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_ribbonEmitters_at, handle, (long) index);
+        return new RibbonEmitter(__h, false);
     }
     public void resizeRibbonEmitters(int count) {
-        try { Native.whiteout_m2_M2Model_resize_ribbonEmitters.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_ribbonEmitters, handle, (long) count);
     }
     public java.util.List<RibbonEmitter> ribbonEmittersView() {
         return new java.util.AbstractList<RibbonEmitter>() {
@@ -771,17 +665,14 @@ public final class Model implements AutoCloseable {
     }
     /** @return the particleEmitters field of this M2Model. */
     public int getParticleEmittersCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_particleEmitters_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_particleEmitters_count, handle);
     }
     public ParticleEmitter getParticleEmittersAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_particleEmitters_at.invoke(handle, (long) index);
-            return new ParticleEmitter(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_particleEmitters_at, handle, (long) index);
+        return new ParticleEmitter(__h, false);
     }
     public void resizeParticleEmitters(int count) {
-        try { Native.whiteout_m2_M2Model_resize_particleEmitters.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_particleEmitters, handle, (long) count);
     }
     public java.util.List<ParticleEmitter> particleEmittersView() {
         return new java.util.AbstractList<ParticleEmitter>() {
@@ -791,104 +682,89 @@ public final class Model implements AutoCloseable {
     }
     /** @return the textureCombinerCombos field of this M2Model. */
     public int getTextureCombinerCombosCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_textureCombinerCombos_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureCombinerCombos_count, handle);
     }
     public short[] getTextureCombinerCombos() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2Model_get_textureCombinerCombos_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2Model_get_textureCombinerCombos_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureCombinerCombos_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureCombinerCombos_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setTextureCombinerCombos(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m2_M2Model_assign_textureCombinerCombos.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_textureCombinerCombos, handle, __seg, __count);
+        }
     }
     public void resizeTextureCombinerCombos(int count) {
-        try { Native.whiteout_m2_M2Model_resize_textureCombinerCombos.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_textureCombinerCombos, handle, (long) count);
     }
     /**
      * TXID
      * @return the texture_ids field of this M2Model.
      */
     public int getTexture_idsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_texture_ids_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_texture_ids_count, handle);
     }
     public int[] getTexture_ids() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2Model_get_texture_ids_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2Model_get_texture_ids_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_texture_ids_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_texture_ids_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
     }
     public void setTexture_ids(int[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
-            Native.whiteout_m2_M2Model_assign_texture_ids.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_texture_ids, handle, __seg, __count);
+        }
     }
     public void resizeTexture_ids(int count) {
-        try { Native.whiteout_m2_M2Model_resize_texture_ids.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_texture_ids, handle, (long) count);
     }
     /**
      * PABC
      * @return the parentSequenceReplacements field of this M2Model.
      */
     public int getParentSequenceReplacementsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_parentSequenceReplacements_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_parentSequenceReplacements_count, handle);
     }
     public short[] getParentSequenceReplacements() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2Model_get_parentSequenceReplacements_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2Model_get_parentSequenceReplacements_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_parentSequenceReplacements_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_parentSequenceReplacements_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setParentSequenceReplacements(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m2_M2Model_assign_parentSequenceReplacements.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_parentSequenceReplacements, handle, __seg, __count);
+        }
     }
     public void resizeParentSequenceReplacements(int count) {
-        try { Native.whiteout_m2_M2Model_resize_parentSequenceReplacements.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_parentSequenceReplacements, handle, (long) count);
     }
     /**
      * PADC
      * @return the parentTextureWeights field of this M2Model.
      */
     public int getParentTextureWeightsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_parentTextureWeights_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_parentTextureWeights_count, handle);
     }
     public TextureWeight getParentTextureWeightsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_parentTextureWeights_at.invoke(handle, (long) index);
-            return new TextureWeight(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_parentTextureWeights_at, handle, (long) index);
+        return new TextureWeight(__h, false);
     }
     public void resizeParentTextureWeights(int count) {
-        try { Native.whiteout_m2_M2Model_resize_parentTextureWeights.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_parentTextureWeights, handle, (long) count);
     }
     public java.util.List<TextureWeight> parentTextureWeightsView() {
         return new java.util.AbstractList<TextureWeight>() {
@@ -901,17 +777,14 @@ public final class Model implements AutoCloseable {
      * @return the parentSequenceBounds field of this M2Model.
      */
     public int getParentSequenceBoundsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_parentSequenceBounds_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_parentSequenceBounds_count, handle);
     }
     public Extent getParentSequenceBoundsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_parentSequenceBounds_at.invoke(handle, (long) index);
-            return new Extent(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_parentSequenceBounds_at, handle, (long) index);
+        return new Extent(__h, false);
     }
     public void resizeParentSequenceBounds(int count) {
-        try { Native.whiteout_m2_M2Model_resize_parentSequenceBounds.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_parentSequenceBounds, handle, (long) count);
     }
     public java.util.List<Extent> parentSequenceBoundsView() {
         return new java.util.AbstractList<Extent>() {
@@ -924,17 +797,14 @@ public final class Model implements AutoCloseable {
      * @return the parentEventData field of this M2Model.
      */
     public int getParentEventDataCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_parentEventData_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_parentEventData_count, handle);
     }
     public AnimationTrackBase getParentEventDataAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_parentEventData_at.invoke(handle, (long) index);
-            return new AnimationTrackBase(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_parentEventData_at, handle, (long) index);
+        return new AnimationTrackBase(__h, false);
     }
     public void resizeParentEventData(int count) {
-        try { Native.whiteout_m2_M2Model_resize_parentEventData.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_parentEventData, handle, (long) count);
     }
     public java.util.List<AnimationTrackBase> parentEventDataView() {
         return new java.util.AbstractList<AnimationTrackBase>() {
@@ -947,75 +817,64 @@ public final class Model implements AutoCloseable {
      * @return the recursiveParticleModelIds field of this M2Model.
      */
     public int getRecursiveParticleModelIdsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_recursiveParticleModelIds_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_recursiveParticleModelIds_count, handle);
     }
     public int[] getRecursiveParticleModelIds() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2Model_get_recursiveParticleModelIds_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2Model_get_recursiveParticleModelIds_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_recursiveParticleModelIds_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_recursiveParticleModelIds_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
     }
     public void setRecursiveParticleModelIds(int[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
-            Native.whiteout_m2_M2Model_assign_recursiveParticleModelIds.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_recursiveParticleModelIds, handle, __seg, __count);
+        }
     }
     public void resizeRecursiveParticleModelIds(int count) {
-        try { Native.whiteout_m2_M2Model_resize_recursiveParticleModelIds.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_recursiveParticleModelIds, handle, (long) count);
     }
     /**
      * GPID
      * @return the geometryParticleModelIds field of this M2Model.
      */
     public int getGeometryParticleModelIdsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_geometryParticleModelIds_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_geometryParticleModelIds_count, handle);
     }
     public int[] getGeometryParticleModelIds() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2Model_get_geometryParticleModelIds_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2Model_get_geometryParticleModelIds_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_geometryParticleModelIds_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_geometryParticleModelIds_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
     }
     public void setGeometryParticleModelIds(int[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
-            Native.whiteout_m2_M2Model_assign_geometryParticleModelIds.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_geometryParticleModelIds, handle, __seg, __count);
+        }
     }
     public void resizeGeometryParticleModelIds(int count) {
-        try { Native.whiteout_m2_M2Model_resize_geometryParticleModelIds.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_geometryParticleModelIds, handle, (long) count);
     }
     /**
      * PGD1
      * @return the particleGeosets field of this M2Model.
      */
     public int getParticleGeosetsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_particleGeosets_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_particleGeosets_count, handle);
     }
     public ParticleGeosetData getParticleGeosetsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_particleGeosets_at.invoke(handle, (long) index);
-            return new ParticleGeosetData(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_particleGeosets_at, handle, (long) index);
+        return new ParticleGeosetData(__h, false);
     }
     public void resizeParticleGeosets(int count) {
-        try { Native.whiteout_m2_M2Model_resize_particleGeosets.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_particleGeosets, handle, (long) count);
     }
     public java.util.List<ParticleGeosetData> particleGeosetsView() {
         return new java.util.AbstractList<ParticleGeosetData>() {
@@ -1028,46 +887,39 @@ public final class Model implements AutoCloseable {
      * @return the physicsFileData field of this M2Model.
      */
     public int getPhysicsFileDataCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_physicsFileData_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_physicsFileData_count, handle);
     }
     public byte[] getPhysicsFileData() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2Model_get_physicsFileData_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2Model_get_physicsFileData_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new byte[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 1L).toArray(ValueLayout.JAVA_BYTE);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_physicsFileData_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_physicsFileData_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new byte[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 1L).toArray(ValueLayout.JAVA_BYTE);
     }
     public void setPhysicsFileData(byte[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 1L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_BYTE, 0, values.length);
-            Native.whiteout_m2_M2Model_assign_physicsFileData.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_physicsFileData, handle, __seg, __count);
+        }
     }
     public void resizePhysicsFileData(int count) {
-        try { Native.whiteout_m2_M2Model_resize_physicsFileData.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_physicsFileData, handle, (long) count);
     }
     /**
      * EDGF
      * @return the edgeFadeEntries field of this M2Model.
      */
     public int getEdgeFadeEntriesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_edgeFadeEntries_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_edgeFadeEntries_count, handle);
     }
     public EdgeFadeData getEdgeFadeEntriesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_edgeFadeEntries_at.invoke(handle, (long) index);
-            return new EdgeFadeData(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_edgeFadeEntries_at, handle, (long) index);
+        return new EdgeFadeData(__h, false);
     }
     public void resizeEdgeFadeEntries(int count) {
-        try { Native.whiteout_m2_M2Model_resize_edgeFadeEntries.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_edgeFadeEntries, handle, (long) count);
     }
     public java.util.List<EdgeFadeData> edgeFadeEntriesView() {
         return new java.util.AbstractList<EdgeFadeData>() {
@@ -1080,17 +932,14 @@ public final class Model implements AutoCloseable {
      * @return the nerfEntries field of this M2Model.
      */
     public int getNerfEntriesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_nerfEntries_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_nerfEntries_count, handle);
     }
     public DistanceFadeData getNerfEntriesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_nerfEntries_at.invoke(handle, (long) index);
-            return new DistanceFadeData(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_nerfEntries_at, handle, (long) index);
+        return new DistanceFadeData(__h, false);
     }
     public void resizeNerfEntries(int count) {
-        try { Native.whiteout_m2_M2Model_resize_nerfEntries.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_nerfEntries, handle, (long) count);
     }
     public java.util.List<DistanceFadeData> nerfEntriesView() {
         return new java.util.AbstractList<DistanceFadeData>() {
@@ -1103,17 +952,14 @@ public final class Model implements AutoCloseable {
      * @return the detailedLightEntries field of this M2Model.
      */
     public int getDetailedLightEntriesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_detailedLightEntries_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_detailedLightEntries_count, handle);
     }
     public DetailedLightData getDetailedLightEntriesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_detailedLightEntries_at.invoke(handle, (long) index);
-            return new DetailedLightData(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_detailedLightEntries_at, handle, (long) index);
+        return new DetailedLightData(__h, false);
     }
     public void resizeDetailedLightEntries(int count) {
-        try { Native.whiteout_m2_M2Model_resize_detailedLightEntries.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_detailedLightEntries, handle, (long) count);
     }
     public java.util.List<DetailedLightData> detailedLightEntriesView() {
         return new java.util.AbstractList<DetailedLightData>() {
@@ -1126,17 +972,14 @@ public final class Model implements AutoCloseable {
      * @return the debugOcclusionEntries field of this M2Model.
      */
     public int getDebugOcclusionEntriesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_debugOcclusionEntries_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_debugOcclusionEntries_count, handle);
     }
     public DebugOcclusionData getDebugOcclusionEntriesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_debugOcclusionEntries_at.invoke(handle, (long) index);
-            return new DebugOcclusionData(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_debugOcclusionEntries_at, handle, (long) index);
+        return new DebugOcclusionData(__h, false);
     }
     public void resizeDebugOcclusionEntries(int count) {
-        try { Native.whiteout_m2_M2Model_resize_debugOcclusionEntries.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_debugOcclusionEntries, handle, (long) count);
     }
     public java.util.List<DebugOcclusionData> debugOcclusionEntriesView() {
         return new java.util.AbstractList<DebugOcclusionData>() {
@@ -1149,46 +992,39 @@ public final class Model implements AutoCloseable {
      * @return the animFrameData field of this M2Model.
      */
     public int getAnimFrameDataCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_animFrameData_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_animFrameData_count, handle);
     }
     public byte[] getAnimFrameData() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2Model_get_animFrameData_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2Model_get_animFrameData_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new byte[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 1L).toArray(ValueLayout.JAVA_BYTE);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_animFrameData_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_animFrameData_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new byte[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 1L).toArray(ValueLayout.JAVA_BYTE);
     }
     public void setAnimFrameData(byte[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 1L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_BYTE, 0, values.length);
-            Native.whiteout_m2_M2Model_assign_animFrameData.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_animFrameData, handle, __seg, __count);
+        }
     }
     public void resizeAnimFrameData(int count) {
-        try { Native.whiteout_m2_M2Model_resize_animFrameData.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_animFrameData, handle, (long) count);
     }
     /**
      * TEXL
      * @return the texturedLightEntries field of this M2Model.
      */
     public int getTexturedLightEntriesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2Model_get_texturedLightEntries_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_texturedLightEntries_count, handle);
     }
     public TexturedLightData getTexturedLightEntriesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Model_get_texturedLightEntries_at.invoke(handle, (long) index);
-            return new TexturedLightData(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_texturedLightEntries_at, handle, (long) index);
+        return new TexturedLightData(__h, false);
     }
     public void resizeTexturedLightEntries(int count) {
-        try { Native.whiteout_m2_M2Model_resize_texturedLightEntries.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_texturedLightEntries, handle, (long) count);
     }
     public java.util.List<TexturedLightData> texturedLightEntriesView() {
         return new java.util.AbstractList<TexturedLightData>() {

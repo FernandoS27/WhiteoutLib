@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class Warp implements AutoCloseable {
     }
 
     public Warp() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3Warp_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Warp allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Warp_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Warp allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3Warp_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3Warp_delete, handle);
         }
     }
 
@@ -96,78 +93,66 @@ public final class Warp implements AutoCloseable {
      * @return the radius field of this M3Warp.
      */
     public AnimRefF32 getRadius() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Warp_get_radius.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Warp_get_radius, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setRadius(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Warp_set_radius.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Warp_set_radius, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated warp height
      * @return the height field of this M3Warp.
      */
     public AnimRefF32 getHeight() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Warp_get_height.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Warp_get_height, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setHeight(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Warp_set_height.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Warp_set_height, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated warp strength
      * @return the strength field of this M3Warp.
      */
     public AnimRefF32 getStrength() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Warp_get_strength.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Warp_get_strength, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setStrength(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Warp_set_strength.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Warp_set_strength, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated angular component
      * @return the angular field of this M3Warp.
      */
     public AnimRefF32 getAngular() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Warp_get_angular.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Warp_get_angular, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setAngular(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Warp_set_angular.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Warp_set_angular, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated axial component
      * @return the axial field of this M3Warp.
      */
     public AnimRefF32 getAxial() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Warp_get_axial.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Warp_get_axial, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setAxial(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Warp_set_axial.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Warp_set_axial, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated radial component
      * @return the radial field of this M3Warp.
      */
     public AnimRefF32 getRadial() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Warp_get_radial.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Warp_get_radial, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setRadial(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Warp_set_radial.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Warp_set_radial, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "Warp(" + "warpType=" + getWarpType() + ", " + "boneIndex=" + getBoneIndex() + ", " + "unknown=" + getUnknown() + ")";

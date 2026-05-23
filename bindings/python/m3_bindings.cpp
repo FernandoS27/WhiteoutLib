@@ -599,11 +599,6 @@ Maps to RibbonParticleCommon.fx constants. Used by PAR_ colorSmoothing / sizeSmo
         .value("UNKNOWN9", whiteout::m3::RigidBodyFlag::Unknown9, R"doc(Unknown)doc")
     ;
 
-    py::enum_<whiteout::m3::Parser::ParseMode>(m, "ParseMode", R"doc(Parsing strictness mode)doc")
-        .value("STRICT", whiteout::m3::Parser::ParseMode::Strict, R"doc(Throw exceptions on invalid data or parsing errors)doc")
-        .value("LENIENT", whiteout::m3::Parser::ParseMode::Lenient, R"doc(Skip problematic data and try to recover from errors (recommended))doc")
-    ;
-
     py::class_<whiteout::m3::Extent>(m, "Extent", R"doc(Axis-aligned bounding box with bounding sphere radius (28 bytes)
 
 Used throughout M3 for model bounds, collision bounds, and per-region extents.)doc")
@@ -1873,7 +1868,6 @@ The Parser reads binary M3 files and converts them into the Model structure. It 
 
 Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::m3::Parser::ParseMode>(), py::arg("mode"))
         .def("parse", py::overload_cast<const std::string&>(&whiteout::m3::Parser::parse), py::arg("filePath"), R"doc(Parse an M3 file from disk @param filePath Path to the M3 file @return Parsed M3 model data @throws std::runtime_error If file cannot be opened or parsing fails in strict mode)doc")
         .def("parse",
             [](whiteout::m3::Parser& self, py::bytes __py_bytes_0) {

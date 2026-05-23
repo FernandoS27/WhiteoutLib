@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m2.internal.Native;
 
 /**
@@ -40,22 +41,18 @@ public final class Attachment implements AutoCloseable {
     }
 
     public Attachment() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m2_M2Attachment_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Attachment allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Attachment_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Attachment allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m2_M2Attachment_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Attachment_delete, handle);
         }
     }
 
@@ -86,21 +83,18 @@ public final class Attachment implements AutoCloseable {
     }
     public void setPosition(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m2_M2Attachment_set_position.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Attachment_set_position, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 8L, 12L);
     }
     /** @return the animate field of this M2Attachment. */
     public AnimationTrackU8 getAnimate() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Attachment_get_animate.invoke(handle);
-            return new AnimationTrackU8(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Attachment_get_animate, handle);
+        return new AnimationTrackU8(__h, false);
     }
     public void setAnimate(AnimationTrackU8 value) {
-        try { Native.whiteout_m2_M2Attachment_set_animate.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Attachment_set_animate, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "Attachment(" + "id=" + getId() + ", " + "boneId=" + getBoneId() + ", " + "unknown=" + getUnknown() + ")";

@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.textures.internal.Native;
 
 /**
@@ -40,22 +41,18 @@ public final class PngApngFrame implements AutoCloseable {
     }
 
     public PngApngFrame() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_PngApngFrame_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("PngApngFrame allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_PngApngFrame_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("PngApngFrame allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_textures_PngApngFrame_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_textures_PngApngFrame_delete, handle);
         }
     }
 
@@ -67,8 +64,7 @@ public final class PngApngFrame implements AutoCloseable {
         return new Texture(handle.asSlice(0L, 8L), false);
     }
     public void setImage(Texture value) {
-        try { Native.whiteout_textures_PngApngFrame_set_image.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_textures_PngApngFrame_set_image, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Display duration in milliseconds.

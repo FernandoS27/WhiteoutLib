@@ -918,11 +918,11 @@ void whiteout_mdx_MdxMaterial_delete(whiteout_MdxMaterial* self) {
     delete reinterpret_cast<whiteout::mdx::Material*>(self);
 }
 
-uint32_t whiteout_mdx_MdxMaterial_get_priorityPlane(const whiteout_MdxMaterial* self) {
+int32_t whiteout_mdx_MdxMaterial_get_priorityPlane(const whiteout_MdxMaterial* self) {
     return reinterpret_cast<const whiteout::mdx::Material*>(self)->priorityPlane;
 }
 
-void whiteout_mdx_MdxMaterial_set_priorityPlane(whiteout_MdxMaterial* self, uint32_t value) {
+void whiteout_mdx_MdxMaterial_set_priorityPlane(whiteout_MdxMaterial* self, int32_t value) {
     reinterpret_cast<whiteout::mdx::Material*>(self)->priorityPlane = value;
 }
 
@@ -1974,11 +1974,11 @@ void whiteout_mdx_MdxParticleEmitter2_set_squirt(whiteout_MdxParticleEmitter2* s
     reinterpret_cast<whiteout::mdx::ParticleEmitter2*>(self)->squirt = value;
 }
 
-uint32_t whiteout_mdx_MdxParticleEmitter2_get_priorityPlane(const whiteout_MdxParticleEmitter2* self) {
+int32_t whiteout_mdx_MdxParticleEmitter2_get_priorityPlane(const whiteout_MdxParticleEmitter2* self) {
     return reinterpret_cast<const whiteout::mdx::ParticleEmitter2*>(self)->priorityPlane;
 }
 
-void whiteout_mdx_MdxParticleEmitter2_set_priorityPlane(whiteout_MdxParticleEmitter2* self, uint32_t value) {
+void whiteout_mdx_MdxParticleEmitter2_set_priorityPlane(whiteout_MdxParticleEmitter2* self, int32_t value) {
     reinterpret_cast<whiteout::mdx::ParticleEmitter2*>(self)->priorityPlane = value;
 }
 
@@ -2583,8 +2583,8 @@ whiteout_MdxParser* whiteout_mdx_MdxParser_new(void) {
     return reinterpret_cast<whiteout_MdxParser*>(new whiteout::mdx::Parser());
 }
 
-whiteout_MdxParser* whiteout_mdx_MdxParser_new_parseMode_upgradeMode(int32_t parseMode, int32_t upgradeMode) {
-    return reinterpret_cast<whiteout_MdxParser*>(new whiteout::mdx::Parser(static_cast<whiteout::mdx::Parser::ParseMode>(parseMode), static_cast<whiteout::mdx::Parser::UpgradeMode>(upgradeMode)));
+whiteout_MdxParser* whiteout_mdx_MdxParser_new_upgradeMode(int32_t upgradeMode) {
+    return reinterpret_cast<whiteout_MdxParser*>(new whiteout::mdx::Parser(static_cast<whiteout::mdx::Parser::UpgradeMode>(upgradeMode)));
 }
 
 void whiteout_mdx_MdxParser_delete(whiteout_MdxParser* self) {

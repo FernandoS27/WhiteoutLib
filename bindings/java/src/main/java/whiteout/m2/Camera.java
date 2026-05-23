@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m2.internal.Native;
 
 /**
@@ -40,22 +41,18 @@ public final class Camera implements AutoCloseable {
     }
 
     public Camera() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m2_M2Camera_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Camera allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Camera_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Camera allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m2_M2Camera_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Camera_delete, handle);
         }
     }
 
@@ -89,13 +86,11 @@ public final class Camera implements AutoCloseable {
     }
     /** @return the positions field of this M2Camera. */
     public AnimationTrackM2CameraSpline getPositions() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Camera_get_positions.invoke(handle);
-            return new AnimationTrackM2CameraSpline(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Camera_get_positions, handle);
+        return new AnimationTrackM2CameraSpline(__h, false);
     }
     public void setPositions(AnimationTrackM2CameraSpline value) {
-        try { Native.whiteout_m2_M2Camera_set_positions.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Camera_set_positions, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the positionBase field of this M2Camera. */
     public Vector3f getPositionBase() {
@@ -103,21 +98,18 @@ public final class Camera implements AutoCloseable {
     }
     public void setPositionBase(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m2_M2Camera_set_positionBase.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Camera_set_positionBase, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 72L, 12L);
     }
     /** @return the targetPositions field of this M2Camera. */
     public AnimationTrackM2CameraSpline getTargetPositions() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Camera_get_targetPositions.invoke(handle);
-            return new AnimationTrackM2CameraSpline(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Camera_get_targetPositions, handle);
+        return new AnimationTrackM2CameraSpline(__h, false);
     }
     public void setTargetPositions(AnimationTrackM2CameraSpline value) {
-        try { Native.whiteout_m2_M2Camera_set_targetPositions.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Camera_set_targetPositions, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the targetPositionBase field of this M2Camera. */
     public Vector3f getTargetPositionBase() {
@@ -125,31 +117,26 @@ public final class Camera implements AutoCloseable {
     }
     public void setTargetPositionBase(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m2_M2Camera_set_targetPositionBase.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Camera_set_targetPositionBase, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 144L, 12L);
     }
     /** @return the roll field of this M2Camera. */
     public AnimationTrackF32 getRoll() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Camera_get_roll.invoke(handle);
-            return new AnimationTrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Camera_get_roll, handle);
+        return new AnimationTrackF32(__h, false);
     }
     public void setRoll(AnimationTrackF32 value) {
-        try { Native.whiteout_m2_M2Camera_set_roll.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Camera_set_roll, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the fieldOfViewTrack field of this M2Camera. */
     public AnimationTrackF32 getFieldOfViewTrack() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2Camera_get_fieldOfViewTrack.invoke(handle);
-            return new AnimationTrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Camera_get_fieldOfViewTrack, handle);
+        return new AnimationTrackF32(__h, false);
     }
     public void setFieldOfViewTrack(AnimationTrackF32 value) {
-        try { Native.whiteout_m2_M2Camera_set_fieldOfViewTrack.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Camera_set_fieldOfViewTrack, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "Camera(" + "type=" + getType() + ", " + "fieldOfView=" + getFieldOfView() + ", " + "farClip=" + getFarClip() + ", " + "nearClip=" + getNearClip() + ")";

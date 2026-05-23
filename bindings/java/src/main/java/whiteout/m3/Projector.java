@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class Projector implements AutoCloseable {
     }
 
     public Projector() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3Projector_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Projector allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Projector allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3Projector_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_delete, handle);
         }
     }
 
@@ -96,182 +93,154 @@ public final class Projector implements AutoCloseable {
      * @return the offset field of this M3Projector.
      */
     public AnimRefVector3f getOffset() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Projector_get_offset.invoke(handle);
-            return new AnimRefVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_get_offset, handle);
+        return new AnimRefVector3f(__h, false);
     }
     public void setOffset(AnimRefVector3f value) {
-        try { Native.whiteout_m3_M3Projector_set_offset.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_set_offset, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated pitch angle
      * @return the pitch field of this M3Projector.
      */
     public AnimRefF32 getPitch() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Projector_get_pitch.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_get_pitch, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setPitch(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Projector_set_pitch.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_set_pitch, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated yaw angle
      * @return the yaw field of this M3Projector.
      */
     public AnimRefF32 getYaw() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Projector_get_yaw.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_get_yaw, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setYaw(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Projector_set_yaw.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_set_yaw, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated roll angle
      * @return the roll field of this M3Projector.
      */
     public AnimRefF32 getRoll() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Projector_get_roll.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_get_roll, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setRoll(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Projector_set_roll.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_set_roll, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated field of view
      * @return the fieldOfView field of this M3Projector.
      */
     public AnimRefF32 getFieldOfView() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Projector_get_fieldOfView.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_get_fieldOfView, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setFieldOfView(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Projector_set_fieldOfView.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_set_fieldOfView, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated aspect ratio
      * @return the aspectRatio field of this M3Projector.
      */
     public AnimRefF32 getAspectRatio() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Projector_get_aspectRatio.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_get_aspectRatio, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setAspectRatio(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Projector_set_aspectRatio.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_set_aspectRatio, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated near clip plane
      * @return the near field of this M3Projector.
      */
     public AnimRefF32 getNear() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Projector_get_near.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_get_near, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setNear(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Projector_set_near.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_set_near, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated far clip plane
      * @return the far field of this M3Projector.
      */
     public AnimRefF32 getFar() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Projector_get_far.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_get_far, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setFar(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Projector_set_far.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_set_far, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated box Z bottom offset
      * @return the boxOffsetZBottom field of this M3Projector.
      */
     public AnimRefF32 getBoxOffsetZBottom() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Projector_get_boxOffsetZBottom.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_get_boxOffsetZBottom, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setBoxOffsetZBottom(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Projector_set_boxOffsetZBottom.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_set_boxOffsetZBottom, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated box Z top offset
      * @return the boxOffsetZTop field of this M3Projector.
      */
     public AnimRefF32 getBoxOffsetZTop() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Projector_get_boxOffsetZTop.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_get_boxOffsetZTop, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setBoxOffsetZTop(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Projector_set_boxOffsetZTop.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_set_boxOffsetZTop, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated box X left offset
      * @return the boxOffsetXLeft field of this M3Projector.
      */
     public AnimRefF32 getBoxOffsetXLeft() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Projector_get_boxOffsetXLeft.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_get_boxOffsetXLeft, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setBoxOffsetXLeft(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Projector_set_boxOffsetXLeft.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_set_boxOffsetXLeft, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated box X right offset
      * @return the boxOffsetXRight field of this M3Projector.
      */
     public AnimRefF32 getBoxOffsetXRight() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Projector_get_boxOffsetXRight.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_get_boxOffsetXRight, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setBoxOffsetXRight(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Projector_set_boxOffsetXRight.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_set_boxOffsetXRight, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated box Y front offset
      * @return the boxOffsetYFront field of this M3Projector.
      */
     public AnimRefF32 getBoxOffsetYFront() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Projector_get_boxOffsetYFront.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_get_boxOffsetYFront, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setBoxOffsetYFront(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Projector_set_boxOffsetYFront.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_set_boxOffsetYFront, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated box Y back offset
      * @return the boxOffsetYBack field of this M3Projector.
      */
     public AnimRefF32 getBoxOffsetYBack() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Projector_get_boxOffsetYBack.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_get_boxOffsetYBack, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setBoxOffsetYBack(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Projector_set_boxOffsetYBack.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_set_boxOffsetYBack, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Projection falloff distance
@@ -388,13 +357,11 @@ public final class Projector implements AutoCloseable {
      * @return the active field of this M3Projector.
      */
     public AnimRefU32 getActive() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Projector_get_active.invoke(handle);
-            return new AnimRefU32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_get_active, handle);
+        return new AnimRefU32(__h, false);
     }
     public void setActive(AnimRefU32 value) {
-        try { Native.whiteout_m3_M3Projector_set_active.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Projector_set_active, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Render layer

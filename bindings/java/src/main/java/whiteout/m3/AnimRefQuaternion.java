@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -41,22 +42,18 @@ public final class AnimRefQuaternion implements AutoCloseable {
     }
 
     public AnimRefQuaternion() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3AnimRefQuaternion_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("AnimRefQuaternion allocation failed");
-            this.handle = __raw;
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3AnimRefQuaternion_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("AnimRefQuaternion allocation failed");
+        this.handle = __raw;
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3AnimRefQuaternion_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3AnimRefQuaternion_delete, handle);
         }
     }
 
@@ -65,74 +62,62 @@ public final class AnimRefQuaternion implements AutoCloseable {
      * @return the interpType field of this M3AnimRefQuaternion.
      */
     public short getInterpType() {
-        try { return (short) Native.whiteout_m3_M3AnimRefQuaternion_get_interpType.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (short) NativeCommon.invokeNative(Native.whiteout_m3_M3AnimRefQuaternion_get_interpType, handle);
     }
     public void setInterpType(short value) {
-        try { Native.whiteout_m3_M3AnimRefQuaternion_set_interpType.invoke(handle, value); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3AnimRefQuaternion_set_interpType, handle, value);
     }
     /**
      * Animation flags
      * @return the flags field of this M3AnimRefQuaternion.
      */
     public short getFlags() {
-        try { return (short) Native.whiteout_m3_M3AnimRefQuaternion_get_flags.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (short) NativeCommon.invokeNative(Native.whiteout_m3_M3AnimRefQuaternion_get_flags, handle);
     }
     public void setFlags(short value) {
-        try { Native.whiteout_m3_M3AnimRefQuaternion_set_flags.invoke(handle, value); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3AnimRefQuaternion_set_flags, handle, value);
     }
     /**
      * Animation identifier (links to STC animation data; 0=not animated)
      * @return the animId field of this M3AnimRefQuaternion.
      */
     public int getAnimId() {
-        try { return (int) Native.whiteout_m3_M3AnimRefQuaternion_get_animId.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) NativeCommon.invokeNative(Native.whiteout_m3_M3AnimRefQuaternion_get_animId, handle);
     }
     public void setAnimId(int value) {
-        try { Native.whiteout_m3_M3AnimRefQuaternion_set_animId.invoke(handle, value); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3AnimRefQuaternion_set_animId, handle, value);
     }
     /**
      * Initial/default value (used when not animated)
      * @return the initValue field of this M3AnimRefQuaternion.
      */
     public Quaternion getInitValue() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3AnimRefQuaternion_get_initValue.invoke(handle);
-            return Handles.wrapQuaternion(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3AnimRefQuaternion_get_initValue, handle);
+        return Handles.wrapQuaternion(__h, false);
     }
     public void setInitValue(Quaternion value) {
-        try { Native.whiteout_m3_M3AnimRefQuaternion_set_initValue.invoke(handle, value == null ? MemorySegment.NULL : Handles.segmentOf(value)); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3AnimRefQuaternion_set_initValue, handle, value == null ? MemorySegment.NULL : Handles.segmentOf(value));
     }
     /**
      * Null/reset value
      * @return the nullValue field of this M3AnimRefQuaternion.
      */
     public Quaternion getNullValue() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3AnimRefQuaternion_get_nullValue.invoke(handle);
-            return Handles.wrapQuaternion(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3AnimRefQuaternion_get_nullValue, handle);
+        return Handles.wrapQuaternion(__h, false);
     }
     public void setNullValue(Quaternion value) {
-        try { Native.whiteout_m3_M3AnimRefQuaternion_set_nullValue.invoke(handle, value == null ? MemorySegment.NULL : Handles.segmentOf(value)); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3AnimRefQuaternion_set_nullValue, handle, value == null ? MemorySegment.NULL : Handles.segmentOf(value));
     }
     /**
      * Typically -1
      * @return the unused field of this M3AnimRefQuaternion.
      */
     public int getUnused() {
-        try { return (int) Native.whiteout_m3_M3AnimRefQuaternion_get_unused.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) NativeCommon.invokeNative(Native.whiteout_m3_M3AnimRefQuaternion_get_unused, handle);
     }
     public void setUnused(int value) {
-        try { Native.whiteout_m3_M3AnimRefQuaternion_set_unused.invoke(handle, value); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3AnimRefQuaternion_set_unused, handle, value);
     }
     @Override public String toString() {
         return "AnimRefQuaternion(" + "interpType=" + getInterpType() + ", " + "flags=" + getFlags() + ", " + "animId=" + getAnimId() + ", " + "unused=" + getUnused() + ")";

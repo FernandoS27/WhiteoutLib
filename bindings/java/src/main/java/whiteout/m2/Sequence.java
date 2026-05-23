@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m2.internal.Native;
 
 /**
@@ -40,22 +41,18 @@ public final class Sequence implements AutoCloseable {
     }
 
     public Sequence() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m2_M2Sequence_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Sequence allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Sequence_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Sequence allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m2_M2Sequence_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Sequence_delete, handle);
         }
     }
 
@@ -141,8 +138,7 @@ public final class Sequence implements AutoCloseable {
         return new Extent(handle.asSlice(32L, 28L), false);
     }
     public void setBounding(Extent value) {
-        try { Native.whiteout_m2_M2Sequence_set_bounding.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Sequence_set_bounding, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the variationNext field of this M2Sequence. */
     public short getVariationNext() {

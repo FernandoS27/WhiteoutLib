@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.mpq.internal.Native;
 
 /**
@@ -48,21 +49,17 @@ public final class FileSystem implements AutoCloseable, whiteout.interfaces.Virt
     }
 
     public static FileSystem createStorage(Storage storage) {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_mpq_MpqFileSystem_new_storage.invoke(storage == null ? MemorySegment.NULL : storage.handle);
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("FileSystem allocation failed");
-            return new FileSystem(__raw, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mpq_MpqFileSystem_new_storage, storage == null ? MemorySegment.NULL : storage.handle);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("FileSystem allocation failed");
+        return new FileSystem(__raw, true);
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_mpq_MpqFileSystem_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mpq_MpqFileSystem_delete, handle);
         }
     }
 
@@ -77,14 +74,14 @@ public final class FileSystem implements AutoCloseable, whiteout.interfaces.Virt
             MemorySegment path_seg = path == null
                 ? MemorySegment.NULL
                 : arena.allocateFrom(path, StandardCharsets.UTF_8);
-            MemorySegment __struct = (MemorySegment) Native.whiteout_mpq_MpqFileSystem_readFile.invoke(arena, handle, path_seg);
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mpq_MpqFileSystem_readFile, arena, handle, path_seg);
             MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
             long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
             byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_Bytes_free.invoke(__struct);
+            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
             return __out;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -105,8 +102,8 @@ public final class FileSystem implements AutoCloseable, whiteout.interfaces.Virt
             if (data != null && data.length != 0) {
                 MemorySegment.copy(data, 0, data_seg, ValueLayout.JAVA_BYTE, 0, data.length);
             }
-            return ((int) Native.whiteout_mpq_MpqFileSystem_writeFile.invoke(handle, path_seg, data_seg, (long) (data == null ? 0 : data.length))) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            return ((int) NativeCommon.invokeNative(Native.whiteout_mpq_MpqFileSystem_writeFile, handle, path_seg, data_seg, (long) (data == null ? 0 : data.length))) != 0;
+        }
     }
 
     /**
@@ -120,8 +117,8 @@ public final class FileSystem implements AutoCloseable, whiteout.interfaces.Virt
             MemorySegment path_seg = path == null
                 ? MemorySegment.NULL
                 : arena.allocateFrom(path, StandardCharsets.UTF_8);
-            return ((int) Native.whiteout_mpq_MpqFileSystem_fileExists.invoke(handle, path_seg)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            return ((int) NativeCommon.invokeNative(Native.whiteout_mpq_MpqFileSystem_fileExists, handle, path_seg)) != 0;
+        }
     }
 
     /** {@inheritDoc} */

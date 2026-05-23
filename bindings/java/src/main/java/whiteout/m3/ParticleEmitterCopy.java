@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class ParticleEmitterCopy implements AutoCloseable {
     }
 
     public ParticleEmitterCopy() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3ParticleEmitterCopy_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("ParticleEmitterCopy allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitterCopy_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("ParticleEmitterCopy allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3ParticleEmitterCopy_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitterCopy_delete, handle);
         }
     }
 
@@ -66,26 +63,22 @@ public final class ParticleEmitterCopy implements AutoCloseable {
      * @return the emissionRate field of this M3ParticleEmitterCopy.
      */
     public AnimRefF32 getEmissionRate() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitterCopy_get_emissionRate.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitterCopy_get_emissionRate, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setEmissionRate(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3ParticleEmitterCopy_set_emissionRate.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitterCopy_set_emissionRate, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Overridden squirt burst count
      * @return the squirtAmount field of this M3ParticleEmitterCopy.
      */
     public AnimRefU16 getSquirtAmount() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3ParticleEmitterCopy_get_squirtAmount.invoke(handle);
-            return new AnimRefU16(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitterCopy_get_squirtAmount, handle);
+        return new AnimRefU16(__h, false);
     }
     public void setSquirtAmount(AnimRefU16 value) {
-        try { Native.whiteout_m3_M3ParticleEmitterCopy_set_squirtAmount.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ParticleEmitterCopy_set_squirtAmount, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Index into BONE array

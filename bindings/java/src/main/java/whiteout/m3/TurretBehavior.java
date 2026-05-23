@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class TurretBehavior implements AutoCloseable {
     }
 
     public TurretBehavior() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3TurretBehavior_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("TurretBehavior allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3TurretBehavior_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("TurretBehavior allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3TurretBehavior_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3TurretBehavior_delete, handle);
         }
     }
 
@@ -70,8 +67,7 @@ public final class TurretBehavior implements AutoCloseable {
     }
     public void setUnknown1(Vector4f value) {
         if (value == null) {
-            try { Native.whiteout_m3_M3TurretBehavior_set_unknown1.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3TurretBehavior_set_unknown1, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 64L, 16L);
@@ -85,8 +81,7 @@ public final class TurretBehavior implements AutoCloseable {
     }
     public void setUnknown2(Vector4f value) {
         if (value == null) {
-            try { Native.whiteout_m3_M3TurretBehavior_set_unknown2.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3TurretBehavior_set_unknown2, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 80L, 16L);
@@ -230,8 +225,7 @@ public final class TurretBehavior implements AutoCloseable {
     }
     public void setMainBoneOffset(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m3_M3TurretBehavior_set_mainBoneOffset.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3TurretBehavior_set_mainBoneOffset, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 140L, 12L);

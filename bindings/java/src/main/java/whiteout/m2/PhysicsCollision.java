@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m2.internal.Native;
 
 /**
@@ -40,128 +41,108 @@ public final class PhysicsCollision implements AutoCloseable {
     }
 
     public PhysicsCollision() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m2_M2PhysicsCollision_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("PhysicsCollision allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("PhysicsCollision allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m2_M2PhysicsCollision_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_delete, handle);
         }
     }
 
     /** @return the vertexPositions field of this M2PhysicsCollision. */
     public int getVertexPositionsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2PhysicsCollision_get_vertexPositions_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_get_vertexPositions_count, handle);
     }
     public float[] getVertexPositions() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2PhysicsCollision_get_vertexPositions_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2PhysicsCollision_get_vertexPositions_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
-            long __scalars = __count * 3L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_get_vertexPositions_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_get_vertexPositions_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
+        long __scalars = __count * 3L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
     }
     public void setVertexPositions(float[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 3;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
-            Native.whiteout_m2_M2PhysicsCollision_assign_vertexPositions.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_assign_vertexPositions, handle, __seg, __count);
+        }
     }
     public void resizeVertexPositions(int count) {
-        try { Native.whiteout_m2_M2PhysicsCollision_resize_vertexPositions.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_resize_vertexPositions, handle, (long) count);
     }
     /** @return the faceNormals field of this M2PhysicsCollision. */
     public int getFaceNormalsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2PhysicsCollision_get_faceNormals_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_get_faceNormals_count, handle);
     }
     public float[] getFaceNormals() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2PhysicsCollision_get_faceNormals_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2PhysicsCollision_get_faceNormals_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
-            long __scalars = __count * 3L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_get_faceNormals_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_get_faceNormals_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
+        long __scalars = __count * 3L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
     }
     public void setFaceNormals(float[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 3;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
-            Native.whiteout_m2_M2PhysicsCollision_assign_faceNormals.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_assign_faceNormals, handle, __seg, __count);
+        }
     }
     public void resizeFaceNormals(int count) {
-        try { Native.whiteout_m2_M2PhysicsCollision_resize_faceNormals.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_resize_faceNormals, handle, (long) count);
     }
     /** @return the indices field of this M2PhysicsCollision. */
     public int getIndicesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2PhysicsCollision_get_indices_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_get_indices_count, handle);
     }
     public short[] getIndices() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2PhysicsCollision_get_indices_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2PhysicsCollision_get_indices_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_get_indices_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_get_indices_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setIndices(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m2_M2PhysicsCollision_assign_indices.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_assign_indices, handle, __seg, __count);
+        }
     }
     public void resizeIndices(int count) {
-        try { Native.whiteout_m2_M2PhysicsCollision_resize_indices.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_resize_indices, handle, (long) count);
     }
     /** @return the flags field of this M2PhysicsCollision. */
     public int getFlagsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2PhysicsCollision_get_flags_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_get_flags_count, handle);
     }
     public short[] getFlags() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2PhysicsCollision_get_flags_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2PhysicsCollision_get_flags_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_get_flags_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_get_flags_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setFlags(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m2_M2PhysicsCollision_assign_flags.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_assign_flags, handle, __seg, __count);
+        }
     }
     public void resizeFlags(int count) {
-        try { Native.whiteout_m2_M2PhysicsCollision_resize_flags.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2PhysicsCollision_resize_flags, handle, (long) count);
     }
     @Override public String toString() {
         return "PhysicsCollision@" + Long.toHexString(handle == null ? 0 : handle.address());

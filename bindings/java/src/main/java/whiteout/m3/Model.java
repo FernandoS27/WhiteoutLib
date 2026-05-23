@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -44,22 +45,18 @@ public final class Model implements AutoCloseable {
     }
 
     public Model() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3Model_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Model allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Model allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3Model_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3Model_delete, handle);
         }
     }
 
@@ -69,14 +66,14 @@ public final class Model implements AutoCloseable {
      */
     public String getName() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __s = (MemorySegment) Native.whiteout_m3_M3Model_get_name.invoke(arena, handle);
+            MemorySegment __s = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_name, arena, handle);
             MemorySegment __chars = __s.get(ValueLayout.ADDRESS, 0);
             long __len = __s.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__chars == null || __chars.equals(MemorySegment.NULL)) return "";
             byte[] __bytes = __chars.reinterpret(__len).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_CString_free.invoke(__s);
+            NativeCommon.invokeNative(Native.whiteout_CString_free, __s);
             return new String(__bytes, StandardCharsets.UTF_8);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
     public void setName(String value) {
         try (Arena arena = Arena.ofConfined()) {
@@ -84,8 +81,8 @@ public final class Model implements AutoCloseable {
             MemorySegment __seg = arena.allocate(__utf.length + 1);
             MemorySegment.copy(__utf, 0, __seg, ValueLayout.JAVA_BYTE, 0, __utf.length);
             __seg.set(ValueLayout.JAVA_BYTE, __utf.length, (byte) 0);
-            Native.whiteout_m3_M3Model_set_name.invoke(handle, __seg);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3Model_set_name, handle, __seg);
+        }
     }
     /**
      * Model flags (tangents, FOW, instancing, etc.)
@@ -102,17 +99,14 @@ public final class Model implements AutoCloseable {
      * @return the sequences field of this M3Model.
      */
     public int getSequencesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_sequences_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_sequences_count, handle);
     }
     public Sequence getSequencesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_sequences_at.invoke(handle, (long) index);
-            return new Sequence(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_sequences_at, handle, (long) index);
+        return new Sequence(__h, false);
     }
     public void resizeSequences(int count) {
-        try { Native.whiteout_m3_M3Model_resize_sequences.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_sequences, handle, (long) count);
     }
     public java.util.List<Sequence> sequencesView() {
         return new java.util.AbstractList<Sequence>() {
@@ -125,17 +119,14 @@ public final class Model implements AutoCloseable {
      * @return the subTrackCollections field of this M3Model.
      */
     public int getSubTrackCollectionsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_subTrackCollections_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_subTrackCollections_count, handle);
     }
     public SubTrackContainer getSubTrackCollectionsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_subTrackCollections_at.invoke(handle, (long) index);
-            return new SubTrackContainer(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_subTrackCollections_at, handle, (long) index);
+        return new SubTrackContainer(__h, false);
     }
     public void resizeSubTrackCollections(int count) {
-        try { Native.whiteout_m3_M3Model_resize_subTrackCollections.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_subTrackCollections, handle, (long) count);
     }
     public java.util.List<SubTrackContainer> subTrackCollectionsView() {
         return new java.util.AbstractList<SubTrackContainer>() {
@@ -148,17 +139,14 @@ public final class Model implements AutoCloseable {
      * @return the animationGroups field of this M3Model.
      */
     public int getAnimationGroupsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_animationGroups_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_animationGroups_count, handle);
     }
     public AnimationGroup getAnimationGroupsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_animationGroups_at.invoke(handle, (long) index);
-            return new AnimationGroup(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_animationGroups_at, handle, (long) index);
+        return new AnimationGroup(__h, false);
     }
     public void resizeAnimationGroups(int count) {
-        try { Native.whiteout_m3_M3Model_resize_animationGroups.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_animationGroups, handle, (long) count);
     }
     public java.util.List<AnimationGroup> animationGroupsView() {
         return new java.util.AbstractList<AnimationGroup>() {
@@ -171,17 +159,14 @@ public final class Model implements AutoCloseable {
      * @return the boneAnimationSets field of this M3Model.
      */
     public int getBoneAnimationSetsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_boneAnimationSets_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_boneAnimationSets_count, handle);
     }
     public BoneAnimationSet getBoneAnimationSetsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_boneAnimationSets_at.invoke(handle, (long) index);
-            return new BoneAnimationSet(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_boneAnimationSets_at, handle, (long) index);
+        return new BoneAnimationSet(__h, false);
     }
     public void resizeBoneAnimationSets(int count) {
-        try { Native.whiteout_m3_M3Model_resize_boneAnimationSets.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_boneAnimationSets, handle, (long) count);
     }
     public java.util.List<BoneAnimationSet> boneAnimationSetsView() {
         return new java.util.AbstractList<BoneAnimationSet>() {
@@ -204,17 +189,14 @@ public final class Model implements AutoCloseable {
      * @return the animationStates field of this M3Model.
      */
     public int getAnimationStatesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_animationStates_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_animationStates_count, handle);
     }
     public AnimationState getAnimationStatesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_animationStates_at.invoke(handle, (long) index);
-            return new AnimationState(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_animationStates_at, handle, (long) index);
+        return new AnimationState(__h, false);
     }
     public void resizeAnimationStates(int count) {
-        try { Native.whiteout_m3_M3Model_resize_animationStates.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_animationStates, handle, (long) count);
     }
     public java.util.List<AnimationState> animationStatesView() {
         return new java.util.AbstractList<AnimationState>() {
@@ -227,17 +209,14 @@ public final class Model implements AutoCloseable {
      * @return the bones field of this M3Model.
      */
     public int getBonesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_bones_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_bones_count, handle);
     }
     public Bone getBonesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_bones_at.invoke(handle, (long) index);
-            return new Bone(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_bones_at, handle, (long) index);
+        return new Bone(__h, false);
     }
     public void resizeBones(int count) {
-        try { Native.whiteout_m3_M3Model_resize_bones.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_bones, handle, (long) count);
     }
     public java.util.List<Bone> bonesView() {
         return new java.util.AbstractList<Bone>() {
@@ -260,17 +239,14 @@ public final class Model implements AutoCloseable {
      * @return the divisions field of this M3Model.
      */
     public int getDivisionsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_divisions_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_divisions_count, handle);
     }
     public MeshDivision getDivisionsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_divisions_at.invoke(handle, (long) index);
-            return new MeshDivision(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_divisions_at, handle, (long) index);
+        return new MeshDivision(__h, false);
     }
     public void resizeDivisions(int count) {
-        try { Native.whiteout_m3_M3Model_resize_divisions.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_divisions, handle, (long) count);
     }
     public java.util.List<MeshDivision> divisionsView() {
         return new java.util.AbstractList<MeshDivision>() {
@@ -283,29 +259,25 @@ public final class Model implements AutoCloseable {
      * @return the boneLookup field of this M3Model.
      */
     public int getBoneLookupCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_boneLookup_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_boneLookup_count, handle);
     }
     public short[] getBoneLookup() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3Model_get_boneLookup_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3Model_get_boneLookup_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_boneLookup_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_boneLookup_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setBoneLookup(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m3_M3Model_assign_boneLookup.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3Model_assign_boneLookup, handle, __seg, __count);
+        }
     }
     public void resizeBoneLookup(int count) {
-        try { Native.whiteout_m3_M3Model_resize_boneLookup.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_boneLookup, handle, (long) count);
     }
     /**
      * Model bounding volume
@@ -315,8 +287,7 @@ public final class Model implements AutoCloseable {
         return new Extent(handle.asSlice(288L, 28L), false);
     }
     public void setBounds(Extent value) {
-        try { Native.whiteout_m3_M3Model_set_bounds.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_set_bounds, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Collision bounding volume
@@ -326,112 +297,96 @@ public final class Model implements AutoCloseable {
         return new Extent(handle.asSlice(316L, 28L), false);
     }
     public void setCollisionBounds(Extent value) {
-        try { Native.whiteout_m3_M3Model_set_collisionBounds.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_set_collisionBounds, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Collision triangle indices (U16_)
      * @return the collisionFaces field of this M3Model.
      */
     public int getCollisionFacesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_collisionFaces_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_collisionFaces_count, handle);
     }
     public short[] getCollisionFaces() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3Model_get_collisionFaces_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3Model_get_collisionFaces_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_collisionFaces_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_collisionFaces_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setCollisionFaces(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m3_M3Model_assign_collisionFaces.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3Model_assign_collisionFaces, handle, __seg, __count);
+        }
     }
     public void resizeCollisionFaces(int count) {
-        try { Native.whiteout_m3_M3Model_resize_collisionFaces.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_collisionFaces, handle, (long) count);
     }
     /**
      * Collision vertex positions (VEC3)
      * @return the collisionVerts field of this M3Model.
      */
     public int getCollisionVertsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_collisionVerts_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_collisionVerts_count, handle);
     }
     public float[] getCollisionVerts() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3Model_get_collisionVerts_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3Model_get_collisionVerts_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
-            long __scalars = __count * 3L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_collisionVerts_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_collisionVerts_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
+        long __scalars = __count * 3L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
     }
     public void setCollisionVerts(float[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 3;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
-            Native.whiteout_m3_M3Model_assign_collisionVerts.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3Model_assign_collisionVerts, handle, __seg, __count);
+        }
     }
     public void resizeCollisionVerts(int count) {
-        try { Native.whiteout_m3_M3Model_resize_collisionVerts.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_collisionVerts, handle, (long) count);
     }
     /**
      * Collision face normals (VEC3)
      * @return the collisionNormals field of this M3Model.
      */
     public int getCollisionNormalsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_collisionNormals_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_collisionNormals_count, handle);
     }
     public float[] getCollisionNormals() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3Model_get_collisionNormals_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3Model_get_collisionNormals_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
-            long __scalars = __count * 3L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_collisionNormals_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_collisionNormals_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
+        long __scalars = __count * 3L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
     }
     public void setCollisionNormals(float[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 3;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
-            Native.whiteout_m3_M3Model_assign_collisionNormals.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3Model_assign_collisionNormals, handle, __seg, __count);
+        }
     }
     public void resizeCollisionNormals(int count) {
-        try { Native.whiteout_m3_M3Model_resize_collisionNormals.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_collisionNormals, handle, (long) count);
     }
     /**
      * Named bone locations (ATT_)
      * @return the attachmentPoints field of this M3Model.
      */
     public int getAttachmentPointsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_attachmentPoints_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_attachmentPoints_count, handle);
     }
     public AttachmentPoint getAttachmentPointsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_attachmentPoints_at.invoke(handle, (long) index);
-            return new AttachmentPoint(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_attachmentPoints_at, handle, (long) index);
+        return new AttachmentPoint(__h, false);
     }
     public void resizeAttachmentPoints(int count) {
-        try { Native.whiteout_m3_M3Model_resize_attachmentPoints.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_attachmentPoints, handle, (long) count);
     }
     public java.util.List<AttachmentPoint> attachmentPointsView() {
         return new java.util.AbstractList<AttachmentPoint>() {
@@ -444,46 +399,39 @@ public final class Model implements AutoCloseable {
      * @return the attachmentPointAddons field of this M3Model.
      */
     public int getAttachmentPointAddonsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_attachmentPointAddons_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_attachmentPointAddons_count, handle);
     }
     public short[] getAttachmentPointAddons() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3Model_get_attachmentPointAddons_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3Model_get_attachmentPointAddons_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_attachmentPointAddons_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_attachmentPointAddons_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setAttachmentPointAddons(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m3_M3Model_assign_attachmentPointAddons.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3Model_assign_attachmentPointAddons, handle, __seg, __count);
+        }
     }
     public void resizeAttachmentPointAddons(int count) {
-        try { Native.whiteout_m3_M3Model_resize_attachmentPointAddons.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_attachmentPointAddons, handle, (long) count);
     }
     /**
      * Lights (LITE)
      * @return the lights field of this M3Model.
      */
     public int getLightsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_lights_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_lights_count, handle);
     }
     public Light getLightsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_lights_at.invoke(handle, (long) index);
-            return new Light(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_lights_at, handle, (long) index);
+        return new Light(__h, false);
     }
     public void resizeLights(int count) {
-        try { Native.whiteout_m3_M3Model_resize_lights.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_lights, handle, (long) count);
     }
     public java.util.List<Light> lightsView() {
         return new java.util.AbstractList<Light>() {
@@ -496,17 +444,14 @@ public final class Model implements AutoCloseable {
      * @return the shadowBoxes field of this M3Model.
      */
     public int getShadowBoxesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_shadowBoxes_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_shadowBoxes_count, handle);
     }
     public ShadowBox getShadowBoxesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_shadowBoxes_at.invoke(handle, (long) index);
-            return new ShadowBox(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_shadowBoxes_at, handle, (long) index);
+        return new ShadowBox(__h, false);
     }
     public void resizeShadowBoxes(int count) {
-        try { Native.whiteout_m3_M3Model_resize_shadowBoxes.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_shadowBoxes, handle, (long) count);
     }
     public java.util.List<ShadowBox> shadowBoxesView() {
         return new java.util.AbstractList<ShadowBox>() {
@@ -519,17 +464,14 @@ public final class Model implements AutoCloseable {
      * @return the cameras field of this M3Model.
      */
     public int getCamerasCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_cameras_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_cameras_count, handle);
     }
     public Camera getCamerasAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_cameras_at.invoke(handle, (long) index);
-            return new Camera(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_cameras_at, handle, (long) index);
+        return new Camera(__h, false);
     }
     public void resizeCameras(int count) {
-        try { Native.whiteout_m3_M3Model_resize_cameras.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_cameras, handle, (long) count);
     }
     public java.util.List<Camera> camerasView() {
         return new java.util.AbstractList<Camera>() {
@@ -542,46 +484,39 @@ public final class Model implements AutoCloseable {
      * @return the camerasAddons field of this M3Model.
      */
     public int getCamerasAddonsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_camerasAddons_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_camerasAddons_count, handle);
     }
     public short[] getCamerasAddons() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3Model_get_camerasAddons_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3Model_get_camerasAddons_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_camerasAddons_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_camerasAddons_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setCamerasAddons(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m3_M3Model_assign_camerasAddons.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3Model_assign_camerasAddons, handle, __seg, __count);
+        }
     }
     public void resizeCamerasAddons(int count) {
-        try { Native.whiteout_m3_M3Model_resize_camerasAddons.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_camerasAddons, handle, (long) count);
     }
     /**
      * Material type+index maps (MATM)
      * @return the materialMaps field of this M3Model.
      */
     public int getMaterialMapsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_materialMaps_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_materialMaps_count, handle);
     }
     public MaterialMap getMaterialMapsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_materialMaps_at.invoke(handle, (long) index);
-            return new MaterialMap(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_materialMaps_at, handle, (long) index);
+        return new MaterialMap(__h, false);
     }
     public void resizeMaterialMaps(int count) {
-        try { Native.whiteout_m3_M3Model_resize_materialMaps.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_materialMaps, handle, (long) count);
     }
     public java.util.List<MaterialMap> materialMapsView() {
         return new java.util.AbstractList<MaterialMap>() {
@@ -594,17 +529,14 @@ public final class Model implements AutoCloseable {
      * @return the standardMaterials field of this M3Model.
      */
     public int getStandardMaterialsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_standardMaterials_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_standardMaterials_count, handle);
     }
     public StandardMaterial getStandardMaterialsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_standardMaterials_at.invoke(handle, (long) index);
-            return new StandardMaterial(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_standardMaterials_at, handle, (long) index);
+        return new StandardMaterial(__h, false);
     }
     public void resizeStandardMaterials(int count) {
-        try { Native.whiteout_m3_M3Model_resize_standardMaterials.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_standardMaterials, handle, (long) count);
     }
     public java.util.List<StandardMaterial> standardMaterialsView() {
         return new java.util.AbstractList<StandardMaterial>() {
@@ -617,17 +549,14 @@ public final class Model implements AutoCloseable {
      * @return the displacementMaterials field of this M3Model.
      */
     public int getDisplacementMaterialsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_displacementMaterials_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_displacementMaterials_count, handle);
     }
     public DisplacementMaterial getDisplacementMaterialsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_displacementMaterials_at.invoke(handle, (long) index);
-            return new DisplacementMaterial(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_displacementMaterials_at, handle, (long) index);
+        return new DisplacementMaterial(__h, false);
     }
     public void resizeDisplacementMaterials(int count) {
-        try { Native.whiteout_m3_M3Model_resize_displacementMaterials.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_displacementMaterials, handle, (long) count);
     }
     public java.util.List<DisplacementMaterial> displacementMaterialsView() {
         return new java.util.AbstractList<DisplacementMaterial>() {
@@ -640,17 +569,14 @@ public final class Model implements AutoCloseable {
      * @return the compositeMaterials field of this M3Model.
      */
     public int getCompositeMaterialsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_compositeMaterials_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_compositeMaterials_count, handle);
     }
     public CompositeMaterial getCompositeMaterialsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_compositeMaterials_at.invoke(handle, (long) index);
-            return new CompositeMaterial(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_compositeMaterials_at, handle, (long) index);
+        return new CompositeMaterial(__h, false);
     }
     public void resizeCompositeMaterials(int count) {
-        try { Native.whiteout_m3_M3Model_resize_compositeMaterials.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_compositeMaterials, handle, (long) count);
     }
     public java.util.List<CompositeMaterial> compositeMaterialsView() {
         return new java.util.AbstractList<CompositeMaterial>() {
@@ -663,17 +589,14 @@ public final class Model implements AutoCloseable {
      * @return the terrainMaterials field of this M3Model.
      */
     public int getTerrainMaterialsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_terrainMaterials_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_terrainMaterials_count, handle);
     }
     public TerrainMaterial getTerrainMaterialsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_terrainMaterials_at.invoke(handle, (long) index);
-            return new TerrainMaterial(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_terrainMaterials_at, handle, (long) index);
+        return new TerrainMaterial(__h, false);
     }
     public void resizeTerrainMaterials(int count) {
-        try { Native.whiteout_m3_M3Model_resize_terrainMaterials.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_terrainMaterials, handle, (long) count);
     }
     public java.util.List<TerrainMaterial> terrainMaterialsView() {
         return new java.util.AbstractList<TerrainMaterial>() {
@@ -686,17 +609,14 @@ public final class Model implements AutoCloseable {
      * @return the volumeMaterials field of this M3Model.
      */
     public int getVolumeMaterialsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_volumeMaterials_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_volumeMaterials_count, handle);
     }
     public VolumeMaterial getVolumeMaterialsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_volumeMaterials_at.invoke(handle, (long) index);
-            return new VolumeMaterial(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_volumeMaterials_at, handle, (long) index);
+        return new VolumeMaterial(__h, false);
     }
     public void resizeVolumeMaterials(int count) {
-        try { Native.whiteout_m3_M3Model_resize_volumeMaterials.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_volumeMaterials, handle, (long) count);
     }
     public java.util.List<VolumeMaterial> volumeMaterialsView() {
         return new java.util.AbstractList<VolumeMaterial>() {
@@ -709,17 +629,14 @@ public final class Model implements AutoCloseable {
      * @return the hairMaterials field of this M3Model.
      */
     public int getHairMaterialsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_hairMaterials_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_hairMaterials_count, handle);
     }
     public HairMaterial getHairMaterialsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_hairMaterials_at.invoke(handle, (long) index);
-            return new HairMaterial(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_hairMaterials_at, handle, (long) index);
+        return new HairMaterial(__h, false);
     }
     public void resizeHairMaterials(int count) {
-        try { Native.whiteout_m3_M3Model_resize_hairMaterials.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_hairMaterials, handle, (long) count);
     }
     public java.util.List<HairMaterial> hairMaterialsView() {
         return new java.util.AbstractList<HairMaterial>() {
@@ -732,17 +649,14 @@ public final class Model implements AutoCloseable {
      * @return the creepMaterials field of this M3Model.
      */
     public int getCreepMaterialsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_creepMaterials_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_creepMaterials_count, handle);
     }
     public CreepMaterial getCreepMaterialsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_creepMaterials_at.invoke(handle, (long) index);
-            return new CreepMaterial(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_creepMaterials_at, handle, (long) index);
+        return new CreepMaterial(__h, false);
     }
     public void resizeCreepMaterials(int count) {
-        try { Native.whiteout_m3_M3Model_resize_creepMaterials.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_creepMaterials, handle, (long) count);
     }
     public java.util.List<CreepMaterial> creepMaterialsView() {
         return new java.util.AbstractList<CreepMaterial>() {
@@ -755,17 +669,14 @@ public final class Model implements AutoCloseable {
      * @return the volumeNoiseMaterials field of this M3Model.
      */
     public int getVolumeNoiseMaterialsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_volumeNoiseMaterials_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_volumeNoiseMaterials_count, handle);
     }
     public VolumeNoiseMaterial getVolumeNoiseMaterialsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_volumeNoiseMaterials_at.invoke(handle, (long) index);
-            return new VolumeNoiseMaterial(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_volumeNoiseMaterials_at, handle, (long) index);
+        return new VolumeNoiseMaterial(__h, false);
     }
     public void resizeVolumeNoiseMaterials(int count) {
-        try { Native.whiteout_m3_M3Model_resize_volumeNoiseMaterials.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_volumeNoiseMaterials, handle, (long) count);
     }
     public java.util.List<VolumeNoiseMaterial> volumeNoiseMaterialsView() {
         return new java.util.AbstractList<VolumeNoiseMaterial>() {
@@ -778,17 +689,14 @@ public final class Model implements AutoCloseable {
      * @return the stbMaterials field of this M3Model.
      */
     public int getStbMaterialsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_stbMaterials_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_stbMaterials_count, handle);
     }
     public STBMaterial getStbMaterialsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_stbMaterials_at.invoke(handle, (long) index);
-            return new STBMaterial(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_stbMaterials_at, handle, (long) index);
+        return new STBMaterial(__h, false);
     }
     public void resizeStbMaterials(int count) {
-        try { Native.whiteout_m3_M3Model_resize_stbMaterials.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_stbMaterials, handle, (long) count);
     }
     public java.util.List<STBMaterial> stbMaterialsView() {
         return new java.util.AbstractList<STBMaterial>() {
@@ -801,17 +709,14 @@ public final class Model implements AutoCloseable {
      * @return the reflectionMaterials field of this M3Model.
      */
     public int getReflectionMaterialsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_reflectionMaterials_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_reflectionMaterials_count, handle);
     }
     public ReflectionMaterial getReflectionMaterialsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_reflectionMaterials_at.invoke(handle, (long) index);
-            return new ReflectionMaterial(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_reflectionMaterials_at, handle, (long) index);
+        return new ReflectionMaterial(__h, false);
     }
     public void resizeReflectionMaterials(int count) {
-        try { Native.whiteout_m3_M3Model_resize_reflectionMaterials.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_reflectionMaterials, handle, (long) count);
     }
     public java.util.List<ReflectionMaterial> reflectionMaterialsView() {
         return new java.util.AbstractList<ReflectionMaterial>() {
@@ -824,17 +729,14 @@ public final class Model implements AutoCloseable {
      * @return the lensFlareMaterials field of this M3Model.
      */
     public int getLensFlareMaterialsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_lensFlareMaterials_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_lensFlareMaterials_count, handle);
     }
     public LensFlare getLensFlareMaterialsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_lensFlareMaterials_at.invoke(handle, (long) index);
-            return new LensFlare(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_lensFlareMaterials_at, handle, (long) index);
+        return new LensFlare(__h, false);
     }
     public void resizeLensFlareMaterials(int count) {
-        try { Native.whiteout_m3_M3Model_resize_lensFlareMaterials.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_lensFlareMaterials, handle, (long) count);
     }
     public java.util.List<LensFlare> lensFlareMaterialsView() {
         return new java.util.AbstractList<LensFlare>() {
@@ -847,17 +749,14 @@ public final class Model implements AutoCloseable {
      * @return the materialAddData field of this M3Model.
      */
     public int getMaterialAddDataCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_materialAddData_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_materialAddData_count, handle);
     }
     public MaterialAddData getMaterialAddDataAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_materialAddData_at.invoke(handle, (long) index);
-            return new MaterialAddData(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_materialAddData_at, handle, (long) index);
+        return new MaterialAddData(__h, false);
     }
     public void resizeMaterialAddData(int count) {
-        try { Native.whiteout_m3_M3Model_resize_materialAddData.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_materialAddData, handle, (long) count);
     }
     public java.util.List<MaterialAddData> materialAddDataView() {
         return new java.util.AbstractList<MaterialAddData>() {
@@ -870,17 +769,14 @@ public final class Model implements AutoCloseable {
      * @return the particleEmitters field of this M3Model.
      */
     public int getParticleEmittersCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_particleEmitters_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_particleEmitters_count, handle);
     }
     public ParticleEmitter getParticleEmittersAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_particleEmitters_at.invoke(handle, (long) index);
-            return new ParticleEmitter(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_particleEmitters_at, handle, (long) index);
+        return new ParticleEmitter(__h, false);
     }
     public void resizeParticleEmitters(int count) {
-        try { Native.whiteout_m3_M3Model_resize_particleEmitters.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_particleEmitters, handle, (long) count);
     }
     public java.util.List<ParticleEmitter> particleEmittersView() {
         return new java.util.AbstractList<ParticleEmitter>() {
@@ -893,17 +789,14 @@ public final class Model implements AutoCloseable {
      * @return the particleEmitterCopies field of this M3Model.
      */
     public int getParticleEmitterCopiesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_particleEmitterCopies_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_particleEmitterCopies_count, handle);
     }
     public ParticleEmitterCopy getParticleEmitterCopiesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_particleEmitterCopies_at.invoke(handle, (long) index);
-            return new ParticleEmitterCopy(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_particleEmitterCopies_at, handle, (long) index);
+        return new ParticleEmitterCopy(__h, false);
     }
     public void resizeParticleEmitterCopies(int count) {
-        try { Native.whiteout_m3_M3Model_resize_particleEmitterCopies.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_particleEmitterCopies, handle, (long) count);
     }
     public java.util.List<ParticleEmitterCopy> particleEmitterCopiesView() {
         return new java.util.AbstractList<ParticleEmitterCopy>() {
@@ -916,17 +809,14 @@ public final class Model implements AutoCloseable {
      * @return the ribbonEmitters field of this M3Model.
      */
     public int getRibbonEmittersCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_ribbonEmitters_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_ribbonEmitters_count, handle);
     }
     public RibbonEmitter getRibbonEmittersAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_ribbonEmitters_at.invoke(handle, (long) index);
-            return new RibbonEmitter(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_ribbonEmitters_at, handle, (long) index);
+        return new RibbonEmitter(__h, false);
     }
     public void resizeRibbonEmitters(int count) {
-        try { Native.whiteout_m3_M3Model_resize_ribbonEmitters.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_ribbonEmitters, handle, (long) count);
     }
     public java.util.List<RibbonEmitter> ribbonEmittersView() {
         return new java.util.AbstractList<RibbonEmitter>() {
@@ -939,17 +829,14 @@ public final class Model implements AutoCloseable {
      * @return the projections field of this M3Model.
      */
     public int getProjectionsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_projections_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_projections_count, handle);
     }
     public Projector getProjectionsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_projections_at.invoke(handle, (long) index);
-            return new Projector(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_projections_at, handle, (long) index);
+        return new Projector(__h, false);
     }
     public void resizeProjections(int count) {
-        try { Native.whiteout_m3_M3Model_resize_projections.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_projections, handle, (long) count);
     }
     public java.util.List<Projector> projectionsView() {
         return new java.util.AbstractList<Projector>() {
@@ -962,17 +849,14 @@ public final class Model implements AutoCloseable {
      * @return the forces field of this M3Model.
      */
     public int getForcesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_forces_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_forces_count, handle);
     }
     public Force getForcesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_forces_at.invoke(handle, (long) index);
-            return new Force(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_forces_at, handle, (long) index);
+        return new Force(__h, false);
     }
     public void resizeForces(int count) {
-        try { Native.whiteout_m3_M3Model_resize_forces.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_forces, handle, (long) count);
     }
     public java.util.List<Force> forcesView() {
         return new java.util.AbstractList<Force>() {
@@ -985,17 +869,14 @@ public final class Model implements AutoCloseable {
      * @return the warps field of this M3Model.
      */
     public int getWarpsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_warps_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_warps_count, handle);
     }
     public Warp getWarpsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_warps_at.invoke(handle, (long) index);
-            return new Warp(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_warps_at, handle, (long) index);
+        return new Warp(__h, false);
     }
     public void resizeWarps(int count) {
-        try { Native.whiteout_m3_M3Model_resize_warps.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_warps, handle, (long) count);
     }
     public java.util.List<Warp> warpsView() {
         return new java.util.AbstractList<Warp>() {
@@ -1008,17 +889,14 @@ public final class Model implements AutoCloseable {
      * @return the viewVolumes field of this M3Model.
      */
     public int getViewVolumesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_viewVolumes_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_viewVolumes_count, handle);
     }
     public ViewVolume getViewVolumesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_viewVolumes_at.invoke(handle, (long) index);
-            return new ViewVolume(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_viewVolumes_at, handle, (long) index);
+        return new ViewVolume(__h, false);
     }
     public void resizeViewVolumes(int count) {
-        try { Native.whiteout_m3_M3Model_resize_viewVolumes.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_viewVolumes, handle, (long) count);
     }
     public java.util.List<ViewVolume> viewVolumesView() {
         return new java.util.AbstractList<ViewVolume>() {
@@ -1031,17 +909,14 @@ public final class Model implements AutoCloseable {
      * @return the rigidBodies field of this M3Model.
      */
     public int getRigidBodiesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_rigidBodies_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_rigidBodies_count, handle);
     }
     public RigidBody getRigidBodiesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_rigidBodies_at.invoke(handle, (long) index);
-            return new RigidBody(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_rigidBodies_at, handle, (long) index);
+        return new RigidBody(__h, false);
     }
     public void resizeRigidBodies(int count) {
-        try { Native.whiteout_m3_M3Model_resize_rigidBodies.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_rigidBodies, handle, (long) count);
     }
     public java.util.List<RigidBody> rigidBodiesView() {
         return new java.util.AbstractList<RigidBody>() {
@@ -1054,17 +929,14 @@ public final class Model implements AutoCloseable {
      * @return the physicsConstraints field of this M3Model.
      */
     public int getPhysicsConstraintsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_physicsConstraints_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_physicsConstraints_count, handle);
     }
     public PhysicsConstraint getPhysicsConstraintsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_physicsConstraints_at.invoke(handle, (long) index);
-            return new PhysicsConstraint(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_physicsConstraints_at, handle, (long) index);
+        return new PhysicsConstraint(__h, false);
     }
     public void resizePhysicsConstraints(int count) {
-        try { Native.whiteout_m3_M3Model_resize_physicsConstraints.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_physicsConstraints, handle, (long) count);
     }
     public java.util.List<PhysicsConstraint> physicsConstraintsView() {
         return new java.util.AbstractList<PhysicsConstraint>() {
@@ -1077,17 +949,14 @@ public final class Model implements AutoCloseable {
      * @return the physicsJoints field of this M3Model.
      */
     public int getPhysicsJointsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_physicsJoints_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_physicsJoints_count, handle);
     }
     public PhysicsJoint getPhysicsJointsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_physicsJoints_at.invoke(handle, (long) index);
-            return new PhysicsJoint(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_physicsJoints_at, handle, (long) index);
+        return new PhysicsJoint(__h, false);
     }
     public void resizePhysicsJoints(int count) {
-        try { Native.whiteout_m3_M3Model_resize_physicsJoints.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_physicsJoints, handle, (long) count);
     }
     public java.util.List<PhysicsJoint> physicsJointsView() {
         return new java.util.AbstractList<PhysicsJoint>() {
@@ -1100,17 +969,14 @@ public final class Model implements AutoCloseable {
      * @return the clothPhysics field of this M3Model.
      */
     public int getClothPhysicsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_clothPhysics_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_clothPhysics_count, handle);
     }
     public ClothPhysics getClothPhysicsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_clothPhysics_at.invoke(handle, (long) index);
-            return new ClothPhysics(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_clothPhysics_at, handle, (long) index);
+        return new ClothPhysics(__h, false);
     }
     public void resizeClothPhysics(int count) {
-        try { Native.whiteout_m3_M3Model_resize_clothPhysics.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_clothPhysics, handle, (long) count);
     }
     public java.util.List<ClothPhysics> clothPhysicsView() {
         return new java.util.AbstractList<ClothPhysics>() {
@@ -1123,17 +989,14 @@ public final class Model implements AutoCloseable {
      * @return the ikTwoJoints field of this M3Model.
      */
     public int getIkTwoJointsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_ikTwoJoints_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_ikTwoJoints_count, handle);
     }
     public IKTwoJoint getIkTwoJointsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_ikTwoJoints_at.invoke(handle, (long) index);
-            return new IKTwoJoint(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_ikTwoJoints_at, handle, (long) index);
+        return new IKTwoJoint(__h, false);
     }
     public void resizeIkTwoJoints(int count) {
-        try { Native.whiteout_m3_M3Model_resize_ikTwoJoints.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_ikTwoJoints, handle, (long) count);
     }
     public java.util.List<IKTwoJoint> ikTwoJointsView() {
         return new java.util.AbstractList<IKTwoJoint>() {
@@ -1146,17 +1009,14 @@ public final class Model implements AutoCloseable {
      * @return the ikCCD field of this M3Model.
      */
     public int getIkCCDCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_ikCCD_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_ikCCD_count, handle);
     }
     public IKCCD getIkCCDAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_ikCCD_at.invoke(handle, (long) index);
-            return new IKCCD(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_ikCCD_at, handle, (long) index);
+        return new IKCCD(__h, false);
     }
     public void resizeIkCCD(int count) {
-        try { Native.whiteout_m3_M3Model_resize_ikCCD.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_ikCCD, handle, (long) count);
     }
     public java.util.List<IKCCD> ikCCDView() {
         return new java.util.AbstractList<IKCCD>() {
@@ -1169,17 +1029,14 @@ public final class Model implements AutoCloseable {
      * @return the ikJoints field of this M3Model.
      */
     public int getIkJointsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_ikJoints_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_ikJoints_count, handle);
     }
     public IKJoint getIkJointsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_ikJoints_at.invoke(handle, (long) index);
-            return new IKJoint(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_ikJoints_at, handle, (long) index);
+        return new IKJoint(__h, false);
     }
     public void resizeIkJoints(int count) {
-        try { Native.whiteout_m3_M3Model_resize_ikJoints.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_ikJoints, handle, (long) count);
     }
     public java.util.List<IKJoint> ikJointsView() {
         return new java.util.AbstractList<IKJoint>() {
@@ -1192,17 +1049,14 @@ public final class Model implements AutoCloseable {
      * @return the oneBoneSolvers field of this M3Model.
      */
     public int getOneBoneSolversCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_oneBoneSolvers_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_oneBoneSolvers_count, handle);
     }
     public OneBoneSolver getOneBoneSolversAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_oneBoneSolvers_at.invoke(handle, (long) index);
-            return new OneBoneSolver(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_oneBoneSolvers_at, handle, (long) index);
+        return new OneBoneSolver(__h, false);
     }
     public void resizeOneBoneSolvers(int count) {
-        try { Native.whiteout_m3_M3Model_resize_oneBoneSolvers.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_oneBoneSolvers, handle, (long) count);
     }
     public java.util.List<OneBoneSolver> oneBoneSolversView() {
         return new java.util.AbstractList<OneBoneSolver>() {
@@ -1215,17 +1069,14 @@ public final class Model implements AutoCloseable {
      * @return the turretBehaviors field of this M3Model.
      */
     public int getTurretBehaviorsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_turretBehaviors_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_turretBehaviors_count, handle);
     }
     public TurretBehavior getTurretBehaviorsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_turretBehaviors_at.invoke(handle, (long) index);
-            return new TurretBehavior(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_turretBehaviors_at, handle, (long) index);
+        return new TurretBehavior(__h, false);
     }
     public void resizeTurretBehaviors(int count) {
-        try { Native.whiteout_m3_M3Model_resize_turretBehaviors.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_turretBehaviors, handle, (long) count);
     }
     public java.util.List<TurretBehavior> turretBehaviorsView() {
         return new java.util.AbstractList<TurretBehavior>() {
@@ -1238,17 +1089,14 @@ public final class Model implements AutoCloseable {
      * @return the triggerData field of this M3Model.
      */
     public int getTriggerDataCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_triggerData_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_triggerData_count, handle);
     }
     public TriggerData getTriggerDataAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_triggerData_at.invoke(handle, (long) index);
-            return new TriggerData(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_triggerData_at, handle, (long) index);
+        return new TriggerData(__h, false);
     }
     public void resizeTriggerData(int count) {
-        try { Native.whiteout_m3_M3Model_resize_triggerData.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_triggerData, handle, (long) count);
     }
     public java.util.List<TriggerData> triggerDataView() {
         return new java.util.AbstractList<TriggerData>() {
@@ -1261,17 +1109,14 @@ public final class Model implements AutoCloseable {
      * @return the initialReference field of this M3Model.
      */
     public int getInitialReferenceCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_initialReference_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_initialReference_count, handle);
     }
     public InitialReference getInitialReferenceAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_initialReference_at.invoke(handle, (long) index);
-            return new InitialReference(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_initialReference_at, handle, (long) index);
+        return new InitialReference(__h, false);
     }
     public void resizeInitialReference(int count) {
-        try { Native.whiteout_m3_M3Model_resize_initialReference.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_initialReference, handle, (long) count);
     }
     public java.util.List<InitialReference> initialReferenceView() {
         return new java.util.AbstractList<InitialReference>() {
@@ -1287,25 +1132,21 @@ public final class Model implements AutoCloseable {
         return new HitTestShape(handle.asSlice(1304L, 136L), false);
     }
     public void setTightHitTestObject(HitTestShape value) {
-        try { Native.whiteout_m3_M3Model_set_tightHitTestObject.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_set_tightHitTestObject, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Fuzzy hit-test shapes (SSGS)
      * @return the fuzzyHitTestObjects field of this M3Model.
      */
     public int getFuzzyHitTestObjectsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_fuzzyHitTestObjects_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_fuzzyHitTestObjects_count, handle);
     }
     public HitTestShape getFuzzyHitTestObjectsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_fuzzyHitTestObjects_at.invoke(handle, (long) index);
-            return new HitTestShape(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_fuzzyHitTestObjects_at, handle, (long) index);
+        return new HitTestShape(__h, false);
     }
     public void resizeFuzzyHitTestObjects(int count) {
-        try { Native.whiteout_m3_M3Model_resize_fuzzyHitTestObjects.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_fuzzyHitTestObjects, handle, (long) count);
     }
     public java.util.List<HitTestShape> fuzzyHitTestObjectsView() {
         return new java.util.AbstractList<HitTestShape>() {
@@ -1318,17 +1159,14 @@ public final class Model implements AutoCloseable {
      * @return the attachmentVolumes field of this M3Model.
      */
     public int getAttachmentVolumesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_attachmentVolumes_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_attachmentVolumes_count, handle);
     }
     public AttachmentVolume getAttachmentVolumesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_attachmentVolumes_at.invoke(handle, (long) index);
-            return new AttachmentVolume(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_attachmentVolumes_at, handle, (long) index);
+        return new AttachmentVolume(__h, false);
     }
     public void resizeAttachmentVolumes(int count) {
-        try { Native.whiteout_m3_M3Model_resize_attachmentVolumes.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_attachmentVolumes, handle, (long) count);
     }
     public java.util.List<AttachmentVolume> attachmentVolumesView() {
         return new java.util.AbstractList<AttachmentVolume>() {
@@ -1341,75 +1179,64 @@ public final class Model implements AutoCloseable {
      * @return the attachmentVolumesAddon0 field of this M3Model.
      */
     public int getAttachmentVolumesAddon0Count() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_attachmentVolumesAddon0_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_attachmentVolumesAddon0_count, handle);
     }
     public short[] getAttachmentVolumesAddon0() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3Model_get_attachmentVolumesAddon0_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3Model_get_attachmentVolumesAddon0_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_attachmentVolumesAddon0_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_attachmentVolumesAddon0_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setAttachmentVolumesAddon0(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m3_M3Model_assign_attachmentVolumesAddon0.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3Model_assign_attachmentVolumesAddon0, handle, __seg, __count);
+        }
     }
     public void resizeAttachmentVolumesAddon0(int count) {
-        try { Native.whiteout_m3_M3Model_resize_attachmentVolumesAddon0.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_attachmentVolumesAddon0, handle, (long) count);
     }
     /**
      * Attachment volume addon 1 (U16_)
      * @return the attachmentVolumesAddon1 field of this M3Model.
      */
     public int getAttachmentVolumesAddon1Count() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_attachmentVolumesAddon1_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_attachmentVolumesAddon1_count, handle);
     }
     public short[] getAttachmentVolumesAddon1() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3Model_get_attachmentVolumesAddon1_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3Model_get_attachmentVolumesAddon1_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_attachmentVolumesAddon1_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_attachmentVolumesAddon1_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setAttachmentVolumesAddon1(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m3_M3Model_assign_attachmentVolumesAddon1.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3Model_assign_attachmentVolumesAddon1, handle, __seg, __count);
+        }
     }
     public void resizeAttachmentVolumesAddon1(int count) {
-        try { Native.whiteout_m3_M3Model_resize_attachmentVolumesAddon1.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_attachmentVolumesAddon1, handle, (long) count);
     }
     /**
      * Billboard behaviors (BBSC)
      * @return the billboardBehaviors field of this M3Model.
      */
     public int getBillboardBehaviorsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_billboardBehaviors_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_billboardBehaviors_count, handle);
     }
     public BillboardBehavior getBillboardBehaviorsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_billboardBehaviors_at.invoke(handle, (long) index);
-            return new BillboardBehavior(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_billboardBehaviors_at, handle, (long) index);
+        return new BillboardBehavior(__h, false);
     }
     public void resizeBillboardBehaviors(int count) {
-        try { Native.whiteout_m3_M3Model_resize_billboardBehaviors.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_billboardBehaviors, handle, (long) count);
     }
     public java.util.List<BillboardBehavior> billboardBehaviorsView() {
         return new java.util.AbstractList<BillboardBehavior>() {
@@ -1422,17 +1249,14 @@ public final class Model implements AutoCloseable {
      * @return the trailingModels field of this M3Model.
      */
     public int getTrailingModelsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_trailingModels_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_trailingModels_count, handle);
     }
     public TrailingModel getTrailingModelsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Model_get_trailingModels_at.invoke(handle, (long) index);
-            return new TrailingModel(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_trailingModels_at, handle, (long) index);
+        return new TrailingModel(__h, false);
     }
     public void resizeTrailingModels(int count) {
-        try { Native.whiteout_m3_M3Model_resize_trailingModels.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_trailingModels, handle, (long) count);
     }
     public java.util.List<TrailingModel> trailingModelsView() {
         return new java.util.AbstractList<TrailingModel>() {
@@ -1455,29 +1279,25 @@ public final class Model implements AutoCloseable {
      * @return the m3aAnimHashes field of this M3Model.
      */
     public int getM3aAnimHashesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3Model_get_m3aAnimHashes_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_m3aAnimHashes_count, handle);
     }
     public int[] getM3aAnimHashes() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3Model_get_m3aAnimHashes_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3Model_get_m3aAnimHashes_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_m3aAnimHashes_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_m3aAnimHashes_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
     }
     public void setM3aAnimHashes(int[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
-            Native.whiteout_m3_M3Model_assign_m3aAnimHashes.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3Model_assign_m3aAnimHashes, handle, __seg, __count);
+        }
     }
     public void resizeM3aAnimHashes(int count) {
-        try { Native.whiteout_m3_M3Model_resize_m3aAnimHashes.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_m3aAnimHashes, handle, (long) count);
     }
     @Override public String toString() {
         return "Model(" + "name=" + getName() + ", " + "flags=" + getFlags() + ", " + "animationSplitCount=" + getAnimationSplitCount() + ", " + "skinBoneCount=" + getSkinBoneCount() + ", " + "m3aAnimHash=" + getM3aAnimHash() + ")";

@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class SubFlare implements AutoCloseable {
     }
 
     public SubFlare() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3SubFlare_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("SubFlare allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3SubFlare_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("SubFlare allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3SubFlare_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3SubFlare_delete, handle);
         }
     }
 
@@ -90,8 +87,7 @@ public final class SubFlare implements AutoCloseable {
     }
     public void setSizeXY(Vector2f value) {
         if (value == null) {
-            try { Native.whiteout_m3_M3SubFlare_set_sizeXY.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3SubFlare_set_sizeXY, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 8L, 8L);
@@ -105,8 +101,7 @@ public final class SubFlare implements AutoCloseable {
     }
     public void setScaleXY(Vector2f value) {
         if (value == null) {
-            try { Native.whiteout_m3_M3SubFlare_set_scaleXY.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3SubFlare_set_scaleXY, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 16L, 8L);
@@ -120,8 +115,7 @@ public final class SubFlare implements AutoCloseable {
     }
     public void setFadeIn(Vector2f value) {
         if (value == null) {
-            try { Native.whiteout_m3_M3SubFlare_set_fadeIn.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3SubFlare_set_fadeIn, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 24L, 8L);
@@ -135,8 +129,7 @@ public final class SubFlare implements AutoCloseable {
     }
     public void setFadeOut(Vector2f value) {
         if (value == null) {
-            try { Native.whiteout_m3_M3SubFlare_set_fadeOut.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3SubFlare_set_fadeOut, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 32L, 8L);
@@ -149,8 +142,7 @@ public final class SubFlare implements AutoCloseable {
         return new ColorBGRA(handle.asSlice(40L, 4L), false);
     }
     public void setColorAlpha(ColorBGRA value) {
-        try { Native.whiteout_m3_M3SubFlare_set_colorAlpha.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3SubFlare_set_colorAlpha, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Whether to face the flare center
@@ -171,8 +163,7 @@ public final class SubFlare implements AutoCloseable {
     }
     public void setOffset(Vector2f value) {
         if (value == null) {
-            try { Native.whiteout_m3_M3SubFlare_set_offset.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3SubFlare_set_offset, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 48L, 8L);

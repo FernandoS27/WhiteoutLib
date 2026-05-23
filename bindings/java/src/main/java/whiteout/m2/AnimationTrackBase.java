@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m2.internal.Native;
 
 /**
@@ -40,22 +41,18 @@ public final class AnimationTrackBase implements AutoCloseable {
     }
 
     public AnimationTrackBase() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m2_M2AnimationTrackBase_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("AnimationTrackBase allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackBase_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("AnimationTrackBase allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m2_M2AnimationTrackBase_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackBase_delete, handle);
         }
     }
 
@@ -75,37 +72,31 @@ public final class AnimationTrackBase implements AutoCloseable {
     }
     /** @return the timestamps field of this M2AnimationTrackBase. */
     public int getTimestampsCount() {
-        try { return (int) (long) Native.whiteout_m2_M2AnimationTrackBase_get_timestamps_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackBase_get_timestamps_count, handle);
     }
     public int getTimestampsInnerCount(int outerIdx) {
-        try { return (int) (long) Native.whiteout_m2_M2AnimationTrackBase_get_timestamps_inner_count.invoke(handle, (long) outerIdx); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackBase_get_timestamps_inner_count, handle, (long) outerIdx);
     }
     public void resizeTimestamps(int count) {
-        try { Native.whiteout_m2_M2AnimationTrackBase_resize_timestamps.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackBase_resize_timestamps, handle, (long) count);
     }
     public void resizeTimestampsInner(int outerIdx, int innerCount) {
-        try { Native.whiteout_m2_M2AnimationTrackBase_resize_timestamps_inner.invoke(handle, (long) outerIdx, (long) innerCount); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackBase_resize_timestamps_inner, handle, (long) outerIdx, (long) innerCount);
     }
     public int[] getTimestampsAt(int outerIdx) {
-        try {
-            long __count = (long) Native.whiteout_m2_M2AnimationTrackBase_get_timestamps_inner_count.invoke(handle, (long) outerIdx);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2AnimationTrackBase_get_timestamps_inner_data.invoke(handle, (long) outerIdx);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackBase_get_timestamps_inner_count, handle, (long) outerIdx);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackBase_get_timestamps_inner_data, handle, (long) outerIdx);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
     }
     public void setTimestampsAt(int outerIdx, int[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
-            Native.whiteout_m2_M2AnimationTrackBase_assign_timestamps_inner.invoke(handle, (long) outerIdx, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2AnimationTrackBase_assign_timestamps_inner, handle, (long) outerIdx, __seg, __count);
+        }
     }
     public java.util.List<int[]> getTimestamps() {
         int __outer = getTimestampsCount();

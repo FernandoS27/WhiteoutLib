@@ -32,7 +32,7 @@ m2 = w.m2.Parser().parse(fs, "models/character.m2")
 m3 = w.m3.Parser().parse(open("model.m3", "rb").read())
 
 # Textures -- format facades at root for ergonomics
-tex = w.BlpParser(w.BlpParseMode.LENIENT).parse(open("texture.blp", "rb").read())
+tex = w.BlpParser().parse(open("texture.blp", "rb").read())
 print(f"{tex.width()}x{tex.height()}")
 png_bytes = w.PngWriter().write(tex)
 

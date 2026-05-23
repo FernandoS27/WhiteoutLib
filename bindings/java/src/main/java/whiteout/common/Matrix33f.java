@@ -6,6 +6,7 @@ import java.lang.foreign.*;
 import java.lang.invoke.VarHandle;
 import java.util.Objects;
 import whiteout.common.internal.Native;
+import whiteout.common.internal.NativeCommon;
 
 /**
  * A 3×3 row-major single-precision matrix backed by a native C struct (36 bytes of packed `float`). Use {@link #getAt(int,int)} and {@link #setAt(int,int,float)} for element access; static factories ({@link #identity()}, {@link #zero()}, …) wrap the native constructors.
@@ -31,19 +32,16 @@ public final class Matrix33f implements AutoCloseable {
     }
 
     public Matrix33f() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_Matrix33f_new.invoke();
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix33f_new);
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try { Native.whiteout_Matrix33f_delete.invoke(handle); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_Matrix33f_delete, handle);
         }
     }
 
@@ -60,10 +58,8 @@ public final class Matrix33f implements AutoCloseable {
      * @return a fresh Matrix33f owning a native allocation.
      */
     public Matrix33f add(Matrix33f other) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix33f_add.invoke(handle, other.handle);
-            return new Matrix33f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix33f_add, handle, other.handle);
+        return new Matrix33f(__h, true);
     }
     /**
      * Component-wise difference.
@@ -71,10 +67,8 @@ public final class Matrix33f implements AutoCloseable {
      * @return a fresh Matrix33f owning a native allocation.
      */
     public Matrix33f sub(Matrix33f other) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix33f_sub.invoke(handle, other.handle);
-            return new Matrix33f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix33f_sub, handle, other.handle);
+        return new Matrix33f(__h, true);
     }
     /**
      * Component-wise product (Hamilton product for Quaternion).
@@ -82,10 +76,8 @@ public final class Matrix33f implements AutoCloseable {
      * @return a fresh Matrix33f owning a native allocation.
      */
     public Matrix33f mul(Matrix33f other) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix33f_mul.invoke(handle, other.handle);
-            return new Matrix33f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix33f_mul, handle, other.handle);
+        return new Matrix33f(__h, true);
     }
     /**
      * Scale every component by {@code scalar}.
@@ -93,30 +85,24 @@ public final class Matrix33f implements AutoCloseable {
      * @return a fresh Matrix33f owning a native allocation.
      */
     public Matrix33f mulScalar(float scalar) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix33f_mul_scalar.invoke(handle, scalar);
-            return new Matrix33f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix33f_mul_scalar, handle, scalar);
+        return new Matrix33f(__h, true);
     }
     /**
      * Identity element (no rotation / identity matrix).
      * @return a fresh Matrix33f owning a native allocation.
      */
     public static Matrix33f identity() {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix33f_identity.invoke();
-            return new Matrix33f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix33f_identity);
+        return new Matrix33f(__h, true);
     }
     /**
      * Zero-filled matrix.
      * @return a fresh Matrix33f owning a native allocation.
      */
     public static Matrix33f zero() {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Matrix33f_zero.invoke();
-            return new Matrix33f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Matrix33f_zero);
+        return new Matrix33f(__h, true);
     }
     @Override
     public String toString() {

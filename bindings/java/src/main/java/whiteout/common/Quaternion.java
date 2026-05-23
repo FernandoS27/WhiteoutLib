@@ -6,6 +6,7 @@ import java.lang.foreign.*;
 import java.lang.invoke.VarHandle;
 import java.util.Objects;
 import whiteout.common.internal.Native;
+import whiteout.common.internal.NativeCommon;
 
 /**
  * A 4-component single-precision vector backed by a native C struct. Components (`x`, `y`, `z`, `w`) are stored as a packed `float[4]` and accessed directly through VarHandles — no JNI round-trip per `getX()`/`setX()`.
@@ -40,11 +41,9 @@ public final class Quaternion implements AutoCloseable {
     }
 
     public Quaternion() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_Quaternion_new.invoke();
-            this.handle = __raw.reinterpret(LAYOUT.byteSize());
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Quaternion_new);
+        this.handle = __raw.reinterpret(LAYOUT.byteSize());
+        this.owned = true;
     }
 
     public Quaternion(float x, float y, float z, float w) {
@@ -63,8 +62,7 @@ public final class Quaternion implements AutoCloseable {
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try { Native.whiteout_Quaternion_delete.invoke(handle); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_Quaternion_delete, handle);
         }
     }
 
@@ -82,45 +80,35 @@ public final class Quaternion implements AutoCloseable {
      * @return float result.
      */
     public float dot(Quaternion other) {
-        try {
-            return (float) Native.whiteout_Quaternion_dot.invoke(handle, other.handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (float) NativeCommon.invokeNative(Native.whiteout_Quaternion_dot, handle, other.handle);
     }
     /**
      * Euclidean length (magnitude).
      * @return float result.
      */
     public float length() {
-        try {
-            return (float) Native.whiteout_Quaternion_length.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (float) NativeCommon.invokeNative(Native.whiteout_Quaternion_length, handle);
     }
     /**
      * Squared Euclidean length — avoids the {@code sqrt} of {@link #length()}.
      * @return float result.
      */
     public float lengthSquared() {
-        try {
-            return (float) Native.whiteout_Quaternion_length_squared.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (float) NativeCommon.invokeNative(Native.whiteout_Quaternion_length_squared, handle);
     }
     /**
      * In-place normalize to unit length (no-op when length is zero).
      */
     public void normalize() {
-        try {
-            Native.whiteout_Quaternion_normalize.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_Quaternion_normalize, handle);
     }
     /**
      * A new vector pointing in the same direction with unit length.
      * @return a fresh Quaternion owning a native allocation.
      */
     public Quaternion normalized() {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Quaternion_normalized.invoke(handle);
-            return new Quaternion(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Quaternion_normalized, handle);
+        return new Quaternion(__h, true);
     }
     /**
      * Component-wise sum.
@@ -128,10 +116,8 @@ public final class Quaternion implements AutoCloseable {
      * @return a fresh Quaternion owning a native allocation.
      */
     public Quaternion add(Quaternion other) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Quaternion_add.invoke(handle, other.handle);
-            return new Quaternion(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Quaternion_add, handle, other.handle);
+        return new Quaternion(__h, true);
     }
     /**
      * Component-wise difference.
@@ -139,10 +125,8 @@ public final class Quaternion implements AutoCloseable {
      * @return a fresh Quaternion owning a native allocation.
      */
     public Quaternion sub(Quaternion other) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Quaternion_sub.invoke(handle, other.handle);
-            return new Quaternion(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Quaternion_sub, handle, other.handle);
+        return new Quaternion(__h, true);
     }
     /**
      * Component-wise product (Hamilton product for Quaternion).
@@ -150,10 +134,8 @@ public final class Quaternion implements AutoCloseable {
      * @return a fresh Quaternion owning a native allocation.
      */
     public Quaternion mul(Quaternion other) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Quaternion_mul.invoke(handle, other.handle);
-            return new Quaternion(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Quaternion_mul, handle, other.handle);
+        return new Quaternion(__h, true);
     }
     /**
      * Scale every component by {@code scalar}.
@@ -161,10 +143,8 @@ public final class Quaternion implements AutoCloseable {
      * @return a fresh Quaternion owning a native allocation.
      */
     public Quaternion mulScalar(float scalar) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Quaternion_mul_scalar.invoke(handle, scalar);
-            return new Quaternion(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Quaternion_mul_scalar, handle, scalar);
+        return new Quaternion(__h, true);
     }
     /**
      * Divide every component by {@code scalar}.
@@ -172,70 +152,56 @@ public final class Quaternion implements AutoCloseable {
      * @return a fresh Quaternion owning a native allocation.
      */
     public Quaternion divScalar(float scalar) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Quaternion_div_scalar.invoke(handle, scalar);
-            return new Quaternion(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Quaternion_div_scalar, handle, scalar);
+        return new Quaternion(__h, true);
     }
     /**
      * Component-wise negation.
      * @return a fresh Quaternion owning a native allocation.
      */
     public Quaternion negate() {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Quaternion_negate.invoke(handle);
-            return new Quaternion(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Quaternion_negate, handle);
+        return new Quaternion(__h, true);
     }
     /**
      * Quaternion conjugate (negate the imaginary part).
      * @return a fresh Quaternion owning a native allocation.
      */
     public Quaternion conjugate() {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Quaternion_conjugate.invoke(handle);
-            return new Quaternion(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Quaternion_conjugate, handle);
+        return new Quaternion(__h, true);
     }
     /**
      * Inverse of this rotation (conjugate / length²).
      * @return a fresh Quaternion owning a native allocation.
      */
     public Quaternion inverse() {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Quaternion_inverse.invoke(handle);
-            return new Quaternion(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Quaternion_inverse, handle);
+        return new Quaternion(__h, true);
     }
     /**
      * Quaternion natural logarithm.
      * @return a fresh Quaternion owning a native allocation.
      */
     public Quaternion log() {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Quaternion_log.invoke(handle);
-            return new Quaternion(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Quaternion_log, handle);
+        return new Quaternion(__h, true);
     }
     /**
      * Quaternion exponential.
      * @return a fresh Quaternion owning a native allocation.
      */
     public Quaternion exp() {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Quaternion_exp.invoke(handle);
-            return new Quaternion(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Quaternion_exp, handle);
+        return new Quaternion(__h, true);
     }
     /**
      * Convert this rotation to Euler angles (radians).
      * @return a fresh Vector3f owning a native allocation.
      */
     public Vector3f toEulerAngles() {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Quaternion_to_euler_angles.invoke(handle);
-            return new Vector3f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Quaternion_to_euler_angles, handle);
+        return new Vector3f(__h, true);
     }
     /**
      * Rotate {@code v} by this quaternion (q · v · q⁻¹).
@@ -243,20 +209,16 @@ public final class Quaternion implements AutoCloseable {
      * @return a fresh Vector3f owning a native allocation.
      */
     public Vector3f rotateVector(Vector3f v) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Quaternion_rotate_vector.invoke(handle, v.handle);
-            return new Vector3f(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Quaternion_rotate_vector, handle, v.handle);
+        return new Vector3f(__h, true);
     }
     /**
      * Identity element (no rotation / identity matrix).
      * @return a fresh Quaternion owning a native allocation.
      */
     public static Quaternion identity() {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Quaternion_identity.invoke();
-            return new Quaternion(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Quaternion_identity);
+        return new Quaternion(__h, true);
     }
     /**
      * Build a quaternion rotating {@code angle_rad} radians around {@code axis}.
@@ -265,10 +227,8 @@ public final class Quaternion implements AutoCloseable {
      * @return a fresh Quaternion owning a native allocation.
      */
     public static Quaternion fromAxisAngle(Vector3f axis, float angle_rad) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Quaternion_from_axis_angle.invoke(axis.handle, angle_rad);
-            return new Quaternion(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Quaternion_from_axis_angle, axis.handle, angle_rad);
+        return new Quaternion(__h, true);
     }
     /**
      * Build a quaternion from Euler-angle triple {@code euler_rad}.
@@ -276,10 +236,8 @@ public final class Quaternion implements AutoCloseable {
      * @return a fresh Quaternion owning a native allocation.
      */
     public static Quaternion fromEulerAngles(Vector3f euler_rad) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Quaternion_from_euler_angles.invoke(euler_rad.handle);
-            return new Quaternion(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Quaternion_from_euler_angles, euler_rad.handle);
+        return new Quaternion(__h, true);
     }
     /**
      * Spherical linear interpolation from {@code a} to {@code b}.
@@ -289,10 +247,8 @@ public final class Quaternion implements AutoCloseable {
      * @return a fresh Quaternion owning a native allocation.
      */
     public static Quaternion slerp(Quaternion a, Quaternion b, float t) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Quaternion_slerp.invoke(a.handle, b.handle, t);
-            return new Quaternion(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Quaternion_slerp, a.handle, b.handle, t);
+        return new Quaternion(__h, true);
     }
     /**
      * Spherical cubic interpolation across four control quaternions.
@@ -304,10 +260,8 @@ public final class Quaternion implements AutoCloseable {
      * @return a fresh Quaternion owning a native allocation.
      */
     public static Quaternion squad(Quaternion start, Quaternion outtan, Quaternion inttan, Quaternion end, float t) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Quaternion_squad.invoke(start.handle, outtan.handle, inttan.handle, end.handle, t);
-            return new Quaternion(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Quaternion_squad, start.handle, outtan.handle, inttan.handle, end.handle, t);
+        return new Quaternion(__h, true);
     }
     /**
      * Logarithmic difference: log(b · a⁻¹).
@@ -316,18 +270,15 @@ public final class Quaternion implements AutoCloseable {
      * @return a fresh Quaternion owning a native allocation.
      */
     public static Quaternion lnDif(Quaternion a, Quaternion b) {
-        try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_Quaternion_ln_dif.invoke(a.handle, b.handle);
-            return new Quaternion(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_Quaternion_ln_dif, a.handle, b.handle);
+        return new Quaternion(__h, true);
     }
     @Override
     public boolean equals(Object o) {
         if (o == this) return true;
         if (!(o instanceof Quaternion)) return false;
         Quaternion __other = (Quaternion) o;
-        try { return ((int) Native.whiteout_Quaternion_equals.invoke(handle, __other.handle)) != 0; }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_Quaternion_equals, handle, __other.handle)) != 0;
     }
 
     @Override

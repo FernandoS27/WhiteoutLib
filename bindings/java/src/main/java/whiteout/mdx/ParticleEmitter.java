@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.mdx.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class ParticleEmitter implements AutoCloseable {
     }
 
     public ParticleEmitter() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_mdx_MdxParticleEmitter_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("ParticleEmitter allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxParticleEmitter_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("ParticleEmitter allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_mdx_MdxParticleEmitter_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxParticleEmitter_delete, handle);
         }
     }
 
@@ -69,8 +66,7 @@ public final class ParticleEmitter implements AutoCloseable {
         return new Node(handle.asSlice(0L, 272L), false);
     }
     public void setNode(Node value) {
-        try { Native.whiteout_mdx_MdxParticleEmitter_set_node.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxParticleEmitter_set_node, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Particles per second
@@ -118,14 +114,14 @@ public final class ParticleEmitter implements AutoCloseable {
      */
     public String getSpawnModelFileName() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __s = (MemorySegment) Native.whiteout_mdx_MdxParticleEmitter_get_spawnModelFileName.invoke(arena, handle);
+            MemorySegment __s = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxParticleEmitter_get_spawnModelFileName, arena, handle);
             MemorySegment __chars = __s.get(ValueLayout.ADDRESS, 0);
             long __len = __s.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__chars == null || __chars.equals(MemorySegment.NULL)) return "";
             byte[] __bytes = __chars.reinterpret(__len).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_CString_free.invoke(__s);
+            NativeCommon.invokeNative(Native.whiteout_CString_free, __s);
             return new String(__bytes, StandardCharsets.UTF_8);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
     public void setSpawnModelFileName(String value) {
         try (Arena arena = Arena.ofConfined()) {
@@ -133,8 +129,8 @@ public final class ParticleEmitter implements AutoCloseable {
             MemorySegment __seg = arena.allocate(__utf.length + 1);
             MemorySegment.copy(__utf, 0, __seg, ValueLayout.JAVA_BYTE, 0, __utf.length);
             __seg.set(ValueLayout.JAVA_BYTE, __utf.length, (byte) 0);
-            Native.whiteout_mdx_MdxParticleEmitter_set_spawnModelFileName.invoke(handle, __seg);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxParticleEmitter_set_spawnModelFileName, handle, __seg);
+        }
     }
     /**
      * Particle lifetime in seconds
@@ -161,91 +157,77 @@ public final class ParticleEmitter implements AutoCloseable {
      * @return the emissionRateTracks field of this MdxParticleEmitter.
      */
     public TrackF32 getEmissionRateTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxParticleEmitter_get_emissionRateTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxParticleEmitter_get_emissionRateTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setEmissionRateTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxParticleEmitter_set_emissionRateTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxParticleEmitter_set_emissionRateTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Gravity animation
      * @return the gravityTracks field of this MdxParticleEmitter.
      */
     public TrackF32 getGravityTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxParticleEmitter_get_gravityTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxParticleEmitter_get_gravityTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setGravityTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxParticleEmitter_set_gravityTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxParticleEmitter_set_gravityTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Longitude animation
      * @return the longitudeTracks field of this MdxParticleEmitter.
      */
     public TrackF32 getLongitudeTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxParticleEmitter_get_longitudeTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxParticleEmitter_get_longitudeTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setLongitudeTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxParticleEmitter_set_longitudeTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxParticleEmitter_set_longitudeTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Latitude animation
      * @return the latitudeTracks field of this MdxParticleEmitter.
      */
     public TrackF32 getLatitudeTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxParticleEmitter_get_latitudeTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxParticleEmitter_get_latitudeTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setLatitudeTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxParticleEmitter_set_latitudeTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxParticleEmitter_set_latitudeTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Lifespan animation
      * @return the lifespanTracks field of this MdxParticleEmitter.
      */
     public TrackF32 getLifespanTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxParticleEmitter_get_lifespanTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxParticleEmitter_get_lifespanTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setLifespanTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxParticleEmitter_set_lifespanTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxParticleEmitter_set_lifespanTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Speed animation
      * @return the speedTracks field of this MdxParticleEmitter.
      */
     public TrackF32 getSpeedTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxParticleEmitter_get_speedTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxParticleEmitter_get_speedTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setSpeedTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxParticleEmitter_set_speedTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxParticleEmitter_set_speedTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Visibility animation
      * @return the visibilityTracks field of this MdxParticleEmitter.
      */
     public TrackF32 getVisibilityTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxParticleEmitter_get_visibilityTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxParticleEmitter_get_visibilityTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setVisibilityTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxParticleEmitter_set_visibilityTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxParticleEmitter_set_visibilityTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "ParticleEmitter(" + "emissionRate=" + getEmissionRate() + ", " + "gravity=" + getGravity() + ", " + "longitude=" + getLongitude() + ", " + "latitude=" + getLatitude() + ", " + "spawnModelFileName=" + getSpawnModelFileName() + ", " + "lifespan=" + getLifespan() + ", " + "initialVelocity=" + getInitialVelocity() + ")";

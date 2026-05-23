@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class Light implements AutoCloseable {
     }
 
     public Light() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3Light_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Light allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Light_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Light allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3Light_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3Light_delete, handle);
         }
     }
 
@@ -116,65 +113,55 @@ public final class Light implements AutoCloseable {
      * @return the diffuseColor field of this M3Light.
      */
     public AnimRefVector3f getDiffuseColor() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Light_get_diffuseColor.invoke(handle);
-            return new AnimRefVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Light_get_diffuseColor, handle);
+        return new AnimRefVector3f(__h, false);
     }
     public void setDiffuseColor(AnimRefVector3f value) {
-        try { Native.whiteout_m3_M3Light_set_diffuseColor.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Light_set_diffuseColor, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated intensity multiplier
      * @return the intensityMultiplier field of this M3Light.
      */
     public AnimRefF32 getIntensityMultiplier() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Light_get_intensityMultiplier.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Light_get_intensityMultiplier, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setIntensityMultiplier(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Light_set_intensityMultiplier.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Light_set_intensityMultiplier, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated specular color (RGB)
      * @return the specularColor field of this M3Light.
      */
     public AnimRefVector3f getSpecularColor() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Light_get_specularColor.invoke(handle);
-            return new AnimRefVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Light_get_specularColor, handle);
+        return new AnimRefVector3f(__h, false);
     }
     public void setSpecularColor(AnimRefVector3f value) {
-        try { Native.whiteout_m3_M3Light_set_specularColor.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Light_set_specularColor, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated specular multiplier
      * @return the specularMultiplier field of this M3Light.
      */
     public AnimRefF32 getSpecularMultiplier() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Light_get_specularMultiplier.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Light_get_specularMultiplier, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setSpecularMultiplier(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Light_set_specularMultiplier.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Light_set_specularMultiplier, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated distance decay exponent
      * @return the decay field of this M3Light.
      */
     public AnimRefF32 getDecay() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Light_get_decay.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Light_get_decay, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setDecay(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Light_set_decay.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Light_set_decay, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Attenuation end distance
@@ -191,39 +178,33 @@ public final class Light implements AutoCloseable {
      * @return the attenuationStart field of this M3Light.
      */
     public AnimRefF32 getAttenuationStart() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Light_get_attenuationStart.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Light_get_attenuationStart, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setAttenuationStart(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Light_set_attenuationStart.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Light_set_attenuationStart, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated spot inner cone angle
      * @return the hotSpot field of this M3Light.
      */
     public AnimRefF32 getHotSpot() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Light_get_hotSpot.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Light_get_hotSpot, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setHotSpot(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Light_set_hotSpot.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Light_set_hotSpot, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated spot outer cone falloff
      * @return the falloff field of this M3Light.
      */
     public AnimRefF32 getFalloff() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Light_get_falloff.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Light_get_falloff, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setFalloff(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Light_set_falloff.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Light_set_falloff, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "Light(" + "lightType=" + getLightType() + ", " + "boneIndex=" + getBoneIndex() + ", " + "flags=" + getFlags() + ", " + "lodCut=" + getLodCut() + ", " + "shadowLodCut=" + getShadowLodCut() + ", " + "attenuationEnd=" + getAttenuationEnd() + ")";

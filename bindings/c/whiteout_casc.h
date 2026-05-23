@@ -130,6 +130,8 @@ uint32_t whiteout_casc_CascStorage_lastError(void);
 /* Inherits all read operations from Storage. Adds write overlay and persist-to-disk support. */
 /*  */
 /* Only local-backed storages can be writable (CDN is read-only). */
+/*  */
+/* extends=whiteout::storages::casc::Storage */
 void whiteout_casc_CascStorageWritable_delete(whiteout_CascStorageWritable* self);
 
 /* Create a new empty storage in memory. */

@@ -7,12 +7,13 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.textures.internal.Native;
 
 /**
  * Parser for BLP texture files
  * 
- * The Parser reads binary BLP files and converts them into the Texture structure. It supports multiple parsing modes and can handle both BLP1 (Warcraft III) and BLP2 (World of Warcraft) variants.
+ * The Parser reads binary BLP files and converts them into the Texture structure. It can handle both BLP1 (Warcraft III) and BLP2 (World of Warcraft) variants. Parsing is non-throwing — issues are collected via `hasIssues()` / `getIssues()` and `parse()` returns `std::nullopt` on failure.
  * 
  * Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
  *
@@ -44,36 +45,23 @@ public final class BlpParser implements AutoCloseable {
     }
 
     public BlpParser() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_BlpParser_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("BlpParser allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
-    }
-
-    public static BlpParser createParseMode(BlpParseMode parseMode) {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_BlpParser_new_parseMode.invoke(parseMode.value);
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("BlpParser allocation failed");
-            return new BlpParser(__raw, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_BlpParser_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("BlpParser allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_textures_BlpParser_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_textures_BlpParser_delete, handle);
         }
     }
 
     /**
-     * Parse a BLP file from memory buffer @param buffer Memory buffer containing BLP data @return Parsed texture data, or std::nullopt on failure (in Lenient mode) @throws std::runtime_error If parsing fails in strict mode
+     * Parse a BLP file from memory buffer @param buffer Memory buffer containing BLP data @return Parsed texture data, or std::nullopt on failure @throws std::runtime_error If parsing fails in strict mode
      *
      * @param buffer byte[] input.
      */
@@ -81,19 +69,17 @@ public final class BlpParser implements AutoCloseable {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment buffer_seg = arena.allocate(buffer.length * 1L);
             MemorySegment.copy(buffer, 0, buffer_seg, ValueLayout.JAVA_BYTE, 0, buffer.length);
-            MemorySegment __h = (MemorySegment) Native.whiteout_textures_BlpParser_parse.invoke(handle, buffer_seg, (long) buffer.length);
+            MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_BlpParser_parse, handle, buffer_seg, (long) buffer.length);
             if (__h == null || __h.equals(MemorySegment.NULL)) return java.util.Optional.empty();
             return java.util.Optional.of(new Texture(__h, true));
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
      * Check if parsing encountered any issues @return True if there were warnings or recoverable errors
      */
     public boolean hasIssues() {
-        try {
-        return ((int) Native.whiteout_textures_BlpParser_hasIssues.invoke(handle)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_textures_BlpParser_hasIssues, handle)) != 0;
     }
 
     @Override public String toString() {

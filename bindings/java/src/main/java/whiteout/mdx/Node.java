@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.mdx.internal.Native;
 
 /**
@@ -44,22 +45,18 @@ public final class Node implements AutoCloseable {
     }
 
     public Node() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_mdx_MdxNode_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Node allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxNode_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Node allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_mdx_MdxNode_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxNode_delete, handle);
         }
     }
 
@@ -69,14 +66,14 @@ public final class Node implements AutoCloseable {
      */
     public String getName() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __s = (MemorySegment) Native.whiteout_mdx_MdxNode_get_name.invoke(arena, handle);
+            MemorySegment __s = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxNode_get_name, arena, handle);
             MemorySegment __chars = __s.get(ValueLayout.ADDRESS, 0);
             long __len = __s.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__chars == null || __chars.equals(MemorySegment.NULL)) return "";
             byte[] __bytes = __chars.reinterpret(__len).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_CString_free.invoke(__s);
+            NativeCommon.invokeNative(Native.whiteout_CString_free, __s);
             return new String(__bytes, StandardCharsets.UTF_8);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
     public void setName(String value) {
         try (Arena arena = Arena.ofConfined()) {
@@ -84,8 +81,8 @@ public final class Node implements AutoCloseable {
             MemorySegment __seg = arena.allocate(__utf.length + 1);
             MemorySegment.copy(__utf, 0, __seg, ValueLayout.JAVA_BYTE, 0, __utf.length);
             __seg.set(ValueLayout.JAVA_BYTE, __utf.length, (byte) 0);
-            Native.whiteout_mdx_MdxNode_set_name.invoke(handle, __seg);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxNode_set_name, handle, __seg);
+        }
     }
     /**
      * Unique ID for this node
@@ -142,39 +139,33 @@ public final class Node implements AutoCloseable {
      * @return the translationTracks field of this MdxNode.
      */
     public TrackVector3f getTranslationTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxNode_get_translationTracks.invoke(handle);
-            return new TrackVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxNode_get_translationTracks, handle);
+        return new TrackVector3f(__h, false);
     }
     public void setTranslationTracks(TrackVector3f value) {
-        try { Native.whiteout_mdx_MdxNode_set_translationTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxNode_set_translationTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Rotation animation (quaternion XYZW)
      * @return the rotationTracks field of this MdxNode.
      */
     public TrackQuaternion getRotationTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxNode_get_rotationTracks.invoke(handle);
-            return new TrackQuaternion(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxNode_get_rotationTracks, handle);
+        return new TrackQuaternion(__h, false);
     }
     public void setRotationTracks(TrackQuaternion value) {
-        try { Native.whiteout_mdx_MdxNode_set_rotationTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxNode_set_rotationTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Scale animation
      * @return the scalingTracks field of this MdxNode.
      */
     public TrackVector3f getScalingTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxNode_get_scalingTracks.invoke(handle);
-            return new TrackVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxNode_get_scalingTracks, handle);
+        return new TrackVector3f(__h, false);
     }
     public void setScalingTracks(TrackVector3f value) {
-        try { Native.whiteout_mdx_MdxNode_set_scalingTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxNode_set_scalingTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "Node(" + "name=" + getName() + ", " + "objectId=" + getObjectId() + ", " + "parentId=" + getParentId() + ", " + "flags=" + getFlags() + ", " + "type=" + getType() + ", " + "nodeFamilyId=" + getNodeFamilyId() + ")";

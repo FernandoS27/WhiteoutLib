@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.host.internal.Native;
 
 /**
@@ -42,21 +43,17 @@ public final class SimpleThreadPool implements AutoCloseable, whiteout.interface
     }
 
     public static SimpleThreadPool createNThreads(long nThreads) {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_host_SimpleThreadPool_new_nThreads.invoke(nThreads);
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("SimpleThreadPool allocation failed");
-            return new SimpleThreadPool(__raw, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_host_SimpleThreadPool_new_nThreads, nThreads);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("SimpleThreadPool allocation failed");
+        return new SimpleThreadPool(__raw, true);
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_host_SimpleThreadPool_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_host_SimpleThreadPool_delete, handle);
         }
     }
 
@@ -64,9 +61,7 @@ public final class SimpleThreadPool implements AutoCloseable, whiteout.interface
      * Block until the pool has no pending or running tasks.
      */
     public void waitIdle() {
-        try {
-        Native.whiteout_host_SimpleThreadPool_waitIdle.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_host_SimpleThreadPool_waitIdle, handle);
     }
 
     /**
@@ -74,9 +69,7 @@ public final class SimpleThreadPool implements AutoCloseable, whiteout.interface
      * @return long result.
      */
     public long threadCount() {
-        try {
-        return (long) Native.whiteout_host_SimpleThreadPool_threadCount.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (long) NativeCommon.invokeNative(Native.whiteout_host_SimpleThreadPool_threadCount, handle);
     }
 
     /** {@inheritDoc} */

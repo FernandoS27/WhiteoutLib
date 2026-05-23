@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.textures.internal.Native;
 
 /**
@@ -40,31 +41,18 @@ public final class BmpParser implements AutoCloseable {
     }
 
     public BmpParser() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_BmpParser_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("BmpParser allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
-    }
-
-    public static BmpParser createParseMode(BmpParseMode parseMode) {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_BmpParser_new_parseMode.invoke(parseMode.value);
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("BmpParser allocation failed");
-            return new BmpParser(__raw, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_BmpParser_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("BmpParser allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_textures_BmpParser_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_textures_BmpParser_delete, handle);
         }
     }
 
@@ -78,19 +66,17 @@ public final class BmpParser implements AutoCloseable {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment buffer_seg = arena.allocate(buffer.length * 1L);
             MemorySegment.copy(buffer, 0, buffer_seg, ValueLayout.JAVA_BYTE, 0, buffer.length);
-            MemorySegment __h = (MemorySegment) Native.whiteout_textures_BmpParser_parse.invoke(handle, buffer_seg, (long) buffer.length);
+            MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_BmpParser_parse, handle, buffer_seg, (long) buffer.length);
             if (__h == null || __h.equals(MemorySegment.NULL)) return java.util.Optional.empty();
             return java.util.Optional.of(new Texture(__h, true));
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
      * @return true if the last parse produced any issues.
      */
     public boolean hasIssues() {
-        try {
-        return ((int) Native.whiteout_textures_BmpParser_hasIssues.invoke(handle)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_textures_BmpParser_hasIssues, handle)) != 0;
     }
 
     @Override public String toString() {

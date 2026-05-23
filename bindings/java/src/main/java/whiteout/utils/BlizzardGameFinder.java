@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.host.internal.Native;
 
 /**
@@ -43,9 +44,7 @@ public final class BlizzardGameFinder implements AutoCloseable {
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_host_BlizzardGameFinder_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_host_BlizzardGameFinder_delete, handle);
         }
     }
 
@@ -54,10 +53,8 @@ public final class BlizzardGameFinder implements AutoCloseable {
      * @return a fresh BlizzardGameInfoList owning a native allocation.
      */
     public static BlizzardGameInfoList findAll() {
-        try {
-        MemorySegment __h = (MemorySegment) Native.whiteout_host_BlizzardGameFinder_findAll.invoke();
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_host_BlizzardGameFinder_findAll);
         return new BlizzardGameInfoList(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
     /**
@@ -71,8 +68,8 @@ public final class BlizzardGameFinder implements AutoCloseable {
             MemorySegment name_seg = name == null
                 ? MemorySegment.NULL
                 : arena.allocateFrom(name, StandardCharsets.UTF_8);
-            return BlizzardGame.fromInt((int) Native.whiteout_host_BlizzardGameFinder_fromName.invoke(name_seg));
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            return BlizzardGame.fromInt((int) NativeCommon.invokeNative(Native.whiteout_host_BlizzardGameFinder_fromName, name_seg));
+        }
     }
 
     /**
@@ -83,14 +80,14 @@ public final class BlizzardGameFinder implements AutoCloseable {
      */
     public static String toName(BlizzardGame game) {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __cstr = (MemorySegment) Native.whiteout_host_BlizzardGameFinder_toName.invoke(arena, game.value);
+            MemorySegment __cstr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_host_BlizzardGameFinder_toName, arena, game.value);
             MemorySegment __chars = __cstr.get(ValueLayout.ADDRESS, 0);
             long __slen = __cstr.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             String __out = (__chars == null || __chars.equals(MemorySegment.NULL))
                 ? "" : __chars.reinterpret(__slen + 1).getString(0L);
-            Native.whiteout_CString_free.invoke(__cstr);
+            NativeCommon.invokeNative(Native.whiteout_CString_free, __cstr);
             return __out;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     @Override public String toString() {

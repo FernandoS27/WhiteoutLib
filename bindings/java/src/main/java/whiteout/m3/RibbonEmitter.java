@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class RibbonEmitter implements AutoCloseable {
     }
 
     public RibbonEmitter() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("RibbonEmitter allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("RibbonEmitter allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3RibbonEmitter_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_delete, handle);
         }
     }
 
@@ -106,104 +103,88 @@ public final class RibbonEmitter implements AutoCloseable {
      * @return the initialSpeed field of this M3RibbonEmitter.
      */
     public AnimRefF32 getInitialSpeed() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_initialSpeed.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_initialSpeed, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setInitialSpeed(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_initialSpeed.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_initialSpeed, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Random speed variation
      * @return the initialSpeedRandom field of this M3RibbonEmitter.
      */
     public AnimRefF32 getInitialSpeedRandom() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_initialSpeedRandom.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_initialSpeedRandom, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setInitialSpeedRandom(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_initialSpeedRandom.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_initialSpeedRandom, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Initial yaw angle
      * @return the initialYaw field of this M3RibbonEmitter.
      */
     public AnimRefF32 getInitialYaw() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_initialYaw.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_initialYaw, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setInitialYaw(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_initialYaw.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_initialYaw, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Initial pitch angle
      * @return the initialPitch field of this M3RibbonEmitter.
      */
     public AnimRefF32 getInitialPitch() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_initialPitch.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_initialPitch, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setInitialPitch(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_initialPitch.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_initialPitch, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Initial horizontal spread
      * @return the initialHorizontal field of this M3RibbonEmitter.
      */
     public AnimRefF32 getInitialHorizontal() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_initialHorizontal.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_initialHorizontal, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setInitialHorizontal(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_initialHorizontal.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_initialHorizontal, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Initial vertical spread
      * @return the initialVertical field of this M3RibbonEmitter.
      */
     public AnimRefF32 getInitialVertical() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_initialVertical.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_initialVertical, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setInitialVertical(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_initialVertical.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_initialVertical, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Base segment lifetime
      * @return the lifetime field of this M3RibbonEmitter.
      */
     public AnimRefF32 getLifetime() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_lifetime.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_lifetime, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setLifetime(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_lifetime.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_lifetime, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Random lifetime variation
      * @return the lifetimeRandom field of this M3RibbonEmitter.
      */
     public AnimRefF32 getLifetimeRandom() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_lifetimeRandom.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_lifetimeRandom, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setLifetimeRandom(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_lifetimeRandom.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_lifetimeRandom, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Kill radius
@@ -330,65 +311,55 @@ public final class RibbonEmitter implements AutoCloseable {
      * @return the sizeAnimation field of this M3RibbonEmitter.
      */
     public AnimRefVector3f getSizeAnimation() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_sizeAnimation.invoke(handle);
-            return new AnimRefVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_sizeAnimation, handle);
+        return new AnimRefVector3f(__h, false);
     }
     public void setSizeAnimation(AnimRefVector3f value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_sizeAnimation.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_sizeAnimation, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Rotation curve (start, mid, end)
      * @return the rotationAnimation field of this M3RibbonEmitter.
      */
     public AnimRefVector3f getRotationAnimation() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_rotationAnimation.invoke(handle);
-            return new AnimRefVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_rotationAnimation, handle);
+        return new AnimRefVector3f(__h, false);
     }
     public void setRotationAnimation(AnimRefVector3f value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_rotationAnimation.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_rotationAnimation, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Color at birth
      * @return the colorStart field of this M3RibbonEmitter.
      */
     public AnimRefM3ColorBGRA getColorStart() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_colorStart.invoke(handle);
-            return new AnimRefM3ColorBGRA(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_colorStart, handle);
+        return new AnimRefM3ColorBGRA(__h, false);
     }
     public void setColorStart(AnimRefM3ColorBGRA value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_colorStart.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_colorStart, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Color at midpoint
      * @return the colorMid field of this M3RibbonEmitter.
      */
     public AnimRefM3ColorBGRA getColorMid() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_colorMid.invoke(handle);
-            return new AnimRefM3ColorBGRA(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_colorMid, handle);
+        return new AnimRefM3ColorBGRA(__h, false);
     }
     public void setColorMid(AnimRefM3ColorBGRA value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_colorMid.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_colorMid, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Color at death
      * @return the colorEnd field of this M3RibbonEmitter.
      */
     public AnimRefM3ColorBGRA getColorEnd() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_colorEnd.invoke(handle);
-            return new AnimRefM3ColorBGRA(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_colorEnd, handle);
+        return new AnimRefM3ColorBGRA(__h, false);
     }
     public void setColorEnd(AnimRefM3ColorBGRA value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_colorEnd.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_colorEnd, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Air drag coefficient
@@ -585,30 +556,25 @@ public final class RibbonEmitter implements AutoCloseable {
      * @return the maxLength field of this M3RibbonEmitter.
      */
     public AnimRefF32 getMaxLength() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_maxLength.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_maxLength, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setMaxLength(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_maxLength.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_maxLength, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Spline ribbon segments (SRIB)
      * @return the splineRibbons field of this M3RibbonEmitter.
      */
     public int getSplineRibbonsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3RibbonEmitter_get_splineRibbons_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_splineRibbons_count, handle);
     }
     public SplineRibbon getSplineRibbonsAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_splineRibbons_at.invoke(handle, (long) index);
-            return new SplineRibbon(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_splineRibbons_at, handle, (long) index);
+        return new SplineRibbon(__h, false);
     }
     public void resizeSplineRibbons(int count) {
-        try { Native.whiteout_m3_M3RibbonEmitter_resize_splineRibbons.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_resize_splineRibbons, handle, (long) count);
     }
     public java.util.List<SplineRibbon> splineRibbonsView() {
         return new java.util.AbstractList<SplineRibbon>() {
@@ -621,13 +587,11 @@ public final class RibbonEmitter implements AutoCloseable {
      * @return the active field of this M3RibbonEmitter.
      */
     public AnimRefU32 getActive() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_active.invoke(handle);
-            return new AnimRefU32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_active, handle);
+        return new AnimRefU32(__h, false);
     }
     public void setActive(AnimRefU32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_active.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_active, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Ribbon emitter flags
@@ -714,26 +678,22 @@ public final class RibbonEmitter implements AutoCloseable {
      * @return the yawAmplitude field of this M3RibbonEmitter.
      */
     public AnimRefF32 getYawAmplitude() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_yawAmplitude.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_yawAmplitude, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setYawAmplitude(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_yawAmplitude.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_yawAmplitude, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Yaw variation frequency
      * @return the yawFrequency field of this M3RibbonEmitter.
      */
     public AnimRefF32 getYawFrequency() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_yawFrequency.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_yawFrequency, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setYawFrequency(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_yawFrequency.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_yawFrequency, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Pitch variation type
@@ -750,26 +710,22 @@ public final class RibbonEmitter implements AutoCloseable {
      * @return the pitchAmplitude field of this M3RibbonEmitter.
      */
     public AnimRefF32 getPitchAmplitude() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_pitchAmplitude.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_pitchAmplitude, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setPitchAmplitude(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_pitchAmplitude.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_pitchAmplitude, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Pitch variation frequency
      * @return the pitchFrequency field of this M3RibbonEmitter.
      */
     public AnimRefF32 getPitchFrequency() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_pitchFrequency.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_pitchFrequency, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setPitchFrequency(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_pitchFrequency.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_pitchFrequency, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Speed variation type
@@ -786,26 +742,22 @@ public final class RibbonEmitter implements AutoCloseable {
      * @return the speedAmplitude field of this M3RibbonEmitter.
      */
     public AnimRefF32 getSpeedAmplitude() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_speedAmplitude.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_speedAmplitude, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setSpeedAmplitude(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_speedAmplitude.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_speedAmplitude, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Speed variation frequency
      * @return the speedFrequency field of this M3RibbonEmitter.
      */
     public AnimRefF32 getSpeedFrequency() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_speedFrequency.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_speedFrequency, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setSpeedFrequency(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_speedFrequency.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_speedFrequency, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Size variation type
@@ -822,26 +774,22 @@ public final class RibbonEmitter implements AutoCloseable {
      * @return the sizeAmplitude field of this M3RibbonEmitter.
      */
     public AnimRefF32 getSizeAmplitude() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_sizeAmplitude.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_sizeAmplitude, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setSizeAmplitude(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_sizeAmplitude.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_sizeAmplitude, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Size variation frequency
      * @return the sizeFrequency field of this M3RibbonEmitter.
      */
     public AnimRefF32 getSizeFrequency() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_sizeFrequency.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_sizeFrequency, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setSizeFrequency(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_sizeFrequency.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_sizeFrequency, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Alpha variation type
@@ -858,52 +806,44 @@ public final class RibbonEmitter implements AutoCloseable {
      * @return the alphaAmplitude field of this M3RibbonEmitter.
      */
     public AnimRefF32 getAlphaAmplitude() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_alphaAmplitude.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_alphaAmplitude, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setAlphaAmplitude(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_alphaAmplitude.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_alphaAmplitude, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Alpha variation frequency
      * @return the alphaFrequency field of this M3RibbonEmitter.
      */
     public AnimRefF32 getAlphaFrequency() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_alphaFrequency.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_alphaFrequency, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setAlphaFrequency(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_alphaFrequency.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_alphaFrequency, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated parent velocity influence
      * @return the particleVelocity field of this M3RibbonEmitter.
      */
     public AnimRefF32 getParticleVelocity() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_particleVelocity.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_particleVelocity, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setParticleVelocity(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_particleVelocity.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_particleVelocity, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated overlay effect
      * @return the overlay field of this M3RibbonEmitter.
      */
     public AnimRefF32 getOverlay() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3RibbonEmitter_get_overlay.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_get_overlay, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setOverlay(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3RibbonEmitter_set_overlay.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3RibbonEmitter_set_overlay, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "RibbonEmitter(" + "boneIndex=" + getBoneIndex() + ", " + "boneIndexFallback=" + getBoneIndexFallback() + ", " + "materialIndex=" + getMaterialIndex() + ", " + "additionalFlags=" + getAdditionalFlags() + ", " + "killRadius=" + getKillRadius() + ", " + "gravityX=" + getGravityX() + ", " + "gravityY=" + getGravityY() + ", " + "gravity=" + getGravity() + ", " + "sizeMidTime=" + getSizeMidTime() + ", " + "colorMidTime=" + getColorMidTime() + ", " + "alphaMidTime=" + getAlphaMidTime() + ", " + "rotationMidTime=" + getRotationMidTime() + ", " + "sizeMidHoldTime=" + getSizeMidHoldTime() + ", " + "colorMidHoldTime=" + getColorMidHoldTime() + ", " + "alphaMidHoldTime=" + getAlphaMidHoldTime() + ", " + "rotationMidHoldTime=" + getRotationMidHoldTime() + ", " + "drag=" + getDrag() + ", " + "mass=" + getMass() + ", " + "massRandom=" + getMassRandom() + ", " + "massSizeMultiplier=" + getMassSizeMultiplier() + ", " + "localForces=" + getLocalForces() + ", " + "worldForces=" + getWorldForces() + ", " + "localForcesFallback=" + getLocalForcesFallback() + ", " + "worldForcesFallback=" + getWorldForcesFallback() + ", " + "worldForcesMassMultiplier=" + getWorldForcesMassMultiplier() + ", " + "noiseAmplitude=" + getNoiseAmplitude() + ", " + "noiseFrequency=" + getNoiseFrequency() + ", " + "noiseCoherence=" + getNoiseCoherence() + ", " + "noiseEdge=" + getNoiseEdge() + ", " + "indexPlusLength=" + getIndexPlusLength() + ", " + "emitterShape=" + getEmitterShape() + ", " + "ribbonType=" + getRibbonType() + ", " + "divisions=" + getDivisions() + ", " + "edges=" + getEdges() + ", " + "innerRadius=" + getInnerRadius() + ", " + "flags=" + getFlags() + ", " + "sizeSmoothing=" + getSizeSmoothing() + ", " + "colorSmoothing=" + getColorSmoothing() + ", " + "friction=" + getFriction() + ", " + "bounce=" + getBounce() + ", " + "lodReduce=" + getLodReduce() + ", " + "lodCut=" + getLodCut() + ", " + "yawType=" + getYawType() + ", " + "pitchType=" + getPitchType() + ", " + "speedType=" + getSpeedType() + ", " + "sizeType=" + getSizeType() + ", " + "alphaType=" + getAlphaType() + ")";

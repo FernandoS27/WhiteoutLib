@@ -96,6 +96,7 @@ EMSCRIPTEN_BINDINGS(utils) {
         .function("getNormals", &whiteout::utils::VertexBuffer::getNormals)
         .function("getTangents", &whiteout::utils::VertexBuffer::getTangents)
         .function("getUVs", select_overload<std::vector<whiteout::Vector2f>(size_t) const>(&whiteout::utils::VertexBuffer::getUVs))
+        .function("getUVs_which_uvMultiply_uvOffset", select_overload<std::vector<whiteout::Vector2f>(size_t, whiteout::f32, whiteout::f32) const>(&whiteout::utils::VertexBuffer::getUVs))
         .function("getColors", &whiteout::utils::VertexBuffer::getColors)
     ;
 
@@ -125,11 +126,7 @@ EMSCRIPTEN_BINDINGS(utils) {
                       std::span<const whiteout::u32> data(__vec_0.data(), __vec_0.size());
                       return &(self.declareIntAttribute(data, components, attr_class, encoding, align));
                   }), allow_raw_pointers())
-        .function("build",
-                  optional_override([](
-                      whiteout::utils::VertexBufferBuilder& self) {
-                      return self.build();
-                  }))
+        .function("build", &whiteout::utils::VertexBufferBuilder::build)
     ;
 
     // ── Vector containers ────────────────────────────────────────────────

@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class TrailingModel implements AutoCloseable {
     }
 
     public TrailingModel() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3TrailingModel_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("TrailingModel allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3TrailingModel_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("TrailingModel allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3TrailingModel_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3TrailingModel_delete, handle);
         }
     }
 
@@ -66,29 +63,25 @@ public final class TrailingModel implements AutoCloseable {
      * @return the vectors field of this M3TrailingModel.
      */
     public int getVectorsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3TrailingModel_get_vectors_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3TrailingModel_get_vectors_count, handle);
     }
     public float[] getVectors() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3TrailingModel_get_vectors_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3TrailingModel_get_vectors_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
-            long __scalars = __count * 3L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3TrailingModel_get_vectors_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3TrailingModel_get_vectors_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
+        long __scalars = __count * 3L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
     }
     public void setVectors(float[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 3;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
-            Native.whiteout_m3_M3TrailingModel_assign_vectors.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3TrailingModel_assign_vectors, handle, __seg, __count);
+        }
     }
     public void resizeVectors(int count) {
-        try { Native.whiteout_m3_M3TrailingModel_resize_vectors.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3TrailingModel_resize_vectors, handle, (long) count);
     }
     /**
      * Parameter 0 (observed: 5.0)
@@ -115,26 +108,22 @@ public final class TrailingModel implements AutoCloseable {
      * @return the animFloat0 field of this M3TrailingModel.
      */
     public AnimRefF32 getAnimFloat0() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3TrailingModel_get_animFloat0.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3TrailingModel_get_animFloat0, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setAnimFloat0(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3TrailingModel_set_animFloat0.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3TrailingModel_set_animFloat0, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated float 1 (init 1.0)
      * @return the animFloat1 field of this M3TrailingModel.
      */
     public AnimRefF32 getAnimFloat1() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3TrailingModel_get_animFloat1.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3TrailingModel_get_animFloat1, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setAnimFloat1(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3TrailingModel_set_animFloat1.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3TrailingModel_set_animFloat1, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Flag (observed: 1)

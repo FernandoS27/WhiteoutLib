@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.mdx.internal.Native;
 
 /**
@@ -41,22 +42,18 @@ public final class TrackVector3f implements AutoCloseable {
     }
 
     public TrackVector3f() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_mdx_MdxTrackVector3f_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("TrackVector3f allocation failed");
-            this.handle = __raw;
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackVector3f_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("TrackVector3f allocation failed");
+        this.handle = __raw;
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_mdx_MdxTrackVector3f_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackVector3f_delete, handle);
         }
     }
 
@@ -65,106 +62,90 @@ public final class TrackVector3f implements AutoCloseable {
      * @return the isUsed field of this MdxTrackVector3f.
      */
     public boolean getIsUsed() {
-        try { return ((int) Native.whiteout_mdx_MdxTrackVector3f_get_isUsed.invoke(handle)) != 0; }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackVector3f_get_isUsed, handle)) != 0;
     }
     public void setIsUsed(boolean value) {
-        try { Native.whiteout_mdx_MdxTrackVector3f_set_isUsed.invoke(handle, (value ? 1 : 0)); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackVector3f_set_isUsed, handle, (value ? 1 : 0));
     }
     /**
      * Interpolation type
      * @return the interpolationType field of this MdxTrackVector3f.
      */
     public InterpolationType getInterpolationType() {
-        try { return InterpolationType.fromInt((int) Native.whiteout_mdx_MdxTrackVector3f_get_interpolationType.invoke(handle)); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return InterpolationType.fromInt((int) NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackVector3f_get_interpolationType, handle));
     }
     public void setInterpolationType(InterpolationType value) {
-        try { Native.whiteout_mdx_MdxTrackVector3f_set_interpolationType.invoke(handle, value.value); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackVector3f_set_interpolationType, handle, value.value);
     }
     /**
      * Global sequence ID if applicable
      * @return the globalSequenceId field of this MdxTrackVector3f.
      */
     public int getGlobalSequenceId() {
-        try { return (int) Native.whiteout_mdx_MdxTrackVector3f_get_globalSequenceId.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackVector3f_get_globalSequenceId, handle);
     }
     public void setGlobalSequenceId(int value) {
-        try { Native.whiteout_mdx_MdxTrackVector3f_set_globalSequenceId.invoke(handle, value); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackVector3f_set_globalSequenceId, handle, value);
     }
     /**
      * Number of keyframes
      * @return the keyCount field of this MdxTrackVector3f.
      */
     public int getKeyCount() {
-        try { return (int) Native.whiteout_mdx_MdxTrackVector3f_get_keyCount.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackVector3f_get_keyCount, handle);
     }
     public void setKeyCount(int value) {
-        try { Native.whiteout_mdx_MdxTrackVector3f_set_keyCount.invoke(handle, value); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackVector3f_set_keyCount, handle, value);
     }
     /**
      * Keyframe timestamps (in frames)
      * @return the timestamps field of this MdxTrackVector3f.
      */
     public int getTimestampsCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxTrackVector3f_get_timestamps_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackVector3f_get_timestamps_count, handle);
     }
     public int[] getTimestamps() {
-        try {
-            long __count = (long) Native.whiteout_mdx_MdxTrackVector3f_get_timestamps_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_mdx_MdxTrackVector3f_get_timestamps_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackVector3f_get_timestamps_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackVector3f_get_timestamps_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
     }
     public void setTimestamps(int[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
-            Native.whiteout_mdx_MdxTrackVector3f_assign_timestamps.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackVector3f_assign_timestamps, handle, __seg, __count);
+        }
     }
     public void resizeTimestamps(int count) {
-        try { Native.whiteout_mdx_MdxTrackVector3f_resize_timestamps.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackVector3f_resize_timestamps, handle, (long) count);
     }
     /**
      * Raw keyframe data
      * @return the keys field of this MdxTrackVector3f.
      */
     public int getKeysCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxTrackVector3f_get_keys_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackVector3f_get_keys_count, handle);
     }
     public float[] getKeys() {
-        try {
-            long __count = (long) Native.whiteout_mdx_MdxTrackVector3f_get_keys_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_mdx_MdxTrackVector3f_get_keys_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
-            long __scalars = __count * 3L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackVector3f_get_keys_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackVector3f_get_keys_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
+        long __scalars = __count * 3L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
     }
     public void setKeys(float[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 3;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
-            Native.whiteout_mdx_MdxTrackVector3f_assign_keys.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackVector3f_assign_keys, handle, __seg, __count);
+        }
     }
     public void resizeKeys(int count) {
-        try { Native.whiteout_mdx_MdxTrackVector3f_resize_keys.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackVector3f_resize_keys, handle, (long) count);
     }
     @Override public String toString() {
         return "TrackVector3f(" + "isUsed=" + getIsUsed() + ", " + "interpolationType=" + getInterpolationType() + ", " + "globalSequenceId=" + getGlobalSequenceId() + ", " + "keyCount=" + getKeyCount() + ")";

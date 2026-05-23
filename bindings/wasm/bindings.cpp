@@ -136,16 +136,12 @@ EMSCRIPTEN_BINDINGS(whiteout) {
 
     // ── MDX (Warcraft III) ───────────────────────────────────────────────
     // The Model struct and its nested types are bound in mdx_bindings.cpp.
-    enum_<mdx::Parser::ParseMode>("MdxParseMode")
-        .value("Strict", mdx::Parser::ParseMode::Strict)
-        .value("Lenient", mdx::Parser::ParseMode::Lenient);
-
     enum_<mdx::Parser::UpgradeMode>("MdxUpgradeMode")
         .value("UpgradeOldVersions", mdx::Parser::UpgradeMode::UpgradeOldVersions)
         .value("PreserveOriginal", mdx::Parser::UpgradeMode::PreserveOriginal);
 
     class_<mdx::Parser>("MdxParser")
-        .constructor<mdx::Parser::ParseMode, mdx::Parser::UpgradeMode>()
+        .constructor<mdx::Parser::UpgradeMode>()
         .function("parseMdx", &parseMdx)
         .function("parseMdl", &parseMdl)
         .function("hasIssues", &mdx::Parser::hasIssues)
@@ -158,12 +154,8 @@ EMSCRIPTEN_BINDINGS(whiteout) {
 
     // ── M3 (StarCraft II) ────────────────────────────────────────────────
     // The Model and its nested types are bound in m3_bindings.cpp.
-    enum_<m3::Parser::ParseMode>("M3ParseMode")
-        .value("Strict", m3::Parser::ParseMode::Strict)
-        .value("Lenient", m3::Parser::ParseMode::Lenient);
-
     class_<m3::Parser>("M3Parser")
-        .constructor<m3::Parser::ParseMode>()
+        .constructor<>()
         .function("parse", &parseM3)
         .function("hasIssues", &m3::Parser::hasIssues)
         .function("getIssues", &m3::Parser::getIssues);
@@ -173,10 +165,6 @@ EMSCRIPTEN_BINDINGS(whiteout) {
         .function("write", &writeM3);
 
     // ── WEM (intermediate format) ────────────────────────────────────────
-    enum_<models::wem::Parser::ParseMode>("WemParseMode")
-        .value("Strict", models::wem::Parser::ParseMode::Strict)
-        .value("Lenient", models::wem::Parser::ParseMode::Lenient);
-
     class_<models::wem::Model>("WemModel")
         .constructor<>()
         .property("name", &models::wem::Model::name)
@@ -188,7 +176,7 @@ EMSCRIPTEN_BINDINGS(whiteout) {
                   optional_override([](const models::wem::Model& m) { return static_cast<u32>(m.textures.size()); }));
 
     class_<models::wem::Parser>("WemParser")
-        .constructor<models::wem::Parser::ParseMode>()
+        .constructor<>()
         .function("parse", &parseWem)
         .function("hasIssues", &models::wem::Parser::hasIssues)
         .function("getIssues", &models::wem::Parser::getIssues);
@@ -199,12 +187,8 @@ EMSCRIPTEN_BINDINGS(whiteout) {
 
     // ── M2 (World of Warcraft) — needs sibling files ────────────────────
     // The Model and its nested types are bound in m2_bindings.cpp.
-    enum_<m2::Parser::ParseMode>("M2ParseMode")
-        .value("Strict", m2::Parser::ParseMode::Strict)
-        .value("Lenient", m2::Parser::ParseMode::Lenient);
-
     class_<m2::Parser>("M2Parser")
-        .constructor<m2::Parser::ParseMode>()
+        .constructor<>()
         .function("parse", &parseM2)
         .function("hasIssues", &m2::Parser::hasIssues)
         .function("getIssues", &m2::Parser::getIssues);

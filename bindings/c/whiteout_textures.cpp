@@ -201,10 +201,6 @@ whiteout_BlpParser* whiteout_textures_BlpParser_new(void) {
     return reinterpret_cast<whiteout_BlpParser*>(new whiteout::textures::blp::Parser());
 }
 
-whiteout_BlpParser* whiteout_textures_BlpParser_new_parseMode(int32_t parseMode) {
-    return reinterpret_cast<whiteout_BlpParser*>(new whiteout::textures::blp::Parser(static_cast<whiteout::textures::blp::Parser::ParseMode>(parseMode)));
-}
-
 void whiteout_textures_BlpParser_delete(whiteout_BlpParser* self) {
     delete reinterpret_cast<whiteout::textures::blp::Parser*>(self);
 }
@@ -230,8 +226,8 @@ whiteout_BlpWriter* whiteout_textures_BlpWriter_new(void) {
     return reinterpret_cast<whiteout_BlpWriter*>(new whiteout::textures::blp::Writer());
 }
 
-whiteout_BlpWriter* whiteout_textures_BlpWriter_new_writeMode_pool(int32_t writeMode, void* pool) {
-    return reinterpret_cast<whiteout_BlpWriter*>(new whiteout::textures::blp::Writer(static_cast<whiteout::textures::blp::Writer::WriteMode>(writeMode), reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool)));
+whiteout_BlpWriter* whiteout_textures_BlpWriter_new_pool(void* pool) {
+    return reinterpret_cast<whiteout_BlpWriter*>(new whiteout::textures::blp::Writer(reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool)));
 }
 
 void whiteout_textures_BlpWriter_delete(whiteout_BlpWriter* self) {
@@ -324,10 +320,6 @@ extern "C" {
 
 whiteout_PngParser* whiteout_textures_PngParser_new(void) {
     return reinterpret_cast<whiteout_PngParser*>(new whiteout::textures::png::Parser());
-}
-
-whiteout_PngParser* whiteout_textures_PngParser_new_parseMode(int32_t parseMode) {
-    return reinterpret_cast<whiteout_PngParser*>(new whiteout::textures::png::Parser(static_cast<whiteout::textures::png::Parser::ParseMode>(parseMode)));
 }
 
 void whiteout_textures_PngParser_delete(whiteout_PngParser* self) {
@@ -435,10 +427,6 @@ whiteout_PngWriter* whiteout_textures_PngWriter_new(void) {
     return reinterpret_cast<whiteout_PngWriter*>(new whiteout::textures::png::Writer());
 }
 
-whiteout_PngWriter* whiteout_textures_PngWriter_new_writeMode(int32_t writeMode) {
-    return reinterpret_cast<whiteout_PngWriter*>(new whiteout::textures::png::Writer(static_cast<whiteout::textures::png::Writer::WriteMode>(writeMode)));
-}
-
 void whiteout_textures_PngWriter_delete(whiteout_PngWriter* self) {
     delete reinterpret_cast<whiteout::textures::png::Writer*>(self);
 }
@@ -465,8 +453,8 @@ whiteout_JpegParser* whiteout_textures_JpegParser_new(void) {
     return reinterpret_cast<whiteout_JpegParser*>(new whiteout::textures::jpeg::Parser());
 }
 
-whiteout_JpegParser* whiteout_textures_JpegParser_new_parseMode_pool(int32_t parseMode, void* pool) {
-    return reinterpret_cast<whiteout_JpegParser*>(new whiteout::textures::jpeg::Parser(static_cast<whiteout::textures::jpeg::Parser::ParseMode>(parseMode), reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool)));
+whiteout_JpegParser* whiteout_textures_JpegParser_new_pool(void* pool) {
+    return reinterpret_cast<whiteout_JpegParser*>(new whiteout::textures::jpeg::Parser(reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool)));
 }
 
 void whiteout_textures_JpegParser_delete(whiteout_JpegParser* self) {
@@ -494,8 +482,8 @@ whiteout_JpegWriter* whiteout_textures_JpegWriter_new(void) {
     return reinterpret_cast<whiteout_JpegWriter*>(new whiteout::textures::jpeg::Writer());
 }
 
-whiteout_JpegWriter* whiteout_textures_JpegWriter_new_quality_writeMode_pool_progressive(int32_t quality, int32_t writeMode, void* pool, int32_t progressive) {
-    return reinterpret_cast<whiteout_JpegWriter*>(new whiteout::textures::jpeg::Writer(quality, static_cast<whiteout::textures::jpeg::Writer::WriteMode>(writeMode), reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool), progressive));
+whiteout_JpegWriter* whiteout_textures_JpegWriter_new_quality_pool_progressive(int32_t quality, void* pool, int32_t progressive) {
+    return reinterpret_cast<whiteout_JpegWriter*>(new whiteout::textures::jpeg::Writer(quality, reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool), progressive));
 }
 
 void whiteout_textures_JpegWriter_delete(whiteout_JpegWriter* self) {
@@ -518,10 +506,6 @@ extern "C" {
 
 whiteout_DdsParser* whiteout_textures_DdsParser_new(void) {
     return reinterpret_cast<whiteout_DdsParser*>(new whiteout::textures::dds::Parser());
-}
-
-whiteout_DdsParser* whiteout_textures_DdsParser_new_parseMode(int32_t parseMode) {
-    return reinterpret_cast<whiteout_DdsParser*>(new whiteout::textures::dds::Parser(static_cast<whiteout::textures::dds::Parser::ParseMode>(parseMode)));
 }
 
 void whiteout_textures_DdsParser_delete(whiteout_DdsParser* self) {
@@ -549,10 +533,6 @@ whiteout_DdsWriter* whiteout_textures_DdsWriter_new(void) {
     return reinterpret_cast<whiteout_DdsWriter*>(new whiteout::textures::dds::Writer());
 }
 
-whiteout_DdsWriter* whiteout_textures_DdsWriter_new_writeMode(int32_t writeMode) {
-    return reinterpret_cast<whiteout_DdsWriter*>(new whiteout::textures::dds::Writer(static_cast<whiteout::textures::dds::Writer::WriteMode>(writeMode)));
-}
-
 void whiteout_textures_DdsWriter_delete(whiteout_DdsWriter* self) {
     delete reinterpret_cast<whiteout::textures::dds::Writer*>(self);
 }
@@ -573,10 +553,6 @@ extern "C" {
 
 whiteout_BmpParser* whiteout_textures_BmpParser_new(void) {
     return reinterpret_cast<whiteout_BmpParser*>(new whiteout::textures::bmp::Parser());
-}
-
-whiteout_BmpParser* whiteout_textures_BmpParser_new_parseMode(int32_t parseMode) {
-    return reinterpret_cast<whiteout_BmpParser*>(new whiteout::textures::bmp::Parser(static_cast<whiteout::textures::bmp::Parser::ParseMode>(parseMode)));
 }
 
 void whiteout_textures_BmpParser_delete(whiteout_BmpParser* self) {
@@ -604,10 +580,6 @@ whiteout_BmpWriter* whiteout_textures_BmpWriter_new(void) {
     return reinterpret_cast<whiteout_BmpWriter*>(new whiteout::textures::bmp::Writer());
 }
 
-whiteout_BmpWriter* whiteout_textures_BmpWriter_new_writeMode(int32_t writeMode) {
-    return reinterpret_cast<whiteout_BmpWriter*>(new whiteout::textures::bmp::Writer(static_cast<whiteout::textures::bmp::Writer::WriteMode>(writeMode)));
-}
-
 void whiteout_textures_BmpWriter_delete(whiteout_BmpWriter* self) {
     delete reinterpret_cast<whiteout::textures::bmp::Writer*>(self);
 }
@@ -628,10 +600,6 @@ extern "C" {
 
 whiteout_TgaParser* whiteout_textures_TgaParser_new(void) {
     return reinterpret_cast<whiteout_TgaParser*>(new whiteout::textures::tga::Parser());
-}
-
-whiteout_TgaParser* whiteout_textures_TgaParser_new_parseMode(int32_t parseMode) {
-    return reinterpret_cast<whiteout_TgaParser*>(new whiteout::textures::tga::Parser(static_cast<whiteout::textures::tga::Parser::ParseMode>(parseMode)));
 }
 
 void whiteout_textures_TgaParser_delete(whiteout_TgaParser* self) {
@@ -657,10 +625,6 @@ extern "C" {
 
 whiteout_TgaWriter* whiteout_textures_TgaWriter_new(void) {
     return reinterpret_cast<whiteout_TgaWriter*>(new whiteout::textures::tga::Writer());
-}
-
-whiteout_TgaWriter* whiteout_textures_TgaWriter_new_writeMode(int32_t writeMode) {
-    return reinterpret_cast<whiteout_TgaWriter*>(new whiteout::textures::tga::Writer(static_cast<whiteout::textures::tga::Writer::WriteMode>(writeMode)));
 }
 
 void whiteout_textures_TgaWriter_delete(whiteout_TgaWriter* self) {
@@ -739,8 +703,8 @@ whiteout_GifWriter* whiteout_textures_GifWriter_new(void) {
     return reinterpret_cast<whiteout_GifWriter*>(new whiteout::textures::gif::Writer());
 }
 
-whiteout_GifWriter* whiteout_textures_GifWriter_new_writeMode_pool(int32_t writeMode, void* pool) {
-    return reinterpret_cast<whiteout_GifWriter*>(new whiteout::textures::gif::Writer(static_cast<whiteout::textures::gif::Writer::WriteMode>(writeMode), reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool)));
+whiteout_GifWriter* whiteout_textures_GifWriter_new_pool(void* pool) {
+    return reinterpret_cast<whiteout_GifWriter*>(new whiteout::textures::gif::Writer(reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool)));
 }
 
 void whiteout_textures_GifWriter_delete(whiteout_GifWriter* self) {

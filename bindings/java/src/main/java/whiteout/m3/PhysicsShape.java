@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class PhysicsShape implements AutoCloseable {
     }
 
     public PhysicsShape() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3PhysicsShape_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("PhysicsShape allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("PhysicsShape allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3PhysicsShape_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_delete, handle);
         }
     }
 
@@ -90,8 +87,7 @@ public final class PhysicsShape implements AutoCloseable {
     }
     public void setOldSizes(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m3_M3PhysicsShape_set_oldSizes.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_set_oldSizes, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 72L, 12L);
@@ -105,8 +101,7 @@ public final class PhysicsShape implements AutoCloseable {
     }
     public void setShapeDimensions(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m3_M3PhysicsShape_set_shapeDimensions.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_set_shapeDimensions, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 96L, 12L);
@@ -116,75 +111,64 @@ public final class PhysicsShape implements AutoCloseable {
      * @return the hullFaceNormals field of this M3PhysicsShape.
      */
     public int getHullFaceNormalsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3PhysicsShape_get_hullFaceNormals_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullFaceNormals_count, handle);
     }
     public float[] getHullFaceNormals() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3PhysicsShape_get_hullFaceNormals_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3PhysicsShape_get_hullFaceNormals_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
-            long __scalars = __count * 3L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullFaceNormals_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullFaceNormals_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
+        long __scalars = __count * 3L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
     }
     public void setHullFaceNormals(float[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 3;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
-            Native.whiteout_m3_M3PhysicsShape_assign_hullFaceNormals.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_assign_hullFaceNormals, handle, __seg, __count);
+        }
     }
     public void resizeHullFaceNormals(int count) {
-        try { Native.whiteout_m3_M3PhysicsShape_resize_hullFaceNormals.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_resize_hullFaceNormals, handle, (long) count);
     }
     /**
      * Vertex positions, w=0 (VEC4)
      * @return the hullVertexPositions field of this M3PhysicsShape.
      */
     public int getHullVertexPositionsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3PhysicsShape_get_hullVertexPositions_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullVertexPositions_count, handle);
     }
     public float[] getHullVertexPositions() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3PhysicsShape_get_hullVertexPositions_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3PhysicsShape_get_hullVertexPositions_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
-            long __scalars = __count * 4L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullVertexPositions_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullVertexPositions_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
+        long __scalars = __count * 4L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
     }
     public void setHullVertexPositions(float[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 4;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
-            Native.whiteout_m3_M3PhysicsShape_assign_hullVertexPositions.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_assign_hullVertexPositions, handle, __seg, __count);
+        }
     }
     public void resizeHullVertexPositions(int count) {
-        try { Native.whiteout_m3_M3PhysicsShape_resize_hullVertexPositions.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_resize_hullVertexPositions, handle, (long) count);
     }
     /**
      * Half-edge table (DMSE)
      * @return the hullHalfEdges field of this M3PhysicsShape.
      */
     public int getHullHalfEdgesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3PhysicsShape_get_hullHalfEdges_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullHalfEdges_count, handle);
     }
     public ConvexHullHalfEdge getHullHalfEdgesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3PhysicsShape_get_hullHalfEdges_at.invoke(handle, (long) index);
-            return new ConvexHullHalfEdge(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullHalfEdges_at, handle, (long) index);
+        return new ConvexHullHalfEdge(__h, false);
     }
     public void resizeHullHalfEdges(int count) {
-        try { Native.whiteout_m3_M3PhysicsShape_resize_hullHalfEdges.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_resize_hullHalfEdges, handle, (long) count);
     }
     public java.util.List<ConvexHullHalfEdge> hullHalfEdgesView() {
         return new java.util.AbstractList<ConvexHullHalfEdge>() {
@@ -197,29 +181,25 @@ public final class PhysicsShape implements AutoCloseable {
      * @return the hullVertexFaceIndices field of this M3PhysicsShape.
      */
     public int getHullVertexFaceIndicesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_count, handle);
     }
     public byte[] getHullVertexFaceIndices() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new byte[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 1L).toArray(ValueLayout.JAVA_BYTE);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_hullVertexFaceIndices_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new byte[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 1L).toArray(ValueLayout.JAVA_BYTE);
     }
     public void setHullVertexFaceIndices(byte[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 1L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_BYTE, 0, values.length);
-            Native.whiteout_m3_M3PhysicsShape_assign_hullVertexFaceIndices.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_assign_hullVertexFaceIndices, handle, __seg, __count);
+        }
     }
     public void resizeHullVertexFaceIndices(int count) {
-        try { Native.whiteout_m3_M3PhysicsShape_resize_hullVertexFaceIndices.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_resize_hullVertexFaceIndices, handle, (long) count);
     }
     /**
      * Hull centroid
@@ -230,8 +210,7 @@ public final class PhysicsShape implements AutoCloseable {
     }
     public void setHullCenter(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m3_M3PhysicsShape_set_hullCenter.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_set_hullCenter, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 208L, 12L);
@@ -291,17 +270,14 @@ public final class PhysicsShape implements AutoCloseable {
      * @return the meshBvhNodes field of this M3PhysicsShape.
      */
     public int getMeshBvhNodesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3PhysicsShape_get_meshBvhNodes_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_meshBvhNodes_count, handle);
     }
     public PhysicsMeshBvhNode getMeshBvhNodesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3PhysicsShape_get_meshBvhNodes_at.invoke(handle, (long) index);
-            return new PhysicsMeshBvhNode(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_meshBvhNodes_at, handle, (long) index);
+        return new PhysicsMeshBvhNode(__h, false);
     }
     public void resizeMeshBvhNodes(int count) {
-        try { Native.whiteout_m3_M3PhysicsShape_resize_meshBvhNodes.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_resize_meshBvhNodes, handle, (long) count);
     }
     public java.util.List<PhysicsMeshBvhNode> meshBvhNodesView() {
         return new java.util.AbstractList<PhysicsMeshBvhNode>() {
@@ -314,29 +290,25 @@ public final class PhysicsShape implements AutoCloseable {
      * @return the meshVertexPositions field of this M3PhysicsShape.
      */
     public int getMeshVertexPositionsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3PhysicsShape_get_meshVertexPositions_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_meshVertexPositions_count, handle);
     }
     public float[] getMeshVertexPositions() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3PhysicsShape_get_meshVertexPositions_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3PhysicsShape_get_meshVertexPositions_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
-            long __scalars = __count * 4L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_meshVertexPositions_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_get_meshVertexPositions_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new float[0];
+        long __scalars = __count * 4L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_FLOAT);
     }
     public void setMeshVertexPositions(float[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 4;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_FLOAT, 0, values.length);
-            Native.whiteout_m3_M3PhysicsShape_assign_meshVertexPositions.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_assign_meshVertexPositions, handle, __seg, __count);
+        }
     }
     public void resizeMeshVertexPositions(int count) {
-        try { Native.whiteout_m3_M3PhysicsShape_resize_meshVertexPositions.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_resize_meshVertexPositions, handle, (long) count);
     }
     /**
      * AABB center in model space (quantization grid origin)
@@ -347,8 +319,7 @@ public final class PhysicsShape implements AutoCloseable {
     }
     public void setMeshBoundsCenter(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m3_M3PhysicsShape_set_meshBoundsCenter.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_set_meshBoundsCenter, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 336L, 12L);
@@ -362,8 +333,7 @@ public final class PhysicsShape implements AutoCloseable {
     }
     public void setMeshBoundsExtent(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m3_M3PhysicsShape_set_meshBoundsExtent.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_set_meshBoundsExtent, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 348L, 12L);
@@ -377,8 +347,7 @@ public final class PhysicsShape implements AutoCloseable {
     }
     public void setMeshTolerance(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_m3_M3PhysicsShape_set_meshTolerance.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3PhysicsShape_set_meshTolerance, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 360L, 12L);

@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m2.internal.Native;
 
 /**
@@ -40,90 +41,75 @@ public final class SkinProfile implements AutoCloseable {
     }
 
     public SkinProfile() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m2_M2SkinProfile_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("SkinProfile allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2SkinProfile_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("SkinProfile allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m2_M2SkinProfile_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2SkinProfile_delete, handle);
         }
     }
 
     /** @return the vertices field of this M2SkinProfile. */
     public int getVerticesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2SkinProfile_get_vertices_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2SkinProfile_get_vertices_count, handle);
     }
     public short[] getVertices() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2SkinProfile_get_vertices_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2SkinProfile_get_vertices_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2SkinProfile_get_vertices_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2SkinProfile_get_vertices_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setVertices(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m2_M2SkinProfile_assign_vertices.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2SkinProfile_assign_vertices, handle, __seg, __count);
+        }
     }
     public void resizeVertices(int count) {
-        try { Native.whiteout_m2_M2SkinProfile_resize_vertices.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2SkinProfile_resize_vertices, handle, (long) count);
     }
     /** @return the indices field of this M2SkinProfile. */
     public int getIndicesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2SkinProfile_get_indices_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2SkinProfile_get_indices_count, handle);
     }
     public short[] getIndices() {
-        try {
-            long __count = (long) Native.whiteout_m2_M2SkinProfile_get_indices_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m2_M2SkinProfile_get_indices_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2SkinProfile_get_indices_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2SkinProfile_get_indices_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
     }
     public void setIndices(short[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 2L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
-            Native.whiteout_m2_M2SkinProfile_assign_indices.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m2_M2SkinProfile_assign_indices, handle, __seg, __count);
+        }
     }
     public void resizeIndices(int count) {
-        try { Native.whiteout_m2_M2SkinProfile_resize_indices.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2SkinProfile_resize_indices, handle, (long) count);
     }
     /** @return the submeshes field of this M2SkinProfile. */
     public int getSubmeshesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2SkinProfile_get_submeshes_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2SkinProfile_get_submeshes_count, handle);
     }
     public SkinSection getSubmeshesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2SkinProfile_get_submeshes_at.invoke(handle, (long) index);
-            return new SkinSection(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2SkinProfile_get_submeshes_at, handle, (long) index);
+        return new SkinSection(__h, false);
     }
     public void resizeSubmeshes(int count) {
-        try { Native.whiteout_m2_M2SkinProfile_resize_submeshes.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2SkinProfile_resize_submeshes, handle, (long) count);
     }
     public java.util.List<SkinSection> submeshesView() {
         return new java.util.AbstractList<SkinSection>() {
@@ -133,17 +119,14 @@ public final class SkinProfile implements AutoCloseable {
     }
     /** @return the batches field of this M2SkinProfile. */
     public int getBatchesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2SkinProfile_get_batches_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2SkinProfile_get_batches_count, handle);
     }
     public Batch getBatchesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2SkinProfile_get_batches_at.invoke(handle, (long) index);
-            return new Batch(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2SkinProfile_get_batches_at, handle, (long) index);
+        return new Batch(__h, false);
     }
     public void resizeBatches(int count) {
-        try { Native.whiteout_m2_M2SkinProfile_resize_batches.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2SkinProfile_resize_batches, handle, (long) count);
     }
     public java.util.List<Batch> batchesView() {
         return new java.util.AbstractList<Batch>() {
@@ -160,17 +143,14 @@ public final class SkinProfile implements AutoCloseable {
     }
     /** @return the shadowBatches field of this M2SkinProfile. */
     public int getShadowBatchesCount() {
-        try { return (int) (long) Native.whiteout_m2_M2SkinProfile_get_shadowBatches_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2SkinProfile_get_shadowBatches_count, handle);
     }
     public ShadowBatch getShadowBatchesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m2_M2SkinProfile_get_shadowBatches_at.invoke(handle, (long) index);
-            return new ShadowBatch(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2SkinProfile_get_shadowBatches_at, handle, (long) index);
+        return new ShadowBatch(__h, false);
     }
     public void resizeShadowBatches(int count) {
-        try { Native.whiteout_m2_M2SkinProfile_resize_shadowBatches.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m2_M2SkinProfile_resize_shadowBatches, handle, (long) count);
     }
     public java.util.List<ShadowBatch> shadowBatchesView() {
         return new java.util.AbstractList<ShadowBatch>() {

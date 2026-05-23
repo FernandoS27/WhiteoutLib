@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class Force implements AutoCloseable {
     }
 
     public Force() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3Force_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Force allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Force_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Force allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3Force_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3Force_delete, handle);
         }
     }
 
@@ -126,52 +123,44 @@ public final class Force implements AutoCloseable {
      * @return the strength field of this M3Force.
      */
     public AnimRefF32 getStrength() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Force_get_strength.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Force_get_strength, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setStrength(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Force_set_strength.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Force_set_strength, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated influence width
      * @return the width field of this M3Force.
      */
     public AnimRefF32 getWidth() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Force_get_width.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Force_get_width, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setWidth(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Force_set_width.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Force_set_width, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated influence height
      * @return the height field of this M3Force.
      */
     public AnimRefF32 getHeight() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Force_get_height.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Force_get_height, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setHeight(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Force_set_height.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Force_set_height, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Animated influence length
      * @return the length field of this M3Force.
      */
     public AnimRefF32 getLength() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_m3_M3Force_get_length.invoke(handle);
-            return new AnimRefF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Force_get_length, handle);
+        return new AnimRefF32(__h, false);
     }
     public void setLength(AnimRefF32 value) {
-        try { Native.whiteout_m3_M3Force_set_length.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Force_set_length, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "Force(" + "forceType=" + getForceType() + ", " + "forceShape=" + getForceShape() + ", " + "unknown=" + getUnknown() + ", " + "boneIndex=" + getBoneIndex() + ", " + "flags=" + getFlags() + ", " + "localChannels=" + getLocalChannels() + ")";

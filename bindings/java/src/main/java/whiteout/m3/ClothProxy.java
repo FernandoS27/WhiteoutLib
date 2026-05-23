@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class ClothProxy implements AutoCloseable {
     }
 
     public ClothProxy() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_m3_M3ClothProxy_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("ClothProxy allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothProxy_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("ClothProxy allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_m3_M3ClothProxy_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3ClothProxy_delete, handle);
         }
     }
 
@@ -86,58 +83,50 @@ public final class ClothProxy implements AutoCloseable {
      * @return the proxyVertices field of this M3ClothProxy.
      */
     public int getProxyVerticesCount() {
-        try { return (int) (long) Native.whiteout_m3_M3ClothProxy_get_proxyVertices_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothProxy_get_proxyVertices_count, handle);
     }
     public long[] getProxyVertices() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3ClothProxy_get_proxyVertices_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3ClothProxy_get_proxyVertices_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new long[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 8L).toArray(ValueLayout.JAVA_LONG);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothProxy_get_proxyVertices_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothProxy_get_proxyVertices_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new long[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 8L).toArray(ValueLayout.JAVA_LONG);
     }
     public void setProxyVertices(long[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 8L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_LONG, 0, values.length);
-            Native.whiteout_m3_M3ClothProxy_assign_proxyVertices.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3ClothProxy_assign_proxyVertices, handle, __seg, __count);
+        }
     }
     public void resizeProxyVertices(int count) {
-        try { Native.whiteout_m3_M3ClothProxy_resize_proxyVertices.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ClothProxy_resize_proxyVertices, handle, (long) count);
     }
     /**
      * Proxy blend weights (U32_)
      * @return the proxyWeights field of this M3ClothProxy.
      */
     public int getProxyWeightsCount() {
-        try { return (int) (long) Native.whiteout_m3_M3ClothProxy_get_proxyWeights_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothProxy_get_proxyWeights_count, handle);
     }
     public int[] getProxyWeights() {
-        try {
-            long __count = (long) Native.whiteout_m3_M3ClothProxy_get_proxyWeights_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_m3_M3ClothProxy_get_proxyWeights_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothProxy_get_proxyWeights_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3ClothProxy_get_proxyWeights_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
     }
     public void setProxyWeights(int[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
-            Native.whiteout_m3_M3ClothProxy_assign_proxyWeights.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_m3_M3ClothProxy_assign_proxyWeights, handle, __seg, __count);
+        }
     }
     public void resizeProxyWeights(int count) {
-        try { Native.whiteout_m3_M3ClothProxy_resize_proxyWeights.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_m3_M3ClothProxy_resize_proxyWeights, handle, (long) count);
     }
     @Override public String toString() {
         return "ClothProxy(" + "proxyIndex=" + getProxyIndex() + ", " + "clothIndex=" + getClothIndex() + ")";

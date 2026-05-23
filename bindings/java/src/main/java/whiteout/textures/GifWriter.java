@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.textures.internal.Native;
 
 /**
@@ -42,35 +43,29 @@ public final class GifWriter implements AutoCloseable {
     }
 
     public GifWriter() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_GifWriter_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("GifWriter allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_GifWriter_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("GifWriter allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
-    public static GifWriter createWriteModePool(GifWriteMode writeMode, whiteout.interfaces.WorkerPool pool) {
-        try {
-            long __pool_h = pool == null ? 0L
-                : whiteout.host.WorkerPools.resolveNative(pool, pool);
-            MemorySegment __pool_seg = __pool_h == 0L
-                ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
-            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_GifWriter_new_writeMode_pool.invoke(writeMode.value, __pool_seg);
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("GifWriter allocation failed");
-            return new GifWriter(__raw, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    public static GifWriter createPool(whiteout.interfaces.WorkerPool pool) {
+        long __pool_h = pool == null ? 0L
+            : whiteout.host.WorkerPools.resolveNative(pool, pool);
+        MemorySegment __pool_seg = __pool_h == 0L
+            ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_GifWriter_new_pool, __pool_seg);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("GifWriter allocation failed");
+        return new GifWriter(__raw, true);
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_textures_GifWriter_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_textures_GifWriter_delete, handle);
         }
     }
 
@@ -94,8 +89,8 @@ public final class GifWriter implements AutoCloseable {
                         frames[__i] == null ? MemorySegment.NULL : frames[__i].handle);
                 }
             }
-            Native.whiteout_textures_GifWriter_write.invoke(handle, filePath_seg, frames_seg, (long) (frames == null ? 0 : frames.length));
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_textures_GifWriter_write, handle, filePath_seg, frames_seg, (long) (frames == null ? 0 : frames.length));
+        }
     }
 
     /**
@@ -115,14 +110,14 @@ public final class GifWriter implements AutoCloseable {
                         frames[__i] == null ? MemorySegment.NULL : frames[__i].handle);
                 }
             }
-            MemorySegment __struct = (MemorySegment) Native.whiteout_textures_GifWriter_write_frames.invoke(arena, handle, frames_seg, (long) (frames == null ? 0 : frames.length));
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_GifWriter_write_frames, arena, handle, frames_seg, (long) (frames == null ? 0 : frames.length));
             MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
             long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
             byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_Bytes_free.invoke(__struct);
+            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
             return __out;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -146,8 +141,8 @@ public final class GifWriter implements AutoCloseable {
                         frames[__i] == null ? MemorySegment.NULL : frames[__i].handle);
                 }
             }
-            Native.whiteout_textures_GifWriter_write_filePath_frames_opts.invoke(handle, filePath_seg, frames_seg, (long) (frames == null ? 0 : frames.length), opts == null ? MemorySegment.NULL : opts.handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_textures_GifWriter_write_filePath_frames_opts, handle, filePath_seg, frames_seg, (long) (frames == null ? 0 : frames.length), opts == null ? MemorySegment.NULL : opts.handle);
+        }
     }
 
     /**
@@ -168,23 +163,21 @@ public final class GifWriter implements AutoCloseable {
                         frames[__i] == null ? MemorySegment.NULL : frames[__i].handle);
                 }
             }
-            MemorySegment __struct = (MemorySegment) Native.whiteout_textures_GifWriter_write_frames_opts.invoke(arena, handle, frames_seg, (long) (frames == null ? 0 : frames.length), opts == null ? MemorySegment.NULL : opts.handle);
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_GifWriter_write_frames_opts, arena, handle, frames_seg, (long) (frames == null ? 0 : frames.length), opts == null ? MemorySegment.NULL : opts.handle);
             MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
             long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
             byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_Bytes_free.invoke(__struct);
+            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
             return __out;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
      * @return true if the last write produced any issues.
      */
     public boolean hasIssues() {
-        try {
-        return ((int) Native.whiteout_textures_GifWriter_hasIssues.invoke(handle)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_textures_GifWriter_hasIssues, handle)) != 0;
     }
 
     @Override public String toString() {

@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.mpq.internal.Native;
 
 /**
@@ -47,9 +48,7 @@ public final class Storage implements AutoCloseable {
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_mpq_MpqStorage_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mpq_MpqStorage_delete, handle);
         }
     }
 
@@ -69,13 +68,13 @@ public final class Storage implements AutoCloseable {
             MemorySegment __pool_seg = __pool_h == 0L
                 ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
             try {
-                MemorySegment __h = (MemorySegment) Native.whiteout_mpq_MpqStorage_open.invoke(path_seg, __pool_seg);
+                MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mpq_MpqStorage_open, path_seg, __pool_seg);
                 if (__h == null || __h.equals(MemorySegment.NULL)) return java.util.Optional.empty();
                 return java.util.Optional.of(new Storage(__h, true));
             } finally {
                 java.lang.ref.Reference.reachabilityFence(pool);
             }
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -86,18 +85,16 @@ public final class Storage implements AutoCloseable {
      * @return a fresh Storage owning a native allocation.
      */
     public static Storage create(CreateOptions opts, whiteout.interfaces.WorkerPool pool) {
-        try {
         long __pool_h = pool == null ? 0L
-            : whiteout.host.WorkerPools.resolveNative(pool, pool);
+        : whiteout.host.WorkerPools.resolveNative(pool, pool);
         MemorySegment __pool_seg = __pool_h == 0L
-            ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
+        ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
         try {
-            MemorySegment __h = (MemorySegment) Native.whiteout_mpq_MpqStorage_create.invoke(opts == null ? MemorySegment.NULL : opts.handle, __pool_seg);
-            return new Storage(__h, true);
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mpq_MpqStorage_create, opts == null ? MemorySegment.NULL : opts.handle, __pool_seg);
+        return new Storage(__h, true);
         } finally {
-            java.lang.ref.Reference.reachabilityFence(pool);
+        java.lang.ref.Reference.reachabilityFence(pool);
         }
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
     /**
@@ -110,14 +107,14 @@ public final class Storage implements AutoCloseable {
             MemorySegment name_seg = name == null
                 ? MemorySegment.NULL
                 : arena.allocateFrom(name, StandardCharsets.UTF_8);
-            MemorySegment __struct = (MemorySegment) Native.whiteout_mpq_MpqStorage_readFile.invoke(arena, handle, name_seg);
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mpq_MpqStorage_readFile, arena, handle, name_seg);
             MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
             long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
             byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_Bytes_free.invoke(__struct);
+            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
             return __out;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -132,14 +129,14 @@ public final class Storage implements AutoCloseable {
             MemorySegment name_seg = name == null
                 ? MemorySegment.NULL
                 : arena.allocateFrom(name, StandardCharsets.UTF_8);
-            MemorySegment __struct = (MemorySegment) Native.whiteout_mpq_MpqStorage_readFile_name_locale.invoke(arena, handle, name_seg, locale);
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mpq_MpqStorage_readFile_name_locale, arena, handle, name_seg, locale);
             MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
             long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
             byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_Bytes_free.invoke(__struct);
+            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
             return __out;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -153,8 +150,8 @@ public final class Storage implements AutoCloseable {
             MemorySegment name_seg = name == null
                 ? MemorySegment.NULL
                 : arena.allocateFrom(name, StandardCharsets.UTF_8);
-            return ((int) Native.whiteout_mpq_MpqStorage_fileExists.invoke(handle, name_seg)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            return ((int) NativeCommon.invokeNative(Native.whiteout_mpq_MpqStorage_fileExists, handle, name_seg)) != 0;
+        }
     }
 
     /**
@@ -168,10 +165,10 @@ public final class Storage implements AutoCloseable {
             MemorySegment name_seg = name == null
                 ? MemorySegment.NULL
                 : arena.allocateFrom(name, StandardCharsets.UTF_8);
-            MemorySegment __h = (MemorySegment) Native.whiteout_mpq_MpqStorage_fileInfo.invoke(handle, name_seg);
+            MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mpq_MpqStorage_fileInfo, handle, name_seg);
             if (__h == null || __h.equals(MemorySegment.NULL)) return java.util.Optional.empty();
             return java.util.Optional.of(new FileInfo(__h, true));
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
@@ -179,10 +176,8 @@ public final class Storage implements AutoCloseable {
      * @return a fresh ArchiveInfo owning a native allocation.
      */
     public ArchiveInfo archiveInfo() {
-        try {
-        MemorySegment __h = (MemorySegment) Native.whiteout_mpq_MpqStorage_archiveInfo.invoke(handle);
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mpq_MpqStorage_archiveInfo, handle);
         return new ArchiveInfo(__h, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
     /**
@@ -199,8 +194,8 @@ public final class Storage implements AutoCloseable {
                 : arena.allocateFrom(name, StandardCharsets.UTF_8);
             MemorySegment data_seg = arena.allocate(data.length * 1L);
             MemorySegment.copy(data, 0, data_seg, ValueLayout.JAVA_BYTE, 0, data.length);
-            return ((int) Native.whiteout_mpq_MpqStorage_writeFile.invoke(handle, name_seg, data_seg, (long) data.length, opts == null ? MemorySegment.NULL : opts.handle)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            return ((int) NativeCommon.invokeNative(Native.whiteout_mpq_MpqStorage_writeFile, handle, name_seg, data_seg, (long) data.length, opts == null ? MemorySegment.NULL : opts.handle)) != 0;
+        }
     }
 
     /**
@@ -213,17 +208,15 @@ public final class Storage implements AutoCloseable {
             MemorySegment name_seg = name == null
                 ? MemorySegment.NULL
                 : arena.allocateFrom(name, StandardCharsets.UTF_8);
-            return ((int) Native.whiteout_mpq_MpqStorage_deleteFile.invoke(handle, name_seg)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            return ((int) NativeCommon.invokeNative(Native.whiteout_mpq_MpqStorage_deleteFile, handle, name_seg)) != 0;
+        }
     }
 
     /**
      * Save the archive to its original path (temp file + atomic rename). @return false if this Storage was created via create() with no prior save(path).
      */
     public boolean save() {
-        try {
-        return ((int) Native.whiteout_mpq_MpqStorage_save.invoke(handle)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_mpq_MpqStorage_save, handle)) != 0;
     }
 
     /**
@@ -237,8 +230,8 @@ public final class Storage implements AutoCloseable {
             MemorySegment path_seg = path == null
                 ? MemorySegment.NULL
                 : arena.allocateFrom(path, StandardCharsets.UTF_8);
-            return ((int) Native.whiteout_mpq_MpqStorage_save_path.invoke(handle, path_seg)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            return ((int) NativeCommon.invokeNative(Native.whiteout_mpq_MpqStorage_save_path, handle, path_seg)) != 0;
+        }
     }
 
     @Override public String toString() {

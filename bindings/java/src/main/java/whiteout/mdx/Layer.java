@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.mdx.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class Layer implements AutoCloseable {
     }
 
     public Layer() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_mdx_MdxLayer_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Layer allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLayer_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Layer allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_mdx_MdxLayer_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxLayer_delete, handle);
         }
     }
 
@@ -122,7 +119,7 @@ public final class Layer implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 20L, value);
     }
     /**
-     * Emissive light intensity
+     * Emissive light intensity (default 1.0)
      * @return the emissiveGain field of this MdxLayer.
      */
     public float getEmissiveGain() {
@@ -140,8 +137,7 @@ public final class Layer implements AutoCloseable {
     }
     public void setFresnelColor(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_mdx_MdxLayer_set_fresnelColor.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxLayer_set_fresnelColor, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 28L, 12L);
@@ -191,17 +187,14 @@ public final class Layer implements AutoCloseable {
      * @return the subTextures field of this MdxLayer.
      */
     public int getSubTexturesCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxLayer_get_subTextures_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLayer_get_subTextures_count, handle);
     }
     public LayerSubTexture getSubTexturesAt(int index) {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxLayer_get_subTextures_at.invoke(handle, (long) index);
-            return new LayerSubTexture(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLayer_get_subTextures_at, handle, (long) index);
+        return new LayerSubTexture(__h, false);
     }
     public void resizeSubTextures(int count) {
-        try { Native.whiteout_mdx_MdxLayer_resize_subTextures.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxLayer_resize_subTextures, handle, (long) count);
     }
     public java.util.List<LayerSubTexture> subTexturesView() {
         return new java.util.AbstractList<LayerSubTexture>() {
@@ -214,78 +207,66 @@ public final class Layer implements AutoCloseable {
      * @return the textureIdTracks field of this MdxLayer.
      */
     public TrackU32 getTextureIdTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxLayer_get_textureIdTracks.invoke(handle);
-            return new TrackU32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLayer_get_textureIdTracks, handle);
+        return new TrackU32(__h, false);
     }
     public void setTextureIdTracks(TrackU32 value) {
-        try { Native.whiteout_mdx_MdxLayer_set_textureIdTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxLayer_set_textureIdTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Alpha animation
      * @return the alphaTracks field of this MdxLayer.
      */
     public TrackF32 getAlphaTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxLayer_get_alphaTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLayer_get_alphaTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setAlphaTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxLayer_set_alphaTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxLayer_set_alphaTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Emissive gain animation
      * @return the emissiveGainTracks field of this MdxLayer.
      */
     public TrackF32 getEmissiveGainTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxLayer_get_emissiveGainTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLayer_get_emissiveGainTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setEmissiveGainTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxLayer_set_emissiveGainTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxLayer_set_emissiveGainTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Fresnel color animation
      * @return the fresnelColorTracks field of this MdxLayer.
      */
     public TrackVector3f getFresnelColorTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxLayer_get_fresnelColorTracks.invoke(handle);
-            return new TrackVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLayer_get_fresnelColorTracks, handle);
+        return new TrackVector3f(__h, false);
     }
     public void setFresnelColorTracks(TrackVector3f value) {
-        try { Native.whiteout_mdx_MdxLayer_set_fresnelColorTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxLayer_set_fresnelColorTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Fresnel alpha animation
      * @return the fresnelAlphaTracks field of this MdxLayer.
      */
     public TrackF32 getFresnelAlphaTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxLayer_get_fresnelAlphaTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLayer_get_fresnelAlphaTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setFresnelAlphaTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxLayer_set_fresnelAlphaTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxLayer_set_fresnelAlphaTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Fresnel team color animation
      * @return the fresnelTeamColorTracks field of this MdxLayer.
      */
     public TrackF32 getFresnelTeamColorTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxLayer_get_fresnelTeamColorTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxLayer_get_fresnelTeamColorTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setFresnelTeamColorTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxLayer_set_fresnelTeamColorTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxLayer_set_fresnelTeamColorTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "Layer(" + "filterMode=" + getFilterMode() + ", " + "shadingFlags=" + getShadingFlags() + ", " + "textureId=" + getTextureId() + ", " + "textureAnimationId=" + getTextureAnimationId() + ", " + "coordId=" + getCoordId() + ", " + "alpha=" + getAlpha() + ", " + "emissiveGain=" + getEmissiveGain() + ", " + "fresnelOpacity=" + getFresnelOpacity() + ", " + "fresnelTeamColor=" + getFresnelTeamColor() + ", " + "shader=" + getShader() + ", " + "isHd=" + getIsHd() + ")";

@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.mdx.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class Camera implements AutoCloseable {
     }
 
     public Camera() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_mdx_MdxCamera_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("Camera allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCamera_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("Camera allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_mdx_MdxCamera_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxCamera_delete, handle);
         }
     }
 
@@ -67,14 +64,14 @@ public final class Camera implements AutoCloseable {
      */
     public String getName() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __s = (MemorySegment) Native.whiteout_mdx_MdxCamera_get_name.invoke(arena, handle);
+            MemorySegment __s = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCamera_get_name, arena, handle);
             MemorySegment __chars = __s.get(ValueLayout.ADDRESS, 0);
             long __len = __s.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__chars == null || __chars.equals(MemorySegment.NULL)) return "";
             byte[] __bytes = __chars.reinterpret(__len).toArray(ValueLayout.JAVA_BYTE);
-            Native.whiteout_CString_free.invoke(__s);
+            NativeCommon.invokeNative(Native.whiteout_CString_free, __s);
             return new String(__bytes, StandardCharsets.UTF_8);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
     public void setName(String value) {
         try (Arena arena = Arena.ofConfined()) {
@@ -82,8 +79,8 @@ public final class Camera implements AutoCloseable {
             MemorySegment __seg = arena.allocate(__utf.length + 1);
             MemorySegment.copy(__utf, 0, __seg, ValueLayout.JAVA_BYTE, 0, __utf.length);
             __seg.set(ValueLayout.JAVA_BYTE, __utf.length, (byte) 0);
-            Native.whiteout_mdx_MdxCamera_set_name.invoke(handle, __seg);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxCamera_set_name, handle, __seg);
+        }
     }
     /**
      * Camera position
@@ -94,8 +91,7 @@ public final class Camera implements AutoCloseable {
     }
     public void setPosition(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_mdx_MdxCamera_set_position.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxCamera_set_position, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 32L, 12L);
@@ -139,8 +135,7 @@ public final class Camera implements AutoCloseable {
     }
     public void setTargetPosition(Vector3f value) {
         if (value == null) {
-            try { Native.whiteout_mdx_MdxCamera_set_targetPosition.invoke(handle, MemorySegment.NULL); }
-            catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxCamera_set_targetPosition, handle, MemorySegment.NULL);
             return;
         }
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 56L, 12L);
@@ -150,39 +145,33 @@ public final class Camera implements AutoCloseable {
      * @return the positionTracks field of this MdxCamera.
      */
     public TrackVector3f getPositionTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxCamera_get_positionTracks.invoke(handle);
-            return new TrackVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCamera_get_positionTracks, handle);
+        return new TrackVector3f(__h, false);
     }
     public void setPositionTracks(TrackVector3f value) {
-        try { Native.whiteout_mdx_MdxCamera_set_positionTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxCamera_set_positionTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Target rotation animation
      * @return the targetRotationTracks field of this MdxCamera.
      */
     public TrackF32 getTargetRotationTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxCamera_get_targetRotationTracks.invoke(handle);
-            return new TrackF32(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCamera_get_targetRotationTracks, handle);
+        return new TrackF32(__h, false);
     }
     public void setTargetRotationTracks(TrackF32 value) {
-        try { Native.whiteout_mdx_MdxCamera_set_targetRotationTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxCamera_set_targetRotationTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Target position animation
      * @return the targetPositionTracks field of this MdxCamera.
      */
     public TrackVector3f getTargetPositionTracks() {
-        try { MemorySegment __h = (MemorySegment) Native.whiteout_mdx_MdxCamera_get_targetPositionTracks.invoke(handle);
-            return new TrackVector3f(__h, false); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxCamera_get_targetPositionTracks, handle);
+        return new TrackVector3f(__h, false);
     }
     public void setTargetPositionTracks(TrackVector3f value) {
-        try { Native.whiteout_mdx_MdxCamera_set_targetPositionTracks.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxCamera_set_targetPositionTracks, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
         return "Camera(" + "name=" + getName() + ", " + "fieldOfView=" + getFieldOfView() + ", " + "farClippingPlane=" + getFarClippingPlane() + ", " + "nearClippingPlane=" + getNearClippingPlane() + ")";

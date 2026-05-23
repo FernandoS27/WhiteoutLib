@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.textures.internal.Native;
 
 /**
@@ -42,31 +43,18 @@ public final class PngParser implements AutoCloseable {
     }
 
     public PngParser() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_PngParser_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("PngParser allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
-    }
-
-    public static PngParser createParseMode(PngParseMode parseMode) {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_textures_PngParser_new_parseMode.invoke(parseMode.value);
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("PngParser allocation failed");
-            return new PngParser(__raw, true);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_PngParser_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("PngParser allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_textures_PngParser_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_textures_PngParser_delete, handle);
         }
     }
 
@@ -80,46 +68,38 @@ public final class PngParser implements AutoCloseable {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment buffer_seg = arena.allocate(buffer.length * 1L);
             MemorySegment.copy(buffer, 0, buffer_seg, ValueLayout.JAVA_BYTE, 0, buffer.length);
-            MemorySegment __h = (MemorySegment) Native.whiteout_textures_PngParser_parse.invoke(handle, buffer_seg, (long) buffer.length);
+            MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_PngParser_parse, handle, buffer_seg, (long) buffer.length);
             if (__h == null || __h.equals(MemorySegment.NULL)) return java.util.Optional.empty();
             return java.util.Optional.of(new Texture(__h, true));
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        }
     }
 
     /**
      * @return true if the last parse produced any issues.
      */
     public boolean hasIssues() {
-        try {
-        return ((int) Native.whiteout_textures_PngParser_hasIssues.invoke(handle)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_textures_PngParser_hasIssues, handle)) != 0;
     }
 
     /**
      * @return true if the last parsed PNG carried APNG animation chunks.
      */
     public boolean isAnimated() {
-        try {
-        return ((int) Native.whiteout_textures_PngParser_isAnimated.invoke(handle)) != 0;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return ((int) NativeCommon.invokeNative(Native.whiteout_textures_PngParser_isAnimated, handle)) != 0;
     }
 
     /**
      * @return number of animation frames (0 when not animated).
      */
     public int frameCount() {
-        try {
-        return (int) Native.whiteout_textures_PngParser_frameCount.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) NativeCommon.invokeNative(Native.whiteout_textures_PngParser_frameCount, handle);
     }
 
     /**
      * @return APNG loop count from the `acTL` chunk; 0 means loop forever.
      */
     public int loopCount() {
-        try {
-        return (int) Native.whiteout_textures_PngParser_loopCount.invoke(handle);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) NativeCommon.invokeNative(Native.whiteout_textures_PngParser_loopCount, handle);
     }
 
     /**
@@ -128,10 +108,8 @@ public final class PngParser implements AutoCloseable {
      * @param index int input.
      */
     public Texture frame(int index) {
-        try {
-        MemorySegment __h = (MemorySegment) Native.whiteout_textures_PngParser_frame.invoke(handle, index);
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_PngParser_frame, handle, index);
         return new Texture(__h, false);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
     /**
@@ -140,9 +118,7 @@ public final class PngParser implements AutoCloseable {
      * @param index int input.
      */
     public int frameDelayMs(int index) {
-        try {
-        return (int) Native.whiteout_textures_PngParser_frameDelayMs.invoke(handle, index);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) NativeCommon.invokeNative(Native.whiteout_textures_PngParser_frameDelayMs, handle, index);
     }
 
     /**
@@ -151,10 +127,8 @@ public final class PngParser implements AutoCloseable {
      * @param index int input.
      */
     public PngApngFrameInfo frameInfo(int index) {
-        try {
-        MemorySegment __h = (MemorySegment) Native.whiteout_textures_PngParser_frameInfo.invoke(handle, index);
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_PngParser_frameInfo, handle, index);
         return new PngApngFrameInfo(__h, false);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 
     @Override public String toString() {

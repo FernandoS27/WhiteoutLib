@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import whiteout.common.*;
 import whiteout.common.internal.Handles;
+import whiteout.common.internal.NativeCommon;
 import whiteout.mdx.internal.Native;
 
 /**
@@ -42,22 +43,18 @@ public final class EventObject implements AutoCloseable {
     }
 
     public EventObject() {
-        try {
-            MemorySegment __raw = (MemorySegment) Native.whiteout_mdx_MdxEventObject_new.invoke();
-            if (__raw == null || __raw.equals(MemorySegment.NULL))
-                throw new RuntimeException("EventObject allocation failed");
-            this.handle = __raw.reinterpret(BYTES);
-            this.owned = true;
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxEventObject_new);
+        if (__raw == null || __raw.equals(MemorySegment.NULL))
+            throw new RuntimeException("EventObject allocation failed");
+        this.handle = __raw.reinterpret(BYTES);
+        this.owned = true;
     }
 
     @Override
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            try {
-                Native.whiteout_mdx_MdxEventObject_delete.invoke(handle);
-            } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxEventObject_delete, handle);
         }
     }
 
@@ -69,8 +66,7 @@ public final class EventObject implements AutoCloseable {
         return new Node(handle.asSlice(0L, 272L), false);
     }
     public void setNode(Node value) {
-        try { Native.whiteout_mdx_MdxEventObject_set_node.invoke(handle, value == null ? MemorySegment.NULL : value.handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxEventObject_set_node, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /**
      * Global sequence if looping
@@ -87,29 +83,25 @@ public final class EventObject implements AutoCloseable {
      * @return the eventTrackTimes field of this MdxEventObject.
      */
     public int getEventTrackTimesCount() {
-        try { return (int) (long) Native.whiteout_mdx_MdxEventObject_get_eventTrackTimes_count.invoke(handle); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxEventObject_get_eventTrackTimes_count, handle);
     }
     public int[] getEventTrackTimes() {
-        try {
-            long __count = (long) Native.whiteout_mdx_MdxEventObject_get_eventTrackTimes_count.invoke(handle);
-            MemorySegment __ptr = (MemorySegment) Native.whiteout_mdx_MdxEventObject_get_eventTrackTimes_data.invoke(handle);
-            if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
-            long __scalars = __count * 1L;
-            return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxEventObject_get_eventTrackTimes_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mdx_MdxEventObject_get_eventTrackTimes_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
     }
     public void setEventTrackTimes(int[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
             MemorySegment __seg = arena.allocate((long) values.length * 4L);
             if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
-            Native.whiteout_mdx_MdxEventObject_assign_eventTrackTimes.invoke(handle, __seg, __count);
-        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+            NativeCommon.invokeNative(Native.whiteout_mdx_MdxEventObject_assign_eventTrackTimes, handle, __seg, __count);
+        }
     }
     public void resizeEventTrackTimes(int count) {
-        try { Native.whiteout_mdx_MdxEventObject_resize_eventTrackTimes.invoke(handle, (long) count); }
-        catch (Throwable __ex) { throw new RuntimeException(__ex); }
+        NativeCommon.invokeNative(Native.whiteout_mdx_MdxEventObject_resize_eventTrackTimes, handle, (long) count);
     }
     @Override public String toString() {
         return "EventObject(" + "globalSequenceId=" + getGlobalSequenceId() + ")";

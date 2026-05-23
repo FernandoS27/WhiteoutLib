@@ -255,11 +255,6 @@ void bind_m2(py::module_& m) {
         .value("DYNAMIC_WIND", whiteout::m2::ParticleFlag::DynamicWind)
     ;
 
-    py::enum_<whiteout::m2::Parser::ParseMode>(m, "ParseMode")
-        .value("STRICT", whiteout::m2::Parser::ParseMode::Strict)
-        .value("LENIENT", whiteout::m2::Parser::ParseMode::Lenient)
-    ;
-
     py::class_<whiteout::m2::Extent>(m, "Extent")
         .def(py::init<>())
         .def_readwrite("minimum", &whiteout::m2::Extent::minimum)
@@ -809,7 +804,6 @@ void bind_m2(py::module_& m) {
 
     py::class_<whiteout::m2::Parser>(m, "Parser")
         .def(py::init<>())
-        .def(py::init<whiteout::m2::Parser::ParseMode>(), py::arg("mode"))
         .def("parse", py::overload_cast<whiteout::interfaces::VirtualPathFileSystem&, const std::string&>(&whiteout::m2::Parser::parse), py::arg("fs"), py::arg("filePath"))
         .def("parse",
             [](whiteout::m2::Parser& self, whiteout::interfaces::CascFileSystem& cascFs, py::bytes __py_bytes_1) {
