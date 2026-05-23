@@ -134,9 +134,7 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
     return texture;
 }
 
-Parser::Parser(ParseMode parseMode) : pImpl(std::make_unique<Impl>()) {
-    pImpl->strict_mode = (parseMode == ParseMode::Strict);
-}
+Parser::Parser() : pImpl(std::make_unique<Impl>()) {}
 
 Parser::~Parser() = default;
 

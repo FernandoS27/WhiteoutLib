@@ -12,7 +12,7 @@
  *
  * @example Basic writing
  * @code
- * blp::Writer writer(blp::Writer::WriteMode::Lenient);
+ * blp::Writer writer;
  * auto bytes = writer.write(texture, opts);
  *
  * if (writer.hasIssues()) {
@@ -54,21 +54,10 @@ namespace whiteout::textures::blp {
 class Writer : public textures::Writer {
 public:
     /**
-     * @brief Writing strictness mode
-     */
-    /// @bind js_name=BlpWriteMode
-    enum class WriteMode {
-        Strict, ///< Throw exceptions on encoding errors
-        Lenient ///< Log issues and return empty result on errors (recommended)
-    };
-
-    /**
      * @brief Construct a new Writer
-     * @param writeMode Strictness mode for writing
      * @param pool Optional WorkerPool for parallel quantization (nullptr = serial)
      */
-    explicit Writer(WriteMode writeMode = WriteMode::Lenient,
-                    interfaces::WorkerPool* pool = nullptr);
+    explicit Writer(interfaces::WorkerPool* pool = nullptr);
 
     /// @brief Destructor (defined in .cpp for incomplete type)
     ~Writer();
@@ -85,7 +74,6 @@ public:
      * @param filePath Path where the BLP file should be written
      * @param texture Texture data to encode
      * @param opts Encoding options (version, encoding, alpha, quality)
-     * @throws std::runtime_error If file cannot be created, or encoding fails in strict mode
      */
     void write(const std::string& filePath, const Texture& texture, const SaveOptions& opts);
 
@@ -93,8 +81,7 @@ public:
      * @brief Write a BLP file to a byte buffer
      * @param texture Texture data to encode
      * @param opts Encoding options (version, encoding, alpha, quality)
-     * @return Vector containing the binary BLP data, or empty on failure (in Lenient mode)
-     * @throws std::runtime_error If encoding fails in strict mode
+     * @return Vector containing the binary BLP data, or empty on failure
      */
     std::vector<u8> write(const Texture& texture, const SaveOptions& opts);
 

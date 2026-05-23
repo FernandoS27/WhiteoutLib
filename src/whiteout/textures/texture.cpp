@@ -9,7 +9,6 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
-#include <stdexcept>
 
 #include "bcn.h"
 #include "mipmap/generator.h"
@@ -805,7 +804,7 @@ Texture Texture::copyAsFormat(PixelFormat new_fmt, interfaces::WorkerPool* pool)
         std::string err;
         auto decoded = bcn::decode(*this, &err, pool);
         if (!decoded)
-            throw std::runtime_error("Texture::copyAsFormat: decode failed: " + err);
+            return Texture{}; // empty texture on codec failure (was: throw)
         return decoded->copyAsFormat(new_fmt, pool);
     }
 
@@ -839,7 +838,7 @@ Texture Texture::copyAsFormat(PixelFormat new_fmt, interfaces::WorkerPool* pool)
     std::string err;
     auto encoded = bcn::encode(*src_ptr, new_fmt, &err, pool);
     if (!encoded)
-        throw std::runtime_error("Texture::copyAsFormat: encode failed: " + err);
+        return Texture{}; // empty texture on codec failure (was: throw)
     return std::move(*encoded);
 }
 

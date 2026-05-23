@@ -163,14 +163,14 @@ public:
 
     T& value() {
         if (!has_value_) {
-            throw bad_optional_access();
+            std::terminate();
         }
         return *ptr();
     }
 
     const T& value() const {
         if (!has_value_) {
-            throw bad_optional_access();
+            std::terminate();
         }
         return *ptr();
     }

@@ -12,7 +12,7 @@
  *
  * @example Basic parsing
  * @code
- * wem::Parser parser(wem::Parser::ParseMode::Lenient);
+ * wem::Parser parser;
  * auto model = parser.parse("model.wem");
  *
  * if (model && parser.hasIssues()) {
@@ -48,19 +48,8 @@ namespace wem {
  */
 class Parser {
 public:
-    /**
-     * @brief Parsing strictness mode
-     */
-    enum class ParseMode {
-        Strict, ///< Throw exceptions on unknown chunks or invalid data
-        Lenient ///< Skip unknown chunks and try to recover from errors
-    };
-
-    /**
-     * @brief Construct a new Parser
-     * @param parseMode Strictness mode for parsing
-     */
-    explicit Parser(ParseMode parseMode = ParseMode::Lenient);
+    /// @brief Construct a new Parser.
+    Parser();
 
     /// @brief Destructor (defined in .cpp for incomplete type)
     ~Parser();

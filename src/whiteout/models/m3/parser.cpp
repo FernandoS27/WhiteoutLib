@@ -21,7 +21,6 @@ using common::BinaryReader;
 
 class Parser::Impl {
 public:
-    ParseMode parseMode;
     std::vector<std::string> issues;
 
     Model parseFromReader(BinaryReader& reader);
@@ -31,27 +30,17 @@ public:
 Model Parser::Impl::parseFromReader(BinaryReader& reader) {
     issues.clear();
     Model model;
-    try {
-        BinaryParseVisitor visitor(reader);
-        visitor.read(model);
+    BinaryParseVisitor visitor(reader);
+    visitor.read(model);
 
-        // Collect any issues from the visitor
-        for (const auto& issue : visitor.getIssues()) {
-            reportIssue(issue);
-        }
-    } catch (const std::exception& e) {
-        if (parseMode == ParseMode::Strict) {
-            throw;
-        }
-        reportIssue(std::string("Parse error: ") + e.what());
+    // Collect any issues from the visitor.
+    for (const auto& issue : visitor.getIssues()) {
+        reportIssue(issue);
     }
     return model;
 }
 
 void Parser::Impl::reportIssue(const std::string& message) {
-    if (parseMode == ParseMode::Strict) {
-        throw std::runtime_error(message);
-    }
     issues.push_back(message);
 }
 
@@ -59,16 +48,15 @@ void Parser::Impl::reportIssue(const std::string& message) {
 // Parser Public Interface (using PImpl)
 // ============================================================================
 
-Parser::Parser(ParseMode mode) : pImpl(std::make_unique<Impl>()) {
-    pImpl->parseMode = mode;
-}
+Parser::Parser() : pImpl(std::make_unique<Impl>()) {}
 
 Parser::~Parser() = default;
 
 Model Parser::parse(const std::string& filePath) {
     auto file = common::open_ifstream(filePath, std::ios::binary);
     if (!file.is_open()) {
-        throw std::runtime_error("Failed to open M3 file: " + filePath);
+        pImpl->issues.push_back("Failed to open M3 file: " + filePath);
+        return {};
     }
     BinaryReader reader(file);
     return pImpl->parseFromReader(reader);

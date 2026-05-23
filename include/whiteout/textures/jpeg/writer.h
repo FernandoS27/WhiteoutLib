@@ -12,11 +12,9 @@
  * Outputs baseline sequential DCT (SOF0) images by default, with an
  * optional progressive (SOF2) mode.
  *
- * The writer supports two modes:
- * - **Strict** – any issue throws `std::runtime_error`.
- * - **Lenient** (default) – issues are collected and can be queried via
- *   `hasIssues()` / `getIssues()`.  On failure the write methods return
- *   an empty vector (or do nothing for the file overload).
+ * Writing is non-throwing. Issues are collected and can be queried via
+ * `hasIssues()` / `getIssues()`; on failure the write methods return an
+ * empty vector (or do nothing for the file overload).
  */
 
 #include <memory>
@@ -41,14 +39,8 @@ namespace whiteout::textures::jpeg {
 /// @bind methods=buffer_only, js_name=JpegWriter
 class Writer : public textures::Writer {
 public:
-    /// @bind js_name=JpegWriteMode
-    enum class WriteMode {
-        Strict, ///< Throw on any issue.
-        Lenient ///< Collect issues, return empty data on failure.
-    };
-
-    explicit Writer(i32 quality = 75, WriteMode writeMode = WriteMode::Lenient,
-                    interfaces::WorkerPool* pool = nullptr, bool progressive = false);
+    explicit Writer(i32 quality = 75, interfaces::WorkerPool* pool = nullptr,
+                    bool progressive = false);
     ~Writer();
 
     Writer(const Writer&) = delete;

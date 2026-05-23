@@ -206,20 +206,15 @@ std::vector<u8> extractFileData(std::span<const u8> archiveData, size_t archiveO
             interfaces::WorkerTask task;
             task.fn = [i, &sectorOffsets, &expectedSectorSize, &decodeSector, &sectorResults,
                        &sectorErrors, &failed, &jobGroup]() {
-                try {
-                    if (!failed.load(std::memory_order_acquire)) {
-                        auto [data, err] = decodeSector(i, sectorOffsets[i], sectorOffsets[i + 1],
-                                                        expectedSectorSize(i));
-                        if (!err.empty()) {
-                            failed.store(true, std::memory_order_relaxed);
-                            sectorErrors[i] = std::move(err);
-                        } else {
-                            sectorResults[i] = std::move(data);
-                        }
+                if (!failed.load(std::memory_order_acquire)) {
+                    auto [data, err] = decodeSector(i, sectorOffsets[i], sectorOffsets[i + 1],
+                                                    expectedSectorSize(i));
+                    if (!err.empty()) {
+                        failed.store(true, std::memory_order_relaxed);
+                        sectorErrors[i] = std::move(err);
+                    } else {
+                        sectorResults[i] = std::move(data);
                     }
-                } catch (...) {
-                    failed.store(true, std::memory_order_relaxed);
-                    sectorErrors[i] = "sector " + std::to_string(i) + " threw exception";
                 }
                 jobGroup.done();
             };
@@ -352,12 +347,8 @@ EncodedFile encodeFileData(std::span<const u8> rawData, const EncodeOptions& opt
         for (u32 i = 0; i < numSectors; ++i) {
             interfaces::WorkerTask task;
             task.fn = [i, &compressSector, &sectorCompressed, &encodeFailed, &jobGroup]() {
-                try {
-                    if (!encodeFailed.load(std::memory_order_acquire))
-                        sectorCompressed[i] = compressSector(i);
-                } catch (...) {
-                    encodeFailed.store(true, std::memory_order_release);
-                }
+                if (!encodeFailed.load(std::memory_order_acquire))
+                    sectorCompressed[i] = compressSector(i);
                 jobGroup.done();
             };
             pool->submit(task);
@@ -464,13 +455,9 @@ BatchEncodeResult encodeBatch(std::span<const std::pair<std::span<const u8>, Enc
             for (size_t i = 0; i < items.size(); ++i) {
                 interfaces::WorkerTask task;
                 task.fn = [i, &items, &result, &failed, &jobGroup]() {
-                    try {
-                        if (!failed.load(std::memory_order_acquire))
-                            result.files[i] =
-                                encodeFileData(items[i].first, items[i].second, nullptr);
-                    } catch (...) {
-                        failed.store(true, std::memory_order_release);
-                    }
+                    if (!failed.load(std::memory_order_acquire))
+                        result.files[i] =
+                            encodeFileData(items[i].first, items[i].second, nullptr);
                     jobGroup.done();
                 };
                 pool->submit(task);
@@ -511,12 +498,8 @@ BatchEncodeResult encodeBatch(std::span<const std::pair<std::span<const u8>, Enc
             state.completeDone = state.sem->next();
             interfaces::WorkerTask task;
             task.fn = [i, &items, &result, &failed]() {
-                try {
-                    if (!failed.load(std::memory_order_acquire))
-                        result.files[i] = encodeFileData(items[i].first, items[i].second, nullptr);
-                } catch (...) {
-                    failed.store(true, std::memory_order_release);
-                }
+                if (!failed.load(std::memory_order_acquire))
+                    result.files[i] = encodeFileData(items[i].first, items[i].second, nullptr);
             };
             task.signalSemaphore = state.sem.get();
             task.signalValue = state.completeDone;
@@ -539,26 +522,22 @@ BatchEncodeResult encodeBatch(std::span<const std::pair<std::span<const u8>, Enc
 
             interfaces::WorkerTask task;
             task.fn = [j, srcStart, srcLen, i, &items, &states, &failed, compressGroup]() {
-                try {
-                    if (!failed.load(std::memory_order_acquire)) {
-                        const auto& [rawData, opts] = items[i];
-                        auto sectorRaw = rawData.subspan(srcStart, srcLen);
-                        auto& sr = states[i].sectorResults[j];
+                if (!failed.load(std::memory_order_acquire)) {
+                    const auto& [rawData, opts] = items[i];
+                    auto sectorRaw = rawData.subspan(srcStart, srcLen);
+                    auto& sr = states[i].sectorResults[j];
 
-                        if (opts.compression != CompressionFlag::None) {
-                            auto compressed = mpqCompress(sectorRaw, opts.compression);
-                            if (!compressed.empty()) {
-                                sr.data = std::move(compressed);
-                                sr.wasCompressed = true;
-                            } else {
-                                sr.data.assign(sectorRaw.begin(), sectorRaw.end());
-                            }
+                    if (opts.compression != CompressionFlag::None) {
+                        auto compressed = mpqCompress(sectorRaw, opts.compression);
+                        if (!compressed.empty()) {
+                            sr.data = std::move(compressed);
+                            sr.wasCompressed = true;
                         } else {
                             sr.data.assign(sectorRaw.begin(), sectorRaw.end());
                         }
+                    } else {
+                        sr.data.assign(sectorRaw.begin(), sectorRaw.end());
                     }
-                } catch (...) {
-                    failed.store(true, std::memory_order_release);
                 }
                 compressGroup->done();
             };
@@ -569,73 +548,69 @@ BatchEncodeResult encodeBatch(std::span<const std::pair<std::span<const u8>, Enc
         state.completeDone = state.sem->next();
         interfaces::WorkerTask assembleTask;
         assembleTask.fn = [i, &items, &result, &states, &failed, numSectors]() {
-            try {
-                if (failed.load(std::memory_order_acquire))
-                    return;
+            if (failed.load(std::memory_order_acquire))
+                return;
 
-                const auto& [rawData, opts] = items[i];
-                auto& state = states[i];
+            const auto& [rawData, opts] = items[i];
+            auto& state = states[i];
 
-                FileFlag flags = FileFlag::kExists;
-                bool anyCompressed = false;
-                for (u32 j = 0; j < numSectors; ++j) {
-                    if (state.sectorResults[j].wasCompressed) {
-                        anyCompressed = true;
-                        break;
-                    }
+            FileFlag flags = FileFlag::kExists;
+            bool anyCompressed = false;
+            for (u32 j = 0; j < numSectors; ++j) {
+                if (state.sectorResults[j].wasCompressed) {
+                    anyCompressed = true;
+                    break;
                 }
-                if (anyCompressed)
-                    flags |= FileFlag::kCompress;
-
-                // Build sector offset table.
-                std::vector<u32> sectorOffsets;
-                sectorOffsets.reserve(numSectors + 1);
-                u32 currentOffset = (numSectors + 1) * sizeof(u32);
-                sectorOffsets.push_back(currentOffset);
-                for (u32 j = 0; j < numSectors; ++j) {
-                    currentOffset += static_cast<u32>(state.sectorResults[j].data.size());
-                    sectorOffsets.push_back(currentOffset);
-                }
-
-                // Derive encryption key if needed.
-                u32 fileKey = 0;
-                if (opts.encrypt && !opts.filename.empty()) {
-                    flags |= FileFlag::kEncrypted;
-                    fileKey = deriveFileKey(
-                        opts.filename,
-                        BlockEntry{0, currentOffset, static_cast<u32>(rawData.size()), flags});
-                }
-
-                // Encrypt sector offsets.
-                auto encOffsets = sectorOffsets;
-                if (fileKey != 0)
-                    encryptBlock(encOffsets.data(), encOffsets.size(), fileKey - 1);
-
-                // Encrypt each sector.
-                if (fileKey != 0) {
-                    for (u32 j = 0; j < numSectors; ++j) {
-                        size_t const aligned = state.sectorResults[j].data.size() / 4;
-                        if (aligned > 0)
-                            encryptBlock(reinterpret_cast<u32*>(state.sectorResults[j].data.data()),
-                                         aligned, fileKey + j);
-                    }
-                }
-
-                // Assemble final data.
-                EncodedFile& ef = result.files[i];
-                ef.data.resize(currentOffset);
-                std::memcpy(ef.data.data(), encOffsets.data(), encOffsets.size() * sizeof(u32));
-                size_t writePos = encOffsets.size() * sizeof(u32);
-                for (u32 j = 0; j < numSectors; ++j) {
-                    std::memcpy(ef.data.data() + writePos, state.sectorResults[j].data.data(),
-                                state.sectorResults[j].data.size());
-                    writePos += state.sectorResults[j].data.size();
-                }
-                ef.compressedSize = currentOffset;
-                ef.flags = flags;
-            } catch (...) {
-                failed.store(true, std::memory_order_release);
             }
+            if (anyCompressed)
+                flags |= FileFlag::kCompress;
+
+            // Build sector offset table.
+            std::vector<u32> sectorOffsets;
+            sectorOffsets.reserve(numSectors + 1);
+            u32 currentOffset = (numSectors + 1) * sizeof(u32);
+            sectorOffsets.push_back(currentOffset);
+            for (u32 j = 0; j < numSectors; ++j) {
+                currentOffset += static_cast<u32>(state.sectorResults[j].data.size());
+                sectorOffsets.push_back(currentOffset);
+            }
+
+            // Derive encryption key if needed.
+            u32 fileKey = 0;
+            if (opts.encrypt && !opts.filename.empty()) {
+                flags |= FileFlag::kEncrypted;
+                fileKey = deriveFileKey(
+                    opts.filename,
+                    BlockEntry{0, currentOffset, static_cast<u32>(rawData.size()), flags});
+            }
+
+            // Encrypt sector offsets.
+            auto encOffsets = sectorOffsets;
+            if (fileKey != 0)
+                encryptBlock(encOffsets.data(), encOffsets.size(), fileKey - 1);
+
+            // Encrypt each sector.
+            if (fileKey != 0) {
+                for (u32 j = 0; j < numSectors; ++j) {
+                    size_t const aligned = state.sectorResults[j].data.size() / 4;
+                    if (aligned > 0)
+                        encryptBlock(reinterpret_cast<u32*>(state.sectorResults[j].data.data()),
+                                     aligned, fileKey + j);
+                }
+            }
+
+            // Assemble final data.
+            EncodedFile& ef = result.files[i];
+            ef.data.resize(currentOffset);
+            std::memcpy(ef.data.data(), encOffsets.data(), encOffsets.size() * sizeof(u32));
+            size_t writePos = encOffsets.size() * sizeof(u32);
+            for (u32 j = 0; j < numSectors; ++j) {
+                std::memcpy(ef.data.data() + writePos, state.sectorResults[j].data.data(),
+                            state.sectorResults[j].data.size());
+                writePos += state.sectorResults[j].data.size();
+            }
+            ef.compressedSize = currentOffset;
+            ef.flags = flags;
         };
         assembleTask.waitSemaphore = state.sem.get();
         assembleTask.waitValue = compressDone;
@@ -732,29 +707,25 @@ std::vector<std::optional<std::vector<u8>>> extractBatch(std::span<const u8> arc
             state.completeDone = state.sem->next();
             interfaces::WorkerTask task;
             task.fn = [i, &files, &results, fileSpan]() {
-                try {
-                    const auto& block = files[i].block;
-                    u32 const fileKey = files[i].fileKey;
-                    std::vector<u8> buf(fileSpan.begin(), fileSpan.end());
+                const auto& block = files[i].block;
+                u32 const fileKey = files[i].fileKey;
+                std::vector<u8> buf(fileSpan.begin(), fileSpan.end());
 
-                    if (block.isEncrypted() && fileKey != 0) {
-                        size_t const alignedCount = buf.size() / 4;
-                        if (alignedCount > 0)
-                            decryptBlock(reinterpret_cast<u32*>(buf.data()), alignedCount, fileKey);
-                    }
+                if (block.isEncrypted() && fileKey != 0) {
+                    size_t const alignedCount = buf.size() / 4;
+                    if (alignedCount > 0)
+                        decryptBlock(reinterpret_cast<u32*>(buf.data()), alignedCount, fileKey);
+                }
 
-                    if (block.isCompressed() && block.compressedSize < block.uncompressedSize) {
-                        auto decompressed =
-                            mpqDecompress(std::span<const u8>(buf), block.uncompressedSize);
-                        if (!decompressed.empty()) {
-                            results[i] = std::move(decompressed);
-                        }
-                    } else {
-                        buf.resize(block.uncompressedSize);
-                        results[i] = std::move(buf);
+                if (block.isCompressed() && block.compressedSize < block.uncompressedSize) {
+                    auto decompressed =
+                        mpqDecompress(std::span<const u8>(buf), block.uncompressedSize);
+                    if (!decompressed.empty()) {
+                        results[i] = std::move(decompressed);
                     }
-                } catch (...) {
-                    // Leave results[i] as nullopt.
+                } else {
+                    buf.resize(block.uncompressedSize);
+                    results[i] = std::move(buf);
                 }
             };
             task.signalSemaphore = state.sem.get();
@@ -815,45 +786,41 @@ std::vector<std::optional<std::vector<u8>>> extractBatch(std::span<const u8> arc
             interfaces::WorkerTask task;
             task.fn = [i, j, &files, &states, fileSpan, sectorOffsets, numSectors, sectorSize,
                        decodeGroup]() {
-                try {
-                    if (states[i].fileFailed.load(std::memory_order_acquire)) {
-                        decodeGroup->done();
-                        return;
-                    }
+                if (states[i].fileFailed.load(std::memory_order_acquire)) {
+                    decodeGroup->done();
+                    return;
+                }
 
-                    const auto& block = files[i].block;
-                    u32 const fileKey = files[i].fileKey;
-                    u32 const sectorStart = (*sectorOffsets)[j];
-                    u32 const sectorEnd = (*sectorOffsets)[j + 1];
-                    u32 const expectedSize = (j < numSectors - 1)
-                                                 ? sectorSize
-                                                 : (block.uncompressedSize - j * sectorSize);
+                const auto& block = files[i].block;
+                u32 const fileKey = files[i].fileKey;
+                u32 const sectorStart = (*sectorOffsets)[j];
+                u32 const sectorEnd = (*sectorOffsets)[j + 1];
+                u32 const expectedSize = (j < numSectors - 1)
+                                             ? sectorSize
+                                             : (block.uncompressedSize - j * sectorSize);
 
-                    std::vector<u8> sectorBuf(fileSpan.data() + sectorStart,
-                                              fileSpan.data() + sectorEnd);
-                    u32 const sectorLen = sectorEnd - sectorStart;
+                std::vector<u8> sectorBuf(fileSpan.data() + sectorStart,
+                                          fileSpan.data() + sectorEnd);
+                u32 const sectorLen = sectorEnd - sectorStart;
 
-                    if (block.isEncrypted() && fileKey != 0) {
-                        size_t const alignedCount = sectorBuf.size() / 4;
-                        if (alignedCount > 0)
-                            decryptBlock(reinterpret_cast<u32*>(sectorBuf.data()), alignedCount,
-                                         fileKey + j);
-                    }
+                if (block.isEncrypted() && fileKey != 0) {
+                    size_t const alignedCount = sectorBuf.size() / 4;
+                    if (alignedCount > 0)
+                        decryptBlock(reinterpret_cast<u32*>(sectorBuf.data()), alignedCount,
+                                     fileKey + j);
+                }
 
-                    if (block.isCompressed() && sectorLen < expectedSize) {
-                        auto decompressed =
-                            mpqDecompress(std::span<const u8>(sectorBuf), expectedSize);
-                        if (decompressed.empty()) {
-                            states[i].fileFailed.store(true, std::memory_order_release);
-                        } else {
-                            states[i].sectorResults[j] = std::move(decompressed);
-                        }
+                if (block.isCompressed() && sectorLen < expectedSize) {
+                    auto decompressed =
+                        mpqDecompress(std::span<const u8>(sectorBuf), expectedSize);
+                    if (decompressed.empty()) {
+                        states[i].fileFailed.store(true, std::memory_order_release);
                     } else {
-                        sectorBuf.resize(expectedSize);
-                        states[i].sectorResults[j] = std::move(sectorBuf);
+                        states[i].sectorResults[j] = std::move(decompressed);
                     }
-                } catch (...) {
-                    states[i].fileFailed.store(true, std::memory_order_release);
+                } else {
+                    sectorBuf.resize(expectedSize);
+                    states[i].sectorResults[j] = std::move(sectorBuf);
                 }
                 decodeGroup->done();
             };
@@ -864,22 +831,18 @@ std::vector<std::optional<std::vector<u8>>> extractBatch(std::span<const u8> arc
         state.completeDone = state.sem->next();
         interfaces::WorkerTask assembleTask;
         assembleTask.fn = [i, &files, &results, &states, numSectors]() {
-            try {
-                if (states[i].fileFailed.load(std::memory_order_acquire))
-                    return;
+            if (states[i].fileFailed.load(std::memory_order_acquire))
+                return;
 
-                const auto& block = files[i].block;
-                std::vector<u8> output(block.uncompressedSize);
-                size_t writePos = 0;
-                for (u32 j = 0; j < numSectors; ++j) {
-                    std::memcpy(output.data() + writePos, states[i].sectorResults[j].data(),
-                                states[i].sectorResults[j].size());
-                    writePos += states[i].sectorResults[j].size();
-                }
-                results[i] = std::move(output);
-            } catch (...) {
-                // Leave results[i] as nullopt.
+            const auto& block = files[i].block;
+            std::vector<u8> output(block.uncompressedSize);
+            size_t writePos = 0;
+            for (u32 j = 0; j < numSectors; ++j) {
+                std::memcpy(output.data() + writePos, states[i].sectorResults[j].data(),
+                            states[i].sectorResults[j].size());
+                writePos += states[i].sectorResults[j].size();
             }
+            results[i] = std::move(output);
         };
         assembleTask.waitSemaphore = state.sem.get();
         assembleTask.waitValue = decodeDone;

@@ -12,7 +12,7 @@
  *
  * @example Basic parsing
  * @code
- * mdx::Parser parser(mdx::Parser::ParseMode::Lenient);
+ * mdx::Parser parser;
  * mdx::Model model = parser.parse("model.mdx");
  *
  * if (parser.hasIssues()) {
@@ -64,15 +64,6 @@ enum class MDLXFormat {
 class Parser {
 public:
     /**
-     * @brief Parsing strictness mode
-     */
-    /// @bind js_name=MdxParseMode
-    enum class ParseMode {
-        Strict, ///< Throw exceptions on unknown chunks or invalid data
-        Lenient ///< Skip unknown chunks and try to recover from errors (recommended)
-    };
-
-    /**
      * @brief Version handling mode
      */
     /// @bind js_name=MdxUpgradeMode
@@ -83,11 +74,9 @@ public:
 
     /**
      * @brief Construct a new Parser
-     * @param parseMode Strictness mode for parsing
      * @param upgradeMode How to handle version differences
      */
-    Parser(ParseMode parseMode = ParseMode::Lenient,
-           UpgradeMode upgradeMode = UpgradeMode::UpgradeOldVersions);
+    explicit Parser(UpgradeMode upgradeMode = UpgradeMode::UpgradeOldVersions);
 
     /// @brief Destructor (defined in .cpp for incomplete type)
     ~Parser();

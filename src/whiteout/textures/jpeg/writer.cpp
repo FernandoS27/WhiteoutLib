@@ -164,9 +164,8 @@ std::vector<u8> Writer::Impl::write(const Texture& texture) {
     return output;
 }
 
-Writer::Writer(i32 quality, WriteMode writeMode, interfaces::WorkerPool* pool, bool progressive)
+Writer::Writer(i32 quality, interfaces::WorkerPool* pool, bool progressive)
     : pImpl(std::make_unique<Impl>()) {
-    pImpl->strict_mode = (writeMode == WriteMode::Strict);
     pImpl->quality = std::clamp(quality, 1, 100);
     pImpl->pool = pool;
     pImpl->progressive = progressive;

@@ -194,7 +194,7 @@ TEST_CASE("M2 corpus parse", "[m2][corpus]") {
         try {
             fs::path absPath = fs::absolute(m2Path);
             whiteout::utils::OsFileSystem vfs(absPath.parent_path().string());
-            whiteout::m2::Parser parser(whiteout::m2::Parser::ParseMode::Lenient);
+            whiteout::m2::Parser parser;
 
             whiteout::m2::Model model = parser.parse(vfs, absPath.string());
 
@@ -246,7 +246,7 @@ TEST_CASE("M2 corpus parse", "[m2][corpus]") {
 
                     // Re-parse the written file
                     whiteout::utils::OsFileSystem reVfs(tempDir.string());
-                    whiteout::m2::Parser reParser(whiteout::m2::Parser::ParseMode::Lenient);
+                    whiteout::m2::Parser reParser;
                     whiteout::m2::Model reModel = reParser.parse(reVfs, outPath.string());
 
                     const auto& reIssues = reParser.getIssues();

@@ -648,9 +648,7 @@ bool Parser::Impl::compositeFrames() {
     return true;
 }
 
-Parser::Parser(ParseMode parseMode) : pImpl(std::make_unique<Impl>()) {
-    pImpl->strict_mode = (parseMode == ParseMode::Strict);
-}
+Parser::Parser() : pImpl(std::make_unique<Impl>()) {}
 
 Parser::~Parser() = default;
 
@@ -689,9 +687,6 @@ u32 Parser::loopCount() const {
 
 const Texture& Parser::frame(u32 index) const {
     if (index >= pImpl->compositedFrames.size()) {
-        if (pImpl->strict_mode) {
-            throw std::out_of_range("APNG frame index out of range");
-        }
         static const Texture empty;
         return empty;
     }
@@ -700,9 +695,6 @@ const Texture& Parser::frame(u32 index) const {
 
 u32 Parser::frameDelayMs(u32 index) const {
     if (index >= pImpl->frameInfos.size()) {
-        if (pImpl->strict_mode) {
-            throw std::out_of_range("APNG frame index out of range");
-        }
         return 0;
     }
     return pImpl->frameInfos[index].delayMs;
@@ -710,9 +702,6 @@ u32 Parser::frameDelayMs(u32 index) const {
 
 const ApngFrameInfo& Parser::frameInfo(u32 index) const {
     if (index >= pImpl->frameInfos.size()) {
-        if (pImpl->strict_mode) {
-            throw std::out_of_range("APNG frame index out of range");
-        }
         static const ApngFrameInfo empty;
         return empty;
     }

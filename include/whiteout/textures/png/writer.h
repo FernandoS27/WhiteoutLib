@@ -10,11 +10,9 @@
  * This file provides the Writer class for encoding Texture objects into PNG
  * format.  Outputs 32-bit RGBA or 24-bit RGB non-interlaced truecolor PNG.
  *
- * The writer supports two modes:
- * - **Strict** – any issue throws `std::runtime_error`.
- * - **Lenient** (default) – issues are collected and can be queried via
- *   `hasIssues()` / `getIssues()`.  On failure the write methods return
- *   an empty vector (or do nothing for the file overload).
+ * Writing is non-throwing. Issues are collected and can be queried via
+ * `hasIssues()` / `getIssues()`; on failure the write methods return an
+ * empty vector (or do nothing for the file overload).
  */
 
 #include <memory>
@@ -56,13 +54,7 @@ struct ApngSaveOptions {
 /// @bind methods=buffer_only, js_name=PngWriter
 class Writer : public textures::Writer {
 public:
-    /// @bind js_name=PngWriteMode
-    enum class WriteMode {
-        Strict, ///< Throw on any issue.
-        Lenient ///< Collect issues, return empty data on failure.
-    };
-
-    explicit Writer(WriteMode writeMode = WriteMode::Lenient);
+    Writer();
     ~Writer();
 
     Writer(const Writer&) = delete;

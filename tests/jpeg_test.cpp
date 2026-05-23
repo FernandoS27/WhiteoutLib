@@ -782,7 +782,7 @@ TEST_CASE("JPEG encode decode", "[jpeg]") {
         }
 
         // Parse with parallel parser
-        jpeg::Parser parserParallel(jpeg::Parser::ParseMode::Lenient, &pool);
+        jpeg::Parser parserParallel(&pool);
         auto parallelTex = parserParallel.parse(std::span<const u8>{jpegBytes});
         if (!parallelTex) {
             printf("TEST 29 FAIL: parallel Parser failed\n");
@@ -821,7 +821,7 @@ TEST_CASE("JPEG encode decode", "[jpeg]") {
             FAIL("JPEG test failed");
         }
 
-        jpeg::Writer writerParallel(75, jpeg::Writer::WriteMode::Lenient, &pool);
+        jpeg::Writer writerParallel(75, &pool);
         auto parallelBytes = writerParallel.write(srcTex);
         if (parallelBytes.empty()) {
             printf("TEST 30 FAIL: parallel Writer produced empty output\n");
@@ -867,7 +867,7 @@ TEST_CASE("JPEG encode decode", "[jpeg]") {
         }
 
         // Parallel write
-        jpeg::Writer writer(90, jpeg::Writer::WriteMode::Lenient, &pool);
+        jpeg::Writer writer(90, &pool);
         auto jpegBytes = writer.write(srcTex);
         if (jpegBytes.empty()) {
             printf("TEST 31 FAIL: parallel Writer produced empty output\n");
@@ -875,7 +875,7 @@ TEST_CASE("JPEG encode decode", "[jpeg]") {
         }
 
         // Parallel parse
-        jpeg::Parser parser(jpeg::Parser::ParseMode::Lenient, &pool);
+        jpeg::Parser parser(&pool);
         auto decoded = parser.parse(std::span<const u8>{jpegBytes});
         if (!decoded) {
             printf("TEST 31 FAIL: parallel Parser failed\n");
@@ -1228,14 +1228,14 @@ TEST_CASE("JPEG encode decode", "[jpeg]") {
         }
 
         // Parallel round-trip
-        jpeg::Writer writerP(80, jpeg::Writer::WriteMode::Lenient, &pool);
+        jpeg::Writer writerP(80, &pool);
         auto parallelBytes = writerP.write(srcTex);
         if (parallelBytes.empty()) {
             printf("TEST 39 FAIL: parallel Writer 4K produced empty output\n");
             FAIL("JPEG test failed");
         }
 
-        jpeg::Parser parserP(jpeg::Parser::ParseMode::Lenient, &pool);
+        jpeg::Parser parserP(&pool);
         auto parallelDecoded = parserP.parse(std::span<const u8>{parallelBytes});
         if (!parallelDecoded) {
             printf("TEST 39 FAIL: parallel Parser 4K failed\n");
@@ -1539,7 +1539,7 @@ TEST_CASE("JPEG encode decode", "[jpeg]") {
         auto serialBytes = writerS.write(srcTex);
         auto t1 = Clock::now();
 
-        jpeg::Writer writerP(80, jpeg::Writer::WriteMode::Lenient, &pool);
+        jpeg::Writer writerP(80, &pool);
         auto t2 = Clock::now();
         auto parallelBytes = writerP.write(srcTex);
         auto t3 = Clock::now();
@@ -1571,7 +1571,7 @@ TEST_CASE("JPEG encode decode", "[jpeg]") {
         auto serialTex = parserS.parse(std::span<const u8>{jpegBytes});
         auto t1 = Clock::now();
 
-        jpeg::Parser parserP(jpeg::Parser::ParseMode::Lenient, &pool);
+        jpeg::Parser parserP(&pool);
         auto t2 = Clock::now();
         auto parallelTex = parserP.parse(std::span<const u8>{jpegBytes});
         auto t3 = Clock::now();

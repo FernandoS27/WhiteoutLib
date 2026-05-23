@@ -11,11 +11,9 @@
  * It supports 8-bit and 16-bit truecolor, grayscale, indexed-color, and
  * alpha-channel images (non-interlaced).
  *
- * The parser supports two modes:
- * - **Strict** – any issue throws `std::runtime_error`.
- * - **Lenient** (default) – issues are collected and can be queried via
- *   `hasIssues()` / `getIssues()`.  On failure the parse methods return
- *   `std::nullopt`.
+ * Parsing is non-throwing. Issues are collected and can be queried via
+ * `hasIssues()` / `getIssues()`; on failure the parse methods return
+ * `std::nullopt`.
  */
 
 #include <memory>
@@ -58,13 +56,7 @@ struct ApngFrameInfo {
 /// @bind methods=buffer_only, js_name=PngParser
 class Parser : public textures::Parser {
 public:
-    /// @bind js_name=PngParseMode
-    enum class ParseMode {
-        Strict, ///< Throw on any issue.
-        Lenient ///< Collect issues, return nullopt on failure.
-    };
-
-    explicit Parser(ParseMode parseMode = ParseMode::Lenient);
+    Parser();
     ~Parser();
 
     Parser(const Parser&) = delete;

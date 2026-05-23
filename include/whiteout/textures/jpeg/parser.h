@@ -11,11 +11,9 @@
  * (JFIF/Exif) files.  It supports baseline sequential DCT (SOF0) images with
  * 1 (grayscale) or 3 (Y'CbCr) components, including chroma subsampling.
  *
- * The parser supports two modes:
- * - **Strict** – any issue throws `std::runtime_error`.
- * - **Lenient** (default) – issues are collected and can be queried via
- *   `hasIssues()` / `getIssues()`.  On failure the parse methods return
- *   `std::nullopt`.
+ * Parsing is non-throwing. Issues are collected and can be queried via
+ * `hasIssues()` / `getIssues()`; on failure the parse methods return
+ * `std::nullopt`.
  */
 
 #include <memory>
@@ -42,14 +40,7 @@ namespace whiteout::textures::jpeg {
 /// @bind methods=buffer_only, js_name=JpegParser
 class Parser : public textures::Parser {
 public:
-    /// @bind js_name=JpegParseMode
-    enum class ParseMode {
-        Strict, ///< Throw on any issue.
-        Lenient ///< Collect issues, return nullopt on failure.
-    };
-
-    explicit Parser(ParseMode parseMode = ParseMode::Lenient,
-                    interfaces::WorkerPool* pool = nullptr);
+    explicit Parser(interfaces::WorkerPool* pool = nullptr);
     ~Parser();
 
     Parser(const Parser&) = delete;

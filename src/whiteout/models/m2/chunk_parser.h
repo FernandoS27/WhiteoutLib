@@ -20,9 +20,7 @@ class WoWFileSystem;
 
 class ChunkParser {
 public:
-    using ParseMode = Parser::ParseMode;
-
-    explicit ChunkParser(ParseMode mode);
+    ChunkParser();
 
     void parseChunkedBase(common::BinaryReader& reader, BaseFile& m2file, WoWFileSystem* wfs);
     void parseChunkedSkeleton(common::BinaryReader& reader, SkeletonFile& skeletonFile,
@@ -52,7 +50,6 @@ private:
     std::vector<ChunkEntry> collectChunks(common::BinaryReader& reader);
     void skipUnknownChunk(common::BinaryReader& reader, u32 tag, u32 size);
 
-    ParseMode parseMode;
     std::vector<std::string> issues;
 };
 

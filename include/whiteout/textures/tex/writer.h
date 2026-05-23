@@ -10,11 +10,9 @@
  * This file provides the Writer class for encoding Texture objects into
  * TEX (Diablo III SNO) binary format.
  *
- * The writer supports two modes:
- * - **Strict** – any issue throws `std::runtime_error`.
- * - **Lenient** (default) – issues are collected and can be queried via
- *   `hasIssues()` / `getIssues()`.  On failure the write methods return
- *   an empty vector (or do nothing for the file overload).
+ * Writing is non-throwing. Issues are collected and can be queried via
+ * `hasIssues()` / `getIssues()`; on failure the write methods return
+ * an empty vector (or do nothing for the file overload).
  */
 
 #include <memory>
@@ -35,12 +33,7 @@ namespace whiteout::textures::tex {
 /// Encodes a Texture into TEX format.
 class Writer : public textures::Writer {
 public:
-    enum class WriteMode {
-        Strict, ///< Throw on any issue.
-        Lenient ///< Collect issues, return empty data on failure.
-    };
-
-    explicit Writer(WriteMode writeMode = WriteMode::Lenient);
+    Writer();
     ~Writer();
 
     Writer(const Writer&) = delete;

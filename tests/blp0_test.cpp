@@ -56,7 +56,7 @@ TEST_CASE("BLP0 corpus parse", "[blp][blp0][corpus]") {
 
     for (const auto& path : blp0Files) {
         DYNAMIC_SECTION("File: " << fs::path(path).filename().string()) {
-            blp::Parser parser(blp::Parser::ParseMode::Lenient);
+            blp::Parser parser;
             auto tex = parser.parse(path);
 
             REQUIRE(tex.has_value());

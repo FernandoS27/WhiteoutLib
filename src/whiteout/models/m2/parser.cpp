@@ -19,11 +19,8 @@ using common::BinaryReader;
 
 class Parser::Impl {
 public:
-    ParseMode parseMode;
     std::vector<std::string> issues;
     ChunkParser chunkParser;
-
-    explicit Impl(ParseMode mode) : parseMode(mode), chunkParser(mode) {}
 
     void parse(WoWFileSystem& wfs, Model& result);
     void parseBase(BinaryReader& reader, BaseFile& file, WoWFileSystem* wfs);
@@ -32,7 +29,7 @@ public:
     void reportIssue(const std::string& message);
 };
 
-Parser::Parser(ParseMode mode) : pImpl(std::make_unique<Impl>(mode)) {}
+Parser::Parser() : pImpl(std::make_unique<Impl>()) {}
 
 Parser::~Parser() = default;
 
@@ -70,9 +67,6 @@ bool Parser::hasIssues() const {
 }
 
 void Parser::Impl::reportIssue(const std::string& message) {
-    if (parseMode == ParseMode::Strict) {
-        throw std::runtime_error(message);
-    }
     issues.push_back(message);
 }
 
@@ -88,18 +82,14 @@ void Parser::Impl::parse(WoWFileSystem& wfs, Model& result) {
     }
     result = std::move(m2.header.model);
     const auto readSkinProfile = [&](std::vector<SkinProfile>& profiles,
-                                     std::span<const u8> skinData, size_t i) {
-        try {
-            common::span_streambuf sbuf(skinData);
-            std::istream in(&sbuf);
-            BinaryReader reader(in);
-            SkinFile skinFile;
-            skinFile.version = m2.header.version;
-            parseSkin(reader, skinFile, &wfs);
-            profiles.emplace_back(std::move(skinFile.profile));
-        } catch (const std::exception& e) {
-            reportIssue(std::string("Error parsing skin ") + std::to_string(i) + ": " + e.what());
-        }
+                                     std::span<const u8> skinData, size_t /*i*/) {
+        common::span_streambuf sbuf(skinData);
+        std::istream in(&sbuf);
+        BinaryReader reader(in);
+        SkinFile skinFile;
+        skinFile.version = m2.header.version;
+        parseSkin(reader, skinFile, &wfs);
+        profiles.emplace_back(std::move(skinFile.profile));
     };
 
     if (m2.sfid_chunk) {
@@ -124,19 +114,14 @@ void Parser::Impl::parse(WoWFileSystem& wfs, Model& result) {
         hasParent = false;
         auto skelData = wfs.getSkeleton();
         if (!skelData.empty()) {
-            try {
-                common::span_streambuf sbuf(skelData);
-                std::istream in(&sbuf);
-                BinaryReader reader(in);
-                skeleton.emplace();
-                chunkParser.parseChunkedSkeleton(reader, skeleton.value(), &wfs);
-                if (skeleton->skpd_chunk) {
-                    hasParent = true;
-                    wfs.setParentSkeletonChunk(*skeleton->skpd_chunk);
-                    skeleton.reset();
-                }
-            } catch (const std::exception& e) {
-                reportIssue(std::string("Error parsing skeleton: ") + e.what());
+            common::span_streambuf sbuf(skelData);
+            std::istream in(&sbuf);
+            BinaryReader reader(in);
+            skeleton.emplace();
+            chunkParser.parseChunkedSkeleton(reader, skeleton.value(), &wfs);
+            if (skeleton->skpd_chunk) {
+                hasParent = true;
+                wfs.setParentSkeletonChunk(*skeleton->skpd_chunk);
                 skeleton.reset();
             }
         }
@@ -258,9 +243,6 @@ void Parser::Impl::parseBase(BinaryReader& reader, BaseFile& file, WoWFileSystem
     }
     std::string const error = "Invalid M2 magic: expected MD20 or MD21, got '" +
                               std::string(reinterpret_cast<char*>(&magic), 4) + "'";
-    if (parseMode == ParseMode::Strict) {
-        throw std::runtime_error(error);
-    }
     issues.push_back(error);
 }
 
@@ -277,9 +259,6 @@ void Parser::Impl::parseSkin(BinaryReader& reader, SkinFile& skinFile, WoWFileSy
     }
     std::string const error = "Invalid M2 magic: expected SKIN, got '" +
                               std::string(reinterpret_cast<char*>(&magic), 4) + "'";
-    if (parseMode == ParseMode::Strict) {
-        throw std::runtime_error(error);
-    }
     issues.push_back(error);
 }
 

@@ -361,9 +361,7 @@ std::vector<u8> Writer::Impl::write(const std::vector<Texture>& frames, const Sa
 // Writer — public interface
 // ============================================================================
 
-Writer::Writer(WriteMode writeMode, interfaces::WorkerPool* pool)
-    : pImpl(std::make_unique<Impl>()) {
-    pImpl->strict_mode = (writeMode == WriteMode::Strict);
+Writer::Writer(interfaces::WorkerPool* pool) : pImpl(std::make_unique<Impl>()) {
     pImpl->pool = pool;
 }
 

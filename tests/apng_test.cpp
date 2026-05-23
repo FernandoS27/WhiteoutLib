@@ -432,7 +432,8 @@ TEST_CASE("APNG dispose PREVIOUS on frame 0 behaves as BACKGROUND", "[apng][edge
 }
 
 // ============================================================================
-// 11. Out-of-order sequence numbers: strict fails, lenient records an issue.
+// 11. Out-of-order sequence numbers: the parser records an issue but still
+//     produces a best-effort result (the library is non-throwing).
 // ============================================================================
 
 TEST_CASE("APNG out-of-order sequence number handling", "[apng][edge]") {
@@ -461,16 +462,10 @@ TEST_CASE("APNG out-of-order sequence number handling", "[apng][edge]") {
     }
     REQUIRE(patched);
 
-    SECTION("lenient mode records an issue but still produces a result") {
-        png::Parser parser(png::Parser::ParseMode::Lenient);
-        auto parsed = parser.parse(std::span<const u8>(bytes));
-        CHECK(parsed.has_value());
-        CHECK(parser.hasIssues());
-    }
-    SECTION("strict mode throws") {
-        png::Parser parser(png::Parser::ParseMode::Strict);
-        CHECK_THROWS(parser.parse(std::span<const u8>(bytes)));
-    }
+    png::Parser parser;
+    auto parsed = parser.parse(std::span<const u8>(bytes));
+    CHECK(parsed.has_value());
+    CHECK(parser.hasIssues());
 }
 
 // ============================================================================

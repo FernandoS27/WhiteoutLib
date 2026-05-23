@@ -14,11 +14,9 @@
  * texture.  D4 TEX files separate metadata from pixel data, so `parse()`
  * takes two arguments: the .tex metadata and the pixel-data payload.
  *
- * The parser supports two modes:
- * - **Strict** – any issue throws `std::runtime_error`.
- * - **Lenient** (default) – issues are collected and can be queried via
- *   `hasIssues()` / `getIssues()`.  On failure the parse methods return
- *   `std::nullopt`.
+ * Parsing is non-throwing. Issues are collected and can be queried via
+ * `hasIssues()` / `getIssues()`; on failure the parse methods return
+ * `std::nullopt`.
  */
 
 #include <memory>
@@ -41,11 +39,6 @@ namespace whiteout::textures::tex {
 /// Reads a TEX file or byte buffer and decodes it into a Texture.
 class Parser : public textures::Parser {
 public:
-    enum class ParseMode {
-        Strict, ///< Throw on any issue.
-        Lenient ///< Collect issues, return nullopt on failure.
-    };
-
     /// High-level TEX container kind inferred from the file header.
     enum class FileKind {
         Unknown,       ///< Not a recognized TEX container.
@@ -53,7 +46,7 @@ public:
         Diablo4MetaTex ///< Diablo IV metadata-only TEX SNO file.
     };
 
-    explicit Parser(ParseMode parseMode = ParseMode::Lenient);
+    Parser();
     ~Parser();
 
     Parser(const Parser&) = delete;

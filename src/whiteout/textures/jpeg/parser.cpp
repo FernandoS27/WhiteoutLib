@@ -162,9 +162,7 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
     return texture;
 }
 
-Parser::Parser(ParseMode parseMode, interfaces::WorkerPool* pool)
-    : pImpl(std::make_unique<Impl>()) {
-    pImpl->strict_mode = (parseMode == ParseMode::Strict);
+Parser::Parser(interfaces::WorkerPool* pool) : pImpl(std::make_unique<Impl>()) {
     pImpl->pool = pool;
 }
 

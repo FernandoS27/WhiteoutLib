@@ -12,7 +12,7 @@
  *
  * @example Basic parsing
  * @code
- * m3::Parser parser(m3::Parser::ParseMode::Lenient);
+ * m3::Parser parser;
  * m3::Model model = parser.parse("model.m3");
  *
  * if (parser.hasIssues()) {
@@ -54,20 +54,8 @@ using common::BinaryReader;
 /// @bind methods, js_name=M3Parser
 class Parser {
 public:
-    /**
-     * @brief Parsing strictness mode
-     */
-    /// @bind js_name=M3ParseMode
-    enum class ParseMode {
-        Strict, ///< Throw exceptions on invalid data or parsing errors
-        Lenient ///< Skip problematic data and try to recover from errors (recommended)
-    };
-
-    /**
-     * @brief Construct a new Parser
-     * @param mode Strictness mode for parsing
-     */
-    explicit Parser(ParseMode mode = ParseMode::Lenient);
+    /// @brief Construct a new Parser.
+    Parser();
 
     /// @brief Destructor (defined in .cpp for incomplete type)
     ~Parser();

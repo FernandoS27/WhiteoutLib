@@ -233,7 +233,7 @@ void Writer::write(const std::string& filePath, const Model& mdx, MdlFormat mdlF
         std::string text = writeModelToMdl(mdx, mdlFormat);
         auto file = common::open_ofstream(filePath, std::ios::binary);
         if (!file.is_open()) {
-            throw std::runtime_error("Failed to open file: " + filePath);
+            return; // silently fail; caller can check filesystem
         }
         file.write(text.data(), static_cast<std::streamsize>(text.size()));
         return;
@@ -241,7 +241,7 @@ void Writer::write(const std::string& filePath, const Model& mdx, MdlFormat mdlF
 
     auto file = common::open_ofstream(filePath, std::ios::binary);
     if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file: " + filePath);
+        return;
     }
     BinaryWriter writer(file);
 

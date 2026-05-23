@@ -109,7 +109,9 @@ add_library(whiteout_strict_flags INTERFACE)
 
 if(MSVC)
     # cl.exe and clang-cl both use MSVC-style flags here.
+    # The library is exception-free — disable EH for all whiteout TUs.
     target_compile_options(whiteout_strict_flags INTERFACE
+        /EHs-c-
         /W4
         /w34263 # Non-virtual member function hides base class virtual function
         /w44265 # Class has virtual functions, but destructor is not virtual
@@ -135,6 +137,9 @@ if(MSVC)
         # MSVC STL warns on these but the alternatives are no safer.
         _CRT_SECURE_NO_WARNINGS
         _SILENCE_CXX20_U8PATH_DEPRECATION_WARNING
+        # Match /EHs-c- — tell the MSVC STL that exceptions are disabled so it
+        # avoids EH-dependent paths (e.g. some _Throw_ helpers become abort()).
+        _HAS_EXCEPTIONS=0
     )
 
     if(WHITEOUT_WARNINGS_AS_ERRORS)
@@ -151,6 +156,8 @@ if(MSVC)
     endif()
 else()
     target_compile_options(whiteout_strict_flags INTERFACE
+        # The library is exception-free — disable EH for all whiteout TUs.
+        -fno-exceptions
         -Wall
         -Wextra
         -Wcast-qual

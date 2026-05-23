@@ -36,7 +36,7 @@ void BinaryParseVisitor::visit(Sequence& seq) {
     } else {
         auto animData = wfs->getAnimBuffer(seq.id, seq.variationIndex);
         if (hasFlag(globalFlags, GlobalFlag::UpgradedFormat)) {
-            ChunkParser chunkParser(ChunkParser::ParseMode::Lenient);
+            ChunkParser chunkParser;
             common::span_streambuf sbuf(animData);
             std::istream in(&sbuf);
             BinaryReader animReader(in);

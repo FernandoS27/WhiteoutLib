@@ -24,7 +24,6 @@ using common::BinaryReader;
 
 class Parser::Impl {
 public:
-    ParseMode parseMode = ParseMode::Lenient;
     UpgradeMode upgradeMode = UpgradeMode::UpgradeOldVersions;
     std::vector<std::string> issues;
     static constexpr u32 CurrentVersion = 1200; ///< Latest known MDX version (Reforged)
@@ -145,9 +144,6 @@ Track<T> Parser::Impl::readTrackChunk(BinaryReader& reader, u32 trackCount, u32 
 void Parser::Impl::SkipUnknownChunk(BinaryReader& reader, u32 tag, u32 size) {
     std::string const error =
         "Unknown chunk: " + std::string((char*)&tag, 4) + " (size: " + std::to_string(size) + ")";
-    if (parseMode == ParseMode::Strict) {
-        throw std::runtime_error(error);
-    }
     issues.push_back(error);
     reader.skip(size);
 }
@@ -156,9 +152,6 @@ void Parser::Impl::SkipUnknownTrack(BinaryReader& reader, u32 tag, u32 trackCoun
                                     u32 interpolationType) {
     std::string const error = "Unknown track: " + std::string((char*)&tag, 4) +
                               " (count: " + std::to_string(trackCount) + ")";
-    if (parseMode == ParseMode::Strict) {
-        throw std::runtime_error(error);
-    }
     issues.push_back(error);
     // Conservative per-keyframe size: timestamp (u32) + value(u32) [+ 2*u32 tangents].
     // We don't know the actual T for an unknown track, so this assumes a 4-byte
@@ -175,8 +168,7 @@ void Parser::Impl::SkipUnknownTrack(BinaryReader& reader, u32 tag, u32 trackCoun
 // Parser Public Interface (using PImpl)
 // ============================================================================
 
-Parser::Parser(ParseMode parseMode, UpgradeMode upgradeMode) : pImpl(std::make_unique<Impl>()) {
-    pImpl->parseMode = parseMode;
+Parser::Parser(UpgradeMode upgradeMode) : pImpl(std::make_unique<Impl>()) {
     pImpl->upgradeMode = upgradeMode;
 }
 
@@ -193,7 +185,8 @@ Model Parser::parse(const std::string& filePath) {
             // Read entire file as text
             auto file = common::open_ifstream(filePath, std::ios::ate);
             if (!file.is_open()) {
-                throw std::runtime_error("Failed to open file: " + filePath);
+                pImpl->issues.push_back("Failed to open file: " + filePath);
+                return Model{};
             }
             auto size = file.tellg();
             file.seekg(0);
@@ -207,7 +200,8 @@ Model Parser::parse(const std::string& filePath) {
 
     auto file = common::open_ifstream(filePath, std::ios::binary);
     if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file: " + filePath);
+        pImpl->issues.push_back("Failed to open file: " + filePath);
+        return Model{};
     }
     BinaryReader reader(file);
     return pImpl->parse(reader);
@@ -248,9 +242,6 @@ Model Parser::Impl::parse(BinaryReader& reader) {
     if (magic != MDLX_TAG) {
         std::string const error = "Invalid MDX file: expected magic 'MDLX', got '" +
                                   std::string(reinterpret_cast<char*>(&magic), 4) + "'";
-        if (parseMode == ParseMode::Strict) {
-            throw std::runtime_error(error);
-        }
         issues.push_back(error);
         return mdx; // Return empty MDX file on failure
     }
@@ -264,9 +255,6 @@ Model Parser::Impl::parse(BinaryReader& reader) {
             parseVERS(reader, header.size, mdx);
             if (mdx.version > CurrentVersion) {
                 std::string const error = "Unsupported MDX version: " + std::to_string(mdx.version);
-                if (parseMode == ParseMode::Strict) {
-                    throw std::runtime_error(error);
-                }
                 issues.push_back(error);
             }
             break;
@@ -753,9 +741,6 @@ Geoset Parser::Impl::parseGeoset(BinaryReader& reader, u32 /*maxSize*/, Model& m
         }
         default: {
             std::string const error = "Unknown chunk in geoset: " + std::string((char*)&peekTag, 4);
-            if (parseMode == ParseMode::Strict) {
-                throw std::runtime_error(error);
-            }
             issues.push_back(error);
             reader.skip(4); // Skip the size field of the unknown chunk
             u32 const unknownSize = reader.read<u32>();

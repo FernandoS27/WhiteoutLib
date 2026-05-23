@@ -184,9 +184,7 @@ bool Parser::Impl::decode_rle(const u8* compressed_data, size_t compressed_size,
     return true;
 }
 
-Parser::Parser(ParseMode parseMode) : pImpl(std::make_unique<Impl>()) {
-    pImpl->strict_mode = (parseMode == ParseMode::Strict);
-}
+Parser::Parser() : pImpl(std::make_unique<Impl>()) {}
 
 Parser::~Parser() = default;
 

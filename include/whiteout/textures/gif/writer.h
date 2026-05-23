@@ -76,14 +76,7 @@ struct SaveOptions {
 /// @bind methods, js_name=GifWriter
 class Writer {
 public:
-    /// @bind js_name=GifWriteMode
-    enum class WriteMode {
-        Strict, ///< Throw on any issue.
-        Lenient ///< Collect issues, return empty data on failure.
-    };
-
-    explicit Writer(WriteMode writeMode = WriteMode::Lenient,
-                    interfaces::WorkerPool* pool = nullptr);
+    explicit Writer(interfaces::WorkerPool* pool = nullptr);
     ~Writer();
 
     Writer(const Writer&) = delete;

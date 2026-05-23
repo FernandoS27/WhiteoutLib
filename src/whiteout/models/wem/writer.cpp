@@ -41,7 +41,7 @@ Writer::~Writer() = default;
 bool Writer::write(const std::string& filePath, const Model& model) {
     auto file = common::open_ofstream(filePath, std::ios::binary);
     if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file: " + filePath);
+        return false;
     }
     BinaryWriter writer(file);
     pImpl->write(writer, model);

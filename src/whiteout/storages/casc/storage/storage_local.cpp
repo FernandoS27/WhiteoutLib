@@ -153,12 +153,9 @@ bool LocalState::mapArchives(std::string* error) {
     for (auto& entry : fs::directory_iterator(dataSubdir)) {
         auto name = entry.path().filename().string();
         if (name.size() >= 8 && name.substr(0, 5) == "data.") {
-            try {
-                u32 const idx = std::stoul(name.substr(5));
-                if (idx > maxIndex)
-                    maxIndex = idx;
-            } catch (...) {
-            }
+            u32 const idx = std::stoul(name.substr(5));
+            if (idx > maxIndex)
+                maxIndex = idx;
         }
     }
 

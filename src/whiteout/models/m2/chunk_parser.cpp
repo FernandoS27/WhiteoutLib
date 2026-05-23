@@ -5,19 +5,15 @@
 #include "wow_file_system.h"
 
 #include <cstring>
-#include <stdexcept>
 
 namespace whiteout {
 namespace m2 {
 
 using common::BinaryReader;
 
-ChunkParser::ChunkParser(ParseMode mode) : parseMode(mode) {}
+ChunkParser::ChunkParser() = default;
 
 void ChunkParser::reportIssue(const std::string& message) {
-    if (parseMode == ParseMode::Strict) {
-        throw std::runtime_error(message);
-    }
     issues.push_back(message);
 }
 

@@ -10,7 +10,6 @@
 #include "binary_parse_visitor.h"
 
 #include <fstream>
-#include <stdexcept>
 
 namespace whiteout {
 namespace models {
@@ -24,28 +23,19 @@ using common::BinaryReader;
 
 class Parser::Impl {
 public:
-    Parser::ParseMode parseMode = ParseMode::Lenient;
     std::vector<std::string> issues;
 
     std::optional<Model> parse(BinaryReader& reader) {
         issues.clear();
         Model model;
-        try {
-            BinaryParseVisitor visitor(reader);
-            visitor.read(model);
+        BinaryParseVisitor visitor(reader);
+        visitor.read(model);
 
-            for (const auto& issue : visitor.getIssues()) {
-                reportIssue(issue);
-            }
-        } catch (const std::exception& e) {
-            if (parseMode == ParseMode::Strict) {
-                throw;
-            }
-            reportIssue(std::string("Parse error: ") + e.what());
-            return std::nullopt;
+        for (const auto& issue : visitor.getIssues()) {
+            reportIssue(issue);
         }
 
-        // If the visitor reported fatal issues, return nullopt
+        // If the visitor reported fatal issues, return nullopt.
         for (const auto& issue : issues) {
             if (issue.find("Invalid WEM") != std::string::npos ||
                 issue.find("no model data") != std::string::npos ||
@@ -59,9 +49,6 @@ public:
 
 private:
     void reportIssue(const std::string& message) {
-        if (parseMode == ParseMode::Strict) {
-            throw std::runtime_error(message);
-        }
         issues.push_back(message);
     }
 };
@@ -70,16 +57,15 @@ private:
 // Parser Public Interface
 // ============================================================================
 
-Parser::Parser(ParseMode parseMode) : pImpl(std::make_unique<Impl>()) {
-    pImpl->parseMode = parseMode;
-}
+Parser::Parser() : pImpl(std::make_unique<Impl>()) {}
 
 Parser::~Parser() = default;
 
 std::optional<Model> Parser::parse(const std::string& filePath) {
     auto file = common::open_ifstream(filePath, std::ios::binary);
     if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file: " + filePath);
+        pImpl->issues.push_back("Failed to open file: " + filePath);
+        return std::nullopt;
     }
     BinaryReader reader(file);
     return pImpl->parse(reader);

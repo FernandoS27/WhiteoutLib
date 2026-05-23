@@ -325,44 +325,22 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
     const u32 layerCount = tex.layerCount();
     const bool usePool = pool != nullptr && pool->threadCount() > 1;
 
-    std::optional<std::string> firstError;
-    std::mutex errorMutex;
     std::atomic<bool> hasError{false};
 
     utils::JobGroup jobGroup;
-
-    auto captureError = [&](const std::string& errMsg) {
-        std::lock_guard<std::mutex> const guard(errorMutex);
-        if (!firstError) {
-            firstError = errMsg;
-            hasError.store(true, std::memory_order_release);
-        }
-    };
 
     auto submitJob = [&](const auto& job) {
         if (hasError.load(std::memory_order_acquire))
             return;
         if (!usePool) {
-            try {
-                job();
-            } catch (const std::exception& e) {
-                captureError(std::string("Mipmap generation error: ") + e.what());
-            } catch (...) {
-                captureError("Mipmap generation error: unknown exception");
-            }
+            job();
             return;
         }
 
         interfaces::WorkerTask task;
         task.fn = [&, job]() {
             if (!hasError.load(std::memory_order_acquire)) {
-                try {
-                    job();
-                } catch (const std::exception& e) {
-                    captureError(std::string("Mipmap generation error: ") + e.what());
-                } catch (...) {
-                    captureError("Mipmap generation error: unknown exception");
-                }
+                job();
             }
             jobGroup.done();
         };
@@ -528,7 +506,7 @@ std::optional<std::string> generateMipmaps(Texture& tex, interfaces::WorkerPool*
         if (usePool)
             jobGroup.wait();
     }
-    return firstError;
+    return std::nullopt;
 }
 
 } // namespace whiteout::textures::mipmap

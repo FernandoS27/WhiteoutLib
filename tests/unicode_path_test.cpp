@@ -250,8 +250,7 @@ TEST_CASE("MDX round-trip unicode path", "[unicode_path][mdx]") {
     REQUIRE(fileExists(path));
 
     {
-        mdx::Parser parser(mdx::Parser::ParseMode::Lenient,
-                           mdx::Parser::UpgradeMode::PreserveOriginal);
+        mdx::Parser parser(mdx::Parser::UpgradeMode::PreserveOriginal);
         mdx::Model loaded = parser.parse(path);
         REQUIRE_FALSE(parser.hasIssues());
 

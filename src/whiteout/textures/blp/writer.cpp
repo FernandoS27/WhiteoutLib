@@ -399,9 +399,7 @@ std::vector<u8> Writer::Impl::buildBlp2(const WriteContext& ctx,
     return output;
 }
 
-Writer::Writer(WriteMode writeMode, interfaces::WorkerPool* pool)
-    : pImpl(std::make_unique<Impl>()) {
-    pImpl->strict_mode = (writeMode == WriteMode::Strict);
+Writer::Writer(interfaces::WorkerPool* pool) : pImpl(std::make_unique<Impl>()) {
     pImpl->pool = pool;
 }
 

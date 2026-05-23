@@ -11,11 +11,9 @@
  * It supports uncompressed and RLE-compressed true-color (24/32-bit) and
  * grayscale (8-bit) images.
  *
- * The parser supports two modes:
- * - **Strict** – any issue throws `std::runtime_error`.
- * - **Lenient** (default) – issues are collected and can be queried via
- *   `hasIssues()` / `getIssues()`.  On failure the parse methods return
- *   `std::nullopt`.
+ * Parsing is non-throwing. Issues are collected and can be queried via
+ * `hasIssues()` / `getIssues()`; on failure the parse methods return
+ * `std::nullopt`.
  */
 
 #include <memory>
@@ -38,13 +36,7 @@ namespace whiteout::textures::tga {
 /// @bind methods=buffer_only, js_name=TgaParser
 class Parser : public textures::Parser {
 public:
-    /// @bind js_name=TgaParseMode
-    enum class ParseMode {
-        Strict, ///< Throw on any issue.
-        Lenient ///< Collect issues, return nullopt on failure.
-    };
-
-    explicit Parser(ParseMode parseMode = ParseMode::Lenient);
+    Parser();
     ~Parser();
 
     Parser(const Parser&) = delete;

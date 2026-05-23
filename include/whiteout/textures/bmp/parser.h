@@ -11,11 +11,9 @@
  * It supports 24-bit (RGB) and 32-bit (RGBA) uncompressed BMP images with
  * BITMAPINFOHEADER.
  *
- * The parser supports two modes:
- * - **Strict** – any issue throws `std::runtime_error`.
- * - **Lenient** (default) – issues are collected and can be queried via
- *   `hasIssues()` / `getIssues()`.  On failure the parse methods return
- *   `std::nullopt`.
+ * Parsing is non-throwing. Issues are collected and can be queried via
+ * `hasIssues()` / `getIssues()`; on failure the parse methods return
+ * `std::nullopt`.
  */
 
 #include <memory>
@@ -38,13 +36,7 @@ namespace whiteout::textures::bmp {
 /// @bind methods=buffer_only, js_name=BmpParser
 class Parser : public textures::Parser {
 public:
-    /// @bind js_name=BmpParseMode
-    enum class ParseMode {
-        Strict, ///< Throw on any issue.
-        Lenient ///< Collect issues, return nullopt on failure.
-    };
-
-    explicit Parser(ParseMode parseMode = ParseMode::Lenient);
+    Parser();
     ~Parser();
 
     Parser(const Parser&) = delete;

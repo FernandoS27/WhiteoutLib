@@ -10,11 +10,9 @@
  * This file provides the Parser class for reading and decoding DDS texture files.
  * It supports legacy DDS headers and DX10 extended headers.
  *
- * The parser supports two modes:
- * - **Strict** – any issue throws `std::runtime_error`.
- * - **Lenient** (default) – issues are collected and can be queried via
- *   `hasIssues()` / `getIssues()`.  On failure the parse methods return
- *   `std::nullopt`.
+ * Parsing is non-throwing. Issues are collected and can be queried via
+ * `hasIssues()` / `getIssues()`; on failure the parse methods return
+ * `std::nullopt`.
  */
 
 #include <memory>
@@ -37,13 +35,7 @@ namespace whiteout::textures::dds {
 /// @bind methods=buffer_only, js_name=DdsParser
 class Parser : public textures::Parser {
 public:
-    /// @bind js_name=DdsParseMode
-    enum class ParseMode {
-        Strict, ///< Throw on any issue.
-        Lenient ///< Collect issues, return nullopt on failure.
-    };
-
-    explicit Parser(ParseMode parseMode = ParseMode::Lenient);
+    Parser();
     ~Parser();
 
     Parser(const Parser&) = delete;

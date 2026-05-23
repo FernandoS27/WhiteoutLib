@@ -13,7 +13,7 @@
  *
  * @example Basic parsing
  * @code
- * blp::Parser parser(blp::Parser::ParseMode::Lenient);
+ * blp::Parser parser;
  * auto texture = parser.parse("texture.blp");
  *
  * if (parser.hasIssues()) {
@@ -44,28 +44,18 @@ namespace whiteout::textures::blp {
  * @brief Parser for BLP texture files
  *
  * The Parser reads binary BLP files and converts them into the Texture
- * structure. It supports multiple parsing modes and can handle both BLP1
- * (Warcraft III) and BLP2 (World of Warcraft) variants.
+ * structure. It can handle both BLP1 (Warcraft III) and BLP2 (World of
+ * Warcraft) variants. Parsing is non-throwing — issues are collected via
+ * `hasIssues()` / `getIssues()` and `parse()` returns `std::nullopt` on
+ * failure.
  *
  * Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
  */
 /// @bind methods=buffer_only, js_name=BlpParser
 class Parser : public textures::Parser {
 public:
-    /**
-     * @brief Parsing strictness mode
-     */
-    /// @bind js_name=BlpParseMode
-    enum class ParseMode {
-        Strict, ///< Throw exceptions on invalid data
-        Lenient ///< Try to recover from errors and log issues (recommended)
-    };
-
-    /**
-     * @brief Construct a new Parser
-     * @param parseMode Strictness mode for parsing
-     */
-    explicit Parser(ParseMode parseMode = ParseMode::Lenient);
+    /// @brief Construct a new Parser.
+    Parser();
 
     /// @brief Destructor (defined in .cpp for incomplete type)
     ~Parser();
@@ -73,15 +63,14 @@ public:
     /**
      * @brief Parse a BLP file from disk
      * @param filePath Path to the BLP file
-     * @return Parsed texture data, or std::nullopt on failure (in Lenient mode)
-     * @throws std::runtime_error If file cannot be opened or parsing fails in strict mode
+     * @return Parsed texture data, or std::nullopt on failure
      */
     std::optional<Texture> parse(const std::string& filePath) override;
 
     /**
      * @brief Parse a BLP file from memory buffer
      * @param buffer Memory buffer containing BLP data
-     * @return Parsed texture data, or std::nullopt on failure (in Lenient mode)
+     * @return Parsed texture data, or std::nullopt on failure
      * @throws std::runtime_error If parsing fails in strict mode
      */
     std::optional<Texture> parse(std::span<const u8> buffer) override;

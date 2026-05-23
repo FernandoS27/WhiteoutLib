@@ -136,9 +136,7 @@ std::vector<u8> Writer::Impl::write(const Texture& texture) {
     return output;
 }
 
-Writer::Writer(WriteMode writeMode) : pImpl(std::make_unique<Impl>()) {
-    pImpl->strict_mode = (writeMode == WriteMode::Strict);
-}
+Writer::Writer() : pImpl(std::make_unique<Impl>()) {}
 
 Writer::~Writer() = default;
 

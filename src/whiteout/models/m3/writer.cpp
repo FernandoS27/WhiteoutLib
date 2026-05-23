@@ -40,7 +40,8 @@ Writer::~Writer() = default;
 void Writer::write(const std::string& filePath, const Model& model) {
     auto file = common::open_ofstream(filePath, std::ios::binary);
     if (!file.is_open()) {
-        throw std::runtime_error("Failed to open M3 file for writing: " + filePath);
+        // Non-throwing: silently fail. Caller can verify via filesystem if needed.
+        return;
     }
     BinaryWriter writer(file);
     pImpl->writeToWriter(writer, model);
