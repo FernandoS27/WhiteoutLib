@@ -56,7 +56,10 @@ typedef enum {
 typedef struct whiteout_Texture whiteout_Texture;
 typedef struct whiteout_BlpParser whiteout_BlpParser;
 typedef struct whiteout_BlpWriter whiteout_BlpWriter;
+typedef struct whiteout_PngApngFrameInfo whiteout_PngApngFrameInfo;
 typedef struct whiteout_PngParser whiteout_PngParser;
+typedef struct whiteout_PngApngFrame whiteout_PngApngFrame;
+typedef struct whiteout_PngApngSaveOptions whiteout_PngApngSaveOptions;
 typedef struct whiteout_PngWriter whiteout_PngWriter;
 typedef struct whiteout_JpegParser whiteout_JpegParser;
 typedef struct whiteout_JpegWriter whiteout_JpegWriter;
@@ -198,9 +201,39 @@ whiteout_Bytes whiteout_textures_BlpWriter_write(whiteout_BlpWriter* self, struc
 /* Check if writing encountered any issues @return True if there were warnings or recoverable errors */
 int32_t whiteout_textures_BlpWriter_hasIssues(const whiteout_BlpWriter* self);
 
+/* ── PngApngFrameInfo ─────────────────────────────────────────────── */
+
+/* Per-frame metadata for an animated PNG (APNG). */
+whiteout_PngApngFrameInfo* whiteout_textures_PngApngFrameInfo_new(void);
+void whiteout_textures_PngApngFrameInfo_delete(whiteout_PngApngFrameInfo* self);
+
+/* Frame sub-rectangle width. */
+uint32_t whiteout_textures_PngApngFrameInfo_get_width(const whiteout_PngApngFrameInfo* self);
+void whiteout_textures_PngApngFrameInfo_set_width(whiteout_PngApngFrameInfo* self, uint32_t value);
+/* Frame sub-rectangle height. */
+uint32_t whiteout_textures_PngApngFrameInfo_get_height(const whiteout_PngApngFrameInfo* self);
+void whiteout_textures_PngApngFrameInfo_set_height(whiteout_PngApngFrameInfo* self, uint32_t value);
+/* Frame sub-rectangle X offset on the canvas. */
+uint32_t whiteout_textures_PngApngFrameInfo_get_xOffset(const whiteout_PngApngFrameInfo* self);
+void whiteout_textures_PngApngFrameInfo_set_xOffset(whiteout_PngApngFrameInfo* self, uint32_t value);
+/* Frame sub-rectangle Y offset on the canvas. */
+uint32_t whiteout_textures_PngApngFrameInfo_get_yOffset(const whiteout_PngApngFrameInfo* self);
+void whiteout_textures_PngApngFrameInfo_set_yOffset(whiteout_PngApngFrameInfo* self, uint32_t value);
+/* Frame display duration in milliseconds. */
+uint32_t whiteout_textures_PngApngFrameInfo_get_delayMs(const whiteout_PngApngFrameInfo* self);
+void whiteout_textures_PngApngFrameInfo_set_delayMs(whiteout_PngApngFrameInfo* self, uint32_t value);
+/* 0 = NONE, 1 = BACKGROUND, 2 = PREVIOUS. */
+uint32_t whiteout_textures_PngApngFrameInfo_get_disposeOp(const whiteout_PngApngFrameInfo* self);
+void whiteout_textures_PngApngFrameInfo_set_disposeOp(whiteout_PngApngFrameInfo* self, uint32_t value);
+/* 0 = SOURCE, 1 = OVER. */
+uint32_t whiteout_textures_PngApngFrameInfo_get_blendOp(const whiteout_PngApngFrameInfo* self);
+void whiteout_textures_PngApngFrameInfo_set_blendOp(whiteout_PngApngFrameInfo* self, uint32_t value);
+
 /* ── PngParser ─────────────────────────────────────────────── */
 
 /* Reads a PNG file or byte buffer and decodes it into a Texture. */
+/*  */
+/* Animated PNG (APNG) is supported: `parse()` still returns the single default image, while the animation frames are exposed via `isAnimated()`, `frameCount()`, `frame()`, `frameDelayMs()` and `frameInfo()`. */
 whiteout_PngParser* whiteout_textures_PngParser_new(void);
 whiteout_PngParser* whiteout_textures_PngParser_new_parseMode(int32_t parseMode);
 void whiteout_textures_PngParser_delete(whiteout_PngParser* self);
@@ -209,16 +242,57 @@ void whiteout_textures_PngParser_delete(whiteout_PngParser* self);
 struct whiteout_Texture* whiteout_textures_PngParser_parse(whiteout_PngParser* self, const uint8_t* buffer, size_t buffer_size);
 /* @return true if the last parse produced any issues. */
 int32_t whiteout_textures_PngParser_hasIssues(const whiteout_PngParser* self);
+/* @return true if the last parsed PNG carried APNG animation chunks. */
+int32_t whiteout_textures_PngParser_isAnimated(const whiteout_PngParser* self);
+/* @return number of animation frames (0 when not animated). */
+uint32_t whiteout_textures_PngParser_frameCount(const whiteout_PngParser* self);
+/* @return APNG loop count from the `acTL` chunk; 0 means loop forever. */
+uint32_t whiteout_textures_PngParser_loopCount(const whiteout_PngParser* self);
+/* @return animation frame @p index, fully composited to the canvas size as an RGBA8 texture. In lenient mode an out-of-range index yields an empty texture; in strict mode it throws. @param index Zero-based frame index. */
+struct whiteout_Texture* whiteout_textures_PngParser_frame(const whiteout_PngParser* self, uint32_t index);
+/* @return display duration of frame @p index in milliseconds. @param index Zero-based frame index. */
+uint32_t whiteout_textures_PngParser_frameDelayMs(const whiteout_PngParser* self, uint32_t index);
+/* @return raw per-frame metadata for frame @p index. @param index Zero-based frame index. */
+struct whiteout_PngApngFrameInfo* whiteout_textures_PngParser_frameInfo(const whiteout_PngParser* self, uint32_t index);
+
+/* ── PngApngFrame ─────────────────────────────────────────────── */
+
+/* One frame of an animated PNG (APNG), with its display duration. */
+whiteout_PngApngFrame* whiteout_textures_PngApngFrame_new(void);
+void whiteout_textures_PngApngFrame_delete(whiteout_PngApngFrame* self);
+
+/* Full-canvas frame image (converted to RGBA8 on write). */
+whiteout_Texture* whiteout_textures_PngApngFrame_get_image(whiteout_PngApngFrame* self);
+void whiteout_textures_PngApngFrame_set_image(whiteout_PngApngFrame* self, const whiteout_Texture* value);
+/* Display duration in milliseconds. */
+uint32_t whiteout_textures_PngApngFrame_get_delayMs(const whiteout_PngApngFrame* self);
+void whiteout_textures_PngApngFrame_set_delayMs(whiteout_PngApngFrame* self, uint32_t value);
+
+/* ── PngApngSaveOptions ─────────────────────────────────────────────── */
+
+/* Options controlling animated PNG (APNG) encoding. */
+whiteout_PngApngSaveOptions* whiteout_textures_PngApngSaveOptions_new(void);
+void whiteout_textures_PngApngSaveOptions_delete(whiteout_PngApngSaveOptions* self);
+
+/* Number of times to loop; 0 means loop forever. */
+uint32_t whiteout_textures_PngApngSaveOptions_get_loopCount(const whiteout_PngApngSaveOptions* self);
+void whiteout_textures_PngApngSaveOptions_set_loopCount(whiteout_PngApngSaveOptions* self, uint32_t value);
 
 /* ── PngWriter ─────────────────────────────────────────────── */
 
 /* Encodes a Texture into PNG format. */
+/*  */
+/* In addition to single-image PNG, the writer can emit an animated PNG (APNG) from a sequence of frames via `writeAnimated()`. Each frame is written full-canvas with no inter-frame optimisation. */
 whiteout_PngWriter* whiteout_textures_PngWriter_new(void);
 whiteout_PngWriter* whiteout_textures_PngWriter_new_writeMode(int32_t writeMode);
 void whiteout_textures_PngWriter_delete(whiteout_PngWriter* self);
 
 /* Serialize the texture to a PNG byte buffer. */
 whiteout_Bytes whiteout_textures_PngWriter_write(whiteout_PngWriter* self, struct whiteout_Texture* texture);
+/* Serialize a sequence of frames into an animated PNG (APNG) byte buffer. */
+/*  */
+/* All frames must share the same dimensions (frame 0 defines the canvas). Each frame is emitted full-canvas with disposal NONE and blend SOURCE. Returns an empty buffer on failure (lenient mode). @param frames Ordered animation frames; must be non-empty. @param opts   Encoding options (loop count). */
+whiteout_Bytes whiteout_textures_PngWriter_writeAnimated(whiteout_PngWriter* self, const struct whiteout_PngApngFrame* const* frames, size_t frames_size, struct whiteout_PngApngSaveOptions* opts);
 /* @return true if the last write produced any issues. */
 int32_t whiteout_textures_PngWriter_hasIssues(const whiteout_PngWriter* self);
 
@@ -336,6 +410,9 @@ void whiteout_textures_GifSaveOptions_set_dither(whiteout_GifSaveOptions* self, 
 /* Dither strength in [0, 1].  0 = no visible dithering, 1 = full. */
 float whiteout_textures_GifSaveOptions_get_ditherStrength(const whiteout_GifSaveOptions* self);
 void whiteout_textures_GifSaveOptions_set_ditherStrength(whiteout_GifSaveOptions* self, float value);
+/* Emit a transparent background. Pixels whose source alpha is below 50% become the GIF's transparent palette index; the rest are quantised normally. GIF transparency is 1-bit, so partially-covered (anti- aliased) edge pixels are forced fully opaque or fully transparent. */
+int32_t whiteout_textures_GifSaveOptions_get_transparent(const whiteout_GifSaveOptions* self);
+void whiteout_textures_GifSaveOptions_set_transparent(whiteout_GifSaveOptions* self, int32_t value);
 
 /* ── GifWriter ─────────────────────────────────────────────── */
 

@@ -165,6 +165,7 @@ EMSCRIPTEN_BINDINGS(textures) {
         .field("loopCount", &whiteout::textures::gif::SaveOptions::loopCount)
         .field("dither", &whiteout::textures::gif::SaveOptions::dither)
         .field("ditherStrength", &whiteout::textures::gif::SaveOptions::ditherStrength)
+        .field("transparent", &whiteout::textures::gif::SaveOptions::transparent)
     ;
 
     // ── Classes ──────────────────────────────────────────────────────────

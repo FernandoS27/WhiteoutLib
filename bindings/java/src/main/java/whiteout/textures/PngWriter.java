@@ -11,6 +11,8 @@ import whiteout.textures.internal.Native;
 
 /**
  * Encodes a Texture into PNG format.
+ * 
+ * In addition to single-image PNG, the writer can emit an animated PNG (APNG) from a sequence of frames via `writeAnimated()`. Each frame is written full-canvas with no inter-frame optimisation.
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * Writer allocation. Always release them with
@@ -77,6 +79,36 @@ public final class PngWriter implements AutoCloseable {
     public byte[] write(Texture texture) {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment __struct = (MemorySegment) Native.whiteout_textures_PngWriter_write.invoke(arena, handle, texture == null ? MemorySegment.NULL : texture.handle);
+            MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
+            long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
+            if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
+            byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
+            Native.whiteout_Bytes_free.invoke(__struct);
+            return __out;
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
+    /**
+     * Serialize a sequence of frames into an animated PNG (APNG) byte buffer.
+     * 
+     * All frames must share the same dimensions (frame 0 defines the canvas). Each frame is emitted full-canvas with disposal NONE and blend SOURCE. Returns an empty buffer on failure (lenient mode). @param frames Ordered animation frames; must be non-empty. @param opts   Encoding options (loop count).
+     *
+     * @param frames PngApngFrame[] input.
+     * @param opts PngApngSaveOptions input.
+     * @return a fresh byte[] copied out of native memory.
+     */
+    public byte[] writeAnimated(PngApngFrame[] frames, PngApngSaveOptions opts) {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment frames_seg = frames == null || frames.length == 0
+                ? MemorySegment.NULL
+                : arena.allocate(ValueLayout.ADDRESS, frames.length);
+            if (frames != null) {
+                for (int __i = 0; __i < frames.length; ++__i) {
+                    frames_seg.setAtIndex(ValueLayout.ADDRESS, __i,
+                        frames[__i] == null ? MemorySegment.NULL : frames[__i].handle);
+                }
+            }
+            MemorySegment __struct = (MemorySegment) Native.whiteout_textures_PngWriter_writeAnimated.invoke(arena, handle, frames_seg, (long) (frames == null ? 0 : frames.length), opts == null ? MemorySegment.NULL : opts.handle);
             MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
             long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];

@@ -28,7 +28,7 @@ import whiteout.textures.internal.Native;
  * external access if a handle is shared across threads.
  */
 public final class GifSaveOptions implements AutoCloseable {
-    private static final long BYTES = 12L;
+    private static final long BYTES = 16L;
 
     final MemorySegment handle;
     final boolean owned;
@@ -99,8 +99,18 @@ public final class GifSaveOptions implements AutoCloseable {
     public void setDitherStrength(float value) {
         handle.set(ValueLayout.JAVA_FLOAT, 8L, value);
     }
+    /**
+     * Emit a transparent background. Pixels whose source alpha is below 50% become the GIF's transparent palette index; the rest are quantised normally. GIF transparency is 1-bit, so partially-covered (anti- aliased) edge pixels are forced fully opaque or fully transparent.
+     * @return the transparent field of this GifSaveOptions.
+     */
+    public boolean getTransparent() {
+        return handle.get(ValueLayout.JAVA_BYTE, 12L) != 0;
+    }
+    public void setTransparent(boolean value) {
+        handle.set(ValueLayout.JAVA_BYTE, 12L, (byte) (value ? 1 : 0));
+    }
     @Override public String toString() {
-        return "GifSaveOptions(" + "delayCs=" + getDelayCs() + ", " + "loopCount=" + getLoopCount() + ", " + "dither=" + getDither() + ", " + "ditherStrength=" + getDitherStrength() + ")";
+        return "GifSaveOptions(" + "delayCs=" + getDelayCs() + ", " + "loopCount=" + getLoopCount() + ", " + "dither=" + getDither() + ", " + "ditherStrength=" + getDitherStrength() + ", " + "transparent=" + getTransparent() + ")";
     }
 
 }

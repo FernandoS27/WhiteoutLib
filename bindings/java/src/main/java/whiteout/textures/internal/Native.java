@@ -101,6 +101,26 @@ public final class Native {
     public static final MethodHandle whiteout_textures_BlpWriter_hasIssues = find(
         "whiteout_textures_BlpWriter_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
 
+    // -- PngApngFrameInfo --
+    public static final MethodHandle whiteout_textures_PngApngFrameInfo_new = find(
+        "whiteout_textures_PngApngFrameInfo_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngApngFrameInfo_delete = find(
+        "whiteout_textures_PngApngFrameInfo_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngApngFrameInfo_get_width = find("whiteout_textures_PngApngFrameInfo_get_width", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngApngFrameInfo_set_width = find("whiteout_textures_PngApngFrameInfo_set_width", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_textures_PngApngFrameInfo_get_height = find("whiteout_textures_PngApngFrameInfo_get_height", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngApngFrameInfo_set_height = find("whiteout_textures_PngApngFrameInfo_set_height", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_textures_PngApngFrameInfo_get_xOffset = find("whiteout_textures_PngApngFrameInfo_get_xOffset", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngApngFrameInfo_set_xOffset = find("whiteout_textures_PngApngFrameInfo_set_xOffset", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_textures_PngApngFrameInfo_get_yOffset = find("whiteout_textures_PngApngFrameInfo_get_yOffset", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngApngFrameInfo_set_yOffset = find("whiteout_textures_PngApngFrameInfo_set_yOffset", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_textures_PngApngFrameInfo_get_delayMs = find("whiteout_textures_PngApngFrameInfo_get_delayMs", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngApngFrameInfo_set_delayMs = find("whiteout_textures_PngApngFrameInfo_set_delayMs", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_textures_PngApngFrameInfo_get_disposeOp = find("whiteout_textures_PngApngFrameInfo_get_disposeOp", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngApngFrameInfo_set_disposeOp = find("whiteout_textures_PngApngFrameInfo_set_disposeOp", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_textures_PngApngFrameInfo_get_blendOp = find("whiteout_textures_PngApngFrameInfo_get_blendOp", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngApngFrameInfo_set_blendOp = find("whiteout_textures_PngApngFrameInfo_set_blendOp", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+
     // -- PngParser --
     public static final MethodHandle whiteout_textures_PngParser_new = find(
         "whiteout_textures_PngParser_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
@@ -112,6 +132,36 @@ public final class Native {
         "whiteout_textures_PngParser_parse", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_textures_PngParser_hasIssues = find(
         "whiteout_textures_PngParser_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngParser_isAnimated = find(
+        "whiteout_textures_PngParser_isAnimated", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngParser_frameCount = find(
+        "whiteout_textures_PngParser_frameCount", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngParser_loopCount = find(
+        "whiteout_textures_PngParser_loopCount", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngParser_frame = find(
+        "whiteout_textures_PngParser_frame", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_textures_PngParser_frameDelayMs = find(
+        "whiteout_textures_PngParser_frameDelayMs", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_textures_PngParser_frameInfo = find(
+        "whiteout_textures_PngParser_frameInfo", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+
+    // -- PngApngFrame --
+    public static final MethodHandle whiteout_textures_PngApngFrame_new = find(
+        "whiteout_textures_PngApngFrame_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngApngFrame_delete = find(
+        "whiteout_textures_PngApngFrame_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngApngFrame_get_image = find("whiteout_textures_PngApngFrame_get_image", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngApngFrame_set_image = find("whiteout_textures_PngApngFrame_set_image", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngApngFrame_get_delayMs = find("whiteout_textures_PngApngFrame_get_delayMs", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngApngFrame_set_delayMs = find("whiteout_textures_PngApngFrame_set_delayMs", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+
+    // -- PngApngSaveOptions --
+    public static final MethodHandle whiteout_textures_PngApngSaveOptions_new = find(
+        "whiteout_textures_PngApngSaveOptions_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngApngSaveOptions_delete = find(
+        "whiteout_textures_PngApngSaveOptions_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngApngSaveOptions_get_loopCount = find("whiteout_textures_PngApngSaveOptions_get_loopCount", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngApngSaveOptions_set_loopCount = find("whiteout_textures_PngApngSaveOptions_set_loopCount", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
 
     // -- PngWriter --
     public static final MethodHandle whiteout_textures_PngWriter_new = find(
@@ -122,6 +172,8 @@ public final class Native {
         "whiteout_textures_PngWriter_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_textures_PngWriter_write = find(
         "whiteout_textures_PngWriter_write", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngWriter_writeAnimated = find(
+        "whiteout_textures_PngWriter_writeAnimated", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_textures_PngWriter_hasIssues = find(
         "whiteout_textures_PngWriter_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
 
@@ -234,6 +286,8 @@ public final class Native {
     public static final MethodHandle whiteout_textures_GifSaveOptions_set_dither = find("whiteout_textures_GifSaveOptions_set_dither", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_textures_GifSaveOptions_get_ditherStrength = find("whiteout_textures_GifSaveOptions_get_ditherStrength", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_textures_GifSaveOptions_set_ditherStrength = find("whiteout_textures_GifSaveOptions_set_ditherStrength", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_textures_GifSaveOptions_get_transparent = find("whiteout_textures_GifSaveOptions_get_transparent", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_GifSaveOptions_set_transparent = find("whiteout_textures_GifSaveOptions_set_transparent", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
 
     // -- GifWriter --
     public static final MethodHandle whiteout_textures_GifWriter_new = find(

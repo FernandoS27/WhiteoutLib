@@ -248,6 +248,76 @@ int32_t whiteout_textures_BlpWriter_hasIssues(const whiteout_BlpWriter* self) {
 
 } // extern "C"
 
+// ── PngApngFrameInfo ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_PngApngFrameInfo* whiteout_textures_PngApngFrameInfo_new(void) {
+    return reinterpret_cast<whiteout_PngApngFrameInfo*>(new whiteout::textures::png::ApngFrameInfo());
+}
+
+void whiteout_textures_PngApngFrameInfo_delete(whiteout_PngApngFrameInfo* self) {
+    delete reinterpret_cast<whiteout::textures::png::ApngFrameInfo*>(self);
+}
+
+uint32_t whiteout_textures_PngApngFrameInfo_get_width(const whiteout_PngApngFrameInfo* self) {
+    return reinterpret_cast<const whiteout::textures::png::ApngFrameInfo*>(self)->width;
+}
+
+void whiteout_textures_PngApngFrameInfo_set_width(whiteout_PngApngFrameInfo* self, uint32_t value) {
+    reinterpret_cast<whiteout::textures::png::ApngFrameInfo*>(self)->width = value;
+}
+
+uint32_t whiteout_textures_PngApngFrameInfo_get_height(const whiteout_PngApngFrameInfo* self) {
+    return reinterpret_cast<const whiteout::textures::png::ApngFrameInfo*>(self)->height;
+}
+
+void whiteout_textures_PngApngFrameInfo_set_height(whiteout_PngApngFrameInfo* self, uint32_t value) {
+    reinterpret_cast<whiteout::textures::png::ApngFrameInfo*>(self)->height = value;
+}
+
+uint32_t whiteout_textures_PngApngFrameInfo_get_xOffset(const whiteout_PngApngFrameInfo* self) {
+    return reinterpret_cast<const whiteout::textures::png::ApngFrameInfo*>(self)->xOffset;
+}
+
+void whiteout_textures_PngApngFrameInfo_set_xOffset(whiteout_PngApngFrameInfo* self, uint32_t value) {
+    reinterpret_cast<whiteout::textures::png::ApngFrameInfo*>(self)->xOffset = value;
+}
+
+uint32_t whiteout_textures_PngApngFrameInfo_get_yOffset(const whiteout_PngApngFrameInfo* self) {
+    return reinterpret_cast<const whiteout::textures::png::ApngFrameInfo*>(self)->yOffset;
+}
+
+void whiteout_textures_PngApngFrameInfo_set_yOffset(whiteout_PngApngFrameInfo* self, uint32_t value) {
+    reinterpret_cast<whiteout::textures::png::ApngFrameInfo*>(self)->yOffset = value;
+}
+
+uint32_t whiteout_textures_PngApngFrameInfo_get_delayMs(const whiteout_PngApngFrameInfo* self) {
+    return reinterpret_cast<const whiteout::textures::png::ApngFrameInfo*>(self)->delayMs;
+}
+
+void whiteout_textures_PngApngFrameInfo_set_delayMs(whiteout_PngApngFrameInfo* self, uint32_t value) {
+    reinterpret_cast<whiteout::textures::png::ApngFrameInfo*>(self)->delayMs = value;
+}
+
+uint32_t whiteout_textures_PngApngFrameInfo_get_disposeOp(const whiteout_PngApngFrameInfo* self) {
+    return reinterpret_cast<const whiteout::textures::png::ApngFrameInfo*>(self)->disposeOp;
+}
+
+void whiteout_textures_PngApngFrameInfo_set_disposeOp(whiteout_PngApngFrameInfo* self, uint32_t value) {
+    reinterpret_cast<whiteout::textures::png::ApngFrameInfo*>(self)->disposeOp = value;
+}
+
+uint32_t whiteout_textures_PngApngFrameInfo_get_blendOp(const whiteout_PngApngFrameInfo* self) {
+    return reinterpret_cast<const whiteout::textures::png::ApngFrameInfo*>(self)->blendOp;
+}
+
+void whiteout_textures_PngApngFrameInfo_set_blendOp(whiteout_PngApngFrameInfo* self, uint32_t value) {
+    reinterpret_cast<whiteout::textures::png::ApngFrameInfo*>(self)->blendOp = value;
+}
+
+} // extern "C"
+
 // ── PngParser ─────────────────────────────────────────────────
 
 extern "C" {
@@ -275,6 +345,86 @@ int32_t whiteout_textures_PngParser_hasIssues(const whiteout_PngParser* self) {
     return reinterpret_cast<const whiteout::textures::png::Parser*>(self)->hasIssues();
 }
 
+int32_t whiteout_textures_PngParser_isAnimated(const whiteout_PngParser* self) {
+    return reinterpret_cast<const whiteout::textures::png::Parser*>(self)->isAnimated();
+}
+
+uint32_t whiteout_textures_PngParser_frameCount(const whiteout_PngParser* self) {
+    return reinterpret_cast<const whiteout::textures::png::Parser*>(self)->frameCount();
+}
+
+uint32_t whiteout_textures_PngParser_loopCount(const whiteout_PngParser* self) {
+    return reinterpret_cast<const whiteout::textures::png::Parser*>(self)->loopCount();
+}
+
+struct whiteout_Texture* whiteout_textures_PngParser_frame(const whiteout_PngParser* self, uint32_t index) {
+    auto& __r = reinterpret_cast<const whiteout::textures::png::Parser*>(self)->frame(index);
+    return const_cast<struct whiteout_Texture*>(
+        reinterpret_cast<const struct whiteout_Texture*>(&__r));
+}
+
+uint32_t whiteout_textures_PngParser_frameDelayMs(const whiteout_PngParser* self, uint32_t index) {
+    return reinterpret_cast<const whiteout::textures::png::Parser*>(self)->frameDelayMs(index);
+}
+
+struct whiteout_PngApngFrameInfo* whiteout_textures_PngParser_frameInfo(const whiteout_PngParser* self, uint32_t index) {
+    auto& __r = reinterpret_cast<const whiteout::textures::png::Parser*>(self)->frameInfo(index);
+    return const_cast<struct whiteout_PngApngFrameInfo*>(
+        reinterpret_cast<const struct whiteout_PngApngFrameInfo*>(&__r));
+}
+
+} // extern "C"
+
+// ── PngApngFrame ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_PngApngFrame* whiteout_textures_PngApngFrame_new(void) {
+    return reinterpret_cast<whiteout_PngApngFrame*>(new whiteout::textures::png::ApngFrame());
+}
+
+void whiteout_textures_PngApngFrame_delete(whiteout_PngApngFrame* self) {
+    delete reinterpret_cast<whiteout::textures::png::ApngFrame*>(self);
+}
+
+whiteout_Texture* whiteout_textures_PngApngFrame_get_image(whiteout_PngApngFrame* self) {
+    return reinterpret_cast<whiteout_Texture*>(&reinterpret_cast<whiteout::textures::png::ApngFrame*>(self)->image);
+}
+
+void whiteout_textures_PngApngFrame_set_image(whiteout_PngApngFrame* self, const whiteout_Texture* value) {
+    reinterpret_cast<whiteout::textures::png::ApngFrame*>(self)->image = *reinterpret_cast<const whiteout::textures::Texture*>(value);
+}
+
+uint32_t whiteout_textures_PngApngFrame_get_delayMs(const whiteout_PngApngFrame* self) {
+    return reinterpret_cast<const whiteout::textures::png::ApngFrame*>(self)->delayMs;
+}
+
+void whiteout_textures_PngApngFrame_set_delayMs(whiteout_PngApngFrame* self, uint32_t value) {
+    reinterpret_cast<whiteout::textures::png::ApngFrame*>(self)->delayMs = value;
+}
+
+} // extern "C"
+
+// ── PngApngSaveOptions ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_PngApngSaveOptions* whiteout_textures_PngApngSaveOptions_new(void) {
+    return reinterpret_cast<whiteout_PngApngSaveOptions*>(new whiteout::textures::png::ApngSaveOptions());
+}
+
+void whiteout_textures_PngApngSaveOptions_delete(whiteout_PngApngSaveOptions* self) {
+    delete reinterpret_cast<whiteout::textures::png::ApngSaveOptions*>(self);
+}
+
+uint32_t whiteout_textures_PngApngSaveOptions_get_loopCount(const whiteout_PngApngSaveOptions* self) {
+    return reinterpret_cast<const whiteout::textures::png::ApngSaveOptions*>(self)->loopCount;
+}
+
+void whiteout_textures_PngApngSaveOptions_set_loopCount(whiteout_PngApngSaveOptions* self, uint32_t value) {
+    reinterpret_cast<whiteout::textures::png::ApngSaveOptions*>(self)->loopCount = value;
+}
+
 } // extern "C"
 
 // ── PngWriter ─────────────────────────────────────────────────
@@ -295,6 +445,10 @@ void whiteout_textures_PngWriter_delete(whiteout_PngWriter* self) {
 
 whiteout_Bytes whiteout_textures_PngWriter_write(whiteout_PngWriter* self, struct whiteout_Texture* texture) {
     return wrapBytes(reinterpret_cast<whiteout::textures::png::Writer*>(self)->write(*reinterpret_cast<const whiteout::textures::Texture*>(texture)));
+}
+
+whiteout_Bytes whiteout_textures_PngWriter_writeAnimated(whiteout_PngWriter* self, const struct whiteout_PngApngFrame* const* frames, size_t frames_size, struct whiteout_PngApngSaveOptions* opts) {
+    return wrapBytes(reinterpret_cast<whiteout::textures::png::Writer*>(self)->writeAnimated(([&]{ std::vector<whiteout::textures::png::ApngFrame> __v; __v.reserve(frames_size); for (size_t __i = 0; __i < frames_size; ++__i) __v.emplace_back(*reinterpret_cast<const whiteout::textures::png::ApngFrame*>(frames[__i])); return __v; })(), *reinterpret_cast<const whiteout::textures::png::ApngSaveOptions*>(opts)));
 }
 
 int32_t whiteout_textures_PngWriter_hasIssues(const whiteout_PngWriter* self) {
@@ -565,6 +719,14 @@ float whiteout_textures_GifSaveOptions_get_ditherStrength(const whiteout_GifSave
 
 void whiteout_textures_GifSaveOptions_set_ditherStrength(whiteout_GifSaveOptions* self, float value) {
     reinterpret_cast<whiteout::textures::gif::SaveOptions*>(self)->ditherStrength = value;
+}
+
+int32_t whiteout_textures_GifSaveOptions_get_transparent(const whiteout_GifSaveOptions* self) {
+    return reinterpret_cast<const whiteout::textures::gif::SaveOptions*>(self)->transparent;
+}
+
+void whiteout_textures_GifSaveOptions_set_transparent(whiteout_GifSaveOptions* self, int32_t value) {
+    reinterpret_cast<whiteout::textures::gif::SaveOptions*>(self)->transparent = value;
 }
 
 } // extern "C"

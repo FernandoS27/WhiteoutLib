@@ -11,6 +11,8 @@ import whiteout.textures.internal.Native;
 
 /**
  * Reads a PNG file or byte buffer and decodes it into a Texture.
+ * 
+ * Animated PNG (APNG) is supported: `parse()` still returns the single default image, while the animation frames are exposed via `isAnimated()`, `frameCount()`, `frame()`, `frameDelayMs()` and `frameInfo()`.
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * Parser allocation. Always release them with
@@ -90,6 +92,68 @@ public final class PngParser implements AutoCloseable {
     public boolean hasIssues() {
         try {
         return ((int) Native.whiteout_textures_PngParser_hasIssues.invoke(handle)) != 0;
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
+    /**
+     * @return true if the last parsed PNG carried APNG animation chunks.
+     */
+    public boolean isAnimated() {
+        try {
+        return ((int) Native.whiteout_textures_PngParser_isAnimated.invoke(handle)) != 0;
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
+    /**
+     * @return number of animation frames (0 when not animated).
+     */
+    public int frameCount() {
+        try {
+        return (int) Native.whiteout_textures_PngParser_frameCount.invoke(handle);
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
+    /**
+     * @return APNG loop count from the `acTL` chunk; 0 means loop forever.
+     */
+    public int loopCount() {
+        try {
+        return (int) Native.whiteout_textures_PngParser_loopCount.invoke(handle);
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
+    /**
+     * @return animation frame @p index, fully composited to the canvas size as an RGBA8 texture. In lenient mode an out-of-range index yields an empty texture; in strict mode it throws. @param index Zero-based frame index.
+     *
+     * @param index int input.
+     */
+    public Texture frame(int index) {
+        try {
+        MemorySegment __h = (MemorySegment) Native.whiteout_textures_PngParser_frame.invoke(handle, index);
+        return new Texture(__h, false);
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
+    /**
+     * @return display duration of frame @p index in milliseconds. @param index Zero-based frame index.
+     *
+     * @param index int input.
+     */
+    public int frameDelayMs(int index) {
+        try {
+        return (int) Native.whiteout_textures_PngParser_frameDelayMs.invoke(handle, index);
+        } catch (Throwable __ex) { throw new RuntimeException(__ex); }
+    }
+
+    /**
+     * @return raw per-frame metadata for frame @p index. @param index Zero-based frame index.
+     *
+     * @param index int input.
+     */
+    public PngApngFrameInfo frameInfo(int index) {
+        try {
+        MemorySegment __h = (MemorySegment) Native.whiteout_textures_PngParser_frameInfo.invoke(handle, index);
+        return new PngApngFrameInfo(__h, false);
         } catch (Throwable __ex) { throw new RuntimeException(__ex); }
     }
 

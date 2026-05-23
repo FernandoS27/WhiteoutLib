@@ -194,22 +194,24 @@ Uncompressed formats store one pixel per "block"; BCn formats store a 4×4 pixel
 
     py::class_<whiteout::textures::gif::SaveOptions>(m, "GifSaveOptions", R"doc(Per-write options for GIF encoding.)doc")
         .def(py::init<>())
-        .def(py::init([](whiteout::u16 delay_cs, whiteout::u16 loop_count, bool dither, whiteout::f32 dither_strength) {
-            return whiteout::textures::gif::SaveOptions{delay_cs, loop_count, dither, dither_strength};
-        }), py::arg("delay_cs"), py::arg("loop_count"), py::arg("dither"), py::arg("dither_strength"))
+        .def(py::init([](whiteout::u16 delay_cs, whiteout::u16 loop_count, bool dither, whiteout::f32 dither_strength, bool transparent) {
+            return whiteout::textures::gif::SaveOptions{delay_cs, loop_count, dither, dither_strength, transparent};
+        }), py::arg("delay_cs"), py::arg("loop_count"), py::arg("dither"), py::arg("dither_strength"), py::arg("transparent"))
         .def("__repr__", [](const whiteout::textures::gif::SaveOptions& self) {
             std::ostringstream oss;
             oss << "GifSaveOptions(";
             oss << "delay_cs=" << self.delayCs << ", ";
             oss << "loop_count=" << self.loopCount << ", ";
             oss << "dither=" << self.dither << ", ";
-            oss << "dither_strength=" << self.ditherStrength << ")";
+            oss << "dither_strength=" << self.ditherStrength << ", ";
+            oss << "transparent=" << self.transparent << ")";
             return oss.str();
         })
         .def_readwrite("delay_cs", &whiteout::textures::gif::SaveOptions::delayCs, R"doc(Delay between frames in centiseconds (1/100 s).  0 = unspecified.)doc")
         .def_readwrite("loop_count", &whiteout::textures::gif::SaveOptions::loopCount, R"doc(Number of times the animation should loop.  0 = loop forever.)doc")
         .def_readwrite("dither", &whiteout::textures::gif::SaveOptions::dither, R"doc(Enable blue-noise ordered dithering when mapping pixels to the palette.)doc")
         .def_readwrite("dither_strength", &whiteout::textures::gif::SaveOptions::ditherStrength, R"doc(Dither strength in [0, 1].  0 = no visible dithering, 1 = full.)doc")
+        .def_readwrite("transparent", &whiteout::textures::gif::SaveOptions::transparent, R"doc(Emit a transparent background. Pixels whose source alpha is below 50% become the GIF's transparent palette index; the rest are quantised normally. GIF transparency is 1-bit, so partially-covered (anti- aliased) edge pixels are forced fully opaque or fully transparent.)doc")
     ;
 
     py::class_<whiteout::textures::Texture>(m, "Texture", R"doc(Format-agnostic GPU texture container
