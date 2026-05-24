@@ -31,6 +31,7 @@
 #include <whiteout/models/m2/structures.h>
 #include <whiteout/models/m2/parser.h>
 #include <whiteout/models/m2/writer.h>
+#include <whiteout/interfaces.h>
 
 
 namespace {
@@ -640,11 +641,11 @@ EMSCRIPTEN_BINDINGS(m2) {
 
     class_<whiteout::m2::Parser>("M2Parser")
         .constructor<>()
-        .function("parse", select_overload<whiteout::m2::Model(interfaces::VirtualPathFileSystem &, const std::string &)>(&whiteout::m2::Parser::parse))
+        .function("parse", select_overload<whiteout::m2::Model(whiteout::interfaces::VirtualPathFileSystem &, const std::string &)>(&whiteout::m2::Parser::parse))
         .function("parse_cascFs_buffer",
                   optional_override([](
                       whiteout::m2::Parser& self,
-                      whiteout::interfaces::CascFileSystem cascFs,
+                      whiteout::interfaces::CascFileSystem& cascFs,
                       const emscripten::val& __js_arr_1) {
                       auto __vec_1 = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_arr_1);
                       std::span<const whiteout::u8> buffer(__vec_1.data(), __vec_1.size());
@@ -670,9 +671,9 @@ EMSCRIPTEN_BINDINGS(m2) {
     class_<whiteout::m2::Writer>("M2Writer")
         .constructor<>()
         .constructor<whiteout::m2::WriteOptions>()
-        .function("write", select_overload<void(interfaces::VirtualPathFileSystem &, const std::string &, const Model &)>(&whiteout::m2::Writer::write))
-        .function("write_cascFs_model", select_overload<void(interfaces::CascFileSystem &, const Model &)>(&whiteout::m2::Writer::write))
-        .function("write_model", select_overload<whiteout::m2::M2SerializeResult(const Model &)>(&whiteout::m2::Writer::write))
+        .function("write", select_overload<void(whiteout::interfaces::VirtualPathFileSystem &, const std::string &, const whiteout::m2::Model &)>(&whiteout::m2::Writer::write))
+        .function("write_cascFs_model", select_overload<void(whiteout::interfaces::CascFileSystem &, const whiteout::m2::Model &)>(&whiteout::m2::Writer::write))
+        .function("write_model", select_overload<whiteout::m2::M2SerializeResult(const whiteout::m2::Model &)>(&whiteout::m2::Writer::write))
         .function("hasIssues", &whiteout::m2::Writer::hasIssues)
         .function("getIssues", &whiteout::m2::Writer::getIssues)
     ;

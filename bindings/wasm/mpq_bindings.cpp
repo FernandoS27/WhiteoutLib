@@ -26,6 +26,7 @@
 #include <whiteout/storages/mpq/types.h>
 #include <whiteout/storages/mpq/storage.h>
 #include <whiteout/utils/mpq_file_system.h>
+#include <whiteout/interfaces.h>
 
 
 namespace {
@@ -106,27 +107,27 @@ EMSCRIPTEN_BINDINGS(mpq) {
     class_<whiteout::storages::mpq::Storage>("MpqStorage")
         .class_function("open",
                   optional_override([](
-                      std::string path,
-                      whiteout::interfaces::WorkerPool pool) {
+                      const std::string& path,
+                      whiteout::interfaces::WorkerPool* pool) {
                       return whiteout::wasm::to_optional_ptr<whiteout::storages::mpq::Storage>(whiteout::storages::mpq::Storage::open(path, pool));
                   }), allow_raw_pointers())
         .class_function("create",
                   optional_override([](
                       whiteout::storages::mpq::CreateOptions opts,
-                      whiteout::interfaces::WorkerPool pool) {
+                      whiteout::interfaces::WorkerPool* pool) {
                       return whiteout::wasm::to_heap_ptr<whiteout::storages::mpq::Storage>(whiteout::storages::mpq::Storage::create(opts, pool));
                   }), allow_raw_pointers())
         .function("close", &whiteout::storages::mpq::Storage::close)
         .function("readFile",
                   optional_override([](
                       whiteout::storages::mpq::Storage& self,
-                      std::string name) {
+                      const std::string& name) {
                       return self.readFile(name);
                   }))
         .function("readFile_name_locale",
                   optional_override([](
                       whiteout::storages::mpq::Storage& self,
-                      std::string name,
+                      const std::string& name,
                       whiteout::u16 locale) {
                       return self.readFile(name, locale);
                   }))
@@ -134,7 +135,7 @@ EMSCRIPTEN_BINDINGS(mpq) {
         .function("fileInfo",
                   optional_override([](
                       whiteout::storages::mpq::Storage& self,
-                      std::string name) {
+                      const std::string& name) {
                       return whiteout::wasm::to_optional_ptr<whiteout::storages::mpq::FileInfo>(self.fileInfo(name));
                   }), allow_raw_pointers())
         .function("archiveInfo", &whiteout::storages::mpq::Storage::archiveInfo)
@@ -142,7 +143,7 @@ EMSCRIPTEN_BINDINGS(mpq) {
         .function("writeFile",
                   optional_override([](
                       whiteout::storages::mpq::Storage& self,
-                      std::string name,
+                      const std::string& name,
                       const emscripten::val& __js_arr_1,
                       whiteout::storages::mpq::WriteOptions opts) {
                       auto __vec_1 = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_arr_1);
@@ -159,7 +160,7 @@ EMSCRIPTEN_BINDINGS(mpq) {
         .function("readFile",
                   optional_override([](
                       whiteout::utils::MpqFileSystem& self,
-                      std::string path) {
+                      const std::string& path) {
                       return self.readFile(path);
                   }))
         .function("writeFile", &whiteout::utils::MpqFileSystem::writeFile)

@@ -140,9 +140,9 @@ EMSCRIPTEN_BINDINGS(casc) {
                       return self.readFile(fileId, localeFlags, openFlags, hint);
                   }))
         .function("fileExists", select_overload<bool(const std::string &) const>(&whiteout::storages::casc::Storage::fileExists))
-        .function("fileExists_fileId_hint", select_overload<bool(whiteout::i32, FileIdHint) const>(&whiteout::storages::casc::Storage::fileExists))
+        .function("fileExists_fileId_hint", select_overload<bool(whiteout::i32, whiteout::storages::casc::FileIdHint) const>(&whiteout::storages::casc::Storage::fileExists))
         .function("fileSize", select_overload<std::optional<whiteout::u64>(const std::string &) const>(&whiteout::storages::casc::Storage::fileSize))
-        .function("fileSize_fileId_hint", select_overload<std::optional<whiteout::u64>(whiteout::i32, FileIdHint) const>(&whiteout::storages::casc::Storage::fileSize))
+        .function("fileSize_fileId_hint", select_overload<std::optional<whiteout::u64>(whiteout::i32, whiteout::storages::casc::FileIdHint) const>(&whiteout::storages::casc::Storage::fileSize))
         .function("listFiles", &whiteout::storages::casc::Storage::listFiles)
         .function("totalFileCount", &whiteout::storages::casc::Storage::totalFileCount)
         .function("importKeysFromString", &whiteout::storages::casc::Storage::importKeysFromString)
@@ -161,10 +161,10 @@ EMSCRIPTEN_BINDINGS(casc) {
                       return whiteout::wasm::to_heap_ptr<whiteout::storages::casc::StorageWritable>(whiteout::storages::casc::StorageWritable::create(opts, pool));
                   }), allow_raw_pointers())
         .function("reserveFileId", &whiteout::storages::casc::StorageWritable::reserveFileId)
-        .function("writeFile", select_overload<bool(const std::string &, const std::vector<whiteout::u8> &, WriteOptions)>(&whiteout::storages::casc::StorageWritable::writeFile))
-        .function("writeFile_fileId_data_opts_hint", select_overload<bool(whiteout::i32, const std::vector<whiteout::u8> &, WriteOptions, FileIdHint)>(&whiteout::storages::casc::StorageWritable::writeFile))
+        .function("writeFile", select_overload<bool(const std::string &, const std::vector<whiteout::u8> &, whiteout::storages::casc::WriteOptions)>(&whiteout::storages::casc::StorageWritable::writeFile))
+        .function("writeFile_fileId_data_opts_hint", select_overload<bool(whiteout::i32, const std::vector<whiteout::u8> &, whiteout::storages::casc::WriteOptions, whiteout::storages::casc::FileIdHint)>(&whiteout::storages::casc::StorageWritable::writeFile))
         .function("deleteFile", select_overload<bool(const std::string &)>(&whiteout::storages::casc::StorageWritable::deleteFile))
-        .function("deleteFile_fileId_hint", select_overload<bool(whiteout::i32, FileIdHint)>(&whiteout::storages::casc::StorageWritable::deleteFile))
+        .function("deleteFile_fileId_hint", select_overload<bool(whiteout::i32, whiteout::storages::casc::FileIdHint)>(&whiteout::storages::casc::StorageWritable::deleteFile))
         .function("save", select_overload<bool()>(&whiteout::storages::casc::StorageWritable::save))
         .function("save_path", select_overload<bool(const std::string &)>(&whiteout::storages::casc::StorageWritable::save))
     ;

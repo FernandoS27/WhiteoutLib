@@ -5,11 +5,21 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Optional
 
 from clang import cindex
 from clang.cindex import CursorKind, TypeKind as CXTypeKind
+
+# Python 3.14 on Windows: clang.cindex's get_filename() calls platform.system()
+# to choose between libclang.dll/.dylib/.so. On 3.14, platform.system() hits a
+# WMI query (Win32_OperatingSystem) that can hang for tens of seconds. Skip the
+# check entirely by pointing Config.library_file at the bundled DLL up front.
+if sys.platform == 'win32' and cindex.Config.library_file is None:
+    _native_libclang = os.path.join(cindex.Config.library_path, 'libclang.dll')
+    if os.path.isfile(_native_libclang):
+        cindex.Config.set_library_file(_native_libclang)
 
 from .annotations import parse as parse_annotations, is_bound, extract_doc
 from .ir import (

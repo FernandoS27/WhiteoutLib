@@ -86,6 +86,14 @@ def _qualified(cls_or_enum_short: str, ns: str) -> str:
     """Sequence -> whiteout::mdx::Sequence (skip if already qualified)."""
     if '::' in cls_or_enum_short and cls_or_enum_short.startswith(('whiteout::', 'std::')):
         return cls_or_enum_short
+    # Top-level `whiteout` namespaces that show up in cross-module signatures
+    # (e.g. `interfaces::WorkerPool` in a textures/Mpq binding) need the
+    # `whiteout::` prefix, NOT the module-default `whiteout::<mod>` prefix.
+    if cls_or_enum_short.startswith(('interfaces::', 'utils::', 'common::',
+                                     'storages::', 'sno::', 'models::',
+                                     'wasm::', 'host::', 'textures::',
+                                     'mdx::', 'm2::', 'm3::', 'mpq::', 'casc::')):
+        return f'whiteout::{cls_or_enum_short}'
     return f'{ns}::{cls_or_enum_short}'
 
 
@@ -145,15 +153,21 @@ def _cpp_type(t: TypeRef, ns: str) -> str:
     if t.kind in (TypeKind.NESTED, TypeKind.ENUM):
         # cpp_text is already canonicalised by classify_type — either a
         # whiteout alias (for Vector3f etc.) or libclang's fully-qualified
-        # spelling. Either way, use as-is.
-        return t.cpp_text if '::' in t.cpp_text else _qualified(t.cpp_text, ns)
+        # spelling. _qualified handles both the bare-name case and the
+        # cross-namespace case (`interfaces::X` → `whiteout::interfaces::X`).
+        return _qualified(t.cpp_text, ns)
     if t.kind in (TypeKind.VECTOR, TypeKind.NESTED_VEC):
         return f'std::vector<{_cpp_type(t.element, ns)}>'
     if t.kind == TypeKind.ARRAY:
         return f'std::array<{_cpp_type(t.element, ns)}, {t.array_size}>'
     if t.kind == TypeKind.OPTIONAL:
         return f'std::optional<{_cpp_type(t.element, ns)}>'
-    return t.cpp_text
+    # UNKNOWN-kind fallthrough — qualify bare class names with the module
+    # namespace so they resolve at global scope in the binding cpp. Skip
+    # for `void` and other built-ins that look like identifiers.
+    if t.cpp_text in ('void', 'bool', 'char'):
+        return t.cpp_text
+    return _qualified(t.cpp_text, ns)
 
 
 def _enum_qual(qual: str, ns: str) -> str:
@@ -204,12 +218,33 @@ def _emit_method(out: StringIO, m, cls_qual: str, ns: str):
     # (`Ret(Args...) const`) rather than passing it as a runtime arg.
     def _overload_sig() -> str:
         ret_cpp = _cpp_type(m.return_type, ns) if m.return_type.cpp_text else 'void'
-        # `cpp_raw` is libclang's spelling of the parameter type — preserve
-        # spans / refs faithfully but qualify bare whiteout primitives so
-        # `u32` doesn't appear unqualified inside the embind block.
-        param_cpp = ', '.join(
-            _qualify_primitives(p.cpp_raw) or _cpp_type(p.type, ns)
-            for p in m.params)
+        # For primitives, prefer the raw spelling (`size_t`, `u32`, ...) —
+        # `_cpp_type` canonicalises to fixed-width aliases which mismatch
+        # the method's declared signature on the wasm target (where
+        # `size_t` is 32-bit but `u64` is 64-bit). For class types, fall
+        # back to the fully-qualified canonical and reattach `&`/`*`/
+        # `const` from the raw spelling so they aren't dropped.
+        def _full(p):
+            raw = p.cpp_raw or ''
+            # _qualify_primitives returns `raw` unchanged when it contains
+            # no whiteout primitive — only trust it when it actually rewrote
+            # something (or the raw spelling is genuinely a known primitive
+            # like `size_t` that needs preserving over the canonical alias).
+            prim = _qualify_primitives(raw)
+            primitive_only = _PRIMITIVE_RE.search(raw) or any(
+                tok in raw for tok in ('size_t', 'bool', 'char ', 'float', 'double',
+                                       'short', 'int ', 'long', 'unsigned ', 'signed '))
+            if primitive_only and prim:
+                return prim
+            base = _cpp_type(p.type, ns)
+            if 'const ' in raw and not base.startswith('const '):
+                base = 'const ' + base
+            if '&' in raw:
+                base += ' &'
+            elif '*' in raw:
+                base += ' *'
+            return base
+        param_cpp = ', '.join(_full(p) for p in m.params)
         sig = f'{ret_cpp}({param_cpp})'
         if m.is_const and not m.is_static:
             sig += ' const'
@@ -238,7 +273,15 @@ def _emit_method(out: StringIO, m, cls_qual: str, ns: str):
         target = f'&{cls_qual}::{m.cpp_name}'
         if m.is_overloaded:
             target = f'select_overload<{_overload_sig()}>({target})'
-        out.write(f'        .{binder}("{m.name}", {target})\n')
+        # Raw-pointer params (typical for `WorkerPool*` & friends) require
+        # the `allow_raw_pointers()` policy or Embind refuses to bind.
+        has_raw_ptr_param = any(
+            '*' in (p.cpp_raw or '') for p in m.params
+        )
+        if has_raw_ptr_param:
+            out.write(f'        .{binder}("{m.name}", {target}, allow_raw_pointers())\n')
+        else:
+            out.write(f'        .{binder}("{m.name}", {target})\n')
         return
 
     # Lambda wrapper for marshalling spans / bytes / trimmed defaults.
@@ -260,7 +303,19 @@ def _emit_method(out: StringIO, m, cls_qual: str, ns: str):
         if p.span_scalar is not None:
             out.write(f'const emscripten::val& __js_arr_{i}')
         else:
-            out.write(f'{_cpp_type(p.type, ns)} {p.name}')
+            # Preserve `const`/`&`/`*` decorations from the cursor's original
+            # spelling so by-reference / by-pointer params (especially
+            # abstract-class interfaces like WorkerPool) don't degrade to
+            # by-value, and `const std::string&` doesn't lose its const.
+            base = _cpp_type(p.type, ns)
+            raw = p.cpp_raw or ''
+            if 'const ' in raw and not base.startswith('const '):
+                base = 'const ' + base
+            if '&' in raw and '&' not in base:
+                base += '&'
+            elif '*' in raw and '*' not in base:
+                base += '*'
+            out.write(f'{base} {p.name}')
     out.write(') {\n')
     for i, p in span_params:
         short, _ = p.span_scalar
@@ -279,7 +334,9 @@ def _emit_method(out: StringIO, m, cls_qual: str, ns: str):
         out.write('                  }))\n')
         return
 
-    needs_raw_ptr_policy = False
+    # Raw-pointer params (typical for abstract-base parameters like
+    # `WorkerPool*`) also require the policy on the wrapped binding.
+    needs_raw_ptr_policy = any('*' in (p.cpp_raw or '') for p in m.params)
     if (ret.kind == TypeKind.OPTIONAL
             and ret.element.kind in (TypeKind.NESTED, TypeKind.UNKNOWN)):
         # `optional<class>` → heap pointer or nullptr → JS `null | T`.
@@ -341,11 +398,14 @@ def _emit_class(out: StringIO, c: BindClass, ns: str):
     if not c.no_default_ctor:
         out.write('        .constructor<>()\n')
     # Helper: render ctor param types using the canonical type plus any
-    # `&` from the cursor's original spelling.
+    # `&` / `*` decorations from the cursor's original spelling.
     def _ctor_param_type(p):
         base = _cpp_type(p.type, ns)
-        if p.cpp_raw and '&' in p.cpp_raw:
+        raw = p.cpp_raw or ''
+        if '&' in raw:
             base += '&'
+        elif '*' in raw:
+            base += '*'
         return base
     for ctor in c.constructors:
         sig = ', '.join(_ctor_param_type(p) for p in ctor.params)
@@ -418,6 +478,13 @@ def emit(module: BindModule) -> str:
     # User-supplied includes (so generated file knows the C++ types).
     for h in module.headers:
         buf.write(f'#include <{h.replace("include/", "")}>\n')
+    # Embind needs the full definition of every abstract base referenced
+    # by a binding signature (TypeID computation). The interfaces header
+    # defines WorkerPool / VirtualPathFileSystem / CascFileSystem /
+    # HttpHandler — almost every module touches one of these, so always
+    # include it.
+    if 'whiteout/interfaces.h' not in '\n'.join(module.headers):
+        buf.write('#include <whiteout/interfaces.h>\n')
     buf.write('\n')
     buf.write(_HELPERS_BASE)
     buf.write(_HELPERS_END)

@@ -1,0 +1,297 @@
+/* SPDX-License-Identifier: BSD-3-Clause
+ * Copyright (c) 2026 Fernando Sahmkow
+ *
+ * Browser MDX↔MDL converter — visual language: dark surface, restrained
+ * accent, generous spacing. No frameworks, no resets beyond what's
+ * needed.
+ */
+
+:root {
+    color-scheme: dark;
+
+    --bg:         #0f1116;
+    --bg-elev:    #181b22;
+    --bg-elev-2:  #21252e;
+    --border:     #2c313c;
+    --border-hi:  #3d4453;
+    --text:       #e5e7eb;
+    --text-dim:   #9ca3af;
+    --text-mute:  #6b7280;
+    --accent:     #6ea8fe;
+    --accent-hi:  #93c0ff;
+    --ok:         #6cd99a;
+    --warn:       #f5c45b;
+    --err:        #ef6a6a;
+
+    --radius:     10px;
+    --radius-sm:  6px;
+    --pad:        1.5rem;
+
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+        Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100%;
+}
+
+.page {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 2.5rem 1.25rem 3rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+/* ── Hero ───────────────────────────────────────────────────────────── */
+
+.hero h1 {
+    margin: 0 0 0.5rem;
+    font-size: 1.875rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+.hero .lead {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 1rem;
+}
+
+code {
+    font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo,
+        Consolas, monospace;
+    font-size: 0.875em;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.05em 0.4em;
+}
+
+/* ── Drop zone ─────────────────────────────────────────────────────── */
+
+.drop-zone {
+    border: 2px dashed var(--border-hi);
+    border-radius: var(--radius);
+    background: var(--bg-elev);
+    padding: var(--pad);
+    transition: border-color 120ms ease, background 120ms ease;
+}
+
+.drop-zone:hover { border-color: var(--accent); }
+.drop-zone.dragover {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, var(--bg-elev));
+}
+
+.drop-zone-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1.25rem 0;
+    text-align: center;
+}
+
+.drop-icon {
+    width: 2.5rem;
+    height: 2.5rem;
+    color: var(--text-dim);
+    margin-bottom: 0.25rem;
+}
+
+.drop-headline {
+    margin: 0;
+    font-size: 1.0625rem;
+}
+
+.drop-or {
+    margin: 0;
+    color: var(--text-mute);
+    font-size: 0.875rem;
+}
+
+.file-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 1.1rem;
+    background: var(--accent);
+    color: #0a0f1c;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background 120ms ease;
+}
+.file-button:hover { background: var(--accent-hi); }
+.file-button input[type="file"] {
+    /* Visually hide but keep accessible. */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.hint {
+    margin: 0.5rem 0 0;
+    color: var(--text-mute);
+    font-size: 0.8125rem;
+}
+
+/* ── Options row ───────────────────────────────────────────────────── */
+
+.options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: end;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem var(--pad);
+}
+
+.option-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    flex: 1 1 240px;
+}
+
+.option-group label {
+    font-size: 0.8125rem;
+    color: var(--text-dim);
+}
+
+.option-group select {
+    background: var(--bg-elev-2);
+    color: var(--text);
+    border: 1px solid var(--border-hi);
+    border-radius: var(--radius-sm);
+    padding: 0.5rem 0.6rem;
+    font: inherit;
+}
+.option-group select:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+.convert-btn {
+    background: var(--bg-elev-2);
+    color: var(--text);
+    border: 1px solid var(--border-hi);
+    border-radius: var(--radius-sm);
+    padding: 0.55rem 1rem;
+    font: inherit;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease;
+}
+.convert-btn:hover {
+    background: var(--bg-elev);
+    border-color: var(--accent);
+}
+
+/* ── Output ────────────────────────────────────────────────────────── */
+
+.output {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.status {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border-hi);
+    border-radius: var(--radius);
+    padding: 0.85rem 1rem;
+    font-size: 0.9375rem;
+    color: var(--text);
+}
+
+.status[data-kind="info"]    { border-left-color: var(--accent); }
+.status[data-kind="busy"]    { border-left-color: var(--warn); color: var(--text-dim); }
+.status[data-kind="ok"]      { border-left-color: var(--ok); }
+.status[data-kind="error"]   { border-left-color: var(--err); color: var(--err); }
+
+.issues {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--warn);
+    border-radius: var(--radius);
+    padding: 0.85rem 1rem;
+    color: var(--text-dim);
+    font-size: 0.875rem;
+}
+.issues h3 {
+    margin: 0 0 0.5rem;
+    font-size: 0.8125rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--warn);
+}
+.issues ul {
+    margin: 0;
+    padding-left: 1.25rem;
+}
+.issues li + li { margin-top: 0.25rem; }
+
+.download-link {
+    display: inline-block;
+    align-self: flex-start;
+    background: var(--ok);
+    color: #0a1c12;
+    font-weight: 600;
+    text-decoration: none;
+    padding: 0.65rem 1.1rem;
+    border-radius: var(--radius-sm);
+    transition: background 120ms ease;
+}
+.download-link:hover {
+    background: color-mix(in srgb, var(--ok) 80%, white);
+}
+
+/* ── Info / footer ─────────────────────────────────────────────────── */
+
+.info details {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.85rem 1rem;
+}
+.info summary {
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--text-dim);
+}
+.info summary:hover { color: var(--text); }
+.info p {
+    margin: 0.75rem 0 0;
+    color: var(--text-dim);
+    font-size: 0.9375rem;
+}
+
+.footer {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    color: var(--text-mute);
+    font-size: 0.8125rem;
+    text-align: center;
+}
+.footer a {
+    color: var(--accent);
+    text-decoration: none;
+}
+.footer a:hover { text-decoration: underline; }

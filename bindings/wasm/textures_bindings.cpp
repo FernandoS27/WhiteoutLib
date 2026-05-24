@@ -38,6 +38,7 @@
 #include <whiteout/textures/tga/parser.h>
 #include <whiteout/textures/tga/writer.h>
 #include <whiteout/textures/gif/writer.h>
+#include <whiteout/interfaces.h>
 
 
 namespace {
@@ -119,9 +120,9 @@ EMSCRIPTEN_BINDINGS(textures) {
     // ── Classes ──────────────────────────────────────────────────────────
     class_<whiteout::textures::Texture>("Texture")
         .constructor<>()
-        .function("format", select_overload<void(PixelFormat)>(&whiteout::textures::Texture::format))
+        .function("format", select_overload<void(whiteout::textures::PixelFormat)>(&whiteout::textures::Texture::format))
         .function("format_overload2", select_overload<whiteout::textures::PixelFormat() const>(&whiteout::textures::Texture::format))
-        .function("copyAsFormat", &whiteout::textures::Texture::copyAsFormat)
+        .function("copyAsFormat", &whiteout::textures::Texture::copyAsFormat, allow_raw_pointers())
         .function("swapChannels", &whiteout::textures::Texture::swapChannels)
         .function("invertChannel", &whiteout::textures::Texture::invertChannel)
         .function("expandNormal", &whiteout::textures::Texture::expandNormal)
@@ -129,19 +130,19 @@ EMSCRIPTEN_BINDINGS(textures) {
         .function("splitChannels", &whiteout::textures::Texture::splitChannels)
         .class_function("mergeChannels",
                   optional_override([](
-                      std::vector<whiteout::textures::Texture> sources,
-                      std::vector<whiteout::textures::Channel> targetChannels) {
+                      const std::vector<whiteout::textures::Texture>& sources,
+                      const std::vector<whiteout::textures::Channel>& targetChannels) {
                       return whiteout::wasm::to_optional_ptr<whiteout::textures::Texture>(whiteout::textures::Texture::mergeChannels(sources, targetChannels));
                   }), allow_raw_pointers())
         .function("copyFromNormalToRGBA",
                   optional_override([](
                       whiteout::textures::Texture& self,
-                      whiteout::interfaces::WorkerPool pool) {
+                      whiteout::interfaces::WorkerPool* pool) {
                       return whiteout::wasm::to_optional_ptr<whiteout::textures::Texture>(self.copyFromNormalToRGBA(pool));
                   }), allow_raw_pointers())
-        .function("generateMipmaps", select_overload<std::optional<std::string>(whiteout::u32, interfaces::WorkerPool *)>(&whiteout::textures::Texture::generateMipmaps))
-        .function("generateMipmaps_pool", select_overload<std::optional<std::string>(interfaces::WorkerPool *)>(&whiteout::textures::Texture::generateMipmaps))
-        .function("downscale", &whiteout::textures::Texture::downscale)
+        .function("generateMipmaps", select_overload<std::optional<std::string>(whiteout::u32, whiteout::interfaces::WorkerPool *)>(&whiteout::textures::Texture::generateMipmaps), allow_raw_pointers())
+        .function("generateMipmaps_pool", select_overload<std::optional<std::string>(whiteout::interfaces::WorkerPool *)>(&whiteout::textures::Texture::generateMipmaps), allow_raw_pointers())
+        .function("downscale", &whiteout::textures::Texture::downscale, allow_raw_pointers())
         .class_function("create2D", &whiteout::textures::Texture::create2D)
         .class_function("create3D", &whiteout::textures::Texture::create3D)
         .class_function("createCube", &whiteout::textures::Texture::createCube)
@@ -196,11 +197,11 @@ EMSCRIPTEN_BINDINGS(textures) {
 
     class_<whiteout::textures::blp::Writer>("BlpWriter")
         .constructor<>()
-        .constructor<whiteout::interfaces::WorkerPool>()
+        .constructor<whiteout::interfaces::WorkerPool*>()
         .function("write",
                   optional_override([](
                       whiteout::textures::blp::Writer& self,
-                      whiteout::textures::Texture texture) {
+                      const whiteout::textures::Texture& texture) {
                       return self.write(texture);
                   }))
         .function("hasIssues", &whiteout::textures::blp::Writer::hasIssues)
@@ -242,14 +243,14 @@ EMSCRIPTEN_BINDINGS(textures) {
         .function("write",
                   optional_override([](
                       whiteout::textures::png::Writer& self,
-                      whiteout::textures::Texture texture) {
+                      const whiteout::textures::Texture& texture) {
                       return self.write(texture);
                   }))
         .function("writeAnimated",
                   optional_override([](
                       whiteout::textures::png::Writer& self,
-                      std::vector<whiteout::textures::png::ApngFrame> frames,
-                      whiteout::textures::png::ApngSaveOptions opts) {
+                      const std::vector<whiteout::textures::png::ApngFrame>& frames,
+                      const whiteout::textures::png::ApngSaveOptions& opts) {
                       return self.writeAnimated(frames, opts);
                   }))
         .function("hasIssues", &whiteout::textures::png::Writer::hasIssues)
@@ -258,7 +259,7 @@ EMSCRIPTEN_BINDINGS(textures) {
 
     class_<whiteout::textures::jpeg::Parser>("JpegParser")
         .constructor<>()
-        .constructor<whiteout::interfaces::WorkerPool>()
+        .constructor<whiteout::interfaces::WorkerPool*>()
         .function("parse",
                   optional_override([](
                       whiteout::textures::jpeg::Parser& self,
@@ -273,11 +274,11 @@ EMSCRIPTEN_BINDINGS(textures) {
 
     class_<whiteout::textures::jpeg::Writer>("JpegWriter")
         .constructor<>()
-        .constructor<whiteout::i32, whiteout::interfaces::WorkerPool, bool>()
+        .constructor<whiteout::i32, whiteout::interfaces::WorkerPool*, bool>()
         .function("write",
                   optional_override([](
                       whiteout::textures::jpeg::Writer& self,
-                      whiteout::textures::Texture texture) {
+                      const whiteout::textures::Texture& texture) {
                       return self.write(texture);
                   }))
         .function("hasIssues", &whiteout::textures::jpeg::Writer::hasIssues)
@@ -303,7 +304,7 @@ EMSCRIPTEN_BINDINGS(textures) {
         .function("write",
                   optional_override([](
                       whiteout::textures::dds::Writer& self,
-                      whiteout::textures::Texture texture) {
+                      const whiteout::textures::Texture& texture) {
                       return self.write(texture);
                   }))
         .function("hasIssues", &whiteout::textures::dds::Writer::hasIssues)
@@ -329,7 +330,7 @@ EMSCRIPTEN_BINDINGS(textures) {
         .function("write",
                   optional_override([](
                       whiteout::textures::bmp::Writer& self,
-                      whiteout::textures::Texture texture) {
+                      const whiteout::textures::Texture& texture) {
                       return self.write(texture);
                   }))
         .function("hasIssues", &whiteout::textures::bmp::Writer::hasIssues)
@@ -355,7 +356,7 @@ EMSCRIPTEN_BINDINGS(textures) {
         .function("write",
                   optional_override([](
                       whiteout::textures::tga::Writer& self,
-                      whiteout::textures::Texture texture) {
+                      const whiteout::textures::Texture& texture) {
                       return self.write(texture);
                   }))
         .function("hasIssues", &whiteout::textures::tga::Writer::hasIssues)
@@ -364,20 +365,20 @@ EMSCRIPTEN_BINDINGS(textures) {
 
     class_<whiteout::textures::gif::Writer>("GifWriter")
         .constructor<>()
-        .constructor<whiteout::interfaces::WorkerPool>()
-        .function("write", select_overload<void(const std::string &, const std::vector<Texture> &)>(&whiteout::textures::gif::Writer::write))
+        .constructor<whiteout::interfaces::WorkerPool*>()
+        .function("write", select_overload<void(const std::string &, const std::vector<whiteout::textures::Texture> &)>(&whiteout::textures::gif::Writer::write))
         .function("write_frames",
                   optional_override([](
                       whiteout::textures::gif::Writer& self,
-                      std::vector<whiteout::textures::Texture> frames) {
+                      const std::vector<whiteout::textures::Texture>& frames) {
                       return self.write(frames);
                   }))
-        .function("write_filePath_frames_opts", select_overload<void(const std::string &, const std::vector<Texture> &, const SaveOptions &)>(&whiteout::textures::gif::Writer::write))
+        .function("write_filePath_frames_opts", select_overload<void(const std::string &, const std::vector<whiteout::textures::Texture> &, const whiteout::textures::gif::SaveOptions &)>(&whiteout::textures::gif::Writer::write))
         .function("write_frames_opts",
                   optional_override([](
                       whiteout::textures::gif::Writer& self,
-                      std::vector<whiteout::textures::Texture> frames,
-                      whiteout::textures::gif::SaveOptions opts) {
+                      const std::vector<whiteout::textures::Texture>& frames,
+                      const whiteout::textures::gif::SaveOptions& opts) {
                       return self.write(frames, opts);
                   }))
         .function("hasIssues", &whiteout::textures::gif::Writer::hasIssues)

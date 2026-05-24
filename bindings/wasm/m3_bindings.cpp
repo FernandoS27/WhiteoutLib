@@ -36,6 +36,7 @@
 #include <whiteout/models/m3/structures.h>
 #include <whiteout/models/m3/parser.h>
 #include <whiteout/models/m3/writer.h>
+#include <whiteout/interfaces.h>
 
 
 namespace {
@@ -1576,11 +1577,11 @@ EMSCRIPTEN_BINDINGS(m3) {
 
     class_<whiteout::m3::Writer>("M3Writer")
         .constructor<>()
-        .function("write", select_overload<void(const std::string &, const Model &)>(&whiteout::m3::Writer::write))
+        .function("write", select_overload<void(const std::string &, const whiteout::m3::Model &)>(&whiteout::m3::Writer::write))
         .function("write_model",
                   optional_override([](
                       whiteout::m3::Writer& self,
-                      whiteout::m3::Model model) {
+                      const whiteout::m3::Model& model) {
                       return self.write(model);
                   }))
     ;

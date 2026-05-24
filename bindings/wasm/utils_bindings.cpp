@@ -24,6 +24,7 @@
 #include "optional_marshal.h"
 
 #include <whiteout/utils/vertex_buffer.h>
+#include <whiteout/interfaces.h>
 
 
 namespace {
@@ -126,7 +127,7 @@ EMSCRIPTEN_BINDINGS(utils) {
                       std::span<const whiteout::u32> data(__vec_0.data(), __vec_0.size());
                       return &(self.declareIntAttribute(data, components, attr_class, encoding, align));
                   }), allow_raw_pointers())
-        .function("build", &whiteout::utils::VertexBufferBuilder::build)
+        .function("build", &whiteout::utils::VertexBufferBuilder::build, allow_raw_pointers())
     ;
 
     // ── Vector containers ────────────────────────────────────────────────

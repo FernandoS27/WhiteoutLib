@@ -210,30 +210,48 @@ export async function Whiteout() {
     // then auto-populates with every type whose JS name carries the prefix.
 
     const mdx = {
-        parse(bytes, mode = M.MdxParseMode.Lenient,
-              upgrade = M.MdxUpgradeMode.UpgradeOldVersions) {
+        /** Parse binary MDX bytes into a Model.
+         *  @param bytes   Uint8Array of MDX file contents.
+         *  @param upgrade Optional UpgradeMode (default: UpgradeOldVersions). */
+        parse(bytes, upgrade = M.MdxUpgradeMode.UpgradeOldVersions) {
             return call(M, () => {
-                const p = new M.MdxParser(mode, upgrade);
-                try { return p.parseMdx(bytes); } finally { p.delete(); }
+                const p = new M.MdxParser(upgrade);
+                try { return p.parse_buffer_format(bytes, M.MdxMDLXFormat.MDX); }
+                finally { p.delete(); }
             });
         },
-        parseMdl(bytes, mode = M.MdxParseMode.Lenient,
-                 upgrade = M.MdxUpgradeMode.UpgradeOldVersions) {
+        /** Parse text MDL bytes into a Model.
+         *  @param bytes   Uint8Array of MDL file contents (UTF-8 text).
+         *  @param upgrade Optional UpgradeMode (default: UpgradeOldVersions). */
+        parseMdl(bytes, upgrade = M.MdxUpgradeMode.UpgradeOldVersions) {
             return call(M, () => {
-                const p = new M.MdxParser(mode, upgrade);
-                try { return p.parseMdl(bytes); } finally { p.delete(); }
+                const p = new M.MdxParser(upgrade);
+                try { return p.parse_buffer_format(bytes, M.MdxMDLXFormat.MDL); }
+                finally { p.delete(); }
             });
         },
+        /** Encode a Model as binary MDX bytes. */
         write(model) {
             return call(M, () => {
                 const w = new M.MdxWriter();
-                try { return vecToBytes(w.writeMdx(model)); } finally { w.delete(); }
+                try {
+                    return vecToBytes(w.write_mdx_format_mdlFormat(
+                        model, M.MdxMDLXFormat.MDX, M.MdxMdlFormat.WarcraftIII));
+                } finally { w.delete(); }
             });
         },
-        writeMdl(model) {
+        /** Encode a Model as text MDL bytes.
+         *  @param model   The MDX Model to serialise.
+         *  @param dialect Optional MDL dialect (default: WarcraftIII engine-faithful;
+         *                 pass `whiteout.mdx.MdlFormat.Hiveworkshop` for the
+         *                 community-tool dialect). */
+        writeMdl(model, dialect = M.MdxMdlFormat.WarcraftIII) {
             return call(M, () => {
                 const w = new M.MdxWriter();
-                try { return vecToBytes(w.writeMdl(model)); } finally { w.delete(); }
+                try {
+                    return vecToBytes(w.write_mdx_format_mdlFormat(
+                        model, M.MdxMDLXFormat.MDL, dialect));
+                } finally { w.delete(); }
             });
         },
     };

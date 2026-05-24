@@ -134,64 +134,12 @@ EMSCRIPTEN_BINDINGS(whiteout) {
     // Parser/Writer classes are bound by tools/codegen via
     // bindings/wasm/textures_bindings.cpp.
 
-    // ── MDX (Warcraft III) ───────────────────────────────────────────────
-    // The Model struct and its nested types are bound in mdx_bindings.cpp.
-    enum_<mdx::Parser::UpgradeMode>("MdxUpgradeMode")
-        .value("UpgradeOldVersions", mdx::Parser::UpgradeMode::UpgradeOldVersions)
-        .value("PreserveOriginal", mdx::Parser::UpgradeMode::PreserveOriginal);
-
-    class_<mdx::Parser>("MdxParser")
-        .constructor<mdx::Parser::UpgradeMode>()
-        .function("parseMdx", &parseMdx)
-        .function("parseMdl", &parseMdl)
-        .function("hasIssues", &mdx::Parser::hasIssues)
-        .function("getIssues", &mdx::Parser::getIssues);
-
-    class_<mdx::Writer>("MdxWriter")
-        .constructor<>()
-        .function("writeMdx", &writeMdx)
-        .function("writeMdl", &writeMdl);
-
-    // ── M3 (StarCraft II) ────────────────────────────────────────────────
-    // The Model and its nested types are bound in m3_bindings.cpp.
-    class_<m3::Parser>("M3Parser")
-        .constructor<>()
-        .function("parse", &parseM3)
-        .function("hasIssues", &m3::Parser::hasIssues)
-        .function("getIssues", &m3::Parser::getIssues);
-
-    class_<m3::Writer>("M3Writer")
-        .constructor<>()
-        .function("write", &writeM3);
-
-    // ── WEM (intermediate format) ────────────────────────────────────────
-    class_<models::wem::Model>("WemModel")
-        .constructor<>()
-        .property("name", &models::wem::Model::name)
-        .function("meshCount",
-                  optional_override([](const models::wem::Model& m) { return static_cast<u32>(m.meshes.size()); }))
-        .function("materialCount",
-                  optional_override([](const models::wem::Model& m) { return static_cast<u32>(m.materials.size()); }))
-        .function("textureCount",
-                  optional_override([](const models::wem::Model& m) { return static_cast<u32>(m.textures.size()); }));
-
-    class_<models::wem::Parser>("WemParser")
-        .constructor<>()
-        .function("parse", &parseWem)
-        .function("hasIssues", &models::wem::Parser::hasIssues)
-        .function("getIssues", &models::wem::Parser::getIssues);
-
-    class_<models::wem::Writer>("WemWriter")
-        .constructor<>()
-        .function("write", &writeWem);
-
-    // ── M2 (World of Warcraft) — needs sibling files ────────────────────
-    // The Model and its nested types are bound in m2_bindings.cpp.
-    class_<m2::Parser>("M2Parser")
-        .constructor<>()
-        .function("parse", &parseM2)
-        .function("hasIssues", &m2::Parser::hasIssues)
-        .function("getIssues", &m2::Parser::getIssues);
+    // Per-format model bindings (MdxParser / MdxWriter / M3Parser /
+    // M3Writer / M2Parser / WemParser / ...) plus their enums (MdxUpgradeMode,
+    // MdxMDLXFormat, MdxMdlFormat, ...) are all emitted by the codegen
+    // sibling translation units: mdx_bindings.cpp, m3_bindings.cpp,
+    // m2_bindings.cpp. They used to be hand-bound here, which now causes
+    // "Cannot register type 'MdxUpgradeMode' twice" at module init.
 
     // ── Abstract VirtualPathFileSystem base class ────────────────────────
     // Registered so concrete subclasses (InMemoryFileSystem in the web

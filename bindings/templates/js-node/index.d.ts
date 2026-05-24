@@ -97,10 +97,16 @@ export interface TextureNamespace {
 // ── Per-format model namespaces (types + parse/write helpers) ────────────
 
 export interface MdxNamespace extends Omit<typeof mdx, never> {
-    parse(bytes: Uint8Array, mode?: EnumValue, upgrade?: EnumValue): mdx.Model;
-    parseMdl(bytes: Uint8Array, mode?: EnumValue, upgrade?: EnumValue): mdx.Model;
+    /** Parse binary MDX bytes. */
+    parse(bytes: Uint8Array, upgrade?: EnumValue): mdx.Model;
+    /** Parse text MDL bytes (UTF-8). */
+    parseMdl(bytes: Uint8Array, upgrade?: EnumValue): mdx.Model;
+    /** Encode a Model as binary MDX. */
     write(model: mdx.Model): Uint8Array;
-    writeMdl(model: mdx.Model): Uint8Array;
+    /** Encode a Model as text MDL. `dialect` selects the MDL text dialect:
+     *  `mdx.MdlFormat.WarcraftIII` (default, engine-faithful) or
+     *  `mdx.MdlFormat.Hiveworkshop` (community-tool dialect). */
+    writeMdl(model: mdx.Model, dialect?: EnumValue): Uint8Array;
 }
 
 /** M2 in the Node build reads from disk via OsFileSystem — `rootPath` is

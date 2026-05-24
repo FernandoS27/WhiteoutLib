@@ -28,6 +28,7 @@
 #include <whiteout/models/mdx/structures.h>
 #include <whiteout/models/mdx/parser.h>
 #include <whiteout/models/mdx/writer.h>
+#include <whiteout/interfaces.h>
 
 
 namespace {
@@ -616,11 +617,11 @@ EMSCRIPTEN_BINDINGS(mdx) {
 
     class_<whiteout::mdx::Writer>("MdxWriter")
         .constructor<>()
-        .function("write", select_overload<void(const std::string &, const Model &, MdlFormat)>(&whiteout::mdx::Writer::write))
+        .function("write", select_overload<void(const std::string &, const whiteout::mdx::Model &, whiteout::mdx::MdlFormat)>(&whiteout::mdx::Writer::write))
         .function("write_mdx_format_mdlFormat",
                   optional_override([](
                       whiteout::mdx::Writer& self,
-                      whiteout::mdx::Model mdx,
+                      const whiteout::mdx::Model& mdx,
                       whiteout::mdx::MDLXFormat format,
                       whiteout::mdx::MdlFormat mdlFormat) {
                       return self.write(mdx, format, mdlFormat);
