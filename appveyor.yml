@@ -1,8 +1,14 @@
 version: 1.0.{build}
 
 # Cross-platform CI: Windows (MSVC), Linux (gcc), macOS (AppleClang).
-# AppVeyor runs one job per `image` entry. Each job uses its native compiler
-# toolchain; per-platform install/build/test steps are gated below.
+# Each `image` runs as a separate job and emits per-platform packages
+# (Java natives classifier jar + Python wheel). The Linux job additionally
+# emits the universal main Java jar — bytecode is platform-independent, so
+# it only needs to be built once.
+#
+# Each job runs ONE cmake configure + build that produces every artefact
+# the job will package (see tools/build-ci.{ps1,sh}). Java and Python
+# packaging steps then *consume* those outputs — no second C++ compile.
 
 image:
   - macos-sonoma
@@ -19,25 +25,25 @@ clone_depth: 5
 
 environment:
   CMAKE_BUILD_PARALLEL_LEVEL: 4
-  # WHITEOUT_ENABLE_CASC defaults ON in CMakeLists; MPQ + examples are
-  # explicitly enabled here so CI exercises the full library surface.
-  WHITEOUT_CMAKE_FLAGS: >-
-    -DWHITEOUT_BUILD_EXAMPLES=ON
-    -DWHITEOUT_ENABLE_MPQ=ON
-    -DWHITEOUT_ENABLE_CASC=ON
-    -DWHITEOUT_WARNINGS_AS_ERRORS=ON
+  # JDK 22+ is required for stable FFM. AppVeyor's Ubuntu/macOS images
+  # already ship a recent JDK; Windows uses chocolatey via install step.
+  JAVA_VERSION: "22"
 
 # ─── Install ────────────────────────────────────────────────────────────────
-# AppVeyor images already ship CMake + the platform's default C++ toolchain,
-# so install steps are minimal. Linux gets g++-12 to ensure full C++20 support.
+# AppVeyor images ship CMake + the platform's default C++ toolchain. We also
+# need: a JDK 22+, a Python with `pip install pybind11 libclang wheel`, and
+# Maven. On Linux, install a newer gcc for full C++20.
 install:
   - cmd: cmake --version
+  - cmd: python --version
+  - cmd: java -version
+  - cmd: mvn -version
+  - cmd: python -m pip install --upgrade pip
+  - cmd: python -m pip install pybind11 libclang wheel packaging tomli
+
   - sh:  cmake --version
   - sh:  |
-      # On Linux, install the latest gcc/g++ available. On Debian/Ubuntu we
-      # add the ubuntu-toolchain-r/test PPA (which carries newer GCC than the
-      # distro default) and probe newest-first. On Fedora/Arch the default
-      # package is already recent. macOS uses AppleClang as-is.
+      # Linux toolchain — newer gcc from ubuntu-toolchain-r/test.
       if [ "$(uname -s)" = "Linux" ]; then
         if command -v apt-get >/dev/null; then
           sudo apt-get update -qq
@@ -53,34 +59,103 @@ install:
               break
             fi
           done
-        elif command -v dnf >/dev/null; then
-          sudo dnf install -y gcc gcc-c++
-        elif command -v pacman >/dev/null; then
-          sudo pacman -Sy --noconfirm gcc
+          sudo apt-get install -y --no-install-recommends \
+              openjdk-${JAVA_VERSION}-jdk maven python3-pip
+        elif command -v brew >/dev/null; then
+          : # macOS path below
         fi
         echo "Using: $(${CXX:-g++} --version | head -n1)"
       fi
-
-# ─── Configure ──────────────────────────────────────────────────────────────
-before_build:
-  - cmd: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 %WHITEOUT_CMAKE_FLAGS%
   - sh:  |
-      # Re-export CC/CXX picked during install (shell state doesn't persist
-      # between AppVeyor script steps, so we stash them in a file).
-      if [ -f linux_cc.env ]; then
-        set -a; . ./linux_cc.env; set +a
+      # macOS: AppleClang is preinstalled; install JDK + Maven via brew.
+      if [ "$(uname -s)" = "Darwin" ]; then
+        brew update >/dev/null
+        brew install --quiet openjdk@${JAVA_VERSION} maven || true
+        # `openjdk@22` is keg-only; expose its bin/.
+        export PATH="$(brew --prefix openjdk@${JAVA_VERSION})/bin:$PATH"
+        echo "PATH=$PATH" >> macos_env.env
+        java -version
       fi
-      cmake -S . -B build -DCMAKE_BUILD_TYPE=$CONFIGURATION $WHITEOUT_CMAKE_FLAGS
+  - sh:  |
+      # Python deps (both Linux and macOS).
+      PY=$(command -v python3 || command -v python)
+      "$PY" -m pip install --upgrade pip
+      "$PY" -m pip install pybind11 libclang wheel packaging tomli
 
-# ─── Build ──────────────────────────────────────────────────────────────────
+# ─── Configure + build (unified) ────────────────────────────────────────────
+# One cmake build per job produces the C++ static lib, the Java FFM native,
+# and the Python pybind11 module. tools/build-ci.{ps1,sh} encapsulates
+# codegen + configure + build so the appveyor.yml stays readable.
+#
+# NOTE: the build invocation lives in `build_script:` (not `before_build:`).
+# Setting `build: off` would skip the ENTIRE build phase including
+# before_build and after_build — silently passing every job. Putting the
+# real command in build_script keeps the lifecycle wired up.
 build_script:
-  - cmd: cmake --build build --config %CONFIGURATION% --parallel %CMAKE_BUILD_PARALLEL_LEVEL%
-  - sh:  cmake --build build --config $CONFIGURATION --parallel $CMAKE_BUILD_PARALLEL_LEVEL
+  - cmd: powershell -ExecutionPolicy Bypass -File tools\build-ci.ps1
+  - sh:  |
+      if [ -f linux_cc.env ];   then set -a; . ./linux_cc.env;   set +a; fi
+      if [ -f macos_env.env ];  then set -a; . ./macos_env.env;  set +a; fi
+      bash tools/build-ci.sh
+
+# ─── Package ────────────────────────────────────────────────────────────────
+# After the C++ compile we package the artefacts. Each platform produces its
+# own Java natives jar + Python wheel. The Linux job additionally produces
+# the universal main jar (sources + javadoc included).
+after_build:
+  # ── Windows: natives jar + wheel ─────────────────────────────────────────
+  - cmd: |
+      mvn -f bindings\java\pom.xml -P natives package -DskipTests ^
+          -Dwhiteout.native.platform=windows-x86_64 ^
+          -Dwhiteout.native.path=%APPVEYOR_BUILD_FOLDER%\build-ci\c-dist\Release\whiteout_native.dll
+  - cmd: |
+      python tools\pack_python_wheel.py ^
+          --build-dir build-ci ^
+          --out-dir   packages\python\dist
+
+  # ── Linux / macOS: natives jar + wheel + (Linux only) main jar ───────────
+  - sh:  |
+      set -e
+      OS="$(uname -s)"
+      if [ "$OS" = "Linux" ]; then
+        platform="linux-x86_64"
+        native_lib="${APPVEYOR_BUILD_FOLDER}/build-ci/c-dist/libwhiteout_native.so"
+      else
+        platform="macos-$(uname -m)"   # macos-x86_64 or macos-arm64
+        native_lib="${APPVEYOR_BUILD_FOLDER}/build-ci/c-dist/libwhiteout_native.dylib"
+      fi
+
+      mvn -f bindings/java/pom.xml -P natives package -DskipTests \
+          -Dwhiteout.native.platform="${platform}" \
+          -Dwhiteout.native.path="${native_lib}"
+
+      PY=$(command -v python3 || command -v python)
+      "$PY" tools/pack_python_wheel.py \
+          --build-dir build-ci \
+          --out-dir   packages/python/dist
+
+      # Universal main jar — Linux job only (bytecode is platform-independent;
+      # producing it on every platform wastes minutes and the three would be
+      # byte-identical anyway).
+      if [ "$OS" = "Linux" ]; then
+        mvn -f bindings/java/pom.xml package -DskipTests
+      fi
+
+# ─── Artifacts ──────────────────────────────────────────────────────────────
+# Downloadable from the AppVeyor build UI; CI deploy jobs can pull them via
+# the AppVeyor REST API.
+artifacts:
+  - path: bindings/java/target/*-natives-*.jar
+    name: java-natives
+  - path: bindings/java/target/whiteout-*.jar
+    name: java-jars
+  - path: packages/python/dist/*.whl
+    name: python-wheels
 
 test: off
 
 # Stop the matrix wave on the first failed job so a single platform problem
-# doesn't burn the others' minutes too.
+# doesn't burn the others' minutes.
 matrix:
   fast_finish: true
 
