@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SPDX-License-Identifier: BSD-3-Clause
+  Copyright (c) 2026 Fernando Sahmkow
+
+  Maven build for the WhiteoutLib Java FFM bindings — the Maven mirror of
+  build.gradle.kts. Produces the same artefacts:
+
+      whiteout-<ver>.jar
+      whiteout-<ver>-sources.jar
+      whiteout-<ver>-javadoc.jar
+      whiteout-<ver>-natives-<os>-<arch>.jar
+
+  Typical workflows:
+
+      mvn package                                    main + sources + javadoc
+      mvn -P natives package                         + natives jar for the
+                                                     host (needs the native
+                                                     library already built)
+      mvn install                                    install to ~/.m2
+      mvn -P release,natives deploy                  sign + publish to the
+                                                     configured repo
+                                                     (settings.xml gives
+                                                     credentials)
+
+  The `natives` profile is opted into by hand (`-P natives`) — the host
+  build only produces one platform at a time, so CI per-OS jobs run
+  `mvn -P natives ... -Dwhiteout.native.platform=<os>-<arch>` and the
+  classifier jars are merged at release time.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>io.github.sahmkow</groupId>
+    <artifactId>whiteout</artifactId>
+    <version>0.1.0</version>
+    <packaging>jar</packaging>
+
+    <name>WhiteoutLib Java bindings</name>
+    <description>
+        Java FFM bindings for WhiteoutLib — pure-C++ parsers/writers for
+        Blizzard model, texture, and archive formats (MDX, M2, M3, BLP, DDS,
+        PNG, JPEG, BMP, TGA, GIF, MPQ, CASC).
+    </description>
+    <url>https://github.com/Sahmkow/WhiteoutLib</url>
+
+    <licenses>
+        <license>
+            <name>BSD 3-Clause License</name>
+            <url>https://opensource.org/licenses/BSD-3-Clause</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <id>sahmkow</id>
+            <name>Fernando Sahmkow</name>
+        </developer>
+    </developers>
+
+    <scm>
+        <url>https://github.com/Sahmkow/WhiteoutLib</url>
+        <connection>scm:git:https://github.com/Sahmkow/WhiteoutLib.git</connection>
+        <developerConnection>scm:git:git@github.com:Sahmkow/WhiteoutLib.git</developerConnection>
+    </scm>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+        <!-- FFM is stable from JDK 22; bump if you need newer APIs. -->
+        <maven.compiler.release>22</maven.compiler.release>
+
+        <!-- Source layout uses Maven's defaults: src/main/java + src/test/java
+             (the codegen output). build-java.ps1 runs the codegen before mvn
+             is invoked. -->
+
+        <!-- Native artefact location — override with
+             -Dwhiteout.native.path=... at command line. Defaults to the
+             host-platform DLL produced by scripts/build-java.ps1. -->
+        <whiteout.native.path>${project.basedir}/../../build-java/c-dist/Release/whiteout_native.dll</whiteout.native.path>
+
+        <!-- `<os>-<arch>` tag for the native artefact. Must match what
+             NativeLoader looks for at META-INF/native/<platform>/. Override
+             per-OS in CI (`-Dwhiteout.native.platform=linux-x86_64`, etc.).
+             The natives jar is published with classifier `natives-<platform>`. -->
+        <whiteout.native.platform>host</whiteout.native.platform>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.10.2</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- ── Compile + manifest ───────────────────────────────────── -->
+            <plugin>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <release>${maven.compiler.release}</release>
+                    <encoding>UTF-8</encoding>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.4.2</version>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Implementation-Title>WhiteoutLib Java bindings</Implementation-Title>
+                            <Implementation-Version>${project.version}</Implementation-Version>
+                            <Implementation-Vendor>Fernando Sahmkow</Implementation-Vendor>
+                            <Automatic-Module-Name>whiteout</Automatic-Module-Name>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+
+            <!-- ── Sources jar (whiteout-<ver>-sources.jar) ─────────────── -->
+            <plugin>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals><goal>jar-no-fork</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- ── Javadoc jar (whiteout-<ver>-javadoc.jar) ─────────────── -->
+            <plugin>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.10.1</version>
+                <configuration>
+                    <doclint>none</doclint>
+                    <quiet>true</quiet>
+                    <links>
+                        <link>https://docs.oracle.com/en/java/javase/22/docs/api/</link>
+                    </links>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals><goal>jar</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- ── Tests ────────────────────────────────────────────────── -->
+            <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <argLine>
+                        --enable-native-access=ALL-UNNAMED
+                        -Dwhiteout.native.path=${whiteout.native.path}
+                    </argLine>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!-- Bundle the native library into a `natives-<classifier>` jar.
+             Activated by hand (`mvn -P natives ...`) — the host build only
+             produces one platform at a time, and you'll typically merge
+             classifier artefacts from CI per-OS jobs at release time. -->
+        <profile>
+            <id>natives</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <artifactId>maven-assembly-plugin</artifactId>
+                        <version>3.7.1</version>
+                        <executions>
+                            <execution>
+                                <id>natives-jar</id>
+                                <phase>package</phase>
+                                <goals><goal>single</goal></goals>
+                                <configuration>
+                                    <appendAssemblyId>true</appendAssemblyId>
+                                    <descriptors>
+                                        <descriptor>${project.basedir}/src/assembly/natives.xml</descriptor>
+                                    </descriptors>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- Release / Maven-Central signing. Enable with
+             `mvn -P release ...`; requires gpg + a configured key. -->
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>3.2.4</version>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>verify</phase>
+                                <goals><goal>sign</goal></goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
+    <!-- Default deploy targets. Override per-environment in
+         ~/.m2/settings.xml or with -DaltDeploymentRepository=... -->
+    <distributionManagement>
+        <repository>
+            <id>central</id>
+            <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+        </repository>
+        <snapshotRepository>
+            <id>central-snapshots</id>
+            <url>https://oss.sonatype.org/content/repositories/snapshots/</url>
+        </snapshotRepository>
+    </distributionManagement>
+</project>

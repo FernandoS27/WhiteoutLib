@@ -26,6 +26,7 @@
 #include <whiteout/storages/casc/types.h>
 #include <whiteout/storages/casc/storage.h>
 #include <whiteout/storages/casc/storage_writable.h>
+#include <whiteout/interfaces.h>
 
 
 namespace {
@@ -88,20 +89,20 @@ EMSCRIPTEN_BINDINGS(casc) {
     class_<whiteout::storages::casc::Storage>("CascStorage")
         .class_function("open",
                   optional_override([](
-                      std::string path,
-                      whiteout::interfaces::WorkerPool pool) {
+                      const std::string& path,
+                      whiteout::interfaces::WorkerPool* pool) {
                       return whiteout::wasm::to_optional_ptr<whiteout::storages::casc::Storage>(whiteout::storages::casc::Storage::open(path, pool));
                   }), allow_raw_pointers())
         .class_function("open_path_localeMask_pool",
                   optional_override([](
-                      std::string path,
+                      const std::string& path,
                       whiteout::u32 localeMask,
-                      whiteout::interfaces::WorkerPool pool) {
+                      whiteout::interfaces::WorkerPool* pool) {
                       return whiteout::wasm::to_optional_ptr<whiteout::storages::casc::Storage>(whiteout::storages::casc::Storage::open(path, localeMask, pool));
                   }), allow_raw_pointers())
         .class_function("open_opts",
                   optional_override([](
-                      whiteout::storages::casc::OpenOptions opts) {
+                      const whiteout::storages::casc::OpenOptions& opts) {
                       return whiteout::wasm::to_optional_ptr<whiteout::storages::casc::Storage>(whiteout::storages::casc::Storage::open(opts));
                   }), allow_raw_pointers())
         .function("close", &whiteout::storages::casc::Storage::close)
@@ -112,13 +113,13 @@ EMSCRIPTEN_BINDINGS(casc) {
         .function("readFile",
                   optional_override([](
                       whiteout::storages::casc::Storage& self,
-                      std::string cascPath) {
+                      const std::string& cascPath) {
                       return self.readFile(cascPath);
                   }))
         .function("readFile_cascPath_localeFlags_openFlags",
                   optional_override([](
                       whiteout::storages::casc::Storage& self,
-                      std::string cascPath,
+                      const std::string& cascPath,
                       whiteout::u32 localeFlags,
                       whiteout::u32 openFlags) {
                       return self.readFile(cascPath, localeFlags, openFlags);
@@ -157,7 +158,7 @@ EMSCRIPTEN_BINDINGS(casc) {
         .class_function("create",
                   optional_override([](
                       whiteout::storages::casc::CreateOptions opts,
-                      whiteout::interfaces::WorkerPool pool) {
+                      whiteout::interfaces::WorkerPool* pool) {
                       return whiteout::wasm::to_heap_ptr<whiteout::storages::casc::StorageWritable>(whiteout::storages::casc::StorageWritable::create(opts, pool));
                   }), allow_raw_pointers())
         .function("reserveFileId", &whiteout::storages::casc::StorageWritable::reserveFileId)

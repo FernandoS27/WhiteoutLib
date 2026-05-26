@@ -109,7 +109,7 @@ EMSCRIPTEN_BINDINGS(host) {
         .function("readFile",
                   optional_override([](
                       whiteout::utils::OsFileSystem& self,
-                      std::string path) {
+                      const std::string& path) {
                       return self.readFile(path);
                   }))
         .function("writeFile", &whiteout::utils::OsFileSystem::writeFile)

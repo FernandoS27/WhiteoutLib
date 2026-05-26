@@ -1,0 +1,38 @@
+<!--
+  SPDX-License-Identifier: BSD-3-Clause
+  Copyright (c) 2026 Fernando Sahmkow
+
+  Maven assembly descriptor used by the `natives` profile in pom.xml.
+
+  Packages the host-platform native library (resolved from
+  -Dwhiteout.native.path=…) into a classifier jar at:
+
+      META-INF/native/<platform>/<libname>
+
+  where <platform> = ${whiteout.native.platform} (e.g. "windows-x86_64").
+  whiteout.internal.NativeLoader looks under exactly that path at runtime.
+
+  With `appendAssemblyId=true` in pom.xml, the assembly's <id> becomes the
+  Maven classifier on the jar, so the artefact is published as
+  `whiteout-<ver>-natives-<platform>.jar`.
+
+  The Gradle build in build.gradle.kts produces the same layout via the
+  `nativesJar` task — keep these two in sync.
+-->
+<assembly xmlns="http://maven.apache.org/ASSEMBLY/2.1.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/ASSEMBLY/2.1.0
+                              http://maven.apache.org/xsd/assembly-2.1.0.xsd">
+    <id>natives-${whiteout.native.platform}</id>
+    <formats>
+        <format>jar</format>
+    </formats>
+    <includeBaseDirectory>false</includeBaseDirectory>
+
+    <files>
+        <file>
+            <source>${whiteout.native.path}</source>
+            <outputDirectory>META-INF/native/${whiteout.native.platform}</outputDirectory>
+        </file>
+    </files>
+</assembly>
