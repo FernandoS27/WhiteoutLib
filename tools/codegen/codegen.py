@@ -21,7 +21,10 @@ def _write(args, out_rel: str, text: str) -> int:
         return 0
     out_path = (args.repo_root / out_rel).resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(text, encoding='utf-8', newline='\n')
+    # Path.write_text(newline=...) is Python 3.10+; the explicit open()
+    # form keeps codegen working on the Python 3.9 that ships with Xcode.
+    with open(out_path, 'w', encoding='utf-8', newline='\n') as fp:
+        fp.write(text)
     print(f'Wrote {out_path.relative_to(args.repo_root)} '
           f'({len(text)} bytes, {len(text.splitlines())} lines)')
     return 0
@@ -39,7 +42,10 @@ def _write_files(args, files: dict) -> int:
     for rel, text in files.items():
         out_path = (args.repo_root / rel).resolve()
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(text, encoding='utf-8', newline='\n')
+        # Path.write_text(newline=...) is Python 3.10+; the explicit open()
+    # form keeps codegen working on the Python 3.9 that ships with Xcode.
+    with open(out_path, 'w', encoding='utf-8', newline='\n') as fp:
+        fp.write(text)
         total_bytes += len(text)
         print(f'Wrote {out_path.relative_to(args.repo_root)} '
               f'({len(text)} bytes)')
@@ -127,7 +133,10 @@ def main(argv: list[str] | None = None) -> int:
 
     out_path = (args.repo_root / out_rel).resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(text, encoding='utf-8', newline='\n')
+    # Path.write_text(newline=...) is Python 3.10+; the explicit open()
+    # form keeps codegen working on the Python 3.9 that ships with Xcode.
+    with open(out_path, 'w', encoding='utf-8', newline='\n') as fp:
+        fp.write(text)
     print(f'Wrote {out_path.relative_to(args.repo_root)} '
           f'({len(text)} bytes, {len(text.splitlines())} lines)')
     return 0
