@@ -25,7 +25,7 @@ import java.util.function.Consumer;
 
 import whiteout.interfaces.HttpHandler;
 import whiteout.interfaces.HttpResponse;
-import whiteout.utils.OsFileSystem;
+import whiteout.host.OsFileSystem;
 import whiteout.utils.SimpleHttpHandler;
 
 public class NativeDispatchSmokeTest {

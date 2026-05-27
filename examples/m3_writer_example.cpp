@@ -18,7 +18,7 @@ int main(int argc, char* argv[]) {
     std::string outputPath = argv[2];
 
     std::cout << "Loading input M3 file: " << inputPath << std::endl;
-    whiteout::m3::Parser parser(whiteout::m3::Parser::ParseMode::Lenient);
+    whiteout::m3::Parser parser;
     whiteout::m3::Model model = parser.parse(inputPath);
 
     const auto& issues = parser.getIssues();

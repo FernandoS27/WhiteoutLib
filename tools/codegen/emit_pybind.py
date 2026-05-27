@@ -218,6 +218,22 @@ _PY_RESERVED = {
 }
 
 
+def _default_value_expr(cpp_type: str) -> str:
+    """Emit a value-initialised expression for `cpp_type` usable as a
+    pybind11 default arg.
+
+    `T{}` works for single-token types (`MyStruct{}`, `int{}`,
+    `std::size_t{}`) but is a parse error for multi-word primitive type
+    names like `unsigned long{}` — the parser sees `(unsigned) (long{})`.
+    libclang's canonical types are multi-word for `size_t`/`uintN_t` on
+    LP64 systems (macOS/Linux), so we fall back to `static_cast<T>(0)`
+    whenever the type name contains whitespace.
+    """
+    if ' ' in cpp_type:
+        return f'static_cast<{cpp_type}>(0)'
+    return f'{cpp_type}{{}}'
+
+
 def _cpp_string_lit(s: str) -> str:
     """Render `s` as a C++ raw string literal, suitable as a docstring arg."""
     if not s:
@@ -331,7 +347,7 @@ def _emit_method(out: StringIO, m, cls_qual: str, ns: str):
                     arg_clauses.append(f'py::arg("{p.name}") = nullptr')
                 else:
                     arg_clauses.append(
-                        f'py::arg("{p.name}") = {_cpp_type(p.type, ns)}{{}}')
+                        f'py::arg("{p.name}") = {_default_value_expr(_cpp_type(p.type, ns))}')
             else:
                 arg_clauses.append(f'py::arg("{p.name}")')
         args_tail = ', ' + ', '.join(arg_clauses) if arg_clauses else ''
@@ -446,7 +462,7 @@ def _emit_method(out: StringIO, m, cls_qual: str, ns: str):
                 arg_clauses.append(f'py::arg("{p.name}") = nullptr')
             else:
                 arg_clauses.append(
-                    f'py::arg("{p.name}") = {_cpp_type(p.type, ns)}{{}}')
+                    f'py::arg("{p.name}") = {_default_value_expr(_cpp_type(p.type, ns))}')
         else:
             arg_clauses.append(f'py::arg("{p.name}")')
     if arg_clauses:

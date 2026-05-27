@@ -10,6 +10,7 @@
 
 #include <jni.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -109,13 +110,13 @@ public:
         whiteout::jni::consumePendingException(e);
     }
 
-     ::whiteout::u64 threadCount() const noexcept override {
+    std::size_t threadCount() const noexcept override {
         whiteout::jni::AttachedEnv env;
         if (!env || m_threadCount == nullptr) { return {}; }
         JNIEnv* e = env.env();
         jlong jReturn = e->CallLongMethod(m_impl, m_threadCount);
         if (whiteout::jni::consumePendingException(e)) { return {}; }
-        return static_cast< ::whiteout::u64>(jReturn);
+        return static_cast<std::size_t>(jReturn);
     }
 
     std::unique_ptr< ::whiteout::interfaces::TimelineSemaphore> createTimelineSemaphore() override {

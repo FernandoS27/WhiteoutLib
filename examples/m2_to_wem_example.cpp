@@ -59,7 +59,7 @@ int main(int argc, char* argv[]) {
         std::cout << "Loading M2: " << inputPath << std::endl;
         std::filesystem::path p(inputPath);
         whiteout::utils::OsFileSystem vfs(p.parent_path().string());
-        m2::Parser m2Parser(m2::Parser::ParseMode::Lenient);
+        m2::Parser m2Parser;
         auto m2Model = m2Parser.parse(vfs, inputPath);
 
         const auto& m2Issues = m2Parser.getIssues();

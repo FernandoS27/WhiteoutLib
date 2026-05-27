@@ -30,7 +30,7 @@ int main(int argc, char* argv[]) {
     std::string filePath = argv[1];
 
     try {
-        whiteout::m3::Parser parser(whiteout::m3::Parser::ParseMode::Lenient);
+        whiteout::m3::Parser parser;
 
         std::cout << "Loading M3 file: " << filePath << std::endl;
 

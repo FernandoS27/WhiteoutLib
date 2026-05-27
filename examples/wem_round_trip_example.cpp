@@ -164,7 +164,7 @@ int main(int argc, char* argv[]) {
 
     // Step 3: Parse back
     std::cout << "\n3. Parsing from bytes..." << std::endl;
-    Parser parser(Parser::ParseMode::Strict);
+    Parser parser;
     auto parsed = parser.parse(std::span<const u8>(bytes.data(), bytes.size()));
     if (!parsed) {
         std::cerr << "   FAIL: parse returned nullopt" << std::endl;

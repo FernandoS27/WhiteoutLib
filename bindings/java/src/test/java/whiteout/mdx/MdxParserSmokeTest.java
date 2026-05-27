@@ -23,9 +23,8 @@ public class MdxParserSmokeTest {
             require(!p.hasIssues(),
                 "fresh parser reports no issues before parsing");
         }
-        try (Parser p = Parser.createParseModeUpgradeMode(
-                ParseMode.Strict, UpgradeMode.PreserveOriginal)) {
-            require(p != null, "Parser.createParseModeUpgradeMode(...) ");
+        try (Parser p = Parser.createUpgradeMode(UpgradeMode.PreserveOriginal)) {
+            require(p != null, "Parser.createUpgradeMode(...)");
         }
     }
 

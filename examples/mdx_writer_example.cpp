@@ -18,7 +18,7 @@ int main(int argc, char* argv[]) {
     try {
         // Parse the input MDX file
         std::cout << "Loading " << inputPath << "...\n";
-        whiteout::mdx::Parser parser(whiteout::mdx::Parser::ParseMode::Lenient, whiteout::mdx::Parser::UpgradeMode::PreserveOriginal);
+        whiteout::mdx::Parser parser(whiteout::mdx::Parser::UpgradeMode::PreserveOriginal);
         whiteout::mdx::Model mdxFile = parser.parse(inputPath);
 
         std::cout << "Loaded successfully:\n";

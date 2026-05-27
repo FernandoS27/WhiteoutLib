@@ -48,7 +48,7 @@ int main(int argc, char* argv[]) {
     try {
         std::filesystem::path p(m2FilePath);
         whiteout::utils::OsFileSystem vfs(p.parent_path().string());
-        whiteout::m2::Parser parser(whiteout::m2::Parser::ParseMode::Lenient);
+        whiteout::m2::Parser parser;
         
         std::cout << "Loading M2 file: " << m2FilePath << std::endl;
         

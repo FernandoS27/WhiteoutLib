@@ -26,6 +26,20 @@ if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
     throw "cmake not found on PATH"
 }
 
+# Resolve a Python ≥3.10 — same selection logic as build-ci.sh, so codegen
+# and cmake's find_package(Python) end up using the same interpreter (and
+# therefore the same pybind11 / libclang install).
+$pythonCandidates = @('python3.13', 'python3.12', 'python3.11', 'python3.10', 'python3', 'python')
+$pythonExe = $null
+foreach ($cand in $pythonCandidates) {
+    $cmd = Get-Command $cand -ErrorAction SilentlyContinue
+    if (-not $cmd) { continue }
+    $ok = & $cmd.Path -c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)" 2>$null
+    if ($LASTEXITCODE -eq 0) { $pythonExe = $cmd.Path; break }
+}
+if (-not $pythonExe) { throw "no python >=3.10 on PATH" }
+Write-Host "using python: $pythonExe ($(& $pythonExe --version))"
+
 # ── 1. Codegen ───────────────────────────────────────────────────────────
 #
 # Generates the per-binding source/header files. Runs once; the same
@@ -38,30 +52,30 @@ try {
     $env:PYTHONIOENCODING = "utf-8"
 
     # C ABI (consumed by the JNI/FFM layer).
-    & python -m tools.codegen.codegen textures --backend c-common-header
+    & $pythonExe -m tools.codegen.codegen textures --backend c-common-header
     if ($LASTEXITCODE -ne 0) { throw "codegen c-common-header failed" }
-    & python -m tools.codegen.codegen textures --backend c-common
+    & $pythonExe -m tools.codegen.codegen textures --backend c-common
     if ($LASTEXITCODE -ne 0) { throw "codegen c-common failed" }
     foreach ($mod in $modules) {
         foreach ($backend in @('c-header', 'c-source')) {
-            & python -m tools.codegen.codegen $mod --backend $backend
+            & $pythonExe -m tools.codegen.codegen $mod --backend $backend
             if ($LASTEXITCODE -ne 0) { throw "codegen $mod $backend failed" }
         }
     }
 
     # Java FFM (whiteout.common + per-module).
-    & python -m tools.codegen.codegen textures --backend java-common
+    & $pythonExe -m tools.codegen.codegen textures --backend java-common
     if ($LASTEXITCODE -ne 0) { throw "codegen java-common failed" }
     foreach ($mod in $modules) {
-        & python -m tools.codegen.codegen $mod --backend java
+        & $pythonExe -m tools.codegen.codegen $mod --backend java
         if ($LASTEXITCODE -ne 0) { throw "codegen $mod java failed" }
     }
 
     # Python pybind11 + .pyi stubs.
     foreach ($mod in $modules) {
-        & python -m tools.codegen.codegen $mod --backend pybind11
+        & $pythonExe -m tools.codegen.codegen $mod --backend pybind11
         if ($LASTEXITCODE -ne 0) { throw "codegen $mod pybind11 failed" }
-        & python -m tools.codegen.codegen $mod --backend pyi
+        & $pythonExe -m tools.codegen.codegen $mod --backend pyi
         if ($LASTEXITCODE -ne 0) { throw "codegen $mod pyi failed" }
     }
 } finally {
@@ -80,6 +94,8 @@ $cmakeArgs = @(
     "-B", $buildDir,
     "-G", "Visual Studio 17 2022",
     "-A", "x64",
+    "-DPython_EXECUTABLE=$pythonExe",
+    "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
     "-DWHITEOUT_BUILD_C_BINDINGS=ON",
     "-DWHITEOUT_BUILD_JNI_BINDINGS=ON",
     "-DWHITEOUT_BUILD_PYTHON_BINDINGS=ON",

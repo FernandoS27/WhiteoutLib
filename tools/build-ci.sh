@@ -16,12 +16,27 @@ set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")"/.. && pwd)"
 build_dir="${repo_root}/build-ci"
 
-command -v python3 >/dev/null || command -v python >/dev/null || {
-    echo "python not found on PATH" >&2; exit 1; }
 command -v cmake >/dev/null || { echo "cmake not found on PATH" >&2; exit 1; }
 
-# Prefer python3 if both are available (Linux default).
-PYTHON="$(command -v python3 || command -v python)"
+# Pick a Python ≥3.10 (cmake's `find_package(Python 3.10 REQUIRED)` in
+# bindings/python/CMakeLists.txt enforces that). The CI install step writes
+# the resolved interpreter to ci_python.env so this script, cmake, and the
+# downstream after_build step all use the same one — important on macOS,
+# where the first `python3` on PATH is Xcode's 3.9 but cmake finds brew's
+# 3.12 (different interpreter, different site-packages, different pybind11).
+PYTHON="${CI_PYTHON:-}"
+if [ -z "${PYTHON}" ]; then
+    for cand in python3.13 python3.12 python3.11 python3.10 python3 python; do
+        if command -v "$cand" >/dev/null 2>&1; then
+            if "$cand" -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null; then
+                PYTHON="$(command -v "$cand")"
+                break
+            fi
+        fi
+    done
+fi
+[ -n "${PYTHON}" ] || { echo "no python >=3.10 on PATH" >&2; exit 1; }
+echo "using python: ${PYTHON} ($(${PYTHON} --version))"
 
 # ── 1. Codegen ───────────────────────────────────────────────────────────
 
@@ -29,6 +44,11 @@ modules=(textures mdx m2 m3 utils host mpq casc)
 
 cd "${repo_root}"
 export PYTHONIOENCODING=utf-8
+
+# Surface the picked Python to subprocesses so cmake's find_package(Python)
+# (and the codegen call inside bindings/python/CMakeLists.txt when
+# WHITEOUT_BUILD_PYTHON_WHEEL=ON) inherit it via the env.
+export Python_EXECUTABLE="${PYTHON}"
 
 # C ABI.
 "${PYTHON}" -m tools.codegen.codegen textures --backend c-common-header
@@ -55,6 +75,8 @@ done
 
 cmake -S "${repo_root}" -B "${build_dir}" \
     -DCMAKE_BUILD_TYPE=Release \
+    -DPython_EXECUTABLE="${PYTHON}" \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DWHITEOUT_BUILD_C_BINDINGS=ON \
     -DWHITEOUT_BUILD_JNI_BINDINGS=ON \
     -DWHITEOUT_BUILD_PYTHON_BINDINGS=ON \

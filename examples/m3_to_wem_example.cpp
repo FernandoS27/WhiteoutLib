@@ -54,7 +54,7 @@ int main(int argc, char* argv[]) {
     try {
         // Load M3
         std::cout << "Loading M3: " << inputPath << std::endl;
-        m3::Parser m3Parser(m3::Parser::ParseMode::Lenient);
+        m3::Parser m3Parser;
         m3::Model m3Model = m3Parser.parse(inputPath);
 
         const auto& m3Issues = m3Parser.getIssues();

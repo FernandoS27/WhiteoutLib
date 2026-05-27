@@ -1,19 +1,18 @@
 version: 1.0.{build}
 
-# Cross-platform CI: Windows (MSVC), Linux (gcc), macOS (AppleClang).
-# Each `image` runs as a separate job and emits per-platform packages
-# (Java natives classifier jar + Python wheel). The Linux job additionally
-# emits the universal main Java jar — bytecode is platform-independent, so
-# it only needs to be built once.
+# Cross-platform CI: Windows (MSVC), Linux (gcc), macOS (AppleClang),
+# plus a dedicated WASM job (emscripten on Ubuntu) that emits a Node.js
+# npm package.
+#
+# Each "native" image emits per-platform packages (Java natives classifier
+# jar + Python wheel). The Linux native job additionally emits the universal
+# main Java jar — bytecode is platform-independent, so it only needs to be
+# built once. The WASM job emits `whiteout-node-<ver>.tgz`.
 #
 # Each job runs ONE cmake configure + build that produces every artefact
-# the job will package (see tools/build-ci.{ps1,sh}). Java and Python
-# packaging steps then *consume* those outputs — no second C++ compile.
-
-image:
-  - macos-sonoma
-  - Ubuntu2204
-  - Visual Studio 2022
+# the job will package (see tools/build-ci.{ps1,sh} + tools/build-ci-wasm.sh).
+# Java/Python/npm packaging steps then *consume* those outputs — no second
+# C++ compile per language.
 
 configuration:
   - Release
@@ -23,11 +22,32 @@ platform:
 
 clone_depth: 5
 
+# Job matrix — one entry per actual job. AppVeyor's matrix syntax only
+# supports `fast_finish` / `exclude` / `allow_failures` under `matrix:`
+# (no `include:`), so heterogeneous job sets are expressed via
+# `environment.matrix` with `APPVEYOR_BUILD_WORKER_IMAGE` pinned per entry.
+# This pattern avoids the Cartesian product that would result from
+# combining a top-level `image:` list with `environment.matrix`.
 environment:
   CMAKE_BUILD_PARALLEL_LEVEL: 4
   # JDK 22+ is required for stable FFM. AppVeyor's Ubuntu/macOS images
   # already ship a recent JDK; Windows uses chocolatey via install step.
-  JAVA_VERSION: "22"
+  # Brew's stable openjdk formulas are openjdk@25 / @21 / @17 — there is
+  # no @22, so pin to @25 (newer LTS with stable FFM).
+  JAVA_VERSION: "25"
+  # Emscripten version used by the WASM job. Pinning avoids surprise
+  # binary-size or codegen changes between emsdk releases.
+  EMSDK_VERSION: "3.1.61"
+
+  matrix:
+    - APPVEYOR_BUILD_WORKER_IMAGE: macos-sonoma
+      WHITEOUT_TARGET: native
+    - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
+      WHITEOUT_TARGET: native
+    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2022
+      WHITEOUT_TARGET: native
+    - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
+      WHITEOUT_TARGET: wasm
 
 # ─── Install ────────────────────────────────────────────────────────────────
 # AppVeyor images ship CMake + the platform's default C++ toolchain. We also
@@ -59,8 +79,37 @@ install:
               break
             fi
           done
+          # JDK ≥22 — fall back through newer-then-older versions because
+          # Ubuntu 22.04 jammy's main archive only ships up to openjdk-19.
+          # The openjdk-r/ppa carries 21/22/23/24/25 from upstream Temurin
+          # builds; AppVeyor's image already has it activated on some
+          # workers, so we try the package first before pulling the PPA.
+          # python3-venv: Debian/Ubuntu strips ensurepip from the system
+          # python3 package; without it `python -m venv` fails with
+          # "ensurepip is not available". python3.10-venv covers the
+          # AppVeyor image's default pyenv-shim'd 3.10.
+          # clang: needed for `clang -print-resource-dir` so the codegen's
+          # libclang can find stddef.h / stdarg.h. Without it the AST
+          # degrades and the generated bindings reference `std::whiteout`.
           sudo apt-get install -y --no-install-recommends \
-              openjdk-${JAVA_VERSION}-jdk maven python3-pip
+              maven python3-pip python3-venv python3.10-venv clang
+          JDK_INSTALLED=""
+          for v in 25 24 23 22 ${JAVA_VERSION}; do
+            if sudo apt-get install -y --no-install-recommends openjdk-${v}-jdk 2>/dev/null; then
+              JDK_INSTALLED="$v"; break
+            fi
+          done
+          if [ -z "$JDK_INSTALLED" ]; then
+            sudo add-apt-repository -y ppa:openjdk-r/ppa
+            sudo apt-get update -qq
+            for v in 25 24 23 22; do
+              if sudo apt-get install -y --no-install-recommends openjdk-${v}-jdk 2>/dev/null; then
+                JDK_INSTALLED="$v"; break
+              fi
+            done
+          fi
+          [ -n "$JDK_INSTALLED" ] || { echo "no JDK >=22 available on apt" >&2; exit 1; }
+          echo "installed openjdk-${JDK_INSTALLED}-jdk"
         elif command -v brew >/dev/null; then
           : # macOS path below
         fi
@@ -68,19 +117,57 @@ install:
       fi
   - sh:  |
       # macOS: AppleClang is preinstalled; install JDK + Maven via brew.
+      # `brew install` is idempotent — formulas already on the image are
+      # left in place. The `|| true` swallows the no-op "already installed".
       if [ "$(uname -s)" = "Darwin" ]; then
         brew update >/dev/null
         brew install --quiet openjdk@${JAVA_VERSION} maven || true
-        # `openjdk@22` is keg-only; expose its bin/.
-        export PATH="$(brew --prefix openjdk@${JAVA_VERSION})/bin:$PATH"
+        # openjdk@NN is keg-only; expose its bin/ on PATH so `java`/`javac`
+        # resolve to the installed version rather than the image's default.
+        JDK_PREFIX="$(brew --prefix openjdk@${JAVA_VERSION} 2>/dev/null || true)"
+        if [ -n "$JDK_PREFIX" ] && [ -d "$JDK_PREFIX/bin" ]; then
+          export PATH="$JDK_PREFIX/bin:$PATH"
+        fi
         echo "PATH=$PATH" >> macos_env.env
         java -version
       fi
   - sh:  |
-      # Python deps (both Linux and macOS).
-      PY=$(command -v python3 || command -v python)
-      "$PY" -m pip install --upgrade pip
-      "$PY" -m pip install pybind11 libclang wheel packaging tomli
+      # Pick a Python ≥3.10, prefer newest minor. On macOS the first `python3`
+      # on PATH is Xcode's 3.9 — cmake then finds brew's 3.12 instead, and
+      # pybind11 installed into 3.9 is invisible to cmake. Iterating
+      # newest-first picks brew's 3.12.
+      BASE_PY=""
+      for cand in python3.13 python3.12 python3.11 python3.10 python3 python; do
+        if command -v "$cand" >/dev/null 2>&1 && \
+           "$cand" -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null; then
+          BASE_PY="$(command -v "$cand")"; break
+        fi
+      done
+      [ -n "$BASE_PY" ] || { echo "no python >=3.10 on PATH" >&2; exit 1; }
+      echo "base python: $BASE_PY ($($BASE_PY --version))"
+
+      # Try to create a venv so pip respects PEP 668 cleanly (brew Python
+      # on macOS + Debian/Ubuntu's externally-managed Python both refuse
+      # `pip install` into their system site-packages). If venv fails
+      # (Debian's python3-venv split, or any other "ensurepip missing"
+      # weirdness on AppVeyor's pyenv-shim'd images), fall back to using
+      # the base interpreter directly with --break-system-packages: this
+      # is a throwaway CI runner, so polluting its Python is harmless.
+      VENV="${APPVEYOR_BUILD_FOLDER}/.ci-venv"
+      PIP_FLAGS=""
+      if "$BASE_PY" -m venv "$VENV" 2>/dev/null && [ -x "$VENV/bin/python" ] && \
+         "$VENV/bin/python" -m pip --version >/dev/null 2>&1; then
+        PY="${VENV}/bin/python"
+        echo "venv python: $PY"
+      else
+        PY="$BASE_PY"
+        PIP_FLAGS="--break-system-packages"
+        echo "venv unavailable, using base python with --break-system-packages: $PY"
+      fi
+      echo "export CI_PYTHON=$PY" > "${APPVEYOR_BUILD_FOLDER}/ci_python.env"
+
+      "$PY" -m pip install $PIP_FLAGS --upgrade pip
+      "$PY" -m pip install $PIP_FLAGS pybind11 libclang wheel packaging tomli
 
 # ─── Configure + build (unified) ────────────────────────────────────────────
 # One cmake build per job produces the C++ static lib, the Java FFM native,
@@ -96,6 +183,7 @@ build_script:
   - sh:  |
       if [ -f linux_cc.env ];   then set -a; . ./linux_cc.env;   set +a; fi
       if [ -f macos_env.env ];  then set -a; . ./macos_env.env;  set +a; fi
+      if [ -f ci_python.env ];  then set -a; . ./ci_python.env;  set +a; fi
       bash tools/build-ci.sh
 
 # ─── Package ────────────────────────────────────────────────────────────────
@@ -116,6 +204,11 @@ after_build:
   # ── Linux / macOS: natives jar + wheel + (Linux only) main jar ───────────
   - sh:  |
       set -e
+      # Re-source the Python pin written by install (cmake-finds-3.12 vs
+      # Xcode-3.9 — same issue we solved in build_script).
+      if [ -f ci_python.env ]; then set -a; . ./ci_python.env; set +a; fi
+      PY="${CI_PYTHON:-$(command -v python3 || command -v python)}"
+
       OS="$(uname -s)"
       if [ "$OS" = "Linux" ]; then
         platform="linux-x86_64"
@@ -129,7 +222,6 @@ after_build:
           -Dwhiteout.native.platform="${platform}" \
           -Dwhiteout.native.path="${native_lib}"
 
-      PY=$(command -v python3 || command -v python)
       "$PY" tools/pack_python_wheel.py \
           --build-dir build-ci \
           --out-dir   packages/python/dist
@@ -158,6 +250,54 @@ test: off
 # doesn't burn the others' minutes.
 matrix:
   fast_finish: true
+
+# ─── WASM job overrides ─────────────────────────────────────────────────────
+# When WHITEOUT_TARGET=wasm, replace the native build's install / build /
+# after_build / artifacts with the emscripten + npm-pack flow. `for:` blocks
+# fully override the matching keys from the root config (the rest, like
+# clone_depth and branches, still apply).
+for:
+  - matrix:
+      only:
+        - WHITEOUT_TARGET: wasm
+
+    install:
+      - sh: |
+          set -e
+          # System deps: cmake, ninja, python, node — Ubuntu2204 ships node
+          # 18 but a newer one is fine; cmake/ninja need installing.
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+              cmake ninja-build python3-pip nodejs npm
+          python3 -m pip install --upgrade pip
+          python3 -m pip install libclang
+      - sh: |
+          # Install + activate emsdk at the pinned version.
+          if [ ! -d "${HOME}/emsdk" ]; then
+            git clone --depth 1 https://github.com/emscripten-core/emsdk.git "${HOME}/emsdk"
+          fi
+          cd "${HOME}/emsdk"
+          ./emsdk install "${EMSDK_VERSION}"
+          ./emsdk activate "${EMSDK_VERSION}"
+          # Stash the activation env so build_script can re-source it (each
+          # AppVeyor script step runs in a fresh shell).
+          echo "source ${HOME}/emsdk/emsdk_env.sh" > "${APPVEYOR_BUILD_FOLDER}/emsdk.env"
+
+    build_script:
+      - sh: |
+          set -e
+          # Re-activate emsdk (build_script runs in a fresh shell from install).
+          source "${APPVEYOR_BUILD_FOLDER}/emsdk.env"
+          bash tools/build-ci-wasm.sh
+
+    # No after_build — npm pack runs inside build-ci-wasm.sh.
+    after_build: []
+
+    artifacts:
+      - path: packages/js-node/*.tgz
+        name: wasm-node-package
+      - path: packages/js-node/whiteout-node.wasm
+        name: wasm-node-binary
 
 # Build on pushes to any branch + on PRs.
 branches:

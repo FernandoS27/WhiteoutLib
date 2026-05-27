@@ -22,7 +22,7 @@ int main(int argc, char* argv[]) {
         std::cout << "Loading input M2 file: " << inputPath << std::endl;
         std::filesystem::path p(inputPath);
         whiteout::utils::OsFileSystem vfs(p.parent_path().string());
-        whiteout::m2::Parser parser(whiteout::m2::Parser::ParseMode::Lenient);
+        whiteout::m2::Parser parser;
         whiteout::m2::Model model = parser.parse(vfs, inputPath);
         
         const auto& issues = parser.getIssues();

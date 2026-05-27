@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
@@ -12,14 +13,30 @@ from typing import Optional
 from clang import cindex
 from clang.cindex import CursorKind, TypeKind as CXTypeKind
 
-# Python 3.14 on Windows: clang.cindex's get_filename() calls platform.system()
-# to choose between libclang.dll/.dylib/.so. On 3.14, platform.system() hits a
-# WMI query (Win32_OperatingSystem) that can hang for tens of seconds. Skip the
-# check entirely by pointing Config.library_file at the bundled DLL up front.
-if sys.platform == 'win32' and cindex.Config.library_file is None:
-    _native_libclang = os.path.join(cindex.Config.library_path, 'libclang.dll')
-    if os.path.isfile(_native_libclang):
-        cindex.Config.set_library_file(_native_libclang)
+# Point cindex at the pip-installed libclang shared library up front.
+#
+# - On Windows 3.14, cindex.get_filename() calls platform.system() which can
+#   hit a WMI query (Win32_OperatingSystem) that hangs for tens of seconds.
+# - On Windows generally, even when WMI is fast, cindex's default search via
+#   `cdll.LoadLibrary("libclang.dll")` only walks PATH — and the pip
+#   `libclang` package installs the DLL into `<clang-pkg>/native/`, which is
+#   not on PATH. The default fails with "Could not find module 'libclang.dll'".
+#
+# In both cases the fix is the same: locate the DLL inside the pip package
+# ourselves and feed cindex an absolute path. cindex.Config.library_path is
+# empty by default so we can't rely on it.
+if cindex.Config.library_file is None:
+    _ext = {'win32': 'libclang.dll', 'darwin': 'libclang.dylib'}.get(sys.platform, 'libclang.so')
+    # The libclang pip package's layout is `<clang-pkg>/native/<libname>`.
+    _clang_pkg = os.path.dirname(cindex.__file__)
+    _candidates = [
+        os.path.join(_clang_pkg, 'native', _ext),
+        os.path.join(cindex.Config.library_path or '', _ext),
+    ]
+    for _path in _candidates:
+        if _path and os.path.isfile(_path):
+            cindex.Config.set_library_file(_path)
+            break
 
 from .annotations import parse as parse_annotations, is_bound, extract_doc
 from .ir import (
@@ -738,6 +755,35 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
     ]
     for inc in config.include_dirs:
         args.append(f'-I{(repo_root / inc).as_posix()}')
+
+    # The pip-installed `libclang` package ships the .dylib/.so but NOT the
+    # clang builtin headers (stdarg.h, stddef.h, …). Without those, libclang
+    # fails to expand <wchar.h>/<stdlib.h> reached transitively from <string>
+    # and the AST degrades — std::string parameters get parsed as int, and
+    # qualified names like `whiteout::T` come back as `std::whiteout::T`.
+    # Point libclang at a real clang's resource dir so its builtin headers
+    # resolve. macOS additionally needs `-isysroot` for the SDK path.
+    if sys.platform != 'win32':
+        clang_probe = (['xcrun', 'clang'] if sys.platform == 'darwin' else ['clang'])
+        try:
+            resource_dir = subprocess.check_output(
+                clang_probe + ['-print-resource-dir'],
+                stderr=subprocess.DEVNULL,
+            ).decode().strip()
+            if resource_dir and os.path.isdir(resource_dir):
+                args.append(f'-resource-dir={resource_dir}')
+        except (OSError, subprocess.CalledProcessError):
+            pass  # No clang on PATH — libclang will fall back to its search.
+        if sys.platform == 'darwin':
+            try:
+                sdk_path = subprocess.check_output(
+                    ['xcrun', '--show-sdk-path'],
+                    stderr=subprocess.DEVNULL,
+                ).decode().strip()
+                if sdk_path:
+                    args.extend(['-isysroot', sdk_path])
+            except (OSError, subprocess.CalledProcessError):
+                pass
 
     tu = idx.parse('umbrella.cpp', args=args,
                    unsaved_files=[('umbrella.cpp', umbrella)],
