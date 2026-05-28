@@ -94,29 +94,115 @@ language bindings.
 
 ## Language Bindings
 
-WhiteoutLib's public headers are designed to be binding-friendly: PImpl
-ownership, no exposed templates beyond the math types, no STL containers in
-hot return positions, and a uniform error-handling convention.
+WhiteoutLib ships three first-class language bindings:
+
+| Language | Runtime | Location |
+|---|---|---|
+| **JavaScript / TypeScript** | WebAssembly (browser + Node.js) | [packages/js-ts/](packages/js-ts/) |
+| **Python** | CPython 3.10+ extension module | [bindings/python/](bindings/python/) |
+| **Java** | JDK 22+ via Foreign Function & Memory API | [bindings/java/](bindings/java/) |
+
+A flat C ABI also exists under [bindings/c/](bindings/c/), but it is **not
+intended for direct use** — it exists purely as a stable bridge that the
+Java FFM layer (and any future non-C++ language) can call into. End users
+should pick one of the three high-level bindings above.
+
+### Generated, not hand-written
 
 All bindings are produced by an in-house Python codegen tool
 ([tools/codegen/](tools/codegen/)) that parses annotated C++ headers via
-libclang into a backend-neutral IR, then emits backend-specific binding
-source. The same `@bind` annotations on the C++ declarations drive every
-target language, so adding a new binding surface is a matter of running the
-codegen rather than hand-writing wrappers.
+libclang into a backend-neutral IR, then emits backend-specific source for
+each target:
 
-Bindings work is currently in progress:
+- **Embind** (`.cpp` + `.d.ts`) for the WASM bindings
+- **pybind11** (`.cpp` + `.pyi`) for the Python bindings
+- **Java + C ABI** (`.java` + `extern "C"` shim) for the FFM bindings
 
-| Language | Status | Location | Codegen backend |
-|---|---|---|---|
-| **JavaScript / TypeScript (WebAssembly)** | In progress, alpha | [packages/js-ts/](packages/js-ts/) | Embind (+ `.d.ts` stubs) |
-| **Python** | In progress, alpha | [bindings/python/](bindings/python/) | pybind11 (+ `.pyi` stubs) |
-| **Java** | Early | — | JNI |
-| **Flat C ABI** | Early | — | hand-curated C |
-| **C#** | Planned | — | TBD |
+The same `@bind` annotations on C++ declarations drive every backend, so
+adding or modifying a binding is a single-source change in the C++ header
+followed by a codegen run — never a hand-edit of generated files.
 
-The WASM and Python bindings currently cover the model and texture modules;
-CASC, MPQ, and the networking surface are not yet exposed through bindings.
+### Designed to feel idiomatic in each language
+
+The bindings are intentionally **not** a thin 1:1 mirror of the C++ API.
+Each backend reshapes the surface to match the target language's
+conventions: snake_case fields in Python, camelCase in JS/TS, JavaBeans
+getters and `AutoCloseable` lifetime in Java, `Optional<T>` for fallible
+parsers, native flag enums where each language has them, and per-language
+math-type ergonomics. The goal is that idiomatic code in each language
+reads as if the library had been written for that language directly.
+
+### Zero-copy buffer access
+
+Both Python and JavaScript bindings expose the underlying C++ `std::vector`
+storage as a native buffer view in the host language — **no copy, mutations
+write through**.
+
+#### Python — NumPy buffer protocol
+
+Primitive vectors and the standard math types (`Vector2f/3f/4f`,
+`Quaternion`, `ColorBGRA`) implement the buffer protocol, so
+`np.asarray(...)` returns a view aliased to the C++ memory:
+
+```python
+import numpy as np
+import whiteout as w
+
+model = w.mdx.Parser().parse_buffer_format(
+    open("model.mdx", "rb").read(), w.mdx.MDLXFormat.MDX)
+
+# Primitive vector → 1D array
+keys = np.asarray(track.keys)               # dtype=float32, shape=(N,)
+keys[:] *= 2.0                              # writes through to C++
+
+# Math-struct vector → 2D array
+pivots   = np.asarray(model.pivot_points)   # shape=(N, 3), dtype=float32
+tangents = np.asarray(geo.tangents)         # shape=(N, 4), dtype=float32
+pivots[:, 1] += 1.0                         # bulk Y-offset, no copy
+```
+
+#### TypeScript / JavaScript — TypedArray views
+
+The WASM bindings expose a matching `.view()` method on every primitive
+and math-struct vector that returns a JS `TypedArray` aliased to the WASM
+heap:
+
+```ts
+import { Whiteout } from "whiteout-wasm";
+const w = await Whiteout();
+
+const model = w.mdx.parse(mdxBytes);
+
+// Primitive vector → 1D TypedArray
+const keys: Float32Array = model.globalSequences.get(0).keys.view();
+keys[1] = 99.0;                             // writes through
+
+// Math-struct vector → flat TypedArray, laid out [x0,y0,z0, x1,y1,z1, …]
+const pivots: Float32Array = model.pivotPoints.view();
+const y1 = pivots[1 * 3 + 1];
+```
+
+Element types map to the natural TypedArray for the target
+(`u8`→`Uint8Array`, `f32`/`Vector3f`/`Quaternion`→`Float32Array`, …).
+
+**Caveat for both backends:** any operation that may reallocate the
+underlying C++ vector (`append`, `push_back`, `resize`, …) invalidates the
+view. Re-acquire (`np.asarray(...)` / `.view()`) after a size change, or
+copy out (`np.array(...)` / `new Float32Array(view)`) if you need a stable
+snapshot.
+
+### Per-binding documentation
+
+Each binding has its own README with the full API tour, build instructions,
+and per-language gotchas:
+
+- [bindings/python/README.md](bindings/python/README.md)
+- [packages/js-ts/README.md](packages/js-ts/README.md)
+- [bindings/java/README.md](bindings/java/README.md)
+
+The WASM and Python bindings currently cover the model, texture, MPQ, CASC,
+and host-extras surfaces. The Java binding tracks the same surface and is
+generated from the same IR.
 
 ## Format References
 
