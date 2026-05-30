@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+﻿# SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2026 Fernando Sahmkow
 #
 # Unified CI build — one cmake configure + one cmake build that produces:
@@ -51,6 +51,15 @@ Write-Host "using python: $pythonExe ($(& $pythonExe --version))"
 # guarantees every OS compiles byte-identical generated sources.
 
 $modules = @('textures', 'mdx', 'm2', 'm3', 'utils', 'host', 'mpq', 'casc')
+
+# Sentinel file alternative to WHITEOUT_SKIP_CODEGEN. AppVeyor's `ps:`
+# step on Windows doesn't expose the `appveyor SetVariable` CLI in the
+# pwsh PATH, so cross-step env var persistence via the CLI is unreliable;
+# the CI poller drops `.codegen-done` after extracting the codegen tarball.
+$codegenSentinel = Join-Path $repoRoot ".codegen-done"
+if ((Test-Path $codegenSentinel) -and ($env:WHITEOUT_SKIP_CODEGEN -ne "1")) {
+    $env:WHITEOUT_SKIP_CODEGEN = "1"
+}
 
 if ($env:WHITEOUT_SKIP_CODEGEN -eq "1") {
     Write-Host "WHITEOUT_SKIP_CODEGEN=1 — skipping codegen step (using pre-generated sources)"

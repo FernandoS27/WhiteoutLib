@@ -55,6 +55,14 @@ export PYTHONIOENCODING=utf-8
 # WHITEOUT_BUILD_PYTHON_WHEEL=ON) inherit it via the env.
 export Python_EXECUTABLE="${PYTHON}"
 
+# Sentinel file alternative to WHITEOUT_SKIP_CODEGEN — keeps the build
+# script in sync with build-ci.ps1, where the appveyor CLI isn't reliably
+# on PATH for cross-step env var persistence. CI's poller drops the
+# `.codegen-done` marker after extracting the codegen tarball.
+if [ -f "${repo_root}/.codegen-done" ] && [ "${WHITEOUT_SKIP_CODEGEN:-}" != "1" ]; then
+    WHITEOUT_SKIP_CODEGEN=1
+fi
+
 if [ "${WHITEOUT_SKIP_CODEGEN:-}" = "1" ]; then
     echo "WHITEOUT_SKIP_CODEGEN=1 — skipping codegen step (using pre-generated sources)"
 else

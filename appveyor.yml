@@ -48,11 +48,11 @@ environment:
     # itself.
     - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
       WHITEOUT_TARGET: codegen
-    - APPVEYOR_BUILD_WORKER_IMAGE: macos-sonoma
+    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2022
       WHITEOUT_TARGET: native
     - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
       WHITEOUT_TARGET: native
-    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2022
+    - APPVEYOR_BUILD_WORKER_IMAGE: macos-sonoma
       WHITEOUT_TARGET: native
     - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
       WHITEOUT_TARGET: wasm
@@ -89,6 +89,64 @@ init:
 # need: a JDK 22+, a Python with `pip install pybind11 libclang wheel`, and
 # Maven. On Linux, install a newer gcc for full C++20.
 install:
+  # Pick a JDK >= JAVA_VERSION on the Windows worker. The Visual Studio
+  # 2022 image's default `javac` is too old for `--release 22` from
+  # bindings/java/pom.xml (and the modular project at
+  # bindings/java/src/main/java/module-info.java tells the compiler plugin
+  # to pass `--module-version`, which an older JDK rejects as unknown).
+  # Look for a pre-installed JDK in C:\Program Files\Java\jdk-NN; fall back
+  # to chocolatey if nothing recent enough is staged. Linux/macOS install
+  # their JDKs in the `sh:` steps below.
+  - ps: |
+      if ($env:OS -ne 'Windows_NT') { return }
+      $ErrorActionPreference = "Stop"
+      $minMajor = [int]$env:JAVA_VERSION
+      if ($minMajor -lt 22) { $minMajor = 22 }
+      function Find-JDK($root) {
+          if (-not (Test-Path $root)) { return @() }
+          Get-ChildItem $root -Directory -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -match '^(?:jdk-?|openjdk-?)(\d+)' } |
+              ForEach-Object {
+                  $major = [int]([regex]::Match($_.Name, '(\d+)').Groups[1].Value)
+                  [PSCustomObject]@{ Path = $_.FullName; Major = $major }
+              }
+      }
+      $candidates = @(Find-JDK 'C:\Program Files\Java') +
+                    @(Find-JDK 'C:\Program Files\Eclipse Adoptium') +
+                    @(Find-JDK 'C:\Program Files\OpenJDK')
+      $candidates = $candidates | Where-Object { $_.Major -ge $minMajor } |
+          Sort-Object Major -Descending
+      if (-not $candidates) {
+          Write-Host "No pre-installed JDK >= $minMajor; installing openjdk via chocolatey..."
+          $installed = $false
+          foreach ($pkg in @("openjdk$minMajor", "openjdk")) {
+              & choco install $pkg -y --no-progress 2>&1 | Write-Host
+              if ($LASTEXITCODE -eq 0) { $installed = $true; break }
+          }
+          if (-not $installed) { throw "chocolatey install of JDK $minMajor failed" }
+          $candidates = @(Find-JDK 'C:\Program Files\OpenJDK') +
+                        @(Find-JDK 'C:\Program Files\Eclipse Adoptium') +
+                        @(Find-JDK 'C:\Program Files\Java')
+          $candidates = $candidates | Where-Object { $_.Major -ge $minMajor } |
+              Sort-Object Major -Descending
+      }
+      if (-not $candidates) { throw "Could not locate JDK >= $minMajor on Windows worker" }
+      $jdkHome = $candidates[0].Path
+      Write-Host "Using JDK at: $jdkHome (major $($candidates[0].Major))"
+      $env:JAVA_HOME = $jdkHome
+      $env:Path = "$jdkHome\bin;$env:Path"
+      # Persist for subsequent AppVeyor steps (each one spawns a fresh
+      # process). The `appveyor SetVariable` CLI isn't on PATH inside pwsh
+      # on this image, so use the .NET API to write to the Machine env
+      # block directly — AppVeyor's build agent runs as Administrator, so
+      # the Machine scope write succeeds and new processes inherit it.
+      [Environment]::SetEnvironmentVariable('JAVA_HOME', $jdkHome, 'Machine')
+      $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+      [Environment]::SetEnvironmentVariable('Path', "$jdkHome\bin;$machinePath", 'Machine')
+      # Don't invoke `java -version` from pwsh — javac/java write to stderr,
+      # and Windows PowerShell 5.1 with $ErrorActionPreference=Stop turns
+      # any stderr emission from a native command into a terminating error.
+      # The next `cmd:` step in install runs `java -version` cleanly.
   - cmd: cmake --version
   - cmd: where python
   - cmd: python --version
@@ -228,14 +286,12 @@ build_script:
 # the universal main jar (sources + javadoc included).
 after_build:
   # ── Windows: natives jar + wheel ─────────────────────────────────────────
-  - cmd: |
-      mvn -f bindings\java\pom.xml -P natives package -DskipTests ^
-          -Dwhiteout.native.platform=windows-x86_64 ^
-          -Dwhiteout.native.path=%APPVEYOR_BUILD_FOLDER%\build-ci\c-dist\Release\whiteout_native.dll
-  - cmd: |
-      python tools\pack_python_wheel.py ^
-          --build-dir build-ci ^
-          --out-dir   packages\python\dist
+  # Each cmd is on a single line: AppVeyor writes YAML `|` blocks with LF
+  # line endings, so `^` continuation chars don't join lines and each line
+  # gets parsed as its own command. Keeping everything on one line sidesteps
+  # the issue without needing a separate .bat file.
+  - cmd: mvn -f bindings\java\pom.xml -P natives package -DskipTests -Dwhiteout.native.platform=windows-x86_64 -Dwhiteout.native.path=%APPVEYOR_BUILD_FOLDER%\build-ci\c-dist\Release\whiteout_native.dll
+  - cmd: python tools\pack_python_wheel.py --build-dir build-ci --out-dir packages\python\dist
 
   # ── Linux / macOS: natives jar + wheel + (Linux only) main jar ───────────
   - sh:  |
@@ -365,8 +421,12 @@ for:
           if ($LASTEXITCODE -ne 0) { throw "tar extract failed" }
           Write-Host "extracted codegen sources"
 
-          $env:WHITEOUT_SKIP_CODEGEN = "1"
-          appveyor SetVariable -Name WHITEOUT_SKIP_CODEGEN -Value "1"
+          # Sentinel file picked up by tools/build-ci.ps1. AppVeyor's
+          # `appveyor SetVariable` CLI isn't on PATH in pwsh on Windows,
+          # so cross-step env var persistence via the CLI is unreliable —
+          # a file-system marker survives the step boundary cleanly.
+          New-Item -ItemType File -Force `
+              -Path (Join-Path $env:APPVEYOR_BUILD_FOLDER ".codegen-done") | Out-Null
 
       - sh: |
           set -euo pipefail
@@ -411,7 +471,9 @@ for:
           tar -xzf "${APPVEYOR_BUILD_FOLDER}/codegen-sources.tar.gz" -C "${APPVEYOR_BUILD_FOLDER}"
           echo "extracted codegen sources"
 
-          appveyor SetVariable -Name WHITEOUT_SKIP_CODEGEN -Value "1"
+          # Sentinel file picked up by tools/build-ci.sh — mirrors the
+          # Windows poller. See build-ci.{ps1,sh} for the matching check.
+          : > "${APPVEYOR_BUILD_FOLDER}/.codegen-done"
 
 # ─── Codegen job overrides ──────────────────────────────────────────────────
 # A lightweight Linux job that runs the Python codegen once, packages the

@@ -43,10 +43,10 @@ public:
         return data.value_or(std::vector<u8>{});
     }
 
-    std::optional<IndexLocation> findInIndex(
-        std::span<const u8> eKeyPrefix) const override {
+    std::optional<IndexLocation> findInIndex(std::span<const u8> eKeyPrefix) const override {
         auto entry = m_archiveIndex->find(eKeyPrefix);
-        if (!entry) return std::nullopt;
+        if (!entry)
+            return std::nullopt;
         return IndexLocation{
             entry->archiveIndex,
             entry->archiveOffset,
