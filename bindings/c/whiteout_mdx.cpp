@@ -2605,6 +2605,16 @@ int32_t whiteout_mdx_MdxParser_hasIssues(const whiteout_MdxParser* self) {
     return reinterpret_cast<const whiteout::mdx::Parser*>(self)->hasIssues();
 }
 
+size_t whiteout_mdx_MdxParser_getIssues_count(const whiteout_MdxParser* self) {
+    return reinterpret_cast<const whiteout::mdx::Parser*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_mdx_MdxParser_getIssues_at(const whiteout_MdxParser* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::mdx::Parser*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
+}
+
 } // extern "C"
 
 // ── MdxWriter ─────────────────────────────────────────────────

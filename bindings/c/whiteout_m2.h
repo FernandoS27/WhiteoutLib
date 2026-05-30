@@ -1103,6 +1103,8 @@ void whiteout_m2_M2Parser_delete(whiteout_M2Parser* self);
 struct whiteout_M2Model* whiteout_m2_M2Parser_parse(whiteout_M2Parser* self, void* fs, const char* filePath);
 struct whiteout_M2Model* whiteout_m2_M2Parser_parse_cascFs_buffer(whiteout_M2Parser* self, void* cascFs, const uint8_t* buffer, size_t buffer_size);
 int32_t whiteout_m2_M2Parser_hasIssues(const whiteout_M2Parser* self);
+size_t whiteout_m2_M2Parser_getIssues_count(const whiteout_M2Parser* self);
+whiteout_CString whiteout_m2_M2Parser_getIssues_at(const whiteout_M2Parser* self, size_t index);
 
 /* ── M2WriteOptions ─────────────────────────────────────────────── */
 
@@ -1136,6 +1138,8 @@ void whiteout_m2_M2Writer_write(whiteout_M2Writer* self, void* fs, const char* f
 void whiteout_m2_M2Writer_write_cascFs_model(whiteout_M2Writer* self, void* cascFs, struct whiteout_M2Model* model);
 struct whiteout_M2SerializeResult* whiteout_m2_M2Writer_write_model(whiteout_M2Writer* self, struct whiteout_M2Model* model);
 int32_t whiteout_m2_M2Writer_hasIssues(const whiteout_M2Writer* self);
+size_t whiteout_m2_M2Writer_getIssues_count(const whiteout_M2Writer* self);
+whiteout_CString whiteout_m2_M2Writer_getIssues_at(const whiteout_M2Writer* self, size_t index);
 
 /* ── M2AnimationTrackVector3f ─────────────────────────────────────────────── */
 

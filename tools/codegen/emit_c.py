@@ -564,6 +564,9 @@ def _emit_class_header(buf: StringIO, c: BindClass, prefix: str,
     for m in c.methods:
         if not _is_method_supported(m, module):
             continue
+        if _is_vector_string_return(m):
+            _emit_vector_string_decls(buf, m, c, prefix)
+            continue
         _emit_method_decl(buf, m, c, prefix, module)
 
     _emit_field_decls(buf, c, prefix, module, _known_class_short_names(module))
@@ -987,7 +990,13 @@ def _is_return_supported(ret: TypeRef, module: BindModule) -> bool:
             return False
         return _c_handle_name(ret.cpp_text) in _known_class_short_names(module)
     if ret.kind == TypeKind.VECTOR:
-        return _short_name(ret.element.cpp_text) in ('u8', 'unsigned char')
+        if _short_name(ret.element.cpp_text) in ('u8', 'unsigned char'):
+            return True
+        # std::vector<std::string> — supported via a (count, at) expansion
+        # (one method becomes two C functions). See `_is_vector_string_return`.
+        if ret.element.kind == TypeKind.STRING:
+            return True
+        return False
     if ret.kind == TypeKind.OPTIONAL:
         if ret.element.kind in (TypeKind.NESTED,):
             return True
@@ -1000,6 +1009,42 @@ def _is_return_supported(ret: TypeRef, module: BindModule) -> bool:
         if ret.element.kind == TypeKind.VECTOR:
             return _short_name(ret.element.element.cpp_text) in ('u8', 'unsigned char')
     return False
+
+
+def _is_vector_string_return(m: BindMethod) -> bool:
+    """`std::vector<std::string>` method return — lowered to two C
+    functions: `_<method>_count(self) -> size_t` and `_<method>_at(self, i)
+    -> whiteout_CString`. The C++ method is expected to be const and to
+    return a reference (`const std::vector<std::string>&`) so per-element
+    lookup doesn't re-execute work."""
+    r = m.return_type
+    return r.kind == TypeKind.VECTOR and r.element.kind == TypeKind.STRING
+
+
+def _emit_vector_string_decls(buf: StringIO, m: BindMethod, c: BindClass,
+                              prefix: str) -> None:
+    short = _c_handle_name(c.js_name)
+    self_q = f'const whiteout_{short}* self'
+    if m.doc:
+        for line in m.doc.splitlines():
+            buf.write(f'/* {line} */\n')
+    buf.write(f'size_t {prefix}_{short}_{m.name}_count({self_q});\n')
+    buf.write(f'whiteout_CString {prefix}_{short}_{m.name}_at({self_q}, size_t index);\n')
+
+
+def _emit_vector_string_defs(buf: StringIO, m: BindMethod, c: BindClass,
+                             cpp_qual: str, prefix: str) -> None:
+    short = _c_handle_name(c.js_name)
+    self_q = f'const whiteout_{short}* self'
+    cast = f'reinterpret_cast<const {cpp_qual}*>(self)'
+    buf.write(f'size_t {prefix}_{short}_{m.name}_count({self_q}) {{\n')
+    buf.write(f'    return {cast}->{m.cpp_name}().size();\n')
+    buf.write('}\n\n')
+    buf.write(f'whiteout_CString {prefix}_{short}_{m.name}_at({self_q}, size_t index) {{\n')
+    buf.write(f'    const auto& __v = {cast}->{m.cpp_name}();\n')
+    buf.write(f'    if (index >= __v.size()) return emptyCString();\n')
+    buf.write(f'    return wrapCString(std::string(__v[index]));\n')
+    buf.write('}\n\n')
 
 
 def _is_interface_pointer_param(p: BindMethodParam) -> bool:
@@ -1451,6 +1496,9 @@ def _emit_class_source(buf: StringIO, c: BindClass, prefix: str,
 
     for m in c.methods:
         if not _is_method_supported(m, module):
+            continue
+        if _is_vector_string_return(m):
+            _emit_vector_string_defs(buf, m, c, cpp_qual, prefix)
             continue
         _emit_method_source(buf, m, c, cpp_qual, prefix, module)
 

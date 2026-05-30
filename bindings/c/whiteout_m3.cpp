@@ -8132,6 +8132,16 @@ int32_t whiteout_m3_M3Parser_hasIssues(const whiteout_M3Parser* self) {
     return reinterpret_cast<const whiteout::m3::Parser*>(self)->hasIssues();
 }
 
+size_t whiteout_m3_M3Parser_getIssues_count(const whiteout_M3Parser* self) {
+    return reinterpret_cast<const whiteout::m3::Parser*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_m3_M3Parser_getIssues_at(const whiteout_M3Parser* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::m3::Parser*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
+}
+
 } // extern "C"
 
 // ── M3Writer ─────────────────────────────────────────────────

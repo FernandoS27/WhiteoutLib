@@ -1202,6 +1202,9 @@ struct whiteout_MdxModel* whiteout_mdx_MdxParser_parse(whiteout_MdxParser* self,
 struct whiteout_MdxModel* whiteout_mdx_MdxParser_parse_buffer_format(whiteout_MdxParser* self, const uint8_t* buffer, size_t buffer_size, int32_t format);
 /* Check if parsing encountered any issues @return True if there were warnings or recoverable errors */
 int32_t whiteout_mdx_MdxParser_hasIssues(const whiteout_MdxParser* self);
+/* Get list of issues encountered during parsing @return Vector of issue description strings */
+size_t whiteout_mdx_MdxParser_getIssues_count(const whiteout_MdxParser* self);
+whiteout_CString whiteout_mdx_MdxParser_getIssues_at(const whiteout_MdxParser* self, size_t index);
 
 /* ── MdxWriter ─────────────────────────────────────────────── */
 

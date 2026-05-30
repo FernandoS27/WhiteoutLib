@@ -94,18 +94,21 @@ language bindings.
 
 ## Language Bindings
 
-WhiteoutLib ships three first-class language bindings:
+WhiteoutLib ships four first-class language bindings:
 
 | Language | Runtime | Location |
 |---|---|---|
 | **JavaScript / TypeScript** | WebAssembly (browser + Node.js) | [packages/js-ts/](packages/js-ts/) |
 | **Python** | CPython 3.10+ extension module | [bindings/python/](bindings/python/) |
 | **Java** | JDK 22+ via Foreign Function & Memory API | [bindings/java/](bindings/java/) |
+| **C#** | .NET 8+ via `[LibraryImport]` P/Invoke (AOT-clean) | [bindings/csharp/](bindings/csharp/) |
 
 A flat C ABI also exists under [bindings/c/](bindings/c/), but it is **not
 intended for direct use** — it exists purely as a stable bridge that the
-Java FFM layer (and any future non-C++ language) can call into. End users
-should pick one of the three high-level bindings above.
+Java FFM and C# P/Invoke layers (and any future non-C++ language) call
+into. The same `whiteout_native.dll` / `libwhiteout_native.so` backs every
+binding; consumers can share one staged native binary across runtimes.
+End users should pick one of the four high-level bindings above.
 
 ### Generated, not hand-written
 
@@ -117,6 +120,7 @@ each target:
 - **Embind** (`.cpp` + `.d.ts`) for the WASM bindings
 - **pybind11** (`.cpp` + `.pyi`) for the Python bindings
 - **Java + C ABI** (`.java` + `extern "C"` shim) for the FFM bindings
+- **C#** (`.cs` with `[LibraryImport]` source-generated P/Invoke) sharing the same C ABI
 
 The same `@bind` annotations on C++ declarations drive every backend, so
 adding or modifying a binding is a single-source change in the C++ header
@@ -134,9 +138,9 @@ reads as if the library had been written for that language directly.
 
 ### Zero-copy buffer access
 
-Both Python and JavaScript bindings expose the underlying C++ `std::vector`
-storage as a native buffer view in the host language — **no copy, mutations
-write through**.
+Python, JavaScript, and C# bindings all expose the underlying C++
+`std::vector` storage as a native buffer view in the host language — **no
+copy, mutations write through**.
 
 #### Python — NumPy buffer protocol
 
@@ -185,11 +189,32 @@ const y1 = pivots[1 * 3 + 1];
 Element types map to the natural TypedArray for the target
 (`u8`→`Uint8Array`, `f32`/`Vector3f`/`Quaternion`→`Float32Array`, …).
 
-**Caveat for both backends:** any operation that may reallocate the
+#### C# — `ReadOnlySpan<T>` over native memory
+
+The C# bindings alias the standard math types directly to
+`System.Numerics` (`Vector3f` → `System.Numerics.Vector3`, etc.) and
+expose `std::vector<MathType>` fields as zero-copy `ReadOnlySpan<T>`:
+
+```csharp
+using Whiteout.Mdx;
+
+using var parser = new Parser();
+using var model  = parser.ParseBufferFormat(mdxBytes, MDLXFormat.MDX);
+
+ReadOnlySpan<System.Numerics.Vector3> pivots = model.PivotPoints;
+var first = pivots[0];                          // no allocation
+```
+
+This is the same backing buffer the C++ side reads from, surfaced through
+.NET's `ReadOnlySpan<T>` (or `Span<T>` for mutable contexts). Combined
+with the `System.Numerics` alias, a Whiteout model's pivot points flow
+into any SIMD-friendly graphics code without conversion.
+
+**Caveat for all three backends:** any operation that may reallocate the
 underlying C++ vector (`append`, `push_back`, `resize`, …) invalidates the
-view. Re-acquire (`np.asarray(...)` / `.view()`) after a size change, or
-copy out (`np.array(...)` / `new Float32Array(view)`) if you need a stable
-snapshot.
+view. Re-acquire (`np.asarray(...)` / `.view()` / re-read the property)
+after a size change, or copy out (`np.array(...)` / `new Float32Array(view)` /
+`.ToArray()`) if you need a stable snapshot.
 
 ### Per-binding documentation
 
@@ -199,10 +224,11 @@ and per-language gotchas:
 - [bindings/python/README.md](bindings/python/README.md)
 - [packages/js-ts/README.md](packages/js-ts/README.md)
 - [bindings/java/README.md](bindings/java/README.md)
+- [bindings/csharp/README.md](bindings/csharp/README.md)
 
-The WASM and Python bindings currently cover the model, texture, MPQ, CASC,
-and host-extras surfaces. The Java binding tracks the same surface and is
-generated from the same IR.
+The WASM, Python, Java, and C# bindings all cover the model, texture, MPQ,
+CASC, and host-extras surfaces — they are generated from the same IR, so
+adding or changing a binding is a single-source change in the C++ headers.
 
 ## Format References
 

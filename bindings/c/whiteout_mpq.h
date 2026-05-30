@@ -151,6 +151,9 @@ int32_t whiteout_mpq_MpqStorage_fileExists(const whiteout_MpqStorage* self, cons
 struct whiteout_MpqFileInfo* whiteout_mpq_MpqStorage_fileInfo(const whiteout_MpqStorage* self, const char* name);
 /* Get summary information about the archive. */
 struct whiteout_MpqArchiveInfo* whiteout_mpq_MpqStorage_archiveInfo(const whiteout_MpqStorage* self);
+/* List all known filenames (from listfile + overlay additions − deletions). */
+size_t whiteout_mpq_MpqStorage_listFiles_count(const whiteout_MpqStorage* self);
+whiteout_CString whiteout_mpq_MpqStorage_listFiles_at(const whiteout_MpqStorage* self, size_t index);
 /* Write or overwrite a file. Data is held in overlay until save(). @return true on success, false if the hash table is full. */
 int32_t whiteout_mpq_MpqStorage_writeFile(whiteout_MpqStorage* self, const char* name, const uint8_t* data, size_t data_size, struct whiteout_MpqWriteOptions* opts);
 /* Delete a file from the archive. @return true if the file was found (in source or overlay), false otherwise. */

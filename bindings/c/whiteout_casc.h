@@ -112,6 +112,9 @@ whiteout_Bytes whiteout_casc_CascStorage_readFile_fileId_localeFlags_openFlags_h
 int32_t whiteout_casc_CascStorage_fileExists(const whiteout_CascStorage* self, const char* cascPath);
 /* @overload Check existence by FileDataId. */
 int32_t whiteout_casc_CascStorage_fileExists_fileId_hint(const whiteout_CascStorage* self, int32_t fileId, int32_t hint);
+/* @return All known file paths. */
+size_t whiteout_casc_CascStorage_listFiles_count(const whiteout_CascStorage* self);
+whiteout_CString whiteout_casc_CascStorage_listFiles_at(const whiteout_CascStorage* self, size_t index);
 /* Import encryption keys from a formatted string (one per line). */
 int32_t whiteout_casc_CascStorage_importKeysFromString(whiteout_CascStorage* self, const char* keyList);
 /* Import encryption keys from a file. */

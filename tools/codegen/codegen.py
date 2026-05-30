@@ -43,9 +43,9 @@ def _write_files(args, files: dict) -> int:
         out_path = (args.repo_root / rel).resolve()
         out_path.parent.mkdir(parents=True, exist_ok=True)
         # Path.write_text(newline=...) is Python 3.10+; the explicit open()
-    # form keeps codegen working on the Python 3.9 that ships with Xcode.
-    with open(out_path, 'w', encoding='utf-8', newline='\n') as fp:
-        fp.write(text)
+        # form keeps codegen working on the Python 3.9 that ships with Xcode.
+        with open(out_path, 'w', encoding='utf-8', newline='\n') as fp:
+            fp.write(text)
         total_bytes += len(text)
         print(f'Wrote {out_path.relative_to(args.repo_root)} '
               f'({len(text)} bytes)')
@@ -60,7 +60,8 @@ def main(argv: list[str] | None = None) -> int:
                    choices=['embind', 'pybind11', 'dts', 'pyi',
                             'c-header', 'c-source',
                             'c-common', 'c-common-header',
-                            'java', 'java-common', 'jni'],
+                            'java', 'java-common', 'jni',
+                            'csharp', 'csharp-common'],
                    default='embind')
     p.add_argument('--repo-root', default=Path(__file__).resolve().parents[2],
                    type=lambda s: Path(s).resolve(),
@@ -120,6 +121,14 @@ def main(argv: list[str] | None = None) -> int:
         # virtual overrides into the Java side over JNI.
         from tools.codegen import emit_jni
         files = emit_jni.emit(module)
+        return _write_files(args, files)
+    elif args.backend == 'csharp':
+        from tools.codegen import emit_csharp
+        files = emit_csharp.emit(module)
+        return _write_files(args, files)
+    elif args.backend == 'csharp-common':
+        from tools.codegen import emit_csharp
+        files = emit_csharp.emit_common()
         return _write_files(args, files)
     else:  # dts
         from tools.codegen import emit_dts as emitter

@@ -21,6 +21,7 @@ set(_whiteout_c_sources
     whiteout_m3.cpp
     whiteout_utils.cpp
     whiteout_host.cpp
+    whiteout_csharp_shims.cpp
 )
 if(WHITEOUT_ENABLE_MPQ)
     list(APPEND _whiteout_c_sources whiteout_mpq.cpp)
@@ -110,12 +111,10 @@ set_target_properties(whiteout_c PROPERTIES
     WINDOWS_EXPORT_ALL_SYMBOLS ON
 )
 
-# When the JNI bridge is bundled in, the DLL is no longer "just C ABI"
-# — it carries both Panama-callable C exports AND the JNI upcall
-# symbols Java consumers need. Rename the output to `whiteout_native`
-# so the filename reflects that. Pure-C-bindings builds (Python /
-# Rust / etc., WHITEOUT_BUILD_JNI_BINDINGS=OFF) keep the original
-# `whiteout_c` name for back-compat with existing FFI users.
-if(WHITEOUT_BUILD_JNI_BINDINGS)
-    set_target_properties(whiteout_c PROPERTIES OUTPUT_NAME whiteout_native)
-endif()
+# The output filename is `whiteout_native` regardless of which bindings
+# are bundled in. The CMake target stays `whiteout_c` for internal
+# linking (`target_link_libraries(... whiteout_c)` from other CMake
+# targets keeps working) — only the produced DLL/.so/.dylib gets the
+# `whiteout_native` name. All language bindings (Java FFM, C# P/Invoke,
+# Python `ctypes`, Rust, etc.) reference the same artefact.
+set_target_properties(whiteout_c PROPERTIES OUTPUT_NAME whiteout_native)

@@ -210,6 +210,16 @@ int32_t whiteout_casc_CascStorage_fileExists_fileId_hint(const whiteout_CascStor
     return reinterpret_cast<const whiteout::storages::casc::Storage*>(self)->fileExists(fileId, static_cast<whiteout::storages::casc::FileIdHint>(hint));
 }
 
+size_t whiteout_casc_CascStorage_listFiles_count(const whiteout_CascStorage* self) {
+    return reinterpret_cast<const whiteout::storages::casc::Storage*>(self)->listFiles().size();
+}
+
+whiteout_CString whiteout_casc_CascStorage_listFiles_at(const whiteout_CascStorage* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::storages::casc::Storage*>(self)->listFiles();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
+}
+
 int32_t whiteout_casc_CascStorage_importKeysFromString(whiteout_CascStorage* self, const char* keyList) {
     return reinterpret_cast<whiteout::storages::casc::Storage*>(self)->importKeysFromString(std::string(keyList ? keyList : ""));
 }

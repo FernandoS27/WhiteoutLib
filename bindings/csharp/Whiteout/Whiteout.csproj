@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>Whiteout</RootNamespace>
+    <AssemblyName>Whiteout</AssemblyName>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <Version>0.1.0-alpha</Version>
+    <Authors>Fernando Sahmkow</Authors>
+    <Description>
+      C# bindings for WhiteoutLib — pure-C++ parsers and writers for Blizzard
+      model (MDX / M2 / M3), texture (BLP / DDS / PNG / JPEG / BMP / TGA / GIF),
+      and storage (MPQ / CASC) formats.
+
+      Idiomatic surface: System.Numerics-aliased math types, IReadOnlyList&lt;T&gt;
+      over native vectors, async HttpHandler trampolines, SafeHandle-based
+      ownership, AOT-clean P/Invoke via LibraryImport.
+    </Description>
+    <PackageId>Whiteout</PackageId>
+    <PackageLicenseExpression>BSD-3-Clause</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/FernandoS27/WhiteoutLib</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/FernandoS27/WhiteoutLib</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>blizzard;warcraft;mdx;m2;m3;blp;casc;mpq;texture;model;file-formats</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageReleaseNotes>
+      0.1.0-alpha — initial release. Bindings for textures, mdx, m2, m3,
+      host (OsFileSystem / SimpleThreadPool / SimpleHttpHandler), mpq, and
+      casc. Trampolines for VirtualPathFileSystem, HttpHandler, and
+      WorkerPool let C# code plug a managed implementation into APIs the
+      C++ library expects.
+    </PackageReleaseNotes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Native binaries are staged into runtimes/<rid>/native/ by build-csharp.ps1 -->
+    <Content Include="..\..\..\packages\csharp\runtimes\**\*.*"
+             Pack="true"
+             PackagePath="runtimes\"
+             CopyToOutputDirectory="PreserveNewest"
+             Condition="Exists('..\..\..\packages\csharp\runtimes')" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The README in the NuGet package is the per-binding README under
+         bindings/csharp/, NOT the repo root README. -->
+    <None Include="..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

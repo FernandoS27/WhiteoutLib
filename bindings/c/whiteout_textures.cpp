@@ -216,6 +216,16 @@ int32_t whiteout_textures_BlpParser_hasIssues(const whiteout_BlpParser* self) {
     return reinterpret_cast<const whiteout::textures::blp::Parser*>(self)->hasIssues();
 }
 
+size_t whiteout_textures_BlpParser_getIssues_count(const whiteout_BlpParser* self) {
+    return reinterpret_cast<const whiteout::textures::blp::Parser*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_textures_BlpParser_getIssues_at(const whiteout_BlpParser* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::textures::blp::Parser*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
+}
+
 } // extern "C"
 
 // ── BlpWriter ─────────────────────────────────────────────────
@@ -240,6 +250,16 @@ whiteout_Bytes whiteout_textures_BlpWriter_write(whiteout_BlpWriter* self, struc
 
 int32_t whiteout_textures_BlpWriter_hasIssues(const whiteout_BlpWriter* self) {
     return reinterpret_cast<const whiteout::textures::blp::Writer*>(self)->hasIssues();
+}
+
+size_t whiteout_textures_BlpWriter_getIssues_count(const whiteout_BlpWriter* self) {
+    return reinterpret_cast<const whiteout::textures::blp::Writer*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_textures_BlpWriter_getIssues_at(const whiteout_BlpWriter* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::textures::blp::Writer*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
 }
 
 } // extern "C"
@@ -335,6 +355,16 @@ struct whiteout_Texture* whiteout_textures_PngParser_parse(whiteout_PngParser* s
 
 int32_t whiteout_textures_PngParser_hasIssues(const whiteout_PngParser* self) {
     return reinterpret_cast<const whiteout::textures::png::Parser*>(self)->hasIssues();
+}
+
+size_t whiteout_textures_PngParser_getIssues_count(const whiteout_PngParser* self) {
+    return reinterpret_cast<const whiteout::textures::png::Parser*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_textures_PngParser_getIssues_at(const whiteout_PngParser* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::textures::png::Parser*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
 }
 
 int32_t whiteout_textures_PngParser_isAnimated(const whiteout_PngParser* self) {
@@ -443,6 +473,16 @@ int32_t whiteout_textures_PngWriter_hasIssues(const whiteout_PngWriter* self) {
     return reinterpret_cast<const whiteout::textures::png::Writer*>(self)->hasIssues();
 }
 
+size_t whiteout_textures_PngWriter_getIssues_count(const whiteout_PngWriter* self) {
+    return reinterpret_cast<const whiteout::textures::png::Writer*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_textures_PngWriter_getIssues_at(const whiteout_PngWriter* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::textures::png::Writer*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
+}
+
 } // extern "C"
 
 // ── JpegParser ─────────────────────────────────────────────────
@@ -472,6 +512,16 @@ int32_t whiteout_textures_JpegParser_hasIssues(const whiteout_JpegParser* self) 
     return reinterpret_cast<const whiteout::textures::jpeg::Parser*>(self)->hasIssues();
 }
 
+size_t whiteout_textures_JpegParser_getIssues_count(const whiteout_JpegParser* self) {
+    return reinterpret_cast<const whiteout::textures::jpeg::Parser*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_textures_JpegParser_getIssues_at(const whiteout_JpegParser* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::textures::jpeg::Parser*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
+}
+
 } // extern "C"
 
 // ── JpegWriter ─────────────────────────────────────────────────
@@ -496,6 +546,16 @@ whiteout_Bytes whiteout_textures_JpegWriter_write(whiteout_JpegWriter* self, str
 
 int32_t whiteout_textures_JpegWriter_hasIssues(const whiteout_JpegWriter* self) {
     return reinterpret_cast<const whiteout::textures::jpeg::Writer*>(self)->hasIssues();
+}
+
+size_t whiteout_textures_JpegWriter_getIssues_count(const whiteout_JpegWriter* self) {
+    return reinterpret_cast<const whiteout::textures::jpeg::Writer*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_textures_JpegWriter_getIssues_at(const whiteout_JpegWriter* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::textures::jpeg::Writer*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
 }
 
 } // extern "C"
@@ -523,6 +583,16 @@ int32_t whiteout_textures_DdsParser_hasIssues(const whiteout_DdsParser* self) {
     return reinterpret_cast<const whiteout::textures::dds::Parser*>(self)->hasIssues();
 }
 
+size_t whiteout_textures_DdsParser_getIssues_count(const whiteout_DdsParser* self) {
+    return reinterpret_cast<const whiteout::textures::dds::Parser*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_textures_DdsParser_getIssues_at(const whiteout_DdsParser* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::textures::dds::Parser*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
+}
+
 } // extern "C"
 
 // ── DdsWriter ─────────────────────────────────────────────────
@@ -543,6 +613,16 @@ whiteout_Bytes whiteout_textures_DdsWriter_write(whiteout_DdsWriter* self, struc
 
 int32_t whiteout_textures_DdsWriter_hasIssues(const whiteout_DdsWriter* self) {
     return reinterpret_cast<const whiteout::textures::dds::Writer*>(self)->hasIssues();
+}
+
+size_t whiteout_textures_DdsWriter_getIssues_count(const whiteout_DdsWriter* self) {
+    return reinterpret_cast<const whiteout::textures::dds::Writer*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_textures_DdsWriter_getIssues_at(const whiteout_DdsWriter* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::textures::dds::Writer*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
 }
 
 } // extern "C"
@@ -570,6 +650,16 @@ int32_t whiteout_textures_BmpParser_hasIssues(const whiteout_BmpParser* self) {
     return reinterpret_cast<const whiteout::textures::bmp::Parser*>(self)->hasIssues();
 }
 
+size_t whiteout_textures_BmpParser_getIssues_count(const whiteout_BmpParser* self) {
+    return reinterpret_cast<const whiteout::textures::bmp::Parser*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_textures_BmpParser_getIssues_at(const whiteout_BmpParser* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::textures::bmp::Parser*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
+}
+
 } // extern "C"
 
 // ── BmpWriter ─────────────────────────────────────────────────
@@ -590,6 +680,16 @@ whiteout_Bytes whiteout_textures_BmpWriter_write(whiteout_BmpWriter* self, struc
 
 int32_t whiteout_textures_BmpWriter_hasIssues(const whiteout_BmpWriter* self) {
     return reinterpret_cast<const whiteout::textures::bmp::Writer*>(self)->hasIssues();
+}
+
+size_t whiteout_textures_BmpWriter_getIssues_count(const whiteout_BmpWriter* self) {
+    return reinterpret_cast<const whiteout::textures::bmp::Writer*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_textures_BmpWriter_getIssues_at(const whiteout_BmpWriter* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::textures::bmp::Writer*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
 }
 
 } // extern "C"
@@ -617,6 +717,16 @@ int32_t whiteout_textures_TgaParser_hasIssues(const whiteout_TgaParser* self) {
     return reinterpret_cast<const whiteout::textures::tga::Parser*>(self)->hasIssues();
 }
 
+size_t whiteout_textures_TgaParser_getIssues_count(const whiteout_TgaParser* self) {
+    return reinterpret_cast<const whiteout::textures::tga::Parser*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_textures_TgaParser_getIssues_at(const whiteout_TgaParser* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::textures::tga::Parser*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
+}
+
 } // extern "C"
 
 // ── TgaWriter ─────────────────────────────────────────────────
@@ -637,6 +747,16 @@ whiteout_Bytes whiteout_textures_TgaWriter_write(whiteout_TgaWriter* self, struc
 
 int32_t whiteout_textures_TgaWriter_hasIssues(const whiteout_TgaWriter* self) {
     return reinterpret_cast<const whiteout::textures::tga::Writer*>(self)->hasIssues();
+}
+
+size_t whiteout_textures_TgaWriter_getIssues_count(const whiteout_TgaWriter* self) {
+    return reinterpret_cast<const whiteout::textures::tga::Writer*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_textures_TgaWriter_getIssues_at(const whiteout_TgaWriter* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::textures::tga::Writer*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
 }
 
 } // extern "C"
@@ -729,6 +849,16 @@ whiteout_Bytes whiteout_textures_GifWriter_write_frames_opts(whiteout_GifWriter*
 
 int32_t whiteout_textures_GifWriter_hasIssues(const whiteout_GifWriter* self) {
     return reinterpret_cast<const whiteout::textures::gif::Writer*>(self)->hasIssues();
+}
+
+size_t whiteout_textures_GifWriter_getIssues_count(const whiteout_GifWriter* self) {
+    return reinterpret_cast<const whiteout::textures::gif::Writer*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_textures_GifWriter_getIssues_at(const whiteout_GifWriter* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::textures::gif::Writer*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
 }
 
 } // extern "C"

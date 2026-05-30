@@ -286,6 +286,7 @@ class ModuleConfig:
     pyi_output_path: str = ''        # Python .pyi stub (defaults to packages/python/whiteout-stubs/<name>.pyi)
     c_header_output_path: str = ''   # C ABI header (defaults to bindings/c/whiteout_<name>.h)
     c_source_output_path: str = ''   # C ABI source (defaults to bindings/c/whiteout_<name>.cpp)
+    csharp_output_dir: str = ''      # C# output dir (defaults to bindings/csharp/Whiteout/<Module>/)
     include_dirs: list[str] = field(default_factory=list)
     # JS names of vector containers already registered elsewhere (e.g. by a
     # hand-written bindings file). The codegen will discover the same C++

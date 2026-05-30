@@ -54,9 +54,13 @@ CONFIG = ModuleConfig(
     # trampoline because subclassing happens at the C ABI / Panama layer
     # rather than at the binding layer).
     skip_class_js_names=[
-        'HttpHandler',           # Python trampoline lives in module.cpp
-        'VirtualPathFileSystem', # InMemoryFs subclass lives in module.cpp
-        'HttpResponse',          # bytes-friendly kwargs ctor lives in module.cpp
+        'HttpHandler',           # Python trampoline lives in module.cpp;
+                                 # C# trampoline lives in Whiteout/Host/HttpHandler.cs
+        'VirtualPathFileSystem', # InMemoryFs subclass lives in module.cpp;
+                                 # C# trampoline lives in Whiteout/Host/VirtualPathFileSystem.cs
+        'HttpResponse',          # bytes-friendly kwargs ctor lives in module.cpp;
+                                 # C# record lives in Whiteout/Host/HttpResponse.cs
+        'WorkerPool',            # C# trampoline lives in Whiteout/Host/WorkerPool.cs
     ],
     # auto_bind is OFF — every host type opts in explicitly via `@bind`
     # so we don't accidentally drag in CascFileSystem, TimelineSemaphore,

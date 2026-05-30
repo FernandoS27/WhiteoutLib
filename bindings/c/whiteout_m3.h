@@ -3673,6 +3673,9 @@ struct whiteout_M3Model* whiteout_m3_M3Parser_parse(whiteout_M3Parser* self, con
 struct whiteout_M3Model* whiteout_m3_M3Parser_parse_buffer(whiteout_M3Parser* self, const uint8_t* buffer, size_t buffer_size);
 /* Check if parsing encountered any issues @return True if there were warnings or recoverable errors */
 int32_t whiteout_m3_M3Parser_hasIssues(const whiteout_M3Parser* self);
+/* Get list of issues encountered during parsing @return Vector of issue description strings */
+size_t whiteout_m3_M3Parser_getIssues_count(const whiteout_M3Parser* self);
+whiteout_CString whiteout_m3_M3Parser_getIssues_at(const whiteout_M3Parser* self, size_t index);
 
 /* ── M3Writer ─────────────────────────────────────────────── */
 

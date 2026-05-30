@@ -3406,6 +3406,16 @@ int32_t whiteout_m2_M2Parser_hasIssues(const whiteout_M2Parser* self) {
     return reinterpret_cast<const whiteout::m2::Parser*>(self)->hasIssues();
 }
 
+size_t whiteout_m2_M2Parser_getIssues_count(const whiteout_M2Parser* self) {
+    return reinterpret_cast<const whiteout::m2::Parser*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_m2_M2Parser_getIssues_at(const whiteout_M2Parser* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::m2::Parser*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
+}
+
 } // extern "C"
 
 // ── M2WriteOptions ─────────────────────────────────────────────────
@@ -3511,6 +3521,16 @@ struct whiteout_M2SerializeResult* whiteout_m2_M2Writer_write_model(whiteout_M2W
 
 int32_t whiteout_m2_M2Writer_hasIssues(const whiteout_M2Writer* self) {
     return reinterpret_cast<const whiteout::m2::Writer*>(self)->hasIssues();
+}
+
+size_t whiteout_m2_M2Writer_getIssues_count(const whiteout_M2Writer* self) {
+    return reinterpret_cast<const whiteout::m2::Writer*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_m2_M2Writer_getIssues_at(const whiteout_M2Writer* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::m2::Writer*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
 }
 
 } // extern "C"

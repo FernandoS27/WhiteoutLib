@@ -173,6 +173,9 @@ void whiteout_textures_BlpParser_delete(whiteout_BlpParser* self);
 struct whiteout_Texture* whiteout_textures_BlpParser_parse(whiteout_BlpParser* self, const uint8_t* buffer, size_t buffer_size);
 /* Check if parsing encountered any issues @return True if there were warnings or recoverable errors */
 int32_t whiteout_textures_BlpParser_hasIssues(const whiteout_BlpParser* self);
+/* Get list of issues encountered during parsing @return Vector of issue description strings */
+size_t whiteout_textures_BlpParser_getIssues_count(const whiteout_BlpParser* self);
+whiteout_CString whiteout_textures_BlpParser_getIssues_at(const whiteout_BlpParser* self, size_t index);
 
 /* ── BlpWriter ─────────────────────────────────────────────── */
 
@@ -189,6 +192,9 @@ void whiteout_textures_BlpWriter_delete(whiteout_BlpWriter* self);
 whiteout_Bytes whiteout_textures_BlpWriter_write(whiteout_BlpWriter* self, struct whiteout_Texture* texture);
 /* Check if writing encountered any issues @return True if there were warnings or recoverable errors */
 int32_t whiteout_textures_BlpWriter_hasIssues(const whiteout_BlpWriter* self);
+/* Get list of issues encountered during writing @return Vector of issue description strings */
+size_t whiteout_textures_BlpWriter_getIssues_count(const whiteout_BlpWriter* self);
+whiteout_CString whiteout_textures_BlpWriter_getIssues_at(const whiteout_BlpWriter* self, size_t index);
 
 /* ── PngApngFrameInfo ─────────────────────────────────────────────── */
 
@@ -230,6 +236,9 @@ void whiteout_textures_PngParser_delete(whiteout_PngParser* self);
 struct whiteout_Texture* whiteout_textures_PngParser_parse(whiteout_PngParser* self, const uint8_t* buffer, size_t buffer_size);
 /* @return true if the last parse produced any issues. */
 int32_t whiteout_textures_PngParser_hasIssues(const whiteout_PngParser* self);
+/* @return accumulated issues from the last parse call. */
+size_t whiteout_textures_PngParser_getIssues_count(const whiteout_PngParser* self);
+whiteout_CString whiteout_textures_PngParser_getIssues_at(const whiteout_PngParser* self, size_t index);
 /* @return true if the last parsed PNG carried APNG animation chunks. */
 int32_t whiteout_textures_PngParser_isAnimated(const whiteout_PngParser* self);
 /* @return number of animation frames (0 when not animated). */
@@ -282,6 +291,9 @@ whiteout_Bytes whiteout_textures_PngWriter_write(whiteout_PngWriter* self, struc
 whiteout_Bytes whiteout_textures_PngWriter_writeAnimated(whiteout_PngWriter* self, const struct whiteout_PngApngFrame* const* frames, size_t frames_size, struct whiteout_PngApngSaveOptions* opts);
 /* @return true if the last write produced any issues. */
 int32_t whiteout_textures_PngWriter_hasIssues(const whiteout_PngWriter* self);
+/* @return accumulated issues from the last write call. */
+size_t whiteout_textures_PngWriter_getIssues_count(const whiteout_PngWriter* self);
+whiteout_CString whiteout_textures_PngWriter_getIssues_at(const whiteout_PngWriter* self, size_t index);
 
 /* ── JpegParser ─────────────────────────────────────────────── */
 
@@ -294,6 +306,9 @@ void whiteout_textures_JpegParser_delete(whiteout_JpegParser* self);
 struct whiteout_Texture* whiteout_textures_JpegParser_parse(whiteout_JpegParser* self, const uint8_t* buffer, size_t buffer_size);
 /* @return true if the last parse produced any issues. */
 int32_t whiteout_textures_JpegParser_hasIssues(const whiteout_JpegParser* self);
+/* @return accumulated issues from the last parse call. */
+size_t whiteout_textures_JpegParser_getIssues_count(const whiteout_JpegParser* self);
+whiteout_CString whiteout_textures_JpegParser_getIssues_at(const whiteout_JpegParser* self, size_t index);
 
 /* ── JpegWriter ─────────────────────────────────────────────── */
 
@@ -306,6 +321,9 @@ void whiteout_textures_JpegWriter_delete(whiteout_JpegWriter* self);
 whiteout_Bytes whiteout_textures_JpegWriter_write(whiteout_JpegWriter* self, struct whiteout_Texture* texture);
 /* @return true if the last write produced any issues. */
 int32_t whiteout_textures_JpegWriter_hasIssues(const whiteout_JpegWriter* self);
+/* @return accumulated issues from the last write call. */
+size_t whiteout_textures_JpegWriter_getIssues_count(const whiteout_JpegWriter* self);
+whiteout_CString whiteout_textures_JpegWriter_getIssues_at(const whiteout_JpegWriter* self, size_t index);
 
 /* ── DdsParser ─────────────────────────────────────────────── */
 
@@ -317,6 +335,9 @@ void whiteout_textures_DdsParser_delete(whiteout_DdsParser* self);
 struct whiteout_Texture* whiteout_textures_DdsParser_parse(whiteout_DdsParser* self, const uint8_t* buffer, size_t buffer_size);
 /* @return true if the last parse produced any issues. */
 int32_t whiteout_textures_DdsParser_hasIssues(const whiteout_DdsParser* self);
+/* @return accumulated issues from the last parse call. */
+size_t whiteout_textures_DdsParser_getIssues_count(const whiteout_DdsParser* self);
+whiteout_CString whiteout_textures_DdsParser_getIssues_at(const whiteout_DdsParser* self, size_t index);
 
 /* ── DdsWriter ─────────────────────────────────────────────── */
 
@@ -328,6 +349,9 @@ void whiteout_textures_DdsWriter_delete(whiteout_DdsWriter* self);
 whiteout_Bytes whiteout_textures_DdsWriter_write(whiteout_DdsWriter* self, struct whiteout_Texture* texture);
 /* @return true if the last write produced any issues. */
 int32_t whiteout_textures_DdsWriter_hasIssues(const whiteout_DdsWriter* self);
+/* @return accumulated issues from the last write call. */
+size_t whiteout_textures_DdsWriter_getIssues_count(const whiteout_DdsWriter* self);
+whiteout_CString whiteout_textures_DdsWriter_getIssues_at(const whiteout_DdsWriter* self, size_t index);
 
 /* ── BmpParser ─────────────────────────────────────────────── */
 
@@ -339,6 +363,9 @@ void whiteout_textures_BmpParser_delete(whiteout_BmpParser* self);
 struct whiteout_Texture* whiteout_textures_BmpParser_parse(whiteout_BmpParser* self, const uint8_t* buffer, size_t buffer_size);
 /* @return true if the last parse produced any issues. */
 int32_t whiteout_textures_BmpParser_hasIssues(const whiteout_BmpParser* self);
+/* @return accumulated issues from the last parse call. */
+size_t whiteout_textures_BmpParser_getIssues_count(const whiteout_BmpParser* self);
+whiteout_CString whiteout_textures_BmpParser_getIssues_at(const whiteout_BmpParser* self, size_t index);
 
 /* ── BmpWriter ─────────────────────────────────────────────── */
 
@@ -350,6 +377,9 @@ void whiteout_textures_BmpWriter_delete(whiteout_BmpWriter* self);
 whiteout_Bytes whiteout_textures_BmpWriter_write(whiteout_BmpWriter* self, struct whiteout_Texture* texture);
 /* @return true if the last write produced any issues. */
 int32_t whiteout_textures_BmpWriter_hasIssues(const whiteout_BmpWriter* self);
+/* @return accumulated issues from the last write call. */
+size_t whiteout_textures_BmpWriter_getIssues_count(const whiteout_BmpWriter* self);
+whiteout_CString whiteout_textures_BmpWriter_getIssues_at(const whiteout_BmpWriter* self, size_t index);
 
 /* ── TgaParser ─────────────────────────────────────────────── */
 
@@ -361,6 +391,9 @@ void whiteout_textures_TgaParser_delete(whiteout_TgaParser* self);
 struct whiteout_Texture* whiteout_textures_TgaParser_parse(whiteout_TgaParser* self, const uint8_t* buffer, size_t buffer_size);
 /* @return true if the last parse produced any issues. */
 int32_t whiteout_textures_TgaParser_hasIssues(const whiteout_TgaParser* self);
+/* @return accumulated issues from the last parse call. */
+size_t whiteout_textures_TgaParser_getIssues_count(const whiteout_TgaParser* self);
+whiteout_CString whiteout_textures_TgaParser_getIssues_at(const whiteout_TgaParser* self, size_t index);
 
 /* ── TgaWriter ─────────────────────────────────────────────── */
 
@@ -372,6 +405,9 @@ void whiteout_textures_TgaWriter_delete(whiteout_TgaWriter* self);
 whiteout_Bytes whiteout_textures_TgaWriter_write(whiteout_TgaWriter* self, struct whiteout_Texture* texture);
 /* @return true if the last write produced any issues. */
 int32_t whiteout_textures_TgaWriter_hasIssues(const whiteout_TgaWriter* self);
+/* @return accumulated issues from the last write call. */
+size_t whiteout_textures_TgaWriter_getIssues_count(const whiteout_TgaWriter* self);
+whiteout_CString whiteout_textures_TgaWriter_getIssues_at(const whiteout_TgaWriter* self, size_t index);
 
 /* ── GifSaveOptions ─────────────────────────────────────────────── */
 
@@ -414,6 +450,9 @@ void whiteout_textures_GifWriter_write_filePath_frames_opts(whiteout_GifWriter* 
 whiteout_Bytes whiteout_textures_GifWriter_write_frames_opts(whiteout_GifWriter* self, const struct whiteout_Texture* const* frames, size_t frames_size, struct whiteout_GifSaveOptions* opts);
 /* @return true if the last write produced any issues. */
 int32_t whiteout_textures_GifWriter_hasIssues(const whiteout_GifWriter* self);
+/* @return accumulated issues from the last write call. */
+size_t whiteout_textures_GifWriter_getIssues_count(const whiteout_GifWriter* self);
+whiteout_CString whiteout_textures_GifWriter_getIssues_at(const whiteout_GifWriter* self, size_t index);
 
 
 #ifdef __cplusplus
