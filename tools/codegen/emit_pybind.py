@@ -318,6 +318,21 @@ def _emit_method(out: StringIO, m, cls_qual: str, ns: str):
             # which preserves the original signature decoration.
             def _qual_param(p) -> str:
                 raw = p.cpp_raw or ''
+                # Identify the core type (strip const + ref/ptr) to special-
+                # case platform-dependent global typedefs.
+                core = raw.strip()
+                if core.startswith('const '):
+                    core = core[6:].strip()
+                while core.endswith(('&', '*', ' ')):
+                    core = core[:-1].strip()
+                # `size_t` must survive verbatim — canonicalising to
+                # `whiteout::u64` (which is `uint64_t`) breaks py::overload_cast
+                # template deduction on macOS arm64, where `size_t` is
+                # `unsigned long` but `uint64_t` is `unsigned long long`
+                # (distinct types despite identical size). Linux happens to
+                # alias them so the bug only fires on macOS.
+                if core == 'size_t':
+                    return raw.replace(' &', '&').replace(' *', '*')
                 base = _cpp_type(p.type, ns)
                 if '*' in raw:
                     base += '*'

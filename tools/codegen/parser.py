@@ -73,6 +73,13 @@ _CANONICAL_TO_ALIAS = {
     'unsigned short': 'whiteout::u16',
     'unsigned int': 'whiteout::u32',
     'unsigned long long': 'whiteout::u64',
+    # LP64 platforms (Linux/macOS) report `uint64_t` canonical as
+    # `unsigned long` (not `unsigned long long`), so libclang on Linux
+    # gives different cpp_text than on Windows for the same C++ source.
+    # Map both forms; the whiteout headers never use bare `long`/`unsigned
+    # long`, so this only ever catches the LP64-canonical form of u64/i64.
+    'unsigned long': 'whiteout::u64',
+    'long': 'whiteout::i64',
     'signed char': 'whiteout::i8',
     'short': 'whiteout::i16',
     'int': 'whiteout::i32',

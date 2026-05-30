@@ -456,8 +456,7 @@ BatchEncodeResult encodeBatch(std::span<const std::pair<std::span<const u8>, Enc
                 interfaces::WorkerTask task;
                 task.fn = [i, &items, &result, &failed, &jobGroup]() {
                     if (!failed.load(std::memory_order_acquire))
-                        result.files[i] =
-                            encodeFileData(items[i].first, items[i].second, nullptr);
+                        result.files[i] = encodeFileData(items[i].first, items[i].second, nullptr);
                     jobGroup.done();
                 };
                 pool->submit(task);
@@ -795,9 +794,8 @@ std::vector<std::optional<std::vector<u8>>> extractBatch(std::span<const u8> arc
                 u32 const fileKey = files[i].fileKey;
                 u32 const sectorStart = (*sectorOffsets)[j];
                 u32 const sectorEnd = (*sectorOffsets)[j + 1];
-                u32 const expectedSize = (j < numSectors - 1)
-                                             ? sectorSize
-                                             : (block.uncompressedSize - j * sectorSize);
+                u32 const expectedSize =
+                    (j < numSectors - 1) ? sectorSize : (block.uncompressedSize - j * sectorSize);
 
                 std::vector<u8> sectorBuf(fileSpan.data() + sectorStart,
                                           fileSpan.data() + sectorEnd);
@@ -811,8 +809,7 @@ std::vector<std::optional<std::vector<u8>>> extractBatch(std::span<const u8> arc
                 }
 
                 if (block.isCompressed() && sectorLen < expectedSize) {
-                    auto decompressed =
-                        mpqDecompress(std::span<const u8>(sectorBuf), expectedSize);
+                    auto decompressed = mpqDecompress(std::span<const u8>(sectorBuf), expectedSize);
                     if (decompressed.empty()) {
                         states[i].fileFailed.store(true, std::memory_order_release);
                     } else {

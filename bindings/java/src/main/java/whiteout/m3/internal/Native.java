@@ -2168,6 +2168,8 @@ public final class Native {
         "whiteout_m3_M3Parser_parse_buffer", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m3_M3Parser_hasIssues = find(
         "whiteout_m3_M3Parser_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3Parser_getIssues = find(
+        "whiteout_m3_M3Parser_getIssues", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
 
     // -- M3Writer --
     public static final MethodHandle whiteout_m3_M3Writer_new = find(

@@ -44,42 +44,51 @@ Write-Host "using python: $pythonExe ($(& $pythonExe --version))"
 #
 # Generates the per-binding source/header files. Runs once; the same
 # outputs feed Java FFM, Python pybind11, and the .pyi stubs.
+#
+# AppVeyor CI runs codegen in a dedicated job and ships the result as a
+# shared artifact; per-OS jobs download + extract it, then set
+# `WHITEOUT_SKIP_CODEGEN=1` so this section becomes a no-op. The flag
+# guarantees every OS compiles byte-identical generated sources.
 
 $modules = @('textures', 'mdx', 'm2', 'm3', 'utils', 'host', 'mpq', 'casc')
 
-Push-Location $repoRoot
-try {
-    $env:PYTHONIOENCODING = "utf-8"
+if ($env:WHITEOUT_SKIP_CODEGEN -eq "1") {
+    Write-Host "WHITEOUT_SKIP_CODEGEN=1 — skipping codegen step (using pre-generated sources)"
+} else {
+    Push-Location $repoRoot
+    try {
+        $env:PYTHONIOENCODING = "utf-8"
 
-    # C ABI (consumed by the JNI/FFM layer).
-    & $pythonExe -m tools.codegen.codegen textures --backend c-common-header
-    if ($LASTEXITCODE -ne 0) { throw "codegen c-common-header failed" }
-    & $pythonExe -m tools.codegen.codegen textures --backend c-common
-    if ($LASTEXITCODE -ne 0) { throw "codegen c-common failed" }
-    foreach ($mod in $modules) {
-        foreach ($backend in @('c-header', 'c-source')) {
-            & $pythonExe -m tools.codegen.codegen $mod --backend $backend
-            if ($LASTEXITCODE -ne 0) { throw "codegen $mod $backend failed" }
+        # C ABI (consumed by the JNI/FFM layer).
+        & $pythonExe -m tools.codegen.codegen textures --backend c-common-header
+        if ($LASTEXITCODE -ne 0) { throw "codegen c-common-header failed" }
+        & $pythonExe -m tools.codegen.codegen textures --backend c-common
+        if ($LASTEXITCODE -ne 0) { throw "codegen c-common failed" }
+        foreach ($mod in $modules) {
+            foreach ($backend in @('c-header', 'c-source')) {
+                & $pythonExe -m tools.codegen.codegen $mod --backend $backend
+                if ($LASTEXITCODE -ne 0) { throw "codegen $mod $backend failed" }
+            }
         }
-    }
 
-    # Java FFM (whiteout.common + per-module).
-    & $pythonExe -m tools.codegen.codegen textures --backend java-common
-    if ($LASTEXITCODE -ne 0) { throw "codegen java-common failed" }
-    foreach ($mod in $modules) {
-        & $pythonExe -m tools.codegen.codegen $mod --backend java
-        if ($LASTEXITCODE -ne 0) { throw "codegen $mod java failed" }
-    }
+        # Java FFM (whiteout.common + per-module).
+        & $pythonExe -m tools.codegen.codegen textures --backend java-common
+        if ($LASTEXITCODE -ne 0) { throw "codegen java-common failed" }
+        foreach ($mod in $modules) {
+            & $pythonExe -m tools.codegen.codegen $mod --backend java
+            if ($LASTEXITCODE -ne 0) { throw "codegen $mod java failed" }
+        }
 
-    # Python pybind11 + .pyi stubs.
-    foreach ($mod in $modules) {
-        & $pythonExe -m tools.codegen.codegen $mod --backend pybind11
-        if ($LASTEXITCODE -ne 0) { throw "codegen $mod pybind11 failed" }
-        & $pythonExe -m tools.codegen.codegen $mod --backend pyi
-        if ($LASTEXITCODE -ne 0) { throw "codegen $mod pyi failed" }
+        # Python pybind11 + .pyi stubs.
+        foreach ($mod in $modules) {
+            & $pythonExe -m tools.codegen.codegen $mod --backend pybind11
+            if ($LASTEXITCODE -ne 0) { throw "codegen $mod pybind11 failed" }
+            & $pythonExe -m tools.codegen.codegen $mod --backend pyi
+            if ($LASTEXITCODE -ne 0) { throw "codegen $mod pyi failed" }
+        }
+    } finally {
+        Pop-Location
     }
-} finally {
-    Pop-Location
 }
 
 # ── 2. Configure ─────────────────────────────────────────────────────────

@@ -39,6 +39,11 @@ fi
 echo "using python: ${PYTHON} ($(${PYTHON} --version))"
 
 # ── 1. Codegen ───────────────────────────────────────────────────────────
+#
+# AppVeyor CI runs codegen in a dedicated job and ships the result as a
+# shared artifact; per-OS jobs download + extract it, then set
+# `WHITEOUT_SKIP_CODEGEN=1` so this section becomes a no-op. The flag
+# guarantees every OS compiles byte-identical generated sources.
 
 modules=(textures mdx m2 m3 utils host mpq casc)
 
@@ -50,26 +55,30 @@ export PYTHONIOENCODING=utf-8
 # WHITEOUT_BUILD_PYTHON_WHEEL=ON) inherit it via the env.
 export Python_EXECUTABLE="${PYTHON}"
 
-# C ABI.
-"${PYTHON}" -m tools.codegen.codegen textures --backend c-common-header
-"${PYTHON}" -m tools.codegen.codegen textures --backend c-common
-for mod in "${modules[@]}"; do
-    for backend in c-header c-source; do
-        "${PYTHON}" -m tools.codegen.codegen "${mod}" --backend "${backend}"
+if [ "${WHITEOUT_SKIP_CODEGEN:-}" = "1" ]; then
+    echo "WHITEOUT_SKIP_CODEGEN=1 — skipping codegen step (using pre-generated sources)"
+else
+    # C ABI.
+    "${PYTHON}" -m tools.codegen.codegen textures --backend c-common-header
+    "${PYTHON}" -m tools.codegen.codegen textures --backend c-common
+    for mod in "${modules[@]}"; do
+        for backend in c-header c-source; do
+            "${PYTHON}" -m tools.codegen.codegen "${mod}" --backend "${backend}"
+        done
     done
-done
 
-# Java FFM.
-"${PYTHON}" -m tools.codegen.codegen textures --backend java-common
-for mod in "${modules[@]}"; do
-    "${PYTHON}" -m tools.codegen.codegen "${mod}" --backend java
-done
+    # Java FFM.
+    "${PYTHON}" -m tools.codegen.codegen textures --backend java-common
+    for mod in "${modules[@]}"; do
+        "${PYTHON}" -m tools.codegen.codegen "${mod}" --backend java
+    done
 
-# Python pybind11 + .pyi stubs.
-for mod in "${modules[@]}"; do
-    "${PYTHON}" -m tools.codegen.codegen "${mod}" --backend pybind11
-    "${PYTHON}" -m tools.codegen.codegen "${mod}" --backend pyi
-done
+    # Python pybind11 + .pyi stubs.
+    for mod in "${modules[@]}"; do
+        "${PYTHON}" -m tools.codegen.codegen "${mod}" --backend pybind11
+        "${PYTHON}" -m tools.codegen.codegen "${mod}" --backend pyi
+    done
+fi
 
 # ── 2. Configure ─────────────────────────────────────────────────────────
 

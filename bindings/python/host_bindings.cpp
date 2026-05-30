@@ -74,12 +74,6 @@ The `Unknown` value is used for games discovered via generic heuristics (e.g. th
         .def_readwrite("path", &whiteout::utils::BlizzardGameInfo::path, R"doc(Install directory path.)doc")
     ;
 
-    py::class_<whiteout::interfaces::WorkerPool>(m, "WorkerPool", R"doc(java_package=whiteout.utils — abstract opaque base. Concrete impl: utils::SimpleThreadPool.)doc")
-        .def("submit", &whiteout::interfaces::WorkerPool::submit, py::arg("task"), R"doc(JNI bridge: Java sees `submit(WorkerTask task)` with the std::function exposed as a Runnable and the two TimelineSemaphore pointers wrapped in opaque Java handles. WorkerTask implements Runnable; its default `run()` honours wait → fn → signal so simple pools can just `exec.submit(task)`.)doc")
-        .def("wait_idle", &whiteout::interfaces::WorkerPool::waitIdle, R"doc(Block until every submitted task has completed.)doc")
-        .def("thread_count", &whiteout::interfaces::WorkerPool::threadCount, R"doc(Number of worker threads in this pool.)doc")
-    ;
-
     py::class_<whiteout::interfaces::CascFileSystem>(m, "CascFileSystem", R"doc(java_package=whiteout.utils — abstract file system that resolves files by numeric data ID (e.g. CASC).)doc")
         .def("read_file",
             [](whiteout::interfaces::CascFileSystem& self, whiteout::u32 fileId) {
