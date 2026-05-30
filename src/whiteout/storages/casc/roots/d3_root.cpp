@@ -293,25 +293,19 @@ std::unique_ptr<D3Root> D3Root::parse(std::span<const u8> data, CKeyResolver res
 
     // Phase 2: Resolve sub-directories.
     if (resolver && !subdirEntries.empty()) {
-        // Resolve all sub-directory CKeys (parallel when pool available).
+        // Resolve all sub-directory CKeys *serially*.  We deliberately do NOT
+        // dispatch the per-subdir resolves onto `pool`: the resolver itself
+        // calls into the storage backend, which uses the same pool for BLTE
+        // decode.  Submitting N parallel resolves onto a pool of M workers
+        // (where N may exceed M) leaves no workers free to execute the
+        // inner BLTE-decode tasks the resolves depend on — every worker
+        // blocks in JobGroup::wait, the inner work never runs, and the
+        // open hangs.  Serial resolution still benefits from per-resolve
+        // internal parallelism, with no risk of pool exhaustion.
         std::vector<std::vector<u8>> subdirData(subdirEntries.size());
-
-        if (pool && subdirEntries.size() > 1) {
-            utils::JobGroup jobGroup;
-            jobGroup.add(subdirEntries.size());
-            for (size_t i = 0; i < subdirEntries.size(); ++i) {
-                interfaces::WorkerTask task;
-                task.fn = [&, i]() {
-                    subdirData[i] = resolver(subdirEntries[i].cKey);
-                    jobGroup.done();
-                };
-                pool->submit(task);
-            }
-            jobGroup.wait();
-        } else {
-            for (size_t i = 0; i < subdirEntries.size(); ++i)
-                subdirData[i] = resolver(subdirEntries[i].cKey);
-        }
+        for (size_t i = 0; i < subdirEntries.size(); ++i)
+            subdirData[i] = resolver(subdirEntries[i].cKey);
+        (void)pool;
 
         // Parse resolved sub-directories.
         for (size_t si = 0; si < subdirEntries.size(); ++si) {
