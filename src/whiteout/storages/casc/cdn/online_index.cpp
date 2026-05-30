@@ -415,10 +415,15 @@ OnlineIndexTable OnlineIndexTable::loadAll(CdnFetcher& fetcher,
     return combined;
 }
 
-OnlineIndexTable OnlineIndexTable::loadLoose(CdnFetcher& fetcher, const std::string& fileIndexKey) {
-    auto data = fetcher.fetch("data", fileIndexKey);
-    if (!data || data->empty())
-        return {};
+OnlineIndexTable OnlineIndexTable::loadLoose(CdnFetcher& fetcher,
+                                              const std::string& fileIndexKey) {
+    // CDN serves the loose-file index at <hex>.index (same convention as
+    // per-archive .index files), not as a bare key.  The bare path returns
+    // 403/404 on Blizzard's CDN and produces an empty loose index, which
+    // silently breaks loose-file lookup on products that only have a loose
+    // file-index (e.g. Diablo III).
+    auto data = fetcher.fetch("data", fileIndexKey + ".index");
+    if (!data || data->empty()) return {};
     return parse(*data, 0); // archiveIndex=0 for loose (not meaningful).
 }
 

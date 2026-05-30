@@ -28,16 +28,14 @@ TimelineSemaphore::Value TimelineSemaphore::value() const noexcept {
 }
 
 void TimelineSemaphore::signal(Value v) noexcept {
-    // Only advance; never go backwards.
-    Value cur = m_impl->value.load(std::memory_order_relaxed);
-    while (cur < v && !m_impl->value.compare_exchange_weak(cur, v, std::memory_order_release,
-                                                           std::memory_order_relaxed)) {
-        /* retry with updated cur */
-    }
-
-    // Acquire the mutex to prevent lost notifications.
+    // Advance and notify under the SAME mutex acquisition.
     {
         std::lock_guard<std::mutex> const lock(m_impl->mutex);
+        Value cur = m_impl->value.load(std::memory_order_relaxed);
+        while (cur < v && !m_impl->value.compare_exchange_weak(cur, v, std::memory_order_release,
+                                                               std::memory_order_relaxed)) {
+            /* retry with updated cur */
+        }
         m_impl->cv.notify_all();
     }
 }
