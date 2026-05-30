@@ -43,16 +43,23 @@ public:
         return data.value_or(std::vector<u8>{});
     }
 
-    std::optional<IndexLocation> findInIndex(std::span<const u8> eKeyPrefix) const override {
+    std::optional<IndexLocation> findInIndex(
+        std::span<const u8> eKeyPrefix) const override {
         auto entry = m_archiveIndex->find(eKeyPrefix);
-        if (!entry)
-            return std::nullopt;
+        if (!entry) return std::nullopt;
         return IndexLocation{
             entry->archiveIndex,
             entry->archiveOffset,
             entry->encodedSize,
             false, // Online archives have no per-entry header to skip.
         };
+        // NOTE: do NOT consult m_looseIndex here.  Loose-index entries store
+        // archiveIndex=0 (a meaningless placeholder) and archiveOffset=0;
+        // returning them from findInIndex causes callers to issue a range
+        // fetch into archive 0 instead of a loose-file fetch, which gets
+        // garbage data.  loadEncodingAndRoot already falls through to
+        // fetchBlte(eKey) — the loose-file fetch by full EKey — when
+        // findInIndex returns nullopt, which is what loose entries want.
     }
 
     // ── Async variants (non-blocking, callback-based) ────────────
@@ -76,7 +83,7 @@ public:
 private:
     CdnFetcher* m_fetcher;
     const OnlineIndexTable* m_archiveIndex;
-    [[maybe_unused]] const OnlineIndexTable* m_looseIndex;
+    const OnlineIndexTable* m_looseIndex;
     const std::vector<std::array<u8, 16>>* m_archiveEKeys;
 };
 
