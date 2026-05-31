@@ -81,6 +81,14 @@ function(whiteout_define_mt_variant target)
         foreach(d ${deps})
             # Re-target inter-whiteout deps to the _mt equivalents so the
             # pthread ABI stays consistent across the dep graph.
+            # Skip whiteout_strict_flags: it gets re-added PRIVATE on the
+            # _mt variant below. Promoting it to PUBLIC here would leak
+            # `-fno-exceptions` (and the rest of the warning posture) into
+            # every consumer — bindings/wasm/* throws std::runtime_error
+            # and breaks under -fno-exceptions.
+            if(d STREQUAL "whiteout_strict_flags")
+                continue()
+            endif()
             if(TARGET ${d}_mt)
                 target_link_libraries(${target}_mt PUBLIC ${d}_mt)
             else()

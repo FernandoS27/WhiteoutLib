@@ -48,14 +48,14 @@ environment:
     # itself.
     - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
       WHITEOUT_TARGET: codegen
+    - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
+      WHITEOUT_TARGET: wasm
     - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2022
       WHITEOUT_TARGET: native
     - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
       WHITEOUT_TARGET: native
     - APPVEYOR_BUILD_WORKER_IMAGE: macos-sonoma
       WHITEOUT_TARGET: native
-    - APPVEYOR_BUILD_WORKER_IMAGE: Ubuntu2204
-      WHITEOUT_TARGET: wasm
     # Packaging fan-in — runs last. Polls every native job (windows,
     # linux, macos) for success, downloads their `native-binary` +
     # `python-wheels` + `java-natives` + `java-jars` artifacts, then
@@ -280,50 +280,12 @@ build_script:
       if [ -f ci_python.env ];  then set -a; . ./ci_python.env;  set +a; fi
       bash tools/build-ci.sh
 
-# ─── Package ────────────────────────────────────────────────────────────────
-# After the C++ compile we package the artefacts. Each platform produces its
-# own Java natives jar + Python wheel. The Linux job additionally produces
-# the universal main jar (sources + javadoc included).
-after_build:
-  # ── Windows: natives jar + wheel ─────────────────────────────────────────
-  # Each cmd is on a single line: AppVeyor writes YAML `|` blocks with LF
-  # line endings, so `^` continuation chars don't join lines and each line
-  # gets parsed as its own command. Keeping everything on one line sidesteps
-  # the issue without needing a separate .bat file.
-  - cmd: mvn -f bindings\java\pom.xml -P natives package -DskipTests -Dwhiteout.native.platform=windows-x86_64 -Dwhiteout.native.path=%APPVEYOR_BUILD_FOLDER%\build-ci\c-dist\Release\whiteout_native.dll
-  - cmd: python tools\pack_python_wheel.py --build-dir build-ci --out-dir packages\python\dist
-
-  # ── Linux / macOS: natives jar + wheel + (Linux only) main jar ───────────
-  - sh:  |
-      set -e
-      # Re-source the Python pin written by install (cmake-finds-3.12 vs
-      # Xcode-3.9 — same issue we solved in build_script).
-      if [ -f ci_python.env ]; then set -a; . ./ci_python.env; set +a; fi
-      PY="${CI_PYTHON:-$(command -v python3 || command -v python)}"
-
-      OS="$(uname -s)"
-      if [ "$OS" = "Linux" ]; then
-        platform="linux-x86_64"
-        native_lib="${APPVEYOR_BUILD_FOLDER}/build-ci/c-dist/libwhiteout_native.so"
-      else
-        platform="macos-$(uname -m)"   # macos-x86_64 or macos-arm64
-        native_lib="${APPVEYOR_BUILD_FOLDER}/build-ci/c-dist/libwhiteout_native.dylib"
-      fi
-
-      mvn -f bindings/java/pom.xml -P natives package -DskipTests \
-          -Dwhiteout.native.platform="${platform}" \
-          -Dwhiteout.native.path="${native_lib}"
-
-      "$PY" tools/pack_python_wheel.py \
-          --build-dir build-ci \
-          --out-dir   packages/python/dist
-
-      # Universal main jar — Linux job only (bytecode is platform-independent;
-      # producing it on every platform wastes minutes and the three would be
-      # byte-identical anyway).
-      if [ "$OS" = "Linux" ]; then
-        mvn -f bindings/java/pom.xml package -DskipTests
-      fi
+# Native-job after_build (Java natives jar + Python wheel + Linux-only
+# universal main jar) lives inside the per-target `for:` block below.
+# Keeping it at the root would run on wasm/codegen/package too — AppVeyor's
+# `after_build: []` in those `for:` blocks doesn't reliably override the
+# root list, so we follow the same pattern as `before_build`: define it
+# only on the targets that need it.
 
 # ─── Artifacts ──────────────────────────────────────────────────────────────
 # Downloadable from the AppVeyor build UI; CI deploy jobs can pull them via
@@ -475,6 +437,39 @@ for:
           # Windows poller. See build-ci.{ps1,sh} for the matching check.
           : > "${APPVEYOR_BUILD_FOLDER}/.codegen-done"
 
+    # Native-only packaging — Java natives jar + Python wheel, plus the
+    # universal main jar on Linux only (bytecode is platform-independent).
+    # Each `cmd:` is one line: AppVeyor writes YAML `|` blocks with LF line
+    # endings, and `^` continuation doesn't join LF lines inside cmd.exe.
+    after_build:
+      - cmd: mvn -f bindings\java\pom.xml -P natives package -DskipTests -Dwhiteout.native.platform=windows-x86_64 -Dwhiteout.native.path=%APPVEYOR_BUILD_FOLDER%\build-ci\c-dist\Release\whiteout_native.dll
+      - cmd: python tools\pack_python_wheel.py --build-dir build-ci --out-dir packages\python\dist
+      - sh: |
+          set -e
+          if [ -f ci_python.env ]; then set -a; . ./ci_python.env; set +a; fi
+          PY="${CI_PYTHON:-$(command -v python3 || command -v python)}"
+
+          OS="$(uname -s)"
+          if [ "$OS" = "Linux" ]; then
+            platform="linux-x86_64"
+            native_lib="${APPVEYOR_BUILD_FOLDER}/build-ci/c-dist/libwhiteout_native.so"
+          else
+            platform="macos-$(uname -m)"
+            native_lib="${APPVEYOR_BUILD_FOLDER}/build-ci/c-dist/libwhiteout_native.dylib"
+          fi
+
+          mvn -f bindings/java/pom.xml -P natives package -DskipTests \
+              -Dwhiteout.native.platform="${platform}" \
+              -Dwhiteout.native.path="${native_lib}"
+
+          "$PY" tools/pack_python_wheel.py \
+              --build-dir build-ci \
+              --out-dir   packages/python/dist
+
+          if [ "$OS" = "Linux" ]; then
+            mvn -f bindings/java/pom.xml package -DskipTests
+          fi
+
 # ─── Codegen job overrides ──────────────────────────────────────────────────
 # A lightweight Linux job that runs the Python codegen once, packages the
 # generated source/header files into a tarball, and ships it as an
@@ -625,7 +620,11 @@ for:
           set -e
           # Re-activate emsdk (build_script runs in a fresh shell from install).
           source "${APPVEYOR_BUILD_FOLDER}/emsdk.env"
-          bash tools/build-ci-wasm.sh
+          # Absolute path: the install step's last `cd` to ~/emsdk doesn't
+          # persist across `sh:` blocks, but AppVeyor sets CWD to something
+          # other than APPVEYOR_BUILD_FOLDER on this image — guard with the
+          # absolute path so it works regardless.
+          bash "${APPVEYOR_BUILD_FOLDER}/tools/build-ci-wasm.sh"
 
     # No after_build — npm pack runs inside build-ci-wasm.sh.
     after_build: []
