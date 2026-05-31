@@ -29,7 +29,10 @@ if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
 # Resolve a Python ≥3.10 — same selection logic as build-ci.sh, so codegen
 # and cmake's find_package(Python) end up using the same interpreter (and
 # therefore the same pybind11 / libclang install).
-$pythonCandidates = @('python3.13', 'python3.12', 'python3.11', 'python3.10', 'python3', 'python')
+# Pin Python 3.12 across every CI worker. The published wheels share a
+# single cp tag (cp312-cp312-{platform}) so PyPI can serve the right one
+# to consumers regardless of host platform.
+$pythonCandidates = @('python3.12', 'python3.13', 'python3.11', 'python3.10', 'python3', 'python')
 $pythonExe = $null
 foreach ($cand in $pythonCandidates) {
     $cmd = Get-Command $cand -ErrorAction SilentlyContinue

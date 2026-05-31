@@ -16,12 +16,10 @@ public final class NativeCommon {
     public static final Linker LINKER = Linker.nativeLinker();
     public static final SymbolLookup LOOKUP;
     static {
-        String envPath = System.getProperty("whiteout.native.path");
-        if (envPath != null) {
-            System.load(envPath);
-        } else {
-            System.loadLibrary("whiteout_native");
-        }
+        // Loader logic lives in NativeBinaryResolver (hand-written, not
+        // codegen output) so it can do classpath-extraction for the fat
+        // jar without the codegen template growing complex.
+        NativeBinaryResolver.load();
         LOOKUP = SymbolLookup.loaderLookup();
     }
 

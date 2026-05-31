@@ -26,7 +26,12 @@ command -v cmake >/dev/null || { echo "cmake not found on PATH" >&2; exit 1; }
 # 3.12 (different interpreter, different site-packages, different pybind11).
 PYTHON="${CI_PYTHON:-}"
 if [ -z "${PYTHON}" ]; then
-    for cand in python3.13 python3.12 python3.11 python3.10 python3 python; do
+    # Pin Python 3.12. The published wheels must share a single cp tag
+    # across all platform jobs (cp312-cp312-{platform}) so PyPI can serve
+    # the right wheel for any consumer. If 3.12 isn't on PATH, fall back
+    # to the highest 3.x but warn loudly — a mismatched cp tag means the
+    # wheel collation step ships an inconsistent matrix.
+    for cand in python3.12 python3.13 python3.11 python3.10 python3 python; do
         if command -v "$cand" >/dev/null 2>&1; then
             if "$cand" -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null; then
                 PYTHON="$(command -v "$cand")"

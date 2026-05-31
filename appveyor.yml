@@ -185,8 +185,16 @@ install:
           # clang: needed for `clang -print-resource-dir` so the codegen's
           # libclang can find stddef.h / stdarg.h. Without it the AST
           # degrades and the generated bindings reference `std::whiteout`.
+          # Pin Python 3.12 across every CI worker so the published wheels
+          # share a single cp tag (cp312-cp312-{platform}). The 3.12 packages
+          # come from deadsnakes/ppa on Ubuntu — install + select before the
+          # candidate loop below runs.
+          sudo add-apt-repository -y ppa:deadsnakes/ppa
+          sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-              maven python3-pip python3-venv python3.10-venv clang
+              maven python3-pip python3-venv \
+              python3.12 python3.12-venv python3.12-dev \
+              clang
           JDK_INSTALLED=""
           for v in 25 24 23 22 ${JAVA_VERSION}; do
             if sudo apt-get install -y --no-install-recommends openjdk-${v}-jdk 2>/dev/null; then
@@ -215,7 +223,10 @@ install:
       # left in place. The `|| true` swallows the no-op "already installed".
       if [ "$(uname -s)" = "Darwin" ]; then
         brew update >/dev/null
-        brew install --quiet openjdk@${JAVA_VERSION} maven || true
+        # python@3.12 is the pinned CI Python (see build-ci.{ps1,sh} and
+        # the Linux install above). Install it explicitly so the candidate
+        # loop below picks 3.12 rather than brew's default newer python3.
+        brew install --quiet python@3.12 openjdk@${JAVA_VERSION} maven || true
         # openjdk@NN is keg-only; expose its bin/ on PATH so `java`/`javac`
         # resolve to the installed version rather than the image's default.
         JDK_PREFIX="$(brew --prefix openjdk@${JAVA_VERSION} 2>/dev/null || true)"
@@ -226,18 +237,21 @@ install:
         java -version
       fi
   - sh:  |
-      # Pick a Python ≥3.10, prefer newest minor. On macOS the first `python3`
-      # on PATH is Xcode's 3.9 — cmake then finds brew's 3.12 instead, and
-      # pybind11 installed into 3.9 is invisible to cmake. Iterating
-      # newest-first picks brew's 3.12.
+      # Pin Python 3.12 — wheels must share the cp312-cp312-{platform} tag
+      # across all platform jobs so PyPI can serve the right one. Other
+      # 3.x are accepted as a fallback but log a warning since the wheel
+      # collation step won't be uniform.
       BASE_PY=""
-      for cand in python3.13 python3.12 python3.11 python3.10 python3 python; do
+      for cand in python3.12 python3.13 python3.11 python3.10 python3 python; do
         if command -v "$cand" >/dev/null 2>&1 && \
            "$cand" -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null; then
           BASE_PY="$(command -v "$cand")"; break
         fi
       done
       [ -n "$BASE_PY" ] || { echo "no python >=3.10 on PATH" >&2; exit 1; }
+      if ! "$BASE_PY" -c 'import sys; sys.exit(0 if sys.version_info[:2] == (3,12) else 1)' 2>/dev/null; then
+          echo "WARNING: picked $BASE_PY which is not Python 3.12 — collated wheels will have mixed cp tags" >&2
+      fi
       echo "base python: $BASE_PY ($($BASE_PY --version))"
 
       # Try to create a venv so pip respects PEP 668 cleanly (brew Python
@@ -288,19 +302,14 @@ build_script:
 # only on the targets that need it.
 
 # ─── Artifacts ──────────────────────────────────────────────────────────────
-# Downloadable from the AppVeyor build UI; CI deploy jobs can pull them via
-# the AppVeyor REST API.
+# Native jobs only upload intermediates consumed by the package job:
+#   * native-binary  — the raw whiteout_native.{dll,so,dylib}
+#   * python-wheels  — the per-platform cp312 wheel
+# The universal Java jar, the NuGet, and the collated wheel bundle are
+# produced once in the package job's build_script and uploaded from there.
 artifacts:
-  - path: bindings/java/target/*-natives-*.jar
-    name: java-natives
-  - path: bindings/java/target/whiteout-*.jar
-    name: java-jars
   - path: packages/python/dist/*.whl
     name: python-wheels
-  # Raw native binary — shared between Java/Python (whose per-platform
-  # jars/wheels embed it) and the C# NuGet (which the package job
-  # consumes to stage `runtimes/<rid>/native/`). One of the three globs
-  # below matches per platform.
   - path: build-ci/c-dist/**/whiteout_native.dll
     name: native-binary
   - path: build-ci/c-dist/libwhiteout_native.so
@@ -437,38 +446,21 @@ for:
           # Windows poller. See build-ci.{ps1,sh} for the matching check.
           : > "${APPVEYOR_BUILD_FOLDER}/.codegen-done"
 
-    # Native-only packaging — Java natives jar + Python wheel, plus the
-    # universal main jar on Linux only (bytecode is platform-independent).
-    # Each `cmd:` is one line: AppVeyor writes YAML `|` blocks with LF line
-    # endings, and `^` continuation doesn't join LF lines inside cmd.exe.
+    # Native-only packaging. The native jobs produce ONE per-platform
+    # output that the package job consumes: a Python wheel. The Java
+    # universal jar is built once in the package job (it embeds all three
+    # platform binaries via runtime classpath extraction); no per-platform
+    # `mvn -P natives` here. The raw native binary is already uploaded
+    # via the root `artifacts:` rule for the package job to pick up.
     after_build:
-      - cmd: mvn -f bindings\java\pom.xml -P natives package -DskipTests -Dwhiteout.native.platform=windows-x86_64 -Dwhiteout.native.path=%APPVEYOR_BUILD_FOLDER%\build-ci\c-dist\Release\whiteout_native.dll
       - cmd: python tools\pack_python_wheel.py --build-dir build-ci --out-dir packages\python\dist
       - sh: |
           set -e
           if [ -f ci_python.env ]; then set -a; . ./ci_python.env; set +a; fi
           PY="${CI_PYTHON:-$(command -v python3 || command -v python)}"
-
-          OS="$(uname -s)"
-          if [ "$OS" = "Linux" ]; then
-            platform="linux-x86_64"
-            native_lib="${APPVEYOR_BUILD_FOLDER}/build-ci/c-dist/libwhiteout_native.so"
-          else
-            platform="macos-$(uname -m)"
-            native_lib="${APPVEYOR_BUILD_FOLDER}/build-ci/c-dist/libwhiteout_native.dylib"
-          fi
-
-          mvn -f bindings/java/pom.xml -P natives package -DskipTests \
-              -Dwhiteout.native.platform="${platform}" \
-              -Dwhiteout.native.path="${native_lib}"
-
           "$PY" tools/pack_python_wheel.py \
               --build-dir build-ci \
               --out-dir   packages/python/dist
-
-          if [ "$OS" = "Linux" ]; then
-            mvn -f bindings/java/pom.xml package -DskipTests
-          fi
 
 # ─── Codegen job overrides ──────────────────────────────────────────────────
 # A lightweight Linux job that runs the Python codegen once, packages the
@@ -634,6 +626,10 @@ for:
         name: wasm-node-package
       - path: packages/js-node/whiteout-node.wasm
         name: wasm-node-binary
+      - path: packages/js-ts/*.tgz
+        name: wasm-web-package
+      - path: packages/js-ts/whiteout.wasm
+        name: wasm-web-binary
 
 # ─── Package job overrides ──────────────────────────────────────────────────
 # Fans in artifacts from the three native jobs (windows, ubuntu, macos)
@@ -646,9 +642,34 @@ for:
       - sh: |
           set -e
           sudo apt-get update -qq
-          # jq for parsing AppVeyor REST responses; unzip for jar
-          # introspection; dotnet 8 for `dotnet pack` of the C# NuGet.
-          sudo apt-get install -y --no-install-recommends jq unzip curl
+          # jq: parse AppVeyor REST responses. unzip: jar introspection.
+          # dotnet 8: dotnet pack the C# NuGet. maven + a JDK ≥22: build
+          # the universal Java jar. python3.12 + build module: produce the
+          # platform-independent Python sdist for unsupported targets.
+          sudo add-apt-repository -y ppa:deadsnakes/ppa
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+              jq unzip curl maven \
+              python3.12 python3.12-venv python3.12-dev
+          python3.12 -m pip install --break-system-packages --upgrade pip
+          python3.12 -m pip install --break-system-packages build
+          # JDK — same fall-through as the root install for native jobs.
+          JDK_INSTALLED=""
+          for v in 25 24 23 22; do
+            if sudo apt-get install -y --no-install-recommends openjdk-${v}-jdk 2>/dev/null; then
+              JDK_INSTALLED="$v"; break
+            fi
+          done
+          if [ -z "$JDK_INSTALLED" ]; then
+            sudo add-apt-repository -y ppa:openjdk-r/ppa
+            sudo apt-get update -qq
+            for v in 25 24 23 22; do
+              if sudo apt-get install -y --no-install-recommends openjdk-${v}-jdk 2>/dev/null; then
+                JDK_INSTALLED="$v"; break
+              fi
+            done
+          fi
+          [ -n "$JDK_INSTALLED" ] || { echo "no JDK >=22 for package job" >&2; exit 1; }
           # Microsoft's official .NET 8 install script (idempotent).
           curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
           chmod +x /tmp/dotnet-install.sh
@@ -775,7 +796,7 @@ for:
               --configuration Release \
               --output "${APPVEYOR_BUILD_FOLDER}/packages/csharp"
 
-          # ── Python: collate wheels ─────────────────────────────────────
+          # ── Python: collate wheels + build sdist ───────────────────────
           mkdir -p "${APPVEYOR_BUILD_FOLDER}/packages/python/dist"
           # AppVeyor's "name" prefix on the artifact creates a directory
           # in the listing — fileName is like "python-wheels/whiteout-...whl".
@@ -783,9 +804,40 @@ for:
           # prefix; use find to pull anything wheel-shaped.
           find "${dl}" -name '*.whl' -exec cp {} "${APPVEYOR_BUILD_FOLDER}/packages/python/dist/" \;
 
-          # ── Java: collate natives + main jar ──────────────────────────
+          # Source distribution for consumers on platforms we don't ship a
+          # binary wheel for (FreeBSD, linux-arm64, etc.). pip falls back
+          # to the sdist when no matching wheel exists and builds from
+          # source. The codegen tarball was already extracted in
+          # before_build, so the pre-generated *_bindings.cpp / *.pyi
+          # files are in the source tree — consumers don't need libclang
+          # to rebuild them.
+          (cd "${APPVEYOR_BUILD_FOLDER}" && \
+              python3.12 -m build --sdist --outdir packages/python/dist .)
+
+          # ── Java: universal jar with all 3 platform natives embedded ───
+          # Stage each downloaded native binary under
+          # bindings/java/src/main/resources/native/<rid>/ so Maven picks
+          # it up as a resource; NativeBinaryResolver.java extracts the
+          # matching one at runtime via Class.getResourceAsStream.
+          res_root="${APPVEYOR_BUILD_FOLDER}/bindings/java/src/main/resources/native"
+          mkdir -p "${res_root}/win-x64" "${res_root}/linux-x64" "${res_root}/osx-arm64"
+          required=(
+              "windows__whiteout_native.dll:win-x64/whiteout_native.dll"
+              "linux__libwhiteout_native.so:linux-x64/libwhiteout_native.so"
+              "macos__libwhiteout_native.dylib:osx-arm64/libwhiteout_native.dylib"
+          )
+          for spec in "${required[@]}"; do
+              src="${dl}/${spec%%:*}"
+              dst="${res_root}/${spec#*:}"
+              [ -f "${src}" ] || { echo "missing native binary: ${src}" >&2; exit 1; }
+              cp "${src}" "${dst}"
+          done
+          mvn -f "${APPVEYOR_BUILD_FOLDER}/bindings/java/pom.xml" package -DskipTests
+          # The fat jar is bindings/java/target/whiteout-<ver>.jar. Stage
+          # alongside the wheels/nupkg under packages/ for the artifact glob.
           mkdir -p "${APPVEYOR_BUILD_FOLDER}/packages/java"
-          find "${dl}" -name '*.jar' -exec cp {} "${APPVEYOR_BUILD_FOLDER}/packages/java/" \;
+          cp "${APPVEYOR_BUILD_FOLDER}"/bindings/java/target/whiteout-*.jar \
+              "${APPVEYOR_BUILD_FOLDER}/packages/java/"
 
           echo "── package summary ──"
           ls -la "${APPVEYOR_BUILD_FOLDER}/packages/csharp/"*.nupkg || true
@@ -797,7 +849,11 @@ for:
     artifacts:
       - path: packages/csharp/*.nupkg
         name: nuget-package
+      # Single bundle: the three cp312 platform wheels + the source sdist
+      # (whiteout-<ver>.tar.gz) that pip uses for unsupported platforms.
       - path: packages/python/dist/*.whl
+        name: python-wheels-all
+      - path: packages/python/dist/*.tar.gz
         name: python-wheels-all
       - path: packages/java/*.jar
         name: java-bundle-all
