@@ -41,6 +41,7 @@ enum class TextureFileFormat : u32 {
     PNG,     ///< Portable Network Graphics (8/16-bit, non-interlaced).
     TEX,     ///< Blizzard proprietary texture (Diablo III/IV).
     TGA,     ///< Truevision TGA (uncompressed + RLE).
+    TIFF,    ///< Tagged Image File Format (baseline 6.0 subset).
     Unknown, ///< Unrecognised extension.
 };
 

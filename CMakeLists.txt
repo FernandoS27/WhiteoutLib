@@ -306,6 +306,10 @@ add_library(whiteout_lib
     src/whiteout/textures/bmp/writer.cpp
     src/whiteout/textures/tga/parser.cpp
     src/whiteout/textures/tga/writer.cpp
+    src/whiteout/textures/tiff/parser.cpp
+    src/whiteout/textures/tiff/writer.cpp
+    src/whiteout/textures/tiff/packbits.cpp
+    src/whiteout/textures/tiff/lzw.cpp
     src/whiteout/textures/gif/writer.cpp
     src/whiteout/textures/utils/quantize.cpp
     src/whiteout/textures/utils/blue_noise.cpp

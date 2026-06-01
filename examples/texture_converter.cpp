@@ -10,6 +10,7 @@
 #include <whiteout/textures/png/png.h>
 #include <whiteout/textures/tex/tex.h>
 #include <whiteout/textures/tga/tga.h>
+#include <whiteout/textures/tiff/tiff.h>
 
 #include <algorithm>
 #include <filesystem>
@@ -130,6 +131,19 @@ public:
         return result;
     }
 
+    std::optional<Texture> loadTiff(const std::string& path) {
+        tiff::Parser parser;
+        auto result = parser.parse(path);
+        if (!result) {
+            if (parser.hasIssues())
+                issues.insert(issues.end(), parser.getIssues().begin(),
+                              parser.getIssues().end());
+            else
+                issues.push_back("Unknown TIFF parse error");
+        }
+        return result;
+    }
+
     // -- Save dispatchers ---------------------------------------------------
 
     bool saveBlp(const Texture& tex, const std::string& path,
@@ -209,6 +223,17 @@ public:
         }
         return true;
     }
+
+    bool saveTiff(const Texture& tex, const std::string& path) {
+        tiff::Writer writer;
+        writer.write(path, tex);
+        if (writer.hasIssues()) {
+            issues.insert(issues.end(), writer.getIssues().begin(),
+                          writer.getIssues().end());
+            return false;
+        }
+        return true;
+    }
 };
 
 // ============================================================================
@@ -231,6 +256,7 @@ TextureFileFormat TextureConverter::classifyPath(const std::string& path) {
     if (ext == ".png") return TextureFileFormat::PNG;
     if (ext == ".tex") return TextureFileFormat::TEX;
     if (ext == ".tga") return TextureFileFormat::TGA;
+    if (ext == ".tif" || ext == ".tiff") return TextureFileFormat::TIFF;
     return TextureFileFormat::Unknown;
 }
 
@@ -290,6 +316,7 @@ const char* TextureConverter::fileFormatName(TextureFileFormat fmt) {
     case TextureFileFormat::PNG: return "PNG";
     case TextureFileFormat::TEX: return "TEX";
     case TextureFileFormat::TGA: return "TGA";
+    case TextureFileFormat::TIFF:return "TIFF";
     default:                     return "Unknown";
     }
 }
@@ -381,6 +408,7 @@ std::optional<Texture> TextureConverter::load(const std::string& path,
     case TextureFileFormat::PNG: return pImpl->loadPng(path);
     case TextureFileFormat::TEX: return pImpl->loadTex(path);
     case TextureFileFormat::TGA: return pImpl->loadTga(path);
+    case TextureFileFormat::TIFF: return pImpl->loadTiff(path);
     default:
         pImpl->issues.push_back("Unsupported input format");
         return std::nullopt;
@@ -407,6 +435,7 @@ bool TextureConverter::save(const Texture& tex, const std::string& path,
     case TextureFileFormat::PNG: return pImpl->savePng(tex, path);
     case TextureFileFormat::TEX: return pImpl->saveTex(tex, path);
     case TextureFileFormat::TGA: return pImpl->saveTga(tex, path);
+    case TextureFileFormat::TIFF: return pImpl->saveTiff(tex, path);
     default:
         pImpl->issues.push_back("Unsupported output format");
         return false;

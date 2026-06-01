@@ -29,6 +29,8 @@ CONFIG = ModuleConfig(
         'include/whiteout/textures/bmp/writer.h',
         'include/whiteout/textures/tga/parser.h',
         'include/whiteout/textures/tga/writer.h',
+        'include/whiteout/textures/tiff/parser.h',
+        'include/whiteout/textures/tiff/writer.h',
         'include/whiteout/textures/gif/writer.h',
     ],
     output_path='bindings/wasm/textures_bindings.cpp',
