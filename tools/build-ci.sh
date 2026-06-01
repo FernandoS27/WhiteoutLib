@@ -128,3 +128,29 @@ echo "── build-ci summary ──"
 echo "build dir       : ${build_dir}"
 echo "java native     : ${native_lib:-<not found>}"
 echo "python extension: ${py_ext:-<not found>}"
+
+# Always log the c-dist and python-dist layouts. AppVeyor's artifact
+# globs silently no-op on path mismatches, so when a downstream job
+# fails with "missing native binary", the first useful diagnostic is
+# what the build actually produced and where.
+echo "── c-dist contents ──"
+if [ -d "${build_dir}/c-dist" ]; then
+    find "${build_dir}/c-dist" -mindepth 1 -printf '%P\n' 2>/dev/null \
+        || find "${build_dir}/c-dist" -mindepth 1 | sed "s|^${build_dir}/c-dist/||"
+else
+    echo "(no c-dist directory)"
+fi
+echo "── python-dist contents ──"
+if [ -d "${build_dir}/python-dist" ]; then
+    find "${build_dir}/python-dist" -mindepth 1 -printf '%P\n' 2>/dev/null \
+        || find "${build_dir}/python-dist" -mindepth 1 | sed "s|^${build_dir}/python-dist/||"
+else
+    echo "(no python-dist directory)"
+fi
+
+# Fail loud if the native library is missing — the job otherwise exits 0
+# and the package job loses 30 minutes polling before it finds out.
+if [ -z "${native_lib}" ]; then
+    echo "FATAL: native library ${native_lib_pat} not produced by the build" >&2
+    exit 1
+fi

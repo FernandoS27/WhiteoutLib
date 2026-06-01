@@ -259,18 +259,28 @@ install:
       # `pip install` into their system site-packages). If venv fails
       # (Debian's python3-venv split, or any other "ensurepip missing"
       # weirdness on AppVeyor's pyenv-shim'd images), fall back to using
-      # the base interpreter directly with --break-system-packages: this
-      # is a throwaway CI runner, so polluting its Python is harmless.
+      # the base interpreter with a user-site pip bootstrapped via
+      # ensurepip — DON'T use the Debian system pip, it's built for
+      # Python 3.10 and imports distutils.cmd (removed in 3.12).
       VENV="${APPVEYOR_BUILD_FOLDER}/.ci-venv"
+      VENV_ERR="${APPVEYOR_BUILD_FOLDER}/.ci-venv.err"
       PIP_FLAGS=""
-      if "$BASE_PY" -m venv "$VENV" 2>/dev/null && [ -x "$VENV/bin/python" ] && \
+      if "$BASE_PY" -m venv "$VENV" 2>"$VENV_ERR" && [ -x "$VENV/bin/python" ] && \
          "$VENV/bin/python" -m pip --version >/dev/null 2>&1; then
         PY="${VENV}/bin/python"
         echo "venv python: $PY"
       else
+        echo "venv unavailable; venv stderr was:" >&2
+        cat "$VENV_ERR" >&2 || true
         PY="$BASE_PY"
-        PIP_FLAGS="--break-system-packages"
-        echo "venv unavailable, using base python with --break-system-packages: $PY"
+        PIP_FLAGS="--user"
+        echo "falling back to base python with --user installs: $PY"
+        # Bootstrap a modern pip into the user site. Python 3.12's user
+        # site (`~/.local/lib/python3.12/site-packages`) appears in
+        # sys.path BEFORE `/usr/lib/python3/dist-packages`, so the
+        # bundled-wheel pip from ensurepip shadows the broken Debian one.
+        "$PY" -m ensurepip --upgrade --user
+        export PATH="$HOME/.local/bin:$PATH"
       fi
       echo "export CI_PYTHON=$PY" > "${APPVEYOR_BUILD_FOLDER}/ci_python.env"
 
@@ -312,9 +322,14 @@ artifacts:
     name: python-wheels
   - path: build-ci/c-dist/**/whiteout_native.dll
     name: native-binary
-  - path: build-ci/c-dist/libwhiteout_native.so
+  # Recursive globs on Linux / macOS too — single-config generators normally
+  # place the lib directly under c-dist/, but if the generator changes (or
+  # a future CMake INSTALL step adds a per-config subdir) the non-recursive
+  # path silently misses it and the package job aborts on a missing-binary
+  # error far downstream. Recursive is harmless for the direct-placement case.
+  - path: build-ci/c-dist/**/libwhiteout_native.so
     name: native-binary
-  - path: build-ci/c-dist/libwhiteout_native.dylib
+  - path: build-ci/c-dist/**/libwhiteout_native.dylib
     name: native-binary
 
 test: off
@@ -453,7 +468,29 @@ for:
     # `mvn -P natives` here. The raw native binary is already uploaded
     # via the root `artifacts:` rule for the package job to pick up.
     after_build:
+      # Windows: pack the wheel, then verify the native DLL + wheel both
+      # exist before the artifact-upload phase. AppVeyor's `appveyor
+      # PushArtifact` silently no-ops on glob mismatches, so a missing
+      # binary doesn't fail the job — but it ALWAYS breaks the package
+      # job downstream. Fail loud here with a directory dump so the
+      # culprit is easy to spot.
       - cmd: python tools\pack_python_wheel.py --build-dir build-ci --out-dir packages\python\dist
+      - cmd: |
+          @echo off
+          setlocal enabledelayedexpansion
+          set "missing="
+          dir /b /s build-ci\c-dist\whiteout_native.dll >NUL 2>&1
+          if errorlevel 1 set "missing=!missing! whiteout_native.dll"
+          dir /b /s packages\python\dist\*.whl >NUL 2>&1
+          if errorlevel 1 set "missing=!missing! *.whl"
+          if not "!missing!"=="" (
+              echo MISSING ARTIFACTS:!missing! 1>&2
+              echo --- build-ci\c-dist listing ---
+              dir /s /b build-ci\c-dist 2>NUL
+              echo --- packages\python\dist listing ---
+              dir /s /b packages\python\dist 2>NUL
+              exit /b 1
+          )
       - sh: |
           set -e
           if [ -f ci_python.env ]; then set -a; . ./ci_python.env; set +a; fi
@@ -461,6 +498,28 @@ for:
           "$PY" tools/pack_python_wheel.py \
               --build-dir build-ci \
               --out-dir   packages/python/dist
+          # Same fail-loud check as the Windows path: AppVeyor's artifact
+          # upload silently no-ops on glob mismatches, so verify both
+          # outputs exist while we can still surface a usable error.
+          case "$(uname -s)" in
+              Darwin) native_lib="libwhiteout_native.dylib" ;;
+              *)      native_lib="libwhiteout_native.so"    ;;
+          esac
+          missing=""
+          if ! find build-ci/c-dist -name "${native_lib}" 2>/dev/null | grep -q .; then
+              missing="${missing} ${native_lib}"
+          fi
+          if ! find packages/python/dist -name '*.whl' 2>/dev/null | grep -q .; then
+              missing="${missing} *.whl"
+          fi
+          if [ -n "${missing}" ]; then
+              echo "MISSING ARTIFACTS:${missing}" >&2
+              echo "--- build-ci/c-dist listing ---"
+              find build-ci/c-dist -mindepth 1 2>/dev/null | head -50 || true
+              echo "--- packages/python/dist listing ---"
+              find packages/python/dist -mindepth 1 2>/dev/null | head -50 || true
+              exit 1
+          fi
 
 # ─── Codegen job overrides ──────────────────────────────────────────────────
 # A lightweight Linux job that runs the Python codegen once, packages the
@@ -499,13 +558,20 @@ for:
           echo "base python: ${BASE_PY} ($(${BASE_PY} --version))"
 
           VENV="${APPVEYOR_BUILD_FOLDER}/.ci-venv"
+          VENV_ERR="${APPVEYOR_BUILD_FOLDER}/.ci-venv.err"
           PIP_FLAGS=""
-          if "$BASE_PY" -m venv "$VENV" 2>/dev/null && [ -x "$VENV/bin/python" ] && \
+          if "$BASE_PY" -m venv "$VENV" 2>"$VENV_ERR" && [ -x "$VENV/bin/python" ] && \
              "$VENV/bin/python" -m pip --version >/dev/null 2>&1; then
               PY="${VENV}/bin/python"
           else
+              echo "venv unavailable; venv stderr was:" >&2
+              cat "$VENV_ERR" >&2 || true
               PY="$BASE_PY"
-              PIP_FLAGS="--break-system-packages"
+              PIP_FLAGS="--user"
+              # See native job: ensurepip bypasses the broken Debian
+              # python3-pip when Python 3.12 is in use.
+              "$PY" -m ensurepip --upgrade --user
+              export PATH="$HOME/.local/bin:$PATH"
           fi
           echo "export CI_PYTHON=$PY" > "${APPVEYOR_BUILD_FOLDER}/ci_python.env"
           "$PY" -m pip install $PIP_FLAGS --upgrade pip
@@ -651,8 +717,17 @@ for:
           sudo apt-get install -y --no-install-recommends \
               jq unzip curl maven \
               python3.12 python3.12-venv python3.12-dev
-          python3.12 -m pip install --break-system-packages --upgrade pip
-          python3.12 -m pip install --break-system-packages build
+          # Bootstrap a modern pip via ensurepip. Ubuntu's python3-pip
+          # ships into /usr/lib/python3/dist-packages (a version-agnostic
+          # path) built against Python 3.10 stdlib — it imports
+          # `distutils.cmd`, which was removed in Python 3.12. ensurepip
+          # installs the pip wheel bundled with python3.12-venv into the
+          # user site, which appears earlier in sys.path than the broken
+          # Debian copy.
+          python3.12 -m ensurepip --upgrade --user
+          export PATH="$HOME/.local/bin:$PATH"
+          python3.12 -m pip install --user --upgrade pip
+          python3.12 -m pip install --user build
           # JDK — same fall-through as the root install for native jobs.
           JDK_INSTALLED=""
           for v in 25 24 23 22; do
