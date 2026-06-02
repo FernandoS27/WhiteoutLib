@@ -711,6 +711,8 @@ public final class Native {
         "whiteout_mdx_MdxParser_parse_buffer_format", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_mdx_MdxParser_hasIssues = find(
         "whiteout_mdx_MdxParser_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxParser_getIssues = find(
+        "whiteout_mdx_MdxParser_getIssues", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
 
     // -- MdxWriter --
     public static final MethodHandle whiteout_mdx_MdxWriter_new = find(
@@ -733,8 +735,8 @@ public final class Native {
     public static final MethodHandle whiteout_mdx_MdxTrackVector3f_set_interpolationType = find("whiteout_mdx_MdxTrackVector3f_set_interpolationType", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_mdx_MdxTrackVector3f_get_globalSequenceId = find("whiteout_mdx_MdxTrackVector3f_get_globalSequenceId", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mdx_MdxTrackVector3f_set_globalSequenceId = find("whiteout_mdx_MdxTrackVector3f_set_globalSequenceId", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-    public static final MethodHandle whiteout_mdx_MdxTrackVector3f_get_keyCount = find("whiteout_mdx_MdxTrackVector3f_get_keyCount", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_mdx_MdxTrackVector3f_set_keyCount = find("whiteout_mdx_MdxTrackVector3f_set_keyCount", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_mdx_MdxTrackVector3f_get_keyCount = find("whiteout_mdx_MdxTrackVector3f_get_keyCount", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxTrackVector3f_set_keyCount = find("whiteout_mdx_MdxTrackVector3f_set_keyCount", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_mdx_MdxTrackVector3f_get_timestamps_count = find("whiteout_mdx_MdxTrackVector3f_get_timestamps_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mdx_MdxTrackVector3f_resize_timestamps = find("whiteout_mdx_MdxTrackVector3f_resize_timestamps", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_mdx_MdxTrackVector3f_get_timestamps_data = find("whiteout_mdx_MdxTrackVector3f_get_timestamps_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
@@ -755,8 +757,8 @@ public final class Native {
     public static final MethodHandle whiteout_mdx_MdxTrackQuaternion_set_interpolationType = find("whiteout_mdx_MdxTrackQuaternion_set_interpolationType", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_mdx_MdxTrackQuaternion_get_globalSequenceId = find("whiteout_mdx_MdxTrackQuaternion_get_globalSequenceId", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mdx_MdxTrackQuaternion_set_globalSequenceId = find("whiteout_mdx_MdxTrackQuaternion_set_globalSequenceId", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-    public static final MethodHandle whiteout_mdx_MdxTrackQuaternion_get_keyCount = find("whiteout_mdx_MdxTrackQuaternion_get_keyCount", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_mdx_MdxTrackQuaternion_set_keyCount = find("whiteout_mdx_MdxTrackQuaternion_set_keyCount", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_mdx_MdxTrackQuaternion_get_keyCount = find("whiteout_mdx_MdxTrackQuaternion_get_keyCount", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxTrackQuaternion_set_keyCount = find("whiteout_mdx_MdxTrackQuaternion_set_keyCount", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_mdx_MdxTrackQuaternion_get_timestamps_count = find("whiteout_mdx_MdxTrackQuaternion_get_timestamps_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mdx_MdxTrackQuaternion_resize_timestamps = find("whiteout_mdx_MdxTrackQuaternion_resize_timestamps", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_mdx_MdxTrackQuaternion_get_timestamps_data = find("whiteout_mdx_MdxTrackQuaternion_get_timestamps_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
@@ -777,8 +779,8 @@ public final class Native {
     public static final MethodHandle whiteout_mdx_MdxTrackU32_set_interpolationType = find("whiteout_mdx_MdxTrackU32_set_interpolationType", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_mdx_MdxTrackU32_get_globalSequenceId = find("whiteout_mdx_MdxTrackU32_get_globalSequenceId", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mdx_MdxTrackU32_set_globalSequenceId = find("whiteout_mdx_MdxTrackU32_set_globalSequenceId", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-    public static final MethodHandle whiteout_mdx_MdxTrackU32_get_keyCount = find("whiteout_mdx_MdxTrackU32_get_keyCount", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_mdx_MdxTrackU32_set_keyCount = find("whiteout_mdx_MdxTrackU32_set_keyCount", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_mdx_MdxTrackU32_get_keyCount = find("whiteout_mdx_MdxTrackU32_get_keyCount", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxTrackU32_set_keyCount = find("whiteout_mdx_MdxTrackU32_set_keyCount", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_mdx_MdxTrackU32_get_timestamps_count = find("whiteout_mdx_MdxTrackU32_get_timestamps_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mdx_MdxTrackU32_resize_timestamps = find("whiteout_mdx_MdxTrackU32_resize_timestamps", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_mdx_MdxTrackU32_get_timestamps_data = find("whiteout_mdx_MdxTrackU32_get_timestamps_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
@@ -799,8 +801,8 @@ public final class Native {
     public static final MethodHandle whiteout_mdx_MdxTrackF32_set_interpolationType = find("whiteout_mdx_MdxTrackF32_set_interpolationType", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_mdx_MdxTrackF32_get_globalSequenceId = find("whiteout_mdx_MdxTrackF32_get_globalSequenceId", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mdx_MdxTrackF32_set_globalSequenceId = find("whiteout_mdx_MdxTrackF32_set_globalSequenceId", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-    public static final MethodHandle whiteout_mdx_MdxTrackF32_get_keyCount = find("whiteout_mdx_MdxTrackF32_get_keyCount", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_mdx_MdxTrackF32_set_keyCount = find("whiteout_mdx_MdxTrackF32_set_keyCount", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_mdx_MdxTrackF32_get_keyCount = find("whiteout_mdx_MdxTrackF32_get_keyCount", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxTrackF32_set_keyCount = find("whiteout_mdx_MdxTrackF32_set_keyCount", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_mdx_MdxTrackF32_get_timestamps_count = find("whiteout_mdx_MdxTrackF32_get_timestamps_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mdx_MdxTrackF32_resize_timestamps = find("whiteout_mdx_MdxTrackF32_resize_timestamps", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_mdx_MdxTrackF32_get_timestamps_data = find("whiteout_mdx_MdxTrackF32_get_timestamps_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));

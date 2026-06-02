@@ -44,4 +44,12 @@ public sealed class TrackU32 : WhiteoutHandle
         set => NativeMethods.whiteout_mdx_MdxTrackU32_set_globalSequenceId(DangerousGet(), value);
     }
 
+
+    /// <summary>Number of keyframes</summary>
+    public ulong KeyCount
+    {
+        get => NativeMethods.whiteout_mdx_MdxTrackU32_get_keyCount(DangerousGet());
+        set => NativeMethods.whiteout_mdx_MdxTrackU32_set_keyCount(DangerousGet(), value);
+    }
+
 }

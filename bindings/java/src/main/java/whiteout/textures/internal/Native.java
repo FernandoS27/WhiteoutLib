@@ -86,6 +86,8 @@ public final class Native {
         "whiteout_textures_BlpParser_parse", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_textures_BlpParser_hasIssues = find(
         "whiteout_textures_BlpParser_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_BlpParser_getIssues = find(
+        "whiteout_textures_BlpParser_getIssues", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
 
     // -- BlpWriter --
     public static final MethodHandle whiteout_textures_BlpWriter_new = find(
@@ -98,6 +100,8 @@ public final class Native {
         "whiteout_textures_BlpWriter_write", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_textures_BlpWriter_hasIssues = find(
         "whiteout_textures_BlpWriter_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_BlpWriter_getIssues = find(
+        "whiteout_textures_BlpWriter_getIssues", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
 
     // -- PngApngFrameInfo --
     public static final MethodHandle whiteout_textures_PngApngFrameInfo_new = find(
@@ -128,6 +132,8 @@ public final class Native {
         "whiteout_textures_PngParser_parse", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_textures_PngParser_hasIssues = find(
         "whiteout_textures_PngParser_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngParser_getIssues = find(
+        "whiteout_textures_PngParser_getIssues", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_textures_PngParser_isAnimated = find(
         "whiteout_textures_PngParser_isAnimated", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_textures_PngParser_frameCount = find(
@@ -170,6 +176,8 @@ public final class Native {
         "whiteout_textures_PngWriter_writeAnimated", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_textures_PngWriter_hasIssues = find(
         "whiteout_textures_PngWriter_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_PngWriter_getIssues = find(
+        "whiteout_textures_PngWriter_getIssues", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
 
     // -- JpegParser --
     public static final MethodHandle whiteout_textures_JpegParser_new = find(
@@ -182,6 +190,8 @@ public final class Native {
         "whiteout_textures_JpegParser_parse", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_textures_JpegParser_hasIssues = find(
         "whiteout_textures_JpegParser_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_JpegParser_getIssues = find(
+        "whiteout_textures_JpegParser_getIssues", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
 
     // -- JpegWriter --
     public static final MethodHandle whiteout_textures_JpegWriter_new = find(
@@ -194,6 +204,8 @@ public final class Native {
         "whiteout_textures_JpegWriter_write", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_textures_JpegWriter_hasIssues = find(
         "whiteout_textures_JpegWriter_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_JpegWriter_getIssues = find(
+        "whiteout_textures_JpegWriter_getIssues", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
 
     // -- DdsParser --
     public static final MethodHandle whiteout_textures_DdsParser_new = find(
@@ -204,6 +216,8 @@ public final class Native {
         "whiteout_textures_DdsParser_parse", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_textures_DdsParser_hasIssues = find(
         "whiteout_textures_DdsParser_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_DdsParser_getIssues = find(
+        "whiteout_textures_DdsParser_getIssues", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
 
     // -- DdsWriter --
     public static final MethodHandle whiteout_textures_DdsWriter_new = find(
@@ -214,6 +228,8 @@ public final class Native {
         "whiteout_textures_DdsWriter_write", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_textures_DdsWriter_hasIssues = find(
         "whiteout_textures_DdsWriter_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_DdsWriter_getIssues = find(
+        "whiteout_textures_DdsWriter_getIssues", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
 
     // -- BmpParser --
     public static final MethodHandle whiteout_textures_BmpParser_new = find(
@@ -224,6 +240,8 @@ public final class Native {
         "whiteout_textures_BmpParser_parse", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_textures_BmpParser_hasIssues = find(
         "whiteout_textures_BmpParser_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_BmpParser_getIssues = find(
+        "whiteout_textures_BmpParser_getIssues", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
 
     // -- BmpWriter --
     public static final MethodHandle whiteout_textures_BmpWriter_new = find(
@@ -234,6 +252,8 @@ public final class Native {
         "whiteout_textures_BmpWriter_write", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_textures_BmpWriter_hasIssues = find(
         "whiteout_textures_BmpWriter_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_BmpWriter_getIssues = find(
+        "whiteout_textures_BmpWriter_getIssues", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
 
     // -- TgaParser --
     public static final MethodHandle whiteout_textures_TgaParser_new = find(
@@ -244,6 +264,8 @@ public final class Native {
         "whiteout_textures_TgaParser_parse", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_textures_TgaParser_hasIssues = find(
         "whiteout_textures_TgaParser_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_TgaParser_getIssues = find(
+        "whiteout_textures_TgaParser_getIssues", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
 
     // -- TgaWriter --
     public static final MethodHandle whiteout_textures_TgaWriter_new = find(
@@ -254,6 +276,32 @@ public final class Native {
         "whiteout_textures_TgaWriter_write", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_textures_TgaWriter_hasIssues = find(
         "whiteout_textures_TgaWriter_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_TgaWriter_getIssues = find(
+        "whiteout_textures_TgaWriter_getIssues", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
+
+    // -- TiffParser --
+    public static final MethodHandle whiteout_textures_TiffParser_new = find(
+        "whiteout_textures_TiffParser_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_TiffParser_delete = find(
+        "whiteout_textures_TiffParser_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_TiffParser_parse = find(
+        "whiteout_textures_TiffParser_parse", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_textures_TiffParser_hasIssues = find(
+        "whiteout_textures_TiffParser_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_TiffParser_getIssues = find(
+        "whiteout_textures_TiffParser_getIssues", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
+
+    // -- TiffWriter --
+    public static final MethodHandle whiteout_textures_TiffWriter_new = find(
+        "whiteout_textures_TiffWriter_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_TiffWriter_delete = find(
+        "whiteout_textures_TiffWriter_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_TiffWriter_write = find(
+        "whiteout_textures_TiffWriter_write", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_TiffWriter_hasIssues = find(
+        "whiteout_textures_TiffWriter_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_TiffWriter_getIssues = find(
+        "whiteout_textures_TiffWriter_getIssues", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
 
     // -- GifSaveOptions --
     public static final MethodHandle whiteout_textures_GifSaveOptions_new = find(
@@ -288,5 +336,7 @@ public final class Native {
         "whiteout_textures_GifWriter_write_frames_opts", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_textures_GifWriter_hasIssues = find(
         "whiteout_textures_GifWriter_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_textures_GifWriter_getIssues = find(
+        "whiteout_textures_GifWriter_getIssues", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
 
 }

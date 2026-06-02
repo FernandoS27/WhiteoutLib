@@ -6,7 +6,7 @@
 package whiteout.interfaces;
 
 /**
- * abstract opaque base. Concrete impl: utils::SimpleThreadPool.
+ * java_package=whiteout.utils — abstract opaque base. Concrete impl: utils::SimpleThreadPool.
  */
 public interface WorkerPool {
 

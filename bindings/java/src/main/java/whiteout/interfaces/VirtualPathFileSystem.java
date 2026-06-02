@@ -6,7 +6,7 @@
 package whiteout.interfaces;
 
 /**
- * abstract base. Concrete impl: utils::OsFileSystem.
+ * java_package=whiteout.utils — abstract base. Concrete impl: utils::OsFileSystem.
  */
 public interface VirtualPathFileSystem {
 

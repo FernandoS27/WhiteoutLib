@@ -91,10 +91,10 @@ public final class TrackQuaternion implements AutoCloseable {
      * Number of keyframes
      * @return the keyCount field of this MdxTrackQuaternion.
      */
-    public int getKeyCount() {
-        return (int) NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackQuaternion_get_keyCount, handle);
+    public long getKeyCount() {
+        return (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackQuaternion_get_keyCount, handle);
     }
-    public void setKeyCount(int value) {
+    public void setKeyCount(long value) {
         NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackQuaternion_set_keyCount, handle, value);
     }
     /**

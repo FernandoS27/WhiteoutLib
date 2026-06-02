@@ -107,7 +107,7 @@ java_package=whiteout.utils)doc")
     py::class_<whiteout::utils::SimpleThreadPool, whiteout::interfaces::WorkerPool>(m, "SimpleThreadPool", R"doc(Basic CPU worker pool implementation of interfaces::WorkerPool.
 
 Tasks are executed by a fixed number of worker threads created at construction time.)doc")
-        .def(py::init<whiteout::u64>(), py::arg("n_threads"))
+        .def(py::init<size_t>(), py::arg("n_threads"))
         .def("wait_idle", &whiteout::utils::SimpleThreadPool::waitIdle, R"doc(Block until the pool has no pending or running tasks.)doc")
         .def("thread_count", &whiteout::utils::SimpleThreadPool::threadCount, R"doc(Number of worker threads in this pool.)doc")
     ;
@@ -116,7 +116,7 @@ Tasks are executed by a fixed number of worker threads created at construction t
 
 Requests are dispatched asynchronously onto an internal thread pool; each worker owns one backend handle and keeps its connection cache warm. Thread-safe: multiple threads may call getAsync / getRangeAsync concurrently.)doc")
         .def(py::init<>())
-        .def(py::init<whiteout::u64>(), py::arg("n_threads"))
+        .def(py::init<size_t>(), py::arg("n_threads"))
         .def("capabilities", &whiteout::utils::SimpleHttpHandler::capabilities, R"doc(Reported handler capability flags.)doc")
     ;
 
@@ -126,7 +126,7 @@ A JobGroup starts with zero pending jobs. Call add() before submitting work, the
 
 Typical usage pattern: 1. add(N) 2. submit N tasks 3. each task calls done() on completion 4. wait() to join the group)doc")
         .def(py::init<>())
-        .def("add", &whiteout::utils::JobGroup::add, py::arg("n") = whiteout::u64{}, R"doc(Increment the number of pending jobs.
+        .def("add", &whiteout::utils::JobGroup::add, py::arg("n") = size_t{}, R"doc(Increment the number of pending jobs.
 
 @param n Number of jobs to add to the group.)doc")
         .def("done", &whiteout::utils::JobGroup::done, R"doc(Mark one pending job as completed.

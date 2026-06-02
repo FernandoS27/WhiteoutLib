@@ -82,6 +82,21 @@ public final class PngParser implements AutoCloseable {
     }
 
     /**
+     * @return accumulated issues from the last parse call.
+     */
+    public byte[] getIssues() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_PngParser_getIssues, arena, handle);
+            MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
+            long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
+            if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
+            byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
+            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
+            return __out;
+        }
+    }
+
+    /**
      * @return true if the last parsed PNG carried APNG animation chunks.
      */
     public boolean isAnimated() {

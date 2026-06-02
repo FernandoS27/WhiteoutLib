@@ -59,6 +59,8 @@ typedef struct whiteout_BmpParser whiteout_BmpParser;
 typedef struct whiteout_BmpWriter whiteout_BmpWriter;
 typedef struct whiteout_TgaParser whiteout_TgaParser;
 typedef struct whiteout_TgaWriter whiteout_TgaWriter;
+typedef struct whiteout_TiffParser whiteout_TiffParser;
+typedef struct whiteout_TiffWriter whiteout_TiffWriter;
 typedef struct whiteout_GifSaveOptions whiteout_GifSaveOptions;
 typedef struct whiteout_GifWriter whiteout_GifWriter;
 
@@ -408,6 +410,34 @@ int32_t whiteout_textures_TgaWriter_hasIssues(const whiteout_TgaWriter* self);
 /* @return accumulated issues from the last write call. */
 size_t whiteout_textures_TgaWriter_getIssues_count(const whiteout_TgaWriter* self);
 whiteout_CString whiteout_textures_TgaWriter_getIssues_at(const whiteout_TgaWriter* self, size_t index);
+
+/* ── TiffParser ─────────────────────────────────────────────── */
+
+/* Reads a TIFF file or byte buffer and decodes it into a Texture. */
+whiteout_TiffParser* whiteout_textures_TiffParser_new(void);
+void whiteout_textures_TiffParser_delete(whiteout_TiffParser* self);
+
+/* Parse a TIFF byte buffer. */
+struct whiteout_Texture* whiteout_textures_TiffParser_parse(whiteout_TiffParser* self, const uint8_t* buffer, size_t buffer_size);
+/* @return true if the last parse produced any issues. */
+int32_t whiteout_textures_TiffParser_hasIssues(const whiteout_TiffParser* self);
+/* @return accumulated issues from the last parse call. */
+size_t whiteout_textures_TiffParser_getIssues_count(const whiteout_TiffParser* self);
+whiteout_CString whiteout_textures_TiffParser_getIssues_at(const whiteout_TiffParser* self, size_t index);
+
+/* ── TiffWriter ─────────────────────────────────────────────── */
+
+/* Encodes a Texture into TIFF format. */
+whiteout_TiffWriter* whiteout_textures_TiffWriter_new(void);
+void whiteout_textures_TiffWriter_delete(whiteout_TiffWriter* self);
+
+/* Serialize the texture to a TIFF byte buffer. */
+whiteout_Bytes whiteout_textures_TiffWriter_write(whiteout_TiffWriter* self, struct whiteout_Texture* texture);
+/* @return true if the last write produced any issues. */
+int32_t whiteout_textures_TiffWriter_hasIssues(const whiteout_TiffWriter* self);
+/* @return accumulated issues from the last write call. */
+size_t whiteout_textures_TiffWriter_getIssues_count(const whiteout_TiffWriter* self);
+whiteout_CString whiteout_textures_TiffWriter_getIssues_at(const whiteout_TiffWriter* self, size_t index);
 
 /* ── GifSaveOptions ─────────────────────────────────────────────── */
 

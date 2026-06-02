@@ -106,21 +106,21 @@ void bind_utils(py::module_& m) {
     py::class_<whiteout::utils::VertexBufferBuilder>(m, "VertexBufferBuilder")
         .def(py::init<>())
         .def("declare_float_attribute",
-            [](whiteout::utils::VertexBufferBuilder& self, py::array_t<whiteout::f32, py::array::c_style | py::array::forcecast> __py_arr_0, whiteout::u64 components, whiteout::utils::AttributeClass attr_class, whiteout::utils::AttributeEncoding encoding, whiteout::u64 align) {
+            [](whiteout::utils::VertexBufferBuilder& self, py::array_t<whiteout::f32, py::array::c_style | py::array::forcecast> __py_arr_0, size_t components, whiteout::utils::AttributeClass attr_class, whiteout::utils::AttributeEncoding encoding, size_t align) {
                 auto __buf_0 = __py_arr_0.request();
                 std::span<const whiteout::f32> data(
                     static_cast<const whiteout::f32*>(__buf_0.ptr),
                     static_cast<std::size_t>(__buf_0.size));
                 self.declareFloatAttribute(data, components, attr_class, encoding, align);
-            }, py::arg("data"), py::arg("components"), py::arg("attr_class"), py::arg("encoding"), py::arg("align") = whiteout::u64{}, R"doc(Non-template float-attribute entry point — accepts an already- flattened `f32` array as a `std::span` so the binding layer can aim straight at numpy buffers / `Float32Array` views with no intermediate copy (vertex_count = data.size() / components).)doc")
+            }, py::arg("data"), py::arg("components"), py::arg("attr_class"), py::arg("encoding"), py::arg("align") = size_t{}, R"doc(Non-template float-attribute entry point — accepts an already- flattened `f32` array as a `std::span` so the binding layer can aim straight at numpy buffers / `Float32Array` views with no intermediate copy (vertex_count = data.size() / components).)doc")
         .def("declare_int_attribute",
-            [](whiteout::utils::VertexBufferBuilder& self, py::array_t<whiteout::u32, py::array::c_style | py::array::forcecast> __py_arr_0, whiteout::u64 components, whiteout::utils::AttributeClass attr_class, whiteout::utils::AttributeEncoding encoding, whiteout::u64 align) {
+            [](whiteout::utils::VertexBufferBuilder& self, py::array_t<whiteout::u32, py::array::c_style | py::array::forcecast> __py_arr_0, size_t components, whiteout::utils::AttributeClass attr_class, whiteout::utils::AttributeEncoding encoding, size_t align) {
                 auto __buf_0 = __py_arr_0.request();
                 std::span<const whiteout::u32> data(
                     static_cast<const whiteout::u32*>(__buf_0.ptr),
                     static_cast<std::size_t>(__buf_0.size));
                 self.declareIntAttribute(data, components, attr_class, encoding, align);
-            }, py::arg("data"), py::arg("components"), py::arg("attr_class"), py::arg("encoding"), py::arg("align") = whiteout::u64{}, R"doc(Non-template integer-attribute entry point — accepts an already- flattened `u32` array. Smaller integer types (u8/u16/i8/i16/i32) are upcast at the call site. `std::span` keeps the boundary zero-copy.)doc")
+            }, py::arg("data"), py::arg("components"), py::arg("attr_class"), py::arg("encoding"), py::arg("align") = size_t{}, R"doc(Non-template integer-attribute entry point — accepts an already- flattened `u32` array. Smaller integer types (u8/u16/i8/i16/i32) are upcast at the call site. `std::span` keeps the boundary zero-copy.)doc")
         .def("build", &whiteout::utils::VertexBufferBuilder::build, py::arg("pool") = nullptr, R"doc(Build the interleaved vertex buffer from all declared attributes. @param pool  Optional WorkerPool for parallel encoding. When non-null and the vertex count is large enough, the vertex encoding loop is split into cache-friendly chunks across workers.)doc")
     ;
 

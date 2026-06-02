@@ -45,6 +45,14 @@ public sealed class TrackVector3f : WhiteoutHandle
     }
 
 
+    /// <summary>Number of keyframes</summary>
+    public ulong KeyCount
+    {
+        get => NativeMethods.whiteout_mdx_MdxTrackVector3f_get_keyCount(DangerousGet());
+        set => NativeMethods.whiteout_mdx_MdxTrackVector3f_set_keyCount(DangerousGet(), value);
+    }
+
+
     /// <summary>Raw keyframe data</summary>
     public unsafe ReadOnlySpan<Vector3f> Keys
     {

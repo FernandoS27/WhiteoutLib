@@ -25,6 +25,8 @@
 #include <whiteout/textures/bmp/writer.h>
 #include <whiteout/textures/tga/parser.h>
 #include <whiteout/textures/tga/writer.h>
+#include <whiteout/textures/tiff/parser.h>
+#include <whiteout/textures/tiff/writer.h>
 #include <whiteout/textures/gif/writer.h>
 
 namespace { using namespace whiteout; }
@@ -755,6 +757,73 @@ size_t whiteout_textures_TgaWriter_getIssues_count(const whiteout_TgaWriter* sel
 
 whiteout_CString whiteout_textures_TgaWriter_getIssues_at(const whiteout_TgaWriter* self, size_t index) {
     const auto& __v = reinterpret_cast<const whiteout::textures::tga::Writer*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
+}
+
+} // extern "C"
+
+// ── TiffParser ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_TiffParser* whiteout_textures_TiffParser_new(void) {
+    return reinterpret_cast<whiteout_TiffParser*>(new whiteout::textures::tiff::Parser());
+}
+
+void whiteout_textures_TiffParser_delete(whiteout_TiffParser* self) {
+    delete reinterpret_cast<whiteout::textures::tiff::Parser*>(self);
+}
+
+struct whiteout_Texture* whiteout_textures_TiffParser_parse(whiteout_TiffParser* self, const uint8_t* buffer, size_t buffer_size) {
+    auto __r = reinterpret_cast<whiteout::textures::tiff::Parser*>(self)->parse(std::span<const whiteout::u8>(buffer, buffer_size));
+    if (!__r) return nullptr;
+    return reinterpret_cast<struct whiteout_Texture*>(
+        new whiteout::textures::Texture(std::move(*__r)));
+}
+
+int32_t whiteout_textures_TiffParser_hasIssues(const whiteout_TiffParser* self) {
+    return reinterpret_cast<const whiteout::textures::tiff::Parser*>(self)->hasIssues();
+}
+
+size_t whiteout_textures_TiffParser_getIssues_count(const whiteout_TiffParser* self) {
+    return reinterpret_cast<const whiteout::textures::tiff::Parser*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_textures_TiffParser_getIssues_at(const whiteout_TiffParser* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::textures::tiff::Parser*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
+}
+
+} // extern "C"
+
+// ── TiffWriter ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_TiffWriter* whiteout_textures_TiffWriter_new(void) {
+    return reinterpret_cast<whiteout_TiffWriter*>(new whiteout::textures::tiff::Writer());
+}
+
+void whiteout_textures_TiffWriter_delete(whiteout_TiffWriter* self) {
+    delete reinterpret_cast<whiteout::textures::tiff::Writer*>(self);
+}
+
+whiteout_Bytes whiteout_textures_TiffWriter_write(whiteout_TiffWriter* self, struct whiteout_Texture* texture) {
+    return wrapBytes(reinterpret_cast<whiteout::textures::tiff::Writer*>(self)->write(*reinterpret_cast<const whiteout::textures::Texture*>(texture)));
+}
+
+int32_t whiteout_textures_TiffWriter_hasIssues(const whiteout_TiffWriter* self) {
+    return reinterpret_cast<const whiteout::textures::tiff::Writer*>(self)->hasIssues();
+}
+
+size_t whiteout_textures_TiffWriter_getIssues_count(const whiteout_TiffWriter* self) {
+    return reinterpret_cast<const whiteout::textures::tiff::Writer*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_textures_TiffWriter_getIssues_at(const whiteout_TiffWriter* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::textures::tiff::Writer*>(self)->getIssues();
     if (index >= __v.size()) return emptyCString();
     return wrapCString(std::string(__v[index]));
 }

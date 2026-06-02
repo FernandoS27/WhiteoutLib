@@ -12,7 +12,9 @@ import java.util.function.Consumer;
  * 
  * Both methods are pure virtual — async support is mandatory. The handler invokes @p callback exactly once when the request completes (or fails). The callback may be invoked from any thread.
  * 
- * Thread safety: methods may be called concurrently from multiple WorkerPool threads.  The implementation must be thread-safe. abstract opaque base. Concrete impl: utils::SimpleHttpHandler.
+ * Thread safety: methods may be called concurrently from multiple WorkerPool threads.  The implementation must be thread-safe.
+ * 
+ * java_package=whiteout.utils — abstract opaque base. Concrete impl: utils::SimpleHttpHandler.
  */
 public interface HttpHandler {
 

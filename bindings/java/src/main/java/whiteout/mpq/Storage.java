@@ -181,6 +181,22 @@ public final class Storage implements AutoCloseable {
     }
 
     /**
+     * List all known filenames (from listfile + overlay additions − deletions).
+     * @return a fresh byte[] copied out of native memory.
+     */
+    public byte[] listFiles() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mpq_MpqStorage_listFiles, arena, handle);
+            MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
+            long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
+            if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
+            byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
+            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
+            return __out;
+        }
+    }
+
+    /**
      * Write or overwrite a file. Data is held in overlay until save(). @return true on success, false if the hash table is full.
      *
      * @param name String input.

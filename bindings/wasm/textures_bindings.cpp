@@ -37,6 +37,8 @@
 #include <whiteout/textures/bmp/writer.h>
 #include <whiteout/textures/tga/parser.h>
 #include <whiteout/textures/tga/writer.h>
+#include <whiteout/textures/tiff/parser.h>
+#include <whiteout/textures/tiff/writer.h>
 #include <whiteout/textures/gif/writer.h>
 #include <whiteout/interfaces.h>
 
@@ -361,6 +363,32 @@ EMSCRIPTEN_BINDINGS(textures) {
                   }))
         .function("hasIssues", &whiteout::textures::tga::Writer::hasIssues)
         .function("getIssues", &whiteout::textures::tga::Writer::getIssues)
+    ;
+
+    class_<whiteout::textures::tiff::Parser>("TiffParser")
+        .constructor<>()
+        .function("parse",
+                  optional_override([](
+                      whiteout::textures::tiff::Parser& self,
+                      const emscripten::val& __js_arr_0) {
+                      auto __vec_0 = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_arr_0);
+                      std::span<const whiteout::u8> buffer(__vec_0.data(), __vec_0.size());
+                      return whiteout::wasm::to_optional_ptr<whiteout::textures::Texture>(self.parse(buffer));
+                  }), allow_raw_pointers())
+        .function("hasIssues", &whiteout::textures::tiff::Parser::hasIssues)
+        .function("getIssues", &whiteout::textures::tiff::Parser::getIssues)
+    ;
+
+    class_<whiteout::textures::tiff::Writer>("TiffWriter")
+        .constructor<>()
+        .function("write",
+                  optional_override([](
+                      whiteout::textures::tiff::Writer& self,
+                      const whiteout::textures::Texture& texture) {
+                      return self.write(texture);
+                  }))
+        .function("hasIssues", &whiteout::textures::tiff::Writer::hasIssues)
+        .function("getIssues", &whiteout::textures::tiff::Writer::getIssues)
     ;
 
     class_<whiteout::textures::gif::Writer>("GifWriter")

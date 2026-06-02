@@ -2675,11 +2675,11 @@ void whiteout_mdx_MdxTrackVector3f_set_globalSequenceId(whiteout_MdxTrackVector3
     reinterpret_cast<whiteout::mdx::Track<whiteout::Vector3f>*>(self)->globalSequenceId = value;
 }
 
-int32_t whiteout_mdx_MdxTrackVector3f_get_keyCount(const whiteout_MdxTrackVector3f* self) {
+uint64_t whiteout_mdx_MdxTrackVector3f_get_keyCount(const whiteout_MdxTrackVector3f* self) {
     return reinterpret_cast<const whiteout::mdx::Track<whiteout::Vector3f>*>(self)->keyCount;
 }
 
-void whiteout_mdx_MdxTrackVector3f_set_keyCount(whiteout_MdxTrackVector3f* self, int32_t value) {
+void whiteout_mdx_MdxTrackVector3f_set_keyCount(whiteout_MdxTrackVector3f* self, uint64_t value) {
     reinterpret_cast<whiteout::mdx::Track<whiteout::Vector3f>*>(self)->keyCount = value;
 }
 
@@ -2759,11 +2759,11 @@ void whiteout_mdx_MdxTrackQuaternion_set_globalSequenceId(whiteout_MdxTrackQuate
     reinterpret_cast<whiteout::mdx::Track<whiteout::Quaternion>*>(self)->globalSequenceId = value;
 }
 
-int32_t whiteout_mdx_MdxTrackQuaternion_get_keyCount(const whiteout_MdxTrackQuaternion* self) {
+uint64_t whiteout_mdx_MdxTrackQuaternion_get_keyCount(const whiteout_MdxTrackQuaternion* self) {
     return reinterpret_cast<const whiteout::mdx::Track<whiteout::Quaternion>*>(self)->keyCount;
 }
 
-void whiteout_mdx_MdxTrackQuaternion_set_keyCount(whiteout_MdxTrackQuaternion* self, int32_t value) {
+void whiteout_mdx_MdxTrackQuaternion_set_keyCount(whiteout_MdxTrackQuaternion* self, uint64_t value) {
     reinterpret_cast<whiteout::mdx::Track<whiteout::Quaternion>*>(self)->keyCount = value;
 }
 
@@ -2843,11 +2843,11 @@ void whiteout_mdx_MdxTrackU32_set_globalSequenceId(whiteout_MdxTrackU32* self, u
     reinterpret_cast<whiteout::mdx::Track<whiteout::u32>*>(self)->globalSequenceId = value;
 }
 
-int32_t whiteout_mdx_MdxTrackU32_get_keyCount(const whiteout_MdxTrackU32* self) {
+uint64_t whiteout_mdx_MdxTrackU32_get_keyCount(const whiteout_MdxTrackU32* self) {
     return reinterpret_cast<const whiteout::mdx::Track<whiteout::u32>*>(self)->keyCount;
 }
 
-void whiteout_mdx_MdxTrackU32_set_keyCount(whiteout_MdxTrackU32* self, int32_t value) {
+void whiteout_mdx_MdxTrackU32_set_keyCount(whiteout_MdxTrackU32* self, uint64_t value) {
     reinterpret_cast<whiteout::mdx::Track<whiteout::u32>*>(self)->keyCount = value;
 }
 
@@ -2927,11 +2927,11 @@ void whiteout_mdx_MdxTrackF32_set_globalSequenceId(whiteout_MdxTrackF32* self, u
     reinterpret_cast<whiteout::mdx::Track<whiteout::f32>*>(self)->globalSequenceId = value;
 }
 
-int32_t whiteout_mdx_MdxTrackF32_get_keyCount(const whiteout_MdxTrackF32* self) {
+uint64_t whiteout_mdx_MdxTrackF32_get_keyCount(const whiteout_MdxTrackF32* self) {
     return reinterpret_cast<const whiteout::mdx::Track<whiteout::f32>*>(self)->keyCount;
 }
 
-void whiteout_mdx_MdxTrackF32_set_keyCount(whiteout_MdxTrackF32* self, int32_t value) {
+void whiteout_mdx_MdxTrackF32_set_keyCount(whiteout_MdxTrackF32* self, uint64_t value) {
     reinterpret_cast<whiteout::mdx::Track<whiteout::f32>*>(self)->keyCount = value;
 }
 

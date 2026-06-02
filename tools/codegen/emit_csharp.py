@@ -128,6 +128,13 @@ _CS_PRIMITIVE = {
     'float':              'float',
     'double':             'double',
     'char':               'sbyte',
+    # See emit_java._JAVA_PRIMITIVE for the rationale: `size_t` is preserved
+    # by the parser to keep JNI overrides honest, so emitters must map it
+    # to the same C# type we used to emit (when it was canonicalised to
+    # `u64` → `ulong`). The marshaller treats it as 8 bytes on every
+    # platform the package ships for (Windows x64 / Linux x64 / macOS arm64).
+    'size_t':       'ulong',
+    'std::size_t':  'ulong',
 }
 
 # C ABI primitives → C# native types for LibraryImport. Bool crosses the

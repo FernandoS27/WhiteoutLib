@@ -29,7 +29,11 @@ clone_depth: 5
 # This pattern avoids the Cartesian product that would result from
 # combining a top-level `image:` list with `environment.matrix`.
 environment:
-  CMAKE_BUILD_PARALLEL_LEVEL: 4
+  # CMAKE_BUILD_PARALLEL_LEVEL is intentionally NOT set globally — the
+  # safe default varies per OS. tools/build-ci.sh defaults to 2 on Linux
+  # (OOM-prone: 7 GB RAM, pybind11 wrappers peak ~2 GB each) and 4 on
+  # macOS; tools/build-ci.ps1 defaults to 4 on Windows. CI can still
+  # override via the env var if a future runner has more RAM.
   # JDK 22+ is required for stable FFM. AppVeyor's Ubuntu/macOS images
   # already ship a recent JDK; Windows uses chocolatey via install step.
   # Brew's stable openjdk formulas are openjdk@25 / @21 / @17 — there is
@@ -475,22 +479,32 @@ for:
       # job downstream. Fail loud here with a directory dump so the
       # culprit is easy to spot.
       - cmd: python tools\pack_python_wheel.py --build-dir build-ci --out-dir packages\python\dist
-      - cmd: |
-          @echo off
-          setlocal enabledelayedexpansion
-          set "missing="
-          dir /b /s build-ci\c-dist\whiteout_native.dll >NUL 2>&1
-          if errorlevel 1 set "missing=!missing! whiteout_native.dll"
-          dir /b /s packages\python\dist\*.whl >NUL 2>&1
-          if errorlevel 1 set "missing=!missing! *.whl"
-          if not "!missing!"=="" (
-              echo MISSING ARTIFACTS:!missing! 1>&2
-              echo --- build-ci\c-dist listing ---
-              dir /s /b build-ci\c-dist 2>NUL
-              echo --- packages\python\dist listing ---
-              dir /s /b packages\python\dist 2>NUL
-              exit /b 1
-          )
+      - ps: |
+          # Skip on non-Windows (this ps: step runs on every platform via
+          # pwsh; macOS/Linux are handled by the sh: block below).
+          if ($env:OS -ne 'Windows_NT') { return }
+          $ErrorActionPreference = 'Stop'
+          $missing = @()
+          $dll = Get-ChildItem -Path build-ci\c-dist -Recurse -Filter whiteout_native.dll -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $dll) { $missing += 'whiteout_native.dll' }
+          $whl = Get-ChildItem -Path packages\python\dist -Filter *.whl -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $whl) { $missing += '*.whl' }
+          if ($missing.Count -gt 0) {
+              Write-Host "MISSING ARTIFACTS: $($missing -join ', ')"
+              Write-Host "--- build-ci\c-dist listing ---"
+              if (Test-Path build-ci\c-dist) {
+                  Get-ChildItem -Path build-ci\c-dist -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+              } else {
+                  Write-Host "(no build-ci\c-dist directory)"
+              }
+              Write-Host "--- packages\python\dist listing ---"
+              if (Test-Path packages\python\dist) {
+                  Get-ChildItem -Path packages\python\dist -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+              } else {
+                  Write-Host "(no packages\python\dist directory)"
+              }
+              throw "Required artifacts missing"
+          }
       - sh: |
           set -e
           if [ -f ci_python.env ]; then set -a; . ./ci_python.env; set +a; fi

@@ -1247,8 +1247,8 @@ void whiteout_mdx_MdxTrackVector3f_set_interpolationType(whiteout_MdxTrackVector
 uint32_t whiteout_mdx_MdxTrackVector3f_get_globalSequenceId(const whiteout_MdxTrackVector3f* self);
 void whiteout_mdx_MdxTrackVector3f_set_globalSequenceId(whiteout_MdxTrackVector3f* self, uint32_t value);
 /* Number of keyframes */
-int32_t whiteout_mdx_MdxTrackVector3f_get_keyCount(const whiteout_MdxTrackVector3f* self);
-void whiteout_mdx_MdxTrackVector3f_set_keyCount(whiteout_MdxTrackVector3f* self, int32_t value);
+uint64_t whiteout_mdx_MdxTrackVector3f_get_keyCount(const whiteout_MdxTrackVector3f* self);
+void whiteout_mdx_MdxTrackVector3f_set_keyCount(whiteout_MdxTrackVector3f* self, uint64_t value);
 /* Keyframe timestamps (in frames) */
 size_t whiteout_mdx_MdxTrackVector3f_get_timestamps_count(const whiteout_MdxTrackVector3f* self);
 void whiteout_mdx_MdxTrackVector3f_resize_timestamps(whiteout_MdxTrackVector3f* self, size_t count);
@@ -1280,8 +1280,8 @@ void whiteout_mdx_MdxTrackQuaternion_set_interpolationType(whiteout_MdxTrackQuat
 uint32_t whiteout_mdx_MdxTrackQuaternion_get_globalSequenceId(const whiteout_MdxTrackQuaternion* self);
 void whiteout_mdx_MdxTrackQuaternion_set_globalSequenceId(whiteout_MdxTrackQuaternion* self, uint32_t value);
 /* Number of keyframes */
-int32_t whiteout_mdx_MdxTrackQuaternion_get_keyCount(const whiteout_MdxTrackQuaternion* self);
-void whiteout_mdx_MdxTrackQuaternion_set_keyCount(whiteout_MdxTrackQuaternion* self, int32_t value);
+uint64_t whiteout_mdx_MdxTrackQuaternion_get_keyCount(const whiteout_MdxTrackQuaternion* self);
+void whiteout_mdx_MdxTrackQuaternion_set_keyCount(whiteout_MdxTrackQuaternion* self, uint64_t value);
 /* Keyframe timestamps (in frames) */
 size_t whiteout_mdx_MdxTrackQuaternion_get_timestamps_count(const whiteout_MdxTrackQuaternion* self);
 void whiteout_mdx_MdxTrackQuaternion_resize_timestamps(whiteout_MdxTrackQuaternion* self, size_t count);
@@ -1313,8 +1313,8 @@ void whiteout_mdx_MdxTrackU32_set_interpolationType(whiteout_MdxTrackU32* self, 
 uint32_t whiteout_mdx_MdxTrackU32_get_globalSequenceId(const whiteout_MdxTrackU32* self);
 void whiteout_mdx_MdxTrackU32_set_globalSequenceId(whiteout_MdxTrackU32* self, uint32_t value);
 /* Number of keyframes */
-int32_t whiteout_mdx_MdxTrackU32_get_keyCount(const whiteout_MdxTrackU32* self);
-void whiteout_mdx_MdxTrackU32_set_keyCount(whiteout_MdxTrackU32* self, int32_t value);
+uint64_t whiteout_mdx_MdxTrackU32_get_keyCount(const whiteout_MdxTrackU32* self);
+void whiteout_mdx_MdxTrackU32_set_keyCount(whiteout_MdxTrackU32* self, uint64_t value);
 /* Keyframe timestamps (in frames) */
 size_t whiteout_mdx_MdxTrackU32_get_timestamps_count(const whiteout_MdxTrackU32* self);
 void whiteout_mdx_MdxTrackU32_resize_timestamps(whiteout_MdxTrackU32* self, size_t count);
@@ -1346,8 +1346,8 @@ void whiteout_mdx_MdxTrackF32_set_interpolationType(whiteout_MdxTrackF32* self, 
 uint32_t whiteout_mdx_MdxTrackF32_get_globalSequenceId(const whiteout_MdxTrackF32* self);
 void whiteout_mdx_MdxTrackF32_set_globalSequenceId(whiteout_MdxTrackF32* self, uint32_t value);
 /* Number of keyframes */
-int32_t whiteout_mdx_MdxTrackF32_get_keyCount(const whiteout_MdxTrackF32* self);
-void whiteout_mdx_MdxTrackF32_set_keyCount(whiteout_MdxTrackF32* self, int32_t value);
+uint64_t whiteout_mdx_MdxTrackF32_get_keyCount(const whiteout_MdxTrackF32* self);
+void whiteout_mdx_MdxTrackF32_set_keyCount(whiteout_MdxTrackF32* self, uint64_t value);
 /* Keyframe timestamps (in frames) */
 size_t whiteout_mdx_MdxTrackF32_get_timestamps_count(const whiteout_MdxTrackF32* self);
 void whiteout_mdx_MdxTrackF32_resize_timestamps(whiteout_MdxTrackF32* self, size_t count);

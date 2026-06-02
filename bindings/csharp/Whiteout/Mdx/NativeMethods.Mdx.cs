@@ -1265,6 +1265,13 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial ulong whiteout_mdx_MdxTrackVector3f_get_keyCount(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_mdx_MdxTrackVector3f_set_keyCount(IntPtr self, ulong value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
     internal static partial nuint whiteout_mdx_MdxTrackVector3f_get_keys_count(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
@@ -1296,6 +1303,13 @@ internal static partial class NativeMethods
 
     [LibraryImport(Runtime.LibraryName)]
     internal static partial void whiteout_mdx_MdxTrackQuaternion_set_globalSequenceId(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial ulong whiteout_mdx_MdxTrackQuaternion_get_keyCount(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_mdx_MdxTrackQuaternion_set_keyCount(IntPtr self, ulong value);
 
 
     [LibraryImport(Runtime.LibraryName)]
@@ -1333,6 +1347,13 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial ulong whiteout_mdx_MdxTrackU32_get_keyCount(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_mdx_MdxTrackU32_set_keyCount(IntPtr self, ulong value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
     internal static partial IntPtr whiteout_mdx_MdxTrackF32_new();
 
     [LibraryImport(Runtime.LibraryName)]
@@ -1357,5 +1378,12 @@ internal static partial class NativeMethods
 
     [LibraryImport(Runtime.LibraryName)]
     internal static partial void whiteout_mdx_MdxTrackF32_set_globalSequenceId(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial ulong whiteout_mdx_MdxTrackF32_get_keyCount(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_mdx_MdxTrackF32_set_keyCount(IntPtr self, ulong value);
 
 }

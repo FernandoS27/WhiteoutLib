@@ -96,6 +96,21 @@ public final class BlpWriter implements AutoCloseable {
         return ((int) NativeCommon.invokeNative(Native.whiteout_textures_BlpWriter_hasIssues, handle)) != 0;
     }
 
+    /**
+     * Get list of issues encountered during writing @return Vector of issue description strings
+     */
+    public byte[] getIssues() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_BlpWriter_getIssues, arena, handle);
+            MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
+            long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
+            if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
+            byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
+            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
+            return __out;
+        }
+    }
+
     @Override public String toString() {
         return "BlpWriter@" + Long.toHexString(handle == null ? 0 : handle.address());
     }

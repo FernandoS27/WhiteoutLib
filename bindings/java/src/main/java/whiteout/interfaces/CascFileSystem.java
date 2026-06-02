@@ -6,7 +6,7 @@
 package whiteout.interfaces;
 
 /**
- * abstract file system that resolves files by numeric data ID (e.g. CASC).
+ * java_package=whiteout.utils — abstract file system that resolves files by numeric data ID (e.g. CASC).
  */
 public interface CascFileSystem {
 

@@ -91,10 +91,10 @@ public final class TrackF32 implements AutoCloseable {
      * Number of keyframes
      * @return the keyCount field of this MdxTrackF32.
      */
-    public int getKeyCount() {
-        return (int) NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackF32_get_keyCount, handle);
+    public long getKeyCount() {
+        return (long) NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackF32_get_keyCount, handle);
     }
-    public void setKeyCount(int value) {
+    public void setKeyCount(long value) {
         NativeCommon.invokeNative(Native.whiteout_mdx_MdxTrackF32_set_keyCount, handle, value);
     }
     /**

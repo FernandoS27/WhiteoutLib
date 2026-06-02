@@ -79,13 +79,20 @@ _PRIMITIVE_DIRECT = {
     'f32': ('float',  'ValueLayout.JAVA_FLOAT'),
     'f64': ('double', 'ValueLayout.JAVA_DOUBLE'),
     'bool':('byte',   'ValueLayout.JAVA_BYTE'),
+    # `size_t` is preserved as its typedef by the parser (see
+    # `parser._PRESERVE_TYPEDEFS`); without an entry here the FFM emitter
+    # would drop every constructor/method that takes `size_t`, including
+    # `SimpleThreadPool(size_t nThreads)`. The wheels target only 64-bit
+    # platforms (Win x64, Linux x64, macOS arm64) where size_t is 8 bytes,
+    # so JAVA_LONG matches every shipping ABI.
+    'size_t': ('long', 'ValueLayout.JAVA_LONG'),
+    'std::size_t': ('long', 'ValueLayout.JAVA_LONG'),
 }
 
 
 def _primitive_direct_info(t: TypeRef) -> tuple[str, str] | None:
     """For a PRIMITIVE TypeRef, return `(java_type, ValueLayout)` for direct
-    segment access. `None` for types we can't safely lay out (e.g. size_t
-    whose width varies)."""
+    segment access. `None` for types we can't safely lay out."""
     short = _short_name(t.cpp_text)
     return _PRIMITIVE_DIRECT.get(short)
 
@@ -231,6 +238,12 @@ _JAVA_PRIMITIVE = {
     'signed char': 'byte', 'short': 'short',
     'int': 'int', 'long long': 'long',
     'float': 'float', 'double': 'double', 'char': 'byte',
+    # `size_t` is preserved as its typedef name by the parser (see
+    # `_PRESERVE_TYPEDEFS`) so the JNI bridge can emit overrides whose
+    # return type exactly matches the interface — `u64`-aliased overrides
+    # fail to override on LP64 (Linux/macOS). Map both to the same
+    # 8-byte Java `long` we used to emit when size_t was canonicalised.
+    'size_t': 'long', 'std::size_t': 'long',
 }
 
 

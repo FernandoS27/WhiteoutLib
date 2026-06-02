@@ -11,13 +11,13 @@ import whiteout.common.internal.NativeCommon;
 import whiteout.textures.internal.Native;
 
 /**
- * Reads a BMP file or byte buffer and decodes it into a Texture.
+ * Reads a TIFF file or byte buffer and decodes it into a Texture.
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * Parser allocation. Always release them with
  * {@link #close()} — try-with-resources is the natural shape:
  * <pre>{@code
- * try (BmpParser obj = ...) {
+ * try (TiffParser obj = ...) {
  *     // ... use obj ...
  * }
  * }</pre>
@@ -28,22 +28,22 @@ import whiteout.textures.internal.Native;
  * C++ types make no synchronization guarantees, so callers must coordinate
  * external access if a handle is shared across threads.
  */
-public final class BmpParser implements AutoCloseable {
+public final class TiffParser implements AutoCloseable {
     private static final long BYTES = 16L;
 
     final MemorySegment handle;
     final boolean owned;
 
-    BmpParser(MemorySegment seg, boolean owned) {
+    TiffParser(MemorySegment seg, boolean owned) {
         this.handle = (seg == null || seg.equals(MemorySegment.NULL))
             ? seg : seg.reinterpret(BYTES);
         this.owned = owned;
     }
 
-    public BmpParser() {
-        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_BmpParser_new);
+    public TiffParser() {
+        MemorySegment __raw = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_TiffParser_new);
         if (__raw == null || __raw.equals(MemorySegment.NULL))
-            throw new RuntimeException("BmpParser allocation failed");
+            throw new RuntimeException("TiffParser allocation failed");
         this.handle = __raw.reinterpret(BYTES);
         this.owned = true;
     }
@@ -52,12 +52,12 @@ public final class BmpParser implements AutoCloseable {
     public void close() {
         if (!owned) return;
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
-            NativeCommon.invokeNative(Native.whiteout_textures_BmpParser_delete, handle);
+            NativeCommon.invokeNative(Native.whiteout_textures_TiffParser_delete, handle);
         }
     }
 
     /**
-     * Parse a BMP byte buffer.
+     * Parse a TIFF byte buffer.
      *
      * @param buffer byte[] input.
      * @return a fresh java.util.Optional<Texture> owning a native allocation.
@@ -66,7 +66,7 @@ public final class BmpParser implements AutoCloseable {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment buffer_seg = arena.allocate(buffer.length * 1L);
             MemorySegment.copy(buffer, 0, buffer_seg, ValueLayout.JAVA_BYTE, 0, buffer.length);
-            MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_BmpParser_parse, handle, buffer_seg, (long) buffer.length);
+            MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_TiffParser_parse, handle, buffer_seg, (long) buffer.length);
             if (__h == null || __h.equals(MemorySegment.NULL)) return java.util.Optional.empty();
             return java.util.Optional.of(new Texture(__h, true));
         }
@@ -76,7 +76,7 @@ public final class BmpParser implements AutoCloseable {
      * @return true if the last parse produced any issues.
      */
     public boolean hasIssues() {
-        return ((int) NativeCommon.invokeNative(Native.whiteout_textures_BmpParser_hasIssues, handle)) != 0;
+        return ((int) NativeCommon.invokeNative(Native.whiteout_textures_TiffParser_hasIssues, handle)) != 0;
     }
 
     /**
@@ -84,7 +84,7 @@ public final class BmpParser implements AutoCloseable {
      */
     public byte[] getIssues() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_BmpParser_getIssues, arena, handle);
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_TiffParser_getIssues, arena, handle);
             MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
             long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
             if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
@@ -95,7 +95,7 @@ public final class BmpParser implements AutoCloseable {
     }
 
     @Override public String toString() {
-        return "BmpParser@" + Long.toHexString(handle == null ? 0 : handle.address());
+        return "TiffParser@" + Long.toHexString(handle == null ? 0 : handle.address());
     }
 
 }

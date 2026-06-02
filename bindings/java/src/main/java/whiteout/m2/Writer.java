@@ -121,6 +121,22 @@ public final class Writer implements AutoCloseable {
         return ((int) NativeCommon.invokeNative(Native.whiteout_m2_M2Writer_hasIssues, handle)) != 0;
     }
 
+    /**
+     * Native method wrapping {@code Writer::getIssues}.
+     * @return a fresh byte[] copied out of native memory.
+     */
+    public byte[] getIssues() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Writer_getIssues, arena, handle);
+            MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
+            long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
+            if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
+            byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
+            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
+            return __out;
+        }
+    }
+
     @Override public String toString() {
         return "Writer@" + Long.toHexString(handle == null ? 0 : handle.address());
     }

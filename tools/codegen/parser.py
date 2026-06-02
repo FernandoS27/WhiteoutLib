@@ -111,6 +111,32 @@ def _strip_qualifiers(t: str) -> str:
     return t
 
 
+# Typedefs whose source spelling MUST be preserved over libclang's canonical
+# spelling. The canonical form of `size_t` is platform-dependent —
+# `unsigned long` on LP64 (Linux/macOS) and `unsigned long long` on LLP64
+# (Windows x86_64). Our `_CANONICAL_TO_ALIAS` map collapses both onto
+# `whiteout::u64` so the binding API stays stable across platforms, but
+# this loses the `size_t` typedef. That breaks the JNI bridge: a generated
+# override of `virtual size_t threadCount()` declared with return type
+# `u64` is a *different* C++ type from the parent on macOS even though
+# the underlying integer width matches, and the compiler rejects the
+# override. Preserve `size_t` so virtual-override emitters get an
+# exact-spelling match against the interface.
+_PRESERVE_TYPEDEFS = {'size_t', 'std::size_t'}
+
+
+def _preferred_type_text(canonical: str, raw: str) -> str:
+    """Return `raw` when it's a typedef worth preserving, else `canonical`.
+
+    See `_PRESERVE_TYPEDEFS` for the rationale. The caller passes both
+    spellings from libclang (`type.spelling` and `type.get_canonical().spelling`).
+    """
+    raw_stripped = _strip_qualifiers(raw)
+    if raw_stripped in _PRESERVE_TYPEDEFS:
+        return raw_stripped
+    return canonical
+
+
 def _short_name(qualified: str) -> str:
     """'whiteout::mdx::Sequence::Flag' -> 'Sequence::Flag'.
 
@@ -506,6 +532,8 @@ def collect_methods(cursor, bind_class, known_classes, known_enums,
         cpp_raw = arg_cursor.type.spelling
         if 'span' in cpp_raw:
             cpp = cpp_raw  # don't canonicalise span (it'd lose template args)
+        else:
+            cpp = _preferred_type_text(cpp, cpp_raw)
         tref = classify_type(cpp, known_classes, known_enums, known_templates)
         remember_containers(tref)
         # Detect std::function<...> callback shapes. The JNI backend
@@ -560,6 +588,7 @@ def collect_methods(cursor, bind_class, known_classes, known_enums,
         if ('*' in ret_cpp and 'span' not in ret_cpp) \
                 or ('*' in ret_raw and 'span' not in ret_raw):
             return False
+        ret_cpp = _preferred_type_text(ret_cpp, ret_raw)
         ret = classify_type(ret_cpp, known_classes, known_enums, known_templates)
         return_is_reference = ret_cpp.rstrip().endswith('&')
 

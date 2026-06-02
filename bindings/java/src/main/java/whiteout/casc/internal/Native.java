@@ -74,6 +74,8 @@ public final class Native {
         "whiteout_casc_CascStorage_fileExists", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_casc_CascStorage_fileExists_fileId_hint = find(
         "whiteout_casc_CascStorage_fileExists_fileId_hint", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_casc_CascStorage_listFiles = find(
+        "whiteout_casc_CascStorage_listFiles", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_casc_CascStorage_importKeysFromString = find(
         "whiteout_casc_CascStorage_importKeysFromString", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_casc_CascStorage_importKeysFromFile = find(

@@ -490,6 +490,50 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_textures_TiffParser_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_textures_TiffParser_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_textures_TiffParser_parse(IntPtr self, ReadOnlySpan<byte> buffer, nuint buffer_size);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    [return: MarshalAs(UnmanagedType.I4)]
+    internal static partial int whiteout_textures_TiffParser_hasIssues(IntPtr self);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_textures_TiffParser_getIssues_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial Whiteout.Common.NativeCString whiteout_textures_TiffParser_getIssues_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_textures_TiffWriter_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_textures_TiffWriter_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial Whiteout.Common.NativeBytes whiteout_textures_TiffWriter_write(IntPtr self, IntPtr texture);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    [return: MarshalAs(UnmanagedType.I4)]
+    internal static partial int whiteout_textures_TiffWriter_hasIssues(IntPtr self);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_textures_TiffWriter_getIssues_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial Whiteout.Common.NativeCString whiteout_textures_TiffWriter_getIssues_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
     internal static partial IntPtr whiteout_textures_GifSaveOptions_new();
 
     [LibraryImport(Runtime.LibraryName)]

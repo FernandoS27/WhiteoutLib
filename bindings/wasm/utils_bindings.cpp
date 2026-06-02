@@ -107,10 +107,10 @@ EMSCRIPTEN_BINDINGS(utils) {
                   optional_override([](
                       whiteout::utils::VertexBufferBuilder& self,
                       const emscripten::val& __js_arr_0,
-                      whiteout::u64 components,
+                      size_t components,
                       whiteout::utils::AttributeClass attr_class,
                       whiteout::utils::AttributeEncoding encoding,
-                      whiteout::u64 align) {
+                      size_t align) {
                       auto __vec_0 = emscripten::convertJSArrayToNumberVector<whiteout::f32>(__js_arr_0);
                       std::span<const whiteout::f32> data(__vec_0.data(), __vec_0.size());
                       return &(self.declareFloatAttribute(data, components, attr_class, encoding, align));
@@ -119,10 +119,10 @@ EMSCRIPTEN_BINDINGS(utils) {
                   optional_override([](
                       whiteout::utils::VertexBufferBuilder& self,
                       const emscripten::val& __js_arr_0,
-                      whiteout::u64 components,
+                      size_t components,
                       whiteout::utils::AttributeClass attr_class,
                       whiteout::utils::AttributeEncoding encoding,
-                      whiteout::u64 align) {
+                      size_t align) {
                       auto __vec_0 = emscripten::convertJSArrayToNumberVector<whiteout::u32>(__js_arr_0);
                       std::span<const whiteout::u32> data(__vec_0.data(), __vec_0.size());
                       return &(self.declareIntAttribute(data, components, attr_class, encoding, align));

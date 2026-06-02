@@ -35,6 +35,8 @@
 #include <whiteout/textures/bmp/writer.h>
 #include <whiteout/textures/tga/parser.h>
 #include <whiteout/textures/tga/writer.h>
+#include <whiteout/textures/tiff/parser.h>
+#include <whiteout/textures/tiff/writer.h>
 #include <whiteout/textures/gif/writer.h>
 #include <whiteout/interfaces.h>
 
@@ -460,6 +462,30 @@ All frames must share the same dimensions (frame 0 defines the canvas). Each fra
             }, py::arg("texture"), R"doc(Serialize the texture to a TGA byte buffer.)doc")
         .def("has_issues", &whiteout::textures::tga::Writer::hasIssues, R"doc(@return true if the last write produced any issues.)doc")
         .def("get_issues", &whiteout::textures::tga::Writer::getIssues, R"doc(@return accumulated issues from the last write call.)doc")
+    ;
+
+    py::class_<whiteout::textures::tiff::Parser>(m, "TiffParser", R"doc(Reads a TIFF file or byte buffer and decodes it into a Texture.)doc")
+        .def(py::init<>())
+        .def("parse",
+            [](whiteout::textures::tiff::Parser& self, py::bytes __py_bytes_0) {
+                std::string __s_0 = __py_bytes_0;
+                std::span<const whiteout::u8> buffer(reinterpret_cast<const whiteout::u8*>(__s_0.data()), __s_0.size());
+                return self.parse(buffer);
+            }, py::arg("buffer"), R"doc(Parse a TIFF byte buffer.)doc")
+        .def("has_issues", &whiteout::textures::tiff::Parser::hasIssues, R"doc(@return true if the last parse produced any issues.)doc")
+        .def("get_issues", &whiteout::textures::tiff::Parser::getIssues, R"doc(@return accumulated issues from the last parse call.)doc")
+    ;
+
+    py::class_<whiteout::textures::tiff::Writer>(m, "TiffWriter", R"doc(Encodes a Texture into TIFF format.)doc")
+        .def(py::init<>())
+        .def("write",
+            [](whiteout::textures::tiff::Writer& self, const whiteout::textures::Texture& texture) {
+                auto __v = self.write(texture);
+                return py::bytes(
+                    reinterpret_cast<const char*>(__v.data()), __v.size());
+            }, py::arg("texture"), R"doc(Serialize the texture to a TIFF byte buffer.)doc")
+        .def("has_issues", &whiteout::textures::tiff::Writer::hasIssues, R"doc(@return true if the last write produced any issues.)doc")
+        .def("get_issues", &whiteout::textures::tiff::Writer::getIssues, R"doc(@return accumulated issues from the last write call.)doc")
     ;
 
     py::class_<whiteout::textures::gif::Writer>(m, "GifWriter", R"doc(Encodes a sequence of Texture frames into GIF89a format.

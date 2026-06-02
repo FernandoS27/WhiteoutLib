@@ -285,6 +285,13 @@ _C_PRIMITIVE = {
     'float': 'float',
     'double': 'double',
     'char': 'int8_t',
+    # `size_t` is preserved as its typedef by the parser (see
+    # `parser._PRESERVE_TYPEDEFS`). Map to the same fixed-width type the
+    # C ABI used when size_t was canonicalised to u64 — keeps the wire
+    # format stable across the parser change. The wheels target only
+    # 64-bit platforms where size_t is 8 bytes, so this is exact.
+    'size_t':       'uint64_t',
+    'std::size_t':  'uint64_t',
 }
 
 

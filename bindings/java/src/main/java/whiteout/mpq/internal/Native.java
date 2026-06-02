@@ -94,6 +94,8 @@ public final class Native {
         "whiteout_mpq_MpqStorage_fileInfo", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mpq_MpqStorage_archiveInfo = find(
         "whiteout_mpq_MpqStorage_archiveInfo", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mpq_MpqStorage_listFiles = find(
+        "whiteout_mpq_MpqStorage_listFiles", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mpq_MpqStorage_writeFile = find(
         "whiteout_mpq_MpqStorage_writeFile", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mpq_MpqStorage_deleteFile = find(

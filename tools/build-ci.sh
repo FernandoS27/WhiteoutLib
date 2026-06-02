@@ -111,8 +111,29 @@ cmake -S "${repo_root}" -B "${build_dir}" \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.15
 
 # ── 3. Build ─────────────────────────────────────────────────────────────
+#
+# pybind11 template instantiations in `bindings/python/{m2,m3}_bindings.cpp`
+# each use ~2 GB of RSS at peak. AppVeyor's Linux workers have 2 vCPUs and
+# ~7 GB of RAM; four concurrent compiles cross the OOM threshold and the
+# kernel kills one job mid-flight. The remaining compiles often finish,
+# then `cmake --build` reports a non-zero exit but AppVeyor's runner has
+# already lost the agent and ends up reporting exit 0 to the orchestrator.
+# Net effect: the Linux job is marked "success" with NO artifacts, the
+# package job then fails ~30 minutes later with "missing linux native".
+#
+# Cap parallelism on Linux to match vCPU count (2), unless CI explicitly
+# overrides via CMAKE_BUILD_PARALLEL_LEVEL. macOS workers have more RAM
+# headroom; keep their default at 4. Detect host explicitly so a future
+# beefier Linux runner can lift the cap.
 
-parallel="${CMAKE_BUILD_PARALLEL_LEVEL:-4}"
+if [ -n "${CMAKE_BUILD_PARALLEL_LEVEL:-}" ]; then
+    parallel="${CMAKE_BUILD_PARALLEL_LEVEL}"
+elif [ "$(uname -s)" = "Linux" ]; then
+    parallel=2
+else
+    parallel=4
+fi
+echo "build parallelism: ${parallel}"
 cmake --build "${build_dir}" --config Release --parallel "${parallel}"
 
 # ── 4. Report outputs ────────────────────────────────────────────────────
@@ -152,5 +173,16 @@ fi
 # and the package job loses 30 minutes polling before it finds out.
 if [ -z "${native_lib}" ]; then
     echo "FATAL: native library ${native_lib_pat} not produced by the build" >&2
+    exit 1
+fi
+# Same for the Python pybind11 extension. `cmake --build` should already
+# fail when a translation unit can't compile, but AppVeyor's Linux agent
+# has been observed to mask OOM-kill exit codes (the OOM killer takes
+# out a pybind11 instantiation mid-compile, make exits non-zero, but
+# the runner ends up reporting exit 0 to the orchestrator). This check
+# turns that masked failure into an explicit one here.
+if [ -z "${py_ext}" ]; then
+    echo "FATAL: Python extension not produced by the build " \
+         "(likely OOM during pybind11 compilation; reduce parallelism)" >&2
     exit 1
 fi
