@@ -31,6 +31,7 @@
 ///  12. List all file paths
 
 #include <whiteout/storages/casc/storage.h>
+#include <whiteout/utils/blizzard_game_finder.h>
 #include <whiteout/utils/simple_thread_pool.h>
 
 #if defined(WHITEOUT_HAS_CASCLIB_CROSSVAL)
@@ -39,6 +40,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -1625,46 +1627,109 @@ static void runPerfCrossRef(const std::string& cascPath,
 }
 
 // ============================================================================
+// Game discovery helpers
+// ============================================================================
+
+/// A local CASC storage is rooted at a `.build.info` manifest — the same marker
+/// Storage::open() keys off. This cleanly distinguishes CASC titles from
+/// MPQ-era ones (Warcraft III classic, StarCraft, Diablo II, …) without
+/// hard-coding a per-game allow-list.
+static bool looksLikeCascStorage(const std::string& path) {
+    std::error_code ec;
+    return fs::exists(fs::path(path) / ".build.info", ec);
+}
+
+/// Turn a display name into a filesystem-safe CSV stem.
+static std::string sanitizeName(const std::string& name) {
+    std::string out;
+    for (char c : name) {
+        unsigned char uc = static_cast<unsigned char>(c);
+        out.push_back(std::isalnum(uc) ? static_cast<char>(std::tolower(uc)) : '_');
+    }
+    if (out.empty()) out = "game";
+    return out;
+}
+
+// ============================================================================
 // Entry point
 // ============================================================================
 
 int main(int argc, char* argv[]) {
-    std::string cascPath;
-    std::string csvPath = "casc_perf_crossref.csv";
-
+    bool listOnly = false;
     std::vector<std::string> positional;
     for (int i = 1; i < argc; ++i) {
         std::string a(argv[i]);
         if (a == "--help" || a == "-h") {
-            std::cout << "Usage: " << argv[0] << " <casc_path> [output_csv]\n\n"
-                      << "  casc_path  — path to a CASC storage directory\n"
-                      << "  output_csv — CSV output path (default: casc_perf_crossref.csv)\n\n"
+            std::cout << "Usage: " << argv[0] << " [casc_path] [output_csv]\n\n"
+                      << "  casc_path  — path to a CASC storage directory. If omitted,\n"
+                      << "               installed Blizzard games are auto-discovered and\n"
+                      << "               every CASC-based title found is benchmarked.\n"
+                      << "  output_csv — CSV output path (explicit-path mode only;\n"
+                      << "               default: casc_perf_crossref.csv). In discovery\n"
+                      << "               mode each game writes casc_perf_<game>.csv.\n\n"
+                      << "Options:\n"
+                      << "  --list     — discover and list CASC games, but do not benchmark.\n\n"
                       << "Operations benchmarked:\n"
                       << "  Storage open, enumerate, fileExists, fileSize, fileInfo,\n"
                       << "  readFile (path/id), batch read, size-category read,\n"
                       << "  listFiles, repeated read, totalFileCount\n";
             return 0;
         }
+        if (a == "--list") { listOnly = true; continue; }
         if (a.size() >= 2 && a[0] == '-' && a[1] == '-') continue;
         if (a.size() >= 1 && a[0] == '-') continue;
         positional.push_back(a);
     }
 
-    if (positional.empty()) {
-        std::cerr << "Error: no CASC storage path provided.\n"
-                  << "Usage: " << argv[0] << " <casc_path> [output_csv]\n";
+    // -------- Explicit-path mode (unchanged behaviour) --------
+    if (!positional.empty()) {
+        std::string cascPath = positional[0];
+        std::string csvPath = positional.size() >= 2 ? positional[1]
+                                                      : "casc_perf_crossref.csv";
+        if (!fs::exists(cascPath)) {
+            std::cerr << "Error: path does not exist: " << cascPath << "\n";
+            return 1;
+        }
+        runPerfCrossRef(cascPath, csvPath);
+        return 0;
+    }
+
+    // -------- Discovery mode: find installed Blizzard games --------
+    std::cout << "No path given — discovering installed Blizzard games...\n";
+    auto games = utils::findBlizzardGames();
+    std::cout << "Found " << games.size() << " Blizzard install(s):\n";
+
+    std::vector<utils::BlizzardGameInfo> cascGames;
+    for (auto& g : games) {
+        bool isCasc = looksLikeCascStorage(g.path);
+        std::string display = g.name.empty() ? std::string("(unknown)") : g.name;
+        std::cout << "  " << (isCasc ? "[CASC]" : "[skip]") << " "
+                  << std::left << std::setw(34) << display << " "
+                  << g.path << "\n";
+        if (isCasc) cascGames.push_back(g);
+    }
+
+    if (cascGames.empty()) {
+        std::cerr << "\nNo CASC-based Blizzard games found (looked for a root "
+                     ".build.info).\nPass an explicit <casc_path> to benchmark a "
+                     "specific storage.\n";
         return 1;
     }
 
-    cascPath = positional[0];
-    if (positional.size() >= 2)
-        csvPath = positional[1];
+    std::cout << "\n" << cascGames.size() << " CASC title(s) will be benchmarked.\n";
+    if (listOnly) return 0;
 
-    if (!fs::exists(cascPath)) {
-        std::cerr << "Error: path does not exist: " << cascPath << "\n";
-        return 1;
+    for (size_t i = 0; i < cascGames.size(); ++i) {
+        auto& g = cascGames[i];
+        std::string display = g.name.empty() ? ("game" + std::to_string(i)) : g.name;
+        std::string csvPath = "casc_perf_" + sanitizeName(display) + ".csv";
+
+        std::cout << "\n##################################################################\n";
+        std::cout << "# [" << (i + 1) << "/" << cascGames.size() << "] " << display << "\n";
+        std::cout << "#   " << g.path << "\n";
+        std::cout << "##################################################################\n";
+
+        runPerfCrossRef(g.path, csvPath);
     }
-
-    runPerfCrossRef(cascPath, csvPath);
     return 0;
 }

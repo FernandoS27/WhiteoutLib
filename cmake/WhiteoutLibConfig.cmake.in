@@ -5,6 +5,13 @@
 # link libraries — re-discover it on the consumer side so the import
 # resolves cleanly.
 include(CMakeFindDependencyMacro)
+
+# zlib-ng backs the DEFLATE codec and is a PUBLIC link dependency of
+# whiteout_lib. Whether WhiteoutLib was built against the bundled submodule
+# (installed alongside, providing its own zlib-ng CONFIG package) or a system
+# zlib-ng (e.g. vcpkg), the imported target is rediscovered the same way here.
+find_dependency(zlib-ng CONFIG)
+
 if(@CURL_FOUND@)
     find_dependency(CURL)
 endif()

@@ -27,6 +27,9 @@ vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS
         ${FEATURE_OPTIONS}
+        # Use vcpkg's zlib-ng (declared as a port dependency) rather than the
+        # bundled submodule, which is absent from the GitHub source archive.
+        -DWHITEOUT_USE_SYSTEM_ZLIBNG=ON
         # Bindings are for the upstream FFI consumers (Python/Java/WASM);
         # vcpkg users want the C++ library only, so disable everything else.
         -DWHITEOUT_BUILD_EXAMPLES=OFF

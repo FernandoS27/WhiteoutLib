@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 /// @file deflate.h
-/// @brief Minimal zlib-wrapped DEFLATE inflate/deflate.
+/// @brief zlib-wrapped DEFLATE inflate/deflate (backed by zlib-ng).
 ///
 /// Internal header — not part of the public include path.
 
@@ -22,8 +22,7 @@ namespace whiteout {
 std::vector<u8> zlib_decompress(std::span<const u8> data, std::string* out_error = nullptr,
                                 size_t expectedSize = 0);
 
-/// Compress data into a zlib-wrapped DEFLATE stream.
-/// Uses fixed Huffman codes with LZ77 matching for a reasonable size/speed trade-off.
+/// Compress data into a zlib-wrapped DEFLATE stream (zlib-ng, level 6).
 /// @return compressed bytes, or empty vector on failure.
 std::vector<u8> zlib_compress(std::span<const u8> data, std::string* out_error = nullptr);
 

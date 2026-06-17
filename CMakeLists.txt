@@ -24,6 +24,12 @@ option(WHITEOUT_BUILD_C_BINDINGS "Build the flat-C ABI shared library (whiteout_
 option(WHITEOUT_BUILD_JNI_BINDINGS
     "Build the Java JNI bridge (whiteout_jni) for callback-direction interop" OFF)
 option(WHITEOUT_ENABLE_CLANG_TIDY "Run clang-tidy on whiteout sources during build" OFF)
+option(WHITEOUT_USE_SYSTEM_ZLIBNG
+    "Link an external zlib-ng via find_package instead of the bundled submodule" OFF)
+# Declared here (used early by the zlib-ng wiring); consumed by the install
+# section near the end of this file.
+option(WHITEOUT_INSTALL
+    "Generate install/export rules for find_package(WhiteoutLib)" ON)
 
 # Always emit compile_commands.json — drives clangd, clang-tidy, IWYU, ...
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "" FORCE)
@@ -237,6 +243,75 @@ function(whiteout_apply_clang_tidy target)
     endif()
 endfunction()
 
+# =============================================================================
+# zlib-ng — the single allowed third-party dependency. Backs the DEFLATE codec
+# behind whiteout::zlib_compress/decompress (common/deflate.cpp is the only TU
+# that includes <zlib-ng.h>). Native zng_ API (ZLIB_COMPAT OFF).
+#
+# Two supply modes, both converging on find_package(zlib-ng) for *installed*
+# consumers:
+#   • Bundled submodule (default) — externals/zlib-ng. Built with WhiteoutLib
+#     and, when WHITEOUT_INSTALL is on, installed alongside it (its own zlib-ng
+#     CONFIG package) so an installed static WhiteoutLib resolves zng_ symbols.
+#   • System (WHITEOUT_USE_SYSTEM_ZLIBNG=ON) — find_package(zlib-ng), e.g. the
+#     vcpkg port, which declares zlib-ng as its own package dependency.
+# The library target is captured in WHITEOUT_ZLIBNG_TARGET and linked PUBLIC so
+# the dependency flows into WhiteoutLib's install/export interface; consumers
+# rediscover it via find_dependency(zlib-ng) in WhiteoutLibConfig.cmake.
+# =============================================================================
+if(WHITEOUT_USE_SYSTEM_ZLIBNG)
+    find_package(zlib-ng CONFIG REQUIRED)
+    if(TARGET zlib-ng::zlibstatic)
+        set(WHITEOUT_ZLIBNG_TARGET zlib-ng::zlibstatic)
+    elseif(TARGET zlib-ng::zlib)
+        set(WHITEOUT_ZLIBNG_TARGET zlib-ng::zlib)
+    else()
+        message(FATAL_ERROR
+            "find_package(zlib-ng) succeeded but neither zlib-ng::zlibstatic "
+            "nor zlib-ng::zlib target exists — check the zlib-ng package.")
+    endif()
+else()
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/externals/zlib-ng/CMakeLists.txt")
+        message(FATAL_ERROR
+            "Bundled zlib-ng missing at externals/zlib-ng. Run\n"
+            "  git submodule update --init --recursive\n"
+            "or configure with -DWHITEOUT_USE_SYSTEM_ZLIBNG=ON to use a system zlib-ng.")
+    endif()
+    set(ZLIB_COMPAT      OFF CACHE BOOL "" FORCE) # native zng_ API
+    set(WITH_OPTIM       ON  CACHE BOOL "" FORCE)
+    set(WITH_GZFILEOP    ON  CACHE BOOL "" FORCE)
+    set(BUILD_TESTING    OFF CACHE BOOL "" FORCE) # library only — no zlib-ng tests/utils
+    set(ZLIB_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+    set(WITH_GTEST       OFF CACHE BOOL "" FORCE)
+    set(WITH_BENCHMARKS  OFF CACHE BOOL "" FORCE)
+    set(WITH_BENCHMARK_APPS OFF CACHE BOOL "" FORCE)
+    set(INSTALL_UTILS    OFF CACHE BOOL "" FORCE)
+    # Install the bundled zlib-ng only when WhiteoutLib itself installs, so the
+    # transitive find_dependency(zlib-ng) downstream resolves.
+    if(WHITEOUT_INSTALL)
+        set(SKIP_INSTALL_ALL OFF CACHE BOOL "" FORCE)
+    else()
+        set(SKIP_INSTALL_ALL ON  CACHE BOOL "" FORCE)
+    endif()
+    # Build zlib-ng static-only (no DLL) — scoped so WhiteoutLib's own target
+    # type (BUILD_SHARED_LIBS) is left untouched. Otherwise zlib-ng emits a
+    # shared lib whose install rule references an artifact we never build.
+    if(DEFINED BUILD_SHARED_LIBS)
+        set(_whiteout_saved_bsl "${BUILD_SHARED_LIBS}")
+        set(_whiteout_had_bsl ON)
+    else()
+        set(_whiteout_had_bsl OFF)
+    endif()
+    set(BUILD_SHARED_LIBS OFF)
+    add_subdirectory(externals/zlib-ng)
+    if(_whiteout_had_bsl)
+        set(BUILD_SHARED_LIBS "${_whiteout_saved_bsl}")
+    else()
+        unset(BUILD_SHARED_LIBS)
+    endif()
+    set(WHITEOUT_ZLIBNG_TARGET zlib-ng-static)
+endif()
+
 # Whiteout Library
 add_library(whiteout_lib
     # Common
@@ -368,6 +443,13 @@ target_include_directories(whiteout_lib PUBLIC
 )
 
 target_link_libraries(whiteout_lib PRIVATE whiteout_strict_flags)
+
+# zlib-ng backs the DEFLATE codec (deflate.cpp only). PUBLIC so the dependency
+# flows into WhiteoutLib's install/export interface — required for an installed
+# static lib to resolve zng_ symbols. The target carries its own include dirs
+# (build- and install-interface) and the ZLIBNG_NATIVE_API define.
+target_link_libraries(whiteout_lib PUBLIC ${WHITEOUT_ZLIBNG_TARGET})
+
 whiteout_apply_clang_tidy(whiteout_lib)
 
 if(WIN32 AND NOT EMSCRIPTEN)
@@ -675,10 +757,9 @@ endif()
 #
 # Opt out with `-DWHITEOUT_INSTALL=OFF` if you're using this repo strictly
 # as a build subtree and don't want the install targets generated.
+# (The WHITEOUT_INSTALL option is declared near the top of this file because
+# the zlib-ng wiring needs it before the library targets are defined.)
 # =============================================================================
-option(WHITEOUT_INSTALL
-    "Generate install/export rules for find_package(WhiteoutLib)" ON)
-
 if(WHITEOUT_INSTALL)
     include(GNUInstallDirs)
     include(CMakePackageConfigHelpers)

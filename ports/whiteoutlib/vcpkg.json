@@ -5,6 +5,9 @@
     "homepage": "https://github.com/fsahmkow/WhiteoutLib",
     "license": "BSD-3-Clause",
     "supports": "!uwp",
+    "dependencies": [
+        "zlib-ng"
+    ],
     "default-features": [],
     "features": {
         "casc": {

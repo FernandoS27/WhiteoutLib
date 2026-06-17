@@ -83,7 +83,9 @@ public:
 private:
     CdnFetcher* m_fetcher;
     const OnlineIndexTable* m_archiveIndex;
-    const OnlineIndexTable* m_looseIndex;
+    // Retained from construction but deliberately never consulted — see the
+    // NOTE in findInIndex on why loose-index entries must not be returned here.
+    [[maybe_unused]] const OnlineIndexTable* m_looseIndex;
     const std::vector<std::array<u8, 16>>* m_archiveEKeys;
 };
 
