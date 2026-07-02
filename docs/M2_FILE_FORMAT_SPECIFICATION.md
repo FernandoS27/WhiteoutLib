@@ -27,7 +27,7 @@
     - [5.2 Animation Tracks](#52-animation-tracks)
     - [5.3 Interpolation](#53-interpolation)
     - [5.4 Global Sequences](#54-global-sequences)
-    - [5.5 FBlock (Fake-AnimationBlock)](#55-fblock-fake-animationblock)
+    - [5.5 ParticleAnimationTrack](#55-particleanimationtrack)
   - [6. MD20 Header](#6-md20-header)
     - [6.1 Binary Layout](#61-binary-layout)
     - [6.2 Global Flags](#62-global-flags)
@@ -207,8 +207,7 @@ Version ranges are inclusive. Models are version-tagged by the exporter; the ver
 | `>= WOTLK (264)` | Header stores `numSkinProfiles` as `u32` instead of inline `M2Array<SkinProfile>` |
 | `< CATA (265)` | Camera has a flat `f32 fieldOfView` before far/near clip |
 | `>= CATA (265)` | Camera has an `M2Track<f32> fieldOfViewTrack` after the roll track |
-| `NewParticleRecord` flag OR `> 271` | `M2ParticleOld` struct is 492 bytes instead of 476 |
-| `>= CATA` | Particle emitter gains multi-texture extension fields (`M2Particle` wrapping `M2ParticleOld`) |
+| `NewParticleRecord` flag OR `> 271` | Particle emitter record is 492 bytes instead of 476: the extended `multiTexScrollMid[2][2]` / `multiTexScrollRange[2][2]` fields (16 × `fixed16_9` = 16 bytes) are appended |
 | `flag_use_texture_combiner_combos` | `textureCombinerCombos` array appended at header end |
 
 ---
@@ -370,19 +369,37 @@ struct M2Loop {
 
 A track with `globalSequenceId != 0xFFFF` ignores per-animation timelines and instead loops within `[0, global_loops[globalSequenceId].timestamp]`. Global-sequence tracks always have exactly one sub-array (index 0).
 
-### 5.5 FBlock (Fake-AnimationBlock)
+### 5.5 ParticleAnimationTrack
 
-Particle emitters use a simplified animation block that cannot vary between animations:
+Particle emitters animate properties over the lifetime of each emitted particle,
+keyed by the particle's **age** rather than by a model animation timeline. The
+track cannot vary between model animations. On disk it is two consecutive
+`M2Array`s (no per-animation outer indirection, no interpolation/global-sequence
+header):
 
 ```
 Offset  Type    Field
 0x00    u32     nTimestamps
-0x04    u32     ofsTimestamps    → fixed16 timestamps (u16!)
+0x04    u32     ofsTimestamps    → timestamps (u16, normalized to particle age)
 0x08    u32     nValues
 0x0C    u32     ofsValues        → T values
 ```
 
-These point directly to data without the outer per-animation indirection.
+Unlike `M2Track`, the timestamps are **`unorm16`** values normalized to `[0, 1]`
+across the particle's lifetime (`0.0` = spawn, `1.0` = end of life) rather than
+millisecond keys, and there is no `interpolationType` / `globalSequenceId`
+prefix. WhiteoutLib parses these into `ParticleAnimationTrack<T>`:
+
+```cpp
+template <typename T>
+struct ParticleAnimationTrack {
+    std::vector<unorm16> timestamps;  // [0,1] over particle lifetime
+    std::vector<T>       values;
+};
+```
+
+This type backs the per-lifetime color/alpha/scale/UV-scroll tracks on
+`ParticleEmitter` and the `alphaCutoff` track in the `EXP2` extension.
 
 ---
 
@@ -985,87 +1002,110 @@ Examples: wisps in Blackfathom Deeps, Al'ar the Phoenix, Caverns of Time entranc
 
 ### 11.2 Particle Emitters
 
-Particle emitters are the most complex M2 structure. The base layout (`M2ParticleOld`, 476 or 492 bytes) contains:
+Particle emitters are the most complex M2 structure. The base record is 476
+bytes, or 492 bytes for the extended record (see below). WhiteoutLib parses it
+into `ParticleEmitter`, listed here in exact on-disk field order:
 
 ```cpp
 struct ParticleEmitter {
-    u32 particleId;               // usually -1
-    u32 flags;                    // see Particle Flags
-    Vector3f position;            // relative to bone
-    u16 boneId;
-    u16 texture;                  // or Cata+ bitfield: 5+5+5+1 bits for 3 textures
+    u32         particleId = UINT32_MAX;     // usually -1
+    ParticleFlag flags;                      // 32-bit flag set (see Particle Flags)
+    Vector3f    position;                    // emitter position relative to bone
+    u16         boneId;
+    union {                                  // Cata+ packs 3 texture indices
+        u16 textureId;
+        struct { u16 textureId1:5, textureId2:5, textureId3:5, padding:1; };
+    };
 
-    std::string geometryModelFilename;   // spawned model geometry
-    std::string recursionModelFilename;  // alias for up to 4 emitters of target
+    std::string particleModelFilename;       // model-geometry particles (if non-empty)
+    std::string childEmittersModelFilename;  // trail / child-emitter model per particle
 
-    u8  blendingType;             // 0–4 (see Particle Blendings)
-    u8  emitterType;              // 1=Plane, 2=Sphere, 3=Spline, 4=Bone
-    u16 particleColorIndex;       // 11/12/13 → ParticleColor.dbc row
+    ParticleBlending    blendingType;        // u8 (0–4)
+    ParticleEmitterType emitterType;         // u8 (1=Plane, 2=Sphere, 3=Spline, 4=Bone)
+    u16         particleColorIndex;          // 11/12/13 → ParticleColor.dbc row
 
-    u16 textureTileRotation;      // -1, 0, or 1 — also serves as priorityPlane
-    u16 textureDimensions_rows;
-    u16 textureDimensions_columns;
+    fixed8_5    multiTexScale[2];            // per-layer texture scale (1 byte each)
+    i16         textureTilerotation;         // -1, 0, or 1 — also serves as priorityPlane
+    u16         rows;                        // texture atlas rows
+    u16         columns;                     // texture atlas columns
 
-    // Animated tracks:
+    // Emitter-lifetime animated tracks (full M2Track, keyed in ms):
     AnimationTrack<f32> emissionSpeed;
-    AnimationTrack<f32> speedVariation;       // [0, 1]
-    AnimationTrack<f32> verticalRange;        // [0, π]
-    AnimationTrack<f32> horizontalRange;      // [0, 2π]
+    AnimationTrack<f32> speedVariation;      // [0, 1]
+    AnimationTrack<f32> verticalRange;       // [0, π]
+    AnimationTrack<f32> horizontalRange;     // [0, 2π]
     AnimationTrack<f32> gravity;
     AnimationTrack<f32> lifespan;
-    f32 lifespanVary;             // >= Wrath; particle.life += lifespanVary * random(-1,1)
+    f32                 lifespanVariation;   // life += lifespanVariation * rand(-1,1)
     AnimationTrack<f32> emissionRate;
-    f32 emissionRateVary;         // >= Wrath
-    AnimationTrack<f32> emissionAreaLength;   // plane: X width, sphere: min radius
-    AnimationTrack<f32> emissionAreaWidth;    // plane: Y width, sphere: max radius
+    f32                 emissionRateVariation;
+    AnimationTrack<f32> emissionAreaWidth;   // plane: Y width, sphere: max radius
+    AnimationTrack<f32> emissionAreaLength;  // plane: X width, sphere: min radius
     AnimationTrack<f32> zSource;
 
-    // FBlock color/alpha/scale (>= Wrath):
-    FBlock<Vector3f> colorTrack;  // start, middle, end
-    FBlock<i16>      alphaTrack;
-    FBlock<Vector2f> scaleTrack;
-    Vector2f         scaleVary;
+    // Per-particle-lifetime tracks (ParticleAnimationTrack; timestamps unorm16 [0,1]):
+    ParticleAnimationTrack<Vector3f> colorTrack;    // RGB over lifetime
+    ParticleAnimationTrack<unorm16>  alphaTrack;    // opacity over lifetime
+    ParticleAnimationTrack<Vector2f> scaleTrack;    // size over lifetime
+    Vector2f                         scaleVary;     // {x, y} random scale variation
+    ParticleAnimationTrack<unorm16>  headUVScroll;  // head flipbook cell over lifetime
+    ParticleAnimationTrack<unorm16>  tailUVScroll;  // tail flipbook cell over lifetime
 
-    FBlock<u16>      headCellTrack;
-    FBlock<u16>      tailCellTrack;
+    f32         tailLength;
+    f32         twinkleSpeed;                // blink speed (twinkleFPS)
+    f32         twinklePercent;              // fraction of time visible (1.0 = always)
+    Vector2f    twinkleScale;                // {min, max} scale variation
+    f32         inheritVelocityScale;        // scales velocity inherited from parent
+    f32         drag;                        // speed *= exp(-drag * t)
 
-    f32 tailLength;
-    f32 twinkleSpeed;             // twinkleFPS
-    f32 twinklePercent;
-    CRange twinkleScale;          // {min, max}
-    f32 burstMultiplier;          // requires flag 0x40
-    f32 drag;                     // speed *= exp(-drag * t)
+    f32         baseSpin, baseSpinVariation; // initial 2D billboard spin angle
+    f32         spinSpeed, spinSpeedVariation; // 2D billboard rotation per second
 
-    f32 baseSpin, baseSpinVary;   // >= Wrath
-    f32 spin, spinVary;           // rotation per second
+    M2Box       tumble;                      // model-particle angular velocity {min, max}
+    Vector3f    windVector;                  // static wind (ignored if DynamicWind set)
+    f32         windTime;
 
-    M2Box tumble;                 // {min, max} rotation speed vectors
-    Vector3f windVector;
-    f32 windTime;
+    f32         followSpeed1, followScale1;
+    f32         followSpeed2, followScale2;
 
-    f32 followSpeed1, followScale1;
-    f32 followSpeed2, followScale2;
+    std::vector<Vector3f> splinePoints;      // path for Spline emitter type
+    AnimationTrack<u8>    enabledIn;         // visibility toggle
 
-    std::vector<Vector3f> splinePoints;  // for spline emitter type
-    AnimationTrack<u8> enabledIn;        // visibility toggle
+    // Extended record only — version > 271 OR (globalFlags & NewParticleRecord):
+    fixed16_9   multiTexScrollMid[2][2];     // per-layer UV scroll center
+    fixed16_9   multiTexScrollRange[2][2];   // per-layer UV scroll range
+
+    std::optional<ParticleEmitterExtension> extension;  // from EXP2 / EXPT chunk
 };
 ```
 
-**Particle types**:
-| Value | Description |
-|---|---|
-| 0 | Normal billboarded particle |
-| 1 | Large quad from origin to position (Moonwell water) |
-| 2 | Appears same as 0 |
+> **Field-order notes (vs. older docs and wowdev.wiki):**
+> - WhiteoutLib reads **`emissionAreaWidth` before `emissionAreaLength`** (the
+>   reverse of some references). The parser and writer agree, so round-trips are
+>   byte-exact.
+> - The old `burstMultiplier` slot is parsed as `inheritVelocityScale` (the value
+>   scaling velocity inherited from a parent emitter).
+> - The per-lifetime color/alpha/scale/UV tracks are `ParticleAnimationTrack`s
+>   keyed by particle age, **not** full `M2Track`s — see [§5.5](#55-particleanimationtrack).
+> - `multiTexScale` (2 × `fixed8_5`) and the extended `multiTexScrollMid` /
+>   `multiTexScrollRange` (`fixed16_9`) drive multi-texture (Cata+) UV animation.
 
-**Blending modes**:
-| Value | Blend |
+**Emitter types** (`ParticleEmitterType`):
+| Value | Name | Description |
+|---|---|---|
+| 1 | Plane | Emit from a rectangular area (uses `emissionAreaWidth`/`Length`) |
+| 2 | Sphere | Emit from a sphere shell (`Width`=max radius, `Length`=min radius) |
+| 3 | Spline | Emit along `splinePoints` |
+| 4 | Bone | Emit from bone position (`BoneGeneratorBone` flag selects bone vs joint) |
+
+**Blending modes** (`ParticleBlending`):
+| Value | Name |
 |---|---|
 | 0 | Opaque (no blend, no alpha test) |
-| 1 | `SRC_COLOR + ONE` |
-| 2 | `SRC_ALPHA + ONE_MINUS_SRC_ALPHA` (standard alpha) |
-| 3 | Alpha test (no blend) |
-| 4 | `SRC_ALPHA + ONE` (additive) |
+| 1 | AlphaBlend (`SRC_ALPHA + ONE_MINUS_SRC_ALPHA`) |
+| 2 | Additive (`SRC_ALPHA + ONE`) |
+| 3 | AlphaTest (no blend) |
+| 4 | AdditiveAlphaTest |
 
 **Compressed Particle Gravity** (flag `0x800000`): Gravity keyframe values are stored as 4 bytes (`{i8 x, i8 y, i16 z}`) instead of a float. At load time:
 
@@ -1083,28 +1123,44 @@ Without the flag, gravity is a simple `float` applied as `(0, 0, -gravity)`.
 
 ### 11.3 Particle Flags
 
+`ParticleFlag` is a 32-bit set. Names and meanings below match the WhiteoutLib
+enum, which was reconstructed from the client's `CParticleEmitter2` /
+`CParticleMat` logic; descriptions note that behavior where known.
+
 | Flag | Value | Description |
 |---|---|---|
-| Affected by lighting | `0x1` | Particle lit by scene lights |
-| Player orientation | `0x4` | Initial orientation affected by player facing |
-| World-space up | `0x8` | Particles travel up in world space, not model space |
-| Don't trail | `0x10` | Disable particle trails |
-| Unlit | `0x20` | Not affected by lighting |
-| Use burst multiplier | `0x40` | Apply `burstMultiplier` to initial velocity |
-| Model space | `0x80` | Particles stay in model space (emitter animation carried to particles) |
-| Pinned | `0x400` | Quad expands from creation point |
-| XY Quad | `0x1000` | Align to XY plane facing Z |
-| Clamp to ground | `0x2000` | Project particles to ground plane |
-| Choose random texture | `0x10000` | Random texture tile selection |
-| Outward | `0x20000` | Particles move away from origin |
-| Inward | `0x40000` | Particles move toward origin (usually opposite of 0x20000) |
-| Scale vary independent | `0x80000` | X and Y scale vary independently |
-| Random flipbook start | `0x200000` | Start texture animation at random frame |
-| Ignore distance | `0x400000` | Don't throttle based on camera distance |
-| Compressed gravity | `0x800000` | Gravity values use compressed 4-byte format |
-| Bone generator | `0x1000000` | Bone, not joint |
-| No distance throttle | `0x4000000` | Do not throttle emission rate based on distance |
-| Multi-texture | `0x10000000` | Multi-textured particle (Cata+) |
+| `Shaded` | `0x1` | Lighting enabled (note: client uses `~flags & 1` → CParticleMat lit bit; lit by default) |
+| `SortParticles` | `0x2` | Depth-sorted rendering via priority queue |
+| `VelocityOrient` | `0x4` | Billboard aligns along the velocity vector |
+| `Unshaded` | `0x8` | Clears the lit flag on CParticleMat |
+| `WorldSpace` | `0x10` | Particles operate in world space; skips the bone-matrix transform |
+| `InheritBoneScale` | `0x20` | Scale particles by attached bone (sqrt of bone-matrix column length) |
+| `InheritVelocity` | `0x40` | Child emitter inherits parent velocity (scaled by `inheritVelocityScale`) |
+| `ImplosionFilter` | `0x80` | Kill particles moving away from the center |
+| `HemisphereUpDirection` | `0x100` | Force Z-up velocity direction in sphere emitters |
+| `NegateSpinRandom` | `0x200` | Negate spin angle for particles whose random bit & 1 |
+| `ClampTailToAge` | `0x400` | Clamp tail length to `min(tailLength, age)` |
+| `InheritPosition` | `0x800` | Child inherits parent position; random emission spacing |
+| `XYQuad` | `0x1000` | Use the quad-to-view matrix instead of a screen-aligned billboard |
+| `ProjectParticle` | `0x2000` | Snap particle to terrain via the project callback |
+| `FollowPosition` | `0x4000` | Add emitter delta-position to particle when `2*dt < age` |
+| `Squirt` | `0x8000` | Burst emission only when `emissionRate` is animated |
+| `ChooseRandomTexture` | `0x10000` | Random flipbook frame |
+| `HeadStyle` | `0x20000` | Head particle style bits in SetParticleStyle |
+| `TailStyle` | `0x40000` | Tail particle style bits in SetParticleStyle |
+| `UnscaledSizeVariation` | `0x80000` | Independent X/Y scale variation (two random floats) |
+| `Unfogged` | `0x100000` | Sets the unfogged flag on CParticleMat |
+| `RandFlipbookStart` | `0x200000` | Random starting flipbook frame |
+| `Unk_0x400000` | `0x400000` | Unknown |
+| `CompressedGravity` | `0x800000` | Gravity keyframes use the compressed 4-byte format |
+| `BoneGeneratorBone` | `0x1000000` | Select bone (1) vs joint (0) generator; emitterType 4 |
+| `NoGlobalViewScale` | `0x2000000` | Skip the global-view-scale multiply on emission rate |
+| `LodIgnoreDistance` | `0x4000000` | Skip distance-based LOD emission-rate scaling |
+| `OffsetHeadBySpin` | `0x8000000` | Offset head particle position along the spin rotation axis |
+| `MultiTexture` | `0x10000000` | Route through the multi-texture particle path (Cata+) |
+| `MultitexUseModx4` | `0x20000000` | CParticleMat bit 3; Modx4 instead of Modx2 (requires `MultiTexture`) |
+| `MultitexUse3Colors` | `0x40000000` | CParticleMat bit 4; 3 colors instead of 2 (requires `MultiTexture`) |
+| `DynamicWind` | `0x80000000` | Enable dynamic wind callback; clear = static wind from `windVector` |
 
 ---
 
@@ -1371,9 +1427,10 @@ struct TXIDChunk {
 };
 ```
 
-**RPID** / **GPID** — Replace `M2ParticleOld` string filenames with fileDataIds:
+**RPID** / **GPID** — Replace the particle emitter's inline model filenames with
+fileDataIds (RPID → `childEmittersModelFilename`, GPID → `particleModelFilename`):
 ```cpp
-struct M2RPIDChunk { std::vector<M2RPIDEntry> entries; };  // fileDataId per particle
+struct M2RPIDChunk { std::vector<M2RPIDEntry> entries; };  // fileDataId per emitter
 struct GPIDChunk   { std::vector<GPIDEntry>   entries; };
 ```
 
@@ -1400,17 +1457,28 @@ struct EXPTEntry {
 
 If EXP2 doesn't exist, the client reconstructs it from EXPT data.
 
-**EXP2** — Extended particle v2:
+**EXP2** — Extended particle v2 (one entry per particle emitter):
 ```cpp
-struct EXP2Particle {
+struct ParticleEmitterExtension {   // WhiteoutLib in-memory + on-disk layout
     f32 zSource;
-    f32 colorMult;        // applied against particle's diffuse color
-    f32 alphaMult;        // applied against particle's opacity
-    // M2PartTrack<fixed16> alphaCutoff — per-particle alpha test over lifetime
+    f32 colorMult;                   // multiplies the particle's diffuse color
+    f32 alphaMult;                   // multiplies the particle's opacity
+    ParticleAnimationTrack<unorm16> alphaCutoff;  // per-lifetime alpha test
 };
 ```
 
-The `alphaCutoff` track is indexed by the particle's current lifetime position. `colorMult` multiplies the particle's diffuse color, `alphaMult` multiplies opacity.
+The `alphaCutoff` track is a `ParticleAnimationTrack` indexed by the particle's
+current lifetime position (timestamps are `unorm16` in `[0, 1]`).
+
+**In-memory mapping**: WhiteoutLib surfaces both extension chunks through the
+optional `ParticleEmitter::extension` field, aligned by index with
+`particleEmitters[]`:
+
+- When **EXP2** is present, each `emitterExtensions[i]` is moved directly into
+  `particleEmitters[i].extension`.
+- When only **EXPT** is present, the client (and WhiteoutLib) reconstruct the
+  extension from EXPT: `zSource`/`colorMult`/`alphaMult` are copied and
+  `alphaCutoff` is left empty.
 
 **PGD1** — Particle geoset assignment:
 ```cpp
