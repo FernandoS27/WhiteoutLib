@@ -24,8 +24,14 @@ option(WHITEOUT_BUILD_C_BINDINGS "Build the flat-C ABI shared library (whiteout_
 option(WHITEOUT_BUILD_JNI_BINDINGS
     "Build the Java JNI bridge (whiteout_jni) for callback-direction interop" OFF)
 option(WHITEOUT_ENABLE_CLANG_TIDY "Run clang-tidy on whiteout sources during build" OFF)
+option(WHITEOUT_USE_ZLIBNG
+    "Use zlib-ng for the DEFLATE codec instead of the built-in implementation" OFF)
 option(WHITEOUT_USE_SYSTEM_ZLIBNG
-    "Link an external zlib-ng via find_package instead of the bundled submodule" OFF)
+    "Link an external zlib-ng via find_package instead of building from source (requires WHITEOUT_USE_ZLIBNG)" OFF)
+option(WHITEOUT_ZLIBNG_SHARED
+    "Build the bundled zlib-ng as a shared library instead of static" OFF)
+set(WHITEOUT_ZLIBNG_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/externals/zlib-ng"
+    CACHE PATH "Path to the zlib-ng source tree to build (bundled submodule by default)")
 # Declared here (used early by the zlib-ng wiring); consumed by the install
 # section near the end of this file.
 option(WHITEOUT_INSTALL
@@ -244,24 +250,35 @@ function(whiteout_apply_clang_tidy target)
 endfunction()
 
 # =============================================================================
-# zlib-ng — the single allowed third-party dependency. Backs the DEFLATE codec
-# behind whiteout::zlib_compress/decompress (common/deflate.cpp is the only TU
-# that includes <zlib-ng.h>). Native zng_ API (ZLIB_COMPAT OFF).
+# zlib-ng — OPTIONAL DEFLATE backend (the single allowed third-party dependency).
+# Enabled with WHITEOUT_USE_ZLIBNG=ON, in which case it backs
+# whiteout::zlib_compress/decompress via common/deflate_zlibng.cpp (the only TU
+# that includes <zlib-ng.h>). When OFF (default), the in-house codec
+# (common/deflate.cpp + storages/common/inflate_fast_builtin.cpp) is used and no
+# external dependency is pulled in.
 #
-# Two supply modes, both converging on find_package(zlib-ng) for *installed*
-# consumers:
-#   • Bundled submodule (default) — externals/zlib-ng. Built with WhiteoutLib
-#     and, when WHITEOUT_INSTALL is on, installed alongside it (its own zlib-ng
-#     CONFIG package) so an installed static WhiteoutLib resolves zng_ symbols.
+# When enabled, two supply modes converge on find_package(zlib-ng) for
+# *installed* consumers:
+#   • From source (default) — built from WHITEOUT_ZLIBNG_SOURCE_DIR (the bundled
+#     externals/zlib-ng submodule unless overridden). When WHITEOUT_INSTALL is
+#     on it is installed alongside WhiteoutLib (its own zlib-ng CONFIG package)
+#     so an installed WhiteoutLib resolves zng_ symbols. Static by default;
+#     set WHITEOUT_ZLIBNG_SHARED=ON for a shared/DLL build.
 #   • System (WHITEOUT_USE_SYSTEM_ZLIBNG=ON) — find_package(zlib-ng), e.g. the
-#     vcpkg port, which declares zlib-ng as its own package dependency.
+#     vcpkg port, which declares zlib-ng as its own package dependency. Here the
+#     external package decides static vs shared.
 # The library target is captured in WHITEOUT_ZLIBNG_TARGET and linked PUBLIC so
 # the dependency flows into WhiteoutLib's install/export interface; consumers
 # rediscover it via find_dependency(zlib-ng) in WhiteoutLibConfig.cmake.
 # =============================================================================
+if(WHITEOUT_USE_ZLIBNG)
 if(WHITEOUT_USE_SYSTEM_ZLIBNG)
     find_package(zlib-ng CONFIG REQUIRED)
-    if(TARGET zlib-ng::zlibstatic)
+    # Honour the requested linkage when the package exposes both; otherwise take
+    # whichever target it provides.
+    if(WHITEOUT_ZLIBNG_SHARED AND TARGET zlib-ng::zlib)
+        set(WHITEOUT_ZLIBNG_TARGET zlib-ng::zlib)
+    elseif(TARGET zlib-ng::zlibstatic)
         set(WHITEOUT_ZLIBNG_TARGET zlib-ng::zlibstatic)
     elseif(TARGET zlib-ng::zlib)
         set(WHITEOUT_ZLIBNG_TARGET zlib-ng::zlib)
@@ -271,12 +288,22 @@ if(WHITEOUT_USE_SYSTEM_ZLIBNG)
             "nor zlib-ng::zlib target exists — check the zlib-ng package.")
     endif()
 else()
-    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/externals/zlib-ng/CMakeLists.txt")
+    if(NOT EXISTS "${WHITEOUT_ZLIBNG_SOURCE_DIR}/CMakeLists.txt")
         message(FATAL_ERROR
-            "Bundled zlib-ng missing at externals/zlib-ng. Run\n"
-            "  git submodule update --init --recursive\n"
-            "or configure with -DWHITEOUT_USE_SYSTEM_ZLIBNG=ON to use a system zlib-ng.")
+            "zlib-ng source not found at WHITEOUT_ZLIBNG_SOURCE_DIR=\n"
+            "  ${WHITEOUT_ZLIBNG_SOURCE_DIR}\n"
+            "Run `git submodule update --init --recursive` for the bundled copy, "
+            "point WHITEOUT_ZLIBNG_SOURCE_DIR at your own zlib-ng tree, or "
+            "configure with -DWHITEOUT_USE_SYSTEM_ZLIBNG=ON to use an installed one.")
     endif()
+
+    # Shared zlib-ng is meaningless under Emscripten (no DLLs) — force static.
+    set(_zlibng_shared ${WHITEOUT_ZLIBNG_SHARED})
+    if(EMSCRIPTEN AND _zlibng_shared)
+        message(STATUS "WhiteoutLib: ignoring WHITEOUT_ZLIBNG_SHARED under Emscripten (static only)")
+        set(_zlibng_shared OFF)
+    endif()
+
     set(ZLIB_COMPAT      OFF CACHE BOOL "" FORCE) # native zng_ API
     set(WITH_OPTIM       ON  CACHE BOOL "" FORCE)
     set(WITH_GZFILEOP    ON  CACHE BOOL "" FORCE)
@@ -293,24 +320,34 @@ else()
     else()
         set(SKIP_INSTALL_ALL ON  CACHE BOOL "" FORCE)
     endif()
-    # Build zlib-ng static-only (no DLL) — scoped so WhiteoutLib's own target
-    # type (BUILD_SHARED_LIBS) is left untouched. Otherwise zlib-ng emits a
-    # shared lib whose install rule references an artifact we never build.
+
+    # Drive zlib-ng's linkage via BUILD_SHARED_LIBS, scoped so WhiteoutLib's own
+    # target type is left untouched. An explicit binary dir lets
+    # WHITEOUT_ZLIBNG_SOURCE_DIR point outside the project tree.
     if(DEFINED BUILD_SHARED_LIBS)
         set(_whiteout_saved_bsl "${BUILD_SHARED_LIBS}")
         set(_whiteout_had_bsl ON)
     else()
         set(_whiteout_had_bsl OFF)
     endif()
-    set(BUILD_SHARED_LIBS OFF)
-    add_subdirectory(externals/zlib-ng)
+    set(BUILD_SHARED_LIBS ${_zlibng_shared})
+    add_subdirectory(${WHITEOUT_ZLIBNG_SOURCE_DIR} ${CMAKE_BINARY_DIR}/zlib-ng)
     if(_whiteout_had_bsl)
         set(BUILD_SHARED_LIBS "${_whiteout_saved_bsl}")
     else()
         unset(BUILD_SHARED_LIBS)
     endif()
-    set(WHITEOUT_ZLIBNG_TARGET zlib-ng-static)
+
+    # zlib-ng always defines `zlib-ng-static`: a real STATIC target in a shared
+    # build, or an alias to the static `zlib-ng` otherwise. In a shared build the
+    # `zlib-ng` target itself is the DLL.
+    if(_zlibng_shared)
+        set(WHITEOUT_ZLIBNG_TARGET zlib-ng)
+    else()
+        set(WHITEOUT_ZLIBNG_TARGET zlib-ng-static)
+    endif()
 endif()
+endif() # WHITEOUT_USE_ZLIBNG
 
 # Whiteout Library
 add_library(whiteout_lib
@@ -409,7 +446,8 @@ add_library(whiteout_lib
     src/whiteout/textures/jpeg/jpeg_encode.cpp
     src/whiteout/textures/jpeg/parser.cpp
     src/whiteout/textures/jpeg/writer.cpp
-    src/whiteout/common/deflate.cpp
+    # DEFLATE codec backend (deflate.cpp/deflate_zlibng.cpp) added conditionally
+    # below, keyed on WHITEOUT_USE_ZLIBNG.
     src/whiteout/textures/png/parser.cpp
     src/whiteout/textures/png/writer.cpp
 
@@ -444,11 +482,20 @@ target_include_directories(whiteout_lib PUBLIC
 
 target_link_libraries(whiteout_lib PRIVATE whiteout_strict_flags)
 
-# zlib-ng backs the DEFLATE codec (deflate.cpp only). PUBLIC so the dependency
-# flows into WhiteoutLib's install/export interface — required for an installed
-# static lib to resolve zng_ symbols. The target carries its own include dirs
-# (build- and install-interface) and the ZLIBNG_NATIVE_API define.
-target_link_libraries(whiteout_lib PUBLIC ${WHITEOUT_ZLIBNG_TARGET})
+# DEFLATE codec backend selection.
+if(WHITEOUT_USE_ZLIBNG)
+    # zlib-ng variant — the only TU that includes <zlib-ng.h>. Linked PUBLIC so
+    # the dependency flows into WhiteoutLib's install/export interface (an
+    # installed static lib must resolve zng_ symbols downstream). The target
+    # carries its own include dirs (build/install interface) + ZLIBNG_NATIVE_API.
+    target_sources(whiteout_lib PRIVATE src/whiteout/common/deflate_zlibng.cpp)
+    target_link_libraries(whiteout_lib PUBLIC ${WHITEOUT_ZLIBNG_TARGET})
+else()
+    # Built-in codec — no external dependency.
+    target_sources(whiteout_lib PRIVATE
+        src/whiteout/common/deflate.cpp
+        src/whiteout/storages/common/inflate_fast_builtin.cpp)
+endif()
 
 whiteout_apply_clang_tidy(whiteout_lib)
 
