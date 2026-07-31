@@ -227,6 +227,40 @@ struct Storage::Impl {
         return onlineState != nullptr;
     }
 
+    /// Whether listings should hide files absent from the local index — i.e. a
+    /// local storage that has not downloaded them (they exist only on the CDN).
+    /// Online storages can always fetch on demand, so they never filter, and the
+    /// ListAllFiles flag opts a local storage back into listing everything.
+    bool filterUnavailableInListings() const noexcept {
+        return isLocal() && !(featureFlags & StorageFeatureFlags::ListAllFiles);
+    }
+
+    /// True if the BLTE blob for @p eKey is present in the local index (i.e. the
+    /// file has actually been downloaded). Matches the availability gate the
+    /// local read path uses (resolveCKey/resolveEKey → findInIndex).
+    bool isEKeyAvailableLocally(const std::array<u8, 16>& eKey) const {
+        if (isZeroKey(eKey))
+            return false;
+        if (backend)
+            return backend->findInIndex(eKeyTrunc(eKey)).has_value();
+        if (dataSource)
+            return dataSource->findInIndex(eKeyTrunc(eKey)).has_value();
+        return false;
+    }
+
+    /// True if the file behind @p re can be read from the local index. Checks a
+    /// direct EKey (TVFS) first, then CKey → encoding → EKey — mirroring how the
+    /// read path resolves the entry.
+    bool isRootEntryAvailableLocally(const RootEntry& re) const {
+        if (!isZeroKey(re.eKey) && isEKeyAvailableLocally(re.eKey))
+            return true;
+        if (!isZeroKey(re.cKey)) {
+            if (const EncodingEntry* enc = encodingTable.findByCKey(re.cKey, kEKeyTruncSize))
+                return isEKeyAvailableLocally(enc->eKey);
+        }
+        return false;
+    }
+
     // ── Resolution helpers ───────────────────────────────────────
 
     /// CKey → encoding → index → BLTE decode → raw file data.

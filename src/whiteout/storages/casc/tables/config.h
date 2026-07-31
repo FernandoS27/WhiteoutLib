@@ -32,6 +32,10 @@ struct BuildInfo {
 /// Parse `.build.info` TSV with typed column headers.
 std::vector<BuildInfo> parseBuildInfo(std::span<const u8> data);
 
+/// Parse a flavor subdirectory's `.flavor.info` and return its "Product Flavor"
+/// code (e.g. "w3t" for a `_ptr_` directory), or an empty string if absent.
+std::string parseFlavorInfo(std::span<const u8> data);
+
 // ============================================================================
 // Build Config
 // ============================================================================

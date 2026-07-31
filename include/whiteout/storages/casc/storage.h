@@ -98,6 +98,14 @@ public:
     static std::optional<Storage> open(const std::string& path, u32 localeMask,
                                        interfaces::WorkerPool* pool = nullptr);
 
+    /// @overload Open a specific product from a multi-product `.build.info`.
+    /// @param product Product code selecting the build, e.g. "w3" (Warcraft III
+    ///        retail) vs "w3t" (its PTR). Matched case-insensitively against the
+    ///        active builds; empty selects the first active build. See
+    ///        OpenOptions::product. Open fails if the product has no active build.
+    static std::optional<Storage> open(const std::string& path, const std::string& product,
+                                       interfaces::WorkerPool* pool = nullptr);
+
     /// @overload Open with full options.
     /// @bind skip — OpenOptions has unsupported field shapes (std::span,
     /// std::function). Use the (path, localeMask, pool) overloads for now.

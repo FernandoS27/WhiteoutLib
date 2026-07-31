@@ -108,6 +108,12 @@ static constexpr u32 LazyEncodingFrames =
     0x00000008; ///< Decode encoding-table BLTE frames on demand.
 static constexpr u32 LazyIdxBuckets =
     0x00000010; ///< Local-only: parse .idx buckets on first lookup.
+static constexpr u32 ListAllFiles =
+    0x00000020; ///< Local-only: list/enumerate every file known to the root/encoding
+                ///< tables, including ones present on the CDN but not downloaded
+                ///< locally. By default a local storage hides such files (they
+                ///< cannot be read), so listings reflect only on-disk content.
+                ///< No effect on online storages, which can fetch on demand.
 
 /// Convenience alias enabling every lazy behaviour. Default for online storage.
 static constexpr u32 FullLazy =
@@ -241,9 +247,16 @@ struct StorageProduct {
 
 /// Options for opening an existing CASC storage.
 struct OpenOptions {
-    std::string path;                            ///< Path to the CASC data directory.
-    std::string buildKey;                        ///< Optional hex-MD5 to select a specific build.
-    u32 localeMask = LocaleMasks::None;          ///< Locale filter (0 = accept all).
+    std::string path;     ///< Path to the CASC data directory.
+    std::string buildKey; ///< Optional hex-MD5 to select a specific build.
+    /// Optional product code selecting which build to open from a multi-product
+    /// `.build.info` (e.g. "w3" for Warcraft III retail vs "w3t" for its PTR,
+    /// "wow"/"wowt", "d3"/"d3t"). Matched case-insensitively against the
+    /// `Product` column among *active* builds — the same mechanism as CascLib's
+    /// code name. Ignored when `buildKey` already selects a build; empty selects
+    /// the first active build. Open fails if the product has no active build.
+    std::string product;
+    u32 localeMask = LocaleMasks::None; ///< Locale filter (0 = accept all).
     u32 flags = StorageFeatureFlags::None;       ///< Feature flags.
     ProgressCallback progressCallback = nullptr; ///< Optional progress callback.
     interfaces::WorkerPool* pool = nullptr;      ///< Optional worker pool for parallel I/O.

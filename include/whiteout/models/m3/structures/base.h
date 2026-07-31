@@ -440,19 +440,24 @@ enum class ParticleFlag : u32 {
     OldSizeBezier = 0x1000,             ///< Legacy size bezier
     OldColorSmooth = 0x2000,            ///< Legacy color smoothing
     OldColorBezier = 0x4000,            ///< Legacy color bezier
-    LitParts = 0x8000,                  ///< Lit particles
-    RandomFlipbookStart = 0x10000,      ///< Random flipbook start
+    LitParts = 0x8000,                  ///< Lit particles → lit pixel-shader variant
+    RandomFlipbookStart = 0x10000,      ///< Random flipbook start → shader b_randomFlipBookStart
     MultiplyGravityByMass = 0x20000,    ///< Multiply gravity by mass
-    ClampTailLength = 0x40000,          ///< Clamp tail length
-    SpawnTrailingParticles = 0x80000,   ///< Spawn trailing particles
-    FixTailLengthOnCreation = 0x100000, ///< Fix tail length on creation
+    ClampTailLength = 0x40000,          ///< Clamp tail length → shader b_clampedTailLength (Tail/Trail, not Pinned)
+    SpawnTrailingParticles = 0x80000,   ///< Spawn trailing particles (also forces b_useProceduralPosition)
+    FixTailLengthOnCreation = 0x100000, ///< Fix tail length on creation → shader b_fixedTailLength
     UseVertexAlpha = 0x200000,          ///< Use vertex alpha
-    ModelParticles = 0x400000,          ///< Use model particles
+    ModelParticles = 0x400000,          ///< Use model particles (also forces b_useProceduralPosition)
     SwapYZOnModelParticles = 0x800000,  ///< Swap Y/Z on model particles
     ScaleTimeByParent = 0x1000000,      ///< Scale time by parent
     UseLocalTime = 0x2000000,           ///< Use local time
     SimulateInit = 0x4000000,           ///< Simulate on initialization
     Copy = 0x8000000,                   ///< Copy emitter
+    // Bits >= 0x10000000: consumed by CParticleSystem::SetupShaderFlags (SC2 71061),
+    // not in the community flag set — provisional names.
+    RequiresGpuSim = 0x10000000,          ///< Part of the b_useProceduralPosition trigger mask (0x10480003)
+    ShaderPerm30 = 0x40000000,            ///< Toggles a particle shader permutation (role TBD)
+    ForceProceduralPosition = 0x80000000, ///< Forces GPU procedural-position path (b_useProceduralPosition)
 };
 M3_DEFINE_FLAG_OPS(ParticleFlag, u32)
 

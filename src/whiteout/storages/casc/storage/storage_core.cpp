@@ -1251,8 +1251,15 @@ void Storage::enumerate(std::function<bool(const EnumerateEntry&)> callback) con
         return;
     std::shared_lock const lock(m_impl->mutex);
 
+    // Local storages hide files that live only on the CDN (not in the local
+    // index) unless ListAllFiles is set — a listed file that can't be read is
+    // misleading. See Impl::filterUnavailableInListings().
+    bool const filterUnavailable = m_impl->filterUnavailableInListings();
+
     EnumerateEntry fe;
     m_impl->root->enumerate([&](const RootEntry& re) -> bool {
+        if (filterUnavailable && !m_impl->isRootEntryAvailableLocally(re))
+            return true; // skip: known to the root but not downloaded locally
         fe.cKey = re.cKey;
         fe.fileSize = re.fileSize;
         // Lazy mode skips pre-resolveEntries — fall back per call.
@@ -1277,6 +1284,8 @@ void Storage::enumerate(std::function<bool(const EnumerateEntry&)> callback) con
             continue;
         if (i < m_impl->m_encodingReferenced.size() && m_impl->m_encodingReferenced[i])
             continue;
+        if (filterUnavailable && !m_impl->isEKeyAvailableLocally(enc.eKey))
+            continue; // orphan blob present only on the CDN
 
         for (int j = 0; j < 16; ++j) {
             hexBuf[j * 2] = kHex[enc.cKey[j] >> 4];
@@ -1395,6 +1404,8 @@ void Storage::enumerate(const std::string& mask,
     std::string_view pureSuffix = extractPureSuffix(normMask);
     std::string_view prefix = extractPrefix(normMask);
 
+    bool const filterUnavailable = m_impl->filterUnavailableInListings();
+
     EnumerateEntry fe;
     auto rootCallback = [&](const RootEntry& re) -> bool {
         if (!prefix.empty()) {
@@ -1409,6 +1420,9 @@ void Storage::enumerate(const std::string& mask,
                                                : wildcardMatch(normMask, re.path);
         if (!match)
             return true;
+
+        if (filterUnavailable && !m_impl->isRootEntryAvailableLocally(re))
+            return true; // known but not downloaded locally
 
         fe.cKey = re.cKey;
         fe.fileSize = re.fileSize;
@@ -1451,6 +1465,8 @@ void Storage::enumerate(const std::string& mask,
         std::string_view const hexPath(hexBuf, 32);
         if (!wildcardMatch(normMask, hexPath))
             continue;
+        if (filterUnavailable && !m_impl->isEKeyAvailableLocally(enc.eKey))
+            continue; // orphan blob present only on the CDN
 
         fe.cKey = enc.cKey;
         fe.fileSize = enc.fileSize;
@@ -1474,9 +1490,13 @@ std::vector<std::string> Storage::listFiles() const {
     if (!m_impl->ensureLoaded())
         return result;
     std::shared_lock const lock(m_impl->mutex);
+    bool const filterUnavailable = m_impl->filterUnavailableInListings();
     m_impl->root->enumerate([&](const RootEntry& re) -> bool {
-        if (!re.path.empty())
-            result.push_back(re.path);
+        if (re.path.empty())
+            return true;
+        if (filterUnavailable && !m_impl->isRootEntryAvailableLocally(re))
+            return true; // known but not downloaded locally
+        result.push_back(re.path);
         return true;
     });
     return result;

@@ -146,7 +146,7 @@ struct ParticleEmitter {
     u32 collisionDieBounce = 0;      ///< Die after N bounces
 
     // Instance
-    ParticleInstanceType instanceType = ParticleInstanceType::Billboard; ///< Visual type
+    ParticleInstanceType instanceType = ParticleInstanceType::Billboard; ///< Visual type → shader b_iInstanceType
     f32 tailLength = 1.0f;       ///< Tail length for Tail/Trail types
     Vector3f instanceAngle;      ///< Instance orientation angles
     f32 instanceDistance = 1.0f; ///< Instance distance (v17+)
@@ -188,11 +188,13 @@ struct ParticleEmitter {
     ParticleFlag flags = ParticleFlag::None;                         ///< Main particle flags
     ParticleRotationFlag rotationFlags = ParticleRotationFlag::None; ///< Rotation flags (v18+)
 
-    // Smoothing (v14+)
-    InterpolationMode colorSmoothing = InterpolationMode::Linear; ///< Color interpolation mode
-    InterpolationMode sizeSmoothing = InterpolationMode::Linear;  ///< Size interpolation mode
+    // Smoothing (v14+) — drive the Particle.fx interpolation permutations
+    InterpolationMode colorSmoothing =
+        InterpolationMode::Linear; ///< Color interpolation → shader b_iParticleColorInterpolation
+    InterpolationMode sizeSmoothing =
+        InterpolationMode::Linear; ///< Size interpolation → shader b_iParticleSizeInterpolation
     InterpolationMode rotationSmoothing =
-        InterpolationMode::Linear; ///< Rotation interpolation mode
+        InterpolationMode::Linear; ///< Rotation interpolation → shader b_iParticleRotationInterpolation
 
     // UV Screen Space (v17+)
     AnimRef<f32> alphaThreshold; ///< Animated alpha threshold

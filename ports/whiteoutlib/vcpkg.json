@@ -5,11 +5,14 @@
     "homepage": "https://github.com/fsahmkow/WhiteoutLib",
     "license": "BSD-3-Clause",
     "supports": "!uwp",
-    "dependencies": [
-        "zlib-ng"
-    ],
     "default-features": [],
     "features": {
+        "zlib-ng": {
+            "description": "Use zlib-ng as the DEFLATE backend (faster compression/decompression; adds a zlib-ng dependency). Without this feature the dependency-free built-in codec is used.",
+            "dependencies": [
+                "zlib-ng"
+            ]
+        },
         "casc": {
             "description": "Enable CASC archive support (Blizzard's modern format used by WoW, Diablo III/IV, StarCraft II, …)"
         },

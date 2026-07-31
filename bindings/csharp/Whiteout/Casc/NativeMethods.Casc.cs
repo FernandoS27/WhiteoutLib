@@ -88,6 +88,10 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_casc_CascStorage_open_path_product_pool([MarshalAs(UnmanagedType.LPUTF8Str)] string path, [MarshalAs(UnmanagedType.LPUTF8Str)] string product, IntPtr pool);
+
+
+    [LibraryImport(Runtime.LibraryName)]
     internal static partial void whiteout_casc_CascStorage_close(IntPtr self);
 
 

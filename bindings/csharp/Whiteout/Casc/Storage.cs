@@ -63,6 +63,14 @@ public sealed class Storage : WhiteoutHandle
     }
 
 
+    /// <summary>@overload Open a specific product from a multi-product `.build.info`. @param product Product code selecting the build, e.g. "w3" (Warcraft III retail) vs "w3t" (its PTR). Matched case-insensitively against the active builds; empty selects the first active build. See OpenOptions::product. Open fails if the product has no active build.</summary>
+    public static Storage? OpenPathProductPool(string path, string product, Whiteout.Host.WorkerPool pool)
+    {
+        var __h = NativeMethods.whiteout_casc_CascStorage_open_path_product_pool(path, product, pool.DangerousGet());
+        return __h == IntPtr.Zero ? null : new Storage(__h);
+    }
+
+
     /// <summary>Release all resources and invalidate the storage.</summary>
     public new void Close()
     {

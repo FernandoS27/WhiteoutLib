@@ -158,6 +158,13 @@ struct whiteout_CascStorage* whiteout_casc_CascStorage_open_path_localeMask_pool
         new whiteout::storages::casc::Storage(std::move(*__r)));
 }
 
+struct whiteout_CascStorage* whiteout_casc_CascStorage_open_path_product_pool(const char* path, const char* product, void* pool) {
+    auto __r = whiteout::storages::casc::Storage::open(std::string(path ? path : ""), std::string(product ? product : ""), reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool));
+    if (!__r) return nullptr;
+    return reinterpret_cast<struct whiteout_CascStorage*>(
+        new whiteout::storages::casc::Storage(std::move(*__r)));
+}
+
 void whiteout_casc_CascStorage_close(whiteout_CascStorage* self) {
     reinterpret_cast<whiteout::storages::casc::Storage*>(self)->close();
 }

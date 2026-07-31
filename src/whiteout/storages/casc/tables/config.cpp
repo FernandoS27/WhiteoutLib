@@ -156,6 +156,20 @@ std::vector<BuildInfo> parseBuildInfo(std::span<const u8> data) {
     return results;
 }
 
+std::string parseFlavorInfo(std::span<const u8> data) {
+    auto table = parseTsv(data);
+    if (table.rows.empty())
+        return {};
+    for (size_t i = 0; i < table.columns.size(); ++i) {
+        if (table.columns[i] == "Product Flavor") {
+            const auto& row = table.rows.front();
+            if (i < row.size())
+                return std::string(row[i]);
+        }
+    }
+    return {};
+}
+
 // ============================================================================
 // Build Config + CDN Config (shared key=value parser)
 // ============================================================================

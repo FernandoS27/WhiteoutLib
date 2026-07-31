@@ -109,6 +109,36 @@ public final class Storage implements AutoCloseable {
     }
 
     /**
+     * @overload Open a specific product from a multi-product `.build.info`. @param product Product code selecting the build, e.g. "w3" (Warcraft III retail) vs "w3t" (its PTR). Matched case-insensitively against the active builds; empty selects the first active build. See OpenOptions::product. Open fails if the product has no active build.
+     *
+     * @param path String input.
+     * @param product String input.
+     * @param pool WorkerPool input.
+     * @return a fresh java.util.Optional<Storage> owning a native allocation.
+     */
+    public static java.util.Optional<Storage> open(String path, String product, whiteout.interfaces.WorkerPool pool) {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment path_seg = path == null
+                ? MemorySegment.NULL
+                : arena.allocateFrom(path, StandardCharsets.UTF_8);
+            MemorySegment product_seg = product == null
+                ? MemorySegment.NULL
+                : arena.allocateFrom(product, StandardCharsets.UTF_8);
+            long __pool_h = pool == null ? 0L
+                : whiteout.host.WorkerPools.resolveNative(pool, pool);
+            MemorySegment __pool_seg = __pool_h == 0L
+                ? MemorySegment.NULL : MemorySegment.ofAddress(__pool_h);
+            try {
+                MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_open_path_product_pool, path_seg, product_seg, __pool_seg);
+                if (__h == null || __h.equals(MemorySegment.NULL)) return java.util.Optional.empty();
+                return java.util.Optional.of(new Storage(__h, true));
+            } finally {
+                java.lang.ref.Reference.reachabilityFence(pool);
+            }
+        }
+    }
+
+    /**
      * @return True if this storage reads from local disk.
      */
     public boolean isLocal() {

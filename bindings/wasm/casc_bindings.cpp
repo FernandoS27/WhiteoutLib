@@ -100,6 +100,13 @@ EMSCRIPTEN_BINDINGS(casc) {
                       whiteout::interfaces::WorkerPool* pool) {
                       return whiteout::wasm::to_optional_ptr<whiteout::storages::casc::Storage>(whiteout::storages::casc::Storage::open(path, localeMask, pool));
                   }), allow_raw_pointers())
+        .class_function("open_path_product_pool",
+                  optional_override([](
+                      const std::string& path,
+                      const std::string& product,
+                      whiteout::interfaces::WorkerPool* pool) {
+                      return whiteout::wasm::to_optional_ptr<whiteout::storages::casc::Storage>(whiteout::storages::casc::Storage::open(path, product, pool));
+                  }), allow_raw_pointers())
         .class_function("open_opts",
                   optional_override([](
                       const whiteout::storages::casc::OpenOptions& opts) {

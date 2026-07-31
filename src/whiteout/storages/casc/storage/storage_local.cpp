@@ -277,6 +277,15 @@ std::optional<Storage> Storage::open(const std::string& path, std::string* error
     return open(opts);
 }
 
+std::optional<Storage> Storage::open(const std::string& path, const std::string& product,
+                                     interfaces::WorkerPool* pool) {
+    OpenOptions opts;
+    opts.path = path;
+    opts.product = product;
+    opts.pool = pool;
+    return open(opts);
+}
+
 std::optional<Storage> Storage::open(const OpenOptions& opts) {
     namespace fs = std::filesystem;
     s_lastError = kOk;
@@ -284,6 +293,25 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     // Determine basePath and dataPath.
     std::string basePath = opts.path;
     std::string dataPath;
+
+    // Flavor subdirectory (e.g. ".../Warcraft III/_ptr_"): its `.flavor.info`
+    // names the product, but the shared `.build.info` + `Data` live in the
+    // parent. Read the flavor code and resolve the real storage from the parent.
+    std::string flavorProduct;
+    if (fs::exists(basePath + "/.flavor.info")) {
+        std::string flavErr;
+        if (auto flav = storages::common::readFileFully(basePath + "/.flavor.info", &flavErr))
+            flavorProduct = parseFlavorInfo(*flav);
+        bool const hasOwnStorage = fs::exists(basePath + "/.build.info") ||
+                                   fs::exists(basePath + "/Data") ||
+                                   fs::exists(basePath + "/data");
+        if (!hasOwnStorage) {
+            std::string const parent = fs::path(basePath).parent_path().string();
+            if (!parent.empty() && (fs::exists(parent + "/.build.info") ||
+                                    fs::exists(parent + "/Data") || fs::exists(parent + "/data")))
+                basePath = parent;
+        }
+    }
 
     auto leaf = fs::path(basePath).filename().string();
     std::transform(leaf.begin(), leaf.end(), leaf.begin(), ::tolower);
@@ -354,8 +382,11 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
         return std::nullopt;
     }
 
-    // Select active build.
+    // Select the build to open. Precedence: explicit build key → product code
+    // → first active → first row.
     const BuildInfo* activeBuild = nullptr;
+
+    // 1. Exact build key (most specific).
     if (!opts.buildKey.empty()) {
         for (auto& b : builds) {
             if (storages::common::hexEncode16(b.buildKey) == opts.buildKey) {
@@ -364,6 +395,32 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
             }
         }
     }
+
+    // 2. Product code name, e.g. "w3" (retail) vs "w3t" (PTR). An explicit
+    //    OpenOptions::product wins; otherwise a flavor subdirectory's
+    //    `.flavor.info` supplies it. Matched case-insensitively among active
+    //    builds — mirrors CascLib's code name. A specified-but-absent product is
+    //    a hard error, so the caller never silently gets the wrong build (e.g.
+    //    retail when asking for PTR).
+    std::string const productCode = !opts.product.empty() ? opts.product : flavorProduct;
+    if (!activeBuild && !productCode.empty()) {
+        std::string const wanted = storages::common::toLower(productCode);
+        for (auto& b : builds) {
+            if (b.active && storages::common::toLower(b.product) == wanted) {
+                activeBuild = &b;
+                break;
+            }
+        }
+        if (!activeBuild) {
+            s_lastError = kBuildInfoNotFound;
+            if (opts.errorOut)
+                *opts.errorOut = "No active build with product '" + productCode +
+                                 "' in '.build.info' (" + buildInfoPath + ")";
+            return std::nullopt;
+        }
+    }
+
+    // 3. First active build.
     if (!activeBuild) {
         for (auto& b : builds) {
             if (b.active) {
@@ -372,6 +429,8 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
             }
         }
     }
+
+    // 4. Fallback: first row.
     if (!activeBuild)
         activeBuild = &builds[0];
 

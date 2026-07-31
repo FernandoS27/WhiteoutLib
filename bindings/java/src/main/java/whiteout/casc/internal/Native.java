@@ -54,6 +54,8 @@ public final class Native {
         "whiteout_casc_CascStorage_open", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_casc_CascStorage_open_path_localeMask_pool = find(
         "whiteout_casc_CascStorage_open_path_localeMask_pool", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_casc_CascStorage_open_path_product_pool = find(
+        "whiteout_casc_CascStorage_open_path_product_pool", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_casc_CascStorage_isLocal = find(
         "whiteout_casc_CascStorage_isLocal", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_casc_CascStorage_isOnline = find(
