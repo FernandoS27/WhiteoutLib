@@ -6,11 +6,13 @@
 # resolves cleanly.
 include(CMakeFindDependencyMacro)
 
-# zlib-ng backs the DEFLATE codec and is a PUBLIC link dependency of
-# whiteout_lib. Whether WhiteoutLib was built against the bundled submodule
-# (installed alongside, providing its own zlib-ng CONFIG package) or a system
-# zlib-ng (e.g. vcpkg), the imported target is rediscovered the same way here.
-find_dependency(zlib-ng CONFIG)
+# zlib-ng is an OPTIONAL DEFLATE backend. When WhiteoutLib was built with
+# WHITEOUT_USE_ZLIBNG=ON it is a PUBLIC link dependency of whiteout_lib, so the
+# imported target is rediscovered here (bundled-and-installed or system/vcpkg
+# alike). When built with the in-house codec there is no such dependency.
+if(@WHITEOUT_USE_ZLIBNG@)
+    find_dependency(zlib-ng CONFIG)
+endif()
 
 if(@CURL_FOUND@)
     find_dependency(CURL)

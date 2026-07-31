@@ -1,0 +1,4 @@
+# Cargo build outputs. The workspace Cargo.lock is intentionally not
+# committed: this is a library, so downstream resolves its own versions.
+target/
+Cargo.lock

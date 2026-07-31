@@ -61,7 +61,8 @@ def main(argv: list[str] | None = None) -> int:
                             'c-header', 'c-source',
                             'c-common', 'c-common-header',
                             'java', 'java-common', 'jni',
-                            'csharp', 'csharp-common'],
+                            'csharp', 'csharp-common',
+                            'rust-abi-header', 'rust-abi-source', 'rust-math', 'rust'],
                    default='embind')
     p.add_argument('--repo-root', default=Path(__file__).resolve().parents[2],
                    type=lambda s: Path(s).resolve(),
@@ -69,6 +70,21 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument('--stdout', action='store_true',
                    help='Print to stdout instead of overwriting the module output path')
     args = p.parse_args(argv)
+
+    # The Rust value ABI is module-independent (it covers the shared math
+    # types), so short-circuit before paying for a libclang parse.
+    if args.backend in ('rust-abi-header', 'rust-abi-source'):
+        from tools.codegen import emit_rust_abi
+        if args.backend == 'rust-abi-header':
+            return _write(args, 'bindings/c/whiteout_v.h',
+                          emit_rust_abi.emit_header())
+        return _write(args, 'bindings/c/whiteout_v.cpp',
+                      emit_rust_abi.emit_source())
+
+    if args.backend == 'rust-math':
+        from tools.codegen import emit_rust
+        return _write(args, 'bindings/rust/whiteout/src/math.rs',
+                      emit_rust.emit_math())
 
     config = _load_module_config(args.module)
 
@@ -130,6 +146,10 @@ def main(argv: list[str] | None = None) -> int:
         from tools.codegen import emit_csharp
         files = emit_csharp.emit_common()
         return _write_files(args, files)
+    elif args.backend == 'rust':
+        from tools.codegen import emit_rust
+        return _write(args, f'bindings/rust/whiteout/src/{config.name}.rs',
+                      emit_rust.emit_module(module))
     else:  # dts
         from tools.codegen import emit_dts as emitter
         out_rel = (config.dts_output_path

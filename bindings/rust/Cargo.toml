@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: BSD-3-Clause
+[workspace]
+resolver = "2"
+members = ["whiteout"]
+
+[workspace.package]
+version      = "0.1.0"
+edition      = "2021"
+rust-version = "1.70"
+license      = "BSD-3-Clause"
+authors      = ["Fernando Sahmkow <fsahmkow27@gmail.com>"]
+repository   = "https://github.com/Sahmkow/WhiteoutLib"

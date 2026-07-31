@@ -18,17 +18,19 @@ vcpkg_from_github(
 
 vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
     FEATURES
-        casc  WHITEOUT_ENABLE_CASC
-        mpq   WHITEOUT_ENABLE_MPQ
-        curl  WHITEOUT_ENABLE_CURL_HTTP
+        casc     WHITEOUT_ENABLE_CASC
+        mpq      WHITEOUT_ENABLE_MPQ
+        curl     WHITEOUT_ENABLE_CURL_HTTP
+        zlib-ng  WHITEOUT_USE_ZLIBNG
 )
 
 vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS
         ${FEATURE_OPTIONS}
-        # Use vcpkg's zlib-ng (declared as a port dependency) rather than the
-        # bundled submodule, which is absent from the GitHub source archive.
+        # When the zlib-ng feature is on, use vcpkg's zlib-ng (pulled in as that
+        # feature's dependency) rather than the bundled submodule, which is
+        # absent from the GitHub source archive. Inert when the feature is off.
         -DWHITEOUT_USE_SYSTEM_ZLIBNG=ON
         # Bindings are for the upstream FFI consumers (Python/Java/WASM);
         # vcpkg users want the C++ library only, so disable everything else.

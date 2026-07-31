@@ -15,6 +15,7 @@ endif()
 
 set(_whiteout_c_sources
     whiteout_c_common.cpp
+    whiteout_v.cpp
     whiteout_textures.cpp
     whiteout_mdx.cpp
     whiteout_m2.cpp
@@ -118,3 +119,34 @@ set_target_properties(whiteout_c PROPERTIES
 # `whiteout_native` name. All language bindings (Java FFM, C# P/Invoke,
 # Python `ctypes`, Rust, etc.) reference the same artefact.
 set_target_properties(whiteout_c PROPERTIES OUTPUT_NAME whiteout_native)
+
+# Static sibling for consumers that would rather not ship a loose DLL —
+# Rust in particular, where `cargo build` producing a self-contained
+# binary is the expectation rather than the exception. Same sources, same
+# flags; only the linkage differs. The JNI bridge is deliberately excluded
+# (a static JVM upcall library makes no sense).
+if(WHITEOUT_BUILD_C_STATIC)
+    add_library(whiteout_c_static STATIC ${_whiteout_c_sources})
+    target_link_libraries(whiteout_c_static PUBLIC whiteout_lib)
+    if(WHITEOUT_ENABLE_MPQ)
+        target_link_libraries(whiteout_c_static PUBLIC whiteout_mpq)
+    endif()
+    if(WHITEOUT_ENABLE_CASC)
+        target_link_libraries(whiteout_c_static PUBLIC whiteout_casc)
+    endif()
+    target_include_directories(whiteout_c_static PUBLIC
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    target_compile_features(whiteout_c_static PRIVATE cxx_std_20)
+    if(MSVC)
+        target_compile_options(whiteout_c_static PRIVATE /EHs-c- /D_HAS_EXCEPTIONS=0)
+    else()
+        target_compile_options(whiteout_c_static PRIVATE -fno-exceptions)
+    endif()
+    set_target_properties(whiteout_c_static PROPERTIES
+        ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/c-dist"
+        OUTPUT_NAME whiteout_native_static
+        POSITION_INDEPENDENT_CODE ON
+    )
+endif()
