@@ -1,7 +1,39 @@
 # whiteoutlib
 
-Rust bindings for [WhiteoutLib](https://github.com/Sahmkow/WhiteoutLib) —
-parsers and writers for Blizzard model and texture formats.
+**Read and write the file formats Blizzard games use for their art assets —
+from Rust.**
+
+If you are writing a model viewer, an asset converter, a datamining tool or
+a modding pipeline, this crate turns those formats into ordinary Rust data
+you can walk, edit and write back out.
+
+- **Models** — MDX (Warcraft III), M2 (World of Warcraft), M3 (StarCraft II,
+  Heroes of the Storm): geometry, bones, animation tracks, materials,
+  cameras, particle emitters.
+- **Textures** — BLP, DDS, PNG, JPEG, BMP, TGA, TIFF, GIF: decode, convert
+  between pixel formats including the BCn family, generate mipmaps,
+  re-encode.
+- **Archives** — CASC and MPQ, so you can read assets straight out of a
+  game installation.
+
+```no_run
+use whiteout::textures::{BlpParser, PixelFormat, PngWriter};
+
+// A Warcraft III texture, converted to PNG.
+let blp = std::fs::read("Textures/Arthas.blp")?;
+let mut texture = BlpParser::new().parse(&blp).expect("not a BLP");
+texture.convert_to(PixelFormat::RGBA8);
+std::fs::write("arthas.png", &PngWriter::new().write(&texture))?;
+# Ok::<(), std::io::Error>(())
+```
+
+Vertex and pixel data is borrowed directly out of the underlying buffers, so
+reading a model's geometry copies nothing — see [Reading
+models](#reading-models).
+
+This crate wraps [WhiteoutLib](https://github.com/FernandoS27/WhiteoutLib),
+a C++20 library, and is generated from the same headers it wraps, so the two
+cannot drift apart. The C++ is bundled and built for you.
 
 | Module | Covers |
 |---|---|
@@ -118,19 +150,6 @@ geoset.vertex_positions_mut()[0].z = 1.0;   // writes into C++ memory
 
 That is safe because the slice borrows the model: the compiler rejects a
 resize, a second view, or a drop of the owner while it is alive.
-
-## Textures
-
-```no_run
-use whiteout::textures::{BlpParser, PixelFormat, PngWriter};
-
-let blp = std::fs::read("textures/arthas.blp")?;
-let mut texture = BlpParser::new().parse(&blp).expect("not a BLP");
-texture.convert_to(PixelFormat::RGBA8);
-let png = PngWriter::new().write(&texture);
-std::fs::write("arthas.png", &png)?;
-# Ok::<(), std::io::Error>(())
-```
 
 ## Implementing the library's interfaces
 

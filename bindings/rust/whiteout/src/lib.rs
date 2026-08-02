@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
-//! Rust bindings for [WhiteoutLib](https://github.com/Sahmkow/WhiteoutLib) —
-//! parsers and writers for Blizzard model and texture formats.
-//!
+// The README is the crate overview, and it comes first: doc attributes and
+// `//!` comments concatenate in source order, so this must precede the
+// block below or the landing page opens on implementation detail.
+#![doc = include_str!("../README.md")]
+
 //! # Layout contract
 //!
 //! Value types such as [`math::Vector3f`] are `#[repr(C)]` mirrors of their
@@ -50,8 +52,6 @@
 //! C# and C++ can only document these hazards; here they are compile
 //! errors, which is what makes handing out the raw buffer reasonable.
 
-// The README is the crate docs, so its examples are compiled.
-#![doc = include_str!("../README.md")]
 #![deny(unsafe_op_in_unsafe_fn)]
 #![warn(missing_debug_implementations)]
 

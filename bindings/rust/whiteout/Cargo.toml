@@ -5,7 +5,7 @@
 # short name (see [lib] below), so callers still write `use whiteout::…`.
 [package]
 name         = "whiteoutlib"
-description  = "Parsers and writers for Blizzard model and texture formats (MDX, M2, M3, BLP, DDS, PNG)."
+description  = "Read and write Blizzard game assets from Rust: models (MDX, M2, M3), textures (BLP, DDS, PNG, JPEG, BMP, TGA, TIFF, GIF) and archives (CASC, MPQ)."
 keywords     = ["wow", "warcraft", "starcraft", "mdx", "blp"]
 categories   = ["game-development", "parser-implementations"]
 readme       = "README.md"
@@ -22,6 +22,7 @@ rust-version.workspace = true
 license.workspace      = true
 authors.workspace      = true
 repository.workspace   = true
+documentation          = "https://docs.rs/whiteoutlib"
 
 # What ships in the .crate. The vendored C++ tree is staged into `native/`
 # by scripts/pack-rust.ps1 before packaging; in a plain checkout it is

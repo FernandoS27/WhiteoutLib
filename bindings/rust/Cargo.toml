@@ -8,9 +8,9 @@ members = ["whiteout"]
 # and a breaking C++ API change bumps the minor. Once the library tags 1.0
 # the crate follows with 1.0 and normal semver.
 [workspace.package]
-version      = "0.1.0"
+version      = "0.1.1"
 edition      = "2021"
 rust-version = "1.70"
 license      = "BSD-3-Clause"
 authors      = ["Fernando Sahmkow <fsahmkow27@gmail.com>"]
-repository   = "https://github.com/Sahmkow/WhiteoutLib"
+repository   = "https://github.com/FernandoS27/WhiteoutLib"
