@@ -11,6 +11,13 @@ categories   = ["game-development", "parser-implementations"]
 readme       = "README.md"
 version.workspace      = true
 edition.workspace      = true
+# This crate is the sole owner of the whiteout native library. Cargo allows
+# one provider of a given `links` name per graph, so a second crate that
+# builds its own copy of the C++ is now a build error instead of ~1,551
+# duplicate C++ symbols that the linker silently picks a winner for.
+# Dependents link *this* library, using the metadata build.rs publishes
+# (see its header) — `links` is also what makes that metadata visible.
+links                  = "whiteout_native"
 rust-version.workspace = true
 license.workspace      = true
 authors.workspace      = true

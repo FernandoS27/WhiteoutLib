@@ -12,12 +12,36 @@
 //
 // docs.rs has no C++ toolchain, so the whole thing is skipped there; the
 // crate still type-checks and documents.
+//
+// This crate declares `links = "whiteout_native"`, which makes it the only
+// crate in a build graph allowed to provide the native library — and lets
+// the keys below reach dependent build scripts, which read them as
+// environment variables. They are a compatibility surface: adding is fine,
+// renaming or removing breaks dependents.
+//
+//   cargo:lib_dir=<path>   DEP_WHITEOUT_NATIVE_LIB_DIR
+//                          directory holding whiteout_native_static
+//   cargo:include=<path>   DEP_WHITEOUT_NATIVE_INCLUDE
+//                          include root for the C++ headers (<whiteout/…>).
+//                          Omitted when a prebuilt library was given with no
+//                          headers alongside it and no WHITEOUT_INCLUDE_DIR.
+//   cargo:has_casc=0|1     DEP_WHITEOUT_NATIVE_HAS_CASC
+//   cargo:has_mpq=0|1      DEP_WHITEOUT_NATIVE_HAS_MPQ
+//                          the configuration this library was actually built
+//                          with, so a dependent can match it rather than
+//                          guess from its own features.
+//
+// Emitted on every path that yields a usable library. A dependent that only
+// calls into Rust needs none of it — linking this crate's rlib already
+// pulls the native library in. It is for a dependent with its own C++ that
+// must compile against the same headers and link the same archive.
 
 use std::env;
 use std::path::{Path, PathBuf};
 
 fn main() {
     println!("cargo:rerun-if-env-changed=WHITEOUT_LIB_DIR");
+    println!("cargo:rerun-if-env-changed=WHITEOUT_INCLUDE_DIR");
     println!("cargo:rerun-if-env-changed=WHITEOUT_STATIC");
 
     // docs.rs builds documentation only — nothing to link against.
@@ -57,6 +81,29 @@ fn main() {
     }
 }
 
+/// Tell dependent build scripts how to link this library instead of
+/// building their own. See the header for the key list.
+fn publish(lib_dir: &Path, include_dir: Option<&Path>) {
+    println!("cargo:lib_dir={}", lib_dir.display());
+    if let Some(inc) = include_dir {
+        println!("cargo:include={}", inc.display());
+    }
+    println!("cargo:has_casc={}", u8::from(cfg!(feature = "casc")));
+    println!("cargo:has_mpq={}", u8::from(cfg!(feature = "mpq")));
+}
+
+/// Where the headers live for a prebuilt library: stated outright, or in the
+/// usual spot next to a `lib/` directory.
+fn prebuilt_include(lib_dir: &Path) -> Option<PathBuf> {
+    if let Some(dir) = env::var_os("WHITEOUT_INCLUDE_DIR") {
+        return Some(PathBuf::from(dir));
+    }
+    [lib_dir.join("..").join("include"), lib_dir.join("include")]
+        .into_iter()
+        .find(|p| p.join("whiteout").is_dir())
+        .map(simplify)
+}
+
 fn want_static() -> bool {
     env::var("WHITEOUT_STATIC")
         .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
@@ -77,6 +124,8 @@ fn link_prebuilt(dir: PathBuf) {
     } else {
         println!("cargo:rustc-link-lib=dylib=whiteout_native");
     }
+    let include = prebuilt_include(&dir);
+    publish(&dir, include.as_deref());
 }
 
 /// The bundled C++ tree: `native/` in a published crate, or the repository
@@ -170,6 +219,9 @@ fn build_vendored() {
     println!("cargo:rustc-link-lib=static=whiteout_native_static");
     link_static_deps(&dst);
     link_cxx_runtime();
+    // The headers come from the tree we just built, not from `dst`: the C
+    // target is built directly, without an install step.
+    publish(&dir, Some(&src.join("include")));
 }
 
 /// Static archives the C target depends on but does not absorb.
@@ -213,12 +265,18 @@ fn pkg_config_probe() -> bool {
     match out {
         Ok(o) if o.status.success() => {
             let flags = String::from_utf8_lossy(&o.stdout).to_string();
+            let mut lib_dir = None;
             for tok in flags.split_whitespace() {
                 if let Some(p) = tok.strip_prefix("-L") {
                     println!("cargo:rustc-link-search=native={p}");
+                    lib_dir.get_or_insert_with(|| PathBuf::from(p));
                 } else if let Some(l) = tok.strip_prefix("-l") {
                     println!("cargo:rustc-link-lib=dylib={l}");
                 }
+            }
+            if let Some(dir) = lib_dir {
+                let include = prebuilt_include(&dir);
+                publish(&dir, include.as_deref());
             }
             true
         }
