@@ -270,3 +270,59 @@ fn m2_nested_vector_of_handles_borrows_each_element() {
         Vector3f::new(1.0, 2.0, 3.0)
     );
 }
+
+// ── Fixed-size arrays are bounds-checked (regression) ─────────────────────
+//
+// `TypeRef.array_size` carries the extent of a fixed C++ array, and the
+// emitter ignored it: the accessors indexed straight through to
+// `&self->arr[index]`, so an out-of-range index was undefined behaviour
+// reachable from entirely safe Rust. 19 fields were affected, including
+// M2Vertex's bone weights and indices — exactly what a skinning loop
+// touches.
+
+#[test]
+fn array_accessors_report_their_length() {
+    use whiteout::m2;
+    assert_eq!(m2::Vertex::bone_weights_len(), 4);
+    assert_eq!(m2::Vertex::bone_indices_len(), 4);
+    assert_eq!(m2::Vertex::tex_coords_len(), 2);
+}
+
+#[test]
+fn arrays_round_trip_within_bounds() {
+    use whiteout::m2;
+
+    let mut v = m2::Vertex::new();
+    for i in 0..m2::Vertex::bone_weights_len() {
+        v.set_bone_weights(i, (i as u8 + 1) * 10);
+    }
+    for i in 0..m2::Vertex::bone_weights_len() {
+        assert_eq!(v.bone_weights(i), (i as u8 + 1) * 10);
+    }
+}
+
+#[test]
+#[should_panic(expected = "out of range")]
+fn reading_past_an_array_panics_instead_of_reading_oob() {
+    use whiteout::m2;
+    let v = m2::Vertex::new();
+    // Previously this read one element past the end of a 4-byte array.
+    let _ = v.bone_weights(4);
+}
+
+#[test]
+#[should_panic(expected = "out of range")]
+fn writing_past_an_array_panics_instead_of_corrupting_memory() {
+    use whiteout::m2;
+    let mut v = m2::Vertex::new();
+    // Previously this wrote one element past the end.
+    v.set_bone_weights(4, 0xFF);
+}
+
+#[test]
+#[should_panic(expected = "out of range")]
+fn math_typed_arrays_are_checked_too() {
+    use whiteout::mdx;
+    let e = mdx::ParticleEmitter2::new();
+    let _ = e.segment_color(3); // len is 3
+}

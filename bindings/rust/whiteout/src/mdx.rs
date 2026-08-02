@@ -5596,16 +5596,23 @@ impl ParticleEmitter2 {
     }
 
     /// Color at start/middle/end
-    pub fn segment_color_len() -> usize {
-        // SAFETY: a compile-time constant on the native side.
-        unsafe { ffi::whiteout_mdx_MdxParticleEmitter2_segmentColor_size() }
+    /// Number of elements — a fixed-size C++ array.
+    pub const fn segment_color_len() -> usize {
+        3
     }
 
+    /// # Panics
+    /// If `index >= 3`, matching Rust slice indexing. The
+    /// native accessor does no bounds checking of its own, so
+    /// this check is what keeps the method safe to call.
     pub fn segment_color(&self, index: usize) -> crate::math::Vector3f {
-        // SAFETY: the getter returns an interior pointer to a
-        // layout-identical POD, copied out immediately. The
-        // native side does not bounds-check, so callers stay
-        // within `segment_color_len()`.
+        assert!(
+            index < 3,
+            "segment_color index {index} out of range (len 3)"
+        );
+        // SAFETY: index checked above; the getter returns an
+        // interior pointer to a layout-identical POD, copied
+        // out immediately.
         unsafe {
             *(ffi::whiteout_mdx_MdxParticleEmitter2_get_segmentColor_at(self.raw.as_ptr(), index)
                 as *const crate::math::Vector3f)
@@ -5613,21 +5620,32 @@ impl ParticleEmitter2 {
     }
 
     /// Alpha at start/middle/end
-    pub fn segment_alpha_len() -> usize {
-        // SAFETY: a compile-time constant on the native side.
-        unsafe { ffi::whiteout_mdx_MdxParticleEmitter2_segmentAlpha_size() }
+    /// Number of elements — a fixed-size C++ array.
+    pub const fn segment_alpha_len() -> usize {
+        3
     }
 
+    /// # Panics
+    /// If `index >= 3`, matching Rust slice indexing.
     pub fn segment_alpha(&self, index: usize) -> u8 {
-        // SAFETY: scalar read. The native side does not bounds-
-        // check, so callers stay within `segment_alpha_len()`.
+        assert!(
+            index < 3,
+            "segment_alpha index {index} out of range (len 3)"
+        );
+        // SAFETY: index checked above; plain scalar read.
         unsafe {
             ffi::whiteout_mdx_MdxParticleEmitter2_get_segmentAlpha_at(self.raw.as_ptr(), index)
         }
     }
 
+    /// # Panics
+    /// If `index >= 3`.
     pub fn set_segment_alpha(&mut self, index: usize, value: u8) {
-        // SAFETY: as above.
+        assert!(
+            index < 3,
+            "segment_alpha index {index} out of range (len 3)"
+        );
+        // SAFETY: index checked above.
         unsafe {
             ffi::whiteout_mdx_MdxParticleEmitter2_set_segmentAlpha_at(
                 self.raw.as_ptr(),
@@ -5638,21 +5656,32 @@ impl ParticleEmitter2 {
     }
 
     /// Scale at start/middle/end
-    pub fn segment_scaling_len() -> usize {
-        // SAFETY: a compile-time constant on the native side.
-        unsafe { ffi::whiteout_mdx_MdxParticleEmitter2_segmentScaling_size() }
+    /// Number of elements — a fixed-size C++ array.
+    pub const fn segment_scaling_len() -> usize {
+        3
     }
 
+    /// # Panics
+    /// If `index >= 3`, matching Rust slice indexing.
     pub fn segment_scaling(&self, index: usize) -> f32 {
-        // SAFETY: scalar read. The native side does not bounds-
-        // check, so callers stay within `segment_scaling_len()`.
+        assert!(
+            index < 3,
+            "segment_scaling index {index} out of range (len 3)"
+        );
+        // SAFETY: index checked above; plain scalar read.
         unsafe {
             ffi::whiteout_mdx_MdxParticleEmitter2_get_segmentScaling_at(self.raw.as_ptr(), index)
         }
     }
 
+    /// # Panics
+    /// If `index >= 3`.
     pub fn set_segment_scaling(&mut self, index: usize, value: f32) {
-        // SAFETY: as above.
+        assert!(
+            index < 3,
+            "segment_scaling index {index} out of range (len 3)"
+        );
+        // SAFETY: index checked above.
         unsafe {
             ffi::whiteout_mdx_MdxParticleEmitter2_set_segmentScaling_at(
                 self.raw.as_ptr(),
@@ -5663,21 +5692,32 @@ impl ParticleEmitter2 {
     }
 
     /// Head lifetime intervals
-    pub fn head_interval_len() -> usize {
-        // SAFETY: a compile-time constant on the native side.
-        unsafe { ffi::whiteout_mdx_MdxParticleEmitter2_headInterval_size() }
+    /// Number of elements — a fixed-size C++ array.
+    pub const fn head_interval_len() -> usize {
+        3
     }
 
+    /// # Panics
+    /// If `index >= 3`, matching Rust slice indexing.
     pub fn head_interval(&self, index: usize) -> u32 {
-        // SAFETY: scalar read. The native side does not bounds-
-        // check, so callers stay within `head_interval_len()`.
+        assert!(
+            index < 3,
+            "head_interval index {index} out of range (len 3)"
+        );
+        // SAFETY: index checked above; plain scalar read.
         unsafe {
             ffi::whiteout_mdx_MdxParticleEmitter2_get_headInterval_at(self.raw.as_ptr(), index)
         }
     }
 
+    /// # Panics
+    /// If `index >= 3`.
     pub fn set_head_interval(&mut self, index: usize, value: u32) {
-        // SAFETY: as above.
+        assert!(
+            index < 3,
+            "head_interval index {index} out of range (len 3)"
+        );
+        // SAFETY: index checked above.
         unsafe {
             ffi::whiteout_mdx_MdxParticleEmitter2_set_headInterval_at(
                 self.raw.as_ptr(),
@@ -5688,21 +5728,32 @@ impl ParticleEmitter2 {
     }
 
     /// Head decay intervals
-    pub fn head_decay_interval_len() -> usize {
-        // SAFETY: a compile-time constant on the native side.
-        unsafe { ffi::whiteout_mdx_MdxParticleEmitter2_headDecayInterval_size() }
+    /// Number of elements — a fixed-size C++ array.
+    pub const fn head_decay_interval_len() -> usize {
+        3
     }
 
+    /// # Panics
+    /// If `index >= 3`, matching Rust slice indexing.
     pub fn head_decay_interval(&self, index: usize) -> u32 {
-        // SAFETY: scalar read. The native side does not bounds-
-        // check, so callers stay within `head_decay_interval_len()`.
+        assert!(
+            index < 3,
+            "head_decay_interval index {index} out of range (len 3)"
+        );
+        // SAFETY: index checked above; plain scalar read.
         unsafe {
             ffi::whiteout_mdx_MdxParticleEmitter2_get_headDecayInterval_at(self.raw.as_ptr(), index)
         }
     }
 
+    /// # Panics
+    /// If `index >= 3`.
     pub fn set_head_decay_interval(&mut self, index: usize, value: u32) {
-        // SAFETY: as above.
+        assert!(
+            index < 3,
+            "head_decay_interval index {index} out of range (len 3)"
+        );
+        // SAFETY: index checked above.
         unsafe {
             ffi::whiteout_mdx_MdxParticleEmitter2_set_headDecayInterval_at(
                 self.raw.as_ptr(),
@@ -5713,21 +5764,32 @@ impl ParticleEmitter2 {
     }
 
     /// Tail lifetime intervals
-    pub fn tail_interval_len() -> usize {
-        // SAFETY: a compile-time constant on the native side.
-        unsafe { ffi::whiteout_mdx_MdxParticleEmitter2_tailInterval_size() }
+    /// Number of elements — a fixed-size C++ array.
+    pub const fn tail_interval_len() -> usize {
+        3
     }
 
+    /// # Panics
+    /// If `index >= 3`, matching Rust slice indexing.
     pub fn tail_interval(&self, index: usize) -> u32 {
-        // SAFETY: scalar read. The native side does not bounds-
-        // check, so callers stay within `tail_interval_len()`.
+        assert!(
+            index < 3,
+            "tail_interval index {index} out of range (len 3)"
+        );
+        // SAFETY: index checked above; plain scalar read.
         unsafe {
             ffi::whiteout_mdx_MdxParticleEmitter2_get_tailInterval_at(self.raw.as_ptr(), index)
         }
     }
 
+    /// # Panics
+    /// If `index >= 3`.
     pub fn set_tail_interval(&mut self, index: usize, value: u32) {
-        // SAFETY: as above.
+        assert!(
+            index < 3,
+            "tail_interval index {index} out of range (len 3)"
+        );
+        // SAFETY: index checked above.
         unsafe {
             ffi::whiteout_mdx_MdxParticleEmitter2_set_tailInterval_at(
                 self.raw.as_ptr(),
@@ -5738,21 +5800,32 @@ impl ParticleEmitter2 {
     }
 
     /// Tail decay intervals
-    pub fn tail_decay_interval_len() -> usize {
-        // SAFETY: a compile-time constant on the native side.
-        unsafe { ffi::whiteout_mdx_MdxParticleEmitter2_tailDecayInterval_size() }
+    /// Number of elements — a fixed-size C++ array.
+    pub const fn tail_decay_interval_len() -> usize {
+        3
     }
 
+    /// # Panics
+    /// If `index >= 3`, matching Rust slice indexing.
     pub fn tail_decay_interval(&self, index: usize) -> u32 {
-        // SAFETY: scalar read. The native side does not bounds-
-        // check, so callers stay within `tail_decay_interval_len()`.
+        assert!(
+            index < 3,
+            "tail_decay_interval index {index} out of range (len 3)"
+        );
+        // SAFETY: index checked above; plain scalar read.
         unsafe {
             ffi::whiteout_mdx_MdxParticleEmitter2_get_tailDecayInterval_at(self.raw.as_ptr(), index)
         }
     }
 
+    /// # Panics
+    /// If `index >= 3`.
     pub fn set_tail_decay_interval(&mut self, index: usize, value: u32) {
-        // SAFETY: as above.
+        assert!(
+            index < 3,
+            "tail_decay_interval index {index} out of range (len 3)"
+        );
+        // SAFETY: index checked above.
         unsafe {
             ffi::whiteout_mdx_MdxParticleEmitter2_set_tailDecayInterval_at(
                 self.raw.as_ptr(),

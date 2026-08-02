@@ -924,19 +924,30 @@ impl LodProfile {
         unsafe { ffi::whiteout_m2_M2LodProfile_set_lodDistance(self.raw.as_ptr(), value) }
     }
 
-    pub fn particle_bone_lod_len() -> usize {
-        // SAFETY: a compile-time constant on the native side.
-        unsafe { ffi::whiteout_m2_M2LodProfile_particleBoneLod_size() }
+    /// Number of elements — a fixed-size C++ array.
+    pub const fn particle_bone_lod_len() -> usize {
+        4
     }
 
+    /// # Panics
+    /// If `index >= 4`, matching Rust slice indexing.
     pub fn particle_bone_lod(&self, index: usize) -> u8 {
-        // SAFETY: scalar read. The native side does not bounds-
-        // check, so callers stay within `particle_bone_lod_len()`.
+        assert!(
+            index < 4,
+            "particle_bone_lod index {index} out of range (len 4)"
+        );
+        // SAFETY: index checked above; plain scalar read.
         unsafe { ffi::whiteout_m2_M2LodProfile_get_particleBoneLod_at(self.raw.as_ptr(), index) }
     }
 
+    /// # Panics
+    /// If `index >= 4`.
     pub fn set_particle_bone_lod(&mut self, index: usize, value: u8) {
-        // SAFETY: as above.
+        assert!(
+            index < 4,
+            "particle_bone_lod index {index} out of range (len 4)"
+        );
+        // SAFETY: index checked above.
         unsafe {
             ffi::whiteout_m2_M2LodProfile_set_particleBoneLod_at(self.raw.as_ptr(), index, value)
         }
@@ -1364,19 +1375,24 @@ impl EdgeFadeData {
         }
     }
 
-    pub fn value_0_len() -> usize {
-        // SAFETY: a compile-time constant on the native side.
-        unsafe { ffi::whiteout_m2_M2EdgeFadeData_value0_size() }
+    /// Number of elements — a fixed-size C++ array.
+    pub const fn value_0_len() -> usize {
+        2
     }
 
+    /// # Panics
+    /// If `index >= 2`, matching Rust slice indexing.
     pub fn value_0(&self, index: usize) -> f32 {
-        // SAFETY: scalar read. The native side does not bounds-
-        // check, so callers stay within `value_0_len()`.
+        assert!(index < 2, "value_0 index {index} out of range (len 2)");
+        // SAFETY: index checked above; plain scalar read.
         unsafe { ffi::whiteout_m2_M2EdgeFadeData_get_value0_at(self.raw.as_ptr(), index) }
     }
 
+    /// # Panics
+    /// If `index >= 2`.
     pub fn set_value_0(&mut self, index: usize, value: f32) {
-        // SAFETY: as above.
+        assert!(index < 2, "value_0 index {index} out of range (len 2)");
+        // SAFETY: index checked above.
         unsafe { ffi::whiteout_m2_M2EdgeFadeData_set_value0_at(self.raw.as_ptr(), index, value) }
     }
 
@@ -1390,19 +1406,24 @@ impl EdgeFadeData {
         unsafe { ffi::whiteout_m2_M2EdgeFadeData_set_value8(self.raw.as_ptr(), value) }
     }
 
-    pub fn value_c_len() -> usize {
-        // SAFETY: a compile-time constant on the native side.
-        unsafe { ffi::whiteout_m2_M2EdgeFadeData_valueC_size() }
+    /// Number of elements — a fixed-size C++ array.
+    pub const fn value_c_len() -> usize {
+        12
     }
 
+    /// # Panics
+    /// If `index >= 12`, matching Rust slice indexing.
     pub fn value_c(&self, index: usize) -> u8 {
-        // SAFETY: scalar read. The native side does not bounds-
-        // check, so callers stay within `value_c_len()`.
+        assert!(index < 12, "value_c index {index} out of range (len 12)");
+        // SAFETY: index checked above; plain scalar read.
         unsafe { ffi::whiteout_m2_M2EdgeFadeData_get_valueC_at(self.raw.as_ptr(), index) }
     }
 
+    /// # Panics
+    /// If `index >= 12`.
     pub fn set_value_c(&mut self, index: usize, value: u8) {
-        // SAFETY: as above.
+        assert!(index < 12, "value_c index {index} out of range (len 12)");
+        // SAFETY: index checked above.
         unsafe { ffi::whiteout_m2_M2EdgeFadeData_set_valueC_at(self.raw.as_ptr(), index, value) }
     }
 }
@@ -1477,19 +1498,24 @@ impl DistanceFadeData {
         unsafe { ffi::whiteout_m2_M2DistanceFadeData_set_squaredNearDist(self.raw.as_ptr(), value) }
     }
 
-    pub fn reserved_len() -> usize {
-        // SAFETY: a compile-time constant on the native side.
-        unsafe { ffi::whiteout_m2_M2DistanceFadeData_reserved_size() }
+    /// Number of elements — a fixed-size C++ array.
+    pub const fn reserved_len() -> usize {
+        2
     }
 
+    /// # Panics
+    /// If `index >= 2`, matching Rust slice indexing.
     pub fn reserved(&self, index: usize) -> u32 {
-        // SAFETY: scalar read. The native side does not bounds-
-        // check, so callers stay within `reserved_len()`.
+        assert!(index < 2, "reserved index {index} out of range (len 2)");
+        // SAFETY: index checked above; plain scalar read.
         unsafe { ffi::whiteout_m2_M2DistanceFadeData_get_reserved_at(self.raw.as_ptr(), index) }
     }
 
+    /// # Panics
+    /// If `index >= 2`.
     pub fn set_reserved(&mut self, index: usize, value: u32) {
-        // SAFETY: as above.
+        assert!(index < 2, "reserved index {index} out of range (len 2)");
+        // SAFETY: index checked above.
         unsafe {
             ffi::whiteout_m2_M2DistanceFadeData_set_reserved_at(self.raw.as_ptr(), index, value)
         }
@@ -3197,35 +3223,45 @@ impl Vertex {
         }
     }
 
-    pub fn bone_weights_len() -> usize {
-        // SAFETY: a compile-time constant on the native side.
-        unsafe { ffi::whiteout_m2_M2Vertex_boneWeights_size() }
+    /// Number of elements — a fixed-size C++ array.
+    pub const fn bone_weights_len() -> usize {
+        4
     }
 
+    /// # Panics
+    /// If `index >= 4`, matching Rust slice indexing.
     pub fn bone_weights(&self, index: usize) -> u8 {
-        // SAFETY: scalar read. The native side does not bounds-
-        // check, so callers stay within `bone_weights_len()`.
+        assert!(index < 4, "bone_weights index {index} out of range (len 4)");
+        // SAFETY: index checked above; plain scalar read.
         unsafe { ffi::whiteout_m2_M2Vertex_get_boneWeights_at(self.raw.as_ptr(), index) }
     }
 
+    /// # Panics
+    /// If `index >= 4`.
     pub fn set_bone_weights(&mut self, index: usize, value: u8) {
-        // SAFETY: as above.
+        assert!(index < 4, "bone_weights index {index} out of range (len 4)");
+        // SAFETY: index checked above.
         unsafe { ffi::whiteout_m2_M2Vertex_set_boneWeights_at(self.raw.as_ptr(), index, value) }
     }
 
-    pub fn bone_indices_len() -> usize {
-        // SAFETY: a compile-time constant on the native side.
-        unsafe { ffi::whiteout_m2_M2Vertex_boneIndices_size() }
+    /// Number of elements — a fixed-size C++ array.
+    pub const fn bone_indices_len() -> usize {
+        4
     }
 
+    /// # Panics
+    /// If `index >= 4`, matching Rust slice indexing.
     pub fn bone_indices(&self, index: usize) -> u8 {
-        // SAFETY: scalar read. The native side does not bounds-
-        // check, so callers stay within `bone_indices_len()`.
+        assert!(index < 4, "bone_indices index {index} out of range (len 4)");
+        // SAFETY: index checked above; plain scalar read.
         unsafe { ffi::whiteout_m2_M2Vertex_get_boneIndices_at(self.raw.as_ptr(), index) }
     }
 
+    /// # Panics
+    /// If `index >= 4`.
     pub fn set_bone_indices(&mut self, index: usize, value: u8) {
-        // SAFETY: as above.
+        assert!(index < 4, "bone_indices index {index} out of range (len 4)");
+        // SAFETY: index checked above.
         unsafe { ffi::whiteout_m2_M2Vertex_set_boneIndices_at(self.raw.as_ptr(), index, value) }
     }
 
@@ -3248,16 +3284,20 @@ impl Vertex {
         }
     }
 
-    pub fn tex_coords_len() -> usize {
-        // SAFETY: a compile-time constant on the native side.
-        unsafe { ffi::whiteout_m2_M2Vertex_texCoords_size() }
+    /// Number of elements — a fixed-size C++ array.
+    pub const fn tex_coords_len() -> usize {
+        2
     }
 
+    /// # Panics
+    /// If `index >= 2`, matching Rust slice indexing. The
+    /// native accessor does no bounds checking of its own, so
+    /// this check is what keeps the method safe to call.
     pub fn tex_coords(&self, index: usize) -> crate::math::Vector2f {
-        // SAFETY: the getter returns an interior pointer to a
-        // layout-identical POD, copied out immediately. The
-        // native side does not bounds-check, so callers stay
-        // within `tex_coords_len()`.
+        assert!(index < 2, "tex_coords index {index} out of range (len 2)");
+        // SAFETY: index checked above; the getter returns an
+        // interior pointer to a layout-identical POD, copied
+        // out immediately.
         unsafe {
             *(ffi::whiteout_m2_M2Vertex_get_texCoords_at(self.raw.as_ptr(), index)
                 as *const crate::math::Vector2f)

@@ -2304,20 +2304,31 @@ def _emit_field(buf: StringIO, c: BindClass, f, ctx: _Ctx) -> bool:
 
     if t.kind == TypeKind.ARRAY:
         inner = t.element
+        if t.array_size is None:
+            # Without the extent there is no way to bounds-check, and an
+            # unchecked index into a fixed array is UB reachable from safe
+            # code. Leave it unbound rather than unsound.
+            ctx.skipped.append(f'{rust_cls}.{name} (array of unknown size)')
+            return flush(False)
         el = _elem_rust(inner, ctx)
         if (inner.kind == TypeKind.NESTED
                 and _resolve_handle_short(inner.cpp_text, ctx.module) in _MATH_BY_VALUE):
             mt = f'crate::math::{_resolve_handle_short(inner.cpp_text, ctx.module)}'
+            n = t.array_size
             buf.write(
-                f'    pub fn {name}_len() -> usize {{\n'
-                f'        // SAFETY: a compile-time constant on the native side.\n'
-                f'        unsafe {{ {sym(f.name + "_size")}() }}\n'
+                f'    /// Number of elements — a fixed-size C++ array.\n'
+                f'    pub const fn {name}_len() -> usize {{\n'
+                f'        {n}\n'
                 f'    }}\n\n'
+                f'    /// # Panics\n'
+                f'    /// If `index >= {n}`, matching Rust slice indexing. The\n'
+                f'    /// native accessor does no bounds checking of its own, so\n'
+                f'    /// this check is what keeps the method safe to call.\n'
                 f'    pub fn {name}(&self, index: usize) -> {mt} {{\n'
-                f'        // SAFETY: the getter returns an interior pointer to a\n'
-                f'        // layout-identical POD, copied out immediately. The\n'
-                f'        // native side does not bounds-check, so callers stay\n'
-                f'        // within `{name}_len()`.\n'
+                f'        assert!(index < {n}, "{name} index {{index}} out of range (len {n})");\n'
+                f'        // SAFETY: index checked above; the getter returns an\n'
+                f'        // interior pointer to a layout-identical POD, copied\n'
+                f'        // out immediately.\n'
                 f'        unsafe {{ *({sym("get_" + f.name + "_at")}(self.raw.as_ptr(), index) as *const {mt}) }}\n'
                 f'    }}\n\n'
             )
@@ -2330,18 +2341,24 @@ def _emit_field(buf: StringIO, c: BindClass, f, ctx: _Ctx) -> bool:
             set_val = 'value as i32'
         else:
             conv, set_val = '', 'value'
+        n = t.array_size
         buf.write(
-            f'    pub fn {name}_len() -> usize {{\n'
-            f'        // SAFETY: a compile-time constant on the native side.\n'
-            f'        unsafe {{ {sym(f.name + "_size")}() }}\n'
+            f'    /// Number of elements — a fixed-size C++ array.\n'
+            f'    pub const fn {name}_len() -> usize {{\n'
+            f'        {n}\n'
             f'    }}\n\n'
+            f'    /// # Panics\n'
+            f'    /// If `index >= {n}`, matching Rust slice indexing.\n'
             f'    pub fn {name}(&self, index: usize) -> {el} {{\n'
-            f'        // SAFETY: scalar read. The native side does not bounds-\n'
-            f'        // check, so callers stay within `{name}_len()`.\n'
+            f'        assert!(index < {n}, "{name} index {{index}} out of range (len {n})");\n'
+            f'        // SAFETY: index checked above; plain scalar read.\n'
             f'        unsafe {{ {sym("get_" + f.name + "_at")}(self.raw.as_ptr(), index) }}{conv}\n'
             f'    }}\n\n'
+            f'    /// # Panics\n'
+            f'    /// If `index >= {n}`.\n'
             f'    pub fn set_{name}(&mut self, index: usize, value: {el}) {{\n'
-            f'        // SAFETY: as above.\n'
+            f'        assert!(index < {n}, "{name} index {{index}} out of range (len {n})");\n'
+            f'        // SAFETY: index checked above.\n'
             f'        unsafe {{ {sym("set_" + f.name + "_at")}(self.raw.as_ptr(), index, {set_val}) }}\n'
             f'    }}\n\n'
         )

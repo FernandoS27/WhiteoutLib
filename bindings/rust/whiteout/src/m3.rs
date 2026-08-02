@@ -3080,19 +3080,24 @@ impl AnimationState {
     }
 
     /// Unknown state data (16 bytes)
-    pub fn unknown_len() -> usize {
-        // SAFETY: a compile-time constant on the native side.
-        unsafe { ffi::whiteout_m3_M3AnimationState_unknown_size() }
+    /// Number of elements — a fixed-size C++ array.
+    pub const fn unknown_len() -> usize {
+        16
     }
 
+    /// # Panics
+    /// If `index >= 16`, matching Rust slice indexing.
     pub fn unknown(&self, index: usize) -> u8 {
-        // SAFETY: scalar read. The native side does not bounds-
-        // check, so callers stay within `unknown_len()`.
+        assert!(index < 16, "unknown index {index} out of range (len 16)");
+        // SAFETY: index checked above; plain scalar read.
         unsafe { ffi::whiteout_m3_M3AnimationState_get_unknown_at(self.raw.as_ptr(), index) }
     }
 
+    /// # Panics
+    /// If `index >= 16`.
     pub fn set_unknown(&mut self, index: usize, value: u8) {
-        // SAFETY: as above.
+        assert!(index < 16, "unknown index {index} out of range (len 16)");
+        // SAFETY: index checked above.
         unsafe { ffi::whiteout_m3_M3AnimationState_set_unknown_at(self.raw.as_ptr(), index, value) }
     }
 }
