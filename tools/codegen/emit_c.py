@@ -497,6 +497,21 @@ def emit_header(module: BindModule) -> str:
     buf = StringIO()
     buf.write(HEADER_PROLOGUE.format(module=module.name, guard=guard))
 
+    # ── Owned string list ────────────────────────────────────────────────
+    # For `std::vector<std::string>` returned by value. See
+    # `_is_owned_string_list_return` for why the count/at pair is not
+    # enough. `_at` hands back a borrowed CString (NULL owner) pointing
+    # into the list, so reading every element allocates nothing extra.
+    if _module_has_string_list(module):
+        buf.write('/* \u2500\u2500 Owned string list '
+                  '\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */\n\n')
+        buf.write('typedef struct whiteout_StringList whiteout_StringList;\n')
+        buf.write(f'size_t {prefix}_StringList_size(const whiteout_StringList* self);\n')
+        buf.write('/* Borrowed; valid until the list is destroyed. */\n')
+        buf.write(f'whiteout_CString {prefix}_StringList_at'
+                  f'(whiteout_StringList* self, size_t index);\n')
+        buf.write(f'void {prefix}_StringList_delete(whiteout_StringList* self);\n\n')
+
     # ── Owned handle lists ───────────────────────────────────────────────
     # `vector<Class>` returns are handed back as an opaque owned list so a
     # single call transfers the whole result. Same shape as the
@@ -592,6 +607,13 @@ def _emit_class_header(buf: StringIO, c: BindClass, prefix: str,
             continue
         if _is_vector_string_return(m):
             _emit_vector_string_decls(buf, m, c, prefix)
+            if _is_owned_string_list_return(m):
+                short_c = _c_handle_name(c.js_name)
+                buf.write('/* Materialises the whole list in one call. Prefer this '
+                          'over the\n * _count/_at pair above, which re-runs the '
+                          'query per index. */\n')
+                buf.write(f'struct whiteout_StringList* {prefix}_{short_c}_{m.name}'
+                          f'(const whiteout_{short_c}* self);\n')
             continue
         _emit_method_decl(buf, m, c, prefix, module)
 
@@ -1150,6 +1172,26 @@ def _optional_primitive_return(m: BindMethod) -> str | None:
     return _C_PRIMITIVE.get(_short_name(r.element.cpp_text))
 
 
+def _is_owned_string_list_return(m: BindMethod) -> bool:
+    """`std::vector<std::string>` returned **by value**.
+
+    The `_count`/`_at` expansion below is only sound for a method that
+    returns a *reference* to a stored vector — `_at` re-invokes the method
+    for every index, so a by-value return re-materialises the whole list
+    each time. `casc::Storage::listFiles()` enumerating 135k entries turns
+    that into 135k full enumerations.
+
+    These get an owned list handle instead: one call materialises the
+    vector on the heap, then `_size`/`_at` are O(1) against it.
+    """
+    return _is_vector_string_return(m) and not m.return_is_reference
+
+
+def _module_has_string_list(module: BindModule) -> bool:
+    return any(_is_owned_string_list_return(m)
+               for c in module.classes for m in c.methods if not m.is_skipped)
+
+
 def _is_vector_string_return(m: BindMethod) -> bool:
     """`std::vector<std::string>` method return — lowered to two C
     functions: `_<method>_count(self) -> size_t` and `_<method>_at(self, i)
@@ -1584,6 +1626,27 @@ inline whiteout_CString emptyCString() {
 } // anonymous
 ''')
 
+    # Owned string list. `_at` returns a borrowed CString pointing into the
+    # vector — `_owner` is NULL, so whiteout_CString_free is a no-op on it
+    # and walking the whole list costs no allocations.
+    if _module_has_string_list(module):
+        buf.write(f'''
+size_t {prefix}_StringList_size(const whiteout_StringList* self) {{
+    return reinterpret_cast<const std::vector<std::string>*>(self)->size();
+}}
+
+whiteout_CString {prefix}_StringList_at(whiteout_StringList* self, size_t index) {{
+    auto* v = reinterpret_cast<std::vector<std::string>*>(self);
+    if (index >= v->size()) return emptyCString();
+    const std::string& s = (*v)[index];
+    return whiteout_CString{{ s.c_str(), s.size(), nullptr }};
+}}
+
+void {prefix}_StringList_delete(whiteout_StringList* self) {{
+    delete reinterpret_cast<std::vector<std::string>*>(self);
+}}
+''')
+
     # Owned handle lists: one small accessor set per element type. The
     # opaque handle is a heap `std::vector<Elem>`; `_at` hands back an
     # interior pointer, so it is borrowed and must not be freed.
@@ -1679,6 +1742,15 @@ def _emit_class_source(buf: StringIO, c: BindClass, prefix: str,
             continue
         if _is_vector_string_return(m):
             _emit_vector_string_defs(buf, m, c, cpp_qual, prefix)
+            if _is_owned_string_list_return(m):
+                short_c = _c_handle_name(c.js_name)
+                buf.write(f'''
+struct whiteout_StringList* {prefix}_{short_c}_{m.name}(const whiteout_{short_c}* self) {{
+    return reinterpret_cast<struct whiteout_StringList*>(
+        new std::vector<std::string>(
+            reinterpret_cast<const {cpp_qual}*>(self)->{m.cpp_name}()));
+}}
+''')
             continue
         _emit_method_source(buf, m, c, cpp_qual, prefix, module)
 

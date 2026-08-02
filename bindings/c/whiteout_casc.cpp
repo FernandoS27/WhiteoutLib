@@ -41,6 +41,21 @@ inline whiteout_CString emptyCString() {
 }
 
 } // anonymous
+
+size_t whiteout_casc_StringList_size(const whiteout_StringList* self) {
+    return reinterpret_cast<const std::vector<std::string>*>(self)->size();
+}
+
+whiteout_CString whiteout_casc_StringList_at(whiteout_StringList* self, size_t index) {
+    auto* v = reinterpret_cast<std::vector<std::string>*>(self);
+    if (index >= v->size()) return emptyCString();
+    const std::string& s = (*v)[index];
+    return whiteout_CString{ s.c_str(), s.size(), nullptr };
+}
+
+void whiteout_casc_StringList_delete(whiteout_StringList* self) {
+    delete reinterpret_cast<std::vector<std::string>*>(self);
+}
 // ── CascCreateOptions ─────────────────────────────────────────────────
 
 extern "C" {
@@ -240,6 +255,12 @@ whiteout_CString whiteout_casc_CascStorage_listFiles_at(const whiteout_CascStora
     return wrapCString(std::string(__v[index]));
 }
 
+
+struct whiteout_StringList* whiteout_casc_CascStorage_listFiles(const whiteout_CascStorage* self) {
+    return reinterpret_cast<struct whiteout_StringList*>(
+        new std::vector<std::string>(
+            reinterpret_cast<const whiteout::storages::casc::Storage*>(self)->listFiles()));
+}
 int32_t whiteout_casc_CascStorage_totalFileCount(const whiteout_CascStorage* self, uint32_t* out_value) {
     auto __r = reinterpret_cast<const whiteout::storages::casc::Storage*>(self)->totalFileCount();
     if (!__r) return 0;

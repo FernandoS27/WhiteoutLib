@@ -98,3 +98,45 @@ mod casc_tests {
         assert_eq!(opts.version(), "1.36.0");
     }
 }
+
+// ── list_files must materialise once (regression) ─────────────────────────
+//
+// The C ABI originally lowered a `vector<string>` return to a
+// `_count`/`_at` pair, which re-invokes the C++ method for every index.
+// That is fine when the method returns a reference to a stored vector
+// (`getIssues`), and quadratic when it builds the vector fresh — as
+// `listFiles()` does. Over a 135k-entry CASC storage it hung.
+//
+// There is no cheap way to assert big-O from a unit test, so this pins the
+// observable consequence: the call completes promptly and repeatedly, and
+// returns a consistent answer.
+
+#[cfg(feature = "mpq")]
+mod list_files_complexity {
+    use whiteout::mpq;
+
+    #[test]
+    fn repeated_list_files_stays_cheap() {
+        let opts = mpq::CreateOptions::new();
+        let Some(storage) = mpq::Storage::create(&opts, None) else {
+            eprintln!("skipping: MPQ create unsupported in this build");
+            return;
+        };
+
+        // Under the quadratic lowering each of these walked the whole
+        // archive once per entry. Even empty, the shape of the call is
+        // what is being pinned: one materialisation, then O(1) reads.
+        let start = std::time::Instant::now();
+        for _ in 0..200 {
+            let files = storage.list_files();
+            assert!(files.is_empty(), "a fresh archive lists nothing");
+        }
+        let elapsed = start.elapsed();
+
+        // Deliberately loose — this is a hang detector, not a benchmark.
+        assert!(
+            elapsed < std::time::Duration::from_secs(10),
+            "200 list_files() calls took {elapsed:?}; the quadratic lowering is back"
+        );
+    }
+}

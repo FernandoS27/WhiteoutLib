@@ -41,6 +41,21 @@ inline whiteout_CString emptyCString() {
 }
 
 } // anonymous
+
+size_t whiteout_mpq_StringList_size(const whiteout_StringList* self) {
+    return reinterpret_cast<const std::vector<std::string>*>(self)->size();
+}
+
+whiteout_CString whiteout_mpq_StringList_at(whiteout_StringList* self, size_t index) {
+    auto* v = reinterpret_cast<std::vector<std::string>*>(self);
+    if (index >= v->size()) return emptyCString();
+    const std::string& s = (*v)[index];
+    return whiteout_CString{ s.c_str(), s.size(), nullptr };
+}
+
+void whiteout_mpq_StringList_delete(whiteout_StringList* self) {
+    delete reinterpret_cast<std::vector<std::string>*>(self);
+}
 // ── MpqFileInfo ─────────────────────────────────────────────────
 
 extern "C" {
@@ -296,6 +311,12 @@ whiteout_CString whiteout_mpq_MpqStorage_listFiles_at(const whiteout_MpqStorage*
     return wrapCString(std::string(__v[index]));
 }
 
+
+struct whiteout_StringList* whiteout_mpq_MpqStorage_listFiles(const whiteout_MpqStorage* self) {
+    return reinterpret_cast<struct whiteout_StringList*>(
+        new std::vector<std::string>(
+            reinterpret_cast<const whiteout::storages::mpq::Storage*>(self)->listFiles()));
+}
 int32_t whiteout_mpq_MpqStorage_writeFile(whiteout_MpqStorage* self, const char* name, const uint8_t* data, size_t data_size, struct whiteout_MpqWriteOptions* opts) {
     return reinterpret_cast<whiteout::storages::mpq::Storage*>(self)->writeFile(std::string(name ? name : ""), std::span<const whiteout::u8>(data, data_size), *reinterpret_cast<const whiteout::storages::mpq::WriteOptions*>(opts));
 }

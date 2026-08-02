@@ -674,17 +674,20 @@ impl Storage {
 
     /// List all known filenames (from listfile + overlay additions − deletions).
     pub fn list_files(&self) -> Vec<String> {
-        // SAFETY: index stays below the reported count.
+        // SAFETY: one call materialises the list; the
+        // elements are borrowed out of it and it is freed
+        // before returning. Reading is O(1) per element.
         unsafe {
-            let n = ffi::whiteout_mpq_MpqStorage_listFiles_count(self.raw.as_ptr());
-            (0..n)
-                .map(|i| {
-                    crate::support::take_string(ffi::whiteout_mpq_MpqStorage_listFiles_at(
-                        self.raw.as_ptr(),
-                        i,
-                    ))
-                })
-                .collect()
+            let list = ffi::whiteout_mpq_MpqStorage_listFiles(self.raw.as_ptr());
+            if list.is_null() {
+                return Vec::new();
+            }
+            let n = ffi::whiteout_mpq_StringList_size(list);
+            let out = (0..n)
+                .map(|i| crate::support::take_string(ffi::whiteout_mpq_StringList_at(list, i)))
+                .collect();
+            ffi::whiteout_mpq_StringList_delete(list);
+            out
         }
     }
 
@@ -838,8 +841,18 @@ pub mod ffi {
     pub struct whiteout_MpqFileSystem {
         _private: [u8; 0],
     }
+    #[repr(C)]
+    pub struct whiteout_StringList {
+        _private: [u8; 0],
+    }
 
     extern "C" {
+        pub fn whiteout_mpq_StringList_size(self_: *mut whiteout_StringList) -> usize;
+        pub fn whiteout_mpq_StringList_at(
+            self_: *mut whiteout_StringList,
+            index: usize,
+        ) -> RawCString;
+        pub fn whiteout_mpq_StringList_delete(self_: *mut whiteout_StringList);
         // FileInfo
         pub fn whiteout_mpq_MpqFileInfo_new() -> *mut whiteout_MpqFileInfo;
         pub fn whiteout_mpq_MpqFileInfo_delete(self_: *mut whiteout_MpqFileInfo);
@@ -988,11 +1001,9 @@ pub mod ffi {
         pub fn whiteout_mpq_MpqStorage_archiveInfo(
             self_: *mut whiteout_MpqStorage,
         ) -> *mut whiteout_MpqArchiveInfo;
-        pub fn whiteout_mpq_MpqStorage_listFiles_count(self_: *mut whiteout_MpqStorage) -> usize;
-        pub fn whiteout_mpq_MpqStorage_listFiles_at(
+        pub fn whiteout_mpq_MpqStorage_listFiles(
             self_: *mut whiteout_MpqStorage,
-            index: usize,
-        ) -> RawCString;
+        ) -> *mut whiteout_StringList;
         pub fn whiteout_mpq_MpqStorage_writeFile(
             self_: *mut whiteout_MpqStorage,
             name: *const u8,

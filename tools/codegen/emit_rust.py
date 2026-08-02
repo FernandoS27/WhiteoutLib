@@ -481,6 +481,8 @@ pub mod ffi {
 # ══════════════════════════════════════════════════════════════════════════
 
 from .emit_c import (  # noqa: E402
+    _module_has_string_list,
+    _is_owned_string_list_return,
     _handle_list_return,
     _handle_list_types,
     _optional_array_return,
@@ -854,6 +856,13 @@ def _return_shape(m, ctx: _Ctx):
     if t.kind == TypeKind.VECTOR:
         el = t.element.cpp_text if t.element else ''
         if el in ('std::string', 'std::basic_string<char>'):
+            # By-value returns get an owned list: one call materialises it,
+            # then reading is O(1) per element. The `_count`/`_at` pair
+            # re-invokes the C++ method for every index, which is O(n^2)
+            # and catastrophic for something like `listFiles()` over a
+            # 135k-entry storage. Reference returns keep the cheap pair.
+            if _is_owned_string_list_return(m):
+                return ('string_list', 'Vec<String>', None)
             return ('string_vec', 'Vec<String>', None)
         return None
 
@@ -1406,6 +1415,27 @@ def _emit_method(buf: StringIO, c: BindClass, m, ctx: _Ctx) -> bool:
     for _k, _d, _f, cargs in ps:
         call_args.extend(cargs)
 
+    if kind == 'string_list':
+        call = f'ffi::{ctx.sym(c, m.name)}({", ".join(call_args)})'
+        buf.write('        // SAFETY: one call materialises the list; the' + NL)
+        buf.write('        // elements are borrowed out of it and it is freed' + NL)
+        buf.write('        // before returning. Reading is O(1) per element.' + NL)
+        buf.write('        unsafe {' + NL)
+        buf.write(f'            let list = {call};' + NL)
+        buf.write('            if list.is_null() {' + NL)
+        buf.write('                return Vec::new();' + NL)
+        buf.write('            }' + NL)
+        buf.write(f'            let n = ffi::{ctx.prefix}_StringList_size(list);' + NL)
+        buf.write('            let out = (0..n)' + NL)
+        buf.write(f'                .map(|i| crate::support::take_string('
+                  f'ffi::{ctx.prefix}_StringList_at(list, i)))' + NL)
+        buf.write('                .collect();' + NL)
+        buf.write(f'            ffi::{ctx.prefix}_StringList_delete(list);' + NL)
+        buf.write('            out' + NL)
+        buf.write('        }' + NL)
+        buf.write('    }' + NL + NL)
+        return True
+
     if kind == 'string_vec':
         cnt = f'ffi::{ctx.sym(c, m.name + "_count")}'
         at = f'ffi::{ctx.sym(c, m.name + "_at")}'
@@ -1592,7 +1622,18 @@ def _emit_module_ffi(buf: StringIO, ctx: _Ctx) -> None:
     for c in _module_classes(module):
         buf.write(f'#[repr(C)]\npub struct {ctx.handle(c)} {{\n')
         buf.write('    _private: [u8; 0],\n}\n')
+    if _module_has_string_list(ctx.module):
+        buf.write('#[repr(C)]\npub struct whiteout_StringList {\n')
+        buf.write('    _private: [u8; 0],\n}\n')
+
     buf.write('\nextern "C" {\n')
+    if _module_has_string_list(ctx.module):
+        buf.write(f'    pub fn {ctx.prefix}_StringList_size'
+                  f'(self_: *mut whiteout_StringList) -> usize;' + NL)
+        buf.write(f'    pub fn {ctx.prefix}_StringList_at'
+                  f'(self_: *mut whiteout_StringList, index: usize) -> RawCString;' + NL)
+        buf.write(f'    pub fn {ctx.prefix}_StringList_delete'
+                  f'(self_: *mut whiteout_StringList);' + NL)
     for elem in _handle_list_types(module):
         lh = _c_handle_name(elem)
         ec = ctx.class_for(elem)
@@ -1642,6 +1683,10 @@ def _emit_module_ffi(buf: StringIO, ctx: _Ctx) -> None:
             if shape is None or ps is None:
                 continue
             kind, _rust_ret, ffi_ret = shape
+            if kind == 'string_list':
+                buf.write(f'    pub fn {ctx.sym(c, m.name)}'
+                          f'(self_: *mut {handle}) -> *mut whiteout_StringList;' + NL)
+                continue
             if kind == 'string_vec':
                 buf.write(f'    pub fn {ctx.sym(c, m.name + "_count")}'
                           f'(self_: *mut {handle}) -> usize;\n')

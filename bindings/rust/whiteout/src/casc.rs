@@ -504,17 +504,20 @@ impl Storage {
 
     /// @return All known file paths.
     pub fn list_files(&self) -> Vec<String> {
-        // SAFETY: index stays below the reported count.
+        // SAFETY: one call materialises the list; the
+        // elements are borrowed out of it and it is freed
+        // before returning. Reading is O(1) per element.
         unsafe {
-            let n = ffi::whiteout_casc_CascStorage_listFiles_count(self.raw.as_ptr());
-            (0..n)
-                .map(|i| {
-                    crate::support::take_string(ffi::whiteout_casc_CascStorage_listFiles_at(
-                        self.raw.as_ptr(),
-                        i,
-                    ))
-                })
-                .collect()
+            let list = ffi::whiteout_casc_CascStorage_listFiles(self.raw.as_ptr());
+            if list.is_null() {
+                return Vec::new();
+            }
+            let n = ffi::whiteout_casc_StringList_size(list);
+            let out = (0..n)
+                .map(|i| crate::support::take_string(ffi::whiteout_casc_StringList_at(list, i)))
+                .collect();
+            ffi::whiteout_casc_StringList_delete(list);
+            out
         }
     }
 
@@ -783,8 +786,18 @@ pub mod ffi {
     pub struct whiteout_CascStorageWritable {
         _private: [u8; 0],
     }
+    #[repr(C)]
+    pub struct whiteout_StringList {
+        _private: [u8; 0],
+    }
 
     extern "C" {
+        pub fn whiteout_casc_StringList_size(self_: *mut whiteout_StringList) -> usize;
+        pub fn whiteout_casc_StringList_at(
+            self_: *mut whiteout_StringList,
+            index: usize,
+        ) -> RawCString;
+        pub fn whiteout_casc_StringList_delete(self_: *mut whiteout_StringList);
         // CreateOptions
         pub fn whiteout_casc_CascCreateOptions_new() -> *mut whiteout_CascCreateOptions;
         pub fn whiteout_casc_CascCreateOptions_delete(self_: *mut whiteout_CascCreateOptions);
@@ -910,12 +923,9 @@ pub mod ffi {
             hint: i32,
             out_value: *mut u64,
         ) -> i32;
-        pub fn whiteout_casc_CascStorage_listFiles_count(self_: *mut whiteout_CascStorage)
-            -> usize;
-        pub fn whiteout_casc_CascStorage_listFiles_at(
+        pub fn whiteout_casc_CascStorage_listFiles(
             self_: *mut whiteout_CascStorage,
-            index: usize,
-        ) -> RawCString;
+        ) -> *mut whiteout_StringList;
         pub fn whiteout_casc_CascStorage_totalFileCount(
             self_: *mut whiteout_CascStorage,
             out_value: *mut u32,

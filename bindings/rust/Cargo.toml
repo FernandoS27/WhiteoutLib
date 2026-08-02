@@ -8,7 +8,7 @@ members = ["whiteout"]
 # and a breaking C++ API change bumps the minor. Once the library tags 1.0
 # the crate follows with 1.0 and normal semver.
 [workspace.package]
-version      = "0.1.3"
+version      = "0.1.4"
 edition      = "2021"
 rust-version = "1.70"
 license      = "BSD-3-Clause"

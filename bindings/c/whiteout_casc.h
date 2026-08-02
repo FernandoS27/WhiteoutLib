@@ -12,6 +12,14 @@
 extern "C" {
 #endif
 
+/* ── Owned string list ───────── */
+
+typedef struct whiteout_StringList whiteout_StringList;
+size_t whiteout_casc_StringList_size(const whiteout_StringList* self);
+/* Borrowed; valid until the list is destroyed. */
+whiteout_CString whiteout_casc_StringList_at(whiteout_StringList* self, size_t index);
+void whiteout_casc_StringList_delete(whiteout_StringList* self);
+
 /* ── Enums ─────────────────────────────────────────────────── */
 
 typedef enum {
@@ -121,6 +129,9 @@ int32_t whiteout_casc_CascStorage_fileSize_fileId_hint(const whiteout_CascStorag
 /* @return All known file paths. */
 size_t whiteout_casc_CascStorage_listFiles_count(const whiteout_CascStorage* self);
 whiteout_CString whiteout_casc_CascStorage_listFiles_at(const whiteout_CascStorage* self, size_t index);
+/* Materialises the whole list in one call. Prefer this over the
+ * _count/_at pair above, which re-runs the query per index. */
+struct whiteout_StringList* whiteout_casc_CascStorage_listFiles(const whiteout_CascStorage* self);
 /* @return Total number of files in the root manifest. */
 int32_t whiteout_casc_CascStorage_totalFileCount(const whiteout_CascStorage* self, uint32_t* out_value);
 /* Import encryption keys from a formatted string (one per line). */
