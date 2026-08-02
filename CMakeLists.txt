@@ -500,6 +500,13 @@ else()
 endif()
 
 whiteout_apply_clang_tidy(whiteout_lib)
+# These static libraries are linked into shared consumers — the C ABI's
+# libwhiteout_native.so, the pybind11 module, the WASM build. On ELF
+# targets that requires position-independent code: without it the linker
+# rejects a TLS relocation (R_X86_64_TPOFF32) against a thread_local such
+# as casc's s_lastError. Cheap on x86-64, and MSVC ignores the property.
+set_property(TARGET whiteout_lib PROPERTY POSITION_INDEPENDENT_CODE ON)
+
 
 if(WIN32 AND NOT EMSCRIPTEN)
     # MSVC pulls winhttp via #pragma comment(lib, ...). MinGW/clang-mingw need
@@ -672,6 +679,8 @@ if(WHITEOUT_ENABLE_CASC)
     )
 
     add_library(whiteout_casc STATIC ${CASC_SOURCES})
+    # See the note on whiteout_lib above.
+    set_property(TARGET whiteout_casc PROPERTY POSITION_INDEPENDENT_CODE ON)
 
     target_include_directories(whiteout_casc PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -739,6 +748,8 @@ if(WHITEOUT_ENABLE_MPQ)
         # MPQ filesystem utility
         src/whiteout/utils/mpq_file_system.cpp
     )
+    # See the note on whiteout_lib above.
+    set_property(TARGET whiteout_mpq PROPERTY POSITION_INDEPENDENT_CODE ON)
 
     target_include_directories(whiteout_mpq PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

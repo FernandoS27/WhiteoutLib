@@ -62,25 +62,30 @@ jobs:
             -DWHITEOUT_BUILD_EXAMPLES=OFF
           cmake --build build-rust --config Release --target whiteout_c
 
-      # Multi-config generators nest by config; single-config ones do not.
-      - name: Locate the native library
+      # Multi-config generators nest the output by config; single-config
+      # ones do not. Everything here stays on relative paths inside bash,
+      # because Git-bash's $PWD on Windows is a POSIX path (/d/a/...) that
+      # native tooling cannot resolve — WHITEOUT_LIB_DIR is read by rustc,
+      # so it must be spelled the way the platform expects. GITHUB_WORKSPACE
+      # is already in native form on every runner.
+      - name: Locate and stage the native library
         shell: bash
         run: |
           if [ -d build-rust/c-dist/Release ]; then
-            echo "WHITEOUT_LIB_DIR=$PWD/build-rust/c-dist/Release" >> "$GITHUB_ENV"
+            rel=build-rust/c-dist/Release
           else
-            echo "WHITEOUT_LIB_DIR=$PWD/build-rust/c-dist" >> "$GITHUB_ENV"
+            rel=build-rust/c-dist
           fi
+          echo "WHITEOUT_LIB_DIR=$GITHUB_WORKSPACE/$rel" >> "$GITHUB_ENV"
 
-      # A dynamically-linked test binary needs the library on its search
-      # path: beside the executable on Windows, LD_/DYLD_ elsewhere.
-      - name: Stage the native library for the test binaries
-        shell: bash
-        run: |
+          # A dynamically-linked test binary needs the library on its
+          # search path: beside the executable on Windows, LD_/DYLD_
+          # elsewhere. Those two are only consulted by POSIX loaders, so
+          # $PWD is the right spelling for them.
           mkdir -p bindings/rust/target/debug/deps
-          cp "$WHITEOUT_LIB_DIR"/*whiteout_native* bindings/rust/target/debug/deps/ 2>/dev/null || true
-          echo "LD_LIBRARY_PATH=$WHITEOUT_LIB_DIR:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
-          echo "DYLD_LIBRARY_PATH=$WHITEOUT_LIB_DIR:${DYLD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          cp "$rel"/*whiteout_native* bindings/rust/target/debug/deps/ 2>/dev/null || true
+          echo "LD_LIBRARY_PATH=$PWD/$rel:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          echo "DYLD_LIBRARY_PATH=$PWD/$rel:${DYLD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
 
       - name: Check that the committed generated code is up to date
         shell: bash
@@ -103,17 +108,26 @@ jobs:
         working-directory: bindings/rust
         run: cargo fmt --all -- --check
 
+      # WHITEOUT_LIB_DIR is set, so build.rs links the library built above
+      # and the vendored path is not taken — but `vendored` is still a
+      # default feature, so its code is compiled and linted here.
       - name: clippy
         working-directory: bindings/rust
         run: cargo clippy --all-targets --features casc,mpq -- -D warnings
+
+      - name: clippy (no default features)
+        working-directory: bindings/rust
+        run: cargo clippy --all-targets --no-default-features --features casc,mpq -- -D warnings
 
       - name: test
         working-directory: bindings/rust
         run: cargo test --features casc,mpq
 
-      - name: test (no default features)
+      # Without the optional format features, to catch `#[cfg]` rot in the
+      # casc/mpq gating.
+      - name: test (core only)
         working-directory: bindings/rust
-        run: cargo test
+        run: cargo test --no-default-features
 
   docs:
     name: docs.rs build

@@ -30,11 +30,11 @@ fn main() {
         return;
     }
 
+    // Exactly one of these survives cfg expansion, so neither needs a
+    // trailing `return` — and adding one would be the last statement in
+    // `main` under the vendored build, which clippy rejects.
     #[cfg(feature = "vendored")]
-    {
-        build_vendored();
-        return;
-    }
+    build_vendored();
 
     #[cfg(not(feature = "vendored"))]
     {
@@ -186,15 +186,20 @@ fn link_static_deps(dst: &Path) {
             println!("cargo:rustc-link-search=native={}", dir.display());
         }
     }
-    for lib in ["whiteout_lib", "whiteout_casc", "whiteout_mpq"] {
-        let enabled = match lib {
-            "whiteout_casc" => cfg!(feature = "casc"),
-            "whiteout_mpq" => cfg!(feature = "mpq"),
-            _ => true,
-        };
-        if enabled {
-            println!("cargo:rustc-link-lib=static={lib}");
-        }
+    // Dependents first: GNU ld resolves static archives in command-line
+    // order, so whiteout_lib has to come after the archives that reference
+    // it. (MSVC and lld do not care, which is why the previous order
+    // survived local testing.)
+    let mut libs = Vec::new();
+    if cfg!(feature = "casc") {
+        libs.push("whiteout_casc");
+    }
+    if cfg!(feature = "mpq") {
+        libs.push("whiteout_mpq");
+    }
+    libs.push("whiteout_lib");
+    for lib in libs {
+        println!("cargo:rustc-link-lib=static={lib}");
     }
 }
 
