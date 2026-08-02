@@ -860,9 +860,17 @@ def _return_shape(m, ctx: _Ctx):
     if t.kind == TypeKind.NESTED:
         c = ctx.class_for(raw)
         if c is not None and not _is_field_only(c, ctx.module):
-            # The C ABI returns a heap pointer that is NULL when the C++
-            # call produced nothing, so Option is the honest mapping even
-            # for a by-value C++ return.
+            if m.return_is_reference and not m.is_static:
+                # A C++ reference return is an interior pointer into
+                # something the callee still owns — emit_c hands back
+                # `&__r`, not a heap copy. Wrapping that in an owning
+                # handle would free memory we do not own, and the owner
+                # would free it again. Borrow it instead, tied to `&self`.
+                return ('handle_ref',
+                        f"Option<crate::support::Ref<'_, {ctx.rust_class(c)}>>",
+                        f'*mut {ctx.handle(c)}')
+            # Otherwise the C ABI heap-allocates a copy and transfers it,
+            # returning NULL when the call produced nothing.
             return ('handle_opt', f'Option<{ctx.rust_class(c)}>', f'*mut {ctx.handle(c)}')
         return None
 
@@ -1425,6 +1433,19 @@ def _emit_method(buf: StringIO, c: BindClass, m, ctx: _Ctx) -> bool:
         buf.write('        }\n    }\n\n')
         return True
 
+    if kind == 'handle_ref':
+        call = f'ffi::{ctx.sym(c, m.name)}({", ".join(call_args)})'
+        inner = rust_ret[rust_ret.index("Ref<'_, ") + len("Ref<'_, "):-2]
+        buf.write('        // SAFETY: the native side returns an interior' + NL)
+        buf.write('        // pointer borrowed from `self`; `Ref` derefs to it' + NL)
+        buf.write('        // and never frees it.' + NL)
+        buf.write('        unsafe {' + NL)
+        buf.write(f'            core::ptr::NonNull::new({call})' + NL)
+        buf.write(f'                .map(|raw| crate::support::Ref::new({inner} {{ raw }}))' + NL)
+        buf.write('        }' + NL)
+        buf.write('    }' + NL + NL)
+        return True
+
     if kind == 'handle_list':
         call = f'ffi::{ctx.sym(c, m.name)}({", ".join(call_args)})'
         inner = rust_ret[len('Option<'):-1]
@@ -1632,7 +1653,7 @@ def _emit_module_ffi(buf: StringIO, ctx: _Ctx) -> None:
                 decls.append(f'self_: *mut {handle}')
             for _k, _d, fdecls, _cargs in ps:
                 decls.extend(fdecls)
-            if kind == 'handle_list':
+            if kind in ('handle_list', 'handle_ref'):
                 buf.write(f'    pub fn {ctx.sym(c, m.name)}'
                           f'({", ".join(decls)}) -> {ffi_ret};' + NL)
                 continue

@@ -354,3 +354,43 @@ fn splitting_into_no_channels_yields_an_empty_or_absent_list() {
     let parts = src.split_channels(&[Channel::A]).expect("split failed");
     assert_eq!(parts.len(), 1);
 }
+
+// ── Borrowed returns must not be freed (regression) ───────────────────────
+//
+// `Texture::mipLevel`, `PngParser::frame`/`frameInfo` and
+// `BlizzardGameInfoList::at` all return a C++ *reference* — an interior
+// pointer the callee still owns. Binding them as owning handles made every
+// access a double free: the wrapper freed on drop, then the real owner
+// freed again. Repeating the access is what turns that from silent
+// corruption into a reliable abort.
+
+#[test]
+fn mip_level_borrows_and_does_not_free() {
+    let tex = Texture::create_2d(PixelFormat::RGBA8, 32, 32, 4).expect("create failed");
+    assert_eq!(tex.mip_count(), 4);
+
+    for _ in 0..512 {
+        for mip in 0..tex.mip_count() {
+            let level = tex.mip_level(mip, 0).expect("mip level");
+            // Read through the borrow so it is not optimised away.
+            assert!(level.width() > 0);
+            // `level` drops here. If it owned the pointer this would free
+            // memory belonging to `tex`.
+        }
+    }
+
+    // The texture must still be intact after all those borrows.
+    assert_eq!(tex.mip_level(0, 0).expect("mip 0").width(), 32);
+    assert_eq!(tex.width(), 32);
+}
+
+#[test]
+fn a_borrowed_mip_level_survives_its_siblings() {
+    let tex = Texture::create_2d(PixelFormat::RGBA8, 16, 16, 3).expect("create failed");
+    let first = tex.mip_level(0, 0).expect("mip 0");
+    let second = tex.mip_level(1, 0).expect("mip 1");
+    // Two live borrows of the same owner at once — fine for shared refs,
+    // and impossible if either had taken ownership.
+    assert_eq!(first.width(), 16);
+    assert_eq!(second.width(), 8);
+}

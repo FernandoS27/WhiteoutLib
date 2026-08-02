@@ -861,14 +861,17 @@ impl Texture {
     }
 
     /// Get the mip-level descriptor for a given mip index and layer. @param mip   Mip level index (0 = base). @param layer Array layer index (0 for 2D / 3D textures). @return Reference to the MipLevel struct.
-    pub fn mip_level(&self, mip: u32, layer: u32) -> Option<MipLevel> {
-        // SAFETY: handle is live for the duration of the call.
+    pub fn mip_level(&self, mip: u32, layer: u32) -> Option<crate::support::Ref<'_, MipLevel>> {
+        // SAFETY: the native side returns an interior
+        // pointer borrowed from `self`; `Ref` derefs to it
+        // and never frees it.
         unsafe {
-            MipLevel::from_raw(ffi::whiteout_textures_Texture_mipLevel(
+            core::ptr::NonNull::new(ffi::whiteout_textures_Texture_mipLevel(
                 self.raw.as_ptr(),
                 mip,
                 layer,
             ))
+            .map(|raw| crate::support::Ref::new(MipLevel { raw }))
         }
     }
 
@@ -1388,13 +1391,16 @@ impl PngParser {
     }
 
     /// @return animation frame @p index, fully composited to the canvas size as an RGBA8 texture. In lenient mode an out-of-range index yields an empty texture; in strict mode it throws. @param index Zero-based frame index.
-    pub fn frame(&self, index: u32) -> Option<Texture> {
-        // SAFETY: handle is live for the duration of the call.
+    pub fn frame(&self, index: u32) -> Option<crate::support::Ref<'_, Texture>> {
+        // SAFETY: the native side returns an interior
+        // pointer borrowed from `self`; `Ref` derefs to it
+        // and never frees it.
         unsafe {
-            Texture::from_raw(ffi::whiteout_textures_PngParser_frame(
+            core::ptr::NonNull::new(ffi::whiteout_textures_PngParser_frame(
                 self.raw.as_ptr(),
                 index,
             ))
+            .map(|raw| crate::support::Ref::new(Texture { raw }))
         }
     }
 
@@ -1405,13 +1411,16 @@ impl PngParser {
     }
 
     /// @return raw per-frame metadata for frame @p index. @param index Zero-based frame index.
-    pub fn frame_info(&self, index: u32) -> Option<PngApngFrameInfo> {
-        // SAFETY: handle is live for the duration of the call.
+    pub fn frame_info(&self, index: u32) -> Option<crate::support::Ref<'_, PngApngFrameInfo>> {
+        // SAFETY: the native side returns an interior
+        // pointer borrowed from `self`; `Ref` derefs to it
+        // and never frees it.
         unsafe {
-            PngApngFrameInfo::from_raw(ffi::whiteout_textures_PngParser_frameInfo(
+            core::ptr::NonNull::new(ffi::whiteout_textures_PngParser_frameInfo(
                 self.raw.as_ptr(),
                 index,
             ))
+            .map(|raw| crate::support::Ref::new(PngApngFrameInfo { raw }))
         }
     }
 }

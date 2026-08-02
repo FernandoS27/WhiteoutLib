@@ -872,13 +872,16 @@ impl BlizzardGameInfoList {
     }
 
     /// Borrowed reference to entry at @p index. Valid until this list is destroyed.
-    pub fn at(&self, index: usize) -> Option<BlizzardGameInfo> {
-        // SAFETY: handle is live for the duration of the call.
+    pub fn at(&self, index: usize) -> Option<crate::support::Ref<'_, BlizzardGameInfo>> {
+        // SAFETY: the native side returns an interior
+        // pointer borrowed from `self`; `Ref` derefs to it
+        // and never frees it.
         unsafe {
-            BlizzardGameInfo::from_raw(ffi::whiteout_host_BlizzardGameInfoList_at(
+            core::ptr::NonNull::new(ffi::whiteout_host_BlizzardGameInfoList_at(
                 self.raw.as_ptr(),
                 index,
             ))
+            .map(|raw| crate::support::Ref::new(BlizzardGameInfo { raw }))
         }
     }
 }
