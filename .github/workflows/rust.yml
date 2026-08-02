@@ -9,15 +9,10 @@
 
 name: rust
 
+# Deliberately not triggered on push: the vendored path builds the whole
+# C++ library on three runners, which is too slow to want on every commit.
+# It runs on pull requests, and on demand from the Actions tab.
 on:
-  push:
-    paths:
-      - 'bindings/rust/**'
-      - 'bindings/c/**'
-      - 'tools/codegen/**'
-      - 'include/whiteout/**'
-      - 'src/**'
-      - '.github/workflows/rust.yml'
   pull_request:
     paths:
       - 'bindings/rust/**'
@@ -25,6 +20,7 @@ on:
       - 'tools/codegen/**'
       - 'include/whiteout/**'
       - 'src/**'
+      - '.github/workflows/rust.yml'
   workflow_dispatch:
 
 env:

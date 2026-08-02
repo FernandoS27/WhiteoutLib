@@ -48,6 +48,36 @@ Under `vendored` they configure the bundled build; against a prebuilt
 library they must match how it was configured, or linking fails —
 deliberately, rather than silently missing symbols.
 
+## Linking from another crate
+
+This crate declares `links = "whiteout_native"`: it is the single owner of
+the native library, and cargo rejects any other crate in the graph that
+also claims to provide it. Build your own copy of WhiteoutLib alongside
+this one and you get two sets of identically-mangled C++ symbols — which
+links on MSVC, silently keeping one definition of each, and quietly
+becomes an ODR violation the moment the two versions drift. Depend on this
+crate instead.
+
+Calling in from Rust needs nothing extra; linking this crate's rlib pulls
+the native library in. A crate with its own C++ to compile can read what
+was built from `build.rs`, via the environment cargo sets for dependents
+of a `links` crate:
+
+| Variable | Meaning |
+|---|---|
+| `DEP_WHITEOUT_NATIVE_LIB_DIR` | directory holding `whiteout_native_static` |
+| `DEP_WHITEOUT_NATIVE_INCLUDE` | include root for the C++ headers (`<whiteout/…>`) |
+| `DEP_WHITEOUT_NATIVE_HAS_CASC` | `1` if built with CASC, else `0` |
+| `DEP_WHITEOUT_NATIVE_HAS_MPQ` | `1` if built with MPQ, else `0` |
+
+The `HAS_*` pair reports the configuration the library was *actually* built
+with, so a dependent can match it rather than infer it from its own
+features. These keys are a compatibility surface — treat them as public.
+
+They are emitted on every path that produces a usable library. `INCLUDE` is
+the one that can be missing: with a prebuilt `WHITEOUT_LIB_DIR` that has no
+`include/` beside it, set `WHITEOUT_INCLUDE_DIR` to supply it.
+
 ## Working on the bindings
 
 From a checkout, `build.rs` finds the repository above the crate, so the
