@@ -78,6 +78,84 @@ impl TryFrom<i32> for PixelFormat {
     }
 }
 
+/// Semantic role of a texture in a material.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TextureKind {
+    /// Unknown or application-specific usage.
+    Other = 0,
+    /// Diffuse / base colour (legacy).
+    Diffuse = 1,
+    /// Tangent-space normal map.
+    Normal = 2,
+    /// Specular intensity / colour.
+    Specular = 3,
+    /// ORM packed texture (R=AO, G=Roughness, B=Metalness, A=Unused).
+    ORM = 4,
+    /// PBR base colour (albedo).
+    Albedo = 5,
+    /// Roughness (single channel).
+    Roughness = 6,
+    /// Metalness (single channel).
+    Metalness = 7,
+    /// Ambient occlusion (single channel).
+    AmbientOcclusion = 8,
+    /// Gloss / smoothness (single channel).
+    Gloss = 9,
+    /// Emissive colour / intensity.
+    Emissive = 10,
+    /// Opacity / alpha mask (single channel, linear).
+    AlphaMask = 11,
+    /// Hard binary mask (0 or 1); alpha-coverage-preserving filter.
+    BinaryMask = 12,
+    /// Smooth transparency mask; alpha-coverage-preserving, continuous values.
+    TransparencyMask = 13,
+    /// Blend weight mask; alpha-coverage-preserving with soft transitions.
+    BlendMask = 14,
+    /// Lightmap or baked light contribution (HDR colour).
+    Lightmap = 15,
+    /// Environment / reflection map (equirectangular, GGX prefiltered).
+    EnvironmentPBR = 16,
+    /// Environment map (equirectangular, spherical Kaiser-filtered).
+    EnvironmentLegacy = 17,
+    /// Packed multi-channel texture where each channel carries a distinct semantic role.  Use setChannelKind() / channelKind() to assign and query the per-channel kinds.  generateMipmaps() will apply a kind-appropriate filter to every channel independently.
+    Multikind = 18,
+    /// Channel is not used and carries no semantic meaning.  Only valid as a per-channel kind on a Multikind texture (set via setChannelKind()). generateMipmaps() applies a plain box filter to Unused channels.
+    Unused = 19,
+}
+
+impl TryFrom<i32> for TextureKind {
+    type Error = crate::Error;
+    fn try_from(v: i32) -> Result<Self, crate::Error> {
+        match v {
+            0 => Ok(TextureKind::Other),
+            1 => Ok(TextureKind::Diffuse),
+            2 => Ok(TextureKind::Normal),
+            3 => Ok(TextureKind::Specular),
+            4 => Ok(TextureKind::ORM),
+            5 => Ok(TextureKind::Albedo),
+            6 => Ok(TextureKind::Roughness),
+            7 => Ok(TextureKind::Metalness),
+            8 => Ok(TextureKind::AmbientOcclusion),
+            9 => Ok(TextureKind::Gloss),
+            10 => Ok(TextureKind::Emissive),
+            11 => Ok(TextureKind::AlphaMask),
+            12 => Ok(TextureKind::BinaryMask),
+            13 => Ok(TextureKind::TransparencyMask),
+            14 => Ok(TextureKind::BlendMask),
+            15 => Ok(TextureKind::Lightmap),
+            16 => Ok(TextureKind::EnvironmentPBR),
+            17 => Ok(TextureKind::EnvironmentLegacy),
+            18 => Ok(TextureKind::Multikind),
+            19 => Ok(TextureKind::Unused),
+            other => Err(crate::Error::UnknownEnum {
+                name: "TextureKind",
+                value: other,
+            }),
+        }
+    }
+}
+
 /// Dimensionality / topology of a texture resource.
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -108,6 +186,207 @@ impl TryFrom<i32> for TextureType {
                 value: other,
             }),
         }
+    }
+}
+
+/// Individual colour / data channel within a pixel.
+///
+/// The numeric value matches the zero-based channel index used by every uncompressed PixelFormat (R=0, G=1, B=2, A=3).
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Channel {
+    /// Red   (or single-channel value for R* formats).
+    R = 0,
+    /// Green (or second channel for RG* formats).
+    G = 1,
+    /// Blue  (RGBA* formats only).
+    B = 2,
+    /// Alpha (RGBA* formats only).
+    A = 3,
+}
+
+impl TryFrom<i32> for Channel {
+    type Error = crate::Error;
+    fn try_from(v: i32) -> Result<Self, crate::Error> {
+        match v {
+            0 => Ok(Channel::R),
+            1 => Ok(Channel::G),
+            2 => Ok(Channel::B),
+            3 => Ok(Channel::A),
+            other => Err(crate::Error::UnknownEnum {
+                name: "Channel",
+                value: other,
+            }),
+        }
+    }
+}
+
+/// An owned list of [`Texture`] produced by the library.
+pub struct TextureList {
+    raw: core::ptr::NonNull<ffi::whiteout_TextureList>,
+}
+
+impl TextureList {
+    /// # Safety
+    /// `raw` must be a live list this value takes ownership of.
+    #[allow(dead_code)]
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_TextureList) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| TextureList { raw })
+    }
+
+    pub fn len(&self) -> usize {
+        // SAFETY: the list is live for `&self`.
+        unsafe { ffi::whiteout_textures_TextureList_size(self.raw.as_ptr()) }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Borrow element `index`. `None` when out of range.
+    pub fn get(&self, index: usize) -> Option<crate::support::Ref<'_, Texture>> {
+        if index >= self.len() {
+            return None;
+        }
+        // SAFETY: index checked; the pointer is interior to the list and
+        // is never freed by the `Ref`.
+        unsafe {
+            Some(crate::support::Ref::new(Texture {
+                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_textures_TextureList_at(
+                    self.raw.as_ptr(),
+                    index,
+                )),
+            }))
+        }
+    }
+
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, Texture>> {
+        (0..self.len()).map(move |i| self.get(i).expect("index below len"))
+    }
+}
+
+impl Drop for TextureList {
+    fn drop(&mut self) {
+        // SAFETY: the list was transferred to us and is freed once.
+        unsafe { ffi::whiteout_textures_TextureList_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl core::fmt::Debug for TextureList {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("TextureList")
+            .field("len", &self.len())
+            .finish()
+    }
+}
+
+// SAFETY: a plain heap vector with no thread affinity, owned exclusively.
+unsafe impl Send for TextureList {}
+
+/// Describes a single mip level within a Texture's data buffer.
+pub struct MipLevel {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_MipLevel>,
+}
+
+impl Drop for MipLevel {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_textures_MipLevel_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl MipLevel {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_MipLevel) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| MipLevel { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for MipLevel {}
+
+impl core::fmt::Debug for MipLevel {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MipLevel").finish_non_exhaustive()
+    }
+}
+
+impl MipLevel {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_textures_MipLevel_new();
+            Self::from_raw(raw).expect("native MipLevel allocation failed")
+        }
+    }
+
+    /// Width of this mip in pixels.
+    pub fn width(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_textures_MipLevel_get_width(self.raw.as_ptr()) }
+    }
+
+    pub fn set_width(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_textures_MipLevel_set_width(self.raw.as_ptr(), value) }
+    }
+
+    /// Height of this mip in pixels.
+    pub fn height(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_textures_MipLevel_get_height(self.raw.as_ptr()) }
+    }
+
+    pub fn set_height(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_textures_MipLevel_set_height(self.raw.as_ptr(), value) }
+    }
+
+    /// Depth of this mip (always 1 for 2D / cube textures).
+    pub fn depth(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_textures_MipLevel_get_depth(self.raw.as_ptr()) }
+    }
+
+    pub fn set_depth(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_textures_MipLevel_set_depth(self.raw.as_ptr(), value) }
+    }
+
+    /// Byte offset into the Texture data buffer.
+    pub fn offset(&self) -> u64 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_textures_MipLevel_get_offset(self.raw.as_ptr()) }
+    }
+
+    pub fn set_offset(&mut self, value: u64) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_textures_MipLevel_set_offset(self.raw.as_ptr(), value) }
+    }
+
+    /// Byte size of this mip's data.
+    pub fn size(&self) -> u64 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_textures_MipLevel_get_size(self.raw.as_ptr()) }
+    }
+
+    pub fn set_size(&mut self, value: u64) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_textures_MipLevel_set_size(self.raw.as_ptr(), value) }
+    }
+}
+
+impl Default for MipLevel {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -192,13 +471,124 @@ impl Texture {
     /// Conversion path: - Same format → plain copy. - BCn → decoded to native format (R8 for BC4, RG8 for BC5, RGBA32F for BC6H, RGBA8 for others), then recurse. - Uncompressed → uncompressed → per-pixel conversion. - Uncompressed → BCn → encode via the appropriate codec.
     ///
     /// @param new_fmt Target pixel format. @param pool Optional WorkerPool for parallel BCn encode/decode work. Ignored for purely uncompressed-to-uncompressed conversions. @return A new Texture with the converted data.
-    pub fn copy_as_format(&self, new_fmt: PixelFormat) -> Option<Texture> {
+    pub fn copy_as_format(
+        &self,
+        new_fmt: PixelFormat,
+        pool: Option<&crate::interfaces::HostWorkerPool>,
+    ) -> Option<Texture> {
         // SAFETY: handle is live for the duration of the call.
         unsafe {
             Texture::from_raw(ffi::whiteout_textures_Texture_copyAsFormat(
                 self.raw.as_ptr(),
                 new_fmt as i32,
-                core::ptr::null_mut(),
+                pool.map_or(core::ptr::null_mut(), |v| v.as_ptr()),
+            ))
+        }
+    }
+
+    /// Swap two channels in-place across all mip levels and array layers.
+    ///
+    /// Operates directly on the stored pixel data without any intermediate copy. Supports all uncompressed PixelFormats (R*, RG*, RGBA*).
+    ///
+    /// Failure conditions (returns false): - The texture uses a BCn block-compressed format. - Either channel is not present in the current pixel format (e.g. Channel::B on an RG8 texture).
+    ///
+    /// @param a First channel to swap. @param b Second channel to swap. @return true on success (including when @p a == @p b, which is a no-op), false when the operation is not valid for this texture.
+    pub fn swap_channels(&mut self, a: Channel, b: Channel) -> bool {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            ffi::whiteout_textures_Texture_swapChannels(self.raw.as_ptr(), a as i32, b as i32) != 0
+        }
+    }
+
+    /// Invert a single channel in-place across all mip levels and array layers.
+    ///
+    /// Each sample value @c v is replaced with @c max_value - v, where @c max_value is the maximum representable value for the channel's underlying type (255 for u8, 65535 for u16, 1.0 for f32).
+    ///
+    /// Operates directly on the stored pixel data without any intermediate copy. Supports all uncompressed PixelFormats (R*, RG*, RGBA*).
+    ///
+    /// Failure conditions (returns false): - The texture uses a BCn block-compressed format. - The requested channel is not present in the current pixel format (e.g. Channel::B on an RG8 texture).
+    ///
+    /// @param ch Channel to invert. @return true on success, false when the operation is not valid for this texture.
+    pub fn invert_channel(&mut self, ch: Channel) -> bool {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe { ffi::whiteout_textures_Texture_invertChannel(self.raw.as_ptr(), ch as i32) != 0 }
+    }
+
+    /// Reconstruct the Z component of a tangent-space normal map in-place.
+    ///
+    /// Interprets channels @p a and @p b as the packed X and Y components of a unit normal vector, computes Z = sqrt(max(0, 1 - x² - y²)), and writes the result back to channel @p c.
+    ///
+    /// Channel values are decoded from the UNORM `[0, 1]` storage convention to the signed [-1, 1] range before the computation (i.e. x = 2v - 1), and the reconstructed Z is re-encoded as (z + 1) / 2 before being written. This matches the encoding used by all other normal-map utilities in the library.
+    ///
+    /// Operates directly on the stored pixel data without any intermediate copy. Supports all uncompressed PixelFormats (R*, RG*, RGBA*).
+    ///
+    /// Failure conditions (returns false): - The texture uses a BCn block-compressed format. - Any of the three channel indices is not present in the current pixel format (e.g. Channel::B on an RG8 texture).
+    ///
+    /// @param xChannel Channel storing the packed X component (source, read-only). @param yChannel Channel storing the packed Y component (source, read-only). @param zChannel Channel to receive the reconstructed Z component (write target). @return true on success, false when the operation is not valid for this texture.
+    pub fn expand_normal(
+        &mut self,
+        x_channel: Channel,
+        y_channel: Channel,
+        z_channel: Channel,
+    ) -> bool {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            ffi::whiteout_textures_Texture_expandNormal(
+                self.raw.as_ptr(),
+                x_channel as i32,
+                y_channel as i32,
+                z_channel as i32,
+            ) != 0
+        }
+    }
+
+    /// Fill a single channel with a constant value across all mip levels and array layers.
+    ///
+    /// The floating-point value is quantised to the channel's underlying type (clamped to `[0, 255]` for u8, `[0, 65535]` for u16, stored directly for f32).
+    ///
+    /// Returns false for BCn formats or if the channel index exceeds the format's channel count.
+    ///
+    /// @param target Channel to fill. @param value  Value to write (interpreted as `[0, 1]` for integer formats). @return true on success, false when the operation is not valid.
+    pub fn fill_channel(&mut self, target: Channel, value: f32) -> bool {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            ffi::whiteout_textures_Texture_fillChannel(self.raw.as_ptr(), target as i32, value) != 0
+        }
+    }
+
+    /// Split selected channels into individual single-channel textures.
+    ///
+    /// Each requested channel produces a separate Texture with a single-channel format matching the source bit depth (R8, R16, or R32F).  All mip levels and layers are copied.  The returned textures inherit the source's sRGB flag but their kind is set to TextureKind::Other.
+    ///
+    /// Returns std::nullopt if the source is BCn-compressed or if any requested channel index exceeds the source channel count.
+    ///
+    /// @param channels Channels to extract (e.g. {Channel::R, Channel::G}). @return One Texture per requested channel, or std::nullopt on failure.
+    pub fn split_channels(&self, channels: &[Channel]) -> Option<TextureList> {
+        // SAFETY: the native side transfers ownership of
+        // the list; null means the operation produced none.
+        unsafe {
+            TextureList::from_raw(ffi::whiteout_textures_Texture_splitChannels(
+                self.raw.as_ptr(),
+                channels.as_ptr() as *const i32,
+                channels.len(),
+            ))
+        }
+    }
+
+    /// Merge single-channel textures into one multi-channel texture.
+    ///
+    /// Each source texture is written into the corresponding target channel of a new RGBA-width texture whose bit depth matches the sources (RGBA8, RGBA16, or RGBA32F).  All sources must share the same format, dimensions, mip count, and texture type.  Channels not covered by the input list are zero-filled.
+    ///
+    /// @param sources          Single-channel textures to combine. @param targetChannels   Destination channel for each source (same length as @p sources). @return The combined RGBA texture, or std::nullopt on failure.
+    pub fn merge_channels(sources: &[&Texture], target_channels: &[Channel]) -> Option<Texture> {
+        let sources_ptrs: Vec<_> = sources.iter().map(|v| v.raw.as_ptr()).collect();
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            Texture::from_raw(ffi::whiteout_textures_Texture_mergeChannels(
+                sources_ptrs.as_ptr(),
+                sources.len(),
+                target_channels.as_ptr() as *const i32,
+                target_channels.len(),
             ))
         }
     }
@@ -208,12 +598,15 @@ impl Texture {
     /// Only supported for textures whose kind() is TextureKind::Normal and whose format is RG8, RG16, RG32F, or BC5. The returned texture keeps the original shape, mip chain, kind, and sRGB flag, but stores data as RGBA8 with Z reconstructed from the packed X/Y normal in R/G.
     ///
     /// @param pool Optional WorkerPool for parallel BCn decode work when the source texture is compressed. @return Expanded RGBA8 texture, or std::nullopt when unsupported.
-    pub fn copy_from_normal_to_rgba(&self) -> Option<Texture> {
+    pub fn copy_from_normal_to_rgba(
+        &self,
+        pool: Option<&crate::interfaces::HostWorkerPool>,
+    ) -> Option<Texture> {
         // SAFETY: handle is live for the duration of the call.
         unsafe {
             Texture::from_raw(ffi::whiteout_textures_Texture_copyFromNormalToRGBA(
                 self.raw.as_ptr(),
-                core::ptr::null_mut(),
+                pool.map_or(core::ptr::null_mut(), |v| v.as_ptr()),
             ))
         }
     }
@@ -226,25 +619,32 @@ impl Texture {
     ///
     /// The texture must use an uncompressed pixel format.  BCn textures should be decompressed first.  No-op if the texture has ≤ 1 mip.
     ///
-    /// @param newMipCount Desired number of mip levels in the output texture. Pass kKeepMipCount (0) to preserve the existing mip count. Must be between 1 and computeMaxMipCount(width, height, depth). When 1, the mip chain is truncated to the base level only and the function returns immediately. @param pool Optional WorkerPool used to parallelize mip generation across mip levels and layers. If null, generation runs on the calling thread. @return std::nullopt on success; std::optional<std::string> with error message on failure. No exceptions are thrown.
-    pub fn generate_mipmaps(&mut self, new_mip_count: u32) -> Option<String> {
+    /// @param newMipCount Desired number of mip levels in the output texture. Pass kKeepMipCount (0) to preserve the existing mip count. Must be between 1 and computeMaxMipCount(width, height, depth). When 1, the mip chain is truncated to the base level only and the function returns immediately. @param pool Optional WorkerPool used to parallelize mip generation across mip levels and layers. If null, generation runs on the calling thread. @return std::nullopt on success; std::`optional<std::string>` with error message on failure. No exceptions are thrown.
+    pub fn generate_mipmaps(
+        &mut self,
+        new_mip_count: u32,
+        pool: Option<&crate::interfaces::HostWorkerPool>,
+    ) -> Option<String> {
         // SAFETY: handle is live for the duration of the call.
         unsafe {
             crate::support::take_string_opt(ffi::whiteout_textures_Texture_generateMipmaps(
                 self.raw.as_ptr(),
                 new_mip_count,
-                core::ptr::null_mut(),
+                pool.map_or(core::ptr::null_mut(), |v| v.as_ptr()),
             ))
         }
     }
 
     /// @overload Preserves existing mip count; optional worker pool.
-    pub fn generate_mipmaps_default(&mut self) -> Option<String> {
+    pub fn generate_mipmaps_default(
+        &mut self,
+        pool: Option<&crate::interfaces::HostWorkerPool>,
+    ) -> Option<String> {
         // SAFETY: handle is live for the duration of the call.
         unsafe {
             crate::support::take_string_opt(ffi::whiteout_textures_Texture_generateMipmaps_pool(
                 self.raw.as_ptr(),
-                core::ptr::null_mut(),
+                pool.map_or(core::ptr::null_mut(), |v| v.as_ptr()),
             ))
         }
     }
@@ -256,13 +656,17 @@ impl Texture {
     /// The texture must use an uncompressed pixel format (same requirement as generateMipmaps).  Returns an error if @p levels would reduce every dimension to zero.
     ///
     /// @param levels Number of mip levels to drop (default 1). @param pool   Optional WorkerPool for parallel mip generation. @return std::nullopt on success; error message on failure.
-    pub fn downscale(&mut self, levels: u32) -> Option<String> {
+    pub fn downscale(
+        &mut self,
+        levels: u32,
+        pool: Option<&crate::interfaces::HostWorkerPool>,
+    ) -> Option<String> {
         // SAFETY: handle is live for the duration of the call.
         unsafe {
             crate::support::take_string_opt(ffi::whiteout_textures_Texture_downscale(
                 self.raw.as_ptr(),
                 levels,
-                core::ptr::null_mut(),
+                pool.map_or(core::ptr::null_mut(), |v| v.as_ptr()),
             ))
         }
     }
@@ -343,6 +747,69 @@ impl Texture {
         }
     }
 
+    /// @return The semantic kind of this texture.
+    pub fn kind(&self) -> TextureKind {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            TextureKind::try_from(ffi::whiteout_textures_Texture_kind(self.raw.as_ptr()))
+                .expect("unknown enum discriminant from the native library (ABI version skew)")
+        }
+    }
+
+    /// Set the semantic kind of this texture. @note TextureKind::Unused is not valid as a top-level kind; use setChannelKind() on a Multikind texture for per-channel Unused.
+    pub fn set_kind(&mut self, k: TextureKind) {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            ffi::whiteout_textures_Texture_setKind(self.raw.as_ptr(), k as i32);
+        }
+    }
+
+    /// @return The per-channel kind for channel @p ch.
+    ///
+    /// Only meaningful when kind() == TextureKind::Multikind. Returns TextureKind::Other by default for all other kinds. @param ch Channel to query (R/G/B/A).
+    pub fn channel_kind(&self, ch: Channel) -> TextureKind {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            TextureKind::try_from(ffi::whiteout_textures_Texture_channelKind(
+                self.raw.as_ptr(),
+                ch as i32,
+            ))
+            .expect("unknown enum discriminant from the native library (ABI version skew)")
+        }
+    }
+
+    /// Set the per-channel kind for channel @p ch.
+    ///
+    /// Only meaningful when kind() == TextureKind::Multikind. TextureKind::Unused is permitted here to mark a channel as unused. @param ch   Channel to configure. @param kind Kind to assign, including TextureKind::Unused.
+    pub fn set_channel_kind(&mut self, ch: Channel, kind: TextureKind) {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            ffi::whiteout_textures_Texture_setChannelKind(
+                self.raw.as_ptr(),
+                ch as i32,
+                kind as i32,
+            );
+        }
+    }
+
+    /// @return The default fill value for channel @p ch.
+    ///
+    /// This value is used by consumers (e.g. channel merging, material baking) when the channel carries no source data.  Defaults to 1.0f for all channels. @param ch Channel to query (R/G/B/A).
+    pub fn channel_default(&self, ch: Channel) -> f32 {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe { ffi::whiteout_textures_Texture_channelDefault(self.raw.as_ptr(), ch as i32) }
+    }
+
+    /// Set the default fill value for channel @p ch.
+    ///
+    /// The value is stored as-is (normalised `[0, 1]` float for integer formats, linear scale for f32 formats).  No clamping is applied at storage time. @param ch    Channel to configure (R/G/B/A). @param value Default fill value; 1.0f by convention.
+    pub fn set_channel_default(&mut self, ch: Channel, value: f32) {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            ffi::whiteout_textures_Texture_setChannelDefault(self.raw.as_ptr(), ch as i32, value);
+        }
+    }
+
     /// @return True if the texture data is in sRGB colour space.
     pub fn is_srgb(&self) -> bool {
         // SAFETY: handle is live for the duration of the call.
@@ -393,6 +860,18 @@ impl Texture {
         unsafe { ffi::whiteout_textures_Texture_mipCount(self.raw.as_ptr()) }
     }
 
+    /// Get the mip-level descriptor for a given mip index and layer. @param mip   Mip level index (0 = base). @param layer Array layer index (0 for 2D / 3D textures). @return Reference to the MipLevel struct.
+    pub fn mip_level(&self, mip: u32, layer: u32) -> Option<MipLevel> {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            MipLevel::from_raw(ffi::whiteout_textures_Texture_mipLevel(
+                self.raw.as_ptr(),
+                mip,
+                layer,
+            ))
+        }
+    }
+
     /// @return Total byte size of the pixel-data buffer.
     pub fn data_size(&self) -> u64 {
         // SAFETY: handle is live for the duration of the call.
@@ -431,6 +910,20 @@ impl Texture {
         unsafe {
             Bytes::from_raw(ffi::whiteout_textures_Texture_takeData(self.raw.as_ptr()))
                 .unwrap_or_else(Bytes::empty)
+        }
+    }
+
+    /// Replace the pixel-data buffer.
+    ///
+    /// The new buffer must match the existing allocation size. @param new_data Replacement data.
+    pub fn set_data(&mut self, new_data: &[u8]) {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            ffi::whiteout_textures_Texture_setData(
+                self.raw.as_ptr(),
+                new_data.as_ptr(),
+                new_data.len(),
+            );
         }
     }
 }
@@ -667,59 +1160,131 @@ impl Default for BlpWriter {
 }
 
 /// Per-frame metadata for an animated PNG (APNG).
-#[derive(Clone, Debug, PartialEq)]
 pub struct PngApngFrameInfo {
-    /// Frame sub-rectangle width.
-    pub width: u32,
-    /// Frame sub-rectangle height.
-    pub height: u32,
-    /// Frame sub-rectangle X offset on the canvas.
-    pub x_offset: u32,
-    /// Frame sub-rectangle Y offset on the canvas.
-    pub y_offset: u32,
-    /// Frame display duration in milliseconds.
-    pub delay_ms: u32,
-    /// 0 = NONE, 1 = BACKGROUND, 2 = PREVIOUS.
-    pub dispose_op: u32,
-    /// 0 = SOURCE, 1 = OVER.
-    pub blend_op: u32,
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_PngApngFrameInfo>,
 }
 
-impl Default for PngApngFrameInfo {
-    fn default() -> Self {
-        // SAFETY: `_new` always returns a live handle; freed before return.
-        unsafe {
-            let h = ffi::whiteout_textures_PngApngFrameInfo_new();
-            let out = PngApngFrameInfo {
-                width: ffi::whiteout_textures_PngApngFrameInfo_get_width(h),
-                height: ffi::whiteout_textures_PngApngFrameInfo_get_height(h),
-                x_offset: ffi::whiteout_textures_PngApngFrameInfo_get_xOffset(h),
-                y_offset: ffi::whiteout_textures_PngApngFrameInfo_get_yOffset(h),
-                delay_ms: ffi::whiteout_textures_PngApngFrameInfo_get_delayMs(h),
-                dispose_op: ffi::whiteout_textures_PngApngFrameInfo_get_disposeOp(h),
-                blend_op: ffi::whiteout_textures_PngApngFrameInfo_get_blendOp(h),
-            };
-            ffi::whiteout_textures_PngApngFrameInfo_delete(h);
-            out
-        }
+impl Drop for PngApngFrameInfo {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_textures_PngApngFrameInfo_delete(self.raw.as_ptr()) }
     }
 }
 
 impl PngApngFrameInfo {
-    /// Build a native handle carrying these values. Caller frees it.
-    #[allow(dead_code)] // consumed once the methods taking these options bind
-    pub(crate) unsafe fn to_native(&self) -> *mut ffi::whiteout_PngApngFrameInfo {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_PngApngFrameInfo) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| PngApngFrameInfo { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for PngApngFrameInfo {}
+
+impl core::fmt::Debug for PngApngFrameInfo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PngApngFrameInfo").finish_non_exhaustive()
+    }
+}
+
+impl PngApngFrameInfo {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
         unsafe {
-            let h = ffi::whiteout_textures_PngApngFrameInfo_new();
-            ffi::whiteout_textures_PngApngFrameInfo_set_width(h, self.width);
-            ffi::whiteout_textures_PngApngFrameInfo_set_height(h, self.height);
-            ffi::whiteout_textures_PngApngFrameInfo_set_xOffset(h, self.x_offset);
-            ffi::whiteout_textures_PngApngFrameInfo_set_yOffset(h, self.y_offset);
-            ffi::whiteout_textures_PngApngFrameInfo_set_delayMs(h, self.delay_ms);
-            ffi::whiteout_textures_PngApngFrameInfo_set_disposeOp(h, self.dispose_op);
-            ffi::whiteout_textures_PngApngFrameInfo_set_blendOp(h, self.blend_op);
-            h
+            let raw = ffi::whiteout_textures_PngApngFrameInfo_new();
+            Self::from_raw(raw).expect("native PngApngFrameInfo allocation failed")
         }
+    }
+
+    /// Frame sub-rectangle width.
+    pub fn width(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_textures_PngApngFrameInfo_get_width(self.raw.as_ptr()) }
+    }
+
+    pub fn set_width(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_textures_PngApngFrameInfo_set_width(self.raw.as_ptr(), value) }
+    }
+
+    /// Frame sub-rectangle height.
+    pub fn height(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_textures_PngApngFrameInfo_get_height(self.raw.as_ptr()) }
+    }
+
+    pub fn set_height(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_textures_PngApngFrameInfo_set_height(self.raw.as_ptr(), value) }
+    }
+
+    /// Frame sub-rectangle X offset on the canvas.
+    pub fn x_offset(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_textures_PngApngFrameInfo_get_xOffset(self.raw.as_ptr()) }
+    }
+
+    pub fn set_x_offset(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_textures_PngApngFrameInfo_set_xOffset(self.raw.as_ptr(), value) }
+    }
+
+    /// Frame sub-rectangle Y offset on the canvas.
+    pub fn y_offset(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_textures_PngApngFrameInfo_get_yOffset(self.raw.as_ptr()) }
+    }
+
+    pub fn set_y_offset(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_textures_PngApngFrameInfo_set_yOffset(self.raw.as_ptr(), value) }
+    }
+
+    /// Frame display duration in milliseconds.
+    pub fn delay_ms(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_textures_PngApngFrameInfo_get_delayMs(self.raw.as_ptr()) }
+    }
+
+    pub fn set_delay_ms(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_textures_PngApngFrameInfo_set_delayMs(self.raw.as_ptr(), value) }
+    }
+
+    /// 0 = NONE, 1 = BACKGROUND, 2 = PREVIOUS.
+    pub fn dispose_op(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_textures_PngApngFrameInfo_get_disposeOp(self.raw.as_ptr()) }
+    }
+
+    pub fn set_dispose_op(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_textures_PngApngFrameInfo_set_disposeOp(self.raw.as_ptr(), value) }
+    }
+
+    /// 0 = SOURCE, 1 = OVER.
+    pub fn blend_op(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_textures_PngApngFrameInfo_get_blendOp(self.raw.as_ptr()) }
+    }
+
+    pub fn set_blend_op(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_textures_PngApngFrameInfo_set_blendOp(self.raw.as_ptr(), value) }
+    }
+}
+
+impl Default for PngApngFrameInfo {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -837,6 +1402,17 @@ impl PngParser {
     pub fn frame_delay_ms(&self, index: u32) -> u32 {
         // SAFETY: handle is live for the duration of the call.
         unsafe { ffi::whiteout_textures_PngParser_frameDelayMs(self.raw.as_ptr(), index) }
+    }
+
+    /// @return raw per-frame metadata for frame @p index. @param index Zero-based frame index.
+    pub fn frame_info(&self, index: u32) -> Option<PngApngFrameInfo> {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            PngApngFrameInfo::from_raw(ffi::whiteout_textures_PngParser_frameInfo(
+                self.raw.as_ptr(),
+                index,
+            ))
+        }
     }
 }
 
@@ -965,6 +1541,15 @@ impl PngApngSaveOptions {
             h
         }
     }
+
+    /// Free a handle produced by [`Self::to_native`].
+    ///
+    /// # Safety
+    /// `h` must have come from `to_native` and not been freed already.
+    #[allow(dead_code)]
+    pub(crate) unsafe fn free_native(h: *mut ffi::whiteout_PngApngSaveOptions) {
+        unsafe { ffi::whiteout_textures_PngApngSaveOptions_delete(h) }
+    }
 }
 
 /// Encodes a Texture into PNG format.
@@ -1023,6 +1608,27 @@ impl PngWriter {
                 texture.raw.as_ptr(),
             ))
             .unwrap_or_else(Bytes::empty)
+        }
+    }
+
+    /// Serialize a sequence of frames into an animated PNG (APNG) byte buffer.
+    ///
+    /// All frames must share the same dimensions (frame 0 defines the canvas). Each frame is emitted full-canvas with disposal NONE and blend SOURCE. Returns an empty buffer on failure (lenient mode). @param frames Ordered animation frames; must be non-empty. @param opts   Encoding options (loop count).
+    pub fn write_animated(&mut self, frames: &[&PngApngFrame], opts: &PngApngSaveOptions) -> Bytes {
+        let frames_ptrs: Vec<_> = frames.iter().map(|v| v.raw.as_ptr()).collect();
+        let opts_native = unsafe { opts.to_native() };
+        // SAFETY: handle is live for the call; the staged
+        // option handles are freed immediately after.
+        unsafe {
+            let __r = Bytes::from_raw(ffi::whiteout_textures_PngWriter_writeAnimated(
+                self.raw.as_ptr(),
+                frames_ptrs.as_ptr(),
+                frames.len(),
+                opts_native,
+            ))
+            .unwrap_or_else(Bytes::empty);
+            PngApngSaveOptions::free_native(opts_native);
+            __r
         }
     }
 
@@ -1924,7 +2530,7 @@ pub struct GifSaveOptions {
     pub loop_count: u16,
     /// Enable blue-noise ordered dithering when mapping pixels to the palette.
     pub dither: bool,
-    /// Dither strength in [0, 1].  0 = no visible dithering, 1 = full.
+    /// Dither strength in `[0, 1]`.  0 = no visible dithering, 1 = full.
     pub dither_strength: f32,
     /// Emit a transparent background. Pixels whose source alpha is below 50% become the GIF's transparent palette index; the rest are quantised normally. GIF transparency is 1-bit, so partially-covered (anti- aliased) edge pixels are forced fully opaque or fully transparent.
     pub transparent: bool,
@@ -1964,6 +2570,15 @@ impl GifSaveOptions {
             );
             h
         }
+    }
+
+    /// Free a handle produced by [`Self::to_native`].
+    ///
+    /// # Safety
+    /// `h` must have come from `to_native` and not been freed already.
+    #[allow(dead_code)]
+    pub(crate) unsafe fn free_native(h: *mut ffi::whiteout_GifSaveOptions) {
+        unsafe { ffi::whiteout_textures_GifSaveOptions_delete(h) }
     }
 }
 
@@ -2014,6 +2629,78 @@ impl GifWriter {
         }
     }
 
+    /// Write frames to a GIF file on disk using default options.
+    pub fn write(&mut self, file_path: &str, frames: &[&Texture]) {
+        let file_path_cstr = std::ffi::CString::new(file_path).unwrap_or_default();
+        let frames_ptrs: Vec<_> = frames.iter().map(|v| v.raw.as_ptr()).collect();
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            ffi::whiteout_textures_GifWriter_write(
+                self.raw.as_ptr(),
+                file_path_cstr.as_ptr(),
+                frames_ptrs.as_ptr(),
+                frames.len(),
+            );
+        }
+    }
+
+    /// Write frames to a GIF byte buffer using default options.
+    pub fn write_frames(&mut self, frames: &[&Texture]) -> Bytes {
+        let frames_ptrs: Vec<_> = frames.iter().map(|v| v.raw.as_ptr()).collect();
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            Bytes::from_raw(ffi::whiteout_textures_GifWriter_write_frames(
+                self.raw.as_ptr(),
+                frames_ptrs.as_ptr(),
+                frames.len(),
+            ))
+            .unwrap_or_else(Bytes::empty)
+        }
+    }
+
+    /// Write frames to a GIF file on disk with explicit options.
+    pub fn write_file_path_frames_opts(
+        &mut self,
+        file_path: &str,
+        frames: &[&Texture],
+        opts: &GifSaveOptions,
+    ) {
+        let file_path_cstr = std::ffi::CString::new(file_path).unwrap_or_default();
+        let frames_ptrs: Vec<_> = frames.iter().map(|v| v.raw.as_ptr()).collect();
+        let opts_native = unsafe { opts.to_native() };
+        // SAFETY: handle is live for the call; the staged
+        // option handles are freed immediately after.
+        unsafe {
+            ffi::whiteout_textures_GifWriter_write_filePath_frames_opts(
+                self.raw.as_ptr(),
+                file_path_cstr.as_ptr(),
+                frames_ptrs.as_ptr(),
+                frames.len(),
+                opts_native,
+            );
+            GifSaveOptions::free_native(opts_native);
+        }
+    }
+
+    /// Write frames to a GIF byte buffer with explicit options.
+    pub fn write_frames_opts(&mut self, frames: &[&Texture], opts: &GifSaveOptions) -> Bytes {
+        let frames_ptrs: Vec<_> = frames.iter().map(|v| v.raw.as_ptr()).collect();
+        let opts_native = unsafe { opts.to_native() };
+        // SAFETY: handle is live for the call; the staged
+        // option handles are freed immediately after.
+        unsafe {
+            let __r = Bytes::from_raw(ffi::whiteout_textures_GifWriter_write_frames_opts(
+                self.raw.as_ptr(),
+                frames_ptrs.as_ptr(),
+                frames.len(),
+                opts_native,
+            ))
+            .unwrap_or_else(Bytes::empty);
+            GifSaveOptions::free_native(opts_native);
+            __r
+        }
+    }
+
     /// @return true if the last write produced any issues.
     pub fn has_issues(&self) -> bool {
         // SAFETY: handle is live for the duration of the call.
@@ -2043,28 +2730,6 @@ impl Default for GifWriter {
     }
 }
 
-// Not yet bound (shape unsupported by the emitter):
-//   - GifWriter::write (parameter shape)
-//   - GifWriter::write_filePath_frames_opts (parameter shape)
-//   - GifWriter::write_frames (parameter shape)
-//   - GifWriter::write_frames_opts (parameter shape)
-//   - PngParser::frameInfo (return whiteout::textures::png::ApngFrameInfo)
-//   - PngWriter::writeAnimated (parameter shape)
-//   - Texture::channelDefault (parameter shape)
-//   - Texture::channelKind (return whiteout::textures::TextureKind)
-//   - Texture::expandNormal (parameter shape)
-//   - Texture::fillChannel (parameter shape)
-//   - Texture::invertChannel (parameter shape)
-//   - Texture::kind (return whiteout::textures::TextureKind)
-//   - Texture::mergeChannels (parameter shape)
-//   - Texture::mipLevel (return whiteout::textures::MipLevel)
-//   - Texture::setChannelDefault (parameter shape)
-//   - Texture::setChannelKind (parameter shape)
-//   - Texture::setData (parameter shape)
-//   - Texture::setKind (parameter shape)
-//   - Texture::splitChannels (return std::optional<std::vector<whiteout::textures::Texture>>)
-//   - Texture::swapChannels (parameter shape)
-
 /// Value-ABI mutable span accessors (`bindings/c/whiteout_v.h`).
 #[doc(hidden)]
 pub mod tier_a {
@@ -2090,8 +2755,17 @@ pub mod tier_a {
 pub mod ffi {
     #![allow(missing_debug_implementations)]
 
+    #[allow(unused_imports)]
     use crate::support::{RawBytes, RawCString};
 
+    #[repr(C)]
+    pub struct whiteout_TextureList {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_MipLevel {
+        _private: [u8; 0],
+    }
     #[repr(C)]
     pub struct whiteout_Texture {
         _private: [u8; 0],
@@ -2174,6 +2848,25 @@ pub mod ffi {
     }
 
     extern "C" {
+        pub fn whiteout_textures_TextureList_size(self_: *mut whiteout_TextureList) -> usize;
+        pub fn whiteout_textures_TextureList_at(
+            self_: *mut whiteout_TextureList,
+            index: usize,
+        ) -> *mut whiteout_Texture;
+        pub fn whiteout_textures_TextureList_delete(self_: *mut whiteout_TextureList);
+        // MipLevel
+        pub fn whiteout_textures_MipLevel_new() -> *mut whiteout_MipLevel;
+        pub fn whiteout_textures_MipLevel_delete(self_: *mut whiteout_MipLevel);
+        pub fn whiteout_textures_MipLevel_get_width(self_: *mut whiteout_MipLevel) -> u32;
+        pub fn whiteout_textures_MipLevel_set_width(self_: *mut whiteout_MipLevel, value: u32);
+        pub fn whiteout_textures_MipLevel_get_height(self_: *mut whiteout_MipLevel) -> u32;
+        pub fn whiteout_textures_MipLevel_set_height(self_: *mut whiteout_MipLevel, value: u32);
+        pub fn whiteout_textures_MipLevel_get_depth(self_: *mut whiteout_MipLevel) -> u32;
+        pub fn whiteout_textures_MipLevel_set_depth(self_: *mut whiteout_MipLevel, value: u32);
+        pub fn whiteout_textures_MipLevel_get_offset(self_: *mut whiteout_MipLevel) -> u64;
+        pub fn whiteout_textures_MipLevel_set_offset(self_: *mut whiteout_MipLevel, value: u64);
+        pub fn whiteout_textures_MipLevel_get_size(self_: *mut whiteout_MipLevel) -> u64;
+        pub fn whiteout_textures_MipLevel_set_size(self_: *mut whiteout_MipLevel, value: u64);
         // Texture
         pub fn whiteout_textures_Texture_new() -> *mut whiteout_Texture;
         pub fn whiteout_textures_Texture_delete(self_: *mut whiteout_Texture);
@@ -2183,6 +2876,37 @@ pub mod ffi {
             self_: *mut whiteout_Texture,
             new_fmt: i32,
             pool: *mut core::ffi::c_void,
+        ) -> *mut whiteout_Texture;
+        pub fn whiteout_textures_Texture_swapChannels(
+            self_: *mut whiteout_Texture,
+            a: i32,
+            b: i32,
+        ) -> i32;
+        pub fn whiteout_textures_Texture_invertChannel(
+            self_: *mut whiteout_Texture,
+            ch: i32,
+        ) -> i32;
+        pub fn whiteout_textures_Texture_expandNormal(
+            self_: *mut whiteout_Texture,
+            x_channel: i32,
+            y_channel: i32,
+            z_channel: i32,
+        ) -> i32;
+        pub fn whiteout_textures_Texture_fillChannel(
+            self_: *mut whiteout_Texture,
+            target: i32,
+            value: f32,
+        ) -> i32;
+        pub fn whiteout_textures_Texture_splitChannels(
+            self_: *mut whiteout_Texture,
+            channels: *const i32,
+            channels_size: usize,
+        ) -> *mut whiteout_TextureList;
+        pub fn whiteout_textures_Texture_mergeChannels(
+            sources: *const *mut whiteout_Texture,
+            sources_size: usize,
+            target_channels: *const i32,
+            target_channels_size: usize,
         ) -> *mut whiteout_Texture;
         pub fn whiteout_textures_Texture_copyFromNormalToRGBA(
             self_: *mut whiteout_Texture,
@@ -2234,6 +2958,23 @@ pub mod ffi {
             mip_count: u32,
         ) -> *mut whiteout_Texture;
         pub fn whiteout_textures_Texture_type(self_: *mut whiteout_Texture) -> i32;
+        pub fn whiteout_textures_Texture_kind(self_: *mut whiteout_Texture) -> i32;
+        pub fn whiteout_textures_Texture_setKind(self_: *mut whiteout_Texture, k: i32);
+        pub fn whiteout_textures_Texture_channelKind(self_: *mut whiteout_Texture, ch: i32) -> i32;
+        pub fn whiteout_textures_Texture_setChannelKind(
+            self_: *mut whiteout_Texture,
+            ch: i32,
+            kind: i32,
+        );
+        pub fn whiteout_textures_Texture_channelDefault(
+            self_: *mut whiteout_Texture,
+            ch: i32,
+        ) -> f32;
+        pub fn whiteout_textures_Texture_setChannelDefault(
+            self_: *mut whiteout_Texture,
+            ch: i32,
+            value: f32,
+        );
         pub fn whiteout_textures_Texture_isSrgb(self_: *mut whiteout_Texture) -> i32;
         pub fn whiteout_textures_Texture_setSrgb(self_: *mut whiteout_Texture, srgb: i32);
         pub fn whiteout_textures_Texture_width(self_: *mut whiteout_Texture) -> u32;
@@ -2242,6 +2983,11 @@ pub mod ffi {
         pub fn whiteout_textures_Texture_layerCount(self_: *mut whiteout_Texture) -> u32;
         pub fn whiteout_textures_Texture_arraySize(self_: *mut whiteout_Texture) -> u32;
         pub fn whiteout_textures_Texture_mipCount(self_: *mut whiteout_Texture) -> u32;
+        pub fn whiteout_textures_Texture_mipLevel(
+            self_: *mut whiteout_Texture,
+            mip: u32,
+            layer: u32,
+        ) -> *mut whiteout_MipLevel;
         pub fn whiteout_textures_Texture_dataSize(self_: *mut whiteout_Texture) -> u64;
         pub fn whiteout_textures_Texture_data(self_: *mut whiteout_Texture) -> RawBytes;
         pub fn whiteout_textures_Texture_mipData(
@@ -2250,6 +2996,11 @@ pub mod ffi {
             layer: u32,
         ) -> RawBytes;
         pub fn whiteout_textures_Texture_takeData(self_: *mut whiteout_Texture) -> RawBytes;
+        pub fn whiteout_textures_Texture_setData(
+            self_: *mut whiteout_Texture,
+            new_data: *const u8,
+            new_data_size: usize,
+        );
         // BlpParser
         pub fn whiteout_textures_BlpParser_new() -> *mut whiteout_BlpParser;
         pub fn whiteout_textures_BlpParser_delete(self_: *mut whiteout_BlpParser);
@@ -2360,6 +3111,10 @@ pub mod ffi {
             self_: *mut whiteout_PngParser,
             index: u32,
         ) -> u32;
+        pub fn whiteout_textures_PngParser_frameInfo(
+            self_: *mut whiteout_PngParser,
+            index: u32,
+        ) -> *mut whiteout_PngApngFrameInfo;
         // PngApngFrame
         pub fn whiteout_textures_PngApngFrame_new() -> *mut whiteout_PngApngFrame;
         pub fn whiteout_textures_PngApngFrame_delete(self_: *mut whiteout_PngApngFrame);
@@ -2392,6 +3147,12 @@ pub mod ffi {
         pub fn whiteout_textures_PngWriter_write(
             self_: *mut whiteout_PngWriter,
             texture: *mut whiteout_Texture,
+        ) -> RawBytes;
+        pub fn whiteout_textures_PngWriter_writeAnimated(
+            self_: *mut whiteout_PngWriter,
+            frames: *const *mut whiteout_PngApngFrame,
+            frames_size: usize,
+            opts: *mut whiteout_PngApngSaveOptions,
         ) -> RawBytes;
         pub fn whiteout_textures_PngWriter_hasIssues(self_: *mut whiteout_PngWriter) -> i32;
         pub fn whiteout_textures_PngWriter_getIssues_count(self_: *mut whiteout_PngWriter)
@@ -2601,6 +3362,30 @@ pub mod ffi {
             _0: *mut core::ffi::c_void,
         ) -> *mut whiteout_GifWriter;
         pub fn whiteout_textures_GifWriter_delete(self_: *mut whiteout_GifWriter);
+        pub fn whiteout_textures_GifWriter_write(
+            self_: *mut whiteout_GifWriter,
+            file_path: *const core::ffi::c_char,
+            frames: *const *mut whiteout_Texture,
+            frames_size: usize,
+        );
+        pub fn whiteout_textures_GifWriter_write_frames(
+            self_: *mut whiteout_GifWriter,
+            frames: *const *mut whiteout_Texture,
+            frames_size: usize,
+        ) -> RawBytes;
+        pub fn whiteout_textures_GifWriter_write_filePath_frames_opts(
+            self_: *mut whiteout_GifWriter,
+            file_path: *const core::ffi::c_char,
+            frames: *const *mut whiteout_Texture,
+            frames_size: usize,
+            opts: *mut whiteout_GifSaveOptions,
+        );
+        pub fn whiteout_textures_GifWriter_write_frames_opts(
+            self_: *mut whiteout_GifWriter,
+            frames: *const *mut whiteout_Texture,
+            frames_size: usize,
+            opts: *mut whiteout_GifSaveOptions,
+        ) -> RawBytes;
         pub fn whiteout_textures_GifWriter_hasIssues(self_: *mut whiteout_GifWriter) -> i32;
         pub fn whiteout_textures_GifWriter_getIssues_count(self_: *mut whiteout_GifWriter)
             -> usize;

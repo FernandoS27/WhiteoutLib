@@ -369,6 +369,9 @@ typedef enum {
     whiteout_m3_ParticleFlag_UseLocalTime,
     whiteout_m3_ParticleFlag_SimulateInit,
     whiteout_m3_ParticleFlag_Copy,
+    whiteout_m3_ParticleFlag_RequiresGpuSim,
+    whiteout_m3_ParticleFlag_ShaderPerm30,
+    whiteout_m3_ParticleFlag_ForceProceduralPosition,
 } whiteout_m3_ParticleFlag;
 
 typedef enum {
@@ -993,7 +996,7 @@ void whiteout_m3_M3ParticleEmitter_set_collisionSpawnEnergy(whiteout_M3ParticleE
 /* Die after N bounces */
 uint32_t whiteout_m3_M3ParticleEmitter_get_collisionDieBounce(const whiteout_M3ParticleEmitter* self);
 void whiteout_m3_M3ParticleEmitter_set_collisionDieBounce(whiteout_M3ParticleEmitter* self, uint32_t value);
-/* Visual type */
+/* Visual type → shader b_iInstanceType */
 int32_t whiteout_m3_M3ParticleEmitter_get_instanceType(const whiteout_M3ParticleEmitter* self);
 void whiteout_m3_M3ParticleEmitter_set_instanceType(whiteout_M3ParticleEmitter* self, int32_t value);
 /* Tail length for Tail/Trail types */
@@ -1098,10 +1101,8 @@ void whiteout_m3_M3ParticleEmitter_set_flags(whiteout_M3ParticleEmitter* self, i
 /* Rotation flags (v18+) */
 int32_t whiteout_m3_M3ParticleEmitter_get_rotationFlags(const whiteout_M3ParticleEmitter* self);
 void whiteout_m3_M3ParticleEmitter_set_rotationFlags(whiteout_M3ParticleEmitter* self, int32_t value);
-/* Color interpolation mode */
 int32_t whiteout_m3_M3ParticleEmitter_get_colorSmoothing(const whiteout_M3ParticleEmitter* self);
 void whiteout_m3_M3ParticleEmitter_set_colorSmoothing(whiteout_M3ParticleEmitter* self, int32_t value);
-/* Size interpolation mode */
 int32_t whiteout_m3_M3ParticleEmitter_get_sizeSmoothing(const whiteout_M3ParticleEmitter* self);
 void whiteout_m3_M3ParticleEmitter_set_sizeSmoothing(whiteout_M3ParticleEmitter* self, int32_t value);
 int32_t whiteout_m3_M3ParticleEmitter_get_rotationSmoothing(const whiteout_M3ParticleEmitter* self);

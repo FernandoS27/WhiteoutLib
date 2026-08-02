@@ -1,81 +1,183 @@
-# whiteout
+# whiteoutlib
 
 Rust bindings for [WhiteoutLib](https://github.com/Sahmkow/WhiteoutLib) —
-parsers and writers for Blizzard model and texture formats (MDX, M2, M3,
-BLP, DDS, PNG, …).
+parsers and writers for Blizzard model and texture formats.
 
-> **Status: in development.** The `math` module is complete and tested;
-> textures and the model formats land in later phases. See
-> [`docs/plans/rust-bindings.md`](../../../docs/plans/rust-bindings.md).
+| Module | Covers |
+|---|---|
+| `math` | vectors, quaternions, matrices — `Copy`, no allocation |
+| `textures` | BLP, DDS, PNG, JPEG, BMP, TGA, TIFF, GIF |
+| `mdx` | Warcraft III models |
+| `m2` | World of Warcraft models |
+| `m3` | StarCraft II / Heroes of the Storm models |
+| `host` | OS file system, thread pool, HTTP handler, game finder |
+| `interfaces` | traits the library calls *into* — implement these yourself |
+| `casc` | CASC storage — behind the `casc` feature |
+| `mpq` | MPQ archives — behind the `mpq` feature |
 
-## Building
+## Installing
 
-The crate links against `whiteout_native`, which is built by CMake:
+```sh
+cargo add whiteoutlib --features casc,mpq
+```
+
+The package is `whiteoutlib` (the short name was taken on crates.io), but
+the library it provides is `whiteout` — so imports read:
+
+```rust
+use whiteout::mdx::Parser;
+```
+
+The C++ library is bundled and built for you, so this needs **CMake and a
+C++20 compiler** on the machine — and the first build takes a few minutes.
+Nothing else is required.
+
+To link a prebuilt library instead, turn the default `vendored` feature off
+and point at it:
+
+```sh
+cargo add whiteoutlib --no-default-features --features casc,mpq
+WHITEOUT_LIB_DIR=/path/to/lib cargo build      # add WHITEOUT_STATIC=1 for the static archive
+```
+
+`build.rs` resolves in that order: `WHITEOUT_LIB_DIR` (always wins), then
+the vendored build, then `pkg-config`.
+
+The `casc` and `mpq` features mirror the CMake `WHITEOUT_ENABLE_*` options.
+Under `vendored` they configure the bundled build; against a prebuilt
+library they must match how it was configured, or linking fails —
+deliberately, rather than silently missing symbols.
+
+## Working on the bindings
+
+From a checkout, `build.rs` finds the repository above the crate, so the
+vendored path works with no setup. For the faster prebuilt loop:
 
 ```powershell
 ./scripts/build-rust.ps1              # codegen + cmake + fmt + clippy + test
-./scripts/build-rust.ps1 -Static      # link whiteout_native_static instead
+./scripts/pack-rust.ps1 -Verify       # stage vendored sources + package
 ```
 
-Manually:
+## Reading models
 
-```sh
-cmake -S . -B build-rust -DWHITEOUT_BUILD_C_BINDINGS=ON
-cmake --build build-rust --config Release --target whiteout_c
-WHITEOUT_LIB_DIR=build-rust/c-dist/Release cargo test
+```no_run
+use whiteout::mdx::{MDLXFormat, Parser};
+
+let bytes = std::fs::read("units/human/footman/footman.mdx")?;
+let model = Parser::new().parse(&bytes, MDLXFormat::MDX).expect("parse failed");
+
+for geoset in model.geosets_iter() {
+    let positions: &[whiteout::math::Vector3f] = geoset.vertex_positions();
+    let faces: &[u16] = geoset.faces();
+    println!("{} verts, {} indices", positions.len(), faces.len());
+}
+# Ok::<(), std::io::Error>(())
 ```
 
-`build.rs` resolves the library in this order: `WHITEOUT_LIB_DIR`, then
-`pkg-config`. Set `WHITEOUT_STATIC=1` to link the static archive.
-
-## Design
-
-Value types are `#[repr(C)]` mirrors of the C++ types and cross the FFI
-boundary with no conversion and no allocation:
+Vertex data is borrowed straight out of the C++ allocation — nothing is
+copied, in either direction:
 
 ```rust
-use whiteout::math::{Matrix44f, Quaternion, Vector3f};
-
-let a = Vector3f::new(1.0, 0.0, 0.0);
-let b = Vector3f::new(0.0, 2.0, 0.0);
-let c = (a + b) * 2.0 - a;          // no allocation, `a` still usable
-
-let m = Matrix44f::compose(
-    Vector3f::new(1.0, 2.0, 3.0),
-    Quaternion::from_axis_angle(Vector3f::new(0.0, 1.0, 0.0), 0.7),
-    Vector3f::new(2.0, 2.0, 2.0),
-);
-let inv = m * Matrix44f::inverse(m);   // ≈ identity
+# use whiteout::{math::Vector3f, mdx::Model};
+# let mut model = Model::new();
+model.resize_geosets(1);
+let mut geoset = model.geosets_mut(0).unwrap();
+geoset.set_vertex_positions(&[Vector3f::new(0.0, 0.0, 0.0)]);
+geoset.vertex_positions_mut()[0].z = 1.0;   // writes into C++ memory
 ```
 
-Component-wise arithmetic, `dot` and `length` are plain Rust — they never
-call across the boundary. Operations with subtler semantics (the Hamilton
-product, `slerp`, matrix inverse, the spline interpolators) call the C++
-implementation, so this binding cannot drift from the library. The test
-suite cross-checks every native implementation against its C++ counterpart.
+That is safe because the slice borrows the model: the compiler rejects a
+resize, a second view, or a drop of the owner while it is alive.
 
-### Layout verification
+## Textures
 
-Sizes are pinned by `const` assertions at compile time. To also verify the
-library you actually linked:
+```no_run
+use whiteout::textures::{BlpParser, PixelFormat, PngWriter};
+
+let blp = std::fs::read("textures/arthas.blp")?;
+let mut texture = BlpParser::new().parse(&blp).expect("not a BLP");
+texture.convert_to(PixelFormat::RGBA8);
+let png = PngWriter::new().write(&texture);
+std::fs::write("arthas.png", &png)?;
+# Ok::<(), std::io::Error>(())
+```
+
+## Implementing the library's interfaces
+
+`whiteout::interfaces` holds the traits the library calls *into* — supply
+your own file system, HTTP client, or thread pool:
 
 ```rust
-whiteout::math::check_abi()?;
+use whiteout::interfaces::{FileSystem, HostFileSystem};
+
+struct MyFs;
+impl FileSystem for MyFs {
+    fn read_file(&self, path: &str) -> Option<Vec<u8>> {
+        std::fs::read(path).ok()
+    }
+}
+
+let fs = HostFileSystem::new(MyFs);
 ```
 
-### Errors
+`Send + Sync` is required, not defensive: the library calls these from
+worker threads. Panics are contained at the boundary — the C ABI is
+compiled without exceptions, so an escaping panic would be undefined
+behaviour.
+
+A pool can be handed to any call that takes one:
+
+```rust
+# use whiteout::interfaces::{HostWorkerPool, WorkerPool, WorkerTask};
+# use whiteout::textures::{PixelFormat, Texture};
+# struct Inline;
+# impl WorkerPool for Inline {
+#     fn submit(&self, task: WorkerTask) { task.run() }
+#     fn wait_idle(&self) {}
+#     fn thread_count(&self) -> usize { 4 }
+# }
+let pool = HostWorkerPool::new(Inline);
+let tex = Texture::create_2d(PixelFormat::RGBA8, 64, 64, 1).unwrap();
+let bc1 = tex.copy_as_format(PixelFormat::BC1, Some(&pool)).unwrap();
+```
+
+## Errors
 
 The C++ library does not throw and reports absence via `std::optional`.
 This binding follows suit: operations that can simply find nothing return
 `Option`, and `Result` is reserved for the few calls that produce a real
-diagnostic.
+diagnostic. Parser diagnostics are a list, not an error:
+
+```rust
+# use whiteout::textures::BlpParser;
+let mut parser = BlpParser::new();
+let texture = parser.parse(b"not a blp");     // -> None
+for issue in parser.issues() {
+    eprintln!("{issue}");
+}
+```
+
+## Layout verification
+
+Value types such as `math::Vector3f` are `#[repr(C)]` mirrors of their C++
+counterparts and cross the boundary with no conversion. Sizes are pinned by
+`const` assertions at compile time; to also check the library you linked:
+
+```rust
+whiteout::math::check_abi()?;
+# Ok::<(), whiteout::Error>(())
+```
 
 ## Regenerating
 
-`src/math.rs` is generated. Do not edit it:
+Everything except `interfaces.rs`, `support.rs` and `lib.rs` is generated.
+Do not edit those files:
 
 ```sh
+python -m tools.codegen.codegen textures --backend rust-abi-header
+python -m tools.codegen.codegen textures --backend rust-abi-source
 python -m tools.codegen.codegen textures --backend rust-math
+python -m tools.codegen.codegen <module> --backend rust
 ```
 
 ## License

@@ -46,7 +46,6 @@ inline whiteout_CString emptyCString() {
 }
 
 } // anonymous
-
 // ── M2CompatQuaternion ─────────────────────────────────────────────────
 
 extern "C" {

@@ -216,7 +216,7 @@ fn convert_to_changes_format_in_place() {
 fn copy_as_format_leaves_the_original_alone() {
     let tex = checkerboard(8, 8);
     let converted = tex
-        .copy_as_format(PixelFormat::BC1)
+        .copy_as_format(PixelFormat::BC1, None)
         .expect("convert failed");
     assert_eq!(converted.format(), PixelFormat::BC1);
     assert_eq!(tex.format(), PixelFormat::RGBA8, "source was mutated");
@@ -231,7 +231,7 @@ fn generate_mipmaps_builds_the_chain() {
     }
     // Returns Some(message) on failure, None on success — the library's own
     // optional-as-error convention, surfaced honestly.
-    assert_eq!(tex.generate_mipmaps(6), None);
+    assert_eq!(tex.generate_mipmaps(6, None), None);
     assert_eq!(tex.mip_count(), 6);
     assert_eq!(tex.mip_data(5, 0).len(), 4);
 }
@@ -243,4 +243,114 @@ fn enums_reject_unknown_discriminants() {
     assert_eq!(PixelFormat::try_from(0).unwrap(), PixelFormat::R8);
     assert!(PixelFormat::try_from(9999).is_err());
     assert!(TextureType::try_from(-1).is_err());
+}
+
+// ── Shapes bound in the final pass ────────────────────────────────────────
+
+#[test]
+fn texture_kind_and_channels_are_typed() {
+    use whiteout::textures::{Channel, TextureKind};
+
+    let mut tex = checkerboard(8, 8);
+    tex.set_kind(TextureKind::Normal);
+    assert_eq!(tex.kind(), TextureKind::Normal);
+    // Per-channel kinds are only meaningful for Multikind, but the
+    // accessor must still be typed rather than a bare integer.
+    let _ = tex.channel_kind(Channel::R);
+
+    let before = tex.data()[0..4].to_vec();
+    assert!(tex.swap_channels(Channel::R, Channel::G));
+    let after = tex.data()[0..4].to_vec();
+    assert_eq!(after[0], before[1], "R should now hold the old G");
+    assert_eq!(after[1], before[0]);
+}
+
+#[test]
+fn invert_channel_flips_it() {
+    use whiteout::textures::Channel;
+
+    let mut tex = checkerboard(4, 4);
+    let before = tex.data()[3];
+    assert!(tex.invert_channel(Channel::A));
+    assert_eq!(tex.data()[3], 255 - before);
+}
+
+#[test]
+fn gif_writer_takes_a_slice_of_frames() {
+    use whiteout::textures::GifWriter;
+
+    // Array-of-handle parameters: `&[&Texture]` on the Rust side becomes
+    // the C ABI's `const whiteout_Texture* const*` plus a count.
+    let a = checkerboard(16, 16);
+    let b = checkerboard(16, 16);
+
+    let mut writer = GifWriter::new();
+    let bytes = writer.write_frames(&[&a, &b]);
+    assert!(!bytes.is_empty(), "GIF encoder produced nothing");
+    assert_eq!(&bytes[..3], b"GIF");
+}
+
+#[test]
+fn gif_options_are_passed_by_value() {
+    use whiteout::textures::{GifSaveOptions, GifWriter};
+
+    // An all-primitive options struct crosses as a plain Rust value; the
+    // binding builds and frees the native handle around the call.
+    let frame = checkerboard(16, 16);
+    let opts = GifSaveOptions {
+        loop_count: 3,
+        dither: true,
+        ..Default::default()
+    };
+
+    let mut writer = GifWriter::new();
+    let bytes = writer.write_frames_opts(&[&frame], &opts);
+    assert!(!bytes.is_empty());
+    assert_eq!(&bytes[..3], b"GIF");
+    // The options value is untouched — it is borrowed, not consumed.
+    assert_eq!(opts.loop_count, 3);
+}
+
+#[test]
+fn split_and_merge_channels_round_trip() {
+    use whiteout::textures::{Channel, Texture};
+
+    let src = checkerboard(8, 8);
+    let r0 = src.data()[0];
+    let g0 = src.data()[1];
+
+    // `splitChannels` returns an owned list of textures — one call
+    // transfers the whole result, and elements are borrowed out of it.
+    let parts = src
+        .split_channels(&[Channel::R, Channel::G])
+        .expect("split failed");
+    assert_eq!(parts.len(), 2);
+    assert!(!parts.is_empty());
+    assert!(parts.get(2).is_none(), "out of range must be None");
+
+    let first = parts.get(0).expect("part 0");
+    assert_eq!(first.width(), 8);
+    assert_eq!(first.data()[0], r0, "R plane should carry the red channel");
+
+    assert_eq!(parts.iter().count(), 2);
+
+    // And back the other way: a slice of handles plus a slice of enums.
+    let a = parts.get(0).expect("part 0");
+    let b = parts.get(1).expect("part 1");
+    let merged =
+        Texture::merge_channels(&[&a, &b], &[Channel::R, Channel::G]).expect("merge failed");
+    assert_eq!(merged.width(), 8);
+    assert_eq!(merged.data()[0], r0);
+    assert_eq!(merged.data()[1], g0);
+}
+
+#[test]
+fn splitting_into_no_channels_yields_an_empty_or_absent_list() {
+    use whiteout::textures::Channel;
+
+    let src = checkerboard(4, 4);
+    // A single channel is the ordinary case; the list still owns its
+    // element and frees it on drop.
+    let parts = src.split_channels(&[Channel::A]).expect("split failed");
+    assert_eq!(parts.len(), 1);
 }

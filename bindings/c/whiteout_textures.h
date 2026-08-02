@@ -12,6 +12,14 @@
 extern "C" {
 #endif
 
+/* ── Owned handle lists ───────── */
+
+typedef struct whiteout_TextureList whiteout_TextureList;
+size_t whiteout_textures_TextureList_size(const whiteout_TextureList* self);
+/* Borrowed element; valid until the list is destroyed. */
+struct whiteout_Texture* whiteout_textures_TextureList_at(whiteout_TextureList* self, size_t index);
+void whiteout_textures_TextureList_delete(whiteout_TextureList* self);
+
 /* ── Enums ─────────────────────────────────────────────────── */
 
 typedef enum {
@@ -34,6 +42,29 @@ typedef enum {
 } whiteout_textures_PixelFormat;
 
 typedef enum {
+    whiteout_textures_TextureKind_Other,
+    whiteout_textures_TextureKind_Diffuse,
+    whiteout_textures_TextureKind_Normal,
+    whiteout_textures_TextureKind_Specular,
+    whiteout_textures_TextureKind_ORM,
+    whiteout_textures_TextureKind_Albedo,
+    whiteout_textures_TextureKind_Roughness,
+    whiteout_textures_TextureKind_Metalness,
+    whiteout_textures_TextureKind_AmbientOcclusion,
+    whiteout_textures_TextureKind_Gloss,
+    whiteout_textures_TextureKind_Emissive,
+    whiteout_textures_TextureKind_AlphaMask,
+    whiteout_textures_TextureKind_BinaryMask,
+    whiteout_textures_TextureKind_TransparencyMask,
+    whiteout_textures_TextureKind_BlendMask,
+    whiteout_textures_TextureKind_Lightmap,
+    whiteout_textures_TextureKind_EnvironmentPBR,
+    whiteout_textures_TextureKind_EnvironmentLegacy,
+    whiteout_textures_TextureKind_Multikind,
+    whiteout_textures_TextureKind_Unused,
+} whiteout_textures_TextureKind;
+
+typedef enum {
     whiteout_textures_TextureType_Texture2D,
     whiteout_textures_TextureType_Texture3D,
     whiteout_textures_TextureType_TextureCube,
@@ -41,8 +72,16 @@ typedef enum {
     whiteout_textures_TextureType_TextureCubeArray,
 } whiteout_textures_TextureType;
 
+typedef enum {
+    whiteout_textures_Channel_R,
+    whiteout_textures_Channel_G,
+    whiteout_textures_Channel_B,
+    whiteout_textures_Channel_A,
+} whiteout_textures_Channel;
+
 /* ── Opaque handles ───────────────────────────────────────── */
 
+typedef struct whiteout_MipLevel whiteout_MipLevel;
 typedef struct whiteout_Texture whiteout_Texture;
 typedef struct whiteout_BlpParser whiteout_BlpParser;
 typedef struct whiteout_BlpWriter whiteout_BlpWriter;
@@ -63,6 +102,28 @@ typedef struct whiteout_TiffParser whiteout_TiffParser;
 typedef struct whiteout_TiffWriter whiteout_TiffWriter;
 typedef struct whiteout_GifSaveOptions whiteout_GifSaveOptions;
 typedef struct whiteout_GifWriter whiteout_GifWriter;
+
+/* ── MipLevel ─────────────────────────────────────────────── */
+
+/* Describes a single mip level within a Texture's data buffer. */
+whiteout_MipLevel* whiteout_textures_MipLevel_new(void);
+void whiteout_textures_MipLevel_delete(whiteout_MipLevel* self);
+
+/* Width of this mip in pixels. */
+uint32_t whiteout_textures_MipLevel_get_width(const whiteout_MipLevel* self);
+void whiteout_textures_MipLevel_set_width(whiteout_MipLevel* self, uint32_t value);
+/* Height of this mip in pixels. */
+uint32_t whiteout_textures_MipLevel_get_height(const whiteout_MipLevel* self);
+void whiteout_textures_MipLevel_set_height(whiteout_MipLevel* self, uint32_t value);
+/* Depth of this mip (always 1 for 2D / cube textures). */
+uint32_t whiteout_textures_MipLevel_get_depth(const whiteout_MipLevel* self);
+void whiteout_textures_MipLevel_set_depth(whiteout_MipLevel* self, uint32_t value);
+/* Byte offset into the Texture data buffer. */
+uint64_t whiteout_textures_MipLevel_get_offset(const whiteout_MipLevel* self);
+void whiteout_textures_MipLevel_set_offset(whiteout_MipLevel* self, uint64_t value);
+/* Byte size of this mip's data. */
+uint64_t whiteout_textures_MipLevel_get_size(const whiteout_MipLevel* self);
+void whiteout_textures_MipLevel_set_size(whiteout_MipLevel* self, uint64_t value);
 
 /* ── Texture ─────────────────────────────────────────────── */
 
@@ -92,6 +153,58 @@ int32_t whiteout_textures_Texture_format_overload2(const whiteout_Texture* self)
 /*  */
 /* @param new_fmt Target pixel format. @param pool Optional WorkerPool for parallel BCn encode/decode work. Ignored for purely uncompressed-to-uncompressed conversions. @return A new Texture with the converted data. */
 struct whiteout_Texture* whiteout_textures_Texture_copyAsFormat(const whiteout_Texture* self, int32_t new_fmt, void* pool);
+/* Swap two channels in-place across all mip levels and array layers. */
+/*  */
+/* Operates directly on the stored pixel data without any intermediate copy. Supports all uncompressed PixelFormats (R*, RG*, RGBA*). */
+/*  */
+/* Failure conditions (returns false): - The texture uses a BCn block-compressed format. - Either channel is not present in the current pixel format (e.g. Channel::B on an RG8 texture). */
+/*  */
+/* @param a First channel to swap. @param b Second channel to swap. @return true on success (including when @p a == @p b, which is a no-op), false when the operation is not valid for this texture. */
+int32_t whiteout_textures_Texture_swapChannels(whiteout_Texture* self, int32_t a, int32_t b);
+/* Invert a single channel in-place across all mip levels and array layers. */
+/*  */
+/* Each sample value @c v is replaced with @c max_value - v, where @c max_value is the maximum representable value for the channel's underlying type (255 for u8, 65535 for u16, 1.0 for f32). */
+/*  */
+/* Operates directly on the stored pixel data without any intermediate copy. Supports all uncompressed PixelFormats (R*, RG*, RGBA*). */
+/*  */
+/* Failure conditions (returns false): - The texture uses a BCn block-compressed format. - The requested channel is not present in the current pixel format (e.g. Channel::B on an RG8 texture). */
+/*  */
+/* @param ch Channel to invert. @return true on success, false when the operation is not valid for this texture. */
+int32_t whiteout_textures_Texture_invertChannel(whiteout_Texture* self, int32_t ch);
+/* Reconstruct the Z component of a tangent-space normal map in-place. */
+/*  */
+/* Interprets channels @p a and @p b as the packed X and Y components of a unit normal vector, computes Z = sqrt(max(0, 1 - x² - y²)), and writes the result back to channel @p c. */
+/*  */
+/* Channel values are decoded from the UNORM [0, 1] storage convention to the signed [-1, 1] range before the computation (i.e. x = 2v - 1), and the reconstructed Z is re-encoded as (z + 1) / 2 before being written. This matches the encoding used by all other normal-map utilities in the library. */
+/*  */
+/* Operates directly on the stored pixel data without any intermediate copy. Supports all uncompressed PixelFormats (R*, RG*, RGBA*). */
+/*  */
+/* Failure conditions (returns false): - The texture uses a BCn block-compressed format. - Any of the three channel indices is not present in the current pixel format (e.g. Channel::B on an RG8 texture). */
+/*  */
+/* @param xChannel Channel storing the packed X component (source, read-only). @param yChannel Channel storing the packed Y component (source, read-only). @param zChannel Channel to receive the reconstructed Z component (write target). @return true on success, false when the operation is not valid for this texture. */
+int32_t whiteout_textures_Texture_expandNormal(whiteout_Texture* self, int32_t xChannel, int32_t yChannel, int32_t zChannel);
+/* Fill a single channel with a constant value across all mip levels and array layers. */
+/*  */
+/* The floating-point value is quantised to the channel's underlying type (clamped to [0, 255] for u8, [0, 65535] for u16, stored directly for f32). */
+/*  */
+/* Returns false for BCn formats or if the channel index exceeds the format's channel count. */
+/*  */
+/* @param target Channel to fill. @param value  Value to write (interpreted as [0, 1] for integer formats). @return true on success, false when the operation is not valid. */
+int32_t whiteout_textures_Texture_fillChannel(whiteout_Texture* self, int32_t target, float value);
+/* Split selected channels into individual single-channel textures. */
+/*  */
+/* Each requested channel produces a separate Texture with a single-channel format matching the source bit depth (R8, R16, or R32F).  All mip levels and layers are copied.  The returned textures inherit the source's sRGB flag but their kind is set to TextureKind::Other. */
+/*  */
+/* Returns std::nullopt if the source is BCn-compressed or if any requested channel index exceeds the source channel count. */
+/*  */
+/* @param channels Channels to extract (e.g. {Channel::R, Channel::G}). @return One Texture per requested channel, or std::nullopt on failure. */
+struct whiteout_TextureList* whiteout_textures_Texture_splitChannels(const whiteout_Texture* self, const int32_t* channels, size_t channels_size);
+/* Merge single-channel textures into one multi-channel texture. */
+/*  */
+/* Each source texture is written into the corresponding target channel of a new RGBA-width texture whose bit depth matches the sources (RGBA8, RGBA16, or RGBA32F).  All sources must share the same format, dimensions, mip count, and texture type.  Channels not covered by the input list are zero-filled. */
+/*  */
+/* @param sources          Single-channel textures to combine. @param targetChannels   Destination channel for each source (same length as @p sources). @return The combined RGBA texture, or std::nullopt on failure. */
+struct whiteout_Texture* whiteout_textures_Texture_mergeChannels(const struct whiteout_Texture* const* sources, size_t sources_size, const int32_t* targetChannels, size_t targetChannels_size);
 /* Return a copy of a 2-channel normal map expanded to RGBA8. */
 /*  */
 /* Only supported for textures whose kind() is TextureKind::Normal and whose format is RG8, RG16, RG32F, or BC5. The returned texture keeps the original shape, mip chain, kind, and sRGB flag, but stores data as RGBA8 with Z reconstructed from the packed X/Y normal in R/G. */
@@ -130,6 +243,26 @@ struct whiteout_Texture* whiteout_textures_Texture_create2DArray(int32_t fmt, ui
 struct whiteout_Texture* whiteout_textures_Texture_createCubeArray(int32_t fmt, uint32_t size, uint32_t arraySize, uint32_t mipCount);
 /* @return The texture dimensionality / topology. */
 int32_t whiteout_textures_Texture_type(const whiteout_Texture* self);
+/* @return The semantic kind of this texture. */
+int32_t whiteout_textures_Texture_kind(const whiteout_Texture* self);
+/* Set the semantic kind of this texture. @note TextureKind::Unused is not valid as a top-level kind; use setChannelKind() on a Multikind texture for per-channel Unused. */
+void whiteout_textures_Texture_setKind(whiteout_Texture* self, int32_t k);
+/* @return The per-channel kind for channel @p ch. */
+/*  */
+/* Only meaningful when kind() == TextureKind::Multikind. Returns TextureKind::Other by default for all other kinds. @param ch Channel to query (R/G/B/A). */
+int32_t whiteout_textures_Texture_channelKind(const whiteout_Texture* self, int32_t ch);
+/* Set the per-channel kind for channel @p ch. */
+/*  */
+/* Only meaningful when kind() == TextureKind::Multikind. TextureKind::Unused is permitted here to mark a channel as unused. @param ch   Channel to configure. @param kind Kind to assign, including TextureKind::Unused. */
+void whiteout_textures_Texture_setChannelKind(whiteout_Texture* self, int32_t ch, int32_t kind);
+/* @return The default fill value for channel @p ch. */
+/*  */
+/* This value is used by consumers (e.g. channel merging, material baking) when the channel carries no source data.  Defaults to 1.0f for all channels. @param ch Channel to query (R/G/B/A). */
+float whiteout_textures_Texture_channelDefault(const whiteout_Texture* self, int32_t ch);
+/* Set the default fill value for channel @p ch. */
+/*  */
+/* The value is stored as-is (normalised [0, 1] float for integer formats, linear scale for f32 formats).  No clamping is applied at storage time. @param ch    Channel to configure (R/G/B/A). @param value Default fill value; 1.0f by convention. */
+void whiteout_textures_Texture_setChannelDefault(whiteout_Texture* self, int32_t ch, float value);
 /* @return True if the texture data is in sRGB colour space. */
 int32_t whiteout_textures_Texture_isSrgb(const whiteout_Texture* self);
 /* Mark the texture as sRGB or linear. */
@@ -146,6 +279,8 @@ uint32_t whiteout_textures_Texture_layerCount(const whiteout_Texture* self);
 uint32_t whiteout_textures_Texture_arraySize(const whiteout_Texture* self);
 /* @return Number of mip levels per layer. */
 uint32_t whiteout_textures_Texture_mipCount(const whiteout_Texture* self);
+/* Get the mip-level descriptor for a given mip index and layer. @param mip   Mip level index (0 = base). @param layer Array layer index (0 for 2D / 3D textures). @return Reference to the MipLevel struct. */
+struct whiteout_MipLevel* whiteout_textures_Texture_mipLevel(const whiteout_Texture* self, uint32_t mip, uint32_t layer);
 /* @return Total byte size of the pixel-data buffer. */
 uint64_t whiteout_textures_Texture_dataSize(const whiteout_Texture* self);
 /* @return Read-only span over the entire pixel-data buffer. */

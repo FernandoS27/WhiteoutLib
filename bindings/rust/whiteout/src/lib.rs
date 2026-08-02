@@ -50,11 +50,21 @@
 //! C# and C++ can only document these hazards; here they are compile
 //! errors, which is what makes handing out the raw buffer reasonable.
 
+// The README is the crate docs, so its examples are compiled.
+#![doc = include_str!("../README.md")]
 #![deny(unsafe_op_in_unsafe_fn)]
 #![warn(missing_debug_implementations)]
 
+#[cfg(feature = "casc")]
+pub mod casc;
+pub mod host;
+pub mod interfaces;
+pub mod m2;
+pub mod m3;
 pub mod math;
 pub mod mdx;
+#[cfg(feature = "mpq")]
+pub mod mpq;
 mod support;
 pub mod textures;
 

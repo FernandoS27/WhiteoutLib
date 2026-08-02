@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: BSD-3-Clause
+#
+# `whiteout` is taken on crates.io, so the published package is
+# `whiteoutlib` — matching the C++ project name. The library keeps the
+# short name (see [lib] below), so callers still write `use whiteout::…`.
 [package]
-name         = "whiteout"
+name         = "whiteoutlib"
 description  = "Parsers and writers for Blizzard model and texture formats (MDX, M2, M3, BLP, DDS, PNG)."
 keywords     = ["wow", "warcraft", "starcraft", "mdx", "blp"]
 categories   = ["game-development", "parser-implementations"]
@@ -12,13 +16,56 @@ license.workspace      = true
 authors.workspace      = true
 repository.workspace   = true
 
+# What ships in the .crate. The vendored C++ tree is staged into `native/`
+# by scripts/pack-rust.ps1 before packaging; in a plain checkout it is
+# absent and build.rs falls back to the repository root instead.
+#
+# `native/` is gitignored, and cargo excludes gitignored paths unless they
+# are named here — so this list is what makes the vendored build shippable.
+# It must stay inside [package]: a section header above it would silently
+# reparent the key and drop the C++ sources from the package.
+include = [
+    "src/**/*.rs",
+    # Shipped so the crate is self-verifying. The corpus sweeps skip
+    # themselves when the game assets are absent, which they are for
+    # anyone consuming this from crates.io.
+    "tests/**/*.rs",
+    "build.rs",
+    "README.md",
+    "LICENSE",
+    "native/**",
+]
+
+# Import path stays `whiteout` even though the package is `whiteoutlib`.
+# Matching the two would be a one-line change here plus a rename at every
+# `use` site.
+[lib]
+name = "whiteout"
+
 [features]
-default = []
-# Mirror the CMake options. Enabling one here without the matching
-# WHITEOUT_ENABLE_* in the linked library is a link error, by design.
+# `vendored` builds the bundled C++ with CMake. On by default because
+# whiteout_native is not a library anyone has installed system-wide, so
+# without it `cargo build` cannot succeed unaided. Turn it off and set
+# WHITEOUT_LIB_DIR (or install the library) to link a prebuilt one.
+default  = ["vendored"]
+vendored = ["dep:cmake"]
+
+# Optional format support. Under `vendored` these drive the CMake options;
+# otherwise they must match how the prebuilt library was configured, or
+# linking fails — deliberately, rather than silently missing symbols.
 casc = []
 mpq  = []
 
 [dependencies]
 
+[build-dependencies]
+cmake = { version = "0.1", optional = true }
+
 [dev-dependencies]
+
+# docs.rs has no native library and no C++ toolchain. build.rs detects
+# DOCS_RS and skips the build entirely; documenting every feature keeps
+# casc/mpq in the rendered docs.
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

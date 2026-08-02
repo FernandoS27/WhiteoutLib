@@ -41,7 +41,6 @@ inline whiteout_CString emptyCString() {
 }
 
 } // anonymous
-
 // ── MpqFileInfo ─────────────────────────────────────────────────
 
 extern "C" {

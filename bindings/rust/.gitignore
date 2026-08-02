@@ -1,4 +1,5 @@
-# Cargo build outputs. The workspace Cargo.lock is intentionally not
-# committed: this is a library, so downstream resolves its own versions.
 target/
 Cargo.lock
+
+# Staged by scripts/pack-rust.ps1 — a packaging artefact, not source.
+whiteout/native/

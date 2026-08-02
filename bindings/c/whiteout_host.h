@@ -71,6 +71,8 @@ void whiteout_host_CascFileSystem_delete(whiteout_CascFileSystem* self);
 
 /* Read the entire contents of a file by its numeric data ID. */
 whiteout_Bytes whiteout_host_CascFileSystem_readFile(const whiteout_CascFileSystem* self, uint32_t fileId);
+/* Resolve a path to a numeric file ID (nullable). */
+int32_t whiteout_host_CascFileSystem_reserveFileId(whiteout_CascFileSystem* self, const char* path, uint32_t* out_value);
 /* Write a file by its numeric data ID. Returns true on success. */
 int32_t whiteout_host_CascFileSystem_writeFile(whiteout_CascFileSystem* self, uint32_t fileId, const uint8_t* data, size_t data_size);
 /* Check if a file with the given data ID exists. */

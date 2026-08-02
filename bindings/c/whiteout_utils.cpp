@@ -39,7 +39,6 @@ inline whiteout_CString emptyCString() {
 }
 
 } // anonymous
-
 // ── UtilsVertexBuffer ─────────────────────────────────────────────────
 
 extern "C" {

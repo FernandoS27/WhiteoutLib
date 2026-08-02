@@ -114,13 +114,21 @@ whiteout_Bytes whiteout_casc_CascStorage_readFile_fileId_localeFlags_openFlags_h
 int32_t whiteout_casc_CascStorage_fileExists(const whiteout_CascStorage* self, const char* cascPath);
 /* @overload Check existence by FileDataId. */
 int32_t whiteout_casc_CascStorage_fileExists_fileId_hint(const whiteout_CascStorage* self, int32_t fileId, int32_t hint);
+/* @return Uncompressed file size, or std::nullopt if not found. */
+int32_t whiteout_casc_CascStorage_fileSize(const whiteout_CascStorage* self, const char* cascPath, uint64_t* out_value);
+/* @overload */
+int32_t whiteout_casc_CascStorage_fileSize_fileId_hint(const whiteout_CascStorage* self, int32_t fileId, int32_t hint, uint64_t* out_value);
 /* @return All known file paths. */
 size_t whiteout_casc_CascStorage_listFiles_count(const whiteout_CascStorage* self);
 whiteout_CString whiteout_casc_CascStorage_listFiles_at(const whiteout_CascStorage* self, size_t index);
+/* @return Total number of files in the root manifest. */
+int32_t whiteout_casc_CascStorage_totalFileCount(const whiteout_CascStorage* self, uint32_t* out_value);
 /* Import encryption keys from a formatted string (one per line). */
 int32_t whiteout_casc_CascStorage_importKeysFromString(whiteout_CascStorage* self, const char* keyList);
 /* Import encryption keys from a file. */
 int32_t whiteout_casc_CascStorage_importKeysFromFile(whiteout_CascStorage* self, const char* keyFilePath);
+/* @return The encryption key for @p keyName, or std::nullopt if not found. */
+int32_t whiteout_casc_CascStorage_findEncryptionKey(const whiteout_CascStorage* self, uint64_t keyName, uint8_t* out_value);
 /* Clear the in-memory decoded-data cache (container cache). */
 void whiteout_casc_CascStorage_flushCache(whiteout_CascStorage* self);
 /* Force every deferred load (encoding, root, VFS, index files, orphan bitvector) to resolve. Idempotent. */
@@ -145,6 +153,16 @@ void whiteout_casc_CascStorageWritable_delete(whiteout_CascStorageWritable* self
 /*  */
 /* @param opts Creation options (product name, version, root format). @param pool Optional WorkerPool for parallel I/O. @return A valid empty StorageWritable ready for writeFile() calls. */
 struct whiteout_CascStorageWritable* whiteout_casc_CascStorageWritable_create(struct whiteout_CascCreateOptions* opts, void* pool);
+/* Reserve a file-data-ID for a named asset. */
+/*  */
+/* Allocates the next available file-data-ID and associates it with @p name.  The interpretation of @p name depends on the root format: */
+/*  */
+/* - **WoW / WoWTvfs**: @p name is a full CASC path (e.g. `"Base\\creatures\\beast\\beast.m2"`). - **Diablo 3 / Diablo 4 / TVFS**: @p name is `"asset_name.ext"`, where the extension determines the SNO group.  A CoreTOC entry is created automatically. */
+/*  */
+/* Returns @c std::nullopt if the name already exists in the root or in a previous reservation. */
+/*  */
+/* @code auto id = storage.reserveFileId("my_beast.app"); if (id) storage.writeFile(*id, data); @endcode */
+int32_t whiteout_casc_CascStorageWritable_reserveFileId(whiteout_CascStorageWritable* self, const char* name, uint32_t* out_value);
 /* Write a file by path. */
 /*  */
 /* Data is stored in an in-memory overlay until save() is called. */

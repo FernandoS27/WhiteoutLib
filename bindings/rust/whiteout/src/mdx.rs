@@ -4076,6 +4076,93 @@ impl Geoset {
         // `&mut self` means no slice borrow is outstanding.
         unsafe { ffi::whiteout_mdx_MdxGeoset_resize_skinData(self.raw.as_ptr(), count) }
     }
+
+    /// UV coordinates (multiple sets)
+    /// Number of inner sequences.
+    pub fn texture_coordinate_sets_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_mdx_MdxGeoset_get_textureCoordinateSets_count(self.raw.as_ptr()) }
+    }
+
+    /// Zero-copy view of inner sequence `outer`. Empty when out of range.
+    ///
+    /// Each inner vector is contiguous on its own, but the outer one
+    /// is a vector of vectors — so this borrows per sequence rather
+    /// than handing back one flat slice.
+    pub fn texture_coordinate_sets(&self, outer: usize) -> &[crate::math::Vector2f] {
+        if outer >= self.texture_coordinate_sets_len() {
+            return &[];
+        }
+        // SAFETY: index checked; the pointer borrows `self`.
+        unsafe {
+            let n = ffi::whiteout_mdx_MdxGeoset_get_textureCoordinateSets_inner_count(
+                self.raw.as_ptr(),
+                outer,
+            );
+            let p = ffi::whiteout_mdx_MdxGeoset_get_textureCoordinateSets_inner_data(
+                self.raw.as_ptr(),
+                outer,
+            ) as *const crate::math::Vector2f;
+            if p.is_null() || n == 0 {
+                &[]
+            } else {
+                core::slice::from_raw_parts(p, n)
+            }
+        }
+    }
+
+    pub fn texture_coordinate_sets_mut(&mut self, outer: usize) -> &mut [crate::math::Vector2f] {
+        if outer >= self.texture_coordinate_sets_len() {
+            return &mut [];
+        }
+        // SAFETY: as above; `&mut self` rules out aliasing.
+        unsafe {
+            let n = ffi::whiteout_mdx_MdxGeoset_get_textureCoordinateSets_inner_count(
+                self.raw.as_ptr(),
+                outer,
+            );
+            let p = ffi::whiteout_mdx_MdxGeoset_get_textureCoordinateSets_inner_data(
+                self.raw.as_ptr(),
+                outer,
+            ) as *const crate::math::Vector2f as *mut crate::math::Vector2f;
+            if p.is_null() || n == 0 {
+                &mut []
+            } else {
+                core::slice::from_raw_parts_mut(p, n)
+            }
+        }
+    }
+
+    pub fn set_texture_coordinate_sets(&mut self, outer: usize, values: &[crate::math::Vector2f]) {
+        // SAFETY: the native side copies `values` before returning.
+        unsafe {
+            ffi::whiteout_mdx_MdxGeoset_assign_textureCoordinateSets_inner(
+                self.raw.as_ptr(),
+                outer,
+                values.as_ptr() as *const _,
+                values.len(),
+            )
+        }
+    }
+
+    /// Resize the outer sequence. Do this before taking any borrow.
+    pub fn resize_texture_coordinate_sets(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe {
+            ffi::whiteout_mdx_MdxGeoset_resize_textureCoordinateSets(self.raw.as_ptr(), count)
+        }
+    }
+
+    pub fn resize_texture_coordinate_sets_inner(&mut self, outer: usize, count: usize) {
+        // SAFETY: as above.
+        unsafe {
+            ffi::whiteout_mdx_MdxGeoset_resize_textureCoordinateSets_inner(
+                self.raw.as_ptr(),
+                outer,
+                count,
+            )
+        }
+    }
 }
 
 impl Default for Geoset {
@@ -5506,6 +5593,23 @@ impl ParticleEmitter2 {
     pub fn set_time(&mut self, value: f32) {
         // SAFETY: plain scalar write through a live handle.
         unsafe { ffi::whiteout_mdx_MdxParticleEmitter2_set_time(self.raw.as_ptr(), value) }
+    }
+
+    /// Color at start/middle/end
+    pub fn segment_color_len() -> usize {
+        // SAFETY: a compile-time constant on the native side.
+        unsafe { ffi::whiteout_mdx_MdxParticleEmitter2_segmentColor_size() }
+    }
+
+    pub fn segment_color(&self, index: usize) -> crate::math::Vector3f {
+        // SAFETY: the getter returns an interior pointer to a
+        // layout-identical POD, copied out immediately. The
+        // native side does not bounds-check, so callers stay
+        // within `segment_color_len()`.
+        unsafe {
+            *(ffi::whiteout_mdx_MdxParticleEmitter2_get_segmentColor_at(self.raw.as_ptr(), index)
+                as *const crate::math::Vector3f)
+        }
     }
 
     /// Alpha at start/middle/end
@@ -8217,14 +8321,11 @@ impl Default for TrackF32 {
     }
 }
 
-// Not yet bound (shape unsupported by the emitter):
-//   - Geoset.texture_coordinate_sets (nested_vec)
-//   - ParticleEmitter2.segment_color (array of whiteout::Vector3f)
-
 #[doc(hidden)]
 pub mod ffi {
     #![allow(missing_debug_implementations)]
 
+    #[allow(unused_imports)]
     use crate::support::{RawBytes, RawCString};
 
     #[repr(C)]
@@ -9047,6 +9148,32 @@ pub mod ffi {
             data: *const u8,
             count: usize,
         );
+        pub fn whiteout_mdx_MdxGeoset_get_textureCoordinateSets_count(
+            self_: *mut whiteout_MdxGeoset,
+        ) -> usize;
+        pub fn whiteout_mdx_MdxGeoset_get_textureCoordinateSets_inner_count(
+            self_: *mut whiteout_MdxGeoset,
+            outer: usize,
+        ) -> usize;
+        pub fn whiteout_mdx_MdxGeoset_resize_textureCoordinateSets(
+            self_: *mut whiteout_MdxGeoset,
+            count: usize,
+        );
+        pub fn whiteout_mdx_MdxGeoset_resize_textureCoordinateSets_inner(
+            self_: *mut whiteout_MdxGeoset,
+            outer: usize,
+            count: usize,
+        );
+        pub fn whiteout_mdx_MdxGeoset_get_textureCoordinateSets_inner_data(
+            self_: *mut whiteout_MdxGeoset,
+            outer: usize,
+        ) -> *const f32;
+        pub fn whiteout_mdx_MdxGeoset_assign_textureCoordinateSets_inner(
+            self_: *mut whiteout_MdxGeoset,
+            outer: usize,
+            data: *const f32,
+            count: usize,
+        );
         // GeosetAnimation
         pub fn whiteout_mdx_MdxGeosetAnimation_new() -> *mut whiteout_MdxGeosetAnimation;
         pub fn whiteout_mdx_MdxGeosetAnimation_delete(self_: *mut whiteout_MdxGeosetAnimation);
@@ -9460,6 +9587,11 @@ pub mod ffi {
             self_: *mut whiteout_MdxParticleEmitter2,
             value: f32,
         );
+        pub fn whiteout_mdx_MdxParticleEmitter2_segmentColor_size() -> usize;
+        pub fn whiteout_mdx_MdxParticleEmitter2_get_segmentColor_at(
+            self_: *mut whiteout_MdxParticleEmitter2,
+            index: usize,
+        ) -> *mut core::ffi::c_void;
         pub fn whiteout_mdx_MdxParticleEmitter2_segmentAlpha_size() -> usize;
         pub fn whiteout_mdx_MdxParticleEmitter2_get_segmentAlpha_at(
             self_: *mut whiteout_MdxParticleEmitter2,

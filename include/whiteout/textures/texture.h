@@ -89,6 +89,7 @@ u32 computeMaxMipCount(u32 w, u32 h, u32 d = 1);
 // ============================================================================
 
 /// Semantic role of a texture in a material.
+/// @bind
 enum class TextureKind : u32 {
     Other,    ///< Unknown or application-specific usage.
     Diffuse,  ///< Diffuse / base colour (legacy).
@@ -143,6 +144,7 @@ enum class TextureType : u32 {
 ///
 /// The numeric value matches the zero-based channel index used by every
 /// uncompressed PixelFormat (R=0, G=1, B=2, A=3).
+/// @bind
 enum class Channel : u32 {
     R = 0, ///< Red   (or single-channel value for R* formats).
     G = 1, ///< Green (or second channel for RG* formats).
@@ -162,6 +164,7 @@ static constexpr u32 kKeepMipCount = 0;
 // ============================================================================
 
 /// Describes a single mip level within a Texture's data buffer.
+/// @bind value_object
 struct MipLevel {
     u32 width = 0;  ///< Width of this mip in pixels.
     u32 height = 0; ///< Height of this mip in pixels.

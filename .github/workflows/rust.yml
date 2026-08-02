@@ -1,0 +1,200 @@
+# SPDX-License-Identifier: BSD-3-Clause
+#
+# Rust bindings CI. Mirrors what scripts/build-rust.ps1 does locally:
+# codegen → cmake → fmt → clippy → test.
+#
+# The corpus tests skip themselves when Corpus/ is absent, which it is on a
+# fresh clone, so this exercises the synthesised fixtures only. Corpus
+# coverage stays a local / release-gate concern.
+
+name: rust
+
+on:
+  push:
+    paths:
+      - 'bindings/rust/**'
+      - 'bindings/c/**'
+      - 'tools/codegen/**'
+      - 'include/whiteout/**'
+      - 'src/**'
+      - '.github/workflows/rust.yml'
+  pull_request:
+    paths:
+      - 'bindings/rust/**'
+      - 'bindings/c/**'
+      - 'tools/codegen/**'
+      - 'include/whiteout/**'
+      - 'src/**'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: bindings/rust
+
+      - name: Build whiteout_native
+        shell: bash
+        run: |
+          cmake -S . -B build-rust \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DWHITEOUT_BUILD_C_BINDINGS=ON \
+            -DWHITEOUT_ENABLE_CASC=ON \
+            -DWHITEOUT_ENABLE_MPQ=ON \
+            -DWHITEOUT_BUILD_TESTS=OFF \
+            -DWHITEOUT_BUILD_EXAMPLES=OFF
+          cmake --build build-rust --config Release --target whiteout_c
+
+      # Multi-config generators nest by config; single-config ones do not.
+      - name: Locate the native library
+        shell: bash
+        run: |
+          if [ -d build-rust/c-dist/Release ]; then
+            echo "WHITEOUT_LIB_DIR=$PWD/build-rust/c-dist/Release" >> "$GITHUB_ENV"
+          else
+            echo "WHITEOUT_LIB_DIR=$PWD/build-rust/c-dist" >> "$GITHUB_ENV"
+          fi
+
+      # A dynamically-linked test binary needs the library on its search
+      # path: beside the executable on Windows, LD_/DYLD_ elsewhere.
+      - name: Stage the native library for the test binaries
+        shell: bash
+        run: |
+          mkdir -p bindings/rust/target/debug/deps
+          cp "$WHITEOUT_LIB_DIR"/*whiteout_native* bindings/rust/target/debug/deps/ 2>/dev/null || true
+          echo "LD_LIBRARY_PATH=$WHITEOUT_LIB_DIR:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          echo "DYLD_LIBRARY_PATH=$WHITEOUT_LIB_DIR:${DYLD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+
+      - name: Check that the committed generated code is up to date
+        shell: bash
+        run: |
+          python -m pip install --quiet libclang
+          export PYTHONIOENCODING=utf-8
+          for backend in rust-abi-header rust-abi-source rust-math; do
+            python -m tools.codegen.codegen textures --backend "$backend"
+          done
+          for mod in textures mdx m2 m3 host casc mpq; do
+            python -m tools.codegen.codegen "$mod" --backend rust
+          done
+          # Regenerating must be a no-op. A diff here means someone edited
+          # generated code by hand, or the emitter changed without the
+          # output being refreshed.
+          git diff --exit-code -- bindings/rust/whiteout/src bindings/c/whiteout_v.h bindings/c/whiteout_v.cpp
+        continue-on-error: true   # libclang availability varies per runner
+
+      - name: fmt
+        working-directory: bindings/rust
+        run: cargo fmt --all -- --check
+
+      - name: clippy
+        working-directory: bindings/rust
+        run: cargo clippy --all-targets --features casc,mpq -- -D warnings
+
+      - name: test
+        working-directory: bindings/rust
+        run: cargo test --features casc,mpq
+
+      - name: test (no default features)
+        working-directory: bindings/rust
+        run: cargo test
+
+  docs:
+    name: docs.rs build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      # docs.rs has no native library, so the crate must document without
+      # one. build.rs short-circuits on DOCS_RS; this proves it.
+      - name: cargo doc without a native library
+        working-directory: bindings/rust
+        env:
+          DOCS_RS: '1'
+        run: cargo doc --no-deps --all-features
+
+  msrv:
+    name: MSRV (rust-version)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Read the floor from Cargo.toml rather than repeating it here, so
+      # the two cannot drift.
+      - name: Resolve rust-version
+        id: msrv
+        shell: bash
+        run: |
+          v=$(grep -m1 'rust-version' bindings/rust/Cargo.toml | sed 's/[^0-9.]*//g')
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "MSRV floor: $v"
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+
+      - name: Build whiteout_native
+        shell: bash
+        run: |
+          cmake -S . -B build-rust \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DWHITEOUT_BUILD_C_BINDINGS=ON \
+            -DWHITEOUT_ENABLE_CASC=ON \
+            -DWHITEOUT_ENABLE_MPQ=ON \
+            -DWHITEOUT_BUILD_TESTS=OFF \
+            -DWHITEOUT_BUILD_EXAMPLES=OFF
+          cmake --build build-rust --config Release --target whiteout_c
+
+      # `cargo check` rather than `test`: the point is that the crate
+      # compiles on the floor, not that dev-dependencies do.
+      - name: check on the MSRV floor
+        working-directory: bindings/rust
+        env:
+          WHITEOUT_LIB_DIR: ${{ github.workspace }}/build-rust/c-dist
+        run: cargo check --no-default-features --features casc,mpq
+
+  package:
+    name: publishable crate builds unaided
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      # The acceptance test for publishing: stage the vendored sources,
+      # package, then build the extracted .crate with no repository and no
+      # environment — exactly what `cargo add whiteoutlib` gives a user.
+      - name: Stage and package
+        shell: bash
+        run: |
+          mkdir -p bindings/rust/whiteout/native
+          for item in CMakeLists.txt cmake include src bindings/c; do
+            mkdir -p "bindings/rust/whiteout/native/$(dirname "$item")"
+            cp -r "$item" "bindings/rust/whiteout/native/$item"
+          done
+          cd bindings/rust/whiteout
+          cargo package --allow-dirty --no-verify
+
+      - name: Build the extracted crate unaided
+        shell: bash
+        run: |
+          tmp=$(mktemp -d)
+          tar xzf bindings/rust/target/package/whiteoutlib-*.crate -C "$tmp"
+          cd "$tmp"/whiteoutlib-*
+          cargo build --features casc,mpq

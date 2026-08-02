@@ -41,7 +41,6 @@ inline whiteout_CString emptyCString() {
 }
 
 } // anonymous
-
 // ── CascCreateOptions ─────────────────────────────────────────────────
 
 extern "C" {
@@ -217,6 +216,20 @@ int32_t whiteout_casc_CascStorage_fileExists_fileId_hint(const whiteout_CascStor
     return reinterpret_cast<const whiteout::storages::casc::Storage*>(self)->fileExists(fileId, static_cast<whiteout::storages::casc::FileIdHint>(hint));
 }
 
+int32_t whiteout_casc_CascStorage_fileSize(const whiteout_CascStorage* self, const char* cascPath, uint64_t* out_value) {
+    auto __r = reinterpret_cast<const whiteout::storages::casc::Storage*>(self)->fileSize(std::string(cascPath ? cascPath : ""));
+    if (!__r) return 0;
+    if (out_value) *out_value = static_cast<uint64_t>(*__r);
+    return 1;
+}
+
+int32_t whiteout_casc_CascStorage_fileSize_fileId_hint(const whiteout_CascStorage* self, int32_t fileId, int32_t hint, uint64_t* out_value) {
+    auto __r = reinterpret_cast<const whiteout::storages::casc::Storage*>(self)->fileSize(fileId, static_cast<whiteout::storages::casc::FileIdHint>(hint));
+    if (!__r) return 0;
+    if (out_value) *out_value = static_cast<uint64_t>(*__r);
+    return 1;
+}
+
 size_t whiteout_casc_CascStorage_listFiles_count(const whiteout_CascStorage* self) {
     return reinterpret_cast<const whiteout::storages::casc::Storage*>(self)->listFiles().size();
 }
@@ -227,12 +240,29 @@ whiteout_CString whiteout_casc_CascStorage_listFiles_at(const whiteout_CascStora
     return wrapCString(std::string(__v[index]));
 }
 
+int32_t whiteout_casc_CascStorage_totalFileCount(const whiteout_CascStorage* self, uint32_t* out_value) {
+    auto __r = reinterpret_cast<const whiteout::storages::casc::Storage*>(self)->totalFileCount();
+    if (!__r) return 0;
+    if (out_value) *out_value = static_cast<uint32_t>(*__r);
+    return 1;
+}
+
 int32_t whiteout_casc_CascStorage_importKeysFromString(whiteout_CascStorage* self, const char* keyList) {
     return reinterpret_cast<whiteout::storages::casc::Storage*>(self)->importKeysFromString(std::string(keyList ? keyList : ""));
 }
 
 int32_t whiteout_casc_CascStorage_importKeysFromFile(whiteout_CascStorage* self, const char* keyFilePath) {
     return reinterpret_cast<whiteout::storages::casc::Storage*>(self)->importKeysFromFile(std::string(keyFilePath ? keyFilePath : ""));
+}
+
+int32_t whiteout_casc_CascStorage_findEncryptionKey(const whiteout_CascStorage* self, uint64_t keyName, uint8_t* out_value) {
+    auto __r = reinterpret_cast<const whiteout::storages::casc::Storage*>(self)->findEncryptionKey(keyName);
+    if (!__r) return 0;
+    if (out_value) {
+        for (size_t __i = 0; __i < 16; ++__i)
+            out_value[__i] = static_cast<uint8_t>((*__r)[__i]);
+    }
+    return 1;
 }
 
 void whiteout_casc_CascStorage_flushCache(whiteout_CascStorage* self) {
@@ -260,6 +290,13 @@ void whiteout_casc_CascStorageWritable_delete(whiteout_CascStorageWritable* self
 struct whiteout_CascStorageWritable* whiteout_casc_CascStorageWritable_create(struct whiteout_CascCreateOptions* opts, void* pool) {
     return reinterpret_cast<struct whiteout_CascStorageWritable*>(
         new whiteout::storages::casc::StorageWritable(whiteout::storages::casc::StorageWritable::create(*reinterpret_cast<const whiteout::storages::casc::CreateOptions*>(opts), reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool))));
+}
+
+int32_t whiteout_casc_CascStorageWritable_reserveFileId(whiteout_CascStorageWritable* self, const char* name, uint32_t* out_value) {
+    auto __r = reinterpret_cast<whiteout::storages::casc::StorageWritable*>(self)->reserveFileId(std::string(name ? name : ""));
+    if (!__r) return 0;
+    if (out_value) *out_value = static_cast<uint32_t>(*__r);
+    return 1;
 }
 
 int32_t whiteout_casc_CascStorageWritable_writeFile(whiteout_CascStorageWritable* self, const char* path, const uint8_t* data, size_t data_size, struct whiteout_CascWriteOptions* opts) {

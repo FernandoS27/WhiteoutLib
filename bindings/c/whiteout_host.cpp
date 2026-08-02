@@ -44,7 +44,6 @@ inline whiteout_CString emptyCString() {
 }
 
 } // anonymous
-
 // ── WorkerPool ─────────────────────────────────────────────────
 
 extern "C" {
@@ -73,6 +72,13 @@ void whiteout_host_CascFileSystem_delete(whiteout_CascFileSystem* self) {
 
 whiteout_Bytes whiteout_host_CascFileSystem_readFile(const whiteout_CascFileSystem* self, uint32_t fileId) {
     return wrapBytes(reinterpret_cast<const whiteout::interfaces::CascFileSystem*>(self)->readFile(fileId));
+}
+
+int32_t whiteout_host_CascFileSystem_reserveFileId(whiteout_CascFileSystem* self, const char* path, uint32_t* out_value) {
+    auto __r = reinterpret_cast<whiteout::interfaces::CascFileSystem*>(self)->reserveFileId(std::string(path ? path : ""));
+    if (!__r) return 0;
+    if (out_value) *out_value = static_cast<uint32_t>(*__r);
+    return 1;
 }
 
 int32_t whiteout_host_CascFileSystem_writeFile(whiteout_CascFileSystem* self, uint32_t fileId, const uint8_t* data, size_t data_size) {

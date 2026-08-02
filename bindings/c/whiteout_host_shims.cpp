@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 //
-// Hand-written C# trampoline shims. Mirrors the Java JNI bridges under
-// `bindings/java/jni/` but using a function-pointer table + `void* userdata`
-// shape, so the C# side can plug in `[UnmanagedCallersOnly]` static methods
-// and route through `GCHandle` instead of the JNI env/jobject pair.
+// Hand-written host-implementation trampolines: a function-pointer table
+// plus a `void* userdata`, letting a host language subclass the abstract
+// interfaces in <whiteout/interfaces.h> and have C++ call back into it.
 //
-// Compiled into the `whiteout_c` target; non-C# consumers see the extra
-// symbols but never invoke them (the factories are only called from the
-// managed Whiteout.Host base classes).
+// Originally written for C# (hence the `whiteout_csharp_*` aliases at the
+// bottom of this file, kept so the existing P/Invoke signatures still
+// resolve). The mechanism is language-neutral, and Rust consumes it
+// directly: a `Box<dyn Trait>` becomes the userdata and `extern "C"`
+// thunks fill the table. Java does not use this path — it has its own JNI
+// bridges under `bindings/java/jni/`.
+//
+// Compiled into the `whiteout_c` target; consumers that never call the
+// factories simply never trigger these symbols.
 
 #include <whiteout/interfaces.h>
 
@@ -27,7 +32,7 @@ using whiteout::interfaces::VirtualPathFileSystem;
 
 // ── VirtualPathFileSystem ─────────────────────────────────────────────────
 
-struct CsharpVfsFnTable {
+struct HostVfsFnTable {
     void    (*readFile)   (void* userdata, const char* path, std::size_t path_len,
                            std::uint8_t** out_data, std::size_t* out_size);
     void    (*freeBuffer) (std::uint8_t* data);
@@ -36,9 +41,9 @@ struct CsharpVfsFnTable {
     std::int32_t (*fileExists) (void* userdata, const char* path, std::size_t path_len);
 };
 
-class CsharpVirtualPathFileSystem : public VirtualPathFileSystem {
+class HostVirtualPathFileSystem : public VirtualPathFileSystem {
 public:
-    CsharpVirtualPathFileSystem(void* userdata, const CsharpVfsFnTable* fns)
+    HostVirtualPathFileSystem(void* userdata, const HostVfsFnTable* fns)
         : userdata_(userdata), fns_(*fns) {}
 
     std::vector<u8> readFile(const std::string& path) const override {
@@ -75,7 +80,7 @@ public:
 
 private:
     void* userdata_;
-    CsharpVfsFnTable fns_;
+    HostVfsFnTable fns_;
 };
 
 }  // namespace
@@ -97,7 +102,7 @@ using whiteout::interfaces::HttpResponse;
 
 namespace {
 
-struct CsharpHttpFnTable {
+struct HostHttpFnTable {
     std::uint32_t (*capabilities)  (void* userdata);
     void          (*getAsync)      (void* userdata, const char* url, std::size_t url_len,
                                     void* callback_handle);
@@ -106,9 +111,9 @@ struct CsharpHttpFnTable {
                                     void* callback_handle);
 };
 
-class CsharpHttpHandler : public HttpHandler {
+class HostHttpHandler : public HttpHandler {
 public:
-    CsharpHttpHandler(void* userdata, const CsharpHttpFnTable* fns)
+    HostHttpHandler(void* userdata, const HostHttpFnTable* fns)
         : userdata_(userdata), fns_(*fns) {}
 
     u32 capabilities() const noexcept override {
@@ -128,35 +133,35 @@ public:
 
 private:
     void* userdata_;
-    CsharpHttpFnTable fns_;
+    HostHttpFnTable fns_;
 };
 
 }  // namespace
 
 extern "C" {
 
-void* whiteout_csharp_VirtualPathFileSystem_create(void* userdata,
-                                                   const CsharpVfsFnTable* fns) {
-    return new CsharpVirtualPathFileSystem(userdata, fns);
+void* whiteout_hostimpl_VirtualPathFileSystem_create(void* userdata,
+                                                   const HostVfsFnTable* fns) {
+    return new HostVirtualPathFileSystem(userdata, fns);
 }
 
-void whiteout_csharp_VirtualPathFileSystem_delete(void* handle) {
-    delete reinterpret_cast<CsharpVirtualPathFileSystem*>(handle);
+void whiteout_hostimpl_VirtualPathFileSystem_delete(void* handle) {
+    delete reinterpret_cast<HostVirtualPathFileSystem*>(handle);
 }
 
-void* whiteout_csharp_HttpHandler_create(void* userdata, const CsharpHttpFnTable* fns) {
-    return new CsharpHttpHandler(userdata, fns);
+void* whiteout_hostimpl_HttpHandler_create(void* userdata, const HostHttpFnTable* fns) {
+    return new HostHttpHandler(userdata, fns);
 }
 
-void whiteout_csharp_HttpHandler_delete(void* handle) {
-    delete reinterpret_cast<CsharpHttpHandler*>(handle);
+void whiteout_hostimpl_HttpHandler_delete(void* handle) {
+    delete reinterpret_cast<HostHttpHandler*>(handle);
 }
 
 /// Fire the C++ HttpCallback the managed side was handed. Single-shot —
 /// the std::function is destroyed after firing, so calling fire twice on
 /// the same handle is undefined behaviour and the callers must not retry.
 /// Mirrors the JNI `HttpResponseConsumer._fire` semantics.
-void whiteout_csharp_HttpResponseCallback_fire(
+void whiteout_hostimpl_HttpResponseCallback_fire(
         void* callback_handle, std::int32_t status_code,
         const std::uint8_t* body, std::size_t body_len,
         const char* error) {
@@ -179,7 +184,7 @@ void whiteout_csharp_HttpResponseCallback_fire(
 /// threw before invoking the supplied Action. Without this the C++ side
 /// would leak the std::function and library code waiting on the callback
 /// would hang forever.
-void whiteout_csharp_HttpResponseCallback_cancel(void* callback_handle) {
+void whiteout_hostimpl_HttpResponseCallback_cancel(void* callback_handle) {
     auto* cb = reinterpret_cast<HttpCallback*>(callback_handle);
     if (cb == nullptr) return;
     // Fire with a transport error so callers see a clean failure rather
@@ -195,7 +200,7 @@ void whiteout_csharp_HttpResponseCallback_cancel(void* callback_handle) {
 // These let tests drive a managed VFS impl directly without spinning up an
 // actual M2 parse. Mirrors the helpers in `bindings/java/jni/smoke_invokers.cpp`.
 
-whiteout_Bytes whiteout_csharp_test_VirtualPathFileSystem_readFile(
+whiteout_Bytes whiteout_hostimpl_test_VirtualPathFileSystem_readFile(
         void* handle, const char* path) {
     auto* vfs = reinterpret_cast<VirtualPathFileSystem*>(handle);
     auto data = vfs->readFile(std::string(path));
@@ -206,13 +211,13 @@ whiteout_Bytes whiteout_csharp_test_VirtualPathFileSystem_readFile(
     return whiteout_Bytes{owned->data(), owned->size(), owned};
 }
 
-std::int32_t whiteout_csharp_test_VirtualPathFileSystem_fileExists(
+std::int32_t whiteout_hostimpl_test_VirtualPathFileSystem_fileExists(
         void* handle, const char* path) {
     auto* vfs = reinterpret_cast<VirtualPathFileSystem*>(handle);
     return vfs->fileExists(std::string(path)) ? 1 : 0;
 }
 
-std::int32_t whiteout_csharp_test_VirtualPathFileSystem_writeFile(
+std::int32_t whiteout_hostimpl_test_VirtualPathFileSystem_writeFile(
         void* handle, const char* path, const std::uint8_t* data, std::size_t size) {
     auto* vfs = reinterpret_cast<VirtualPathFileSystem*>(handle);
     std::vector<u8> v(data, data + size);
@@ -227,7 +232,7 @@ std::int32_t whiteout_csharp_test_VirtualPathFileSystem_writeFile(
 // Error string lives inside a heap std::string and is freed via
 // whiteout_CString_free.
 
-std::uint32_t whiteout_csharp_test_HttpHandler_capabilities(void* handle) {
+std::uint32_t whiteout_hostimpl_test_HttpHandler_capabilities(void* handle) {
     auto* h = reinterpret_cast<HttpHandler*>(handle);
     return static_cast<std::uint32_t>(h->capabilities());
 }
@@ -269,7 +274,7 @@ void pack_response(const CapturedHttpResponse& captured,
 
 }  // namespace
 
-void whiteout_csharp_test_HttpHandler_getAsync(
+void whiteout_hostimpl_test_HttpHandler_getAsync(
         void* handle, const char* url,
         std::int32_t* out_status, whiteout_Bytes* out_body, whiteout_CString* out_error) {
     auto* h = reinterpret_cast<HttpHandler*>(handle);
@@ -282,7 +287,7 @@ void whiteout_csharp_test_HttpHandler_getAsync(
     pack_response(captured, out_status, out_body, out_error);
 }
 
-void whiteout_csharp_test_HttpHandler_getRangeAsync(
+void whiteout_hostimpl_test_HttpHandler_getRangeAsync(
         void* handle, const char* url, std::uint64_t start, std::uint64_t end,
         std::int32_t* out_status, whiteout_Bytes* out_body, whiteout_CString* out_error) {
     auto* h = reinterpret_cast<HttpHandler*>(handle);
@@ -312,7 +317,7 @@ using whiteout::interfaces::WorkerTask;
 
 namespace {
 
-struct CsharpWorkerTaskFlat {
+struct HostWorkerTaskFlat {
     void*        fn_handle;        // heap std::function<void()>*
     void*        wait_semaphore;   // TimelineSemaphore* or null
     std::uint64_t wait_value;
@@ -320,20 +325,20 @@ struct CsharpWorkerTaskFlat {
     std::uint64_t signal_value;
 };
 
-struct CsharpWorkerPoolFnTable {
-    void        (*submit)      (void* userdata, const CsharpWorkerTaskFlat* task);
+struct HostWorkerPoolFnTable {
+    void        (*submit)      (void* userdata, const HostWorkerTaskFlat* task);
     void        (*waitIdle)    (void* userdata);
     std::size_t (*threadCount) (void* userdata);
 };
 
-class CsharpWorkerPool : public WorkerPool {
+class HostWorkerPool : public WorkerPool {
 public:
-    CsharpWorkerPool(void* userdata, const CsharpWorkerPoolFnTable* fns)
+    HostWorkerPool(void* userdata, const HostWorkerPoolFnTable* fns)
         : userdata_(userdata), fns_(*fns) {}
 
     void submit(const WorkerTask& task) override {
         auto* fnHeap = new std::function<void()>(task.fn);
-        CsharpWorkerTaskFlat flat{
+        HostWorkerTaskFlat flat{
             fnHeap,
             task.waitSemaphore,   task.waitValue,
             task.signalSemaphore, task.signalValue,
@@ -351,24 +356,24 @@ public:
 
 private:
     void* userdata_;
-    CsharpWorkerPoolFnTable fns_;
+    HostWorkerPoolFnTable fns_;
 };
 
 }  // namespace
 
 extern "C" {
 
-void* whiteout_csharp_WorkerPool_create(void* userdata, const CsharpWorkerPoolFnTable* fns) {
-    return new CsharpWorkerPool(userdata, fns);
+void* whiteout_hostimpl_WorkerPool_create(void* userdata, const HostWorkerPoolFnTable* fns) {
+    return new HostWorkerPool(userdata, fns);
 }
 
-void whiteout_csharp_WorkerPool_delete(void* handle) {
-    delete reinterpret_cast<CsharpWorkerPool*>(handle);
+void whiteout_hostimpl_WorkerPool_delete(void* handle) {
+    delete reinterpret_cast<HostWorkerPool*>(handle);
 }
 
 /// Fire the C++ task function exactly once, then delete the heap
 /// std::function. Calling twice on the same handle is undefined.
-void whiteout_csharp_WorkerTaskFn_fire(void* fn_handle) {
+void whiteout_hostimpl_WorkerTaskFn_fire(void* fn_handle) {
     auto* fn = reinterpret_cast<std::function<void()>*>(fn_handle);
     if (fn == nullptr) return;
     (*fn)();
@@ -379,7 +384,7 @@ void whiteout_csharp_WorkerTaskFn_fire(void* fn_handle) {
 /// submitted the task will deadlock if a signal semaphore was attached and
 /// never gets signalled — managed pools should prefer fire() and let any
 /// signal semaphore in the WorkerTask flat struct get signalled after.
-void whiteout_csharp_WorkerTaskFn_cancel(void* fn_handle) {
+void whiteout_hostimpl_WorkerTaskFn_cancel(void* fn_handle) {
     auto* fn = reinterpret_cast<std::function<void()>*>(fn_handle);
     if (fn == nullptr) return;
     delete fn;
@@ -388,14 +393,14 @@ void whiteout_csharp_WorkerTaskFn_cancel(void* fn_handle) {
 /// Block until the timeline semaphore reaches `value`. Named "_await" on
 /// the C# side to avoid the `wait` C# keyword collision; routes to the
 /// C++ `TimelineSemaphore::wait()` virtual.
-void whiteout_csharp_TimelineSemaphore_await(void* sem_handle, std::uint64_t value) {
+void whiteout_hostimpl_TimelineSemaphore_await(void* sem_handle, std::uint64_t value) {
     auto* sem = reinterpret_cast<TimelineSemaphore*>(sem_handle);
     if (sem == nullptr) return;
     sem->wait(value);
 }
 
 /// Signal the timeline semaphore with `value`.
-void whiteout_csharp_TimelineSemaphore_signal(void* sem_handle, std::uint64_t value) {
+void whiteout_hostimpl_TimelineSemaphore_signal(void* sem_handle, std::uint64_t value) {
     auto* sem = reinterpret_cast<TimelineSemaphore*>(sem_handle);
     if (sem == nullptr) return;
     sem->signal(value);
@@ -403,12 +408,12 @@ void whiteout_csharp_TimelineSemaphore_signal(void* sem_handle, std::uint64_t va
 
 // ── WorkerPool smoke-test invokers ───────────────────────────────────────
 
-std::size_t whiteout_csharp_test_WorkerPool_threadCount(void* handle) {
+std::size_t whiteout_hostimpl_test_WorkerPool_threadCount(void* handle) {
     auto* pool = reinterpret_cast<WorkerPool*>(handle);
     return pool->threadCount();
 }
 
-void whiteout_csharp_test_WorkerPool_waitIdle(void* handle) {
+void whiteout_hostimpl_test_WorkerPool_waitIdle(void* handle) {
     auto* pool = reinterpret_cast<WorkerPool*>(handle);
     pool->waitIdle();
 }
@@ -417,7 +422,7 @@ void whiteout_csharp_test_WorkerPool_waitIdle(void* handle) {
 /// The test then verifies the sentinel was set after waitIdle() returns,
 /// proving submit() reached the managed implementation and the task ran.
 /// `out_sentinel` is incremented by the task.
-void whiteout_csharp_test_WorkerPool_submitIncrementSentinel(
+void whiteout_hostimpl_test_WorkerPool_submitIncrementSentinel(
         void* handle, std::int32_t* out_sentinel) {
     auto* pool = reinterpret_cast<WorkerPool*>(handle);
     WorkerTask task;
@@ -427,6 +432,193 @@ void whiteout_csharp_test_WorkerPool_submitIncrementSentinel(
         }
     };
     pool->submit(task);
+}
+
+}  // extern "C"
+
+// ── CascFileSystem ─────────────────────────────────────────────────────────
+//
+// Resolves files by numeric data ID rather than by path. Needed by the M2
+// parser and by CASC-backed asset loading.
+
+using whiteout::interfaces::CascFileSystem;
+
+namespace {
+
+struct HostCascFsFnTable {
+    void (*readFile)(void* userdata, std::uint32_t fileId,
+                     std::uint8_t** out_data, std::size_t* out_size);
+    void (*freeBuffer)(std::uint8_t* data);
+    // Returns 1 and writes *out_id when the path resolves; 0 otherwise.
+    std::int32_t (*reserveFileId)(void* userdata, const char* path,
+                                  std::size_t path_len, std::uint32_t* out_id);
+    std::int32_t (*writeFile)(void* userdata, std::uint32_t fileId,
+                              const std::uint8_t* data, std::size_t size);
+    std::int32_t (*fileExists)(void* userdata, std::uint32_t fileId);
+};
+
+class HostCascFileSystem : public CascFileSystem {
+public:
+    HostCascFileSystem(void* userdata, const HostCascFsFnTable* fns)
+        : userdata_(userdata), fns_(*fns) {}
+
+    std::vector<u8> readFile(u32 fileId) const override {
+        std::uint8_t* data = nullptr;
+        std::size_t   size = 0;
+        fns_.readFile(userdata_, fileId, &data, &size);
+        if (data == nullptr || size == 0) return {};
+        std::vector<u8> result(data, data + size);
+        fns_.freeBuffer(data);
+        return result;
+    }
+
+    std::optional<u32> reserveFileId(const std::string& path) override {
+        std::uint32_t id = 0;
+        if (fns_.reserveFileId(userdata_, path.data(), path.size(), &id) == 0) {
+            return std::nullopt;
+        }
+        return id;
+    }
+
+    bool writeFile(u32 fileId, const std::vector<u8>& data) override {
+        return fns_.writeFile(userdata_, fileId, data.data(), data.size()) != 0;
+    }
+
+    bool fileExists(u32 fileId) const override {
+        return fns_.fileExists(userdata_, fileId) != 0;
+    }
+
+private:
+    void* userdata_;
+    HostCascFsFnTable fns_;
+};
+
+}  // namespace
+
+extern "C" {
+
+void* whiteout_hostimpl_CascFileSystem_create(void* userdata,
+                                              const HostCascFsFnTable* fns) {
+    return new HostCascFileSystem(userdata, fns);
+}
+
+void whiteout_hostimpl_CascFileSystem_delete(void* handle) {
+    delete reinterpret_cast<HostCascFileSystem*>(handle);
+}
+
+// Smoke-test invokers, mirroring the VFS ones above.
+whiteout_Bytes whiteout_hostimpl_test_CascFileSystem_readFile(void* handle,
+                                                              std::uint32_t fileId) {
+    auto* fs = reinterpret_cast<CascFileSystem*>(handle);
+    auto data = fs->readFile(fileId);
+    if (data.empty()) return whiteout_Bytes{nullptr, 0, nullptr};
+    auto* owned = new std::vector<u8>(std::move(data));
+    return whiteout_Bytes{owned->data(), owned->size(), owned};
+}
+
+std::int32_t whiteout_hostimpl_test_CascFileSystem_fileExists(void* handle,
+                                                              std::uint32_t fileId) {
+    return reinterpret_cast<CascFileSystem*>(handle)->fileExists(fileId) ? 1 : 0;
+}
+
+}  // extern "C"
+
+// ── C# compatibility aliases ───────────────────────────────────────────────
+//
+// The trampolines above were originally named `whiteout_csharp_*`. The C#
+// binding's P/Invoke declarations still use those names, so they stay as
+// thin forwarders rather than forcing a lockstep change to a binding this
+// refactor has no other reason to touch.
+
+extern "C" {
+
+void* whiteout_csharp_VirtualPathFileSystem_create(void* userdata, const void* fns) {
+    return whiteout_hostimpl_VirtualPathFileSystem_create(
+        userdata, reinterpret_cast<const HostVfsFnTable*>(fns));
+}
+
+void whiteout_csharp_VirtualPathFileSystem_delete(void* handle) {
+    whiteout_hostimpl_VirtualPathFileSystem_delete(handle);
+}
+
+void* whiteout_csharp_HttpHandler_create(void* userdata, const void* fns) {
+    return whiteout_hostimpl_HttpHandler_create(
+        userdata, reinterpret_cast<const HostHttpFnTable*>(fns));
+}
+
+void whiteout_csharp_HttpHandler_delete(void* handle) {
+    whiteout_hostimpl_HttpHandler_delete(handle);
+}
+
+void whiteout_csharp_HttpResponseCallback_fire(void* cb, std::int32_t status,
+                                               const std::uint8_t* body,
+                                               std::size_t body_len,
+                                               const char* error) {
+    whiteout_hostimpl_HttpResponseCallback_fire(cb, status, body, body_len, error);
+}
+
+void whiteout_csharp_HttpResponseCallback_cancel(void* cb) {
+    whiteout_hostimpl_HttpResponseCallback_cancel(cb);
+}
+
+void* whiteout_csharp_WorkerPool_create(void* userdata, const void* fns) {
+    return whiteout_hostimpl_WorkerPool_create(
+        userdata, reinterpret_cast<const HostWorkerPoolFnTable*>(fns));
+}
+
+void whiteout_csharp_WorkerPool_delete(void* handle) {
+    whiteout_hostimpl_WorkerPool_delete(handle);
+}
+
+void whiteout_csharp_WorkerTaskFn_fire(void* fn)   { whiteout_hostimpl_WorkerTaskFn_fire(fn); }
+void whiteout_csharp_WorkerTaskFn_cancel(void* fn) { whiteout_hostimpl_WorkerTaskFn_cancel(fn); }
+
+void whiteout_csharp_TimelineSemaphore_await(void* sem, std::uint64_t v) {
+    whiteout_hostimpl_TimelineSemaphore_await(sem, v);
+}
+
+void whiteout_csharp_TimelineSemaphore_signal(void* sem, std::uint64_t v) {
+    whiteout_hostimpl_TimelineSemaphore_signal(sem, v);
+}
+
+whiteout_Bytes whiteout_csharp_test_VirtualPathFileSystem_readFile(void* h, const char* p) {
+    return whiteout_hostimpl_test_VirtualPathFileSystem_readFile(h, p);
+}
+
+std::int32_t whiteout_csharp_test_VirtualPathFileSystem_fileExists(void* h, const char* p) {
+    return whiteout_hostimpl_test_VirtualPathFileSystem_fileExists(h, p);
+}
+
+std::int32_t whiteout_csharp_test_VirtualPathFileSystem_writeFile(
+        void* h, const char* p, const std::uint8_t* d, std::size_t n) {
+    return whiteout_hostimpl_test_VirtualPathFileSystem_writeFile(h, p, d, n);
+}
+
+std::uint32_t whiteout_csharp_test_HttpHandler_capabilities(void* h) {
+    return whiteout_hostimpl_test_HttpHandler_capabilities(h);
+}
+
+void whiteout_csharp_test_HttpHandler_getAsync(
+        void* h, const char* url, std::int32_t* s, whiteout_Bytes* b, whiteout_CString* e) {
+    whiteout_hostimpl_test_HttpHandler_getAsync(h, url, s, b, e);
+}
+
+void whiteout_csharp_test_HttpHandler_getRangeAsync(
+        void* h, const char* url, std::uint64_t start, std::uint64_t end,
+        std::int32_t* s, whiteout_Bytes* b, whiteout_CString* e) {
+    whiteout_hostimpl_test_HttpHandler_getRangeAsync(h, url, start, end, s, b, e);
+}
+
+std::size_t whiteout_csharp_test_WorkerPool_threadCount(void* h) {
+    return whiteout_hostimpl_test_WorkerPool_threadCount(h);
+}
+
+void whiteout_csharp_test_WorkerPool_waitIdle(void* h) {
+    whiteout_hostimpl_test_WorkerPool_waitIdle(h);
+}
+
+void whiteout_csharp_test_WorkerPool_submitIncrementSentinel(void* h, std::int32_t* out) {
+    whiteout_hostimpl_test_WorkerPool_submitIncrementSentinel(h, out);
 }
 
 }  // extern "C"

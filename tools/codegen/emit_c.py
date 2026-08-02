@@ -40,6 +40,7 @@ Emits three files via three entry points:
 
 from __future__ import annotations
 
+import re
 from io import StringIO
 
 from .ir import (
@@ -496,6 +497,24 @@ def emit_header(module: BindModule) -> str:
     buf = StringIO()
     buf.write(HEADER_PROLOGUE.format(module=module.name, guard=guard))
 
+    # ── Owned handle lists ───────────────────────────────────────────────
+    # `vector<Class>` returns are handed back as an opaque owned list so a
+    # single call transfers the whole result. Same shape as the
+    # hand-written BlizzardGameInfoList, generated per element type.
+    _lists = _handle_list_types(module)
+    if _lists:
+        buf.write('/* \u2500\u2500 Owned handle lists '
+                  '\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */\n\n')
+        for elem in _lists:
+            lh = _c_handle_name(elem)
+            buf.write(f'typedef struct whiteout_{lh}List whiteout_{lh}List;\n')
+            buf.write(f'size_t {prefix}_{lh}List_size(const whiteout_{lh}List* self);\n')
+            buf.write('/* Borrowed element; valid until the list is destroyed. */\n')
+            buf.write(f'struct whiteout_{lh}* {prefix}_{lh}List_at'
+                      f'(whiteout_{lh}List* self, size_t index);\n')
+            buf.write(f'void {prefix}_{lh}List_delete(whiteout_{lh}List* self);\n')
+        buf.write('\n')
+
     # ── Enums (deduped by short name) ────────────────────────────────────
     # Multiple sub-namespaces can declare an enum with the same short
     # name (`blp::Parser::ParseMode`, `png::Parser::ParseMode`, …) — we
@@ -604,6 +623,10 @@ def _emit_method_decl(buf: StringIO, m: BindMethod, c: BindClass, prefix: str,
         elif _is_byte_vector_param(p):
             param_strs.append(f'const uint8_t* {p.name}')
             param_strs.append(f'size_t {p.name}_size')
+        elif _scalar_vector_param_elem(p) is not None:
+            c_elem = _scalar_vector_param_elem(p)
+            param_strs.append(f'const {c_elem}* {p.name}')
+            param_strs.append(f'size_t {p.name}_size')
         elif _is_class_vector_param(p, module):
             elem_handle = _resolve_handle_short(p.type.element.cpp_text, module)
             param_strs.append(
@@ -611,6 +634,14 @@ def _emit_method_decl(buf: StringIO, m: BindMethod, c: BindClass, prefix: str,
             param_strs.append(f'size_t {p.name}_size')
         else:
             param_strs.append(f'{_c_type(p.type, module)} {p.name}')
+    opt_elem = _optional_primitive_return(m)
+    if opt_elem is not None:
+        param_strs.append(f'{opt_elem}* out_value')
+    else:
+        opt_arr = _optional_array_return(m)
+        if opt_arr is not None:
+            # Caller supplies a buffer of `opt_arr[1]` elements.
+            param_strs.append(f'{opt_arr[0]}* out_value')
     params = ', '.join(param_strs) if param_strs else 'void'
 
     if m.doc:
@@ -624,6 +655,12 @@ def _c_return_type(m: BindMethod, module: BindModule) -> str:
     ret = m.return_type
     if ret.cpp_text == 'void':
         return 'void'
+    if (_optional_primitive_return(m) is not None
+            or _optional_array_return(m) is not None):
+        return 'int32_t'   # has-value flag; the value goes to an out-param
+    _list_elem = _handle_list_return(m, module)
+    if _list_elem is not None:
+        return f'struct whiteout_{_c_handle_name(_list_elem)}List*'
     return _c_type(ret, module)
 
 
@@ -999,12 +1036,25 @@ def _is_return_supported(ret: TypeRef, module: BindModule) -> bool:
     if ret.kind == TypeKind.VECTOR:
         if _short_name(ret.element.cpp_text) in ('u8', 'unsigned char'):
             return True
+        if (ret.element.kind in (TypeKind.NESTED, TypeKind.UNKNOWN)
+                and not ret.element.cpp_text.startswith('std::')
+                and _c_handle_name(ret.element.cpp_text)
+                in _known_class_short_names(module)):
+            return True
         # std::vector<std::string> — supported via a (count, at) expansion
         # (one method becomes two C functions). See `_is_vector_string_return`.
         if ret.element.kind == TypeKind.STRING:
             return True
         return False
     if ret.kind == TypeKind.OPTIONAL:
+        if _ARRAY_RE.fullmatch(ret.element.cpp_text.strip()):
+            return _C_PRIMITIVE.get(
+                _short_name(_ARRAY_RE.fullmatch(
+                    ret.element.cpp_text.strip()).group(1))) is not None
+        if ret.element.kind == TypeKind.ENUM:
+            return True
+        if ret.element.kind == TypeKind.PRIMITIVE:
+            return _C_PRIMITIVE.get(_short_name(ret.element.cpp_text)) is not None
         if ret.element.kind in (TypeKind.NESTED,):
             return True
         if ret.element.kind == TypeKind.STRING:
@@ -1014,8 +1064,90 @@ def _is_return_supported(ret: TypeRef, module: BindModule) -> bool:
                 return False
             return _c_handle_name(ret.element.cpp_text) in _known_class_short_names(module)
         if ret.element.kind == TypeKind.VECTOR:
-            return _short_name(ret.element.element.cpp_text) in ('u8', 'unsigned char')
+            inner = ret.element.element
+            if _short_name(inner.cpp_text) in ('u8', 'unsigned char'):
+                return True
+            return (inner.kind in (TypeKind.NESTED, TypeKind.UNKNOWN)
+                    and not inner.cpp_text.startswith('std::')
+                    and _c_handle_name(inner.cpp_text)
+                    in _known_class_short_names(module))
     return False
+
+
+_ARRAY_RE = re.compile(r'std::array<\s*(.+?)\s*,\s*(\d+)\s*>')
+
+
+def _handle_list_return(m: BindMethod, module: BindModule) -> str | None:
+    """`std::vector<Class>` or `std::optional<std::vector<Class>>` where
+    Class is a bound handle type — returns the C++ element spelling.
+
+    Lowered to an owned opaque list: the vector is heap-moved and handed
+    back as `whiteout_<Elem>List*`, with `_size` / `_at` / `_delete`. The
+    same shape the hand-written `BlizzardGameInfoList` uses, generalised.
+    """
+    r = m.return_type
+    if r.kind == TypeKind.OPTIONAL and r.element is not None:
+        r = r.element
+    if r.kind != TypeKind.VECTOR or r.element is None:
+        return None
+    elem = r.element
+    if elem.kind not in (TypeKind.NESTED, TypeKind.UNKNOWN):
+        return None
+    if elem.cpp_text.startswith('std::'):
+        return None
+    if _c_handle_name(elem.cpp_text) not in _known_class_short_names(module):
+        return None
+    return elem.cpp_text
+
+
+def _handle_list_types(module: BindModule) -> list[str]:
+    """Distinct element types needing a list wrapper in this module."""
+    seen = []
+    for c in module.classes:
+        for m in c.methods:
+            if m.is_skipped:
+                continue
+            elem = _handle_list_return(m, module)
+            if elem is not None and elem not in seen:
+                seen.append(elem)
+    return seen
+
+
+def _optional_array_return(m: BindMethod):
+    """`std::optional<std::array<T, N>>` for scalar T — returns (c_elem, N).
+
+    Lowered like the scalar case, but the out-param is a caller-provided
+    buffer of N elements rather than a single value. `findEncryptionKey`
+    returning a 16-byte key is the motivating shape.
+    """
+    r = m.return_type
+    if r.kind != TypeKind.OPTIONAL or r.element is None:
+        return None
+    match = _ARRAY_RE.fullmatch(r.element.cpp_text.strip())
+    if not match:
+        return None
+    c_elem = _C_PRIMITIVE.get(_short_name(match.group(1)))
+    if c_elem is None:
+        return None
+    return c_elem, int(match.group(2))
+
+
+def _optional_primitive_return(m: BindMethod) -> str | None:
+    """`std::optional<T>` for a scalar T — returns the C element type.
+
+    Lowered to `int32_t f(..., T* out_value)`: 1 when the optional held a
+    value (written to `*out_value`), 0 otherwise. Every other optional
+    shape already has a natural empty sentinel (null handle, empty Bytes,
+    empty CString); a scalar has none, so it needs the out-param.
+    """
+    r = m.return_type
+    if r.kind != TypeKind.OPTIONAL or r.element is None:
+        return None
+    if r.element.kind == TypeKind.ENUM:
+        return 'int32_t'
+    if r.element.kind != TypeKind.PRIMITIVE:
+        return None
+    return _C_PRIMITIVE.get(_short_name(r.element.cpp_text))
 
 
 def _is_vector_string_return(m: BindMethod) -> bool:
@@ -1073,6 +1205,25 @@ def _is_byte_vector_param(p: BindMethodParam) -> bool:
             and _short_name(t.element.cpp_text) in ('u8', 'unsigned char'))
 
 
+def _scalar_vector_param_elem(p: BindMethodParam) -> str | None:
+    """`const std::vector<T>&` for a scalar or enum T — returns the C
+    element type.
+
+    Marshalled as a (ptr, count) pair, exactly like the `vector<u8>` case
+    that already existed; this just generalises it beyond bytes. Enums
+    travel as `int32_t`, matching how they cross everywhere else.
+    """
+    t = p.type
+    if t.kind != TypeKind.VECTOR or t.element is None:
+        return None
+    elem = t.element
+    if elem.kind == TypeKind.ENUM:
+        return 'int32_t'
+    if elem.kind != TypeKind.PRIMITIVE:
+        return None
+    return _C_PRIMITIVE.get(_short_name(elem.cpp_text))
+
+
 def _is_class_vector_param(p: BindMethodParam, module: BindModule) -> bool:
     """`const std::vector<Class>&` where Class is a bound class handle —
     marshalled as an array of opaque handle pointers + a size."""
@@ -1103,6 +1254,8 @@ def _is_param_supported(p: BindMethodParam, module: BindModule) -> bool:
         # `const std::string&` → `const char*` on the C ABI.
         return True
     if _is_byte_vector_param(p):
+        return True
+    if _scalar_vector_param_elem(p) is not None:
         return True
     if _is_class_vector_param(p, module):
         return True
@@ -1429,8 +1582,28 @@ inline whiteout_CString emptyCString() {
 }
 
 } // anonymous
-
 ''')
+
+    # Owned handle lists: one small accessor set per element type. The
+    # opaque handle is a heap `std::vector<Elem>`; `_at` hands back an
+    # interior pointer, so it is borrowed and must not be freed.
+    for elem in _handle_list_types(module):
+        lh = _c_handle_name(elem)
+        buf.write(f'''
+size_t {prefix}_{lh}List_size(const whiteout_{lh}List* self) {{
+    return reinterpret_cast<const std::vector<{elem}>*>(self)->size();
+}}
+
+struct whiteout_{lh}* {prefix}_{lh}List_at(whiteout_{lh}List* self, size_t index) {{
+    auto* v = reinterpret_cast<std::vector<{elem}>*>(self);
+    return reinterpret_cast<struct whiteout_{lh}*>(&(*v)[index]);
+}}
+
+void {prefix}_{lh}List_delete(whiteout_{lh}List* self) {{
+    delete reinterpret_cast<std::vector<{elem}>*>(self);
+}}
+''')
+
 
     # Value-object structs (Extent, MipLevel, …) still need an opaque
     # handle + field accessors at the C ABI; the value-vs-pointer
@@ -1539,6 +1712,10 @@ def _emit_method_source(buf: StringIO, m: BindMethod, c: BindClass,
         elif _is_byte_vector_param(p):
             param_strs.append(f'const uint8_t* {p.name}')
             param_strs.append(f'size_t {p.name}_size')
+        elif _scalar_vector_param_elem(p) is not None:
+            c_elem = _scalar_vector_param_elem(p)
+            param_strs.append(f'const {c_elem}* {p.name}')
+            param_strs.append(f'size_t {p.name}_size')
         elif _is_class_vector_param(p, module):
             elem_handle = _resolve_handle_short(p.type.element.cpp_text, module)
             param_strs.append(
@@ -1546,6 +1723,14 @@ def _emit_method_source(buf: StringIO, m: BindMethod, c: BindClass,
             param_strs.append(f'size_t {p.name}_size')
         else:
             param_strs.append(f'{_c_type(p.type, module)} {p.name}')
+    opt_elem = _optional_primitive_return(m)
+    if opt_elem is not None:
+        param_strs.append(f'{opt_elem}* out_value')
+    else:
+        opt_arr = _optional_array_return(m)
+        if opt_arr is not None:
+            # Caller supplies a buffer of `opt_arr[1]` elements.
+            param_strs.append(f'{opt_arr[0]}* out_value')
     params = ', '.join(param_strs) if param_strs else 'void'
 
     buf.write(f'{ret_c} {prefix}_{short}_{m.name}({params}) {{\n')
@@ -1575,6 +1760,19 @@ def _emit_method_source(buf: StringIO, m: BindMethod, c: BindClass,
             # (ptr, size) → std::vector<u8>. Copy-construct from the range.
             cpp_args.append(
                 f'std::vector<whiteout::u8>({p.name}, {p.name} + {p.name}_size)')
+        elif _scalar_vector_param_elem(p) is not None:
+            # (ptr, count) → std::vector<T>. Enums arrive as int32_t and
+            # are cast element-wise; scalars copy straight from the range.
+            elem_cpp = p.type.element.cpp_text
+            if p.type.element.kind == TypeKind.ENUM:
+                cpp_args.append(
+                    f'([&]{{ std::vector<{elem_cpp}> __v; __v.reserve({p.name}_size); '
+                    f'for (size_t __i = 0; __i < {p.name}_size; ++__i) '
+                    f'__v.push_back(static_cast<{elem_cpp}>({p.name}[__i])); '
+                    f'return __v; }})()')
+            else:
+                cpp_args.append(
+                    f'std::vector<{elem_cpp}>({p.name}, {p.name} + {p.name}_size)')
         elif _is_class_vector_param(p, module):
             # (handle*[], size) → std::vector<Class>. Each handle is
             # dereferenced and copied into the local vector before the
@@ -1619,6 +1817,7 @@ def _emit_call_body(call: str, ret: TypeRef, m: BindMethod,
     """Emit the body of an extern "C" function — converts the C++ call
     expression's return into the C-ABI shape and writes the `return`."""
     out = StringIO()
+    _opt_scalar_elem = _optional_primitive_return(m)
     if ret.cpp_text == 'void':
         out.write(f'{indent}{call};\n')
         return out.getvalue()
@@ -1640,6 +1839,44 @@ def _emit_call_body(call: str, ret: TypeRef, m: BindMethod,
         out.write(f'{indent}auto& __r = {call};\n')
         out.write(f'{indent}return const_cast<struct whiteout_{c_handle}*>(\n')
         out.write(f'{indent}    reinterpret_cast<const struct whiteout_{c_handle}*>(&__r));\n')
+        return out.getvalue()
+
+    # vector<Class> / optional<vector<Class>> → owned opaque list.
+    _list_elem = _handle_list_return(m, module)
+    if _list_elem is not None:
+        _lh = _c_handle_name(_list_elem)
+        if ret.kind == TypeKind.OPTIONAL:
+            out.write(f'{indent}auto __r = {call};\n')
+            out.write(f'{indent}if (!__r) return nullptr;\n')
+            out.write(f'{indent}return reinterpret_cast<struct whiteout_{_lh}List*>(\n')
+            out.write(f'{indent}    new std::vector<{_list_elem}>(std::move(*__r)));\n')
+        else:
+            out.write(f'{indent}return reinterpret_cast<struct whiteout_{_lh}List*>(\n')
+            out.write(f'{indent}    new std::vector<{_list_elem}>({call}));\n')
+        return out.getvalue()
+
+    # std::optional<std::array<T, N>> → has-value flag + out-buffer.
+    _opt_arr = _optional_array_return(m)
+    if _opt_arr is not None:
+        _elem_c, _n = _opt_arr
+        out.write(f'{indent}auto __r = {call};\n')
+        out.write(f'{indent}if (!__r) return 0;\n')
+        out.write(f'{indent}if (out_value) {{\n')
+        out.write(f'{indent}    for (size_t __i = 0; __i < {_n}; ++__i)\n')
+        out.write(f'{indent}        out_value[__i] = '
+                  f'static_cast<{_elem_c}>((*__r)[__i]);\n')
+        out.write(f'{indent}}}\n')
+        out.write(f'{indent}return 1;\n')
+        return out.getvalue()
+
+    # std::optional<scalar> → has-value flag + out-param. A scalar has no
+    # natural empty sentinel the way a handle or a buffer does.
+    if _opt_scalar_elem is not None:
+        out.write(f'{indent}auto __r = {call};\n')
+        out.write(f'{indent}if (!__r) return 0;\n')
+        out.write(f'{indent}if (out_value) *out_value = '
+                  f'static_cast<{_opt_scalar_elem}>(*__r);\n')
+        out.write(f'{indent}return 1;\n')
         return out.getvalue()
 
     # std::optional<class> → nullable handle to a heap-moved copy.

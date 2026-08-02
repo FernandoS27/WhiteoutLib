@@ -56,6 +56,11 @@ _SKIP = {'equals'}
 _VECTOR_LIKE = ('Vector2f', 'Vector3f', 'Vector4f', 'Quaternion')
 
 
+# Newline for emitted Rust, spelled as a name so the f-string
+# templates below stay readable.
+NL = chr(10)
+
+
 def _rustfmt(text: str) -> str:
     """Run the emitted source through rustfmt.
 
@@ -476,6 +481,14 @@ pub mod ffi {
 # ══════════════════════════════════════════════════════════════════════════
 
 from .emit_c import (  # noqa: E402
+    _handle_list_return,
+    _handle_list_types,
+    _optional_array_return,
+    _scalar_vector_param_elem,
+    _optional_primitive_return,
+    _is_byte_vector_param,
+    _is_class_vector_param,
+    _is_interface_pointer_param,
     _c_handle_name,
     _ctor_overloads_named,
     _is_span_const_u8,
@@ -517,8 +530,28 @@ def _pascal(name: str) -> str:
     return name[:1].upper() + name[1:]
 
 
+def _variant_name(js_name: str) -> str:
+    """PascalCase identifier for an enumerator.
+
+    Trailing-segment-only naming (`Layer_ShaderType_HD` -> `HD`) reads well
+    until a segment is not identifier-shaped: `Unk_0x400000` would become
+    `0x400000`. Fall back to the whole name in that case, and prefix a
+    letter if it still starts with a digit.
+    """
+    tail = js_name.split('_')[-1] if '_' in js_name else js_name
+    out = _pascal(tail)
+    if not out or not (out[0].isalpha() or out[0] == '_'):
+        out = ''.join(_pascal(part) for part in js_name.split('_') if part)
+    if not out:
+        out = 'Unnamed'
+    if not (out[0].isalpha() or out[0] == '_'):
+        out = f'V{out}'
+    return out
+
+
 def _screaming(name: str) -> str:
-    return _snake(name).upper()
+    out = _snake(name).upper()
+    return out if out[:1].isalpha() or out[:1] == '_' else f'V{out}'
 
 
 def _is_flags_enum(e) -> bool:
@@ -533,7 +566,13 @@ def _is_flags_enum(e) -> bool:
     if len(values) != len(set(values)):
         return True
     nonzero = [v for v in values if v != 0]
-    return len(nonzero) >= 3 and all(v > 0 and (v & (v - 1)) == 0 for v in nonzero)
+    if len(nonzero) >= 3 and all(v > 0 and (v & (v - 1)) == 0 for v in nonzero):
+        return True
+    # The C++ convention here is to name bitmask enums `...Flag`/`...Flags`.
+    # Trust it: those carry composite values that break the bit test but are
+    # still meant to be OR'd, not matched.
+    short = _c_handle_name(e.js_name)
+    return len(nonzero) >= 3 and (short.endswith('Flag') or short.endswith('Flags'))
 
 
 def _enum_rust_name(e, module: BindModule | None = None) -> str:
@@ -582,7 +621,26 @@ _RENAMES = {
     ('Parser', 'parse_buffer_format'): 'parse',
     ('Writer', 'write'): 'write_file',
     ('Writer', 'write_mdx_format_mdlFormat'): 'write',
+    ('Parser', 'parse_buffer'): 'parse',
+    ('Writer', 'write_model'): 'write',
 }
+
+
+# Methods on a subclassable interface that carry work across the boundary
+# in a struct rather than as a bare callback, so `callback_target` does not
+# see them. Small and explicit beats a predicate that guesses.
+_HOST_IMPLEMENTED = {'submit'}
+
+
+def _is_host_implemented(m) -> bool:
+    """A method the host implements rather than calls.
+
+    These cross through the fn-table shims in
+    `bindings/c/whiteout_host_shims.cpp` and are wrapped by hand in
+    `interfaces.rs`, so the generated module must neither claim them nor
+    report them as gaps.
+    """
+    return m.name in _HOST_IMPLEMENTED or any(p.callback_target for p in m.params)
 
 
 def _method_name(rust_cls: str, m) -> str:
@@ -602,18 +660,64 @@ def _method_name(rust_cls: str, m) -> str:
     return f'{out}_' if out in _KEYWORDS else out
 
 
-def _is_field_only(c: BindClass) -> bool:
-    """Options structs: a handful of scalars, no behaviour. These become
-    plain Rust structs with `Default`, used with struct-update syntax.
+def _value_struct_names(module: BindModule) -> set[str]:
+    """Short names of classes to emit as plain Rust structs rather than
+    handles.
 
-    The all-primitive requirement matters: most of the model surface is
-    also "fields, no methods", but those carry vectors, strings and nested
-    structs, and must stay handles so their storage keeps living in C++.
-    Treating `mdx::Model` as an options struct would be catastrophic.
+    A candidate has fields, no methods, and only primitive members — but
+    that alone is not enough. Two further conditions, both learned the hard
+    way:
+
+      * It must be *passed* somewhere (an options struct). `mdx::Model` has
+        fields and no methods too; emitting it by value would move the
+        model out of C++ entirely.
+      * It must never appear as another class's field. The C ABI hands out
+        a borrowed interior pointer for those, which a by-value struct
+        cannot represent. `m3::AnimRef<f32>` is all-primitive but is a
+        field of nearly every M3 type.
     """
-    return (bool(c.fields)
-            and not c.methods
-            and all(f.type.kind == TypeKind.PRIMITIVE for f in c.fields))
+    cached = getattr(module, '_rust_value_structs', None)
+    if cached is not None:
+        return cached
+
+    candidates = {
+        _c_handle_name(c.js_name)
+        for c in module.classes
+        if c.fields and not c.methods
+        and all(f.type.kind == TypeKind.PRIMITIVE for f in c.fields)
+    }
+    used_as_field: set[str] = set()
+    passed: set[str] = set()
+    for c in module.classes:
+        for f in c.fields:
+            t = f.type
+            for ref in (t, t.element, t.element.element if t.element else None):
+                if ref is not None and ref.kind == TypeKind.NESTED:
+                    used_as_field.add(_resolve_handle_short(ref.cpp_text, module))
+        for m in c.methods:
+            for p in m.params:
+                passed.add(_resolve_handle_short(p.type.cpp_text, module))
+
+    out = (candidates & passed) - used_as_field
+    module._rust_value_structs = out
+    return out
+
+
+# Abstract interfaces the host can implement, and the Rust wrapper that
+# carries one. Anything not listed still binds — the parameter is dropped
+# and null passed, which the library reads as "not supplied".
+_HOST_WRAPPERS = {
+    'WorkerPool': 'HostWorkerPool',
+    'CascFileSystem': 'HostCascFileSystem',
+    'VirtualPathFileSystem': 'HostFileSystem',
+    'HttpHandler': 'HostHttpHandler',
+}
+
+
+def _is_field_only(c: BindClass, module: BindModule | None = None) -> bool:
+    if module is None:
+        return False
+    return _c_handle_name(c.js_name) in _value_struct_names(module)
 
 
 def _module_classes(module: BindModule):
@@ -704,6 +808,38 @@ def _return_shape(m, ctx: _Ctx):
     if t.kind == TypeKind.STRING:
         return ('string', 'String', 'RawCString')
 
+    list_elem = _handle_list_return(m, ctx.module)
+    if list_elem is not None:
+        ec = ctx.class_for(list_elem)
+        if ec is None or _is_field_only(ec, ctx.module):
+            return None
+        lname = f'{ctx.rust_class(ec)}List'
+        # Always Option: the vector-returning form cannot fail, but the
+        # optional one can, and one shape is easier to use than two.
+        # Unqualified: this spelling is used inside the `ffi` module.
+        return ('handle_list', f'Option<{lname}>',
+                f'*mut whiteout_{_c_handle_name(list_elem)}List')
+
+    opt_arr = _optional_array_return(m)
+    if opt_arr is not None:
+        c_elem, n = opt_arr
+        rty = _C_COMP_TO_RUST.get(c_elem)
+        if rty is None:
+            return None
+        return ('opt_array', f'Option<[{rty}; {n}]>', rty)
+
+    opt_scalar = _optional_primitive_return(m)
+    if opt_scalar is not None:
+        if t.element is not None and t.element.kind == TypeKind.ENUM:
+            e = ctx.enum_for(t.element.cpp_text)
+            if e is None:
+                return None
+            return ('opt_enum', f'Option<{_enum_rust_name(e, ctx.module)}>', 'i32')
+        prim = _rust_prim(t.element.cpp_text) if t.element else None
+        if prim is None or prim == '()':
+            return None
+        return ('opt_prim', f'Option<{prim}>', prim)
+
     if t.kind == TypeKind.OPTIONAL:
         inner = raw
         if inner.startswith('std::optional<') and inner.endswith('>'):
@@ -711,7 +847,7 @@ def _return_shape(m, ctx: _Ctx):
         if inner in ('std::string', 'std::basic_string<char>'):
             return ('string_opt', 'Option<String>', 'RawCString')
         c = ctx.class_for(inner)
-        if c is not None and not _is_field_only(c):
+        if c is not None and not _is_field_only(c, ctx.module):
             return ('handle_opt', f'Option<{ctx.rust_class(c)}>', f'*mut {ctx.handle(c)}')
         return None
 
@@ -723,7 +859,7 @@ def _return_shape(m, ctx: _Ctx):
 
     if t.kind == TypeKind.NESTED:
         c = ctx.class_for(raw)
-        if c is not None and not _is_field_only(c):
+        if c is not None and not _is_field_only(c, ctx.module):
             # The C ABI returns a heap pointer that is NULL when the C++
             # call produced nothing, so Option is the honest mapping even
             # for a by-value C++ return.
@@ -756,9 +892,31 @@ def _params(m, ctx: _Ctx):
         name = _snake(p.name)
         raw = p.type.cpp_text.replace('const ', '').strip()
 
-        if name == 'pool':
-            out.append(('dropped_pool', None, [f'{name}: *mut core::ffi::c_void'],
-                        ['core::ptr::null_mut()']))
+        # A `std::span<const u8>` anywhere but first. `m.bytes_in` only
+        # covers the leading-parameter case, but e.g.
+        # `m2::Parser::parse(CascFileSystem&, span<const u8>)` puts it
+        # second, and the C ABI expands it to the same (ptr, len) pair.
+        if _is_span_const_u8(p.type) or (p.span_scalar and p.span_scalar[0] == 'u8'):
+            out.append(('bytes_in', f'{name}: &[u8]',
+                        [f'{name}: *const u8', f'{name}_size: usize'],
+                        [f'{name}.as_ptr()', f'{name}.len()']))
+            continue
+
+        if _is_interface_pointer_param(p):
+            wrapper = _HOST_WRAPPERS.get(_c_handle_name(raw))
+            if wrapper is None:
+                # An interface we have no Rust trait for yet: keep the
+                # method usable by passing null, which the library treats
+                # as "not supplied".
+                out.append(('dropped_iface', None, [f'{name}: *mut core::ffi::c_void'],
+                            ['core::ptr::null_mut()']))
+                continue
+            out.append((
+                'iface',
+                f'{name}: Option<&crate::interfaces::{wrapper}>',
+                [f'{name}: *mut core::ffi::c_void'],
+                [f'{name}.map_or(core::ptr::null_mut(), |v| v.as_ptr())'],
+            ))
             continue
 
         if p.type.kind == TypeKind.ENUM:
@@ -786,8 +944,56 @@ def _params(m, ctx: _Ctx):
                         [f'{name}_cstr.as_ptr()']))
             continue
 
+        if _is_byte_vector_param(p):
+            out.append(('bytes_in', f'{name}: &[u8]',
+                        [f'{name}: *const u8', f'{name}_size: usize'],
+                        [f'{name}.as_ptr()', f'{name}.len()']))
+            continue
+
+        scalar_vec = _scalar_vector_param_elem(p)
+        if scalar_vec is not None:
+            el = p.type.element
+            if el.kind == TypeKind.ENUM:
+                e = ctx.enum_for(el.cpp_text)
+                if e is None:
+                    return None
+                rty = _enum_rust_name(e, ctx.module)
+                # Enums are `#[repr(i32)]`, so a slice of them is already
+                # laid out as the `const int32_t*` the C ABI wants.
+                cargs = [f'{name}.as_ptr() as *const i32', f'{name}.len()']
+            else:
+                rty = _C_COMP_TO_RUST.get(scalar_vec)
+                if rty is None:
+                    return None
+                cargs = [f'{name}.as_ptr()', f'{name}.len()']
+            cty = 'i32' if el.kind == TypeKind.ENUM else rty
+            out.append(('scalar_slice', f'{name}: &[{rty}]',
+                        [f'{name}: *const {cty}', f'{name}_size: usize'], cargs))
+            continue
+
+        if _is_class_vector_param(p, ctx.module):
+            ec = ctx.class_for(p.type.element.cpp_text)
+            if ec is None or _is_field_only(ec, ctx.module):
+                return None
+            out.append((
+                'handle_slice',
+                f'{name}: &[&{ctx.rust_class(ec)}]',
+                [f'{name}: *const *mut {ctx.handle(ec)}', f'{name}_size: usize'],
+                [f'{name}_ptrs.as_ptr()', f'{name}.len()'],
+            ))
+            continue
+
         c = ctx.class_for(raw)
-        if c is not None and not _is_field_only(c):
+        if c is not None and _is_field_only(c, ctx.module):
+            out.append((
+                'value_struct',
+                f'{name}: &{ctx.rust_class(c)}',
+                [f'{name}: *mut {ctx.handle(c)}'],
+                [f'{name}_native'],
+            ))
+            continue
+
+        if c is not None:
             out.append(('handle', f'{name}: &{ctx.rust_class(c)}',
                         [f'{name}: *mut {ctx.handle(c)}'], [f'{name}.raw.as_ptr()']))
             continue
@@ -797,11 +1003,29 @@ def _params(m, ctx: _Ctx):
     return out
 
 
+# `Ref<CHAR>` and friends: rustdoc parses the angle brackets as HTML.
+# Wrapping the whole token in backticks renders it as code, which is what
+# was meant anyway. Skips anything already inside backticks.
+_DOC_ANGLE_RE = re.compile(r'(?<![`\w])\w+<[A-Za-z_][\w:, ]*>(?![`])')
+
+# A bare `[0,1]` reads as an intra-doc link target.
+_DOC_LINK_RE = re.compile(r'\[[0-9]+\s*,\s*[0-9]+\]')
+
+
 def _doc(buf: StringIO, text: str, indent: str = '') -> None:
+    """Emit C++ doc text as Rust doc comments.
+
+    The source text is doxygen prose written for C++, so it contains things
+    rustdoc reads as markup: `Ref<CHAR>` looks like an unclosed HTML tag,
+    and a bare `[0,1]` looks like an intra-doc link. Both are escaped so a
+    published doc build is warning-free.
+    """
     if not text:
         return
     for line in text.splitlines():
         line = line.rstrip()
+        line = _DOC_ANGLE_RE.sub(r'`\g<0>`', line)
+        line = _DOC_LINK_RE.sub(lambda m: f'`{m.group(0)}`', line)
         if line:
             buf.write(f'{indent}/// {line}\n')
         else:
@@ -881,7 +1105,7 @@ def _emit_enum(buf: StringIO, e, ctx: _Ctx) -> None:
     buf.write(f'pub enum {name} {{\n')
     seen = set()
     for v in e.values:
-        vn = _pascal(v.js_name.split('_')[-1]) if '_' in v.js_name else _pascal(v.js_name)
+        vn = _variant_name(v.js_name)
         if vn in seen:
             continue
         seen.add(vn)
@@ -898,7 +1122,7 @@ def _emit_enum(buf: StringIO, e, ctx: _Ctx) -> None:
 ''')
     seen = set()
     for v in e.values:
-        vn = _pascal(v.js_name.split('_')[-1]) if '_' in v.js_name else _pascal(v.js_name)
+        vn = _variant_name(v.js_name)
         if vn in seen:
             continue
         seen.add(vn)
@@ -912,6 +1136,81 @@ def _emit_enum(buf: StringIO, e, ctx: _Ctx) -> None:
 }}
 
 ''')
+
+
+def _emit_handle_list(buf: StringIO, elem_cpp: str, ctx: _Ctx) -> None:
+    """An owned `std::vector<Class>` handed back from a single call.
+
+    Elements are borrowed out of the list rather than copied, so the
+    wrapper hands back `Ref` exactly like an in-place vector field does.
+    """
+    ec = ctx.class_for(elem_cpp)
+    if ec is None:
+        return
+    rust = ctx.rust_class(ec)
+    name = f'{rust}List'
+    lh = _c_handle_name(elem_cpp)
+    prefix = ctx.prefix
+    buf.write(f"""/// An owned list of [`{rust}`] produced by the library.
+pub struct {name} {{
+    raw: core::ptr::NonNull<ffi::whiteout_{lh}List>,
+}}
+
+impl {name} {{
+    /// # Safety
+    /// `raw` must be a live list this value takes ownership of.
+    #[allow(dead_code)]
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_{lh}List) -> Option<Self> {{
+        core::ptr::NonNull::new(raw).map(|raw| {name} {{ raw }})
+    }}
+
+    pub fn len(&self) -> usize {{
+        // SAFETY: the list is live for `&self`.
+        unsafe {{ ffi::{prefix}_{lh}List_size(self.raw.as_ptr()) }}
+    }}
+
+    pub fn is_empty(&self) -> bool {{
+        self.len() == 0
+    }}
+
+    /// Borrow element `index`. `None` when out of range.
+    pub fn get(&self, index: usize) -> Option<crate::support::Ref<'_, {rust}>> {{
+        if index >= self.len() {{
+            return None;
+        }}
+        // SAFETY: index checked; the pointer is interior to the list and
+        // is never freed by the `Ref`.
+        unsafe {{
+            Some(crate::support::Ref::new({rust} {{
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::{prefix}_{lh}List_at(self.raw.as_ptr(), index),
+                ),
+            }}))
+        }}
+    }}
+
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, {rust}>> {{
+        (0..self.len()).map(move |i| self.get(i).expect("index below len"))
+    }}
+}}
+
+impl Drop for {name} {{
+    fn drop(&mut self) {{
+        // SAFETY: the list was transferred to us and is freed once.
+        unsafe {{ ffi::{prefix}_{lh}List_delete(self.raw.as_ptr()) }}
+    }}
+}}
+
+impl core::fmt::Debug for {name} {{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {{
+        f.debug_struct("{name}").field("len", &self.len()).finish()
+    }}
+}}
+
+// SAFETY: a plain heap vector with no thread affinity, owned exclusively.
+unsafe impl Send for {name} {{}}
+
+""")
 
 
 def _emit_handle_struct(buf: StringIO, c: BindClass, ctx: _Ctx) -> None:
@@ -1008,12 +1307,42 @@ impl {rust} {{
         setter = ctx.sym(c, f'set_{f.name}')
         val = f'if self.{name} {{ 1 }} else {{ 0 }}' if prim == 'bool' else f'self.{name}'
         buf.write(f'            ffi::{setter}(h, {val});\n')
-    buf.write('''            h
-        }
-    }
-}
+    buf.write(f'''            h
+        }}
+    }}
+
+    /// Free a handle produced by [`Self::to_native`].
+    ///
+    /// # Safety
+    /// `h` must have come from `to_native` and not been freed already.
+    #[allow(dead_code)]
+    pub(crate) unsafe fn free_native(h: *mut ffi::{handle}) {{
+        unsafe {{ ffi::{ctx.sym(c, 'delete')}(h) }}
+    }}
+}}
 
 ''')
+
+
+def _wrap_return(kind: str, call: str, rust_ret: str) -> str:
+    """The expression that turns a raw C return into its Rust shape."""
+    if kind == 'bool':
+        return f'{call} != 0'
+    if kind == 'enum':
+        return (f'{rust_ret}::try_from({call})'
+                '.expect("unknown enum discriminant from the native library")')
+    if kind == 'string':
+        return f'crate::support::take_string({call})'
+    if kind == 'string_opt':
+        return f'crate::support::take_string_opt({call})'
+    if kind == 'bytes':
+        return f'Bytes::from_raw({call}).unwrap_or_else(Bytes::empty)'
+    if kind == 'bytes_opt':
+        return f'Bytes::from_raw({call})'
+    if kind == 'handle_opt':
+        inner = rust_ret[len('Option<'):-1]
+        return f'{inner}::from_raw({call})'
+    return call
 
 
 def _emit_method(buf: StringIO, c: BindClass, m, ctx: _Ctx) -> bool:
@@ -1046,8 +1375,18 @@ def _emit_method(buf: StringIO, c: BindClass, m, ctx: _Ctx) -> bool:
     ret_clause = '' if kind == 'void' else f' -> {ret_sig}'
     buf.write(f'    pub fn {name}({sig}){ret_clause} {{\n')
 
-    # CString staging for &str params.
+    # Per-parameter staging: temporaries the call needs but the signature
+    # does not expose.
     for k, d, _f, _cargs in ps:
+        if k == 'value_struct' and d:
+            pname = d.split(':')[0].strip()
+            # Options structs live by value in Rust; the C ABI wants a
+            # handle, so build one for the call and free it afterwards.
+            buf.write(f'        let {pname}_native = unsafe {{ {pname}.to_native() }};\n')
+        if k == 'handle_slice' and d:
+            pname = d.split(':')[0].strip()
+            buf.write(f'        let {pname}_ptrs: Vec<_> = '
+                      f'{pname}.iter().map(|v| v.raw.as_ptr()).collect();\n')
         if k == 'string' and d:
             pname = d.split(':')[0].strip()
             buf.write(f'        let {pname}_cstr = std::ffi::CString::new({pname})\n')
@@ -1086,7 +1425,71 @@ def _emit_method(buf: StringIO, c: BindClass, m, ctx: _Ctx) -> bool:
         buf.write('        }\n    }\n\n')
         return True
 
+    if kind == 'handle_list':
+        call = f'ffi::{ctx.sym(c, m.name)}({", ".join(call_args)})'
+        inner = rust_ret[len('Option<'):-1]
+        buf.write('        // SAFETY: the native side transfers ownership of' + NL)
+        buf.write('        // the list; null means the operation produced none.' + NL)
+        buf.write(f'        unsafe {{ {inner}::from_raw({call}) }}' + NL)
+        buf.write('    }' + NL + NL)
+        return True
+
+    if kind == 'opt_array':
+        inner = rust_ret[len('Option<'):-1]        # e.g. `[u8; 16]`
+        args = ', '.join(call_args + ['__v.as_mut_ptr()'])
+        buf.write(f'        let mut __v: {inner} = Default::default();' + NL)
+        buf.write('        // SAFETY: `__v` is a live local of exactly the' + NL)
+        buf.write('        // length the native side writes.' + NL)
+        buf.write(f'        let __has = unsafe {{ ffi::{ctx.sym(c, m.name)}({args}) }};' + NL)
+        buf.write('        (__has != 0).then_some(__v)' + NL)
+        buf.write('    }' + NL + NL)
+        return True
+
+    if kind in ('opt_prim', 'opt_enum'):
+        inner = rust_ret[len('Option<'):-1]
+        tmp_ty = 'i32' if kind == 'opt_enum' else inner
+        args = ', '.join(call_args + ['&mut __v'])
+        buf.write(f'        let mut __v: {tmp_ty} = 0;\n')
+        buf.write('        // SAFETY: `__v` is a live local, written by the\n')
+        buf.write('        // native side only when it returns 1.\n')
+        buf.write(f'        let __has = unsafe {{ ffi::{ctx.sym(c, m.name)}({args}) }};\n')
+        if kind == 'opt_enum':
+            buf.write('        if __has == 0 {\n')
+            buf.write('            None\n')
+            buf.write('        } else {\n')
+            buf.write(f'            Some({inner}::try_from(__v).expect(\n')
+            buf.write('                "unknown enum discriminant from the native library",\n')
+            buf.write('            ))\n')
+            buf.write('        }\n')
+        else:
+            buf.write('        (__has != 0).then_some(__v)\n')
+        buf.write('    }\n\n')
+        return True
+
     call = f'ffi::{ctx.sym(c, m.name)}({", ".join(call_args)})'
+
+    # Temporary option handles built during staging have to be released
+    # once the call returns, whatever the return shape.
+    owned_opts = [
+        (d.split(':')[0].strip(), d.split('&')[-1].strip())
+        for k, d, _f, _c in ps
+        if k == 'value_struct' and d
+    ]
+    if owned_opts:
+        buf.write('        // SAFETY: handle is live for the call; the staged\n')
+        buf.write('        // option handles are freed immediately after.\n')
+        buf.write('        unsafe {\n')
+        if kind == 'void':
+            buf.write(f'            {call};\n')
+        else:
+            buf.write(f'            let __r = {_wrap_return(kind, call, rust_ret)};\n')
+        for pname, ptype in owned_opts:
+            buf.write(f'            {ptype}::free_native({pname}_native);\n')
+        if kind != 'void':
+            buf.write('            __r\n')
+        buf.write('        }\n    }\n\n')
+        return True
+
     buf.write('        // SAFETY: handle is live for the duration of the call.\n')
     buf.write('        unsafe {\n')
     if kind == 'void':
@@ -1158,11 +1561,29 @@ def _emit_module_ffi(buf: StringIO, ctx: _Ctx) -> None:
     # Opaque FFI structs are internal plumbing behind `#[doc(hidden)]`;
     # the crate-level Debug lint isn't meaningful for them.
     buf.write('#![allow(missing_debug_implementations)]\n\n')
+    # Which of these a module needs depends on its shapes.
+    buf.write('#[allow(unused_imports)]\n')
     buf.write('use crate::support::{RawBytes, RawCString};\n\n')
+    for elem in _handle_list_types(module):
+        lh = _c_handle_name(elem)
+        buf.write(f'#[repr(C)]\npub struct whiteout_{lh}List {{\n')
+        buf.write('    _private: [u8; 0],\n}\n')
     for c in _module_classes(module):
         buf.write(f'#[repr(C)]\npub struct {ctx.handle(c)} {{\n')
         buf.write('    _private: [u8; 0],\n}\n')
     buf.write('\nextern "C" {\n')
+    for elem in _handle_list_types(module):
+        lh = _c_handle_name(elem)
+        ec = ctx.class_for(elem)
+        if ec is None:
+            continue
+        buf.write(f'    pub fn {ctx.prefix}_{lh}List_size'
+                  f'(self_: *mut whiteout_{lh}List) -> usize;' + NL)
+        buf.write(f'    pub fn {ctx.prefix}_{lh}List_at'
+                  f'(self_: *mut whiteout_{lh}List, index: usize)'
+                  f' -> *mut {ctx.handle(ec)};' + NL)
+        buf.write(f'    pub fn {ctx.prefix}_{lh}List_delete'
+                  f'(self_: *mut whiteout_{lh}List);' + NL)
 
     for c in _module_classes(module):
         handle = ctx.handle(c)
@@ -1174,7 +1595,7 @@ def _emit_module_ffi(buf: StringIO, ctx: _Ctx) -> None:
         buf.write(f'    pub fn {ctx.sym(c, "delete")}(self_: *mut {handle});\n')
 
         known = _known_class_short_names(module)
-        if _is_field_only(c):
+        if _is_field_only(c, ctx.module):
             # Value structs round-trip through the handle, so they need the
             # plain scalar accessors only.
             for f in c.fields:
@@ -1191,6 +1612,10 @@ def _emit_module_ffi(buf: StringIO, ctx: _Ctx) -> None:
                     _emit_field_ffi(buf, c, f, ctx)
 
         for m in c.methods:
+            if m.is_skipped:
+                continue
+            if c.is_subclassable and _is_host_implemented(m):
+                continue
             shape = _return_shape(m, ctx)
             ps = _params(m, ctx)
             if shape is None or ps is None:
@@ -1207,6 +1632,19 @@ def _emit_module_ffi(buf: StringIO, ctx: _Ctx) -> None:
                 decls.append(f'self_: *mut {handle}')
             for _k, _d, fdecls, _cargs in ps:
                 decls.extend(fdecls)
+            if kind == 'handle_list':
+                buf.write(f'    pub fn {ctx.sym(c, m.name)}'
+                          f'({", ".join(decls)}) -> {ffi_ret};' + NL)
+                continue
+            if kind == 'opt_array':
+                decls.append(f'out_value: *mut {ffi_ret}')
+                buf.write(f'    pub fn {ctx.sym(c, m.name)}({", ".join(decls)}) -> i32;' + NL)
+                continue
+            if kind in ('opt_prim', 'opt_enum'):
+                # Lowered by emit_c to a has-value flag plus an out-param.
+                decls.append(f'out_value: *mut {ffi_ret}')
+                buf.write(f'    pub fn {ctx.sym(c, m.name)}({", ".join(decls)}) -> i32;\n')
+                continue
             ret = '' if ffi_ret == '()' else f' -> {ffi_ret}'
             buf.write(f'    pub fn {ctx.sym(c, m.name)}({", ".join(decls)}){ret};\n')
     buf.write('}\n')
@@ -1232,8 +1670,11 @@ use crate::support::{{BorrowedSlice, Bytes}};
     for e in module.enums:
         _emit_enum(buf, e, ctx)
 
+    for elem in _handle_list_types(module):
+        _emit_handle_list(buf, elem, ctx)
+
     for c in _module_classes(module):
-        if _is_field_only(c):
+        if _is_field_only(c, ctx.module):
             _emit_value_struct(buf, c, ctx)
             continue
         _emit_handle_struct(buf, c, ctx)
@@ -1244,272 +1685,13 @@ use crate::support::{{BorrowedSlice, Bytes}};
             if _is_field_supported(f, module, known):
                 _emit_field(body, c, f, ctx)
         for m in c.methods:
-            _emit_method(body, c, m, ctx)
-        text = body.getvalue()
-        if text.strip():
-            buf.write(f'impl {ctx.rust_class(c)} {{\n{text}}}\n\n')
-        _emit_tier_a(buf, c, ctx)
-        if any(n == 'new' for n, _ in _ctor_names(c, module)):
-            buf.write(f'''impl Default for {ctx.rust_class(c)} {{
-    fn default() -> Self {{
-        Self::new()
-    }}
-}}
-
-''')
-
-    if ctx.skipped:
-        buf.write('// Not yet bound (shape unsupported by the emitter):\n')
-        for s in sorted(set(ctx.skipped)):
-            buf.write(f'//   - {s}\n')
-        buf.write('\n')
-
-    _emit_tier_a_ffi(buf, ctx)
-
-    buf.write('#[doc(hidden)]\npub mod ffi {\n')
-    inner = StringIO()
-    _emit_module_ffi(inner, ctx)
-    for line in inner.getvalue().splitlines():
-        buf.write(f'    {line}\n' if line else '\n')
-    buf.write('}\n')
-    return _rustfmt(buf.getvalue())
-
-
-# ── Tier A: zero-copy mutable element access ──────────────────────────────
-
-def _emit_tier_a(buf: StringIO, c: BindClass, ctx: _Ctx) -> None:
-    """Bind the mutable span accessors from the value ABI.
-
-    These are the write half of Tier A. The const half arrives through the
-    normal IR path as `BorrowedSlice`; the mutable half has no IR entry
-    because `emit_c.py` never emitted it (C# and Java cannot express a
-    borrowed mutable view).
-
-    Safety rests entirely on the borrow: `&mut self` means the compiler
-    rejects a resize, a second accessor, or a drop of the owner while the
-    slice is alive.
-    """
-    from .emit_rust_abi import _TIER_A_MUT, _tier_a_sym
-
-    rust = ctx.rust_class(c)
-    for _inc, handle, _cpp, methods in _TIER_A_MUT:
-        if handle != _c_handle_name(c.js_name):
-            continue
-        buf.write(f'impl {rust} {{\n')
-        for method, extra in methods:
-            name = f'{_snake(method)}_mut'
-            args = ''.join(f', {_snake(n)}: u32' for _t, n in extra)
-            pass_args = ''.join(f'{_snake(n)}, ' for _t, n in extra)
-            buf.write(f'''    /// Mutable, zero-copy view of the underlying buffer.
-    ///
-    /// Writes land directly in the C++ allocation — nothing is marshalled.
-    /// The borrow of `self` is what makes that safe: the buffer cannot be
-    /// resized or freed while this slice exists.
-    pub fn {name}(&mut self{args}) -> &mut [u8] {{
-        let mut size: usize = 0;
-        // SAFETY: the pointer borrows `self` mutably for the returned
-        // lifetime, so no aliasing or reallocation can occur meanwhile.
-        unsafe {{
-            let p = tier_a::{_tier_a_sym(handle, method)}(
-                self.raw.as_ptr().cast(),
-                {pass_args}&mut size,
-            );
-            if p.is_null() || size == 0 {{
-                &mut []
-            }} else {{
-                core::slice::from_raw_parts_mut(p, size)
-            }}
-        }}
-    }}
-
-''')
-        buf.write('}\n\n')
-
-
-def _emit_tier_a_ffi(buf: StringIO, ctx: _Ctx) -> None:
-    from .emit_rust_abi import _TIER_A_MUT, _tier_a_sym
-
-    names = {_c_handle_name(c.js_name) for c in ctx.module.classes}
-    entries = [e for e in _TIER_A_MUT if e[1] in names]
-    if not entries:
-        return
-    buf.write('''
-/// Value-ABI mutable span accessors (`bindings/c/whiteout_v.h`).
-#[doc(hidden)]
-pub mod tier_a {
-    #![allow(missing_debug_implementations)]
-
-    #[repr(C)]
-    pub struct Opaque {
-        _private: [u8; 0],
-    }
-
-    extern "C" {
-''')
-    for _inc, handle, _cpp, methods in entries:
-        for method, extra in methods:
-            args = ''.join(f'{_snake(n)}: u32, ' for _t, n in extra)
-            buf.write(f'        pub fn {_tier_a_sym(handle, method)}('
-                      f'self_: *mut Opaque, {args}out_size: *mut usize) -> *mut u8;\n')
-    buf.write('    }\n}\n\n')
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# Phase 3: fields — the data plane.
-#
-# 92% of the model surface is fields, not methods. The C ABI's field
-# accessors hand out *interior pointers* (`&self->field`, `&self->vec[i]`),
-# which is why they map to `Ref`/`RefMut` rather than to owning handles.
-# POD vectors already come with `_data`/`_assign`, which is Tier A.
-# ══════════════════════════════════════════════════════════════════════════
-
-from .emit_c import (  # noqa: E402
-    _bulk_component_c_type,
-    _bulk_components,
-    _is_bulk_flat_inner,
-    _is_field_supported,
-    _known_class_short_names,
-    _resolve_handle_short,
-)
-
-# Math types cross by value: they are `#[repr(C)]` + `Copy` on both sides,
-# so a field getter reads through the interior pointer with no wrapper and
-# no allocation.
-_MATH_BY_VALUE = set(_SHARED_MATH_TYPES)
-
-_C_COMP_TO_RUST = {
-    'float': 'f32', 'double': 'f64',
-    'uint8_t': 'u8', 'int8_t': 'i8',
-    'uint16_t': 'u16', 'int16_t': 'i16',
-    'uint32_t': 'u32', 'int32_t': 'i32',
-    'uint64_t': 'u64', 'int64_t': 'i64',
-}
-
-
-def _field_name(f) -> str:
-    out = _snake(f.name)
-    return f'{out}_' if out in _KEYWORDS else out
-
-
-def _elem_rust(t: TypeRef, ctx: _Ctx) -> str | None:
-    """Rust type for a vector/array element."""
-    prim = _rust_prim(t.cpp_text)
-    if t.kind == TypeKind.PRIMITIVE and prim and prim != '()':
-        return prim
-    if t.kind == TypeKind.ENUM:
-        e = ctx.enum_for(t.cpp_text)
-        return _enum_rust_name(e, ctx.module) if e else None
-    if t.kind == TypeKind.NESTED:
-        short = _resolve_handle_short(t.cpp_text, ctx.module)
-        if short in _MATH_BY_VALUE:
-            return f'crate::math::{short}'
-        c = ctx.classes.get(short)
-        return ctx.rust_class(c) if c is not None else None
-    return None
-
-
-def _bulk_slice_rust(inner: TypeRef, ctx: _Ctx) -> str | None:
-    """Rust element type for a Tier A (`_data`/`_assign`) vector."""
-    short = _resolve_handle_short(inner.cpp_text, ctx.module)
-    if short in _MATH_BY_VALUE:
-        return f'crate::math::{short}'
-    return _C_COMP_TO_RUST.get(_bulk_component_c_type(inner))
-
-
-
-def _emit_module_ffi(buf: StringIO, ctx: _Ctx) -> None:
-    """The extern block. Symbol names come from emit_c's own helpers, so
-    this cannot drift from the generated header."""
-    module = ctx.module
-    # Opaque FFI structs are internal plumbing behind `#[doc(hidden)]`;
-    # the crate-level Debug lint isn't meaningful for them.
-    buf.write('#![allow(missing_debug_implementations)]\n\n')
-    buf.write('use crate::support::{RawBytes, RawCString};\n\n')
-    for c in _module_classes(module):
-        buf.write(f'#[repr(C)]\npub struct {ctx.handle(c)} {{\n')
-        buf.write('    _private: [u8; 0],\n}\n')
-    buf.write('\nextern "C" {\n')
-
-    for c in _module_classes(module):
-        handle = ctx.handle(c)
-        buf.write(f'    // {ctx.rust_class(c)}\n')
-        for cname, ctor in _ctor_names(c, module):
-            n = len(ctor.params) if ctor is not None else 0
-            params = ', '.join(f'_{i}: *mut core::ffi::c_void' for i in range(n))
-            buf.write(f'    pub fn {ctx.sym(c, cname)}({params}) -> *mut {handle};\n')
-        buf.write(f'    pub fn {ctx.sym(c, "delete")}(self_: *mut {handle});\n')
-
-        known = _known_class_short_names(module)
-        if _is_field_only(c):
-            # Value structs round-trip through the handle, so they need the
-            # plain scalar accessors only.
-            for f in c.fields:
-                prim = _rust_prim(f.type.cpp_text)
-                if f.type.kind == TypeKind.PRIMITIVE and prim and prim != '()':
-                    cprim = 'i32' if prim == 'bool' else prim
-                    buf.write(f'    pub fn {ctx.sym(c, "get_" + f.name)}'
-                              f'(self_: *mut {handle}) -> {cprim};\n')
-                    buf.write(f'    pub fn {ctx.sym(c, "set_" + f.name)}'
-                              f'(self_: *mut {handle}, value: {cprim});\n')
-        else:
-            for f in c.fields:
-                if _is_field_supported(f, module, known):
-                    _emit_field_ffi(buf, c, f, ctx)
-
-        for m in c.methods:
-            shape = _return_shape(m, ctx)
-            ps = _params(m, ctx)
-            if shape is None or ps is None:
+            if m.is_skipped:
+                continue   # `@bind skip` — deliberate, not an emitter gap
+            if c.is_subclassable and _is_host_implemented(m):
+                # Implemented by hand in `interfaces.rs`: these take a
+                # std::function and cross via the fn-table shims, not the
+                # handle ABI.
                 continue
-            kind, _rust_ret, ffi_ret = shape
-            if kind == 'string_vec':
-                buf.write(f'    pub fn {ctx.sym(c, m.name + "_count")}'
-                          f'(self_: *mut {handle}) -> usize;\n')
-                buf.write(f'    pub fn {ctx.sym(c, m.name + "_at")}'
-                          f'(self_: *mut {handle}, index: usize) -> RawCString;\n')
-                continue
-            decls = []
-            if not m.is_static:
-                decls.append(f'self_: *mut {handle}')
-            for _k, _d, fdecls, _cargs in ps:
-                decls.extend(fdecls)
-            ret = '' if ffi_ret == '()' else f' -> {ffi_ret}'
-            buf.write(f'    pub fn {ctx.sym(c, m.name)}({", ".join(decls)}){ret};\n')
-    buf.write('}\n')
-
-
-def emit_module(module: BindModule) -> str:
-    ctx = _Ctx(module)
-    buf = StringIO()
-    buf.write(f'''// SPDX-License-Identifier: BSD-3-Clause
-// Copyright (c) 2026 Fernando Sahmkow
-// AUTOGENERATED by tools/codegen/emit_rust.py — do not edit.
-// Regenerate via:  python -m tools.codegen.codegen {module.name} --backend rust
-
-#![allow(clippy::too_many_arguments)]
-
-// Which of these a module needs depends on its shapes; the modules that
-// have no span accessors would otherwise trip the unused-import lint.
-#[allow(unused_imports)]
-use crate::support::{{BorrowedSlice, Bytes}};
-
-''')
-
-    for e in module.enums:
-        _emit_enum(buf, e, ctx)
-
-    for c in _module_classes(module):
-        if _is_field_only(c):
-            _emit_value_struct(buf, c, ctx)
-            continue
-        _emit_handle_struct(buf, c, ctx)
-        body = StringIO()
-        _emit_ctors(body, c, ctx)
-        known = _known_class_short_names(module)
-        for f in c.fields:
-            if _is_field_supported(f, module, known):
-                _emit_field(body, c, f, ctx)
-        for m in c.methods:
             _emit_method(body, c, m, ctx)
         text = body.getvalue()
         if text.strip():
@@ -1789,7 +1971,7 @@ def _emit_field(buf: StringIO, c: BindClass, f, ctx: _Ctx) -> bool:
             )
             return flush(True)
         inner = ctx.classes.get(short)
-        if inner is None or _is_field_only(inner):
+        if inner is None or _is_field_only(inner, ctx.module):
             ctx.skipped.append(f'{rust_cls}.{name} (nested {short})')
             return flush(False)
         ir = ctx.rust_class(inner)
@@ -1873,7 +2055,7 @@ def _emit_field(buf: StringIO, c: BindClass, f, ctx: _Ctx) -> bool:
         if inner.kind == TypeKind.NESTED:
             short = _resolve_handle_short(inner.cpp_text, ctx.module)
             ic = ctx.classes.get(short)
-            if ic is None or _is_field_only(ic):
+            if ic is None or _is_field_only(ic, ctx.module):
                 ctx.skipped.append(f'{rust_cls}.{name} (vector of {short})')
                 return flush(False)
             ir = ctx.rust_class(ic)
@@ -1919,9 +2101,161 @@ def _emit_field(buf: StringIO, c: BindClass, f, ctx: _Ctx) -> bool:
         ctx.skipped.append(f'{rust_cls}.{name} (vector of {inner.cpp_text})')
         return flush(False)
 
+    if t.kind == TypeKind.NESTED_VEC:
+        inner = t.element.element
+        if not _is_bulk_flat_inner(inner) and inner.kind == TypeKind.NESTED:
+            # vector<vector<Class>>: the elements own storage, so they are
+            # borrowed one at a time rather than handed back as a slice.
+            short = _resolve_handle_short(inner.cpp_text, ctx.module)
+            ic = ctx.classes.get(short)
+            if ic is None or _is_field_only(ic, ctx.module):
+                ctx.skipped.append(f'{rust_cls}.{name} (nested_vec of {short})')
+                return flush(False)
+            ir = ctx.rust_class(ic)
+            buf.write(
+                f"    /// Number of inner sequences.{NL}"
+                f"    pub fn {name}_len(&self) -> usize {{{NL}"
+                f"        // SAFETY: scalar read through a live handle.{NL}"
+                f'        unsafe {{ {sym("get_" + f.name + "_count")}(self.raw.as_ptr()) }}{NL}'
+                f"    }}{NL}{NL}"
+                f"    /// Length of inner sequence `outer`.{NL}"
+                f"    pub fn {name}_inner_len(&self, outer: usize) -> usize {{{NL}"
+                f"        if outer >= self.{name}_len() {{{NL}"
+                f"            return 0;{NL}"
+                f"        }}{NL}"
+                f"        // SAFETY: index checked above.{NL}"
+                f'        unsafe {{ {sym("get_" + f.name + "_inner_count")}(self.raw.as_ptr(), outer) }}{NL}'
+                f"    }}{NL}{NL}"
+                f"    /// Borrow element `inner` of sequence `outer` in place.{NL}"
+                f"    pub fn {name}(&self, outer: usize, inner: usize)"
+                f" -> Option<crate::support::Ref<'_, {ir}>> {{{NL}"
+                f"        if inner >= self.{name}_inner_len(outer) {{{NL}"
+                f"            return None;{NL}"
+                f"        }}{NL}"
+                f"        // SAFETY: both indices checked; the pointer is{NL}"
+                f"        // interior to `self`.{NL}"
+                f"        unsafe {{{NL}"
+                f"            Some(crate::support::Ref::new({ir} {{{NL}"
+                f"                raw: core::ptr::NonNull::new_unchecked({NL}"
+                f'                    {sym("get_" + f.name + "_at")}(self.raw.as_ptr(), outer, inner),{NL}'
+                f"                ),{NL}"
+                f"            }})){NL}"
+                f"        }}{NL}"
+                f"    }}{NL}{NL}"
+                f"    pub fn {name}_mut(&mut self, outer: usize, inner: usize)"
+                f" -> Option<crate::support::RefMut<'_, {ir}>> {{{NL}"
+                f"        if inner >= self.{name}_inner_len(outer) {{{NL}"
+                f"            return None;{NL}"
+                f"        }}{NL}"
+                f"        // SAFETY: as above; `&mut self` guarantees exclusivity.{NL}"
+                f"        unsafe {{{NL}"
+                f"            Some(crate::support::RefMut::new({ir} {{{NL}"
+                f"                raw: core::ptr::NonNull::new_unchecked({NL}"
+                f'                    {sym("get_" + f.name + "_at")}(self.raw.as_ptr(), outer, inner),{NL}'
+                f"                ),{NL}"
+                f"            }})){NL}"
+                f"        }}{NL}"
+                f"    }}{NL}{NL}"
+                f"    /// Resize the outer sequence. Do this before taking a borrow.{NL}"
+                f"    pub fn resize_{name}(&mut self, count: usize) {{{NL}"
+                f"        // SAFETY: exclusive access, so no borrow is outstanding.{NL}"
+                f'        unsafe {{ {sym("resize_" + f.name)}(self.raw.as_ptr(), count) }}{NL}'
+                f"    }}{NL}{NL}"
+                f"    pub fn resize_{name}_inner(&mut self, outer: usize, count: usize) {{{NL}"
+                f"        // SAFETY: as above.{NL}"
+                f'        unsafe {{ {sym("resize_" + f.name + "_inner")}(self.raw.as_ptr(), outer, count) }}{NL}'
+                f"    }}{NL}{NL}"
+            )
+            return flush(True)
+        if not _is_bulk_flat_inner(inner):
+            ctx.skipped.append(f'{rust_cls}.{name} (nested_vec of {inner.cpp_text})')
+            return flush(False)
+        el = _bulk_slice_rust(inner, ctx)
+        if el is None:
+            ctx.skipped.append(f'{rust_cls}.{name} (nested_vec element {inner.cpp_text})')
+            return flush(False)
+        comp = _C_COMP_TO_RUST.get(_bulk_component_c_type(inner))
+        cast_c = '' if comp == el else f' as *const {el}'
+        cast_m = f' as *mut {el}' if comp == el else f' as *const {el} as *mut {el}'
+        buf.write(
+            f'    /// Number of inner sequences.\n'
+            f'    pub fn {name}_len(&self) -> usize {{\n'
+            f'        // SAFETY: scalar read through a live handle.\n'
+            f'        unsafe {{ {sym("get_" + f.name + "_count")}(self.raw.as_ptr()) }}\n'
+            f'    }}\n\n'
+            f'    /// Zero-copy view of inner sequence `outer`. Empty when out of range.\n'
+            f'    ///\n'
+            f'    /// Each inner vector is contiguous on its own, but the outer one\n'
+            f'    /// is a vector of vectors — so this borrows per sequence rather\n'
+            f'    /// than handing back one flat slice.\n'
+            f'    pub fn {name}(&self, outer: usize) -> &[{el}] {{\n'
+            f'        if outer >= self.{name}_len() {{\n'
+            f'            return &[];\n'
+            f'        }}\n'
+            f'        // SAFETY: index checked; the pointer borrows `self`.\n'
+            f'        unsafe {{\n'
+            f'            let n = {sym("get_" + f.name + "_inner_count")}(self.raw.as_ptr(), outer);\n'
+            f'            let p = {sym("get_" + f.name + "_inner_data")}(self.raw.as_ptr(), outer){cast_c};\n'
+            f'            if p.is_null() || n == 0 {{\n'
+            f'                &[]\n'
+            f'            }} else {{\n'
+            f'                core::slice::from_raw_parts(p, n)\n'
+            f'            }}\n'
+            f'        }}\n'
+            f'    }}\n\n'
+            f'    pub fn {name}_mut(&mut self, outer: usize) -> &mut [{el}] {{\n'
+            f'        if outer >= self.{name}_len() {{\n'
+            f'            return &mut [];\n'
+            f'        }}\n'
+            f'        // SAFETY: as above; `&mut self` rules out aliasing.\n'
+            f'        unsafe {{\n'
+            f'            let n = {sym("get_" + f.name + "_inner_count")}(self.raw.as_ptr(), outer);\n'
+            f'            let p = {sym("get_" + f.name + "_inner_data")}(self.raw.as_ptr(), outer){cast_m};\n'
+            f'            if p.is_null() || n == 0 {{\n'
+            f'                &mut []\n'
+            f'            }} else {{\n'
+            f'                core::slice::from_raw_parts_mut(p, n)\n'
+            f'            }}\n'
+            f'        }}\n'
+            f'    }}\n\n'
+            f'    pub fn set_{name}(&mut self, outer: usize, values: &[{el}]) {{\n'
+            f'        // SAFETY: the native side copies `values` before returning.\n'
+            f'        unsafe {{\n'
+            f'            {sym("assign_" + f.name + "_inner")}(self.raw.as_ptr(), outer, values.as_ptr() as *const _, values.len())\n'
+            f'        }}\n'
+            f'    }}\n\n'
+            f'    /// Resize the outer sequence. Do this before taking any borrow.\n'
+            f'    pub fn resize_{name}(&mut self, count: usize) {{\n'
+            f'        // SAFETY: exclusive access, so no borrow is outstanding.\n'
+            f'        unsafe {{ {sym("resize_" + f.name)}(self.raw.as_ptr(), count) }}\n'
+            f'    }}\n\n'
+            f'    pub fn resize_{name}_inner(&mut self, outer: usize, count: usize) {{\n'
+            f'        // SAFETY: as above.\n'
+            f'        unsafe {{ {sym("resize_" + f.name + "_inner")}(self.raw.as_ptr(), outer, count) }}\n'
+            f'    }}\n\n'
+        )
+        return flush(True)
+
     if t.kind == TypeKind.ARRAY:
         inner = t.element
         el = _elem_rust(inner, ctx)
+        if (inner.kind == TypeKind.NESTED
+                and _resolve_handle_short(inner.cpp_text, ctx.module) in _MATH_BY_VALUE):
+            mt = f'crate::math::{_resolve_handle_short(inner.cpp_text, ctx.module)}'
+            buf.write(
+                f'    pub fn {name}_len() -> usize {{\n'
+                f'        // SAFETY: a compile-time constant on the native side.\n'
+                f'        unsafe {{ {sym(f.name + "_size")}() }}\n'
+                f'    }}\n\n'
+                f'    pub fn {name}(&self, index: usize) -> {mt} {{\n'
+                f'        // SAFETY: the getter returns an interior pointer to a\n'
+                f'        // layout-identical POD, copied out immediately. The\n'
+                f'        // native side does not bounds-check, so callers stay\n'
+                f'        // within `{name}_len()`.\n'
+                f'        unsafe {{ *({sym("get_" + f.name + "_at")}(self.raw.as_ptr(), index) as *const {mt}) }}\n'
+                f'    }}\n\n'
+            )
+            return flush(True)
         if el is None or inner.kind not in (TypeKind.PRIMITIVE, TypeKind.ENUM):
             ctx.skipped.append(f'{rust_cls}.{name} (array of {inner.cpp_text})')
             return flush(False)
@@ -1979,7 +2313,7 @@ def _emit_field_ffi(buf: StringIO, c: BindClass, f, ctx: _Ctx) -> None:
             ptr = 'core::ffi::c_void'
         else:
             inner = ctx.classes.get(short)
-            if inner is None or _is_field_only(inner):
+            if inner is None or _is_field_only(inner, ctx.module):
                 return
             ptr = ctx.handle(inner)
         buf.write(f'    pub fn {s("get_" + f.name)}(self_: *mut {handle}) -> *mut {ptr};\n')
@@ -1999,15 +2333,51 @@ def _emit_field_ffi(buf: StringIO, c: BindClass, f, ctx: _Ctx) -> None:
         elif inner.kind == TypeKind.NESTED:
             short = _resolve_handle_short(inner.cpp_text, ctx.module)
             ic = ctx.classes.get(short)
-            if ic is None or _is_field_only(ic):
+            if ic is None or _is_field_only(ic, ctx.module):
                 return
             buf.write(f'    pub fn {s("get_" + f.name + "_count")}(self_: *mut {handle}) -> usize;\n')
             buf.write(f'    pub fn {s("resize_" + f.name)}(self_: *mut {handle}, count: usize);\n')
             buf.write(f'    pub fn {s("get_" + f.name + "_at")}'
                       f'(self_: *mut {handle}, index: usize) -> *mut {ctx.handle(ic)};\n')
+    elif t.kind == TypeKind.NESTED_VEC:
+        inner = t.element.element
+        if not _is_bulk_flat_inner(inner) and inner.kind == TypeKind.NESTED:
+            short = _resolve_handle_short(inner.cpp_text, ctx.module)
+            ic = ctx.classes.get(short)
+            if ic is None or _is_field_only(ic, ctx.module):
+                return
+            buf.write(f'    pub fn {s("get_" + f.name + "_count")}(self_: *mut {handle}) -> usize;\n')
+            buf.write(f'    pub fn {s("get_" + f.name + "_inner_count")}'
+                      f'(self_: *mut {handle}, outer: usize) -> usize;\n')
+            buf.write(f'    pub fn {s("resize_" + f.name)}(self_: *mut {handle}, count: usize);\n')
+            buf.write(f'    pub fn {s("resize_" + f.name + "_inner")}'
+                      f'(self_: *mut {handle}, outer: usize, count: usize);\n')
+            buf.write(f'    pub fn {s("get_" + f.name + "_at")}'
+                      f'(self_: *mut {handle}, outer: usize, inner: usize)'
+                      f' -> *mut {ctx.handle(ic)};\n')
+            return
+        if not _is_bulk_flat_inner(inner) or _bulk_slice_rust(inner, ctx) is None:
+            return
+        comp = _C_COMP_TO_RUST.get(_bulk_component_c_type(inner), 'u8')
+        buf.write(f'    pub fn {s("get_" + f.name + "_count")}(self_: *mut {handle}) -> usize;\n')
+        buf.write(f'    pub fn {s("get_" + f.name + "_inner_count")}'
+                  f'(self_: *mut {handle}, outer: usize) -> usize;\n')
+        buf.write(f'    pub fn {s("resize_" + f.name)}(self_: *mut {handle}, count: usize);\n')
+        buf.write(f'    pub fn {s("resize_" + f.name + "_inner")}'
+                  f'(self_: *mut {handle}, outer: usize, count: usize);\n')
+        buf.write(f'    pub fn {s("get_" + f.name + "_inner_data")}'
+                  f'(self_: *mut {handle}, outer: usize) -> *const {comp};\n')
+        buf.write(f'    pub fn {s("assign_" + f.name + "_inner")}'
+                  f'(self_: *mut {handle}, outer: usize, data: *const {comp}, count: usize);\n')
     elif t.kind == TypeKind.ARRAY:
         inner = t.element
         el = _elem_rust(inner, ctx)
+        if (inner.kind == TypeKind.NESTED
+                and _resolve_handle_short(inner.cpp_text, ctx.module) in _MATH_BY_VALUE):
+            buf.write(f'    pub fn {s(f.name + "_size")}() -> usize;\n')
+            buf.write(f'    pub fn {s("get_" + f.name + "_at")}'
+                      f'(self_: *mut {handle}, index: usize) -> *mut core::ffi::c_void;\n')
+            return
         if el is None or inner.kind not in (TypeKind.PRIMITIVE, TypeKind.ENUM):
             return
         ce = 'i32' if inner.kind == TypeKind.ENUM else el

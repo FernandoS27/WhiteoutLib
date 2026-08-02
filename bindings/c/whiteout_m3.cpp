@@ -51,7 +51,6 @@ inline whiteout_CString emptyCString() {
 }
 
 } // anonymous
-
 // ── M3ColorBGRA ─────────────────────────────────────────────────
 
 extern "C" {

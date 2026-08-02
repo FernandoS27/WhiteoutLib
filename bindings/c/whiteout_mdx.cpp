@@ -43,7 +43,6 @@ inline whiteout_CString emptyCString() {
 }
 
 } // anonymous
-
 // ── MdxExtent ─────────────────────────────────────────────────
 
 extern "C" {

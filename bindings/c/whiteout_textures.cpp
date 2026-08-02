@@ -56,6 +56,72 @@ inline whiteout_CString emptyCString() {
 
 } // anonymous
 
+size_t whiteout_textures_TextureList_size(const whiteout_TextureList* self) {
+    return reinterpret_cast<const std::vector<whiteout::textures::Texture>*>(self)->size();
+}
+
+struct whiteout_Texture* whiteout_textures_TextureList_at(whiteout_TextureList* self, size_t index) {
+    auto* v = reinterpret_cast<std::vector<whiteout::textures::Texture>*>(self);
+    return reinterpret_cast<struct whiteout_Texture*>(&(*v)[index]);
+}
+
+void whiteout_textures_TextureList_delete(whiteout_TextureList* self) {
+    delete reinterpret_cast<std::vector<whiteout::textures::Texture>*>(self);
+}
+// ── MipLevel ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_MipLevel* whiteout_textures_MipLevel_new(void) {
+    return reinterpret_cast<whiteout_MipLevel*>(new whiteout::textures::MipLevel());
+}
+
+void whiteout_textures_MipLevel_delete(whiteout_MipLevel* self) {
+    delete reinterpret_cast<whiteout::textures::MipLevel*>(self);
+}
+
+uint32_t whiteout_textures_MipLevel_get_width(const whiteout_MipLevel* self) {
+    return reinterpret_cast<const whiteout::textures::MipLevel*>(self)->width;
+}
+
+void whiteout_textures_MipLevel_set_width(whiteout_MipLevel* self, uint32_t value) {
+    reinterpret_cast<whiteout::textures::MipLevel*>(self)->width = value;
+}
+
+uint32_t whiteout_textures_MipLevel_get_height(const whiteout_MipLevel* self) {
+    return reinterpret_cast<const whiteout::textures::MipLevel*>(self)->height;
+}
+
+void whiteout_textures_MipLevel_set_height(whiteout_MipLevel* self, uint32_t value) {
+    reinterpret_cast<whiteout::textures::MipLevel*>(self)->height = value;
+}
+
+uint32_t whiteout_textures_MipLevel_get_depth(const whiteout_MipLevel* self) {
+    return reinterpret_cast<const whiteout::textures::MipLevel*>(self)->depth;
+}
+
+void whiteout_textures_MipLevel_set_depth(whiteout_MipLevel* self, uint32_t value) {
+    reinterpret_cast<whiteout::textures::MipLevel*>(self)->depth = value;
+}
+
+uint64_t whiteout_textures_MipLevel_get_offset(const whiteout_MipLevel* self) {
+    return reinterpret_cast<const whiteout::textures::MipLevel*>(self)->offset;
+}
+
+void whiteout_textures_MipLevel_set_offset(whiteout_MipLevel* self, uint64_t value) {
+    reinterpret_cast<whiteout::textures::MipLevel*>(self)->offset = value;
+}
+
+uint64_t whiteout_textures_MipLevel_get_size(const whiteout_MipLevel* self) {
+    return reinterpret_cast<const whiteout::textures::MipLevel*>(self)->size;
+}
+
+void whiteout_textures_MipLevel_set_size(whiteout_MipLevel* self, uint64_t value) {
+    reinterpret_cast<whiteout::textures::MipLevel*>(self)->size = value;
+}
+
+} // extern "C"
+
 // ── Texture ─────────────────────────────────────────────────
 
 extern "C" {
@@ -79,6 +145,36 @@ int32_t whiteout_textures_Texture_format_overload2(const whiteout_Texture* self)
 struct whiteout_Texture* whiteout_textures_Texture_copyAsFormat(const whiteout_Texture* self, int32_t new_fmt, void* pool) {
     return reinterpret_cast<struct whiteout_Texture*>(
         new whiteout::textures::Texture(reinterpret_cast<const whiteout::textures::Texture*>(self)->copyAsFormat(static_cast<whiteout::textures::PixelFormat>(new_fmt), reinterpret_cast<whiteout::interfaces::WorkerPool*>(pool))));
+}
+
+int32_t whiteout_textures_Texture_swapChannels(whiteout_Texture* self, int32_t a, int32_t b) {
+    return reinterpret_cast<whiteout::textures::Texture*>(self)->swapChannels(static_cast<whiteout::textures::Channel>(a), static_cast<whiteout::textures::Channel>(b));
+}
+
+int32_t whiteout_textures_Texture_invertChannel(whiteout_Texture* self, int32_t ch) {
+    return reinterpret_cast<whiteout::textures::Texture*>(self)->invertChannel(static_cast<whiteout::textures::Channel>(ch));
+}
+
+int32_t whiteout_textures_Texture_expandNormal(whiteout_Texture* self, int32_t xChannel, int32_t yChannel, int32_t zChannel) {
+    return reinterpret_cast<whiteout::textures::Texture*>(self)->expandNormal(static_cast<whiteout::textures::Channel>(xChannel), static_cast<whiteout::textures::Channel>(yChannel), static_cast<whiteout::textures::Channel>(zChannel));
+}
+
+int32_t whiteout_textures_Texture_fillChannel(whiteout_Texture* self, int32_t target, float value) {
+    return reinterpret_cast<whiteout::textures::Texture*>(self)->fillChannel(static_cast<whiteout::textures::Channel>(target), value);
+}
+
+struct whiteout_TextureList* whiteout_textures_Texture_splitChannels(const whiteout_Texture* self, const int32_t* channels, size_t channels_size) {
+    auto __r = reinterpret_cast<const whiteout::textures::Texture*>(self)->splitChannels(([&]{ std::vector<whiteout::textures::Channel> __v; __v.reserve(channels_size); for (size_t __i = 0; __i < channels_size; ++__i) __v.push_back(static_cast<whiteout::textures::Channel>(channels[__i])); return __v; })());
+    if (!__r) return nullptr;
+    return reinterpret_cast<struct whiteout_TextureList*>(
+        new std::vector<whiteout::textures::Texture>(std::move(*__r)));
+}
+
+struct whiteout_Texture* whiteout_textures_Texture_mergeChannels(const struct whiteout_Texture* const* sources, size_t sources_size, const int32_t* targetChannels, size_t targetChannels_size) {
+    auto __r = whiteout::textures::Texture::mergeChannels(([&]{ std::vector<whiteout::textures::Texture> __v; __v.reserve(sources_size); for (size_t __i = 0; __i < sources_size; ++__i) __v.emplace_back(*reinterpret_cast<const whiteout::textures::Texture*>(sources[__i])); return __v; })(), ([&]{ std::vector<whiteout::textures::Channel> __v; __v.reserve(targetChannels_size); for (size_t __i = 0; __i < targetChannels_size; ++__i) __v.push_back(static_cast<whiteout::textures::Channel>(targetChannels[__i])); return __v; })());
+    if (!__r) return nullptr;
+    return reinterpret_cast<struct whiteout_Texture*>(
+        new whiteout::textures::Texture(std::move(*__r)));
 }
 
 struct whiteout_Texture* whiteout_textures_Texture_copyFromNormalToRGBA(const whiteout_Texture* self, void* pool) {
@@ -135,6 +231,30 @@ int32_t whiteout_textures_Texture_type(const whiteout_Texture* self) {
     return static_cast<int32_t>(reinterpret_cast<const whiteout::textures::Texture*>(self)->type());
 }
 
+int32_t whiteout_textures_Texture_kind(const whiteout_Texture* self) {
+    return static_cast<int32_t>(reinterpret_cast<const whiteout::textures::Texture*>(self)->kind());
+}
+
+void whiteout_textures_Texture_setKind(whiteout_Texture* self, int32_t k) {
+    reinterpret_cast<whiteout::textures::Texture*>(self)->setKind(static_cast<whiteout::textures::TextureKind>(k));
+}
+
+int32_t whiteout_textures_Texture_channelKind(const whiteout_Texture* self, int32_t ch) {
+    return static_cast<int32_t>(reinterpret_cast<const whiteout::textures::Texture*>(self)->channelKind(static_cast<whiteout::textures::Channel>(ch)));
+}
+
+void whiteout_textures_Texture_setChannelKind(whiteout_Texture* self, int32_t ch, int32_t kind) {
+    reinterpret_cast<whiteout::textures::Texture*>(self)->setChannelKind(static_cast<whiteout::textures::Channel>(ch), static_cast<whiteout::textures::TextureKind>(kind));
+}
+
+float whiteout_textures_Texture_channelDefault(const whiteout_Texture* self, int32_t ch) {
+    return reinterpret_cast<const whiteout::textures::Texture*>(self)->channelDefault(static_cast<whiteout::textures::Channel>(ch));
+}
+
+void whiteout_textures_Texture_setChannelDefault(whiteout_Texture* self, int32_t ch, float value) {
+    reinterpret_cast<whiteout::textures::Texture*>(self)->setChannelDefault(static_cast<whiteout::textures::Channel>(ch), value);
+}
+
 int32_t whiteout_textures_Texture_isSrgb(const whiteout_Texture* self) {
     return reinterpret_cast<const whiteout::textures::Texture*>(self)->isSrgb();
 }
@@ -165,6 +285,12 @@ uint32_t whiteout_textures_Texture_arraySize(const whiteout_Texture* self) {
 
 uint32_t whiteout_textures_Texture_mipCount(const whiteout_Texture* self) {
     return reinterpret_cast<const whiteout::textures::Texture*>(self)->mipCount();
+}
+
+struct whiteout_MipLevel* whiteout_textures_Texture_mipLevel(const whiteout_Texture* self, uint32_t mip, uint32_t layer) {
+    auto& __r = reinterpret_cast<const whiteout::textures::Texture*>(self)->mipLevel(mip, layer);
+    return const_cast<struct whiteout_MipLevel*>(
+        reinterpret_cast<const struct whiteout_MipLevel*>(&__r));
 }
 
 uint64_t whiteout_textures_Texture_dataSize(const whiteout_Texture* self) {
