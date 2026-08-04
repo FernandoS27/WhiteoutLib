@@ -38,13 +38,14 @@ cannot drift apart. The C++ is bundled and built for you.
 | Module | Covers |
 |---|---|
 | `math` | vectors, quaternions, matrices — `Copy`, no allocation |
-| `textures` | BLP, DDS, PNG, JPEG, BMP, TGA, TIFF, GIF |
+| `textures` | BLP, DDS, PNG, JPEG, BMP, TGA, TIFF, GIF, TEX (D3/D4), D2R `.texture` |
 | `mdx` | Warcraft III models |
 | `m2` | World of Warcraft models |
 | `m3` | StarCraft II / Heroes of the Storm models |
 | `host` | OS file system, thread pool, HTTP handler, game finder |
 | `interfaces` | traits the library calls *into* — implement these yourself |
 | `casc` | CASC storage — behind the `casc` feature |
+| `casc_ext` | CDN-backed `open_online` + batched `read_batch` — behind `casc` |
 | `mpq` | MPQ archives — behind the `mpq` feature |
 
 ## Installing

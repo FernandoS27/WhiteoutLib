@@ -94,21 +94,37 @@ language bindings.
 
 ## Language Bindings
 
-WhiteoutLib ships four first-class language bindings:
+WhiteoutLib ships five first-class language bindings:
 
-| Language | Runtime | Location |
-|---|---|---|
-| **JavaScript / TypeScript** | WebAssembly (browser + Node.js) | [packages/js-ts/](packages/js-ts/) |
-| **Python** | CPython 3.10+ extension module | [bindings/python/](bindings/python/) |
-| **Java** | JDK 22+ via Foreign Function & Memory API | [bindings/java/](bindings/java/) |
-| **C#** | .NET 8+ via `[LibraryImport]` P/Invoke (AOT-clean) | [bindings/csharp/](bindings/csharp/) |
+| Language | Runtime | Package | Location |
+|---|---|---|---|
+| **JavaScript / TypeScript** | WebAssembly (browser + Node.js) | — | [packages/js-ts/](packages/js-ts/) |
+| **Python** | CPython 3.10+ extension module | — | [bindings/python/](bindings/python/) |
+| **Java** | JDK 22+ via Foreign Function & Memory API | — | [bindings/java/](bindings/java/) |
+| **C#** | .NET 8+ via `[LibraryImport]` P/Invoke (AOT-clean) | — | [bindings/csharp/](bindings/csharp/) |
+| **Rust** | 1.70+, links the C ABI directly | [`whiteoutlib`](https://crates.io/crates/whiteoutlib) · [docs](https://docs.rs/whiteoutlib) | [bindings/rust/](bindings/rust/) |
+
+The Rust crate is published as **`whiteoutlib`** (`whiteout` was taken), but
+the import path stays `whiteout`:
+
+```toml
+[dependencies]
+whiteoutlib = { version = "0.1", features = ["casc", "mpq"] }
+```
+
+```rust
+use whiteout::textures::{BlpParser, PixelFormat};
+```
+
+It builds the bundled C++ with CMake by default (the `vendored` feature);
+set `WHITEOUT_LIB_DIR` to link a prebuilt `whiteout_native` instead.
 
 A flat C ABI also exists under [bindings/c/](bindings/c/), but it is **not
 intended for direct use** — it exists purely as a stable bridge that the
 Java FFM and C# P/Invoke layers (and any future non-C++ language) call
 into. The same `whiteout_native.dll` / `libwhiteout_native.so` backs every
 binding; consumers can share one staged native binary across runtimes.
-End users should pick one of the four high-level bindings above.
+End users should pick one of the five high-level bindings above.
 
 ### Generated, not hand-written
 
@@ -121,6 +137,7 @@ each target:
 - **pybind11** (`.cpp` + `.pyi`) for the Python bindings
 - **Java + C ABI** (`.java` + `extern "C"` shim) for the FFM bindings
 - **C#** (`.cs` with `[LibraryImport]` source-generated P/Invoke) sharing the same C ABI
+- **Rust** (`.rs` with `extern "C"` declarations) over the same C ABI
 
 The same `@bind` annotations on C++ declarations drive every backend, so
 adding or modifying a binding is a single-source change in the C++ header
