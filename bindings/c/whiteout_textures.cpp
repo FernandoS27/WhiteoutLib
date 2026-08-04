@@ -21,6 +21,9 @@
 #include <whiteout/textures/jpeg/writer.h>
 #include <whiteout/textures/dds/parser.h>
 #include <whiteout/textures/dds/writer.h>
+#include <whiteout/textures/tex/parser.h>
+#include <whiteout/textures/d2r_texture/parser.h>
+#include <whiteout/textures/d2r_texture/writer.h>
 #include <whiteout/textures/bmp/parser.h>
 #include <whiteout/textures/bmp/writer.h>
 #include <whiteout/textures/tga/parser.h>
@@ -749,6 +752,140 @@ size_t whiteout_textures_DdsWriter_getIssues_count(const whiteout_DdsWriter* sel
 
 whiteout_CString whiteout_textures_DdsWriter_getIssues_at(const whiteout_DdsWriter* self, size_t index) {
     const auto& __v = reinterpret_cast<const whiteout::textures::dds::Writer*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
+}
+
+} // extern "C"
+
+// ── TexParser ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_TexParser* whiteout_textures_TexParser_new(void) {
+    return reinterpret_cast<whiteout_TexParser*>(new whiteout::textures::tex::Parser());
+}
+
+void whiteout_textures_TexParser_delete(whiteout_TexParser* self) {
+    delete reinterpret_cast<whiteout::textures::tex::Parser*>(self);
+}
+
+struct whiteout_Texture* whiteout_textures_TexParser_parse(whiteout_TexParser* self, const char* filePath) {
+    auto __r = reinterpret_cast<whiteout::textures::tex::Parser*>(self)->parse(std::string(filePath ? filePath : ""));
+    if (!__r) return nullptr;
+    return reinterpret_cast<struct whiteout_Texture*>(
+        new whiteout::textures::Texture(std::move(*__r)));
+}
+
+struct whiteout_Texture* whiteout_textures_TexParser_parse_buffer(whiteout_TexParser* self, const uint8_t* buffer, size_t buffer_size) {
+    auto __r = reinterpret_cast<whiteout::textures::tex::Parser*>(self)->parse(std::span<const whiteout::u8>(buffer, buffer_size));
+    if (!__r) return nullptr;
+    return reinterpret_cast<struct whiteout_Texture*>(
+        new whiteout::textures::Texture(std::move(*__r)));
+}
+
+struct whiteout_Texture* whiteout_textures_TexParser_parse_texFilePath_payloadFilePath(whiteout_TexParser* self, const char* texFilePath, const char* payloadFilePath) {
+    auto __r = reinterpret_cast<whiteout::textures::tex::Parser*>(self)->parse(std::string(texFilePath ? texFilePath : ""), std::string(payloadFilePath ? payloadFilePath : ""));
+    if (!__r) return nullptr;
+    return reinterpret_cast<struct whiteout_Texture*>(
+        new whiteout::textures::Texture(std::move(*__r)));
+}
+
+struct whiteout_Texture* whiteout_textures_TexParser_parse_texData_payloadData(whiteout_TexParser* self, const uint8_t* texData, size_t texData_size, const uint8_t* payloadData, size_t payloadData_size) {
+    auto __r = reinterpret_cast<whiteout::textures::tex::Parser*>(self)->parse(std::span<const whiteout::u8>(texData, texData_size), std::span<const whiteout::u8>(payloadData, payloadData_size));
+    if (!__r) return nullptr;
+    return reinterpret_cast<struct whiteout_Texture*>(
+        new whiteout::textures::Texture(std::move(*__r)));
+}
+
+struct whiteout_Texture* whiteout_textures_TexParser_parse_texFilePath_hiResPayloadFilePath_lowResPayloadFilePath(whiteout_TexParser* self, const char* texFilePath, const char* hiResPayloadFilePath, const char* lowResPayloadFilePath) {
+    auto __r = reinterpret_cast<whiteout::textures::tex::Parser*>(self)->parse(std::string(texFilePath ? texFilePath : ""), std::string(hiResPayloadFilePath ? hiResPayloadFilePath : ""), std::string(lowResPayloadFilePath ? lowResPayloadFilePath : ""));
+    if (!__r) return nullptr;
+    return reinterpret_cast<struct whiteout_Texture*>(
+        new whiteout::textures::Texture(std::move(*__r)));
+}
+
+int32_t whiteout_textures_TexParser_hasIssues(const whiteout_TexParser* self) {
+    return reinterpret_cast<const whiteout::textures::tex::Parser*>(self)->hasIssues();
+}
+
+size_t whiteout_textures_TexParser_getIssues_count(const whiteout_TexParser* self) {
+    return reinterpret_cast<const whiteout::textures::tex::Parser*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_textures_TexParser_getIssues_at(const whiteout_TexParser* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::textures::tex::Parser*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
+}
+
+} // extern "C"
+
+// ── D2rTextureParser ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_D2rTextureParser* whiteout_textures_D2rTextureParser_new(void) {
+    return reinterpret_cast<whiteout_D2rTextureParser*>(new whiteout::textures::d2r_texture::Parser());
+}
+
+void whiteout_textures_D2rTextureParser_delete(whiteout_D2rTextureParser* self) {
+    delete reinterpret_cast<whiteout::textures::d2r_texture::Parser*>(self);
+}
+
+struct whiteout_Texture* whiteout_textures_D2rTextureParser_parse(whiteout_D2rTextureParser* self, const uint8_t* buffer, size_t buffer_size) {
+    auto __r = reinterpret_cast<whiteout::textures::d2r_texture::Parser*>(self)->parse(std::span<const whiteout::u8>(buffer, buffer_size));
+    if (!__r) return nullptr;
+    return reinterpret_cast<struct whiteout_Texture*>(
+        new whiteout::textures::Texture(std::move(*__r)));
+}
+
+int32_t whiteout_textures_D2rTextureParser_detect(const whiteout_D2rTextureParser* self, const uint8_t* buffer, size_t buffer_size) {
+    return reinterpret_cast<const whiteout::textures::d2r_texture::Parser*>(self)->detect(std::span<const whiteout::u8>(buffer, buffer_size));
+}
+
+int32_t whiteout_textures_D2rTextureParser_hasIssues(const whiteout_D2rTextureParser* self) {
+    return reinterpret_cast<const whiteout::textures::d2r_texture::Parser*>(self)->hasIssues();
+}
+
+size_t whiteout_textures_D2rTextureParser_getIssues_count(const whiteout_D2rTextureParser* self) {
+    return reinterpret_cast<const whiteout::textures::d2r_texture::Parser*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_textures_D2rTextureParser_getIssues_at(const whiteout_D2rTextureParser* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::textures::d2r_texture::Parser*>(self)->getIssues();
+    if (index >= __v.size()) return emptyCString();
+    return wrapCString(std::string(__v[index]));
+}
+
+} // extern "C"
+
+// ── D2rTextureWriter ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_D2rTextureWriter* whiteout_textures_D2rTextureWriter_new(void) {
+    return reinterpret_cast<whiteout_D2rTextureWriter*>(new whiteout::textures::d2r_texture::Writer());
+}
+
+void whiteout_textures_D2rTextureWriter_delete(whiteout_D2rTextureWriter* self) {
+    delete reinterpret_cast<whiteout::textures::d2r_texture::Writer*>(self);
+}
+
+whiteout_Bytes whiteout_textures_D2rTextureWriter_write(whiteout_D2rTextureWriter* self, struct whiteout_Texture* texture) {
+    return wrapBytes(reinterpret_cast<whiteout::textures::d2r_texture::Writer*>(self)->write(*reinterpret_cast<const whiteout::textures::Texture*>(texture)));
+}
+
+int32_t whiteout_textures_D2rTextureWriter_hasIssues(const whiteout_D2rTextureWriter* self) {
+    return reinterpret_cast<const whiteout::textures::d2r_texture::Writer*>(self)->hasIssues();
+}
+
+size_t whiteout_textures_D2rTextureWriter_getIssues_count(const whiteout_D2rTextureWriter* self) {
+    return reinterpret_cast<const whiteout::textures::d2r_texture::Writer*>(self)->getIssues().size();
+}
+
+whiteout_CString whiteout_textures_D2rTextureWriter_getIssues_at(const whiteout_D2rTextureWriter* self, size_t index) {
+    const auto& __v = reinterpret_cast<const whiteout::textures::d2r_texture::Writer*>(self)->getIssues();
     if (index >= __v.size()) return emptyCString();
     return wrapCString(std::string(__v[index]));
 }

@@ -27,6 +27,10 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial int whiteout_host_CascFileSystem_reserveFileId(IntPtr self, [MarshalAs(UnmanagedType.LPUTF8Str)] string path, out uint out_value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
     [return: MarshalAs(UnmanagedType.I4)]
     internal static partial int whiteout_host_CascFileSystem_writeFile(IntPtr self, uint fileId, ReadOnlySpan<byte> data, nuint data_size);
 

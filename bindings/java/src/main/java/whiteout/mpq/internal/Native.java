@@ -19,6 +19,13 @@ public final class Native {
         return NativeCommon.find(name, fd);
     }
 
+    public static final MethodHandle whiteout_mpq_StringList_size = find(
+        "whiteout_mpq_StringList_size", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mpq_StringList_at = find(
+        "whiteout_mpq_StringList_at", FunctionDescriptor.of(CSTRING_LAYOUT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_mpq_StringList_delete = find(
+        "whiteout_mpq_StringList_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+
     // -- MpqFileInfo --
     public static final MethodHandle whiteout_mpq_MpqFileInfo_new = find(
         "whiteout_mpq_MpqFileInfo_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
@@ -94,8 +101,12 @@ public final class Native {
         "whiteout_mpq_MpqStorage_fileInfo", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mpq_MpqStorage_archiveInfo = find(
         "whiteout_mpq_MpqStorage_archiveInfo", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mpq_MpqStorage_listFiles_count = find(
+        "whiteout_mpq_MpqStorage_listFiles_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mpq_MpqStorage_listFiles_at = find(
+        "whiteout_mpq_MpqStorage_listFiles_at", FunctionDescriptor.of(CSTRING_LAYOUT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_mpq_MpqStorage_listFiles = find(
-        "whiteout_mpq_MpqStorage_listFiles", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
+        "whiteout_mpq_MpqStorage_listFiles", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mpq_MpqStorage_writeFile = find(
         "whiteout_mpq_MpqStorage_writeFile", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_mpq_MpqStorage_deleteFile = find(

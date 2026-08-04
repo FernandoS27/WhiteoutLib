@@ -65,4 +65,44 @@ public final class NativeCommon {
 
     public static final MethodHandle whiteout_CString_free =
         find("whiteout_CString_free", FunctionDescriptor.ofVoid(CSTRING_LAYOUT));
+
+    /**
+     * Copy a returned {@code whiteout_CString} into a Java string and
+     * release it. Freeing a borrowed string (null owner) is a no-op on the
+     * native side, so this is safe for both owned and borrowed returns.
+     */
+    public static String takeString(MemorySegment s) {
+        if (s == null || s.equals(MemorySegment.NULL)) return "";
+        MemorySegment chars = s.get(ValueLayout.ADDRESS, 0);
+        long len = s.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
+        if (chars == null || chars.equals(MemorySegment.NULL)) return "";
+        byte[] bytes = chars.reinterpret(len).toArray(ValueLayout.JAVA_BYTE);
+        invokeNative(whiteout_CString_free, s);
+        return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Copy a borrowed {@code whiteout_CString} — one pointing into a
+     * container the caller frees separately, so with a null owner — without
+     * releasing it.
+     */
+    public static String borrowedString(MemorySegment s) {
+        if (s == null || s.equals(MemorySegment.NULL)) return "";
+        MemorySegment chars = s.get(ValueLayout.ADDRESS, 0);
+        long len = s.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
+        if (chars == null || chars.equals(MemorySegment.NULL)) return "";
+        return new String(chars.reinterpret(len).toArray(ValueLayout.JAVA_BYTE),
+                          java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /** As {@link #takeString}, for a returned {@code whiteout_Bytes}. */
+    public static byte[] takeBytes(MemorySegment b) {
+        if (b == null || b.equals(MemorySegment.NULL)) return new byte[0];
+        MemorySegment data = b.get(ValueLayout.ADDRESS, 0);
+        long size = b.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
+        if (data == null || data.equals(MemorySegment.NULL)) return new byte[0];
+        byte[] out = data.reinterpret(size).toArray(ValueLayout.JAVA_BYTE);
+        invokeNative(whiteout_Bytes_free, b);
+        return out;
+    }
 }

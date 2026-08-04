@@ -36,6 +36,14 @@ public sealed class Texture : WhiteoutHandle
     }
 
 
+    /// <summary>@return The semantic kind of this texture.</summary>
+    public TextureKind Kind
+    {
+        get => (TextureKind)NativeMethods.whiteout_textures_Texture_kind(DangerousGet());
+        set => NativeMethods.whiteout_textures_Texture_setKind(DangerousGet(), (int)value);
+    }
+
+
     /// <summary>@return True if the texture data is in sRGB colour space.</summary>
     public bool IsSrgb
     {
@@ -98,6 +106,34 @@ public sealed class Texture : WhiteoutHandle
     {
         var __h = NativeMethods.whiteout_textures_Texture_copyAsFormat(DangerousGet(), (int)new_fmt, pool.DangerousGet());
         return new Texture(__h);
+    }
+
+
+    /// <summary>Swap two channels in-place across all mip levels and array layers.</summary>
+    public bool SwapChannels(Channel a, Channel b)
+    {
+        return NativeMethods.whiteout_textures_Texture_swapChannels(DangerousGet(), (int)a, (int)b) != 0;
+    }
+
+
+    /// <summary>Invert a single channel in-place across all mip levels and array layers.</summary>
+    public bool InvertChannel(Channel ch)
+    {
+        return NativeMethods.whiteout_textures_Texture_invertChannel(DangerousGet(), (int)ch) != 0;
+    }
+
+
+    /// <summary>Reconstruct the Z component of a tangent-space normal map in-place.</summary>
+    public bool ExpandNormal(Channel xChannel, Channel yChannel, Channel zChannel)
+    {
+        return NativeMethods.whiteout_textures_Texture_expandNormal(DangerousGet(), (int)xChannel, (int)yChannel, (int)zChannel) != 0;
+    }
+
+
+    /// <summary>Fill a single channel with a constant value across all mip levels and array layers.</summary>
+    public bool FillChannel(Channel target, float value)
+    {
+        return NativeMethods.whiteout_textures_Texture_fillChannel(DangerousGet(), (int)target, value) != 0;
     }
 
 
@@ -170,6 +206,42 @@ public sealed class Texture : WhiteoutHandle
     {
         var __h = NativeMethods.whiteout_textures_Texture_createCubeArray((int)fmt, size, arraySize, mipCount);
         return new Texture(__h);
+    }
+
+
+    /// <summary>@return The per-channel kind for channel @p ch.</summary>
+    public TextureKind ChannelKind(Channel ch)
+    {
+        return (TextureKind)NativeMethods.whiteout_textures_Texture_channelKind(DangerousGet(), (int)ch);
+    }
+
+
+    /// <summary>Set the per-channel kind for channel @p ch.</summary>
+    public void SetChannelKind(Channel ch, TextureKind kind)
+    {
+        NativeMethods.whiteout_textures_Texture_setChannelKind(DangerousGet(), (int)ch, (int)kind);
+    }
+
+
+    /// <summary>@return The default fill value for channel @p ch.</summary>
+    public float ChannelDefault(Channel ch)
+    {
+        return NativeMethods.whiteout_textures_Texture_channelDefault(DangerousGet(), (int)ch);
+    }
+
+
+    /// <summary>Set the default fill value for channel @p ch.</summary>
+    public void SetChannelDefault(Channel ch, float value)
+    {
+        NativeMethods.whiteout_textures_Texture_setChannelDefault(DangerousGet(), (int)ch, value);
+    }
+
+
+    /// <summary>Get the mip-level descriptor for a given mip index and layer. @param mip   Mip level index (0 = base). @param layer Array layer index (0 for 2D / 3D textures). @return Reference to the MipLevel struct.</summary>
+    public MipLevel MipLevel(uint mip, uint layer)
+    {
+        var __h = NativeMethods.whiteout_textures_Texture_mipLevel(DangerousGet(), mip, layer);
+        return new MipLevel(__h);
     }
 
 

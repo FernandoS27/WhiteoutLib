@@ -51,6 +51,8 @@ from .emit_c import (
     _is_interface_pointer_param, _is_span_const_u8,
     _resolve_handle_short, _known_class_short_names,
     _is_vector_string_return,
+    _is_owned_string_list_return,
+    _module_has_string_list,
     _ctor_overloads_named,
 )
 
@@ -306,6 +308,10 @@ def _native_return(m: BindMethod, module: BindModule) -> str | None:
         if e.kind == TypeKind.VECTOR and \
                 _short_name(e.element.cpp_text) in ('u8', 'unsigned char'):
             return 'Whiteout.Common.NativeBytes'
+        # optional<scalar> is an int32 has-value flag plus an out-param;
+        # see `_optional_scalar_cs` and `_emit_native_method`.
+        if _optional_scalar_cs(m) is not None:
+            return 'int'
         return None
     if r.kind == TypeKind.VECTOR:
         if _short_name(r.element.cpp_text) in ('u8', 'unsigned char'):
@@ -372,12 +378,37 @@ def _public_return(m: BindMethod, module: BindModule) -> tuple[str, str] | None:
         if e.kind == TypeKind.VECTOR and \
                 _short_name(e.element.cpp_text) in ('u8', 'unsigned char'):
             return 'byte[]?', 'bytes?'
+        if _optional_scalar_cs(m) is not None:
+            if e.kind == TypeKind.ENUM:
+                name = _resolve_enum_cs_name(e.cpp_text, module)
+                return None if name is None else (f'{name}?', f'opt_enum:{name}')
+            short = _short_name(e.cpp_text)
+            cs = _CS_PRIMITIVE.get(short)
+            if cs is None:
+                return None
+            # `bool` crosses the ABI as int32 (see _CS_NATIVE_PRIMITIVE), so
+            # the out-param needs a comparison rather than a straight return.
+            return (f'{cs}?', 'opt_bool' if short == 'bool' else f'opt_prim:{cs}')
         return None
     if r.kind == TypeKind.VECTOR:
         if _short_name(r.element.cpp_text) in ('u8', 'unsigned char'):
             return 'byte[]', 'bytes'
         return None
     return None
+
+
+def _optional_scalar_cs(m: BindMethod) -> str | None:
+    """`std::optional<T>` for a scalar T — returns the C# type of the C ABI's
+    `T* out_value` param. Mirrors emit_c's `_optional_primitive_return`: the
+    C function returns an int32 has-value flag and writes the value out."""
+    r = m.return_type
+    if r.kind != TypeKind.OPTIONAL or r.element is None:
+        return None
+    if r.element.kind == TypeKind.ENUM:
+        return 'int'
+    if r.element.kind != TypeKind.PRIMITIVE:
+        return None
+    return _CS_NATIVE_PRIMITIVE.get(_short_name(r.element.cpp_text))
 
 
 def _resolve_enum_cs_name(cpp_text: str, module: BindModule) -> str | None:
@@ -394,6 +425,14 @@ def _native_ctor_params(ctor, module: BindModule) -> str | None:
     decls: list[str] = []
     for p in ctor.params:
         t = p.type
+        # Trampolined interfaces (WorkerPool, HttpHandler, ...) cross as an
+        # opaque handle, same as in `_native_param`. These are what the
+        # parallel-decode ctors — BlpWriter(pool), JpegParser(pool) — take.
+        if _trampolined_interface(p) is not None:
+            decls.append(f'IntPtr {p.name}')
+            continue
+        if _is_interface_pointer_param(p):
+            return None
         if t.kind == TypeKind.STRING:
             decls.append(f'[MarshalAs(UnmanagedType.LPUTF8Str)] string {p.name}')
             continue
@@ -425,6 +464,18 @@ def _cs_ctor_params(ctor, module: BindModule) -> tuple[str, str] | tuple[None, N
     args: list[str] = []
     for p in ctor.params:
         t = p.type
+        # A managed WorkerPool / HttpHandler subclass is passed straight
+        # through; the trampoline on the C++ side calls back into it.
+        # Nullable rather than defaulted — a defaulted param here would be
+        # illegal when a required one follows, as in JpegWriter(quality,
+        # pool, progressive). The no-arg ctor already covers "no pool".
+        trampolined = _trampolined_interface(p)
+        if trampolined is not None:
+            decls.append(f'{trampolined}? {p.name}')
+            args.append(f'{p.name}?.DangerousGet() ?? IntPtr.Zero')
+            continue
+        if _is_interface_pointer_param(p):
+            return None, None
         if t.kind == TypeKind.STRING:
             decls.append(f'string {p.name}')
             args.append(p.name)
@@ -435,7 +486,8 @@ def _cs_ctor_params(ctor, module: BindModule) -> tuple[str, str] | tuple[None, N
             if cs is None:
                 return None, None
             decls.append(f'{cs} {p.name}')
-            args.append(p.name)
+            # bool is `int` on the native side (_CS_NATIVE_PRIMITIVE).
+            args.append(f'{p.name} ? 1 : 0' if short == 'bool' else p.name)
             continue
         if t.kind == TypeKind.ENUM:
             name = _resolve_enum_cs_name(t.cpp_text, module)
@@ -536,11 +588,78 @@ def _public_param(p: BindMethodParam, module: BindModule) -> tuple[str, str, str
 
 # ── Method emission ────────────────────────────────────────────────────────
 
+# ── vector<record> returns ────────────────────────────────────────────────
+#
+# `@bind record` classes have no handle: the C ABI lowers a vector<record>
+# return to a snapshot plus per-field index accessors (see emit_c), and the
+# managed side materialises them into immutable C# records.
+
+def _find_record_class(module: BindModule, cpp_text: str) -> BindClass | None:
+    short = cpp_text.split('::')[-1].strip()
+    for c in module.classes:
+        if c.is_record and (c.cpp_qualifier.split('::')[-1] == short
+                            or c.js_name == short):
+            return c
+    return None
+
+
+def _is_vector_record_return(m: BindMethod, module: BindModule) -> bool:
+    r = m.return_type
+    return (r.kind == TypeKind.VECTOR and r.element is not None
+            and _find_record_class(module, r.element.cpp_text) is not None)
+
+
+def _record_field_kind(f: BindField) -> str | None:
+    """'prim' / 'enum' / 'string' / 'bytes' (std::array<u8,N>), or None when
+    the field shape isn't representable in a record."""
+    t = f.type
+    if t.kind == TypeKind.PRIMITIVE:
+        return 'prim'
+    if t.kind == TypeKind.ENUM:
+        return 'enum'
+    if t.kind == TypeKind.STRING:
+        return 'string'
+    if t.kind == TypeKind.ARRAY and t.element is not None \
+            and t.element.kind == TypeKind.PRIMITIVE \
+            and _short_name(t.element.cpp_text) in ('u8', 'unsigned char'):
+        return 'bytes'
+    return None
+
+
+def _record_fields(rec: BindClass) -> list[BindField]:
+    return [f for f in rec.fields if _record_field_kind(f) is not None]
+
+
+def _record_field_native_ret(f: BindField) -> str:
+    k = _record_field_kind(f)
+    if k == 'prim':
+        return _CS_NATIVE_PRIMITIVE.get(_short_name(f.type.cpp_text), 'int')
+    if k == 'enum':
+        return 'int'
+    if k == 'string':
+        return 'Whiteout.Common.NativeCString'
+    return 'Whiteout.Common.NativeBytes'
+
+
+def _record_field_public_type(f: BindField, module: BindModule) -> str:
+    k = _record_field_kind(f)
+    if k == 'prim':
+        return _CS_PRIMITIVE.get(_short_name(f.type.cpp_text), 'int')
+    if k == 'enum':
+        return _resolve_enum_cs_name(f.type.cpp_text, module) or 'int'
+    if k == 'string':
+        return 'string'
+    return 'byte[]'
+
+
 def _can_emit_method(m: BindMethod, c: BindClass, module: BindModule) -> bool:
     if not _is_method_supported(m, module):
         return False
     if _is_vector_string_return(m):
         # Lowered to (count, at) pair — no other constraints to check.
+        return True
+    if _is_vector_record_return(m, module):
+        # Lowered to snapshot + per-field index accessors.
         return True
     if _native_return(m, module) is None:
         return False
@@ -566,6 +685,26 @@ def _emit_native_method(buf: StringIO, m: BindMethod, c: BindClass,
         buf.write(f'    internal static partial nuint {sym}_count(IntPtr self);\n\n')
         buf.write(f'    [LibraryImport(Runtime.LibraryName)]\n')
         buf.write(f'    internal static partial Whiteout.Common.NativeCString {sym}_at(IntPtr self, nuint index);\n\n')
+        if _is_owned_string_list_return(m):
+            # By-value returns also get the owned-list variant, which is what
+            # the wrapper actually calls — see `_emit_public_method`.
+            buf.write(f'    [LibraryImport(Runtime.LibraryName)]\n')
+            buf.write(f'    internal static partial IntPtr {sym}(IntPtr self);\n\n')
+        return
+
+    if _is_vector_record_return(m, module):
+        # Lowered on the C ABI to: snapshot + count + per-field _at + free.
+        rec = _find_record_class(module, m.return_type.element.cpp_text)
+        buf.write(f'    [LibraryImport(Runtime.LibraryName)]\n')
+        buf.write(f'    internal static partial IntPtr {sym}_snapshot(IntPtr self);\n\n')
+        buf.write(f'    [LibraryImport(Runtime.LibraryName)]\n')
+        buf.write(f'    internal static partial nuint {sym}_count(IntPtr snapshot);\n\n')
+        for f in _record_fields(rec):
+            buf.write(f'    [LibraryImport(Runtime.LibraryName)]\n')
+            buf.write(f'    internal static partial {_record_field_native_ret(f)} '
+                      f'{sym}_{f.name}_at(IntPtr snapshot, nuint index);\n\n')
+        buf.write(f'    [LibraryImport(Runtime.LibraryName)]\n')
+        buf.write(f'    internal static partial void {sym}_free(IntPtr snapshot);\n\n')
         return
 
     ret = _native_return(m, module)
@@ -577,6 +716,9 @@ def _emit_native_method(buf: StringIO, m: BindMethod, c: BindClass,
         np = _native_param(p, module)
         assert np is not None
         parts.append(np)
+    opt_scalar = _optional_scalar_cs(m)
+    if opt_scalar is not None:
+        parts.append(f'out {opt_scalar} out_value')
     sig = ', '.join(parts)
 
     buf.write(f'    [LibraryImport(Runtime.LibraryName)]\n')
@@ -789,10 +931,40 @@ def _emit_public_method(buf: StringIO, m: BindMethod, c: BindClass,
                 and cs_prop_name[3].isupper():
             # `getIssues` → property `Issues` (drop the `Get` prefix).
             cs_prop_name = cs_prop_name[3:]
-        cnt_sym = f'{native_class}.{sym}_count'
-        at_sym  = f'{native_class}.{sym}_at'
         if m.doc:
             _write_xmldoc(buf, m.doc, indent='    ')
+
+        if _is_owned_string_list_return(m):
+            # The C++ method returns by value, so the count/at pair would
+            # re-run the whole query for every index — O(n^2), and ruinous
+            # for something like a 135k-entry CASC listing. Materialise the
+            # list once instead and read it O(1) per element.
+            ls = f'{native_class}.{prefix}_StringList'
+            buf.write(f'    public IReadOnlyList<string> {cs_prop_name}\n')
+            buf.write('    {\n')
+            buf.write('        get\n')
+            buf.write('        {\n')
+            buf.write(f'            IntPtr __list = {native_class}.{sym}(DangerousGet());\n')
+            buf.write('            if (__list == IntPtr.Zero) return System.Array.Empty<string>();\n')
+            buf.write('            try\n')
+            buf.write('            {\n')
+            buf.write(f'                int __n = checked((int){ls}_size(__list));\n')
+            buf.write('                var __out = new string[__n];\n')
+            buf.write('                for (int __i = 0; __i < __n; __i++)\n')
+            buf.write(f'                    __out[__i] = {ls}_at(__list, (nuint)__i)\n')
+            buf.write('                        .ToManagedString(freeAfter: false);\n')
+            buf.write('                return __out;\n')
+            buf.write('            }\n')
+            buf.write('            finally\n')
+            buf.write('            {\n')
+            buf.write(f'                {ls}_delete(__list);\n')
+            buf.write('            }\n')
+            buf.write('        }\n')
+            buf.write('    }\n\n')
+            return
+
+        cnt_sym = f'{native_class}.{sym}_count'
+        at_sym  = f'{native_class}.{sym}_at'
         buf.write(f'    public IReadOnlyList<string> {cs_prop_name} =>\n')
         buf.write(f'        new NativeListView<string>(\n')
         buf.write(f'            DangerousGet(),\n')
@@ -818,6 +990,9 @@ def _emit_public_method(buf: StringIO, m: BindMethod, c: BindClass,
     static_kw = 'static ' if m.is_static else ''
     self_arg = 'DangerousGet()' if not m.is_static else ''
     call_args = [self_arg] + native_args if self_arg else native_args
+    if ret_tag.startswith('opt_prim:') or ret_tag.startswith('opt_enum:') \
+            or ret_tag == 'opt_bool':
+        call_args = call_args + ['out var __v']
     call = f'{native_class}.{sym}({", ".join(a for a in call_args if a)})'
 
     if m.doc:
@@ -866,6 +1041,13 @@ def _emit_public_method(buf: StringIO, m: BindMethod, c: BindClass,
         name = ret_tag[len('handle?:'):]
         buf.write(f'        var __h = {call};\n')
         buf.write(f'        return __h == IntPtr.Zero ? null : new {name}(__h);\n')
+    elif ret_tag.startswith('opt_prim:'):
+        buf.write(f'        return {call} != 0 ? __v : null;\n')
+    elif ret_tag == 'opt_bool':
+        buf.write(f'        return {call} != 0 ? __v != 0 : null;\n')
+    elif ret_tag.startswith('opt_enum:'):
+        enum_name = ret_tag[len('opt_enum:'):]
+        buf.write(f'        return {call} != 0 ? ({enum_name})__v : null;\n')
     else:
         buf.write(f'        // UNHANDLED: {ret_tag}\n')
 
@@ -1143,7 +1325,10 @@ def emit(module: BindModule) -> dict[str, str]:
         # as SafeHandle wrappers (the C ABI exposes them via handles
         # regardless). Bringing them in keeps cross-class refs resolvable.
         name = _cs_type_name(c.js_name, module)
-        files[f'{out_dir}/{name}.cs'] = _emit_class(c, name, module)
+        if c.is_record:
+            files[f'{out_dir}/{name}.cs'] = _emit_record(c, name, module)
+        else:
+            files[f'{out_dir}/{name}.cs'] = _emit_class(c, name, module)
 
     return files
 
@@ -1249,6 +1434,9 @@ def _emit_class(c: BindClass, cs_name: str, module: BindModule) -> str:
         if id(m) in consumed:
             continue
         buf.write('\n')
+        if _is_vector_record_return(m, module):
+            _emit_record_list_method(buf, m, c, module, native_class=nm)
+            continue
         is_override = base_members.get(m.cpp_name) == 'method'
         if is_override:
             matched_base_members.add(m.cpp_name)
@@ -1272,6 +1460,67 @@ def _emit_class(c: BindClass, cs_name: str, module: BindModule) -> str:
     return buf.getvalue()
 
 
+def _emit_record(c: BindClass, cs_name: str, module: BindModule) -> str:
+    """`@bind record` → an immutable positional C# record. No handle, no
+    SafeHandle — instances are materialised from a snapshot's accessors."""
+    buf = StringIO()
+    _write_header(buf)
+    buf.write(f'namespace {_ns(module)};\n\n')
+    if c.doc:
+        _write_xmldoc(buf, c.doc, indent='')
+    parts = [f'{_record_field_public_type(f, module)} {_pascal(f.name)}'
+             for f in _record_fields(c)]
+    buf.write(f'public sealed record {cs_name}(\n')
+    buf.write('    ' + ',\n    '.join(parts) + ');\n')
+    return buf.getvalue()
+
+
+def _emit_record_list_method(buf: StringIO, m: BindMethod, c: BindClass,
+                             module: BindModule, native_class: str) -> None:
+    """Materialise a vector<record> return into a list of immutable records:
+    one snapshot call, per-field reads by index, one free."""
+    prefix = _module_prefix(module)
+    short = _c_handle_name(c.js_name)
+    sym = f'{native_class}.{prefix}_{short}_{m.name}'
+    rec = _find_record_class(module, m.return_type.element.cpp_text)
+    rec_cs = _cs_type_name(rec.js_name, module)
+
+    if m.doc:
+        _write_xmldoc(buf, m.doc, indent='    ')
+    buf.write(f'    public IReadOnlyList<{rec_cs}> {_pascal(m.name)}()\n')
+    buf.write('    {\n')
+    buf.write(f'        IntPtr __snap = {sym}_snapshot(DangerousGet());\n')
+    buf.write(f'        if (__snap == IntPtr.Zero) return System.Array.Empty<{rec_cs}>();\n')
+    buf.write('        try\n')
+    buf.write('        {\n')
+    buf.write(f'            int __n = checked((int){sym}_count(__snap));\n')
+    buf.write(f'            var __list = new List<{rec_cs}>(__n);\n')
+    buf.write('            for (nuint __i = 0; __i < (nuint)__n; __i++)\n')
+    buf.write(f'                __list.Add(new {rec_cs}(\n')
+    exprs: list[str] = []
+    for f in _record_fields(rec):
+        kind = _record_field_kind(f)
+        call = f'{sym}_{f.name}_at(__snap, __i)'
+        if kind == 'enum':
+            exprs.append(f'({_record_field_public_type(f, module)}){call}')
+        elif kind == 'string':
+            exprs.append(f'{call}.ToManagedString()')
+        elif kind == 'bytes':
+            exprs.append(f'{call}.ToManagedArray()')
+        elif _short_name(f.type.cpp_text) == 'bool':
+            exprs.append(f'{call} != 0')
+        else:
+            exprs.append(call)
+    buf.write('                    ' + ',\n                    '.join(exprs) + '));\n')
+    buf.write('            return __list;\n')
+    buf.write('        }\n')
+    buf.write('        finally\n')
+    buf.write('        {\n')
+    buf.write(f'            {sym}_free(__snap);\n')
+    buf.write('        }\n')
+    buf.write('    }\n')
+
+
 def _emit_native_methods(module: BindModule) -> str:
     prefix = _module_prefix(module)
     buf = StringIO()
@@ -1281,11 +1530,27 @@ def _emit_native_methods(module: BindModule) -> str:
     buf.write('internal static partial class NativeMethods\n')
     buf.write('{\n')
 
+    if _module_has_string_list(module):
+        # Owned string list: one call materialises the whole vector, then
+        # reading is O(1) per element. `_at` hands back a borrowed CString
+        # pointing into the list, so walking it allocates nothing extra.
+        buf.write(f'    [LibraryImport(Runtime.LibraryName)]\n')
+        buf.write(f'    internal static partial nuint {prefix}_StringList_size(IntPtr self);\n\n')
+        buf.write(f'    [LibraryImport(Runtime.LibraryName)]\n')
+        buf.write(f'    internal static partial Whiteout.Common.NativeCString '
+                  f'{prefix}_StringList_at(IntPtr self, nuint index);\n\n')
+        buf.write(f'    [LibraryImport(Runtime.LibraryName)]\n')
+        buf.write(f'    internal static partial void {prefix}_StringList_delete(IntPtr self);\n\n')
+
     first = True
     for c in module.classes:
         if _math_info(c.js_name) is not None or _math_info(c.cpp_qualifier) is not None:
             # Math types are handled via Unsafe.Read/Write — no per-class
             # new/delete stubs needed here.
+            continue
+        if c.is_record:
+            # Records have no handle; their data is reached through the
+            # owning method's snapshot accessors, emitted with that method.
             continue
         short = _c_handle_name(c.js_name)
         if not first:

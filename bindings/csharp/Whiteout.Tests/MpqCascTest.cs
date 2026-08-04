@@ -66,6 +66,10 @@ public sealed class MpqCascTest
         // The W3 base archive carries map files (.w3m / .w3x) named with
         // a `(N)Foo.w3m` convention — a low-effort but distinctive smoke.
         Assert.Contains(files, f => f.EndsWith(".w3m", StringComparison.OrdinalIgnoreCase));
+        // Materialised once: indexing is an array read, not a fresh native
+        // enumeration per element. Guards against regressing to the O(n^2)
+        // count/at pair.
+        Assert.Same(files[0], files[0]);
     }
 
     [Fact]

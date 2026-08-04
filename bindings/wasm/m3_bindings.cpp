@@ -384,7 +384,10 @@ EMSCRIPTEN_BINDINGS(m3) {
         .value("ScaleTimeByParent", whiteout::m3::ParticleFlag::ScaleTimeByParent)
         .value("UseLocalTime", whiteout::m3::ParticleFlag::UseLocalTime)
         .value("SimulateInit", whiteout::m3::ParticleFlag::SimulateInit)
-        .value("Copy", whiteout::m3::ParticleFlag::Copy);
+        .value("Copy", whiteout::m3::ParticleFlag::Copy)
+        .value("RequiresGpuSim", whiteout::m3::ParticleFlag::RequiresGpuSim)
+        .value("ShaderPerm30", whiteout::m3::ParticleFlag::ShaderPerm30)
+        .value("ForceProceduralPosition", whiteout::m3::ParticleFlag::ForceProceduralPosition);
 
     enum_<whiteout::m3::ParticleAdditionalFlag>("M3ParticleAdditionalFlag")
         .value("None", whiteout::m3::ParticleAdditionalFlag::None)

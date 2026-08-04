@@ -28,6 +28,7 @@
 
 PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::storages::casc::FindEntry>);
 
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
@@ -55,6 +56,26 @@ void bind_casc(py::module_& m) {
         .value("PAYLOAD", whiteout::storages::casc::FileIdHint::Payload, R"doc(Full-resolution payload.)doc")
         .value("PAYLOW", whiteout::storages::casc::FileIdHint::Paylow, R"doc(Low-resolution payload.)doc")
         .value("PAYMED", whiteout::storages::casc::FileIdHint::Paymed, R"doc(Medium-resolution payload.)doc")
+    ;
+
+    py::class_<whiteout::storages::casc::FindEntry>(m, "FindEntry", R"doc(Entry returned by enumerate/list operations.)doc")
+        .def(py::init<>())
+        .def_readwrite("file_size", &whiteout::storages::casc::FindEntry::fileSize)
+        .def_readwrite("locale_flags", &whiteout::storages::casc::FindEntry::localeFlags)
+        .def_readwrite("content_flags", &whiteout::storages::casc::FindEntry::contentFlags)
+        .def_readwrite("file_data_id", &whiteout::storages::casc::FindEntry::fileDataId)
+        .def_readwrite("path", &whiteout::storages::casc::FindEntry::path)
+        .def("get_c_key",
+            [](const whiteout::storages::casc::FindEntry& self) {
+                return std::vector<whiteout::u8>(self.cKey.begin(), self.cKey.end());
+            })
+        .def("set_c_key",
+            [](whiteout::storages::casc::FindEntry& self, const std::vector<whiteout::u8>& v) {
+                if (v.size() != self.cKey.size())
+                    throw std::runtime_error("setter expected exactly "
+                        + std::to_string(self.cKey.size()) + " elements");
+                for (std::size_t i = 0; i < v.size(); ++i) self.cKey[i] = v[i];
+            })
     ;
 
     py::class_<whiteout::storages::casc::CreateOptions>(m, "CreateOptions", R"doc(Options for creating a new empty CASC storage.)doc")
@@ -102,6 +123,10 @@ Uses the PImpl (Pointer to Implementation) idiom to hide internals.
                 return whiteout::storages::casc::Storage::open(path, localeMask, pool);
             }, py::arg("path"), py::arg("localeMask"), py::arg("pool") = nullptr, R"doc(@overload Open with locale mask.)doc")
         .def_static("open",
+            [](const std::string& path, const std::string& product, whiteout::interfaces::WorkerPool* pool) {
+                return whiteout::storages::casc::Storage::open(path, product, pool);
+            }, py::arg("path"), py::arg("product"), py::arg("pool") = nullptr, R"doc(@overload Open a specific product from a multi-product `.build.info`. @param product Product code selecting the build, e.g. "w3" (Warcraft III retail) vs "w3t" (its PTR). Matched case-insensitively against the active builds; empty selects the first active build. See OpenOptions::product. Open fails if the product has no active build.)doc")
+        .def_static("open",
             [](const whiteout::storages::casc::OpenOptions& opts) {
                 return whiteout::storages::casc::Storage::open(opts);
             }, py::arg("opts"), R"doc(@overload Open with full options. OpenOptions has unsupported field shapes (std::span, std::function). Use the (path, localeMask, pool) overloads for now.)doc")
@@ -143,6 +168,7 @@ Uses the PImpl (Pointer to Implementation) idiom to hide internals.
         .def("file_size", py::overload_cast<const std::string&>(&whiteout::storages::casc::Storage::fileSize, py::const_), py::arg("cascPath"), R"doc(@return Uncompressed file size, or std::nullopt if not found.)doc")
         .def("file_size", py::overload_cast<whiteout::i32, whiteout::storages::casc::FileIdHint>(&whiteout::storages::casc::Storage::fileSize, py::const_), py::arg("fileId"), py::arg("hint") = whiteout::storages::casc::FileIdHint{}, R"doc(@overload)doc")
         .def("list_files", &whiteout::storages::casc::Storage::listFiles, R"doc(@return All known file paths.)doc")
+        .def("list_entries", &whiteout::storages::casc::Storage::listEntries, R"doc(@return All entries with metadata.)doc")
         .def("total_file_count", &whiteout::storages::casc::Storage::totalFileCount, R"doc(@return Total number of files in the root manifest.)doc")
         .def("import_keys_from_string", &whiteout::storages::casc::Storage::importKeysFromString, py::arg("keyList"), R"doc(Import encryption keys from a formatted string (one per line).)doc")
         .def("import_keys_from_file", &whiteout::storages::casc::Storage::importKeysFromFile, py::arg("keyFilePath"), R"doc(Import encryption keys from a file.)doc")
@@ -185,5 +211,6 @@ Data is stored in an in-memory overlay until save() is called.
         .def("save", py::overload_cast<const std::string&>(&whiteout::storages::casc::StorageWritable::save), py::arg("path"), R"doc(@overload Persist to a specific output path.)doc")
     ;
 
+    py::bind_vector<std::vector<whiteout::storages::casc::FindEntry>>(m, "VectorCascFindEntry");
 
 }

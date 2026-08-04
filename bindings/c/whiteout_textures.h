@@ -94,6 +94,9 @@ typedef struct whiteout_JpegParser whiteout_JpegParser;
 typedef struct whiteout_JpegWriter whiteout_JpegWriter;
 typedef struct whiteout_DdsParser whiteout_DdsParser;
 typedef struct whiteout_DdsWriter whiteout_DdsWriter;
+typedef struct whiteout_TexParser whiteout_TexParser;
+typedef struct whiteout_D2rTextureParser whiteout_D2rTextureParser;
+typedef struct whiteout_D2rTextureWriter whiteout_D2rTextureWriter;
 typedef struct whiteout_BmpParser whiteout_BmpParser;
 typedef struct whiteout_BmpWriter whiteout_BmpWriter;
 typedef struct whiteout_TgaParser whiteout_TgaParser;
@@ -489,6 +492,58 @@ int32_t whiteout_textures_DdsWriter_hasIssues(const whiteout_DdsWriter* self);
 /* @return accumulated issues from the last write call. */
 size_t whiteout_textures_DdsWriter_getIssues_count(const whiteout_DdsWriter* self);
 whiteout_CString whiteout_textures_DdsWriter_getIssues_at(const whiteout_DdsWriter* self, size_t index);
+
+/* ── TexParser ─────────────────────────────────────────────── */
+
+/* Reads a TEX file or byte buffer and decodes it into a Texture. */
+whiteout_TexParser* whiteout_textures_TexParser_new(void);
+void whiteout_textures_TexParser_delete(whiteout_TexParser* self);
+
+/* Parse a TEX file from disk. */
+struct whiteout_Texture* whiteout_textures_TexParser_parse(whiteout_TexParser* self, const char* filePath);
+/* Parse a TEX byte buffer. */
+struct whiteout_Texture* whiteout_textures_TexParser_parse_buffer(whiteout_TexParser* self, const uint8_t* buffer, size_t buffer_size);
+/* Parse a D4 TEX file from two file paths (metadata .tex + pixel payload). */
+struct whiteout_Texture* whiteout_textures_TexParser_parse_texFilePath_payloadFilePath(whiteout_TexParser* self, const char* texFilePath, const char* payloadFilePath);
+/* Parse a D4 TEX file from two byte buffers (metadata + pixel payload). */
+struct whiteout_Texture* whiteout_textures_TexParser_parse_texData_payloadData(whiteout_TexParser* self, const uint8_t* texData, size_t texData_size, const uint8_t* payloadData, size_t payloadData_size);
+/* Parse a D4 TEX with hi-res + low-res payloads from file paths. */
+struct whiteout_Texture* whiteout_textures_TexParser_parse_texFilePath_hiResPayloadFilePath_lowResPayloadFilePath(whiteout_TexParser* self, const char* texFilePath, const char* hiResPayloadFilePath, const char* lowResPayloadFilePath);
+/* @return true if the last parse produced any issues. */
+int32_t whiteout_textures_TexParser_hasIssues(const whiteout_TexParser* self);
+/* @return accumulated issues from the last parse call. */
+size_t whiteout_textures_TexParser_getIssues_count(const whiteout_TexParser* self);
+whiteout_CString whiteout_textures_TexParser_getIssues_at(const whiteout_TexParser* self, size_t index);
+
+/* ── D2rTextureParser ─────────────────────────────────────────────── */
+
+/* Reads a Diablo II: Resurrected `.texture` file and decodes it into a Texture. */
+whiteout_D2rTextureParser* whiteout_textures_D2rTextureParser_new(void);
+void whiteout_textures_D2rTextureParser_delete(whiteout_D2rTextureParser* self);
+
+/* Parse a `.texture` byte buffer. */
+struct whiteout_Texture* whiteout_textures_D2rTextureParser_parse(whiteout_D2rTextureParser* self, const uint8_t* buffer, size_t buffer_size);
+/* @return true if @p buffer has a valid `.texture` header and known format. */
+int32_t whiteout_textures_D2rTextureParser_detect(const whiteout_D2rTextureParser* self, const uint8_t* buffer, size_t buffer_size);
+/* @return true if the last parse produced any issues. */
+int32_t whiteout_textures_D2rTextureParser_hasIssues(const whiteout_D2rTextureParser* self);
+/* @return accumulated issues from the last parse call. */
+size_t whiteout_textures_D2rTextureParser_getIssues_count(const whiteout_D2rTextureParser* self);
+whiteout_CString whiteout_textures_D2rTextureParser_getIssues_at(const whiteout_D2rTextureParser* self, size_t index);
+
+/* ── D2rTextureWriter ─────────────────────────────────────────────── */
+
+/* Encodes a Texture into the Diablo II: Resurrected `.texture` format. */
+whiteout_D2rTextureWriter* whiteout_textures_D2rTextureWriter_new(void);
+void whiteout_textures_D2rTextureWriter_delete(whiteout_D2rTextureWriter* self);
+
+/* Serialize the texture to a byte buffer (default options). */
+whiteout_Bytes whiteout_textures_D2rTextureWriter_write(whiteout_D2rTextureWriter* self, struct whiteout_Texture* texture);
+/* @return true if the last write produced any issues. */
+int32_t whiteout_textures_D2rTextureWriter_hasIssues(const whiteout_D2rTextureWriter* self);
+/* @return accumulated issues from the last write call. */
+size_t whiteout_textures_D2rTextureWriter_getIssues_count(const whiteout_D2rTextureWriter* self);
+whiteout_CString whiteout_textures_D2rTextureWriter_getIssues_at(const whiteout_D2rTextureWriter* self, size_t index);
 
 /* ── BmpParser ─────────────────────────────────────────────── */
 

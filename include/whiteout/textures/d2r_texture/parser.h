@@ -26,6 +26,7 @@
 namespace whiteout::textures::d2r_texture {
 
 /// Reads a Diablo II: Resurrected `.texture` file and decodes it into a Texture.
+/// @bind methods=buffer_only, js_name=D2rTextureParser
 class Parser : public textures::Parser {
 public:
     Parser();

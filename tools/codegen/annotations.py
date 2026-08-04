@@ -5,6 +5,9 @@ Annotation grammar:
 
     @bind                      -> include this declaration
     @bind value_object         -> include + bind as value_object
+    @bind record               -> value_object with no C-ABI handle; a
+                                  vector<record> return becomes a snapshot
+                                  + per-field index accessors
     @bind rename=isHd          -> include + rename in JS
     @bind skip                 -> exclude this field
     @bind value_object, expose -> multiple modifiers per line

@@ -13,6 +13,8 @@ public sealed class BlpWriter : WhiteoutHandle
 {
     public BlpWriter() : base(NativeMethods.whiteout_textures_BlpWriter_new()) { }
 
+    public BlpWriter(Whiteout.Host.WorkerPool? pool) : base(NativeMethods.whiteout_textures_BlpWriter_new_pool(pool?.DangerousGet() ?? IntPtr.Zero)) { }
+
     internal BlpWriter(IntPtr handle, bool owned = true) : base(handle, owned) { }
 
     protected override bool ReleaseHandle()

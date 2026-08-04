@@ -77,6 +77,31 @@ public final class StorageWritable implements AutoCloseable {
     }
 
     /**
+     * Reserve a file-data-ID for a named asset.
+     * 
+     * Allocates the next available file-data-ID and associates it with @p name.  The interpretation of @p name depends on the root format:
+     * 
+     * - **WoW / WoWTvfs**: @p name is a full CASC path (e.g. `"Base\\creatures\\beast\\beast.m2"`). - **Diablo 3 / Diablo 4 / TVFS**: @p name is `"asset_name.ext"`, where the extension determines the SNO group.  A CoreTOC entry is created automatically.
+     * 
+     * Returns @c std::nullopt if the name already exists in the root or in a previous reservation.
+     * 
+     * @code auto id = storage.reserveFileId("my_beast.app"); if (id) storage.writeFile(*id, data); @endcode
+     *
+     * @param name String input.
+     * @return a fresh Integer owning a native allocation.
+     */
+    public Integer reserveFileId(String name) {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment name_seg = name == null
+                ? MemorySegment.NULL
+                : arena.allocateFrom(name, StandardCharsets.UTF_8);
+            MemorySegment __out_value = arena.allocate(ValueLayout.JAVA_INT);
+            if (((int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorageWritable_reserveFileId, handle, name_seg, __out_value)) == 0) return null;
+            return __out_value.get(ValueLayout.JAVA_INT, 0L);
+        }
+    }
+
+    /**
      * Write a file by path.
      * 
      * Data is stored in an in-memory overlay until save() is called.

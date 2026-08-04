@@ -9,6 +9,47 @@ namespace Whiteout.Textures.Internal;
 internal static partial class NativeMethods
 {
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_textures_MipLevel_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_textures_MipLevel_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_textures_MipLevel_get_width(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_textures_MipLevel_set_width(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_textures_MipLevel_get_height(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_textures_MipLevel_set_height(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_textures_MipLevel_get_depth(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_textures_MipLevel_set_depth(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial ulong whiteout_textures_MipLevel_get_offset(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_textures_MipLevel_set_offset(IntPtr self, ulong value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial ulong whiteout_textures_MipLevel_get_size(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_textures_MipLevel_set_size(IntPtr self, ulong value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
     internal static partial IntPtr whiteout_textures_Texture_new();
 
     [LibraryImport(Runtime.LibraryName)]
@@ -24,6 +65,26 @@ internal static partial class NativeMethods
 
     [LibraryImport(Runtime.LibraryName)]
     internal static partial IntPtr whiteout_textures_Texture_copyAsFormat(IntPtr self, int new_fmt, IntPtr pool);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    [return: MarshalAs(UnmanagedType.I4)]
+    internal static partial int whiteout_textures_Texture_swapChannels(IntPtr self, int a, int b);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    [return: MarshalAs(UnmanagedType.I4)]
+    internal static partial int whiteout_textures_Texture_invertChannel(IntPtr self, int ch);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    [return: MarshalAs(UnmanagedType.I4)]
+    internal static partial int whiteout_textures_Texture_expandNormal(IntPtr self, int xChannel, int yChannel, int zChannel);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    [return: MarshalAs(UnmanagedType.I4)]
+    internal static partial int whiteout_textures_Texture_fillChannel(IntPtr self, int target, float value);
 
 
     [LibraryImport(Runtime.LibraryName)]
@@ -67,6 +128,30 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial int whiteout_textures_Texture_kind(IntPtr self);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_textures_Texture_setKind(IntPtr self, int k);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial int whiteout_textures_Texture_channelKind(IntPtr self, int ch);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_textures_Texture_setChannelKind(IntPtr self, int ch, int kind);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_textures_Texture_channelDefault(IntPtr self, int ch);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_textures_Texture_setChannelDefault(IntPtr self, int ch, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
     [return: MarshalAs(UnmanagedType.I4)]
     internal static partial int whiteout_textures_Texture_isSrgb(IntPtr self);
 
@@ -97,6 +182,10 @@ internal static partial class NativeMethods
 
     [LibraryImport(Runtime.LibraryName)]
     internal static partial uint whiteout_textures_Texture_mipCount(IntPtr self);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_textures_Texture_mipLevel(IntPtr self, uint mip, uint layer);
 
 
     [LibraryImport(Runtime.LibraryName)]
@@ -143,6 +232,9 @@ internal static partial class NativeMethods
 
     [LibraryImport(Runtime.LibraryName)]
     internal static partial IntPtr whiteout_textures_BlpWriter_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_textures_BlpWriter_new_pool(IntPtr pool);
 
     [LibraryImport(Runtime.LibraryName)]
     internal static partial void whiteout_textures_BlpWriter_delete(IntPtr self);
@@ -317,6 +409,9 @@ internal static partial class NativeMethods
     internal static partial IntPtr whiteout_textures_JpegParser_new();
 
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_textures_JpegParser_new_pool(IntPtr pool);
+
+    [LibraryImport(Runtime.LibraryName)]
     internal static partial void whiteout_textures_JpegParser_delete(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
@@ -337,6 +432,9 @@ internal static partial class NativeMethods
 
     [LibraryImport(Runtime.LibraryName)]
     internal static partial IntPtr whiteout_textures_JpegWriter_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_textures_JpegWriter_new_quality_pool_progressive(int quality, IntPtr pool, int progressive);
 
     [LibraryImport(Runtime.LibraryName)]
     internal static partial void whiteout_textures_JpegWriter_delete(IntPtr self);
@@ -399,6 +497,93 @@ internal static partial class NativeMethods
 
     [LibraryImport(Runtime.LibraryName)]
     internal static partial Whiteout.Common.NativeCString whiteout_textures_DdsWriter_getIssues_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_textures_TexParser_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_textures_TexParser_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_textures_TexParser_parse(IntPtr self, [MarshalAs(UnmanagedType.LPUTF8Str)] string filePath);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_textures_TexParser_parse_buffer(IntPtr self, ReadOnlySpan<byte> buffer, nuint buffer_size);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_textures_TexParser_parse_texFilePath_payloadFilePath(IntPtr self, [MarshalAs(UnmanagedType.LPUTF8Str)] string texFilePath, [MarshalAs(UnmanagedType.LPUTF8Str)] string payloadFilePath);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_textures_TexParser_parse_texData_payloadData(IntPtr self, ReadOnlySpan<byte> texData, nuint texData_size, ReadOnlySpan<byte> payloadData, nuint payloadData_size);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_textures_TexParser_parse_texFilePath_hiResPayloadFilePath_lowResPayloadFilePath(IntPtr self, [MarshalAs(UnmanagedType.LPUTF8Str)] string texFilePath, [MarshalAs(UnmanagedType.LPUTF8Str)] string hiResPayloadFilePath, [MarshalAs(UnmanagedType.LPUTF8Str)] string lowResPayloadFilePath);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    [return: MarshalAs(UnmanagedType.I4)]
+    internal static partial int whiteout_textures_TexParser_hasIssues(IntPtr self);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_textures_TexParser_getIssues_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial Whiteout.Common.NativeCString whiteout_textures_TexParser_getIssues_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_textures_D2rTextureParser_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_textures_D2rTextureParser_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_textures_D2rTextureParser_parse(IntPtr self, ReadOnlySpan<byte> buffer, nuint buffer_size);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    [return: MarshalAs(UnmanagedType.I4)]
+    internal static partial int whiteout_textures_D2rTextureParser_detect(IntPtr self, ReadOnlySpan<byte> buffer, nuint buffer_size);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    [return: MarshalAs(UnmanagedType.I4)]
+    internal static partial int whiteout_textures_D2rTextureParser_hasIssues(IntPtr self);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_textures_D2rTextureParser_getIssues_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial Whiteout.Common.NativeCString whiteout_textures_D2rTextureParser_getIssues_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_textures_D2rTextureWriter_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_textures_D2rTextureWriter_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial Whiteout.Common.NativeBytes whiteout_textures_D2rTextureWriter_write(IntPtr self, IntPtr texture);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    [return: MarshalAs(UnmanagedType.I4)]
+    internal static partial int whiteout_textures_D2rTextureWriter_hasIssues(IntPtr self);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_textures_D2rTextureWriter_getIssues_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial Whiteout.Common.NativeCString whiteout_textures_D2rTextureWriter_getIssues_at(IntPtr self, nuint index);
 
 
     [LibraryImport(Runtime.LibraryName)]
@@ -576,6 +761,9 @@ internal static partial class NativeMethods
 
     [LibraryImport(Runtime.LibraryName)]
     internal static partial IntPtr whiteout_textures_GifWriter_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_textures_GifWriter_new_pool(IntPtr pool);
 
     [LibraryImport(Runtime.LibraryName)]
     internal static partial void whiteout_textures_GifWriter_delete(IntPtr self);

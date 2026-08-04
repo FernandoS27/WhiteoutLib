@@ -164,6 +164,12 @@ class BindClass:
     cpp_qualifier: str       # "Layer", "Layer::SubTexture"
     js_name: str             # "MdxLayer", "MdxLayerSubTexture"
     is_value_object: bool = False
+    # `@bind record`: a small POD returned in bulk (CASC FindEntry from
+    # listEntries). The C ABI hands out no handle for these — a
+    # `vector<record>` return is lowered to a snapshot plus per-field index
+    # accessors, so N entries cost one native allocation rather than N
+    # handles. Implies is_value_object for the value-binding backends.
+    is_record: bool = False
     fields: list[BindField] = field(default_factory=list)
     methods: list[BindMethod] = field(default_factory=list)
     constructors: list[BindConstructor] = field(default_factory=list)

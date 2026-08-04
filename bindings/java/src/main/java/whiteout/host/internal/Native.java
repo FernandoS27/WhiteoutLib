@@ -32,6 +32,8 @@ public final class Native {
         "whiteout_host_CascFileSystem_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_host_CascFileSystem_readFile = find(
         "whiteout_host_CascFileSystem_readFile", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_host_CascFileSystem_reserveFileId = find(
+        "whiteout_host_CascFileSystem_reserveFileId", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_host_CascFileSystem_writeFile = find(
         "whiteout_host_CascFileSystem_writeFile", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_host_CascFileSystem_fileExists = find(

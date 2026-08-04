@@ -561,8 +561,10 @@ def emit_header(module: BindModule) -> str:
     # handle + field accessors at the C ABI; the value-vs-pointer
     # distinction only matters to JS/Python's value-binding backends.
     # Shared math types (Vector*, Quaternion) live in the common TU.
+    # `@bind record` types are reached through their owning method's
+    # snapshot accessors, so they get no handle of their own.
     classes = [c for c in module.classes
-               if c.cpp_qualifier not in _SHARED_MATH_TYPES]
+               if c.cpp_qualifier not in _SHARED_MATH_TYPES and not c.is_record]
     if classes:
         buf.write('/* ── Opaque handles ───────────────────────────────────────── */\n\n')
         for c in classes:
@@ -614,6 +616,9 @@ def _emit_class_header(buf: StringIO, c: BindClass, prefix: str,
                           'query per index. */\n')
                 buf.write(f'struct whiteout_StringList* {prefix}_{short_c}_{m.name}'
                           f'(const whiteout_{short_c}* self);\n')
+            continue
+        if _is_vector_record_return(m, module):
+            _emit_record_vector_decls(buf, m, c, prefix, module)
             continue
         _emit_method_decl(buf, m, c, prefix, module)
 
@@ -1067,6 +1072,9 @@ def _is_return_supported(ret: TypeRef, module: BindModule) -> bool:
         # (one method becomes two C functions). See `_is_vector_string_return`.
         if ret.element.kind == TypeKind.STRING:
             return True
+        # std::vector<record> — snapshot + per-field index accessors.
+        if _find_record_class(module, ret.element.cpp_text) is not None:
+            return True
         return False
     if ret.kind == TypeKind.OPTIONAL:
         if _ARRAY_RE.fullmatch(ret.element.cpp_text.strip()):
@@ -1118,6 +1126,11 @@ def _handle_list_return(m: BindMethod, module: BindModule) -> str | None:
     if elem.cpp_text.startswith('std::'):
         return None
     if _c_handle_name(elem.cpp_text) not in _known_class_short_names(module):
+        return None
+    # `@bind record` elements have no handle to hand out — they go through
+    # the snapshot lowering instead. Excluding them here keeps every
+    # consumer of this helper (including emit_rust) off the handle path.
+    if _find_record_class(module, elem.cpp_text) is not None:
         return None
     return elem.cpp_text
 
@@ -1225,6 +1238,119 @@ def _emit_vector_string_defs(buf: StringIO, m: BindMethod, c: BindClass,
     buf.write(f'    const auto& __v = {cast}->{m.cpp_name}();\n')
     buf.write(f'    if (index >= __v.size()) return emptyCString();\n')
     buf.write(f'    return wrapCString(std::string(__v[index]));\n')
+    buf.write('}\n\n')
+
+
+# ── vector<record> returns ────────────────────────────────────────────────
+#
+# A method returning `std::vector<R>` for a `@bind record` type R is lowered
+# to a snapshot handle (materialised once) + per-field index accessors +
+# free, so the managed side can build a list of immutable values in O(n)
+# without a native handle per element. Mirrors the value-object field
+# accessors, but keyed on the snapshot rather than on `self`.
+
+
+def _find_record_class(module: BindModule, cpp_text: str) -> BindClass | None:
+    short = cpp_text.split('::')[-1].strip()
+    for c in module.classes:
+        if c.is_record and (c.cpp_qualifier.split('::')[-1] == short
+                            or c.js_name == short
+                            or _c_handle_name(c.js_name) == short):
+            return c
+    return None
+
+
+def _is_vector_record_return(m: BindMethod, module: BindModule) -> bool:
+    r = m.return_type
+    return (r.kind == TypeKind.VECTOR and r.element is not None
+            and _find_record_class(module, r.element.cpp_text) is not None)
+
+
+def _record_field_c_ret(f: BindField) -> str | None:
+    """C return type for a record field's snapshot accessor, or None when the
+    field kind isn't representable in a record."""
+    t = f.type
+    if t.kind == TypeKind.PRIMITIVE:
+        return _C_PRIMITIVE.get(_short_name(t.cpp_text), 'int32_t')
+    if t.kind == TypeKind.ENUM:
+        return 'int32_t'
+    if t.kind == TypeKind.STRING:
+        return 'whiteout_CString'
+    if t.kind == TypeKind.ARRAY and t.element is not None \
+            and t.element.kind == TypeKind.PRIMITIVE \
+            and _short_name(t.element.cpp_text) in ('u8', 'unsigned char'):
+        return 'whiteout_Bytes'
+    return None
+
+
+def _record_fields(rec: BindClass) -> list[BindField]:
+    return [f for f in rec.fields if _record_field_c_ret(f) is not None]
+
+
+def _emit_record_vector_decls(buf: StringIO, m: BindMethod, c: BindClass,
+                              prefix: str, module: BindModule) -> None:
+    rec = _find_record_class(module, m.return_type.element.cpp_text)
+    short = _c_handle_name(c.js_name)
+    self_q = (f'const whiteout_{short}* self' if m.is_const
+              else f'whiteout_{short}* self')
+    if m.doc:
+        for line in m.doc.splitlines():
+            buf.write(f'/* {line} */\n')
+    buf.write('/* Materialises the whole list once; the snapshot is queried by\n'
+              ' * index and must be released with _free. */\n')
+    buf.write(f'void* {prefix}_{short}_{m.name}_snapshot({self_q});\n')
+    buf.write(f'size_t {prefix}_{short}_{m.name}_count(void* snapshot);\n')
+    for f in _record_fields(rec):
+        buf.write(f'{_record_field_c_ret(f)} {prefix}_{short}_{m.name}_{f.name}_at'
+                  f'(void* snapshot, size_t index);\n')
+    buf.write(f'void {prefix}_{short}_{m.name}_free(void* snapshot);\n')
+
+
+def _emit_record_vector_defs(buf: StringIO, m: BindMethod, c: BindClass,
+                             cpp_qual: str, prefix: str,
+                             module: BindModule) -> None:
+    rec = _find_record_class(module, m.return_type.element.cpp_text)
+    elem = rec.cpp_qualifier
+    if '::' not in elem and module.cpp_namespace:
+        elem = f'{module.cpp_namespace}::{elem}'
+    short = _c_handle_name(c.js_name)
+    vec_t = f'std::vector<{elem}>'
+    self_q = (f'const whiteout_{short}* self' if m.is_const
+              else f'whiteout_{short}* self')
+    self_cast = (f'reinterpret_cast<const {cpp_qual}*>(self)' if m.is_const
+                 else f'reinterpret_cast<{cpp_qual}*>(self)')
+
+    buf.write(f'void* {prefix}_{short}_{m.name}_snapshot({self_q}) {{\n')
+    buf.write(f'    return new {vec_t}({self_cast}->{m.cpp_name}());\n')
+    buf.write('}\n\n')
+
+    buf.write(f'size_t {prefix}_{short}_{m.name}_count(void* snapshot) {{\n')
+    buf.write(f'    return snapshot ? reinterpret_cast<{vec_t}*>(snapshot)->size() : 0;\n')
+    buf.write('}\n\n')
+
+    for f in _record_fields(rec):
+        ct = _record_field_c_ret(f)
+        buf.write(f'{ct} {prefix}_{short}_{m.name}_{f.name}_at'
+                  f'(void* snapshot, size_t index) {{\n')
+        buf.write(f'    auto* __v = reinterpret_cast<{vec_t}*>(snapshot);\n')
+        t = f.type
+        if t.kind == TypeKind.STRING:
+            buf.write('    if (!__v || index >= __v->size()) return emptyCString();\n')
+            buf.write(f'    return wrapCString(std::string((*__v)[index].{f.cpp_name}));\n')
+        elif t.kind == TypeKind.ARRAY:
+            buf.write('    if (!__v || index >= __v->size()) return emptyBytes();\n')
+            buf.write(f'    const auto& __a = (*__v)[index].{f.cpp_name};\n')
+            buf.write('    return wrapBytes(std::vector<whiteout::u8>(__a.begin(), __a.end()));\n')
+        elif t.kind == TypeKind.ENUM:
+            buf.write('    if (!__v || index >= __v->size()) return 0;\n')
+            buf.write(f'    return static_cast<int32_t>((*__v)[index].{f.cpp_name});\n')
+        else:
+            buf.write('    if (!__v || index >= __v->size()) return 0;\n')
+            buf.write(f'    return (*__v)[index].{f.cpp_name};\n')
+        buf.write('}\n\n')
+
+    buf.write(f'void {prefix}_{short}_{m.name}_free(void* snapshot) {{\n')
+    buf.write(f'    delete reinterpret_cast<{vec_t}*>(snapshot);\n')
     buf.write('}\n\n')
 
 
@@ -1672,8 +1798,10 @@ void {prefix}_{lh}List_delete(whiteout_{lh}List* self) {{
     # handle + field accessors at the C ABI; the value-vs-pointer
     # distinction only matters to JS/Python's value-binding backends.
     # Shared math types (Vector*, Quaternion) live in the common TU.
+    # `@bind record` types are reached through their owning method's
+    # snapshot accessors, so they get no handle of their own.
     classes = [c for c in module.classes
-               if c.cpp_qualifier not in _SHARED_MATH_TYPES]
+               if c.cpp_qualifier not in _SHARED_MATH_TYPES and not c.is_record]
     for c in classes:
         _emit_class_source(buf, c, prefix, module)
 
@@ -1751,6 +1879,9 @@ struct whiteout_StringList* {prefix}_{short_c}_{m.name}(const whiteout_{short_c}
             reinterpret_cast<const {cpp_qual}*>(self)->{m.cpp_name}()));
 }}
 ''')
+            continue
+        if _is_vector_record_return(m, module):
+            _emit_record_vector_defs(buf, m, c, cpp_qual, prefix, module)
             continue
         _emit_method_source(buf, m, c, cpp_qual, prefix, module)
 

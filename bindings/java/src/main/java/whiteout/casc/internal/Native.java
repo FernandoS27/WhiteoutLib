@@ -19,6 +19,13 @@ public final class Native {
         return NativeCommon.find(name, fd);
     }
 
+    public static final MethodHandle whiteout_casc_StringList_size = find(
+        "whiteout_casc_StringList_size", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_casc_StringList_at = find(
+        "whiteout_casc_StringList_at", FunctionDescriptor.of(CSTRING_LAYOUT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_casc_StringList_delete = find(
+        "whiteout_casc_StringList_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+
     // -- CascCreateOptions --
     public static final MethodHandle whiteout_casc_CascCreateOptions_new = find(
         "whiteout_casc_CascCreateOptions_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
@@ -76,12 +83,42 @@ public final class Native {
         "whiteout_casc_CascStorage_fileExists", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_casc_CascStorage_fileExists_fileId_hint = find(
         "whiteout_casc_CascStorage_fileExists_fileId_hint", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_casc_CascStorage_fileSize = find(
+        "whiteout_casc_CascStorage_fileSize", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_casc_CascStorage_fileSize_fileId_hint = find(
+        "whiteout_casc_CascStorage_fileSize_fileId_hint", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_casc_CascStorage_listFiles_count = find(
+        "whiteout_casc_CascStorage_listFiles_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_casc_CascStorage_listFiles_at = find(
+        "whiteout_casc_CascStorage_listFiles_at", FunctionDescriptor.of(CSTRING_LAYOUT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_casc_CascStorage_listFiles = find(
-        "whiteout_casc_CascStorage_listFiles", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
+        "whiteout_casc_CascStorage_listFiles", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_casc_CascStorage_listEntries_snapshot = find(
+        "whiteout_casc_CascStorage_listEntries_snapshot", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_casc_CascStorage_listEntries_count = find(
+        "whiteout_casc_CascStorage_listEntries_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_casc_CascStorage_listEntries_cKey_at = find(
+        "whiteout_casc_CascStorage_listEntries_cKey_at", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_casc_CascStorage_listEntries_fileSize_at = find(
+        "whiteout_casc_CascStorage_listEntries_fileSize_at", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_casc_CascStorage_listEntries_localeFlags_at = find(
+        "whiteout_casc_CascStorage_listEntries_localeFlags_at", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_casc_CascStorage_listEntries_contentFlags_at = find(
+        "whiteout_casc_CascStorage_listEntries_contentFlags_at", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_casc_CascStorage_listEntries_fileDataId_at = find(
+        "whiteout_casc_CascStorage_listEntries_fileDataId_at", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_casc_CascStorage_listEntries_path_at = find(
+        "whiteout_casc_CascStorage_listEntries_path_at", FunctionDescriptor.of(CSTRING_LAYOUT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_casc_CascStorage_listEntries_free = find(
+        "whiteout_casc_CascStorage_listEntries_free", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_casc_CascStorage_totalFileCount = find(
+        "whiteout_casc_CascStorage_totalFileCount", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_casc_CascStorage_importKeysFromString = find(
         "whiteout_casc_CascStorage_importKeysFromString", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_casc_CascStorage_importKeysFromFile = find(
         "whiteout_casc_CascStorage_importKeysFromFile", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_casc_CascStorage_findEncryptionKey = find(
+        "whiteout_casc_CascStorage_findEncryptionKey", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_casc_CascStorage_flushCache = find(
         "whiteout_casc_CascStorage_flushCache", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_casc_CascStorage_prefetch = find(
@@ -94,6 +131,8 @@ public final class Native {
         "whiteout_casc_CascStorageWritable_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_casc_CascStorageWritable_create = find(
         "whiteout_casc_CascStorageWritable_create", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_casc_CascStorageWritable_reserveFileId = find(
+        "whiteout_casc_CascStorageWritable_reserveFileId", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_casc_CascStorageWritable_writeFile = find(
         "whiteout_casc_CascStorageWritable_writeFile", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_casc_CascStorageWritable_writeFile_fileId_data_opts_hint = find(

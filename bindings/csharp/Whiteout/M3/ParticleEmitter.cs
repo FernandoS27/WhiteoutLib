@@ -444,7 +444,7 @@ public sealed class ParticleEmitter : WhiteoutHandle
     }
 
 
-    /// <summary>Visual type</summary>
+    /// <summary>Visual type → shader b_iInstanceType</summary>
     public ParticleInstanceType InstanceType
     {
         get => (ParticleInstanceType)NativeMethods.whiteout_m3_M3ParticleEmitter_get_instanceType(DangerousGet());
@@ -580,7 +580,6 @@ public sealed class ParticleEmitter : WhiteoutHandle
     }
 
 
-    /// <summary>Color interpolation mode</summary>
     public InterpolationMode ColorSmoothing
     {
         get => (InterpolationMode)NativeMethods.whiteout_m3_M3ParticleEmitter_get_colorSmoothing(DangerousGet());
@@ -588,7 +587,6 @@ public sealed class ParticleEmitter : WhiteoutHandle
     }
 
 
-    /// <summary>Size interpolation mode</summary>
     public InterpolationMode SizeSmoothing
     {
         get => (InterpolationMode)NativeMethods.whiteout_m3_M3ParticleEmitter_get_sizeSmoothing(DangerousGet());

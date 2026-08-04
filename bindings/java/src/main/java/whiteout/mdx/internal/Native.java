@@ -711,8 +711,10 @@ public final class Native {
         "whiteout_mdx_MdxParser_parse_buffer_format", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_mdx_MdxParser_hasIssues = find(
         "whiteout_mdx_MdxParser_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_mdx_MdxParser_getIssues = find(
-        "whiteout_mdx_MdxParser_getIssues", FunctionDescriptor.of(BYTES_LAYOUT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxParser_getIssues_count = find(
+        "whiteout_mdx_MdxParser_getIssues_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_mdx_MdxParser_getIssues_at = find(
+        "whiteout_mdx_MdxParser_getIssues_at", FunctionDescriptor.of(CSTRING_LAYOUT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
 
     // -- MdxWriter --
     public static final MethodHandle whiteout_mdx_MdxWriter_new = find(

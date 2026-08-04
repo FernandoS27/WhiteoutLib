@@ -33,6 +33,9 @@
 #include <whiteout/textures/jpeg/writer.h>
 #include <whiteout/textures/dds/parser.h>
 #include <whiteout/textures/dds/writer.h>
+#include <whiteout/textures/tex/parser.h>
+#include <whiteout/textures/d2r_texture/parser.h>
+#include <whiteout/textures/d2r_texture/writer.h>
 #include <whiteout/textures/bmp/parser.h>
 #include <whiteout/textures/bmp/writer.h>
 #include <whiteout/textures/tga/parser.h>
@@ -84,6 +87,28 @@ EMSCRIPTEN_BINDINGS(textures) {
         .value("BC6H", whiteout::textures::PixelFormat::BC6H)
         .value("BC7", whiteout::textures::PixelFormat::BC7);
 
+    enum_<whiteout::textures::TextureKind>("TextureKind")
+        .value("Other", whiteout::textures::TextureKind::Other)
+        .value("Diffuse", whiteout::textures::TextureKind::Diffuse)
+        .value("Normal", whiteout::textures::TextureKind::Normal)
+        .value("Specular", whiteout::textures::TextureKind::Specular)
+        .value("ORM", whiteout::textures::TextureKind::ORM)
+        .value("Albedo", whiteout::textures::TextureKind::Albedo)
+        .value("Roughness", whiteout::textures::TextureKind::Roughness)
+        .value("Metalness", whiteout::textures::TextureKind::Metalness)
+        .value("AmbientOcclusion", whiteout::textures::TextureKind::AmbientOcclusion)
+        .value("Gloss", whiteout::textures::TextureKind::Gloss)
+        .value("Emissive", whiteout::textures::TextureKind::Emissive)
+        .value("AlphaMask", whiteout::textures::TextureKind::AlphaMask)
+        .value("BinaryMask", whiteout::textures::TextureKind::BinaryMask)
+        .value("TransparencyMask", whiteout::textures::TextureKind::TransparencyMask)
+        .value("BlendMask", whiteout::textures::TextureKind::BlendMask)
+        .value("Lightmap", whiteout::textures::TextureKind::Lightmap)
+        .value("EnvironmentPBR", whiteout::textures::TextureKind::EnvironmentPBR)
+        .value("EnvironmentLegacy", whiteout::textures::TextureKind::EnvironmentLegacy)
+        .value("Multikind", whiteout::textures::TextureKind::Multikind)
+        .value("Unused", whiteout::textures::TextureKind::Unused);
+
     enum_<whiteout::textures::TextureType>("TextureType")
         .value("Texture2D", whiteout::textures::TextureType::Texture2D)
         .value("Texture3D", whiteout::textures::TextureType::Texture3D)
@@ -91,7 +116,21 @@ EMSCRIPTEN_BINDINGS(textures) {
         .value("Texture2DArray", whiteout::textures::TextureType::Texture2DArray)
         .value("TextureCubeArray", whiteout::textures::TextureType::TextureCubeArray);
 
+    enum_<whiteout::textures::Channel>("Channel")
+        .value("R", whiteout::textures::Channel::R)
+        .value("G", whiteout::textures::Channel::G)
+        .value("B", whiteout::textures::Channel::B)
+        .value("A", whiteout::textures::Channel::A);
+
     // ── Value-object types (plain JS objects) ────────────────────────────
+    value_object<whiteout::textures::MipLevel>("MipLevel")
+        .field("width", &whiteout::textures::MipLevel::width)
+        .field("height", &whiteout::textures::MipLevel::height)
+        .field("depth", &whiteout::textures::MipLevel::depth)
+        .field("offset", &whiteout::textures::MipLevel::offset)
+        .field("size", &whiteout::textures::MipLevel::size)
+    ;
+
     value_object<whiteout::textures::png::ApngFrameInfo>("PngApngFrameInfo")
         .field("width", &whiteout::textures::png::ApngFrameInfo::width)
         .field("height", &whiteout::textures::png::ApngFrameInfo::height)
@@ -311,6 +350,86 @@ EMSCRIPTEN_BINDINGS(textures) {
                   }))
         .function("hasIssues", &whiteout::textures::dds::Writer::hasIssues)
         .function("getIssues", &whiteout::textures::dds::Writer::getIssues)
+    ;
+
+    class_<whiteout::textures::tex::Parser>("TexParser")
+        .constructor<>()
+        .function("parse",
+                  optional_override([](
+                      whiteout::textures::tex::Parser& self,
+                      const std::string& filePath) {
+                      return whiteout::wasm::to_optional_ptr<whiteout::textures::Texture>(self.parse(filePath));
+                  }), allow_raw_pointers())
+        .function("parse_buffer",
+                  optional_override([](
+                      whiteout::textures::tex::Parser& self,
+                      const emscripten::val& __js_arr_0) {
+                      auto __vec_0 = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_arr_0);
+                      std::span<const whiteout::u8> buffer(__vec_0.data(), __vec_0.size());
+                      return whiteout::wasm::to_optional_ptr<whiteout::textures::Texture>(self.parse(buffer));
+                  }), allow_raw_pointers())
+        .function("parse_texFilePath_payloadFilePath",
+                  optional_override([](
+                      whiteout::textures::tex::Parser& self,
+                      const std::string& texFilePath,
+                      const std::string& payloadFilePath) {
+                      return whiteout::wasm::to_optional_ptr<whiteout::textures::Texture>(self.parse(texFilePath, payloadFilePath));
+                  }), allow_raw_pointers())
+        .function("parse_texData_payloadData",
+                  optional_override([](
+                      whiteout::textures::tex::Parser& self,
+                      const emscripten::val& __js_arr_0,
+                      const emscripten::val& __js_arr_1) {
+                      auto __vec_0 = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_arr_0);
+                      std::span<const whiteout::u8> texData(__vec_0.data(), __vec_0.size());
+                      auto __vec_1 = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_arr_1);
+                      std::span<const whiteout::u8> payloadData(__vec_1.data(), __vec_1.size());
+                      return whiteout::wasm::to_optional_ptr<whiteout::textures::Texture>(self.parse(texData, payloadData));
+                  }), allow_raw_pointers())
+        .function("parse_texFilePath_hiResPayloadFilePath_lowResPayloadFilePath",
+                  optional_override([](
+                      whiteout::textures::tex::Parser& self,
+                      const std::string& texFilePath,
+                      const std::string& hiResPayloadFilePath,
+                      const std::string& lowResPayloadFilePath) {
+                      return whiteout::wasm::to_optional_ptr<whiteout::textures::Texture>(self.parse(texFilePath, hiResPayloadFilePath, lowResPayloadFilePath));
+                  }), allow_raw_pointers())
+        .function("hasIssues", &whiteout::textures::tex::Parser::hasIssues)
+        .function("getIssues", &whiteout::textures::tex::Parser::getIssues)
+    ;
+
+    class_<whiteout::textures::d2r_texture::Parser>("D2rTextureParser")
+        .constructor<>()
+        .function("parse",
+                  optional_override([](
+                      whiteout::textures::d2r_texture::Parser& self,
+                      const emscripten::val& __js_arr_0) {
+                      auto __vec_0 = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_arr_0);
+                      std::span<const whiteout::u8> buffer(__vec_0.data(), __vec_0.size());
+                      return whiteout::wasm::to_optional_ptr<whiteout::textures::Texture>(self.parse(buffer));
+                  }), allow_raw_pointers())
+        .function("detect",
+                  optional_override([](
+                      whiteout::textures::d2r_texture::Parser& self,
+                      const emscripten::val& __js_arr_0) {
+                      auto __vec_0 = emscripten::convertJSArrayToNumberVector<whiteout::u8>(__js_arr_0);
+                      std::span<const whiteout::u8> buffer(__vec_0.data(), __vec_0.size());
+                      return self.detect(buffer);
+                  }))
+        .function("hasIssues", &whiteout::textures::d2r_texture::Parser::hasIssues)
+        .function("getIssues", &whiteout::textures::d2r_texture::Parser::getIssues)
+    ;
+
+    class_<whiteout::textures::d2r_texture::Writer>("D2rTextureWriter")
+        .constructor<>()
+        .function("write",
+                  optional_override([](
+                      whiteout::textures::d2r_texture::Writer& self,
+                      const whiteout::textures::Texture& texture) {
+                      return self.write(texture);
+                  }))
+        .function("hasIssues", &whiteout::textures::d2r_texture::Writer::hasIssues)
+        .function("getIssues", &whiteout::textures::d2r_texture::Writer::getIssues)
     ;
 
     class_<whiteout::textures::bmp::Parser>("BmpParser")

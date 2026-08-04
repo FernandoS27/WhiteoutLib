@@ -275,17 +275,97 @@ public final class Storage implements AutoCloseable {
     }
 
     /**
-     * @return All known file paths.
+     * @return Uncompressed file size, or std::nullopt if not found.
+     *
+     * @param cascPath String input.
      */
-    public byte[] listFiles() {
+    public Long fileSize(String cascPath) {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_listFiles, arena, handle);
-            MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
-            long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
-            if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
-            byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
-            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
-            return __out;
+            MemorySegment cascPath_seg = cascPath == null
+                ? MemorySegment.NULL
+                : arena.allocateFrom(cascPath, StandardCharsets.UTF_8);
+            MemorySegment __out_value = arena.allocate(ValueLayout.JAVA_LONG);
+            if (((int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_fileSize, handle, cascPath_seg, __out_value)) == 0) return null;
+            return __out_value.get(ValueLayout.JAVA_LONG, 0L);
+        }
+    }
+
+    /**
+     * @overload
+     *
+     * @param fileId int input.
+     * @param hint FileIdHint input.
+     * @return a fresh Long owning a native allocation.
+     */
+    public Long fileSize(int fileId, FileIdHint hint) {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment __out_value = arena.allocate(ValueLayout.JAVA_LONG);
+            if (((int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_fileSize_fileId_hint, handle, fileId, hint.value, __out_value)) == 0) return null;
+            return __out_value.get(ValueLayout.JAVA_LONG, 0L);
+        }
+    }
+
+    /**
+     * @return All known file paths.
+     * @return the strings, materialised in one native call.
+     */
+    public java.util.List<String> listFiles() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment __list = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_listFiles, handle);
+            if (__list == null || __list.equals(MemorySegment.NULL))
+                return java.util.List.of();
+            try {
+                long __n = (long) NativeCommon.invokeNative(Native.whiteout_casc_StringList_size, __list);
+                var __out = new java.util.ArrayList<String>((int) __n);
+                for (long __i = 0; __i < __n; __i++) {
+                    MemorySegment __s = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_casc_StringList_at, arena, __list, __i);
+                    __out.add(NativeCommon.borrowedString(__s));
+                }
+                return __out;
+            } finally {
+                NativeCommon.invokeNative(Native.whiteout_casc_StringList_delete, __list);
+            }
+        }
+    }
+
+    /**
+     * @return All entries with metadata.
+     * @return every entry, materialised in one native call.
+     */
+    public java.util.List<FindEntry> listEntries() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment __snap = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_listEntries_snapshot, handle);
+            if (__snap == null || __snap.equals(MemorySegment.NULL))
+                return java.util.List.of();
+            try {
+                long __n = (long) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_listEntries_count, __snap);
+                var __out = new java.util.ArrayList<FindEntry>((int) __n);
+                for (long __i = 0; __i < __n; __i++) {
+                    MemorySegment __cKey_b = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_listEntries_cKey_at, arena, __snap, __i);
+                    byte[] __cKey = NativeCommon.takeBytes(__cKey_b);
+                    long __fileSize = (long) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_listEntries_fileSize_at, __snap, __i);
+                    int __localeFlags = (int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_listEntries_localeFlags_at, __snap, __i);
+                    int __contentFlags = (int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_listEntries_contentFlags_at, __snap, __i);
+                    int __fileDataId = (int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_listEntries_fileDataId_at, __snap, __i);
+                    MemorySegment __path_s = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_listEntries_path_at, arena, __snap, __i);
+                    String __path = NativeCommon.takeString(__path_s);
+                    __out.add(new FindEntry(__cKey, __fileSize, __localeFlags, __contentFlags, __fileDataId, __path));
+                }
+                return __out;
+            } finally {
+                NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_listEntries_free, __snap);
+            }
+        }
+    }
+
+    /**
+     * @return Total number of files in the root manifest.
+     */
+    public Integer totalFileCount() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment __out_value = arena.allocate(ValueLayout.JAVA_INT);
+            if (((int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_totalFileCount, handle, __out_value)) == 0) return null;
+            return __out_value.get(ValueLayout.JAVA_INT, 0L);
         }
     }
 
@@ -317,6 +397,15 @@ public final class Storage implements AutoCloseable {
                 : arena.allocateFrom(keyFilePath, StandardCharsets.UTF_8);
             return ((int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_importKeysFromFile, handle, keyFilePath_seg)) != 0;
         }
+    }
+
+    /**
+     * @return The encryption key for @p keyName, or std::nullopt if not found.
+     *
+     * @param keyName long input.
+     */
+    public Object findEncryptionKey(long keyName) {
+        return (int) NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_findEncryptionKey, handle, keyName);
     }
 
     /**

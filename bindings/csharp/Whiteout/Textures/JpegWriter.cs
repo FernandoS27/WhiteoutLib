@@ -13,6 +13,8 @@ public sealed class JpegWriter : WhiteoutHandle
 {
     public JpegWriter() : base(NativeMethods.whiteout_textures_JpegWriter_new()) { }
 
+    public JpegWriter(int quality, Whiteout.Host.WorkerPool? pool, bool progressive) : base(NativeMethods.whiteout_textures_JpegWriter_new_quality_pool_progressive(quality, pool?.DangerousGet() ?? IntPtr.Zero, progressive ? 1 : 0)) { }
+
     internal JpegWriter(IntPtr handle, bool owned = true) : base(handle, owned) { }
 
     protected override bool ReleaseHandle()

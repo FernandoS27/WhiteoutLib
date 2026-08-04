@@ -27,6 +27,13 @@ public sealed class StorageWritable : WhiteoutHandle
     }
 
 
+    /// <summary>Reserve a file-data-ID for a named asset.</summary>
+    public uint? ReserveFileId(string name)
+    {
+        return NativeMethods.whiteout_casc_CascStorageWritable_reserveFileId(DangerousGet(), name, out var __v) != 0 ? __v : null;
+    }
+
+
     /// <summary>Write a file by path.</summary>
     public bool WriteFile(string path, ReadOnlySpan<byte> data, WriteOptions opts)
     {

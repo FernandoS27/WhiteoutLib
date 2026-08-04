@@ -182,17 +182,24 @@ public final class Storage implements AutoCloseable {
 
     /**
      * List all known filenames (from listfile + overlay additions − deletions).
-     * @return a fresh byte[] copied out of native memory.
+     * @return the strings, materialised in one native call.
      */
-    public byte[] listFiles() {
+    public java.util.List<String> listFiles() {
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment __struct = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mpq_MpqStorage_listFiles, arena, handle);
-            MemorySegment __data = __struct.get(ValueLayout.ADDRESS, 0);
-            long __size = __struct.get(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS.byteSize());
-            if (__data == null || __data.equals(MemorySegment.NULL)) return new byte[0];
-            byte[] __out = __data.reinterpret(__size).toArray(ValueLayout.JAVA_BYTE);
-            NativeCommon.invokeNative(Native.whiteout_Bytes_free, __struct);
-            return __out;
+            MemorySegment __list = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mpq_MpqStorage_listFiles, handle);
+            if (__list == null || __list.equals(MemorySegment.NULL))
+                return java.util.List.of();
+            try {
+                long __n = (long) NativeCommon.invokeNative(Native.whiteout_mpq_StringList_size, __list);
+                var __out = new java.util.ArrayList<String>((int) __n);
+                for (long __i = 0; __i < __n; __i++) {
+                    MemorySegment __s = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_mpq_StringList_at, arena, __list, __i);
+                    __out.add(NativeCommon.borrowedString(__s));
+                }
+                return __out;
+            } finally {
+                NativeCommon.invokeNative(Native.whiteout_mpq_StringList_delete, __list);
+            }
         }
     }
 

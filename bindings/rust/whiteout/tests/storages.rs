@@ -140,3 +140,166 @@ mod list_files_complexity {
         );
     }
 }
+
+// ── listEntries / readBatch / openOnline ──────────────────────────────────
+//
+// `list_entries` comes through the `@bind record` snapshot lowering;
+// `read_batch` and `open_online` through the hand-written shims in
+// `casc_ext`. A writable storage is created, saved and reopened, so none of
+// this needs a real game install.
+
+#[cfg(feature = "casc")]
+mod casc_ext_tests {
+    use whiteout::casc;
+    use whiteout::casc_ext::BatchReadRequest;
+
+    /// CASC stores paths with backslash separators.
+    fn normalize(path: &str) -> String {
+        path.replace('/', "\\")
+    }
+
+    fn make_data(size: usize, seed: u8) -> Vec<u8> {
+        (0..size).map(|i| (i as u8).wrapping_add(seed)).collect()
+    }
+
+    struct TempDir(std::path::PathBuf);
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Build a storage holding three files and reopen it from disk.
+    fn round_tripped(tag: &str) -> Option<(casc::Storage, Vec<(String, Vec<u8>)>, TempDir)> {
+        let dir = std::env::temp_dir().join(format!("whiteout-casc-rs-{tag}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        let guard = TempDir(dir.clone());
+
+        let written = vec![
+            ("dir/file1.txt".to_string(), make_data(1024, 0x11)),
+            ("dir/file2.bin".to_string(), make_data(65536, 0x22)),
+            ("tiny.dat".to_string(), make_data(1, 0x33)),
+        ];
+
+        let mut opts = casc::CreateOptions::new();
+        opts.set_product("test");
+        opts.set_version("1.0.0");
+        let mut writable = casc::StorageWritable::create(&opts, None)?;
+
+        let write_opts = casc::WriteOptions::default();
+        for (path, data) in &written {
+            if !writable.write_file(path, data, &write_opts) {
+                return None;
+            }
+        }
+        if !writable.save_path(dir.to_str()?) {
+            return None;
+        }
+        drop(writable);
+
+        let storage = casc::Storage::open(dir.to_str()?, None)?;
+        Some((storage, written, guard))
+    }
+
+    #[test]
+    fn list_entries_reports_metadata_for_every_written_file() {
+        let Some((storage, written, _guard)) = round_tripped("entries") else {
+            eprintln!("skipping: CASC create/save unsupported in this build");
+            return;
+        };
+
+        let entries = storage.list_entries();
+        assert!(!entries.is_empty());
+
+        for (path, data) in &written {
+            let want = normalize(path);
+            let entry = entries
+                .iter()
+                .find(|e| e.path.eq_ignore_ascii_case(&want))
+                .unwrap_or_else(|| panic!("no entry for {want}"));
+            assert_eq!(entry.file_size, data.len() as u64);
+            // Root-manifest entries carry the truncated content key
+            // zero-padded to 16, so only the width is guaranteed.
+            assert_eq!(entry.c_key.len(), 16);
+            assert!(entry.c_key.iter().any(|&b| b != 0));
+        }
+    }
+
+    #[test]
+    fn read_batch_reads_every_requested_file_in_order() {
+        let Some((storage, written, _guard)) = round_tripped("batch") else {
+            eprintln!("skipping: CASC create/save unsupported in this build");
+            return;
+        };
+
+        let requests: Vec<_> = written
+            .iter()
+            .map(|(p, _)| BatchReadRequest::path(p.clone()))
+            .collect();
+        let results = storage.read_batch(&requests);
+
+        assert_eq!(results.len(), written.len());
+        for (result, (path, data)) in results.iter().zip(&written) {
+            assert!(result.is_ok(), "batch read failed for {path}: {}", result.error);
+            assert_eq!(result.data.as_deref(), Some(data.as_slice()));
+        }
+    }
+
+    #[test]
+    fn read_batch_reports_per_file_failure_without_affecting_the_others() {
+        let Some((storage, written, _guard)) = round_tripped("batchfail") else {
+            eprintln!("skipping: CASC create/save unsupported in this build");
+            return;
+        };
+
+        let results = storage.read_batch(&[
+            BatchReadRequest::path("tiny.dat"),
+            BatchReadRequest::path("does/not/exist.bin"),
+            BatchReadRequest::path("dir/file1.txt"),
+        ]);
+
+        assert_eq!(results.len(), 3);
+        assert!(results[0].is_ok());
+        assert_eq!(results[0].data.as_deref(), Some(written[2].1.as_slice()));
+        assert!(!results[1].is_ok());
+        assert!(results[2].is_ok());
+        assert_eq!(results[2].data.as_deref(), Some(written[0].1.as_slice()));
+    }
+
+    #[test]
+    fn read_batch_of_nothing_returns_nothing() {
+        let Some((storage, _written, _guard)) = round_tripped("batchempty") else {
+            eprintln!("skipping: CASC create/save unsupported in this build");
+            return;
+        };
+        assert!(storage.read_batch(&[]).is_empty());
+    }
+
+    #[test]
+    fn optional_scalar_returns_map_to_option() {
+        let Some((storage, written, _guard)) = round_tripped("optional") else {
+            eprintln!("skipping: CASC create/save unsupported in this build");
+            return;
+        };
+        assert_eq!(storage.file_size("tiny.dat"), Some(written[2].1.len() as u64));
+        assert_eq!(storage.file_size("does/not/exist.bin"), None);
+    }
+
+    #[test]
+    fn open_online_without_a_reachable_cdn_reports_absence() {
+        // No network in CI: the point is that the shim links, marshals its
+        // arguments, and reports failure as None rather than panicking.
+        let http = whiteout::host::SimpleHttpHandler::new();
+        let storage = casc::Storage::open_online(
+            "definitely-not-a-product",
+            "us",
+            &http,
+            None,
+            None,
+            0,
+            None,
+        );
+        assert!(storage.is_none());
+    }
+}

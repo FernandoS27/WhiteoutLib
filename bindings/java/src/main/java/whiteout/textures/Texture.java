@@ -105,6 +105,97 @@ public final class Texture implements AutoCloseable {
     }
 
     /**
+     * Swap two channels in-place across all mip levels and array layers.
+     * 
+     * Operates directly on the stored pixel data without any intermediate copy. Supports all uncompressed PixelFormats (R*, RG*, RGBA*).
+     * 
+     * Failure conditions (returns false): - The texture uses a BCn block-compressed format. - Either channel is not present in the current pixel format (e.g. Channel::B on an RG8 texture).
+     * 
+     * @param a First channel to swap. @param b Second channel to swap. @return true on success (including when @p a == @p b, which is a no-op), false when the operation is not valid for this texture.
+     *
+     * @param b Channel input.
+     */
+    public boolean swapChannels(Channel a, Channel b) {
+        return ((int) NativeCommon.invokeNative(Native.whiteout_textures_Texture_swapChannels, handle, a.value, b.value)) != 0;
+    }
+
+    /**
+     * Invert a single channel in-place across all mip levels and array layers.
+     * 
+     * Each sample value @c v is replaced with @c max_value - v, where @c max_value is the maximum representable value for the channel's underlying type (255 for u8, 65535 for u16, 1.0 for f32).
+     * 
+     * Operates directly on the stored pixel data without any intermediate copy. Supports all uncompressed PixelFormats (R*, RG*, RGBA*).
+     * 
+     * Failure conditions (returns false): - The texture uses a BCn block-compressed format. - The requested channel is not present in the current pixel format (e.g. Channel::B on an RG8 texture).
+     * 
+     * @param ch Channel to invert. @return true on success, false when the operation is not valid for this texture.
+     */
+    public boolean invertChannel(Channel ch) {
+        return ((int) NativeCommon.invokeNative(Native.whiteout_textures_Texture_invertChannel, handle, ch.value)) != 0;
+    }
+
+    /**
+     * Reconstruct the Z component of a tangent-space normal map in-place.
+     * 
+     * Interprets channels @p a and @p b as the packed X and Y components of a unit normal vector, computes Z = sqrt(max(0, 1 - x² - y²)), and writes the result back to channel @p c.
+     * 
+     * Channel values are decoded from the UNORM [0, 1] storage convention to the signed [-1, 1] range before the computation (i.e. x = 2v - 1), and the reconstructed Z is re-encoded as (z + 1) / 2 before being written. This matches the encoding used by all other normal-map utilities in the library.
+     * 
+     * Operates directly on the stored pixel data without any intermediate copy. Supports all uncompressed PixelFormats (R*, RG*, RGBA*).
+     * 
+     * Failure conditions (returns false): - The texture uses a BCn block-compressed format. - Any of the three channel indices is not present in the current pixel format (e.g. Channel::B on an RG8 texture).
+     * 
+     * @param xChannel Channel storing the packed X component (source, read-only). @param yChannel Channel storing the packed Y component (source, read-only). @param zChannel Channel to receive the reconstructed Z component (write target). @return true on success, false when the operation is not valid for this texture.
+     *
+     * @param yChannel Channel input.
+     * @param zChannel Channel input.
+     */
+    public boolean expandNormal(Channel xChannel, Channel yChannel, Channel zChannel) {
+        return ((int) NativeCommon.invokeNative(Native.whiteout_textures_Texture_expandNormal, handle, xChannel.value, yChannel.value, zChannel.value)) != 0;
+    }
+
+    /**
+     * Fill a single channel with a constant value across all mip levels and array layers.
+     * 
+     * The floating-point value is quantised to the channel's underlying type (clamped to [0, 255] for u8, [0, 65535] for u16, stored directly for f32).
+     * 
+     * Returns false for BCn formats or if the channel index exceeds the format's channel count.
+     * 
+     * @param target Channel to fill. @param value  Value to write (interpreted as [0, 1] for integer formats). @return true on success, false when the operation is not valid.
+     *
+     * @param value float input.
+     */
+    public boolean fillChannel(Channel target, float value) {
+        return ((int) NativeCommon.invokeNative(Native.whiteout_textures_Texture_fillChannel, handle, target.value, value)) != 0;
+    }
+
+    /**
+     * Merge single-channel textures into one multi-channel texture.
+     * 
+     * Each source texture is written into the corresponding target channel of a new RGBA-width texture whose bit depth matches the sources (RGBA8, RGBA16, or RGBA32F).  All sources must share the same format, dimensions, mip count, and texture type.  Channels not covered by the input list are zero-filled.
+     * 
+     * @param sources          Single-channel textures to combine. @param targetChannels   Destination channel for each source (same length as @p sources). @return The combined RGBA texture, or std::nullopt on failure.
+     *
+     * @param targetChannels byte[] input.
+     */
+    public static java.util.Optional<Texture> mergeChannels(Texture[] sources, byte[] targetChannels) {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment sources_seg = sources == null || sources.length == 0
+                ? MemorySegment.NULL
+                : arena.allocate(ValueLayout.ADDRESS, sources.length);
+            if (sources != null) {
+                for (int __i = 0; __i < sources.length; ++__i) {
+                    sources_seg.setAtIndex(ValueLayout.ADDRESS, __i,
+                        sources[__i] == null ? MemorySegment.NULL : sources[__i].handle);
+                }
+            }
+            MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_Texture_mergeChannels, sources_seg, (long) (sources == null ? 0 : sources.length), targetChannels);
+            if (__h == null || __h.equals(MemorySegment.NULL)) return java.util.Optional.empty();
+            return java.util.Optional.of(new Texture(__h, true));
+        }
+    }
+
+    /**
      * Return a copy of a 2-channel normal map expanded to RGBA8.
      * 
      * Only supported for textures whose kind() is TextureKind::Normal and whose format is RG8, RG16, RG32F, or BC5. The returned texture keeps the original shape, mip chain, kind, and sRGB flag, but stores data as RGBA8 with Z reconstructed from the packed X/Y normal in R/G.
@@ -298,6 +389,68 @@ public final class Texture implements AutoCloseable {
     }
 
     /**
+     * @return The semantic kind of this texture.
+     */
+    public TextureKind kind() {
+        return TextureKind.fromInt((int) NativeCommon.invokeNative(Native.whiteout_textures_Texture_kind, handle));
+    }
+
+    /**
+     * Set the semantic kind of this texture. @note TextureKind::Unused is not valid as a top-level kind; use setChannelKind() on a Multikind texture for per-channel Unused.
+     *
+     * @param k TextureKind input.
+     */
+    public void setKind(TextureKind k) {
+        NativeCommon.invokeNative(Native.whiteout_textures_Texture_setKind, handle, k.value);
+    }
+
+    /**
+     * @return The per-channel kind for channel @p ch.
+     * 
+     * Only meaningful when kind() == TextureKind::Multikind. Returns TextureKind::Other by default for all other kinds. @param ch Channel to query (R/G/B/A).
+     *
+     * @param ch Channel input.
+     */
+    public TextureKind channelKind(Channel ch) {
+        return TextureKind.fromInt((int) NativeCommon.invokeNative(Native.whiteout_textures_Texture_channelKind, handle, ch.value));
+    }
+
+    /**
+     * Set the per-channel kind for channel @p ch.
+     * 
+     * Only meaningful when kind() == TextureKind::Multikind. TextureKind::Unused is permitted here to mark a channel as unused. @param ch   Channel to configure. @param kind Kind to assign, including TextureKind::Unused.
+     *
+     * @param ch Channel input.
+     * @param kind TextureKind input.
+     */
+    public void setChannelKind(Channel ch, TextureKind kind) {
+        NativeCommon.invokeNative(Native.whiteout_textures_Texture_setChannelKind, handle, ch.value, kind.value);
+    }
+
+    /**
+     * @return The default fill value for channel @p ch.
+     * 
+     * This value is used by consumers (e.g. channel merging, material baking) when the channel carries no source data.  Defaults to 1.0f for all channels. @param ch Channel to query (R/G/B/A).
+     *
+     * @param ch Channel input.
+     */
+    public float channelDefault(Channel ch) {
+        return (float) NativeCommon.invokeNative(Native.whiteout_textures_Texture_channelDefault, handle, ch.value);
+    }
+
+    /**
+     * Set the default fill value for channel @p ch.
+     * 
+     * The value is stored as-is (normalised [0, 1] float for integer formats, linear scale for f32 formats).  No clamping is applied at storage time. @param ch    Channel to configure (R/G/B/A). @param value Default fill value; 1.0f by convention.
+     *
+     * @param ch Channel input.
+     * @param value float input.
+     */
+    public void setChannelDefault(Channel ch, float value) {
+        NativeCommon.invokeNative(Native.whiteout_textures_Texture_setChannelDefault, handle, ch.value, value);
+    }
+
+    /**
      * @return True if the texture data is in sRGB colour space.
      */
     public boolean isSrgb() {
@@ -353,6 +506,17 @@ public final class Texture implements AutoCloseable {
      */
     public int mipCount() {
         return (int) NativeCommon.invokeNative(Native.whiteout_textures_Texture_mipCount, handle);
+    }
+
+    /**
+     * Get the mip-level descriptor for a given mip index and layer. @param mip   Mip level index (0 = base). @param layer Array layer index (0 for 2D / 3D textures). @return Reference to the MipLevel struct.
+     *
+     * @param mip int input.
+     * @param layer int input.
+     */
+    public MipLevel mipLevel(int mip, int layer) {
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_textures_Texture_mipLevel, handle, mip, layer);
+        return new MipLevel(__h, false);
     }
 
     /**

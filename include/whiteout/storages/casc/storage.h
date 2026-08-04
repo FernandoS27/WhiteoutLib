@@ -210,8 +210,6 @@ public:
     std::vector<std::string> listFiles() const;
 
     /// @return All entries with metadata.
-    /// @bind skip — returns vector<FindEntry>; vector<value_object>
-    /// returns need codegen marshalling not yet implemented.
     std::vector<FindEntry> listEntries() const;
 
     /// @return Total number of files in the root manifest.

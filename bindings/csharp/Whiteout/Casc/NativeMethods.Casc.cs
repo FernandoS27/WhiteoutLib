@@ -9,6 +9,15 @@ namespace Whiteout.Casc.Internal;
 internal static partial class NativeMethods
 {
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_casc_StringList_size(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial Whiteout.Common.NativeCString whiteout_casc_StringList_at(IntPtr self, nuint index);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_casc_StringList_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
     internal static partial IntPtr whiteout_casc_CascCreateOptions_new();
 
     [LibraryImport(Runtime.LibraryName)]
@@ -141,10 +150,53 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial int whiteout_casc_CascStorage_fileSize(IntPtr self, [MarshalAs(UnmanagedType.LPUTF8Str)] string cascPath, out ulong out_value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial int whiteout_casc_CascStorage_fileSize_fileId_hint(IntPtr self, int fileId, int hint, out ulong out_value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
     internal static partial nuint whiteout_casc_CascStorage_listFiles_count(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
     internal static partial Whiteout.Common.NativeCString whiteout_casc_CascStorage_listFiles_at(IntPtr self, nuint index);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_casc_CascStorage_listFiles(IntPtr self);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_casc_CascStorage_listEntries_snapshot(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_casc_CascStorage_listEntries_count(IntPtr snapshot);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial Whiteout.Common.NativeBytes whiteout_casc_CascStorage_listEntries_cKey_at(IntPtr snapshot, nuint index);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial ulong whiteout_casc_CascStorage_listEntries_fileSize_at(IntPtr snapshot, nuint index);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_casc_CascStorage_listEntries_localeFlags_at(IntPtr snapshot, nuint index);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_casc_CascStorage_listEntries_contentFlags_at(IntPtr snapshot, nuint index);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial int whiteout_casc_CascStorage_listEntries_fileDataId_at(IntPtr snapshot, nuint index);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial Whiteout.Common.NativeCString whiteout_casc_CascStorage_listEntries_path_at(IntPtr snapshot, nuint index);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_casc_CascStorage_listEntries_free(IntPtr snapshot);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial int whiteout_casc_CascStorage_totalFileCount(IntPtr self, out uint out_value);
 
 
     [LibraryImport(Runtime.LibraryName)]
@@ -175,6 +227,10 @@ internal static partial class NativeMethods
 
     [LibraryImport(Runtime.LibraryName)]
     internal static partial IntPtr whiteout_casc_CascStorageWritable_create(IntPtr opts, IntPtr pool);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial int whiteout_casc_CascStorageWritable_reserveFileId(IntPtr self, [MarshalAs(UnmanagedType.LPUTF8Str)] string name, out uint out_value);
 
 
     [LibraryImport(Runtime.LibraryName)]

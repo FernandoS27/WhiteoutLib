@@ -261,6 +261,55 @@ struct whiteout_StringList* whiteout_casc_CascStorage_listFiles(const whiteout_C
         new std::vector<std::string>(
             reinterpret_cast<const whiteout::storages::casc::Storage*>(self)->listFiles()));
 }
+void* whiteout_casc_CascStorage_listEntries_snapshot(const whiteout_CascStorage* self) {
+    return new std::vector<whiteout::storages::casc::FindEntry>(reinterpret_cast<const whiteout::storages::casc::Storage*>(self)->listEntries());
+}
+
+size_t whiteout_casc_CascStorage_listEntries_count(void* snapshot) {
+    return snapshot ? reinterpret_cast<std::vector<whiteout::storages::casc::FindEntry>*>(snapshot)->size() : 0;
+}
+
+whiteout_Bytes whiteout_casc_CascStorage_listEntries_cKey_at(void* snapshot, size_t index) {
+    auto* __v = reinterpret_cast<std::vector<whiteout::storages::casc::FindEntry>*>(snapshot);
+    if (!__v || index >= __v->size()) return emptyBytes();
+    const auto& __a = (*__v)[index].cKey;
+    return wrapBytes(std::vector<whiteout::u8>(__a.begin(), __a.end()));
+}
+
+uint64_t whiteout_casc_CascStorage_listEntries_fileSize_at(void* snapshot, size_t index) {
+    auto* __v = reinterpret_cast<std::vector<whiteout::storages::casc::FindEntry>*>(snapshot);
+    if (!__v || index >= __v->size()) return 0;
+    return (*__v)[index].fileSize;
+}
+
+uint32_t whiteout_casc_CascStorage_listEntries_localeFlags_at(void* snapshot, size_t index) {
+    auto* __v = reinterpret_cast<std::vector<whiteout::storages::casc::FindEntry>*>(snapshot);
+    if (!__v || index >= __v->size()) return 0;
+    return (*__v)[index].localeFlags;
+}
+
+uint32_t whiteout_casc_CascStorage_listEntries_contentFlags_at(void* snapshot, size_t index) {
+    auto* __v = reinterpret_cast<std::vector<whiteout::storages::casc::FindEntry>*>(snapshot);
+    if (!__v || index >= __v->size()) return 0;
+    return (*__v)[index].contentFlags;
+}
+
+int32_t whiteout_casc_CascStorage_listEntries_fileDataId_at(void* snapshot, size_t index) {
+    auto* __v = reinterpret_cast<std::vector<whiteout::storages::casc::FindEntry>*>(snapshot);
+    if (!__v || index >= __v->size()) return 0;
+    return (*__v)[index].fileDataId;
+}
+
+whiteout_CString whiteout_casc_CascStorage_listEntries_path_at(void* snapshot, size_t index) {
+    auto* __v = reinterpret_cast<std::vector<whiteout::storages::casc::FindEntry>*>(snapshot);
+    if (!__v || index >= __v->size()) return emptyCString();
+    return wrapCString(std::string((*__v)[index].path));
+}
+
+void whiteout_casc_CascStorage_listEntries_free(void* snapshot) {
+    delete reinterpret_cast<std::vector<whiteout::storages::casc::FindEntry>*>(snapshot);
+}
+
 int32_t whiteout_casc_CascStorage_totalFileCount(const whiteout_CascStorage* self, uint32_t* out_value) {
     auto __r = reinterpret_cast<const whiteout::storages::casc::Storage*>(self)->totalFileCount();
     if (!__r) return 0;

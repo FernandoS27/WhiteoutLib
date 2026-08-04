@@ -31,6 +31,9 @@
 #include <whiteout/textures/jpeg/writer.h>
 #include <whiteout/textures/dds/parser.h>
 #include <whiteout/textures/dds/writer.h>
+#include <whiteout/textures/tex/parser.h>
+#include <whiteout/textures/d2r_texture/parser.h>
+#include <whiteout/textures/d2r_texture/writer.h>
 #include <whiteout/textures/bmp/parser.h>
 #include <whiteout/textures/bmp/writer.h>
 #include <whiteout/textures/tga/parser.h>
@@ -75,12 +78,66 @@ Uncompressed formats store one pixel per "block"; BCn formats store a 4×4 pixel
         .value("BC7", whiteout::textures::PixelFormat::BC7, R"doc(High-quality RGBA – 16 bytes per 4×4 block.)doc")
     ;
 
+    py::enum_<whiteout::textures::TextureKind>(m, "TextureKind", R"doc(Semantic role of a texture in a material.)doc")
+        .value("OTHER", whiteout::textures::TextureKind::Other, R"doc(Unknown or application-specific usage.)doc")
+        .value("DIFFUSE", whiteout::textures::TextureKind::Diffuse, R"doc(Diffuse / base colour (legacy).)doc")
+        .value("NORMAL", whiteout::textures::TextureKind::Normal, R"doc(Tangent-space normal map.)doc")
+        .value("SPECULAR", whiteout::textures::TextureKind::Specular, R"doc(Specular intensity / colour.)doc")
+        .value("ORM", whiteout::textures::TextureKind::ORM, R"doc(ORM packed texture (R=AO, G=Roughness, B=Metalness, A=Unused).)doc")
+        .value("ALBEDO", whiteout::textures::TextureKind::Albedo, R"doc(PBR base colour (albedo).)doc")
+        .value("ROUGHNESS", whiteout::textures::TextureKind::Roughness, R"doc(Roughness (single channel).)doc")
+        .value("METALNESS", whiteout::textures::TextureKind::Metalness, R"doc(Metalness (single channel).)doc")
+        .value("AMBIENT_OCCLUSION", whiteout::textures::TextureKind::AmbientOcclusion, R"doc(Ambient occlusion (single channel).)doc")
+        .value("GLOSS", whiteout::textures::TextureKind::Gloss, R"doc(Gloss / smoothness (single channel).)doc")
+        .value("EMISSIVE", whiteout::textures::TextureKind::Emissive, R"doc(Emissive colour / intensity.)doc")
+        .value("ALPHA_MASK", whiteout::textures::TextureKind::AlphaMask, R"doc(Opacity / alpha mask (single channel, linear).)doc")
+        .value("BINARY_MASK", whiteout::textures::TextureKind::BinaryMask, R"doc(Hard binary mask (0 or 1); alpha-coverage-preserving filter.)doc")
+        .value("TRANSPARENCY_MASK", whiteout::textures::TextureKind::TransparencyMask, R"doc(Smooth transparency mask; alpha-coverage-preserving, continuous values.)doc")
+        .value("BLEND_MASK", whiteout::textures::TextureKind::BlendMask, R"doc(Blend weight mask; alpha-coverage-preserving with soft transitions.)doc")
+        .value("LIGHTMAP", whiteout::textures::TextureKind::Lightmap, R"doc(Lightmap or baked light contribution (HDR colour).)doc")
+        .value("ENVIRONMENT_PBR", whiteout::textures::TextureKind::EnvironmentPBR, R"doc(Environment / reflection map (equirectangular, GGX prefiltered).)doc")
+        .value("ENVIRONMENT_LEGACY", whiteout::textures::TextureKind::EnvironmentLegacy, R"doc(Environment map (equirectangular, spherical Kaiser-filtered).)doc")
+        .value("MULTIKIND", whiteout::textures::TextureKind::Multikind, R"doc(Packed multi-channel texture where each channel carries a distinct semantic role.  Use setChannelKind() / channelKind() to assign and query the per-channel kinds.  generateMipmaps() will apply a kind-appropriate filter to every channel independently.)doc")
+        .value("UNUSED", whiteout::textures::TextureKind::Unused, R"doc(Channel is not used and carries no semantic meaning.  Only valid as a per-channel kind on a Multikind texture (set via setChannelKind()). generateMipmaps() applies a plain box filter to Unused channels.)doc")
+    ;
+
     py::enum_<whiteout::textures::TextureType>(m, "TextureType", R"doc(Dimensionality / topology of a texture resource.)doc")
         .value("TEXTURE2_D", whiteout::textures::TextureType::Texture2D, R"doc(Standard 2D image (1 layer).)doc")
         .value("TEXTURE3_D", whiteout::textures::TextureType::Texture3D, R"doc(Volume texture (depth > 1, depth halves each mip).)doc")
         .value("TEXTURE_CUBE", whiteout::textures::TextureType::TextureCube, R"doc(Cube map (6 square layers, one per face).)doc")
         .value("TEXTURE2_D_ARRAY", whiteout::textures::TextureType::Texture2DArray, R"doc(Array of 2D images (arraySize layers).)doc")
         .value("TEXTURE_CUBE_ARRAY", whiteout::textures::TextureType::TextureCubeArray, R"doc(Array of cube maps (6 × arraySize layers).)doc")
+    ;
+
+    py::enum_<whiteout::textures::Channel>(m, "Channel", R"doc(Individual colour / data channel within a pixel.
+
+The numeric value matches the zero-based channel index used by every uncompressed PixelFormat (R=0, G=1, B=2, A=3).)doc")
+        .value("R", whiteout::textures::Channel::R, R"doc(Red   (or single-channel value for R* formats).)doc")
+        .value("G", whiteout::textures::Channel::G, R"doc(Green (or second channel for RG* formats).)doc")
+        .value("B", whiteout::textures::Channel::B, R"doc(Blue  (RGBA* formats only).)doc")
+        .value("A", whiteout::textures::Channel::A, R"doc(Alpha (RGBA* formats only).)doc")
+    ;
+
+    py::class_<whiteout::textures::MipLevel>(m, "MipLevel", R"doc(Describes a single mip level within a Texture's data buffer.)doc")
+        .def(py::init<>())
+        .def(py::init([](whiteout::u32 width, whiteout::u32 height, whiteout::u32 depth, whiteout::u64 offset, whiteout::u64 size) {
+            return whiteout::textures::MipLevel{width, height, depth, offset, size};
+        }), py::arg("width"), py::arg("height"), py::arg("depth"), py::arg("offset"), py::arg("size"))
+        .def("__repr__", [](const whiteout::textures::MipLevel& self) {
+            std::ostringstream oss;
+            oss << "MipLevel(";
+            oss << "width=" << self.width << ", ";
+            oss << "height=" << self.height << ", ";
+            oss << "depth=" << self.depth << ", ";
+            oss << "offset=" << self.offset << ", ";
+            oss << "size=" << self.size << ")";
+            return oss.str();
+        })
+        .def_readwrite("width", &whiteout::textures::MipLevel::width, R"doc(Width of this mip in pixels.)doc")
+        .def_readwrite("height", &whiteout::textures::MipLevel::height, R"doc(Height of this mip in pixels.)doc")
+        .def_readwrite("depth", &whiteout::textures::MipLevel::depth, R"doc(Depth of this mip (always 1 for 2D / cube textures).)doc")
+        .def_readwrite("offset", &whiteout::textures::MipLevel::offset, R"doc(Byte offset into the Texture data buffer.)doc")
+        .def_readwrite("size", &whiteout::textures::MipLevel::size, R"doc(Byte size of this mip's data.)doc")
     ;
 
     py::class_<whiteout::textures::png::ApngFrameInfo>(m, "PngApngFrameInfo", R"doc(Per-frame metadata for an animated PNG (APNG).)doc")
@@ -414,6 +471,68 @@ All frames must share the same dimensions (frame 0 defines the canvas). Each fra
             }, py::arg("texture"), R"doc(Serialize the texture to a DDS byte buffer.)doc")
         .def("has_issues", &whiteout::textures::dds::Writer::hasIssues, R"doc(@return true if the last write produced any issues.)doc")
         .def("get_issues", &whiteout::textures::dds::Writer::getIssues, R"doc(@return accumulated issues from the last write call.)doc")
+    ;
+
+    py::class_<whiteout::textures::tex::Parser>(m, "TexParser", R"doc(Reads a TEX file or byte buffer and decodes it into a Texture.)doc")
+        .def(py::init<>())
+        .def("parse",
+            [](whiteout::textures::tex::Parser& self, const std::string& filePath) {
+                return self.parse(filePath);
+            }, py::arg("filePath"), R"doc(Parse a TEX file from disk.)doc")
+        .def("parse",
+            [](whiteout::textures::tex::Parser& self, py::bytes __py_bytes_0) {
+                std::string __s_0 = __py_bytes_0;
+                std::span<const whiteout::u8> buffer(reinterpret_cast<const whiteout::u8*>(__s_0.data()), __s_0.size());
+                return self.parse(buffer);
+            }, py::arg("buffer"), R"doc(Parse a TEX byte buffer.)doc")
+        .def("parse",
+            [](whiteout::textures::tex::Parser& self, const std::string& texFilePath, const std::string& payloadFilePath) {
+                return self.parse(texFilePath, payloadFilePath);
+            }, py::arg("texFilePath"), py::arg("payloadFilePath"), R"doc(Parse a D4 TEX file from two file paths (metadata .tex + pixel payload).)doc")
+        .def("parse",
+            [](whiteout::textures::tex::Parser& self, py::bytes __py_bytes_0, py::bytes __py_bytes_1) {
+                std::string __s_0 = __py_bytes_0;
+                std::span<const whiteout::u8> texData(reinterpret_cast<const whiteout::u8*>(__s_0.data()), __s_0.size());
+                std::string __s_1 = __py_bytes_1;
+                std::span<const whiteout::u8> payloadData(reinterpret_cast<const whiteout::u8*>(__s_1.data()), __s_1.size());
+                return self.parse(texData, payloadData);
+            }, py::arg("texData"), py::arg("payloadData"), R"doc(Parse a D4 TEX file from two byte buffers (metadata + pixel payload).)doc")
+        .def("parse",
+            [](whiteout::textures::tex::Parser& self, const std::string& texFilePath, const std::string& hiResPayloadFilePath, const std::string& lowResPayloadFilePath) {
+                return self.parse(texFilePath, hiResPayloadFilePath, lowResPayloadFilePath);
+            }, py::arg("texFilePath"), py::arg("hiResPayloadFilePath"), py::arg("lowResPayloadFilePath"), R"doc(Parse a D4 TEX with hi-res + low-res payloads from file paths.)doc")
+        .def("has_issues", &whiteout::textures::tex::Parser::hasIssues, R"doc(@return true if the last parse produced any issues.)doc")
+        .def("get_issues", &whiteout::textures::tex::Parser::getIssues, R"doc(@return accumulated issues from the last parse call.)doc")
+    ;
+
+    py::class_<whiteout::textures::d2r_texture::Parser>(m, "D2rTextureParser", R"doc(Reads a Diablo II: Resurrected `.texture` file and decodes it into a Texture.)doc")
+        .def(py::init<>())
+        .def("parse",
+            [](whiteout::textures::d2r_texture::Parser& self, py::bytes __py_bytes_0) {
+                std::string __s_0 = __py_bytes_0;
+                std::span<const whiteout::u8> buffer(reinterpret_cast<const whiteout::u8*>(__s_0.data()), __s_0.size());
+                return self.parse(buffer);
+            }, py::arg("buffer"), R"doc(Parse a `.texture` byte buffer.)doc")
+        .def("detect",
+            [](whiteout::textures::d2r_texture::Parser& self, py::bytes __py_bytes_0) {
+                std::string __s_0 = __py_bytes_0;
+                std::span<const whiteout::u8> buffer(reinterpret_cast<const whiteout::u8*>(__s_0.data()), __s_0.size());
+                return self.detect(buffer);
+            }, py::arg("buffer"), R"doc(@return true if @p buffer has a valid `.texture` header and known format.)doc")
+        .def("has_issues", &whiteout::textures::d2r_texture::Parser::hasIssues, R"doc(@return true if the last parse produced any issues.)doc")
+        .def("get_issues", &whiteout::textures::d2r_texture::Parser::getIssues, R"doc(@return accumulated issues from the last parse call.)doc")
+    ;
+
+    py::class_<whiteout::textures::d2r_texture::Writer>(m, "D2rTextureWriter", R"doc(Encodes a Texture into the Diablo II: Resurrected `.texture` format.)doc")
+        .def(py::init<>())
+        .def("write",
+            [](whiteout::textures::d2r_texture::Writer& self, const whiteout::textures::Texture& texture) {
+                auto __v = self.write(texture);
+                return py::bytes(
+                    reinterpret_cast<const char*>(__v.data()), __v.size());
+            }, py::arg("texture"), R"doc(Serialize the texture to a byte buffer (default options).)doc")
+        .def("has_issues", &whiteout::textures::d2r_texture::Writer::hasIssues, R"doc(@return true if the last write produced any issues.)doc")
+        .def("get_issues", &whiteout::textures::d2r_texture::Writer::getIssues, R"doc(@return accumulated issues from the last write call.)doc")
     ;
 
     py::class_<whiteout::textures::bmp::Parser>(m, "BmpParser", R"doc(Reads a BMP file or byte buffer and decodes it into a Texture.)doc")

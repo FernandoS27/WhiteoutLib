@@ -124,12 +124,74 @@ public sealed class Storage : WhiteoutHandle
     }
 
 
+    /// <summary>@return Uncompressed file size, or std::nullopt if not found.</summary>
+    public ulong? FileSize(string cascPath)
+    {
+        return NativeMethods.whiteout_casc_CascStorage_fileSize(DangerousGet(), cascPath, out var __v) != 0 ? __v : null;
+    }
+
+
+    /// <summary>@overload</summary>
+    public ulong? FileSizeFileIdHint(int fileId, FileIdHint hint)
+    {
+        return NativeMethods.whiteout_casc_CascStorage_fileSize_fileId_hint(DangerousGet(), fileId, (int)hint, out var __v) != 0 ? __v : null;
+    }
+
+
     /// <summary>@return All known file paths.</summary>
-    public IReadOnlyList<string> ListFiles =>
-        new NativeListView<string>(
-            DangerousGet(),
-            NativeMethods.whiteout_casc_CascStorage_listFiles_count,
-            (h, i) => NativeMethods.whiteout_casc_CascStorage_listFiles_at(h, i).ToManagedString());
+    public IReadOnlyList<string> ListFiles
+    {
+        get
+        {
+            IntPtr __list = NativeMethods.whiteout_casc_CascStorage_listFiles(DangerousGet());
+            if (__list == IntPtr.Zero) return System.Array.Empty<string>();
+            try
+            {
+                int __n = checked((int)NativeMethods.whiteout_casc_StringList_size(__list));
+                var __out = new string[__n];
+                for (int __i = 0; __i < __n; __i++)
+                    __out[__i] = NativeMethods.whiteout_casc_StringList_at(__list, (nuint)__i)
+                        .ToManagedString(freeAfter: false);
+                return __out;
+            }
+            finally
+            {
+                NativeMethods.whiteout_casc_StringList_delete(__list);
+            }
+        }
+    }
+
+
+    /// <summary>@return All entries with metadata.</summary>
+    public IReadOnlyList<FindEntry> ListEntries()
+    {
+        IntPtr __snap = NativeMethods.whiteout_casc_CascStorage_listEntries_snapshot(DangerousGet());
+        if (__snap == IntPtr.Zero) return System.Array.Empty<FindEntry>();
+        try
+        {
+            int __n = checked((int)NativeMethods.whiteout_casc_CascStorage_listEntries_count(__snap));
+            var __list = new List<FindEntry>(__n);
+            for (nuint __i = 0; __i < (nuint)__n; __i++)
+                __list.Add(new FindEntry(
+                    NativeMethods.whiteout_casc_CascStorage_listEntries_cKey_at(__snap, __i).ToManagedArray(),
+                    NativeMethods.whiteout_casc_CascStorage_listEntries_fileSize_at(__snap, __i),
+                    NativeMethods.whiteout_casc_CascStorage_listEntries_localeFlags_at(__snap, __i),
+                    NativeMethods.whiteout_casc_CascStorage_listEntries_contentFlags_at(__snap, __i),
+                    NativeMethods.whiteout_casc_CascStorage_listEntries_fileDataId_at(__snap, __i),
+                    NativeMethods.whiteout_casc_CascStorage_listEntries_path_at(__snap, __i).ToManagedString()));
+            return __list;
+        }
+        finally
+        {
+            NativeMethods.whiteout_casc_CascStorage_listEntries_free(__snap);
+        }
+    }
+
+    /// <summary>@return Total number of files in the root manifest.</summary>
+    public uint? TotalFileCount()
+    {
+        return NativeMethods.whiteout_casc_CascStorage_totalFileCount(DangerousGet(), out var __v) != 0 ? __v : null;
+    }
 
 
     /// <summary>Import encryption keys from a formatted string (one per line).</summary>

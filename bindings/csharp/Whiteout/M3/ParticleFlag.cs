@@ -38,21 +38,21 @@ public enum ParticleFlag : int
     OldColorSmooth = 8192,
     /// <summary>Legacy color bezier</summary>
     OldColorBezier = 16384,
-    /// <summary>Lit particles</summary>
+    /// <summary>Lit particles → lit pixel-shader variant</summary>
     LitParts = 32768,
-    /// <summary>Random flipbook start</summary>
+    /// <summary>Random flipbook start → shader b_randomFlipBookStart</summary>
     RandomFlipbookStart = 65536,
     /// <summary>Multiply gravity by mass</summary>
     MultiplyGravityByMass = 131072,
-    /// <summary>Clamp tail length</summary>
+    /// <summary>Clamp tail length → shader b_clampedTailLength (Tail/Trail, not Pinned)</summary>
     ClampTailLength = 262144,
-    /// <summary>Spawn trailing particles</summary>
+    /// <summary>Spawn trailing particles (also forces b_useProceduralPosition)</summary>
     SpawnTrailingParticles = 524288,
-    /// <summary>Fix tail length on creation</summary>
+    /// <summary>Fix tail length on creation → shader b_fixedTailLength</summary>
     FixTailLengthOnCreation = 1048576,
     /// <summary>Use vertex alpha</summary>
     UseVertexAlpha = 2097152,
-    /// <summary>Use model particles</summary>
+    /// <summary>Use model particles (also forces b_useProceduralPosition)</summary>
     ModelParticles = 4194304,
     /// <summary>Swap Y/Z on model particles</summary>
     SwapYZOnModelParticles = 8388608,
@@ -64,4 +64,10 @@ public enum ParticleFlag : int
     SimulateInit = 67108864,
     /// <summary>Copy emitter</summary>
     Copy = 134217728,
+    /// <summary>Part of the b_useProceduralPosition trigger mask (0x10480003)</summary>
+    RequiresGpuSim = 268435456,
+    /// <summary>Toggles a particle shader permutation (role TBD)</summary>
+    ShaderPerm30 = 1073741824,
+    /// <summary>Forces GPU procedural-position path (b_useProceduralPosition)</summary>
+    ForceProceduralPosition = -2147483648,
 }

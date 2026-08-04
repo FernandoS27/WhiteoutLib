@@ -203,6 +203,7 @@ struct FileFullInfo {
 };
 
 /// Entry returned by enumerate/list operations.
+/// @bind record, js_name=FindEntry
 struct FindEntry {
     std::array<u8, 16> cKey{};
     u64 fileSize = 0;

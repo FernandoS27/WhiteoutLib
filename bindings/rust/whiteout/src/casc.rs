@@ -88,6 +88,17 @@ impl TryFrom<i32> for FileIdHint {
     }
 }
 
+/// Entry returned by enumerate/list operations.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FindEntry {
+    pub c_key: Vec<u8>,
+    pub file_size: u64,
+    pub locale_flags: u32,
+    pub content_flags: u32,
+    pub file_data_id: i32,
+    pub path: String,
+}
+
 /// Options for creating a new empty CASC storage.
 pub struct CreateOptions {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_CascCreateOptions>,
@@ -521,6 +532,43 @@ impl Storage {
         }
     }
 
+    /// @return All entries with metadata.
+    pub fn list_entries(&self) -> Vec<FindEntry> {
+        // SAFETY: one call materialises the snapshot; each
+        // field is read by index and the snapshot is freed
+        // before returning. Reading is O(1) per element.
+        unsafe {
+            let snap = ffi::whiteout_casc_CascStorage_listEntries_snapshot(self.raw.as_ptr());
+            if snap.is_null() {
+                return Vec::new();
+            }
+            let n = ffi::whiteout_casc_CascStorage_listEntries_count(snap);
+            let mut out = Vec::with_capacity(n);
+            for i in 0..n {
+                out.push(FindEntry {
+                    c_key: crate::support::Bytes::from_raw(
+                        ffi::whiteout_casc_CascStorage_listEntries_cKey_at(snap, i),
+                    )
+                    .map(|b| b.to_vec())
+                    .unwrap_or_default(),
+                    file_size: ffi::whiteout_casc_CascStorage_listEntries_fileSize_at(snap, i),
+                    locale_flags: ffi::whiteout_casc_CascStorage_listEntries_localeFlags_at(
+                        snap, i,
+                    ),
+                    content_flags: ffi::whiteout_casc_CascStorage_listEntries_contentFlags_at(
+                        snap, i,
+                    ),
+                    file_data_id: ffi::whiteout_casc_CascStorage_listEntries_fileDataId_at(snap, i),
+                    path: crate::support::take_string(
+                        ffi::whiteout_casc_CascStorage_listEntries_path_at(snap, i),
+                    ),
+                });
+            }
+            ffi::whiteout_casc_CascStorage_listEntries_free(snap);
+            out
+        }
+    }
+
     /// @return Total number of files in the root manifest.
     pub fn total_file_count(&self) -> Option<u32> {
         let mut __v: u32 = 0;
@@ -926,6 +974,37 @@ pub mod ffi {
         pub fn whiteout_casc_CascStorage_listFiles(
             self_: *mut whiteout_CascStorage,
         ) -> *mut whiteout_StringList;
+        pub fn whiteout_casc_CascStorage_listEntries_snapshot(
+            self_: *mut whiteout_CascStorage,
+        ) -> *mut core::ffi::c_void;
+        pub fn whiteout_casc_CascStorage_listEntries_count(
+            snapshot: *mut core::ffi::c_void,
+        ) -> usize;
+        pub fn whiteout_casc_CascStorage_listEntries_cKey_at(
+            snapshot: *mut core::ffi::c_void,
+            index: usize,
+        ) -> RawBytes;
+        pub fn whiteout_casc_CascStorage_listEntries_fileSize_at(
+            snapshot: *mut core::ffi::c_void,
+            index: usize,
+        ) -> u64;
+        pub fn whiteout_casc_CascStorage_listEntries_localeFlags_at(
+            snapshot: *mut core::ffi::c_void,
+            index: usize,
+        ) -> u32;
+        pub fn whiteout_casc_CascStorage_listEntries_contentFlags_at(
+            snapshot: *mut core::ffi::c_void,
+            index: usize,
+        ) -> u32;
+        pub fn whiteout_casc_CascStorage_listEntries_fileDataId_at(
+            snapshot: *mut core::ffi::c_void,
+            index: usize,
+        ) -> i32;
+        pub fn whiteout_casc_CascStorage_listEntries_path_at(
+            snapshot: *mut core::ffi::c_void,
+            index: usize,
+        ) -> RawCString;
+        pub fn whiteout_casc_CascStorage_listEntries_free(snapshot: *mut core::ffi::c_void);
         pub fn whiteout_casc_CascStorage_totalFileCount(
             self_: *mut whiteout_CascStorage,
             out_value: *mut u32,

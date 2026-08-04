@@ -28,7 +28,7 @@ if(WHITEOUT_ENABLE_MPQ)
     list(APPEND _whiteout_c_sources whiteout_mpq.cpp)
 endif()
 if(WHITEOUT_ENABLE_CASC)
-    list(APPEND _whiteout_c_sources whiteout_casc.cpp)
+    list(APPEND _whiteout_c_sources whiteout_casc.cpp whiteout_casc_shims.cpp)
 endif()
 
 # JNI bridge sources are absorbed into whiteout_c when the JNI bindings

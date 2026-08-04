@@ -27,6 +27,13 @@ public sealed class CascFileSystem : WhiteoutHandle
     }
 
 
+    /// <summary>Resolve a path to a numeric file ID (nullable).</summary>
+    public uint? ReserveFileId(string path)
+    {
+        return NativeMethods.whiteout_host_CascFileSystem_reserveFileId(DangerousGet(), path, out var __v) != 0 ? __v : null;
+    }
+
+
     /// <summary>Write a file by its numeric data ID. Returns true on success.</summary>
     public bool WriteFile(uint fileId, ReadOnlySpan<byte> data)
     {

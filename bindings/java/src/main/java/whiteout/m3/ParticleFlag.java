@@ -37,21 +37,21 @@ public enum ParticleFlag {
     OldColorSmooth(8192),
     /** Legacy color bezier */
     OldColorBezier(16384),
-    /** Lit particles */
+    /** Lit particles → lit pixel-shader variant */
     LitParts(32768),
-    /** Random flipbook start */
+    /** Random flipbook start → shader b_randomFlipBookStart */
     RandomFlipbookStart(65536),
     /** Multiply gravity by mass */
     MultiplyGravityByMass(131072),
-    /** Clamp tail length */
+    /** Clamp tail length → shader b_clampedTailLength (Tail/Trail, not Pinned) */
     ClampTailLength(262144),
-    /** Spawn trailing particles */
+    /** Spawn trailing particles (also forces b_useProceduralPosition) */
     SpawnTrailingParticles(524288),
-    /** Fix tail length on creation */
+    /** Fix tail length on creation → shader b_fixedTailLength */
     FixTailLengthOnCreation(1048576),
     /** Use vertex alpha */
     UseVertexAlpha(2097152),
-    /** Use model particles */
+    /** Use model particles (also forces b_useProceduralPosition) */
     ModelParticles(4194304),
     /** Swap Y/Z on model particles */
     SwapYZOnModelParticles(8388608),
@@ -62,26 +62,18 @@ public enum ParticleFlag {
     /** Simulate on initialization */
     SimulateInit(67108864),
     /** Copy emitter */
-    Copy(134217728);
+    Copy(134217728),
+    /** Part of the b_useProceduralPosition trigger mask (0x10480003) */
+    RequiresGpuSim(268435456),
+    /** Toggles a particle shader permutation (role TBD) */
+    ShaderPerm30(1073741824),
+    /** Forces GPU procedural-position path (b_useProceduralPosition) */
+    ForceProceduralPosition(-2147483648);
 
     public final int value;
     ParticleFlag(int v) { this.value = v; }
     public static ParticleFlag fromInt(int v) {
         for (var e : values()) if (e.value == v) return e;
-        return null;
-    }
-    /** Decompose a packed int into its set of ParticleFlag bits. */
-    public static java.util.EnumSet<ParticleFlag> unpack(int packed) {
-        java.util.EnumSet<ParticleFlag> out = java.util.EnumSet.noneOf(ParticleFlag.class);
-        for (var e : values()) {
-            if (e.value != 0 && (packed & e.value) == e.value) out.add(e);
-        }
-        return out;
-    }
-    /** OR every flag in {@code flags} together into a packed int. */
-    public static int pack(java.util.Set<ParticleFlag> flags) {
-        int v = 0;
-        for (ParticleFlag f : flags) v |= f.value;
-        return v;
+        throw new IllegalArgumentException("unknown ParticleFlag: " + v);
     }
 }

@@ -57,6 +57,8 @@
 
 #[cfg(feature = "casc")]
 pub mod casc;
+#[cfg(feature = "casc")]
+pub mod casc_ext;
 pub mod host;
 pub mod interfaces;
 pub mod m2;

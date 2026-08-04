@@ -82,11 +82,27 @@ public sealed class Storage : WhiteoutHandle
 
 
     /// <summary>List all known filenames (from listfile + overlay additions − deletions).</summary>
-    public IReadOnlyList<string> ListFiles =>
-        new NativeListView<string>(
-            DangerousGet(),
-            NativeMethods.whiteout_mpq_MpqStorage_listFiles_count,
-            (h, i) => NativeMethods.whiteout_mpq_MpqStorage_listFiles_at(h, i).ToManagedString());
+    public IReadOnlyList<string> ListFiles
+    {
+        get
+        {
+            IntPtr __list = NativeMethods.whiteout_mpq_MpqStorage_listFiles(DangerousGet());
+            if (__list == IntPtr.Zero) return System.Array.Empty<string>();
+            try
+            {
+                int __n = checked((int)NativeMethods.whiteout_mpq_StringList_size(__list));
+                var __out = new string[__n];
+                for (int __i = 0; __i < __n; __i++)
+                    __out[__i] = NativeMethods.whiteout_mpq_StringList_at(__list, (nuint)__i)
+                        .ToManagedString(freeAfter: false);
+                return __out;
+            }
+            finally
+            {
+                NativeMethods.whiteout_mpq_StringList_delete(__list);
+            }
+        }
+    }
 
 
     /// <summary>Write or overwrite a file. Data is held in overlay until save(). @return true on success, false if the hash table is full.</summary>

@@ -13,6 +13,8 @@ public sealed class GifWriter : WhiteoutHandle
 {
     public GifWriter() : base(NativeMethods.whiteout_textures_GifWriter_new()) { }
 
+    public GifWriter(Whiteout.Host.WorkerPool? pool) : base(NativeMethods.whiteout_textures_GifWriter_new_pool(pool?.DangerousGet() ?? IntPtr.Zero)) { }
+
     internal GifWriter(IntPtr handle, bool owned = true) : base(handle, owned) { }
 
     protected override bool ReleaseHandle()

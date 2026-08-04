@@ -132,6 +132,18 @@ whiteout_CString whiteout_casc_CascStorage_listFiles_at(const whiteout_CascStora
 /* Materialises the whole list in one call. Prefer this over the
  * _count/_at pair above, which re-runs the query per index. */
 struct whiteout_StringList* whiteout_casc_CascStorage_listFiles(const whiteout_CascStorage* self);
+/* @return All entries with metadata. */
+/* Materialises the whole list once; the snapshot is queried by
+ * index and must be released with _free. */
+void* whiteout_casc_CascStorage_listEntries_snapshot(const whiteout_CascStorage* self);
+size_t whiteout_casc_CascStorage_listEntries_count(void* snapshot);
+whiteout_Bytes whiteout_casc_CascStorage_listEntries_cKey_at(void* snapshot, size_t index);
+uint64_t whiteout_casc_CascStorage_listEntries_fileSize_at(void* snapshot, size_t index);
+uint32_t whiteout_casc_CascStorage_listEntries_localeFlags_at(void* snapshot, size_t index);
+uint32_t whiteout_casc_CascStorage_listEntries_contentFlags_at(void* snapshot, size_t index);
+int32_t whiteout_casc_CascStorage_listEntries_fileDataId_at(void* snapshot, size_t index);
+whiteout_CString whiteout_casc_CascStorage_listEntries_path_at(void* snapshot, size_t index);
+void whiteout_casc_CascStorage_listEntries_free(void* snapshot);
 /* @return Total number of files in the root manifest. */
 int32_t whiteout_casc_CascStorage_totalFileCount(const whiteout_CascStorage* self, uint32_t* out_value);
 /* Import encryption keys from a formatted string (one per line). */

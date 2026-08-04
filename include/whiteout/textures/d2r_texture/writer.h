@@ -24,6 +24,7 @@
 namespace whiteout::textures::d2r_texture {
 
 /// Encodes a Texture into the Diablo II: Resurrected `.texture` format.
+/// @bind methods=buffer_only, js_name=D2rTextureWriter
 class Writer : public textures::Writer {
 public:
     Writer();

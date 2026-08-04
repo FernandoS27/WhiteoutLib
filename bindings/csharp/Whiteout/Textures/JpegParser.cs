@@ -13,6 +13,8 @@ public sealed class JpegParser : WhiteoutHandle
 {
     public JpegParser() : base(NativeMethods.whiteout_textures_JpegParser_new()) { }
 
+    public JpegParser(Whiteout.Host.WorkerPool? pool) : base(NativeMethods.whiteout_textures_JpegParser_new_pool(pool?.DangerousGet() ?? IntPtr.Zero)) { }
+
     internal JpegParser(IntPtr handle, bool owned = true) : base(handle, owned) { }
 
     protected override bool ReleaseHandle()

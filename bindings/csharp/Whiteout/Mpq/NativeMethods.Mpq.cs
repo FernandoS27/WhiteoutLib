@@ -9,6 +9,15 @@ namespace Whiteout.Mpq.Internal;
 internal static partial class NativeMethods
 {
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_mpq_StringList_size(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial Whiteout.Common.NativeCString whiteout_mpq_StringList_at(IntPtr self, nuint index);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_mpq_StringList_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
     internal static partial IntPtr whiteout_mpq_MpqFileInfo_new();
 
     [LibraryImport(Runtime.LibraryName)]
@@ -192,6 +201,9 @@ internal static partial class NativeMethods
 
     [LibraryImport(Runtime.LibraryName)]
     internal static partial Whiteout.Common.NativeCString whiteout_mpq_MpqStorage_listFiles_at(IntPtr self, nuint index);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_mpq_MpqStorage_listFiles(IntPtr self);
 
 
     [LibraryImport(Runtime.LibraryName)]

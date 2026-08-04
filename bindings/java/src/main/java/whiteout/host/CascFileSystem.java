@@ -67,6 +67,23 @@ public final class CascFileSystem implements AutoCloseable, whiteout.interfaces.
     }
 
     /**
+     * Resolve a path to a numeric file ID (nullable).
+     *
+     * @param path String input.
+     * @return a fresh Integer owning a native allocation.
+     */
+    public Integer reserveFileId(String path) {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment path_seg = path == null
+                ? MemorySegment.NULL
+                : arena.allocateFrom(path, StandardCharsets.UTF_8);
+            MemorySegment __out_value = arena.allocate(ValueLayout.JAVA_INT);
+            if (((int) NativeCommon.invokeNative(Native.whiteout_host_CascFileSystem_reserveFileId, handle, path_seg, __out_value)) == 0) return null;
+            return __out_value.get(ValueLayout.JAVA_INT, 0L);
+        }
+    }
+
+    /**
      * Write a file by its numeric data ID. Returns true on success.
      *
      * @param fileId int input.
@@ -98,16 +115,6 @@ public final class CascFileSystem implements AutoCloseable, whiteout.interfaces.
     /** {@inheritDoc} */
     @Override
     public MemorySegment nativeHandle() { return handle; }
-
-    @Override
-    public Integer reserveFileId(String path) {
-        throw new UnsupportedOperationException(
-            "CascFileSystem.reserveFileId cannot be invoked from Java on a native-backed "
-            + "wrapper — the C ABI does not marshal callback / std::function params. "
-            + "Either (a) pass this instance to a native consumer that takes CascFileSystem "
-            + "(the consumer's C++ side will call this directly), or "
-            + "(b) implement CascFileSystem in pure Java if you need Java-controlled dispatch.");
-    }
 
     @Override public String toString() {
         return "CascFileSystem@" + Long.toHexString(handle == null ? 0 : handle.address());

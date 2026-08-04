@@ -875,7 +875,7 @@ public final class ParticleEmitter implements AutoCloseable {
         handle.set(ValueLayout.JAVA_INT, 784L, value);
     }
     /**
-     * Visual type
+     * Visual type → shader b_iInstanceType
      * @return the instanceType field of this M3ParticleEmitter.
      */
     public ParticleInstanceType getInstanceType() {
@@ -1248,20 +1248,14 @@ public final class ParticleEmitter implements AutoCloseable {
     public void setRotationFlags(ParticleRotationFlag value) {
         handle.set(ValueLayout.JAVA_INT, 1252L, value.value);
     }
-    /**
-     * Color interpolation mode
-     * @return the colorSmoothing field of this M3ParticleEmitter.
-     */
+    /** @return the colorSmoothing field of this M3ParticleEmitter. */
     public InterpolationMode getColorSmoothing() {
         return InterpolationMode.fromInt(handle.get(ValueLayout.JAVA_INT, 1256L));
     }
     public void setColorSmoothing(InterpolationMode value) {
         handle.set(ValueLayout.JAVA_INT, 1256L, value.value);
     }
-    /**
-     * Size interpolation mode
-     * @return the sizeSmoothing field of this M3ParticleEmitter.
-     */
+    /** @return the sizeSmoothing field of this M3ParticleEmitter. */
     public InterpolationMode getSizeSmoothing() {
         return InterpolationMode.fromInt(handle.get(ValueLayout.JAVA_INT, 1260L));
     }

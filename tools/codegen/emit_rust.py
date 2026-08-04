@@ -485,6 +485,10 @@ from .emit_c import (  # noqa: E402
     _is_owned_string_list_return,
     _handle_list_return,
     _handle_list_types,
+    _find_record_class,
+    _is_vector_record_return,
+    _record_fields,
+    _record_field_c_ret,
     _optional_array_return,
     _scalar_vector_param_elem,
     _optional_primitive_return,
@@ -729,7 +733,9 @@ def _module_classes(module: BindModule):
     side never defines (emit_c.py filters them the same way)."""
     return [c for c in module.classes
             if c.cpp_qualifier not in _SHARED_MATH_TYPES
-            and _c_handle_name(c.js_name) not in _SHARED_MATH_TYPES]
+            and _c_handle_name(c.js_name) not in _SHARED_MATH_TYPES
+            # `@bind record` types get no C-ABI handle — see emit_c.
+            and not c.is_record]
 
 
 class _Ctx:
@@ -809,6 +815,10 @@ def _return_shape(m, ctx: _Ctx):
 
     if t.kind == TypeKind.STRING:
         return ('string', 'String', 'RawCString')
+
+    if _is_vector_record_return(m, ctx.module):
+        rec = _find_record_class(ctx.module, t.element.cpp_text)
+        return ('record_list', f'Vec<{_record_rust_name(rec, ctx)}>', None)
 
     list_elem = _handle_list_return(m, ctx.module)
     if list_elem is not None:
@@ -1269,6 +1279,45 @@ impl core::fmt::Debug for {rust} {{
 ''')
 
 
+# ── `@bind record` structs ────────────────────────────────────────────────
+#
+# Records have no C-ABI handle: a `vector<record>` return is lowered to a
+# snapshot plus per-field index accessors (see emit_c). On this side they
+# become plain owned structs, materialised once out of that snapshot.
+
+def _record_rust_name(rec: BindClass, ctx: _Ctx) -> str:
+    return _class_rust_name(rec, ctx.module)
+
+
+def _record_field_rust(f) -> str | None:
+    """Rust type for a record field, mirroring `_record_field_c_ret`."""
+    t = f.type
+    if t.kind == TypeKind.PRIMITIVE:
+        prim = _rust_prim(t.cpp_text)
+        return None if prim in (None, '()') else prim
+    if t.kind == TypeKind.ENUM:
+        return 'i32'
+    if t.kind == TypeKind.STRING:
+        return 'String'
+    if t.kind == TypeKind.ARRAY:
+        return 'Vec<u8>'
+    return None
+
+
+def _emit_record_struct(buf: StringIO, rec: BindClass, ctx: _Ctx) -> None:
+    rust = _record_rust_name(rec, ctx)
+    _doc(buf, rec.doc)
+    buf.write('#[derive(Clone, Debug, PartialEq)]\n')
+    buf.write(f'pub struct {rust} {{\n')
+    for f in _record_fields(rec):
+        rty = _record_field_rust(f)
+        if rty is None:
+            continue
+        _doc(buf, f.doc, '    ')
+        buf.write(f'    pub {_snake(f.name)}: {rty},\n')
+    buf.write('}\n\n')
+
+
 def _emit_value_struct(buf: StringIO, c: BindClass, ctx: _Ctx) -> None:
     """Field-only classes become plain Rust structs used with struct-update
     syntax — the idiomatic options pattern — with a private round-trip
@@ -1414,6 +1463,45 @@ def _emit_method(buf: StringIO, c: BindClass, m, ctx: _Ctx) -> bool:
         call_args.append('self.raw.as_ptr()')
     for _k, _d, _f, cargs in ps:
         call_args.extend(cargs)
+
+    if kind == 'record_list':
+        rec = _find_record_class(ctx.module, m.return_type.element.cpp_text)
+        rust_rec = _record_rust_name(rec, ctx)
+        snap = f'ffi::{ctx.sym(c, m.name + "_snapshot")}({", ".join(call_args)})'
+        buf.write('        // SAFETY: one call materialises the snapshot; each' + NL)
+        buf.write('        // field is read by index and the snapshot is freed' + NL)
+        buf.write('        // before returning. Reading is O(1) per element.' + NL)
+        buf.write('        unsafe {' + NL)
+        buf.write(f'            let snap = {snap};' + NL)
+        buf.write('            if snap.is_null() {' + NL)
+        buf.write('                return Vec::new();' + NL)
+        buf.write('            }' + NL)
+        buf.write(f'            let n = ffi::{ctx.sym(c, m.name + "_count")}(snap);' + NL)
+        buf.write('            let mut out = Vec::with_capacity(n);' + NL)
+        buf.write('            for i in 0..n {' + NL)
+        buf.write(f'                out.push({rust_rec} {{' + NL)
+        for f in _record_fields(rec):
+            rty = _record_field_rust(f)
+            if rty is None:
+                continue
+            at = f'ffi::{ctx.sym(c, m.name + "_" + f.name + "_at")}(snap, i)'
+            if f.type.kind == TypeKind.STRING:
+                expr = f'crate::support::take_string({at})'
+            elif f.type.kind == TypeKind.ARRAY:
+                expr = (f'crate::support::Bytes::from_raw({at})' + NL
+                        + '                        .map(|b| b.to_vec()).unwrap_or_default()')
+            elif _rust_prim(f.type.cpp_text) == 'bool':
+                expr = f'{at} != 0'
+            else:
+                expr = at
+            buf.write(f'                    {_snake(f.name)}: {expr},' + NL)
+        buf.write('                });' + NL)
+        buf.write('            }' + NL)
+        buf.write(f'            ffi::{ctx.sym(c, m.name + "_free")}(snap);' + NL)
+        buf.write('            out' + NL)
+        buf.write('        }' + NL)
+        buf.write('    }' + NL + NL)
+        return True
 
     if kind == 'string_list':
         call = f'ffi::{ctx.sym(c, m.name)}({", ".join(call_args)})'
@@ -1683,6 +1771,25 @@ def _emit_module_ffi(buf: StringIO, ctx: _Ctx) -> None:
             if shape is None or ps is None:
                 continue
             kind, _rust_ret, ffi_ret = shape
+            if kind == 'record_list':
+                rec = _find_record_class(module, m.return_type.element.cpp_text)
+                buf.write(f'    pub fn {ctx.sym(c, m.name + "_snapshot")}'
+                          f'(self_: *mut {handle}) -> *mut core::ffi::c_void;' + NL)
+                buf.write(f'    pub fn {ctx.sym(c, m.name + "_count")}'
+                          f'(snapshot: *mut core::ffi::c_void) -> usize;' + NL)
+                for f in _record_fields(rec):
+                    if _record_field_rust(f) is None:
+                        continue
+                    cret = _record_field_c_ret(f)
+                    rty = {'whiteout_CString': 'RawCString',
+                           'whiteout_Bytes': 'RawBytes'}.get(
+                        cret, _C_COMP_TO_RUST.get(cret, 'i32'))
+                    buf.write(f'    pub fn {ctx.sym(c, m.name + "_" + f.name + "_at")}'
+                              f'(snapshot: *mut core::ffi::c_void, index: usize)'
+                              f' -> {rty};' + NL)
+                buf.write(f'    pub fn {ctx.sym(c, m.name + "_free")}'
+                          f'(snapshot: *mut core::ffi::c_void);' + NL)
+                continue
             if kind == 'string_list':
                 buf.write(f'    pub fn {ctx.sym(c, m.name)}'
                           f'(self_: *mut {handle}) -> *mut whiteout_StringList;' + NL)
@@ -1738,6 +1845,12 @@ use crate::support::{{BorrowedSlice, Bytes}};
 
     for elem in _handle_list_types(module):
         _emit_handle_list(buf, elem, ctx)
+
+    # `@bind record` types are excluded from `_module_classes` (no handle),
+    # so emit their plain structs here — before the methods that return them.
+    for c in module.classes:
+        if c.is_record:
+            _emit_record_struct(buf, c, ctx)
 
     for c in _module_classes(module):
         if _is_field_only(c, ctx.module):

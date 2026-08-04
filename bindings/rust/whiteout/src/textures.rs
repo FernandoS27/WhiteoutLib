@@ -2014,6 +2014,342 @@ impl Default for DdsWriter {
     }
 }
 
+/// Reads a TEX file or byte buffer and decodes it into a Texture.
+pub struct TexParser {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_TexParser>,
+}
+
+impl Drop for TexParser {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_textures_TexParser_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl TexParser {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_TexParser) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| TexParser { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for TexParser {}
+
+impl core::fmt::Debug for TexParser {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("TexParser").finish_non_exhaustive()
+    }
+}
+
+impl TexParser {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_textures_TexParser_new();
+            Self::from_raw(raw).expect("native TexParser allocation failed")
+        }
+    }
+
+    /// Parse a TEX file from disk.
+    pub fn parse(&mut self, file_path: &str) -> Option<Texture> {
+        let file_path_cstr = std::ffi::CString::new(file_path).unwrap_or_default();
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            Texture::from_raw(ffi::whiteout_textures_TexParser_parse(
+                self.raw.as_ptr(),
+                file_path_cstr.as_ptr(),
+            ))
+        }
+    }
+
+    /// Parse a TEX byte buffer.
+    pub fn parse_buffer(&mut self, buffer: &[u8]) -> Option<Texture> {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            Texture::from_raw(ffi::whiteout_textures_TexParser_parse_buffer(
+                self.raw.as_ptr(),
+                buffer.as_ptr(),
+                buffer.len(),
+            ))
+        }
+    }
+
+    /// Parse a D4 TEX file from two file paths (metadata .tex + pixel payload).
+    pub fn parse_tex_file_path_payload_file_path(
+        &mut self,
+        tex_file_path: &str,
+        payload_file_path: &str,
+    ) -> Option<Texture> {
+        let tex_file_path_cstr = std::ffi::CString::new(tex_file_path).unwrap_or_default();
+        let payload_file_path_cstr = std::ffi::CString::new(payload_file_path).unwrap_or_default();
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            Texture::from_raw(
+                ffi::whiteout_textures_TexParser_parse_texFilePath_payloadFilePath(
+                    self.raw.as_ptr(),
+                    tex_file_path_cstr.as_ptr(),
+                    payload_file_path_cstr.as_ptr(),
+                ),
+            )
+        }
+    }
+
+    /// Parse a D4 TEX file from two byte buffers (metadata + pixel payload).
+    pub fn parse_tex_data_payload_data(
+        &mut self,
+        tex_data: &[u8],
+        payload_data: &[u8],
+    ) -> Option<Texture> {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            Texture::from_raw(ffi::whiteout_textures_TexParser_parse_texData_payloadData(
+                self.raw.as_ptr(),
+                tex_data.as_ptr(),
+                tex_data.len(),
+                payload_data.as_ptr(),
+                payload_data.len(),
+            ))
+        }
+    }
+
+    /// Parse a D4 TEX with hi-res + low-res payloads from file paths.
+    pub fn parse_tex_file_path_hi_res_payload_file_path_low_res_payload_file_path(
+        &mut self,
+        tex_file_path: &str,
+        hi_res_payload_file_path: &str,
+        low_res_payload_file_path: &str,
+    ) -> Option<Texture> {
+        let tex_file_path_cstr = std::ffi::CString::new(tex_file_path).unwrap_or_default();
+        let hi_res_payload_file_path_cstr =
+            std::ffi::CString::new(hi_res_payload_file_path).unwrap_or_default();
+        let low_res_payload_file_path_cstr =
+            std::ffi::CString::new(low_res_payload_file_path).unwrap_or_default();
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            Texture::from_raw(ffi::whiteout_textures_TexParser_parse_texFilePath_hiResPayloadFilePath_lowResPayloadFilePath(self.raw.as_ptr(), tex_file_path_cstr.as_ptr(), hi_res_payload_file_path_cstr.as_ptr(), low_res_payload_file_path_cstr.as_ptr()))
+        }
+    }
+
+    /// @return true if the last parse produced any issues.
+    pub fn has_issues(&self) -> bool {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe { ffi::whiteout_textures_TexParser_hasIssues(self.raw.as_ptr()) != 0 }
+    }
+
+    /// @return accumulated issues from the last parse call.
+    pub fn issues(&self) -> Vec<String> {
+        // SAFETY: index stays below the reported count.
+        unsafe {
+            let n = ffi::whiteout_textures_TexParser_getIssues_count(self.raw.as_ptr());
+            (0..n)
+                .map(|i| {
+                    crate::support::take_string(ffi::whiteout_textures_TexParser_getIssues_at(
+                        self.raw.as_ptr(),
+                        i,
+                    ))
+                })
+                .collect()
+        }
+    }
+}
+
+impl Default for TexParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Reads a Diablo II: Resurrected `.texture` file and decodes it into a Texture.
+pub struct D2rTextureParser {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_D2rTextureParser>,
+}
+
+impl Drop for D2rTextureParser {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_textures_D2rTextureParser_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl D2rTextureParser {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_D2rTextureParser) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| D2rTextureParser { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for D2rTextureParser {}
+
+impl core::fmt::Debug for D2rTextureParser {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("D2rTextureParser").finish_non_exhaustive()
+    }
+}
+
+impl D2rTextureParser {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_textures_D2rTextureParser_new();
+            Self::from_raw(raw).expect("native D2rTextureParser allocation failed")
+        }
+    }
+
+    /// Parse a `.texture` byte buffer.
+    pub fn parse(&mut self, buffer: &[u8]) -> Option<Texture> {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            Texture::from_raw(ffi::whiteout_textures_D2rTextureParser_parse(
+                self.raw.as_ptr(),
+                buffer.as_ptr(),
+                buffer.len(),
+            ))
+        }
+    }
+
+    /// @return true if @p buffer has a valid `.texture` header and known format.
+    pub fn detect(&self, buffer: &[u8]) -> bool {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            ffi::whiteout_textures_D2rTextureParser_detect(
+                self.raw.as_ptr(),
+                buffer.as_ptr(),
+                buffer.len(),
+            ) != 0
+        }
+    }
+
+    /// @return true if the last parse produced any issues.
+    pub fn has_issues(&self) -> bool {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe { ffi::whiteout_textures_D2rTextureParser_hasIssues(self.raw.as_ptr()) != 0 }
+    }
+
+    /// @return accumulated issues from the last parse call.
+    pub fn issues(&self) -> Vec<String> {
+        // SAFETY: index stays below the reported count.
+        unsafe {
+            let n = ffi::whiteout_textures_D2rTextureParser_getIssues_count(self.raw.as_ptr());
+            (0..n)
+                .map(|i| {
+                    crate::support::take_string(
+                        ffi::whiteout_textures_D2rTextureParser_getIssues_at(self.raw.as_ptr(), i),
+                    )
+                })
+                .collect()
+        }
+    }
+}
+
+impl Default for D2rTextureParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Encodes a Texture into the Diablo II: Resurrected `.texture` format.
+pub struct D2rTextureWriter {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_D2rTextureWriter>,
+}
+
+impl Drop for D2rTextureWriter {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_textures_D2rTextureWriter_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl D2rTextureWriter {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_D2rTextureWriter) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| D2rTextureWriter { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for D2rTextureWriter {}
+
+impl core::fmt::Debug for D2rTextureWriter {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("D2rTextureWriter").finish_non_exhaustive()
+    }
+}
+
+impl D2rTextureWriter {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_textures_D2rTextureWriter_new();
+            Self::from_raw(raw).expect("native D2rTextureWriter allocation failed")
+        }
+    }
+
+    /// Serialize the texture to a byte buffer (default options).
+    pub fn write(&mut self, texture: &Texture) -> Bytes {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            Bytes::from_raw(ffi::whiteout_textures_D2rTextureWriter_write(
+                self.raw.as_ptr(),
+                texture.raw.as_ptr(),
+            ))
+            .unwrap_or_else(Bytes::empty)
+        }
+    }
+
+    /// @return true if the last write produced any issues.
+    pub fn has_issues(&self) -> bool {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe { ffi::whiteout_textures_D2rTextureWriter_hasIssues(self.raw.as_ptr()) != 0 }
+    }
+
+    /// @return accumulated issues from the last write call.
+    pub fn issues(&self) -> Vec<String> {
+        // SAFETY: index stays below the reported count.
+        unsafe {
+            let n = ffi::whiteout_textures_D2rTextureWriter_getIssues_count(self.raw.as_ptr());
+            (0..n)
+                .map(|i| {
+                    crate::support::take_string(
+                        ffi::whiteout_textures_D2rTextureWriter_getIssues_at(self.raw.as_ptr(), i),
+                    )
+                })
+                .collect()
+        }
+    }
+}
+
+impl Default for D2rTextureWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Reads a BMP file or byte buffer and decodes it into a Texture.
 pub struct BmpParser {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_BmpParser>,
@@ -2824,6 +3160,18 @@ pub mod ffi {
         _private: [u8; 0],
     }
     #[repr(C)]
+    pub struct whiteout_TexParser {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_D2rTextureParser {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_D2rTextureWriter {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
     pub struct whiteout_BmpParser {
         _private: [u8; 0],
     }
@@ -3236,6 +3584,83 @@ pub mod ffi {
             -> usize;
         pub fn whiteout_textures_DdsWriter_getIssues_at(
             self_: *mut whiteout_DdsWriter,
+            index: usize,
+        ) -> RawCString;
+        // TexParser
+        pub fn whiteout_textures_TexParser_new() -> *mut whiteout_TexParser;
+        pub fn whiteout_textures_TexParser_delete(self_: *mut whiteout_TexParser);
+        pub fn whiteout_textures_TexParser_parse(
+            self_: *mut whiteout_TexParser,
+            file_path: *const core::ffi::c_char,
+        ) -> *mut whiteout_Texture;
+        pub fn whiteout_textures_TexParser_parse_buffer(
+            self_: *mut whiteout_TexParser,
+            buffer: *const u8,
+            buffer_size: usize,
+        ) -> *mut whiteout_Texture;
+        pub fn whiteout_textures_TexParser_parse_texFilePath_payloadFilePath(
+            self_: *mut whiteout_TexParser,
+            tex_file_path: *const core::ffi::c_char,
+            payload_file_path: *const core::ffi::c_char,
+        ) -> *mut whiteout_Texture;
+        pub fn whiteout_textures_TexParser_parse_texData_payloadData(
+            self_: *mut whiteout_TexParser,
+            tex_data: *const u8,
+            tex_data_size: usize,
+            payload_data: *const u8,
+            payload_data_size: usize,
+        ) -> *mut whiteout_Texture;
+        pub fn whiteout_textures_TexParser_parse_texFilePath_hiResPayloadFilePath_lowResPayloadFilePath(
+            self_: *mut whiteout_TexParser,
+            tex_file_path: *const core::ffi::c_char,
+            hi_res_payload_file_path: *const core::ffi::c_char,
+            low_res_payload_file_path: *const core::ffi::c_char,
+        ) -> *mut whiteout_Texture;
+        pub fn whiteout_textures_TexParser_hasIssues(self_: *mut whiteout_TexParser) -> i32;
+        pub fn whiteout_textures_TexParser_getIssues_count(self_: *mut whiteout_TexParser)
+            -> usize;
+        pub fn whiteout_textures_TexParser_getIssues_at(
+            self_: *mut whiteout_TexParser,
+            index: usize,
+        ) -> RawCString;
+        // D2rTextureParser
+        pub fn whiteout_textures_D2rTextureParser_new() -> *mut whiteout_D2rTextureParser;
+        pub fn whiteout_textures_D2rTextureParser_delete(self_: *mut whiteout_D2rTextureParser);
+        pub fn whiteout_textures_D2rTextureParser_parse(
+            self_: *mut whiteout_D2rTextureParser,
+            buffer: *const u8,
+            buffer_size: usize,
+        ) -> *mut whiteout_Texture;
+        pub fn whiteout_textures_D2rTextureParser_detect(
+            self_: *mut whiteout_D2rTextureParser,
+            buffer: *const u8,
+            buffer_size: usize,
+        ) -> i32;
+        pub fn whiteout_textures_D2rTextureParser_hasIssues(
+            self_: *mut whiteout_D2rTextureParser,
+        ) -> i32;
+        pub fn whiteout_textures_D2rTextureParser_getIssues_count(
+            self_: *mut whiteout_D2rTextureParser,
+        ) -> usize;
+        pub fn whiteout_textures_D2rTextureParser_getIssues_at(
+            self_: *mut whiteout_D2rTextureParser,
+            index: usize,
+        ) -> RawCString;
+        // D2rTextureWriter
+        pub fn whiteout_textures_D2rTextureWriter_new() -> *mut whiteout_D2rTextureWriter;
+        pub fn whiteout_textures_D2rTextureWriter_delete(self_: *mut whiteout_D2rTextureWriter);
+        pub fn whiteout_textures_D2rTextureWriter_write(
+            self_: *mut whiteout_D2rTextureWriter,
+            texture: *mut whiteout_Texture,
+        ) -> RawBytes;
+        pub fn whiteout_textures_D2rTextureWriter_hasIssues(
+            self_: *mut whiteout_D2rTextureWriter,
+        ) -> i32;
+        pub fn whiteout_textures_D2rTextureWriter_getIssues_count(
+            self_: *mut whiteout_D2rTextureWriter,
+        ) -> usize;
+        pub fn whiteout_textures_D2rTextureWriter_getIssues_at(
+            self_: *mut whiteout_D2rTextureWriter,
             index: usize,
         ) -> RawCString;
         // BmpParser

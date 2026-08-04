@@ -37,6 +37,7 @@ namespace whiteout::textures::tex {
 // ============================================================================
 
 /// Reads a TEX file or byte buffer and decodes it into a Texture.
+/// @bind methods, js_name=TexParser
 class Parser : public textures::Parser {
 public:
     /// High-level TEX container kind inferred from the file header.
@@ -62,6 +63,8 @@ public:
     std::optional<Texture> parse(std::span<const u8> buffer, TexInfo* outInfo);
 
     /// Classify a TEX byte buffer as D3, D4-meta, or unknown.
+    /// @bind skip — nested Parser::FileKind enum; callers detect D4 by a
+    /// failed single-buffer parse() and retry with the payload instead.
     FileKind detectKind(std::span<const u8> buffer) const;
 
     /// Classify a TEX file on disk as D3, D4-meta, or unknown.
