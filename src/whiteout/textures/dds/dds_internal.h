@@ -239,8 +239,11 @@ inline bool is_dxgi_srgb(u32 dxgi_format) {
     }
 }
 
+enum class LegacyChannelOrder { Rgba, Bgra };
+
 inline std::optional<PixelFormat> legacy_pixfmt_to_pixel_format(
-    const DDS_PIXELFORMAT& pixel_format) {
+    const DDS_PIXELFORMAT& pixel_format, LegacyChannelOrder& order) {
+    order = LegacyChannelOrder::Rgba;
     if (pixel_format.flags & DDPF_FOURCC) {
         switch (pixel_format.fourCC) {
         case make_fourcc('D', 'X', 'T', '1'):
@@ -261,12 +264,19 @@ inline std::optional<PixelFormat> legacy_pixfmt_to_pixel_format(
     }
 
     if (pixel_format.flags & DDPF_RGB) {
-        const bool is_rgba8 =
-            pixel_format.rgbBitCount == 32 && pixel_format.rBitMask == 0x000000FFu &&
-            pixel_format.gBitMask == 0x0000FF00u && pixel_format.bBitMask == 0x00FF0000u &&
-            (!(pixel_format.flags & DDPF_ALPHAPIXELS) || pixel_format.aBitMask == 0xFF000000u);
+        const bool alpha_ok = !(pixel_format.flags & DDPF_ALPHAPIXELS) ||
+                              pixel_format.aBitMask == 0xFF000000u;
+        const bool is_32bpp = pixel_format.rgbBitCount == 32 &&
+                              pixel_format.gBitMask == 0x0000FF00u && alpha_ok;
 
-        if (is_rgba8) {
+        if (is_32bpp && pixel_format.rBitMask == 0x000000FFu &&
+            pixel_format.bBitMask == 0x00FF0000u) {
+            return PixelFormat::RGBA8;
+        }
+        // D3DFMT_A8R8G8B8 / X8R8G8B8 — same 32bpp layout with R and B swapped.
+        if (is_32bpp && pixel_format.rBitMask == 0x00FF0000u &&
+            pixel_format.bBitMask == 0x000000FFu) {
+            order = LegacyChannelOrder::Bgra;
             return PixelFormat::RGBA8;
         }
     }

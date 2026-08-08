@@ -63,6 +63,7 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
 
     std::optional<PixelFormat> pixel_format;
     bool srgb = false;
+    LegacyChannelOrder channel_order = LegacyChannelOrder::Rgba;
     if (has_dx10_header) {
         pixel_format = dxgi_to_pixel_format(dx10_header.dxgiFormat);
         srgb = is_dxgi_srgb(dx10_header.dxgiFormat);
@@ -71,7 +72,7 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
             return std::nullopt;
         }
     } else {
-        pixel_format = legacy_pixfmt_to_pixel_format(header.ddspf);
+        pixel_format = legacy_pixfmt_to_pixel_format(header.ddspf, channel_order);
         if (!pixel_format) {
             fail("Unsupported legacy DDS pixel format");
             return std::nullopt;
@@ -130,6 +131,16 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> buffer) {
 
     std::memcpy(texture.dataPtr(), buffer_.data() + data_offset,
                 static_cast<size_t>(texture.dataSize()));
+
+    // BGRA -> RGBA. Every pixel is 4 bytes regardless of mip level, face or
+    // array slice, so one pass over the whole payload covers them all.
+    if (channel_order == LegacyChannelOrder::Bgra) {
+        u8* texels = texture.dataPtr();
+        const size_t byte_count = static_cast<size_t>(texture.dataSize());
+        for (size_t i = 0; i + 3 < byte_count; i += 4) {
+            std::swap(texels[i], texels[i + 2]);
+        }
+    }
 
     return texture;
 }
