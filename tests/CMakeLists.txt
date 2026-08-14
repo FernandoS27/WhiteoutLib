@@ -68,6 +68,8 @@ whiteout_add_test(m2_diag_test m2_diag_test.cpp)
 
 # SNO / Diablo Tests
 whiteout_add_test(d3_ani_corpus_test d3_ani_corpus_test.cpp)
+whiteout_add_test(d3_payload_test d3_payload_test.cpp)
+whiteout_add_test(d3_graphics_sno_test d3_graphics_sno_test.cpp)
 whiteout_add_test(d3_app_corpus_test d3_app_corpus_test.cpp)
 whiteout_add_test(d4_sno_diag_test d4_sno_diag_test.cpp)
 whiteout_add_test(d4_tex_corpus_test d4_tex_corpus_test.cpp)

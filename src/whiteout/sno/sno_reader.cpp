@@ -106,8 +106,34 @@ static void subTypeHashes(const u32 typeHashes[3], u32 out[3]) {
     out[2] = TypeHash::DT_NULL;
 }
 
-/// Check whether a field carries external payload data.
-static bool isExternalField(const SnoFieldDef* field) {
+/// Check whether a field carries external payload data.  D4 only -- see below.
+///
+/// D3: these bits do NOT mean "payload".  In the D3 engine (2.6.2 Switch,
+/// sub_7100612560) the upper field flags are conditional-serialization
+/// gate/polarity *pairs*: bit 20 gates a runtime condition whose expected value
+/// is bit 21, bit 22 gates a second condition whose expected value is bit 23,
+/// bit 24 gates a third.  A field is included only when the conditions hold.
+/// That is why 0x700000 appears on 300 D3 fields across 81 types, including
+/// plain GBID fields such as ItemType+0.  Applying the D4 test to D3 made 76
+/// variable-array fields -- among them Appearance+136, a SubObject array --
+/// report an external marker instead of their contents.
+///
+/// D3 also has no external payload file: its payload bytes live in the same
+/// buffer immediately after the struct image, and the engine reads them with the
+/// same Read(stream, offset, size, dst) it uses for the struct itself.  So the D3
+/// path must fall through to the normal in-buffer read.
+///
+/// KNOWN BUG (D4, unfixed): 0x200000 and 0x400000 are two distinct flags, not one
+/// concept -- across the 19571 D4 field defs they are mutually exclusive (45 set
+/// only 0x200000, 141 set only 0x400000, zero set both).  They also differ in
+/// kind: 44 of the 45 0x200000 fields are variable arrays, whereas 138 of the 141
+/// 0x400000 fields are not arrays at all.  That points to 0x200000 being the
+/// array-payload bit and 0x400000 meaning something else, so OR-ing them
+/// mis-routes some D4 fields (notably any with an *internal* payload) to the
+/// external buffer.  Settling which bit is which needs D4 engine ground truth;
+/// until then this preserves the existing D4 behaviour exactly.
+static bool isExternalField(const SnoFieldDef* field, SnoFormat format) {
+    if (format != SnoFormat::D4) return false;
     return field && (field->flags & (0x200000 | 0x400000));
 }
 
@@ -251,6 +277,26 @@ static SnoArray readTypedArrayFromBuf(BinaryReader& reader, size_t off, size_t c
 
 static SnoValue emptyArray() {
     return SnoValue(SnoArray(std::vector<SnoValue>{}));
+}
+
+/// Translate a `SnoGroup` (whose values are Diablo IV's, per sno_types.h) into
+/// the Diablo III group id used to key the D3 registry.
+///
+/// The two games agree on almost every id, which is why casting has worked so
+/// far, but they do diverge.  PhysMesh is group 30 in D4 and group 61 in D3
+/// (confirmed against the D3 2.6.2 group-handler registry, where the descriptor
+/// registered as "PhysMesh" carries groupId 61; nothing is registered at 30).
+/// Casting straight through therefore looked up a group D3 does not have, so
+/// every .phm file failed to resolve a root type and parsed as nullopt.
+///
+/// Applied on the D3 path only -- D4 lookups keep using the raw enum value.
+static u32 toD3GroupId(SnoGroup group) {
+    switch (group) {
+    case SnoGroup::PhysMesh:
+        return 61; // D4 = 30, D3 = 61
+    default:
+        return static_cast<u32>(group);
+    }
 }
 
 static SnoValue makeExternalMarker(i32 dataOffset, i32 dataSize, i32 dataCount = -1) {
@@ -506,7 +552,7 @@ static SnoValue readBasicType(ReadCtx& ctx, u32 typeHash, const u32 typeHashes[3
         u32 sub[3];
         subTypeHashes(typeHashes, sub);
 
-        if (isExternalField(field)) {
+        if (isExternalField(field, ctx.format)) {
             if (ctx.payloadDataReader && dataSize > 0 && dataOffset >= 0 &&
                 static_cast<size_t>(dataOffset + dataSize) <= ctx.payloadDataSize)
                 return readVarArray(ctx.forExternalPayload(), sub, static_cast<size_t>(dataOffset),
@@ -529,7 +575,7 @@ static SnoValue readBasicType(ReadCtx& ctx, u32 typeHash, const u32 typeHashes[3
         i32 const dataSize = reader.read<i32>();
         i32 const dataCount = reader.read<i32>();
 
-        if (isExternalField(field)) {
+        if (isExternalField(field, ctx.format)) {
             if (ctx.payloadDataReader && dataSize > 0 && dataCount > 0 && dataOffset >= 0 &&
                 static_cast<size_t>(dataOffset + dataSize) <= ctx.payloadDataSize) {
                 size_t const off =
@@ -703,15 +749,26 @@ static SnoValue readStructure(ReadCtx& ctx, const u32 typeHashes[3], size_t offs
 
         // D3: pointer-to-struct indirection (flags & 1)
         if (ctx.format == SnoFormat::D3 && (f.flags & 1)) {
+            // Bit 0 selects pointer indirection only for a *struct* field: the
+            // slot then holds an i32 offset to the struct body.  It cannot mean
+            // that for a basic type -- PhysicsDefinition is a flat 68-byte POD
+            // whose DT_FLOAT at +20 carries bit 0 and is plainly stored inline.
+            //
+            // This used to `continue` for basic (and unknown) types, which did
+            // not merely skip the indirection, it dropped the field outright.
+            // That silently deleted every scalar of Physics (14 of 14 fields, so
+            // .phy parsed to an empty object) and most of Material/AnimSet/
+            // ShaderMap.  Basic and unresolved types now fall through and are
+            // read inline; struct indirection is unchanged.
             auto* subType = ctx.reg.findType(f.typeHashes[0]);
-            if (!subType || subType->isBasic || subType->size == 0)
-                continue;
-            if (fieldOff + 4 > ctx.payloadSize)
-                continue;
-            i32 const ptrOff = readAt<i32>(ctx.reader, fieldOff);
-            if (ptrOff <= 0 || static_cast<size_t>(ptrOff) + subType->size > ctx.payloadSize)
-                continue;
-            fieldOff = static_cast<size_t>(ptrOff);
+            if (subType && !subType->isBasic && subType->size != 0) {
+                if (fieldOff + 4 > ctx.payloadSize)
+                    continue;
+                i32 const ptrOff = readAt<i32>(ctx.reader, fieldOff);
+                if (ptrOff <= 0 || static_cast<size_t>(ptrOff) + subType->size > ctx.payloadSize)
+                    continue;
+                fieldOff = static_cast<size_t>(ptrOff);
+            }
         }
 
         ReadCtx subCtx = ctx.sub();
@@ -775,7 +832,7 @@ std::optional<SnoFile> SnoReader::parse(std::span<const u8> data, SnoGroup group
     // Without this check, the name-based fallback below would find the D4
     // type (e.g. "AnimationDefinition") and parse the D3 file incorrectly.
     if (rootTypeHash == 0 && group != SnoGroup::None) {
-        u32 const d3TypeHash = m_d3Registry.typeHashFromKey(static_cast<u32>(group));
+        u32 const d3TypeHash = m_d3Registry.typeHashFromKey(toD3GroupId(group));
         if (d3TypeHash != 0)
             return parseD3(data, group);
     }
@@ -850,7 +907,7 @@ std::optional<SnoFile> SnoReader::parseD3(std::span<const u8> data, SnoGroup gro
 
     u32 const version = dataReader.read<u32>();
 
-    u32 const groupId = static_cast<u32>(group);
+    u32 const groupId = toD3GroupId(group);
     u32 const rootTypeHash = m_d3Registry.typeHashFromKey(groupId);
     if (rootTypeHash == 0)
         return std::nullopt;
