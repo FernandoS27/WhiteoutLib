@@ -30,6 +30,9 @@ endif()
 if(TARGET WhiteoutLib::whiteout_mpq)
     list(APPEND WhiteoutLib_AVAILABLE_COMPONENTS mpq)
 endif()
+if(TARGET WhiteoutLib::whiteout_database)
+    list(APPEND WhiteoutLib_AVAILABLE_COMPONENTS database)
+endif()
 
 # Honour `find_package(WhiteoutLib REQUIRED COMPONENTS casc mpq)`:
 # if the user explicitly asked for casc/mpq but this install was built
