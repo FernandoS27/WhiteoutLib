@@ -4,9 +4,15 @@
 **Byte Order**: Little-endian  
 **Magic**: `0xDEADBEEF`  
 **Version**: 260  
-**Corpus**: 11,347 files analyzed
+**Corpus**: 11,347 files analyzed
+**SNO Group**: 9 (`Appearance`)
+**Registered revision**: 306 — the shipped data is v260, so the binary's compiled struct describes a *newer* layout (see below / README §4)
+
+See [README.md](README.md) for the build these offsets come from, the generator pipeline
+and the conventions used below.
 
 ---
+
 
 ## Table of Contents
 
@@ -93,6 +99,59 @@ struct PackedUV  { u16 u, v; };              //  4 bytes (see §9 for decoding)
 ---
 
 ## 3. File Header
+
+> **Correction (§3).** The offsets below are right up to 0x1F0; six regions the
+> table calls padding or scale are real fields, and the tail from 0x1F4 is
+> shifted. The engine's own registration for this group resolves all of them.
+>
+> There is no 16-byte pad at the end: the struct is 536 bytes running from file
+> 0x010 to 0x228, and 0x228 is simply where the first payload block starts —
+> which is why `materialOffset` is always 536.
+>
+> | file | table says | actually |
+> | --- | --- | --- |
+> | 0x0B4–0x0C0 | padding | pointer + alignment of the submesh array field |
+> | 0x0C0–0x0D8 | padding | a **second** submesh set: `{count, offset, size, pad, ptr}`. The engine declares `GeoSet[2]`; only 2 of 11,347 files fill the second, which is why it read as zeros |
+> | 0x118–0x128 | padding, then `modelScale` at 0x120 | a `DT_VECTOR3D`. The word at 0x120 holds only 0 or 1 in all 11,347 files, so it is not a scale |
+> | 0x188–0x194 | padding | `{count, offset, size}` for a **ConstraintParameters** array (292-byte elements, 90 files) |
+> | 0x1C8–0x1E0 | padding after the look table | `{count, offset, size, pad, ptr}` for a **StaticLight** array. Empty in all 11,347 files, hence the zeros |
+> | 0x1F4–0x204 | padding, then constants at 0x204 | the five constants live **here**: 480 at 0x1F4 (5,999/6,000 files) then 30 at 0x1F8, 0x1FC, 0x200, 0x204. They are the engine's five registered `DT_TIME` defaults (480, 30, 30, 30, 30) |
+> | 0x208–0x228 | constants / trailing pad | real data: a 32-bit hash at 0x208, a float at 0x20C, two ints at 0x210/0x214, an int64 at 0x218, an int at 0x220. Only 0x224 is always zero |
+>
+> **What the tail actually holds** (census over all 11,347 files, file offsets):
+>
+> | file | type | values |
+> | --- | --- | --- |
+> | 0x014–0x020 | 3 × int | 0 everywhere — SNO header slack |
+> | 0x020 | flags | not an enum: 1 (7,988), 2 (1,789), 0 (899), 18 (399), 6 (270), 22 (2). The engine tests bit 0 of it when deciding whether to build the third GPU buffer group |
+> | 0x118 | vec3 | (0, 0, 1) in 11,343 files, (0, 0, 0) in 4. `Appearance_SetDefaults` seeds it from a global (0,0,1) constant |
+> | 0x190 | int | 0 (8,887), 1 (1,890), 3 (570) |
+> | 0x198 | int64 | 0 everywhere — a runtime pointer slot |
+> | 0x1F0 | int | 0 (11,186), 2 (105), 1 (56) |
+> | 0x208 | int | 4,000+ distinct arbitrary values — a hash, not a count |
+> | 0x20C | float | 0.0 (8,719) or 2.5 (2,391); 2.0, 2.51, 1.0, 4.0 in the rest |
+> | 0x210, 0x214 | int | 0, or a single set bit: 2048 / 1024 / 512 / 256 / 128 |
+> | 0x218 | int64 | 0 (8,719) or a large arbitrary value |
+> | 0x220 | int | 0 (8,208), 1 (1,971), 5 (1,063), 2, 3, 4 |
+>
+> 0x20C/0x210/0x214/0x218 are zero in the same 8,719 files, so they are one
+> optional group; it does not correlate with cloth, capsules, constraints or
+> bone collision shapes (2,530 of the 2,628 files that fill it have no physics
+> content at all). Nothing in the 2.6.2 build reads them, so their meaning is
+> still open.
+>
+> The look-at region is the engine's `LookAtData`, and the table's reading of it
+> is essentially right. It runs 0x038–0x094 as
+> `{enabled, char boneName[64], yawMin, yawMax, pitchMin, pitchMax, angularVelocity, float}`
+> — so `_flags038` is the enable word and `lookAtBoneName[64]` at 0x03C is
+> correct. What follows at 0x094–0x0A8 (the table's `_reserved094[20]`) is a
+> `{count, pointer, offset, size}` descriptor for a `BonePulseData` array, empty
+> in every file — not padding.
+>
+> §14's octree reading is correct and is now typed: 0x128–0x170 is one 72-byte
+> `Octree` value whose three arrays are `OctreeNode`(48), `OctreeLeaf`(24) and
+> `OctreePrimitive`(8). Each element size divides its own count word exactly in
+> 3,137/3,137 files.
 
 **Size**: 552 bytes (0x228) | **Always at file offset 0**
 
@@ -242,6 +301,32 @@ The 16-byte padding region is always filled with zeros (it is **not** a chunk he
 ---
 
 ## 5. Material Entries
+
+> **Correction (§5, §5.1).** A `MaterialEntry` is a named material **slot**, and
+> its payload is **not one material**: it is an array of `lookCount` blocks of
+> **exactly 248 bytes**, one per entry in the look table (§6). Checked over all
+> 11,347 files, `shaderDataSize / 248 == lookCount` for every one of the 64,899
+> slots — (1,1) 55,564 times, (3,3) 3,032, (2,2) 1,718, (16,16) 583, and so on
+> with no exceptions. Switching an actor's look therefore re-points every slot
+> at once; reading only the first block silently discards every look but the
+> first. The engine calls the slot `AppearanceMaterial` and the block
+> `SubObjectAppearance`.
+>
+> Two field corrections inside the block: `_flags04` at +0x04 is a **Cloth SNO
+> reference** (all 45 distinct non-`-1` values are ids in the `.clt` corpus),
+> and the block does not end at 0x78 — at **+0x80** it carries a **Material SNO
+> reference** naming the `.mat` asset the block was baked from (all 1,700
+> distinct values are ids in the `.mat` corpus). Bytes 0x84–0xF8 are runtime
+> state and are zero in 136,068/136,068 blocks.
+>
+> The +0x08/+0x0C "param section" is a D3 **TagMap**, not a bespoke list: see
+> the correction in `MAT_FILE_FORMAT_SPECIFICATION.md` §5. The body from +0x18
+> to +0x80 is the engine's `UberMaterial`, the same 104-byte value a standalone
+> `.mat` embeds at struct+32 — which is the whole reason this section and the
+> `.mat` header read as near-duplicates.
+>
+> `_reserved88`/`_reserved8C` at +0x88/+0x8C are the null pointer half of the
+> 16-byte array field whose descriptor is at +0x80; zero in 64,899/64,899 slots.
 
 **Size**: 144 bytes per entry
 
@@ -478,23 +563,27 @@ struct SubmeshEntry {                           // 400 bytes
                                     //        (sarcophagi, banners, vehicle chairs, cloaks)
     u8      _reserved048[8];        // 0x048: Always 0
 
-    // ─── Render Mode / Material Binding ────────────────────────────────────────
-    u32     renderModeFlags;        // 0x050: Render mode flags. Common values:
-                                    //        0x904D (36,941 submeshes), 0xFFFFFFFF (12,581),
-                                    //        0x9047, 0x9049, 0x0001. Zero = unused/disabled
-    u32     materialSlotRef;        // 0x054: Material slot reference. 0xFFFFFFFF = none (71,938/78,586).
-                                    //        When set, indexes into a material or shader parameter slot
-    u8      _reserved058[4];        // 0x058: Always 0
+    // ─── Surface / Bone Binding ────────────────────────────────────────────────
+    // Corrected 2026-08-15: these are not flags. The engine registers 0x050 as
+    // a DT_SNO reference into SNO group 43 (Surface) and 0x054 as a DT_INT with
+    // a registered default of -1; the "0x904D" that read as a flag word is the
+    // Surface asset id 36941.
+    u32     snoSurface;             // 0x050: Surface SNO id, 0xFFFFFFFF = none.
+                                    //        Only 18 distinct ids across the corpus
+    i32     boneIndex;              // 0x054: Bone this submesh rides on, -1 = none
+                                    //        (registered default). -1 in 71,938/78,586
+    f32     _reserved058;           // 0x058: DT_FLOAT, 0.0 in every corpus file
     char    meshName[128];          // 0x05C: Null-terminated mesh name (e.g. "A_skeleton_mat")
     char    fullMeshPath[128];      // 0x0DC: Null-terminated Maya mesh path
                                     //        (e.g. "BarbM_Skeleton_geoShape_A_skeleton_mat_001")
 
-    // ─── Per-Submesh Bounding & LOD ────────────────────────────────────────────
+    // ─── Per-Submesh Bounding & Collision ──────────────────────────────────────
     f32     boundCenter[3];         // 0x15C: Per-mesh AABB center (x, y, z)
     f32     boundExtent[3];         // 0x168: Per-mesh AABB half-extents (x, y, z)
-    f32     _reserved174[7];        // 0x174: Nearly always zero — only 1/78,586 submeshes
-                                    //        has any non-zero bytes here. Possibly reserved
-                                    //        for runtime LOD distance overrides
+    u32     collisionShapeCount;    // 0x174: CollisionShape array — count, then the
+    u32     collisionShapeOffset;   // 0x178: usual offset/size/pad/pointer run. The
+    u32     collisionShapeSize;     // 0x17C: count is 0 in every corpus submesh, which
+    u8      _pad180[16];            // 0x180: is why this read as reserved
 };
 ```
 
@@ -545,6 +634,28 @@ struct ClothDescriptor {                        // 128 bytes
 ```
 
 Arrays 4 and 5 (stretch/bend constraints) have count = 0 in **12 of 936** cloth blocks — these are simple cloth meshes that rely only on triangle-based constraints.
+
+> **Corrected 2026-08-15.** `ClothInstance_Init` (0x7100023900) performs the
+> 44→84 / 16→28 / 16→24 copy that assigns every offset in §8.1.1–§8.1.5, and it
+> overturns three readings below:
+>
+> * **`ClothVertex+0x0C` is the normal, not `invMass`.** The real inverse mass
+>   is at **+0x30**, and it is 0 in exactly **23,817** vertices — precisely the
+>   total staple count, i.e. a pinned vertex has infinite mass. `+0x18` is the
+>   rest position (equal to the current position on disk in 84,457/84,457).
+> * **A "Cloth Anchor" (§8.1.3) is the engine's `ClothStaple`, its three ints
+>   are BONE indices, not anchor vertices, and it carries THREE weights.** The
+>   solver indexes `bonePalette + 96*nBoneIndex[k]`; the weights sum to exactly
+>   1.0 in 14,860/23,817.
+> * **`ClothConstraint+0x08` is rest length SQUARED**, `+0x0C`/`+0x10` are
+>   endpoint weights computed at load (zero in all 286,741 corpus constraints),
+>   and `+0x14` is a lerp selector rather than a stiffness on the bend array.
+>
+> `ClothStructure+0x78`/`+0x7C` are `dwDrivingBoneCount` (sizing an 88-byte bone
+> array) and `flExternalForceScale`. The tuning that drives all of this lives in
+> the standalone `.clt` asset the `SubObjectAppearance` references at +0x04 —
+> 73 distinct ids across the corpus, 73/73 of them `.clt`. See
+> `docs/D3 Specs/CLT_FILE_FORMAT_SPECIFICATION.md`.
 
 #### 8.1.1 Cloth Vertex (84 bytes)
 
@@ -633,83 +744,153 @@ struct ClothBendLink {                          // 24 bytes
 
 ### 8.2 Render Flags Bitfield
 
-The `renderFlags` field is a bitmask that describes the rendering properties of the submesh:
+> **Corrected 2026-08-15.** The table that stood here assigned a meaning to
+> every bit; measured against all 191,543 corpus SubObjects, only one of those
+> assignments survives, and it is not the one the table gave. The engine binds
+> **one fixed vertex declaration** for every SubObject and never consults bits
+> 0..12, so this word does not select a vertex layout — the 44-byte stride is
+> unconditional and unused channels are zeroed. What the shipped 2.6.2 build
+> *does* read are bits 15..16 (`(flags & 0x18000) == 0x8000`), which select the
+> post-v260 compressed-vertex stream; no v260 file sets them.
 
-| Bit(s) | Mask   | Description |
-|--------|--------|-------------|
-| 0      | 0x0001 | Has geometry (always set) |
-| 1      | 0x0002 | Has normals |
-| 2      | 0x0004 | Has UV coordinates |
-| 3      | 0x0008 | Has tangent data |
-| 4      | 0x0010 | Has binormal / secondary UV |
-| 5      | 0x0020 | Unknown (rarely set) |
-| 6      | 0x0040 | Has vertex color / alpha |
-| 7      | 0x0080 | Reserved (not observed) |
-| 8      | 0x0100 | Has bone weights (skinned mesh) |
-| 9      | 0x0200 | Reserved |
-| 10     | 0x0400 | Has cloth simulation |
-| 11     | 0x0800 | Has transparency / alpha blending |
-| 12     | 0x1000 | Has texture (standard rendering) |
+What the corpus proves:
 
-**Common flag combinations**:
+| Bit | Mask | Meaning | Evidence |
+|-----|------|---------|----------|
+| 0 | 0x0001 | always set | 191,543 / 191,543 |
+| 8 | 0x0100 | the vertex's trailing word is a **cloth vertex index** | exact: set on 958/958 SubObjects that carry a `ClothStructure`, clear on 186,547/186,547 that do not |
+| 12 | 0x1000 | never set on a skinned SubObject | 0 of the 170,067 SubObjects with this bit have a weight array; 61% of those without it do |
+| 2 + 12 | 0x1004 | gates the **second UV set** | with both set, texcoord1 varies across the mesh in 87% of SubObjects; every other combination is ≤ 17% |
+| 15–16 | 0x18000 | compressed-vertex stream (post-v260) | `Appearance_CreateRuntimeInstance` |
 
-| Value    | Hex      | Description |
-|----------|----------|-------------|
-| 4111     | 0x100F   | Standard textured mesh with normals/tangents |
-| 6159     | 0x180F   | Transparent textured mesh |
-| 5191     | 0x1447   | Textured mesh with vertex color and cloth |
-| 4105     | 0x1009   | Textured mesh (minimal: position + tangent + texture) |
-| 71       | 0x0047   | Untextured mesh with vertex color |
-| 103      | 0x0067   | Untextured mesh with vertex color and secondary UV |
+The remaining bits (1, 3–7, 10, 11) are used by the data — the union over the
+corpus is `0x1DFF` — but nothing in the 2.6.2 build reads them, and no per-bit
+predicate over the corpus separates cleanly. In particular the old table's
+"has normals" / "has tangent data" / "has UV coordinates" readings cannot be
+right: normals, tangents, binormals and texcoord0 are non-zero in **every**
+vertex of **every** SubObject regardless of the flag word.
+
+**Common values** (subobject counts over the 11,347-file corpus):
+
+| Value | Hex | SubObjects |
+|-------|-----|-----------|
+| 4111 | 0x100F | 50,122 |
+| 5191 | 0x1447 | 23,464 |
+| 6159 | 0x180F | 19,798 |
+| 4191 | 0x105F | 9,499 |
+| 4121 | 0x1019 | 6,331 |
 
 ---
 
 ## 9. Vertices
 
-**Stride**: 44 bytes (fixed, regardless of render flags — unused channels are zeroed)
+**Stride**: 44 bytes, unconditional — every SubObject in the corpus has
+`vertexDataSize == vertexCount * 44`, with no exceptions in 191,543 SubObjects.
+
+> **Corrected 2026-08-15.** The struct that stood here read 0x10 as bone
+> indices and 0x14 / 0x1C / 0x28 as padding. 0x10 and 0x14 are the two vertex
+> **colour** channels (0x10's "0xFF for unused slots" was the alpha byte),
+> 0x1C is the **second texture coordinate set**, and 0x28 is a **cloth vertex
+> index**. Per-vertex bone indices live in the separate weight buffer
+> ([§10](#10-vertex-weights)), not here.
 
 ```cpp
 struct Vertex {                                 // 44 bytes
     Vector3f    position;       // 0x00: Vertex position (XYZ)
-    u8          normal[3];      // 0x0C: Packed normal vector (see §9.2 for decoding)
-    u8          _pad0F;         // 0x0F: Zero padding
-    u8          boneIndices[4]; // 0x10: Per-vertex bone indices for GPU skinning.
-                                //       0xFF for unused slots. All zeros for static meshes
-    u8          _unknown14[4];  // 0x14: Always zero (possibly reserved for extra bone weights)
-    PackedUV    texCoord;       // 0x18: Packed texture coordinates (see §9.3)
-    u8          _pad1C[4];      // 0x1C: Zero padding
-    u8          tangent[3];     // 0x20: Packed tangent vector (same encoding as normal)
-    u8          _pad23;         // 0x23: Zero padding
-    u8          binormal[3];    // 0x24: Packed binormal/bitangent vector (same encoding)
-    u8          _pad27;         // 0x27: Zero padding
-    u8          _pad28[4];      // 0x28: Zero padding
+    u8          normal[3];      // 0x0C: Packed normal (see §9.2)
+    u8          _pad0F;         // 0x0F: Zero in every vertex in the corpus
+    u8          color[4];       // 0x10: Vertex colour, R,G,B,A in memory order
+    u8          auxColor[4];    // 0x14: Second colour channel (shader "auxcolor")
+    PackedUV    texCoord0;      // 0x18: Packed texture coordinates (see §9.3)
+    PackedUV    texCoord1;      // 0x1C: Second texture coordinate set
+    u8          tangent[3];     // 0x20: Packed tangent, follows +dP/du
+    u8          _pad23;         // 0x23: Zero
+    u8          binormal[3];    // 0x24: Packed binormal, follows -dP/dv
+    u8          _pad27;         // 0x27: Zero
+    u32         clothVertexIdx; // 0x28: Index into the SubObject's cloth vertex
+                                //       array; zero unless flags bit 8 is set
 };
 ```
 
+### 9.1 Where the layout comes from
+
+Three independent sources agree, which is what makes the reading safe:
+
+1. **The engine's vertex declaration.** `VertexDecl_BuildAll` (0x7100093DD0 in
+   the Switch 2.6.2 build) constructs one declaration per stride-table entry as
+   a list of `{u16 byteOffset, u32 formatCode, u16 usage}` records. Entry 4
+   (stride 32) is the current-revision `FatVertex` and pins the usage enum:
+
+   ```
+   (0,34,0) (12,39,1) (16,37,2) (20,37,3) (24,39,4) (28,39,5)
+   usage 0 = position, 1 = normal, 2 = color, 3 = auxcolor,
+        4 = texcoord0, 5 = texcoord1
+   ```
+
+   Entry 1 (stride 40) is that same list plus `(32,39,6) (36,39,7)` — the
+   tangent and binormal the current revision dropped. 44 − 32 = 12 is exactly
+   those two plus the trailing cloth index.
+
+2. **The shipped ARB vertex programs** (`Corpus/D3/OpenGLShaders`), which carry
+   the decode arithmetic in the clear and name the attributes `Np`, `Tp`, `Bp`,
+   `color`, `auxcolor`, `texcoordp0`, `texcoordp1`, `blendweights`,
+   `blendindices`.
+
+3. **The corpus.** See the decoded checks in §9.2 and §9.3.
+
 ### 9.2 Normal / Tangent / Binormal Decoding
 
-Packed normals, tangents, and binormals use the same encoding. Each component is stored as an unsigned byte and decoded as:
+All three use the same packing: three unsigned bytes, fourth byte zero. The
+engine's own vertex programs spell the decode out —
 
 ```
-component = (byte - 127.0) / 127.0
+MUL R.xyz, vertex.attrib[2], 0.0078431377   # 2/255
+ADD R.xyz, R, -1
 ```
 
-This maps the byte range [0, 254] to approximately [-1.0, +1.0]:
-- Byte **127** → 0.0
-- Byte **0** → -1.0
-- Byte **254** → +1.0
-- Byte **255** → +1.008 (slight overshoot, treat as +1.0)
+so
+
+```
+component = byte * (2.0 / 255.0) - 1.0
+```
+
+Byte 0 → −1.0, byte 127 → −0.0039, byte 128 → +0.0039, byte 255 → +1.0. (The
+older `(byte - 127)/127` reading is within half a bit of this but overshoots at
+255 and does not match the engine.)
+
+Decoded this way over 11.6M corpus vertices the mean lengths are 1.0075 /
+1.0036 / 1.0038 for normal / tangent / binormal, standard deviations 0.015 /
+0.047 / 0.046 — unit vectors, to the precision 8 bits per component allows.
+
+The tangent frame is right-handed with a **flipped V**: rebuilding it from
+triangle positions and decoded UVs over 307,878 corpus triangles matches the
+stored tangent to `+∂P/∂u` at mean cos **+0.887** and the stored binormal to
+`−∂P/∂v` at mean cos **−0.897**.
 
 ### 9.3 UV Coordinate Decoding
 
-Texture coordinates are stored as two unsigned 16-bit integers and decoded as:
+Texture coordinates are two unsigned 16-bit integers, each an 8.8 fixed-point
+value biased by 64. Again the engine states it directly (`c[38].z` = 1/256,
+`c[0].z` = 0.5, `c[38].w` = 64):
 
 ```
-u = -(32767.0 - raw_u) / 512.0
-v = (32767.0 - raw_v) / 512.0 + 1.0
+MAD R0.y, vertex.attrib[8].x, c[38].z, vertex.attrib[8].y   # lo/256 + hi
+MAD R0.x, vertex.attrib[8].z, c[38].z, vertex.attrib[8].w
+MUL R2.x, R0.y, c[0].z                                      # * 0.5
+ADD R0.x, R2.x, -c[38].w                                    # - 64
 ```
 
-The U axis is negated and V axis is offset by 1.0 to match the Maya/3ds Max UV space convention. This encoding provides a UV range of approximately [−64, +64] with ~0.002 precision.
+which reduces to
+
+```
+u = u16_le[0] / 512.0 - 64.0
+v = u16_le[1] / 512.0 - 64.0
+```
+
+Range exactly [−64, +64 − 1/512], precision 1/512 ≈ 0.00195; the corpus reaches
+both ends. Note the two components use the *same* formula — neither is negated
+on disk. A V flip is still needed to land in Maya/3ds Max UV space, and that is
+also why the stored binormal points along −∂P/∂v.
 
 ---
 

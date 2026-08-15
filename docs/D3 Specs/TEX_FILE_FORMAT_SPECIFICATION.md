@@ -3,8 +3,64 @@
 **Format**: Diablo III Texture Container (`.tex`)
 **Byte Order**: Little-endian
 **Magic**: `0xDEADBEEF`
-**Version**: 47
-**Corpus**: 33,431 files analyzed
+**SNO Group**: 44 (`Textures`)
+**Version**: 47 (shipped) — the binary's compiled struct is **revision 66**
+**Corpus**: 33,431 files analyzed in the original pass; **no `.tex` corpus is present in this
+repository today**
+
+See [README.md](README.md) for the build these offsets come from and the conventions used
+below.
+
+---
+
+> ## ⚠ Status — 2026-08-16: this is the one D3 spec NOT re-derived
+>
+> Every other document in this folder has been re-derived against the Switch 2.6.2 type
+> metadata and re-gated on its corpus. **TEX has been neither.** Two things block it:
+>
+> 1. **There is no corpus.** `Corpus/D3/Textures` does not exist in this tree, so not one
+>    claim below can be re-checked. The "33,431 files" figure comes from an earlier analysis
+>    whose corpus is no longer present.
+> 2. **The version skew is the largest of any D3 group** — shipped **47** against a registered
+>    revision **66** — and unlike most groups, the difference is not cosmetic.
+>
+> **What the binary actually registers** (`Textures`, group 44, **632 bytes**, 27 declared
+> fields). Six fields carry the post-v0 flag `0x700000`, meaning they were added after the
+> shipped revision and are **absent from v47 data**:
+>
+> | struct off | type | notes |
+> | ---: | --- | --- |
+> | +0x010 | `DT_INT` | |
+> | +0x014, +0x018, +0x01C | `DT_INT` ×3 | |
+> | **+0x020, +0x024** | `DT_INT` ×2 | **post-v0 — not in v47** |
+> | +0x028, +0x02C | `DT_INT` ×2 | |
+> | +0x030 | `DT_FIXEDARRAY[60]` of `SerializeData` | 480 bytes — the mip table |
+> | +0x210 | `DT_INT` | element count for the `TexFrame` array |
+> | +0x214 / +0x220 | `SerializeData` / `DT_VARIABLEARRAY` | → `TexFrame` |
+> | +0x228 | `DT_IVECTOR2D` | |
+> | +0x230 | `DT_INT64` | |
+> | +0x238, +0x240, +0x244 | `DT_INT` ×3 | |
+> | +0x248 / +0x250 | `DT_VARIABLEARRAY` / `SerializeData` | → `ImageFileID` |
+> | +0x258, +0x25C, +0x260 | `DT_INT` ×3 | |
+> | **+0x264, +0x268, +0x26C, +0x270** | `DT_INT`, `DT_FLOAT`, `DT_INT`, `DT_INT` | **post-v0 — not in v47** |
+>
+> **Predicted v47 size: 608 bytes** — 632 minus the two 4-byte fields at +0x020/+0x024 and the
+> four at +0x264…+0x270. That is a *prediction from the flags*, not a measurement, and it
+> implies **everything from +0x028 onward sits 8 bytes lower in v47 than the table above**.
+> The mip table would then start at +0x028, not +0x030.
+>
+> **How to read this document until it is re-derived:** the descriptive material — pixel
+> formats, mip ordering, block-compressed shuffling, the atlas/frame system, cubemap layout —
+> was derived from real files and is probably sound. The **absolute offsets are not
+> trustworthy**: they were written under a "32-byte SNO preamble" model that proved wrong for
+> every other D3 format in this folder (see the CLT, SHD and D3_PHYSICS correction passes,
+> where the same assumption displaced every field by 16 bytes). A `.tex` file is a **16-byte
+> header + the struct**, so a documented file offset `X` most likely corresponds to struct
+> offset `X − 16`.
+>
+> Re-deriving this properly needs a `.tex` corpus. With one, the checks to run first are:
+> file size == 16 + 608, the 60-entry mip table's `SerializeData` bounds, and
+> `TexFrame`/`ImageFileID` element sizes from `byteSize / count`.
 
 ---
 

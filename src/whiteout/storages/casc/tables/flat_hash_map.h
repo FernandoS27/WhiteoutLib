@@ -95,6 +95,11 @@ public:
     const Value* find(u64 key) const {
         if (key == kEmpty)
             return m_hasZero ? &m_zeroValue : nullptr;
+        // Buckets are allocated lazily on first insert; a map that never took
+        // one (e.g. an IndexTable with both LazyIdxBuckets and LazyArchiveIndex)
+        // would otherwise index into an empty vector.
+        if (m_buckets.empty())
+            return nullptr;
         size_t idx = key & m_mask;
         while (true) {
             auto& b = m_buckets[idx];

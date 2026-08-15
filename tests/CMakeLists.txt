@@ -70,6 +70,11 @@ whiteout_add_test(m2_diag_test m2_diag_test.cpp)
 whiteout_add_test(d3_ani_corpus_test d3_ani_corpus_test.cpp)
 whiteout_add_test(d3_payload_test d3_payload_test.cpp)
 whiteout_add_test(d3_graphics_sno_test d3_graphics_sno_test.cpp)
+whiteout_add_test(d3_native_test d3_native_test.cpp)
+# The public D3 native headers live in include/ and need no help. This is for
+# the white-box half of the test, which includes the build-internal layout.h to
+# check parsed values against the raw on-disk image.
+target_include_directories(d3_native_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(d3_app_corpus_test d3_app_corpus_test.cpp)
 whiteout_add_test(d4_sno_diag_test d4_sno_diag_test.cpp)
 whiteout_add_test(d4_tex_corpus_test d4_tex_corpus_test.cpp)
@@ -130,6 +135,12 @@ if(WHITEOUT_ENABLE_CASC)
     # Usage: casc_perf_crossref_test <casc_path> [output_csv]
     add_executable(casc_perf_crossref_test casc_perf_crossref_test.cpp)
     target_link_libraries(casc_perf_crossref_test PRIVATE whiteout_casc)
+
+    # Storage-open phase profiler — standalone executable with custom main().
+    # Usage: casc_open_bench <casc_path> [--listfile <path>] [--reps N] ...
+    add_executable(casc_open_bench casc_open_bench.cpp)
+    target_link_libraries(casc_open_bench PRIVATE whiteout_casc)
+    target_include_directories(casc_open_bench PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
     # Online performance cross-reference test — standalone executable with custom main().
     # Benchmarks Storage::openOnline (CDN-backed) read performance.

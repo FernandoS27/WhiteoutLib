@@ -5,6 +5,92 @@
 **Magic**: `0xDEADBEEF`  
 **Version**: 282  
 **Corpus**: 19,177 files analyzed
+**SNO Group**: 1 (`Actor`)
+**Registered revision**: 288 — the shipped data is v282, so the binary's compiled struct describes a *newer* layout (see below / README §4)
+
+See [README.md](README.md) for the build these offsets come from, the generator pipeline
+and the conventions used below.
+
+---
+
+
+## CORRECTION PASS — 2026-08-15
+
+> The sections below this notice were derived from file bytes alone, before the
+> Switch 2.6.2 build's own reflection metadata was available. The layout has now
+> been re-derived from `Actor_RegisterTypeDescriptors` (0x710060A4C0) in the
+> Diablo III Nintendo Switch 2.6.2 binary and re-verified against all 19,177
+> `.acr` files. **Where this notice disagrees with a later section, this notice
+> is correct.** The authoritative machine-readable layout is the `Actor` entry in
+> `data/d3_type_overrides.json`.
+>
+> The struct is **880 bytes** (file offsets 0x10..0x37F). The binary registers
+> **448** because it describes the *current* revision, not the shipped one; the
+> two are connected exactly by the documented `0x700000` rule
+> (−8 for two post-shipped fields, +448 for `WeightedLook` 12→68, −8 for
+> `ActorCollisionData` 76→68). 880 is confirmed by the tag-map descriptor, which
+> holds offset 880 in 19,177/19,177 files.
+>
+> **Corrections, by section:**
+>
+> * **§5/§10 — there is no `walkSpeed` / `runSpeedScale` / `selectionRadius`.**
+>   File 0x98..0xA3 is a single registered `DT_VECTOR3D` whose registered default
+>   is `(0, 0, 4.0)`. `0x71008E48A0` rotates it by the actor's orientation and adds
+>   it to the actor's world position; it is the fallback for the per-animation
+>   root displacement. All-zero in 18,401/19,177 files.
+> * **§6 — the actor-type enum names are wrong for five of eleven values.** The
+>   engine's own table (0x710106A028, referenced by the `DT_ENUM` registration)
+>   is: 0 Invalid, 1 **Monster** (3,974), 2 **Gizmo** (3,101), 3 **Client Effect**
+>   (4,503), 4 **Server Prop** (1,056), 5 **Environment** (738), 6 **Critter**
+>   (22), 7 **Player** (26), 8 **Item** (5,258), 9 **Axe Symbol** (46),
+>   10 **Projectile** (438), 11 **Custom Brain** (15). There is no "Spawner",
+>   "Effect", "Encounter" or "CharSelect".
+> * **§7 — the "AABB" holds centre + half-extent, not min/max.** The second
+>   vector is non-negative in 19,177/19,177 files. File 0x2C..0x3F is an
+>   `AxialCylinder {Vector3D centre; float radius; float height}`, 0x40..0x4F a
+>   `Sphere {Vector3D centre; float radius}`, 0x50..0x67 the `AABB`.
+> * **§8 — 0x028 is PhysMesh (group 61); the group-28 Physics reference is at
+>   file 0x2C4**, not an "alternative physics reference". Cross-check: 0x024
+>   matches a real `.app` id in 19,177/19,177, 0x028 a `.phm` in 340/340,
+>   0x078 a `.ans` in 8,628/8,628, 0x2C4 a `.phy` in 5,180/5,180 — 0 unmatched
+>   in every case. 0x07C is a **Monster** SNO (group 25) and is set on
+>   3,974/3,974 type-1 actors.
+> * **§9 — the 412-byte entry is `MsgTriggeredEvent`**, `{int eMessageType;
+>   TriggerEvent tEvent;}`. Its interior is now mapped: two 64-byte hardpoint
+>   names at +72 and +140, a 64-byte look name at +208, a 64-byte constraint name
+>   at +272, a `{group, handle}` SNO name at +48, and two `{ARGB colour, DT_TIME}`
+>   pairs at +396/+400 and +404/+408. All four name fields are NUL-padded
+>   printable ASCII in 27,362/27,362 events, and their values are exactly the
+>   hardpoint literals the engine embeds in 0x710060D280 (`Default` ×14,158,
+>   `HP_chest` ×4,092, `HP_trail1`, `HP_uniqueFX`, ...).
+> * **§11 — the look slot's trailing int is a selection WEIGHT, not an alpha.**
+>   `Actor_PickWeightedLookIndex` (0x710060A010) sums `max(0, weight)` over the
+>   eight slots, takes `hash(seed) % (total+1)` and walks the cumulative weights
+>   to pick a slot. Weights observed: 100 ×13,071, 1 ×241, 20 ×15, 25 ×14,
+>   50 ×8, 33 ×6, 24 ×4, 80 ×3, 150 ×3, 40 ×2, 75 ×2, 0 ×140,044.
+> * **§12 — the "extended actor properties" block is wrong throughout.** File
+>   0x2C4 `snoPhysics` (group 28), 0x2C8 a flag word (zero in 19,177/19,177),
+>   0x2CC an int, 0x2D0/0x2D4/0x2D8 three floats with registered defaults
+>   1.0/1.0/0.5 (cloth parameters), 0x2DC an `ActorCollisionData` of **68** bytes
+>   = `{ActorCollisionFlags[4 words]; int nCollisionEnabled (default 1);
+>   AxialCylinder (default radius 4.0, height 1.25); AABB; float (default 0.8)}`,
+>   0x320 an `InventoryImages[7]` of `{u32, u32}` hashed icon-name handles, and
+>   0x358 one more such handle. There is no `renderFlags`, `altAnimRef`,
+>   `altAnimCount`, `hasCollision` or "navigation AABB".
+> * **§12/§14 — 0x358..0x37F are two C-string `{pointer, SerializeData}` pairs**,
+>   not "end-of-header metadata". The first is the VO **casting direction**
+>   (`"Male - Forties - Medium - Slight British - Contemptous"`), the second the
+>   **voice-over role name** (`"Dark Cultist"`, `"Kyr the Weaponsmith"`,
+>   `"Radek"`). The spec's "0x378 = fileSize−17, 0x37C = 1" is the second
+>   string's descriptor: a 1-byte payload (a lone NUL) at the last byte of the file.
+> * **§13 — the tag-map entry field order is reversed.** Entries are
+>   `{u32 valueType, u32 tagId, u32 value}`. valueType: 0 int ×151,364, 2 SNO
+>   ×51,814, 1 float ×28,139, 7 ×130, 3 ×98. 462 distinct tag ids.
+>   `size == 4 + 12*count` holds in 19,177/19,177.
+> * **§14 — the payload blocks are not in a fixed order.** Events precede the tag
+>   map in 9,233 files, the tag map precedes events in 8,044, and four other
+>   orders account for the remaining 1,900. Tiling the four `SerializeData`
+>   blocks accounts for every byte of every file with zero overlaps.
 
 ---
 
@@ -77,7 +163,16 @@ using String64 = char[64];
 
 **Size**: 32 bytes (0x20) | **Offset**: 0x000
 
-All D3 SNO files share a common preamble. ACR files use the 32-byte variant (no data offset/size fields).
+> **Terminology note (2026-08-16).** There is no "32-byte preamble variant". Every SNO file
+> is a **16-byte header** followed by the struct image — here the **880-byte `Actor` struct**,
+> which is why the fixed region ends at file `0x370` (16 + 880 = 0x380, where the tag map
+> begins). What this section calls the preamble is that header plus the struct's own first 16
+> bytes. **The offsets below are file offsets and are correct**; their struct-relative
+> equivalents are 16 lower, so `snoId` = struct +0 and `flags` = struct +0x0C — the same slot
+> that holds `dwFlags` in every other D3 group.
+>
+> This is flagged because the "oversized preamble" reading is what displaced every field name
+> in the CLT, SHD and `.phy` specifications until they were corrected on 2026-08-16.
 
 ```cpp
 struct SnoPreamble {                            // 32 bytes

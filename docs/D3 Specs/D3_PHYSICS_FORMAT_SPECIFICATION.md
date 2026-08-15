@@ -6,6 +6,44 @@
 **Versions**: PHY v37 | CLT v51 | PHM v24
 **Corpus**: 74 `.phy` + 74 `.clt` + 2,700 `.phm` = 2,848 files analyzed
 
+See [README.md](README.md) for the build these offsets come from, the generator pipeline and
+the conventions used below.
+
+---
+
+> ## Correction pass — 2026-08-16
+>
+> **There is no 32-byte "SNO preamble".** Every SNO file is a **16-byte header** followed by
+> the struct image, and all stored offsets are struct-relative. This document previously
+> assumed a 32-byte preamble, which displaced every named field in §2 and §3 by one 4-byte
+> slot against the layout the binary actually registers.
+>
+> The *observations* were right — every value census below reproduces exactly against the
+> corpus — but they were attached to the wrong fields. Sizes resolve as:
+>
+> | Format | File | = header | + struct (registered) |
+> | --- | ---: | ---: | ---: |
+> | `.phy` | 84 | 16 | **68** (`Physics`, group 28) |
+> | `.clt` | 116 | 16 | **100** (`Cloth`, group 11) |
+> | `.phm` | varies | 16 | **48** + payload (`PhysMesh`, group 61) |
+>
+> What changed:
+>
+> * **§2 (`.phy`) is corrected below.** `physicsSubType` → `nBodyClass`, and everything from
+>   the old `restitution` onward shifts by one slot. The registered *types* also add
+>   information the old pass could not have: the tail is four `DT_ACCEL` fields and one
+>   `DT_VELOCITY`, not the guessed `buoyancy` / `windInfluence` / `breakForce` / `spinRate`.
+> * **§3 (`.clt`) is superseded** by [CLT_FILE_FORMAT_SPECIFICATION.md](CLT_FILE_FORMAT_SPECIFICATION.md),
+>   which carries the full corrected table. Its summary here is now correct but short.
+> * **§4 (`.phm`)** — see [PHM_FILE_FORMAT_SPECIFICATION.md](PHM_FILE_FORMAT_SPECIFICATION.md),
+>   which is the authority and was already re-derived.
+> * **§6's Domino mapping is affected.** Its D3 columns named fields that have since changed
+>   meaning, so the semantic pairings drawn from those names no longer follow. The D3 columns
+>   are corrected and the now-unsupported rows are flagged in place.
+>
+> Verified over the whole corpus: `.phy` 74/74 at 84 bytes v37, `.clt` 74/74 at 116 bytes v51,
+> `.phm` 2,700/2,700 v24 with 4,259 meshes at a uniform 112-byte element.
+
 ---
 
 ## Table of Contents
@@ -47,82 +85,84 @@ PHAC (cloth proxies), PHYJ (physics joints / ragdoll), IKJT (IK joints), and DMS
 
 ## 2. Physics Descriptor — `.phy`
 
-**Tag**: PHY | **Version**: 37 | **Size**: 84 bytes fixed
+**Tag**: PHY | **Version**: 37 (74/74) | **Size**: 84 bytes fixed = 16 header + 68 struct
 
 ### 2.1 File Layout
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  SNO Preamble                               (32 bytes)  │
-│    0x000: magic, version, snoId, reserved               │
+│  SNO file header                            (16 bytes)  │
+│    0x000: magic 0xDEADBEEF, u16 version 37              │
 ├─────────────────────────────────────────────────────────┤
-│  Physics Payload                            (52 bytes)  │
-│    0x020: rigid body parameters                         │
+│  Physics struct                             (68 bytes)  │
+│    file 0x010 = struct +0x00                            │
 └─────────────────────────────────────────────────────────┘
+Total: 84 bytes — all 74 files
 ```
 
-### 2.2 SNO Preamble
+### 2.2 The Physics Struct (68 bytes)
+
+Offsets below are **struct-relative**; file position = 16 + offset. Registered defaults are
+noted where the binary supplies one.
 
 ```cpp
-struct SnoPreamble {                            // 32 bytes
-    u32     magic;              // 0x000: Always 0xDEADBEEF
-    u32     version;            // 0x004: Always 37 for .phy
-    u32     snoGroupId;         // 0x008: SNO group identifier
-    u32     snoId;              // 0x00C: Always 0 for .phy
-    u32     _reserved010;       // 0x010: Reserved
-    u32     _reserved014;       // 0x014: Reserved
-    u32     _reserved018;       // 0x018: Reserved
-    u32     _reserved01C;       // 0x01C: Reserved
+struct Physics {                                // 68 bytes (0x44), group 28
+    u32     dwSnoId;            // +0x00: this asset's own SNO id; unique per file
+    u32     _pad04;             // +0x04: 0
+    u32     _pad08;             // +0x08: 0
+    u32     dwFlags;            // +0x0C: 34 distinct values; 131092 most common (13)
+
+    i32     nBodyClass;         // +0x10: 3 in 73/74, 2 in 1 file
+    f32     flFriction;         // +0x14: [0.0, 3.35]; modes 0.3(24), 0.0(21). default 0.3
+    f32     flMaterial2;        // +0x18: [0.1, 1.0]; 0.1 in 72/74. default 0.1
+    f32     flRestitution;      // +0x1C: [0.0, 1.0]; 0.0 in 64/74
+    f32     flLinearDamping;    // +0x20: [0.0, 6.0]; 0.0 in 55/74
+    f32     flAngularDamping;   // +0x24: [0.0, 50.0]; modes 0.01(22), 0.1(22). default 0.01
+    u16     wCollisionMask;     // +0x28: DT_WORD. default 0xFFBF (65471)
+                                //        top values 0xFFE0(20), 0xFFBF(11), 0xFFFF(10), 0xFFFB(9)
+    f32     flUnread2C;         // +0x2C: [0.0, 5.45]; 0.0 in 49/74
+    f32     accUnread30;        // +0x30: DT_ACCEL  [−0.1389, 0.0178]; 0.0 in 46/74
+    f32     accUnread34;        // +0x34: DT_ACCEL  [−0.1, 0.65];     0.0 in 54/74
+    f32     velUnread38;        // +0x38: DT_VELOCITY [0.0, 5.0];     0.0 in 62/74
+    f32     accUnread3C;        // +0x3C: DT_ACCEL  [−0.8, 0.0006];   0.0 in 58/74
+    f32     accUnread40;        // +0x40: DT_ACCEL  [−0.1, 1.0];      0.0 in 50/74
 };
 ```
 
-### 2.3 Physics Payload
+### 2.3 What the registered types tell us
 
-```cpp
-struct PhysicsPayload {                         // 52 bytes at 0x020
-    // ─── Type ──────────────────────────────────────────────────────────────────
-    u32     physicsSubType;     // 0x020: 3 in 73/74 files; 2 in 1 file
+The five tail fields carry **physical dimensions in their registered types**, which is
+information no byte-level pass could recover:
 
-    // ─── Material Properties ───────────────────────────────────────────────────
-    f32     friction;           // 0x024: Mean=0.39, range [0.0, 3.35]
-                                //        Modes: 0.3(24), 0.0(21)
-    f32     restitution;        // 0x028: Mean=0.11, range [0.1, 1.0]
-                                //        Mode: 0.1 (72/74 files)
-    f32     linearDamping;      // 0x02C: Mean=0.07, range [0.0, 1.0]
-                                //        Mostly 0.0 (64/74)
-    f32     angularDamping;     // 0x030: Mean=0.31, range [0.0, 6.0]
-                                //        Mostly 0.0 (55/74)
-    f32     density;            // 0x034: Mean=1.96, range [0.0, 50.0]
-                                //        Modes: 0.01(22), 0.1(22)
-                                //        Relative multiplier (not kg/m³)
+| Offset | Registered type | Meaning of the unit |
+| --- | --- | --- |
+| +0x30, +0x34, +0x3C, +0x40 | `DT_ACCEL` | units per (1/60 s)² |
+| +0x38 | `DT_VELOCITY` | units per 1/60 s |
 
-    // ─── Collision & Dynamics ──────────────────────────────────────────────────
-    u32     flags;              // 0x038: 16-bit bitmask
-                                //        Common: 0xFFFF, 0xFFE0, 0xFFBF
-                                //        Encodes collision filter layers
-    f32     gravityScale;       // 0x03C: Mean=0.55, range [0.0, 5.45]
-                                //        49/74 are 0.0 (particles/debris)
-    f32     buoyancy;           // 0x040: Mean=−0.003, range [−0.14, 0.018]
-                                //        Mostly 0.0; negative = anti-gravity lift
-    f32     windInfluence;      // 0x044: Sparse; 54/74 zero
-    f32     breakForce;         // 0x048: Sparse; 62/74 zero
-    f32     angularVelocityDamp;// 0x04C: Sparse; 58/74 zero, small negatives
-    f32     spinRate;           // 0x050: Mean=0.014, range [−0.1, 1.0]
-                                //        Mostly 0.0
-};
-```
+So the tail is **four accelerations and one velocity**, not the previously guessed
+`buoyancy` / `windInfluence` / `breakForce` / `angularVelocityDamp` / `spinRate`. Their
+names are left as `accUnreadNN` / `velUnread38` deliberately: the dimension is established,
+the role is not, and no engine function reading them has been located.
 
-### 2.4 Field Identification Rationale
+`wCollisionMask` is a **16-bit** field (`DT_WORD`), not the u32 the old text described. Its
+default `0xFFBF` clears exactly one bit, and the observed values (`0xFFE0`, `0xFFBF`, `0xFFFF`,
+`0xFFFB`) are all near-full masks with a few layers cleared — consistent with a collision
+filter, as the filename evidence in §2.4 suggests.
 
-| D3 Field | Evidence |
+### 2.4 Field identification rationale
+
+| D3 field | Evidence |
 |----------|:--------|
-| `restitution` (0x028) | **Strong match** with M3 PHRB.restitution — identical mean (0.11), mode (0.10), and range. 72/74 .phy files use 0.1; 3,938/5,005 PHRB v4 entries also use 0.1. |
-| `friction` (0x024) | Complementary range [0–3.35] with modes at 0.3(24) and 0.0(21). M3 PHRB.friction has higher mean (0.93) but same 0–1 core distribution. D3 ragdolls use lower friction for sliding death animations. |
-| `linearDamping` (0x02C) | Mostly zero (64/74), with sparse values at 0.2 and 1.0. Parallels M3 PHRB.linearDamping (mode=0.01, 80%). |
-| `density` (0x034) | D3 uses relative density (mean=1.96, range 0–50) rather than M3's kg/m³ scale (mean=2038). Values represent Domino density multipliers. |
-| `flags` (0x038) | u32 values 65471/65504/65535 are bitmasks (0xFFBF/0xFFE0/0xFFFF). Collision filter layers confirmed via filename analysis: "Ragdoll_Base_Collision.phy" vs "RagdollBreakable_Non_Scene_Col.phy". |
-| `gravityScale` (0x03C) | 49/74 files = 0.0 (particles/debris); rest 0.06–5.45 for ragdoll profiles needing gravity. |
-| `buoyancy` (0x040) | Very small values (mean=−0.003) matching "Ragdoll_Bouyant.phy" and "_Float.phy" profiles. |
+| `nBodyClass` (+0x10) | small enum, 3 in 73/74 and 2 in one. Registered `DT_INT` with no default |
+| `flFriction` (+0x14) | registered default 0.3 matches the corpus mode (24/74). Range [0, 3.35] |
+| `flMaterial2` (+0x18) | registered default 0.1 matches the mode (72/74). Named non-committally: it sits where a second material coefficient would, but nothing reads it |
+| `flAngularDamping` (+0x24) | registered default 0.01 matches one of the two modes (22/74 each at 0.01 and 0.1) |
+| `wCollisionMask` (+0x28) | registered default `0xFFBF`, which appears in 11 files. Filename evidence: `Ragdoll_Base_Collision.phy` vs `RagdollBreakable_Non_Scene_Col.phy` |
+
+**Withdrawn:** the previous document's `restitution`/`density`/`gravityScale`/`buoyancy`
+identifications rested on matching D3 distributions to M3 PHRB fields *under the displaced
+offsets*. With the offsets corrected those pairings no longer line up, and none of them is
+re-asserted here.
 
 ### 2.5 Filename Categories
 
@@ -143,60 +183,53 @@ many actors (e.g. `Ragdoll.phy` is the default for most humanoid enemies).
 
 ## 3. Cloth Descriptor — `.clt`
 
-**Tag**: CLT | **Version**: 51 | **Size**: 116 bytes fixed
+**Tag**: CLT | **Version**: 51 (74/74) | **Size**: 116 bytes fixed = 16 header + 100 struct
+
+> **[CLT_FILE_FORMAT_SPECIFICATION.md](CLT_FILE_FORMAT_SPECIFICATION.md) is the authority for
+> this format.** It carries the full field table, value censuses, the corrected asset
+> cross-reference and the old→new name mapping. What follows is a summary only.
 
 ### 3.1 File Layout
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  SNO Preamble                               (32 bytes)  │
-│    0x000: magic, version, snoId, reserved               │
+│  SNO file header                            (16 bytes)  │
 ├─────────────────────────────────────────────────────────┤
-│  Cloth Payload                              (84 bytes)  │
-│    0x020: cloth simulation parameters                   │
+│  Cloth struct                              (100 bytes)  │
+│    file 0x010 = struct +0x00                            │
 └─────────────────────────────────────────────────────────┘
+Total: 116 bytes — all 74 files, zero trailing bytes
 ```
 
-### 3.2 Cloth Payload
+### 3.2 The Cloth Struct (100 bytes)
 
 ```cpp
-struct ClothPayload {                           // 84 bytes at 0x020
-    // ─── Type ──────────────────────────────────────────────────────────────────
-    u32     clothSubType;       // 0x020: 25(71/74), 50(2), 20(1)
-
-    // ─── Material Properties ───────────────────────────────────────────────────
-    f32     density;            // 0x024: Mean=2.53, range [0.2, 45.0]
-    f32     stretchStiffness;   // 0x028: Mean=0.39, range [0.0, 1.0]
-    f32     horizontalStiffness;// 0x02C: Mean=0.87, range [0.1, 1.0]
-                                //        Mode: 1.0 (46/74)
-    f32     bendingStiffness;   // 0x030: Mean=0.64, range [0.0, 1.0]
-    f32     shearStiffness;     // 0x034: Mean=0.46, range [0.0, 1.0]
-
-    // ─── Dynamics ──────────────────────────────────────────────────────────────
-    f32     damping;            // 0x038: Mean=0.78, range [0.0, 25.0]
-    f32     gravity;            // 0x03C: Mean=2.18, range [0.0, 30.0]
-    f32     tracking;           // 0x040: Mean=0.002, range [−0.018, 0.278]
-    f32     windScale;          // 0x044: Mean=1.79, range [1.0, 20.0]
-
-    // ─── Aerodynamics ──────────────────────────────────────────────────────────
-    f32     dragFactor;         // 0x048: Mean=1.12, range [0.0, 10.0]
-    f32     liftFactor;         // 0x04C: Mean=0.34, range [0.0, 10.0]
-                                //        Mode: 0.1 (57/74)
-
-    // ─── Flags ─────────────────────────────────────────────────────────────────
-    u32     flatten;            // 0x050: Boolean flag; 0(58) or 1(16)
-    u32     collisionMode;      // 0x054: 0(70) or 2(4)
-    u32     _reserved058;       // 0x058: Always 0
-    u32     _reserved05C;       // 0x05C: Always 0
-
-    // ─── References ────────────────────────────────────────────────────────────
-    u32     materialSnoId;      // 0x060: Always 0xFFFFFFFF (−1 = "none")
-    u32     extraFlags;         // 0x064: 0(73) or 1(1)
-    f32     localWindY;         // 0x068: 0.0(73) or −5.0(1)
-    u32     _reserved06C;       // 0x06C: Always 0
-    f32     localWindZ;         // 0x070: 0.0(73) or 9.0(1)
+struct Cloth {                                  // 100 bytes (0x64), group 11
+    u32   dwSnoId;              // +0x00
+    u32   _pad04, _pad08;       // +0x04, +0x08: 0
+    u32   dwFlags;              // +0x0C: {0, 4, 6, 12}
+    i32   dwRelaxIterations;    // +0x10: default 25 (71/74)
+    f32   flMass;               // +0x14: [0.2, 45.0], default 0.5
+    f32   flSkinBlendRate;      // +0x18: [0.0, 1.0]
+    f32   flStretchStiffness0;  // +0x1C: default 1.0 (46/74)
+    f32   flStretchStiffness1;  // +0x20: default 0.5
+    f32   flBendStiffness;      // +0x24: default 0.1
+    f32   flExternalForceScale; // +0x28: default 1.0
+    f32   flDragCoefficient;    // +0x2C: default 1.0
+    f32   flGravity;            // +0x30: DT_ACCEL, per (1/60 s)²
+    f32   flRootStiffness;      // +0x34: default 1.5 (32/74)
+    f32   flLinearDamping;      // +0x38: default 0.1
+    f32   flContactDamping;     // +0x3C: default 0.1 (57/74)
+    i32   nCollisionPlane[4];   // +0x40: only (0,0,0,0), (1,0,0,0), (1,2,0,0) occur
+    i32   snoAmbientSound;      // +0x50: DT_SNO group 5; −1 in 74/74
+    i32   nUseCustomWind;       // +0x54: 1 in exactly one file
+    f32   vWindVelocity[3];     // +0x58: non-zero only in that same file
 };
 ```
+
+The previously documented `density` / `stretchStiffness` / `damping` / `gravity` / `tracking`
+/ `windScale` / `dragFactor` / `liftFactor` / `flatten` / `materialSnoId` names were all
+displaced by one slot and are withdrawn; see the CLT document's correction table.
 
 ### 3.3 Field Identification Rationale
 
@@ -529,15 +562,21 @@ encoding strategy.
 
 ### 6.1 Rigid Body: D3 `.phy` ↔ M3 PHRB
 
-| Domino Parameter | D3 Location | D3 Range | M3 Location | M3 Range | Notes |
-|:-----------------|:------------|:---------|:------------|:---------|:------|
-| Friction | 0x024 | [0, 3.35] | PHRB 0x0C | [0, 100] | Same coefficient; D3 ragdolls use lower values |
-| Restitution | 0x028 | [0.1, 1.0] | PHRB 0x10 | [0, 10] | **Near-identical** distributions (mean 0.11 both) |
-| Linear damping | 0x02C | [0, 1.0] | PHRB 0x14 | [0, 2.0] | Velocity damping, zero-heavy in both |
-| Angular damping | 0x030 | [0, 6.0] | PHRB 0x18 | [0, 2.0] | Rotational damping |
-| Density | 0x034 | [0, 50] | PHRB 0x08 | [10, 10000] | D3 = multiplier; M3 = kg/m³ |
-| Flags | 0x038 | bitmask | PHRB 0x40 | sparse u32 | Different encoding; same collision-layer concept |
-| Gravity scale | 0x03C | [0, 5.45] | PHRB 0x1C | [0.25, 2.0] | D3 wider range; M3 clusters at 1.0 |
+> **Read this table with care.** Its D3 column originally used file offsets under the
+> 32-byte-preamble assumption; those are corrected to struct offsets below. The *distribution*
+> comparisons still stand — they were computed from bytes — but a pairing is only meaningful
+> where the D3 field's identity survived the correction. Rows whose D3 side changed meaning
+> are marked ⚠ and should be treated as unsupported until re-derived.
+
+| Domino Parameter | D3 field (struct off) | D3 Range | M3 Location | M3 Range | Notes |
+|:-----------------|:----------------------|:---------|:------------|:---------|:------|
+| Friction | `flFriction` +0x14 | [0, 3.35] | PHRB 0x0C | [0, 100] | ✔ D3 name and slot both survive; same coefficient |
+| Restitution | `flMaterial2` +0x18 | [0.1, 1.0] | PHRB 0x10 | [0, 10] | ⚠ distributions still match (mean 0.11 both) but the D3 field is no longer identified as restitution |
+| Linear damping | `flRestitution` +0x1C | [0, 1.0] | PHRB 0x14 | [0, 2.0] | ⚠ zero-heavy in both; D3 identity changed |
+| Angular damping | `flLinearDamping` +0x20 | [0, 6.0] | PHRB 0x18 | [0, 2.0] | ⚠ D3 identity changed |
+| Density | `flAngularDamping` +0x24 | [0, 50] | PHRB 0x08 | [10, 10000] | ⚠ D3 identity changed |
+| Collision layers | `wCollisionMask` +0x28 | u16 bitmask | PHRB 0x40 | sparse u32 | ✔ same concept; D3 is 16-bit, default 0xFFBF |
+| Gravity scale | `flUnread2C` +0x2C | [0, 5.45] | PHRB 0x1C | [0.25, 2.0] | ⚠ D3 field is unnamed; 49/74 are 0.0 |
 
 **Key difference**: D3 externalizes physics profiles as standalone SNO files (74 presets shared
 across actors). M3 embeds per-bone PHRB entries directly inside the model file, producing
@@ -545,31 +584,32 @@ across actors). M3 embeds per-bone PHRB entries directly inside the model file, 
 
 ### 6.2 Cloth Simulation: D3 `.clt` ↔ M3 PHCL
 
-| Domino Parameter | D3 Location | D3 Range | M3 Location | M3 Range | Notes |
-|:-----------------|:------------|:---------|:------------|:---------|:------|
-| Density | 0x024 | [0.2, 45] | 0x50 | [0, 60] | **Aligned ranges** |
-| Stretch stiffness | 0x028 | [0, 1] | 0x58 | [0, 1] | **Exact mean match (0.39)** |
-| Horizontal stiffness | 0x02C | [0.1, 1] | 0x5C | [0, 1] | Same domain |
-| Bending stiffness | 0x030 | [0, 1] | 0x60 | [0, 1] | Same domain |
-| Shear stiffness | 0x034 | [0, 1] | 0x78 | [0, 1.5] | D3 places 4th; M3 places 7th |
-| Damping | 0x038 | [0, 25] | 0x64 | [0, 15] | Overlapping range |
-| Gravity | 0x03C | [0, 30] | 0x6C | [0, 6] | D3 allows higher gravity for props |
-| Tracking | 0x040 | [−0.018, 0.28] | 0x54 | [0, 1] | Very different scale |
-| Wind scale | 0x044 | [1, 20] | 0x74 | [0, 5] | D3 uses larger values |
-| Drag factor | 0x048 | [0, 10] | 0x7C | [0, 5] | Aerodynamic drag |
-| Lift factor | 0x04C | [0, 10] | 0x80 | [0, 7] | Aerodynamic lift |
-| Flatten | 0x050 | flag | 0x88 | flag | Boolean enable in both |
+> **This mapping was built entirely on the displaced D3 names and does not survive the
+> correction.** With the real `Cloth` layout the D3 side reads mass → skin-blend → two stretch
+> axes → bend → external-force → drag → gravity → root → linear damping → contact damping,
+> which is a different parameter set from the one tabulated before. The D3 column is corrected
+> below; the M3 column is unchanged and unverified against it.
 
-**Field ordering difference**: D3 .clt groups all four stiffness types consecutively
-(stretch → horizontal → bending → shear at 0x028–0x034), then damping → gravity → tracking.
-M3 PHCL interleaves: stretch → horizontal → bending → damping → friction → gravity →
-explosionScale → windScale → shear. Different authoring tool layouts; identical Domino API calls.
+| D3 field (struct off) | D3 Range | Plausible M3 PHCL counterpart | Status |
+|:----------------------|:---------|:------------------------------|:-------|
+| `flMass` +0x14 | [0.2, 45] | 0x50 density | ✔ aligned ranges, and both are the per-particle mass term |
+| `flSkinBlendRate` +0x18 | [0, 1] | 0x54 tracking | plausible — both blend toward the skinned pose |
+| `flStretchStiffness0` +0x1C | [0.1, 1] | 0x58 stretch | plausible |
+| `flStretchStiffness1` +0x20 | [0, 1] | 0x5C horizontal | plausible — the two D3 axes vs M3's stretch/horizontal pair |
+| `flBendStiffness` +0x24 | [0, 1] | 0x60 bending | ✔ same name, same domain |
+| `flExternalForceScale` +0x28 | [0, 25] | 0x74 windScale | unverified |
+| `flDragCoefficient` +0x2C | [0, 30] | 0x7C drag | plausible |
+| `flGravity` +0x30 | [−0.018, 0.28] | 0x6C gravity | ✔ **the scale difference is now explained**: D3 stores acceleration per (1/60 s)², M3 per second² |
+| `flRootStiffness` +0x34 | [1, 20] | — | no obvious counterpart |
+| `flLinearDamping` +0x38 | [0, 10] | 0x64 damping | plausible |
+| `flContactDamping` +0x3C | [0, 10] | — | no obvious counterpart |
 
-**M3-only fields**: `friction`, `explosionScale`, `sphereStiffness`,
-`useSkinCollision`/`skinOffset`/`skinExponent`/`skinStiffness`.
+The old table's "very different scale" note on tracking/gravity was the strongest hint that
+something was misaligned: D3's `flGravity` is a **per-tick²** acceleration, so a factor of
+3600 against a per-second² figure is expected, not anomalous.
 
-**D3-only fields**: `materialSnoId` (0x060, −1 sentinel), `collisionMode` (0x054),
-`localWindY`/`localWindZ` (0x068/0x070).
+**D3-only fields**: `nCollisionPlane[4]` (+0x40), `snoAmbientSound` (+0x50, always −1),
+`nUseCustomWind` + `vWindVelocity` (+0x54/+0x58).
 
 ### 6.3 Collision Geometry: D3 `.phm` ↔ M3 PHSH
 
@@ -653,9 +693,12 @@ median 5, max 17 (Tyrael's wings).
 
 | Area | Details |
 |:-----|:--------|
-| **PHY physicsSubType (0x020)** | 73/74 files = 3, 1 file = 2. Suspected rigid body type enum; not decoded. |
-| **PHY fields 0x044–0x050** | Very sparse, mostly-zero distributions. Identification difficult. |
-| **CLT tracking (0x040)** | D3 uses much smaller values than M3 PHCL.tracking — unit conversion unknown. |
+| **PHY `nBodyClass` (+0x10)** | 73/74 files = 3, 1 file = 2. Registered `DT_INT`; a small enum, not decoded. No engine read located. |
+| **PHY `dwFlags` (+0x0C)** | 34 distinct values, most common 131092 (13/74). Bit meanings unknown. |
+| **PHY tail +0x2C…+0x40** | Sparse and mostly zero. The registered **types** are established — four `DT_ACCEL` and one `DT_VELOCITY` — so the dimensions are known and the roles are not. Names deliberately left as `accUnreadNN` / `velUnread38`. |
+| **PHY `flMaterial2` (+0x18)** | registered default 0.1, matches the mode 72/74. Sits where a second material coefficient would; nothing reads it, so the name is provisional. |
+| **CLT `dwFlags` / `nCollisionPlane`** | see [CLT_FILE_FORMAT_SPECIFICATION.md](CLT_FILE_FORMAT_SPECIFICATION.md) §5. |
+| **CLT ↔ M3 PHCL pairing** | §6.2's mapping was built on displaced names and is now only partly supported. The gravity scale difference **is** resolved: D3 stores per-(1/60 s)², M3 per second². |
 | **PHM mesh format** | Internal vertex/face structure not fully parsed beyond header. |
 | **PHSH collision data** | Convex hull vertices and mesh faces in v2/v3 — not extracted. |
 | **PHRB physicsType** | Enumeration inferred from frequency patterns, not confirmed by engine symbols. |

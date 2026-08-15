@@ -4,7 +4,48 @@
 **Byte Order**: Little-endian  
 **Magic**: `0xDEADBEEF`  
 **Version**: 150  
-**Corpus**: 2 files analyzed (limited — partial validation only)
+**SNO Group**: 37 (`Shaders`)
+**Corpus**: **1 usable file** — `Corpus/D3/Shaders` holds two entries but one is a 2-byte
+`.shd.tags` sidecar, not an SNO asset
+
+See [README.md](README.md) for the build these offsets come from, the generator pipeline and
+the conventions used below.
+
+---
+
+> ## Correction pass — 2026-08-16
+>
+> The byte-level reading in this document is **correct** and reproduces against the sample.
+> What was wrong is the framing: there is no "48-byte preamble with repurposed fields". Like
+> every SNO asset, a `.shd` is a **16-byte file header followed by the struct image**, and the
+> binary registers that struct. Reframed:
+>
+> | Old description | File offset | Actually | struct offset |
+> | --- | --- | --- | --- |
+> | `_unknown1C` = 64 | 0x01C | `dwShaderFlags` | +0x0C |
+> | `dataOffset` = 0 | 0x020 | `dwUnknown10` | +0x10 |
+> | `dataSize` = 2 ("count, not size") | 0x024 | `dwRenderPassCount` | +0x14 |
+> | `programBlockOffset` | 0x028 | `arRenderPasses` — `SerializeData.offset` | +0x18 |
+> | `programBlockSize` | 0x02C | `arRenderPasses` — `SerializeData.byteSize` | +0x1C |
+> | shader name | 0x038 | `szName`, inline `char[256]` | +0x28 |
+>
+> Nothing was "repurposed": that is the ordinary
+> `{count, SerializeData}` variable-array idiom used by every other D3 group, and the reason
+> `dataSize` looked like a count is that it *is* the count field, sitting one slot before the
+> descriptor.
+>
+> **The struct is 296 bytes**, and the sample confirms it three ways: `szName` runs 0x28…0x128
+> (40 + 256 = 296); `arRenderPasses.offset` is exactly **296**, so the payload begins the byte
+> after the struct; and 16 + 296 = 312 = 0x138, the "block 0 starts at 0x138" this document
+> already recorded.
+>
+> **Version skew is large here.** The shipped data is v150; the binary's compiled struct is
+> revision **187 at just 56 bytes**, where the inline `char[256]` name has become an 8-byte
+> reference and two fields carry the post-v0 flag `0x700000`. Any reader keyed on the header
+> version must use the 296-byte v150 layout below.
+>
+> **This format is gated by a single file.** Every count in this document is n=1. Treat it
+> accordingly.
 
 ---
 
@@ -56,64 +97,63 @@ Material (.mat)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  SNO File Preamble                          (48 bytes)  │
-│    0x000: magic=0xDEADBEEF, version=150                 │
+│  SNO file header                            (16 bytes)  │
+│    0x000: magic=0xDEADBEEF, u16 version=150             │
 ├─────────────────────────────────────────────────────────┤
-│  8 bytes padding                                        │
+│  Shaders struct                            (296 bytes)  │
+│    file 0x010 = struct +0x00                            │
+│    ends at file 0x138                                   │
 ├─────────────────────────────────────────────────────────┤
-│  Shader Name                               (256 bytes)  │
-│    0x038: null-padded ASCII string                      │
+│  arRenderPasses payload      (dwRenderPassCount × 568)  │
+│    file 0x138 … 0x5A8                                   │
 ├─────────────────────────────────────────────────────────┤
-│  Program Block 0                           (~568 bytes)  │
-│    Input semantics, FX name, VS/PS entries              │
-├─────────────────────────────────────────────────────────┤
-│  Program Block 1                           (~552 bytes)  │
-│    Input semantics, FX name, VS/PS entries              │
-├─────────────────────────────────────────────────────────┤
-│  Semantic / Constant Data 0                (variable)   │
-├─────────────────────────────────────────────────────────┤
-│  Semantic / Constant Data 1                (variable)   │
+│  Semantic / constant data                  (828 bytes)  │
+│    file 0x5A8 … EOF                                     │
 └─────────────────────────────────────────────────────────┘
 ```
 
-Total file size for the analyzed file: **2,276 bytes**.
+Total file size for the analyzed file: **2,276 bytes** = 16 + 296 + (2 × 568) + 828.
 
 ---
 
-## 3. SNO File Preamble
+## 3. The Shaders Struct (296 bytes)
 
-**Size**: 48 bytes
-
-The `.shd` preamble uses the 48-byte variant shared with `.mat` and `.shm`, but repurposes several fields.
+Offsets are **struct-relative**; file position = 16 + offset.
 
 ```cpp
-struct SnoFilePreamble {                        // 48 bytes @ 0x000
-    u32     magic;              // 0x000: 0xDEADBEEF
-    u32     version;            // 0x004: 150 for .shd
-    u8      _reserved08[8];     // 0x008: Zeros
-    u32     snoId;              // 0x010: Unique shader SNO hash
-    u8      _reserved14[8];     // 0x014: Zeros
-    u32     _unknown1C;         // 0x01C: 64 (0x40) — possibly string region offset
-    u32     dataOffset;         // 0x020: 0 — handled differently from .mat/.shm
-    u32     dataSize;           // 0x024: 2 — program block COUNT (not byte size)
-    u32     programBlockOffset; // 0x028: Offset to program block region (e.g. 0x138)
-    u32     programBlockSize;   // 0x02C: Total program block region size (e.g. 0x0470)
-};
+struct Shaders {                                // 296 bytes (0x128), group 37
+    u32     dwSnoId;            // +0x00: shader SNO id (34901 in the sample)
+    u32     _pad04, _pad08;     // +0x04, +0x08: 0
+    u32     dwShaderFlags;      // +0x0C: 64 (0x40) in the sample
+    u32     dwUnknown10;        // +0x10: 0 in the sample
+    i32     dwRenderPassCount;  // +0x14: 2 in the sample
+    u32     renderPassOffset;   // +0x18: SerializeData.offset — 296, i.e. the struct end
+    u32     renderPassSize;     // +0x1C: SerializeData.byteSize — 1,136 = 2 × 568
+    u64     _runtimePtr20;      // +0x20: 0 on disk
+    char    szName[256];        // +0x28: inline NUL-terminated ASCII, zero-padded
+};                                              // 0x28 + 256 = 296 exactly
 ```
 
-> **Key difference from `.mat`/`.shm`**: In `.shd` files, `dataSize` represents a **count** (number of program blocks), not a byte size. Fields at 0x028 and 0x02C (normally reserved) are repurposed as an offset/size pair for the program block data region.
+This is the ordinary D3 variable-array idiom — a count field followed by a `SerializeData`
+`{offset, byteSize}` pair and a runtime pointer — not a repurposing of reserved preamble
+words. `renderPassSize / dwRenderPassCount` gives the **568-byte** render-pass element.
 
 ---
 
 ## 4. Shader Name Field
 
-**Offset**: 0x038 | **Size**: 256 bytes
+**Struct offset**: +0x28 (file 0x038) | **Size**: 256 bytes, inline
 
-A null-terminated ASCII string, zero-padded to exactly 256 bytes. Contains the shader program's canonical name.
+A NUL-terminated ASCII string zero-padded to exactly 256 bytes, running to the struct's end.
+Every byte after the terminator is zero in the sample.
 
 **Observed value**: `actor_add2x_mult2x_unlit_skin_glow`
 
 This name matches the ShaderMap naming convention (see `SHM_FILE_FORMAT_SPECIFICATION.md` §7).
+
+The binary's **revision 187** replaces this inline array with an 8-byte reference, which is why
+the registered struct is 56 bytes against v150's 296 — the same inline-string-to-hash migration
+seen in `Anim`'s `BoneName` (64 → 4) and `HardpointLink` (68 → 12).
 
 ---
 
@@ -271,14 +311,22 @@ Material (.mat)
 
 | Item | Notes |
 |------|-------|
-| Program block boundaries | Exact field sizes are approximate — only 2 files available |
+| `dwShaderFlags` (+0x0C) | 64 (0x40) in the sample; bit meanings unknown, n=1 |
+| `dwUnknown10` (+0x10) | 0 in the sample; registered `DT_INT`, no default |
+| Render-pass element | The **568-byte** size is now exact (`renderPassSize / dwRenderPassCount`), but the internal field layout is tentative — the binary registers `RenderPass` as a type, and it is one of the 33 that `gen_d3_native.py` prunes for having no native entry point |
 | Input semantic structure | 12-byte entry format is tentative |
-| Platform profiles | Two blocks may represent DX9/DX11 or SM3.0/SM5.0 — unconfirmed |
-| Constant buffer layout | The constant data regions are not fully decoded |
-| Relationship to runtime | These files appear to be build pipeline remnants, not loaded at runtime |
+| Platform profiles | Two passes may represent DX9/DX11 or SM3.0/SM5.0 — unconfirmed |
+| Constant buffer layout | The 828-byte trailing region is not fully decoded |
+| Relationship to runtime | These files appear to be build-pipeline remnants, not loaded at runtime |
 
-> **Limitation**: With only 2 files, many structural details remain tentative. For practical use, the `.mat` and `.shm` formats are far more important — they contain the data needed to reconstruct rendering parameters for 3D models.
+> **Limitation**: the corpus is **one file**. Every count in this document is n=1, so nothing
+> here is gated in the sense [README.md](README.md) §3 uses — the structural claims that *are*
+> firm (296-byte struct, 568-byte element, inline 256-byte name) are firm because they are
+> forced by the registration and by internal consistency, not because a corpus confirmed them.
+> For practical use the `.mat` and `.shm` formats matter far more: they carry the data needed
+> to reconstruct rendering parameters for 3D models, and both have real corpora.
 
 ---
 
-*Specification derived from binary analysis of 2 `.shd` files. Limited corpus prevents full validation.*
+*Layout from the Switch 2.6.2 type registration, cross-checked against the single available
+`.shd`. See [README.md](README.md) for the derivation basis.*

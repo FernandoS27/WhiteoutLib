@@ -33,7 +33,7 @@ static void countValues(const SnoValue& v, int& total, int& nulls, int depth = 0
 TEST_CASE("D4 SNO synthetic parse", "[sno][d4][diag]") {
     // Build a minimal SNO binary: 0xDEADBEEF header + known format hash + payload.
     constexpr u32 kMagic = 0xDEADBEEF;
-    constexpr u32 kFmtHash = 123576590u;
+    constexpr u32 kFmtHash = 123576590u; // SoundTableDefinition, pre-3.1.3
 
     std::vector<u8> data(16 + 72, 0);
     std::memcpy(data.data(), &kMagic, 4);
@@ -58,4 +58,32 @@ TEST_CASE("D4 SNO synthetic parse", "[sno][d4][diag]") {
     int total = 0, nulls = 0;
     countValues(file->root, total, nulls);
     CHECK(total > 0);
+}
+
+// Blizzard rehashes a root type's format hash whenever its layout changes, so
+// the registry keeps the hashes of older builds aliased to the same type
+// (data/d4_legacy_format_hashes.json).  Without them, assets from an older
+// build resolve to nothing when the caller supplies no SnoGroup.
+TEST_CASE("D4 SNO legacy format hashes still resolve", "[sno][d4][diag]") {
+    auto parseWithFormatHash = [](u32 formatHash) {
+        std::vector<u8> data(16 + 120, 0);
+        constexpr u32 kMagic = 0xDEADBEEF;
+        std::memcpy(data.data(), &kMagic, 4);
+        std::memcpy(data.data() + 4, &formatHash, 4);
+
+        SnoReader reader;
+        return reader.parse(data);
+    };
+
+    auto current = parseWithFormatHash(0xF9CD83E7u);
+    auto legacy = parseWithFormatHash(0xF9CD83E6u);
+
+    REQUIRE(current.has_value());
+    REQUIRE(legacy.has_value());
+    CHECK(current->typeName == "TextureDefinition");
+    CHECK(legacy->typeName == current->typeName);
+
+    auto legacySoundTable = parseWithFormatHash(123576590u);
+    REQUIRE(legacySoundTable.has_value());
+    CHECK(legacySoundTable->typeName == "SoundTableDefinition");
 }

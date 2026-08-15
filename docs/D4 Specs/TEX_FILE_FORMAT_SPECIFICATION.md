@@ -3,9 +3,9 @@
 **Format**: Diablo IV Texture Definition (`.tex`)
 **Byte Order**: Little-endian
 **Magic**: `0xDEADBEEF`
-**SNO Format Hash**: `0xF9CD83E6` (4190995430)
+**SNO Format Hash**: `0xF9CD83E6` (4190995430) — pre-3.0 builds; `0xF9CD83E7` (4190995431) — D4 3.0.x (build 71886, "Fenris 3.0.2") and later. Both resolve to the same `TextureDefinition` schema (type hash `3631735738`); the serialized struct layout is identical.
 **SNO Type Name**: `TextureDefinition`
-**Corpus**: 16,321 files analyzed
+**Corpus**: 16,321 files analyzed (pre-3.0); 20,000-file random sample from D4 3.0.2 confirms identical layout after the hash bump.
 
 ---
 
@@ -222,6 +222,7 @@ D4 uses 16 pixel format identifiers. Format IDs 0, 9, 10, 12, and 23 are inherit
 | **12** | `BC3_UNORM` | 16 B/blk | 4×4 | 200 | BC with interpolated alpha. Color+alpha, dye opacity. |
 | **23** | `R8_UNORM` | 1 B/px | 1×1 | 1 | Single-channel 8-bit. Alpha masks. D3 A8 equivalent. |
 | **25** | `R16G16B16A16_FLOAT` | 8 B/px | 1×1 | 75 | HDR floating-point. Cubemap light probes, HDR data. |
+| **26** | `R32G32B32A32_FLOAT` | 16 B/px | 1×1 | rare | Full-precision HDR. Seen on cinematic "infection map" textures. |
 | **41** | `BC4_UNORM` | 8 B/blk | 4×4 | 7,878 | Single-channel. AO, roughness, metalness, masks. |
 | **42** | `BC5_UNORM` | 16 B/blk | 4×4 | 2,609 | Two-channel. Normal maps (RG = XY normal). |
 | **43** | `BC5_UNORM` (D3 alt) | 16 B/blk | 4×4 | 2 | D3-inherited BC5/ATI2 format ID. Normal maps. |

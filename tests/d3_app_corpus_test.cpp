@@ -139,8 +139,8 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
                       << ": dwBoneCount field not found\n";
         }
 
-        // Validate sdBoneData: check structured bone entries match raw data
-        auto* boneArr = root.field("sdBoneData");
+        // Validate arBones: check structured bone entries match raw data
+        auto* boneArr = root.field("arBones");
         if (rawBoneCount > 0 && boneArr && boneArr->isArray()) {
             if (boneArr->size() == rawBoneCount) {
                 bool allGoodBones = true;
@@ -149,11 +149,11 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
                     auto* bone = boneArr->at(bi);
                     if (!bone) { allGoodBones = false; break; }
                     // Validate bone name vs raw
-                    auto* nameField = bone->field("szBoneName");
+                    auto* nameField = bone->field("szName");
                     if (!nameField || !nameField->isString()) {
                         allGoodBones = false;
                         std::cerr << "[BSTR] " << entry.path().filename()
-                                  << ": bone " << bi << " szBoneName missing\n";
+                                  << ": bone " << bi << " szName missing\n";
                         break;
                     }
                     size_t boneFileOff = actualDataBase + bi * 312;
@@ -166,7 +166,7 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
                                   << ": bone " << bi << " name mismatch\n";
                     }
                     // Validate parentBoneId vs raw
-                    auto* parentField = bone->field("dwParentBoneId");
+                    auto* parentField = bone->field("nParentIndex");
                     if (!parentField || !parentField->isInt()) {
                         allGoodBones = false;
                         break;
@@ -190,7 +190,7 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
         } else {
             ++boneStructBad;
             std::cerr << "[BSTR] " << entry.path().filename()
-                      << ": sdBoneData not an array\n";
+                      << ": arBones not an array\n";
         }
 
         // --- Collision capsule data validation ---
@@ -198,7 +198,7 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
         u32 rawCapsuleOffset = readU32(data, 0x0EC);
         u32 rawCapsuleSize   = readU32(data, 0x0F0);
 
-        auto* parsedCapsuleCount = root.field("dwCollCapsuleCount");
+        auto* parsedCapsuleCount = root.field("dwCollisionCapsuleCount");
         if (parsedCapsuleCount && parsedCapsuleCount->isInt()) {
             i32 pcc = parsedCapsuleCount->asInt();
             if (static_cast<u32>(pcc) == rawCapsuleCount) {
@@ -212,12 +212,14 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
         } else {
             ++capsuleDataBad;
             std::cerr << "[CAPS] " << entry.path().filename()
-                      << ": dwCollCapsuleCount field not found\n";
+                      << ": dwCollisionCapsuleCount field not found\n";
         }
 
         // --- Submesh data validation ---
         u32 rawSubmeshCount = readU32(data, 0x0A8);
-        auto* parsedSubmeshCount = root.field("dwSubmeshCount");
+        // Sub-objects hang off the first of the two GeoSets at struct+152.
+        auto* geoSet0 = root.field("tGeoSet0");
+        auto* parsedSubmeshCount = geoSet0 ? geoSet0->field("dwSubObjectCount") : nullptr;
         if (parsedSubmeshCount && parsedSubmeshCount->isInt()) {
             i32 psc = parsedSubmeshCount->asInt();
             if (static_cast<u32>(psc) == rawSubmeshCount) {
@@ -245,7 +247,7 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
 
         // --- Material struct validation (name + shader data vs raw) ---
         u32 rawMatOffset = readU32(data, 0x1B8);
-        auto* matArr = root.field("sdMaterialData");
+        auto* matArr = root.field("arMaterials");
         if (rawMatCount > 0 && matArr && matArr->isArray()) {
             if (matArr->size() == rawMatCount) {
                 bool allGoodMat = true;
@@ -253,11 +255,11 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
                 for (size_t mi = 0; mi < matArr->size() && allGoodMat; ++mi) {
                     auto* mat = matArr->at(mi);
                     if (!mat) { allGoodMat = false; break; }
-                    auto* nameField = mat->field("szMaterialName");
+                    auto* nameField = mat->field("szName");
                     if (!nameField || !nameField->isString()) {
                         allGoodMat = false;
                         std::cerr << "[MSTR] " << entry.path().filename()
-                                  << ": mat " << mi << " szMaterialName missing\n";
+                                  << ": mat " << mi << " szName missing\n";
                         break;
                     }
                     size_t matFileOff = matBase + mi * 144;
@@ -270,14 +272,26 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
                                   << ": mat " << mi << " name mismatch: \""
                                   << nameField->asString() << "\" vs raw\n";
                     }
-                    // Validate shader data block (tShaderData pointer)
+                    // A material slot's payload is an array of 248-byte
+                    // SubObjectAppearance blocks, one per look.  Variant 0 is
+                    // spot-checked against the raw bytes.
                     u32 rawSDOff = readU32(data, matFileOff + 128);
                     u32 rawSDSize = readU32(data, matFileOff + 132);
-                    auto* sdb = mat->field("tShaderData");
-                    if (rawSDOff > 0 && rawSDSize >= 120 && sdb && sdb->isObject()) {
-                        // Validate shaderMapSno against raw at shaderDataBlock + 0x18
-                        size_t blkFile = rawSDOff + 16; // +16 data access convention
-                        auto* snoField = sdb->field("snoShaderMap");
+                    auto* variants = mat->field("arVariants");
+                    auto* sdb = (variants && variants->isArray() && variants->size() > 0)
+                                    ? variants->at(0) : nullptr;
+                    auto* texArrOwner = sdb ? sdb->field("tMaterial") : nullptr;
+                    if (rawSDOff > 0 && rawSDSize >= 248 && sdb && sdb->isObject()) {
+                        // Every slot holds exactly dwLookCount variants.
+                        if (variants->size() != rawSDSize / 248u) {
+                            allGoodMat = false;
+                            std::cerr << "[MVAR] " << entry.path().filename()
+                                      << ": mat " << mi << " variants " << variants->size()
+                                      << " != " << (rawSDSize / 248u) << "\n";
+                        }
+                        // shaderMapSno lives at block + 0x18 (UberMaterial + 0).
+                        size_t blkFile = rawSDOff + 16; // struct-relative offset
+                        auto* snoField = texArrOwner ? texArrOwner->field("snoShaderMap") : nullptr;
                         if (snoField && snoField->isObject()) {
                             auto* snoId = snoField->field("snoId");
                             u32 rawSnoVal = readU32(data, blkFile + 0x18);
@@ -288,18 +302,19 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
                                           << ": mat " << mi << " shaderMapSno mismatch\n";
                             }
                         }
-                        // Validate diffuseR against raw
-                        auto* dr = sdb->field("flDiffuseR");
+                        // Validate diffuse.x against raw (UberMaterial + 4).
+                        auto* colors = texArrOwner ? texArrOwner->field("tColors") : nullptr;
+                        auto* dr = colors ? colors->field("vDiffuse") : nullptr;
                         float rawDR = readF32(data, blkFile + 0x1C);
-                        if (!dr || !dr->isFloat() || dr->asFloat() != rawDR) {
+                        if (!dr || !dr->isVec4() || dr->asVec4().x != rawDR) {
                             allGoodMat = false;
                             std::cerr << "[MSHD] " << entry.path().filename()
-                                      << ": mat " << mi << " diffuseR mismatch\n";
+                                      << ": mat " << mi << " diffuse.x mismatch\n";
                         }
                         // Validate texture array
                         u32 rawTexOff = readU32(data, blkFile + 0x64);
                         u32 rawTexSize = readU32(data, blkFile + 0x68);
-                        auto* texArr = sdb->field("sdTexData");
+                        auto* texArr = texArrOwner ? texArrOwner->field("arTextures") : nullptr;
                         if (rawTexOff > 0 && rawTexSize >= 160) {
                             u32 texCount = rawTexSize / 160;
                             if (!texArr || !texArr->isArray() ||
@@ -326,10 +341,10 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
                                 }
                             }
                         }
-                    } else if (rawSDOff > 0 && rawSDSize >= 120) {
+                    } else if (rawSDOff > 0 && rawSDSize >= 248) {
                         allGoodMat = false;
                         std::cerr << "[MSHD] " << entry.path().filename()
-                                  << ": mat " << mi << " tShaderData missing\n";
+                                  << ": mat " << mi << " arVariants missing\n";
                     }
                 }
                 if (allGoodMat) ++matStructOk; else ++matStructBad;
@@ -347,7 +362,7 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
 
         // --- Submesh struct validation (meshName, vertexCount vs raw) ---
         u32 rawSubmeshOffset = readU32(data, 0x0AC);
-        auto* submeshArr = root.field("sdSubmeshData");
+        auto* submeshArr = geoSet0 ? geoSet0->field("arSubObjects") : nullptr;
         if (rawSubmeshCount > 0 && submeshArr && submeshArr->isArray()) {
             if (submeshArr->size() == rawSubmeshCount) {
                 bool allGoodSub = true;
@@ -357,11 +372,11 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
                     if (!sub) { allGoodSub = false; break; }
                     size_t subFileOff = subBase + si * 400;
                     // Validate meshName
-                    auto* mnf = sub->field("szMeshName");
+                    auto* mnf = sub->field("szName");
                     if (!mnf || !mnf->isString()) {
                         allGoodSub = false;
                         std::cerr << "[SSTR] " << entry.path().filename()
-                                  << ": submesh " << si << " szMeshName missing\n";
+                                  << ": submesh " << si << " szName missing\n";
                         break;
                     }
                     const char* rawMN = reinterpret_cast<const char*>(data.data() + subFileOff + 0x5C);
@@ -381,7 +396,7 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
                                   << ": submesh " << si << " vertexCount mismatch\n";
                     }
                     // Validate vertex array count matches vertexCount
-                    auto* verts = sub->field("sdVertexData");
+                    auto* verts = sub->field("arVertices");
                     u32 rawVertOff = readU32(data, subFileOff + 8);
                     if (rawVC > 0 && rawVertOff > 0) {
                         if (!verts || !verts->isArray() || verts->size() != rawVC) {
@@ -395,7 +410,7 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
                             size_t vertBase = rawVertOff + 16;
                             float rawVX = readF32(data, vertBase);
                             auto* v0 = verts->at(0);
-                            auto* vp = v0 ? v0->field("vVertPos") : nullptr;
+                            auto* vp = v0 ? v0->field("vPosition") : nullptr;
                             if (!vp || !vp->isVec3() || vp->asVec3().x != rawVX) {
                                 allGoodSub = false;
                                 std::cerr << "[SSTR] " << entry.path().filename()
@@ -420,7 +435,7 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
         // --- Look table validation ---
         u32 rawLookCount  = readU32(data, 0x1B0);
         u32 rawLookOffset = readU32(data, 0x1C8);
-        auto* lookArr = root.field("sdLookTableData");
+        auto* lookArr = root.field("arLooks");
         if (rawLookCount > 0 && lookArr && lookArr->isArray()) {
             if (lookArr->size() == rawLookCount) {
                 bool allGoodLk = true;
@@ -428,7 +443,7 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
                 for (size_t li = 0; li < lookArr->size() && allGoodLk; ++li) {
                     auto* look = lookArr->at(li);
                     if (!look) { allGoodLk = false; break; }
-                    auto* lnf = look->field("szLookName");
+                    auto* lnf = look->field("szName");
                     if (!lnf || !lnf->isString()) { allGoodLk = false; break; }
                     const char* rawLN = reinterpret_cast<const char*>(data.data() + lkBase + li * 64);
                     size_t rl = 0;
@@ -452,7 +467,7 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
         // --- Reference point validation ---
         u32 rawRefCount  = readU32(data, 0x100);
         u32 rawRefOffset = readU32(data, 0x104);
-        auto* refArr = root.field("sdRefPointData");
+        auto* refArr = root.field("arHardpoints");
         if (rawRefCount > 0 && refArr && refArr->isArray()) {
             if (refArr->size() == rawRefCount) {
                 bool allGoodRef = true;
@@ -460,7 +475,7 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
                 for (size_t ri = 0; ri < refArr->size() && allGoodRef; ++ri) {
                     auto* rp = refArr->at(ri);
                     if (!rp) { allGoodRef = false; break; }
-                    auto* rnf = rp->field("szRefPointName");
+                    auto* rnf = rp->field("szName");
                     if (!rnf || !rnf->isString()) { allGoodRef = false; break; }
                     const char* rawRN = reinterpret_cast<const char*>(data.data() + refBase + ri * 96);
                     size_t rl = 0;
@@ -471,7 +486,7 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
                                   << ": refpoint " << ri << " name mismatch\n";
                     }
                     // Validate parentId
-                    auto* rpid = rp->field("dwRefParentId");
+                    auto* rpid = rp->field("nBoneIndex");
                     u32 rawPID = readU32(data, refBase + ri * 96 + 64);
                     if (!rpid || !rpid->isInt() || static_cast<u32>(rpid->asInt()) != rawPID) {
                         allGoodRef = false;
@@ -490,7 +505,7 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
         }
 
         // --- Collision capsule struct validation ---
-        auto* capsArr = root.field("sdCollCapsuleData");
+        auto* capsArr = root.field("arCollisionCapsules");
         if (rawCapsuleCount > 0 && capsArr && capsArr->isArray()) {
             if (capsArr->size() == rawCapsuleCount) {
                 bool allGoodCap = true;
@@ -498,9 +513,10 @@ TEST_CASE("D3 APP corpus", "[d3][app][corpus]") {
                 for (size_t ci = 0; ci < capsArr->size() && allGoodCap; ++ci) {
                     auto* cap = capsArr->at(ci);
                     if (!cap) { allGoodCap = false; break; }
-                    auto* cnf = cap->field("szCapsuleName");
+                    auto* caphp = cap->field("tHardpoint");
+                    auto* cnf = caphp ? caphp->field("szName") : nullptr;
                     if (!cnf || !cnf->isString()) { allGoodCap = false; break; }
-                    const char* rawCN = reinterpret_cast<const char*>(data.data() + capBase + ci * 104);
+                    const char* rawCN = reinterpret_cast<const char*>(data.data() + capBase + ci * 104 + 8);
                     size_t rl = 0;
                     while (rl < 64 && rawCN[rl] != '\0') ++rl;
                     if (cnf->asString() != std::string(rawCN, rl)) {

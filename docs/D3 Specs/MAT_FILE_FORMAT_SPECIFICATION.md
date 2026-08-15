@@ -5,8 +5,14 @@
 **Magic**: `0xDEADBEEF`  
 **Version**: 25  
 **Corpus**: 3,843 files analyzed
+**SNO Group**: 57 (`Material`)
+**Registered revision**: 37 — the shipped data is v25, so the binary's compiled struct describes a *newer* layout (see below / README §4)
+
+See [README.md](README.md) for the build these offsets come from, the generator pipeline
+and the conventions used below.
 
 ---
+
 
 ## Table of Contents
 
@@ -25,6 +31,55 @@
 13. [Appendix B — All Structures Summary](#appendix-b--all-structures-summary)
 
 ---
+
+> **Correction (§3, §5, §6, §7).** The byte offsets in this document are all
+> correct — a `.mat` is fully accounted for: header 16, struct 136, tag map,
+> texture entries, and **nothing left over in 3,843/3,843 files**. Four readings
+> of what those bytes *mean* are wrong or incomplete.
+>
+> **1. There is no 48-byte preamble, and no "+16 convention."** A SNO file is a
+> 16-byte header followed by the struct image; every offset stored anywhere in
+> the file is **struct-relative**, so the file position is always `16 + offset`.
+> What §3 calls `SnoFilePreamble` is that 16-byte header plus the struct's own
+> first 32 bytes: `snoId` is struct+0, and `dataOffset`/`dataSize` at file
+> 0x20/0x24 are struct+16/+20. The rule is uniform across every D3 SNO group,
+> not a `.mat` quirk.
+>
+> **2. §5's "shader parameter overrides" is a D3 TagMap** — the same container
+> AnimSet uses for its animation slots. `{u32 count; Entry[count]}` with
+> `Entry = {u32 valueType, u32 tagId, u32 value}`; `dataSize == 4 + 12*count`
+> holds in 3,843/3,843 files. The ids are not open-ended: the engine registers
+> a **closed 23-entry tag table** for materials, and all 5,054 entries in the
+> corpus use an id from it, with **zero** unknown ids. The table also fixes each
+> id's value type, and the on-disk `valueType` agrees in all 5,054 entries:
+>
+> | ids | value type |
+> | --- | --- |
+> | 0x30100, 0x30101, 0x30102, 0x30301, 0x30302, 0x30303, 0x30405 | 1 = float |
+> | 0x30103, 0x30104, 0x30106, 0x30107, 0x30300 | 0 = int / bool |
+> | 0x30105, 0x30200–0x30204, 0x30400–0x30404 | 2 = SNO reference |
+>
+> Names are stripped from the retail build, so the ids stay numeric — but the
+> set is now known to be complete rather than sampled. (0x30405 is registered
+> and unused by the corpus.)
+>
+> **3. §6's texture entry has structure where the table lists loose
+> `_animParamXX` words.** Bytes 0x50–0x98 are **six identical 12-byte animator
+> blocks**, `{f32 amount, f32 rate0, f32 rate1}`. Grouping is from co-occurrence
+> over 16,972 texture entries: the first member of each block is set in
+> 24/25/22/24/3/1 entries — a flat profile only a repeating structure produces —
+> while the second member carries the scroll rate (1,125 entries for block 0,
+> 1,393 for block 1) and block 2 holds rotations, its values being
+> 0.05° to 30° expressed in radians. `_reserved04` and `_reserved9C` are zero in
+> 16,972/16,972 entries.
+>
+> **4. §7's "AppMaterialDataBlock" is the same value as this file's 0x30–0x88
+> region**, not a parallel format. The engine's `UberMaterial` is 104 bytes
+> `{snoShaderMap, colours(72), texture array}`; a standalone `.mat` embeds it at
+> struct+32 and an `.app` embeds it at block+24. That 8-byte difference is the
+> entire delta between the two layouts §4 and §7 describe separately. The `.app`
+> side has further corrections — the block is exactly 248 bytes and there is one
+> **per look** — see `APP_FILE_FORMAT_SPECIFICATION.md` §5.
 
 ## 1. Overview
 
@@ -92,7 +147,15 @@ Material (.mat)
 
 ## 3. SNO File Preamble
 
-All Diablo III standalone asset files share a common 48-byte preamble. This structure is shared by `.mat`, `.shm`, `.shd`, and other SNO file types.
+> **⚠ Superseded — see correction 1 at the top of this document.** There is no 48-byte
+> preamble and no "+16 convention". A `.mat` is a **16-byte SNO file header** followed by the
+> **136-byte `Material` struct**, and every offset stored in the file is struct-relative, so
+> file position = `16 + offset`. The `SnoFilePreamble` below is that 16-byte header plus the
+> struct's own first 32 bytes; the offsets it lists are *file* offsets and are correct as
+> written, but the framing is not. Struct-relative equivalents: `snoId` = struct +0,
+> `dataOffset` = struct +16, `dataSize` = struct +20.
+>
+> The section is kept because its byte values are accurate and other sections reference it.
 
 ```cpp
 struct SnoFilePreamble {                        // 48 bytes
@@ -107,7 +170,11 @@ struct SnoFilePreamble {                        // 48 bytes
 };
 ```
 
-> **+16 Convention**: All offset fields in D3 SNO files point to a 16-byte zero-padding region that precedes the actual data. Add 16 to any stored offset to reach the data entries. This convention appears throughout the `.mat`, `.shm`, `.shd`, and `.app` formats.
+> **Why "+16" works**: stored offsets are measured from the start of the **struct**, and the
+> struct starts 16 bytes into the file, after the SNO header. So `file = 16 + stored`. It is
+> not a padding region that precedes each data chunk — that reading is what makes formats look
+> like they have oversized preambles, and it displaced every field name in the CLT and `.phy`
+> specifications until 2026-08-16.
 
 ---
 

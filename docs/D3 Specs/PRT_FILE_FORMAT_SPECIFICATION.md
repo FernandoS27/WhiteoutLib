@@ -4,7 +4,59 @@
 **Byte Order**: Little-endian
 **Magic**: `0xDEADBEEF`
 **Version**: 180
-**Corpus**: 21,593 files analyzed
+**Corpus**: 21,593 files, all validated against this layout
+**SNO Group**: 27 (`Particle`)
+**Registered revision**: 213 — the shipped data is v180, so the binary's compiled struct describes a *newer* layout (see below / README §4)
+
+See [README.md](README.md) for the build these offsets come from, the generator pipeline
+and the conventions used below.
+
+---
+
+
+> **Corrections of 2026-08-15.** The structural model below (40 inline 48-byte
+> paths, header first and array descriptor last, struct 2,296) is confirmed and
+> unchanged. What was wrong was the *meaning* of almost everything outside the
+> paths, because the previous pass had no engine functions to read — only corpus
+> statistics and an M3 analogy. The particle simulation code has now been reverse
+> engineered, and it overturns six things:
+>
+> 1. **There is no `ParticleColorSet`.** The 104-byte block at `0x2A8` is the
+>    engine's `UberMaterial` — byte for byte the same type a `.mat` embeds at
+>    `+32` and an `.app` `SubObjectAppearance` embeds at `+24`. §6 said "the same
+>    104-byte type is referenced from the Appearance, Material and Rope
+>    registrations", which was the clue. Its first dword is a **ShaderMap**
+>    reference, the four `vColorN` are diffuse/specular/emissive/ambient, and the
+>    "gradient" is the material's `MaterialTextureEntry[]` (160 bytes each — that
+>    is why the size was always a multiple of 160). See §6.
+> 2. **`EmitterParams`' three paths are the emitter shape's dimensions**, not
+>    rate/speed/direction. The emission rate is emitter channel 8 and the initial
+>    velocity is emitter channel 6. See §7.
+> 3. **The 40 channels are individually identified.** `ParticleSystem_Spawn`
+>    builds a 24-bit "this channel is constant" mask whose bit order *is* the
+>    declaration order of the 24 particle channels, and every channel carries a
+>    fixed engine channel id. See §8; the old inferred-function column is gone.
+> 4. **`nCollisionFlags` (`0x318`) is the maximum number of simultaneous
+>    instances** of the effect, and **`flSortBias` (`0x8DC`) is a kill radius in
+>    world units**. Neither had anything to do with collision or sorting.
+> 5. **`dwDuration` / `dwStartDelay` / `dwLoopDelay` are lifetime / emission
+>    period / pre-simulation time.** The 60 fps tick rate is now confirmed, not
+>    inferred: the engine multiplies all three by `0.016667`.
+> 6. **The `dwPrtFlags` bit table in §11.2 and the M3 correspondences in §13 are
+>    withdrawn.** Five flag bits are now known from the engine and none of them
+>    matches the guessed table; all three M3 channel correspondences are wrong.
+>
+> **Revision note (earlier).** An earlier draft of this document split the file into
+> 48-byte "AnimRef" blocks that began at the keyframe `(offset, size)` pair. That
+> boundary is 40 bytes off. The engine's own struct — read out of the Diablo III
+> Switch 2.6.2 binary at `0x71001AEAC0` — puts the header **first** and the array
+> descriptor **last**. Splitting there removes every field the old draft listed as
+> `_padding`, and explains all three "gap regions". Concretely, the old
+> `ParticleHeader.emitterType` / `emitterAngle` / `globalScale` / `renderLayer` /
+> `blendMode` / `midpointBias` / `speedMultiplier` are not emitter settings at
+> all: they are the first animated channel's interpolation header. That is why
+> the old §14.2 "emitter type" enum and §14.3 "interpolation type" enum listed the
+> same values — they were the same field.
 
 ---
 
@@ -12,763 +64,634 @@
 
 1. [Overview](#1-overview)
 2. [File Layout](#2-file-layout)
-3. [SNO Preamble](#3-sno-preamble)
-4. [Particle Header](#4-particle-header)
-5. [AnimRef Structure](#5-animref-structure)
-6. [AnimRef Regions & Gap Regions](#6-animref-regions--gap-regions)
-7. [Block 12 — Material / Color Reference](#7-block-12--material--color-reference)
-8. [Block 13 — Color Gradient](#8-block-13--color-gradient)
-9. [Keyframe Data](#9-keyframe-data)
-10. [Gap Region Details](#10-gap-region-details)
-11. [Look Variant Records](#11-look-variant-records)
-12. [Block-by-Block Field Catalog](#12-block-by-block-field-catalog)
+3. [Interpolation Path](#3-interpolation-path)
+4. [Keyframe Nodes](#4-keyframe-nodes)
+5. [Particle](#5-particle)
+6. [UberMaterial](#6-ubermaterial)
+7. [EmitterParams](#7-emitterparams)
+8. [Channel Catalog](#8-channel-catalog)
+9. [How the Layout Was Derived](#9-how-the-layout-was-derived)
+10. [Verification](#10-verification)
+11. [Enumerations](#11-enumerations)
+12. [Corpus Statistics](#12-corpus-statistics)
 13. [M3 PAR_ Cross-Reference](#13-m3-par_-cross-reference)
-14. [Enumerations](#14-enumerations)
-15. [Corpus Statistics](#15-corpus-statistics)
-16. [Known Unknowns](#16-known-unknowns)
-17. [Appendix A — Reading a PRT File (C++)](#appendix-a--reading-a-prt-file-c)
-18. [Appendix B — All Structures Summary](#appendix-b--all-structures-summary)
+14. [Known Unknowns](#14-known-unknowns)
 
 ---
 
 ## 1. Overview
 
-PRT files define **particle emitters** for Diablo III's visual effects pipeline. Each file
-encodes a single emitter with ~41 animated parameter channels (AnimRef blocks), static
-configuration fields, material references, and color gradient data. The format is structurally
-analogous to the **PAR_ chunk** in the M3 format used by StarCraft II and Heroes of the Storm,
-sharing the same parameter set (emission rate, speed, lifespan, size curves, color over life,
-physics, noise modulation) expressed through a different serialization pattern.
-
-Particle emitters are referenced by Appearance files (`.app`) and embedded into actor effect
-graphs. The pipeline is:
+A `.prt` file defines one particle emitter. Like every D3 SNO asset it is a raw
+struct image: a 16-byte file header followed by the struct itself, followed by a
+payload region that the struct's `(offset, size)` descriptors point into.
 
 ```
 Appearance (.app)  →  Particle (.prt)  →  Material (.mat)
    model/actor          emitter def          texture/shader
 ```
 
-Key characteristics:
-- **Version 180** across all 21,593 files — no version variation
-- **Narrow size range** (3,140–8,464 bytes) — size variation from keyframe data and look variants
-- **41 AnimRef blocks** (40 in smallest, 43 in largest) organized into **4 regions**
-- **+16 data access convention** — all stored offsets require adding 16 to reach actual data
+The struct is **2,296 bytes**. Most of it — 1,920 bytes, 84% — is 40 animated
+channels laid out inline, each a 48-byte `InterpolationPath`. The rest is
+emitter configuration, an embedded `UberMaterial`, and a triggered-event list.
 
 ---
 
 ## 2. File Layout
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  SNO Preamble                               (32 bytes)  │
-│    0x000: magic, version, snoId                         │
-├─────────────────────────────────────────────────────────┤
-│  Particle Header                            (72 bytes)  │
-│    0x020: flags, duration, emitter type, scale          │
-├─────────────────────────────────────────────────────────┤
-│  AnimRef Region 0         (13 × 48 = 624 bytes)        │
-│    0x068: Blocks 0–12 — Emission & lifetime params      │
-├─────────────────────────────────────────────────────────┤
-│  Gap 0 — Scale Constants                   (44 bytes)   │
-│    0x2D8: Per-axis scale enables                        │
-├─────────────────────────────────────────────────────────┤
-│  AnimRef Region 1          (1 × 48 = 48 bytes)         │
-│    0x304: Block 13 — Color gradient                     │
-├─────────────────────────────────────────────────────────┤
-│  Gap 1 — Timing & Material                (68 bytes)    │
-│    0x334: Emission timing, texture SNO ref              │
-├─────────────────────────────────────────────────────────┤
-│  AnimRef Region 2          (3 × 48 = 144 bytes)        │
-│    0x378: Blocks 14–16 — Emission area / physics        │
-├─────────────────────────────────────────────────────────┤
-│  Gap 2 — Rendering Config                (136 bytes)    │
-│    0x408: Noise, flipbook, rendering flags              │
-├─────────────────────────────────────────────────────────┤
-│  AnimRef Region 3         (24 × 48 = 1152 bytes)       │
-│    0x490: Blocks 17–40 — Per-particle properties        │
-├─────────────────────────────────────────────────────────┤
-│  Keyframe Data Pool                        (variable)   │
-│    0x910: Referenced by AnimRef offset fields            │
-├─────────────────────────────────────────────────────────┤
-│  Look Variant Records                      (optional)   │
-│    variable: Alternate emitter configurations           │
-└─────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│  File header                                    16 bytes       │
+│    +0  magic 0xDEADBEEF, +4  version 180, +8  unused           │
+├────────────────────────────────────────────────────────────────┤
+│  Particle struct                             2,296 bytes       │
+│    +0     asset id and timing                                  │
+│    +48    13 emitter channels    (13 × 48 = 624)               │
+│    +672   UberMaterial (shader map, colours, textures)         │
+│    +784   physics parameters                                   │
+│    +832   EmitterParams          (280)                         │
+│    +1112  24 particle channels   (24 × 48 = 1152)              │
+│    +2264  render flags, triggered-event descriptor             │
+├────────────────────────────────────────────────────────────────┤
+│  Payload                                        variable       │
+│    keyframe node arrays, material texture entries, events     │
+│    every block 8-byte aligned; first block always at +2296     │
+└────────────────────────────────────────────────────────────────┘
 ```
 
-Total fixed structure: **0x910 = 2,320 bytes**. Remaining bytes (820–6,144) hold keyframe data
-and optional look variant records.
+All payload offsets are relative to the **start of the struct**, i.e. file
+position = 16 + offset. Blocks are packed in ascending order and padded to an
+8-byte boundary, so a 12-byte node array is followed by 4 bytes of slack.
 
 ---
 
-## 3. SNO Preamble
+## 3. Interpolation Path
 
-**Tag**: PRT | **Version**: 180 | **Size**: 32 bytes
+The unit of animation. 48 bytes, and the reason the old block split was wrong:
+the array descriptor is the **last** 8 bytes, not the first.
 
 ```cpp
-struct SnoPreamble {                            // 32 bytes
-    u32     magic;              // 0x000: Always 0xDEADBEEF
-    u32     version;            // 0x004: Always 180 for .prt
-    u32     snoId;              // 0x008: Unique asset identifier
-    u32     _unknown00C;        // 0x00C: Varies per file
-    u32     _unknown010;        // 0x010: Often 0
-    u32     _unknown014;        // 0x014: Varies
-    u32     _unknown018;        // 0x018: Often 0
-    u32     _unknown01C;        // 0x01C: Often 0
+struct InterpolationScalar {                    // 12 bytes
+    i32     nMode;              // 0x00: usually 0
+    f32     flMin;              // 0x04: usually 0.0
+    f32     flMax;              // 0x08: usually 1.0
+};
+
+struct InterpolationPathHeader {                // 28 bytes
+    i32                 eInterpolation; // 0x00: curve type, see §11.1
+    f32                 flBias;         // 0x04: usually 0.0
+    f32                 flScale;        // 0x08: usually 1.0 -- scales the nodes
+    i32                 nFlags;         // 0x0C: usually 0
+    InterpolationScalar tRandom;        // 0x10: per-particle randomisation
+};
+
+struct InterpolationPath {                      // 48 bytes
+    InterpolationPathHeader header;     // 0x00 .. 0x1C
+    u8                      _align[4];  // 0x1C: alignment
+    void*                   pNodes;     // 0x20: runtime pointer, zero on disk
+    i32                     nodeOffset; // 0x28: byte offset into the payload
+    i32                     nodeSize;   // 0x2C: byte length
 };
 ```
+
+The binary declares ten of these — `FloatPath`, `IntPath`, `TimePath`,
+`AnglePath`, `VelocityPath`, `ColorPath`, `VectorPath`, `VelocityVectorPath`,
+`AngularVelocityPath`, `AccelVectorPath` — all 48 bytes and identical apart from
+the node type they point at.
+
+**The 12 bytes at `0x1C..0x28` are zero in 21,593 of 21,593 files.** Under the old
+split the equivalent 12 bytes are non-zero in roughly half the files at the end
+of each region, which is what identifies this as the correct boundary.
 
 ---
 
-## 4. Particle Header
+## 4. Keyframe Nodes
 
-**Tag**: ParticleHeader | **Version**: — | **Size**: 72 bytes
-
-Global emitter configuration at offset 0x020–0x067.
+Every node is `{startValue, endValue, time}`. Only the value type varies.
 
 ```cpp
-struct ParticleHeader {                         // 72 bytes
-    // ─── Behavior Flags ────────────────────────────────────────────────────────
-    u32     flags;              // 0x020: Behavior bitfield (see §14.1)
-                                //        Common: 5160, 1064, 5416
-
-    // ─── Timing Parameters ─────────────────────────────────────────────────────
-    u32     duration;           // 0x024: Emitter lifetime in ticks
-                                //        Common: 120(113), 60(110), 180(47)
-    u32     startDelay;         // 0x028: Delay before first emission
-                                //        Common: 0(208), 30(172), 15(44)
-    u32     loopDelay;          // 0x02C: Delay between loop iterations (0 = no delay)
-    u32     _reserved030;       // 0x030: Always 0
-    u32     _reserved034;       // 0x034: Almost always 0
-    f32     loopScale;          // 0x038: Loop playback rate (1.0 = normal, 0.0 = non-looping)
-    u32     _reserved03C;       // 0x03C: Always 0
-
-    // ─── Emitter Configuration ─────────────────────────────────────────────────
-    u32     emitterType;        // 0x040: Billboard/tail/cylinder/etc. (see §14.2)
-                                //        1=billboard(91.8%), 2=tail, 3=cylinder
-    f32     emitterAngle;       // 0x044: Orientation angle in radians (0 = default)
-    f32     globalScale;        // 0x048: Global size multiplier (typically 1.0)
-    u32     renderLayer;        // 0x04C: Render sorting layer (0 or 5)
-    u32     blendMode;          // 0x050: Blend mode (0=alpha, 1=additive, 8=unknown)
-    f32     midpointBias;       // 0x054: Mid-keyframe time bias (0.0–1.0)
-    f32     speedMultiplier;    // 0x058: Global speed scale (typically 1.0–2.0)
-    u32     _reserved05C;       // 0x05C: Always 0
-    u32     _reserved060;       // 0x060: Always 0
-    u32     _reserved064;       // 0x064: Always 0
-};
+struct FloatNode  { f32 flStart;  f32 flEnd;  f32 flTime; };   // 12 bytes
+struct IntNode    { i32 nStart;   i32 nEnd;   f32 flTime; };   // 12 bytes
+struct ColorNode  { u32 dwStart;  u32 dwEnd;  f32 flTime; };   // 12 bytes, packed ARGB
+struct VectorNode { Vector3f vStart; Vector3f vEnd; f32 flTime; }; // 28 bytes
 ```
 
-The `duration` values suggest a tick rate of approximately 60 ticks/second based on common
-effect timings (60 = 1 sec, 120 = 2 sec, 180 = 3 sec).
+Ten node types share those four layouts, and **the type name carries the unit**,
+which the runtime acts on:
+
+| Node type | Layout | Unit, and what the engine does with it |
+|---|---|---|
+| `FloatNode` | 12 | dimensionless |
+| `TimeNode` | 12, **integer** | frames; multiplied by `0.016667` |
+| `IntNode` | 12, integer | a count |
+| `ColorNode` | 12, packed | a colour |
+| `AngleNode` | 12 | **radians** |
+| `VelocityNode` | 12 | per frame; **×60** |
+| `AngularVelocityNode` | 12 | radians per frame; **×60** |
+| `VectorNode` | 28 | dimensionless |
+| `VelocityVectorNode` | 28 | per frame; **×60** |
+| `AccelVectorNode` | 28 | per frame squared; **×60 ×60** |
+
+Two of these are checkable straight off the disk. `TimeNode` values read as
+integers are 1 / 30 / 18 / 24 / 60 / 20 / 22, while reading the same words as
+floats yields denormals (max 8.4e-41 over 21,593 files). `AngularVelocityNode`'s
+commonest non-zero value in particle slot 6 is −0.017453 — exactly one degree per
+frame.
+
+`nodeSize` is always an exact multiple of the node size — checked across the
+whole corpus. The old draft's `VectorKeyframe._padding` at `0x18` is `flTime`.
+
+Which node type a channel uses is fixed by the struct, and is recoverable from
+the data: an `IntNode` channel's first word is a small integer (`0`, `1`, `2`,
+`30`…) with a zero high byte, a `ColorNode` channel's is a packed colour
+(`0xFFFFFFFF`, `0xFF000000`, `0x00FFFFFF`), and a `FloatNode` channel's is a
+normal float. The three sets do not overlap in any file.
 
 ---
 
-## 5. AnimRef Structure
-
-**Size**: 48 bytes
-
-Each animated parameter is encoded as a 48-byte AnimRef block — a reference to external
-keyframe data plus default values and randomization ranges. This is the D3 equivalent of the
-M3 `AnimationReference<T>` but with a uniform 48-byte layout.
+## 5. Particle
 
 ```cpp
-struct AnimRef {                                // 48 bytes
-    u32     dataOffset;         // 0x00: Offset to keyframe data (+16 convention)
-    u32     dataSize;           // 0x04: Size of keyframe data in bytes
-    u32     interpType;         // 0x08: Interpolation type (see §14.3)
-    u32     _padding0C;         // 0x0C: Usually 0
-    f32     defaultValue;       // 0x10: Default parameter value (typically 1.0)
-    u32     _padding14;         // 0x14: Usually 0
-    u32     _padding18;         // 0x18: Usually 0
-    f32     rangeMin;           // 0x1C: Randomization range minimum
-    f32     rangeMax;           // 0x20: Randomization range maximum
-    u32     _padding24;         // 0x24: Usually 0
-    u32     _padding28;         // 0x28: Usually 0
-    u32     _padding2C;         // 0x2C: Usually 0
-};
+struct Particle {                               // 2296 bytes
+    i32                 dwSnoId;            // 0x000: asset id
+    u8                  _unused[8];         // 0x004: zero in every file
+    i32                 eSystemType;        // 0x00C: 10 values; the engine
+                                            //   branches on it everywhere
+    i32                 dwPrtFlags;         // 0x010: see §11.2
+    i32                 tmLifetime;         // 0x014: system lifetime, frames @60
+    i32                 tmEmissionPeriod;   // 0x018: emitter period; also the
+                                            //   0..1 time base every path uses
+    i32                 tmPreSimulate;      // 0x01C: spawn-time catch-up cap
+    InterpolationScalar tLifetimeRandom;    // 0x020: multiplies tmLifetime
+    i32                 dwUnknown2C;        // 0x02C: registered, zero in every file
+
+    InterpolationPath   arEmitterPath[13];  // 0x030 .. 0x2A0   (see §8)
+
+    f32                 flUnknown2A0;       // 0x2A0: default 0.01, meaning unknown
+    u8                  _pad2[4];           // 0x2A4
+    UberMaterial        tMaterial;          // 0x2A8 .. 0x310   (see §6)
+
+    i32                 snoPhysics;         // 0x310: SNO ref, -1 = none
+    f32                 flMass;             // 0x314: default 0.0310589
+    i32                 nMaxInstances;      // 0x318: instance cap, 0 = unlimited
+    f32                 flPhysicsParam0;    // 0x31C: no default
+    f32                 flPhysicsParam1;    // 0x320: default 1.0
+    f32                 flPhysicsParam2;    // 0x324: default 0.3
+    f32                 flPhysicsParam3;    // 0x328: default 1.0
+    f32                 flPhysicsParam4;    // 0x32C: default 1.25
+    f32                 flPhysicsParam5;    // 0x330: default 0.0
+    f32                 flPhysicsParam6;    // 0x334: default 1.0
+    i32                 snoActor;           // 0x338: SNO ref, -1 = none
+    u8                  _pad3[4];           // 0x33C
+
+    EmitterParams       tEmitter;           // 0x340 .. 0x458   (see §7)
+
+    InterpolationPath   arParticlePath[24]; // 0x458 .. 0x8D8   (see §8)
+
+    i32                 nRenderMode;        // 0x8D8: enum, values 0..13 only
+    f32                 flMaxDistance;      // 0x8DC: kill radius, default 10.0
+    f32                 flCameraDistScale;  // 0x8E0: default 0.8
+    i32                 dwEventOffset;      // 0x8E4: triggered events
+    i32                 dwEventSize;        // 0x8E8: N * 412 bytes
+    i32                 dwEventCount;       // 0x8EC: N
+    void*               pEvents;            // 0x8F0: runtime pointer, zero
+};                                          // 0x8F8 = 2296
 ```
 
-**Data Access**: Keyframe data at `dataOffset + 16`. When `dataOffset` is 0 and `dataSize` is
-12, the block contains a single default keyframe.
+**Timing.** `ParticleSystem_Spawn` stores `tmLifetime * 0.016667` as the system's
+lifetime in seconds and `ParticleSystem_TickEmitter` releases the system once the
+elapsed timer reaches it, which pins the tick rate at 60 fps. `tLifetimeRandom`
+is fed to `InterpolationScalar_Evaluate` and, when that reports "applied", its
+result *multiplies* the lifetime. `tmEmissionPeriod` drives a second timer whose
+normalised value `clamp(elapsed / (tmEmissionPeriod/60), 0, 1)` is the `t` every
+channel is sampled at — so it is the time base of the whole animation, and
+reaching it also stops the emitter. `tmPreSimulate` caps the loop at the end of
+`ParticleSystem_Spawn` that pre-runs the system by
+`min(lifetime - 1/60, tmPreSimulate/60, 1000)` seconds so an effect can start
+already established; it is 0 in 19,061 of 21,593 files.
 
-**Randomization**: At runtime, each spawned particle randomizes between `rangeMin` and
-`rangeMax`. When both are 0.0 and 1.0 respectively, the default value passes through unscaled.
+**`nMaxInstances` (`0x318`) is an instance budget, not collision flags.**
+`ParticleSystem_Spawn` keeps a per-`snoId` counter in a hash map and refuses the
+spawn once the live count reaches this value. The corpus agrees: 15 distinct
+values, 0 (unlimited) in 20,788 files and then 10, 25, 20, 7, 5, 15, 8, 4, 3.
 
-**Critical Note — Default as Scale Multiplier**: The `defaultValue` field is almost universally
-**1.0** across all blocks. It functions as a **scale multiplier** rather than the actual
-parameter value. The actual parameter is stored in the first keyframe (kf0). Runtime formula:
-`effectiveValue = kf0_value × defaultValue × randomize(rangeMin, rangeMax)`.
+**`flMaxDistance` (`0x8DC`) is a radius in world units, not a sort bias.**
+`ParticleSystem_UpdateParticles` retires a particle when
+`(sysX-pX)² + (sysY-pY)² > r²`. Default 10.0, present in 20,017 of 21,593 files.
+
+**`flCameraDistScale` (`0x8E0`) is used only on the camera-relative placement
+branch** of `ParticleSystem_TickEmitter`, which positions the system at
+`cameraPos + value * (distance * direction)`. Whether it doubles as a LOD scale
+is not established.
+
+The seven floats at `0x31C .. 0x334` follow `snoPhysics` and `flMass`, so
+"physics parameters" is safe as a group label, but **no engine read was traced to
+any individual member**. They are deliberately left unnamed rather than carrying
+the previous guesses (`flCollisionScale` / `flBounce` / `flFriction` /
+`flDamping` / `flMassVariance` / `flPhysicsDelay` / `flPhysicsScale`), none of
+which was ever supported by anything but the defaults.
+
+`flMass` is confirmed: `ParticleSystem_EmitParticle` stores
+`1 / max(flMass, 1e-6)` as the particle's inverse mass.
+
+The `snoPhysics` and `snoActor` fields carry the SNO **group** in the
+registration (`28` = Physics, `1` = Actor), and the corpus confirms both exactly.
+Of the 526 files that set `snoPhysics`, all 20 distinct values are ids present in
+the `.phy` corpus; of the 4,796 that set `snoActor`, all 3,512 distinct values are
+ids present in the `.acr` corpus. Neither field ever holds an id belonging to any
+other group. A previous table named the second one `snoTexturePrt`; it is Actor.
 
 ---
 
-## 6. AnimRef Regions & Gap Regions
+## 6. UberMaterial
 
-The 41 AnimRef blocks are organized into **4 contiguous regions** separated by **3 gap regions**
-of fixed-value configuration data.
+104 bytes — and it is **not** a particle-specific type. The slot the registrar
+reaches it through (`0x71010E95B8`) is the engine's `UberMaterial` descriptor,
+the same one `.mat` embeds at `+32` and an `.app` `SubObjectAppearance` embeds at
+`+24`. The previous draft noted that "the same 104-byte type is referenced from
+the Appearance, Material and Rope registrations" and then described it as a
+colour set anyway; every field below is different as a result.
 
+```cpp
+struct UberMaterial {                           // 104 bytes
+    i32            snoShaderMap;    // 0x00: ShaderMap SNO ref, -1 = none
+    MaterialColors tColors;         // 0x04 .. 0x4C
+    //   0x04 vDiffuse   Vector4f
+    //   0x14 vSpecular  Vector4f
+    //   0x24 vEmissive  Vector4f
+    //   0x34 vAmbient   Vector4f
+    //   0x44 flShininess
+    //   0x48 dwMaterialFlags
+    i32            dwTextureOffset; // 0x4C: payload offset  }  SerializeData
+    i32            dwTextureSize;   // 0x50: N * 160 bytes   }
+    u8             _pad[4];         // 0x54
+    void*          pTextures;       // 0x58: runtime pointer, zero on disk
+    u8             _reserved[8];    // 0x60
+};
 ```
-Region 0:  0x068 – 0x2A7   13 blocks (0–12)    Emission + material
-Gap 0:     0x2D8 – 0x303   44 bytes             Scale constants
-Region 1:  0x304 – 0x333   1 block  (13)        Color gradient
-Gap 1:     0x334 – 0x377   68 bytes             Timing & material reference
-Region 2:  0x378 – 0x407   3 blocks (14–16)     Emission area / physics
-Gap 2:     0x408 – 0x48F   136 bytes            Rendering flags / flipbook
-Region 3:  0x490 – 0x90F   24 blocks (17–40)    Per-particle animated properties
-```
 
-**Note**: Block 12 (at 0x2A8) uses a **non-standard layout** — see §7. Block 13 (at 0x304)
-stores color gradient data with a differently-interpreted header — see §8.
+The array is `MaterialTextureEntry[]`, 160 bytes each — which is exactly why the
+"gradient size" was always a multiple of 160. That element type is already fully
+described by the `.mat` / `.app` work; nothing here needs a separate decode.
+
+Every claim above is checked against all 21,593 files:
+
+| Check | Result |
+|---|---|
+| `dwTextureSize % 160 == 0` | 21,593 / 21,593 |
+| `pTextures` (`0x58..0x60`) zero | 21,593 / 21,593 |
+| `snoShaderMap` is a known ShaderMap id | 18,420 / 18,420 files that set it (252 / 252 distinct ids) |
+| …and is never an id of Physics, Actor, Appearance, Material, Particle, Anim, AnimSet or Cloth | 0 hits in all eight groups |
+| `flShininess` (`0x44`) zero | 21,593 / 21,593 |
+| `vDiffuse` and `vSpecular` move together | all-1.0 in 11,435 files, all-0.0 in 10,158 |
+| `vEmissive` zero | 21,586 / 21,593 |
+
+The engine read that settles it: `ParticleSystem_Spawn` loads
+`*(u32*)(particle + 0x38)` — the first dword of this block in the registered
+revision — and resolves it in the **ShaderMap** SNO group, then does a tag-map
+query on the result. `ParticleSystem_TickEmitter` reaches the atlas texture
+through the same block.
 
 ---
 
-## 7. Block 12 — Material / Color Reference
+## 7. EmitterParams
 
-**Tag**: Block12 | **Offset**: 0x2A8 | **Size**: 48 bytes
+280 bytes. Three animated channels plus the name of the DCC node the emitter
+shape was authored from.
 
-Block 12 occupies the standard 48 bytes but does **not** follow the AnimRef field layout.
-Instead, it encodes the emitter's material association and a fallback color multiplier.
+**The three paths are the emitter shape's dimensions, not rate/speed/direction.**
+`ParticleSystem_TickEmitter` switches on `eEmitterShape` and reads them
+selectively; the switch's `default` case asserts, so the value set is closed.
 
 ```cpp
-struct Block12MaterialRef {                     // 48 bytes at 0x2A8
-    u32     dataOffset;         // 0x2A8: Points to 12 bytes of kf data (+16)
-    u32     dataSize;           // 0x2AC: Always 12
-    f32     colorTimeScale;     // 0x2B0: Color animation time scale
-                                //        Common: 0.01(447), 0.2(16), 0.025(10)
-    u32     _zero;              // 0x2B4: Always 0
-    u32     materialSnoId;      // 0x2B8: SNO hash or 0xFFFFFFFF (no material)
-    f32     colorMult_R;        // 0x2BC: 1.0 when no material, 0.0 when has material
-    f32     colorMult_G;        // 0x2C0: Color multiplier green
-    f32     colorMult_B;        // 0x2C4: Color multiplier blue
-    f32     colorMult_A;        // 0x2C8: Color multiplier alpha
-    f32     colorMult2_R;       // 0x2CC: Secondary color multiplier red
-    f32     colorMult2_G;       // 0x2D0: Secondary color multiplier green
-    f32     colorMult2_B;       // 0x2D4: Secondary color multiplier blue
+struct EmitterParams {                          // 280 bytes
+    InterpolationPath tShapeExtent0;    // 0x00: FloatNode  — shapes 4,5,9,10
+    InterpolationPath tShapeExtent1;    // 0x30: FloatNode  — shapes 5,9
+    InterpolationPath tShapeExtent2;    // 0x60: VectorNode — shape 8
+    i32               eEmitterShape;    // 0x90: see below
+    char              szDccShapeName[128]; // 0x94: NUL-terminated, may be empty
+    u8                _pad[4];          // 0x114: alignment, always zero
 };
 ```
 
-**Material binding pattern**: When `materialSnoId` = 0xFFFFFFFF, the emitter has no associated
-material and uses the color multiplier fields (all 1.0 = full white). When a material SNO hash
-is present, these multiplier fields are zeroed because the `.mat` file provides all color/texture
-information.
+### Emitter shapes
+
+| Value | Files | What the engine reads |
+|------:|------:|:----------------------|
+| 1 | 0 | nothing — a point emitter (legal, unused in this corpus) |
+| 4 | 10,433 | `tShapeExtent0` only |
+| 5 | 7,631 | `tShapeExtent0` **and** `tShapeExtent1` |
+| 6 | 1,253 | no path — driven by an actor / bone |
+| 7 | 17 | no path — a narrower actor-driven case |
+| 8 | 220 | `tShapeExtent2`, sampled against `(0,0,0)` and `(1,1,1)`: a box extent |
+| 9 | 1,590 | same as 5 |
+| 10 | 265 | same as 4 |
+| 11 | 184 | actor / bone driven, and advances a sequential emission index |
+
+The corpus corroborates the actor/mesh split independently: `szDccShapeName` is
+populated for exactly the shapes the engine drives from geometry — 1,149 / 1,253
+of shape 6, 178 / 184 of shape 11 and 17 / 17 of shape 7 carry a name, against
+11 %, 14 %, 8 % and 17 % for shapes 4, 5, 9 and 10.
+
+Observed names are Maya node names: `EmitShape_emit_001`,
+`fxMeshShape_fxMesh_mat_001`, `oldActiveMeshShape_b_Column_001`,
+`FX_EMITTER | FX_EMIT`. The buffer is empty in 17,819 of 21,593 files and the
+longest name is 66 bytes; every byte after the terminator is zero in
+21,593 / 21,593. `0x94 + 128 = 0x114`, and the final 4 bytes are the alignment
+padding that rounds the struct to 280.
+
+The emission rate lives at **emitter channel 8** and the initial velocity at
+**emitter channel 6** — see §8.
 
 ---
 
-## 8. Block 13 — Color Gradient
+## 8. Channel Catalog
 
-**Tag**: Block13 | **Offset**: 0x304 | **Size**: 48 bytes header + variable gradient data
+`arEmitterPath[N]` sits at `0x030 + 48N`, `arParticlePath[N]` at `0x458 + 48N`.
+Both the node type and the meaning now come from the engine, not from statistics.
 
-Block 13 stores a **color-over-life gradient table**. The header occupies 48 bytes but uses a
-non-standard interpretation.
+### How the channels were identified
 
-```cpp
-struct Block13ColorGradient {                   // 48 bytes header
-    u32     dataOffset;         // 0x304: +16 convention to gradient data
-    u32     dataSize;           // 0x308: N × 160-byte gradient stops
-                                //        12(77), 160(122), 320(248), 480(18), 640(31)
-    u32     interpType;         // 0x30C: 0 = has gradient, 1 = constant color
-    u32     _padding[4];        // 0x310: Padding
-    u32     sentinel;           // 0x320: 0xFFFFFFFF = gradient active, 0 = constant
-    f32     timeScale;          // 0x324: Color animation time scale
-                                //        0.031(422), 1.0(77) — ~1/32 sec
-    u32     _remaining[3];      // 0x328: Remaining header fields
-};
-```
+Three engine facts do the work.
 
-### Gradient Stop Format (160 bytes each)
+**The path *type* carries the unit.** The binary registers ten distinct 48-byte
+path types and the runtime converts by unit: a `VelocityPath` / `VelocityVectorPath`
+sample is multiplied by **60** (per frame → per second) and an `AccelVectorPath`
+sample by **60 × 60**. `TimePath` values are integers in frames and are multiplied
+by `0.016667`. So the type is not cosmetic — it is how the data is interpreted.
 
-```cpp
-struct GradientStop {                           // 160 bytes
-    u32     index;              // 0x00: Stop index
-    u32     _pad04;             // 0x04: Padding
-    u32     hash;               // 0x08: Stop identifier hash
-    u32     count;              // 0x0C: Entry count
-    f32     colorMatrix[4][4];  // 0x10: 4×4 RGBA color transform matrix (64 bytes)
-                                //       Row0 = Red:   (R, 0, 0, 0)
-                                //       Row1 = Green: (0, G, 0, 0)
-                                //       Row2 = Blue:  (0, 0, B, 0)
-                                //       Row3 = Alpha: (0, 0, 0, A)
-                                //       Identity = full-brightness, unmodified color
-    f32     tangentData[8];     // 0x50: Tangent data for smooth interpolation (32 bytes)
-    u8      _padding[48];       // 0x70: Additional tangent data / zeros
-};
-```
+**Every channel has a fixed engine channel id.** It is argument 3 of
+`InterpolationPath_EvalScalar` / `_EvalVector` / `_EvalColor` / `_EvalInt` and,
+together with the per-system random seed, selects that channel's random stream.
+Ids 1–25 are particle channels and 28–40 emitter channels.
 
-**Size distribution** (n=500): 12 bytes (77) = constant color, 160 bytes (122) = 1 stop,
-320 bytes (248) = 2 stops, 480 bytes (18) = 3 stops, 640 bytes (31) = 4 stops.
+**`ParticleSystem_Spawn` enumerates the particle channels in order.** It builds a
+24-bit mask, one bit per channel, by testing "one node, `start == end`, no
+randomisation" — the constant-channel fast path. Bit *N* of that mask is slot *N*
+of `arParticlePath`, and the vector/scalar split agrees on all 24 slots
+(vectors at 9, 13, 16, 17, 18, 19, 20, 21 in both). Three further checks land
+independently: slot 0 is the only slot in the file holding packed colours, slot 5
+holds π/2, π/4 and π where the mask says `AnglePath`, and slots 18 and 21 hold the
+tiny per-frame-squared values the mask says are `AccelVectorPath`s.
 
----
+### Emitter channels (`0x030 + 48N`)
 
-## 9. Keyframe Data
+"Used" is the share of the 21,593 files in which the channel has any non-zero
+node value.
 
-Keyframe data is stored in the **Keyframe Data Pool** starting at approximately offset 0x910.
-Each AnimRef block's `dataOffset + 16` points into this pool.
+| Slot | Path type | ch | Used | Meaning |
+|-----:|:----------|---:|-----:|:--------|
+| 0 | Float | 34 | 99.3% | Emitter-wide **size multiplier**, default 1.0 |
+| 1 | **Int** | 31 | 77.1% | **Target live particle count.** The emitter emits `max(rateAccumulator, target − live)`, capped at `4096 − live`. Most-animated channel in the format (3 nodes in 11,956 files) |
+| 2 | Float | 35 | 99.9% | **Overall effect scale**, default 1.0; further multiplied by a game-supplied per-instance scale |
+| 3 | **Time** | 29 | 100% | **Particle lifetime**, in frames |
+| 4 | Float | 28 | 100% | **Particle base size at birth** |
+| 5 | **Angle** | 39 | 8.2% | **Emission cone half-angle**, radians. The initial velocity is rotated by this angle about a uniformly random azimuth |
+| 6 | **VelocityVector** | 38 | 1.1% | **Initial velocity**, emitter-local — the vector the cone perturbs, then rotated by the emitter orientation |
+| 7 | **VelocityVector** | 40 | 2.6% | **Initial velocity**, added *after* the emitter rotation (world-space term) |
+| 8 | Velocity | 32 | 50.5% | **Emission rate**, particles per second. The *only* emission driver in 3,884 files that have no count path |
+| 9 | Velocity | 33 or 30 | 5.1% | one of the two below — order not established |
+| 10 | Velocity | 30 or 33 | 6.5% | one of the two below — order not established |
+| 11 | **Vector** | — | 3.6% | no counterpart in the registered revision; type only |
+| 12 | Float | — | 5.3% | no counterpart in the registered revision; type only |
 
-### 9.1 Scalar Keyframes (12-byte stride)
+Slots 9 and 10 are channels 33 and 30, but **which is which is not established**:
+both are `VelocityPath`, both are used by a similar share of files, and the
+ordering constraints permit either assignment.
 
-For scalar parameters (emission rate, speed, size, opacity, etc.):
+* **ch 33** — particles emitted per unit of *distance the emitter travels*; the
+  sample is multiplied by the emitter's world speed and by `dt`.
+* **ch 30** — shortens the particle lifetime in proportion to emitter speed,
+  `life *= 1 − (speed × value) × dt`, floored at one frame.
 
-```cpp
-struct ScalarKeyframe {                         // 12 bytes
-    f32     value;              // 0x00: Parameter value
-    f32     valueRange;         // 0x04: Randomization upper bound (often = value)
-    f32     normalizedTime;     // 0x08: Position in particle lifetime (0.0–1.0)
-};
-```
+`EmitterParams`' own three paths (§7) are the shape extents and are not part of
+this table.
 
-**Example — Fade-out opacity** (block 2, 4 keyframes):
+### Particle channels (`0x458 + 48N`)
 
-| Value | Range | Time  | Meaning                    |
-|------:|------:|------:|:---------------------------|
-| 1.000 | 1.000 | 0.000 | Full opacity at birth      |
-| 1.000 | 1.000 | 0.746 | Hold until 75% of life     |
-| 0.233 | 0.233 | 0.830 | Rapid fade                 |
-| 0.000 | 0.000 | 0.951 | Near-transparent at death  |
+| Slot | Path type | ch | Meaning |
+|-----:|:----------|---:|:--------|
+| 0 | **Color** | 3 | **Colour over life.** Packed colour nodes; written to the particle's RGBA |
+| 1 | Float | 5 | Scale curve over life; the runtime computes `this × effectScale`. Range 0..1 across the whole corpus |
+| 2 | Float | 6 | **Alpha.** The sample is multiplied by 255 and clamped into the alpha byte of channel 0's colour |
+| 3 | Float | 1 | **Size over life:** `size = this × baseSize(ch 28) × sizeMultiplier(ch 34)` |
+| 4 | Float | 2 | A second size/scale factor, default 1.0. Which quantity it drives is not established |
+| 5 | **Angle** | 24 | Rotation angle |
+| 6 | **AngularVelocity** | 25 | …and its rate (rad/s after ×60) |
+| 7 | **AngularVelocity** | 15 | A second rotation rate |
+| 8 | **Angle** | 16 | …and its angle. Note the pair is ordered rate-then-angle here, the reverse of 5/6 |
+| 9 | **Vector** | 23 | A direction / axis; default `(0,1,0)` when absent |
+| 10 | Float | 7 | A scalar… |
+| 11 | **Velocity** | 8 | …and its rate. Quantity not established |
+| 12 | **AngularVelocity** | 9 | A third angular rate |
+| 13 | **Vector** | 10 | A second direction / axis; default `(0,0,1)`, **normalised to unit length** at spawn |
+| 14 | Float | 11 | A scalar… |
+| 15 | **Velocity** | 12 | …and its rate. Quantity not established |
+| 16 | **Vector** | 17 | Offset ⎫ |
+| 17 | **VelocityVector** | 18 | Velocity ⎬ kinematic triple A |
+| 18 | **AccelVector** | 19 | Acceleration ⎭ |
+| 19 | **Vector** | 20 | Offset ⎫ |
+| 20 | **VelocityVector** | 21 | Velocity ⎬ kinematic triple B |
+| 21 | **AccelVector** | 22 | Acceleration ⎭ |
+| 22 | **Velocity** | 13 | A rate… |
+| 23 | Float | 14 | …and its scalar. Quantity not established |
 
-### 9.2 Vector Keyframes (28-byte stride)
+Slots 16–21 are two identical *(offset, velocity, acceleration)* triples read back
+to back by `ParticleSystem_UpdateParticles`, typed by their ×60 / ×3600 scaling.
+They almost certainly differ by coordinate frame (emitter-local vs world), but
+**which is which is not established**.
 
-For 3D vector parameters (emission area, velocity spread, cutout size):
-
-```cpp
-struct VectorKeyframe {                         // 28 bytes
-    f32     minX, minY, minZ;   // 0x00: Minimum XYZ / start values (12 bytes)
-    f32     maxX, maxY, maxZ;   // 0x0C: Maximum XYZ / end values (12 bytes)
-    u32     _padding;           // 0x18: Always 0
-};
-```
-
-**Example — Emission area** (block 6, 28 bytes):
-
-```
-min: (0.100, -0.100,  0.100)    — XYZ min bounds
-max: (0.200,  0.100,  0.200)    — XYZ max bounds
-```
-
-Blocks consistently using vec3 format: **6, 7, 11, 16, 26, 30, 33–38**.
-
----
-
-## 10. Gap Region Details
-
-### 10.1 Gap 0 — Scale Constants (44 bytes at 0x2D8–0x303)
-
-```cpp
-struct Gap0ScaleConstants {                     // 44 bytes
-    f32     scaleX;             // 0x2D8: X-axis scale enable (0.0 or 1.0)
-    u32     _pad0[3];           // 0x2DC: Zeros
-    f32     scaleY;             // 0x2E8: Y-axis scale enable (0.0 or 1.0)
-    u32     _pad1[3];           // 0x2EC: Zeros
-    f32     scaleZ;             // 0x2F8: Z-axis scale enable (0.0 or 1.0)
-    u32     _pad2;              // 0x2FC: Zero
-    u32     _trailing;          // 0x300: Trailing pad
-};
-```
-
-All three scale factors always share the same value (either all 0.0 or all 1.0). 52.7% of files
-have scaling enabled (full-corpus validation).
-
-### 10.2 Gap 1 — Timing & Material Reference (68 bytes at 0x334–0x377)
-
-```cpp
-struct Gap1TimingParams {                       // 68 bytes
-    f32     emissionMidpoint;   // 0x334: Mid-time for emission curve (always 0.3)
-    f32     constant338;        // 0x338: Always 1.0
-    f32     emissionEndMult;    // 0x33C: End-phase emission multiplier (always 1.25)
-    u32     _zero340;           // 0x340: Always 0
-    f32     constant344;        // 0x344: Always 1.0
-    u32     textureSnoRef;      // 0x348: Optional texture SNO hash (24% non-zero)
-    u32     _zero34C;           // 0x34C: Always 0
-    u32     instanceFlag;       // 0x350: Boolean — instance particles
-    u32     _reserved354;       // 0x354: Almost always 0
-    f32     constant358;        // 0x358: Always 1.0
-    u32     _reserved35C;       // 0x35C: Almost always 0
-    f32     _reserved360;       // 0x360: Usually 0
-    f32     colorMidTime;       // 0x364: Mid-time for color interpolation (0.0–1.0)
-    f32     tailLength;         // 0x368: Tail particle length multiplier (typ. 1.0)
-    u32     _zero[3];           // 0x36C: Always 0
-};
-```
-
-### 10.3 Gap 2 — Rendering Configuration (136 bytes at 0x408–0x48F)
-
-```cpp
-struct Gap2RenderConfig {                       // 136 bytes
-    u8      modelPath[96];      // 0x408: Embedded model/texture path (rare, ~1%)
-    f32     noiseAmplitude;     // 0x468: Noise modulation amplitude
-    f32     noiseFrequency;     // 0x46C: Noise modulation frequency
-    f32     noiseCohesion;      // 0x470: Noise coherence factor (typically 1.0)
-    u32     flipbookType;       // 0x474: Flipbook animation mode (0, 3, or 5)
-    u32     _reserved478;       // 0x478: Zero
-    f32     _reserved47C;       // 0x47C: Usually 0
-    f32     constant480;        // 0x480: Always 1.0
-    u8      _remaining[24];     // 0x484: Zero padding
-};
-```
+The twelve vector slots across both tables are exactly the twelve the earlier
+corpus-only analysis identified as `vec3` — derived independently, and a useful
+check on the split, since a 40-byte misalignment would not preserve them.
 
 ---
 
-## 11. Look Variant Records
+## 9. How the Layout Was Derived
 
-Files larger than ~3,500 bytes may contain **look variant records** after the keyframe data pool.
-These define alternate appearances ("looks") for the particle system.
+The corpus is version 180. The Switch 2.6.2 binary describes version 213: its
+`Particle` struct is 704 bytes because each channel became a *variable array of*
+paths (16 bytes: a pointer plus an `(offset,size)` pair) instead of one path
+inline (48 bytes). Everything outside the channels is unchanged, which is what
+lets the two be aligned.
 
-**Statistics**: 4.9% of files (244/5,000) contain look variant data.
+Ten registered default constants land on the matching v180 offset exactly
+(the previous text said nine and then listed ten):
 
-```cpp
-struct LookVariantName {                        // 68 bytes
-    char    name[64];           // 0x00: Variant name (null-padded ASCII)
-    u32     flags;              // 0x40: Flags / record type marker
-};
-```
+| v213 offset | default | v180 offset |
+|---:|:---|---:|
+| 0x030 | `0x3C23D70A` = 0.01 | 0x2A0 |
+| 0x0A4 | `0x3CFE68F1` = 0.0310589 | 0x314 |
+| 0x0B0 | `0x3F800000` = 1.0 | 0x320 |
+| 0x0B4 | `0x3E99999A` = 0.3 | 0x324 |
+| 0x0B8 | `0x3F800000` = 1.0 | 0x328 |
+| 0x0BC | `0x3FA00000` = 1.25 | 0x32C |
+| 0x0C0 | `0x00000000` = 0.0 | 0x330 |
+| 0x0C4 | `0x3F800000` = 1.0 | 0x334 |
+| 0x2A4 | `0x41200000` = 10.0 | 0x8DC |
+| 0x2A8 | `0x3F4CCCCD` = 0.8 | 0x8E0 |
 
-Look variants appear in **pairs** with a **344-byte gap** between pairs (suggesting ~7 AnimRef
-overrides × 48 bytes = 336 bytes per variant). All observed variant names are `"Default"`,
-indicating the look system is initialized but variants are not customized in shipped assets.
+Both structs also end with the same 32-byte tail: an int, two floats, a
+`SerializeData`, an element count, and a runtime pointer. In v213 that tail runs
+`0x2A0..0x2C0` and the struct is 704; in v180 it runs `0x8D8..0x8F8` and the
+struct is 2296.
 
 ---
 
-## 12. Block-by-Block Field Catalog
+## 10. Verification
 
-### Region 0 — Emission & Lifetime Parameters (Blocks 0–11)
+Run over all 21,593 files:
 
-| Block | Offset | Format | Default | Anim% | Probable Function |
-|------:|--------|--------|--------:|------:|:------------------|
-| 0 | 0x068 | scalar | 1.0 | 8.2% | **Emission rate** ★★★ |
-| 1 | 0x098 | scalar | 1.0 | 67.5% | **Emission speed (over-life curve)** |
-| 2 | 0x0C8 | scalar | 1.0 | 42.9% | **Opacity / alpha over life** |
-| 3 | 0x0F8 | scalar | 1.0 | 1.0% | **Emission angle X** |
-| 4 | 0x128 | scalar | 1.0 | 1.9% | **Emission spread X** |
-| 5 | 0x158 | scalar | 1.0 | 1.0% | **Emission spread Y** |
-| 6 | 0x188 | vec3 | 1.0 | 1.1% | **Emission area size** |
-| 7 | 0x1B8 | vec3 | 1.0 | 2.6% | **Emission area cutout** |
-| 8 | 0x1E8 | scalar | 1.0 | 38.6% | **Particle size scale** |
-| 9 | 0x218 | scalar | 1.0 | 3.8% | **Lifespan multiplier** (NOT absolute) |
-| 10 | 0x248 | scalar | 1.0 | 0.1% | **Lifespan range** |
-| 11 | 0x278 | vec3 | 1.0 | 0.6% | **Velocity / gravity offset** |
+| Check | Result |
+|---|---|
+| magic and version | 21,593 / 21,593 |
+| 12 zero bytes before every one of the 40 array descriptors | 21,593 / 21,593 |
+| every reserved slot listed above is zero | 21,593 / 21,593 |
+| every `nodeSize` an exact multiple of its node size | 21,593 / 21,593 |
+| `UberMaterial` texture-array size a multiple of 160 | 21,593 / 21,593 |
+| `UberMaterial` runtime pointer zero | 21,593 / 21,593 |
+| `snoShaderMap` is a known ShaderMap id | 18,420 / 18,420 populated |
+| `dwEventSize == dwEventCount * 412` | 1,388 / 1,388 populated |
+| payload accounted for, ignoring 8-byte alignment slack | 21,593 / 21,593 |
 
-### Region 2 — Additional Parameters (Blocks 14–16)
+The last one is the strongest: with the struct at 2,296 bytes, every payload byte
+in every file is either inside a block one of these descriptors points at, or one
+of the 4-byte alignment gaps between blocks. Nothing is left over.
 
-| Block | Offset | Format | Default | Anim% | Probable Function |
-|------:|--------|--------|--------:|------:|:------------------|
-| 14 | 0x378 | scalar | 1.0 | 1.4% | **Emission radius** |
-| 15 | 0x3A8 | scalar | 1.0 | 1.5% | **Emission cutout radius** |
-| 16 | 0x3D8 | vec3 | N/A | 0.1% | **Non-float packed data** (rotation?) |
+`tests/d3_native_test.cpp` re-checks the ragged-array, gradient-stride and
+event-count invariants on every build.
 
-### Region 3 — Per-Particle Properties (Blocks 17–40)
+---
 
-| Block | Offset | Format | Default | Anim% | Probable Function |
-|------:|--------|--------|--------:|------:|:------------------|
-| 17 | 0x490 | scalar | 1.0 | 13.4% | Noise yaw amplitude |
-| 18 | 0x4C0 | scalar | 1.0 | **81.6%** | **Primary over-life curve A** |
-| 19 | 0x4F0 | scalar | 1.0 | 1.3% | Noise pitch amplitude |
-| 20 | 0x520 | scalar | 1.0 | **69.9%** | **Primary over-life curve B** |
-| 21 | 0x550 | scalar | 1.0 | 33.7% | Noise speed amplitude |
-| 22 | 0x580 | scalar | 1.0 | 2.5% | **Z-acceleration / gravity** ★★★ |
-| 23 | 0x5B0 | scalar | 1.0 | 15.5% | **Z-acceleration secondary** ★★★ |
-| 24 | 0x5E0 | scalar | 1.0 | 1.4% | Noise size frequency |
-| 25 | 0x610 | scalar | 1.0 | 0.1% | Noise alpha amplitude |
-| 26 | 0x640 | vec3 | 1.0 | 0.6% | Noise alpha frequency |
-| 27 | 0x670 | scalar | 1.0 | 2.4% | Noise rotation amplitude |
-| 28 | 0x6A0 | scalar | 1.0 | 11.8% | Noise rotation frequency |
-| 29 | 0x6D0 | scalar | 1.0 | 4.6% | Noise horizontal amplitude |
-| 30 | 0x700 | vec3 | 1.0 | 0.1% | Noise horizontal frequency |
-| 31 | 0x730 | scalar | 1.0 | 1.0% | Noise vertical amplitude |
-| 32 | 0x760 | scalar | 1.0 | 5.3% | Noise vertical frequency |
-| 33 | 0x790 | vec3 | 1.0 | 1.7% | Particle velocity |
-| 34 | 0x7C0 | vec3 | 1.0 | 4.8% | Alpha threshold |
-| 35 | 0x7F0 | vec3 | 1.0 | 2.2% | UV offset |
-| 36 | 0x820 | vec3 | 1.0 | 0.8% | **Emission spread** ★★★ |
-| 37 | 0x850 | vec3 | 1.0 | 5.8% | UV tiling |
-| 38 | 0x880 | vec3 | 1.0 | 0.7% | Lower bound |
-| 39 | 0x8B0 | scalar | 1.0 | 2.1% | Upper bound |
-| 40 | 0x8E0 | scalar | **0.8** | 1.8% | **Trailing particle rate** |
+## 11. Enumerations
 
-★★★ = Confirmed via cross-corpus statistical validation against M3.
+### 11.1 Interpolation type (`InterpolationPathHeader.eInterpolation`)
 
-**Animation Rate Tiers** (full corpus, n=21,593):
-- **Tier 1 (>60%)**: Block 13 (85.6%), Block 18 (81.6%), Block 20 (69.9%), Block 1 (67.5%)
-- **Tier 2 (30–60%)**: Block 2 (42.9%), Block 8 (38.6%), Block 21 (33.7%)
-- **Tier 3 (10–30%)**: Block 23 (15.5%), Block 17 (13.4%), Block 28 (11.8%)
-- **Tier 4 (<10%)**: All other blocks — rarely or never animated
+| Value | Meaning |
+|------:|:--------|
+| 1 | Linear |
+| 2 | Step / hold |
+| 3 | Smooth (cubic / Hermite) |
+| 4 | Smooth in, linear out |
+| 5 | Linear in, smooth out |
+| 6 | Bezier |
+| 7 | Bezier smooth |
+| 9 | Auto-tangent / TCB |
+
+Values up to 31 occur. Channel 0 of the emitter set uses `1` in 91.5% of files —
+this is the field the earlier draft reported as "emitter type = billboard,
+91.8%".
+
+### 11.2 `dwPrtFlags` (0x010)
+
+**The previous table on this line has been withdrawn.** It assigned a meaning to
+fourteen bits purely from how often each was set — "system enabled", "use colour
+gradient", "billboard facing mode" and so on — and none of it survives contact
+with the engine. 870 distinct values occur over the corpus.
+
+Only these bits have a traced read, all of them in `ParticleSystem_Spawn` and
+`ParticleSystem_TickEmitter`:
+
+| Bit | Meaning |
+|-----|:--------|
+| `0x00000008` | skip the visibility / frustum test |
+| `0x00008000` | raise the live-system budget from 128 to 256 |
+| `0x00080000` | early-out gate on spawn |
+| `0x00100000` | force the 128-system budget |
+| `0x10000000` | bypass the 300-unit emitter-speed clamp on distance-based emission |
+
+The remaining bits are **not established**.
+
+### 11.3 `eSystemType` (0x00C)
+
+Ten distinct values over the corpus: 0 (16,685), 1 (4,790), 2 (31), 8 (30),
+6 (28), 9 (21), 4 (4), 7 (2), 3 (1), 10 (1). The engine branches on it in at
+least six places, which bounds what it can mean even though the individual values
+are not named: types **6 and 8** suppress the rotation channels, types **7 and 8**
+return early from the emitter tick and skip the frustum test, and `{1,3,4}`,
+`{2,3,9}` and `{4,5,6}` each take a dedicated path elsewhere.
+
+### 11.4 `nRenderMode` (0x8D8)
+
+Exactly 14 distinct values, and they are precisely 0..13 with nothing outside
+that range (0 ×9,181, 1 ×3,917, 7 ×2,312, 2 ×2,124, 12 ×1,428, 13 ×1,326,
+10 ×398, 4 ×351, 6 ×176, 5 ×145, …). `ParticleSystem_EmitParticle` and the
+batching code test it for **equality** with 1, which reads as an enum rather than
+a bit field. The individual values are **not established**.
+
+---
+
+## 12. Corpus Statistics
+
+| Metric | Value |
+|--------|-------|
+| Files | 21,593 |
+| Version | 180, no variation |
+| Struct size | 2,296 bytes |
+| File size range | 3,140 – 8,464 bytes |
+| Median file size | 3,396 bytes |
+| Animated channels | 40, all present in every file |
+| Mean `tmLifetime` | 149.1 frames (≈2.5 s; 60 fps confirmed from the engine) |
+| Files with material textures | 18,473 (85.6%) |
+| Files with triggered events | 1,388 (6.4%) |
+| Files with a DCC emitter shape name | 3,774 (17.5%) |
+| Files with a ShaderMap reference | 18,420 (85.3%) |
+| Files with a Physics reference | 526 (2.4%) |
+| Files with an Actor reference | 4,796 (22.2%) |
 
 ---
 
 ## 13. M3 PAR_ Cross-Reference
 
-The D3 .prt format is a structural analog of the M3/HotS **PAR_ v24** particle emitter chunk
-(1,496 bytes).
+`.prt` is a structural analogue of the M3/HotS **PAR_ v24** emitter chunk.
 
 | Aspect | M3 PAR_ | D3 .prt |
 |--------|---------|---------|
-| Container | Chunk within .m3 file | Standalone .prt SNO file |
-| Struct size | 1,496 bytes fixed | 2,320 bytes fixed + variable keyframes |
-| AnimRef size | 20 bytes (float), 36 bytes (vec3) | 48 bytes (all types) |
-| Default value | `initValue` = absolute parameter value | `defaultValue` ≈ 1.0 (scale multiplier) |
-| Keyframe storage | Inline SEQS/STC system | External pool at end of file |
-| Color model | 3 × AnimRef<color> (start/mid/end) | Color transform matrix gradient |
-| Material ref | materialReferenceIndex (u32) | materialSnoId (SNO hash) |
+| Container | chunk inside .m3 | standalone SNO asset |
+| Struct size | 1,496 fixed | 2,296 fixed + payload |
+| Channel size | 20 (float) / 36 (vec3) | 48, all types |
+| Default | `initValue` is the value | `flScale` ≈ 1.0, scales the nodes |
+| Keyframes | inline SEQS/STC | payload pool at end of file |
+| Colour | 3 × AnimRef&lt;color&gt; | one `ColorPath` + a gradient blob |
+| Material | index | SNO reference |
 
-### Confirmed Field Mappings (Statistical Evidence)
+**The channel correspondences previously claimed here are withdrawn — all three
+are wrong.** They were matched on range overlap alone, and the engine says:
 
-| D3 Block | M3 Field | Overlap | Evidence |
-|----------|----------|---------|----------|
-| 0 | emissionRate (0x194) | **1.000** | PRT kf0 mean=4.19; M3 initValue mean=6.87 |
-| 22 | zAcceleration (0x238) | **1.000** | Negative kf0 = downward gravity |
-| 23 | zAcceleration₂ | **1.000** | Secondary acceleration channel |
-| 36 | emissionSpreadX (0x05C) | **1.000** | Angle spread in radians |
-| 40 | trailingRate (0x5B7) | — | Both default ≈ 0.8, <2% usage |
+| Claimed | Actually |
+|---|---|
+| emitter channel 0 ↔ `emissionRate` | emitter 0 is the emitter-wide size multiplier (ch 34); the emission rate is emitter **8** |
+| particle channels 5 and 6 ↔ `zAcceleration` | they are a rotation **angle** and its **angular rate** (ch 24 / ch 25) |
+| particle channel 19 ↔ `emissionSpreadX` | it is a `VectorPath` offset (ch 20); the emission spread is emitter **5**, an `AnglePath` |
 
-### Emitter Type Mapping
-
-| Rank | M3 Type | M3 % | D3 Type | D3 % | Function |
-|------|---------|------|---------|------|----------|
-| 1 | 0 | 63.4% | 1 | 91.8% | **Billboard** |
-| 2 | 1 | 23.2% | 2 | 3.0% | **Tail / speed-stretch** |
-| 3 | 7 | 5.1% | 3 | 3.0% | **Cylinder** |
-| 4 | 9 | 4.2% | 4 | 1.0% | **Ring / disc** |
-| 5 | 5 | 2.5% | 5 | 0.7% | **Directional** |
-
-### Key Architectural Differences
-
-1. **Default values**: M3 `initValue` = actual value. D3 `defaultValue` ≈ 1.0 = scale multiplier.
-2. **Color model**: M3 uses three AnimRef<color> fields. D3 uses variable-length color gradient
-   with 4×4 transform matrices.
-3. **Lifespan**: M3 stores absolute seconds. D3 uses header `duration` (ticks) with block 9 as
-   optional multiplier.
-4. **Block 16**: M3 rotation field is standard floats. D3 encodes as non-float packed data.
+Range overlap between two corpora is not evidence of shared meaning when both
+corpora are dominated by values near 0 and 1. The structural comparison in the
+table above still stands; the per-channel mapping does not.
 
 ---
 
-## 14. Enumerations
-
-### 14.1 Flags Bitfield (0x020)
-
-| Bit | Set % | Probable Meaning |
-|-----|------:|:-----------------|
-| 0 | 43.0% | Screen-space alignment |
-| 1 | 29.8% | Local coordinate space |
-| 2 | 19.2% | Inherit parent velocity |
-| 3 | **99.7%** | Particle system enabled |
-| 4 | 36.4% | Texture animation enabled |
-| 5 | **97.5%** | Emitter active on spawn |
-| 6 | 22.6% | Gravity enabled |
-| 7 | 14.2% | Collision enabled |
-| 8 | 42.1% | Sort particles by depth |
-| 9 | 17.8% | Flipbook random start frame |
-| 10 | **85.8%** | Use color gradient |
-| 11 | 11.4% | Noise modulation active |
-| 12 | 42.5% | Billboard facing mode |
-| 25 | 5.6% | Trail rendering |
-
-### 14.2 Emitter Type (0x040)
-
-| Value | Count | % | Type | M3 Equivalent |
-|------:|------:|--:|:-----|:--------------|
-| 1 | 19,827 | 91.8% | **Billboard** | M3 type 0 |
-| 2 | 642 | 3.0% | **Tail** | M3 type 1 |
-| 3 | 637 | 3.0% | **Cylinder** | M3 type 7 |
-| 4 | 206 | 1.0% | **Ring / disc** | M3 type 9 |
-| 5 | 142 | 0.7% | **Directional** | M3 type 5 |
-| 11 | 32 | 0.1% | **Model particle** | M3 type 10 |
-
-### 14.3 Interpolation Type
-
-| Value | Meaning |
-|------:|:--------|
-| 1 | **Linear** interpolation |
-| 2 | **Step** / hold |
-| 3 | **Smooth** (cubic/Hermite) |
-| 4 | **Smooth in, linear out** |
-| 5 | **Linear in, smooth out** |
-| 6 | **Bezier** |
-| 7 | **Bezier smooth** |
-| 9 | **Auto-tangent** / TCB |
-
----
-
-## 15. Corpus Statistics
-
-| Metric | Value |
-|--------|-------|
-| Total .prt files | 21,593 |
-| Version (all files) | 180 |
-| Size range | 3,140 – 8,464 bytes |
-| Median size | 3,396 bytes |
-| Mean duration | 149.1 ticks (~2.5 sec @60 tps) |
-| Files with look variants | ~4.9% |
-| AnimRef blocks (typical) | 41 (range: 40–43) |
-
-### Blend Mode Distribution
-
-| Mode | Count | % |
-|-----:|------:|--:|
-| 0 | 18,406 | 85.2% |
-| 1 | 1,821 | 8.4% |
-| 8 | 1,315 | 6.1% |
-
-### Gap Region Constants (full corpus)
-
-| Field | Value | Files |
-|-------|-------|------:|
-| gap1.emissionMidpoint (0x334) | 0.3 | 99.8% |
-| gap1.emissionEndMult (0x33C) | 1.25 | 99.8% |
-| gap0 scale X=Y=Z | uniform | 100% |
-
----
-
-## 16. Known Unknowns
-
-### Resolved (via Cross-Corpus Validation)
-
-| Item | Resolution |
-|------|:-----------|
-| Block 0 = emission rate | **Confirmed** (overlap 1.000 vs M3 emissionRate) |
-| Block 9 ≠ absolute lifespan | It is a **multiplier** to header `duration`, not absolute time |
-| Emitter type mapping | Rank-aligned: D3 type 1 = M3 type 0, NOT a simple +1 offset |
-| Blocks 22/23 = gravity | **Confirmed** negative kf0 = downward force |
-| Block 36 = emission spread | **Confirmed** range overlap with M3 emissionSpreadX |
-
-### Remaining Unknowns
+## 14. Known Unknowns
 
 | Area | Details |
 |------|:--------|
-| **Block 16** | `defaultValue`/`rangeMin`/`rangeMax` contain garbage floats (5.19e30). Likely packed quaternion or engine-specific struct. |
-| **Blocks 18/20** | Animation rates (81.6%/69.9%) far exceed noise usage. May be repurposed over-life curves. |
-| **Gradient matrix** | Provisionally 4×4 RGBA transform; alternative: 10 RGBA stops per segment. |
-| **Vec3 padding** | 4-byte trailing zero in 28-byte keyframes — alignment or reserved field. |
-| **Block 12 colorTimeScale** | f32 at 0x2B0 (typically 0.01); may be minimum alpha or color floor. |
-| **Emitter type 11** | 32 files; likely model particle. Model path mechanism undecoded. |
-| **Tick rate** | 60 tps inferred from common timings, not confirmed by engine symbols. |
-| **Look variant overrides** | 344-byte gap between variant name pairs; exact format undetermined. |
+| `flUnknown2A0` (`0x2A0`) | Registered default 0.01, and 0.01 in 19,468 of 21,593 files; other values seen are 0.2, 1.0, 0.1, 0.09 and 0. **No engine read was located** anywhere in the particle module. |
+| `flPhysicsParam0..6` (`0x31C..0x334`) | Seven floats following `snoPhysics` and `flMass`. Only their registered defaults are known; no engine read was traced to any individual member. |
+| Emitter channels 9 and 10 | They are engine channels 33 and 30, but the assignment between the two slots is not resolved — see §8. |
+| Emitter channels 11 and 12 | Retired in the registered revision, so only their storage (vector / float) is measurable. |
+| Particle channels 4, 10, 11, 14, 15, 22, 23 | Their *unit* is known from the path type and their evaluation order is known, but the quantity each drives is not established. |
+| Kinematic triples (particle 16–18 vs 19–21) | Two identical *(offset, velocity, acceleration)* sets; which is emitter-local and which is world is not established. |
+| `eSystemType`, `nRenderMode` | Small integer enums; value sets and several engine branches known (§11.3, §11.4), individual values not named. |
+| `dwPrtFlags` | Five bits traced to engine reads (§11.2); the rest unknown. The previous set-rate-derived table is withdrawn. |
+| Triggered-event record | 412 bytes each, confirmed by `dwEventSize / dwEventCount` on 1,388 files. Internals undecoded; the registered revision's equivalent is 192 bytes, so it is not a shared layout. |
+| `dwUnknown2C` (`0x02C`) | A registered field, not padding — but zero in 21,593 / 21,593 files. |
+
+**No longer unknown**, for the record: the 104-byte block is `UberMaterial` and
+the "160-byte gradient stop" is `MaterialTextureEntry` (§6); `eEmitterShape` has
+nine values with known engine behaviour (§7); the tick rate is confirmed at 60 fps
+by the `0.016667` conversions in the engine; and `nCollisionFlags` is
+`nMaxInstances` (§5).
 
 ---
 
-## Appendix A — Reading a PRT File (C++)
-
-```cpp
-FILE* f = fopen("particle.prt", "rb");
-
-// ── §3  SNO Preamble ──────────────────────────────────────────────────────────
-SnoPreamble preamble;
-fread(&preamble, sizeof(SnoPreamble), 1, f);
-assert(preamble.magic == 0xDEADBEEF);
-assert(preamble.version == 180);
-
-// ── §4  Particle Header ───────────────────────────────────────────────────────
-ParticleHeader header;
-fread(&header, sizeof(ParticleHeader), 1, f);
-
-printf("Duration: %u  Type: %u  Speed: %.2f  Scale: %.2f\n",
-       header.duration, header.emitterType, header.speedMultiplier, header.globalScale);
-
-// ── §5–6  Read AnimRef Blocks ─────────────────────────────────────────────────
-// Region 0: blocks 0–11 at 0x068 (12 standard AnimRefs)
-AnimRef region0[12];
-fseek(f, 0x068, SEEK_SET);
-fread(region0, sizeof(AnimRef), 12, f);
-
-// Block 12 (special) at 0x2A8
-Block12MaterialRef block12;
-fseek(f, 0x2A8, SEEK_SET);
-fread(&block12, sizeof(Block12MaterialRef), 1, f);
-
-if (block12.materialSnoId != 0xFFFFFFFF)
-    printf("Material SNO: 0x%08X\n", block12.materialSnoId);
-
-// ── §9  Read Keyframes for Block 0 (Emission Rate) ───────────────────────────
-if (region0[0].dataSize > 0) {
-    u32 kfCount = region0[0].dataSize / 12;
-    fseek(f, region0[0].dataOffset + 16, SEEK_SET);
-    for (u32 k = 0; k < kfCount; k++) {
-        ScalarKeyframe kf;
-        fread(&kf, sizeof(ScalarKeyframe), 1, f);
-        printf("  kf[%u]: value=%.3f range=%.3f time=%.3f\n",
-               k, kf.value, kf.valueRange, kf.normalizedTime);
-    }
-}
-
-// ── §8  Read Color Gradient ───────────────────────────────────────────────────
-Block13ColorGradient gradient;
-fseek(f, 0x304, SEEK_SET);
-fread(&gradient, sizeof(Block13ColorGradient), 1, f);
-
-if (gradient.dataSize > 12) {
-    u32 stopCount = gradient.dataSize / 160;
-    fseek(f, gradient.dataOffset + 16, SEEK_SET);
-    for (u32 s = 0; s < stopCount; s++) {
-        GradientStop stop;
-        fread(&stop, sizeof(GradientStop), 1, f);
-        printf("  Stop %u: R=%.2f G=%.2f B=%.2f A=%.2f\n",
-               s, stop.colorMatrix[0][0], stop.colorMatrix[1][1],
-               stop.colorMatrix[2][2], stop.colorMatrix[3][3]);
-    }
-}
-
-fclose(f);
-```
-
----
-
-## Appendix B — All Structures Summary
-
-```cpp
-// §3 — SNO Preamble
-struct SnoPreamble {                            // 32 bytes
-    u32 magic; u32 version; u32 snoId; u32 _unk00C;
-    u32 _unk010; u32 _unk014; u32 _unk018; u32 _unk01C;
-};
-
-// §4 — Particle Header
-struct ParticleHeader {                         // 72 bytes
-    u32 flags; u32 duration; u32 startDelay; u32 loopDelay;
-    u32 _res030; u32 _res034; f32 loopScale; u32 _res03C;
-    u32 emitterType; f32 emitterAngle; f32 globalScale; u32 renderLayer;
-    u32 blendMode; f32 midpointBias; f32 speedMultiplier;
-    u32 _res05C; u32 _res060; u32 _res064;
-};
-
-// §5 — AnimRef (48-byte animated parameter reference)
-struct AnimRef {                                // 48 bytes
-    u32 dataOffset; u32 dataSize; u32 interpType; u32 _pad;
-    f32 defaultValue; u32 _pad2[2]; f32 rangeMin; f32 rangeMax;
-    u32 _pad3[3];
-};
-
-// §7 — Block 12 Material Reference
-struct Block12MaterialRef {                     // 48 bytes
-    u32 dataOffset; u32 dataSize; f32 colorTimeScale; u32 _zero;
-    u32 materialSnoId; f32 colorMult_R, colorMult_G, colorMult_B, colorMult_A;
-    f32 colorMult2_R, colorMult2_G, colorMult2_B;
-};
-
-// §8 — Block 13 Color Gradient Header
-struct Block13ColorGradient {                   // 48 bytes
-    u32 dataOffset; u32 dataSize; u32 interpType; u32 _pad[4];
-    u32 sentinel; f32 timeScale; u32 _rem[3];
-};
-
-// §8 — Gradient Stop
-struct GradientStop {                           // 160 bytes
-    u32 index; u32 _pad; u32 hash; u32 count;
-    f32 colorMatrix[4][4]; f32 tangentData[8]; u8 _padding[48];
-};
-
-// §9 — Keyframe Structures
-struct ScalarKeyframe {                         // 12 bytes
-    f32 value; f32 valueRange; f32 normalizedTime;
-};
-struct VectorKeyframe {                         // 28 bytes
-    f32 minX, minY, minZ; f32 maxX, maxY, maxZ; u32 _pad;
-};
-
-// §10 — Gap Region Structures
-struct Gap0ScaleConstants { f32 scaleX; u32 _p0[3]; f32 scaleY; u32 _p1[3]; f32 scaleZ; u32 _p2[2]; };
-struct Gap1TimingParams { f32 emissionMidpoint; f32 c338; f32 emissionEndMult; /* ... */ };
-struct Gap2RenderConfig { u8 modelPath[96]; f32 noiseAmplitude; f32 noiseFrequency; /* ... */ };
-
-// §11 — Look Variant Name
-struct LookVariantName { char name[64]; u32 flags; };  // 68 bytes
-```
-
----
-
-*Specification derived from binary analysis of 21,593 PRT files from Diablo III: Reaper of Souls.
-Cross-validated against 68,512 M3 PAR_ v24 entries from 50,742 SC2/HotS files.*
+*Struct shapes from the Diablo III Nintendo Switch 2.6.2 build (`exefs/main`,
+type registration at `0x71001AEAC0`). Offsets and enumerations verified against
+21,593 `.prt` files. Field names are curated: retail builds compile them out.*

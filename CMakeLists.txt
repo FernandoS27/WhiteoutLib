@@ -463,6 +463,14 @@ add_library(whiteout_lib
 
     # Diablo III
     src/whiteout/sno/d3/sno_defs.cpp
+    src/whiteout/sno/d3/native/binary_parse_visitor/actor.cpp
+    src/whiteout/sno/d3/native/binary_parse_visitor/anim.cpp
+    src/whiteout/sno/d3/native/binary_parse_visitor/appearance.cpp
+    src/whiteout/sno/d3/native/binary_parse_visitor/base.cpp
+    src/whiteout/sno/d3/native/binary_parse_visitor/material.cpp
+    src/whiteout/sno/d3/native/binary_parse_visitor/particle.cpp
+    src/whiteout/sno/d3/native/binary_parse_visitor/physics.cpp
+    src/whiteout/sno/d3/native/d3_native.cpp
 )
 
 if(NOT EMSCRIPTEN)
