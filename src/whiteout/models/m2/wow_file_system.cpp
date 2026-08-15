@@ -1,6 +1,10 @@
 
 #include "wow_file_system.h"
 
+#include "../../common/binary_reader.h"
+#include "../../common/streams.h"
+#include "chunk_parser.h"
+
 #include <cctype>
 
 namespace whiteout {
@@ -116,16 +120,44 @@ std::span<const u8> WoWFileSystem::getAnimBuffer(u16 animId, u16 subAnimId) {
         }
         data = m_cascFs->readFile(fileDataId);
     } else {
-        std::string const path = buildAnimPath(animId, subAnimId);
-        if (!m_pathFs->fileExists(path)) {
-            return {};
-        }
-        data = m_pathFs->readFile(path);
+        // No fileExists() pre-check, unlike getSkin: an empty read already
+        // means "not there", and a file system that answers fileExists by
+        // reading the file — which the renderer's content-provider wrapper does,
+        // having no cheaper probe — would otherwise read every `.anim` twice.
+        data = m_pathFs->readFile(buildAnimPath(animId, subAnimId));
     }
 
     auto& buf = m_animCache[key];
     buf = std::move(data);
     return buf;
+}
+
+void WoWFileSystem::evictAnimBuffer(u16 animId, u16 subAnimId) {
+    m_animCache.erase(animKey(animId, subAnimId));
+}
+
+bool WoWFileSystem::readAnim(AnimBuffer& out, u16 animId, u16 subAnimId, bool chunked) {
+    auto animData = getAnimBuffer(animId, subAnimId);
+    if (animData.empty())
+        return false;
+
+    if (!chunked) {
+        out.data = animData;
+        return true;
+    }
+
+    ChunkParser chunkParser;
+    common::span_streambuf sbuf(animData);
+    common::BinaryReader animReader(sbuf);
+    AnimFile animFile;
+    animFile.animId = animId;
+    animFile.variant = subAnimId;
+    chunkParser.parseChunkedAnim(animReader, animFile, this, true);
+    if (!animFile.profile.afm2_chunk)
+        return false;
+    out.owned = std::move(animFile.profile.afm2_chunk->animationData);
+    out.data = out.owned;
+    return true;
 }
 
 std::span<const u8> WoWFileSystem::getSkeleton() {
@@ -222,26 +254,10 @@ void WoWFileSystem::exploratorySearch() {
             continue;
         }
 
-        if (suffix.size() == 12 && suffix.substr(suffix.size() - 5) == ".anim" &&
-            suffix[4] == '-') {
-
-            std::string const animIdStr = suffix.substr(0, 4);
-            std::string const subIdStr = suffix.substr(5, 2);
-            bool allDigits = true;
-            for (char const c : animIdStr)
-                allDigits &= std::isdigit(static_cast<unsigned char>(c)) != 0;
-            for (char const c : subIdStr)
-                allDigits &= std::isdigit(static_cast<unsigned char>(c)) != 0;
-            if (allDigits) {
-                u16 const animId = static_cast<u16>(std::stoi(animIdStr));
-                u16 const subAnimId = static_cast<u16>(std::stoi(subIdStr));
-                u32 const key = animKey(animId, subAnimId);
-                if (!m_animCache.contains(key)) {
-                    m_animCache[key] = m_pathFs->readFile(fullPath);
-                }
-            }
-            continue;
-        }
+        // `.anim` siblings are deliberately not pulled in here. Nothing reads
+        // one during the parse any more: m2::loadSequence asks for the single
+        // file a sequence needs, by name, when that sequence is loaded — which
+        // for a lazy parse is not until something plays it.
     }
 }
 

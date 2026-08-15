@@ -387,6 +387,7 @@ add_library(whiteout_lib
     src/whiteout/models/m2/binary_writer_visitor/bone.cpp
     src/whiteout/models/m2/binary_writer_visitor/anim.cpp
     src/whiteout/models/m2/file_system.cpp
+    src/whiteout/models/m2/sequence_loader.cpp
     src/whiteout/models/m2/wow_file_system.cpp
 
     # M3

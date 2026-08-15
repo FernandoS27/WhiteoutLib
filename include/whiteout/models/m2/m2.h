@@ -2,6 +2,7 @@
 #pragma once
 
 #include "parser.h"
+#include "sequence_loader.h"
 #include "structures.h"
 #include "types.h"
 #include "writer.h"

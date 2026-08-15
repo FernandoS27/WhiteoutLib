@@ -89,17 +89,34 @@ enum class InterpolationType : u16 {
     Hermite = 3,
 };
 
+/// @brief One sequence's slice of a key array, as the file writes it: a count
+///        and an offset into whichever file holds that sequence's keys.
+///
+/// Kept only by a lazily parsed model (Parser::setLazyAnimations), which leaves
+/// the sub-arrays of externally-stored sequences empty until loadSequence()
+/// reads their `.anim` sibling. Nothing else needs it: an eager parse consumes
+/// the reference on the spot.
+struct KeySpanRef {
+    u32 count = 0;
+    u32 offset = 0;
+};
+
 /// @bind
 struct AnimationTrackBase {
     InterpolationType interpolationType = InterpolationType::None;
     u16 globalSequenceId = 0xFFFF;
     std::vector<std::vector<u32>> timestamps;
+    /// @bind skip — lazy-load bookkeeping, empty unless the model was parsed
+    /// with setLazyAnimations. See KeySpanRef.
+    std::vector<KeySpanRef> timestampRefs;
 };
 
 /// @bind value_template, instantiate=Vector3f;CompatQuaternion;i16;u8;u16;f32;CameraSpline
 template <typename T>
 struct AnimationTrack : public AnimationTrackBase {
     std::vector<std::vector<T>> values;
+    /// @bind skip — see AnimationTrackBase::timestampRefs.
+    std::vector<KeySpanRef> valueRefs;
 };
 
 // Applies an animation during a particle lifetime

@@ -6,6 +6,9 @@
 #include "../../common/streams.h"
 #include "internal_structures.h"
 #include "traits.h"
+// Full type, not the forward declaration below: readAnimationVector is a
+// template in this header and reads the shared per-sequence key-location flags.
+#include "wow_file_system.h"
 
 #include <type_traits>
 
@@ -171,8 +174,15 @@ protected:
     template <typename T>
     void visit(ParticleAnimationTrack<T>& track);
 
+    // An animation key array — one sub-array per sequence — never goes through
+    // the generic `visit(std::vector<T>&)`, because a sequence whose keys live
+    // in a `.anim` sibling has to be read out of that file's buffer, and
+    // because a lazy parse leaves those sub-arrays for loadSequence() to fill.
+    // Only two members are key arrays, and both call this by name:
+    // AnimationTrackBase::timestamps and AnimationTrack<T>::values.
     template <typename T>
-    void readAnimationVector(std::vector<std::vector<T>>& keys);
+    void readAnimationVector(std::vector<std::vector<T>>& keys, std::vector<KeySpanRef>& refs,
+                             u16 globalSequenceId);
 
     u32 version = 0;
     GlobalFlag globalFlags = GlobalFlag::None;
@@ -180,8 +190,6 @@ protected:
     WoWFileSystem* wfs = nullptr;
     u32 baseOffset = 0;
     i32 maxSize = -1;
-    std::vector<std::span<const u8>> animBuffers;
-    std::vector<AnimProfile> animProfiles;
 };
 
 template <typename T>
@@ -222,34 +230,48 @@ void BinaryParseVisitor::parse_chunked_vector(std::vector<T>& array) {
 }
 
 template <typename T>
-void BinaryParseVisitor::readAnimationVector(std::vector<std::vector<T>>& keys) {
-    struct Reference {
-        u32 count;
-        u32 offset;
-    };
-    Reference ref = reader.read<Reference>();
-    if (ref.count == 0) {
+void BinaryParseVisitor::readAnimationVector(std::vector<std::vector<T>>& keys,
+                                             std::vector<KeySpanRef>& refs, u16 globalSequenceId) {
+    KeySpanRef outer = reader.read<KeySpanRef>();
+    if (outer.count == 0) {
         keys.clear();
+        refs.clear();
         return;
     }
 
+    // A global-sequence track is not split per sequence at all — it runs on its
+    // own clock — and the client resolves every one of its sub-arrays against
+    // the model itself (M2Init<T>(M2Track<T>&) takes the M2SequenceKeys branch
+    // whole when globalSequenceId != 0xFFFF). Reading one out of some
+    // sequence's `.anim` because the index happened to line up is how a
+    // continuously scrolling texture turns to noise.
+    const bool global = globalSequenceId != 0xFFFF;
+
     const auto currentPos = reader.getPosition();
-    reader.setPosition(ref.offset + baseOffset);
-    keys.resize(ref.count);
-    for (size_t i = 0; i < ref.count; ++i) {
-        const auto ref = reader.read<Reference>();
-        const auto& buffer = animBuffers[i];
-        if (buffer.empty()) {
+    reader.setPosition(outer.offset + baseOffset);
+    keys.resize(outer.count);
+    refs.clear();
+    for (size_t i = 0; i < outer.count; ++i) {
+        const auto ref = reader.read<KeySpanRef>();
+        const bool inFile =
+            global || !wfs || i >= wfs->sequenceInFile().size() || wfs->sequenceInFile()[i] != 0;
+
+        // Keys the model carries itself, which is everything the parse can
+        // read: `ref` for any other sequence is an offset into a `.anim` file,
+        // and following it into the model here reads whatever happens to sit at
+        // that address — NaNs, in practice. m2::loadSequence fills those in,
+        // from the file they actually belong to.
+        if (inFile) {
             const auto savePos = reader.getPosition();
             reader.setPosition(ref.offset + baseOffset);
             keys[i] = reader.read<std::vector<T>>(ref.count);
             reader.setPosition(savePos);
             continue;
         }
-        common::span_streambuf sbuf(buffer);
-        common::BinaryReader animReader(sbuf);
-        animReader.setPosition(ref.offset);
-        keys[i] = animReader.read<std::vector<T>>(ref.count);
+        if (refs.empty())
+            refs.resize(outer.count);
+        refs[i] = ref;
+        keys[i].clear();
     }
     reader.setPosition(currentPos);
 }
@@ -259,8 +281,8 @@ void BinaryParseVisitor::visit(AnimationTrack<T>& track) {
     track.interpolationType = static_cast<InterpolationType>(reader.read<u16>());
     track.globalSequenceId = reader.read<u16>();
 
-    visit(track.timestamps);
-    visit(track.values);
+    readAnimationVector(track.timestamps, track.timestampRefs, track.globalSequenceId);
+    readAnimationVector(track.values, track.valueRefs, track.globalSequenceId);
 }
 
 template <typename T>

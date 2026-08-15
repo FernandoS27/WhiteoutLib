@@ -1,9 +1,11 @@
 
 #include <whiteout/models/m2/parser.h>
+#include <whiteout/models/m2/sequence_loader.h>
 #include "../../common/binary_reader.h"
 #include "../../common/streams.h"
 #include "binary_parse_visitor.h"
 #include "chunk_parser.h"
+#include "sequence_loader_internal.h"
 #include "wow_file_system.h"
 
 #include <cstring>
@@ -21,6 +23,11 @@ class Parser::Impl {
 public:
     std::vector<std::string> issues;
     ChunkParser chunkParser;
+    bool lazyAnimations = false;
+
+    /// Run the parse and, when lazy, hand the file system to the model so the
+    /// deferred `.anim` reads have something to read through.
+    void parseModel(std::shared_ptr<WoWFileSystem> wfs, Model& result);
 
     void parse(WoWFileSystem& wfs, Model& result);
     void parseBase(BinaryReader& reader, BaseFile& file, WoWFileSystem* wfs);
@@ -36,11 +43,12 @@ Parser::~Parser() = default;
 Model Parser::parse(interfaces::VirtualPathFileSystem& fs, const std::string& filePath) {
     pImpl->issues.clear();
 
-    WoWFileSystem wfs(fs, filePath);
+    auto wfs = std::make_shared<WoWFileSystem>(fs, filePath);
+    wfs->setLazyAnimations(pImpl->lazyAnimations);
     Model model;
-    wfs.exploratorySearch();
+    wfs->exploratorySearch();
 
-    pImpl->parse(wfs, model);
+    pImpl->parseModel(std::move(wfs), model);
 
     pImpl->chunkParser.drainIssues(pImpl->issues);
     return model;
@@ -49,13 +57,34 @@ Model Parser::parse(interfaces::VirtualPathFileSystem& fs, const std::string& fi
 Model Parser::parse(interfaces::CascFileSystem& cascFs, std::span<const uint8_t> buffer) {
     pImpl->issues.clear();
 
-    WoWFileSystem wfs(cascFs, buffer);
+    auto wfs = std::make_shared<WoWFileSystem>(cascFs, buffer);
+    wfs->setLazyAnimations(pImpl->lazyAnimations);
     Model model;
-
-    pImpl->parse(wfs, model);
+    pImpl->parseModel(std::move(wfs), model);
 
     pImpl->chunkParser.drainIssues(pImpl->issues);
     return model;
+}
+
+void Parser::setLazyAnimations(bool enable) {
+    pImpl->lazyAnimations = enable;
+}
+
+void Parser::Impl::parseModel(std::shared_ptr<WoWFileSystem> wfs, Model& result) {
+    parse(*wfs, result);
+
+    // The parse itself never reads a `.anim`; it records where each deferred
+    // sequence's keys are and leaves them empty. Eager is that plus every load,
+    // right now — one code path for both, so "lazy" cannot drift into meaning
+    // something subtly different from "not yet".
+    result.sequenceLoader = std::make_shared<SequenceLoader>(std::move(wfs), result.sequences.size());
+    if (lazyAnimations)
+        return;
+
+    for (u32 i = 0; i < static_cast<u32>(result.sequences.size()); ++i)
+        loadSequence(result, i);
+    result.sequenceLoader.reset();
+    dropSequenceKeyRefs(result);
 }
 
 const std::vector<std::string>& Parser::getIssues() const {

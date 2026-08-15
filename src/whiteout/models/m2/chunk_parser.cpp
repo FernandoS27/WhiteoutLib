@@ -282,6 +282,12 @@ void ChunkParser::parseChunkedSkeleton(BinaryReader& reader, SkeletonFile& skele
         wfs->setAnimChunk(*skeletonFile.afid_chunk);
     }
 
+    // SKS1 supersedes whatever sequence list the `.m2` header carried, and a
+    // parent-skeleton reference runs this whole function again — so the
+    // per-sequence state starts over here, or SKB1's bone tracks would index a
+    // list with two models' sequences concatenated.
+    wfs->clearSequenceInFile();
+
     for (const auto& chunk : chunks) {
         reader.setPosition(chunk.dataOffset);
 

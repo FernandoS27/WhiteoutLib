@@ -31,28 +31,14 @@ void BinaryParseVisitor::visit(Sequence& seq) {
     seq.duration = reader.read<u32>();
     seq.movespeed = reader.read<f32>();
     seq.flags = reader.read<SequenceFlag>();
-    if (wfs->getAnimBuffer(seq.id, seq.variationIndex).empty()) {
-        animBuffers.emplace_back();
-    } else {
-        auto animData = wfs->getAnimBuffer(seq.id, seq.variationIndex);
-        if (hasFlag(globalFlags, GlobalFlag::UpgradedFormat)) {
-            ChunkParser chunkParser;
-            common::span_streambuf sbuf(animData);
-            std::istream in(&sbuf);
-            BinaryReader animReader(in);
-            AnimFile animFile;
-            animFile.animId = seq.id;
-            animFile.variant = seq.variationIndex;
-            chunkParser.parseChunkedAnim(animReader, animFile, wfs, true);
-            animProfiles.emplace_back(std::move(animFile.profile));
-            auto& profile = animProfiles.back();
-            if (profile.afm2_chunk) {
-                animBuffers.emplace_back(profile.afm2_chunk->animationData);
-            }
-        } else {
-            animBuffers.emplace_back(animData);
-        }
-    }
+
+    // One entry per sequence, in order — readAnimationVector indexes it by
+    // sequence, so this has to push exactly once. 0x130 is
+    // CM2Model::LoadSequence's own test for "this sequence's keys are in the
+    // `.m2`"; anything else is streamed from a `.anim` sibling, which nothing
+    // here reads: m2::loadSequence does, and the parser calls it once per
+    // sequence at the end unless the caller asked for lazy animations.
+    wfs->sequenceInFile().push_back((static_cast<u32>(seq.flags) & 0x130u) != 0 ? u8{1} : u8{0});
     seq.frequency = reader.read<i16>();
     seq.padding = reader.read<u16>();
     seq.replayMin = reader.read<u32>();
@@ -367,7 +353,7 @@ void BinaryParseVisitor::visit(std::string& str) {
 void BinaryParseVisitor::visit(AnimationTrackBase& track) {
     track.interpolationType = static_cast<InterpolationType>(reader.read<u16>());
     track.globalSequenceId = reader.read<u16>();
-    visit(track.timestamps);
+    readAnimationVector(track.timestamps, track.timestampRefs, track.globalSequenceId);
 }
 
 } // namespace m2

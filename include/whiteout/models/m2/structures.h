@@ -7,10 +7,13 @@
 #include "types.h"
 
 #include <limits>
+#include <memory>
 #include "../../compatibility.h"
 
 namespace whiteout {
 namespace m2 {
+
+class SequenceLoader;
 
 struct Model {
     std::string modelName;
@@ -81,6 +84,15 @@ struct Model {
     std::optional<PhysicsCollision> physicsCollision;      ///< PCOL
     std::optional<std::array<u8, 32>> dpivData;            ///< DPIV
     std::vector<TexturedLightData> texturedLightEntries;   ///< TEXL
+
+    /// @brief Set only by a lazy parse: what the deferred `.anim` siblings are
+    ///        read through. See sequence_loader.h.
+    ///
+    /// @bind skip — an opaque handle, not model data.
+    ///
+    /// Shared, not owned: copying a Model shares the loader, and loading a
+    /// sequence fills in whichever copy is passed to loadSequence().
+    std::shared_ptr<SequenceLoader> sequenceLoader;
 };
 
 enum class Format : u32 {

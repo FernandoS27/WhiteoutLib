@@ -47,6 +47,59 @@ public:
 
     std::span<const u8> getAnimBuffer(u16 animId, u16 subAnimId);
 
+    /// @brief Drop a cached `.anim` file. A lazy load copies the keys it wants
+    ///        out of the buffer, so holding it after that is pure footprint.
+    void evictAnimBuffer(u16 animId, u16 subAnimId);
+
+    /// @brief Defer `.anim` reads to loadSequence() instead of doing them while
+    ///        the sequence list is being parsed. See Parser::setLazyAnimations.
+    bool lazyAnimations() const {
+        return m_lazyAnimations;
+    }
+    void setLazyAnimations(bool enable) {
+        m_lazyAnimations = enable;
+    }
+
+    /// @brief Per sequence, in sequence order: does the model carry its keys?
+    ///
+    /// `flags & 0x130` — CM2Model::LoadSequence's test for "nothing to stream
+    /// for this one". M2Init's own test is the narrower `flags & 0x20`; the
+    /// extra bits are LoadSequence's "already loaded / in flight" state, which
+    /// no file on disk carries.
+    ///
+    /// Shared here rather than kept on BinaryParseVisitor because one visitor
+    /// does not see a whole model: a chunked model declares its sequences in
+    /// SKS1 and the bone tracks that index them in SKB1, and ChunkParser builds
+    /// a fresh visitor per chunk. The file system is the one object threaded
+    /// through all of them.
+    std::vector<u8>& sequenceInFile() {
+        return m_sequenceInFile;
+    }
+    const std::vector<u8>& sequenceInFile() const {
+        return m_sequenceInFile;
+    }
+
+    /// @brief Drop the sequence state, for a model whose sequences are about to
+    ///        be read a second time (a skeleton chunk supersedes the `.m2`'s
+    ///        own list, and a parent-skeleton reference re-reads both).
+    void clearSequenceInFile() {
+        m_sequenceInFile.clear();
+    }
+
+    /// @brief One `.anim` file's key data, held only while keys are being read
+    ///        out of it.
+    struct AnimBuffer {
+        /// Decompressed AFM2 payload, when the `.anim` is itself chunked. Owns
+        /// what `data` points at in that case.
+        std::vector<u8> owned;
+        std::span<const u8> data;
+    };
+
+    /// @brief Read the `.anim` sibling named by @p animId / @p subAnimId,
+    ///        unwrapping an AFM2 chunk when @p chunked says the model writes
+    ///        them that way. False when the file is not there.
+    bool readAnim(AnimBuffer& out, u16 animId, u16 subAnimId, bool chunked);
+
     std::span<const u8> getSkeleton();
 
     void exploratorySearch();
@@ -96,6 +149,9 @@ private:
     std::vector<u8> m_skelCache;
     bool m_skelLoaded = false;
     bool m_isParentSkeleton = false;
+    bool m_lazyAnimations = false;
+
+    std::vector<u8> m_sequenceInFile;
 
     std::vector<u32> m_registeredSkins;
     std::vector<u32> m_registeredLodSkins;
