@@ -3,6 +3,7 @@
 
 #include "../../common/byte_order.h"
 #include "../../common/inflate_fast.h"
+#include "../../common/hex.h"
 #include "../../common/md5.h"
 #include "../../common/zlib.h"
 #include "blte.h"
@@ -47,6 +48,12 @@ static constexpr u8 kEncrypted = 'E'; ///< Encrypted (Salsa20).
 static constexpr u8 kRecursive = 'F'; ///< Recursive BLTE container.
 } // namespace BlteFrameMode
 
+/// Cipher byte inside an encrypted frame's header.
+namespace BlteEncryption {
+static constexpr u8 kSalsa20 = 'S';
+static constexpr u8 kArc4 = 'A'; ///< Never seen in a shipped build.
+} // namespace BlteEncryption
+
 // ============================================================================
 // Frame Decode (single frame payload)
 // ============================================================================
@@ -57,8 +64,12 @@ struct FrameDecodeResult {
     std::string error;
 };
 
+/// @param frameIndex Position of this frame in its blob. Encrypted frames mix
+///        it into the nonce, so decoding one out of context needs it; every
+///        other mode ignores it.
 static FrameDecodeResult decodeFramePayload(std::span<const u8> payload,
-                                            u32 expectedUncompressedSize, const KeyRing* keys) {
+                                            u32 expectedUncompressedSize, const KeyRing* keys,
+                                            size_t frameIndex) {
     FrameDecodeResult result;
 
     if (payload.empty()) {
@@ -91,46 +102,79 @@ static FrameDecodeResult decodeFramePayload(std::span<const u8> payload,
         break;
     }
     case BlteFrameMode::kEncrypted: {
-        // Layout: keyNameLE(8) + IVSize(1) + IV(IVSize) + encrypted payload
-        if (inner.size() < 9) {
-            result.error = "encrypted frame too small for key header";
+        // Layout: keyNameSize(1) + keyName(keyNameSize, little-endian)
+        //       + ivSize(1) + iv(ivSize) + encType(1) + ciphertext.
+        //
+        // The leading size byte is not optional. Reading the name from offset 0
+        // shifts every field after it, and the symptom is not a parse error —
+        // it is "missing encryption key" for a key the ring is holding, because
+        // the name comes out one byte off.
+        if (inner.empty()) {
+            result.error = "encrypted frame has no key header";
             return result;
         }
-
+        u8 const keyNameSize = inner[0];
+        if (keyNameSize == 0 || keyNameSize > 8 || inner.size() < 2u + keyNameSize) {
+            result.error = "encrypted frame truncated at key name";
+            return result;
+        }
         u64 keyName = 0;
-        std::memcpy(&keyName, inner.data(), 8);
-        u8 const ivSize = inner[8];
+        for (u8 i = 0; i < keyNameSize; ++i)
+            keyName |= u64(inner[1 + i]) << (8 * i);
 
-        if (inner.size() < 9u + ivSize) {
+        u8 const ivSize = inner[1 + keyNameSize];
+        size_t const encTypeOff = size_t{2} + keyNameSize + ivSize;
+        if (ivSize > 8 || inner.size() <= encTypeOff) {
             result.error = "encrypted frame truncated at IV";
             return result;
         }
+        u8 const encType = inner[encTypeOff];
 
         if (!keys) {
             result.error = "encrypted frame but no KeyRing provided";
             return result;
         }
-
         const auto* key = keys->findKey(keyName);
         if (!key) {
-            result.error = "missing encryption key 0x" + std::to_string(keyName); // simplified
+            // Zeros for this frame rather than nothing for the file — see
+            // KeyRing::setZeroFillUnknown. Only possible when the frame table
+            // said how long the frame is; a single-frame blob does not.
+            if (keys->zeroFillUnknown() && expectedUncompressedSize > 0) {
+                result.data.assign(expectedUncompressedSize, u8{0});
+                result.success = true;
+                return result;
+            }
+            std::array<u8, 8> nameBytes{};
+            for (size_t i = 0; i < 8; ++i)
+                nameBytes[i] = u8(keyName >> (8 * (7 - i)));
+            result.error = "missing encryption key 0x" +
+                           storages::common::hexEncode(nameBytes.data(), 8);
+            return result;
+        }
+        if (encType != BlteEncryption::kSalsa20) {
+            result.error = "unsupported frame encryption '";
+            result.error += char(encType);
+            result.error += '\'';
             return result;
         }
 
-        // Copy encrypted payload to mutable buffer
-        auto encStart = inner.subspan(9 + ivSize);
-        std::vector<u8> decrypted(encStart.begin(), encStart.end());
-
-        // Decrypt with Salsa20
-        if (ivSize >= 8) {
-            std::array<u8, 8> iv{};
-            std::memcpy(iv.data(), inner.data() + 9, 8);
-            salsa20Decrypt(decrypted, *key, std::span<const u8, 8>(iv));
+        // The nonce is the IV zero-padded to eight bytes with the frame index
+        // mixed into its low four, so one key and one IV still decrypt every
+        // frame of a file differently. Without it only frame 0 comes out right.
+        std::array<u8, 8> nonce{};
+        std::memcpy(nonce.data(), inner.data() + 2 + keyNameSize, ivSize);
+        auto index = static_cast<u32>(frameIndex);
+        for (size_t i = 0; i < 4; ++i) {
+            nonce[i] ^= u8(index & 0xFF);
+            index >>= 8;
         }
 
-        // Recursively dispatch on decrypted inner mode byte
-        auto innerResult = decodeFramePayload(decrypted, expectedUncompressedSize, keys);
-        result = std::move(innerResult);
+        auto encStart = inner.subspan(encTypeOff + 1);
+        std::vector<u8> decrypted(encStart.begin(), encStart.end());
+        salsa20Decrypt(decrypted, *key, std::span<const u8, 8>(nonce));
+
+        // What comes out is itself a frame payload, mode byte first.
+        result = decodeFramePayload(decrypted, expectedUncompressedSize, keys, frameIndex);
         break;
     }
     case BlteFrameMode::kRecursive: {
@@ -251,7 +295,7 @@ BlteDecodeResult blteDecode(std::span<const u8> blteData, const KeyRing* keys,
             interfaces::WorkerTask task;
             task.fn = [&, i]() {
                 auto payload = blteData.subspan(offsets[i], frames[i].compressedSize);
-                frameResults[i] = decodeFramePayload(payload, frames[i].uncompressedSize, keys);
+                frameResults[i] = decodeFramePayload(payload, frames[i].uncompressedSize, keys, i);
                 if (!frameResults[i].success) {
                     std::lock_guard<std::mutex> const lock(errMutex);
                     if (firstError.empty())
@@ -285,7 +329,7 @@ BlteDecodeResult blteDecode(std::span<const u8> blteData, const KeyRing* keys,
         if (frames.size() == 1) {
             // Single-frame fast path: move directly instead of copying.
             auto payload = blteData.subspan(offsets[0], frames[0].compressedSize);
-            auto fr = decodeFramePayload(payload, frames[0].uncompressedSize, keys);
+            auto fr = decodeFramePayload(payload, frames[0].uncompressedSize, keys, 0);
             if (!fr.success) {
                 result.error = "frame 0: " + fr.error;
                 return result;
@@ -300,7 +344,7 @@ BlteDecodeResult blteDecode(std::span<const u8> blteData, const KeyRing* keys,
                 result.data.reserve(totalUncompressed);
             for (size_t i = 0; i < frames.size(); ++i) {
                 auto payload = blteData.subspan(offsets[i], frames[i].compressedSize);
-                auto fr = decodeFramePayload(payload, frames[i].uncompressedSize, keys);
+                auto fr = decodeFramePayload(payload, frames[i].uncompressedSize, keys, i);
                 if (!fr.success) {
                     result.error = "frame " + std::to_string(i) + ": " + fr.error;
                     return result;
@@ -392,7 +436,7 @@ static BlteBatchResult decodeSingleFrameBlte(std::span<const u8> blob,
                                              const BlteFrameLayout& layout, const KeyRing* keys) {
     BlteBatchResult result;
     auto payload = blob.subspan(layout.offsets[0], layout.frames[0].compressedSize);
-    auto fr = decodeFramePayload(payload, layout.frames[0].uncompressedSize, keys);
+    auto fr = decodeFramePayload(payload, layout.frames[0].uncompressedSize, keys, 0);
     result.data = std::move(fr.data);
     result.success = fr.success;
     result.error = std::move(fr.error);
@@ -417,7 +461,7 @@ BlteBatchResult blteDecodeFrame(std::span<const u8> blteData, const BlteFrameLay
         return result;
     }
     auto payload = blteData.subspan(off, frame.compressedSize);
-    auto fr = decodeFramePayload(payload, frame.uncompressedSize, keys);
+    auto fr = decodeFramePayload(payload, frame.uncompressedSize, keys, frameIdx);
     result.data = std::move(fr.data);
     result.success = fr.success;
     result.error = std::move(fr.error);
@@ -517,7 +561,7 @@ std::vector<BlteBatchResult> blteDecodeBatch(std::span<const BlteBatchEntry> ent
                 auto& layout = layouts[i];
                 auto payload = blob.subspan(layout.offsets[j], layout.frames[j].compressedSize);
                 perFileFrameResults[i][j] =
-                    decodeFramePayload(payload, layout.frames[j].uncompressedSize, keys);
+                    decodeFramePayload(payload, layout.frames[j].uncompressedSize, keys, j);
                 if (!perFileFrameResults[i][j].success)
                     fileFailed[i].store(true, std::memory_order_relaxed);
                 decodeGroups[i]->done();

@@ -1574,6 +1574,11 @@ bool Storage::importKeysFromFile(const std::string& keyFilePath) {
     return m_impl->keyRing.importFromFile(keyFilePath);
 }
 
+void Storage::setZeroFillEncrypted(bool on) {
+    if (m_impl)
+        m_impl->keyRing.setZeroFillUnknown(on);
+}
+
 std::optional<std::array<u8, 16>> Storage::findEncryptionKey(u64 keyName) const {
     if (!m_impl)
         return std::nullopt;

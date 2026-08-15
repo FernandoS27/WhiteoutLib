@@ -148,22 +148,35 @@ std::optional<std::vector<u8>> StorageBackendImpl<DT, CT>::resolveRootEntry(
         // Prefer the entry's own EKey — TVFS roots carry it straight from the
         // manifest, so the CKey -> encoding-table lookup is a needless step.
         const IndexEntry* idxEntry = nullptr;
+        std::array<u8, 16> eKey{};
         if (!isZeroKey(best->eKey)) {
-            idxEntry = m_data.indexTable->find(eKeyTrunc(best->eKey));
+            eKey = best->eKey;
+            idxEntry = m_data.indexTable->find(eKeyTrunc(eKey));
         }
         if (!idxEntry && !isZeroKey(best->cKey)) {
-            auto encEntry = m_encoding.findByCKey(best->cKey, kEKeyTruncSize);
-            if (encEntry)
-                idxEntry = m_data.indexTable->find(eKeyTrunc(encEntry->eKey));
+            if (auto encEntry = m_encoding.findByCKey(best->cKey, kEKeyTruncSize)) {
+                eKey = encEntry->eKey;
+                idxEntry = m_data.indexTable->find(eKeyTrunc(eKey));
+            }
         }
-        if (!idxEntry)
-            return std::nullopt;
 
-        auto span = m_data.readBlteFromIndex(*idxEntry);
-        if (span.empty())
-            return std::nullopt;
+        std::vector<u8> blteData;
+        if (idxEntry) {
+            auto span = m_data.readBlteFromIndex(*idxEntry);
+            blteData.assign(span.begin(), span.end());
+        }
+        if (blteData.empty()) {
+            // No index entry, or an archive slot that produced nothing: the
+            // file is stored loose rather than inside a `.data` archive.
+            // resolveCKey has always fallen back this way; not doing it here is
+            // why the same file could be read by content key and not by name.
+            if (isZeroKey(eKey))
+                return std::nullopt;
+            blteData = m_data.fetchBlte(eKey);
+            if (blteData.empty())
+                return std::nullopt;
+        }
 
-        std::vector<u8> blteData(span.begin(), span.end());
         auto decoded = blteDecode(blteData, &m_keyRing, m_pool);
         if (!decoded.success)
             return std::nullopt;

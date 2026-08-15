@@ -26,6 +26,30 @@ static bool spanEqual(std::span<const u8> a, std::span<const u8> b) {
 // Salsa20 Tests
 // ============================================================================
 
+// The round-trip sections below pass for *any* self-consistent keystream, which
+// is how a wrong key schedule ("sigma", the 256-bit constants, instead of
+// "tau") survived here while every encrypted CASC frame decoded to noise. This
+// is ECRYPT Salsa20 Set 1 vector #0 for a 128-bit key: XORing the cipher over
+// 64 zero bytes yields the keystream itself, so the expected block is the
+// published one.
+TEST_CASE("Salsa20 matches the published 128-bit key vector", "[casc][crypto]") {
+    std::array<u8, 16> key{};
+    key[0] = 0x80;
+    std::array<u8, 8> const iv{};
+
+    std::vector<u8> stream(64, 0);
+    salsa20Decrypt(stream, key, iv);
+
+    static constexpr u8 kExpected[64] = {
+        0x4D, 0xFA, 0x5E, 0x48, 0x1D, 0xA2, 0x3E, 0xA0, 0x9A, 0x31, 0x02, 0x20, 0x50,
+        0x85, 0x99, 0x36, 0xDA, 0x52, 0xFC, 0xEE, 0x21, 0x80, 0x05, 0x16, 0x4F, 0x26,
+        0x7C, 0xB6, 0x5F, 0x5C, 0xFD, 0x7F, 0x2B, 0x4F, 0x97, 0xE0, 0xFF, 0x16, 0x92,
+        0x4A, 0x52, 0xDF, 0x26, 0x95, 0x15, 0x11, 0x0A, 0x07, 0xF9, 0xE4, 0x60, 0xBC,
+        0x65, 0xEF, 0x95, 0xDA, 0x58, 0xF7, 0x40, 0xB7, 0xD1, 0xDB, 0xB0, 0xAA,
+    };
+    CHECK(std::memcmp(stream.data(), kExpected, sizeof(kExpected)) == 0);
+}
+
 TEST_CASE("Salsa20", "[casc][crypto]") {
     // Round-trip test: encrypt then decrypt should return original.
     std::array<u8, 16> key{};

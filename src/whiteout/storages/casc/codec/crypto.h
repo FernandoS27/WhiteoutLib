@@ -43,7 +43,24 @@ public:
     /// Return the first key name that was looked up but not found.
     std::optional<u64> firstMissingKey() const;
 
+    /// What a decoder should do with a frame whose key is unavailable: fail the
+    /// whole file (false, the default) or substitute zeros for that frame
+    /// (true). CascLib spells the latter CASC_OVERCOME_ENCRYPTED.
+    ///
+    /// Unreleased content ships encrypted with keys nobody outside Blizzard
+    /// has, and one such frame otherwise takes an entire client database with
+    /// it — a table that is 99% readable is worth more than none of it. Lives
+    /// here because the ring is what knows a key is missing, and it already
+    /// reaches every decoder.
+    void setZeroFillUnknown(bool on) {
+        m_zeroFillUnknown = on;
+    }
+    bool zeroFillUnknown() const noexcept {
+        return m_zeroFillUnknown;
+    }
+
 private:
+    bool m_zeroFillUnknown = false;
     std::unordered_map<u64, std::array<u8, 16>> m_keys;
     mutable std::atomic<u64> m_firstMissing{0}; ///< 0 = no miss (0 is not a valid key name).
 };
@@ -52,9 +69,8 @@ private:
 // Salsa20
 // ============================================================================
 
-/// Salsa20 decrypt (20-round, 256-bit key variant).
-/// For 128-bit CASC keys, the key is expanded to 256 bits by repeating.
-/// Operates in-place on `data`.
+/// Salsa20 decrypt, 20 rounds with a 128-bit key (the "tau" key schedule, with
+/// the key repeated across both halves of the state). Operates in-place.
 void salsa20Decrypt(std::span<u8> data, std::span<const u8, 16> key, std::span<const u8, 8> iv);
 
 // ============================================================================

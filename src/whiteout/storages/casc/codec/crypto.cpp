@@ -137,12 +137,15 @@ void salsa20Block(const u32 input[16], u8 output[64]) {
         leStore32(output + i * 4, x[i] + input[i]);
 }
 
-// Salsa20 "sigma" and "tau" constants for key expansion.
-// sigma = "expand 32-byte k"
-constexpr u32 kSigma0 = 0x61707865; // "expa"
-constexpr u32 kSigma1 = 0x3320646E; // "nd 3"
-constexpr u32 kSigma2 = 0x79622D32; // "2-by"
-constexpr u32 kSigma3 = 0x6B206574; // "te k"
+// Salsa20 key-expansion constants. A CASC key is 128-bit, and Salsa20 spells
+// that with "tau" and the key repeated across both halves of the state —
+// *not* with "sigma", which belongs to the 256-bit variant. Getting this wrong
+// produces a perfectly self-consistent keystream that is not Salsa20's, so a
+// round-trip test passes and every real file decrypts to noise.
+constexpr u32 kTau0 = 0x61707865; // "expa"
+constexpr u32 kTau1 = 0x3120646E; // "nd 1"
+constexpr u32 kTau2 = 0x79622D36; // "6-by"
+constexpr u32 kTau3 = 0x6B206574; // "te k"
 
 } // anonymous namespace
 
@@ -150,30 +153,28 @@ void salsa20Decrypt(std::span<u8> data, std::span<const u8, 16> key, std::span<c
     if (data.empty())
         return;
 
-    // For 128-bit CASC keys, expand to 256-bit by repeating: key||key.
-    // Salsa20 state layout (256-bit key):
-    //  [sigma0] [key0]   [key1]   [key2]
-    //  [key3]   [sigma1] [nonce0] [nonce1]
-    //  [ctr0]   [ctr1]   [sigma2] [key4]
-    //  [key5]   [key6]   [key7]   [sigma3]
+    // Salsa20 state layout, 128-bit key (the key occupies both halves):
+    //  [tau0]  [key0]  [key1]  [key2]
+    //  [key3]  [tau1]  [nonce0][nonce1]
+    //  [ctr0]  [ctr1]  [tau2]  [key0]
+    //  [key1]  [key2]  [key3]  [tau3]
     u32 state[16];
-    state[0] = kSigma0;
+    state[0] = kTau0;
     state[1] = leLoad32(key.data());
     state[2] = leLoad32(key.data() + 4);
     state[3] = leLoad32(key.data() + 8);
     state[4] = leLoad32(key.data() + 12);
-    state[5] = kSigma1;
+    state[5] = kTau1;
     state[6] = leLoad32(iv.data());
     state[7] = leLoad32(iv.data() + 4);
     state[8] = 0; // Counter low.
     state[9] = 0; // Counter high.
-    state[10] = kSigma2;
-    // Repeat key for 256-bit expansion.
+    state[10] = kTau2;
     state[11] = leLoad32(key.data());
     state[12] = leLoad32(key.data() + 4);
     state[13] = leLoad32(key.data() + 8);
     state[14] = leLoad32(key.data() + 12);
-    state[15] = kSigma3;
+    state[15] = kTau3;
 
     u8 block[64];
     size_t offset = 0;

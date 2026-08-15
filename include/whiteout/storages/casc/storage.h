@@ -249,6 +249,16 @@ public:
     /// Import encryption keys from a file.
     bool importKeysFromFile(const std::string& keyFilePath);
 
+    /// Substitute zeros for any frame whose encryption key is unavailable,
+    /// instead of failing the read. Off by default.
+    ///
+    /// Unreleased content ships encrypted with keys that are not published, and
+    /// a single such frame otherwise takes a whole file with it — a client
+    /// database that is 99% readable is worth more than none of it. CascLib
+    /// spells this CASC_OVERCOME_ENCRYPTED. Turn it on only where a partly
+    /// blank file is more useful than no file.
+    void setZeroFillEncrypted(bool on);
+
     /// @return The encryption key for @p keyName, or std::nullopt if not found.
     std::optional<std::array<u8, 16>> findEncryptionKey(u64 keyName) const;
 
