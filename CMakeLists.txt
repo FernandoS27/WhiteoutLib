@@ -786,6 +786,46 @@ if(WHITEOUT_ENABLE_MPQ)
 endif() # WHITEOUT_ENABLE_MPQ
 
 # =============================================================================
+# Optional client-database (DBC / DB2) support
+# =============================================================================
+option(WHITEOUT_ENABLE_DATABASE "Enable WoW client database (DBC/DB2) support" OFF)
+
+if(WHITEOUT_ENABLE_DATABASE)
+    add_library(whiteout_database
+        src/whiteout/database/parser.cpp
+        src/whiteout/database/wdbc_reader.cpp
+        src/whiteout/database/wdb_reader.cpp
+        src/whiteout/database/wdc_reader.cpp
+        src/whiteout/database/table.cpp
+        src/whiteout/database/row.cpp
+        src/whiteout/database/schema.cpp
+    )
+    # See the note on whiteout_lib above.
+    set_property(TARGET whiteout_database PROPERTY POSITION_INDEPENDENT_CODE ON)
+
+    target_include_directories(whiteout_database PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    )
+
+    target_link_libraries(whiteout_database PUBLIC whiteout_lib)
+    target_link_libraries(whiteout_database PRIVATE whiteout_strict_flags)
+    whiteout_apply_clang_tidy(whiteout_database)
+
+    target_compile_definitions(whiteout_database PUBLIC WHITEOUT_HAS_DATABASE=1)
+
+    whiteout_define_mt_variant(whiteout_database)
+
+    if(WHITEOUT_BUILD_EXAMPLES)
+
+    # DB2 Table Dumper Example
+    add_executable(db2_dump_example examples/db2_dump_example.cpp)
+    target_link_libraries(db2_dump_example PRIVATE whiteout_database)
+
+    endif() # WHITEOUT_BUILD_EXAMPLES
+endif() # WHITEOUT_ENABLE_DATABASE
+
+# =============================================================================
 # Bindings subdirectories — added last so they can link against
 # whiteout_lib / whiteout_casc / whiteout_mpq AND their `_mt` variants.
 # =============================================================================
@@ -832,6 +872,9 @@ if(WHITEOUT_INSTALL)
     endif()
     if(TARGET whiteout_mpq)
         list(APPEND _whiteout_install_targets whiteout_mpq)
+    endif()
+    if(TARGET whiteout_database)
+        list(APPEND _whiteout_install_targets whiteout_database)
     endif()
 
     install(TARGETS ${_whiteout_install_targets}

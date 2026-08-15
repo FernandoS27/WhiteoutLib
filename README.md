@@ -92,6 +92,14 @@ language bindings.
   handling for Diablo III/IV root formats
 - **MPQ** — optional Warcraft III archive reader/writer
 
+### Client databases
+
+- **DBC / DB2** — optional reader for every container revision from `WDBC`
+  through `WDC5`, including bitpacked, pallet and common-data fields,
+  multi-section files, sparse (offset-map) records, copy tables and
+  relationship maps. Encrypted sections are reported rather than guessed at.
+  Columns can be named and typed by binding a `Schema`.
+
 ## Language Bindings
 
 WhiteoutLib ships five first-class language bindings:
@@ -266,6 +274,7 @@ Useful options:
 |---|---|---|
 | `WHITEOUT_ENABLE_CASC` | `OFF` | Build the `whiteout_casc` static library |
 | `WHITEOUT_ENABLE_MPQ` | `OFF` | Build the `whiteout_mpq` static library |
+| `WHITEOUT_ENABLE_DATABASE` | `OFF` | Build the `whiteout_database` static library (DBC/DB2) |
 | `WHITEOUT_BUILD_EXAMPLES` | `OFF` | Build the example programs under `examples/` |
 | `WHITEOUT_BUILD_TESTS` | `OFF` | Build the test suite |
 | `WHITEOUT_BUILD_WASM_BINDINGS` | `ON` if Emscripten | Build the WebAssembly bindings |

@@ -19,6 +19,9 @@
         "mpq": {
             "description": "Enable MPQ archive support (Blizzard's legacy format used by Warcraft III, classic WoW, …)"
         },
+        "database": {
+            "description": "Enable WoW client database support (DBC and DB2 tables, WDBC through WDC5)"
+        },
         "curl": {
             "description": "Use libcurl as SimpleHttpHandler's transport on non-Windows hosts (Windows uses WinHTTP unconditionally).",
             "dependencies": [

@@ -221,3 +221,13 @@ if(WHITEOUT_ENABLE_MPQ)
     catch_discover_tests(mpq_parallel_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 endif() # WHITEOUT_ENABLE_MPQ
+
+# =============================================================================
+# Database (DBC / DB2) Tests
+# =============================================================================
+if(WHITEOUT_ENABLE_DATABASE)
+
+    whiteout_add_test(db2_test db2_test.cpp LINK whiteout_database)
+    whiteout_add_test(db2_corpus_test db2_corpus_test.cpp LINK whiteout_database)
+
+endif() # WHITEOUT_ENABLE_DATABASE
