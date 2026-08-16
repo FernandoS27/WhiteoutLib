@@ -31,6 +31,7 @@
 #include "../src/whiteout/storages/casc/codec/crypto.h"
 #include "../src/whiteout/storages/casc/roots/common/listfile_parser.h"
 #include "../src/whiteout/storages/casc/roots/common/wow_tvfs_path.h"
+#include "../src/whiteout/storages/casc/roots/d4_root.h"
 #include "../src/whiteout/storages/casc/roots/tvfs_root.h"
 #include "../src/whiteout/storages/casc/roots/wow_tvfs_root.h"
 #include "../src/whiteout/storages/casc/storage/local_data_source.h"
@@ -585,7 +586,27 @@ void instrumentedOpen(const Paths& paths, const PhaseOpts& opts, Results& res,
         return;
     }
 
-    // --- 11. WowTvfsRoot::create — decode paths, enrich, build indices ---
+    // --- 11. Root decoration. D4 wraps the same TvfsRoot but enriches from
+    //         CoreTOC instead, so time whichever one this storage actually uses.
+    if (tvfsRoot && !WowTvfsRoot::looksLikeWowTvfs(*tvfsRoot)) {
+        // D4 locates CoreTOC by path, so it needs TvfsRoot's own index — which
+        // is why Storage::open passes buildIdx=true for everything but WoW.
+        t = Clock::now();
+        tvfsRoot->ensureIndexed(opts.pool);
+        res.add(group, "10. TvfsRoot::ensureIndexed (path map)", msSince(t));
+
+        EKeyReader const eKeyReader = [&](std::span<const u8, 16> eKey) -> std::vector<u8> {
+            std::array<u8, 16> k{};
+            std::memcpy(k.data(), eKey.data(), 16);
+            return resolveEKey(k);
+        };
+        t = Clock::now();
+        auto d4 = D4Root::create(std::move(tvfsRoot), eKeyReader, opts.pool);
+        res.add(group, "11. D4Root::create (CoreTOC enrich)", msSince(t), 0,
+                countEntries(d4.get()));
+        return;
+    }
+
     t = Clock::now();
     auto wow = WowTvfsRoot::create(std::move(tvfsRoot), opts.pool, opts.listfile);
     double const wowMs = msSince(t);

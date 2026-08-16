@@ -51,7 +51,25 @@ std::vector<std::filesystem::path> scanLocalConfigs(const std::string& dataPath)
             }
         }
     }
-    std::sort(out.begin(), out.end());
+
+    // Newest first: a patched install keeps every superseded config around, and
+    // the one written last is the build the storage is actually at.
+    std::vector<std::pair<fs::file_time_type, fs::path>> stamped;
+    stamped.reserve(out.size());
+    for (auto& p : out) {
+        std::error_code tec;
+        auto when = fs::last_write_time(p, tec);
+        stamped.emplace_back(tec ? fs::file_time_type::min() : when, p);
+    }
+    std::sort(stamped.begin(), stamped.end(), [](const auto& a, const auto& b) {
+        if (a.first != b.first)
+            return a.first > b.first;
+        return a.second < b.second;
+    });
+
+    out.clear();
+    for (auto& [when, path] : stamped)
+        out.push_back(path);
     return out;
 }
 
@@ -327,8 +345,7 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
         if (auto flav = storages::common::readFileFully(basePath + "/.flavor.info", &flavErr))
             flavorProduct = parseFlavorInfo(*flav);
         bool const hasOwnStorage = fs::exists(basePath + "/.build.info") ||
-                                   fs::exists(basePath + "/Data") ||
-                                   fs::exists(basePath + "/data");
+                                   fs::exists(basePath + "/Data") || fs::exists(basePath + "/data");
         if (!hasOwnStorage) {
             std::string const parent = fs::path(basePath).parent_path().string();
             if (!parent.empty() && (fs::exists(parent + "/.build.info") ||
@@ -364,7 +381,11 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
         return true;
     };
 
-    // Step 1: Parse .build.info.
+    // Step 1: Parse .build.info. An install can be missing it entirely — hand-
+    // copied game directories and ones the Battle.net agent never finished
+    // registering both happen — so a failure here is not fatal on its own: the
+    // build and CDN configs are recovered from `config/` by consistency below.
+    // The diagnostic is held until that recovery also comes up empty.
     progress(ProgressStep::LoadingBuildConfig);
 
     std::string buildInfoPath;
@@ -383,27 +404,22 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
             *opts.errorOut = "Failed to read '" + filePath + "': " + sysErr;
     };
 
+    std::string buildInfoError;
+    bool buildInfoLocked = false;
+    std::vector<BuildInfo> builds;
+
     if (buildInfoPath.empty()) {
-        s_lastError = kBuildInfoNotFound;
-        if (opts.errorOut)
-            *opts.errorOut =
-                "'.build.info' not found under '" + basePath + "' or '" + dataPath + "'";
-        return std::nullopt;
-    }
-
-    std::string sysErr;
-    auto buildInfoFile = storages::common::readFileFully(buildInfoPath, &sysErr);
-    if (!buildInfoFile) {
-        reportFileError(buildInfoPath, sysErr, kBuildInfoNotFound);
-        return std::nullopt;
-    }
-
-    auto builds = parseBuildInfo(*buildInfoFile);
-    if (builds.empty()) {
-        s_lastError = kBuildInfoNotFound;
-        if (opts.errorOut)
-            *opts.errorOut = "'.build.info' parsed empty: " + buildInfoPath;
-        return std::nullopt;
+        buildInfoError = "'.build.info' not found under '" + basePath + "' or '" + dataPath + "'";
+    } else {
+        std::string sysErr;
+        if (auto buildInfoFile = storages::common::readFileFully(buildInfoPath, &sysErr)) {
+            builds = parseBuildInfo(*buildInfoFile);
+            if (builds.empty())
+                buildInfoError = "'.build.info' parsed empty: " + buildInfoPath;
+        } else {
+            buildInfoError = "Failed to read '" + buildInfoPath + "': " + sysErr;
+            buildInfoLocked = storages::common::isSharingViolation(sysErr);
+        }
     }
 
     // Select the build to open. Precedence: explicit build key → product code
@@ -427,7 +443,7 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     //    a hard error, so the caller never silently gets the wrong build (e.g.
     //    retail when asking for PTR).
     std::string const productCode = !opts.product.empty() ? opts.product : flavorProduct;
-    if (!activeBuild && !productCode.empty()) {
+    if (!activeBuild && !productCode.empty() && !builds.empty()) {
         std::string const wanted = storages::common::toLower(productCode);
         for (auto& b : builds) {
             if (b.active && storages::common::toLower(b.product) == wanted) {
@@ -455,8 +471,18 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     }
 
     // 4. Fallback: first row.
-    if (!activeBuild)
+    if (!activeBuild && !builds.empty())
         activeBuild = &builds[0];
+
+    // 5. No usable `.build.info`: an explicit build key still names a config
+    //    file directly, and zeroed keys otherwise make both config lookups miss
+    //    so the consistency fallbacks below do the selecting.
+    BuildInfo recoveredBuild;
+    if (!activeBuild) {
+        if (!opts.buildKey.empty())
+            recoveredBuild.buildKey = storages::common::hexDecode16(opts.buildKey);
+        activeBuild = &recoveredBuild;
+    }
 
     // Step 2: Create Impl with LocalState.
     auto implPtr = std::make_unique<Impl>();
@@ -492,17 +518,41 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     // Step 4: Parse build config; if the active key's file is missing, fall
     // back to any local build config consistent with the index.
     auto buildConfigPath = impl.localState->configPath(activeBuild->buildKey);
-    sysErr.clear();
+    std::string sysErr;
     auto buildConfigFile = storages::common::readFileFully(buildConfigPath, &sysErr);
     if (buildConfigFile) {
         impl.buildConfig = parseBuildConfig(*buildConfigFile);
     } else {
         auto fallback = findConsistentBuildConfig(dataPath, impl.localState->indexTable);
         if (!fallback) {
-            reportFileError(buildConfigPath, sysErr, kBuildConfigNotFound);
+            if (buildInfoError.empty()) {
+                reportFileError(buildConfigPath, sysErr, kBuildConfigNotFound);
+            } else {
+                s_lastError = buildInfoLocked ? kSharingViolation : kBuildInfoNotFound;
+                if (opts.errorOut)
+                    *opts.errorOut = buildInfoError + "; no build config under '" + dataPath +
+                                     "/config' matches the local index either";
+            }
             return std::nullopt;
         }
         impl.buildConfig = std::move(*fallback);
+    }
+
+    // Without a `.build.info` there was no Product column to match against, so
+    // the recovered config has to answer for the requested product itself —
+    // asking for a PTR flavor must never silently open retail.
+    if (builds.empty() && !productCode.empty()) {
+        std::string const wanted = storages::common::toLower(productCode);
+        if (storages::common::toLower(impl.buildConfig.buildUid) != wanted &&
+            storages::common::toLower(impl.buildConfig.buildProduct) != wanted) {
+            s_lastError = kBuildInfoNotFound;
+            if (opts.errorOut)
+                *opts.errorOut = "Product '" + productCode +
+                                 "' does not match the build config in '" + dataPath +
+                                 "/config' (build-uid '" + impl.buildConfig.buildUid +
+                                 "', build-product '" + impl.buildConfig.buildProduct + "')";
+            return std::nullopt;
+        }
     }
 
     // Step 5: Parse CDN config; on miss, pick the local CDN config whose
@@ -517,15 +567,12 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
             impl.cdnConfig = std::move(*fallback);
     }
 
-    if (!impl.cdnConfig.archiveEKeys.empty()) {
-        if (opts.flags & StorageFeatureFlags::LazyArchiveIndex) {
-            impl.localState->indexTable.loadArchiveIndicesLazy(
-                dataPath, impl.cdnConfig.archiveEKeys, opts.pool);
-        } else {
-            impl.localState->indexTable.loadArchiveIndices(dataPath, impl.cdnConfig.archiveEKeys,
-                                                           opts.pool);
-        }
-    }
+    // The `indices/*.index` files describe CDN archives, whose ordinals in the
+    // CDN config's archive list have nothing to do with the local data.NNN
+    // numbering that LocalDataSource indexes with. Their entries are therefore
+    // unreadable here, and merging them in only made files the install never
+    // downloaded look available to listings. Local storages read exclusively
+    // through the .idx buckets; the archive indices stay an online concern.
 
     // Step 6: Memory-map data archives.
     progress(ProgressStep::MappingArchives);

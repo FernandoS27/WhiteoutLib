@@ -54,16 +54,33 @@ struct RootEntry {
 
 /// Select the best matching root entry based on locale/content flags.
 /// Returns nullptr only if @p entries is empty.
+///
+/// @param isAvailable Probe for whether an entry's data can actually be read.
+///        One id often carries several variants and a partly-downloaded install
+///        may hold only one of them, so a candidate that fails the probe is kept
+///        only until a readable candidate turns up.
+template <typename AvailFn>
 inline const RootEntry* selectBestEntry(const std::vector<const RootEntry*>& entries,
-                                        u32 localeFlags) {
+                                        u32 localeFlags, AvailFn&& isAvailable) {
+    const RootEntry* firstMatch = nullptr;
     for (auto* e : entries) {
         if (e->contentFlags & ContentFlags::DoNotLoad)
             continue;
         if (localeFlags != 0 && e->localeFlags != 0 && (e->localeFlags & localeFlags) == 0)
             continue;
-        return e;
+        if (isAvailable(*e))
+            return e;
+        if (!firstMatch)
+            firstMatch = e;
     }
+    if (firstMatch)
+        return firstMatch;
     return entries.empty() ? nullptr : entries[0];
+}
+
+inline const RootEntry* selectBestEntry(const std::vector<const RootEntry*>& entries,
+                                        u32 localeFlags) {
+    return selectBestEntry(entries, localeFlags, [](const RootEntry&) { return true; });
 }
 
 /// Abstract base class for CASC root manifest parsers.

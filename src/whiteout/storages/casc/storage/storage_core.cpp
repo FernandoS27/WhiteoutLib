@@ -377,7 +377,17 @@ std::optional<std::vector<u8>> Storage::Impl::readFileResolved(
         return std::nullopt;
     }
 
-    auto result = resolveRootEntry(entries, localeFlags != 0 ? localeFlags : localeMask);
+    u32 const locale = localeFlags != 0 ? localeFlags : localeMask;
+
+    // Narrow to one entry up front so the backend, the container cache and the
+    // slicing below all resolve the same variant.
+    std::vector<const RootEntry*> selected;
+    if (isLocal() && entries.size() > 1) {
+        if (const RootEntry* best = selectEntry(entries, locale))
+            selected.push_back(best);
+    }
+
+    auto result = resolveRootEntry(selected.empty() ? entries : selected, locale);
     if (!result) {
         s_lastError = kFileNotFound;
         return std::nullopt;
@@ -866,6 +876,14 @@ std::vector<BatchReadResult> Storage::readBatch(std::span<const BatchReadRequest
         }
 
         u32 const locale = req.localeFlags != 0 ? req.localeFlags : m_impl->localeMask;
+
+        // Same narrowing as the single-file path: every later stage (cache
+        // probe, fetch, container slicing) must agree on one entry.
+        if (m_impl->isLocal() && entries.size() > 1) {
+            if (const RootEntry* best = m_impl->selectEntry(entries, locale))
+                entries.assign(1, best);
+        }
+
         toResolve.push_back({i, std::move(entries), locale});
     }
 

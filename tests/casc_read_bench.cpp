@@ -120,49 +120,62 @@ int main(int argc, char** argv) {
             cascPath = a;
     }
 
-    if (cascPath.empty() || listfilePath.empty()) {
-        std::cerr << "usage: " << argv[0] << " <casc_path> --listfile <path>\n";
+    if (cascPath.empty()) {
+        std::cerr << "usage: " << argv[0] << " <casc_path> [--listfile <path>]\n";
         return 2;
     }
 
-    auto listfile = readWholeFile(listfilePath);
-    if (listfile.empty()) {
-        std::cerr << "failed to read listfile: " << listfilePath << "\n";
-        return 1;
-    }
-    auto m2Paths = collectM2Paths(listfile);
-    if (m2Paths.empty()) {
-        std::cerr << "no .m2 paths in listfile\n";
-        return 1;
+    // Without a listfile the candidates come from enumerate() instead, which is
+    // what non-WoW products (D4, D3, OW) need — they have no community listfile
+    // and no .m2 files.
+    std::vector<u8> listfile;
+    std::vector<std::string> m2Paths;
+    if (!listfilePath.empty()) {
+        listfile = readWholeFile(listfilePath);
+        if (listfile.empty()) {
+            std::cerr << "failed to read listfile: " << listfilePath << "\n";
+            return 1;
+        }
+        m2Paths = collectM2Paths(listfile);
+        if (m2Paths.empty()) {
+            std::cerr << "no .m2 paths in listfile\n";
+            return 1;
+        }
     }
 
     std::cout << "CASC storage : " << cascPath << "\n"
-              << "Listfile     : " << listfilePath << "  (" << std::fixed << std::setprecision(1)
-              << double(listfile.size()) / (1024 * 1024) << " MB, " << m2Paths.size()
-              << " .m2 paths)\n"
+              << "Listfile     : "
+              << (listfilePath.empty()
+                      ? std::string("none — candidates drawn from enumerate()")
+                      : listfilePath + "  (" + std::to_string(m2Paths.size()) + " .m2 paths)")
+              << "\n"
               << "Pool         : " << (noPool ? "none" : std::to_string(threads) + " threads")
               << "\n"
               << "Reps         : " << reps << ", " << filesPerRep << " files each, seed " << seed
               << "\n\n";
 
     utils::SimpleThreadPool pool{size_t(threads)};
+    std::cout << std::fixed;
 
     std::vector<RepResult> results;
     for (int rep = 0; rep < reps; ++rep) {
         // Same seed sequence in every build, so both sides read the same files.
         std::mt19937 rng(seed + unsigned(rep));
-        std::uniform_int_distribution<size_t> pick(0, m2Paths.size() - 1);
         std::vector<std::string> candidates;
-        candidates.reserve(64);
-        for (int i = 0; i < 64; ++i)
-            candidates.push_back(m2Paths[pick(rng)]);
+        if (!m2Paths.empty()) {
+            std::uniform_int_distribution<size_t> pick(0, m2Paths.size() - 1);
+            candidates.reserve(64);
+            for (int i = 0; i < 64; ++i)
+                candidates.push_back(m2Paths[pick(rng)]);
+        }
 
         RepResult r;
 
         OpenOptions opts;
         opts.path = cascPath;
         opts.pool = noPool ? nullptr : &pool;
-        opts.listfile = std::span<const u8>(listfile);
+        if (!listfile.empty())
+            opts.listfile = std::span<const u8>(listfile);
         std::string err;
         opts.errorOut = &err;
 
@@ -172,6 +185,22 @@ int main(int argc, char** argv) {
         if (!storage) {
             std::cerr << "open failed: " << err << "\n";
             return 1;
+        }
+
+        if (candidates.empty()) {
+            // Untimed: enumeration is not part of the workload being compared,
+            // it only supplies the candidate paths a listfile would have.
+            std::vector<std::string> pathPool;
+            storage->enumerate([&](const EnumerateEntry& e) {
+                if (!e.path.empty())
+                    pathPool.emplace_back(e.path);
+                return pathPool.size() < 65536;
+            });
+            if (!pathPool.empty()) {
+                std::uniform_int_distribution<size_t> pick(0, pathPool.size() - 1);
+                for (int i = 0; i < 64; ++i)
+                    candidates.push_back(pathPool[pick(rng)]);
+            }
         }
 
         // Candidates are drawn blind, so walk them until enough resolve. A miss

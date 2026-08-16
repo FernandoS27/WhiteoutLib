@@ -261,6 +261,20 @@ struct Storage::Impl {
         return false;
     }
 
+    /// Pick the root entry a read should use. On a local storage several
+    /// variants of one id can pass the locale filter while only one of them was
+    /// ever downloaded, so the on-disk one wins; elsewhere this is plain
+    /// selectBestEntry.
+    const RootEntry* selectEntry(const std::vector<const RootEntry*>& entries,
+                                 u32 localeFlags) const {
+        if (isLocal() && entries.size() > 1) {
+            return selectBestEntry(entries, localeFlags, [this](const RootEntry& e) {
+                return isRootEntryAvailableLocally(e);
+            });
+        }
+        return selectBestEntry(entries, localeFlags);
+    }
+
     // ── Resolution helpers ───────────────────────────────────────
 
     /// CKey → encoding → index → BLTE decode → raw file data.

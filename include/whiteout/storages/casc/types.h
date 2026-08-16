@@ -103,7 +103,9 @@ static constexpr u32 LoadOnDemand = 0x00000001; ///< Defer encoding/root loading
 static constexpr u32 LazyVfsSubmanifest =
     0x00000002; ///< Resolve VFS sub-manifests on demand, not via upfront prefetch.
 static constexpr u32 LazyArchiveIndex =
-    0x00000004; ///< Fault in archive .index files per archive on first miss.
+    0x00000004; ///< Online-only: fault in archive .index files per archive on
+                ///< first miss. Local storages read through the .idx buckets
+                ///< and never consult the CDN archive indices.
 static constexpr u32 LazyEncodingFrames =
     0x00000008; ///< Decode encoding-table BLTE frames on demand.
 static constexpr u32 LazyIdxBuckets =
@@ -257,7 +259,7 @@ struct OpenOptions {
     /// code name. Ignored when `buildKey` already selects a build; empty selects
     /// the first active build. Open fails if the product has no active build.
     std::string product;
-    u32 localeMask = LocaleMasks::None; ///< Locale filter (0 = accept all).
+    u32 localeMask = LocaleMasks::None;          ///< Locale filter (0 = accept all).
     u32 flags = StorageFeatureFlags::None;       ///< Feature flags.
     ProgressCallback progressCallback = nullptr; ///< Optional progress callback.
     interfaces::WorkerPool* pool = nullptr;      ///< Optional worker pool for parallel I/O.
