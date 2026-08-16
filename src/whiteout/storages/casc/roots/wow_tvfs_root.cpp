@@ -130,7 +130,13 @@ std::unique_ptr<WowTvfsRoot> WowTvfsRoot::create(std::unique_ptr<TvfsRoot> tvfs,
             enrichEntry(i);
     }
 
-    result->buildIndex(pool);
+    result->buildFileDataIdIndex();
+    // A listfile is the only reason to carry human-readable paths, so treat it
+    // as a declaration that path lookups are coming and build the index here,
+    // on the open thread, where using the pool is safe. Without one the paths
+    // are the 53-char hex form that nobody queries by name.
+    if (haveListfile)
+        result->buildPathIndex(pool);
     return result;
 }
 
@@ -139,19 +145,40 @@ std::unique_ptr<WowTvfsRoot> WowTvfsRoot::create(std::unique_ptr<TvfsRoot> tvfs,
 // ============================================================================
 
 std::vector<const RootEntry*> WowTvfsRoot::findByPath(const std::string& path) const {
-    if (m_byPath.empty())
-        return {};
+    ensurePathIndex();
+
     auto key = storages::common::normalizeCascPath(path);
-    return m_byPath.findAll(m_entries, key);
+    auto* head = m_byPathHead.find(storages::common::cascPathHash64(key));
+    if (!head)
+        return {};
+
+    std::vector<const RootEntry*> results;
+    for (u32 i = *head; i != kNoPathChain; i = m_pathChain[i]) {
+        if (storages::common::normalizedCascPathEquals(m_entries[i].path, key))
+            results.push_back(&m_entries[i]);
+    }
+    return results;
 }
+
+namespace {
+auto byFileDataId = [](const std::pair<u32, u32>& e, u32 id) { return e.first < id; };
+} // namespace
 
 std::vector<const RootEntry*> WowTvfsRoot::findByFileDataId(u32 fileDataId,
                                                             FileIdHint /*hint*/) const {
-    return m_byFileDataId.findAll(m_entries, fileDataId);
+    auto it =
+        std::lower_bound(m_byFileDataId.begin(), m_byFileDataId.end(), fileDataId, byFileDataId);
+
+    std::vector<const RootEntry*> results;
+    for (; it != m_byFileDataId.end() && it->first == fileDataId; ++it)
+        results.push_back(&m_entries[it->second]);
+    return results;
 }
 
 bool WowTvfsRoot::hasFileDataId(u32 fileDataId, FileIdHint /*hint*/) const {
-    return m_byFileDataId.contains(fileDataId);
+    auto it =
+        std::lower_bound(m_byFileDataId.begin(), m_byFileDataId.end(), fileDataId, byFileDataId);
+    return it != m_byFileDataId.end() && it->first == fileDataId;
 }
 
 const std::vector<RootEntry>& WowTvfsRoot::entries() const {
@@ -166,44 +193,77 @@ std::vector<RootEntry>& WowTvfsRoot::mutableEntries() {
 // WowTvfsRoot — index building
 // ============================================================================
 
-void WowTvfsRoot::buildIndex(interfaces::WorkerPool* pool) {
-    // The two indices are independent members — build them concurrently.
-    // The path index (with per-entry normalisation) is the long pole.
-    auto buildFileDataIdIndex = [this]() {
-        m_byFileDataId.reserve(m_entries.size());
-        for (size_t i = 0; i < m_entries.size(); ++i) {
-            if (m_entries[i].fileDataId != kInvalidFileDataId)
-                m_byFileDataId.emplace(m_entries[i].fileDataId, i);
-        }
-    };
-    auto buildPathIndex = [this]() {
-        for (size_t i = 0; i < m_entries.size(); ++i) {
-            if (!m_entries[i].path.empty()) {
-                auto key = storages::common::normalizeCascPath(m_entries[i].path);
-                m_byPath.emplace(std::move(key), i);
-            }
+void WowTvfsRoot::buildFileDataIdIndex() {
+    m_byFileDataId.clear();
+    m_byFileDataId.reserve(m_entries.size());
+    for (size_t i = 0; i < m_entries.size(); ++i) {
+        if (m_entries[i].fileDataId != kInvalidFileDataId)
+            m_byFileDataId.emplace_back(m_entries[i].fileDataId, u32(i));
+    }
+    // Ties keep ascending entry order, so selectBestEntry resolves a FileDataId
+    // with several locale/content variants to the one the manifest lists first.
+    // The unordered_multimap this replaced enumerated equal keys in hash-bucket
+    // order, which is neither portable nor meaningful.
+    std::sort(m_byFileDataId.begin(), m_byFileDataId.end());
+}
+
+void WowTvfsRoot::buildPathIndex(interfaces::WorkerPool* pool) {
+    std::call_once(m_pathIndexOnce, [&]() { buildPathIndexImpl(pool); });
+}
+
+void WowTvfsRoot::ensurePathIndex() const {
+    // No pool here: this runs on whichever thread first calls findByPath, which
+    // may itself be one of the pool's workers — fanning out and waiting would
+    // deadlock once the other workers block on this same call_once.
+    std::call_once(m_pathIndexOnce, [this]() { buildPathIndexImpl(nullptr); });
+}
+
+void WowTvfsRoot::buildPathIndexImpl(interfaces::WorkerPool* pool) const {
+    size_t const n = m_entries.size();
+
+    // Hashing normalises on the fly, so no per-entry string is materialised.
+    // A zero hash means "no path" — cascPathHash64 never returns 0.
+    std::vector<u64> hashes(n, 0);
+    auto hashRange = [&](size_t begin, size_t end) {
+        for (size_t i = begin; i < end; ++i) {
+            if (!m_entries[i].path.empty())
+                hashes[i] = storages::common::normalizedCascPathHash64(m_entries[i].path);
         }
     };
 
-    if (pool && m_entries.size() > 10000) {
+    if (pool && n > 10000) {
+        size_t const numThreads = std::max<size_t>(pool->threadCount(), 1);
+        size_t const chunkSize = (n + numThreads - 1) / numThreads;
+        size_t const chunks = (n + chunkSize - 1) / chunkSize;
+
         utils::JobGroup jobGroup;
-        jobGroup.add(2);
-        interfaces::WorkerTask t1;
-        t1.fn = [&]() {
-            buildFileDataIdIndex();
-            jobGroup.done();
-        };
-        interfaces::WorkerTask t2;
-        t2.fn = [&]() {
-            buildPathIndex();
-            jobGroup.done();
-        };
-        pool->submit(t1);
-        pool->submit(t2);
+        jobGroup.add(chunks);
+        for (size_t c = 0; c < chunks; ++c) {
+            interfaces::WorkerTask task;
+            task.fn = [&, c]() {
+                hashRange(c * chunkSize, std::min((c + 1) * chunkSize, n));
+                jobGroup.done();
+            };
+            pool->submit(task);
+        }
         jobGroup.wait();
     } else {
-        buildFileDataIdIndex();
-        buildPathIndex();
+        hashRange(0, n);
+    }
+
+    // Chained back to front so each chain reads out in ascending entry order,
+    // matching how findByFileDataId orders its ties.
+    m_pathChain.assign(n, kNoPathChain);
+    m_byPathHead.reserve(n);
+    for (size_t i = n; i-- > 0;) {
+        if (hashes[i] == 0)
+            continue;
+        if (auto* head = m_byPathHead.find(hashes[i])) {
+            m_pathChain[i] = *head;
+            m_byPathHead.insertOrAssign(hashes[i], u32(i));
+        } else {
+            m_byPathHead.emplace(hashes[i], u32(i));
+        }
     }
 }
 

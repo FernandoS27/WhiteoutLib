@@ -49,6 +49,7 @@
 #include <iostream>
 #include <numeric>
 #include <string>
+#include <atomic>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -222,6 +223,7 @@ struct PhaseOpts {
     interfaces::WorkerPool* pool = nullptr;
     std::span<const u8> listfile;
     bool indexExperiment = false;
+    bool reportVfsShape = false;
 };
 
 void indexExperiment(std::vector<RootEntry>& entries, interfaces::WorkerPool* pool, int reps,
@@ -326,12 +328,21 @@ void instrumentedOpen(const Paths& paths, const PhaseOpts& opts, Results& res,
     std::memcpy(encTrunc.data(), buildConfig.encodingEKey.data(), 9);
 
     t = Clock::now();
-    std::vector<u8> encodingBlte;
-    if (auto loc = dataSource.findInIndex(std::span<const u8>(encTrunc.data(), 9)))
-        encodingBlte = dataSource.fetchBlte(*loc);
-    if (encodingBlte.empty())
-        encodingBlte = dataSource.fetchBlte(buildConfig.encodingEKey);
-    res.add(group, "6a. encoding: fetch BLTE from archive", msSince(t), encodingBlte.size());
+    std::vector<u8> encodingOwned;
+    std::span<const u8> encodingBlte;
+    if (auto loc = dataSource.findInIndex(std::span<const u8>(encTrunc.data(), 9))) {
+        IndexEntry ie{};
+        ie.archiveIndex = loc->archiveIndex;
+        ie.archiveOffset = u32(loc->offset);
+        ie.encodedSize = loc->encodedSize;
+        ie.directBLTE = loc->directBLTE;
+        encodingBlte = dataSource.readBlteFromIndex(ie);
+    }
+    if (encodingBlte.empty()) {
+        encodingOwned = dataSource.fetchBlte(buildConfig.encodingEKey);
+        encodingBlte = encodingOwned;
+    }
+    res.add(group, "6a. encoding: locate + view BLTE", msSince(t), encodingBlte.size());
     if (encodingBlte.empty()) {
         static constexpr char hx[] = "0123456789abcdef";
         std::string k;
@@ -369,12 +380,29 @@ void instrumentedOpen(const Paths& paths, const PhaseOpts& opts, Results& res,
         auto d = blteDecode(blte, &keyRing, nullptr);
         return d.success ? std::move(d.data) : std::vector<u8>{};
     };
-    auto resolveEKey = [&](const std::array<u8, 16>& eKey) -> std::vector<u8> {
-        auto blte = dataSource.fetchBlte(eKey);
+    auto resolveEKeyPooled = [&](const std::array<u8, 16>& eKey,
+                                 interfaces::WorkerPool* framePool) -> std::vector<u8> {
+        std::vector<u8> owned;
+        std::span<const u8> blte;
+        if (auto loc = dataSource.findInIndex(std::span<const u8>(eKey.data(), 9))) {
+            IndexEntry ie{};
+            ie.archiveIndex = loc->archiveIndex;
+            ie.archiveOffset = u32(loc->offset);
+            ie.encodedSize = loc->encodedSize;
+            ie.directBLTE = loc->directBLTE;
+            blte = dataSource.readBlteFromIndex(ie);
+        }
+        if (blte.empty()) {
+            owned = dataSource.fetchBlte(eKey);
+            blte = owned;
+        }
         if (blte.empty())
             return {};
-        auto d = blteDecode(blte, &keyRing, nullptr);
+        auto d = blteDecode(blte, &keyRing, framePool);
         return d.success ? std::move(d.data) : std::vector<u8>{};
+    };
+    auto resolveEKey = [&](const std::array<u8, 16>& eKey) -> std::vector<u8> {
+        return resolveEKeyPooled(eKey, nullptr);
     };
 
     bool const hasVfs =
@@ -407,23 +435,46 @@ void instrumentedOpen(const Paths& paths, const PhaseOpts& opts, Results& res,
             std::vector<u8> data;
         };
         std::vector<SubResult> results(vfsEKeys.size());
-        utils::JobGroup jobGroup;
-        jobGroup.add(vfsEKeys.size());
+        auto one = [&](size_t i, interfaces::WorkerPool* framePool) {
+            results[i].hash = keyHash64(vfsEKeys[i]);
+            results[i].data = resolveEKeyPooled(vfsEKeys[i], framePool);
+            if (results[i].data.empty()) {
+                auto c = vfsEKeyToCKey.find(results[i].hash);
+                if (c != vfsEKeyToCKey.end())
+                    results[i].data = resolveCKey(c->second);
+            }
+        };
+
+        constexpr u32 kFrameParallelBytes = 4u << 20;
+        std::vector<size_t> large;
+        std::vector<size_t> small;
         for (size_t i = 0; i < vfsEKeys.size(); ++i) {
+            auto loc = dataSource.findInIndex(std::span<const u8>(vfsEKeys[i].data(), 9));
+            if (loc && loc->encodedSize >= kFrameParallelBytes)
+                large.push_back(i);
+            else
+                small.push_back(i);
+        }
+        std::sort(large.begin(), large.end(), [&](size_t a, size_t b) {
+            auto la = dataSource.findInIndex(std::span<const u8>(vfsEKeys[a].data(), 9));
+            auto lb = dataSource.findInIndex(std::span<const u8>(vfsEKeys[b].data(), 9));
+            return (la ? la->encodedSize : 0) > (lb ? lb->encodedSize : 0);
+        });
+
+        utils::JobGroup jobGroup;
+        jobGroup.add(small.size());
+        for (size_t const i : small) {
             interfaces::WorkerTask task;
             task.fn = [&, i]() {
-                results[i].hash = keyHash64(vfsEKeys[i]);
-                results[i].data = resolveEKey(vfsEKeys[i]);
-                if (results[i].data.empty()) {
-                    auto c = vfsEKeyToCKey.find(results[i].hash);
-                    if (c != vfsEKeyToCKey.end())
-                        results[i].data = resolveCKey(c->second);
-                }
+                one(i, nullptr);
                 jobGroup.done();
             };
             opts.pool->submit(task);
         }
+        for (size_t const i : large)
+            one(i, opts.pool);
         jobGroup.wait();
+
         for (auto& r : results) {
             if (!r.data.empty()) {
                 vfsBytes += r.data.size();
@@ -447,6 +498,23 @@ void instrumentedOpen(const Paths& paths, const PhaseOpts& opts, Results& res,
     }
     res.add(group, "7. VFS sub-manifest prefetch", msSince(t), vfsBytes, vfsEKeys.size());
 
+    if (opts.reportVfsShape) {
+        std::vector<u64> sizes;
+        sizes.reserve(vfsCache.size());
+        for (auto& [h, d] : vfsCache)
+            sizes.push_back(d.size());
+        std::sort(sizes.begin(), sizes.end(), std::greater<u64>());
+        u64 const total = std::accumulate(sizes.begin(), sizes.end(), u64(0));
+        u64 top8 = 0;
+        for (size_t i = 0; i < std::min<size_t>(8, sizes.size()); ++i)
+            top8 += sizes[i];
+        std::cout << "  [vfs shape] n=" << sizes.size() << "  total="
+                  << (double(total) / 1048576.0) << " MB  largest="
+                  << (double(sizes.empty() ? 0 : sizes[0]) / 1048576.0) << " MB  top8="
+                  << (100.0 * double(top8) / double(total ? total : 1)) << "% of bytes  median="
+                  << (sizes.empty() ? 0 : sizes[sizes.size() / 2] / 1024) << " KB\n";
+    }
+
     // --- 8. vfs-root resolve ---
     t = Clock::now();
     auto vfsData = resolveCKey(buildConfig.vfsRootCKey);
@@ -455,14 +523,22 @@ void instrumentedOpen(const Paths& paths, const PhaseOpts& opts, Results& res,
         return;
 
     // --- 9. TVFS traversal ---
-    VfsResolver const vfsResolver = [&](std::span<const u8> eKey) -> std::vector<u8> {
+    std::mutex vfsFaultMtx;
+    VfsResolver const vfsResolver = [&](std::span<const u8> eKey) -> std::span<const u8> {
         u64 const h = keyHash64(eKey.data());
-        auto it = vfsCache.find(h);
-        if (it != vfsCache.end())
-            return it->second;
+        {
+            std::lock_guard<std::mutex> const lk(vfsFaultMtx);
+            auto it = vfsCache.find(h);
+            if (it != vfsCache.end())
+                return it->second;
+        }
         std::array<u8, 16> k{};
         std::memcpy(k.data(), eKey.data(), std::min(eKey.size(), size_t(16)));
-        return resolveEKey(k);
+        auto data = resolveEKey(k);
+        if (data.empty())
+            return {};
+        std::lock_guard<std::mutex> const lk(vfsFaultMtx);
+        return vfsCache.emplace(h, std::move(data)).first->second;
     };
 
     t = Clock::now();
@@ -514,6 +590,13 @@ void instrumentedOpen(const Paths& paths, const PhaseOpts& opts, Results& res,
     auto wow = WowTvfsRoot::create(std::move(tvfsRoot), opts.pool, opts.listfile);
     double const wowMs = msSince(t);
     res.add(group, "11. WowTvfsRoot::create (+listfile+index)", wowMs, 0, countEntries(wow.get()));
+
+    // Deferred work: the path index is only built when a path lookup happens.
+    if (wow) {
+        t = Clock::now();
+        wow->findByPath("interface/icons/temp.blp");
+        res.add(group, "12. first findByPath (lazy path index)", msSince(t));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -656,6 +739,183 @@ void indexExperiment(std::vector<RootEntry>& entries, interfaces::WorkerPool* po
 }
 
 // ---------------------------------------------------------------------------
+// Lookup-selection dump
+//
+// Differential-testing aid: records what the root actually resolves for every
+// FileDataId and a sample of paths, so a change to the index structures can be
+// proven to preserve selection behaviour byte for byte.
+// ---------------------------------------------------------------------------
+
+std::string hex16(const std::array<u8, 16>& k) {
+    static constexpr char h[] = "0123456789abcdef";
+    std::string s;
+    s.reserve(32);
+    for (u8 b : k) {
+        s += h[b >> 4];
+        s += h[b & 0xF];
+    }
+    return s;
+}
+
+void dumpSelection(const Storage& storage, const std::string& outPath) {
+    std::vector<i32> fdids;
+    std::vector<std::string> paths;
+    fdids.reserve(4u << 20);
+    storage.enumerate([&](const EnumerateEntry& e) {
+        if (e.fileDataId != kInvalidId)
+            fdids.push_back(e.fileDataId);
+        if (!e.path.empty())
+            paths.emplace_back(e.path);
+        return true;
+    });
+    std::sort(fdids.begin(), fdids.end());
+    fdids.erase(std::unique(fdids.begin(), fdids.end()), fdids.end());
+    std::sort(paths.begin(), paths.end());
+    paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
+
+    std::ofstream out(outPath, std::ios::binary);
+    out << "# fdids=" << fdids.size() << " paths=" << paths.size() << "\n";
+    for (i32 id : fdids) {
+        auto info = storage.fileInfo(id);
+        out << "F " << id << ' ';
+        if (info)
+            out << hex16(info->cKey) << ' ' << info->localeFlags << ' ' << info->contentFlags << ' '
+                << info->fileSize;
+        else
+            out << "-";
+        out << '\n';
+    }
+    constexpr size_t kPathStride = 31;
+    for (size_t i = 0; i < paths.size(); i += kPathStride) {
+        auto info = storage.fileInfo(paths[i]);
+        out << "P " << paths[i] << ' ';
+        if (info)
+            out << hex16(info->cKey) << ' ' << info->fileSize;
+        else
+            out << "-";
+        out << '\n';
+    }
+    std::cout << "dumped " << fdids.size() << " fdids and " << (paths.size() / kPathStride + 1)
+              << " path samples to " << outPath << "\n";
+}
+
+// ---------------------------------------------------------------------------
+// Index verification
+//
+// Order-insensitive correctness check: enumerate() is the ground truth for what
+// the root contains, so every FileDataId and path it reports must resolve, and
+// must resolve to one of the entries actually carrying that key.
+// ---------------------------------------------------------------------------
+
+/// Hammer the read-only query APIs from every thread at once, with all threads
+/// released by the same flag so they collide inside the lazy index build rather
+/// than trickling in one at a time.
+int stressConcurrentQueries(const Storage& storage, int threads, int rounds) {
+    std::vector<std::pair<i32, std::string>> sample;
+    storage.enumerate([&](const EnumerateEntry& e) {
+        if (sample.size() >= 4096)
+            return false;
+        if (e.fileDataId != kInvalidId && !e.path.empty())
+            sample.emplace_back(e.fileDataId, std::string(e.path));
+        return true;
+    });
+    if (sample.empty()) {
+        std::cout << "  no sample entries — skipped\n";
+        return 0;
+    }
+
+    // Nothing is looked up before the fan-out, so the very first findByPath is
+    // itself contended — that is the point. Every thread answers the whole
+    // sample independently and the answers are compared afterwards: a stable
+    // disagreement with enumerate() shows up identically in all of them, while
+    // a race shows up as threads disagreeing with each other.
+    std::atomic<bool> go{false};
+    std::atomic<size_t> queries{0};
+    std::vector<std::vector<std::string>> answers{size_t(threads), {}};
+
+    std::vector<std::thread> ts;
+    ts.reserve(size_t(threads));
+    for (int t = 0; t < threads; ++t) {
+        ts.emplace_back([&, t]() {
+            auto& mine = answers[size_t(t)];
+            mine.reserve(sample.size() * 2);
+            while (!go.load(std::memory_order_acquire))
+                std::this_thread::yield();
+            for (int r = 0; r < rounds; ++r) {
+                for (size_t k = 0; k < sample.size(); ++k) {
+                    auto& [id, path] = sample[k];
+                    auto byId = storage.fileInfo(id);
+                    auto byPath = storage.fileInfo(path);
+                    queries.fetch_add(2, std::memory_order_relaxed);
+                    if (r == 0) {
+                        mine.push_back(byId ? hex16(byId->cKey) : std::string());
+                        mine.push_back(byPath ? hex16(byPath->cKey) : std::string());
+                    }
+                }
+            }
+        });
+    }
+    go.store(true, std::memory_order_release);
+    for (auto& th : ts)
+        th.join();
+
+    size_t divergent = 0;
+    for (size_t t = 1; t < answers.size(); ++t) {
+        for (size_t k = 0; k < answers[0].size() && k < answers[t].size(); ++k) {
+            if (answers[t][k] != answers[0][k])
+                ++divergent;
+        }
+    }
+
+    std::cout << "  " << queries.load() << " concurrent queries across " << threads
+              << " threads, " << divergent << " answers diverged between threads\n";
+    return divergent == 0 ? 0 : 1;
+}
+
+int verifyIndices(const Storage& storage) {
+    std::unordered_map<i32, std::vector<std::string>> byId;
+    std::unordered_map<std::string, std::vector<std::string>> byPath;
+
+    storage.enumerate([&](const EnumerateEntry& e) {
+        if (e.fileDataId != kInvalidId)
+            byId[e.fileDataId].push_back(hex16(e.cKey));
+        if (!e.path.empty())
+            byPath[std::string(e.path)].push_back(hex16(e.cKey));
+        return true;
+    });
+
+    size_t missingId = 0, wrongId = 0, missingPath = 0, wrongPath = 0;
+
+    for (auto& [id, cKeys] : byId) {
+        auto info = storage.fileInfo(id);
+        if (!info) {
+            ++missingId;
+            continue;
+        }
+        if (std::find(cKeys.begin(), cKeys.end(), hex16(info->cKey)) == cKeys.end())
+            ++wrongId;
+    }
+    for (auto& [path, cKeys] : byPath) {
+        auto info = storage.fileInfo(path);
+        if (!info) {
+            ++missingPath;
+            continue;
+        }
+        if (std::find(cKeys.begin(), cKeys.end(), hex16(info->cKey)) == cKeys.end())
+            ++wrongPath;
+    }
+
+    std::cout << "  FileDataIds: " << byId.size() << " checked, " << missingId << " unresolved, "
+              << wrongId << " resolved outside their entry set\n"
+              << "  Paths:       " << byPath.size() << " checked, " << missingPath
+              << " unresolved, " << wrongPath << " resolved outside their entry set\n";
+
+    bool const ok = missingId == 0 && wrongId == 0 && missingPath == 0 && wrongPath == 0;
+    std::cout << (ok ? "  VERIFY OK\n" : "  VERIFY FAILED\n");
+    return ok ? 0 : 1;
+}
+
+// ---------------------------------------------------------------------------
 // End-to-end matrix
 // ---------------------------------------------------------------------------
 
@@ -707,9 +967,17 @@ void runMatrix(const std::string& path, const std::vector<u8>& listfile, int rep
             opts.pool = c.withPool ? pool : nullptr;
             if (c.withListfile)
                 opts.listfile = std::span<const u8>(listfile);
+            auto stepClock = std::make_shared<Clock::time_point>(Clock::now());
             if (traceSteps) {
-                opts.progressCallback = [](ProgressStep s, u32, u32) {
-                    std::cerr << "\n      [step " << int(s) << "]" << std::flush;
+                opts.progressCallback = [stepClock](ProgressStep s, u32, u32) {
+                    static const char* kNames[] = {"buildConfig", "cdnConfig",  "indexFiles",
+                                                   "mapArchives", "encoding",   "root",
+                                                   "ready"};
+                    std::cerr << "\n      " << std::left << std::setw(13)
+                              << kNames[std::min<size_t>(size_t(s), 6)] << std::right
+                              << std::setw(8) << std::fixed << std::setprecision(1)
+                              << msSince(*stepClock) << " ms since previous step" << std::flush;
+                    *stepClock = Clock::now();
                     return true;
                 };
             }
@@ -733,9 +1001,12 @@ int main(int argc, char* argv[]) {
     std::string cascPath;
     std::string listfilePath;
     std::string csvPath;
+    std::string dumpPath;
     int reps = 3;
     int threads = int(std::thread::hardware_concurrency());
     bool doPhases = true, doMatrix = true, doIndexExp = false, traceSteps = false;
+    bool doVerify = false;
+    bool doStress = false;
     long long singleFlags = -1;
     bool singleNoPool = false;
 
@@ -757,6 +1028,12 @@ int main(int argc, char* argv[]) {
             doIndexExp = true;
         else if (a == "--trace-steps")
             traceSteps = true;
+        else if (a == "--dump" && i + 1 < argc)
+            dumpPath = argv[++i];
+        else if (a == "--verify")
+            doVerify = true;
+        else if (a == "--stress")
+            doStress = true;
         else if (a == "--no-phases")
             doPhases = false;
         else if (a == "--no-matrix")
@@ -807,6 +1084,57 @@ int main(int argc, char* argv[]) {
     utils::SimpleThreadPool pool{size_t(threads)};
     Results res;
 
+    if (doVerify) {
+        OpenOptions o;
+        o.path = cascPath;
+        o.pool = &pool;
+        if (!listfile.empty())
+            o.listfile = std::span<const u8>(listfile);
+        auto s = Storage::open(o);
+        if (!s) {
+            std::cerr << "open failed\n";
+            return 1;
+        }
+        std::cout << "\n=== Index verification ===\n";
+        return verifyIndices(*s);
+    }
+
+    if (doStress) {
+        std::cout << "\n=== Concurrency stress ===\n";
+        int failures = 0;
+        for (int round = 0; round < reps; ++round) {
+            OpenOptions o;
+            o.path = cascPath;
+            o.pool = &pool;
+            if (!listfile.empty())
+                o.listfile = std::span<const u8>(listfile);
+            auto s = Storage::open(o);
+            if (!s) {
+                std::cerr << "open failed\n";
+                return 1;
+            }
+            std::cout << "round " << (round + 1) << "/" << reps << ":\n";
+            failures += stressConcurrentQueries(*s, threads, 2);
+        }
+        std::cout << (failures ? "  STRESS FAILED\n" : "  STRESS OK\n");
+        return failures ? 1 : 0;
+    }
+
+    if (!dumpPath.empty()) {
+        OpenOptions o;
+        o.path = cascPath;
+        o.pool = &pool;
+        if (!listfile.empty())
+            o.listfile = std::span<const u8>(listfile);
+        auto s = Storage::open(o);
+        if (!s) {
+            std::cerr << "open failed\n";
+            return 1;
+        }
+        dumpSelection(*s, dumpPath);
+        return 0;
+    }
+
     if (singleFlags >= 0) {
         OpenOptions o;
         o.path = cascPath;
@@ -849,6 +1177,7 @@ int main(int argc, char* argv[]) {
         for (int r = 0; r < reps; ++r) {
             PhaseOpts o;
             o.pool = &pool;
+            o.reportVfsShape = (r == 0);
             instrumentedOpen(paths, o, res, "phases_pool");
         }
         res.print("phases_pool", "Phases — worker pool, no listfile");

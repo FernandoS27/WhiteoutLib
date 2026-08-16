@@ -191,60 +191,84 @@ bool LocalState::mapArchives(std::string* error) {
 // prefetchVfsLocal — parallel resolve using JobGroup
 // ============================================================================
 
+/// Sub-manifests above this encoded size are decoded on the calling thread with
+/// the pool, so their BLTE frames spread across all workers. WoW retail's
+/// sub-manifest sizes are extremely skewed — one is ~140 MB, half of all VFS
+/// bytes, and giving it a single worker sets the makespan for the whole phase.
+static constexpr u32 kVfsFrameParallelBytes = 4u << 20;
+
 std::unordered_map<u64, std::vector<u8>> prefetchVfsLocal(
     const Storage::Impl& impl, const std::vector<std::array<u8, 16>>& vfsEKeys,
     const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey) {
 
     std::unordered_map<u64, std::vector<u8>> vfsCache;
 
-    if (impl.pool && vfsEKeys.size() > 1) {
-        struct SubResult {
-            u64 hash;
-            std::vector<u8> data;
-        };
-        std::vector<SubResult> results(vfsEKeys.size());
-        utils::JobGroup jobGroup;
-        jobGroup.add(vfsEKeys.size());
+    struct SubResult {
+        u64 hash = 0;
+        std::vector<u8> data;
+    };
+    std::vector<SubResult> results(vfsEKeys.size());
 
+    auto resolveOne = [&](size_t i, interfaces::WorkerPool* framePool) {
+        std::array<u8, 16> eKey16{};
+        std::memcpy(eKey16.data(), vfsEKeys[i].data(), std::min(size_t(16), vfsEKeys[i].size()));
+        results[i].hash = keyHash64(eKey16);
+        results[i].data = impl.resolveEKey(eKey16, framePool);
+        if (results[i].data.empty()) {
+            auto cIt = vfsEKeyToCKey.find(results[i].hash);
+            if (cIt != vfsEKeyToCKey.end())
+                results[i].data = impl.resolveCKey(cIt->second, framePool);
+        }
+    };
+
+    if (impl.pool && vfsEKeys.size() > 1) {
+        // Split by encoded size so the few large manifests get frame-level
+        // parallelism instead of competing for one worker each. Every index
+        // lookup happens here, before the first task is submitted.
+        std::vector<u32> encodedSize(vfsEKeys.size(), 0);
+        std::vector<size_t> small;
+        std::vector<size_t> large;
         for (size_t i = 0; i < vfsEKeys.size(); ++i) {
+            auto loc = impl.backend ? impl.backend->findInIndex(eKeyTrunc(vfsEKeys[i]))
+                                    : impl.dataSource->findInIndex(eKeyTrunc(vfsEKeys[i]));
+            encodedSize[i] = loc ? loc->encodedSize : 0;
+            (encodedSize[i] >= kVfsFrameParallelBytes ? large : small).push_back(i);
+        }
+        std::sort(large.begin(), large.end(),
+                  [&](size_t a, size_t b) { return encodedSize[a] > encodedSize[b]; });
+
+        utils::JobGroup jobGroup;
+        jobGroup.add(small.size());
+        for (size_t const i : small) {
             interfaces::WorkerTask task;
             task.fn = [&, i]() {
-                std::array<u8, 16> eKey16{};
-                std::memcpy(eKey16.data(), vfsEKeys[i].data(),
-                            std::min(size_t(16), vfsEKeys[i].size()));
-                results[i].hash = keyHash64(eKey16);
-                results[i].data = impl.resolveEKey(eKey16);
-                if (results[i].data.empty()) {
-                    auto cIt = vfsEKeyToCKey.find(results[i].hash);
-                    if (cIt != vfsEKeyToCKey.end())
-                        results[i].data = impl.resolveCKey(cIt->second);
-                }
+                resolveOne(i, nullptr);
                 jobGroup.done();
             };
             impl.pool->submit(task);
         }
-        jobGroup.wait();
 
-        for (auto& r : results) {
-            if (!r.data.empty())
-                vfsCache.emplace(r.hash, std::move(r.data));
-        }
-    } else {
-        for (auto& ek : vfsEKeys) {
-            std::array<u8, 16> eKey16{};
-            std::memcpy(eKey16.data(), ek.data(), std::min(size_t(16), ek.size()));
-            u64 const h = keyHash64(eKey16);
-            auto data = impl.resolveEKey(eKey16);
-            if (data.empty()) {
-                auto cIt = vfsEKeyToCKey.find(h);
-                if (cIt != vfsEKeyToCKey.end())
-                    data = impl.resolveCKey(cIt->second);
+        // The submitted tasks hold references to jobGroup and results, so the
+        // wait has to happen even if resolving a large manifest throws.
+        struct WaitOnExit {
+            utils::JobGroup& group;
+            ~WaitOnExit() {
+                group.wait();
             }
-            if (!data.empty())
-                vfsCache.emplace(h, std::move(data));
-        }
+        } const waitOnExit{jobGroup};
+
+        // Largest first, on this thread, while the small ones run on the pool.
+        for (size_t const i : large)
+            resolveOne(i, impl.pool);
+    } else {
+        for (size_t i = 0; i < vfsEKeys.size(); ++i)
+            resolveOne(i, nullptr);
     }
 
+    for (auto& r : results) {
+        if (!r.data.empty())
+            vfsCache.emplace(r.hash, std::move(r.data));
+    }
     return vfsCache;
 }
 

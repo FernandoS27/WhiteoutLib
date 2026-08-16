@@ -452,28 +452,35 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
     }
 
     if (!encodingReady) {
-        std::vector<u8> encodingBlte;
-
-        if (!prefetchedEncodingBlte.empty()) {
-            encodingBlte.assign(prefetchedEncodingBlte.begin(), prefetchedEncodingBlte.end());
-        }
+        // The encoding blob is ~180 MB on WoW retail; view it in the mapping
+        // rather than copying it out just to hand it to the decoder.
+        std::vector<u8> encodingOwned;
+        std::span<const u8> encodingBlte = prefetchedEncodingBlte;
 
         if (encodingBlte.empty()) {
             if (backend) {
-                if (auto encLoc = backend->findInIndex(eKeyTrunc(buildConfig.encodingEKey)))
-                    encodingBlte = backend->fetchBlte(*encLoc);
+                if (auto encLoc = backend->findInIndex(eKeyTrunc(buildConfig.encodingEKey))) {
+                    encodingBlte = backend->viewBlte(*encLoc);
+                    if (encodingBlte.empty()) {
+                        encodingOwned = backend->fetchBlte(*encLoc);
+                        encodingBlte = encodingOwned;
+                    }
+                }
             } else {
-                if (auto encLoc = dataSource->findInIndex(eKeyTrunc(buildConfig.encodingEKey)))
-                    encodingBlte = dataSource->fetchBlte(*encLoc);
+                if (auto encLoc = dataSource->findInIndex(eKeyTrunc(buildConfig.encodingEKey))) {
+                    encodingOwned = dataSource->fetchBlte(*encLoc);
+                    encodingBlte = encodingOwned;
+                }
             }
         }
 
         if (encodingBlte.empty()) {
             // Loose-file fallback.
             if (backend)
-                encodingBlte = backend->fetchBlte(buildConfig.encodingEKey);
+                encodingOwned = backend->fetchBlte(buildConfig.encodingEKey);
             else
-                encodingBlte = dataSource->fetchBlte(buildConfig.encodingEKey);
+                encodingOwned = dataSource->fetchBlte(buildConfig.encodingEKey);
+            encodingBlte = encodingOwned;
         }
 
         if (encodingBlte.empty()) {
@@ -536,8 +543,11 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
         auto cacheState = std::make_shared<VfsCacheState>();
         cacheState->map = std::move(vfsCache);
 
+        // The map owns the blobs and only ever grows, and unordered_map keeps
+        // references stable across insertion, so the views handed to the
+        // traversal stay valid without holding the lock.
         VfsResolver const vfsResolver = [cacheState,
-                                         this](std::span<const u8> eKey) -> std::vector<u8> {
+                                         this](std::span<const u8> eKey) -> std::span<const u8> {
             u64 const h = keyHash64(eKey.data());
             {
                 std::lock_guard<std::mutex> const lk(cacheState->mtx);

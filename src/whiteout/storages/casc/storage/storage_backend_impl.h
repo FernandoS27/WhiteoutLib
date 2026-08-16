@@ -59,6 +59,13 @@ public:
         return m_data.fetchBlte(eKey);
     }
 
+    std::span<const u8> viewBlte(const IndexLocation& loc) const override {
+        if constexpr (DataTraits::supportsZeroCopy())
+            return m_data.viewBlte(loc);
+        else
+            return {};
+    }
+
     // ── VFS prefetch ─────────────────────────────────────────────
 
     std::unordered_map<u64, std::vector<u8>> prefetchVfs(

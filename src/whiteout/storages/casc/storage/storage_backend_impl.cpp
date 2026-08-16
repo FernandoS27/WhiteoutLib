@@ -61,11 +61,18 @@ std::vector<u8> StorageBackendImpl<DT, CT>::resolveCKey(std::span<const u8, 16> 
 
     // Index first, then loose-file fallback.
     auto loc = m_data.findInIndex(eKeyTrunc(encEntry->eKey));
-    std::vector<u8> blteData;
+    std::vector<u8> owned;
+    std::span<const u8> blteData;
     if (loc) {
-        blteData = m_data.fetchBlte(*loc);
+        if constexpr (DT::supportsZeroCopy())
+            blteData = m_data.viewBlte(*loc);
+        if (blteData.empty()) {
+            owned = m_data.fetchBlte(*loc);
+            blteData = owned;
+        }
     } else {
-        blteData = m_data.fetchBlte(encEntry->eKey);
+        owned = m_data.fetchBlte(encEntry->eKey);
+        blteData = owned;
     }
     if (blteData.empty())
         return {};
@@ -94,11 +101,18 @@ std::vector<u8> StorageBackendImpl<DT, CT>::resolveEKey(std::span<const u8, 16> 
         return std::move(*cached);
 
     auto loc = m_data.findInIndex(eKeyTrunc(eKey));
-    std::vector<u8> blteData;
+    std::vector<u8> owned;
+    std::span<const u8> blteData;
     if (loc) {
-        blteData = m_data.fetchBlte(*loc);
+        if constexpr (DT::supportsZeroCopy())
+            blteData = m_data.viewBlte(*loc);
+        if (blteData.empty()) {
+            owned = m_data.fetchBlte(*loc);
+            blteData = owned;
+        }
     } else {
-        blteData = m_data.fetchBlte(eKey16);
+        owned = m_data.fetchBlte(eKey16);
+        blteData = owned;
     }
     if (blteData.empty())
         return {};

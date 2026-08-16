@@ -39,34 +39,9 @@ static constexpr u32 kNoChain = UINT32_MAX;
 /// TVFS EKey size. CascLib enforces this; parseHeader rejects anything else.
 static constexpr u32 kTvfsEKeySize = 9;
 
-// ---- FNV-1a string hashing with MurmurHash3 finalizer ----
-
-/// FNV-1a 64-bit hash of a byte range.
-static u64 fnv1a64(const char* data, size_t len) {
-    u64 h = 14695981039346656037ULL;
-    for (size_t i = 0; i < len; ++i) {
-        h ^= static_cast<u64>(static_cast<u8>(data[i]));
-        h *= 1099511628211ULL;
-    }
-    return h;
-}
-
-/// MurmurHash3 64-bit finalizer — mixes bits so low bits are well-distributed
-/// for power-of-2 masking in FlatHashMap.
-static u64 mixBits(u64 h) {
-    h ^= h >> 33;
-    h *= 0xff51afd7ed558ccdULL;
-    h ^= h >> 33;
-    h *= 0xc4ceb9fe1a85ec53ULL;
-    h ^= h >> 33;
-    return h;
-}
-
-/// Hash a path string for use as FlatHashMap key.
-/// Guaranteed non-zero (FlatHashMap uses 0 as empty sentinel).
+/// Hash an already-normalized path for use as a FlatHashMap key.
 static u64 pathHash64(const std::string& s) {
-    u64 const h = mixBits(fnv1a64(s.data(), s.size()));
-    return h == 0 ? 1 : h;
+    return storages::common::cascPathHash64(s);
 }
 
 namespace {
@@ -212,14 +187,18 @@ static void copyKey16(std::array<u8, 16>& dst, const u8* src, u32 srcSize) {
     std::memcpy(dst.data(), src, std::min<u32>(srcSize, 16));
 }
 
+/// Membership test against the VFS sub-manifest EKeys. Every single-span entry
+/// asks this, so on WoW retail a linear scan is 3.2M entries × 864 keys. The
+/// list is sorted by traverseTvfsBlob before any context points at it.
 static bool isVfsSubManifest(const TraversalCtx& ctx, const u8* eKey) {
     if (!ctx.vfsEKeys)
         return false;
-    for (auto& vfsEKey : *ctx.vfsEKeys) {
-        if (std::memcmp(vfsEKey.data(), eKey, ctx.hdr.eKeySize) == 0)
-            return true;
-    }
-    return false;
+    u32 const len = ctx.hdr.eKeySize;
+    auto it = std::lower_bound(ctx.vfsEKeys->begin(), ctx.vfsEKeys->end(), eKey,
+                               [len](const std::array<u8, 16>& a, const u8* k) {
+                                   return std::memcmp(a.data(), k, len) < 0;
+                               });
+    return it != ctx.vfsEKeys->end() && std::memcmp(it->data(), eKey, len) == 0;
 }
 
 /// If a single-span entry resolves to a known VFS sub-manifest, emit a
@@ -512,27 +491,26 @@ static constexpr int kMaxSplitDepth = 32;
 struct ParallelTraverseState {
     const VfsResolver* resolver = nullptr;
     const std::vector<std::array<u8, 16>>* vfsEKeys = nullptr;
-    std::mutex bufMutex;
+    /// One slot per job, each written by exactly one worker and concatenated in
+    /// job order. Entry order decides which variant a FileDataId with several
+    /// locale/content candidates resolves to, so it has to be reproducible —
+    /// collecting buffers as jobs finished made that depend on thread timing.
     std::vector<std::vector<RootEntry>> buffers;
-
-    void emit(std::vector<RootEntry>&& local) {
-        if (local.empty())
-            return;
-        std::lock_guard<std::mutex> const lk(bufMutex);
-        buffers.push_back(std::move(local));
-    }
 };
 
-/// Traverse one (already small-enough) folder subtree fully into a buffer.
-static void traverseSubtreeJob(ParallelTraverseState& st, const SubtreeJob& job) {
+/// Traverse one (already small-enough) folder subtree fully into its slot.
+/// Entries accumulate in a local vector first — the slots are adjacent in one
+/// array, so growing them in place would false-share their control blocks.
+static void traverseSubtreeJob(ParallelTraverseState& st, const SubtreeJob& job, size_t slot) {
     std::vector<RootEntry> local;
     TraversalCtx ctx{job.data, job.hdr, job.cftOffsSize, local, st.resolver, st.vfsEKeys};
     traversePathTree(ctx, job.node, job.nodeEnd, job.accumulated, job.depth);
-    st.emit(std::move(local));
+    st.buffers[slot] = std::move(local);
 }
 
-/// Traverse a small whole sub-manifest blob fully into a buffer.
-static void traverseSmallManifestJob(ParallelTraverseState& st, const SubManifestJob& job) {
+/// Traverse a small whole sub-manifest blob fully into its slot.
+static void traverseSmallManifestJob(ParallelTraverseState& st, const SubManifestJob& job,
+                                     size_t slot) {
     std::vector<RootEntry> local;
     auto subData = (*st.resolver)(std::span<const u8>(job.eKey.data(), kTvfsEKeySize));
     if (!subData.empty()) {
@@ -543,7 +521,7 @@ static void traverseSmallManifestJob(ParallelTraverseState& st, const SubManifes
             parsePathTable(ctx, job.containerPath);
         }
     }
-    st.emit(std::move(local));
+    st.buffers[slot] = std::move(local);
 }
 
 /// Fill @p outEntries by traversing a TVFS blob. Returns true on success.
@@ -572,6 +550,19 @@ bool traverseTvfsBlob(std::span<const u8> data, const VfsResolver* resolver,
 
     u32 const cftOffsSize = getCftOffsSize(hdr.cftTableSize);
 
+    // isVfsSubManifest binary-searches this list, so sort a copy up front and
+    // point every traversal context at it instead of the caller's order.
+    std::vector<std::array<u8, 16>> sortedVfsEKeys;
+    if (vfsEKeys && !vfsEKeys->empty()) {
+        sortedVfsEKeys = *vfsEKeys;
+        u32 const len = hdr.eKeySize;
+        std::sort(sortedVfsEKeys.begin(), sortedVfsEKeys.end(),
+                  [len](const std::array<u8, 16>& a, const std::array<u8, 16>& b) {
+                      return std::memcmp(a.data(), b.data(), len) < 0;
+                  });
+        vfsEKeys = &sortedVfsEKeys;
+    }
+
     // No sub-container resolution, or no pool — single-threaded recursion.
     if (!resolver || !vfsEKeys || !pool) {
         TraversalCtx ctx{data, hdr, cftOffsSize, outEntries, resolver, vfsEKeys};
@@ -583,7 +574,6 @@ bool traverseTvfsBlob(std::span<const u8> data, const VfsResolver* resolver,
     std::vector<SubtreeJob> worklist;           // folders to split or accept
     std::vector<SubtreeJob> readyJobs;          // small-enough subtrees → jobs
     std::vector<SubManifestJob> smallManifests; // whole-blob jobs
-    std::vector<std::vector<u8>> resolvedBlobs; // keeps big sub-manifest data alive
 
     // One-level walk of a blob: emits this level's leaves into outEntries,
     // queues folder children onto the worklist, queues sub-containers as refs.
@@ -625,11 +615,9 @@ bool traverseTvfsBlob(std::span<const u8> data, const VfsResolver* resolver,
                 smallManifests.push_back(std::move(ref));
                 continue;
             }
-            resolvedBlobs.push_back(std::move(blob));
-            // Moving the outer vector relocates the inner vector objects but
-            // not their heap buffers, so the span stays valid for phase 2.
-            seedBlob(resolvedBlobs.back(), subHdr, getCftOffsSize(subHdr.cftTableSize),
-                     ref.containerPath);
+            // The resolver owns the blob for the whole traversal, so the span
+            // stays valid through phase 2.
+            seedBlob(blob, subHdr, getCftOffsSize(subHdr.cftTableSize), ref.containerPath);
         }
         // Split big folders; accept small ones as jobs.
         while (wCursor < worklist.size()) {
@@ -652,21 +640,23 @@ bool traverseTvfsBlob(std::span<const u8> data, const VfsResolver* resolver,
     ParallelTraverseState st;
     st.resolver = resolver;
     st.vfsEKeys = vfsEKeys;
+    st.buffers.resize(readyJobs.size() + smallManifests.size());
     {
         utils::JobGroup jobGroup;
         jobGroup.add(readyJobs.size() + smallManifests.size());
         for (size_t i = 0; i < readyJobs.size(); ++i) {
             interfaces::WorkerTask task;
             task.fn = [&st, &jobGroup, &readyJobs, i]() {
-                traverseSubtreeJob(st, readyJobs[i]);
+                traverseSubtreeJob(st, readyJobs[i], i);
                 jobGroup.done();
             };
             pool->submit(task);
         }
+        size_t const manifestBase = readyJobs.size();
         for (size_t i = 0; i < smallManifests.size(); ++i) {
             interfaces::WorkerTask task;
-            task.fn = [&st, &jobGroup, &smallManifests, i]() {
-                traverseSmallManifestJob(st, smallManifests[i]);
+            task.fn = [&st, &jobGroup, &smallManifests, i, manifestBase]() {
+                traverseSmallManifestJob(st, smallManifests[i], manifestBase + i);
                 jobGroup.done();
             };
             pool->submit(task);
@@ -674,8 +664,7 @@ bool traverseTvfsBlob(std::span<const u8> data, const VfsResolver* resolver,
         jobGroup.wait();
     }
 
-    // Phase 3: concatenate. Entry order is not load-bearing — every consumer
-    // (index build, enumerate, merge) is order-agnostic.
+    // Phase 3: concatenate in job order.
     size_t total = outEntries.size();
     for (auto& buf : st.buffers)
         total += buf.size();
@@ -817,16 +806,16 @@ void TvfsRoot::buildIndices(interfaces::WorkerPool* pool, bool preNormalized) {
 }
 
 void TvfsRoot::ensureTrie() const {
-    if (!m_trie.empty())
-        return;
-    size_t const n = m_entries.size();
-    m_trie.reserve(n / 4);
-    m_trie.emplace_back();
-    for (size_t i = 0; i < n; ++i) {
-        if (!m_entries[i].path.empty())
-            trieInsert(m_trie, m_entries[i].path, static_cast<u32>(i));
-    }
-    trieSortAll(m_trie);
+    std::call_once(m_trieOnce, [this]() {
+        size_t const n = m_entries.size();
+        m_trie.reserve(n / 4);
+        m_trie.emplace_back();
+        for (size_t i = 0; i < n; ++i) {
+            if (!m_entries[i].path.empty())
+                trieInsert(m_trie, m_entries[i].path, static_cast<u32>(i));
+        }
+        trieSortAll(m_trie);
+    });
 }
 
 } // namespace whiteout::storages::casc

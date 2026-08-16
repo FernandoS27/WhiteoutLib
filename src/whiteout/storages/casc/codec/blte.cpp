@@ -51,7 +51,7 @@ static constexpr u8 kRecursive = 'F'; ///< Recursive BLTE container.
 /// Cipher byte inside an encrypted frame's header.
 namespace BlteEncryption {
 static constexpr u8 kSalsa20 = 'S';
-static constexpr u8 kArc4 = 'A'; ///< Never seen in a shipped build.
+[[maybe_unused]] static constexpr u8 kArc4 = 'A'; ///< Never seen in a shipped build.
 } // namespace BlteEncryption
 
 // ============================================================================

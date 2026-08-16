@@ -14,14 +14,15 @@
 /// Internal header — not part of the public include path.
 #pragma once
 
-#include "common/entry_index.h"
+#include "../tables/flat_hash_map.h"
 #include "root.h"
 #include "tvfs_root.h"
 
 #include <memory>
+#include <mutex>
 #include <span>
 #include <string>
-#include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace whiteout::interfaces {
@@ -60,19 +61,37 @@ protected:
     std::vector<RootEntry>& mutableEntries() override;
 
 private:
+    /// Sentinel terminating a path-collision chain.
+    static constexpr u32 kNoPathChain = 0xFFFFFFFFu;
+
     /// The underlying TVFS root we own.
     std::unique_ptr<TvfsRoot> m_tvfs;
 
     /// Enriched entries with parsed locale/content flags and FileDataId.
     std::vector<RootEntry> m_entries;
 
-    /// FileDataId → index into m_entries.
-    EntryIndex<u32> m_byFileDataId;
+    /// (FileDataId, index into m_entries), sorted — binary-searched by findByFileDataId.
+    std::vector<std::pair<u32, u32>> m_byFileDataId;
 
-    /// Normalized path → index into m_entries (only populated when a listfile is provided).
-    EntryIndex<std::string> m_byPath;
+    /// Path index: normalized-path hash → head entry, chained through m_pathChain.
+    /// Built on first path lookup — WoW callers address files by FileDataId, and
+    /// indexing 3M+ paths up front costs more than the whole rest of the open.
+    /// The build is single-threaded; see ensurePathIndex.
+    mutable FlatHashMap<u32> m_byPathHead;
+    mutable std::vector<u32> m_pathChain;
+    mutable std::once_flag m_pathIndexOnce;
 
-    void buildIndex(interfaces::WorkerPool* pool);
+    void buildFileDataIdIndex();
+
+    /// Build the path index now, fanning the hashing out over @p pool. Only safe
+    /// from a thread that is not itself one of that pool's workers; create()
+    /// calls it on the open thread.
+    void buildPathIndex(interfaces::WorkerPool* pool);
+
+    /// Build the path index on the calling thread if it hasn't been built yet.
+    void ensurePathIndex() const;
+
+    void buildPathIndexImpl(interfaces::WorkerPool* pool) const;
 };
 
 } // namespace whiteout::storages::casc

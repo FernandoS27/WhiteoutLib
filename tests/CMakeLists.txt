@@ -142,6 +142,12 @@ if(WHITEOUT_ENABLE_CASC)
     target_link_libraries(casc_open_bench PRIVATE whiteout_casc)
     target_include_directories(casc_open_bench PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+    # Open-then-read benchmark. Public API only, so the same source builds
+    # against an unoptimised tree for A/B comparison.
+    # Usage: casc_read_bench <casc_path> --listfile <path> [--files N] [--reps N]
+    add_executable(casc_read_bench casc_read_bench.cpp)
+    target_link_libraries(casc_read_bench PRIVATE whiteout_casc)
+
     # Online performance cross-reference test — standalone executable with custom main().
     # Benchmarks Storage::openOnline (CDN-backed) read performance.
     # Usage: online_perf_crossref_test <product> [options]

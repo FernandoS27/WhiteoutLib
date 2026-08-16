@@ -12,6 +12,7 @@
 
 #include <array>
 #include <functional>
+#include <mutex>
 #include <span>
 #include <string>
 #include <vector>
@@ -23,8 +24,11 @@ class WorkerPool;
 namespace whiteout::storages::casc {
 
 /// Resolver function for VFS sub-manifest data.
-/// Given an EKey (eKeySize bytes), returns the decoded TVFS blob, or empty on failure.
-using VfsResolver = std::function<std::vector<u8>(std::span<const u8> eKey)>;
+/// Given an EKey (eKeySize bytes), returns a view of the decoded TVFS blob, or
+/// empty on failure. The resolver owns the storage and must keep it alive for
+/// the whole traversal — WoW retail resolves ~280 MB of sub-manifests, half of
+/// it a single blob, so handing back copies dominated the parse.
+using VfsResolver = std::function<std::span<const u8>(std::span<const u8> eKey)>;
 
 class TvfsRoot final : public RootManifest {
 public:
@@ -104,7 +108,10 @@ private:
     std::vector<u32> m_chainNext; ///< Parallel to m_entries; links same-hash entries.
 
     /// Flat-array trie for prefix enumeration (lazy-built on first use).
+    /// enumerateUnder() is const and callable from several threads at once, so
+    /// the build has to be gated rather than guessed at from m_trie's state.
     mutable std::vector<PathTrieNode> m_trie;
+    mutable std::once_flag m_trieOnce;
 
     void buildIndices(interfaces::WorkerPool* pool = nullptr, bool preNormalized = false);
     void ensureTrie() const;

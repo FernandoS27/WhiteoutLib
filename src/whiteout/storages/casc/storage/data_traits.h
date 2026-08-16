@@ -61,6 +61,22 @@ struct LocalDataTraits {
         return dataSource->readBlteFromIndex(entry);
     }
 
+    static constexpr bool supportsZeroCopy() noexcept {
+        return true;
+    }
+
+    /// View a located blob directly in the mapping — the decoder reads it in
+    /// place instead of copying it out first (the encoding table alone is
+    /// ~180 MB). Valid for as long as the archives stay mapped.
+    std::span<const u8> viewBlte(const IndexLocation& loc) const {
+        IndexEntry entry{};
+        entry.archiveIndex = loc.archiveIndex;
+        entry.archiveOffset = static_cast<u32>(loc.offset);
+        entry.encodedSize = loc.encodedSize;
+        entry.directBLTE = loc.directBLTE;
+        return dataSource->readBlteFromIndex(entry);
+    }
+
     /// Batch Phase 1: parallel mmap reads via WorkerPool.
     void resolveBatchPhase1(const EncodingTable& encoding, std::span<ResolveWork> work,
                             std::span<ResolvedBlob> blobs, interfaces::WorkerPool* pool) const;
@@ -97,6 +113,14 @@ struct OnlineDataTraits {
 
     std::vector<u8> fetchBlte(const std::array<u8, 16>& eKey) const {
         return static_cast<DataSource*>(dataSource)->fetchBlte(eKey);
+    }
+
+    /// CDN blobs arrive over HTTP, so there is nothing to view in place.
+    static constexpr bool supportsZeroCopy() noexcept {
+        return false;
+    }
+    std::span<const u8> viewBlte(const IndexLocation&) const {
+        return {};
     }
 
     /// Batch Phase 1: async HTTP fetch + WaitState.

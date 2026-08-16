@@ -92,6 +92,10 @@ public:
     /// Fetch BLTE-encoded data for the given EKey (loose file).
     virtual std::vector<u8> fetchBlte(const std::array<u8, 16>& eKey) const = 0;
 
+    /// View BLTE-encoded data in place, or empty if this backend cannot (online).
+    /// Local views stay valid for as long as the archives are mapped.
+    virtual std::span<const u8> viewBlte(const IndexLocation& loc) const = 0;
+
     // ── VFS prefetch ─────────────────────────────────────────────
 
     /// Parallel-resolve VFS sub-manifests (dispatch to local/online path).

@@ -16,6 +16,10 @@
 #include <utility>
 #include <vector>
 
+#if defined(_MSC_VER) && !defined(__clang__) && (defined(_M_X64) || defined(_M_IX86))
+#include <xmmintrin.h>
+#endif
+
 namespace whiteout::storages::casc {
 
 /// Open-addressing hash map with u64 keys and fixed-type values.
@@ -113,6 +117,23 @@ public:
 
     size_t size() const {
         return m_size;
+    }
+
+    /// Warm the cache line that a later find/emplace of @p key will touch.
+    /// Bulk builds are DRAM-latency bound — the archive index alone inserts
+    /// 4.7 M keys into a ~320 MB table — so issuing this a few iterations ahead
+    /// of the insert hides most of the miss.
+    void prefetch(u64 key) const {
+        if (m_buckets.empty())
+            return;
+        const void* p = &m_buckets[key & m_mask];
+#if defined(__GNUC__) || defined(__clang__)
+        __builtin_prefetch(p, 1, 1);
+#elif defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
+        _mm_prefetch(static_cast<const char*>(p), _MM_HINT_T0);
+#else
+        (void)p;
+#endif
     }
 
     /// Iterate over all entries. Callback signature: void(u64 key, const Value& value).

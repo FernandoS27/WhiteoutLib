@@ -667,9 +667,20 @@ void IndexTable::loadArchiveIndices(const std::string& dataDir,
             totalNew += entries.size();
         m_entries.reserve(m_entries.size() + totalNew);
 
-        for (auto& entries : perFileEntries)
-            for (auto& e : entries)
-                m_entries.emplace(eKeyHash(std::span(e.eKey.data(), 9)), e);
+        // The table is far larger than cache, so every insert is a DRAM miss.
+        // Reserving up front rules out a rehash, which makes it safe to warm
+        // the bucket a few entries ahead of where the loop is writing.
+        constexpr size_t kPrefetchDistance = 12;
+        for (auto& entries : perFileEntries) {
+            size_t const n = entries.size();
+            for (size_t i = 0; i < n; ++i) {
+                if (i + kPrefetchDistance < n) {
+                    m_entries.prefetch(
+                        eKeyHash(std::span(entries[i + kPrefetchDistance].eKey.data(), 9)));
+                }
+                m_entries.emplace(eKeyHash(std::span(entries[i].eKey.data(), 9)), entries[i]);
+            }
+        }
     } else {
         // Sequential parse.
         for (auto& job : jobs) {

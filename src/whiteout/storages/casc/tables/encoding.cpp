@@ -252,6 +252,17 @@ private:
     std::unordered_map<u32, std::list<u32>::iterator> m_lruIters;
 };
 
+/// Upper bound on entries in one CKey page. parseCKeyPageInto advances its
+/// cursor by at least keyCount(1) + fileSize(5) + cKey + eKey per entry, with
+/// keyCount >= 1, so a page can never yield more than this. The lazy reserve
+/// below depends on the bound holding: find*() hands out pointers into
+/// m_entries that callers keep after dropping the lock, so a page faulted in on
+/// another thread must never reallocate the vector.
+size_t maxEntriesPerCKeyPage(size_t pageSize, u8 cKeySize, u8 eKeySize) {
+    size_t const stride = 6u + size_t(cKeySize) + size_t(eKeySize);
+    return pageSize / stride;
+}
+
 } // namespace
 
 // pimpl so the table stays moveable despite the once_flag array + mutex.
@@ -487,9 +498,11 @@ EncodingTable EncodingTable::openLazy(std::span<const u8> data, interfaces::Work
 
     // Reserve so lazy push_backs never reallocate — keeps returned
     // Entry* stable across concurrent page faults.
-    size_t const estimatedEntries = size_t(state->cKeyPageCount) * (state->cKeyPageSize / 38);
-    table.m_entries.reserve(estimatedEntries);
-    table.m_cKeyIndex.reserve(estimatedEntries);
+    size_t const maxEntries =
+        size_t(state->cKeyPageCount) *
+        maxEntriesPerCKeyPage(state->cKeyPageSize, state->cKeySize, state->eKeySize);
+    table.m_entries.reserve(maxEntries);
+    table.m_cKeyIndex.reserve(maxEntries);
     table.m_lazy = std::move(state);
     return table;
 }
@@ -506,9 +519,11 @@ EncodingTable EncodingTable::openLazyOnline(CdnFetcher* fetcher, const std::stri
                                       fetcher, archiveKeyHex, archiveOffset, encodedSize, keys)))
         return table;
 
-    size_t const estimatedEntries = size_t(state->cKeyPageCount) * (state->cKeyPageSize / 38);
-    table.m_entries.reserve(estimatedEntries);
-    table.m_cKeyIndex.reserve(estimatedEntries);
+    size_t const maxEntries =
+        size_t(state->cKeyPageCount) *
+        maxEntriesPerCKeyPage(state->cKeyPageSize, state->cKeySize, state->eKeySize);
+    table.m_entries.reserve(maxEntries);
+    table.m_cKeyIndex.reserve(maxEntries);
     table.m_lazy = std::move(state);
     return table;
 }
