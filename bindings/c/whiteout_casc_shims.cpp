@@ -11,6 +11,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <utility>
 #include <vector>
@@ -19,13 +20,47 @@
 #include <whiteout/storages/casc/types.h>
 
 #include "whiteout_c_common.h"
+#include "whiteout_casc_progress.h"
 
 namespace {
 using whiteout::storages::casc::BatchReadRequest;
 using whiteout::storages::casc::BatchReadResult;
 using whiteout::storages::casc::FileIdHint;
 using whiteout::storages::casc::OnlineOpenOptions;
+using whiteout::storages::casc::OpenOptions;
+using whiteout::storages::casc::ProgressCallback;
+using whiteout::storages::casc::ProgressInfo;
 using whiteout::storages::casc::Storage;
+
+/// Adapts the C++ callback to the C function pointer. `object` is a
+/// string_view on the C++ side, so it is copied into a bounded buffer to get
+/// the NUL terminator a C caller expects; names are keys and filenames, so the
+/// truncation limit is never reached in practice.
+ProgressCallback wrapProgress(whiteout_casc_progress_fn progress, void* user) {
+    if (progress == nullptr) return nullptr;
+    return [progress, user](const ProgressInfo& info) {
+        char objectBuf[192];
+        size_t const n = info.object.size() < sizeof(objectBuf) - 1 ? info.object.size()
+                                                                    : sizeof(objectBuf) - 1;
+        if (n > 0) std::memcpy(objectBuf, info.object.data(), n);
+        objectBuf[n] = '\0';
+
+        whiteout_casc_ProgressInfo cInfo{};
+        cInfo.size = uint32_t(sizeof(cInfo));
+        cInfo.step = int32_t(info.step);
+        cInfo.state = int32_t(info.state);
+        cInfo.object = objectBuf;
+        cInfo.current = info.current;
+        cInfo.total = info.total;
+        cInfo.bytesDone = info.bytesDone;
+        cInfo.bytesTotal = info.bytesTotal;
+        cInfo.stepIndex = info.stepIndex;
+        cInfo.stepCount = info.stepCount;
+        cInfo.elapsedMs = info.elapsedMs;
+        cInfo.overallFraction = info.overallFraction();
+        return progress(user, &cInfo) != 0;
+    };
+}
 }  // namespace
 
 extern "C" {
@@ -34,7 +69,8 @@ extern "C" {
 //
 // `OnlineOpenOptions` mixes an interface pointer, a `std::function` progress
 // callback and nested value objects, none of which the codegen marshals as a
-// param struct. The progress callback is left null.
+// param struct. The progress callback is left null here — see
+// whiteout_casc_shim_openOnlineWithProgress for the reporting variant.
 
 void* whiteout_casc_shim_openOnline(const char* product, const char* region,
                                     const char* buildKey, void* httpHandle,
@@ -52,6 +88,58 @@ void* whiteout_casc_shim_openOnline(const char* product, const char* region,
     auto storage = Storage::openOnline(opts);
     if (!storage) return nullptr;
     return new Storage(std::move(*storage));
+}
+
+// ── progress ───────────────────────────────────────────────────────────────
+
+const char* whiteout_casc_shim_progressStepName(int32_t step) {
+    return whiteout::storages::casc::progressStepName(
+        static_cast<whiteout::storages::casc::ProgressStep>(step));
+}
+
+void* whiteout_casc_shim_openWithProgress(const char* path, const char* product,
+                                          uint32_t localeMask, uint32_t flags,
+                                          whiteout_casc_progress_fn progress, void* user,
+                                          void* poolHandle) {
+    OpenOptions opts;
+    opts.path = path != nullptr ? path : "";
+    if (product != nullptr && *product != '\0') opts.product = product;
+    opts.localeMask = localeMask;
+    opts.flags = flags;
+    opts.progressCallback = wrapProgress(progress, user);
+    opts.pool = reinterpret_cast<whiteout::interfaces::WorkerPool*>(poolHandle);
+
+    auto storage = Storage::open(opts);
+    if (!storage) return nullptr;
+    return new Storage(std::move(*storage));
+}
+
+void* whiteout_casc_shim_openOnlineWithProgress(const char* product, const char* region,
+                                                const char* buildKey, void* httpHandle,
+                                                const char* cacheDir, uint32_t localeMask,
+                                                uint32_t flags,
+                                                whiteout_casc_progress_fn progress, void* user,
+                                                void* poolHandle) {
+    OnlineOpenOptions opts;
+    opts.product = product != nullptr ? product : "";
+    if (region != nullptr && *region != '\0') opts.region = region;
+    if (buildKey != nullptr && *buildKey != '\0') opts.buildKey = buildKey;
+    opts.http = reinterpret_cast<whiteout::interfaces::HttpHandler*>(httpHandle);
+    if (cacheDir != nullptr && *cacheDir != '\0') opts.cacheDir = cacheDir;
+    opts.localeMask = localeMask;
+    opts.flags = flags;
+    opts.progressCallback = wrapProgress(progress, user);
+    opts.pool = reinterpret_cast<whiteout::interfaces::WorkerPool*>(poolHandle);
+
+    auto storage = Storage::openOnline(opts);
+    if (!storage) return nullptr;
+    return new Storage(std::move(*storage));
+}
+
+void whiteout_casc_shim_setProgressCallback(void* self, whiteout_casc_progress_fn progress,
+                                            void* user) {
+    if (self == nullptr) return;
+    reinterpret_cast<Storage*>(self)->setProgressCallback(wrapProgress(progress, user));
 }
 
 // ── readBatch ──────────────────────────────────────────────────────────────

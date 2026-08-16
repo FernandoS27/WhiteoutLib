@@ -674,6 +674,7 @@ if(WHITEOUT_ENABLE_CASC)
         src/whiteout/storages/casc/roots/ow_root.cpp
         src/whiteout/storages/casc/roots/s1_root.cpp
         src/whiteout/storages/casc/roots/install_root.cpp
+        src/whiteout/storages/casc/storage/progress_reporter.cpp
         src/whiteout/storages/casc/storage/storage_backend_impl.cpp
         src/whiteout/storages/casc/storage/storage_core.cpp
         src/whiteout/storages/casc/storage/storage_local.cpp

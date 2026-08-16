@@ -70,8 +70,9 @@ public:
 
     std::unordered_map<u64, std::vector<u8>> prefetchVfs(
         const Storage::Impl& impl, const std::vector<std::array<u8, 16>>& vfsEKeys,
-        const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey) const override {
-        return m_data.prefetchVfs(impl, vfsEKeys, vfsEKeyToCKey);
+        const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey,
+        const ProgressSink* sink) const override {
+        return m_data.prefetchVfs(impl, vfsEKeys, vfsEKeyToCKey, sink);
     }
 
     // ── Cache management ─────────────────────────────────────────

@@ -40,6 +40,31 @@ using storages::common::normalizeCascPath;
 // Product-based TVFS decorator classification
 // ============================================================================
 
+/// Root format as a progress-event object name.
+static std::string_view rootFormatName(RootFormat format) {
+    switch (format) {
+    case RootFormat::Wow:
+        return "WoW";
+    case RootFormat::WowTvfs:
+        return "WoW TVFS";
+    case RootFormat::Diablo3:
+        return "Diablo III";
+    case RootFormat::Diablo4:
+        return "Diablo IV";
+    case RootFormat::Tvfs:
+        return "TVFS";
+    case RootFormat::Mndx:
+        return "MNDX";
+    case RootFormat::Overwatch:
+        return "Overwatch";
+    case RootFormat::Agent:
+        return "Agent";
+    case RootFormat::Unknown:
+        break;
+    }
+    return "ROOT";
+}
+
 /// Which decorator to apply on top of a plain TvfsRoot.
 enum class TvfsDecorator : u8 {
     None,    ///< Plain TVFS (WC3 Reforged, etc.)
@@ -429,7 +454,15 @@ std::optional<FileFullInfo> Storage::Impl::fileInfoResolved(
 bool Storage::Impl::ensureLoaded() const {
     if (!deferMode)
         return true;
-    std::call_once(deferOnce, [this]() { deferLoadOk = loadEncodingAndRoot(); });
+    std::call_once(deferOnce, [this]() {
+        // The work open() deferred is its own operation as far as a UI is
+        // concerned: fresh plan, fresh clock, its own Ready.
+        progress->restart({ProgressStep::LoadingEncodingTable, ProgressStep::LoadingVfsManifests,
+                           ProgressStep::LoadingRootManifest});
+        deferLoadOk = loadEncodingAndRoot();
+        if (deferLoadOk)
+            progress->ready();
+    });
     return deferLoadOk;
 }
 
@@ -438,6 +471,17 @@ bool Storage::Impl::ensureLoaded() const {
 // ============================================================================
 
 bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBlte) const {
+    ProgressReporter& report = *progress;
+    auto cancelledOut = [&]() {
+        if (!report.cancelled())
+            return false;
+        s_lastError = CascError::Cancelled;
+        return true;
+    };
+
+    if (!report.begin(ProgressStep::LoadingEncodingTable, "ENCODING") && cancelledOut())
+        return false;
+
     // Try the online + LazyEncodingFrames fast path first: range-fetch
     // header/TOC, decode pages on demand. Drops first-read encoding bandwidth
     // from ~50–200 MB to ~few MB.
@@ -514,6 +558,9 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
         s_lastError = kEncodingDecodeFailed;
         return false;
     }
+    report.end(encodingTable.entryCount(), "ENCODING");
+    if (cancelledOut())
+        return false;
 
     // Step 2: Resolve root manifest.
     CKeyResolver const ckeyResolver = [this](std::span<const u8, 16> cKey) -> std::vector<u8> {
@@ -521,6 +568,8 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
     };
 
     bool const hasVfs = !isZeroKey(buildConfig.vfsRootCKey);
+    if (!hasVfs)
+        report.dropStep(ProgressStep::LoadingVfsManifests);
     if (hasVfs) {
         std::vector<std::array<u8, 16>> vfsEKeys;
         std::unordered_map<u64, std::array<u8, 16>> vfsEKeyToCKey;
@@ -535,14 +584,21 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
         // every sub-manifest regardless of LazyVfsSubmanifest, so skipping the
         // parallel prefetch only forces slow serial resolution inside the
         // single-threaded traversal — WoW retail has ~870 sub-manifests.
+        if (!report.begin(ProgressStep::LoadingVfsManifests, {}, vfsEKeys.size()) && cancelledOut())
+            return false;
+        const ProgressSink* vfsSink = report.sink();
+
         std::unordered_map<u64, std::vector<u8>> vfsCache;
         if (backend) {
-            vfsCache = backend->prefetchVfs(*this, vfsEKeys, vfsEKeyToCKey);
+            vfsCache = backend->prefetchVfs(*this, vfsEKeys, vfsEKeyToCKey, vfsSink);
         } else if (isLocal()) {
-            vfsCache = prefetchVfsLocal(*this, vfsEKeys, vfsEKeyToCKey);
+            vfsCache = prefetchVfsLocal(*this, vfsEKeys, vfsEKeyToCKey, vfsSink);
         } else if (isOnline()) {
-            vfsCache = prefetchVfsOnline(*this, vfsEKeys, vfsEKeyToCKey);
+            vfsCache = prefetchVfsOnline(*this, vfsEKeys, vfsEKeyToCKey, vfsSink);
         }
+        report.end();
+        if (cancelledOut())
+            return false;
 
         // TvfsRoot::parse may resolve sub-manifests on the worker pool, so
         // the fault-in path needs a lock.
@@ -577,6 +633,9 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
             return it->second;
         };
 
+        if (!report.begin(ProgressStep::LoadingRootManifest, "TVFS") && cancelledOut())
+            return false;
+
         auto vfsData = resolveCKey(buildConfig.vfsRootCKey, pool);
         if (!vfsData.empty()) {
             auto hint = classifyTvfsProduct(buildConfig);
@@ -595,6 +654,9 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
     }
 
     if (!root) {
+        if (!report.begin(ProgressStep::LoadingRootManifest, "ROOT") && cancelledOut())
+            return false;
+
         auto rootData = resolveCKey(buildConfig.rootCKey);
         if (rootData.empty()) {
             s_lastError = kRootNotFound;
@@ -657,6 +719,9 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
         s_lastError = kRootParseFailed;
         return false;
     }
+    report.end(root->entryCount(), rootFormatName(root->format()));
+    if (cancelledOut())
+        return false;
 
     // Pre-resolve fileSize + build orphan bitvector. Skipped in lazy mode —
     // fileInfo/fileSize fall back to findByCKey, enumerate() calls
@@ -1638,23 +1703,42 @@ bool Storage::prefetch() {
 
     std::shared_lock const lock(m_impl->mutex);
 
+    ProgressReporter& report = *m_impl->progress;
+    report.restart({ProgressStep::LoadingIndexFiles, ProgressStep::LoadingArchiveIndexes,
+                    ProgressStep::LoadingEncodingTable});
+
     if (m_impl->localState) {
+        report.begin(ProgressStep::LoadingIndexFiles);
         m_impl->localState->indexTable.ensureAllBucketsLoaded();
         m_impl->localState->indexTable.ensureAllArchivesLoaded();
+        report.end();
     }
     if (m_impl->onlineState) {
-        m_impl->onlineState->onlineIndex.ensureAllLoaded();
+        report.begin(ProgressStep::LoadingArchiveIndexes);
+        m_impl->onlineState->onlineIndex.ensureAllLoaded(report.sink());
+        report.end();
     }
 
+    report.begin(ProgressStep::LoadingEncodingTable, "ENCODING");
     m_impl->encodingTable.ensureFullyParsed();
     m_impl->ensureEncodingReferenced();
+    report.end(m_impl->encodingTable.entryCount());
 
     // Force the WoW root's lazy name-hash index too, when present.
     if (m_impl->root && m_impl->root->format() == RootFormat::Wow) {
         static_cast<WowRoot*>(m_impl->root.get())->ensureFullyIndexed();
     }
 
+    report.ready();
     return true;
+}
+
+void Storage::setProgressCallback(ProgressCallback callback) {
+    if (!m_impl)
+        return;
+    std::unique_lock const lock(m_impl->mutex);
+    m_impl->progress = std::make_unique<ProgressReporter>(std::move(callback),
+                                                          std::vector<ProgressStep>{});
 }
 
 u32 Storage::lastError() noexcept {

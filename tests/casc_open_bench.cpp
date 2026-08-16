@@ -948,7 +948,7 @@ struct MatrixCase {
 };
 
 void runMatrix(const std::string& path, const std::vector<u8>& listfile, int reps,
-               interfaces::WorkerPool* pool, bool traceSteps, Results& res) {
+               interfaces::WorkerPool* pool, bool traceSteps, bool countProgress, Results& res) {
     std::vector<MatrixCase> cases = {
         {"baseline (no pool, no listfile)", StorageFeatureFlags::None, false, false},
         {"pool, no listfile", StorageFeatureFlags::None, false, true},
@@ -989,15 +989,31 @@ void runMatrix(const std::string& path, const std::vector<u8>& listfile, int rep
             if (c.withListfile)
                 opts.listfile = std::span<const u8>(listfile);
             auto stepClock = std::make_shared<Clock::time_point>(Clock::now());
+            // Measures what the instrumentation itself costs: a callback that
+            // does nothing but count, so the delta against a run without one is
+            // the reporting overhead.
+            auto eventCount = std::make_shared<std::atomic<u64>>(0);
+            if (countProgress) {
+                opts.progressCallback = [eventCount](const ProgressInfo&) {
+                    eventCount->fetch_add(1, std::memory_order_relaxed);
+                    return true;
+                };
+            }
             if (traceSteps) {
-                opts.progressCallback = [stepClock](ProgressStep s, u32, u32) {
-                    static const char* kNames[] = {"buildConfig", "cdnConfig",  "indexFiles",
-                                                   "mapArchives", "encoding",   "root",
-                                                   "ready"};
-                    std::cerr << "\n      " << std::left << std::setw(13)
-                              << kNames[std::min<size_t>(size_t(s), 6)] << std::right
-                              << std::setw(8) << std::fixed << std::setprecision(1)
-                              << msSince(*stepClock) << " ms since previous step" << std::flush;
+                opts.progressCallback = [stepClock](const ProgressInfo& info) {
+                    // Step timings come from the End events; Update samples only
+                    // move the counters within a step.
+                    if (info.state == ProgressState::Update)
+                        return true;
+                    if (info.state == ProgressState::Begin)
+                        return true;
+                    std::cerr << "\n      " << std::left << std::setw(24)
+                              << progressStepName(info.step) << std::right << std::setw(8)
+                              << std::fixed << std::setprecision(1) << msSince(*stepClock)
+                              << " ms";
+                    if (info.total > 0)
+                        std::cerr << "  (" << info.current << "/" << info.total << ")";
+                    std::cerr << std::flush;
                     *stepClock = Clock::now();
                     return true;
                 };
@@ -1009,8 +1025,10 @@ void runMatrix(const std::string& path, const std::vector<u8>& listfile, int rep
                 std::cout << "  -> FAILED\n";
                 break;
             }
-            std::cout << "  -> " << std::fixed << std::setprecision(1) << ms << " ms\n"
-                      << std::flush;
+            std::cout << "  -> " << std::fixed << std::setprecision(1) << ms << " ms";
+            if (countProgress)
+                std::cout << "  (" << eventCount->load() << " progress events)";
+            std::cout << "\n" << std::flush;
             res.add("matrix", c.name, ms, 0, 0);
         }
     }
@@ -1026,6 +1044,7 @@ int main(int argc, char* argv[]) {
     int reps = 3;
     int threads = int(std::thread::hardware_concurrency());
     bool doPhases = true, doMatrix = true, doIndexExp = false, traceSteps = false;
+    bool countProgress = false;
     bool doVerify = false;
     bool doStress = false;
     long long singleFlags = -1;
@@ -1049,6 +1068,8 @@ int main(int argc, char* argv[]) {
             doIndexExp = true;
         else if (a == "--trace-steps")
             traceSteps = true;
+        else if (a == "--progress-cost")
+            countProgress = true;
         else if (a == "--dump" && i + 1 < argc)
             dumpPath = argv[++i];
         else if (a == "--verify")
@@ -1070,7 +1091,8 @@ int main(int argc, char* argv[]) {
                       << "  --index-experiment  compare root index-build strategies\n"
                       << "  --single <flags>    run one open with the given feature flags\n"
                       << "  --nopool            with --single: open without a worker pool\n"
-                      << "  --trace-steps       print each ProgressStep during open\n";
+                      << "  --trace-steps       print each ProgressStep during open\n"
+                      << "  --progress-cost     attach a counting no-op progress callback\n";
             return 0;
         } else if (cascPath.empty())
             cascPath = a;
@@ -1221,7 +1243,7 @@ int main(int argc, char* argv[]) {
 
     if (doMatrix) {
         std::cout << "\n=== End-to-end Storage::open matrix ===\n";
-        runMatrix(cascPath, listfile, reps, &pool, traceSteps, res);
+        runMatrix(cascPath, listfile, reps, &pool, traceSteps, countProgress, res);
         res.print("matrix", "Storage::open — end to end");
     }
 

@@ -16,6 +16,7 @@
 #include <utility>
 #include <vector>
 
+#include "../progress_sink.h"
 #include "flat_hash_map.h"
 
 namespace whiteout::storages::casc {
@@ -38,11 +39,14 @@ public:
     IndexTable& operator=(const IndexTable&) = delete;
 
     /// Eagerly parse every .idx in the Data dir.
-    static IndexTable load(const std::string& dataDir, interfaces::WorkerPool* pool = nullptr);
+    /// @param sink Optional per-file progress; null for no reporting.
+    static IndexTable load(const std::string& dataDir, interfaces::WorkerPool* pool = nullptr,
+                           const ProgressSink* sink = nullptr);
 
     /// Discover .idx files but defer parsing each bucket until find() needs it.
     static IndexTable loadLazyBuckets(const std::string& dataDir,
-                                      interfaces::WorkerPool* pool = nullptr);
+                                      interfaces::WorkerPool* pool = nullptr,
+                                      const ProgressSink* sink = nullptr);
 
     void ensureAllBucketsLoaded() const;
 

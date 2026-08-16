@@ -161,25 +161,120 @@ enum class FileIdHint : u8 {
 // Progress Callback
 // ============================================================================
 
-/// Progress step identifiers.
+/// Stage of the open sequence an event belongs to.
 enum class ProgressStep : u8 {
-    LoadingBuildConfig,
-    LoadingCdnConfig,
-    LoadingIndexFiles,
-    MappingArchives,
-    LoadingEncodingTable,
-    LoadingRootManifest,
-    Ready,
+    ResolvingVersion,      ///< Online: versions/cdns endpoint lookup.
+    LoadingBuildConfig,    ///< Build config (fetch or disk read + parse).
+    LoadingCdnConfig,      ///< CDN config (fetch or disk read + parse).
+    LoadingIndexFiles,     ///< Local `.idx` bucket files.
+    MappingArchives,       ///< Local `data.NNN` archives being memory-mapped.
+    LoadingArchiveIndexes, ///< Online: per-archive `.index` fetches.
+    LoadingEncodingTable,  ///< ENCODING manifest decode + parse.
+    LoadingVfsManifests,   ///< TVFS sub-manifests (~870 on WoW retail).
+    LoadingRootManifest,   ///< ROOT manifest decode + parse (listfile enrichment included).
+    Ready,                 ///< Storage is usable. Always the final event.
+};
+
+/// Stable, English, UI-ready label for a step. Callers that localise should
+/// switch on the enum instead.
+inline const char* progressStepName(ProgressStep step) noexcept {
+    switch (step) {
+    case ProgressStep::ResolvingVersion:
+        return "Resolving version";
+    case ProgressStep::LoadingBuildConfig:
+        return "Loading build config";
+    case ProgressStep::LoadingCdnConfig:
+        return "Loading CDN config";
+    case ProgressStep::LoadingIndexFiles:
+        return "Loading index files";
+    case ProgressStep::MappingArchives:
+        return "Mapping archives";
+    case ProgressStep::LoadingArchiveIndexes:
+        return "Loading archive indexes";
+    case ProgressStep::LoadingEncodingTable:
+        return "Loading encoding table";
+    case ProgressStep::LoadingVfsManifests:
+        return "Loading VFS manifests";
+    case ProgressStep::LoadingRootManifest:
+        return "Loading root manifest";
+    case ProgressStep::Ready:
+        return "Ready";
+    }
+    return "Unknown";
+}
+
+/// Position of an event within its step's lifetime.
+enum class ProgressState : u8 {
+    Begin,  ///< The step is starting. Always paired with an End.
+    Update, ///< Item/byte counters advanced. Throttled — samples may be dropped.
+    End,    ///< The step finished; `current`/`total` hold the final tally.
 };
 
 /**
- * @brief Callback for open/save progress reporting.
- * @param step    Current progress step.
- * @param current Items processed so far.
- * @param total   Total items (0 if unknown).
- * @return false to cancel the operation.
+ * @brief A single progress event.
+ *
+ * Every field except `step`/`state` is optional: a step that cannot count its
+ * work leaves the counters at zero. `stepIndex`/`stepCount` describe the whole
+ * open, so a UI can draw one honest bar without guessing how many phases are
+ * left.
  */
-using ProgressCallback = std::function<bool(ProgressStep step, u32 current, u32 total)>;
+struct ProgressInfo {
+    ProgressStep step = ProgressStep::Ready;
+    ProgressState state = ProgressState::Begin;
+
+    /// Name of the thing being worked on — an archive key, a `.idx` filename,
+    /// "ENCODING", a URL. A view into caller-owned memory: valid only for the
+    /// duration of the callback, never retain it.
+    std::string_view object;
+
+    u64 current = 0; ///< Items processed in this step.
+    u64 total = 0;   ///< Items in this step (0 = unknown).
+
+    u64 bytesDone = 0;  ///< Bytes transferred/decoded in this step (0 = untracked).
+    u64 bytesTotal = 0; ///< Expected bytes for this step (0 = unknown).
+
+    u32 stepIndex = 0; ///< Position of `step` in the planned sequence.
+    u32 stepCount = 0; ///< Steps planned for this open (0 = unknown).
+
+    double elapsedMs = 0.0; ///< Milliseconds since the operation started.
+
+    /// Completion of the current step in [0,1]; 0 when it reports no counts.
+    double stepFraction() const noexcept {
+        if (state == ProgressState::End)
+            return 1.0;
+        if (total != 0)
+            return double(current) / double(total);
+        if (bytesTotal != 0)
+            return double(bytesDone) / double(bytesTotal);
+        return 0.0;
+    }
+
+    /// Completion of the whole operation in [0,1]. Monotonic, but advances in
+    /// jumps when a planned step turns out not to run (no VFS root, no
+    /// listfile), because skipped steps are never begun.
+    double overallFraction() const noexcept {
+        if (stepCount == 0)
+            return 0.0;
+        double const done = double(stepIndex) + stepFraction();
+        double const f = done / double(stepCount);
+        return f < 0.0 ? 0.0 : (f > 1.0 ? 1.0 : f);
+    }
+};
+
+/**
+ * @brief Callback for open progress reporting.
+ *
+ * Invoked from whichever thread is doing the work — that includes worker-pool
+ * threads during the parallel index and manifest phases — but never
+ * concurrently: the reporter serialises delivery. It also never makes a worker
+ * wait, so a slow callback costs dropped `Update` samples rather than
+ * throughput. `Begin`, `End` and `Ready` are always delivered.
+ *
+ * @return false to cancel the operation. The open then fails with
+ *         CascError::Cancelled; already-started parallel work is allowed to
+ *         drain first.
+ */
+using ProgressCallback = std::function<bool(const ProgressInfo& info)>;
 
 // ============================================================================
 // Query Structs
@@ -406,6 +501,7 @@ static constexpr u32 RemoteFileNotFound = 0x12;
 static constexpr u32 VersionInfoNotFound = 0x13;
 static constexpr u32 CdnInfoNotFound = 0x14;
 static constexpr u32 NoHttpHandler = 0x15;
+static constexpr u32 Cancelled = 0x16; ///< A ProgressCallback returned false.
 } // namespace CascError
 
 } // namespace whiteout::storages::casc

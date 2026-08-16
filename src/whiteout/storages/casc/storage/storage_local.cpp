@@ -156,7 +156,7 @@ std::optional<CdnConfig> findConsistentCdnConfig(const std::string& dataPath) {
 // LocalState helpers
 // ============================================================================
 
-bool LocalState::mapArchives(std::string* error) {
+bool LocalState::mapArchives(std::string* error, const ProgressSink* sink) {
     namespace fs = std::filesystem;
 
     std::string const dataSubdir = dataPath + "/data";
@@ -196,6 +196,8 @@ bool LocalState::mapArchives(std::string* error) {
                     sawSharingViolation = true;
             }
         }
+        if (sink && !(*sink)(i + 1, maxIndex + 1, archiveName))
+            break;
     }
 
     if (!firstFailure.empty() && error)
@@ -217,7 +219,7 @@ static constexpr u32 kVfsFrameParallelBytes = 4u << 20;
 
 std::unordered_map<u64, std::vector<u8>> prefetchVfsLocal(
     const Storage::Impl& impl, const std::vector<std::array<u8, 16>>& vfsEKeys,
-    const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey) {
+    const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey, const ProgressSink* sink) {
 
     std::unordered_map<u64, std::vector<u8>> vfsCache;
 
@@ -226,6 +228,8 @@ std::unordered_map<u64, std::vector<u8>> prefetchVfsLocal(
         std::vector<u8> data;
     };
     std::vector<SubResult> results(vfsEKeys.size());
+    std::atomic<u64> resolved{0};
+    u64 const totalVfs = vfsEKeys.size();
 
     auto resolveOne = [&](size_t i, interfaces::WorkerPool* framePool) {
         std::array<u8, 16> eKey16{};
@@ -237,6 +241,8 @@ std::unordered_map<u64, std::vector<u8>> prefetchVfsLocal(
             if (cIt != vfsEKeyToCKey.end())
                 results[i].data = impl.resolveCKey(cIt->second, framePool);
         }
+        if (sink)
+            (*sink)(resolved.fetch_add(1, std::memory_order_relaxed) + 1, totalVfs, {});
     };
 
     if (impl.pool && vfsEKeys.size() > 1) {
@@ -374,10 +380,33 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     basePath = fs::path(basePath).lexically_normal().string();
     dataPath = fs::path(dataPath).lexically_normal().string();
 
-    // Progress callback.
-    auto progress = [&](ProgressStep step, u32 current = 0, u32 total = 0) -> bool {
-        if (opts.progressCallback)
-            return opts.progressCallback(step, current, total);
+    // Progress front-end. Owned here until the Impl exists, then handed over so
+    // a deferred load reports through the same callback.
+    // Ordered the way the work actually runs: the index table has to exist
+    // before a missing build config can be recovered by consistency, so it is
+    // loaded first. Reading `.build.info` itself is sub-millisecond and gets no
+    // step of its own — reporting it before the index load and the config read
+    // after it would make the bar go backwards.
+    std::vector<ProgressStep> plan{
+        ProgressStep::LoadingIndexFiles,
+        ProgressStep::LoadingBuildConfig,
+        ProgressStep::LoadingCdnConfig,
+        ProgressStep::MappingArchives,
+    };
+    if (!(opts.flags & StorageFeatureFlags::LoadOnDemand)) {
+        plan.push_back(ProgressStep::LoadingEncodingTable);
+        plan.push_back(ProgressStep::LoadingVfsManifests);
+        plan.push_back(ProgressStep::LoadingRootManifest);
+    }
+    auto reporterOwned = std::make_unique<ProgressReporter>(opts.progressCallback, std::move(plan));
+    ProgressReporter& progress = *reporterOwned;
+
+    /// Records the cancellation and returns true, so a failed progress call
+    /// reads as `if (!progress.begin(...) && failCancelled()) return {};`.
+    auto failCancelled = [&]() {
+        s_lastError = CascError::Cancelled;
+        if (opts.errorOut)
+            *opts.errorOut = "Open cancelled by the progress callback";
         return true;
     };
 
@@ -386,8 +415,6 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     // registering both happen — so a failure here is not fatal on its own: the
     // build and CDN configs are recovered from `config/` by consistency below.
     // The diagnostic is held until that recovery also comes up empty.
-    progress(ProgressStep::LoadingBuildConfig);
-
     std::string buildInfoPath;
     if (fs::exists(basePath + "/.build.info"))
         buildInfoPath = basePath + "/.build.info";
@@ -495,18 +522,24 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     impl.localState = std::make_unique<LocalState>();
     impl.localState->basePath = basePath;
     impl.localState->dataPath = dataPath;
+    impl.progress = std::move(reporterOwned);
 
     if (opts.memoryCacheSize > 0)
         impl.memCache = std::make_unique<MemoryCache>(opts.memoryCacheSize);
 
     // The index table is needed up-front so the build-config fallback can
     // verify candidates. LazyIdxBuckets defers per-bucket parsing only.
-    progress(ProgressStep::LoadingIndexFiles);
+    if (!progress.begin(ProgressStep::LoadingIndexFiles) && failCancelled())
+        return std::nullopt;
     if (opts.flags & StorageFeatureFlags::LazyIdxBuckets) {
-        impl.localState->indexTable = IndexTable::loadLazyBuckets(dataPath, opts.pool);
+        impl.localState->indexTable = IndexTable::loadLazyBuckets(dataPath, opts.pool,
+                                                                  progress.sink());
     } else {
-        impl.localState->indexTable = IndexTable::load(dataPath, opts.pool);
+        impl.localState->indexTable = IndexTable::load(dataPath, opts.pool, progress.sink());
     }
+    progress.end();
+    if (progress.cancelled() && failCancelled())
+        return std::nullopt;
 
     if (!impl.localState->indexTable.isValid()) {
         s_lastError = kIndexLoadFailed;
@@ -518,6 +551,10 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     // Step 4: Parse build config; if the active key's file is missing, fall
     // back to any local build config consistent with the index.
     auto buildConfigPath = impl.localState->configPath(activeBuild->buildKey);
+    if (!progress.begin(ProgressStep::LoadingBuildConfig,
+                        storages::common::hexEncode16(activeBuild->buildKey)) &&
+        failCancelled())
+        return std::nullopt;
     std::string sysErr;
     auto buildConfigFile = storages::common::readFileFully(buildConfigPath, &sysErr);
     if (buildConfigFile) {
@@ -537,6 +574,7 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
         }
         impl.buildConfig = std::move(*fallback);
     }
+    progress.end(1);
 
     // Without a `.build.info` there was no Product column to match against, so
     // the recovered config has to answer for the requested product itself —
@@ -558,6 +596,10 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     // Step 5: Parse CDN config; on miss, pick the local CDN config whose
     // archive list overlaps best with indices/.
     auto cdnConfigPath = impl.localState->configPath(activeBuild->cdnKey);
+    if (!progress.begin(ProgressStep::LoadingCdnConfig,
+                        storages::common::hexEncode16(activeBuild->cdnKey)) &&
+        failCancelled())
+        return std::nullopt;
     auto cdnConfigFile = storages::common::readFileFully(cdnConfigPath);
     if (cdnConfigFile) {
         impl.cdnConfig = parseCdnConfig(*cdnConfigFile);
@@ -566,6 +608,7 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
         if (fallback)
             impl.cdnConfig = std::move(*fallback);
     }
+    progress.end(1);
 
     // The `indices/*.index` files describe CDN archives, whose ordinals in the
     // CDN config's archive list have nothing to do with the local data.NNN
@@ -575,14 +618,18 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     // through the .idx buckets; the archive indices stay an online concern.
 
     // Step 6: Memory-map data archives.
-    progress(ProgressStep::MappingArchives);
+    if (!progress.begin(ProgressStep::MappingArchives) && failCancelled())
+        return std::nullopt;
     std::string mapError;
-    if (!impl.localState->mapArchives(&mapError)) {
+    if (!impl.localState->mapArchives(&mapError, progress.sink())) {
         s_lastError = kIndexLoadFailed;
         if (opts.errorOut)
             *opts.errorOut = mapError;
         return std::nullopt;
     }
+    progress.end();
+    if (progress.cancelled() && failCancelled())
+        return std::nullopt;
     // mapArchives may report a per-file failure (and set s_lastError = kSharingViolation)
     // even when it returns true (it returns true as long as at least the directory exists).
     // Surface the first such failure to errorOut so the caller can see which archive
@@ -604,19 +651,18 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     if (opts.flags & StorageFeatureFlags::LoadOnDemand) {
         impl.deferMode = true;
         impl.isValid = true;
-        progress(ProgressStep::Ready);
+        progress.ready();
         Storage storage(std::move(implPtr));
         return storage;
     }
 
-    progress(ProgressStep::LoadingEncodingTable);
-    progress(ProgressStep::LoadingRootManifest);
-
     if (!impl.loadEncodingAndRoot()) {
+        if (progress.cancelled())
+            failCancelled();
         return std::nullopt;
     }
 
-    progress(ProgressStep::Ready);
+    progress.ready();
     impl.isValid = true;
     Storage storage(std::move(implPtr));
     return storage;

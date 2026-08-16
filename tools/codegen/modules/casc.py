@@ -12,9 +12,13 @@ the codegen doesn't accidentally drag in the many internal-only helpers
 can't yet marshal.
 
 Deferred / known gaps:
-  - `Storage::enumerate()` and the `ProgressCallback` field on
-    OpenOptions: codegen doesn't auto-wrap std::function params. Use
-    `listFiles()` / `listEntries()` for full materialisation instead.
+  - `Storage::enumerate()`: codegen doesn't auto-wrap std::function
+    params. Use `listFiles()` / `listEntries()` for full materialisation
+    instead.
+  - The `ProgressCallback` field on OpenOptions / OnlineOpenOptions and
+    `Storage::setProgressCallback` are std::function-shaped too, and are
+    covered by hand-written shims instead — see
+    bindings/c/whiteout_casc_progress.h and the C# StorageProgress class.
   - `OpenOptions::listfile` (std::span<const u8> field) is an unsupported
     field shape — callers needing a custom listfile go through the
     C++ surface directly.

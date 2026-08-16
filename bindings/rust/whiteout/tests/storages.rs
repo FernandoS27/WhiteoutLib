@@ -97,6 +97,86 @@ mod casc_tests {
         assert_eq!(opts.product(), "w3");
         assert_eq!(opts.version(), "1.36.0");
     }
+
+    // ── Progress reporting ────────────────────────────────────────────
+    //
+    // A real CASC install is too large to ship, so these drive the callback
+    // over a directory that fails to open — which still announces the step
+    // it failed in, and is enough to prove events cross the FFI intact.
+
+    #[test]
+    fn every_step_has_a_label() {
+        use whiteout::casc_ext::ProgressStep::*;
+        for step in [
+            ResolvingVersion,
+            LoadingBuildConfig,
+            LoadingCdnConfig,
+            LoadingIndexFiles,
+            MappingArchives,
+            LoadingArchiveIndexes,
+            LoadingEncodingTable,
+            LoadingVfsManifests,
+            LoadingRootManifest,
+            Ready,
+        ] {
+            assert!(!step.name().is_empty(), "no label for {step:?}");
+        }
+        assert_eq!(LoadingIndexFiles.name(), "Loading index files");
+    }
+
+    #[test]
+    fn open_reports_events_before_failing() {
+        let dir = std::env::temp_dir().join("whiteout-rs-progress-events");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let mut events = Vec::new();
+        let storage = casc::Storage::open_with_progress(
+            dir.to_str().unwrap(),
+            None,
+            0,
+            0,
+            None,
+            &mut |info| {
+                assert!((0.0..=1.0).contains(&info.overall_fraction));
+                assert!(info.step_count > 0);
+                events.push((info.step, info.state, info.object.to_string()));
+                true
+            },
+        );
+
+        assert!(storage.is_none(), "a directory with no .idx must not open");
+        assert!(!events.is_empty(), "the failing step should still be named");
+        assert!(events
+            .iter()
+            .any(|(step, ..)| *step == whiteout::casc_ext::ProgressStep::LoadingIndexFiles));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_handler_can_cancel() {
+        let dir = std::env::temp_dir().join("whiteout-rs-progress-cancel");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let mut calls = 0;
+        let storage = casc::Storage::open_with_progress(
+            dir.to_str().unwrap(),
+            None,
+            0,
+            0,
+            None,
+            &mut |_| {
+                calls += 1;
+                false
+            },
+        );
+
+        assert!(storage.is_none());
+        assert_eq!(calls, 1, "cancelling stops the event stream");
+        assert_eq!(casc::Storage::last_error(), 0x16); // CascError::Cancelled
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 // ── list_files must materialise once (regression) ─────────────────────────

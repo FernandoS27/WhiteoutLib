@@ -302,7 +302,7 @@ void OnlineIndexTable::loadArchive(u32 archiveIndex) const {
     });
 }
 
-void OnlineIndexTable::ensureAllLoaded() const {
+void OnlineIndexTable::ensureAllLoaded(const ProgressSink* sink) const {
     if (!m_lazy || !m_lazy->archiveEKeys)
         return;
     const size_t N = m_lazy->archiveEKeys->size();
@@ -314,19 +314,25 @@ void OnlineIndexTable::ensureAllLoaded() const {
     // doing them serially is the cold-read bottleneck.
     if (m_lazy->pool && N >= 4) {
         utils::JobGroup jobGroup;
+        std::atomic<u64> done{0};
         jobGroup.add(N);
         for (size_t i = 0; i < N; ++i) {
             interfaces::WorkerTask task;
-            task.fn = [this, i, &jobGroup]() {
+            task.fn = [this, i, N, sink, &done, &jobGroup]() {
                 loadArchive(u32(i));
+                if (sink)
+                    (*sink)(done.fetch_add(1, std::memory_order_relaxed) + 1, N, {});
                 jobGroup.done();
             };
             m_lazy->pool->submit(task);
         }
         jobGroup.wait();
     } else {
-        for (size_t i = 0; i < N; ++i)
+        for (size_t i = 0; i < N; ++i) {
             loadArchive(u32(i));
+            if (sink && !(*sink)(i + 1, N, {}))
+                break;
+        }
     }
 }
 
@@ -336,7 +342,7 @@ void OnlineIndexTable::ensureAllLoaded() const {
 
 OnlineIndexTable OnlineIndexTable::loadAll(CdnFetcher& fetcher,
                                            const std::vector<std::array<u8, 16>>& archiveEKeys,
-                                           interfaces::WorkerPool* pool) {
+                                           interfaces::WorkerPool* pool, const ProgressSink* sink) {
 
     OnlineIndexTable combined;
     if (archiveEKeys.empty())
@@ -363,6 +369,8 @@ OnlineIndexTable OnlineIndexTable::loadAll(CdnFetcher& fetcher,
                 results[i].table = OnlineIndexTable::parse(*data, u32(i));
                 results[i].ok = true;
             }
+            if (sink && !(*sink)(i + 1, N, keyHex))
+                break;
         }
     };
 
@@ -381,19 +389,23 @@ OnlineIndexTable OnlineIndexTable::loadAll(CdnFetcher& fetcher,
             auto keyHex = storages::common::hexEncode16(archiveEKeys[i]);
             auto indexKeyHex = keyHex + ".index";
 
-            fetcher.fetchAsync(
-                "data", indexKeyHex,
-                [&results, i, archIdx = u32(i), state, N](std::optional<std::vector<u8>> data) {
-                    if (data && !data->empty()) {
-                        results[i].table = OnlineIndexTable::parse(*data, archIdx);
-                        results[i].ok = true;
-                    }
-                    // fetch_add returns old value; +1 == total completed.
-                    if (state->completed.fetch_add(1, std::memory_order_acq_rel) + 1 == N) {
-                        std::lock_guard<std::mutex> const lk(state->mtx);
-                        state->cv.notify_one();
-                    }
-                });
+            fetcher.fetchAsync("data", indexKeyHex,
+                               [&results, i, archIdx = u32(i), state, N, sink,
+                                keyHex](std::optional<std::vector<u8>> data) {
+                                   if (data && !data->empty()) {
+                                       results[i].table = OnlineIndexTable::parse(*data, archIdx);
+                                       results[i].ok = true;
+                                   }
+                                   // fetch_add returns old value; +1 == total completed.
+                                   size_t const done =
+                                       state->completed.fetch_add(1, std::memory_order_acq_rel) + 1;
+                                   if (sink)
+                                       (*sink)(done, N, keyHex);
+                                   if (done == N) {
+                                       std::lock_guard<std::mutex> const lk(state->mtx);
+                                       state->cv.notify_one();
+                                   }
+                               });
         }
 
         std::unique_lock<std::mutex> lk(state->mtx);

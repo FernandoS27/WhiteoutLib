@@ -10,6 +10,7 @@
 #include <whiteout/utils/job_group.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <filesystem>
 #include <mutex>
@@ -313,7 +314,8 @@ void parseIdxFileIntoVector(const std::filesystem::path& path, std::vector<Index
 // IndexTable::load
 // ============================================================================
 
-IndexTable IndexTable::load(const std::string& dataDir, interfaces::WorkerPool* pool) {
+IndexTable IndexTable::load(const std::string& dataDir, interfaces::WorkerPool* pool,
+                            const ProgressSink* sink) {
     IndexTable table;
 
     // Scan for .idx files in the primary index subdirectory.
@@ -409,6 +411,8 @@ IndexTable IndexTable::load(const std::string& dataDir, interfaces::WorkerPool* 
         // Parallel parse.
         utils::JobGroup jobGroup;
         std::vector<std::vector<IndexEntry>> perFileEntries(filesToParse.size());
+        std::atomic<u64> parsed{0};
+        u64 const fileCount = filesToParse.size();
         jobGroup.add(filesToParse.size());
         for (size_t i = 0; i < filesToParse.size(); ++i) {
             interfaces::WorkerTask task;
@@ -416,6 +420,9 @@ IndexTable IndexTable::load(const std::string& dataDir, interfaces::WorkerPool* 
                 auto mf = common::MappedFile::open(filesToParse[i].string());
                 if (mf)
                     parseIdxFile(mf->ptr(), mf->size(), perFileEntries[i]);
+                if (sink)
+                    (*sink)(parsed.fetch_add(1, std::memory_order_relaxed) + 1, fileCount,
+                            filesToParse[i].filename().string());
                 jobGroup.done();
             };
             pool->submit(task);
@@ -432,15 +439,17 @@ IndexTable IndexTable::load(const std::string& dataDir, interfaces::WorkerPool* 
                 table.m_entries.insertOrAssign(eKeyHash(std::span(e.eKey.data(), 9)), e);
     } else {
         // Sequential parse.
+        u64 done = 0;
         for (auto& path : filesToParse) {
             auto mf = common::MappedFile::open(path.string());
-            if (!mf)
-                continue;
-
-            std::vector<IndexEntry> entries;
-            parseIdxFile(mf->ptr(), mf->size(), entries);
-            for (auto& e : entries)
-                table.m_entries.insertOrAssign(eKeyHash(std::span(e.eKey.data(), 9)), e);
+            if (mf) {
+                std::vector<IndexEntry> entries;
+                parseIdxFile(mf->ptr(), mf->size(), entries);
+                for (auto& e : entries)
+                    table.m_entries.insertOrAssign(eKeyHash(std::span(e.eKey.data(), 9)), e);
+            }
+            if (sink && !(*sink)(++done, filesToParse.size(), path.filename().string()))
+                break;
         }
     }
 
@@ -896,18 +905,25 @@ void IndexTable::ensureAllArchivesLoaded() const {
 // IndexTable::loadLazyBuckets + loadBucket + ensureAllBucketsLoaded
 // ============================================================================
 
-IndexTable IndexTable::loadLazyBuckets(const std::string& dataDir, interfaces::WorkerPool* pool) {
+IndexTable IndexTable::loadLazyBuckets(const std::string& dataDir, interfaces::WorkerPool* pool,
+                                       const ProgressSink* sink) {
     IndexTable table;
     auto byBucket = discoverIdxFilesByBucket(dataDir);
 
     auto state = std::make_unique<LazyBuckets>();
     state->pool = pool;
     state->bucketFiles = std::move(byBucket);
+    u64 discovered = 0;
     for (auto& v : state->bucketFiles)
         if (!v.empty()) {
             state->nonEmpty = true;
-            break;
+            discovered += v.size();
         }
+
+    // Nothing is parsed here, so there is no loop to tick through — report the
+    // discovered file count so the step still closes with a real number.
+    if (sink)
+        (*sink)(discovered, discovered, "deferred");
 
     table.m_lazyBuckets = std::move(state);
     return table;

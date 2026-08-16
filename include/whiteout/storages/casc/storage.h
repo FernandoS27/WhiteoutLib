@@ -126,6 +126,20 @@ public:
     /// (HttpHandler*, std::function progress callback).
     static std::optional<Storage> openOnline(const OnlineOpenOptions& opts);
 
+    /**
+     * @brief Install (or replace) the progress callback after open.
+     *
+     * Open() takes its callback from the options struct; this covers the work
+     * that happens later — the deferred load a LoadOnDemand storage does on
+     * first access, and prefetch(). Each of those reports as its own operation,
+     * beginning at 0 and ending with a Ready event.
+     *
+     * Pass nullptr to stop reporting. Not safe to call concurrently with the
+     * operation being reported on.
+     */
+    /// @bind skip — std::function param not auto-marshalled.
+    void setProgressCallback(ProgressCallback callback);
+
     /// Release all resources and invalidate the storage.
     void close();
 

@@ -388,20 +388,18 @@ static void runPerfTest(const std::string& cascPath, const std::string& outputDi
 
     // Use progress callback to time each phase of Storage::open()
     auto tStepStart = Clock::now();
-    auto progressCb = [&](ProgressStep step, u32 current, u32 total) -> bool {
+    auto progressCb = [&](const ProgressInfo& info) -> bool {
+        if (info.state != ProgressState::End)
+            return true;
+
         auto now = Clock::now();
         double ms = std::chrono::duration<double, std::milli>(now - tStepStart).count();
 
-        static const char* stepNames[] = {
-            "LoadingBuildConfig", "LoadingCdnConfig", "LoadingIndexFiles",
-            "MappingArchives", "LoadingEncodingTable", "LoadingRootManifest", "Ready"
-        };
-        auto name = (static_cast<int>(step) < 7) ? stepNames[static_cast<int>(step)] : "?";
         std::cout << "    [" << std::fixed << std::setprecision(1) << ms << " ms] "
-                  << name;
-        if (total > 0)
-            std::cout << " (" << current << "/" << total << ")";
-        std::cout << "\n";
+                  << progressStepName(info.step);
+        if (info.total > 0)
+            std::cout << " (" << info.current << "/" << info.total << ")";
+        std::cout << "  " << std::setprecision(0) << (info.overallFraction() * 100.0) << "%\n";
 
         tStepStart = now;
         return true;

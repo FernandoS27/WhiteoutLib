@@ -19,7 +19,7 @@ namespace whiteout::storages::casc {
 
 std::unordered_map<u64, std::vector<u8>> prefetchVfsOnline(
     const Storage::Impl& impl, const std::vector<std::array<u8, 16>>& vfsEKeys,
-    const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey) {
+    const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey, const ProgressSink* sink) {
 
     if (!impl.onlineState || !impl.onlineState->fetcher)
         return {};
@@ -42,6 +42,17 @@ std::unordered_map<u64, std::vector<u8>> prefetchVfsOnline(
     };
     auto wstate = std::make_shared<WaitState>();
 
+    // One tick per sub-manifest, taken on whichever thread completes the fetch.
+    auto notifyDone = [wstate, totalVfs, sink]() {
+        size_t const done = wstate->completed.fetch_add(1, std::memory_order_acq_rel) + 1;
+        if (sink)
+            (*sink)(done, totalVfs, {});
+        if (done == totalVfs) {
+            std::lock_guard<std::mutex> const lk(wstate->mtx);
+            wstate->cv.notify_one();
+        }
+    };
+
     for (size_t i = 0; i < totalVfs; ++i) {
         prefetchResults[i].eKeyHash = keyHash64(vfsEKeys[i]);
 
@@ -52,10 +63,7 @@ std::unordered_map<u64, std::vector<u8>> prefetchVfsOnline(
             enc = impl.encodingTable.findByCKey(ckIt->second);
 
         if (!enc) {
-            if (wstate->completed.fetch_add(1, std::memory_order_acq_rel) + 1 == totalVfs) {
-                std::lock_guard<std::mutex> const lk(wstate->mtx);
-                wstate->cv.notify_one();
-            }
+            notifyDone();
             continue;
         }
 
@@ -64,24 +72,17 @@ std::unordered_map<u64, std::vector<u8>> prefetchVfsOnline(
         if (idxEntry) {
             impl.onlineState->dataSource->fetchBlteAsync(
                 idxEntry->archiveIndex, idxEntry->archiveOffset, idxEntry->encodedSize,
-                [&prefetchResults, i, wstate, totalVfs](std::optional<std::vector<u8>> data) {
+                [&prefetchResults, i, notifyDone](std::optional<std::vector<u8>> data) {
                     if (data)
                         prefetchResults[i].blteData = std::move(*data);
-                    if (wstate->completed.fetch_add(1, std::memory_order_acq_rel) + 1 == totalVfs) {
-                        std::lock_guard<std::mutex> const lk(wstate->mtx);
-                        wstate->cv.notify_one();
-                    }
+                    notifyDone();
                 });
         } else {
             impl.onlineState->dataSource->fetchBlteAsync(
-                enc->eKey,
-                [&prefetchResults, i, wstate, totalVfs](std::optional<std::vector<u8>> data) {
+                enc->eKey, [&prefetchResults, i, notifyDone](std::optional<std::vector<u8>> data) {
                     if (data)
                         prefetchResults[i].blteData = std::move(*data);
-                    if (wstate->completed.fetch_add(1, std::memory_order_acq_rel) + 1 == totalVfs) {
-                        std::lock_guard<std::mutex> const lk(wstate->mtx);
-                        wstate->cv.notify_one();
-                    }
+                    notifyDone();
                 });
         }
     }
@@ -151,9 +152,25 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
     // Set up memory cache.
     impl.memCache = std::make_unique<MemoryCache>(opts.memoryCacheSize);
 
-    auto reportProgress = [&](ProgressStep step, u32 current = 0, u32 total = 0) -> bool {
-        if (opts.progressCallback)
-            return opts.progressCallback(step, current, total);
+    // The archive-index fan-out only runs when it isn't deferred to the first
+    // read, and lazy mode still forces it when a listfile signals bulk reads.
+    bool const eagerArchiveIndex = (opts.flags & StorageFeatureFlags::LazyArchiveIndex) == 0 ||
+                                   !opts.listfile.empty();
+    std::vector<ProgressStep> plan{ProgressStep::ResolvingVersion,
+                                   ProgressStep::LoadingBuildConfig,
+                                   ProgressStep::LoadingCdnConfig};
+    if (eagerArchiveIndex)
+        plan.push_back(ProgressStep::LoadingArchiveIndexes);
+    if (!(opts.flags & StorageFeatureFlags::LoadOnDemand)) {
+        plan.push_back(ProgressStep::LoadingEncodingTable);
+        plan.push_back(ProgressStep::LoadingVfsManifests);
+        plan.push_back(ProgressStep::LoadingRootManifest);
+    }
+    impl.progress = std::make_unique<ProgressReporter>(opts.progressCallback, std::move(plan));
+    ProgressReporter& progress = *impl.progress;
+
+    auto cancelled = [&]() {
+        s_lastError = CascError::Cancelled;
         return true;
     };
 
@@ -166,6 +183,7 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
         impl.onlineState->cdnServers = opts.cdnServers;
         buildConfigKey = storages::common::hexDecode16(opts.directBuildConfigKey);
         cdnConfigKey = storages::common::hexDecode16(opts.directCdnConfigKey);
+        progress.dropStep(ProgressStep::ResolvingVersion);
     } else {
         struct DiscoveryState {
             std::optional<std::vector<u8>> cdnsData;
@@ -181,6 +199,13 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
             opts.directBuildConfigKey.empty() || opts.directCdnConfigKey.empty();
 
         const u32 totalRequests = (needCdns ? 1u : 0u) + (needVersions ? 1u : 0u);
+
+        // Two round-trips to version.battle.net before anything else can start;
+        // silence here is what made an online open look hung.
+        if (!progress.begin(ProgressStep::ResolvingVersion, opts.product, totalRequests) &&
+            cancelled())
+            return std::nullopt;
+
         if (needCdns) {
             std::string const cdnsUrl = "https://" + opts.region +
                                         ".version.battle.net/v2/products/" + opts.product + "/cdns";
@@ -213,6 +238,7 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
                 return ds->done.load(std::memory_order_acquire) >= totalRequests;
             });
         }
+        progress.end(totalRequests);
 
         // Process CDN servers.
         if (needCdns) {
@@ -278,7 +304,9 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
         impl.onlineState->http, impl.onlineState->cdnServers, impl.onlineState->cache.get());
 
     // Steps 4+5: Fetch build config + CDN config in parallel.
-    if (!reportProgress(ProgressStep::LoadingBuildConfig))
+    if (!progress.begin(ProgressStep::LoadingBuildConfig,
+                        storages::common::hexEncode16(buildConfigKey)) &&
+        cancelled())
         return std::nullopt;
     {
         struct ConfigState {
@@ -319,16 +347,26 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
         }
         impl.buildConfig = parseBuildConfig(*cs->buildData);
         impl.onlineState->productInfo.name = impl.buildConfig.buildProduct;
+        progress.end(1);
 
+        if (!progress.begin(ProgressStep::LoadingCdnConfig,
+                            storages::common::hexEncode16(cdnConfigKey)) &&
+            cancelled())
+            return std::nullopt;
         if (!cs->cdnData) {
             s_lastError = kHttpRequestFailed;
             return std::nullopt;
         }
         impl.cdnConfig = parseCdnConfig(*cs->cdnData);
+        progress.end(impl.cdnConfig.archiveEKeys.size());
     }
 
-    // Step 6: Set up archive index (lazy or eager).
-    if (!reportProgress(ProgressStep::LoadingIndexFiles))
+    // Step 6: Set up archive index (lazy or eager). Hundreds of `.index`
+    // fetches on WoW — the phase that dominates a cold online open.
+    if (eagerArchiveIndex &&
+        !progress.begin(ProgressStep::LoadingArchiveIndexes, {},
+                        impl.cdnConfig.archiveEKeys.size()) &&
+        cancelled())
         return std::nullopt;
 
     if ((opts.flags & StorageFeatureFlags::LazyArchiveIndex) != 0) {
@@ -339,10 +377,15 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
         // at scale. Parallel-load every archive index up front instead, so the
         // cold-read path is a pure data fetch with no index round-trips.
         if (!opts.listfile.empty())
-            impl.onlineState->onlineIndex.ensureAllLoaded();
+            impl.onlineState->onlineIndex.ensureAllLoaded(progress.sink());
     } else {
         impl.onlineState->onlineIndex = OnlineIndexTable::loadAll(
-            *impl.onlineState->fetcher, impl.cdnConfig.archiveEKeys, impl.pool);
+            *impl.onlineState->fetcher, impl.cdnConfig.archiveEKeys, impl.pool, progress.sink());
+    }
+    if (eagerArchiveIndex) {
+        progress.end();
+        if (progress.cancelled() && cancelled())
+            return std::nullopt;
     }
 
     // Load loose file index if available.
@@ -366,14 +409,14 @@ std::optional<Storage> Storage::openOnline(const OnlineOpenOptions& opts) {
     if (opts.flags & StorageFeatureFlags::LoadOnDemand) {
         impl.deferMode = true;
     } else {
-        if (!reportProgress(ProgressStep::LoadingEncodingTable))
+        if (!impl.loadEncodingAndRoot()) {
+            if (progress.cancelled())
+                cancelled();
             return std::nullopt;
-        if (!impl.loadEncodingAndRoot())
-            return std::nullopt;
+        }
     }
 
-    if (!reportProgress(ProgressStep::Ready))
-        return std::nullopt;
+    progress.ready();
     impl.isValid = true;
     Storage storage(std::move(implPtr));
     return storage;

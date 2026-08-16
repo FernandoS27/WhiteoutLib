@@ -24,6 +24,7 @@
 #include "data_source.h"
 #include "key_utils.h"
 #include "local_data_source.h"
+#include "progress_reporter.h"
 #include "storage_backend.h"
 #include "writer.h"
 
@@ -129,7 +130,8 @@ struct LocalState {
     }
 
     /// Discover and memory-map all data.XXX archives.
-    bool mapArchives(std::string* error);
+    /// @param sink Optional per-archive progress; null for no reporting.
+    bool mapArchives(std::string* error, const ProgressSink* sink = nullptr);
 };
 
 /// Online-only state: CDN infrastructure.
@@ -204,6 +206,10 @@ struct Storage::Impl {
 
     /// Optional decoded-data cache for container sub-entries.
     mutable std::unique_ptr<MemoryCache> memCache;
+
+    /// Progress front-end. Outlives open() so the deferred load and prefetch()
+    /// report through the same callback; inert when none was supplied.
+    mutable std::unique_ptr<ProgressReporter> progress = std::make_unique<ProgressReporter>();
 
     /// LoadOnDemand: defer encoding + root loading until first access.
     bool deferMode = false;
@@ -313,11 +319,13 @@ struct Storage::Impl {
 /// Parallel-resolve VFS sub-manifests using local archives + JobGroup.
 std::unordered_map<u64, std::vector<u8>> prefetchVfsLocal(
     const Storage::Impl& impl, const std::vector<std::array<u8, 16>>& vfsEKeys,
-    const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey);
+    const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey,
+    const ProgressSink* sink = nullptr);
 
 /// Parallel-resolve VFS sub-manifests using async HTTP + WaitState.
 std::unordered_map<u64, std::vector<u8>> prefetchVfsOnline(
     const Storage::Impl& impl, const std::vector<std::array<u8, 16>>& vfsEKeys,
-    const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey);
+    const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey,
+    const ProgressSink* sink = nullptr);
 
 } // namespace whiteout::storages::casc

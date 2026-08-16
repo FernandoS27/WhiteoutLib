@@ -101,7 +101,8 @@ public:
     /// Parallel-resolve VFS sub-manifests (dispatch to local/online path).
     virtual std::unordered_map<u64, std::vector<u8>> prefetchVfs(
         const Storage::Impl& impl, const std::vector<std::array<u8, 16>>& vfsEKeys,
-        const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey) const = 0;
+        const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey,
+        const ProgressSink* sink) const = 0;
 
     // ── Cache management ─────────────────────────────────────────
 

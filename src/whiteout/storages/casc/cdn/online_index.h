@@ -14,6 +14,7 @@
 #include <whiteout/common_types.h>
 #include <whiteout/interfaces.h>
 
+#include "../progress_sink.h"
 #include "cdn_fetcher.h"
 
 #include <array>
@@ -44,9 +45,11 @@ public:
     OnlineIndexTable& operator=(const OnlineIndexTable&) = delete;
 
     static OnlineIndexTable parse(std::span<const u8> data, u32 archiveIndex);
+    /// @param sink Optional per-archive progress; null for no reporting.
     static OnlineIndexTable loadAll(CdnFetcher& fetcher,
                                     const std::vector<std::array<u8, 16>>& archiveEKeys,
-                                    interfaces::WorkerPool* pool = nullptr);
+                                    interfaces::WorkerPool* pool = nullptr,
+                                    const ProgressSink* sink = nullptr);
     static OnlineIndexTable loadLoose(CdnFetcher& fetcher, const std::string& fileIndexKey);
 
     /// Lazy variant — pointer args must outlive the table.
@@ -62,7 +65,7 @@ public:
     size_t entryCount() const;
 
     /// Force every pending archive index to load. No-op for eager tables.
-    void ensureAllLoaded() const;
+    void ensureAllLoaded(const ProgressSink* sink = nullptr) const;
 
 private:
     static u64 eKeyHash(std::span<const u8> eKey);

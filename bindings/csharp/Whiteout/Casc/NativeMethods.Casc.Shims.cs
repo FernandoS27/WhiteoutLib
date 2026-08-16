@@ -23,6 +23,39 @@ internal static partial class NativeMethods
         uint localeMask,
         IntPtr pool);
 
+    // ── progress ───────────────────────────────────────────────────────────
+    // `progress` is a cdecl function pointer (see whiteout_casc_progress.h) and
+    // `user` the GCHandle behind it; both IntPtr.Zero means "no reporting".
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_casc_shim_openWithProgress(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string product,
+        uint localeMask,
+        uint flags,
+        IntPtr progress,
+        IntPtr user,
+        IntPtr pool);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_casc_shim_openOnlineWithProgress(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string product,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string region,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string buildKey,
+        IntPtr http,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string cacheDir,
+        uint localeMask,
+        uint flags,
+        IntPtr progress,
+        IntPtr user,
+        IntPtr pool);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_casc_shim_setProgressCallback(
+        IntPtr self, IntPtr progress, IntPtr user);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_casc_shim_progressStepName(int step);
+
     // ── readBatch ──────────────────────────────────────────────────────────
     // `paths` holds UTF-8 C-string pointers; an entry may be IntPtr.Zero to
     // read by FileDataId instead. The caller owns and frees those pointers.

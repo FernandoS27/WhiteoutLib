@@ -457,8 +457,9 @@ void OnlineDataTraits::resolveBatchPhase1(const EncodingTable& encoding,
 
 std::unordered_map<u64, std::vector<u8>> LocalDataTraits::prefetchVfs(
     const Storage::Impl& impl, const std::vector<std::array<u8, 16>>& vfsEKeys,
-    const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey) const {
-    return prefetchVfsLocal(impl, vfsEKeys, vfsEKeyToCKey);
+    const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey,
+    const ProgressSink* sink) const {
+    return prefetchVfsLocal(impl, vfsEKeys, vfsEKeyToCKey, sink);
 }
 
 // ============================================================================
@@ -467,8 +468,9 @@ std::unordered_map<u64, std::vector<u8>> LocalDataTraits::prefetchVfs(
 
 std::unordered_map<u64, std::vector<u8>> OnlineDataTraits::prefetchVfs(
     const Storage::Impl& impl, const std::vector<std::array<u8, 16>>& vfsEKeys,
-    const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey) const {
-    return prefetchVfsOnline(impl, vfsEKeys, vfsEKeyToCKey);
+    const std::unordered_map<u64, std::array<u8, 16>>& vfsEKeyToCKey,
+    const ProgressSink* sink) const {
+    return prefetchVfsOnline(impl, vfsEKeys, vfsEKeyToCKey, sink);
 }
 
 // ============================================================================
