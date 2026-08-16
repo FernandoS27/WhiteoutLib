@@ -18,6 +18,7 @@
 #include <numeric>
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <whiteout/models/m2/m2.h>
 #include <whiteout/utils/os_file_system.h>
@@ -170,8 +171,12 @@ TEST_CASE("M2 corpus parse", "[m2][corpus]") {
     if (corpusDir.empty())
         SKIP("M2 corpus not found");
 
-    bool doRoundTrip = std::getenv("M2_CORPUS_ROUNDTRIP") != nullptr;
-    bool verbose = std::getenv("M2_CORPUS_VERBOSE") != nullptr;
+    const auto envFlag = [](const char* name) {
+        const char* value = std::getenv(name);
+        return value && *value && std::string_view(value) != "0";
+    };
+    bool doRoundTrip = envFlag("M2_CORPUS_ROUNDTRIP");
+    bool verbose = envFlag("M2_CORPUS_VERBOSE");
     bool stopOnError = false;
 
     // Collect all .m2 files (extension match is case-insensitive: old
@@ -282,7 +287,19 @@ TEST_CASE("M2 corpus parse", "[m2][corpus]") {
                                   model.vertices.size() == reModel.vertices.size() &&
                                   model.textures.size() == reModel.textures.size());
 
-                    if (match && reIssues.empty()) {
+                    // Issues already present on the original parse (e.g. the
+                    // PFDC not-fully-implemented warning) are not round-trip
+                    // regressions; only issues the rewrite introduced count.
+                    const std::set<std::string> origIssues(issues.begin(), issues.end());
+                    bool newIssues = false;
+                    for (const auto& reIssue : reIssues) {
+                        if (origIssues.count(reIssue) == 0) {
+                            newIssues = true;
+                            break;
+                        }
+                    }
+
+                    if (match && !newIssues) {
                         rtOk++;
                     } else {
                         rtFail++;

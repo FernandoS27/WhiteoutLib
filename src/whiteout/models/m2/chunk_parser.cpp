@@ -35,6 +35,13 @@ std::vector<ChunkParser::ChunkEntry> ChunkParser::collectChunks(BinaryReader& re
     while (reader.hasRemaining()) {
         u32 const tag = reader.read<u32>();
         u32 const size = reader.read<u32>();
+        // A size past the end of the buffer means this is not a chunk header —
+        // scanning on from garbage yields garbage entries until memory runs out.
+        if (size > reader.getRemainingBytes()) {
+            reportIssue("Malformed chunk " + std::string(reinterpret_cast<const char*>(&tag), 4) +
+                        ": size " + std::to_string(size) + " exceeds remaining bytes");
+            break;
+        }
         u32 const dataOffset = reader.getPosition();
         chunks.push_back({tag, size, dataOffset});
         reader.skip(size);
@@ -51,8 +58,11 @@ void ChunkParser::parseChunkedBase(BinaryReader& reader, BaseFile& m2file, WoWFi
         reader.setPosition(chunk.dataOffset);
 
         switch (chunk.tag) {
+        // Deferred until after MD21: their parses size themselves from the
+        // model header (skin count, materials + emitters, emitter count).
         case MD21_TAG:
         case SFID_TAG:
+        case TXAC_TAG:
         case EXP2_TAG: {
             nextChunks.push_back(chunk);
             break;
@@ -73,12 +83,6 @@ void ChunkParser::parseChunkedBase(BinaryReader& reader, BaseFile& m2file, WoWFi
             BinaryParseVisitor parser(reader, wfs, chunk.size);
             m2file.bfid_chunk.emplace();
             parser.read(m2file.bfid_chunk.value());
-            break;
-        }
-        case TXAC_TAG: {
-            BinaryParseVisitor parser(reader, wfs, chunk.size);
-            m2file.txac_chunk.emplace();
-            parser.read(m2file.txac_chunk.value(), m2file);
             break;
         }
         case EXPT_TAG: {
@@ -230,6 +234,11 @@ void ChunkParser::parseChunkedBase(BinaryReader& reader, BaseFile& m2file, WoWFi
             BinaryParseVisitor parser(reader, wfs, chunk.size);
             m2file.sfid_chunk.emplace();
             parser.read(m2file.sfid_chunk.value(), m2file);
+        } else if (chunk.tag == TXAC_TAG) {
+            reader.setPosition(chunk.dataOffset);
+            BinaryParseVisitor parser(reader, wfs, chunk.size);
+            m2file.txac_chunk.emplace();
+            parser.read(m2file.txac_chunk.value(), m2file);
         } else if (chunk.tag == EXP2_TAG) {
             reader.setPosition(chunk.dataOffset);
             BinaryParseVisitor parser(reader, wfs, chunk.size);

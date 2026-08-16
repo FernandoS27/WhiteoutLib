@@ -143,8 +143,12 @@ void BinaryWriterVisitor::visit(const EdgeFadeData& entry) {
     writer.write(entry.valueC);
 }
 
+// EDGF/NERF/DETL/DBOC/TEXL payloads are flat record arrays sized by the
+// chunk, not M2Arrays — the parse side reads them with parse_chunked_vector.
 void BinaryWriterVisitor::visit(const EDGFChunk& chunk) {
-    visit(chunk.entries);
+    for (const auto& entry : chunk.entries) {
+        visit(entry);
+    }
 }
 
 void BinaryWriterVisitor::visit(const DistanceFadeData& entry) {
@@ -154,7 +158,9 @@ void BinaryWriterVisitor::visit(const DistanceFadeData& entry) {
 }
 
 void BinaryWriterVisitor::visit(const NERFChunk& chunk) {
-    visit(chunk.entries);
+    for (const auto& entry : chunk.entries) {
+        visit(entry);
+    }
 }
 
 void BinaryWriterVisitor::visit(const DetailedLightData& entry) {
@@ -166,7 +172,9 @@ void BinaryWriterVisitor::visit(const DetailedLightData& entry) {
 }
 
 void BinaryWriterVisitor::visit(const DETLChunk& chunk) {
-    visit(chunk.records);
+    for (const auto& record : chunk.records) {
+        visit(record);
+    }
 }
 
 void BinaryWriterVisitor::visit(const DebugOcclusionData& entry) {
@@ -177,7 +185,9 @@ void BinaryWriterVisitor::visit(const DebugOcclusionData& entry) {
 }
 
 void BinaryWriterVisitor::visit(const DBOCChunk& chunk) {
-    visit(chunk.entries);
+    for (const auto& entry : chunk.entries) {
+        visit(entry);
+    }
 }
 
 void BinaryWriterVisitor::visit(const AFRAChunk& chunk) {
@@ -203,7 +213,9 @@ void BinaryWriterVisitor::visit(const TexturedLightData& entry) {
 }
 
 void BinaryWriterVisitor::visit(const TEXLChunk& chunk) {
-    visit(chunk.texturedLights);
+    for (const auto& entry : chunk.texturedLights) {
+        visit(entry);
+    }
 }
 
 void BinaryWriterVisitor::visit(const SKL1Chunk& chunk) {

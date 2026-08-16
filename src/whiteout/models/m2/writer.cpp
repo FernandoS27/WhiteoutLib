@@ -42,6 +42,22 @@ public:
     /// buffers, in the order the visitor creates those buffers.
     static std::vector<std::pair<u16, u16>> externalSequences(const std::vector<Sequence>& seqs);
 
+    /// A retail model (GlobalFlag::UpgradedFormat) stores each `.anim` sibling
+    /// as a chunked file — loadSequence unwraps its AFM2 chunk before reading
+    /// keys — so the raw key buffers gain that header on the way out.
+    static void wrapAnimBuffers(const Model& model, AnimDataBuffers& buffers) {
+        if (!hasFlag(model.globalFlags.value, GlobalFlag::UpgradedFormat)) {
+            return;
+        }
+        for (auto& buffer : buffers) {
+            const u32 size = static_cast<u32>(buffer.data.size());
+            u8 header[8];
+            std::memcpy(header, &AFM2_TAG, sizeof(u32));
+            std::memcpy(header + 4, &size, sizeof(u32));
+            buffer.data.insert(buffer.data.begin(), header, header + 8);
+        }
+    }
+
     void decomposeBaseFile(BaseFile& base, std::vector<SkinFile>& skins,
                            std::optional<SkeletonFile>& skeleton);
 
@@ -187,6 +203,7 @@ M2SerializeResult Writer::write(const Model& model) {
 
     result.m2Data = pImpl->serializeBase(base, skeleton ? nullptr : &animBuffers);
 
+    Impl::wrapAnimBuffers(base.header.model, animBuffers);
     for (auto& buffer : animBuffers) {
         M2SerializeResult::AnimDataEntry entry;
         entry.animId = static_cast<u16>(buffer.anim_id);
@@ -609,6 +626,7 @@ void Writer::Impl::writeViaWfs(WoWFileSystem& wfs, const BaseFile& base,
         wfs.writeSkeletonFile(skelHandle, serializeSkeleton(skeletonCopy.value(), &animBuffers));
     }
 
+    wrapAnimBuffers(base.header.model, animBuffers);
     for (size_t i = 0; i < animBuffers.size() && i < animHandles.size(); ++i) {
         wfs.writeAnimFile(animHandles[i], std::move(animBuffers[i].data));
     }

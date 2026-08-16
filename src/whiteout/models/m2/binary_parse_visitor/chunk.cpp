@@ -8,8 +8,11 @@ namespace m2 {
 using common::BinaryReader;
 
 void BinaryParseVisitor::visit(TXACChunk& chunk, BaseFile& file) {
-    size_t const num_entries =
+    size_t num_entries =
         file.header.model.materials.size() + file.header.model.particleEmitters.size();
+    if (maxSize >= 0) {
+        num_entries = std::min(num_entries, static_cast<size_t>(maxSize) / 2);
+    }
     chunk.entries = reader.read<std::vector<std::array<u8, 2>>>(num_entries);
 }
 
@@ -201,7 +204,7 @@ void BinaryParseVisitor::visit(TexturedLightData& entry) {
 }
 
 void BinaryParseVisitor::visit(TEXLChunk& chunk) {
-    visit(chunk.texturedLights);
+    parse_chunked_vector(chunk.texturedLights);
 }
 
 void BinaryParseVisitor::visit(SKL1Chunk& chunk) {
