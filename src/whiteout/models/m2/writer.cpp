@@ -2,6 +2,7 @@
 #include <cassert>
 #include <cstring>
 #include <fstream>
+#include <utility>
 #include <whiteout/models/m2/writer.h>
 #include "../../common/binary_writer.h"
 #include "../../common/streams.h"
@@ -16,10 +17,30 @@ using common::BinaryWriter;
 
 class Writer::Impl {
 public:
+    using AnimDataBuffers = std::deque<BinaryWriterVisitor::AnimDataBuffer>;
+
     WriteOptions m_options;
     std::vector<std::string> m_issues;
 
     explicit Impl(WriteOptions options) : m_options(std::move(options)) {}
+
+    /// True when the target keeps its skin profiles inside the `.m2` — every
+    /// client before WotLK.
+    bool inlineSkins() const {
+        return m_options.m2Version < M2_VERSION_WOTLK;
+    }
+
+    /// True when the target streams external-flagged sequences from `.anim`
+    /// siblings; earlier versions carry everything in the model.
+    bool splitsAnimFiles() const {
+        return m_options.m2Version >= M2_VERSION_WOTLK;
+    }
+
+    void validateOptions();
+
+    /// The sequences whose keys the serialized base routes into `.anim`
+    /// buffers, in the order the visitor creates those buffers.
+    static std::vector<std::pair<u16, u16>> externalSequences(const std::vector<Sequence>& seqs);
 
     void decomposeBaseFile(BaseFile& base, std::vector<SkinFile>& skins,
                            std::optional<SkeletonFile>& skeleton);
@@ -28,14 +49,16 @@ public:
 
     BaseFile wrapModel(const Model& model) const;
 
-    std::vector<u8> serializeBase(const BaseFile& base);
+    std::vector<u8> serializeBase(const BaseFile& base, AnimDataBuffers* animOut = nullptr);
     std::vector<u8> serializeSkin(const SkinFile& skin);
-    std::vector<u8> serializeSkeleton(const SkeletonFile& skel);
+    std::vector<u8> serializeSkeleton(const SkeletonFile& skel, AnimDataBuffers* animOut = nullptr);
 
-    void writeBase(BinaryWriter& writer, const BaseFile& model);
+    void writeBase(BinaryWriter& writer, const BaseFile& model, AnimDataBuffers* animOut = nullptr);
     void writeSkin(BinaryWriter& writer, const SkinFile& model);
-    void writeChunkedBase(BinaryWriter& writer, const BaseFile& model);
-    void writeChunkedSkeleton(BinaryWriter& writer, const SkeletonFile& model);
+    void writeChunkedBase(BinaryWriter& writer, const BaseFile& model,
+                          AnimDataBuffers* animOut = nullptr);
+    void writeChunkedSkeleton(BinaryWriter& writer, const SkeletonFile& model,
+                              AnimDataBuffers* animOut = nullptr);
     void writeChunkedBone(BinaryWriter& writer, const BoneFile& model);
     void writeChunkedAnim(BinaryWriter& writer, const AnimFile& model);
 
@@ -58,6 +81,7 @@ const std::vector<std::string>& Writer::getIssues() const {
 void Writer::write(interfaces::VirtualPathFileSystem& fs, const std::string& filePath,
                    const Model& model) {
     pImpl->m_issues.clear();
+    pImpl->validateOptions();
 
     BaseFile base = pImpl->wrapModel(model);
     std::vector<SkinFile> skins;
@@ -70,6 +94,7 @@ void Writer::write(interfaces::VirtualPathFileSystem& fs, const std::string& fil
 
 void Writer::write(interfaces::CascFileSystem& cascFs, const Model& model) {
     pImpl->m_issues.clear();
+    pImpl->validateOptions();
 
     BaseFile base = pImpl->wrapModel(model);
     std::vector<SkinFile> skins;
@@ -107,6 +132,7 @@ size_t findChunkDataOffset(const std::vector<u8>& buffer, u32 tag) {
 
 M2SerializeResult Writer::write(const Model& model) {
     pImpl->m_issues.clear();
+    pImpl->validateOptions();
 
     BaseFile base = pImpl->wrapModel(model);
     std::vector<SkinFile> skins;
@@ -116,7 +142,7 @@ M2SerializeResult Writer::write(const Model& model) {
     M2SerializeResult result;
 
     u32 numBaseSkins = 0;
-    {
+    if (!pImpl->inlineSkins()) {
         SFIDChunk sfid;
         for (const auto& s : skins) {
             if (s.isLodSkin) {
@@ -129,16 +155,45 @@ M2SerializeResult Writer::write(const Model& model) {
         base.sfid_chunk = std::move(sfid);
     }
 
+    // The AFID slots have to exist in whichever file is serialized below, so
+    // the external sequence list is derived up front; the visitor fills the
+    // matching buffers in the same order while serializing.
+    const auto externals = pImpl->splitsAnimFiles()
+                               ? Impl::externalSequences(skeleton && skeleton->sks1_chunk
+                                                             ? skeleton->sks1_chunk->sequences
+                                                             : base.header.model.sequences)
+                               : std::vector<std::pair<u16, u16>>{};
+    if (!externals.empty() && base.format == Format::LegionMD21) {
+        AFIDChunk afid;
+        for (const auto& [animId, subAnimId] : externals) {
+            afid.animFileIds.push_back(AFIDEntry{animId, subAnimId, 0});
+        }
+        if (skeleton) {
+            skeleton->afid_chunk = std::move(afid);
+        } else {
+            base.afid_chunk = std::move(afid);
+        }
+    }
+
+    Impl::AnimDataBuffers animBuffers;
     if (skeleton) {
         M2SerializeResult::SkeletonFileEntry skelEntry;
-        skelEntry.data = pImpl->serializeSkeleton(skeleton.value());
+        skelEntry.data = pImpl->serializeSkeleton(skeleton.value(), &animBuffers);
         result.skeletonData = std::move(skelEntry);
         SKIDChunk skid;
         skid.skeletonFileDataId = 0;
         base.skid_chunk = skid;
     }
 
-    result.m2Data = pImpl->serializeBase(base);
+    result.m2Data = pImpl->serializeBase(base, skeleton ? nullptr : &animBuffers);
+
+    for (auto& buffer : animBuffers) {
+        M2SerializeResult::AnimDataEntry entry;
+        entry.animId = static_cast<u16>(buffer.anim_id);
+        entry.subAnimId = static_cast<u16>(buffer.sub_anim_id);
+        entry.data = std::move(buffer.data);
+        result.animData.push_back(std::move(entry));
+    }
 
     for (const auto& skinFile : skins) {
         M2SerializeResult::SkinFileEntry entry;
@@ -192,12 +247,51 @@ M2SerializeResult Writer::write(const Model& model) {
     return result;
 }
 
+void Writer::Impl::validateOptions() {
+    if (m_options.format == Format::LegionMD21 && m_options.m2Version < M2_VERSION_LEGION) {
+        m_issues.push_back("MD21 (chunked) output requires version >= 272; version " +
+                           std::to_string(m_options.m2Version) + " belongs in a plain MD20 file");
+    }
+    if (m_options.format == Format::ClassicMD20 && m_options.m2Version > M2_VERSION_LEGION) {
+        m_issues.push_back("version " + std::to_string(m_options.m2Version) +
+                           " models are chunked (MD21); writing plain MD20 anyway");
+    }
+}
+
+std::vector<std::pair<u16, u16>> Writer::Impl::externalSequences(
+    const std::vector<Sequence>& seqs) {
+    std::vector<std::pair<u16, u16>> out;
+    for (const auto& seq : seqs) {
+        if ((static_cast<u32>(seq.flags) & 0x130u) == 0) {
+            out.emplace_back(seq.id, seq.variationIndex);
+        }
+    }
+    return out;
+}
+
 void Writer::Impl::decomposeBaseFile(BaseFile& base, std::vector<SkinFile>& skins,
                                      std::optional<SkeletonFile>& skeleton) {
     const auto& model = base.header.model;
 
+    if (inlineSkins()) {
+        // ≤TBC keeps its skin profiles ("views") inside the .m2; nothing to
+        // split off, and the LOD list has nowhere to go.
+        if (!model.lodProfiles.empty()) {
+            m_issues.push_back("version < 264 cannot carry LOD skin profiles; dropping " +
+                               std::to_string(model.lodProfiles.size()));
+            base.header.model.lodProfiles.clear();
+        }
+        base.header.model.numSkinProfiles = static_cast<u32>(model.skinProfiles.size());
+        if (m_options.emitSkeleton) {
+            m_issues.push_back("emitSkeleton requires MD21 format; skeleton will be inline");
+        }
+        return;
+    }
+
+    u32 const numSkinProfiles = static_cast<u32>(model.skinProfiles.size());
     for (size_t i = 0; i < model.skinProfiles.size(); ++i) {
         SkinFile sf;
+        sf.version = base.header.version;
         sf.profile = model.skinProfiles[i];
         sf.isLodSkin = false;
         sf.index = static_cast<int>(i);
@@ -205,15 +299,18 @@ void Writer::Impl::decomposeBaseFile(BaseFile& base, std::vector<SkinFile>& skin
     }
     for (size_t i = 0; i < model.lodProfiles.size(); ++i) {
         SkinFile sf;
+        sf.version = base.header.version;
         sf.profile = model.lodProfiles[i];
         sf.isLodSkin = true;
         sf.lodLevel = static_cast<int>(i);
         skins.push_back(std::move(sf));
     }
 
+    // `model` aliases base.header.model, so the count has to be taken before
+    // the vectors are emptied.
     base.header.model.skinProfiles.clear();
     base.header.model.lodProfiles.clear();
-    base.header.model.numSkinProfiles = static_cast<u32>(model.skinProfiles.size());
+    base.header.model.numSkinProfiles = numSkinProfiles;
 
     if (m_options.emitSkeleton) {
         if (base.format != Format::LegionMD21) {
@@ -407,14 +504,14 @@ EXP2Chunk Writer::Impl::buildEXP2FromModel(const Model& model) {
     return exp2;
 }
 
-std::vector<u8> Writer::Impl::serializeBase(const BaseFile& base) {
+std::vector<u8> Writer::Impl::serializeBase(const BaseFile& base, AnimDataBuffers* animOut) {
     std::vector<u8> buffer;
     buffer.reserve(2 * 1024 * 1024);
     common::vector_streambuf streambuf(buffer);
     std::ostream out(&streambuf);
     BinaryWriter writer(out);
 
-    writeBase(writer, base);
+    writeBase(writer, base, animOut);
 
     buffer.shrink_to_fit();
     return buffer;
@@ -433,14 +530,15 @@ std::vector<u8> Writer::Impl::serializeSkin(const SkinFile& skin) {
     return buffer;
 }
 
-std::vector<u8> Writer::Impl::serializeSkeleton(const SkeletonFile& skel) {
+std::vector<u8> Writer::Impl::serializeSkeleton(const SkeletonFile& skel,
+                                                AnimDataBuffers* animOut) {
     std::vector<u8> buffer;
     buffer.reserve(256 * 1024);
     common::vector_streambuf streambuf(buffer);
     std::ostream out(&streambuf);
     BinaryWriter writer(out);
 
-    writeChunkedSkeleton(writer, skel);
+    writeChunkedSkeleton(writer, skel, animOut);
 
     buffer.shrink_to_fit();
     return buffer;
@@ -466,20 +564,57 @@ void Writer::Impl::writeViaWfs(WoWFileSystem& wfs, const BaseFile& base,
         skelHandle = wfs.newSkeletonFileEntry();
     }
 
+    // External-flagged sequences get their `.anim` siblings registered before
+    // anything serializes, so an AFID chunk can carry real handles and the
+    // buffers produced during serialization land in files 1:1.
+    std::vector<std::pair<u16, u16>> externals;
+    std::vector<u32> animHandles;
+    if (splitsAnimFiles()) {
+        externals =
+            externalSequences(skeleton && skeleton->sks1_chunk ? skeleton->sks1_chunk->sequences
+                                                               : base.header.model.sequences);
+        for (const auto& [animId, subAnimId] : externals) {
+            animHandles.push_back(wfs.newAnimFileEntry(animId, subAnimId));
+        }
+    }
+
     SFIDChunk const sfid = wfs.buildSFIDChunk();
     SKIDChunk const skid = wfs.buildSKIDChunk();
+    AFIDChunk const afid = wfs.buildAFIDChunk();
+
+    AnimDataBuffers animBuffers;
+    std::optional<SkeletonFile> skeletonCopy;
+    if (skeleton) {
+        skeletonCopy = skeleton;
+        if (!afid.animFileIds.empty()) {
+            skeletonCopy->afid_chunk = afid;
+        }
+    }
 
     {
         BaseFile baseCopy = base;
-        baseCopy.sfid_chunk = sfid;
+        if (!inlineSkins()) {
+            baseCopy.sfid_chunk = sfid;
+        }
         if (skid.skeletonFileDataId != 0) {
             baseCopy.skid_chunk = skid;
         }
-        wfs.setM2Base(serializeBase(baseCopy));
+        if (!skeleton && base.format == Format::LegionMD21 && !afid.animFileIds.empty()) {
+            baseCopy.afid_chunk = afid;
+        }
+        wfs.setM2Base(serializeBase(baseCopy, skeleton ? nullptr : &animBuffers));
     }
 
-    if (skeleton) {
-        wfs.writeSkeletonFile(skelHandle, serializeSkeleton(skeleton.value()));
+    if (skeletonCopy) {
+        wfs.writeSkeletonFile(skelHandle, serializeSkeleton(skeletonCopy.value(), &animBuffers));
+    }
+
+    for (size_t i = 0; i < animBuffers.size() && i < animHandles.size(); ++i) {
+        wfs.writeAnimFile(animHandles[i], std::move(animBuffers[i].data));
+    }
+
+    if (base.format == Format::ClassicMD20 && !base.header.model.physicsFileData.empty()) {
+        wfs.writePhysicsFile(base.header.model.physicsFileData);
     }
 
     {
@@ -498,15 +633,19 @@ void Writer::Impl::writeViaWfs(WoWFileSystem& wfs, const BaseFile& base,
     wfs.flush();
 }
 
-void Writer::Impl::writeBase(BinaryWriter& writer, const BaseFile& model) {
+void Writer::Impl::writeBase(BinaryWriter& writer, const BaseFile& model,
+                             AnimDataBuffers* animOut) {
     switch (model.format) {
     case Format::ClassicMD20: {
         BinaryWriterVisitor visitor(writer);
         visitor.write(model.header);
+        if (animOut) {
+            *animOut = std::move(visitor.getAnimDataBuffers());
+        }
         break;
     }
     case Format::LegionMD21:
-        writeChunkedBase(writer, model);
+        writeChunkedBase(writer, model, animOut);
         break;
     case Format::Invalid:
         break;
@@ -515,11 +654,14 @@ void Writer::Impl::writeBase(BinaryWriter& writer, const BaseFile& model) {
 
 void Writer::Impl::writeSkin(BinaryWriter& writer, const SkinFile& model) {
     BinaryWriterVisitor visitor(writer);
-    writer.write<u32>(SKIN_TAG);
+    // The visitor writes the SKIN magic itself for standalone-profile
+    // versions; it needs the version for that and for the section layout.
+    visitor.setVersion(model.version != 0 ? model.version : m_options.m2Version);
     visitor.write(model.profile);
 }
 
-void Writer::Impl::writeChunkedBase(BinaryWriter& writer, const BaseFile& model) {
+void Writer::Impl::writeChunkedBase(BinaryWriter& writer, const BaseFile& model,
+                                    AnimDataBuffers* animOut) {
     const auto write_chunk = ([&writer]<typename T>(u32 tag, const T& header) {
         writer.write(tag);
         u32 const sizePos = writer.getPosition();
@@ -538,7 +680,27 @@ void Writer::Impl::writeChunkedBase(BinaryWriter& writer, const BaseFile& model)
         writer.setPosition(chunkEnd);
     });
 
-    write_chunk(MD21_TAG, model.header);
+    // The MD21 chunk gets a dedicated visitor: it is the one whose sequence
+    // list routes key data into `.anim` buffers, which the caller flushes.
+    // Later chunks that hold tracks (PADC/PEDC) reference the parent model's
+    // sequences, not this one's, so their fresh visitors keep data inline.
+    {
+        writer.write(MD21_TAG);
+        u32 const sizePos = writer.getPosition();
+        writer.write<u32>(0);
+        u32 const chunkStart = writer.getPosition();
+
+        BinaryWriterVisitor visitor(writer);
+        visitor.write(model.header);
+        if (animOut) {
+            *animOut = std::move(visitor.getAnimDataBuffers());
+        }
+
+        u32 const chunkEnd = writer.getPosition();
+        writer.setPosition(sizePos);
+        writer.write(chunkEnd - chunkStart);
+        writer.setPosition(chunkEnd);
+    }
     if (model.ldv1_chunk) {
         write_chunk(LDV1_TAG, model.ldv1_chunk.value());
     }
@@ -624,14 +786,20 @@ void Writer::Impl::writeChunkedBase(BinaryWriter& writer, const BaseFile& model)
     }
 }
 
-void Writer::Impl::writeChunkedSkeleton(BinaryWriter& writer, const SkeletonFile& model) {
-    const auto write_chunk = ([&writer]<typename T>(u32 tag, const T& chunk) {
+void Writer::Impl::writeChunkedSkeleton(BinaryWriter& writer, const SkeletonFile& model,
+                                        AnimDataBuffers* animOut) {
+    // One visitor across the chunks: the sequence list SKS1 writes decides,
+    // per sequence, where SKA1/SKB1 track keys go, so it must be visited
+    // before them by the same visitor. Chunk order is free — readers dispatch
+    // on the tag.
+    BinaryWriterVisitor visitor(writer);
+
+    const auto write_chunk = ([&writer, &visitor]<typename T>(u32 tag, const T& chunk) {
         writer.write(tag);
         u32 const sizePos = writer.getPosition();
         writer.write<u32>(0);
         u32 const chunkStart = writer.getPosition();
 
-        BinaryWriterVisitor visitor(writer);
         visitor.write(chunk);
 
         u32 const chunkEnd = writer.getPosition();
@@ -646,14 +814,14 @@ void Writer::Impl::writeChunkedSkeleton(BinaryWriter& writer, const SkeletonFile
     if (model.skl1_chunk) {
         write_chunk(SKL1_TAG, model.skl1_chunk.value());
     }
+    if (model.sks1_chunk) {
+        write_chunk(SKS1_TAG, model.sks1_chunk.value());
+    }
     if (model.ska1_chunk) {
         write_chunk(SKA1_TAG, model.ska1_chunk.value());
     }
     if (model.skb1_chunk) {
         write_chunk(SKB1_TAG, model.skb1_chunk.value());
-    }
-    if (model.sks1_chunk) {
-        write_chunk(SKS1_TAG, model.sks1_chunk.value());
     }
     if (model.skpd_chunk) {
         write_chunk(SKPD_TAG, model.skpd_chunk.value());
@@ -663,6 +831,10 @@ void Writer::Impl::writeChunkedSkeleton(BinaryWriter& writer, const SkeletonFile
     }
     if (model.bfid_chunk) {
         write_chunk(BFID_TAG, model.bfid_chunk.value());
+    }
+
+    if (animOut) {
+        *animOut = std::move(visitor.getAnimDataBuffers());
     }
 }
 

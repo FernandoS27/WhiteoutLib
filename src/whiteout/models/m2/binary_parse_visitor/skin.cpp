@@ -19,8 +19,14 @@ void BinaryParseVisitor::visit(SkinSection& section) {
     section.boneInfluences = reader.read<u16>();
     section.centerBoneIndex = reader.read<u16>();
     section.centerPosition = reader.read<Vector3f>();
-    section.sortCenterPosition = reader.read<Vector3f>();
-    section.sortRadius = reader.read<f32>();
+    if (version == 0 || version >= M2_VERSION_BC) {
+        section.sortCenterPosition = reader.read<Vector3f>();
+        section.sortRadius = reader.read<f32>();
+    } else {
+        // Vanilla sections end at centerPosition; sorting data arrived in BC.
+        section.sortCenterPosition = section.centerPosition;
+        section.sortRadius = 0.0f;
+    }
 }
 
 void BinaryParseVisitor::visit(Batch& batch) {

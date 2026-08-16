@@ -33,6 +33,13 @@ public sealed class Parser : WhiteoutHandle
     }
 
 
+    /// <summary>Leave the keys of sequences stored in `.anim` siblings unread until m2::loadSequence() asks for them. Off by default.</summary>
+    public void SetLazyAnimations(bool enable)
+    {
+        NativeMethods.whiteout_m2_M2Parser_setLazyAnimations(DangerousGet(), enable ? 1 : 0);
+    }
+
+
     public IReadOnlyList<string> Issues =>
         new NativeListView<string>(
             DangerousGet(),

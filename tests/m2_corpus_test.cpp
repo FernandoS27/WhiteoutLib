@@ -7,25 +7,29 @@
 
 #include <catch2/catch_all.hpp>
 
+#include <algorithm>
+#include <cctype>
+#include <chrono>
+#include <cstdlib>
+#include <filesystem>
+#include <iomanip>
+#include <iostream>
+#include <map>
+#include <numeric>
+#include <set>
+#include <string>
+#include <vector>
 #include <whiteout/models/m2/m2.h>
 #include <whiteout/utils/os_file_system.h>
-#include <filesystem>
-#include <iostream>
-#include <iomanip>
-#include <chrono>
-#include <algorithm>
-#include <map>
-#include <set>
-#include <vector>
-#include <string>
-#include <numeric>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
+// clang-format off — dbghelp.h needs windows.h first
 #include <windows.h>
 #include <dbghelp.h>
 #include <eh.h>
+// clang-format on
 #pragma comment(lib, "dbghelp.lib")
 
 static std::string captureStackTrace(EXCEPTION_POINTERS* ep) {
@@ -62,10 +66,11 @@ static std::string captureStackTrace(EXCEPTION_POINTERS* ep) {
     line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
 
     for (int i = 0; i < 30; ++i) {
-        if (!StackWalk64(machineType, process, thread, &frame, &ctx,
-                         NULL, SymFunctionTableAccess64, SymGetModuleBase64, NULL))
+        if (!StackWalk64(machineType, process, thread, &frame, &ctx, NULL, SymFunctionTableAccess64,
+                         SymGetModuleBase64, NULL))
             break;
-        if (frame.AddrPC.Offset == 0) break;
+        if (frame.AddrPC.Offset == 0)
+            break;
 
         DWORD64 displacement64 = 0;
         DWORD displacement32 = 0;
@@ -106,7 +111,9 @@ public:
         }
     }
 
-    const char* what() const noexcept override { return msg.c_str(); }
+    const char* what() const noexcept override {
+        return msg.c_str();
+    }
 };
 
 // Translator function: converts SEH to throwable C++ exception.
@@ -147,21 +154,36 @@ TEST_CASE("M2 corpus parse", "[m2][corpus]") {
     SymInitialize(GetCurrentProcess(), NULL, TRUE);
 #endif
 
-    // Auto-discover corpus directory
+    // Corpus directory: M2_CORPUS_DIR env var, else auto-discover
     std::string corpusDir;
-    for (auto candidate : {"Corpus/M2", "../Corpus/M2", "../../Corpus/M2"}) {
-        if (fs::is_directory(candidate)) { corpusDir = candidate; break; }
+    if (const char* env = std::getenv("M2_CORPUS_DIR"); env && fs::is_directory(env)) {
+        corpusDir = env;
     }
-    if (corpusDir.empty()) SKIP("M2 corpus not found");
+    if (corpusDir.empty()) {
+        for (auto candidate : {"Corpus/M2", "../Corpus/M2", "../../Corpus/M2"}) {
+            if (fs::is_directory(candidate)) {
+                corpusDir = candidate;
+                break;
+            }
+        }
+    }
+    if (corpusDir.empty())
+        SKIP("M2 corpus not found");
 
-    bool doRoundTrip = false;
-    bool verbose = false;
+    bool doRoundTrip = std::getenv("M2_CORPUS_ROUNDTRIP") != nullptr;
+    bool verbose = std::getenv("M2_CORPUS_VERBOSE") != nullptr;
     bool stopOnError = false;
 
-    // Collect all .m2 files
+    // Collect all .m2 files (extension match is case-insensitive: old
+    // installs mix ".m2" and ".M2")
     std::vector<fs::path> m2Files;
     for (const auto& entry : fs::recursive_directory_iterator(corpusDir)) {
-        if (entry.is_regular_file() && entry.path().extension() == ".m2") {
+        if (!entry.is_regular_file())
+            continue;
+        std::string ext = entry.path().extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (ext == ".m2") {
             m2Files.push_back(entry.path());
         }
     }
@@ -218,7 +240,7 @@ TEST_CASE("M2 corpus parse", "[m2][corpus]") {
                 parseOk++;
             } else {
                 issueFiles++;
-                parseOk++;  // Still parsed, just with warnings
+                parseOk++; // Still parsed, just with warnings
                 for (const auto& issue : issues) {
                     // Bucket by first 60 chars to group similar issues
                     std::string key = issue.substr(0, std::min(issue.size(), size_t(80)));
@@ -227,7 +249,8 @@ TEST_CASE("M2 corpus parse", "[m2][corpus]") {
             }
 
             if (verbose && !issues.empty()) {
-                std::cout << "\n  [WARN] " << result.filename << ": " << issues.size() << " issue(s)" << std::endl;
+                std::cout << "\n  [WARN] " << result.filename << ": " << issues.size()
+                          << " issue(s)" << std::endl;
                 for (const auto& issue : issues) {
                     std::cout << "    - " << issue << std::endl;
                 }
@@ -266,9 +289,11 @@ TEST_CASE("M2 corpus parse", "[m2][corpus]") {
                         if (verbose) {
                             std::cout << "\n  [RT-FAIL] " << result.filename << std::endl;
                             if (!match) {
-                                std::cout << "    Mismatch: bones " << model.bones.size() << "/" << reModel.bones.size()
-                                          << " seqs " << model.sequences.size() << "/" << reModel.sequences.size()
-                                          << " verts " << model.vertices.size() << "/" << reModel.vertices.size()
+                                std::cout << "    Mismatch: bones " << model.bones.size() << "/"
+                                          << reModel.bones.size() << " seqs "
+                                          << model.sequences.size() << "/"
+                                          << reModel.sequences.size() << " verts "
+                                          << model.vertices.size() << "/" << reModel.vertices.size()
                                           << std::endl;
                             }
                         }
@@ -279,7 +304,8 @@ TEST_CASE("M2 corpus parse", "[m2][corpus]") {
                     rtFail++;
                     result.roundTripIssues.push_back(std::string("Exception: ") + e.what());
                     if (verbose) {
-                        std::cout << "\n  [RT-ERR] " << result.filename << ": " << e.what() << std::endl;
+                        std::cout << "\n  [RT-ERR] " << result.filename << ": " << e.what()
+                                  << std::endl;
                     }
                 }
             }
@@ -308,9 +334,9 @@ TEST_CASE("M2 corpus parse", "[m2][corpus]") {
               << (100.0 * parseOk / m2Files.size()) << "%)" << std::endl;
     std::cout << "Parse FAIL:      " << parseFail << std::endl;
     std::cout << "Files w/ issues: " << issueFiles << std::endl;
-    std::cout << "Time:            " << elapsed.count() << " ms ("
-              << std::fixed << std::setprecision(1)
-              << (1000.0 * m2Files.size() / elapsed.count()) << " files/sec)" << std::endl;
+    std::cout << "Time:            " << elapsed.count() << " ms (" << std::fixed
+              << std::setprecision(1) << (1000.0 * m2Files.size() / elapsed.count())
+              << " files/sec)" << std::endl;
 
     if (doRoundTrip) {
         std::cout << "\n--- Round-Trip ---" << std::endl;
@@ -322,7 +348,8 @@ TEST_CASE("M2 corpus parse", "[m2][corpus]") {
         std::cout << "\n--- Top Parse Issues ---" << std::endl;
         // Sort by frequency
         std::vector<std::pair<std::string, int>> sorted(issueCounts.begin(), issueCounts.end());
-        std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+        std::sort(sorted.begin(), sorted.end(),
+                  [](const auto& a, const auto& b) { return a.second > b.second; });
         for (size_t i = 0; i < std::min(sorted.size(), size_t(20)); ++i) {
             std::cout << "  [" << sorted[i].second << "x] " << sorted[i].first << std::endl;
         }
@@ -343,7 +370,8 @@ TEST_CASE("M2 corpus parse", "[m2][corpus]") {
     size_t totalLights = 0, totalCams = 0, totalAttach = 0, totalEvents = 0;
     size_t totalParticles = 0, totalRibbons = 0;
     for (const auto& r : results) {
-        if (!r.parsed) continue;
+        if (!r.parsed)
+            continue;
         totalBones += r.bones;
         totalSeqs += r.sequences;
         totalVerts += r.vertices;

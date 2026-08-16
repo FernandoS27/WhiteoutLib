@@ -5,10 +5,14 @@
 #include "../../common/binary_writer.h"
 #include "../../common/streams.h"
 #include "internal_structures.h"
+#include "legacy.h"
 #include "traits.h"
 
+#include <algorithm>
+#include <cassert>
 #include <deque>
 #include <functional>
+#include <memory>
 #include <ostream>
 #include <type_traits>
 
@@ -42,6 +46,10 @@ public:
     }
     const std::deque<AnimDataBuffer>& getAnimDataBuffers() const {
         return animDataBuffers;
+    }
+
+    void setVersion(u32 v) {
+        version = v;
     }
 
 protected:
@@ -168,6 +176,33 @@ protected:
     template <typename T>
     void writeVector(const std::vector<T>& array, common::BinaryWriter* dataWriter);
 
+    /// @brief Write a per-sequence key array (the M2Array-of-M2Array half of a
+    ///        track): outer count/offset here, inner headers deferred to the
+    ///        data region, each sequence's keys routed to its `.anim` buffer
+    ///        unless the model keeps them (or @p inFileOnly forces it, which is
+    ///        what a global-sequence track needs — its sub-arrays all live in
+    ///        the model, whatever the sequence flags say).
+    template <typename U>
+    void writeSequenceArrays(const std::vector<std::vector<U>>& values, bool inFileOnly);
+
+    // ≤TBC (<264) track writing: merge the per-sequence keys back onto the
+    // global timeline laid out by visit(Model), and emit the interpolation
+    // ranges that index it.
+    template <typename FileT, typename T, typename Convert>
+    void writeLegacyTrack(const AnimationTrack<T>& track, Convert convert);
+    void writeLegacyTrackHead(const AnimationTrackBase& track);
+    void writeLegacyBoneRotation(const AnimationTrack<CompatQuaternion>& track);
+    void writeLegacyParticleColorBlock(const ParticleEmitter& emitter);
+
+    /// Backing storage for the merged arrays a legacy track write defers; the
+    /// deferred lambdas hold references, so the vectors must outlive them.
+    template <typename V>
+    std::vector<V>& arenaVector() {
+        auto holder = std::make_shared<std::vector<V>>();
+        legacyArena.push_back(holder);
+        return *holder;
+    }
+
     template <typename T>
     void visit(const std::vector<T>& array);
 
@@ -187,31 +222,115 @@ protected:
     std::deque<AnimDataBuffer> animDataBuffers;
     std::deque<AnimDataWriterState> animDataWriterStates;
     std::vector<common::BinaryWriter*> animDataWriters;
+
+    /// Per sequence, in order: its window on the ≤TBC global timeline; laid
+    /// out by visit(Model) before the sequence list writes, consumed by
+    /// visit(Sequence) and the legacy track merge. Empty for ≥264 output.
+    std::vector<LegacyWindow> legacyWindows;
+    size_t legacyWindowIndex = 0;
+    std::deque<std::shared_ptr<void>> legacyArena;
 };
 
 template <typename T>
 void BinaryWriterVisitor::visit(const AnimationTrack<T>& track) {
+    if (version != 0 && version < M2_VERSION_WOTLK) {
+        writeLegacyTrack<T>(track, [](const T& v) { return v; });
+        return;
+    }
     writer.write(track.interpolationType);
     writer.write(track.globalSequenceId);
 
-    const auto animDataFunc = [this]<typename U>(const std::vector<std::vector<U>>& values) {
-        u32 offsetPos = writer.getPosition();
-        writer.template write<u32>(0);
-        deferredWrites.push_back([this, offsetPos, &values]() {
-            u32 currentPos = writer.getPosition();
-            writer.setPosition(offsetPos);
-            writer.write(currentPos - baseOffset);
-            writer.setPosition(currentPos);
+    const bool global = track.globalSequenceId != 0xFFFF;
+    writeSequenceArrays(track.timestamps, global);
+    writeSequenceArrays(track.values, global);
+}
 
-            for (size_t i = 0; i < values.size(); ++i) {
-                writeVector(values[i], animDataWriters[i]);
+template <typename FileT, typename T, typename Convert>
+void BinaryWriterVisitor::writeLegacyTrack(const AnimationTrack<T>& track, Convert convert) {
+    writer.write(track.interpolationType);
+    writer.write(track.globalSequenceId);
+
+    auto& ranges = arenaVector<LegacyRange>();
+    auto& times = arenaVector<u32>();
+    auto& values = arenaVector<FileT>();
+
+    const size_t nSub = std::min(track.timestamps.size(), track.values.size());
+    const T* fallback = nullptr;
+    for (size_t s = 0; s < nSub && !fallback; ++s) {
+        if (!track.values[s].empty()) {
+            fallback = &track.values[s][0];
+        }
+    }
+
+    if (track.globalSequenceId != 0xFFFF || legacyWindows.empty()) {
+        // Global-sequence tracks keep their single span verbatim; its times
+        // are already relative to the global loop's own clock.
+        if (nSub != 0) {
+            const auto& ts = track.timestamps[0];
+            const auto& vs = track.values[0];
+            const size_t n = std::min(ts.size(), vs.size());
+            for (size_t k = 0; k < n; ++k) {
+                times.push_back(ts[k]);
+                values.push_back(convert(vs[k]));
             }
+        }
+    } else if (fallback != nullptr) {
+        for (size_t s = 0; s < legacyWindows.size(); ++s) {
+            const auto& w = legacyWindows[s];
+            const auto* ts = s < nSub ? &track.timestamps[s] : nullptr;
+            const auto* vs = s < nSub ? &track.values[s] : nullptr;
+            const size_t n = (ts && vs) ? std::min(ts->size(), vs->size()) : 0;
+            u32 const firstIdx = static_cast<u32>(times.size());
+            if (n > 1) {
+                for (size_t k = 0; k < n; ++k) {
+                    times.push_back(w.start + (*ts)[k]);
+                    values.push_back(convert((*vs)[k]));
+                }
+                ranges.push_back(LegacyRange{firstIdx, firstIdx + static_cast<u32>(n) - 1});
+            } else {
+                // Old clients want each sequence's window covered; a constant
+                // or keyless sequence becomes a boundary pair holding its one
+                // value (or the track's first value anywhere).
+                const T& v = n == 1 ? (*vs)[0] : *fallback;
+                times.push_back(w.start);
+                values.push_back(convert(v));
+                times.push_back(w.end);
+                values.push_back(convert(v));
+                ranges.push_back(LegacyRange{firstIdx, firstIdx + 1});
+            }
+        }
+        ranges.push_back(LegacyRange{0, 0});
+    }
 
-            writer.AlignTo(16);
-        });
-    };
-    animDataFunc(track.timestamps);
-    animDataFunc(track.values);
+    writeVector(ranges, &writer);
+    writeVector(times, &writer);
+    writeVector(values, &writer);
+}
+
+template <typename U>
+void BinaryWriterVisitor::writeSequenceArrays(const std::vector<std::vector<U>>& values,
+                                              bool inFileOnly) {
+    writer.template write<u32>(static_cast<u32>(values.size()));
+    u32 const offsetPos = writer.getPosition();
+    writer.template write<u32>(0);
+    if (values.empty()) {
+        return;
+    }
+
+    deferredWrites.push_back([this, offsetPos, &values, inFileOnly]() {
+        u32 const currentPos = writer.getPosition();
+        writer.setPosition(offsetPos);
+        writer.write(currentPos - baseOffset);
+        writer.setPosition(currentPos);
+
+        for (size_t i = 0; i < values.size(); ++i) {
+            common::BinaryWriter* dataWriter =
+                (!inFileOnly && i < animDataWriters.size()) ? animDataWriters[i] : &writer;
+            writeVector(values[i], dataWriter);
+        }
+
+        writer.AlignTo(16);
+    });
 }
 
 template <typename T>
@@ -223,22 +342,29 @@ void BinaryWriterVisitor::visit(const ParticleAnimationTrack<T>& track) {
 template <typename T>
 void BinaryWriterVisitor::writeVector(const std::vector<T>& array,
                                       common::BinaryWriter* dataWriter) {
-    dataWriter->template write<u32>(static_cast<u32>(array.size()));
-    u32 offsetPos = writer.getPosition();
-    dataWriter->template write<u32>(0);
+    // The count/offset header always lives in the file being visited; only the
+    // element data may be routed elsewhere (a `.anim` sibling's buffer). An
+    // externally-stored span records its offset within that sibling, which the
+    // sibling reads from its own origin — no baseOffset involved.
+    writer.template write<u32>(static_cast<u32>(array.size()));
+    u32 const offsetPos = writer.getPosition();
+    writer.template write<u32>(0);
     if (array.empty()) {
         return;
     }
 
     deferredWrites.push_back([this, dataWriter, offsetPos, &array]() {
-        u32 currentPos = writer.getPosition();
-        dataWriter->setPosition(offsetPos);
-        dataWriter->write(currentPos - baseOffset);
-        dataWriter->setPosition(currentPos);
+        const bool external = dataWriter != &writer;
+        u32 const dataPos = dataWriter->getPosition();
+        u32 const currentPos = writer.getPosition();
+        writer.setPosition(offsetPos);
+        writer.write(external ? dataPos : dataPos - baseOffset);
+        writer.setPosition(currentPos);
 
         if constexpr (bulk_copyable_v<T>) {
             dataWriter->write(array);
         } else {
+            assert(dataWriter == &writer && "per-field elements cannot be routed to .anim data");
             for (const T& item : array) {
                 visit(item);
             }

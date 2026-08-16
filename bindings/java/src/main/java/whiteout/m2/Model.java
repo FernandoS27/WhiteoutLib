@@ -29,7 +29,7 @@ import whiteout.m2.internal.Native;
  * external access if a handle is shared across threads.
  */
 public final class Model implements AutoCloseable {
-    private static final long BYTES = 1496L;
+    private static final long BYTES = 1560L;
 
     final MemorySegment handle;
     final boolean owned;
@@ -701,6 +701,56 @@ public final class Model implements AutoCloseable {
     }
     public void resizeTextureCombinerCombos(int count) {
         NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_textureCombinerCombos, handle, (long) count);
+    }
+    /**
+     * One 4-byte record per animation id; vanilla/BC clients use it to pick fallback animations. Preserved verbatim so old files round-trip.
+     * @return the playableAnimationLookup field of this M2Model.
+     */
+    public int getPlayableAnimationLookupCount() {
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_playableAnimationLookup_count, handle);
+    }
+    public int[] getPlayableAnimationLookup() {
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_playableAnimationLookup_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_playableAnimationLookup_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
+    }
+    public void setPlayableAnimationLookup(int[] values) {
+        try (Arena arena = Arena.ofConfined()) {
+            long __count = (long) values.length / 1;
+            MemorySegment __seg = arena.allocate((long) values.length * 4L);
+            if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_playableAnimationLookup, handle, __seg, __count);
+        }
+    }
+    public void resizePlayableAnimationLookup(int count) {
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_playableAnimationLookup, handle, (long) count);
+    }
+    /**
+     * "Texture flipbooks" — unused even by old clients, preserved verbatim.
+     * @return the textureFlipbooks field of this M2Model.
+     */
+    public int getTextureFlipbooksCount() {
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureFlipbooks_count, handle);
+    }
+    public short[] getTextureFlipbooks() {
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureFlipbooks_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_textureFlipbooks_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new short[0];
+        long __scalars = __count * 1L;
+        return __ptr.reinterpret(__scalars * 2L).toArray(ValueLayout.JAVA_SHORT);
+    }
+    public void setTextureFlipbooks(short[] values) {
+        try (Arena arena = Arena.ofConfined()) {
+            long __count = (long) values.length / 1;
+            MemorySegment __seg = arena.allocate((long) values.length * 2L);
+            if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_SHORT, 0, values.length);
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_textureFlipbooks, handle, __seg, __count);
+        }
+    }
+    public void resizeTextureFlipbooks(int count) {
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_textureFlipbooks, handle, (long) count);
     }
     /**
      * TXID

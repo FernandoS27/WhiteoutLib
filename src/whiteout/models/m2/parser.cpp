@@ -77,7 +77,8 @@ void Parser::Impl::parseModel(std::shared_ptr<WoWFileSystem> wfs, Model& result)
     // sequence's keys are and leaves them empty. Eager is that plus every load,
     // right now — one code path for both, so "lazy" cannot drift into meaning
     // something subtly different from "not yet".
-    result.sequenceLoader = std::make_shared<SequenceLoader>(std::move(wfs), result.sequences.size());
+    result.sequenceLoader =
+        std::make_shared<SequenceLoader>(std::move(wfs), result.sequences.size());
     if (lazyAnimations)
         return;
 
@@ -134,6 +135,20 @@ void Parser::Impl::parse(WoWFileSystem& wfs, Model& result) {
             if (skinData.empty())
                 continue;
             readSkinProfile(result.lodProfiles, skinData, i);
+        }
+    } else {
+        // Which container the model came in, not which version it claims,
+        // decides where the skin profiles are named. Only a chunked (Legion+)
+        // `.m2` carries SFID; a plain MD20 — every client through Warlords —
+        // names them positionally, `<stem>00.skin` upward, and the header's
+        // count is the whole manifest. `numSkinProfiles` is 0 for pre-WotLK
+        // files, whose profiles the header already read inline, so they fall
+        // through here untouched.
+        for (u32 i = 0; i < result.numSkinProfiles; ++i) {
+            auto skinData = wfs.getSkin(i, false);
+            if (skinData.empty())
+                continue;
+            readSkinProfile(result.skinProfiles, skinData, i);
         }
     }
 
@@ -253,6 +268,16 @@ void Parser::Impl::parse(WoWFileSystem& wfs, Model& result) {
         result.dpivData = m2.dpiv_chunk->data;
     if (m2.texl_chunk)
         result.texturedLightEntries = std::move(m2.texl_chunk->texturedLights);
+
+    // A plain MD20 with the LoadPhysicsData flag names its physics by path:
+    // `<stem>.phys`. Chunked models carry the same payload in PFDC instead.
+    if (m2.format == Format::ClassicMD20 && result.physicsFileData.empty() &&
+        hasFlag(result.globalFlags.value, GlobalFlag::LoadPhysicsData)) {
+        auto physData = wfs.getPhysics();
+        if (!physData.empty()) {
+            result.physicsFileData.assign(physData.begin(), physData.end());
+        }
+    }
 }
 
 void Parser::Impl::parseBase(BinaryReader& reader, BaseFile& file, WoWFileSystem* wfs) {

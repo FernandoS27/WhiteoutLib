@@ -62,6 +62,14 @@ struct Model {
 
     std::vector<u16> textureCombinerCombos;
 
+    // ── Pre-WotLK (≤263) header arrays, absent in later versions ──────────
+
+    /// One 4-byte record per animation id; vanilla/BC clients use it to pick
+    /// fallback animations. Preserved verbatim so old files round-trip.
+    std::vector<u32> playableAnimationLookup;
+    /// "Texture flipbooks" — unused even by old clients, preserved verbatim.
+    std::vector<u16> textureFlipbooks;
+
     // ── Chunk extension data ──────────
 
     std::vector<u32> texture_ids;                          ///< TXID

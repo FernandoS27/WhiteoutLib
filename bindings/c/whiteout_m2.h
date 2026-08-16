@@ -28,9 +28,9 @@ typedef enum {
     whiteout_m2_GlobalFlag_AddBackReferences,
     whiteout_m2_GlobalFlag_UseTextureCombinerCombos,
     whiteout_m2_GlobalFlag_IsCamera,
-    whiteout_m2_GlobalFlag_Unused,
-    whiteout_m2_GlobalFlag_Unk_0x80,
     whiteout_m2_GlobalFlag_LoadPhysicsData,
+    whiteout_m2_GlobalFlag_Unk_0x80,
+    whiteout_m2_GlobalFlag_Unk_0x100,
     whiteout_m2_GlobalFlag_NewParticleRecord,
     whiteout_m2_GlobalFlag_Unk_0x400,
     whiteout_m2_GlobalFlag_TextureTransformsUsesBoneSequences,
@@ -131,6 +131,7 @@ typedef enum {
 typedef struct whiteout_M2CompatQuaternion whiteout_M2CompatQuaternion;
 typedef struct whiteout_M2ColorBGRA whiteout_M2ColorBGRA;
 typedef struct whiteout_M2Extent whiteout_M2Extent;
+typedef struct whiteout_M2KeySpanRef whiteout_M2KeySpanRef;
 typedef struct whiteout_M2AnimationTrackBase whiteout_M2AnimationTrackBase;
 typedef struct whiteout_M2ParticleEmitterExtension whiteout_M2ParticleEmitterExtension;
 typedef struct whiteout_M2LodProfile whiteout_M2LodProfile;
@@ -172,6 +173,7 @@ typedef struct whiteout_M2Writer whiteout_M2Writer;
 typedef struct whiteout_M2AnimationTrackVector3f whiteout_M2AnimationTrackVector3f;
 typedef struct whiteout_M2AnimationTrackM2CompatQuaternion whiteout_M2AnimationTrackM2CompatQuaternion;
 typedef struct whiteout_M2AnimationTrackI16 whiteout_M2AnimationTrackI16;
+typedef struct whiteout_M2AnimationTrackQuaternion whiteout_M2AnimationTrackQuaternion;
 typedef struct whiteout_M2AnimationTrackF32 whiteout_M2AnimationTrackF32;
 typedef struct whiteout_M2AnimationTrackU8 whiteout_M2AnimationTrackU8;
 typedef struct whiteout_M2AnimationTrackM2CameraSpline whiteout_M2AnimationTrackM2CameraSpline;
@@ -202,6 +204,19 @@ whiteout_Vector3f* whiteout_m2_M2Extent_get_maximum(whiteout_M2Extent* self);
 void whiteout_m2_M2Extent_set_maximum(whiteout_M2Extent* self, const whiteout_Vector3f* value);
 float whiteout_m2_M2Extent_get_sphereRadius(const whiteout_M2Extent* self);
 void whiteout_m2_M2Extent_set_sphereRadius(whiteout_M2Extent* self, float value);
+
+/* ── M2KeySpanRef ─────────────────────────────────────────────── */
+
+/* One sequence's slice of a key array, as the file writes it: a count and an offset into whichever file holds that sequence's keys. */
+/*  */
+/* Kept only by a lazily parsed model (Parser::setLazyAnimations), which leaves the sub-arrays of externally-stored sequences empty until loadSequence() reads their `.anim` sibling. Nothing else needs it: an eager parse consumes the reference on the spot. */
+whiteout_M2KeySpanRef* whiteout_m2_M2KeySpanRef_new(void);
+void whiteout_m2_M2KeySpanRef_delete(whiteout_M2KeySpanRef* self);
+
+uint32_t whiteout_m2_M2KeySpanRef_get_count(const whiteout_M2KeySpanRef* self);
+void whiteout_m2_M2KeySpanRef_set_count(whiteout_M2KeySpanRef* self, uint32_t value);
+uint32_t whiteout_m2_M2KeySpanRef_get_offset(const whiteout_M2KeySpanRef* self);
+void whiteout_m2_M2KeySpanRef_set_offset(whiteout_M2KeySpanRef* self, uint32_t value);
 
 /* ── M2AnimationTrackBase ─────────────────────────────────────────────── */
 
@@ -637,8 +652,8 @@ void whiteout_m2_M2TextureTransform_delete(whiteout_M2TextureTransform* self);
 
 whiteout_M2AnimationTrackVector3f* whiteout_m2_M2TextureTransform_get_translation(whiteout_M2TextureTransform* self);
 void whiteout_m2_M2TextureTransform_set_translation(whiteout_M2TextureTransform* self, const whiteout_M2AnimationTrackVector3f* value);
-whiteout_M2AnimationTrackM2CompatQuaternion* whiteout_m2_M2TextureTransform_get_rotation(whiteout_M2TextureTransform* self);
-void whiteout_m2_M2TextureTransform_set_rotation(whiteout_M2TextureTransform* self, const whiteout_M2AnimationTrackM2CompatQuaternion* value);
+whiteout_M2AnimationTrackQuaternion* whiteout_m2_M2TextureTransform_get_rotation(whiteout_M2TextureTransform* self);
+void whiteout_m2_M2TextureTransform_set_rotation(whiteout_M2TextureTransform* self, const whiteout_M2AnimationTrackQuaternion* value);
 whiteout_M2AnimationTrackVector3f* whiteout_m2_M2TextureTransform_get_scaling(whiteout_M2TextureTransform* self);
 void whiteout_m2_M2TextureTransform_set_scaling(whiteout_M2TextureTransform* self, const whiteout_M2AnimationTrackVector3f* value);
 
@@ -813,6 +828,10 @@ int32_t whiteout_m2_M2ParticleEmitter_get_emitterType(const whiteout_M2ParticleE
 void whiteout_m2_M2ParticleEmitter_set_emitterType(whiteout_M2ParticleEmitter* self, int32_t value);
 uint16_t whiteout_m2_M2ParticleEmitter_get_particleColorIndex(const whiteout_M2ParticleEmitter* self);
 void whiteout_m2_M2ParticleEmitter_set_particleColorIndex(whiteout_M2ParticleEmitter* self, uint16_t value);
+uint8_t whiteout_m2_M2ParticleEmitter_get_particleType(const whiteout_M2ParticleEmitter* self);
+void whiteout_m2_M2ParticleEmitter_set_particleType(whiteout_M2ParticleEmitter* self, uint8_t value);
+uint8_t whiteout_m2_M2ParticleEmitter_get_headOrTail(const whiteout_M2ParticleEmitter* self);
+void whiteout_m2_M2ParticleEmitter_set_headOrTail(whiteout_M2ParticleEmitter* self, uint8_t value);
 int16_t whiteout_m2_M2ParticleEmitter_get_textureTilerotation(const whiteout_M2ParticleEmitter* self);
 void whiteout_m2_M2ParticleEmitter_set_textureTilerotation(whiteout_M2ParticleEmitter* self, int16_t value);
 uint16_t whiteout_m2_M2ParticleEmitter_get_rows(const whiteout_M2ParticleEmitter* self);
@@ -1028,6 +1047,16 @@ size_t whiteout_m2_M2Model_get_textureCombinerCombos_count(const whiteout_M2Mode
 void whiteout_m2_M2Model_resize_textureCombinerCombos(whiteout_M2Model* self, size_t count);
 const uint16_t* whiteout_m2_M2Model_get_textureCombinerCombos_data(const whiteout_M2Model* self);
 void whiteout_m2_M2Model_assign_textureCombinerCombos(whiteout_M2Model* self, const uint16_t* data, size_t count);
+/* One 4-byte record per animation id; vanilla/BC clients use it to pick fallback animations. Preserved verbatim so old files round-trip. */
+size_t whiteout_m2_M2Model_get_playableAnimationLookup_count(const whiteout_M2Model* self);
+void whiteout_m2_M2Model_resize_playableAnimationLookup(whiteout_M2Model* self, size_t count);
+const uint32_t* whiteout_m2_M2Model_get_playableAnimationLookup_data(const whiteout_M2Model* self);
+void whiteout_m2_M2Model_assign_playableAnimationLookup(whiteout_M2Model* self, const uint32_t* data, size_t count);
+/* "Texture flipbooks" — unused even by old clients, preserved verbatim. */
+size_t whiteout_m2_M2Model_get_textureFlipbooks_count(const whiteout_M2Model* self);
+void whiteout_m2_M2Model_resize_textureFlipbooks(whiteout_M2Model* self, size_t count);
+const uint16_t* whiteout_m2_M2Model_get_textureFlipbooks_data(const whiteout_M2Model* self);
+void whiteout_m2_M2Model_assign_textureFlipbooks(whiteout_M2Model* self, const uint16_t* data, size_t count);
 /* TXID */
 size_t whiteout_m2_M2Model_get_texture_ids_count(const whiteout_M2Model* self);
 void whiteout_m2_M2Model_resize_texture_ids(whiteout_M2Model* self, size_t count);
@@ -1102,6 +1131,12 @@ void whiteout_m2_M2Parser_delete(whiteout_M2Parser* self);
 
 struct whiteout_M2Model* whiteout_m2_M2Parser_parse(whiteout_M2Parser* self, void* fs, const char* filePath);
 struct whiteout_M2Model* whiteout_m2_M2Parser_parse_cascFs_buffer(whiteout_M2Parser* self, void* cascFs, const uint8_t* buffer, size_t buffer_size);
+/* Leave the keys of sequences stored in `.anim` siblings unread until m2::loadSequence() asks for them. Off by default. */
+/*  */
+/* This is what the client does — nothing reads a `.anim` until something plays that sequence — and on a character model with a hundred of them it is the difference between a load that reads one file and one that reads a hundred. See sequence_loader.h. */
+/*  */
+/* The @p fs passed to parse() has to outlive the returned Model, because the deferred reads go back through it. */
+void whiteout_m2_M2Parser_setLazyAnimations(whiteout_M2Parser* self, int32_t enable);
 int32_t whiteout_m2_M2Parser_hasIssues(const whiteout_M2Parser* self);
 size_t whiteout_m2_M2Parser_getIssues_count(const whiteout_M2Parser* self);
 whiteout_CString whiteout_m2_M2Parser_getIssues_at(const whiteout_M2Parser* self, size_t index);
@@ -1205,6 +1240,28 @@ void whiteout_m2_M2AnimationTrackI16_resize_values(whiteout_M2AnimationTrackI16*
 void whiteout_m2_M2AnimationTrackI16_resize_values_inner(whiteout_M2AnimationTrackI16* self, size_t outer_idx, size_t inner_count);
 const int16_t* whiteout_m2_M2AnimationTrackI16_get_values_inner_data(const whiteout_M2AnimationTrackI16* self, size_t outer_idx);
 void whiteout_m2_M2AnimationTrackI16_assign_values_inner(whiteout_M2AnimationTrackI16* self, size_t outer_idx, const int16_t* data, size_t count);
+
+/* ── M2AnimationTrackQuaternion ─────────────────────────────────────────────── */
+
+whiteout_M2AnimationTrackQuaternion* whiteout_m2_M2AnimationTrackQuaternion_new(void);
+void whiteout_m2_M2AnimationTrackQuaternion_delete(whiteout_M2AnimationTrackQuaternion* self);
+
+int32_t whiteout_m2_M2AnimationTrackQuaternion_get_interpolationType(const whiteout_M2AnimationTrackQuaternion* self);
+void whiteout_m2_M2AnimationTrackQuaternion_set_interpolationType(whiteout_M2AnimationTrackQuaternion* self, int32_t value);
+uint16_t whiteout_m2_M2AnimationTrackQuaternion_get_globalSequenceId(const whiteout_M2AnimationTrackQuaternion* self);
+void whiteout_m2_M2AnimationTrackQuaternion_set_globalSequenceId(whiteout_M2AnimationTrackQuaternion* self, uint16_t value);
+size_t whiteout_m2_M2AnimationTrackQuaternion_get_timestamps_count(const whiteout_M2AnimationTrackQuaternion* self);
+size_t whiteout_m2_M2AnimationTrackQuaternion_get_timestamps_inner_count(const whiteout_M2AnimationTrackQuaternion* self, size_t outer_idx);
+void whiteout_m2_M2AnimationTrackQuaternion_resize_timestamps(whiteout_M2AnimationTrackQuaternion* self, size_t count);
+void whiteout_m2_M2AnimationTrackQuaternion_resize_timestamps_inner(whiteout_M2AnimationTrackQuaternion* self, size_t outer_idx, size_t inner_count);
+const uint32_t* whiteout_m2_M2AnimationTrackQuaternion_get_timestamps_inner_data(const whiteout_M2AnimationTrackQuaternion* self, size_t outer_idx);
+void whiteout_m2_M2AnimationTrackQuaternion_assign_timestamps_inner(whiteout_M2AnimationTrackQuaternion* self, size_t outer_idx, const uint32_t* data, size_t count);
+size_t whiteout_m2_M2AnimationTrackQuaternion_get_values_count(const whiteout_M2AnimationTrackQuaternion* self);
+size_t whiteout_m2_M2AnimationTrackQuaternion_get_values_inner_count(const whiteout_M2AnimationTrackQuaternion* self, size_t outer_idx);
+void whiteout_m2_M2AnimationTrackQuaternion_resize_values(whiteout_M2AnimationTrackQuaternion* self, size_t count);
+void whiteout_m2_M2AnimationTrackQuaternion_resize_values_inner(whiteout_M2AnimationTrackQuaternion* self, size_t outer_idx, size_t inner_count);
+const float* whiteout_m2_M2AnimationTrackQuaternion_get_values_inner_data(const whiteout_M2AnimationTrackQuaternion* self, size_t outer_idx);
+void whiteout_m2_M2AnimationTrackQuaternion_assign_values_inner(whiteout_M2AnimationTrackQuaternion* self, size_t outer_idx, const float* data, size_t count);
 
 /* ── M2AnimationTrackF32 ─────────────────────────────────────────────── */
 

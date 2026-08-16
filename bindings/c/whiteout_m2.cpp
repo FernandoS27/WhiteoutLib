@@ -112,6 +112,36 @@ void whiteout_m2_M2Extent_set_sphereRadius(whiteout_M2Extent* self, float value)
 
 } // extern "C"
 
+// ── M2KeySpanRef ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2KeySpanRef* whiteout_m2_M2KeySpanRef_new(void) {
+    return reinterpret_cast<whiteout_M2KeySpanRef*>(new whiteout::m2::KeySpanRef());
+}
+
+void whiteout_m2_M2KeySpanRef_delete(whiteout_M2KeySpanRef* self) {
+    delete reinterpret_cast<whiteout::m2::KeySpanRef*>(self);
+}
+
+uint32_t whiteout_m2_M2KeySpanRef_get_count(const whiteout_M2KeySpanRef* self) {
+    return reinterpret_cast<const whiteout::m2::KeySpanRef*>(self)->count;
+}
+
+void whiteout_m2_M2KeySpanRef_set_count(whiteout_M2KeySpanRef* self, uint32_t value) {
+    reinterpret_cast<whiteout::m2::KeySpanRef*>(self)->count = value;
+}
+
+uint32_t whiteout_m2_M2KeySpanRef_get_offset(const whiteout_M2KeySpanRef* self) {
+    return reinterpret_cast<const whiteout::m2::KeySpanRef*>(self)->offset;
+}
+
+void whiteout_m2_M2KeySpanRef_set_offset(whiteout_M2KeySpanRef* self, uint32_t value) {
+    reinterpret_cast<whiteout::m2::KeySpanRef*>(self)->offset = value;
+}
+
+} // extern "C"
+
 // ── M2AnimationTrackBase ─────────────────────────────────────────────────
 
 extern "C" {
@@ -1637,12 +1667,12 @@ void whiteout_m2_M2TextureTransform_set_translation(whiteout_M2TextureTransform*
     reinterpret_cast<whiteout::m2::TextureTransform*>(self)->translation = *reinterpret_cast<const whiteout::m2::AnimationTrack<whiteout::Vector3f>*>(value);
 }
 
-whiteout_M2AnimationTrackM2CompatQuaternion* whiteout_m2_M2TextureTransform_get_rotation(whiteout_M2TextureTransform* self) {
-    return reinterpret_cast<whiteout_M2AnimationTrackM2CompatQuaternion*>(&reinterpret_cast<whiteout::m2::TextureTransform*>(self)->rotation);
+whiteout_M2AnimationTrackQuaternion* whiteout_m2_M2TextureTransform_get_rotation(whiteout_M2TextureTransform* self) {
+    return reinterpret_cast<whiteout_M2AnimationTrackQuaternion*>(&reinterpret_cast<whiteout::m2::TextureTransform*>(self)->rotation);
 }
 
-void whiteout_m2_M2TextureTransform_set_rotation(whiteout_M2TextureTransform* self, const whiteout_M2AnimationTrackM2CompatQuaternion* value) {
-    reinterpret_cast<whiteout::m2::TextureTransform*>(self)->rotation = *reinterpret_cast<const whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>*>(value);
+void whiteout_m2_M2TextureTransform_set_rotation(whiteout_M2TextureTransform* self, const whiteout_M2AnimationTrackQuaternion* value) {
+    reinterpret_cast<whiteout::m2::TextureTransform*>(self)->rotation = *reinterpret_cast<const whiteout::m2::AnimationTrack<whiteout::Quaternion>*>(value);
 }
 
 whiteout_M2AnimationTrackVector3f* whiteout_m2_M2TextureTransform_get_scaling(whiteout_M2TextureTransform* self) {
@@ -2267,6 +2297,22 @@ uint16_t whiteout_m2_M2ParticleEmitter_get_particleColorIndex(const whiteout_M2P
 
 void whiteout_m2_M2ParticleEmitter_set_particleColorIndex(whiteout_M2ParticleEmitter* self, uint16_t value) {
     reinterpret_cast<whiteout::m2::ParticleEmitter*>(self)->particleColorIndex = value;
+}
+
+uint8_t whiteout_m2_M2ParticleEmitter_get_particleType(const whiteout_M2ParticleEmitter* self) {
+    return reinterpret_cast<const whiteout::m2::ParticleEmitter*>(self)->particleType;
+}
+
+void whiteout_m2_M2ParticleEmitter_set_particleType(whiteout_M2ParticleEmitter* self, uint8_t value) {
+    reinterpret_cast<whiteout::m2::ParticleEmitter*>(self)->particleType = value;
+}
+
+uint8_t whiteout_m2_M2ParticleEmitter_get_headOrTail(const whiteout_M2ParticleEmitter* self) {
+    return reinterpret_cast<const whiteout::m2::ParticleEmitter*>(self)->headOrTail;
+}
+
+void whiteout_m2_M2ParticleEmitter_set_headOrTail(whiteout_M2ParticleEmitter* self, uint8_t value) {
+    reinterpret_cast<whiteout::m2::ParticleEmitter*>(self)->headOrTail = value;
 }
 
 int16_t whiteout_m2_M2ParticleEmitter_get_textureTilerotation(const whiteout_M2ParticleEmitter* self) {
@@ -3155,6 +3201,44 @@ void whiteout_m2_M2Model_assign_textureCombinerCombos(whiteout_M2Model* self, co
     if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u16));
 }
 
+size_t whiteout_m2_M2Model_get_playableAnimationLookup_count(const whiteout_M2Model* self) {
+    return reinterpret_cast<const whiteout::m2::Model*>(self)->playableAnimationLookup.size();
+}
+
+void whiteout_m2_M2Model_resize_playableAnimationLookup(whiteout_M2Model* self, size_t count) {
+    reinterpret_cast<whiteout::m2::Model*>(self)->playableAnimationLookup.resize(count);
+}
+
+const uint32_t* whiteout_m2_M2Model_get_playableAnimationLookup_data(const whiteout_M2Model* self) {
+    const auto& __v = reinterpret_cast<const whiteout::m2::Model*>(self)->playableAnimationLookup;
+    return __v.empty() ? nullptr : reinterpret_cast<const uint32_t*>(__v.data());
+}
+
+void whiteout_m2_M2Model_assign_playableAnimationLookup(whiteout_M2Model* self, const uint32_t* data, size_t count) {
+    auto& __v = reinterpret_cast<whiteout::m2::Model*>(self)->playableAnimationLookup;
+    __v.resize(count);
+    if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u32));
+}
+
+size_t whiteout_m2_M2Model_get_textureFlipbooks_count(const whiteout_M2Model* self) {
+    return reinterpret_cast<const whiteout::m2::Model*>(self)->textureFlipbooks.size();
+}
+
+void whiteout_m2_M2Model_resize_textureFlipbooks(whiteout_M2Model* self, size_t count) {
+    reinterpret_cast<whiteout::m2::Model*>(self)->textureFlipbooks.resize(count);
+}
+
+const uint16_t* whiteout_m2_M2Model_get_textureFlipbooks_data(const whiteout_M2Model* self) {
+    const auto& __v = reinterpret_cast<const whiteout::m2::Model*>(self)->textureFlipbooks;
+    return __v.empty() ? nullptr : reinterpret_cast<const uint16_t*>(__v.data());
+}
+
+void whiteout_m2_M2Model_assign_textureFlipbooks(whiteout_M2Model* self, const uint16_t* data, size_t count) {
+    auto& __v = reinterpret_cast<whiteout::m2::Model*>(self)->textureFlipbooks;
+    __v.resize(count);
+    if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u16));
+}
+
 size_t whiteout_m2_M2Model_get_texture_ids_count(const whiteout_M2Model* self) {
     return reinterpret_cast<const whiteout::m2::Model*>(self)->texture_ids.size();
 }
@@ -3399,6 +3483,10 @@ struct whiteout_M2Model* whiteout_m2_M2Parser_parse(whiteout_M2Parser* self, voi
 struct whiteout_M2Model* whiteout_m2_M2Parser_parse_cascFs_buffer(whiteout_M2Parser* self, void* cascFs, const uint8_t* buffer, size_t buffer_size) {
     return reinterpret_cast<struct whiteout_M2Model*>(
         new whiteout::m2::Model(reinterpret_cast<whiteout::m2::Parser*>(self)->parse(*reinterpret_cast<whiteout::interfaces::CascFileSystem*>(cascFs), std::span<const whiteout::u8>(buffer, buffer_size))));
+}
+
+void whiteout_m2_M2Parser_setLazyAnimations(whiteout_M2Parser* self, int32_t enable) {
+    reinterpret_cast<whiteout::m2::Parser*>(self)->setLazyAnimations(enable);
 }
 
 int32_t whiteout_m2_M2Parser_hasIssues(const whiteout_M2Parser* self) {
@@ -3802,6 +3890,100 @@ void whiteout_m2_M2AnimationTrackI16_assign_values_inner(whiteout_M2AnimationTra
     auto& __row = __v[outer_idx];
     __row.resize(count);
     if (count) std::memcpy(__row.data(), data, count * sizeof(whiteout::i16));
+}
+
+} // extern "C"
+
+// ── M2AnimationTrackQuaternion ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2AnimationTrackQuaternion* whiteout_m2_M2AnimationTrackQuaternion_new(void) {
+    return reinterpret_cast<whiteout_M2AnimationTrackQuaternion*>(new whiteout::m2::AnimationTrack<whiteout::Quaternion>());
+}
+
+void whiteout_m2_M2AnimationTrackQuaternion_delete(whiteout_M2AnimationTrackQuaternion* self) {
+    delete reinterpret_cast<whiteout::m2::AnimationTrack<whiteout::Quaternion>*>(self);
+}
+
+int32_t whiteout_m2_M2AnimationTrackQuaternion_get_interpolationType(const whiteout_M2AnimationTrackQuaternion* self) {
+    return static_cast<int32_t>(reinterpret_cast<const whiteout::m2::AnimationTrack<whiteout::Quaternion>*>(self)->interpolationType);
+}
+
+void whiteout_m2_M2AnimationTrackQuaternion_set_interpolationType(whiteout_M2AnimationTrackQuaternion* self, int32_t value) {
+    reinterpret_cast<whiteout::m2::AnimationTrack<whiteout::Quaternion>*>(self)->interpolationType = static_cast<whiteout::m2::InterpolationType>(value);
+}
+
+uint16_t whiteout_m2_M2AnimationTrackQuaternion_get_globalSequenceId(const whiteout_M2AnimationTrackQuaternion* self) {
+    return reinterpret_cast<const whiteout::m2::AnimationTrack<whiteout::Quaternion>*>(self)->globalSequenceId;
+}
+
+void whiteout_m2_M2AnimationTrackQuaternion_set_globalSequenceId(whiteout_M2AnimationTrackQuaternion* self, uint16_t value) {
+    reinterpret_cast<whiteout::m2::AnimationTrack<whiteout::Quaternion>*>(self)->globalSequenceId = value;
+}
+
+size_t whiteout_m2_M2AnimationTrackQuaternion_get_timestamps_count(const whiteout_M2AnimationTrackQuaternion* self) {
+    return reinterpret_cast<const whiteout::m2::AnimationTrack<whiteout::Quaternion>*>(self)->timestamps.size();
+}
+
+size_t whiteout_m2_M2AnimationTrackQuaternion_get_timestamps_inner_count(const whiteout_M2AnimationTrackQuaternion* self, size_t outer_idx) {
+    const auto& __v = reinterpret_cast<const whiteout::m2::AnimationTrack<whiteout::Quaternion>*>(self)->timestamps;
+    return outer_idx < __v.size() ? __v[outer_idx].size() : 0;
+}
+
+void whiteout_m2_M2AnimationTrackQuaternion_resize_timestamps(whiteout_M2AnimationTrackQuaternion* self, size_t count) {
+    reinterpret_cast<whiteout::m2::AnimationTrack<whiteout::Quaternion>*>(self)->timestamps.resize(count);
+}
+
+void whiteout_m2_M2AnimationTrackQuaternion_resize_timestamps_inner(whiteout_M2AnimationTrackQuaternion* self, size_t outer_idx, size_t inner_count) {
+    auto& __v = reinterpret_cast<whiteout::m2::AnimationTrack<whiteout::Quaternion>*>(self)->timestamps;
+    if (outer_idx < __v.size()) __v[outer_idx].resize(inner_count);
+}
+
+const uint32_t* whiteout_m2_M2AnimationTrackQuaternion_get_timestamps_inner_data(const whiteout_M2AnimationTrackQuaternion* self, size_t outer_idx) {
+    const auto& __v = reinterpret_cast<const whiteout::m2::AnimationTrack<whiteout::Quaternion>*>(self)->timestamps;
+    if (outer_idx >= __v.size() || __v[outer_idx].empty()) return nullptr;
+    return reinterpret_cast<const uint32_t*>(__v[outer_idx].data());
+}
+
+void whiteout_m2_M2AnimationTrackQuaternion_assign_timestamps_inner(whiteout_M2AnimationTrackQuaternion* self, size_t outer_idx, const uint32_t* data, size_t count) {
+    auto& __v = reinterpret_cast<whiteout::m2::AnimationTrack<whiteout::Quaternion>*>(self)->timestamps;
+    if (outer_idx >= __v.size()) return;
+    auto& __row = __v[outer_idx];
+    __row.resize(count);
+    if (count) std::memcpy(__row.data(), data, count * sizeof(whiteout::u32));
+}
+
+size_t whiteout_m2_M2AnimationTrackQuaternion_get_values_count(const whiteout_M2AnimationTrackQuaternion* self) {
+    return reinterpret_cast<const whiteout::m2::AnimationTrack<whiteout::Quaternion>*>(self)->values.size();
+}
+
+size_t whiteout_m2_M2AnimationTrackQuaternion_get_values_inner_count(const whiteout_M2AnimationTrackQuaternion* self, size_t outer_idx) {
+    const auto& __v = reinterpret_cast<const whiteout::m2::AnimationTrack<whiteout::Quaternion>*>(self)->values;
+    return outer_idx < __v.size() ? __v[outer_idx].size() : 0;
+}
+
+void whiteout_m2_M2AnimationTrackQuaternion_resize_values(whiteout_M2AnimationTrackQuaternion* self, size_t count) {
+    reinterpret_cast<whiteout::m2::AnimationTrack<whiteout::Quaternion>*>(self)->values.resize(count);
+}
+
+void whiteout_m2_M2AnimationTrackQuaternion_resize_values_inner(whiteout_M2AnimationTrackQuaternion* self, size_t outer_idx, size_t inner_count) {
+    auto& __v = reinterpret_cast<whiteout::m2::AnimationTrack<whiteout::Quaternion>*>(self)->values;
+    if (outer_idx < __v.size()) __v[outer_idx].resize(inner_count);
+}
+
+const float* whiteout_m2_M2AnimationTrackQuaternion_get_values_inner_data(const whiteout_M2AnimationTrackQuaternion* self, size_t outer_idx) {
+    const auto& __v = reinterpret_cast<const whiteout::m2::AnimationTrack<whiteout::Quaternion>*>(self)->values;
+    if (outer_idx >= __v.size() || __v[outer_idx].empty()) return nullptr;
+    return reinterpret_cast<const float*>(__v[outer_idx].data());
+}
+
+void whiteout_m2_M2AnimationTrackQuaternion_assign_values_inner(whiteout_M2AnimationTrackQuaternion* self, size_t outer_idx, const float* data, size_t count) {
+    auto& __v = reinterpret_cast<whiteout::m2::AnimationTrack<whiteout::Quaternion>*>(self)->values;
+    if (outer_idx >= __v.size()) return;
+    auto& __row = __v[outer_idx];
+    __row.resize(count);
+    if (count) std::memcpy(__row.data(), data, count * sizeof(whiteout::Quaternion));
 }
 
 } // extern "C"

@@ -46,9 +46,9 @@ impl GlobalFlag {
     pub const ADD_BACK_REFERENCES: Self = Self(4);
     pub const USE_TEXTURE_COMBINER_COMBOS: Self = Self(8);
     pub const IS_CAMERA: Self = Self(16);
-    pub const UNUSED: Self = Self(32);
+    pub const LOAD_PHYSICS_DATA: Self = Self(32);
     pub const UNK_0X_80: Self = Self(128);
-    pub const LOAD_PHYSICS_DATA: Self = Self(256);
+    pub const UNK_0X_100: Self = Self(256);
     pub const NEW_PARTICLE_RECORD: Self = Self(512);
     pub const UNK_0X_400: Self = Self(1024);
     pub const TEXTURE_TRANSFORMS_USES_BONE_SEQUENCES: Self = Self(2048);
@@ -593,6 +593,80 @@ impl Extent {
 }
 
 impl Default for Extent {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// One sequence's slice of a key array, as the file writes it: a count and an offset into whichever file holds that sequence's keys.
+///
+/// Kept only by a lazily parsed model (Parser::setLazyAnimations), which leaves the sub-arrays of externally-stored sequences empty until loadSequence() reads their `.anim` sibling. Nothing else needs it: an eager parse consumes the reference on the spot.
+pub struct KeySpanRef {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2KeySpanRef>,
+}
+
+impl Drop for KeySpanRef {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2KeySpanRef_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl KeySpanRef {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2KeySpanRef) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| KeySpanRef { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for KeySpanRef {}
+
+impl core::fmt::Debug for KeySpanRef {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("KeySpanRef").finish_non_exhaustive()
+    }
+}
+
+impl KeySpanRef {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2KeySpanRef_new();
+            Self::from_raw(raw).expect("native KeySpanRef allocation failed")
+        }
+    }
+
+    pub fn count(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2KeySpanRef_get_count(self.raw.as_ptr()) }
+    }
+
+    pub fn set_count(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2KeySpanRef_set_count(self.raw.as_ptr(), value) }
+    }
+
+    pub fn offset(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2KeySpanRef_get_offset(self.raw.as_ptr()) }
+    }
+
+    pub fn set_offset(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2KeySpanRef_set_offset(self.raw.as_ptr(), value) }
+    }
+}
+
+impl Default for KeySpanRef {
     fn default() -> Self {
         Self::new()
     }
@@ -3801,11 +3875,11 @@ impl TextureTransform {
     }
 
     /// Borrows the field in place — no copy, no allocation.
-    pub fn rotation(&self) -> crate::support::Ref<'_, AnimationTrackM2CompatQuaternion> {
+    pub fn rotation(&self) -> crate::support::Ref<'_, AnimationTrackQuaternion> {
         // SAFETY: an interior pointer into `self`, valid for this
         // borrow and never freed by the `Ref`.
         unsafe {
-            crate::support::Ref::new(AnimationTrackM2CompatQuaternion {
+            crate::support::Ref::new(AnimationTrackQuaternion {
                 raw: core::ptr::NonNull::new_unchecked(
                     ffi::whiteout_m2_M2TextureTransform_get_rotation(self.raw.as_ptr()),
                 ),
@@ -3813,10 +3887,10 @@ impl TextureTransform {
         }
     }
 
-    pub fn rotation_mut(&mut self) -> crate::support::RefMut<'_, AnimationTrackM2CompatQuaternion> {
+    pub fn rotation_mut(&mut self) -> crate::support::RefMut<'_, AnimationTrackQuaternion> {
         // SAFETY: as above; `&mut self` guarantees exclusivity.
         unsafe {
-            crate::support::RefMut::new(AnimationTrackM2CompatQuaternion {
+            crate::support::RefMut::new(AnimationTrackQuaternion {
                 raw: core::ptr::NonNull::new_unchecked(
                     ffi::whiteout_m2_M2TextureTransform_get_rotation(self.raw.as_ptr()),
                 ),
@@ -5341,6 +5415,26 @@ impl ParticleEmitter {
         unsafe {
             ffi::whiteout_m2_M2ParticleEmitter_set_particleColorIndex(self.raw.as_ptr(), value)
         }
+    }
+
+    pub fn particle_type(&self) -> u8 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2ParticleEmitter_get_particleType(self.raw.as_ptr()) }
+    }
+
+    pub fn set_particle_type(&mut self, value: u8) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2ParticleEmitter_set_particleType(self.raw.as_ptr(), value) }
+    }
+
+    pub fn head_or_tail(&self) -> u8 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2ParticleEmitter_get_headOrTail(self.raw.as_ptr()) }
+    }
+
+    pub fn set_head_or_tail(&mut self, value: u8) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2ParticleEmitter_set_headOrTail(self.raw.as_ptr(), value) }
     }
 
     pub fn texture_tilerotation(&self) -> i16 {
@@ -7744,6 +7838,102 @@ impl Model {
         unsafe { ffi::whiteout_m2_M2Model_resize_textureCombinerCombos(self.raw.as_ptr(), count) }
     }
 
+    /// One 4-byte record per animation id; vanilla/BC clients use it to pick fallback animations. Preserved verbatim so old files round-trip.
+    /// Zero-copy view of the underlying `std::vector`.
+    pub fn playable_animation_lookup(&self) -> &[u32] {
+        // SAFETY: `_data`/`_count` describe one contiguous C++
+        // allocation, borrowed for as long as `self` is.
+        unsafe {
+            let n = ffi::whiteout_m2_M2Model_get_playableAnimationLookup_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m2_M2Model_get_playableAnimationLookup_data(self.raw.as_ptr());
+            if p.is_null() || n == 0 {
+                &[]
+            } else {
+                core::slice::from_raw_parts(p, n)
+            }
+        }
+    }
+
+    /// Zero-copy mutable view. Resize first — the borrow forbids it after.
+    pub fn playable_animation_lookup_mut(&mut self) -> &mut [u32] {
+        // SAFETY: as above; `&mut self` rules out aliasing and resizing.
+        unsafe {
+            let n = ffi::whiteout_m2_M2Model_get_playableAnimationLookup_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m2_M2Model_get_playableAnimationLookup_data(self.raw.as_ptr())
+                as *mut u32;
+            if p.is_null() || n == 0 {
+                &mut []
+            } else {
+                core::slice::from_raw_parts_mut(p, n)
+            }
+        }
+    }
+
+    pub fn set_playable_animation_lookup(&mut self, values: &[u32]) {
+        // SAFETY: the native side copies `values` before returning.
+        unsafe {
+            ffi::whiteout_m2_M2Model_assign_playableAnimationLookup(
+                self.raw.as_ptr(),
+                values.as_ptr() as *const _,
+                values.len(),
+            )
+        }
+    }
+
+    pub fn resize_playable_animation_lookup(&mut self, count: usize) {
+        // SAFETY: reallocation is safe here precisely because
+        // `&mut self` means no slice borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2Model_resize_playableAnimationLookup(self.raw.as_ptr(), count) }
+    }
+
+    /// "Texture flipbooks" — unused even by old clients, preserved verbatim.
+    /// Zero-copy view of the underlying `std::vector`.
+    pub fn texture_flipbooks(&self) -> &[u16] {
+        // SAFETY: `_data`/`_count` describe one contiguous C++
+        // allocation, borrowed for as long as `self` is.
+        unsafe {
+            let n = ffi::whiteout_m2_M2Model_get_textureFlipbooks_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m2_M2Model_get_textureFlipbooks_data(self.raw.as_ptr());
+            if p.is_null() || n == 0 {
+                &[]
+            } else {
+                core::slice::from_raw_parts(p, n)
+            }
+        }
+    }
+
+    /// Zero-copy mutable view. Resize first — the borrow forbids it after.
+    pub fn texture_flipbooks_mut(&mut self) -> &mut [u16] {
+        // SAFETY: as above; `&mut self` rules out aliasing and resizing.
+        unsafe {
+            let n = ffi::whiteout_m2_M2Model_get_textureFlipbooks_count(self.raw.as_ptr());
+            let p =
+                ffi::whiteout_m2_M2Model_get_textureFlipbooks_data(self.raw.as_ptr()) as *mut u16;
+            if p.is_null() || n == 0 {
+                &mut []
+            } else {
+                core::slice::from_raw_parts_mut(p, n)
+            }
+        }
+    }
+
+    pub fn set_texture_flipbooks(&mut self, values: &[u16]) {
+        // SAFETY: the native side copies `values` before returning.
+        unsafe {
+            ffi::whiteout_m2_M2Model_assign_textureFlipbooks(
+                self.raw.as_ptr(),
+                values.as_ptr() as *const _,
+                values.len(),
+            )
+        }
+    }
+
+    pub fn resize_texture_flipbooks(&mut self, count: usize) {
+        // SAFETY: reallocation is safe here precisely because
+        // `&mut self` means no slice borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2Model_resize_textureFlipbooks(self.raw.as_ptr(), count) }
+    }
+
     /// TXID
     /// Zero-copy view of the underlying `std::vector`.
     pub fn texture_ids(&self) -> &[u32] {
@@ -8593,6 +8783,21 @@ impl Parser {
         }
     }
 
+    /// Leave the keys of sequences stored in `.anim` siblings unread until m2::loadSequence() asks for them. Off by default.
+    ///
+    /// This is what the client does — nothing reads a `.anim` until something plays that sequence — and on a character model with a hundred of them it is the difference between a load that reads one file and one that reads a hundred. See sequence_loader.h.
+    ///
+    /// The @p fs passed to parse() has to outlive the returned Model, because the deferred reads go back through it.
+    pub fn set_lazy_animations(&mut self, enable: bool) {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            ffi::whiteout_m2_M2Parser_setLazyAnimations(
+                self.raw.as_ptr(),
+                if enable { 1 } else { 0 },
+            );
+        }
+    }
+
     pub fn has_issues(&self) -> bool {
         // SAFETY: handle is live for the duration of the call.
         unsafe { ffi::whiteout_m2_M2Parser_hasIssues(self.raw.as_ptr()) != 0 }
@@ -8923,6 +9128,7 @@ impl Default for Writer {
     }
 }
 
+/// instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline
 pub struct AnimationTrackVector3f {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2AnimationTrackVector3f>,
 }
@@ -9178,6 +9384,7 @@ impl Default for AnimationTrackVector3f {
     }
 }
 
+/// instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline
 pub struct AnimationTrackM2CompatQuaternion {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2AnimationTrackM2CompatQuaternion>,
 }
@@ -9455,6 +9662,7 @@ impl Default for AnimationTrackM2CompatQuaternion {
     }
 }
 
+/// instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline
 pub struct AnimationTrackI16 {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2AnimationTrackI16>,
 }
@@ -9703,6 +9911,272 @@ impl Default for AnimationTrackI16 {
     }
 }
 
+/// instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline
+pub struct AnimationTrackQuaternion {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2AnimationTrackQuaternion>,
+}
+
+impl Drop for AnimationTrackQuaternion {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2AnimationTrackQuaternion_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl AnimationTrackQuaternion {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(
+        raw: *mut ffi::whiteout_M2AnimationTrackQuaternion,
+    ) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| AnimationTrackQuaternion { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for AnimationTrackQuaternion {}
+
+impl core::fmt::Debug for AnimationTrackQuaternion {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("AnimationTrackQuaternion")
+            .finish_non_exhaustive()
+    }
+}
+
+impl AnimationTrackQuaternion {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2AnimationTrackQuaternion_new();
+            Self::from_raw(raw).expect("native AnimationTrackQuaternion allocation failed")
+        }
+    }
+
+    pub fn interpolation_type(&self) -> InterpolationType {
+        // SAFETY: scalar read; the discriminant is validated below.
+        unsafe {
+            ffi::whiteout_m2_M2AnimationTrackQuaternion_get_interpolationType(self.raw.as_ptr())
+        }
+        .try_into()
+        .expect("unknown enum discriminant from the native library")
+    }
+
+    pub fn set_interpolation_type(&mut self, value: InterpolationType) {
+        // SAFETY: scalar write through a live handle.
+        unsafe {
+            ffi::whiteout_m2_M2AnimationTrackQuaternion_set_interpolationType(
+                self.raw.as_ptr(),
+                value as i32,
+            )
+        }
+    }
+
+    pub fn global_sequence_id(&self) -> u16 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe {
+            ffi::whiteout_m2_M2AnimationTrackQuaternion_get_globalSequenceId(self.raw.as_ptr())
+        }
+    }
+
+    pub fn set_global_sequence_id(&mut self, value: u16) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe {
+            ffi::whiteout_m2_M2AnimationTrackQuaternion_set_globalSequenceId(
+                self.raw.as_ptr(),
+                value,
+            )
+        }
+    }
+
+    /// Number of inner sequences.
+    pub fn timestamps_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe {
+            ffi::whiteout_m2_M2AnimationTrackQuaternion_get_timestamps_count(self.raw.as_ptr())
+        }
+    }
+
+    /// Zero-copy view of inner sequence `outer`. Empty when out of range.
+    ///
+    /// Each inner vector is contiguous on its own, but the outer one
+    /// is a vector of vectors — so this borrows per sequence rather
+    /// than handing back one flat slice.
+    pub fn timestamps(&self, outer: usize) -> &[u32] {
+        if outer >= self.timestamps_len() {
+            return &[];
+        }
+        // SAFETY: index checked; the pointer borrows `self`.
+        unsafe {
+            let n = ffi::whiteout_m2_M2AnimationTrackQuaternion_get_timestamps_inner_count(
+                self.raw.as_ptr(),
+                outer,
+            );
+            let p = ffi::whiteout_m2_M2AnimationTrackQuaternion_get_timestamps_inner_data(
+                self.raw.as_ptr(),
+                outer,
+            );
+            if p.is_null() || n == 0 {
+                &[]
+            } else {
+                core::slice::from_raw_parts(p, n)
+            }
+        }
+    }
+
+    pub fn timestamps_mut(&mut self, outer: usize) -> &mut [u32] {
+        if outer >= self.timestamps_len() {
+            return &mut [];
+        }
+        // SAFETY: as above; `&mut self` rules out aliasing.
+        unsafe {
+            let n = ffi::whiteout_m2_M2AnimationTrackQuaternion_get_timestamps_inner_count(
+                self.raw.as_ptr(),
+                outer,
+            );
+            let p = ffi::whiteout_m2_M2AnimationTrackQuaternion_get_timestamps_inner_data(
+                self.raw.as_ptr(),
+                outer,
+            ) as *mut u32;
+            if p.is_null() || n == 0 {
+                &mut []
+            } else {
+                core::slice::from_raw_parts_mut(p, n)
+            }
+        }
+    }
+
+    pub fn set_timestamps(&mut self, outer: usize, values: &[u32]) {
+        // SAFETY: the native side copies `values` before returning.
+        unsafe {
+            ffi::whiteout_m2_M2AnimationTrackQuaternion_assign_timestamps_inner(
+                self.raw.as_ptr(),
+                outer,
+                values.as_ptr() as *const _,
+                values.len(),
+            )
+        }
+    }
+
+    /// Resize the outer sequence. Do this before taking any borrow.
+    pub fn resize_timestamps(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe {
+            ffi::whiteout_m2_M2AnimationTrackQuaternion_resize_timestamps(self.raw.as_ptr(), count)
+        }
+    }
+
+    pub fn resize_timestamps_inner(&mut self, outer: usize, count: usize) {
+        // SAFETY: as above.
+        unsafe {
+            ffi::whiteout_m2_M2AnimationTrackQuaternion_resize_timestamps_inner(
+                self.raw.as_ptr(),
+                outer,
+                count,
+            )
+        }
+    }
+
+    /// Number of inner sequences.
+    pub fn values_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2AnimationTrackQuaternion_get_values_count(self.raw.as_ptr()) }
+    }
+
+    /// Zero-copy view of inner sequence `outer`. Empty when out of range.
+    ///
+    /// Each inner vector is contiguous on its own, but the outer one
+    /// is a vector of vectors — so this borrows per sequence rather
+    /// than handing back one flat slice.
+    pub fn values(&self, outer: usize) -> &[crate::math::Quaternion] {
+        if outer >= self.values_len() {
+            return &[];
+        }
+        // SAFETY: index checked; the pointer borrows `self`.
+        unsafe {
+            let n = ffi::whiteout_m2_M2AnimationTrackQuaternion_get_values_inner_count(
+                self.raw.as_ptr(),
+                outer,
+            );
+            let p = ffi::whiteout_m2_M2AnimationTrackQuaternion_get_values_inner_data(
+                self.raw.as_ptr(),
+                outer,
+            ) as *const crate::math::Quaternion;
+            if p.is_null() || n == 0 {
+                &[]
+            } else {
+                core::slice::from_raw_parts(p, n)
+            }
+        }
+    }
+
+    pub fn values_mut(&mut self, outer: usize) -> &mut [crate::math::Quaternion] {
+        if outer >= self.values_len() {
+            return &mut [];
+        }
+        // SAFETY: as above; `&mut self` rules out aliasing.
+        unsafe {
+            let n = ffi::whiteout_m2_M2AnimationTrackQuaternion_get_values_inner_count(
+                self.raw.as_ptr(),
+                outer,
+            );
+            let p = ffi::whiteout_m2_M2AnimationTrackQuaternion_get_values_inner_data(
+                self.raw.as_ptr(),
+                outer,
+            ) as *const crate::math::Quaternion as *mut crate::math::Quaternion;
+            if p.is_null() || n == 0 {
+                &mut []
+            } else {
+                core::slice::from_raw_parts_mut(p, n)
+            }
+        }
+    }
+
+    pub fn set_values(&mut self, outer: usize, values: &[crate::math::Quaternion]) {
+        // SAFETY: the native side copies `values` before returning.
+        unsafe {
+            ffi::whiteout_m2_M2AnimationTrackQuaternion_assign_values_inner(
+                self.raw.as_ptr(),
+                outer,
+                values.as_ptr() as *const _,
+                values.len(),
+            )
+        }
+    }
+
+    /// Resize the outer sequence. Do this before taking any borrow.
+    pub fn resize_values(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe {
+            ffi::whiteout_m2_M2AnimationTrackQuaternion_resize_values(self.raw.as_ptr(), count)
+        }
+    }
+
+    pub fn resize_values_inner(&mut self, outer: usize, count: usize) {
+        // SAFETY: as above.
+        unsafe {
+            ffi::whiteout_m2_M2AnimationTrackQuaternion_resize_values_inner(
+                self.raw.as_ptr(),
+                outer,
+                count,
+            )
+        }
+    }
+}
+
+impl Default for AnimationTrackQuaternion {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline
 pub struct AnimationTrackF32 {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2AnimationTrackF32>,
 }
@@ -9951,6 +10425,7 @@ impl Default for AnimationTrackF32 {
     }
 }
 
+/// instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline
 pub struct AnimationTrackU8 {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2AnimationTrackU8>,
 }
@@ -10192,6 +10667,7 @@ impl Default for AnimationTrackU8 {
     }
 }
 
+/// instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline
 pub struct AnimationTrackM2CameraSpline {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2AnimationTrackM2CameraSpline>,
 }
@@ -10460,6 +10936,7 @@ impl Default for AnimationTrackM2CameraSpline {
     }
 }
 
+/// instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline
 pub struct AnimationTrackU16 {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2AnimationTrackU16>,
 }
@@ -10954,6 +11431,10 @@ pub mod ffi {
         _private: [u8; 0],
     }
     #[repr(C)]
+    pub struct whiteout_M2KeySpanRef {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
     pub struct whiteout_M2AnimationTrackBase {
         _private: [u8; 0],
     }
@@ -11118,6 +11599,10 @@ pub mod ffi {
         _private: [u8; 0],
     }
     #[repr(C)]
+    pub struct whiteout_M2AnimationTrackQuaternion {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
     pub struct whiteout_M2AnimationTrackF32 {
         _private: [u8; 0],
     }
@@ -11168,6 +11653,13 @@ pub mod ffi {
         );
         pub fn whiteout_m2_M2Extent_get_sphereRadius(self_: *mut whiteout_M2Extent) -> f32;
         pub fn whiteout_m2_M2Extent_set_sphereRadius(self_: *mut whiteout_M2Extent, value: f32);
+        // KeySpanRef
+        pub fn whiteout_m2_M2KeySpanRef_new() -> *mut whiteout_M2KeySpanRef;
+        pub fn whiteout_m2_M2KeySpanRef_delete(self_: *mut whiteout_M2KeySpanRef);
+        pub fn whiteout_m2_M2KeySpanRef_get_count(self_: *mut whiteout_M2KeySpanRef) -> u32;
+        pub fn whiteout_m2_M2KeySpanRef_set_count(self_: *mut whiteout_M2KeySpanRef, value: u32);
+        pub fn whiteout_m2_M2KeySpanRef_get_offset(self_: *mut whiteout_M2KeySpanRef) -> u32;
+        pub fn whiteout_m2_M2KeySpanRef_set_offset(self_: *mut whiteout_M2KeySpanRef, value: u32);
         // AnimationTrackBase
         pub fn whiteout_m2_M2AnimationTrackBase_new() -> *mut whiteout_M2AnimationTrackBase;
         pub fn whiteout_m2_M2AnimationTrackBase_delete(self_: *mut whiteout_M2AnimationTrackBase);
@@ -12042,10 +12534,10 @@ pub mod ffi {
         );
         pub fn whiteout_m2_M2TextureTransform_get_rotation(
             self_: *mut whiteout_M2TextureTransform,
-        ) -> *mut whiteout_M2AnimationTrackM2CompatQuaternion;
+        ) -> *mut whiteout_M2AnimationTrackQuaternion;
         pub fn whiteout_m2_M2TextureTransform_set_rotation(
             self_: *mut whiteout_M2TextureTransform,
-            value: *const whiteout_M2AnimationTrackM2CompatQuaternion,
+            value: *const whiteout_M2AnimationTrackQuaternion,
         );
         pub fn whiteout_m2_M2TextureTransform_get_scaling(
             self_: *mut whiteout_M2TextureTransform,
@@ -12461,6 +12953,20 @@ pub mod ffi {
         pub fn whiteout_m2_M2ParticleEmitter_set_particleColorIndex(
             self_: *mut whiteout_M2ParticleEmitter,
             value: u16,
+        );
+        pub fn whiteout_m2_M2ParticleEmitter_get_particleType(
+            self_: *mut whiteout_M2ParticleEmitter,
+        ) -> u8;
+        pub fn whiteout_m2_M2ParticleEmitter_set_particleType(
+            self_: *mut whiteout_M2ParticleEmitter,
+            value: u8,
+        );
+        pub fn whiteout_m2_M2ParticleEmitter_get_headOrTail(
+            self_: *mut whiteout_M2ParticleEmitter,
+        ) -> u8;
+        pub fn whiteout_m2_M2ParticleEmitter_set_headOrTail(
+            self_: *mut whiteout_M2ParticleEmitter,
+            value: u8,
         );
         pub fn whiteout_m2_M2ParticleEmitter_get_textureTilerotation(
             self_: *mut whiteout_M2ParticleEmitter,
@@ -13092,6 +13598,36 @@ pub mod ffi {
             data: *const u16,
             count: usize,
         );
+        pub fn whiteout_m2_M2Model_get_playableAnimationLookup_count(
+            self_: *mut whiteout_M2Model,
+        ) -> usize;
+        pub fn whiteout_m2_M2Model_resize_playableAnimationLookup(
+            self_: *mut whiteout_M2Model,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2Model_get_playableAnimationLookup_data(
+            self_: *mut whiteout_M2Model,
+        ) -> *const u32;
+        pub fn whiteout_m2_M2Model_assign_playableAnimationLookup(
+            self_: *mut whiteout_M2Model,
+            data: *const u32,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2Model_get_textureFlipbooks_count(
+            self_: *mut whiteout_M2Model,
+        ) -> usize;
+        pub fn whiteout_m2_M2Model_resize_textureFlipbooks(
+            self_: *mut whiteout_M2Model,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2Model_get_textureFlipbooks_data(
+            self_: *mut whiteout_M2Model,
+        ) -> *const u16;
+        pub fn whiteout_m2_M2Model_assign_textureFlipbooks(
+            self_: *mut whiteout_M2Model,
+            data: *const u16,
+            count: usize,
+        );
         pub fn whiteout_m2_M2Model_get_texture_ids_count(self_: *mut whiteout_M2Model) -> usize;
         pub fn whiteout_m2_M2Model_resize_texture_ids(self_: *mut whiteout_M2Model, count: usize);
         pub fn whiteout_m2_M2Model_get_texture_ids_data(self_: *mut whiteout_M2Model)
@@ -13276,6 +13812,7 @@ pub mod ffi {
             buffer: *const u8,
             buffer_size: usize,
         ) -> *mut whiteout_M2Model;
+        pub fn whiteout_m2_M2Parser_setLazyAnimations(self_: *mut whiteout_M2Parser, enable: i32);
         pub fn whiteout_m2_M2Parser_hasIssues(self_: *mut whiteout_M2Parser) -> i32;
         pub fn whiteout_m2_M2Parser_getIssues_count(self_: *mut whiteout_M2Parser) -> usize;
         pub fn whiteout_m2_M2Parser_getIssues_at(
@@ -13555,6 +14092,78 @@ pub mod ffi {
             self_: *mut whiteout_M2AnimationTrackI16,
             outer: usize,
             data: *const i16,
+            count: usize,
+        );
+        // AnimationTrackQuaternion
+        pub fn whiteout_m2_M2AnimationTrackQuaternion_new(
+        ) -> *mut whiteout_M2AnimationTrackQuaternion;
+        pub fn whiteout_m2_M2AnimationTrackQuaternion_delete(
+            self_: *mut whiteout_M2AnimationTrackQuaternion,
+        );
+        pub fn whiteout_m2_M2AnimationTrackQuaternion_get_interpolationType(
+            self_: *mut whiteout_M2AnimationTrackQuaternion,
+        ) -> i32;
+        pub fn whiteout_m2_M2AnimationTrackQuaternion_set_interpolationType(
+            self_: *mut whiteout_M2AnimationTrackQuaternion,
+            value: i32,
+        );
+        pub fn whiteout_m2_M2AnimationTrackQuaternion_get_globalSequenceId(
+            self_: *mut whiteout_M2AnimationTrackQuaternion,
+        ) -> u16;
+        pub fn whiteout_m2_M2AnimationTrackQuaternion_set_globalSequenceId(
+            self_: *mut whiteout_M2AnimationTrackQuaternion,
+            value: u16,
+        );
+        pub fn whiteout_m2_M2AnimationTrackQuaternion_get_timestamps_count(
+            self_: *mut whiteout_M2AnimationTrackQuaternion,
+        ) -> usize;
+        pub fn whiteout_m2_M2AnimationTrackQuaternion_get_timestamps_inner_count(
+            self_: *mut whiteout_M2AnimationTrackQuaternion,
+            outer: usize,
+        ) -> usize;
+        pub fn whiteout_m2_M2AnimationTrackQuaternion_resize_timestamps(
+            self_: *mut whiteout_M2AnimationTrackQuaternion,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2AnimationTrackQuaternion_resize_timestamps_inner(
+            self_: *mut whiteout_M2AnimationTrackQuaternion,
+            outer: usize,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2AnimationTrackQuaternion_get_timestamps_inner_data(
+            self_: *mut whiteout_M2AnimationTrackQuaternion,
+            outer: usize,
+        ) -> *const u32;
+        pub fn whiteout_m2_M2AnimationTrackQuaternion_assign_timestamps_inner(
+            self_: *mut whiteout_M2AnimationTrackQuaternion,
+            outer: usize,
+            data: *const u32,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2AnimationTrackQuaternion_get_values_count(
+            self_: *mut whiteout_M2AnimationTrackQuaternion,
+        ) -> usize;
+        pub fn whiteout_m2_M2AnimationTrackQuaternion_get_values_inner_count(
+            self_: *mut whiteout_M2AnimationTrackQuaternion,
+            outer: usize,
+        ) -> usize;
+        pub fn whiteout_m2_M2AnimationTrackQuaternion_resize_values(
+            self_: *mut whiteout_M2AnimationTrackQuaternion,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2AnimationTrackQuaternion_resize_values_inner(
+            self_: *mut whiteout_M2AnimationTrackQuaternion,
+            outer: usize,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2AnimationTrackQuaternion_get_values_inner_data(
+            self_: *mut whiteout_M2AnimationTrackQuaternion,
+            outer: usize,
+        ) -> *const f32;
+        pub fn whiteout_m2_M2AnimationTrackQuaternion_assign_values_inner(
+            self_: *mut whiteout_M2AnimationTrackQuaternion,
+            outer: usize,
+            data: *const f32,
             count: usize,
         );
         // AnimationTrackF32

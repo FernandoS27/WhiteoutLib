@@ -111,7 +111,8 @@ struct AnimationTrackBase {
     std::vector<KeySpanRef> timestampRefs;
 };
 
-/// @bind value_template, instantiate=Vector3f;CompatQuaternion;i16;u8;u16;f32;CameraSpline
+/// @bind value_template,
+/// instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline
 template <typename T>
 struct AnimationTrack : public AnimationTrackBase {
     std::vector<std::vector<T>> values;

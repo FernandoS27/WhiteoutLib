@@ -99,6 +99,20 @@ public sealed class ParticleEmitter : WhiteoutHandle
     }
 
 
+    public byte ParticleType
+    {
+        get => NativeMethods.whiteout_m2_M2ParticleEmitter_get_particleType(DangerousGet());
+        set => NativeMethods.whiteout_m2_M2ParticleEmitter_set_particleType(DangerousGet(), value);
+    }
+
+
+    public byte HeadOrTail
+    {
+        get => NativeMethods.whiteout_m2_M2ParticleEmitter_get_headOrTail(DangerousGet());
+        set => NativeMethods.whiteout_m2_M2ParticleEmitter_set_headOrTail(DangerousGet(), value);
+    }
+
+
     public short TextureTilerotation
     {
         get => NativeMethods.whiteout_m2_M2ParticleEmitter_get_textureTilerotation(DangerousGet());

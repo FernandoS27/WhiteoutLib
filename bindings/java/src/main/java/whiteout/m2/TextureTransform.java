@@ -29,7 +29,7 @@ import whiteout.m2.internal.Native;
  * external access if a handle is shared across threads.
  */
 public final class TextureTransform implements AutoCloseable {
-    private static final long BYTES = 168L;
+    private static final long BYTES = 312L;
 
     final MemorySegment handle;
     final boolean owned;
@@ -65,11 +65,11 @@ public final class TextureTransform implements AutoCloseable {
         NativeCommon.invokeNative(Native.whiteout_m2_M2TextureTransform_set_translation, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the rotation field of this M2TextureTransform. */
-    public AnimationTrackM2CompatQuaternion getRotation() {
+    public AnimationTrackQuaternion getRotation() {
         MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2TextureTransform_get_rotation, handle);
-        return new AnimationTrackM2CompatQuaternion(__h, false);
+        return new AnimationTrackQuaternion(__h, false);
     }
-    public void setRotation(AnimationTrackM2CompatQuaternion value) {
+    public void setRotation(AnimationTrackQuaternion value) {
         NativeCommon.invokeNative(Native.whiteout_m2_M2TextureTransform_set_rotation, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     /** @return the scaling field of this M2TextureTransform. */

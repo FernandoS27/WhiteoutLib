@@ -19,8 +19,10 @@ void BinaryWriterVisitor::visit(const SkinSection& section) {
     writer.write(section.boneInfluences);
     writer.write(section.centerBoneIndex);
     writer.write(section.centerPosition);
-    writer.write(section.sortCenterPosition);
-    writer.write(section.sortRadius);
+    if (version == 0 || version >= M2_VERSION_BC) {
+        writer.write(section.sortCenterPosition);
+        writer.write(section.sortRadius);
+    }
 }
 
 void BinaryWriterVisitor::visit(const Batch& batch) {
@@ -50,7 +52,11 @@ void BinaryWriterVisitor::visit(const ShadowBatch& batch) {
 }
 
 void BinaryWriterVisitor::visit(const SkinProfile& profile) {
-    writer.write(SKIN_TAG);
+    // Standalone `.skin` files carry the magic; the profiles a ≤TBC model
+    // embeds do not. Mirrors the parser's gate exactly.
+    if (version >= M2_VERSION_WOTLK) {
+        writer.write(SKIN_TAG);
+    }
 
     visit(profile.vertices);
     visit(profile.indices);

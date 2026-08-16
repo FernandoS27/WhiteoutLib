@@ -104,6 +104,19 @@ public final class Parser implements AutoCloseable {
     }
 
     /**
+     * Leave the keys of sequences stored in `.anim` siblings unread until m2::loadSequence() asks for them. Off by default.
+     * 
+     * This is what the client does — nothing reads a `.anim` until something plays that sequence — and on a character model with a hundred of them it is the difference between a load that reads one file and one that reads a hundred. See sequence_loader.h.
+     * 
+     * The @p fs passed to parse() has to outlive the returned Model, because the deferred reads go back through it.
+     *
+     * @param enable boolean input.
+     */
+    public void setLazyAnimations(boolean enable) {
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Parser_setLazyAnimations, handle, (enable ? 1 : 0));
+    }
+
+    /**
      * Native method wrapping {@code Parser::hasIssues}.
      * @return boolean result.
      */

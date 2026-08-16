@@ -29,7 +29,7 @@ import whiteout.m2.internal.Native;
  * external access if a handle is shared across threads.
  */
 public final class Event implements AutoCloseable {
-    private static final long BYTES = 56L;
+    private static final long BYTES = 80L;
 
     final MemorySegment handle;
     final boolean owned;
@@ -90,7 +90,7 @@ public final class Event implements AutoCloseable {
     }
     /** @return the enabled field of this M2Event. */
     public AnimationTrackBase getEnabled() {
-        return new AnimationTrackBase(handle.asSlice(24L, 32L), false);
+        return new AnimationTrackBase(handle.asSlice(24L, 56L), false);
     }
     public void setEnabled(AnimationTrackBase value) {
         NativeCommon.invokeNative(Native.whiteout_m2_M2Event_set_enabled, handle, value == null ? MemorySegment.NULL : value.handle);

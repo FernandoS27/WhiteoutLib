@@ -29,7 +29,7 @@ import whiteout.m2.internal.Native;
  * external access if a handle is shared across threads.
  */
 public final class RibbonEmitter implements AutoCloseable {
-    private static final long BYTES = 432L;
+    private static final long BYTES = 720L;
 
     final MemorySegment handle;
     final boolean owned;
@@ -159,38 +159,38 @@ public final class RibbonEmitter implements AutoCloseable {
     }
     /** @return the edgesPerSecond field of this M2RibbonEmitter. */
     public float getEdgesPerSecond() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 296L);
+        return handle.get(ValueLayout.JAVA_FLOAT, 488L);
     }
     public void setEdgesPerSecond(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 296L, value);
+        handle.set(ValueLayout.JAVA_FLOAT, 488L, value);
     }
     /** @return the edgeLifetime field of this M2RibbonEmitter. */
     public float getEdgeLifetime() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 300L);
+        return handle.get(ValueLayout.JAVA_FLOAT, 492L);
     }
     public void setEdgeLifetime(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 300L, value);
+        handle.set(ValueLayout.JAVA_FLOAT, 492L, value);
     }
     /** @return the gravity field of this M2RibbonEmitter. */
     public float getGravity() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 304L);
+        return handle.get(ValueLayout.JAVA_FLOAT, 496L);
     }
     public void setGravity(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 304L, value);
+        handle.set(ValueLayout.JAVA_FLOAT, 496L, value);
     }
     /** @return the textureRows field of this M2RibbonEmitter. */
     public short getTextureRows() {
-        return handle.get(ValueLayout.JAVA_SHORT, 308L);
+        return handle.get(ValueLayout.JAVA_SHORT, 500L);
     }
     public void setTextureRows(short value) {
-        handle.set(ValueLayout.JAVA_SHORT, 308L, value);
+        handle.set(ValueLayout.JAVA_SHORT, 500L, value);
     }
     /** @return the textureCols field of this M2RibbonEmitter. */
     public short getTextureCols() {
-        return handle.get(ValueLayout.JAVA_SHORT, 310L);
+        return handle.get(ValueLayout.JAVA_SHORT, 502L);
     }
     public void setTextureCols(short value) {
-        handle.set(ValueLayout.JAVA_SHORT, 310L, value);
+        handle.set(ValueLayout.JAVA_SHORT, 502L, value);
     }
     /** @return the texSlot field of this M2RibbonEmitter. */
     public AnimationTrackU16 getTexSlot() {
@@ -210,24 +210,24 @@ public final class RibbonEmitter implements AutoCloseable {
     }
     /** @return the priorityPlane field of this M2RibbonEmitter. */
     public short getPriorityPlane() {
-        return handle.get(ValueLayout.JAVA_SHORT, 424L);
+        return handle.get(ValueLayout.JAVA_SHORT, 712L);
     }
     public void setPriorityPlane(short value) {
-        handle.set(ValueLayout.JAVA_SHORT, 424L, value);
+        handle.set(ValueLayout.JAVA_SHORT, 712L, value);
     }
     /** @return the ribbonColorIndex field of this M2RibbonEmitter. */
     public byte getRibbonColorIndex() {
-        return handle.get(ValueLayout.JAVA_BYTE, 426L);
+        return handle.get(ValueLayout.JAVA_BYTE, 714L);
     }
     public void setRibbonColorIndex(byte value) {
-        handle.set(ValueLayout.JAVA_BYTE, 426L, value);
+        handle.set(ValueLayout.JAVA_BYTE, 714L, value);
     }
     /** @return the textureTransformIndex field of this M2RibbonEmitter. */
     public byte getTextureTransformIndex() {
-        return handle.get(ValueLayout.JAVA_BYTE, 427L);
+        return handle.get(ValueLayout.JAVA_BYTE, 715L);
     }
     public void setTextureTransformIndex(byte value) {
-        handle.set(ValueLayout.JAVA_BYTE, 427L, value);
+        handle.set(ValueLayout.JAVA_BYTE, 715L, value);
     }
     @Override public String toString() {
         return "RibbonEmitter(" + "ribbonId=" + getRibbonId() + ", " + "boneId=" + getBoneId() + ", " + "edgesPerSecond=" + getEdgesPerSecond() + ", " + "edgeLifetime=" + getEdgeLifetime() + ", " + "gravity=" + getGravity() + ", " + "textureRows=" + getTextureRows() + ", " + "textureCols=" + getTextureCols() + ", " + "priorityPlane=" + getPriorityPlane() + ", " + "ribbonColorIndex=" + getRibbonColorIndex() + ", " + "textureTransformIndex=" + getTextureTransformIndex() + ")";

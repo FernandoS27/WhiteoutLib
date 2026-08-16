@@ -29,7 +29,7 @@ import whiteout.m2.internal.Native;
  * external access if a handle is shared across threads.
  */
 public final class ParticleEmitter implements AutoCloseable {
-    private static final long BYTES = 1200L;
+    private static final long BYTES = 1728L;
 
     final MemorySegment handle;
     final boolean owned;
@@ -151,26 +151,40 @@ public final class ParticleEmitter implements AutoCloseable {
     public void setParticleColorIndex(short value) {
         handle.set(ValueLayout.JAVA_SHORT, 90L, value);
     }
+    /** @return the particleType field of this M2ParticleEmitter. */
+    public byte getParticleType() {
+        return handle.get(ValueLayout.JAVA_BYTE, 92L);
+    }
+    public void setParticleType(byte value) {
+        handle.set(ValueLayout.JAVA_BYTE, 92L, value);
+    }
+    /** @return the headOrTail field of this M2ParticleEmitter. */
+    public byte getHeadOrTail() {
+        return handle.get(ValueLayout.JAVA_BYTE, 93L);
+    }
+    public void setHeadOrTail(byte value) {
+        handle.set(ValueLayout.JAVA_BYTE, 93L, value);
+    }
     /** @return the textureTilerotation field of this M2ParticleEmitter. */
     public short getTextureTilerotation() {
-        return handle.get(ValueLayout.JAVA_SHORT, 94L);
+        return handle.get(ValueLayout.JAVA_SHORT, 96L);
     }
     public void setTextureTilerotation(short value) {
-        handle.set(ValueLayout.JAVA_SHORT, 94L, value);
+        handle.set(ValueLayout.JAVA_SHORT, 96L, value);
     }
     /** @return the rows field of this M2ParticleEmitter. */
     public short getRows() {
-        return handle.get(ValueLayout.JAVA_SHORT, 96L);
+        return handle.get(ValueLayout.JAVA_SHORT, 98L);
     }
     public void setRows(short value) {
-        handle.set(ValueLayout.JAVA_SHORT, 96L, value);
+        handle.set(ValueLayout.JAVA_SHORT, 98L, value);
     }
     /** @return the columns field of this M2ParticleEmitter. */
     public short getColumns() {
-        return handle.get(ValueLayout.JAVA_SHORT, 98L);
+        return handle.get(ValueLayout.JAVA_SHORT, 100L);
     }
     public void setColumns(short value) {
-        handle.set(ValueLayout.JAVA_SHORT, 98L, value);
+        handle.set(ValueLayout.JAVA_SHORT, 100L, value);
     }
     /** @return the emissionSpeed field of this M2ParticleEmitter. */
     public AnimationTrackF32 getEmissionSpeed() {
@@ -222,10 +236,10 @@ public final class ParticleEmitter implements AutoCloseable {
     }
     /** @return the lifespanVariation field of this M2ParticleEmitter. */
     public float getLifespanVariation() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 440L);
+        return handle.get(ValueLayout.JAVA_FLOAT, 728L);
     }
     public void setLifespanVariation(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 440L, value);
+        handle.set(ValueLayout.JAVA_FLOAT, 728L, value);
     }
     /** @return the emissionRate field of this M2ParticleEmitter. */
     public AnimationTrackF32 getEmissionRate() {
@@ -237,10 +251,10 @@ public final class ParticleEmitter implements AutoCloseable {
     }
     /** @return the emissionRateVariation field of this M2ParticleEmitter. */
     public float getEmissionRateVariation() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 504L);
+        return handle.get(ValueLayout.JAVA_FLOAT, 840L);
     }
     public void setEmissionRateVariation(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 504L, value);
+        handle.set(ValueLayout.JAVA_FLOAT, 840L, value);
     }
     /** @return the emissionAreaWidth field of this M2ParticleEmitter. */
     public AnimationTrackF32 getEmissionAreaWidth() {
@@ -284,145 +298,145 @@ public final class ParticleEmitter implements AutoCloseable {
     }
     /** @return the scaleVary field of this M2ParticleEmitter. */
     public Vector2f getScaleVary() {
-        return Handles.wrapVector2f(handle.asSlice(824L, 8L), false);
+        return Handles.wrapVector2f(handle.asSlice(1304L, 8L), false);
     }
     public void setScaleVary(Vector2f value) {
         if (value == null) {
             NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_scaleVary, handle, MemorySegment.NULL);
             return;
         }
-        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 824L, 8L);
+        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 1304L, 8L);
     }
     /** @return the tailLength field of this M2ParticleEmitter. */
     public float getTailLength() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 928L);
+        return handle.get(ValueLayout.JAVA_FLOAT, 1408L);
     }
     public void setTailLength(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 928L, value);
+        handle.set(ValueLayout.JAVA_FLOAT, 1408L, value);
     }
     /** @return the twinkleSpeed field of this M2ParticleEmitter. */
     public float getTwinkleSpeed() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 932L);
+        return handle.get(ValueLayout.JAVA_FLOAT, 1412L);
     }
     public void setTwinkleSpeed(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 932L, value);
+        handle.set(ValueLayout.JAVA_FLOAT, 1412L, value);
     }
     /** @return the twinklePercent field of this M2ParticleEmitter. */
     public float getTwinklePercent() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 936L);
+        return handle.get(ValueLayout.JAVA_FLOAT, 1416L);
     }
     public void setTwinklePercent(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 936L, value);
+        handle.set(ValueLayout.JAVA_FLOAT, 1416L, value);
     }
     /** @return the twinkleScale field of this M2ParticleEmitter. */
     public Vector2f getTwinkleScale() {
-        return Handles.wrapVector2f(handle.asSlice(940L, 8L), false);
+        return Handles.wrapVector2f(handle.asSlice(1420L, 8L), false);
     }
     public void setTwinkleScale(Vector2f value) {
         if (value == null) {
             NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_twinkleScale, handle, MemorySegment.NULL);
             return;
         }
-        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 940L, 8L);
+        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 1420L, 8L);
     }
     /** @return the inheritVelocityScale field of this M2ParticleEmitter. */
     public float getInheritVelocityScale() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 948L);
+        return handle.get(ValueLayout.JAVA_FLOAT, 1428L);
     }
     public void setInheritVelocityScale(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 948L, value);
+        handle.set(ValueLayout.JAVA_FLOAT, 1428L, value);
     }
     /** @return the drag field of this M2ParticleEmitter. */
     public float getDrag() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 952L);
+        return handle.get(ValueLayout.JAVA_FLOAT, 1432L);
     }
     public void setDrag(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 952L, value);
+        handle.set(ValueLayout.JAVA_FLOAT, 1432L, value);
     }
     /** @return the baseSpin field of this M2ParticleEmitter. */
     public float getBaseSpin() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 956L);
+        return handle.get(ValueLayout.JAVA_FLOAT, 1436L);
     }
     public void setBaseSpin(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 956L, value);
+        handle.set(ValueLayout.JAVA_FLOAT, 1436L, value);
     }
     /** @return the baseSpinVariation field of this M2ParticleEmitter. */
     public float getBaseSpinVariation() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 960L);
+        return handle.get(ValueLayout.JAVA_FLOAT, 1440L);
     }
     public void setBaseSpinVariation(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 960L, value);
+        handle.set(ValueLayout.JAVA_FLOAT, 1440L, value);
     }
     /** @return the spinSpeed field of this M2ParticleEmitter. */
     public float getSpinSpeed() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 964L);
+        return handle.get(ValueLayout.JAVA_FLOAT, 1444L);
     }
     public void setSpinSpeed(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 964L, value);
+        handle.set(ValueLayout.JAVA_FLOAT, 1444L, value);
     }
     /** @return the spinSpeedVariation field of this M2ParticleEmitter. */
     public float getSpinSpeedVariation() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 968L);
+        return handle.get(ValueLayout.JAVA_FLOAT, 1448L);
     }
     public void setSpinSpeedVariation(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 968L, value);
+        handle.set(ValueLayout.JAVA_FLOAT, 1448L, value);
     }
     /** @return the tumble field of this M2ParticleEmitter. */
     public Box getTumble() {
-        return new Box(handle.asSlice(972L, 24L), false);
+        return new Box(handle.asSlice(1452L, 24L), false);
     }
     public void setTumble(Box value) {
         if (value == null) {
             NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_tumble, handle, MemorySegment.NULL);
             return;
         }
-        MemorySegment.copy(value.handle, 0L, handle, 972L, 24L);
+        MemorySegment.copy(value.handle, 0L, handle, 1452L, 24L);
     }
     /** @return the windVector field of this M2ParticleEmitter. */
     public Vector3f getWindVector() {
-        return Handles.wrapVector3f(handle.asSlice(996L, 12L), false);
+        return Handles.wrapVector3f(handle.asSlice(1476L, 12L), false);
     }
     public void setWindVector(Vector3f value) {
         if (value == null) {
             NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_windVector, handle, MemorySegment.NULL);
             return;
         }
-        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 996L, 12L);
+        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 1476L, 12L);
     }
     /** @return the windTime field of this M2ParticleEmitter. */
     public float getWindTime() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 1008L);
+        return handle.get(ValueLayout.JAVA_FLOAT, 1488L);
     }
     public void setWindTime(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 1008L, value);
+        handle.set(ValueLayout.JAVA_FLOAT, 1488L, value);
     }
     /** @return the followSpeed1 field of this M2ParticleEmitter. */
     public float getFollowSpeed1() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 1012L);
+        return handle.get(ValueLayout.JAVA_FLOAT, 1492L);
     }
     public void setFollowSpeed1(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 1012L, value);
+        handle.set(ValueLayout.JAVA_FLOAT, 1492L, value);
     }
     /** @return the followScale1 field of this M2ParticleEmitter. */
     public float getFollowScale1() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 1016L);
+        return handle.get(ValueLayout.JAVA_FLOAT, 1496L);
     }
     public void setFollowScale1(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 1016L, value);
+        handle.set(ValueLayout.JAVA_FLOAT, 1496L, value);
     }
     /** @return the followSpeed2 field of this M2ParticleEmitter. */
     public float getFollowSpeed2() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 1020L);
+        return handle.get(ValueLayout.JAVA_FLOAT, 1500L);
     }
     public void setFollowSpeed2(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 1020L, value);
+        handle.set(ValueLayout.JAVA_FLOAT, 1500L, value);
     }
     /** @return the followScale2 field of this M2ParticleEmitter. */
     public float getFollowScale2() {
-        return handle.get(ValueLayout.JAVA_FLOAT, 1024L);
+        return handle.get(ValueLayout.JAVA_FLOAT, 1504L);
     }
     public void setFollowScale2(float value) {
-        handle.set(ValueLayout.JAVA_FLOAT, 1024L, value);
+        handle.set(ValueLayout.JAVA_FLOAT, 1504L, value);
     }
     /** @return the splinePoints field of this M2ParticleEmitter. */
     public int getSplinePointsCount() {
@@ -455,7 +469,7 @@ public final class ParticleEmitter implements AutoCloseable {
         NativeCommon.invokeNative(Native.whiteout_m2_M2ParticleEmitter_set_enabledIn, handle, value == null ? MemorySegment.NULL : value.handle);
     }
     @Override public String toString() {
-        return "ParticleEmitter(" + "particleId=" + getParticleId() + ", " + "flags=" + getFlags() + ", " + "boneId=" + getBoneId() + ", " + "particleModelFilename=" + getParticleModelFilename() + ", " + "childEmittersModelFilename=" + getChildEmittersModelFilename() + ", " + "blendingType=" + getBlendingType() + ", " + "emitterType=" + getEmitterType() + ", " + "particleColorIndex=" + getParticleColorIndex() + ", " + "textureTilerotation=" + getTextureTilerotation() + ", " + "rows=" + getRows() + ", " + "columns=" + getColumns() + ", " + "lifespanVariation=" + getLifespanVariation() + ", " + "emissionRateVariation=" + getEmissionRateVariation() + ", " + "tailLength=" + getTailLength() + ", " + "twinkleSpeed=" + getTwinkleSpeed() + ", " + "twinklePercent=" + getTwinklePercent() + ", " + "inheritVelocityScale=" + getInheritVelocityScale() + ", " + "drag=" + getDrag() + ", " + "baseSpin=" + getBaseSpin() + ", " + "baseSpinVariation=" + getBaseSpinVariation() + ", " + "spinSpeed=" + getSpinSpeed() + ", " + "spinSpeedVariation=" + getSpinSpeedVariation() + ", " + "windTime=" + getWindTime() + ", " + "followSpeed1=" + getFollowSpeed1() + ", " + "followScale1=" + getFollowScale1() + ", " + "followSpeed2=" + getFollowSpeed2() + ", " + "followScale2=" + getFollowScale2() + ")";
+        return "ParticleEmitter(" + "particleId=" + getParticleId() + ", " + "flags=" + getFlags() + ", " + "boneId=" + getBoneId() + ", " + "particleModelFilename=" + getParticleModelFilename() + ", " + "childEmittersModelFilename=" + getChildEmittersModelFilename() + ", " + "blendingType=" + getBlendingType() + ", " + "emitterType=" + getEmitterType() + ", " + "particleColorIndex=" + getParticleColorIndex() + ", " + "particleType=" + getParticleType() + ", " + "headOrTail=" + getHeadOrTail() + ", " + "textureTilerotation=" + getTextureTilerotation() + ", " + "rows=" + getRows() + ", " + "columns=" + getColumns() + ", " + "lifespanVariation=" + getLifespanVariation() + ", " + "emissionRateVariation=" + getEmissionRateVariation() + ", " + "tailLength=" + getTailLength() + ", " + "twinkleSpeed=" + getTwinkleSpeed() + ", " + "twinklePercent=" + getTwinklePercent() + ", " + "inheritVelocityScale=" + getInheritVelocityScale() + ", " + "drag=" + getDrag() + ", " + "baseSpin=" + getBaseSpin() + ", " + "baseSpinVariation=" + getBaseSpinVariation() + ", " + "spinSpeed=" + getSpinSpeed() + ", " + "spinSpeedVariation=" + getSpinSpeedVariation() + ", " + "windTime=" + getWindTime() + ", " + "followSpeed1=" + getFollowSpeed1() + ", " + "followScale1=" + getFollowScale1() + ", " + "followSpeed2=" + getFollowSpeed2() + ", " + "followScale2=" + getFollowScale2() + ")";
     }
 
 }

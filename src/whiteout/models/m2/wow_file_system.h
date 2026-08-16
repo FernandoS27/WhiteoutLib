@@ -102,6 +102,11 @@ public:
 
     std::span<const u8> getSkeleton();
 
+    /// @brief The `.phys` sibling a pre-Legion model names by path when its
+    ///        LoadPhysicsData flag is set. Chunked models carry the same data
+    ///        inline (PFDC), so CASC-by-id mode has nothing to resolve here.
+    std::span<const u8> getPhysics();
+
     void exploratorySearch();
 
     u32 newSkinFileEntry();
@@ -126,6 +131,8 @@ public:
 
     void writeSkeletonFile(u32 handle, std::vector<u8> data);
 
+    void writePhysicsFile(std::vector<u8> data);
+
     void flush();
 
 private:
@@ -147,6 +154,8 @@ private:
     std::map<u32, std::vector<u8>> m_lodSkinCache;
     std::map<u32, std::vector<u8>> m_animCache;
     std::vector<u8> m_skelCache;
+    std::vector<u8> m_physCache;
+    bool m_physLoaded = false;
     bool m_skelLoaded = false;
     bool m_isParentSkeleton = false;
     bool m_lazyAnimations = false;
@@ -166,6 +175,8 @@ private:
     std::string buildAnimPath(u16 animId, u16 subAnimId) const;
 
     std::string buildSkelPath() const;
+
+    std::string buildPhysPath() const;
 
     u32 allocateHandle(const std::string& pathHint);
 };

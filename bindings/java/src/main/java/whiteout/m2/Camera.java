@@ -29,7 +29,7 @@ import whiteout.m2.internal.Native;
  * external access if a handle is shared across threads.
  */
 public final class Camera implements AutoCloseable {
-    private static final long BYTES = 272L;
+    private static final long BYTES = 464L;
 
     final MemorySegment handle;
     final boolean owned;
@@ -94,14 +94,14 @@ public final class Camera implements AutoCloseable {
     }
     /** @return the positionBase field of this M2Camera. */
     public Vector3f getPositionBase() {
-        return Handles.wrapVector3f(handle.asSlice(72L, 12L), false);
+        return Handles.wrapVector3f(handle.asSlice(120L, 12L), false);
     }
     public void setPositionBase(Vector3f value) {
         if (value == null) {
             NativeCommon.invokeNative(Native.whiteout_m2_M2Camera_set_positionBase, handle, MemorySegment.NULL);
             return;
         }
-        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 72L, 12L);
+        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 120L, 12L);
     }
     /** @return the targetPositions field of this M2Camera. */
     public AnimationTrackM2CameraSpline getTargetPositions() {
@@ -113,14 +113,14 @@ public final class Camera implements AutoCloseable {
     }
     /** @return the targetPositionBase field of this M2Camera. */
     public Vector3f getTargetPositionBase() {
-        return Handles.wrapVector3f(handle.asSlice(144L, 12L), false);
+        return Handles.wrapVector3f(handle.asSlice(240L, 12L), false);
     }
     public void setTargetPositionBase(Vector3f value) {
         if (value == null) {
             NativeCommon.invokeNative(Native.whiteout_m2_M2Camera_set_targetPositionBase, handle, MemorySegment.NULL);
             return;
         }
-        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 144L, 12L);
+        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 240L, 12L);
     }
     /** @return the roll field of this M2Camera. */
     public AnimationTrackF32 getRoll() {

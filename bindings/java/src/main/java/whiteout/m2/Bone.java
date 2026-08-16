@@ -29,7 +29,7 @@ import whiteout.m2.internal.Native;
  * external access if a handle is shared across threads.
  */
 public final class Bone implements AutoCloseable {
-    private static final long BYTES = 200L;
+    private static final long BYTES = 344L;
 
     final MemorySegment handle;
     final boolean owned;
@@ -117,14 +117,14 @@ public final class Bone implements AutoCloseable {
     }
     /** @return the pivot field of this M2Bone. */
     public Vector3f getPivot() {
-        return Handles.wrapVector3f(handle.asSlice(184L, 12L), false);
+        return Handles.wrapVector3f(handle.asSlice(328L, 12L), false);
     }
     public void setPivot(Vector3f value) {
         if (value == null) {
             NativeCommon.invokeNative(Native.whiteout_m2_M2Bone_set_pivot, handle, MemorySegment.NULL);
             return;
         }
-        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 184L, 12L);
+        MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 328L, 12L);
     }
     @Override public String toString() {
         return "Bone(" + "keyBoneId=" + getKeyBoneId() + ", " + "flags=" + getFlags() + ", " + "parentBoneId=" + getParentBoneId() + ", " + "submeshId=" + getSubmeshId() + ", " + "boneNameCRC=" + getBoneNameCRC() + ")";

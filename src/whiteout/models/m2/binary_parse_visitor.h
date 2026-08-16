@@ -5,11 +5,13 @@
 #include "../../common/binary_reader.h"
 #include "../../common/streams.h"
 #include "internal_structures.h"
+#include "legacy.h"
 #include "traits.h"
 // Full type, not the forward declaration below: readAnimationVector is a
 // template in this header and reads the shared per-sequence key-location flags.
 #include "wow_file_system.h"
 
+#include <algorithm>
 #include <type_traits>
 
 namespace whiteout {
@@ -184,12 +186,28 @@ protected:
     void readAnimationVector(std::vector<std::vector<T>>& keys, std::vector<KeySpanRef>& refs,
                              u16 globalSequenceId);
 
+    // ≤TBC (<264) track reading: one flat key array on a global timeline plus
+    // per-sequence interpolation ranges, split here into the per-sequence
+    // sub-arrays every later version stores directly.
+    template <typename T>
+    std::vector<T> readFlatSpan();
+    void readLegacyTrackHead(AnimationTrackBase& track);
+    template <typename FileT, typename T, typename Convert>
+    void readLegacyTrack(AnimationTrack<T>& track, Convert convert);
+    void visitLegacyBoneRotation(AnimationTrack<CompatQuaternion>& track);
+    void readLegacyParticleColorBlock(ParticleEmitter& emitter);
+
     u32 version = 0;
     GlobalFlag globalFlags = GlobalFlag::None;
     common::BinaryReader& reader;
     WoWFileSystem* wfs = nullptr;
     u32 baseOffset = 0;
     i32 maxSize = -1;
+
+    /// Per sequence, in order: its [start, end] window on the ≤TBC global
+    /// timeline. Filled by visit(Sequence&), consumed by the legacy track
+    /// splitting. Empty for ≥264 models.
+    std::vector<LegacyWindow> legacyWindows;
 };
 
 template <typename T>
@@ -278,11 +296,81 @@ void BinaryParseVisitor::readAnimationVector(std::vector<std::vector<T>>& keys,
 
 template <typename T>
 void BinaryParseVisitor::visit(AnimationTrack<T>& track) {
+    if (version != 0 && version < M2_VERSION_WOTLK) {
+        readLegacyTrack<T>(track, [](const T& v) { return v; });
+        return;
+    }
     track.interpolationType = static_cast<InterpolationType>(reader.read<u16>());
     track.globalSequenceId = reader.read<u16>();
 
     readAnimationVector(track.timestamps, track.timestampRefs, track.globalSequenceId);
     readAnimationVector(track.values, track.valueRefs, track.globalSequenceId);
+}
+
+template <typename T>
+std::vector<T> BinaryParseVisitor::readFlatSpan() {
+    const auto count = reader.read<u32>();
+    const auto offset = reader.read<u32>();
+    std::vector<T> out;
+    if (count == 0) {
+        return out;
+    }
+    const auto currentPos = reader.getPosition();
+    reader.setPosition(offset + baseOffset);
+    out = reader.read<std::vector<T>>(count);
+    reader.setPosition(currentPos);
+    return out;
+}
+
+template <typename FileT, typename T, typename Convert>
+void BinaryParseVisitor::readLegacyTrack(AnimationTrack<T>& track, Convert convert) {
+    track.interpolationType = static_cast<InterpolationType>(reader.read<u16>());
+    track.globalSequenceId = reader.read<u16>();
+    // Interpolation ranges: index pairs per sequence, redundant with the
+    // sequence windows the split below already uses.
+    (void)reader.read<KeySpanRef>();
+    const std::vector<u32> times = readFlatSpan<u32>();
+    const std::vector<FileT> values = readFlatSpan<FileT>();
+
+    track.timestamps.clear();
+    track.values.clear();
+    track.timestampRefs.clear();
+    track.valueRefs.clear();
+
+    const size_t n = std::min(times.size(), values.size());
+    if (n == 0) {
+        return;
+    }
+
+    const bool global = track.globalSequenceId != 0xFFFF;
+    if (global || legacyWindows.empty()) {
+        // A global-sequence track runs on its own clock: its keys are already
+        // relative to zero and become the single sub-array later versions
+        // store. Same for a track read outside any sequence context.
+        track.timestamps.emplace_back(times.begin(), times.begin() + n);
+        auto& out = track.values.emplace_back();
+        out.reserve(n);
+        for (size_t i = 0; i < n; ++i) {
+            out.push_back(convert(values[i]));
+        }
+        return;
+    }
+
+    track.timestamps.resize(legacyWindows.size());
+    track.values.resize(legacyWindows.size());
+    for (size_t s = 0; s < legacyWindows.size(); ++s) {
+        const auto& w = legacyWindows[s];
+        const auto first = std::lower_bound(times.begin(), times.begin() + n, w.start);
+        const auto last = std::upper_bound(first, times.begin() + n, w.end);
+        auto& ts = track.timestamps[s];
+        auto& vs = track.values[s];
+        ts.reserve(static_cast<size_t>(last - first));
+        vs.reserve(static_cast<size_t>(last - first));
+        for (auto it = first; it != last; ++it) {
+            ts.push_back(*it - w.start);
+            vs.push_back(convert(values[static_cast<size_t>(it - times.begin())]));
+        }
+    }
 }
 
 template <typename T>

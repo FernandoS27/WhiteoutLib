@@ -16,9 +16,10 @@ enum class GlobalFlag : u32 {
     AddBackReferences = 0x00000004,
     UseTextureCombinerCombos = 0x00000008,
     IsCamera = 0x00000010,
-    Unused = 0x00000020,
+    // CM2Shared::FinishLoadingM2Data tests bit 0x20 before LegacyLoadPhysData.
+    LoadPhysicsData = 0x00000020,
     Unk_0x80 = 0x00000080,
-    LoadPhysicsData = 0x00000100,
+    Unk_0x100 = 0x00000100,
     NewParticleRecord = 0x00000200,
     Unk_0x400 = 0x00000400,
     TextureTransformsUsesBoneSequences = 0x00000800,
@@ -235,7 +236,10 @@ struct TextureWeight {
 
 struct TextureTransform {
     AnimationTrack<Vector3f> translation;
-    AnimationTrack<CompatQuaternion> rotation;
+    // Stored as C4Quaternion (floats) in every M2 version, unlike bone
+    // rotations, which are compressed. Verified against the client's
+    // M2Init<M2TextureTransform>.
+    AnimationTrack<Quaternion> rotation;
     AnimationTrack<Vector3f> scaling;
 };
 
@@ -402,6 +406,11 @@ struct ParticleEmitter {
     ParticleBlending blendingType = ParticleBlending::Opaque;
     ParticleEmitterType emitterType = ParticleEmitterType::Plane;
     u16 particleColorIndex = 0;
+
+    // Pre-Cataclysm records carry these two bytes where multiTexScale now
+    // lives; kept so old files round-trip. headOrTail: 0 head, 1 tail, 2 both.
+    u8 particleType = 0;
+    u8 headOrTail = 0;
 
     std::array<fixed8_5, 2> multiTexScale; // Scale per layer
     i16 textureTilerotation;

@@ -48,6 +48,26 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2KeySpanRef_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2KeySpanRef_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m2_M2KeySpanRef_get_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2KeySpanRef_set_count(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m2_M2KeySpanRef_get_offset(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2KeySpanRef_set_offset(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
     internal static partial IntPtr whiteout_m2_M2AnimationTrackBase_new();
 
     [LibraryImport(Runtime.LibraryName)]
@@ -1311,6 +1331,20 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial byte whiteout_m2_M2ParticleEmitter_get_particleType(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2ParticleEmitter_set_particleType(IntPtr self, byte value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial byte whiteout_m2_M2ParticleEmitter_get_headOrTail(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2ParticleEmitter_set_headOrTail(IntPtr self, byte value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
     internal static partial short whiteout_m2_M2ParticleEmitter_get_textureTilerotation(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
@@ -1732,6 +1766,10 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2Parser_setLazyAnimations(IntPtr self, int enable);
+
+
+    [LibraryImport(Runtime.LibraryName)]
     [return: MarshalAs(UnmanagedType.I4)]
     internal static partial int whiteout_m2_M2Parser_hasIssues(IntPtr self);
 
@@ -1863,6 +1901,26 @@ internal static partial class NativeMethods
 
     [LibraryImport(Runtime.LibraryName)]
     internal static partial void whiteout_m2_M2AnimationTrackI16_set_globalSequenceId(IntPtr self, ushort value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2AnimationTrackQuaternion_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2AnimationTrackQuaternion_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial int whiteout_m2_M2AnimationTrackQuaternion_get_interpolationType(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2AnimationTrackQuaternion_set_interpolationType(IntPtr self, int value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial ushort whiteout_m2_M2AnimationTrackQuaternion_get_globalSequenceId(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2AnimationTrackQuaternion_set_globalSequenceId(IntPtr self, ushort value);
 
 
     [LibraryImport(Runtime.LibraryName)]

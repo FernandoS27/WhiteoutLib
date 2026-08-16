@@ -26,15 +26,29 @@ void BinaryWriterVisitor::visit(const GlobalSequence& seq) {
 void BinaryWriterVisitor::visit(const Sequence& seq) {
     writer.write(seq.id);
     writer.write(seq.variationIndex);
-    writer.write(seq.duration);
+    if (version != 0 && version < M2_VERSION_WOTLK) {
+        // ≤TBC sequences occupy a window on a shared global timeline instead
+        // of carrying a duration; the windows were laid out before the
+        // sequence list started writing (see visit(Model)).
+        const auto& window = legacyWindows[legacyWindowIndex++];
+        writer.write(window.start);
+        writer.write(window.end);
+    } else {
+        writer.write(seq.duration);
+    }
     writer.write(seq.movespeed);
     writer.write(seq.flags);
     writer.write(seq.frequency);
     writer.write(seq.padding);
     writer.write(seq.replayMin);
     writer.write(seq.replayMax);
-    writer.write(seq.blendTimeIn);
-    writer.write(seq.blendTimeOut);
+    if (version != 0 && version < M2_VERSION_MOP) {
+        // One u32 blend time before the WoD-era in/out split.
+        writer.write<u32>(seq.blendTimeIn);
+    } else {
+        writer.write(seq.blendTimeIn);
+        writer.write(seq.blendTimeOut);
+    }
 
     writer.write(seq.bounding.minimum);
     writer.write(seq.bounding.maximum);
@@ -44,7 +58,11 @@ void BinaryWriterVisitor::visit(const Sequence& seq) {
     writer.write(seq.variationNext);
     writer.write(seq.aliasNext);
 
-    if (!hasFlag(seq.flags, SequenceFlag::StoredAnimated)) {
+    // Mirror of the parser's `flags & 0x130` in-file test: anything else keys
+    // its data through a `.anim` sibling — a WotLK-and-later concept; earlier
+    // versions carry everything in the model.
+    const bool inFile = (static_cast<u32>(seq.flags) & 0x130u) != 0;
+    if (!inFile && version >= M2_VERSION_WOTLK) {
         animDataBuffers.push_back(AnimDataBuffer{seq.id, seq.variationIndex, {}});
         auto& animBuffer = animDataBuffers.back();
         animDataWriterStates.push_back({});
@@ -88,12 +106,21 @@ void BinaryWriterVisitor::visit(const Bone& bone) {
     writer.write(bone.boneNameCRC);
 
     visit(bone.translation);
-    visit(bone.rotation);
+    writeLegacyBoneRotation(bone.rotation);
     visit(bone.scale);
 
     writer.write(bone.pivot.x);
     writer.write(bone.pivot.y);
     writer.write(bone.pivot.z);
+}
+
+void BinaryWriterVisitor::writeLegacyBoneRotation(const AnimationTrack<CompatQuaternion>& track) {
+    if (version != 0 && version < M2_VERSION_BC) {
+        writeLegacyTrack<Vector4f>(track,
+                                   [](const CompatQuaternion& q) { return decompressQuat(q); });
+        return;
+    }
+    visit(track);
 }
 
 void BinaryWriterVisitor::visit(const Texture& texture) {
@@ -210,12 +237,16 @@ void BinaryWriterVisitor::visit(const RibbonEmitter& emitter) {
     visit(emitter.texSlot);
     visit(emitter.visibility);
 
-    writer.write(emitter.priorityPlane);
-    writer.write(emitter.ribbonColorIndex);
-    writer.write(emitter.textureTransformIndex);
+    if (version == 0 || version >= M2_VERSION_WOTLK) {
+        writer.write(emitter.priorityPlane);
+        writer.write(emitter.ribbonColorIndex);
+        writer.write(emitter.textureTransformIndex);
+    }
 }
 
 void BinaryWriterVisitor::visit(const ParticleEmitter& emitter) {
+    const bool legacy = version != 0 && version < M2_VERSION_WOTLK;
+
     writer.write(emitter.particleId);
     writer.write(emitter.flags);
     writer.write(emitter.position.x);
@@ -227,12 +258,22 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter) {
     visit(emitter.particleModelFilename);
     visit(emitter.childEmittersModelFilename);
 
-    writer.write(emitter.blendingType);
-    writer.write(emitter.emitterType);
-    writer.write(emitter.particleColorIndex);
+    if (version != 0 && version < M2_VERSION_BC) {
+        writer.write<u16>(static_cast<u16>(emitter.blendingType));
+        writer.write<u16>(static_cast<u16>(emitter.emitterType));
+    } else {
+        writer.write(emitter.blendingType);
+        writer.write(emitter.emitterType);
+        writer.write(emitter.particleColorIndex);
+    }
 
-    writer.write(emitter.multiTexScale[0]);
-    writer.write(emitter.multiTexScale[1]);
+    if (version != 0 && version < M2_VERSION_CATA) {
+        writer.write(emitter.particleType);
+        writer.write(emitter.headOrTail);
+    } else {
+        writer.write(emitter.multiTexScale[0]);
+        writer.write(emitter.multiTexScale[1]);
+    }
     writer.write(emitter.textureTilerotation);
     writer.write(emitter.rows);
     writer.write(emitter.columns);
@@ -244,22 +285,30 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter) {
     visit(emitter.gravity);
     visit(emitter.lifespan);
 
-    writer.write(emitter.lifespanVariation);
+    if (!legacy) {
+        writer.write(emitter.lifespanVariation);
+    }
 
     visit(emitter.emissionRate);
 
-    writer.write(emitter.emissionRateVariation);
+    if (!legacy) {
+        writer.write(emitter.emissionRateVariation);
+    }
 
     visit(emitter.emissionAreaWidth);
     visit(emitter.emissionAreaLength);
     visit(emitter.zSource);
 
-    visit(emitter.colorTrack);
-    visit(emitter.alphaTrack);
-    visit(emitter.scaleTrack);
-    writer.write(emitter.scaleVary);
-    visit(emitter.headUVScroll);
-    visit(emitter.tailUVScroll);
+    if (legacy) {
+        writeLegacyParticleColorBlock(emitter);
+    } else {
+        visit(emitter.colorTrack);
+        visit(emitter.alphaTrack);
+        visit(emitter.scaleTrack);
+        writer.write(emitter.scaleVary);
+        visit(emitter.headUVScroll);
+        visit(emitter.tailUVScroll);
+    }
 
     writer.write(emitter.tailLength);
     writer.write(emitter.twinkleSpeed);
@@ -268,10 +317,14 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter) {
     writer.write(emitter.twinkleScale.y);
     writer.write(emitter.inheritVelocityScale);
     writer.write(emitter.drag);
-    writer.write(emitter.baseSpin);
-    writer.write(emitter.baseSpinVariation);
-    writer.write(emitter.spinSpeed);
-    writer.write(emitter.spinSpeedVariation);
+    if (legacy) {
+        writer.write(emitter.spinSpeed);
+    } else {
+        writer.write(emitter.baseSpin);
+        writer.write(emitter.baseSpinVariation);
+        writer.write(emitter.spinSpeed);
+        writer.write(emitter.spinSpeedVariation);
+    }
 
     writer.write(emitter.tumble.minimum);
     writer.write(emitter.tumble.maximum);
@@ -300,6 +353,55 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter) {
     }
 }
 
+void BinaryWriterVisitor::writeLegacyParticleColorBlock(const ParticleEmitter& emitter) {
+    // Inverse of the parser's three-key reconstruction: sample the tracks at
+    // begin / mid / end of the particle lifetime.
+    const auto rawAt = [](const std::vector<unorm16>& v, size_t i, u16 fallback) -> u16 {
+        if (v.empty())
+            return fallback;
+        return v[std::min(i, v.size() - 1)].value;
+    };
+
+    f32 mid = 0.5f;
+    if (emitter.colorTrack.timestamps.size() == 3) {
+        mid = static_cast<f32>(emitter.colorTrack.timestamps[1].value) / 32767.0f;
+    }
+    writer.write(mid);
+
+    for (size_t i = 0; i < 3; ++i) {
+        Vector3f color{255.0f, 255.0f, 255.0f};
+        if (!emitter.colorTrack.values.empty()) {
+            color = emitter.colorTrack.values[std::min(i, emitter.colorTrack.values.size() - 1)];
+        }
+        u16 const alpha = rawAt(emitter.alphaTrack.values, i, 32767);
+        ColorBGRA c;
+        c.b = static_cast<u8>(std::clamp(color.z, 0.0f, 255.0f));
+        c.g = static_cast<u8>(std::clamp(color.y, 0.0f, 255.0f));
+        c.r = static_cast<u8>(std::clamp(color.x, 0.0f, 255.0f));
+        c.a = static_cast<u8>((static_cast<u32>(alpha) * 255 + 16383) / 32767);
+        writer.write(c);
+    }
+
+    for (size_t i = 0; i < 4; ++i) {
+        f32 scale = 1.0f;
+        if (!emitter.scaleTrack.values.empty()) {
+            scale = emitter.scaleTrack.values[std::min(i, emitter.scaleTrack.values.size() - 1)].x;
+        }
+        writer.write(scale);
+    }
+
+    writer.write<u16>(rawAt(emitter.headUVScroll.values, 0, 0));
+    writer.write<u16>(rawAt(emitter.headUVScroll.values, 0, 0));
+    writer.write<u16>(1);
+    writer.write<u16>(rawAt(emitter.headUVScroll.values, 1, 0));
+    writer.write<u16>(rawAt(emitter.headUVScroll.values, 1, 0));
+    writer.write<u16>(1);
+    writer.write<i16>(static_cast<i16>(rawAt(emitter.tailUVScroll.values, 0, 0)));
+    writer.write<i16>(static_cast<i16>(rawAt(emitter.tailUVScroll.values, 1, 0)));
+    writer.write<i16>(0);
+    writer.write<i16>(0);
+}
+
 void BinaryWriterVisitor::visit(const Event& event) {
     writer.write(event.identifier);
     writer.write(event.data);
@@ -321,6 +423,12 @@ void BinaryWriterVisitor::visit(const MD20Header& md20) {
 }
 
 void BinaryWriterVisitor::visit(const Model& model) {
+    const bool legacy = version != 0 && version < M2_VERSION_WOTLK;
+    if (legacy) {
+        legacyWindows = buildLegacyTimeline(model.sequences);
+        legacyWindowIndex = 0;
+    }
+
     visit(model.modelName);
     visit(model.globalFlags);
     globalFlags = model.globalFlags.value;
@@ -329,6 +437,10 @@ void BinaryWriterVisitor::visit(const Model& model) {
     visit(model.sequences);
     visit(model.sequenceIdxHashById);
 
+    if (legacy) {
+        visit(model.playableAnimationLookup);
+    }
+
     visit(model.bones);
     visit(model.keyBoneIds);
 
@@ -336,11 +448,16 @@ void BinaryWriterVisitor::visit(const Model& model) {
 
     if (version >= M2_VERSION_WOTLK) {
         writer.write(model.numSkinProfiles);
+    } else {
+        visit(model.skinProfiles);
     }
 
     visit(model.colors);
     visit(model.textures);
     visit(model.textureWeights);
+    if (legacy) {
+        visit(model.textureFlipbooks);
+    }
     visit(model.textureTransforms);
     visit(model.textureIndicesById);
     visit(model.materials);
@@ -376,9 +493,52 @@ void BinaryWriterVisitor::visit(const Model& model) {
 }
 
 void BinaryWriterVisitor::visit(const AnimationTrackBase& track) {
+    if (version != 0 && version < M2_VERSION_WOTLK) {
+        writeLegacyTrackHead(track);
+        return;
+    }
     writer.write(track.interpolationType);
     writer.write(track.globalSequenceId);
-    visit(track.timestamps);
+    writeSequenceArrays(track.timestamps, track.globalSequenceId != 0xFFFF);
+}
+
+void BinaryWriterVisitor::writeLegacyTrackHead(const AnimationTrackBase& track) {
+    writer.write(track.interpolationType);
+    writer.write(track.globalSequenceId);
+
+    auto& ranges = arenaVector<LegacyRange>();
+    auto& times = arenaVector<u32>();
+
+    if (track.globalSequenceId != 0xFFFF || legacyWindows.empty()) {
+        if (!track.timestamps.empty()) {
+            times = track.timestamps[0];
+        }
+    } else {
+        bool any = false;
+        for (const auto& sub : track.timestamps) {
+            if (!sub.empty()) {
+                any = true;
+                break;
+            }
+        }
+        if (any) {
+            // Events fire at their timestamps; a sequence without any emits
+            // none, and its range collapses instead of getting padded keys.
+            for (size_t s = 0; s < legacyWindows.size(); ++s) {
+                const auto& w = legacyWindows[s];
+                u32 const firstIdx = static_cast<u32>(times.size());
+                if (s < track.timestamps.size()) {
+                    for (u32 const t : track.timestamps[s]) {
+                        times.push_back(w.start + t);
+                    }
+                }
+                ranges.push_back(LegacyRange{firstIdx, static_cast<u32>(times.size())});
+            }
+        }
+    }
+
+    writeVector(ranges, &writer);
+    writeVector(times, &writer);
 }
 
 void BinaryWriterVisitor::visit(const std::string& str) {

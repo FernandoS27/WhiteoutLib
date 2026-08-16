@@ -29,7 +29,7 @@ import whiteout.m2.internal.Native;
  * external access if a handle is shared across threads.
  */
 public final class ColorAnimation implements AutoCloseable {
-    private static final long BYTES = 112L;
+    private static final long BYTES = 208L;
 
     final MemorySegment handle;
     final boolean owned;

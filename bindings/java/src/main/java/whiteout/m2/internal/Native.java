@@ -43,6 +43,16 @@ public final class Native {
     public static final MethodHandle whiteout_m2_M2Extent_get_sphereRadius = find("whiteout_m2_M2Extent_get_sphereRadius", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2Extent_set_sphereRadius = find("whiteout_m2_M2Extent_set_sphereRadius", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
 
+    // -- M2KeySpanRef --
+    public static final MethodHandle whiteout_m2_M2KeySpanRef_new = find(
+        "whiteout_m2_M2KeySpanRef_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2KeySpanRef_delete = find(
+        "whiteout_m2_M2KeySpanRef_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2KeySpanRef_get_count = find("whiteout_m2_M2KeySpanRef_get_count", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2KeySpanRef_set_count = find("whiteout_m2_M2KeySpanRef_set_count", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m2_M2KeySpanRef_get_offset = find("whiteout_m2_M2KeySpanRef_get_offset", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2KeySpanRef_set_offset = find("whiteout_m2_M2KeySpanRef_set_offset", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+
     // -- M2AnimationTrackBase --
     public static final MethodHandle whiteout_m2_M2AnimationTrackBase_new = find(
         "whiteout_m2_M2AnimationTrackBase_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
@@ -653,6 +663,10 @@ public final class Native {
     public static final MethodHandle whiteout_m2_M2ParticleEmitter_set_emitterType = find("whiteout_m2_M2ParticleEmitter_set_emitterType", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_m2_M2ParticleEmitter_get_particleColorIndex = find("whiteout_m2_M2ParticleEmitter_get_particleColorIndex", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2ParticleEmitter_set_particleColorIndex = find("whiteout_m2_M2ParticleEmitter_set_particleColorIndex", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
+    public static final MethodHandle whiteout_m2_M2ParticleEmitter_get_particleType = find("whiteout_m2_M2ParticleEmitter_get_particleType", FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2ParticleEmitter_set_particleType = find("whiteout_m2_M2ParticleEmitter_set_particleType", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE));
+    public static final MethodHandle whiteout_m2_M2ParticleEmitter_get_headOrTail = find("whiteout_m2_M2ParticleEmitter_get_headOrTail", FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2ParticleEmitter_set_headOrTail = find("whiteout_m2_M2ParticleEmitter_set_headOrTail", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE));
     public static final MethodHandle whiteout_m2_M2ParticleEmitter_get_textureTilerotation = find("whiteout_m2_M2ParticleEmitter_get_textureTilerotation", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2ParticleEmitter_set_textureTilerotation = find("whiteout_m2_M2ParticleEmitter_set_textureTilerotation", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
     public static final MethodHandle whiteout_m2_M2ParticleEmitter_get_rows = find("whiteout_m2_M2ParticleEmitter_get_rows", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
@@ -868,6 +882,14 @@ public final class Native {
     public static final MethodHandle whiteout_m2_M2Model_resize_textureCombinerCombos = find("whiteout_m2_M2Model_resize_textureCombinerCombos", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m2_M2Model_get_textureCombinerCombos_data = find("whiteout_m2_M2Model_get_textureCombinerCombos_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2Model_assign_textureCombinerCombos = find("whiteout_m2_M2Model_assign_textureCombinerCombos", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2Model_get_playableAnimationLookup_count = find("whiteout_m2_M2Model_get_playableAnimationLookup_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2Model_resize_playableAnimationLookup = find("whiteout_m2_M2Model_resize_playableAnimationLookup", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2Model_get_playableAnimationLookup_data = find("whiteout_m2_M2Model_get_playableAnimationLookup_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2Model_assign_playableAnimationLookup = find("whiteout_m2_M2Model_assign_playableAnimationLookup", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2Model_get_textureFlipbooks_count = find("whiteout_m2_M2Model_get_textureFlipbooks_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2Model_resize_textureFlipbooks = find("whiteout_m2_M2Model_resize_textureFlipbooks", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2Model_get_textureFlipbooks_data = find("whiteout_m2_M2Model_get_textureFlipbooks_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2Model_assign_textureFlipbooks = find("whiteout_m2_M2Model_assign_textureFlipbooks", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m2_M2Model_get_texture_ids_count = find("whiteout_m2_M2Model_get_texture_ids_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2Model_resize_texture_ids = find("whiteout_m2_M2Model_resize_texture_ids", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m2_M2Model_get_texture_ids_data = find("whiteout_m2_M2Model_get_texture_ids_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
@@ -929,6 +951,8 @@ public final class Native {
         "whiteout_m2_M2Parser_parse", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2Parser_parse_cascFs_buffer = find(
         "whiteout_m2_M2Parser_parse_cascFs_buffer", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2Parser_setLazyAnimations = find(
+        "whiteout_m2_M2Parser_setLazyAnimations", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_m2_M2Parser_hasIssues = find(
         "whiteout_m2_M2Parser_hasIssues", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2Parser_getIssues_count = find(
@@ -1042,6 +1066,28 @@ public final class Native {
     public static final MethodHandle whiteout_m2_M2AnimationTrackI16_resize_values_inner = find("whiteout_m2_M2AnimationTrackI16_resize_values_inner", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m2_M2AnimationTrackI16_get_values_inner_data = find("whiteout_m2_M2AnimationTrackI16_get_values_inner_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m2_M2AnimationTrackI16_assign_values_inner = find("whiteout_m2_M2AnimationTrackI16_assign_values_inner", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+
+    // -- M2AnimationTrackQuaternion --
+    public static final MethodHandle whiteout_m2_M2AnimationTrackQuaternion_new = find(
+        "whiteout_m2_M2AnimationTrackQuaternion_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2AnimationTrackQuaternion_delete = find(
+        "whiteout_m2_M2AnimationTrackQuaternion_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2AnimationTrackQuaternion_get_interpolationType = find("whiteout_m2_M2AnimationTrackQuaternion_get_interpolationType", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2AnimationTrackQuaternion_set_interpolationType = find("whiteout_m2_M2AnimationTrackQuaternion_set_interpolationType", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m2_M2AnimationTrackQuaternion_get_globalSequenceId = find("whiteout_m2_M2AnimationTrackQuaternion_get_globalSequenceId", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2AnimationTrackQuaternion_set_globalSequenceId = find("whiteout_m2_M2AnimationTrackQuaternion_set_globalSequenceId", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
+    public static final MethodHandle whiteout_m2_M2AnimationTrackQuaternion_get_timestamps_count = find("whiteout_m2_M2AnimationTrackQuaternion_get_timestamps_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2AnimationTrackQuaternion_get_timestamps_inner_count = find("whiteout_m2_M2AnimationTrackQuaternion_get_timestamps_inner_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2AnimationTrackQuaternion_resize_timestamps = find("whiteout_m2_M2AnimationTrackQuaternion_resize_timestamps", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2AnimationTrackQuaternion_resize_timestamps_inner = find("whiteout_m2_M2AnimationTrackQuaternion_resize_timestamps_inner", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2AnimationTrackQuaternion_get_timestamps_inner_data = find("whiteout_m2_M2AnimationTrackQuaternion_get_timestamps_inner_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2AnimationTrackQuaternion_assign_timestamps_inner = find("whiteout_m2_M2AnimationTrackQuaternion_assign_timestamps_inner", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2AnimationTrackQuaternion_get_values_count = find("whiteout_m2_M2AnimationTrackQuaternion_get_values_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2AnimationTrackQuaternion_get_values_inner_count = find("whiteout_m2_M2AnimationTrackQuaternion_get_values_inner_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2AnimationTrackQuaternion_resize_values = find("whiteout_m2_M2AnimationTrackQuaternion_resize_values", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2AnimationTrackQuaternion_resize_values_inner = find("whiteout_m2_M2AnimationTrackQuaternion_resize_values_inner", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2AnimationTrackQuaternion_get_values_inner_data = find("whiteout_m2_M2AnimationTrackQuaternion_get_values_inner_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2AnimationTrackQuaternion_assign_values_inner = find("whiteout_m2_M2AnimationTrackQuaternion_assign_values_inner", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
 
     // -- M2AnimationTrackF32 --
     public static final MethodHandle whiteout_m2_M2AnimationTrackF32_new = find(

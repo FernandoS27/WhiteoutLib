@@ -34,6 +34,7 @@
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::i16>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::vector<whiteout::u32>>);
+PYBIND11_MAKE_OPAQUE(std::vector<std::vector<whiteout::Quaternion>>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::vector<whiteout::Vector3f>>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::vector<whiteout::f32>>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::vector<whiteout::i16>>);
@@ -44,6 +45,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<std::vector<whiteout::u8>>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u32>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u16>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Quaternion>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector2f>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector3f>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::f32>);
@@ -157,9 +159,9 @@ void bind_m2(py::module_& m) {
         .value("ADD_BACK_REFERENCES", whiteout::m2::GlobalFlag::AddBackReferences)
         .value("USE_TEXTURE_COMBINER_COMBOS", whiteout::m2::GlobalFlag::UseTextureCombinerCombos)
         .value("IS_CAMERA", whiteout::m2::GlobalFlag::IsCamera)
-        .value("UNUSED", whiteout::m2::GlobalFlag::Unused)
-        .value("UNK_0X80", whiteout::m2::GlobalFlag::Unk_0x80)
         .value("LOAD_PHYSICS_DATA", whiteout::m2::GlobalFlag::LoadPhysicsData)
+        .value("UNK_0X80", whiteout::m2::GlobalFlag::Unk_0x80)
+        .value("UNK_0X100", whiteout::m2::GlobalFlag::Unk_0x100)
         .value("NEW_PARTICLE_RECORD", whiteout::m2::GlobalFlag::NewParticleRecord)
         .value("UNK_0X400", whiteout::m2::GlobalFlag::Unk_0x400)
         .value("TEXTURE_TRANSFORMS_USES_BONE_SEQUENCES", whiteout::m2::GlobalFlag::TextureTransformsUsesBoneSequences)
@@ -268,6 +270,14 @@ void bind_m2(py::module_& m) {
 
     py::class_<whiteout::m2::ColorBGRA>(m, "ColorBGRA")
         .def(py::init<>())
+    ;
+
+    py::class_<whiteout::m2::KeySpanRef>(m, "KeySpanRef", R"doc(One sequence's slice of a key array, as the file writes it: a count and an offset into whichever file holds that sequence's keys.
+
+Kept only by a lazily parsed model (Parser::setLazyAnimations), which leaves the sub-arrays of externally-stored sequences empty until loadSequence() reads their `.anim` sibling. Nothing else needs it: an eager parse consumes the reference on the spot.)doc")
+        .def(py::init<>())
+        .def_readwrite("count", &whiteout::m2::KeySpanRef::count)
+        .def_readwrite("offset", &whiteout::m2::KeySpanRef::offset)
     ;
 
     py::class_<whiteout::m2::AnimationTrackBase>(m, "AnimationTrackBase")
@@ -661,6 +671,8 @@ void bind_m2(py::module_& m) {
         .def_readwrite("blending_type", &whiteout::m2::ParticleEmitter::blendingType)
         .def_readwrite("emitter_type", &whiteout::m2::ParticleEmitter::emitterType)
         .def_readwrite("particle_color_index", &whiteout::m2::ParticleEmitter::particleColorIndex)
+        .def_readwrite("particle_type", &whiteout::m2::ParticleEmitter::particleType)
+        .def_readwrite("head_or_tail", &whiteout::m2::ParticleEmitter::headOrTail)
         .def_readwrite("texture_tilerotation", &whiteout::m2::ParticleEmitter::textureTilerotation)
         .def_readwrite("rows", &whiteout::m2::ParticleEmitter::rows)
         .def_readwrite("columns", &whiteout::m2::ParticleEmitter::columns)
@@ -781,6 +793,8 @@ void bind_m2(py::module_& m) {
         .def_readwrite("ribbon_emitters", &whiteout::m2::Model::ribbonEmitters)
         .def_readwrite("particle_emitters", &whiteout::m2::Model::particleEmitters)
         .def_readwrite("texture_combiner_combos", &whiteout::m2::Model::textureCombinerCombos)
+        .def_readwrite("playable_animation_lookup", &whiteout::m2::Model::playableAnimationLookup, R"doc(One 4-byte record per animation id; vanilla/BC clients use it to pick fallback animations. Preserved verbatim so old files round-trip.)doc")
+        .def_readwrite("texture_flipbooks", &whiteout::m2::Model::textureFlipbooks, R"doc("Texture flipbooks" — unused even by old clients, preserved verbatim.)doc")
         .def_readwrite("texture_ids", &whiteout::m2::Model::texture_ids, R"doc(TXID)doc")
         .def_readwrite("lod_profile", &whiteout::m2::Model::lodProfile, R"doc(LDV1)doc")
         .def_readwrite("parent_sequence_replacements", &whiteout::m2::Model::parentSequenceReplacements, R"doc(PABC)doc")
@@ -811,6 +825,11 @@ void bind_m2(py::module_& m) {
                 std::span<const whiteout::u8> buffer(reinterpret_cast<const whiteout::u8*>(__s_1.data()), __s_1.size());
                 return self.parse(cascFs, buffer);
             }, py::arg("cascFs"), py::arg("buffer"))
+        .def("set_lazy_animations", &whiteout::m2::Parser::setLazyAnimations, py::arg("enable"), R"doc(Leave the keys of sequences stored in `.anim` siblings unread until m2::loadSequence() asks for them. Off by default.
+
+This is what the client does — nothing reads a `.anim` until something plays that sequence — and on a character model with a hundred of them it is the difference between a load that reads one file and one that reads a hundred. See sequence_loader.h.
+
+The @p fs passed to parse() has to outlive the returned Model, because the deferred reads go back through it.)doc")
         .def("has_issues", &whiteout::m2::Parser::hasIssues)
         .def("get_issues", &whiteout::m2::Parser::getIssues)
     ;
@@ -862,6 +881,14 @@ void bind_m2(py::module_& m) {
         .def_readwrite("values", &whiteout::m2::AnimationTrack<whiteout::i16>::values)
     ;
 
+    py::class_<whiteout::m2::AnimationTrack<whiteout::Quaternion>>(m, "AnimationTrackQuaternion")
+        .def(py::init<>())
+        .def_readwrite("interpolation_type", &whiteout::m2::AnimationTrack<whiteout::Quaternion>::interpolationType)
+        .def_readwrite("global_sequence_id", &whiteout::m2::AnimationTrack<whiteout::Quaternion>::globalSequenceId)
+        .def_readwrite("timestamps", &whiteout::m2::AnimationTrack<whiteout::Quaternion>::timestamps)
+        .def_readwrite("values", &whiteout::m2::AnimationTrack<whiteout::Quaternion>::values)
+    ;
+
     py::class_<whiteout::m2::AnimationTrack<whiteout::f32>>(m, "AnimationTrackF32")
         .def(py::init<>())
         .def_readwrite("interpolation_type", &whiteout::m2::AnimationTrack<whiteout::f32>::interpolationType)
@@ -906,6 +933,7 @@ void bind_m2(py::module_& m) {
 
     py::bind_vector<std::vector<whiteout::i16>>(m, "VectorI16", py::buffer_protocol());
     py::bind_vector<std::vector<std::vector<whiteout::u32>>>(m, "VectorVectorU32");
+    py::bind_vector<std::vector<std::vector<whiteout::Quaternion>>>(m, "VectorVectorQuaternion");
     py::bind_vector<std::vector<std::vector<whiteout::Vector3f>>>(m, "VectorVectorVector3f");
     py::bind_vector<std::vector<std::vector<whiteout::f32>>>(m, "VectorVectorF32");
     py::bind_vector<std::vector<std::vector<whiteout::i16>>>(m, "VectorVectorI16");

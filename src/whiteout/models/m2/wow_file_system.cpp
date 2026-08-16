@@ -6,6 +6,7 @@
 #include "chunk_parser.h"
 
 #include <cctype>
+#include <string_view>
 
 namespace whiteout {
 namespace m2 {
@@ -25,6 +26,26 @@ std::string zeroPad(int value, int width) {
         s.insert(0, width - s.size(), '0');
     }
     return s;
+}
+
+// Sibling names come from listfiles, extractors, and the client itself
+// ("_LOD00.skin" vs a listfile's "_lod00.skin"); the game's own lookups are
+// case-insensitive, so ours are too.
+bool iequals(std::string_view a, std::string_view b) {
+    if (a.size() != b.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < a.size(); ++i) {
+        if (std::tolower(static_cast<unsigned char>(a[i])) !=
+            std::tolower(static_cast<unsigned char>(b[i]))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool iendsWith(std::string_view s, std::string_view suffix) {
+    return s.size() >= suffix.size() && iequals(s.substr(s.size() - suffix.size()), suffix);
 }
 
 } // namespace
@@ -187,6 +208,21 @@ std::span<const u8> WoWFileSystem::getSkeleton() {
     return m_skelCache;
 }
 
+std::span<const u8> WoWFileSystem::getPhysics() {
+    if (m_physLoaded) {
+        return m_physCache;
+    }
+    m_physLoaded = true;
+
+    if (m_pathFs) {
+        std::string const path = buildPhysPath();
+        if (m_pathFs->fileExists(path)) {
+            m_physCache = m_pathFs->readFile(path);
+        }
+    }
+    return m_physCache;
+}
+
 u32 WoWFileSystem::animKey(u16 animId, u16 subAnimId) {
     return (static_cast<u32>(animId) << 16) | subAnimId;
 }
@@ -202,6 +238,10 @@ std::string WoWFileSystem::buildAnimPath(u16 animId, u16 subAnimId) const {
 
 std::string WoWFileSystem::buildSkelPath() const {
     return m_baseStem + ".skel";
+}
+
+std::string WoWFileSystem::buildPhysPath() const {
+    return m_baseStem + ".phys";
 }
 
 void WoWFileSystem::exploratorySearch() {
@@ -221,13 +261,13 @@ void WoWFileSystem::exploratorySearch() {
 
         if (entry.name.size() <= stem.size())
             continue;
-        if (entry.name.compare(0, stem.size(), stem) != 0)
+        if (!iequals(std::string_view(entry.name).substr(0, stem.size()), stem))
             continue;
 
         std::string suffix = entry.name.substr(stem.size());
         std::string const fullPath = (dir / entry.name).string();
 
-        if (suffix == ".skel") {
+        if (iequals(suffix, ".skel")) {
             if (!m_skelLoaded) {
                 m_skelCache = m_pathFs->readFile(fullPath);
                 m_skelLoaded = true;
@@ -235,7 +275,15 @@ void WoWFileSystem::exploratorySearch() {
             continue;
         }
 
-        if (suffix.size() > 5 && suffix.substr(suffix.size() - 5) == ".skin") {
+        if (iequals(suffix, ".phys")) {
+            if (!m_physLoaded) {
+                m_physCache = m_pathFs->readFile(fullPath);
+                m_physLoaded = true;
+            }
+            continue;
+        }
+
+        if (iendsWith(suffix, ".skin")) {
             std::string mid = suffix.substr(0, suffix.size() - 5);
             if (mid.size() == 2 && std::isdigit(static_cast<unsigned char>(mid[0])) &&
                 std::isdigit(static_cast<unsigned char>(mid[1]))) {
@@ -243,7 +291,7 @@ void WoWFileSystem::exploratorySearch() {
                 if (!m_skinCache.contains(skinId)) {
                     m_skinCache[skinId] = m_pathFs->readFile(fullPath);
                 }
-            } else if (mid.size() == 6 && mid.substr(0, 4) == "_lod" &&
+            } else if (mid.size() == 6 && iequals(mid.substr(0, 4), "_lod") &&
                        std::isdigit(static_cast<unsigned char>(mid[4])) &&
                        std::isdigit(static_cast<unsigned char>(mid[5]))) {
                 u32 const lodId = static_cast<u32>(std::stoi(mid.substr(4)));
@@ -357,6 +405,12 @@ void WoWFileSystem::writeSkeletonFile([[maybe_unused]] u32 handle, std::vector<u
     m_skelLoaded = true;
 }
 
+void WoWFileSystem::writePhysicsFile(std::vector<u8> data) {
+    assert(m_mode == WoWFileSystemMode::Create);
+    m_physCache = std::move(data);
+    m_physLoaded = true;
+}
+
 void WoWFileSystem::flush() {
     assert(m_mode == WoWFileSystemMode::Create);
 
@@ -391,6 +445,10 @@ void WoWFileSystem::flush() {
 
         if (m_skelLoaded && !m_skelCache.empty()) {
             m_pathFs->writeFile(buildSkelPath(), m_skelCache);
+        }
+
+        if (m_physLoaded && !m_physCache.empty()) {
+            m_pathFs->writeFile(buildPhysPath(), m_physCache);
         }
     } else if (m_cascFs) {
 
