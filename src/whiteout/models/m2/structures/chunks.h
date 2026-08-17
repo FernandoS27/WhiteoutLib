@@ -3,6 +3,7 @@
 
 #include <whiteout/models/m2/structures/base.h>
 #include <whiteout/models/m2/structures/extensions.h>
+#include <whiteout/models/m2/structures/phys.h>
 
 namespace whiteout {
 namespace m2 {
@@ -131,9 +132,10 @@ struct WFV3Chunk {
     WaterfallData data;
 };
 
+/// Inline `.phys` payload. The chunk zero-pads it to a 16-byte multiple —
+/// that padding is regenerated on write, not stored.
 struct PFDCChunk {
-    std::vector<u8> physicsData;
-    std::array<u8, 6> padding;
+    PhysicsData physics;
 };
 
 struct EDGFChunk {

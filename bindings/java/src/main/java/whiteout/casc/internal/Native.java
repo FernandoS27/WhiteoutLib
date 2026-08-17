@@ -117,6 +117,8 @@ public final class Native {
         "whiteout_casc_CascStorage_importKeysFromString", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_casc_CascStorage_importKeysFromFile = find(
         "whiteout_casc_CascStorage_importKeysFromFile", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_casc_CascStorage_setZeroFillEncrypted = find(
+        "whiteout_casc_CascStorage_setZeroFillEncrypted", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_casc_CascStorage_findEncryptionKey = find(
         "whiteout_casc_CascStorage_findEncryptionKey", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_casc_CascStorage_flushCache = find(

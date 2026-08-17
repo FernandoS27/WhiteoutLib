@@ -1540,6 +1540,833 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsFrame_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsFrame_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsFrame_get_axisX(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsFrame_set_axisX(IntPtr self, IntPtr value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsFrame_get_axisY(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsFrame_set_axisY(IntPtr self, IntPtr value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsFrame_get_axisZ(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsFrame_set_axisZ(IntPtr self, IntPtr value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsFrame_get_origin(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsFrame_set_origin(IntPtr self, IntPtr value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsBody_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsBody_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial int whiteout_m2_M2PhysicsBody_get_type(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsBody_set_type(IntPtr self, int value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial ushort whiteout_m2_M2PhysicsBody_get_boneIndex(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsBody_set_boneIndex(IntPtr self, ushort value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsBody_get_position(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsBody_set_position(IntPtr self, IntPtr value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial int whiteout_m2_M2PhysicsBody_get_shapeIndex(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsBody_set_shapeIndex(IntPtr self, int value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial int whiteout_m2_M2PhysicsBody_get_shapeCount(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsBody_set_shapeCount(IntPtr self, int value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2PhysicsBody_get_gravityScale(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsBody_set_gravityScale(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2PhysicsBody_get_inertiaScale(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsBody_set_inertiaScale(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2PhysicsBody_get_linearDamping(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsBody_set_linearDamping(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2PhysicsBody_get_angularDamping(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsBody_set_angularDamping(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2PhysicsBody_get_unknown28(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsBody_set_unknown28(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial ushort whiteout_m2_M2PhysicsBody_get_unknown2c(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsBody_set_unknown2c(IntPtr self, ushort value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial ushort whiteout_m2_M2PhysicsBody_get_padding2e(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsBody_set_padding2e(IntPtr self, ushort value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsShape_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsShape_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial int whiteout_m2_M2PhysicsShape_get_shapeType(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsShape_set_shapeType(IntPtr self, int value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial short whiteout_m2_M2PhysicsShape_get_shapeIndex(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsShape_set_shapeIndex(IntPtr self, short value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m2_M2PhysicsShape_get_padding04(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsShape_set_padding04(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2PhysicsShape_get_friction(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsShape_set_friction(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2PhysicsShape_get_restitution(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsShape_set_restitution(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2PhysicsShape_get_density(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsShape_set_density(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2PhysicsShape_get_unknown14(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsShape_set_unknown14(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2PhysicsShape_get_scale(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsShape_set_scale(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial ushort whiteout_m2_M2PhysicsShape_get_unknown1c(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsShape_set_unknown1c(IntPtr self, ushort value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial ushort whiteout_m2_M2PhysicsShape_get_padding1e(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsShape_set_padding1e(IntPtr self, ushort value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2BoxShape_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2BoxShape_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2BoxShape_get_halfExtents(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2BoxShape_set_halfExtents(IntPtr self, IntPtr value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2CapsuleShape_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2CapsuleShape_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2CapsuleShape_get_localPosition1(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2CapsuleShape_set_localPosition1(IntPtr self, IntPtr value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2CapsuleShape_get_localPosition2(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2CapsuleShape_set_localPosition2(IntPtr self, IntPtr value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2CapsuleShape_get_radius(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2CapsuleShape_set_radius(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2SphereShape_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2SphereShape_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2SphereShape_get_localPosition(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2SphereShape_set_localPosition(IntPtr self, IntPtr value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2SphereShape_get_radius(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2SphereShape_set_radius(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PolytopeHalfEdge_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PolytopeHalfEdge_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial sbyte whiteout_m2_M2PolytopeHalfEdge_get_twinOffset(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PolytopeHalfEdge_set_twinOffset(IntPtr self, sbyte value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial byte whiteout_m2_M2PolytopeHalfEdge_get_originVertex(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PolytopeHalfEdge_set_originVertex(IntPtr self, byte value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial byte whiteout_m2_M2PolytopeHalfEdge_get_faceIndex(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PolytopeHalfEdge_set_faceIndex(IntPtr self, byte value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial byte whiteout_m2_M2PolytopeHalfEdge_get_nextEdge(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PolytopeHalfEdge_set_nextEdge(IntPtr self, byte value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PolytopeShape_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PolytopeShape_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_m2_M2PolytopeShape_get_vertices_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PolytopeShape_get_vertices_data(IntPtr self);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_m2_M2PolytopeShape_get_facePlanes_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PolytopeShape_get_facePlanes_data(IntPtr self);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_m2_M2PolytopeShape_get_edges_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PolytopeShape_get_edges_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PolytopeShape_get_centroid(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PolytopeShape_set_centroid(IntPtr self, IntPtr value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2PolytopeShape_get_volume(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PolytopeShape_set_volume(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2PolytopeShape_get_surfaceArea(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PolytopeShape_set_surfaceArea(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m2_M2PolytopeShape_get_padding04(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PolytopeShape_set_padding04(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m2_M2PolytopeShape_get_padding14(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PolytopeShape_set_padding14(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m2_M2PolytopeShape_get_padding2c(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PolytopeShape_set_padding2c(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m2_M2PolytopeShape_get_padding4c(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PolytopeShape_set_padding4c(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsJoint_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsJoint_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m2_M2PhysicsJoint_get_bodyAIndex(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsJoint_set_bodyAIndex(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m2_M2PhysicsJoint_get_bodyBIndex(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsJoint_set_bodyBIndex(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m2_M2PhysicsJoint_get_padding08(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsJoint_set_padding08(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial int whiteout_m2_M2PhysicsJoint_get_jointType(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsJoint_set_jointType(IntPtr self, int value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial short whiteout_m2_M2PhysicsJoint_get_jointId(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsJoint_set_jointId(IntPtr self, short value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2WeldJoint_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2WeldJoint_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2WeldJoint_get_angularFrequencyHz(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2WeldJoint_set_angularFrequencyHz(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2WeldJoint_get_angularDampingRatio(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2WeldJoint_set_angularDampingRatio(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2WeldJoint_get_linearFrequencyHz(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2WeldJoint_set_linearFrequencyHz(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2WeldJoint_get_linearDampingRatio(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2WeldJoint_set_linearDampingRatio(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2WeldJoint_get_unknown70(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2WeldJoint_set_unknown70(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2SphericalJoint_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2SphericalJoint_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2SphericalJoint_get_anchorA(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2SphericalJoint_set_anchorA(IntPtr self, IntPtr value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2SphericalJoint_get_anchorB(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2SphericalJoint_set_anchorB(IntPtr self, IntPtr value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2SphericalJoint_get_frictionTorque(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2SphericalJoint_set_frictionTorque(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2ShoulderJoint_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2ShoulderJoint_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2ShoulderJoint_get_lowerTwistAngle(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2ShoulderJoint_set_lowerTwistAngle(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2ShoulderJoint_get_upperTwistAngle(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2ShoulderJoint_set_upperTwistAngle(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2ShoulderJoint_get_coneAngle(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2ShoulderJoint_set_coneAngle(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2ShoulderJoint_get_maxMotorTorque(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2ShoulderJoint_set_maxMotorTorque(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m2_M2ShoulderJoint_get_motorMode(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2ShoulderJoint_set_motorMode(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2ShoulderJoint_get_motorFrequencyHz(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2ShoulderJoint_set_motorFrequencyHz(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2ShoulderJoint_get_motorDampingRatio(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2ShoulderJoint_set_motorDampingRatio(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PrismaticJoint_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PrismaticJoint_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2PrismaticJoint_get_lowerLimit(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PrismaticJoint_set_lowerLimit(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2PrismaticJoint_get_upperLimit(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PrismaticJoint_set_upperLimit(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2PrismaticJoint_get_unknown68(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PrismaticJoint_set_unknown68(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2PrismaticJoint_get_maxMotorForce(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PrismaticJoint_set_maxMotorForce(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2PrismaticJoint_get_unknown70(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PrismaticJoint_set_unknown70(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m2_M2PrismaticJoint_get_motorMode(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PrismaticJoint_set_motorMode(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2PrismaticJoint_get_motorFrequencyHz(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PrismaticJoint_set_motorFrequencyHz(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2PrismaticJoint_get_motorDampingRatio(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PrismaticJoint_set_motorDampingRatio(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2RevoluteJoint_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2RevoluteJoint_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2RevoluteJoint_get_lowerAngle(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2RevoluteJoint_set_lowerAngle(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2RevoluteJoint_get_upperAngle(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2RevoluteJoint_set_upperAngle(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2RevoluteJoint_get_maxMotorTorque(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2RevoluteJoint_set_maxMotorTorque(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m2_M2RevoluteJoint_get_motorMode(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2RevoluteJoint_set_motorMode(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2RevoluteJoint_get_motorFrequencyHz(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2RevoluteJoint_set_motorFrequencyHz(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2RevoluteJoint_get_motorDampingRatio(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2RevoluteJoint_set_motorDampingRatio(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2DistanceJoint_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2DistanceJoint_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2DistanceJoint_get_localAnchorA(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2DistanceJoint_set_localAnchorA(IntPtr self, IntPtr value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2DistanceJoint_get_localAnchorB(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2DistanceJoint_set_localAnchorB(IntPtr self, IntPtr value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m2_M2DistanceJoint_get_distance(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2DistanceJoint_set_distance(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsTuning_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsTuning_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsUnknownChunk_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsUnknownChunk_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsData_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsData_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial ushort whiteout_m2_M2PhysicsData_get_version(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PhysicsData_set_version(IntPtr self, ushort value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_m2_M2PhysicsData_get_bodies_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsData_get_bodies_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_m2_M2PhysicsData_get_shapes_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsData_get_shapes_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_m2_M2PhysicsData_get_boxShapes_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsData_get_boxShapes_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_m2_M2PhysicsData_get_capsuleShapes_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsData_get_capsuleShapes_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_m2_M2PhysicsData_get_sphereShapes_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsData_get_sphereShapes_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_m2_M2PhysicsData_get_polytopeShapes_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsData_get_polytopeShapes_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_m2_M2PhysicsData_get_joints_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsData_get_joints_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_m2_M2PhysicsData_get_weldJoints_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsData_get_weldJoints_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_m2_M2PhysicsData_get_sphericalJoints_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsData_get_sphericalJoints_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_m2_M2PhysicsData_get_shoulderJoints_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsData_get_shoulderJoints_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_m2_M2PhysicsData_get_prismaticJoints_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsData_get_prismaticJoints_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_m2_M2PhysicsData_get_revoluteJoints_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsData_get_revoluteJoints_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_m2_M2PhysicsData_get_distanceJoints_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsData_get_distanceJoints_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_m2_M2PhysicsData_get_tuning_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PhysicsData_get_tuning_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2BoneOverride_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2BoneOverride_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial ushort whiteout_m2_M2BoneOverride_get_boneIndex(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2BoneOverride_set_boneIndex(IntPtr self, ushort value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2BoneOverrideSet_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2BoneOverrideSet_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m2_M2BoneOverrideSet_get_version(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2BoneOverrideSet_set_version(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_m2_M2BoneOverrideSet_get_overrides_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2BoneOverrideSet_get_overrides_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
     internal static partial IntPtr whiteout_m2_M2Model_new();
 
     [LibraryImport(Runtime.LibraryName)]
@@ -1718,6 +2545,13 @@ internal static partial class NativeMethods
 
     [LibraryImport(Runtime.LibraryName)]
     internal static partial IntPtr whiteout_m2_M2Model_get_particleGeosets_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_m2_M2Model_get_boneOverrides_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2Model_get_boneOverrides_at(IntPtr self, nuint index);
 
 
     [LibraryImport(Runtime.LibraryName)]

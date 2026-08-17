@@ -5,7 +5,7 @@
 #include "structures/anim.h"
 #include "structures/bone.h"
 #include "structures/chunks.h"
-#include "structures/phys.h"
+#include "structures/phys_chunks.h"
 #include "structures/skeleton.h"
 
 namespace whiteout {
@@ -71,9 +71,7 @@ struct AnimFile {
 };
 
 struct BoneFile {
-    BONEHeader header;
-    std::optional<BIDAChunk> bida_chunk = std::nullopt;
-    std::optional<BOMTChunk> bomt_chunk = std::nullopt;
+    BoneOverrideSet overrides;
     u32 boneId = 0;
 };
 
@@ -86,8 +84,6 @@ struct SkeletonFile {
     std::optional<AFIDChunk> afid_chunk = std::nullopt;
     std::optional<BFIDChunk> bfid_chunk = std::nullopt;
 };
-
-struct PhysicsFile {};
 
 enum class FileType {
     Base,
@@ -104,7 +100,7 @@ struct FileSystem {
     std::vector<AnimFile> anims;
     std::vector<BoneFile> bones;
     std::optional<SkeletonFile> skeleton = std::nullopt;
-    std::optional<PhysicsFile> physics = std::nullopt;
+    std::optional<PhysicsData> physics = std::nullopt;
 };
 
 } // namespace m2

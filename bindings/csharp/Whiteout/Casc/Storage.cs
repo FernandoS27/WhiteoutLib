@@ -208,6 +208,13 @@ public sealed class Storage : WhiteoutHandle
     }
 
 
+    /// <summary>Substitute zeros for any frame whose encryption key is unavailable, instead of failing the read. Off by default.</summary>
+    public void SetZeroFillEncrypted(bool on)
+    {
+        NativeMethods.whiteout_casc_CascStorage_setZeroFillEncrypted(DangerousGet(), on ? 1 : 0);
+    }
+
+
     /// <summary>Clear the in-memory decoded-data cache (container cache).</summary>
     public void FlushCache()
     {

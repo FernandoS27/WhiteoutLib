@@ -15,9 +15,13 @@
 #include <whiteout/models/m2/types.h>
 #include <whiteout/models/m2/structures/base.h>
 #include <whiteout/models/m2/structures/extensions.h>
+#include <whiteout/models/m2/structures/phys.h>
+#include <whiteout/models/m2/structures/bone_overrides.h>
 #include <whiteout/models/m2/structures/skin.h>
 #include <whiteout/models/m2/structures.h>
 #include <whiteout/models/m2/parser.h>
+#include <whiteout/models/m2/phys_file.h>
+#include <whiteout/models/m2/bone_file.h>
 #include <whiteout/models/m2/writer.h>
 
 namespace { using namespace whiteout; }
@@ -2678,6 +2682,1314 @@ void whiteout_m2_M2Event_set_enabled(whiteout_M2Event* self, const whiteout_M2An
 
 } // extern "C"
 
+// ── M2PhysicsFrame ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2PhysicsFrame* whiteout_m2_M2PhysicsFrame_new(void) {
+    return reinterpret_cast<whiteout_M2PhysicsFrame*>(new whiteout::m2::PhysicsFrame());
+}
+
+void whiteout_m2_M2PhysicsFrame_delete(whiteout_M2PhysicsFrame* self) {
+    delete reinterpret_cast<whiteout::m2::PhysicsFrame*>(self);
+}
+
+whiteout_Vector3f* whiteout_m2_M2PhysicsFrame_get_axisX(whiteout_M2PhysicsFrame* self) {
+    return reinterpret_cast<whiteout_Vector3f*>(&reinterpret_cast<whiteout::m2::PhysicsFrame*>(self)->axisX);
+}
+
+void whiteout_m2_M2PhysicsFrame_set_axisX(whiteout_M2PhysicsFrame* self, const whiteout_Vector3f* value) {
+    reinterpret_cast<whiteout::m2::PhysicsFrame*>(self)->axisX = *reinterpret_cast<const whiteout::Vector3f*>(value);
+}
+
+whiteout_Vector3f* whiteout_m2_M2PhysicsFrame_get_axisY(whiteout_M2PhysicsFrame* self) {
+    return reinterpret_cast<whiteout_Vector3f*>(&reinterpret_cast<whiteout::m2::PhysicsFrame*>(self)->axisY);
+}
+
+void whiteout_m2_M2PhysicsFrame_set_axisY(whiteout_M2PhysicsFrame* self, const whiteout_Vector3f* value) {
+    reinterpret_cast<whiteout::m2::PhysicsFrame*>(self)->axisY = *reinterpret_cast<const whiteout::Vector3f*>(value);
+}
+
+whiteout_Vector3f* whiteout_m2_M2PhysicsFrame_get_axisZ(whiteout_M2PhysicsFrame* self) {
+    return reinterpret_cast<whiteout_Vector3f*>(&reinterpret_cast<whiteout::m2::PhysicsFrame*>(self)->axisZ);
+}
+
+void whiteout_m2_M2PhysicsFrame_set_axisZ(whiteout_M2PhysicsFrame* self, const whiteout_Vector3f* value) {
+    reinterpret_cast<whiteout::m2::PhysicsFrame*>(self)->axisZ = *reinterpret_cast<const whiteout::Vector3f*>(value);
+}
+
+whiteout_Vector3f* whiteout_m2_M2PhysicsFrame_get_origin(whiteout_M2PhysicsFrame* self) {
+    return reinterpret_cast<whiteout_Vector3f*>(&reinterpret_cast<whiteout::m2::PhysicsFrame*>(self)->origin);
+}
+
+void whiteout_m2_M2PhysicsFrame_set_origin(whiteout_M2PhysicsFrame* self, const whiteout_Vector3f* value) {
+    reinterpret_cast<whiteout::m2::PhysicsFrame*>(self)->origin = *reinterpret_cast<const whiteout::Vector3f*>(value);
+}
+
+} // extern "C"
+
+// ── M2PhysicsBody ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2PhysicsBody* whiteout_m2_M2PhysicsBody_new(void) {
+    return reinterpret_cast<whiteout_M2PhysicsBody*>(new whiteout::m2::PhysicsBody());
+}
+
+void whiteout_m2_M2PhysicsBody_delete(whiteout_M2PhysicsBody* self) {
+    delete reinterpret_cast<whiteout::m2::PhysicsBody*>(self);
+}
+
+int32_t whiteout_m2_M2PhysicsBody_get_type(const whiteout_M2PhysicsBody* self) {
+    return static_cast<int32_t>(reinterpret_cast<const whiteout::m2::PhysicsBody*>(self)->type);
+}
+
+void whiteout_m2_M2PhysicsBody_set_type(whiteout_M2PhysicsBody* self, int32_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsBody*>(self)->type = static_cast<whiteout::m2::PhysicsBodyType>(value);
+}
+
+uint16_t whiteout_m2_M2PhysicsBody_get_boneIndex(const whiteout_M2PhysicsBody* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsBody*>(self)->boneIndex;
+}
+
+void whiteout_m2_M2PhysicsBody_set_boneIndex(whiteout_M2PhysicsBody* self, uint16_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsBody*>(self)->boneIndex = value;
+}
+
+whiteout_Vector3f* whiteout_m2_M2PhysicsBody_get_position(whiteout_M2PhysicsBody* self) {
+    return reinterpret_cast<whiteout_Vector3f*>(&reinterpret_cast<whiteout::m2::PhysicsBody*>(self)->position);
+}
+
+void whiteout_m2_M2PhysicsBody_set_position(whiteout_M2PhysicsBody* self, const whiteout_Vector3f* value) {
+    reinterpret_cast<whiteout::m2::PhysicsBody*>(self)->position = *reinterpret_cast<const whiteout::Vector3f*>(value);
+}
+
+int32_t whiteout_m2_M2PhysicsBody_get_shapeIndex(const whiteout_M2PhysicsBody* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsBody*>(self)->shapeIndex;
+}
+
+void whiteout_m2_M2PhysicsBody_set_shapeIndex(whiteout_M2PhysicsBody* self, int32_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsBody*>(self)->shapeIndex = value;
+}
+
+int32_t whiteout_m2_M2PhysicsBody_get_shapeCount(const whiteout_M2PhysicsBody* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsBody*>(self)->shapeCount;
+}
+
+void whiteout_m2_M2PhysicsBody_set_shapeCount(whiteout_M2PhysicsBody* self, int32_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsBody*>(self)->shapeCount = value;
+}
+
+float whiteout_m2_M2PhysicsBody_get_gravityScale(const whiteout_M2PhysicsBody* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsBody*>(self)->gravityScale;
+}
+
+void whiteout_m2_M2PhysicsBody_set_gravityScale(whiteout_M2PhysicsBody* self, float value) {
+    reinterpret_cast<whiteout::m2::PhysicsBody*>(self)->gravityScale = value;
+}
+
+float whiteout_m2_M2PhysicsBody_get_inertiaScale(const whiteout_M2PhysicsBody* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsBody*>(self)->inertiaScale;
+}
+
+void whiteout_m2_M2PhysicsBody_set_inertiaScale(whiteout_M2PhysicsBody* self, float value) {
+    reinterpret_cast<whiteout::m2::PhysicsBody*>(self)->inertiaScale = value;
+}
+
+float whiteout_m2_M2PhysicsBody_get_linearDamping(const whiteout_M2PhysicsBody* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsBody*>(self)->linearDamping;
+}
+
+void whiteout_m2_M2PhysicsBody_set_linearDamping(whiteout_M2PhysicsBody* self, float value) {
+    reinterpret_cast<whiteout::m2::PhysicsBody*>(self)->linearDamping = value;
+}
+
+float whiteout_m2_M2PhysicsBody_get_angularDamping(const whiteout_M2PhysicsBody* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsBody*>(self)->angularDamping;
+}
+
+void whiteout_m2_M2PhysicsBody_set_angularDamping(whiteout_M2PhysicsBody* self, float value) {
+    reinterpret_cast<whiteout::m2::PhysicsBody*>(self)->angularDamping = value;
+}
+
+float whiteout_m2_M2PhysicsBody_get_unknown28(const whiteout_M2PhysicsBody* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsBody*>(self)->unknown28;
+}
+
+void whiteout_m2_M2PhysicsBody_set_unknown28(whiteout_M2PhysicsBody* self, float value) {
+    reinterpret_cast<whiteout::m2::PhysicsBody*>(self)->unknown28 = value;
+}
+
+uint16_t whiteout_m2_M2PhysicsBody_get_unknown2c(const whiteout_M2PhysicsBody* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsBody*>(self)->unknown2c;
+}
+
+void whiteout_m2_M2PhysicsBody_set_unknown2c(whiteout_M2PhysicsBody* self, uint16_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsBody*>(self)->unknown2c = value;
+}
+
+uint16_t whiteout_m2_M2PhysicsBody_get_padding2e(const whiteout_M2PhysicsBody* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsBody*>(self)->padding2e;
+}
+
+void whiteout_m2_M2PhysicsBody_set_padding2e(whiteout_M2PhysicsBody* self, uint16_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsBody*>(self)->padding2e = value;
+}
+
+} // extern "C"
+
+// ── M2PhysicsShape ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2PhysicsShape* whiteout_m2_M2PhysicsShape_new(void) {
+    return reinterpret_cast<whiteout_M2PhysicsShape*>(new whiteout::m2::PhysicsShape());
+}
+
+void whiteout_m2_M2PhysicsShape_delete(whiteout_M2PhysicsShape* self) {
+    delete reinterpret_cast<whiteout::m2::PhysicsShape*>(self);
+}
+
+int32_t whiteout_m2_M2PhysicsShape_get_shapeType(const whiteout_M2PhysicsShape* self) {
+    return static_cast<int32_t>(reinterpret_cast<const whiteout::m2::PhysicsShape*>(self)->shapeType);
+}
+
+void whiteout_m2_M2PhysicsShape_set_shapeType(whiteout_M2PhysicsShape* self, int32_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsShape*>(self)->shapeType = static_cast<whiteout::m2::PhysicsShapeType>(value);
+}
+
+int16_t whiteout_m2_M2PhysicsShape_get_shapeIndex(const whiteout_M2PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsShape*>(self)->shapeIndex;
+}
+
+void whiteout_m2_M2PhysicsShape_set_shapeIndex(whiteout_M2PhysicsShape* self, int16_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsShape*>(self)->shapeIndex = value;
+}
+
+uint32_t whiteout_m2_M2PhysicsShape_get_padding04(const whiteout_M2PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsShape*>(self)->padding04;
+}
+
+void whiteout_m2_M2PhysicsShape_set_padding04(whiteout_M2PhysicsShape* self, uint32_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsShape*>(self)->padding04 = value;
+}
+
+float whiteout_m2_M2PhysicsShape_get_friction(const whiteout_M2PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsShape*>(self)->friction;
+}
+
+void whiteout_m2_M2PhysicsShape_set_friction(whiteout_M2PhysicsShape* self, float value) {
+    reinterpret_cast<whiteout::m2::PhysicsShape*>(self)->friction = value;
+}
+
+float whiteout_m2_M2PhysicsShape_get_restitution(const whiteout_M2PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsShape*>(self)->restitution;
+}
+
+void whiteout_m2_M2PhysicsShape_set_restitution(whiteout_M2PhysicsShape* self, float value) {
+    reinterpret_cast<whiteout::m2::PhysicsShape*>(self)->restitution = value;
+}
+
+float whiteout_m2_M2PhysicsShape_get_density(const whiteout_M2PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsShape*>(self)->density;
+}
+
+void whiteout_m2_M2PhysicsShape_set_density(whiteout_M2PhysicsShape* self, float value) {
+    reinterpret_cast<whiteout::m2::PhysicsShape*>(self)->density = value;
+}
+
+float whiteout_m2_M2PhysicsShape_get_unknown14(const whiteout_M2PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsShape*>(self)->unknown14;
+}
+
+void whiteout_m2_M2PhysicsShape_set_unknown14(whiteout_M2PhysicsShape* self, float value) {
+    reinterpret_cast<whiteout::m2::PhysicsShape*>(self)->unknown14 = value;
+}
+
+float whiteout_m2_M2PhysicsShape_get_scale(const whiteout_M2PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsShape*>(self)->scale;
+}
+
+void whiteout_m2_M2PhysicsShape_set_scale(whiteout_M2PhysicsShape* self, float value) {
+    reinterpret_cast<whiteout::m2::PhysicsShape*>(self)->scale = value;
+}
+
+uint16_t whiteout_m2_M2PhysicsShape_get_unknown1c(const whiteout_M2PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsShape*>(self)->unknown1c;
+}
+
+void whiteout_m2_M2PhysicsShape_set_unknown1c(whiteout_M2PhysicsShape* self, uint16_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsShape*>(self)->unknown1c = value;
+}
+
+uint16_t whiteout_m2_M2PhysicsShape_get_padding1e(const whiteout_M2PhysicsShape* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsShape*>(self)->padding1e;
+}
+
+void whiteout_m2_M2PhysicsShape_set_padding1e(whiteout_M2PhysicsShape* self, uint16_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsShape*>(self)->padding1e = value;
+}
+
+} // extern "C"
+
+// ── M2BoxShape ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2BoxShape* whiteout_m2_M2BoxShape_new(void) {
+    return reinterpret_cast<whiteout_M2BoxShape*>(new whiteout::m2::BoxShape());
+}
+
+void whiteout_m2_M2BoxShape_delete(whiteout_M2BoxShape* self) {
+    delete reinterpret_cast<whiteout::m2::BoxShape*>(self);
+}
+
+whiteout_M2PhysicsFrame* whiteout_m2_M2BoxShape_get_frame(whiteout_M2BoxShape* self) {
+    return reinterpret_cast<whiteout_M2PhysicsFrame*>(&reinterpret_cast<whiteout::m2::BoxShape*>(self)->frame);
+}
+
+void whiteout_m2_M2BoxShape_set_frame(whiteout_M2BoxShape* self, const whiteout_M2PhysicsFrame* value) {
+    reinterpret_cast<whiteout::m2::BoxShape*>(self)->frame = *reinterpret_cast<const whiteout::m2::PhysicsFrame*>(value);
+}
+
+whiteout_Vector3f* whiteout_m2_M2BoxShape_get_halfExtents(whiteout_M2BoxShape* self) {
+    return reinterpret_cast<whiteout_Vector3f*>(&reinterpret_cast<whiteout::m2::BoxShape*>(self)->halfExtents);
+}
+
+void whiteout_m2_M2BoxShape_set_halfExtents(whiteout_M2BoxShape* self, const whiteout_Vector3f* value) {
+    reinterpret_cast<whiteout::m2::BoxShape*>(self)->halfExtents = *reinterpret_cast<const whiteout::Vector3f*>(value);
+}
+
+} // extern "C"
+
+// ── M2CapsuleShape ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2CapsuleShape* whiteout_m2_M2CapsuleShape_new(void) {
+    return reinterpret_cast<whiteout_M2CapsuleShape*>(new whiteout::m2::CapsuleShape());
+}
+
+void whiteout_m2_M2CapsuleShape_delete(whiteout_M2CapsuleShape* self) {
+    delete reinterpret_cast<whiteout::m2::CapsuleShape*>(self);
+}
+
+whiteout_Vector3f* whiteout_m2_M2CapsuleShape_get_localPosition1(whiteout_M2CapsuleShape* self) {
+    return reinterpret_cast<whiteout_Vector3f*>(&reinterpret_cast<whiteout::m2::CapsuleShape*>(self)->localPosition1);
+}
+
+void whiteout_m2_M2CapsuleShape_set_localPosition1(whiteout_M2CapsuleShape* self, const whiteout_Vector3f* value) {
+    reinterpret_cast<whiteout::m2::CapsuleShape*>(self)->localPosition1 = *reinterpret_cast<const whiteout::Vector3f*>(value);
+}
+
+whiteout_Vector3f* whiteout_m2_M2CapsuleShape_get_localPosition2(whiteout_M2CapsuleShape* self) {
+    return reinterpret_cast<whiteout_Vector3f*>(&reinterpret_cast<whiteout::m2::CapsuleShape*>(self)->localPosition2);
+}
+
+void whiteout_m2_M2CapsuleShape_set_localPosition2(whiteout_M2CapsuleShape* self, const whiteout_Vector3f* value) {
+    reinterpret_cast<whiteout::m2::CapsuleShape*>(self)->localPosition2 = *reinterpret_cast<const whiteout::Vector3f*>(value);
+}
+
+float whiteout_m2_M2CapsuleShape_get_radius(const whiteout_M2CapsuleShape* self) {
+    return reinterpret_cast<const whiteout::m2::CapsuleShape*>(self)->radius;
+}
+
+void whiteout_m2_M2CapsuleShape_set_radius(whiteout_M2CapsuleShape* self, float value) {
+    reinterpret_cast<whiteout::m2::CapsuleShape*>(self)->radius = value;
+}
+
+} // extern "C"
+
+// ── M2SphereShape ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2SphereShape* whiteout_m2_M2SphereShape_new(void) {
+    return reinterpret_cast<whiteout_M2SphereShape*>(new whiteout::m2::SphereShape());
+}
+
+void whiteout_m2_M2SphereShape_delete(whiteout_M2SphereShape* self) {
+    delete reinterpret_cast<whiteout::m2::SphereShape*>(self);
+}
+
+whiteout_Vector3f* whiteout_m2_M2SphereShape_get_localPosition(whiteout_M2SphereShape* self) {
+    return reinterpret_cast<whiteout_Vector3f*>(&reinterpret_cast<whiteout::m2::SphereShape*>(self)->localPosition);
+}
+
+void whiteout_m2_M2SphereShape_set_localPosition(whiteout_M2SphereShape* self, const whiteout_Vector3f* value) {
+    reinterpret_cast<whiteout::m2::SphereShape*>(self)->localPosition = *reinterpret_cast<const whiteout::Vector3f*>(value);
+}
+
+float whiteout_m2_M2SphereShape_get_radius(const whiteout_M2SphereShape* self) {
+    return reinterpret_cast<const whiteout::m2::SphereShape*>(self)->radius;
+}
+
+void whiteout_m2_M2SphereShape_set_radius(whiteout_M2SphereShape* self, float value) {
+    reinterpret_cast<whiteout::m2::SphereShape*>(self)->radius = value;
+}
+
+} // extern "C"
+
+// ── M2PolytopeHalfEdge ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2PolytopeHalfEdge* whiteout_m2_M2PolytopeHalfEdge_new(void) {
+    return reinterpret_cast<whiteout_M2PolytopeHalfEdge*>(new whiteout::m2::PolytopeHalfEdge());
+}
+
+void whiteout_m2_M2PolytopeHalfEdge_delete(whiteout_M2PolytopeHalfEdge* self) {
+    delete reinterpret_cast<whiteout::m2::PolytopeHalfEdge*>(self);
+}
+
+int8_t whiteout_m2_M2PolytopeHalfEdge_get_twinOffset(const whiteout_M2PolytopeHalfEdge* self) {
+    return reinterpret_cast<const whiteout::m2::PolytopeHalfEdge*>(self)->twinOffset;
+}
+
+void whiteout_m2_M2PolytopeHalfEdge_set_twinOffset(whiteout_M2PolytopeHalfEdge* self, int8_t value) {
+    reinterpret_cast<whiteout::m2::PolytopeHalfEdge*>(self)->twinOffset = value;
+}
+
+uint8_t whiteout_m2_M2PolytopeHalfEdge_get_originVertex(const whiteout_M2PolytopeHalfEdge* self) {
+    return reinterpret_cast<const whiteout::m2::PolytopeHalfEdge*>(self)->originVertex;
+}
+
+void whiteout_m2_M2PolytopeHalfEdge_set_originVertex(whiteout_M2PolytopeHalfEdge* self, uint8_t value) {
+    reinterpret_cast<whiteout::m2::PolytopeHalfEdge*>(self)->originVertex = value;
+}
+
+uint8_t whiteout_m2_M2PolytopeHalfEdge_get_faceIndex(const whiteout_M2PolytopeHalfEdge* self) {
+    return reinterpret_cast<const whiteout::m2::PolytopeHalfEdge*>(self)->faceIndex;
+}
+
+void whiteout_m2_M2PolytopeHalfEdge_set_faceIndex(whiteout_M2PolytopeHalfEdge* self, uint8_t value) {
+    reinterpret_cast<whiteout::m2::PolytopeHalfEdge*>(self)->faceIndex = value;
+}
+
+uint8_t whiteout_m2_M2PolytopeHalfEdge_get_nextEdge(const whiteout_M2PolytopeHalfEdge* self) {
+    return reinterpret_cast<const whiteout::m2::PolytopeHalfEdge*>(self)->nextEdge;
+}
+
+void whiteout_m2_M2PolytopeHalfEdge_set_nextEdge(whiteout_M2PolytopeHalfEdge* self, uint8_t value) {
+    reinterpret_cast<whiteout::m2::PolytopeHalfEdge*>(self)->nextEdge = value;
+}
+
+} // extern "C"
+
+// ── M2PolytopeShape ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2PolytopeShape* whiteout_m2_M2PolytopeShape_new(void) {
+    return reinterpret_cast<whiteout_M2PolytopeShape*>(new whiteout::m2::PolytopeShape());
+}
+
+void whiteout_m2_M2PolytopeShape_delete(whiteout_M2PolytopeShape* self) {
+    delete reinterpret_cast<whiteout::m2::PolytopeShape*>(self);
+}
+
+size_t whiteout_m2_M2PolytopeShape_get_vertices_count(const whiteout_M2PolytopeShape* self) {
+    return reinterpret_cast<const whiteout::m2::PolytopeShape*>(self)->vertices.size();
+}
+
+void whiteout_m2_M2PolytopeShape_resize_vertices(whiteout_M2PolytopeShape* self, size_t count) {
+    reinterpret_cast<whiteout::m2::PolytopeShape*>(self)->vertices.resize(count);
+}
+
+const float* whiteout_m2_M2PolytopeShape_get_vertices_data(const whiteout_M2PolytopeShape* self) {
+    const auto& __v = reinterpret_cast<const whiteout::m2::PolytopeShape*>(self)->vertices;
+    return __v.empty() ? nullptr : reinterpret_cast<const float*>(__v.data());
+}
+
+void whiteout_m2_M2PolytopeShape_assign_vertices(whiteout_M2PolytopeShape* self, const float* data, size_t count) {
+    auto& __v = reinterpret_cast<whiteout::m2::PolytopeShape*>(self)->vertices;
+    __v.resize(count);
+    if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::Vector3f));
+}
+
+size_t whiteout_m2_M2PolytopeShape_get_facePlanes_count(const whiteout_M2PolytopeShape* self) {
+    return reinterpret_cast<const whiteout::m2::PolytopeShape*>(self)->facePlanes.size();
+}
+
+void whiteout_m2_M2PolytopeShape_resize_facePlanes(whiteout_M2PolytopeShape* self, size_t count) {
+    reinterpret_cast<whiteout::m2::PolytopeShape*>(self)->facePlanes.resize(count);
+}
+
+const float* whiteout_m2_M2PolytopeShape_get_facePlanes_data(const whiteout_M2PolytopeShape* self) {
+    const auto& __v = reinterpret_cast<const whiteout::m2::PolytopeShape*>(self)->facePlanes;
+    return __v.empty() ? nullptr : reinterpret_cast<const float*>(__v.data());
+}
+
+void whiteout_m2_M2PolytopeShape_assign_facePlanes(whiteout_M2PolytopeShape* self, const float* data, size_t count) {
+    auto& __v = reinterpret_cast<whiteout::m2::PolytopeShape*>(self)->facePlanes;
+    __v.resize(count);
+    if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::Vector4f));
+}
+
+size_t whiteout_m2_M2PolytopeShape_get_faceFirstEdges_count(const whiteout_M2PolytopeShape* self) {
+    return reinterpret_cast<const whiteout::m2::PolytopeShape*>(self)->faceFirstEdges.size();
+}
+
+void whiteout_m2_M2PolytopeShape_resize_faceFirstEdges(whiteout_M2PolytopeShape* self, size_t count) {
+    reinterpret_cast<whiteout::m2::PolytopeShape*>(self)->faceFirstEdges.resize(count);
+}
+
+const uint8_t* whiteout_m2_M2PolytopeShape_get_faceFirstEdges_data(const whiteout_M2PolytopeShape* self) {
+    const auto& __v = reinterpret_cast<const whiteout::m2::PolytopeShape*>(self)->faceFirstEdges;
+    return __v.empty() ? nullptr : reinterpret_cast<const uint8_t*>(__v.data());
+}
+
+void whiteout_m2_M2PolytopeShape_assign_faceFirstEdges(whiteout_M2PolytopeShape* self, const uint8_t* data, size_t count) {
+    auto& __v = reinterpret_cast<whiteout::m2::PolytopeShape*>(self)->faceFirstEdges;
+    __v.resize(count);
+    if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u8));
+}
+
+size_t whiteout_m2_M2PolytopeShape_get_edges_count(const whiteout_M2PolytopeShape* self) {
+    return reinterpret_cast<const whiteout::m2::PolytopeShape*>(self)->edges.size();
+}
+
+void whiteout_m2_M2PolytopeShape_resize_edges(whiteout_M2PolytopeShape* self, size_t count) {
+    reinterpret_cast<whiteout::m2::PolytopeShape*>(self)->edges.resize(count);
+}
+
+whiteout_M2PolytopeHalfEdge* whiteout_m2_M2PolytopeShape_get_edges_at(whiteout_M2PolytopeShape* self, size_t index) {
+    return reinterpret_cast<whiteout_M2PolytopeHalfEdge*>(&reinterpret_cast<whiteout::m2::PolytopeShape*>(self)->edges[index]);
+}
+
+whiteout_Vector3f* whiteout_m2_M2PolytopeShape_get_centroid(whiteout_M2PolytopeShape* self) {
+    return reinterpret_cast<whiteout_Vector3f*>(&reinterpret_cast<whiteout::m2::PolytopeShape*>(self)->centroid);
+}
+
+void whiteout_m2_M2PolytopeShape_set_centroid(whiteout_M2PolytopeShape* self, const whiteout_Vector3f* value) {
+    reinterpret_cast<whiteout::m2::PolytopeShape*>(self)->centroid = *reinterpret_cast<const whiteout::Vector3f*>(value);
+}
+
+float whiteout_m2_M2PolytopeShape_get_volume(const whiteout_M2PolytopeShape* self) {
+    return reinterpret_cast<const whiteout::m2::PolytopeShape*>(self)->volume;
+}
+
+void whiteout_m2_M2PolytopeShape_set_volume(whiteout_M2PolytopeShape* self, float value) {
+    reinterpret_cast<whiteout::m2::PolytopeShape*>(self)->volume = value;
+}
+
+float whiteout_m2_M2PolytopeShape_get_surfaceArea(const whiteout_M2PolytopeShape* self) {
+    return reinterpret_cast<const whiteout::m2::PolytopeShape*>(self)->surfaceArea;
+}
+
+void whiteout_m2_M2PolytopeShape_set_surfaceArea(whiteout_M2PolytopeShape* self, float value) {
+    reinterpret_cast<whiteout::m2::PolytopeShape*>(self)->surfaceArea = value;
+}
+
+uint32_t whiteout_m2_M2PolytopeShape_get_padding04(const whiteout_M2PolytopeShape* self) {
+    return reinterpret_cast<const whiteout::m2::PolytopeShape*>(self)->padding04;
+}
+
+void whiteout_m2_M2PolytopeShape_set_padding04(whiteout_M2PolytopeShape* self, uint32_t value) {
+    reinterpret_cast<whiteout::m2::PolytopeShape*>(self)->padding04 = value;
+}
+
+uint32_t whiteout_m2_M2PolytopeShape_get_padding14(const whiteout_M2PolytopeShape* self) {
+    return reinterpret_cast<const whiteout::m2::PolytopeShape*>(self)->padding14;
+}
+
+void whiteout_m2_M2PolytopeShape_set_padding14(whiteout_M2PolytopeShape* self, uint32_t value) {
+    reinterpret_cast<whiteout::m2::PolytopeShape*>(self)->padding14 = value;
+}
+
+uint32_t whiteout_m2_M2PolytopeShape_get_padding2c(const whiteout_M2PolytopeShape* self) {
+    return reinterpret_cast<const whiteout::m2::PolytopeShape*>(self)->padding2c;
+}
+
+void whiteout_m2_M2PolytopeShape_set_padding2c(whiteout_M2PolytopeShape* self, uint32_t value) {
+    reinterpret_cast<whiteout::m2::PolytopeShape*>(self)->padding2c = value;
+}
+
+uint32_t whiteout_m2_M2PolytopeShape_get_padding4c(const whiteout_M2PolytopeShape* self) {
+    return reinterpret_cast<const whiteout::m2::PolytopeShape*>(self)->padding4c;
+}
+
+void whiteout_m2_M2PolytopeShape_set_padding4c(whiteout_M2PolytopeShape* self, uint32_t value) {
+    reinterpret_cast<whiteout::m2::PolytopeShape*>(self)->padding4c = value;
+}
+
+} // extern "C"
+
+// ── M2PhysicsJoint ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2PhysicsJoint* whiteout_m2_M2PhysicsJoint_new(void) {
+    return reinterpret_cast<whiteout_M2PhysicsJoint*>(new whiteout::m2::PhysicsJoint());
+}
+
+void whiteout_m2_M2PhysicsJoint_delete(whiteout_M2PhysicsJoint* self) {
+    delete reinterpret_cast<whiteout::m2::PhysicsJoint*>(self);
+}
+
+uint32_t whiteout_m2_M2PhysicsJoint_get_bodyAIndex(const whiteout_M2PhysicsJoint* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsJoint*>(self)->bodyAIndex;
+}
+
+void whiteout_m2_M2PhysicsJoint_set_bodyAIndex(whiteout_M2PhysicsJoint* self, uint32_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsJoint*>(self)->bodyAIndex = value;
+}
+
+uint32_t whiteout_m2_M2PhysicsJoint_get_bodyBIndex(const whiteout_M2PhysicsJoint* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsJoint*>(self)->bodyBIndex;
+}
+
+void whiteout_m2_M2PhysicsJoint_set_bodyBIndex(whiteout_M2PhysicsJoint* self, uint32_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsJoint*>(self)->bodyBIndex = value;
+}
+
+uint32_t whiteout_m2_M2PhysicsJoint_get_padding08(const whiteout_M2PhysicsJoint* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsJoint*>(self)->padding08;
+}
+
+void whiteout_m2_M2PhysicsJoint_set_padding08(whiteout_M2PhysicsJoint* self, uint32_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsJoint*>(self)->padding08 = value;
+}
+
+int32_t whiteout_m2_M2PhysicsJoint_get_jointType(const whiteout_M2PhysicsJoint* self) {
+    return static_cast<int32_t>(reinterpret_cast<const whiteout::m2::PhysicsJoint*>(self)->jointType);
+}
+
+void whiteout_m2_M2PhysicsJoint_set_jointType(whiteout_M2PhysicsJoint* self, int32_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsJoint*>(self)->jointType = static_cast<whiteout::m2::PhysicsJointType>(value);
+}
+
+int16_t whiteout_m2_M2PhysicsJoint_get_jointId(const whiteout_M2PhysicsJoint* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsJoint*>(self)->jointId;
+}
+
+void whiteout_m2_M2PhysicsJoint_set_jointId(whiteout_M2PhysicsJoint* self, int16_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsJoint*>(self)->jointId = value;
+}
+
+} // extern "C"
+
+// ── M2WeldJoint ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2WeldJoint* whiteout_m2_M2WeldJoint_new(void) {
+    return reinterpret_cast<whiteout_M2WeldJoint*>(new whiteout::m2::WeldJoint());
+}
+
+void whiteout_m2_M2WeldJoint_delete(whiteout_M2WeldJoint* self) {
+    delete reinterpret_cast<whiteout::m2::WeldJoint*>(self);
+}
+
+whiteout_M2PhysicsFrame* whiteout_m2_M2WeldJoint_get_frameA(whiteout_M2WeldJoint* self) {
+    return reinterpret_cast<whiteout_M2PhysicsFrame*>(&reinterpret_cast<whiteout::m2::WeldJoint*>(self)->frameA);
+}
+
+void whiteout_m2_M2WeldJoint_set_frameA(whiteout_M2WeldJoint* self, const whiteout_M2PhysicsFrame* value) {
+    reinterpret_cast<whiteout::m2::WeldJoint*>(self)->frameA = *reinterpret_cast<const whiteout::m2::PhysicsFrame*>(value);
+}
+
+whiteout_M2PhysicsFrame* whiteout_m2_M2WeldJoint_get_frameB(whiteout_M2WeldJoint* self) {
+    return reinterpret_cast<whiteout_M2PhysicsFrame*>(&reinterpret_cast<whiteout::m2::WeldJoint*>(self)->frameB);
+}
+
+void whiteout_m2_M2WeldJoint_set_frameB(whiteout_M2WeldJoint* self, const whiteout_M2PhysicsFrame* value) {
+    reinterpret_cast<whiteout::m2::WeldJoint*>(self)->frameB = *reinterpret_cast<const whiteout::m2::PhysicsFrame*>(value);
+}
+
+float whiteout_m2_M2WeldJoint_get_angularFrequencyHz(const whiteout_M2WeldJoint* self) {
+    return reinterpret_cast<const whiteout::m2::WeldJoint*>(self)->angularFrequencyHz;
+}
+
+void whiteout_m2_M2WeldJoint_set_angularFrequencyHz(whiteout_M2WeldJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::WeldJoint*>(self)->angularFrequencyHz = value;
+}
+
+float whiteout_m2_M2WeldJoint_get_angularDampingRatio(const whiteout_M2WeldJoint* self) {
+    return reinterpret_cast<const whiteout::m2::WeldJoint*>(self)->angularDampingRatio;
+}
+
+void whiteout_m2_M2WeldJoint_set_angularDampingRatio(whiteout_M2WeldJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::WeldJoint*>(self)->angularDampingRatio = value;
+}
+
+float whiteout_m2_M2WeldJoint_get_linearFrequencyHz(const whiteout_M2WeldJoint* self) {
+    return reinterpret_cast<const whiteout::m2::WeldJoint*>(self)->linearFrequencyHz;
+}
+
+void whiteout_m2_M2WeldJoint_set_linearFrequencyHz(whiteout_M2WeldJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::WeldJoint*>(self)->linearFrequencyHz = value;
+}
+
+float whiteout_m2_M2WeldJoint_get_linearDampingRatio(const whiteout_M2WeldJoint* self) {
+    return reinterpret_cast<const whiteout::m2::WeldJoint*>(self)->linearDampingRatio;
+}
+
+void whiteout_m2_M2WeldJoint_set_linearDampingRatio(whiteout_M2WeldJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::WeldJoint*>(self)->linearDampingRatio = value;
+}
+
+float whiteout_m2_M2WeldJoint_get_unknown70(const whiteout_M2WeldJoint* self) {
+    return reinterpret_cast<const whiteout::m2::WeldJoint*>(self)->unknown70;
+}
+
+void whiteout_m2_M2WeldJoint_set_unknown70(whiteout_M2WeldJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::WeldJoint*>(self)->unknown70 = value;
+}
+
+} // extern "C"
+
+// ── M2SphericalJoint ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2SphericalJoint* whiteout_m2_M2SphericalJoint_new(void) {
+    return reinterpret_cast<whiteout_M2SphericalJoint*>(new whiteout::m2::SphericalJoint());
+}
+
+void whiteout_m2_M2SphericalJoint_delete(whiteout_M2SphericalJoint* self) {
+    delete reinterpret_cast<whiteout::m2::SphericalJoint*>(self);
+}
+
+whiteout_Vector3f* whiteout_m2_M2SphericalJoint_get_anchorA(whiteout_M2SphericalJoint* self) {
+    return reinterpret_cast<whiteout_Vector3f*>(&reinterpret_cast<whiteout::m2::SphericalJoint*>(self)->anchorA);
+}
+
+void whiteout_m2_M2SphericalJoint_set_anchorA(whiteout_M2SphericalJoint* self, const whiteout_Vector3f* value) {
+    reinterpret_cast<whiteout::m2::SphericalJoint*>(self)->anchorA = *reinterpret_cast<const whiteout::Vector3f*>(value);
+}
+
+whiteout_Vector3f* whiteout_m2_M2SphericalJoint_get_anchorB(whiteout_M2SphericalJoint* self) {
+    return reinterpret_cast<whiteout_Vector3f*>(&reinterpret_cast<whiteout::m2::SphericalJoint*>(self)->anchorB);
+}
+
+void whiteout_m2_M2SphericalJoint_set_anchorB(whiteout_M2SphericalJoint* self, const whiteout_Vector3f* value) {
+    reinterpret_cast<whiteout::m2::SphericalJoint*>(self)->anchorB = *reinterpret_cast<const whiteout::Vector3f*>(value);
+}
+
+float whiteout_m2_M2SphericalJoint_get_frictionTorque(const whiteout_M2SphericalJoint* self) {
+    return reinterpret_cast<const whiteout::m2::SphericalJoint*>(self)->frictionTorque;
+}
+
+void whiteout_m2_M2SphericalJoint_set_frictionTorque(whiteout_M2SphericalJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::SphericalJoint*>(self)->frictionTorque = value;
+}
+
+} // extern "C"
+
+// ── M2ShoulderJoint ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2ShoulderJoint* whiteout_m2_M2ShoulderJoint_new(void) {
+    return reinterpret_cast<whiteout_M2ShoulderJoint*>(new whiteout::m2::ShoulderJoint());
+}
+
+void whiteout_m2_M2ShoulderJoint_delete(whiteout_M2ShoulderJoint* self) {
+    delete reinterpret_cast<whiteout::m2::ShoulderJoint*>(self);
+}
+
+whiteout_M2PhysicsFrame* whiteout_m2_M2ShoulderJoint_get_frameA(whiteout_M2ShoulderJoint* self) {
+    return reinterpret_cast<whiteout_M2PhysicsFrame*>(&reinterpret_cast<whiteout::m2::ShoulderJoint*>(self)->frameA);
+}
+
+void whiteout_m2_M2ShoulderJoint_set_frameA(whiteout_M2ShoulderJoint* self, const whiteout_M2PhysicsFrame* value) {
+    reinterpret_cast<whiteout::m2::ShoulderJoint*>(self)->frameA = *reinterpret_cast<const whiteout::m2::PhysicsFrame*>(value);
+}
+
+whiteout_M2PhysicsFrame* whiteout_m2_M2ShoulderJoint_get_frameB(whiteout_M2ShoulderJoint* self) {
+    return reinterpret_cast<whiteout_M2PhysicsFrame*>(&reinterpret_cast<whiteout::m2::ShoulderJoint*>(self)->frameB);
+}
+
+void whiteout_m2_M2ShoulderJoint_set_frameB(whiteout_M2ShoulderJoint* self, const whiteout_M2PhysicsFrame* value) {
+    reinterpret_cast<whiteout::m2::ShoulderJoint*>(self)->frameB = *reinterpret_cast<const whiteout::m2::PhysicsFrame*>(value);
+}
+
+float whiteout_m2_M2ShoulderJoint_get_lowerTwistAngle(const whiteout_M2ShoulderJoint* self) {
+    return reinterpret_cast<const whiteout::m2::ShoulderJoint*>(self)->lowerTwistAngle;
+}
+
+void whiteout_m2_M2ShoulderJoint_set_lowerTwistAngle(whiteout_M2ShoulderJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::ShoulderJoint*>(self)->lowerTwistAngle = value;
+}
+
+float whiteout_m2_M2ShoulderJoint_get_upperTwistAngle(const whiteout_M2ShoulderJoint* self) {
+    return reinterpret_cast<const whiteout::m2::ShoulderJoint*>(self)->upperTwistAngle;
+}
+
+void whiteout_m2_M2ShoulderJoint_set_upperTwistAngle(whiteout_M2ShoulderJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::ShoulderJoint*>(self)->upperTwistAngle = value;
+}
+
+float whiteout_m2_M2ShoulderJoint_get_coneAngle(const whiteout_M2ShoulderJoint* self) {
+    return reinterpret_cast<const whiteout::m2::ShoulderJoint*>(self)->coneAngle;
+}
+
+void whiteout_m2_M2ShoulderJoint_set_coneAngle(whiteout_M2ShoulderJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::ShoulderJoint*>(self)->coneAngle = value;
+}
+
+float whiteout_m2_M2ShoulderJoint_get_maxMotorTorque(const whiteout_M2ShoulderJoint* self) {
+    return reinterpret_cast<const whiteout::m2::ShoulderJoint*>(self)->maxMotorTorque;
+}
+
+void whiteout_m2_M2ShoulderJoint_set_maxMotorTorque(whiteout_M2ShoulderJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::ShoulderJoint*>(self)->maxMotorTorque = value;
+}
+
+uint32_t whiteout_m2_M2ShoulderJoint_get_motorMode(const whiteout_M2ShoulderJoint* self) {
+    return reinterpret_cast<const whiteout::m2::ShoulderJoint*>(self)->motorMode;
+}
+
+void whiteout_m2_M2ShoulderJoint_set_motorMode(whiteout_M2ShoulderJoint* self, uint32_t value) {
+    reinterpret_cast<whiteout::m2::ShoulderJoint*>(self)->motorMode = value;
+}
+
+float whiteout_m2_M2ShoulderJoint_get_motorFrequencyHz(const whiteout_M2ShoulderJoint* self) {
+    return reinterpret_cast<const whiteout::m2::ShoulderJoint*>(self)->motorFrequencyHz;
+}
+
+void whiteout_m2_M2ShoulderJoint_set_motorFrequencyHz(whiteout_M2ShoulderJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::ShoulderJoint*>(self)->motorFrequencyHz = value;
+}
+
+float whiteout_m2_M2ShoulderJoint_get_motorDampingRatio(const whiteout_M2ShoulderJoint* self) {
+    return reinterpret_cast<const whiteout::m2::ShoulderJoint*>(self)->motorDampingRatio;
+}
+
+void whiteout_m2_M2ShoulderJoint_set_motorDampingRatio(whiteout_M2ShoulderJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::ShoulderJoint*>(self)->motorDampingRatio = value;
+}
+
+} // extern "C"
+
+// ── M2PrismaticJoint ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2PrismaticJoint* whiteout_m2_M2PrismaticJoint_new(void) {
+    return reinterpret_cast<whiteout_M2PrismaticJoint*>(new whiteout::m2::PrismaticJoint());
+}
+
+void whiteout_m2_M2PrismaticJoint_delete(whiteout_M2PrismaticJoint* self) {
+    delete reinterpret_cast<whiteout::m2::PrismaticJoint*>(self);
+}
+
+whiteout_M2PhysicsFrame* whiteout_m2_M2PrismaticJoint_get_frameA(whiteout_M2PrismaticJoint* self) {
+    return reinterpret_cast<whiteout_M2PhysicsFrame*>(&reinterpret_cast<whiteout::m2::PrismaticJoint*>(self)->frameA);
+}
+
+void whiteout_m2_M2PrismaticJoint_set_frameA(whiteout_M2PrismaticJoint* self, const whiteout_M2PhysicsFrame* value) {
+    reinterpret_cast<whiteout::m2::PrismaticJoint*>(self)->frameA = *reinterpret_cast<const whiteout::m2::PhysicsFrame*>(value);
+}
+
+whiteout_M2PhysicsFrame* whiteout_m2_M2PrismaticJoint_get_frameB(whiteout_M2PrismaticJoint* self) {
+    return reinterpret_cast<whiteout_M2PhysicsFrame*>(&reinterpret_cast<whiteout::m2::PrismaticJoint*>(self)->frameB);
+}
+
+void whiteout_m2_M2PrismaticJoint_set_frameB(whiteout_M2PrismaticJoint* self, const whiteout_M2PhysicsFrame* value) {
+    reinterpret_cast<whiteout::m2::PrismaticJoint*>(self)->frameB = *reinterpret_cast<const whiteout::m2::PhysicsFrame*>(value);
+}
+
+float whiteout_m2_M2PrismaticJoint_get_lowerLimit(const whiteout_M2PrismaticJoint* self) {
+    return reinterpret_cast<const whiteout::m2::PrismaticJoint*>(self)->lowerLimit;
+}
+
+void whiteout_m2_M2PrismaticJoint_set_lowerLimit(whiteout_M2PrismaticJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::PrismaticJoint*>(self)->lowerLimit = value;
+}
+
+float whiteout_m2_M2PrismaticJoint_get_upperLimit(const whiteout_M2PrismaticJoint* self) {
+    return reinterpret_cast<const whiteout::m2::PrismaticJoint*>(self)->upperLimit;
+}
+
+void whiteout_m2_M2PrismaticJoint_set_upperLimit(whiteout_M2PrismaticJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::PrismaticJoint*>(self)->upperLimit = value;
+}
+
+float whiteout_m2_M2PrismaticJoint_get_unknown68(const whiteout_M2PrismaticJoint* self) {
+    return reinterpret_cast<const whiteout::m2::PrismaticJoint*>(self)->unknown68;
+}
+
+void whiteout_m2_M2PrismaticJoint_set_unknown68(whiteout_M2PrismaticJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::PrismaticJoint*>(self)->unknown68 = value;
+}
+
+float whiteout_m2_M2PrismaticJoint_get_maxMotorForce(const whiteout_M2PrismaticJoint* self) {
+    return reinterpret_cast<const whiteout::m2::PrismaticJoint*>(self)->maxMotorForce;
+}
+
+void whiteout_m2_M2PrismaticJoint_set_maxMotorForce(whiteout_M2PrismaticJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::PrismaticJoint*>(self)->maxMotorForce = value;
+}
+
+float whiteout_m2_M2PrismaticJoint_get_unknown70(const whiteout_M2PrismaticJoint* self) {
+    return reinterpret_cast<const whiteout::m2::PrismaticJoint*>(self)->unknown70;
+}
+
+void whiteout_m2_M2PrismaticJoint_set_unknown70(whiteout_M2PrismaticJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::PrismaticJoint*>(self)->unknown70 = value;
+}
+
+uint32_t whiteout_m2_M2PrismaticJoint_get_motorMode(const whiteout_M2PrismaticJoint* self) {
+    return reinterpret_cast<const whiteout::m2::PrismaticJoint*>(self)->motorMode;
+}
+
+void whiteout_m2_M2PrismaticJoint_set_motorMode(whiteout_M2PrismaticJoint* self, uint32_t value) {
+    reinterpret_cast<whiteout::m2::PrismaticJoint*>(self)->motorMode = value;
+}
+
+float whiteout_m2_M2PrismaticJoint_get_motorFrequencyHz(const whiteout_M2PrismaticJoint* self) {
+    return reinterpret_cast<const whiteout::m2::PrismaticJoint*>(self)->motorFrequencyHz;
+}
+
+void whiteout_m2_M2PrismaticJoint_set_motorFrequencyHz(whiteout_M2PrismaticJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::PrismaticJoint*>(self)->motorFrequencyHz = value;
+}
+
+float whiteout_m2_M2PrismaticJoint_get_motorDampingRatio(const whiteout_M2PrismaticJoint* self) {
+    return reinterpret_cast<const whiteout::m2::PrismaticJoint*>(self)->motorDampingRatio;
+}
+
+void whiteout_m2_M2PrismaticJoint_set_motorDampingRatio(whiteout_M2PrismaticJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::PrismaticJoint*>(self)->motorDampingRatio = value;
+}
+
+} // extern "C"
+
+// ── M2RevoluteJoint ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2RevoluteJoint* whiteout_m2_M2RevoluteJoint_new(void) {
+    return reinterpret_cast<whiteout_M2RevoluteJoint*>(new whiteout::m2::RevoluteJoint());
+}
+
+void whiteout_m2_M2RevoluteJoint_delete(whiteout_M2RevoluteJoint* self) {
+    delete reinterpret_cast<whiteout::m2::RevoluteJoint*>(self);
+}
+
+whiteout_M2PhysicsFrame* whiteout_m2_M2RevoluteJoint_get_frameA(whiteout_M2RevoluteJoint* self) {
+    return reinterpret_cast<whiteout_M2PhysicsFrame*>(&reinterpret_cast<whiteout::m2::RevoluteJoint*>(self)->frameA);
+}
+
+void whiteout_m2_M2RevoluteJoint_set_frameA(whiteout_M2RevoluteJoint* self, const whiteout_M2PhysicsFrame* value) {
+    reinterpret_cast<whiteout::m2::RevoluteJoint*>(self)->frameA = *reinterpret_cast<const whiteout::m2::PhysicsFrame*>(value);
+}
+
+whiteout_M2PhysicsFrame* whiteout_m2_M2RevoluteJoint_get_frameB(whiteout_M2RevoluteJoint* self) {
+    return reinterpret_cast<whiteout_M2PhysicsFrame*>(&reinterpret_cast<whiteout::m2::RevoluteJoint*>(self)->frameB);
+}
+
+void whiteout_m2_M2RevoluteJoint_set_frameB(whiteout_M2RevoluteJoint* self, const whiteout_M2PhysicsFrame* value) {
+    reinterpret_cast<whiteout::m2::RevoluteJoint*>(self)->frameB = *reinterpret_cast<const whiteout::m2::PhysicsFrame*>(value);
+}
+
+float whiteout_m2_M2RevoluteJoint_get_lowerAngle(const whiteout_M2RevoluteJoint* self) {
+    return reinterpret_cast<const whiteout::m2::RevoluteJoint*>(self)->lowerAngle;
+}
+
+void whiteout_m2_M2RevoluteJoint_set_lowerAngle(whiteout_M2RevoluteJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::RevoluteJoint*>(self)->lowerAngle = value;
+}
+
+float whiteout_m2_M2RevoluteJoint_get_upperAngle(const whiteout_M2RevoluteJoint* self) {
+    return reinterpret_cast<const whiteout::m2::RevoluteJoint*>(self)->upperAngle;
+}
+
+void whiteout_m2_M2RevoluteJoint_set_upperAngle(whiteout_M2RevoluteJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::RevoluteJoint*>(self)->upperAngle = value;
+}
+
+float whiteout_m2_M2RevoluteJoint_get_maxMotorTorque(const whiteout_M2RevoluteJoint* self) {
+    return reinterpret_cast<const whiteout::m2::RevoluteJoint*>(self)->maxMotorTorque;
+}
+
+void whiteout_m2_M2RevoluteJoint_set_maxMotorTorque(whiteout_M2RevoluteJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::RevoluteJoint*>(self)->maxMotorTorque = value;
+}
+
+uint32_t whiteout_m2_M2RevoluteJoint_get_motorMode(const whiteout_M2RevoluteJoint* self) {
+    return reinterpret_cast<const whiteout::m2::RevoluteJoint*>(self)->motorMode;
+}
+
+void whiteout_m2_M2RevoluteJoint_set_motorMode(whiteout_M2RevoluteJoint* self, uint32_t value) {
+    reinterpret_cast<whiteout::m2::RevoluteJoint*>(self)->motorMode = value;
+}
+
+float whiteout_m2_M2RevoluteJoint_get_motorFrequencyHz(const whiteout_M2RevoluteJoint* self) {
+    return reinterpret_cast<const whiteout::m2::RevoluteJoint*>(self)->motorFrequencyHz;
+}
+
+void whiteout_m2_M2RevoluteJoint_set_motorFrequencyHz(whiteout_M2RevoluteJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::RevoluteJoint*>(self)->motorFrequencyHz = value;
+}
+
+float whiteout_m2_M2RevoluteJoint_get_motorDampingRatio(const whiteout_M2RevoluteJoint* self) {
+    return reinterpret_cast<const whiteout::m2::RevoluteJoint*>(self)->motorDampingRatio;
+}
+
+void whiteout_m2_M2RevoluteJoint_set_motorDampingRatio(whiteout_M2RevoluteJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::RevoluteJoint*>(self)->motorDampingRatio = value;
+}
+
+} // extern "C"
+
+// ── M2DistanceJoint ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2DistanceJoint* whiteout_m2_M2DistanceJoint_new(void) {
+    return reinterpret_cast<whiteout_M2DistanceJoint*>(new whiteout::m2::DistanceJoint());
+}
+
+void whiteout_m2_M2DistanceJoint_delete(whiteout_M2DistanceJoint* self) {
+    delete reinterpret_cast<whiteout::m2::DistanceJoint*>(self);
+}
+
+whiteout_Vector3f* whiteout_m2_M2DistanceJoint_get_localAnchorA(whiteout_M2DistanceJoint* self) {
+    return reinterpret_cast<whiteout_Vector3f*>(&reinterpret_cast<whiteout::m2::DistanceJoint*>(self)->localAnchorA);
+}
+
+void whiteout_m2_M2DistanceJoint_set_localAnchorA(whiteout_M2DistanceJoint* self, const whiteout_Vector3f* value) {
+    reinterpret_cast<whiteout::m2::DistanceJoint*>(self)->localAnchorA = *reinterpret_cast<const whiteout::Vector3f*>(value);
+}
+
+whiteout_Vector3f* whiteout_m2_M2DistanceJoint_get_localAnchorB(whiteout_M2DistanceJoint* self) {
+    return reinterpret_cast<whiteout_Vector3f*>(&reinterpret_cast<whiteout::m2::DistanceJoint*>(self)->localAnchorB);
+}
+
+void whiteout_m2_M2DistanceJoint_set_localAnchorB(whiteout_M2DistanceJoint* self, const whiteout_Vector3f* value) {
+    reinterpret_cast<whiteout::m2::DistanceJoint*>(self)->localAnchorB = *reinterpret_cast<const whiteout::Vector3f*>(value);
+}
+
+float whiteout_m2_M2DistanceJoint_get_distance(const whiteout_M2DistanceJoint* self) {
+    return reinterpret_cast<const whiteout::m2::DistanceJoint*>(self)->distance;
+}
+
+void whiteout_m2_M2DistanceJoint_set_distance(whiteout_M2DistanceJoint* self, float value) {
+    reinterpret_cast<whiteout::m2::DistanceJoint*>(self)->distance = value;
+}
+
+} // extern "C"
+
+// ── M2PhysicsTuning ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2PhysicsTuning* whiteout_m2_M2PhysicsTuning_new(void) {
+    return reinterpret_cast<whiteout_M2PhysicsTuning*>(new whiteout::m2::PhysicsTuning());
+}
+
+void whiteout_m2_M2PhysicsTuning_delete(whiteout_M2PhysicsTuning* self) {
+    delete reinterpret_cast<whiteout::m2::PhysicsTuning*>(self);
+}
+
+size_t whiteout_m2_M2PhysicsTuning_values_size(void) {
+    return 6;
+}
+
+float whiteout_m2_M2PhysicsTuning_get_values_at(const whiteout_M2PhysicsTuning* self, size_t index) {
+    return reinterpret_cast<const whiteout::m2::PhysicsTuning*>(self)->values[index];
+}
+
+void whiteout_m2_M2PhysicsTuning_set_values_at(whiteout_M2PhysicsTuning* self, size_t index, float value) {
+    reinterpret_cast<whiteout::m2::PhysicsTuning*>(self)->values[index] = value;
+}
+
+} // extern "C"
+
+// ── M2PhysicsUnknownChunk ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2PhysicsUnknownChunk* whiteout_m2_M2PhysicsUnknownChunk_new(void) {
+    return reinterpret_cast<whiteout_M2PhysicsUnknownChunk*>(new whiteout::m2::PhysicsUnknownChunk());
+}
+
+void whiteout_m2_M2PhysicsUnknownChunk_delete(whiteout_M2PhysicsUnknownChunk* self) {
+    delete reinterpret_cast<whiteout::m2::PhysicsUnknownChunk*>(self);
+}
+
+size_t whiteout_m2_M2PhysicsUnknownChunk_tag_size(void) {
+    return 4;
+}
+
+int8_t whiteout_m2_M2PhysicsUnknownChunk_get_tag_at(const whiteout_M2PhysicsUnknownChunk* self, size_t index) {
+    return reinterpret_cast<const whiteout::m2::PhysicsUnknownChunk*>(self)->tag[index];
+}
+
+void whiteout_m2_M2PhysicsUnknownChunk_set_tag_at(whiteout_M2PhysicsUnknownChunk* self, size_t index, int8_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsUnknownChunk*>(self)->tag[index] = value;
+}
+
+size_t whiteout_m2_M2PhysicsUnknownChunk_get_data_count(const whiteout_M2PhysicsUnknownChunk* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsUnknownChunk*>(self)->data.size();
+}
+
+void whiteout_m2_M2PhysicsUnknownChunk_resize_data(whiteout_M2PhysicsUnknownChunk* self, size_t count) {
+    reinterpret_cast<whiteout::m2::PhysicsUnknownChunk*>(self)->data.resize(count);
+}
+
+const uint8_t* whiteout_m2_M2PhysicsUnknownChunk_get_data_data(const whiteout_M2PhysicsUnknownChunk* self) {
+    const auto& __v = reinterpret_cast<const whiteout::m2::PhysicsUnknownChunk*>(self)->data;
+    return __v.empty() ? nullptr : reinterpret_cast<const uint8_t*>(__v.data());
+}
+
+void whiteout_m2_M2PhysicsUnknownChunk_assign_data(whiteout_M2PhysicsUnknownChunk* self, const uint8_t* data, size_t count) {
+    auto& __v = reinterpret_cast<whiteout::m2::PhysicsUnknownChunk*>(self)->data;
+    __v.resize(count);
+    if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u8));
+}
+
+} // extern "C"
+
+// ── M2PhysicsData ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2PhysicsData* whiteout_m2_M2PhysicsData_new(void) {
+    return reinterpret_cast<whiteout_M2PhysicsData*>(new whiteout::m2::PhysicsData());
+}
+
+void whiteout_m2_M2PhysicsData_delete(whiteout_M2PhysicsData* self) {
+    delete reinterpret_cast<whiteout::m2::PhysicsData*>(self);
+}
+
+uint16_t whiteout_m2_M2PhysicsData_get_version(const whiteout_M2PhysicsData* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsData*>(self)->version;
+}
+
+void whiteout_m2_M2PhysicsData_set_version(whiteout_M2PhysicsData* self, uint16_t value) {
+    reinterpret_cast<whiteout::m2::PhysicsData*>(self)->version = value;
+}
+
+size_t whiteout_m2_M2PhysicsData_get_bodies_count(const whiteout_M2PhysicsData* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsData*>(self)->bodies.size();
+}
+
+void whiteout_m2_M2PhysicsData_resize_bodies(whiteout_M2PhysicsData* self, size_t count) {
+    reinterpret_cast<whiteout::m2::PhysicsData*>(self)->bodies.resize(count);
+}
+
+whiteout_M2PhysicsBody* whiteout_m2_M2PhysicsData_get_bodies_at(whiteout_M2PhysicsData* self, size_t index) {
+    return reinterpret_cast<whiteout_M2PhysicsBody*>(&reinterpret_cast<whiteout::m2::PhysicsData*>(self)->bodies[index]);
+}
+
+size_t whiteout_m2_M2PhysicsData_get_shapes_count(const whiteout_M2PhysicsData* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsData*>(self)->shapes.size();
+}
+
+void whiteout_m2_M2PhysicsData_resize_shapes(whiteout_M2PhysicsData* self, size_t count) {
+    reinterpret_cast<whiteout::m2::PhysicsData*>(self)->shapes.resize(count);
+}
+
+whiteout_M2PhysicsShape* whiteout_m2_M2PhysicsData_get_shapes_at(whiteout_M2PhysicsData* self, size_t index) {
+    return reinterpret_cast<whiteout_M2PhysicsShape*>(&reinterpret_cast<whiteout::m2::PhysicsData*>(self)->shapes[index]);
+}
+
+size_t whiteout_m2_M2PhysicsData_get_boxShapes_count(const whiteout_M2PhysicsData* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsData*>(self)->boxShapes.size();
+}
+
+void whiteout_m2_M2PhysicsData_resize_boxShapes(whiteout_M2PhysicsData* self, size_t count) {
+    reinterpret_cast<whiteout::m2::PhysicsData*>(self)->boxShapes.resize(count);
+}
+
+whiteout_M2BoxShape* whiteout_m2_M2PhysicsData_get_boxShapes_at(whiteout_M2PhysicsData* self, size_t index) {
+    return reinterpret_cast<whiteout_M2BoxShape*>(&reinterpret_cast<whiteout::m2::PhysicsData*>(self)->boxShapes[index]);
+}
+
+size_t whiteout_m2_M2PhysicsData_get_capsuleShapes_count(const whiteout_M2PhysicsData* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsData*>(self)->capsuleShapes.size();
+}
+
+void whiteout_m2_M2PhysicsData_resize_capsuleShapes(whiteout_M2PhysicsData* self, size_t count) {
+    reinterpret_cast<whiteout::m2::PhysicsData*>(self)->capsuleShapes.resize(count);
+}
+
+whiteout_M2CapsuleShape* whiteout_m2_M2PhysicsData_get_capsuleShapes_at(whiteout_M2PhysicsData* self, size_t index) {
+    return reinterpret_cast<whiteout_M2CapsuleShape*>(&reinterpret_cast<whiteout::m2::PhysicsData*>(self)->capsuleShapes[index]);
+}
+
+size_t whiteout_m2_M2PhysicsData_get_sphereShapes_count(const whiteout_M2PhysicsData* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsData*>(self)->sphereShapes.size();
+}
+
+void whiteout_m2_M2PhysicsData_resize_sphereShapes(whiteout_M2PhysicsData* self, size_t count) {
+    reinterpret_cast<whiteout::m2::PhysicsData*>(self)->sphereShapes.resize(count);
+}
+
+whiteout_M2SphereShape* whiteout_m2_M2PhysicsData_get_sphereShapes_at(whiteout_M2PhysicsData* self, size_t index) {
+    return reinterpret_cast<whiteout_M2SphereShape*>(&reinterpret_cast<whiteout::m2::PhysicsData*>(self)->sphereShapes[index]);
+}
+
+size_t whiteout_m2_M2PhysicsData_get_polytopeShapes_count(const whiteout_M2PhysicsData* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsData*>(self)->polytopeShapes.size();
+}
+
+void whiteout_m2_M2PhysicsData_resize_polytopeShapes(whiteout_M2PhysicsData* self, size_t count) {
+    reinterpret_cast<whiteout::m2::PhysicsData*>(self)->polytopeShapes.resize(count);
+}
+
+whiteout_M2PolytopeShape* whiteout_m2_M2PhysicsData_get_polytopeShapes_at(whiteout_M2PhysicsData* self, size_t index) {
+    return reinterpret_cast<whiteout_M2PolytopeShape*>(&reinterpret_cast<whiteout::m2::PhysicsData*>(self)->polytopeShapes[index]);
+}
+
+size_t whiteout_m2_M2PhysicsData_get_joints_count(const whiteout_M2PhysicsData* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsData*>(self)->joints.size();
+}
+
+void whiteout_m2_M2PhysicsData_resize_joints(whiteout_M2PhysicsData* self, size_t count) {
+    reinterpret_cast<whiteout::m2::PhysicsData*>(self)->joints.resize(count);
+}
+
+whiteout_M2PhysicsJoint* whiteout_m2_M2PhysicsData_get_joints_at(whiteout_M2PhysicsData* self, size_t index) {
+    return reinterpret_cast<whiteout_M2PhysicsJoint*>(&reinterpret_cast<whiteout::m2::PhysicsData*>(self)->joints[index]);
+}
+
+size_t whiteout_m2_M2PhysicsData_get_weldJoints_count(const whiteout_M2PhysicsData* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsData*>(self)->weldJoints.size();
+}
+
+void whiteout_m2_M2PhysicsData_resize_weldJoints(whiteout_M2PhysicsData* self, size_t count) {
+    reinterpret_cast<whiteout::m2::PhysicsData*>(self)->weldJoints.resize(count);
+}
+
+whiteout_M2WeldJoint* whiteout_m2_M2PhysicsData_get_weldJoints_at(whiteout_M2PhysicsData* self, size_t index) {
+    return reinterpret_cast<whiteout_M2WeldJoint*>(&reinterpret_cast<whiteout::m2::PhysicsData*>(self)->weldJoints[index]);
+}
+
+size_t whiteout_m2_M2PhysicsData_get_sphericalJoints_count(const whiteout_M2PhysicsData* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsData*>(self)->sphericalJoints.size();
+}
+
+void whiteout_m2_M2PhysicsData_resize_sphericalJoints(whiteout_M2PhysicsData* self, size_t count) {
+    reinterpret_cast<whiteout::m2::PhysicsData*>(self)->sphericalJoints.resize(count);
+}
+
+whiteout_M2SphericalJoint* whiteout_m2_M2PhysicsData_get_sphericalJoints_at(whiteout_M2PhysicsData* self, size_t index) {
+    return reinterpret_cast<whiteout_M2SphericalJoint*>(&reinterpret_cast<whiteout::m2::PhysicsData*>(self)->sphericalJoints[index]);
+}
+
+size_t whiteout_m2_M2PhysicsData_get_shoulderJoints_count(const whiteout_M2PhysicsData* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsData*>(self)->shoulderJoints.size();
+}
+
+void whiteout_m2_M2PhysicsData_resize_shoulderJoints(whiteout_M2PhysicsData* self, size_t count) {
+    reinterpret_cast<whiteout::m2::PhysicsData*>(self)->shoulderJoints.resize(count);
+}
+
+whiteout_M2ShoulderJoint* whiteout_m2_M2PhysicsData_get_shoulderJoints_at(whiteout_M2PhysicsData* self, size_t index) {
+    return reinterpret_cast<whiteout_M2ShoulderJoint*>(&reinterpret_cast<whiteout::m2::PhysicsData*>(self)->shoulderJoints[index]);
+}
+
+size_t whiteout_m2_M2PhysicsData_get_prismaticJoints_count(const whiteout_M2PhysicsData* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsData*>(self)->prismaticJoints.size();
+}
+
+void whiteout_m2_M2PhysicsData_resize_prismaticJoints(whiteout_M2PhysicsData* self, size_t count) {
+    reinterpret_cast<whiteout::m2::PhysicsData*>(self)->prismaticJoints.resize(count);
+}
+
+whiteout_M2PrismaticJoint* whiteout_m2_M2PhysicsData_get_prismaticJoints_at(whiteout_M2PhysicsData* self, size_t index) {
+    return reinterpret_cast<whiteout_M2PrismaticJoint*>(&reinterpret_cast<whiteout::m2::PhysicsData*>(self)->prismaticJoints[index]);
+}
+
+size_t whiteout_m2_M2PhysicsData_get_revoluteJoints_count(const whiteout_M2PhysicsData* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsData*>(self)->revoluteJoints.size();
+}
+
+void whiteout_m2_M2PhysicsData_resize_revoluteJoints(whiteout_M2PhysicsData* self, size_t count) {
+    reinterpret_cast<whiteout::m2::PhysicsData*>(self)->revoluteJoints.resize(count);
+}
+
+whiteout_M2RevoluteJoint* whiteout_m2_M2PhysicsData_get_revoluteJoints_at(whiteout_M2PhysicsData* self, size_t index) {
+    return reinterpret_cast<whiteout_M2RevoluteJoint*>(&reinterpret_cast<whiteout::m2::PhysicsData*>(self)->revoluteJoints[index]);
+}
+
+size_t whiteout_m2_M2PhysicsData_get_distanceJoints_count(const whiteout_M2PhysicsData* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsData*>(self)->distanceJoints.size();
+}
+
+void whiteout_m2_M2PhysicsData_resize_distanceJoints(whiteout_M2PhysicsData* self, size_t count) {
+    reinterpret_cast<whiteout::m2::PhysicsData*>(self)->distanceJoints.resize(count);
+}
+
+whiteout_M2DistanceJoint* whiteout_m2_M2PhysicsData_get_distanceJoints_at(whiteout_M2PhysicsData* self, size_t index) {
+    return reinterpret_cast<whiteout_M2DistanceJoint*>(&reinterpret_cast<whiteout::m2::PhysicsData*>(self)->distanceJoints[index]);
+}
+
+size_t whiteout_m2_M2PhysicsData_get_tuning_count(const whiteout_M2PhysicsData* self) {
+    return reinterpret_cast<const whiteout::m2::PhysicsData*>(self)->tuning.size();
+}
+
+void whiteout_m2_M2PhysicsData_resize_tuning(whiteout_M2PhysicsData* self, size_t count) {
+    reinterpret_cast<whiteout::m2::PhysicsData*>(self)->tuning.resize(count);
+}
+
+whiteout_M2PhysicsTuning* whiteout_m2_M2PhysicsData_get_tuning_at(whiteout_M2PhysicsData* self, size_t index) {
+    return reinterpret_cast<whiteout_M2PhysicsTuning*>(&reinterpret_cast<whiteout::m2::PhysicsData*>(self)->tuning[index]);
+}
+
+} // extern "C"
+
+// ── M2BoneOverride ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2BoneOverride* whiteout_m2_M2BoneOverride_new(void) {
+    return reinterpret_cast<whiteout_M2BoneOverride*>(new whiteout::m2::BoneOverride());
+}
+
+void whiteout_m2_M2BoneOverride_delete(whiteout_M2BoneOverride* self) {
+    delete reinterpret_cast<whiteout::m2::BoneOverride*>(self);
+}
+
+uint16_t whiteout_m2_M2BoneOverride_get_boneIndex(const whiteout_M2BoneOverride* self) {
+    return reinterpret_cast<const whiteout::m2::BoneOverride*>(self)->boneIndex;
+}
+
+void whiteout_m2_M2BoneOverride_set_boneIndex(whiteout_M2BoneOverride* self, uint16_t value) {
+    reinterpret_cast<whiteout::m2::BoneOverride*>(self)->boneIndex = value;
+}
+
+} // extern "C"
+
+// ── M2BoneOverrideSet ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2BoneOverrideSet* whiteout_m2_M2BoneOverrideSet_new(void) {
+    return reinterpret_cast<whiteout_M2BoneOverrideSet*>(new whiteout::m2::BoneOverrideSet());
+}
+
+void whiteout_m2_M2BoneOverrideSet_delete(whiteout_M2BoneOverrideSet* self) {
+    delete reinterpret_cast<whiteout::m2::BoneOverrideSet*>(self);
+}
+
+uint32_t whiteout_m2_M2BoneOverrideSet_get_version(const whiteout_M2BoneOverrideSet* self) {
+    return reinterpret_cast<const whiteout::m2::BoneOverrideSet*>(self)->version;
+}
+
+void whiteout_m2_M2BoneOverrideSet_set_version(whiteout_M2BoneOverrideSet* self, uint32_t value) {
+    reinterpret_cast<whiteout::m2::BoneOverrideSet*>(self)->version = value;
+}
+
+size_t whiteout_m2_M2BoneOverrideSet_get_overrides_count(const whiteout_M2BoneOverrideSet* self) {
+    return reinterpret_cast<const whiteout::m2::BoneOverrideSet*>(self)->overrides.size();
+}
+
+void whiteout_m2_M2BoneOverrideSet_resize_overrides(whiteout_M2BoneOverrideSet* self, size_t count) {
+    reinterpret_cast<whiteout::m2::BoneOverrideSet*>(self)->overrides.resize(count);
+}
+
+whiteout_M2BoneOverride* whiteout_m2_M2BoneOverrideSet_get_overrides_at(whiteout_M2BoneOverrideSet* self, size_t index) {
+    return reinterpret_cast<whiteout_M2BoneOverride*>(&reinterpret_cast<whiteout::m2::BoneOverrideSet*>(self)->overrides[index]);
+}
+
+} // extern "C"
+
 // ── M2Model ─────────────────────────────────────────────────
 
 extern "C" {
@@ -3363,23 +4675,35 @@ whiteout_M2ParticleGeosetData* whiteout_m2_M2Model_get_particleGeosets_at(whiteo
     return reinterpret_cast<whiteout_M2ParticleGeosetData*>(&reinterpret_cast<whiteout::m2::Model*>(self)->particleGeosets[index]);
 }
 
-size_t whiteout_m2_M2Model_get_physicsFileData_count(const whiteout_M2Model* self) {
-    return reinterpret_cast<const whiteout::m2::Model*>(self)->physicsFileData.size();
+size_t whiteout_m2_M2Model_get_boneOverrides_count(const whiteout_M2Model* self) {
+    return reinterpret_cast<const whiteout::m2::Model*>(self)->boneOverrides.size();
 }
 
-void whiteout_m2_M2Model_resize_physicsFileData(whiteout_M2Model* self, size_t count) {
-    reinterpret_cast<whiteout::m2::Model*>(self)->physicsFileData.resize(count);
+void whiteout_m2_M2Model_resize_boneOverrides(whiteout_M2Model* self, size_t count) {
+    reinterpret_cast<whiteout::m2::Model*>(self)->boneOverrides.resize(count);
 }
 
-const uint8_t* whiteout_m2_M2Model_get_physicsFileData_data(const whiteout_M2Model* self) {
-    const auto& __v = reinterpret_cast<const whiteout::m2::Model*>(self)->physicsFileData;
-    return __v.empty() ? nullptr : reinterpret_cast<const uint8_t*>(__v.data());
+whiteout_M2BoneOverrideSet* whiteout_m2_M2Model_get_boneOverrides_at(whiteout_M2Model* self, size_t index) {
+    return reinterpret_cast<whiteout_M2BoneOverrideSet*>(&reinterpret_cast<whiteout::m2::Model*>(self)->boneOverrides[index]);
 }
 
-void whiteout_m2_M2Model_assign_physicsFileData(whiteout_M2Model* self, const uint8_t* data, size_t count) {
-    auto& __v = reinterpret_cast<whiteout::m2::Model*>(self)->physicsFileData;
+size_t whiteout_m2_M2Model_get_boneFileIds_count(const whiteout_M2Model* self) {
+    return reinterpret_cast<const whiteout::m2::Model*>(self)->boneFileIds.size();
+}
+
+void whiteout_m2_M2Model_resize_boneFileIds(whiteout_M2Model* self, size_t count) {
+    reinterpret_cast<whiteout::m2::Model*>(self)->boneFileIds.resize(count);
+}
+
+const uint32_t* whiteout_m2_M2Model_get_boneFileIds_data(const whiteout_M2Model* self) {
+    const auto& __v = reinterpret_cast<const whiteout::m2::Model*>(self)->boneFileIds;
+    return __v.empty() ? nullptr : reinterpret_cast<const uint32_t*>(__v.data());
+}
+
+void whiteout_m2_M2Model_assign_boneFileIds(whiteout_M2Model* self, const uint32_t* data, size_t count) {
+    auto& __v = reinterpret_cast<whiteout::m2::Model*>(self)->boneFileIds;
     __v.resize(count);
-    if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u8));
+    if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u32));
 }
 
 size_t whiteout_m2_M2Model_get_edgeFadeEntries_count(const whiteout_M2Model* self) {

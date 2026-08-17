@@ -207,6 +207,14 @@ public sealed class Model : WhiteoutHandle
             (h, i) => new ParticleGeosetData(NativeMethods.whiteout_m2_M2Model_get_particleGeosets_at(h, i), owned: false));
 
 
+    /// <summary>One entry per customization choice, in BFID order — see bone_file.h.</summary>
+    public IReadOnlyList<BoneOverrideSet> BoneOverrides =>
+        new NativeListView<BoneOverrideSet>(
+            DangerousGet(),
+            NativeMethods.whiteout_m2_M2Model_get_boneOverrides_count,
+            (h, i) => new BoneOverrideSet(NativeMethods.whiteout_m2_M2Model_get_boneOverrides_at(h, i), owned: false));
+
+
     /// <summary>EDGF</summary>
     public IReadOnlyList<EdgeFadeData> EdgeFadeEntries =>
         new NativeListView<EdgeFadeData>(

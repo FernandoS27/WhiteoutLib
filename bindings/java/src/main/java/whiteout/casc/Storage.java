@@ -400,6 +400,17 @@ public final class Storage implements AutoCloseable {
     }
 
     /**
+     * Substitute zeros for any frame whose encryption key is unavailable, instead of failing the read. Off by default.
+     * 
+     * Unreleased content ships encrypted with keys that are not published, and a single such frame otherwise takes a whole file with it — a client database that is 99% readable is worth more than none of it. CascLib spells this CASC_OVERCOME_ENCRYPTED. Turn it on only where a partly blank file is more useful than no file.
+     *
+     * @param on boolean input.
+     */
+    public void setZeroFillEncrypted(boolean on) {
+        NativeCommon.invokeNative(Native.whiteout_casc_CascStorage_setZeroFillEncrypted, handle, (on ? 1 : 0));
+    }
+
+    /**
      * @return The encryption key for @p keyName, or std::nullopt if not found.
      *
      * @param keyName long input.

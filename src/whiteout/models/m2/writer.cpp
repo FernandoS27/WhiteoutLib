@@ -3,6 +3,8 @@
 #include <cstring>
 #include <fstream>
 #include <utility>
+#include <whiteout/models/m2/bone_file.h>
+#include <whiteout/models/m2/phys_file.h>
 #include <whiteout/models/m2/writer.h>
 #include "../../common/binary_writer.h"
 #include "../../common/streams.h"
@@ -75,7 +77,6 @@ public:
                           AnimDataBuffers* animOut = nullptr);
     void writeChunkedSkeleton(BinaryWriter& writer, const SkeletonFile& model,
                               AnimDataBuffers* animOut = nullptr);
-    void writeChunkedBone(BinaryWriter& writer, const BoneFile& model);
     void writeChunkedAnim(BinaryWriter& writer, const AnimFile& model);
 
     void writeViaWfs(WoWFileSystem& wfs, const BaseFile& base, const std::vector<SkinFile>& skins,
@@ -212,6 +213,13 @@ M2SerializeResult Writer::write(const Model& model) {
         result.animData.push_back(std::move(entry));
     }
 
+    if (base.pfid_chunk && base.header.model.physics) {
+        M2SerializeResult::PhysicsFileEntry entry;
+        entry.fileDataId = base.pfid_chunk->physFileDataId;
+        entry.data = writePhysics(*base.header.model.physics);
+        result.physicsData = std::move(entry);
+    }
+
     for (const auto& skinFile : skins) {
         M2SerializeResult::SkinFileEntry entry;
         entry.data = pImpl->serializeSkin(skinFile);
@@ -236,6 +244,14 @@ M2SerializeResult Writer::write(const Model& model) {
             size_t const lodBase = sfidData + numBaseSkins * sizeof(u32);
             for (u32 i = 0; i < result.skinlodData.size(); ++i) {
                 result.skinlodData[i].pathOffset = lodBase + i * sizeof(u32);
+            }
+        }
+
+        // PFID chunk layout: [physFileDataId: u32]
+        if (result.physicsData.has_value()) {
+            size_t const pfidData = findChunkDataOffset(result.m2Data, PFID_TAG);
+            if (pfidData != SIZE_MAX) {
+                result.physicsData->pathOffset = pfidData;
             }
         }
 
@@ -458,9 +474,15 @@ BaseFile Writer::Impl::wrapModel(const Model& model) const {
         pgd1.particleGeosetData = model.particleGeosets;
         base.pgd1_chunk = std::move(pgd1);
     }
-    if (!model.physicsFileData.empty()) {
+    // A model that named its physics by file id keeps doing so — the payload
+    // goes back out as a `.phys` of its own. Only an inline one becomes PFDC.
+    if (model.physicsFileId) {
+        PFIDChunk pfid;
+        pfid.physFileDataId = *model.physicsFileId;
+        base.pfid_chunk = pfid;
+    } else if (model.physics) {
         PFDCChunk pfdc;
-        pfdc.physicsData = model.physicsFileData;
+        pfdc.physics = *model.physics;
         base.pfdc_chunk = std::move(pfdc);
     }
     if (!model.edgeFadeEntries.empty()) {
@@ -631,8 +653,18 @@ void Writer::Impl::writeViaWfs(WoWFileSystem& wfs, const BaseFile& base,
         wfs.writeAnimFile(animHandles[i], std::move(animBuffers[i].data));
     }
 
-    if (base.format == Format::ClassicMD20 && !base.header.model.physicsFileData.empty()) {
-        wfs.writePhysicsFile(base.header.model.physicsFileData);
+    // Written as a sibling file whenever it is not inline: always for a plain
+    // MD20, and for a chunked model that carries PFID instead of PFDC.
+    const auto& sourceModel = base.header.model;
+    if (sourceModel.physics && (base.format == Format::ClassicMD20 || base.pfid_chunk)) {
+        wfs.writePhysicsFile(writePhysics(*sourceModel.physics),
+                             sourceModel.physicsFileId.value_or(0));
+    }
+
+    // `.bone` siblings are always separate files; BFID rides along on whichever
+    // of the `.m2` or `.skel` carried it, untouched.
+    for (u32 i = 0; i < sourceModel.boneOverrides.size(); ++i) {
+        wfs.writeBoneFile(i, writeBoneOverrides(sourceModel.boneOverrides[i]));
     }
 
     {
@@ -774,9 +806,15 @@ void Writer::Impl::writeChunkedBase(BinaryWriter& writer, const BaseFile& model,
         write_chunk(WFV3_TAG, model.wfv3_chunk.value());
     }
     if (model.pfdc_chunk) {
+        const auto payload = writePhysics(model.pfdc_chunk->physics);
+        // The chunk size covers zero padding out to a 16-byte multiple. Every
+        // PFDC in the corpus is padded that way, including the ones already
+        // aligned, which carry none.
+        u32 const padded = (static_cast<u32>(payload.size()) + 15u) & ~15u;
         writer.write(PFDC_TAG);
-        writer.write<u32>(static_cast<u32>(model.pfdc_chunk->physicsData.size()));
-        writer.write(model.pfdc_chunk->physicsData);
+        writer.write<u32>(padded);
+        writer.write(payload);
+        writer.writePadding(padded - static_cast<u32>(payload.size()));
     }
     if (model.edgf_chunk) {
         write_chunk(EDGF_TAG, model.edgf_chunk.value());
@@ -853,37 +891,6 @@ void Writer::Impl::writeChunkedSkeleton(BinaryWriter& writer, const SkeletonFile
 
     if (animOut) {
         *animOut = std::move(visitor.getAnimDataBuffers());
-    }
-}
-
-void Writer::Impl::writeChunkedBone(BinaryWriter& writer, const BoneFile& model) {
-
-    BinaryWriterVisitor headerWriter(writer);
-    headerWriter.write(model.header);
-
-    const auto write_chunk = ([&writer]<typename T>(u32 tag, const T& chunk) {
-        writer.write(tag);
-        u32 const sizePos = writer.getPosition();
-        writer.write<u32>(0);
-        u32 const chunkStart = writer.getPosition();
-
-        BinaryWriterVisitor visitor(writer);
-        visitor.write(chunk);
-
-        u32 const chunkEnd = writer.getPosition();
-        u32 const chunkSize = chunkEnd - chunkStart;
-
-        writer.setPosition(sizePos);
-        writer.write(chunkSize);
-
-        writer.setPosition(chunkEnd);
-    });
-
-    if (model.bida_chunk) {
-        write_chunk(BIDA_TAG, model.bida_chunk.value());
-    }
-    if (model.bomt_chunk) {
-        write_chunk(BOMT_TAG, model.bomt_chunk.value());
     }
 }
 

@@ -27,9 +27,13 @@
 #include <whiteout/models/m2/types.h>
 #include <whiteout/models/m2/structures/base.h>
 #include <whiteout/models/m2/structures/extensions.h>
+#include <whiteout/models/m2/structures/phys.h>
+#include <whiteout/models/m2/structures/bone_overrides.h>
 #include <whiteout/models/m2/structures/skin.h>
 #include <whiteout/models/m2/structures.h>
 #include <whiteout/models/m2/parser.h>
+#include <whiteout/models/m2/phys_file.h>
+#include <whiteout/models/m2/bone_file.h>
 #include <whiteout/models/m2/writer.h>
 #include <whiteout/interfaces.h>
 
@@ -161,11 +165,36 @@ EMSCRIPTEN_BINDINGS(m2) {
         .value("MultitexUse3Colors", whiteout::m2::ParticleFlag::MultitexUse3Colors)
         .value("DynamicWind", whiteout::m2::ParticleFlag::DynamicWind);
 
+    enum_<whiteout::m2::PhysicsBodyType>("M2PhysicsBodyType")
+        .value("Kinematic", whiteout::m2::PhysicsBodyType::Kinematic)
+        .value("Dynamic", whiteout::m2::PhysicsBodyType::Dynamic);
+
+    enum_<whiteout::m2::PhysicsShapeType>("M2PhysicsShapeType")
+        .value("Box", whiteout::m2::PhysicsShapeType::Box)
+        .value("Capsule", whiteout::m2::PhysicsShapeType::Capsule)
+        .value("Sphere", whiteout::m2::PhysicsShapeType::Sphere)
+        .value("Polytope", whiteout::m2::PhysicsShapeType::Polytope);
+
+    enum_<whiteout::m2::PhysicsJointType>("M2PhysicsJointType")
+        .value("Spherical", whiteout::m2::PhysicsJointType::Spherical)
+        .value("Shoulder", whiteout::m2::PhysicsJointType::Shoulder)
+        .value("Weld", whiteout::m2::PhysicsJointType::Weld)
+        .value("Revolute", whiteout::m2::PhysicsJointType::Revolute)
+        .value("Prismatic", whiteout::m2::PhysicsJointType::Prismatic)
+        .value("Distance", whiteout::m2::PhysicsJointType::Distance);
+
     // ── Value-object types (plain JS objects) ────────────────────────────
     value_object<whiteout::m2::Extent>("M2Extent")
         .field("minimum", &whiteout::m2::Extent::minimum)
         .field("maximum", &whiteout::m2::Extent::maximum)
         .field("sphereRadius", &whiteout::m2::Extent::sphereRadius)
+    ;
+
+    value_object<whiteout::m2::PhysicsFrame>("M2PhysicsFrame")
+        .field("axisX", &whiteout::m2::PhysicsFrame::axisX)
+        .field("axisY", &whiteout::m2::PhysicsFrame::axisY)
+        .field("axisZ", &whiteout::m2::PhysicsFrame::axisZ)
+        .field("origin", &whiteout::m2::PhysicsFrame::origin)
     ;
 
     // ── Classes ──────────────────────────────────────────────────────────
@@ -588,6 +617,199 @@ EMSCRIPTEN_BINDINGS(m2) {
         .property("enabled", &whiteout::m2::Event::enabled)
     ;
 
+    class_<whiteout::m2::PhysicsBody>("M2PhysicsBody")
+        .constructor<>()
+        .property("type", &whiteout::m2::PhysicsBody::type)
+        .property("boneIndex", &whiteout::m2::PhysicsBody::boneIndex)
+        .property("position", &whiteout::m2::PhysicsBody::position)
+        .property("shapeIndex", &whiteout::m2::PhysicsBody::shapeIndex)
+        .property("shapeCount", &whiteout::m2::PhysicsBody::shapeCount)
+        .property("gravityScale", &whiteout::m2::PhysicsBody::gravityScale)
+        .property("inertiaScale", &whiteout::m2::PhysicsBody::inertiaScale)
+        .property("linearDamping", &whiteout::m2::PhysicsBody::linearDamping)
+        .property("angularDamping", &whiteout::m2::PhysicsBody::angularDamping)
+        .property("unknown28", &whiteout::m2::PhysicsBody::unknown28)
+        .property("unknown2c", &whiteout::m2::PhysicsBody::unknown2c)
+        .property("padding2e", &whiteout::m2::PhysicsBody::padding2e)
+    ;
+
+    class_<whiteout::m2::PhysicsShape>("M2PhysicsShape")
+        .constructor<>()
+        .property("shapeType", &whiteout::m2::PhysicsShape::shapeType)
+        .property("shapeIndex", &whiteout::m2::PhysicsShape::shapeIndex)
+        .property("padding04", &whiteout::m2::PhysicsShape::padding04)
+        .property("friction", &whiteout::m2::PhysicsShape::friction)
+        .property("restitution", &whiteout::m2::PhysicsShape::restitution)
+        .property("density", &whiteout::m2::PhysicsShape::density)
+        .property("unknown14", &whiteout::m2::PhysicsShape::unknown14)
+        .property("scale", &whiteout::m2::PhysicsShape::scale)
+        .property("unknown1c", &whiteout::m2::PhysicsShape::unknown1c)
+        .property("padding1e", &whiteout::m2::PhysicsShape::padding1e)
+    ;
+
+    class_<whiteout::m2::BoxShape>("M2BoxShape")
+        .constructor<>()
+        .property("frame", &whiteout::m2::BoxShape::frame)
+        .property("halfExtents", &whiteout::m2::BoxShape::halfExtents)
+    ;
+
+    class_<whiteout::m2::CapsuleShape>("M2CapsuleShape")
+        .constructor<>()
+        .property("localPosition1", &whiteout::m2::CapsuleShape::localPosition1)
+        .property("localPosition2", &whiteout::m2::CapsuleShape::localPosition2)
+        .property("radius", &whiteout::m2::CapsuleShape::radius)
+    ;
+
+    class_<whiteout::m2::SphereShape>("M2SphereShape")
+        .constructor<>()
+        .property("localPosition", &whiteout::m2::SphereShape::localPosition)
+        .property("radius", &whiteout::m2::SphereShape::radius)
+    ;
+
+    class_<whiteout::m2::PolytopeHalfEdge>("M2PolytopeHalfEdge")
+        .constructor<>()
+        .property("twinOffset", &whiteout::m2::PolytopeHalfEdge::twinOffset)
+        .property("originVertex", &whiteout::m2::PolytopeHalfEdge::originVertex)
+        .property("faceIndex", &whiteout::m2::PolytopeHalfEdge::faceIndex)
+        .property("nextEdge", &whiteout::m2::PolytopeHalfEdge::nextEdge)
+    ;
+
+    class_<whiteout::m2::PolytopeShape>("M2PolytopeShape")
+        .constructor<>()
+        .property("vertices", &whiteout::m2::PolytopeShape::vertices)
+        .property("facePlanes", &whiteout::m2::PolytopeShape::facePlanes)
+        .property("faceFirstEdges", &whiteout::m2::PolytopeShape::faceFirstEdges)
+        .property("edges", &whiteout::m2::PolytopeShape::edges)
+        .property("centroid", &whiteout::m2::PolytopeShape::centroid)
+        .property("volume", &whiteout::m2::PolytopeShape::volume)
+        .property("surfaceArea", &whiteout::m2::PolytopeShape::surfaceArea)
+        .property("padding04", &whiteout::m2::PolytopeShape::padding04)
+        .property("padding14", &whiteout::m2::PolytopeShape::padding14)
+        .property("padding2c", &whiteout::m2::PolytopeShape::padding2c)
+        .property("padding4c", &whiteout::m2::PolytopeShape::padding4c)
+    ;
+
+    class_<whiteout::m2::PhysicsJoint>("M2PhysicsJoint")
+        .constructor<>()
+        .property("bodyAIndex", &whiteout::m2::PhysicsJoint::bodyAIndex)
+        .property("bodyBIndex", &whiteout::m2::PhysicsJoint::bodyBIndex)
+        .property("padding08", &whiteout::m2::PhysicsJoint::padding08)
+        .property("jointType", &whiteout::m2::PhysicsJoint::jointType)
+        .property("jointId", &whiteout::m2::PhysicsJoint::jointId)
+    ;
+
+    class_<whiteout::m2::WeldJoint>("M2WeldJoint")
+        .constructor<>()
+        .property("frameA", &whiteout::m2::WeldJoint::frameA)
+        .property("frameB", &whiteout::m2::WeldJoint::frameB)
+        .property("angularFrequencyHz", &whiteout::m2::WeldJoint::angularFrequencyHz)
+        .property("angularDampingRatio", &whiteout::m2::WeldJoint::angularDampingRatio)
+        .property("linearFrequencyHz", &whiteout::m2::WeldJoint::linearFrequencyHz)
+        .property("linearDampingRatio", &whiteout::m2::WeldJoint::linearDampingRatio)
+        .property("unknown70", &whiteout::m2::WeldJoint::unknown70)
+    ;
+
+    class_<whiteout::m2::SphericalJoint>("M2SphericalJoint")
+        .constructor<>()
+        .property("anchorA", &whiteout::m2::SphericalJoint::anchorA)
+        .property("anchorB", &whiteout::m2::SphericalJoint::anchorB)
+        .property("frictionTorque", &whiteout::m2::SphericalJoint::frictionTorque)
+    ;
+
+    class_<whiteout::m2::ShoulderJoint>("M2ShoulderJoint")
+        .constructor<>()
+        .property("frameA", &whiteout::m2::ShoulderJoint::frameA)
+        .property("frameB", &whiteout::m2::ShoulderJoint::frameB)
+        .property("lowerTwistAngle", &whiteout::m2::ShoulderJoint::lowerTwistAngle)
+        .property("upperTwistAngle", &whiteout::m2::ShoulderJoint::upperTwistAngle)
+        .property("coneAngle", &whiteout::m2::ShoulderJoint::coneAngle)
+        .property("maxMotorTorque", &whiteout::m2::ShoulderJoint::maxMotorTorque)
+        .property("motorMode", &whiteout::m2::ShoulderJoint::motorMode)
+        .property("motorFrequencyHz", &whiteout::m2::ShoulderJoint::motorFrequencyHz)
+        .property("motorDampingRatio", &whiteout::m2::ShoulderJoint::motorDampingRatio)
+    ;
+
+    class_<whiteout::m2::PrismaticJoint>("M2PrismaticJoint")
+        .constructor<>()
+        .property("frameA", &whiteout::m2::PrismaticJoint::frameA)
+        .property("frameB", &whiteout::m2::PrismaticJoint::frameB)
+        .property("lowerLimit", &whiteout::m2::PrismaticJoint::lowerLimit)
+        .property("upperLimit", &whiteout::m2::PrismaticJoint::upperLimit)
+        .property("unknown68", &whiteout::m2::PrismaticJoint::unknown68)
+        .property("maxMotorForce", &whiteout::m2::PrismaticJoint::maxMotorForce)
+        .property("unknown70", &whiteout::m2::PrismaticJoint::unknown70)
+        .property("motorMode", &whiteout::m2::PrismaticJoint::motorMode)
+        .property("motorFrequencyHz", &whiteout::m2::PrismaticJoint::motorFrequencyHz)
+        .property("motorDampingRatio", &whiteout::m2::PrismaticJoint::motorDampingRatio)
+    ;
+
+    class_<whiteout::m2::RevoluteJoint>("M2RevoluteJoint")
+        .constructor<>()
+        .property("frameA", &whiteout::m2::RevoluteJoint::frameA)
+        .property("frameB", &whiteout::m2::RevoluteJoint::frameB)
+        .property("lowerAngle", &whiteout::m2::RevoluteJoint::lowerAngle)
+        .property("upperAngle", &whiteout::m2::RevoluteJoint::upperAngle)
+        .property("maxMotorTorque", &whiteout::m2::RevoluteJoint::maxMotorTorque)
+        .property("motorMode", &whiteout::m2::RevoluteJoint::motorMode)
+        .property("motorFrequencyHz", &whiteout::m2::RevoluteJoint::motorFrequencyHz)
+        .property("motorDampingRatio", &whiteout::m2::RevoluteJoint::motorDampingRatio)
+    ;
+
+    class_<whiteout::m2::DistanceJoint>("M2DistanceJoint")
+        .constructor<>()
+        .property("localAnchorA", &whiteout::m2::DistanceJoint::localAnchorA)
+        .property("localAnchorB", &whiteout::m2::DistanceJoint::localAnchorB)
+        .property("distance", &whiteout::m2::DistanceJoint::distance)
+    ;
+
+    class_<whiteout::m2::PhysicsTuning>("M2PhysicsTuning")
+        .constructor<>()
+        .function("getValues",
+                  optional_override([](const whiteout::m2::PhysicsTuning& self) { return arrayToVec(self.values); }))
+        .function("setValues",
+                  optional_override([](    whiteout::m2::PhysicsTuning& self, const std::vector<whiteout::f32>& v) { vecToArray(self.values, v); }));
+    ;
+
+    class_<whiteout::m2::PhysicsUnknownChunk>("M2PhysicsUnknownChunk")
+        .constructor<>()
+        .property("data", &whiteout::m2::PhysicsUnknownChunk::data)
+        .function("getTag",
+                  optional_override([](const whiteout::m2::PhysicsUnknownChunk& self) { return arrayToVec(self.tag); }))
+        .function("setTag",
+                  optional_override([](    whiteout::m2::PhysicsUnknownChunk& self, const std::vector<char>& v) { vecToArray(self.tag, v); }));
+    ;
+
+    class_<whiteout::m2::PhysicsData>("M2PhysicsData")
+        .constructor<>()
+        .property("version", &whiteout::m2::PhysicsData::version)
+        .property("phyt", &whiteout::m2::PhysicsData::phyt)
+        .property("bodies", &whiteout::m2::PhysicsData::bodies)
+        .property("shapes", &whiteout::m2::PhysicsData::shapes)
+        .property("boxShapes", &whiteout::m2::PhysicsData::boxShapes)
+        .property("capsuleShapes", &whiteout::m2::PhysicsData::capsuleShapes)
+        .property("sphereShapes", &whiteout::m2::PhysicsData::sphereShapes)
+        .property("polytopeShapes", &whiteout::m2::PhysicsData::polytopeShapes)
+        .property("joints", &whiteout::m2::PhysicsData::joints)
+        .property("weldJoints", &whiteout::m2::PhysicsData::weldJoints)
+        .property("sphericalJoints", &whiteout::m2::PhysicsData::sphericalJoints)
+        .property("shoulderJoints", &whiteout::m2::PhysicsData::shoulderJoints)
+        .property("prismaticJoints", &whiteout::m2::PhysicsData::prismaticJoints)
+        .property("revoluteJoints", &whiteout::m2::PhysicsData::revoluteJoints)
+        .property("distanceJoints", &whiteout::m2::PhysicsData::distanceJoints)
+        .property("tuning", &whiteout::m2::PhysicsData::tuning)
+    ;
+
+    class_<whiteout::m2::BoneOverride>("M2BoneOverride")
+        .constructor<>()
+        .property("boneIndex", &whiteout::m2::BoneOverride::boneIndex)
+    ;
+
+    class_<whiteout::m2::BoneOverrideSet>("M2BoneOverrideSet")
+        .constructor<>()
+        .property("version", &whiteout::m2::BoneOverrideSet::version)
+        .property("overrides", &whiteout::m2::BoneOverrideSet::overrides)
+    ;
+
     class_<whiteout::m2::Model>("M2Model")
         .constructor<>()
         .property("modelName", &whiteout::m2::Model::modelName)
@@ -638,7 +860,10 @@ EMSCRIPTEN_BINDINGS(m2) {
         .property("geometryParticleModelIds", &whiteout::m2::Model::geometryParticleModelIds)
         .property("waterData", &whiteout::m2::Model::waterData)
         .property("particleGeosets", &whiteout::m2::Model::particleGeosets)
-        .property("physicsFileData", &whiteout::m2::Model::physicsFileData)
+        .property("physics", &whiteout::m2::Model::physics)
+        .property("physicsFileId", &whiteout::m2::Model::physicsFileId)
+        .property("boneOverrides", &whiteout::m2::Model::boneOverrides)
+        .property("boneFileIds", &whiteout::m2::Model::boneFileIds)
         .property("edgeFadeEntries", &whiteout::m2::Model::edgeFadeEntries)
         .property("nerfEntries", &whiteout::m2::Model::nerfEntries)
         .property("detailedLightEntries", &whiteout::m2::Model::detailedLightEntries)
@@ -677,6 +902,7 @@ EMSCRIPTEN_BINDINGS(m2) {
         .constructor<>()
         .property("m2Data", &whiteout::m2::M2SerializeResult::m2Data)
         .property("skeletonData", &whiteout::m2::M2SerializeResult::skeletonData)
+        .property("physicsData", &whiteout::m2::M2SerializeResult::physicsData)
     ;
 
     class_<whiteout::m2::Writer>("M2Writer")
@@ -782,13 +1008,18 @@ EMSCRIPTEN_BINDINGS(m2) {
     register_vector<whiteout::m2::Attachment>("VectorM2Attachment");
     register_vector<whiteout::m2::Batch>("VectorM2Batch");
     register_vector<whiteout::m2::Bone>("VectorM2Bone");
+    register_vector<whiteout::m2::BoneOverride>("VectorM2BoneOverride");
+    register_vector<whiteout::m2::BoneOverrideSet>("VectorM2BoneOverrideSet");
+    register_vector<whiteout::m2::BoxShape>("VectorM2BoxShape");
     register_vector<whiteout::m2::Camera>("VectorM2Camera");
     register_vector<whiteout::m2::CameraSpline>("VectorM2CameraSpline");
+    register_vector<whiteout::m2::CapsuleShape>("VectorM2CapsuleShape");
     register_vector<whiteout::m2::ColorAnimation>("VectorM2ColorAnimation");
     register_vector<whiteout::m2::CompatQuaternion>("VectorM2CompatQuaternion");
     register_vector<whiteout::m2::DebugOcclusionData>("VectorM2DebugOcclusionData");
     register_vector<whiteout::m2::DetailedLightData>("VectorM2DetailedLightData");
     register_vector<whiteout::m2::DistanceFadeData>("VectorM2DistanceFadeData");
+    register_vector<whiteout::m2::DistanceJoint>("VectorM2DistanceJoint");
     register_vector<whiteout::m2::EdgeFadeData>("VectorM2EdgeFadeData");
     register_vector<whiteout::m2::Event>("VectorM2Event");
     register_vector<whiteout::m2::Extent>("VectorM2Extent");
@@ -797,15 +1028,27 @@ EMSCRIPTEN_BINDINGS(m2) {
     register_vector<whiteout::m2::Material>("VectorM2Material");
     register_vector<whiteout::m2::ParticleEmitter>("VectorM2ParticleEmitter");
     register_vector<whiteout::m2::ParticleGeosetData>("VectorM2ParticleGeosetData");
+    register_vector<whiteout::m2::PhysicsBody>("VectorM2PhysicsBody");
+    register_vector<whiteout::m2::PhysicsJoint>("VectorM2PhysicsJoint");
+    register_vector<whiteout::m2::PhysicsShape>("VectorM2PhysicsShape");
+    register_vector<whiteout::m2::PhysicsTuning>("VectorM2PhysicsTuning");
+    register_vector<whiteout::m2::PolytopeHalfEdge>("VectorM2PolytopeHalfEdge");
+    register_vector<whiteout::m2::PolytopeShape>("VectorM2PolytopeShape");
+    register_vector<whiteout::m2::PrismaticJoint>("VectorM2PrismaticJoint");
+    register_vector<whiteout::m2::RevoluteJoint>("VectorM2RevoluteJoint");
     register_vector<whiteout::m2::RibbonEmitter>("VectorM2RibbonEmitter");
     register_vector<whiteout::m2::Sequence>("VectorM2Sequence");
     register_vector<whiteout::m2::ShadowBatch>("VectorM2ShadowBatch");
+    register_vector<whiteout::m2::ShoulderJoint>("VectorM2ShoulderJoint");
     register_vector<whiteout::m2::SkinProfile>("VectorM2SkinProfile");
     register_vector<whiteout::m2::SkinSection>("VectorM2SkinSection");
+    register_vector<whiteout::m2::SphereShape>("VectorM2SphereShape");
+    register_vector<whiteout::m2::SphericalJoint>("VectorM2SphericalJoint");
     register_vector<whiteout::m2::Texture>("VectorM2Texture");
     register_vector<whiteout::m2::TextureTransform>("VectorM2TextureTransform");
     register_vector<whiteout::m2::TextureWeight>("VectorM2TextureWeight");
     register_vector<whiteout::m2::TexturedLightData>("VectorM2TexturedLightData");
     register_vector<whiteout::m2::Vertex>("VectorM2Vertex");
+    register_vector<whiteout::m2::WeldJoint>("VectorM2WeldJoint");
 
 }

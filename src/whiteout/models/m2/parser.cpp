@@ -245,7 +245,7 @@ void Parser::Impl::parse(WoWFileSystem& wfs, Model& result) {
     if (m2.pgd1_chunk)
         result.particleGeosets = std::move(m2.pgd1_chunk->particleGeosetData);
     if (m2.pfdc_chunk)
-        result.physicsFileData = std::move(m2.pfdc_chunk->physicsData);
+        result.physics = std::move(m2.pfdc_chunk->physics);
     if (m2.edgf_chunk)
         result.edgeFadeEntries = std::move(m2.edgf_chunk->entries);
     if (m2.nerf_chunk)
@@ -269,13 +269,46 @@ void Parser::Impl::parse(WoWFileSystem& wfs, Model& result) {
     if (m2.texl_chunk)
         result.texturedLightEntries = std::move(m2.texl_chunk->texturedLights);
 
-    // A plain MD20 with the LoadPhysicsData flag names its physics by path:
-    // `<stem>.phys`. Chunked models carry the same payload in PFDC instead.
-    if (m2.format == Format::ClassicMD20 && result.physicsFileData.empty() &&
-        hasFlag(result.globalFlags.value, GlobalFlag::LoadPhysicsData)) {
-        auto physData = wfs.getPhysics();
-        if (!physData.empty()) {
-            result.physicsFileData.assign(physData.begin(), physData.end());
+    // Physics that is not inline lives in a `.phys` of its own: a plain MD20
+    // with the LoadPhysicsData flag names it by path, and a chunked model names
+    // it by file id through PFID.
+    if (!result.physics) {
+        if (m2.pfid_chunk && m2.pfid_chunk->physFileDataId != 0) {
+            result.physicsFileId = m2.pfid_chunk->physFileDataId;
+        }
+        const bool named = result.physicsFileId.has_value() ||
+                           hasFlag(result.globalFlags.value, GlobalFlag::LoadPhysicsData);
+        if (named) {
+            auto physData = wfs.getPhysics();
+            if (!physData.empty()) {
+                common::span_streambuf sbuf(physData);
+                BinaryReader reader(sbuf);
+                result.physics.emplace();
+                chunkParser.parsePhysics(reader, result.physics.value());
+            }
+        }
+    }
+
+    // One `.bone` per customization choice. BFID names them by id and lives on
+    // the `.skel` for character models, on the `.m2` for the rest; without one
+    // they are `<stem>_NN.bone` siblings.
+    if (m2.bfid_chunk) {
+        result.boneFileIds = m2.bfid_chunk->boneFileDataIds;
+    } else if (skeleton && skeleton->bfid_chunk) {
+        result.boneFileIds = skeleton->bfid_chunk->boneFileDataIds;
+    }
+    const u32 boneFileCount = wfs.boneCount();
+    result.boneOverrides.reserve(boneFileCount);
+    for (u32 i = 0; i < boneFileCount; ++i) {
+        auto boneData = wfs.getBone(i);
+        if (boneData.empty()) {
+            continue;
+        }
+        common::span_streambuf sbuf(boneData);
+        BinaryReader reader(sbuf);
+        BoneOverrideSet overrides;
+        if (chunkParser.parseBoneOverrides(reader, overrides)) {
+            result.boneOverrides.push_back(std::move(overrides));
         }
     }
 }

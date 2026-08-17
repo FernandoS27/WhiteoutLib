@@ -24,16 +24,14 @@ public:
     explicit BinaryParseVisitor(common::BinaryReader& reader, WoWFileSystem* wfs = nullptr,
                                 i32 maxSize_ = -1);
 
-    template <typename T>
-    void read(T& header) {
+    /// Extra arguments are forwarded to the matching visit() overload — the
+    /// owning BaseFile for chunks that size themselves from the model header,
+    /// or a record layout for the `.phys` chunks that were respelled between
+    /// file versions.
+    template <typename T, typename... Args>
+    void read(T& header, Args&&... args) {
         start();
-        visit(header);
-    }
-
-    template <typename T>
-    void read(T& header, BaseFile& file) {
-        start();
-        visit(header, file);
+        visit(header, std::forward<Args>(args)...);
     }
 
     void setVersion(u32 v) {
@@ -95,7 +93,6 @@ protected:
     void visit(PGD1Chunk& chunk);
     void visit(WaterfallData& data);
     void visit(WFV3Chunk& chunk);
-    void visit(PFDCChunk& chunk);
     void visit(EdgeFadeData& entry);
     void visit(EDGFChunk& chunk);
     void visit(DistanceFadeData& entry);
@@ -110,39 +107,21 @@ protected:
     void visit(TexturedLightData& entry);
     void visit(TEXLChunk& chunk);
 
-    void visit(PHYSHeader& header);
-    void visit(PHYTEntry& entry);
-    void visit(BODYEntry& entry);
-    void visit(BDY2Entry& entry);
-    void visit(BDY3Entry& entry);
-    void visit(BDY4Entry& entry);
-    void visit(SHAPEntry& entry);
-    void visit(SHP2Entry& entry);
-    void visit(BOXSEntry& entry);
-    void visit(CAPSEntry& entry);
-    void visit(SPHSEntry& entry);
-    void visit(PLYTNode& node);
-    void visit(PLYTData& data, const PLYTHeader& header);
-    void visit(PLYTEntry& entry);
-    void visit(JOINEntry& entry);
-    void visit(Matrix3x4& matrix);
-    void visit(WELJEntry& entry);
-    void visit(WLJ2Entry& entry);
-    void visit(WLJ3Entry& entry);
-    void visit(SPHJEntry& entry);
-    void visit(SHOJEntry& entry);
-    void visit(SHJ2Entry& entry);
-    void visit(PRSJEntry& entry);
-    void visit(PRS2Entry& entry);
-    void visit(REVJEntry& entry);
-    void visit(REV2Entry& entry);
-    void visit(DSTJEntry& entry);
-    void visit(PHYVEntry& entry);
-
-    void visit(BONEHeader& header);
-    void visit(Matrix44f& matrix);
-    void visit(BIDAChunk& chunk);
-    void visit(BOMTChunk& chunk);
+    void visit(PhysicsFrame& frame);
+    void visit(PhysicsBody& body, PhysBodyLayout layout);
+    void visit(PhysicsShape& shape, PhysShapeLayout layout);
+    void visit(BoxShape& shape);
+    void visit(CapsuleShape& shape);
+    void visit(SphereShape& shape);
+    void visit(std::vector<PolytopeShape>& shapes);
+    void visit(PhysicsJoint& joint);
+    void visit(WeldJoint& joint, PhysWeldLayout layout);
+    void visit(SphericalJoint& joint);
+    void visit(ShoulderJoint& joint, PhysShoulderLayout layout);
+    void visit(PrismaticJoint& joint, PhysMotorLayout layout);
+    void visit(RevoluteJoint& joint, PhysMotorLayout layout);
+    void visit(DistanceJoint& joint);
+    void visit(PhysicsTuning& tuning);
 
     void visit(AFM2Chunk& chunk);
     void visit(AFSAChunk& chunk);

@@ -126,6 +126,27 @@ typedef enum {
     whiteout_m2_ParticleFlag_DynamicWind,
 } whiteout_m2_ParticleFlag;
 
+typedef enum {
+    whiteout_m2_PhysicsBodyType_Kinematic,
+    whiteout_m2_PhysicsBodyType_Dynamic,
+} whiteout_m2_PhysicsBodyType;
+
+typedef enum {
+    whiteout_m2_PhysicsShapeType_Box,
+    whiteout_m2_PhysicsShapeType_Capsule,
+    whiteout_m2_PhysicsShapeType_Sphere,
+    whiteout_m2_PhysicsShapeType_Polytope,
+} whiteout_m2_PhysicsShapeType;
+
+typedef enum {
+    whiteout_m2_PhysicsJointType_Spherical,
+    whiteout_m2_PhysicsJointType_Shoulder,
+    whiteout_m2_PhysicsJointType_Weld,
+    whiteout_m2_PhysicsJointType_Revolute,
+    whiteout_m2_PhysicsJointType_Prismatic,
+    whiteout_m2_PhysicsJointType_Distance,
+} whiteout_m2_PhysicsJointType;
+
 /* ── Opaque handles ───────────────────────────────────────── */
 
 typedef struct whiteout_M2CompatQuaternion whiteout_M2CompatQuaternion;
@@ -165,6 +186,26 @@ typedef struct whiteout_M2RibbonEmitter whiteout_M2RibbonEmitter;
 typedef struct whiteout_M2Box whiteout_M2Box;
 typedef struct whiteout_M2ParticleEmitter whiteout_M2ParticleEmitter;
 typedef struct whiteout_M2Event whiteout_M2Event;
+typedef struct whiteout_M2PhysicsFrame whiteout_M2PhysicsFrame;
+typedef struct whiteout_M2PhysicsBody whiteout_M2PhysicsBody;
+typedef struct whiteout_M2PhysicsShape whiteout_M2PhysicsShape;
+typedef struct whiteout_M2BoxShape whiteout_M2BoxShape;
+typedef struct whiteout_M2CapsuleShape whiteout_M2CapsuleShape;
+typedef struct whiteout_M2SphereShape whiteout_M2SphereShape;
+typedef struct whiteout_M2PolytopeHalfEdge whiteout_M2PolytopeHalfEdge;
+typedef struct whiteout_M2PolytopeShape whiteout_M2PolytopeShape;
+typedef struct whiteout_M2PhysicsJoint whiteout_M2PhysicsJoint;
+typedef struct whiteout_M2WeldJoint whiteout_M2WeldJoint;
+typedef struct whiteout_M2SphericalJoint whiteout_M2SphericalJoint;
+typedef struct whiteout_M2ShoulderJoint whiteout_M2ShoulderJoint;
+typedef struct whiteout_M2PrismaticJoint whiteout_M2PrismaticJoint;
+typedef struct whiteout_M2RevoluteJoint whiteout_M2RevoluteJoint;
+typedef struct whiteout_M2DistanceJoint whiteout_M2DistanceJoint;
+typedef struct whiteout_M2PhysicsTuning whiteout_M2PhysicsTuning;
+typedef struct whiteout_M2PhysicsUnknownChunk whiteout_M2PhysicsUnknownChunk;
+typedef struct whiteout_M2PhysicsData whiteout_M2PhysicsData;
+typedef struct whiteout_M2BoneOverride whiteout_M2BoneOverride;
+typedef struct whiteout_M2BoneOverrideSet whiteout_M2BoneOverrideSet;
 typedef struct whiteout_M2Model whiteout_M2Model;
 typedef struct whiteout_M2Parser whiteout_M2Parser;
 typedef struct whiteout_M2WriteOptions whiteout_M2WriteOptions;
@@ -925,6 +966,460 @@ void whiteout_m2_M2Event_set_position(whiteout_M2Event* self, const whiteout_Vec
 whiteout_M2AnimationTrackBase* whiteout_m2_M2Event_get_enabled(whiteout_M2Event* self);
 void whiteout_m2_M2Event_set_enabled(whiteout_M2Event* self, const whiteout_M2AnimationTrackBase* value);
 
+/* ── M2PhysicsFrame ─────────────────────────────────────────────── */
+
+/* The affine frame the Domino chunks store: three basis columns and an origin, twelve floats in all. */
+/*  */
+/* The client reassembles it as `dmMtx{axisX, axisY, axisZ}` -> `dmQuatFromMtx` plus `origin` as the translation, giving a `dmTransform`. */
+whiteout_M2PhysicsFrame* whiteout_m2_M2PhysicsFrame_new(void);
+void whiteout_m2_M2PhysicsFrame_delete(whiteout_M2PhysicsFrame* self);
+
+whiteout_Vector3f* whiteout_m2_M2PhysicsFrame_get_axisX(whiteout_M2PhysicsFrame* self);
+void whiteout_m2_M2PhysicsFrame_set_axisX(whiteout_M2PhysicsFrame* self, const whiteout_Vector3f* value);
+whiteout_Vector3f* whiteout_m2_M2PhysicsFrame_get_axisY(whiteout_M2PhysicsFrame* self);
+void whiteout_m2_M2PhysicsFrame_set_axisY(whiteout_M2PhysicsFrame* self, const whiteout_Vector3f* value);
+whiteout_Vector3f* whiteout_m2_M2PhysicsFrame_get_axisZ(whiteout_M2PhysicsFrame* self);
+void whiteout_m2_M2PhysicsFrame_set_axisZ(whiteout_M2PhysicsFrame* self, const whiteout_Vector3f* value);
+whiteout_Vector3f* whiteout_m2_M2PhysicsFrame_get_origin(whiteout_M2PhysicsFrame* self);
+void whiteout_m2_M2PhysicsFrame_set_origin(whiteout_M2PhysicsFrame* self, const whiteout_Vector3f* value);
+
+/* ── M2PhysicsBody ─────────────────────────────────────────────── */
+
+/* One rigid body, bound to a single model bone — BODY/BDY2/BDY3/BDY4. */
+/*  */
+/* The four on-disk layouts are the same fields accreting over time, so they share one struct; PhysicsData::version decides which of them is written back, and fields the older layouts lack keep their defaults. */
+whiteout_M2PhysicsBody* whiteout_m2_M2PhysicsBody_new(void);
+void whiteout_m2_M2PhysicsBody_delete(whiteout_M2PhysicsBody* self);
+
+int32_t whiteout_m2_M2PhysicsBody_get_type(const whiteout_M2PhysicsBody* self);
+void whiteout_m2_M2PhysicsBody_set_type(whiteout_M2PhysicsBody* self, int32_t value);
+uint16_t whiteout_m2_M2PhysicsBody_get_boneIndex(const whiteout_M2PhysicsBody* self);
+void whiteout_m2_M2PhysicsBody_set_boneIndex(whiteout_M2PhysicsBody* self, uint16_t value);
+/* Offset from the bone's animated position, not an absolute position: the client spawns the body at `bonePosition + position`. */
+whiteout_Vector3f* whiteout_m2_M2PhysicsBody_get_position(whiteout_M2PhysicsBody* self);
+void whiteout_m2_M2PhysicsBody_set_position(whiteout_M2PhysicsBody* self, const whiteout_Vector3f* value);
+/* First entry in PhysicsData::shapes belonging to this body. 32 bits wide in BODY/BDY2, 16 from BDY3 on — writing a larger index back into one of those truncates it. */
+int32_t whiteout_m2_M2PhysicsBody_get_shapeIndex(const whiteout_M2PhysicsBody* self);
+void whiteout_m2_M2PhysicsBody_set_shapeIndex(whiteout_M2PhysicsBody* self, int32_t value);
+int32_t whiteout_m2_M2PhysicsBody_get_shapeCount(const whiteout_M2PhysicsBody* self);
+void whiteout_m2_M2PhysicsBody_set_shapeCount(whiteout_M2PhysicsBody* self, int32_t value);
+/* BDY3+. 1.0 on all but 45 of 1213 kinematic bodies but tuned freely on dynamic ones, negatives included — the shape of `dmBodyDef::m_gravityScale`. */
+float whiteout_m2_M2PhysicsBody_get_gravityScale(const whiteout_M2PhysicsBody* self);
+void whiteout_m2_M2PhysicsBody_set_gravityScale(whiteout_M2PhysicsBody* self, float value);
+/* BDY2+. 1.0 in 3457 of 3526 bodies, otherwise 1.1-10 — `dmBodyDef::m_inertiaScale`. */
+float whiteout_m2_M2PhysicsBody_get_inertiaScale(const whiteout_M2PhysicsBody* self);
+void whiteout_m2_M2PhysicsBody_set_inertiaScale(whiteout_M2PhysicsBody* self, float value);
+/* BDY3+. Zero on 1196 of 1213 kinematic bodies and 0-10 on dynamic ones — `dmBodyDef::m_linearDamping`. */
+float whiteout_m2_M2PhysicsBody_get_linearDamping(const whiteout_M2PhysicsBody* self);
+void whiteout_m2_M2PhysicsBody_set_linearDamping(whiteout_M2PhysicsBody* self, float value);
+/* BDY3+. Same kinematic/dynamic split as @ref linearDamping — `dmBodyDef::m_angularDamping`. */
+float whiteout_m2_M2PhysicsBody_get_angularDamping(const whiteout_M2PhysicsBody* self);
+void whiteout_m2_M2PhysicsBody_set_angularDamping(whiteout_M2PhysicsBody* self, float value);
+/* BDY3+. Unidentified. Unlike the four above it is set on kinematic and dynamic bodies alike, so it is not a rigid-body integration parameter; values cluster on 0.5, 0.01, 0.9 and 0.1. */
+float whiteout_m2_M2PhysicsBody_get_unknown28(const whiteout_M2PhysicsBody* self);
+void whiteout_m2_M2PhysicsBody_set_unknown28(whiteout_M2PhysicsBody* self, float value);
+/* BDY4+. Unidentified; 0 in half the corpus, otherwise small values or 0x8000 alone, which reads like a bit field. */
+uint16_t whiteout_m2_M2PhysicsBody_get_unknown2c(const whiteout_M2PhysicsBody* self);
+void whiteout_m2_M2PhysicsBody_set_unknown2c(whiteout_M2PhysicsBody* self, uint16_t value);
+/* BDY4+. Zero in every corpus body. */
+uint16_t whiteout_m2_M2PhysicsBody_get_padding2e(const whiteout_M2PhysicsBody* self);
+void whiteout_m2_M2PhysicsBody_set_padding2e(whiteout_M2PhysicsBody* self, uint16_t value);
+
+/* ── M2PhysicsShape ─────────────────────────────────────────────── */
+
+/* One collision shape reference — SHAP/SHP2. Points at an entry of the box/capsule/sphere/polytope array named by @ref shapeType. */
+whiteout_M2PhysicsShape* whiteout_m2_M2PhysicsShape_new(void);
+void whiteout_m2_M2PhysicsShape_delete(whiteout_M2PhysicsShape* self);
+
+int32_t whiteout_m2_M2PhysicsShape_get_shapeType(const whiteout_M2PhysicsShape* self);
+void whiteout_m2_M2PhysicsShape_set_shapeType(whiteout_M2PhysicsShape* self, int32_t value);
+int16_t whiteout_m2_M2PhysicsShape_get_shapeIndex(const whiteout_M2PhysicsShape* self);
+void whiteout_m2_M2PhysicsShape_set_shapeIndex(whiteout_M2PhysicsShape* self, int16_t value);
+/* Zero in every corpus shape. */
+uint32_t whiteout_m2_M2PhysicsShape_get_padding04(const whiteout_M2PhysicsShape* self);
+void whiteout_m2_M2PhysicsShape_set_padding04(whiteout_M2PhysicsShape* self, uint32_t value);
+float whiteout_m2_M2PhysicsShape_get_friction(const whiteout_M2PhysicsShape* self);
+void whiteout_m2_M2PhysicsShape_set_friction(whiteout_M2PhysicsShape* self, float value);
+float whiteout_m2_M2PhysicsShape_get_restitution(const whiteout_M2PhysicsShape* self);
+void whiteout_m2_M2PhysicsShape_set_restitution(whiteout_M2PhysicsShape* self, float value);
+float whiteout_m2_M2PhysicsShape_get_density(const whiteout_M2PhysicsShape* self);
+void whiteout_m2_M2PhysicsShape_set_density(whiteout_M2PhysicsShape* self, float value);
+/* SHP2+. Unidentified, but a float: only 0, 0.01, 0.8 and 1.0 occur. The one `dmFixtureDef` float the rest of this struct does not account for is `m_rollingResistance`. */
+float whiteout_m2_M2PhysicsShape_get_unknown14(const whiteout_M2PhysicsShape* self);
+void whiteout_m2_M2PhysicsShape_set_unknown14(whiteout_M2PhysicsShape* self, float value);
+/* SHP2+. 1.0 in 3229 of 3230 shapes, matching the `m_scaleOrRadius` the client hands every fixture. */
+float whiteout_m2_M2PhysicsShape_get_scale(const whiteout_M2PhysicsShape* self);
+void whiteout_m2_M2PhysicsShape_set_scale(whiteout_M2PhysicsShape* self, float value);
+/* SHP2+. Zero in every corpus shape. */
+uint16_t whiteout_m2_M2PhysicsShape_get_unknown1c(const whiteout_M2PhysicsShape* self);
+void whiteout_m2_M2PhysicsShape_set_unknown1c(whiteout_M2PhysicsShape* self, uint16_t value);
+/* SHP2+. Uninitialised on disk; kept so writes match. */
+uint16_t whiteout_m2_M2PhysicsShape_get_padding1e(const whiteout_M2PhysicsShape* self);
+void whiteout_m2_M2PhysicsShape_set_padding1e(whiteout_M2PhysicsShape* self, uint16_t value);
+
+/* ── M2BoxShape ─────────────────────────────────────────────── */
+
+/* BOXS — an oriented box. The client turns it straight into a polytope via `CPhysicsBoxShapeDef::SetPolytopeData(frame, halfExtents)`. */
+whiteout_M2BoxShape* whiteout_m2_M2BoxShape_new(void);
+void whiteout_m2_M2BoxShape_delete(whiteout_M2BoxShape* self);
+
+whiteout_M2PhysicsFrame* whiteout_m2_M2BoxShape_get_frame(whiteout_M2BoxShape* self);
+void whiteout_m2_M2BoxShape_set_frame(whiteout_M2BoxShape* self, const whiteout_M2PhysicsFrame* value);
+whiteout_Vector3f* whiteout_m2_M2BoxShape_get_halfExtents(whiteout_M2BoxShape* self);
+void whiteout_m2_M2BoxShape_set_halfExtents(whiteout_M2BoxShape* self, const whiteout_Vector3f* value);
+
+/* ── M2CapsuleShape ─────────────────────────────────────────────── */
+
+/* CAPS — a capsule between two local points. */
+whiteout_M2CapsuleShape* whiteout_m2_M2CapsuleShape_new(void);
+void whiteout_m2_M2CapsuleShape_delete(whiteout_M2CapsuleShape* self);
+
+whiteout_Vector3f* whiteout_m2_M2CapsuleShape_get_localPosition1(whiteout_M2CapsuleShape* self);
+void whiteout_m2_M2CapsuleShape_set_localPosition1(whiteout_M2CapsuleShape* self, const whiteout_Vector3f* value);
+whiteout_Vector3f* whiteout_m2_M2CapsuleShape_get_localPosition2(whiteout_M2CapsuleShape* self);
+void whiteout_m2_M2CapsuleShape_set_localPosition2(whiteout_M2CapsuleShape* self, const whiteout_Vector3f* value);
+float whiteout_m2_M2CapsuleShape_get_radius(const whiteout_M2CapsuleShape* self);
+void whiteout_m2_M2CapsuleShape_set_radius(whiteout_M2CapsuleShape* self, float value);
+
+/* ── M2SphereShape ─────────────────────────────────────────────── */
+
+/* SPHS — a sphere at a local point. */
+whiteout_M2SphereShape* whiteout_m2_M2SphereShape_new(void);
+void whiteout_m2_M2SphereShape_delete(whiteout_M2SphereShape* self);
+
+whiteout_Vector3f* whiteout_m2_M2SphereShape_get_localPosition(whiteout_M2SphereShape* self);
+void whiteout_m2_M2SphereShape_set_localPosition(whiteout_M2SphereShape* self, const whiteout_Vector3f* value);
+float whiteout_m2_M2SphereShape_get_radius(const whiteout_M2SphereShape* self);
+void whiteout_m2_M2SphereShape_set_radius(whiteout_M2SphereShape* self, float value);
+
+/* ── M2PolytopeHalfEdge ─────────────────────────────────────────────── */
+
+/* One half-edge of a polytope — Domino's `dmSubEdge`, four bytes. */
+/*  */
+/* Half-edges are stored in twin pairs at adjacent indices, and the ones bounding a face form a cycle through @ref nextEdge. */
+whiteout_M2PolytopeHalfEdge* whiteout_m2_M2PolytopeHalfEdge_new(void);
+void whiteout_m2_M2PolytopeHalfEdge_delete(whiteout_M2PolytopeHalfEdge* self);
+
+/* Signed step to the paired half-edge: the twin of edge `i` is `i + twinOffset`. Only +1 and -1 occur, in equal numbers. */
+int8_t whiteout_m2_M2PolytopeHalfEdge_get_twinOffset(const whiteout_M2PolytopeHalfEdge* self);
+void whiteout_m2_M2PolytopeHalfEdge_set_twinOffset(whiteout_M2PolytopeHalfEdge* self, int8_t value);
+/* Where this half-edge starts, indexing PolytopeShape::vertices. */
+uint8_t whiteout_m2_M2PolytopeHalfEdge_get_originVertex(const whiteout_M2PolytopeHalfEdge* self);
+void whiteout_m2_M2PolytopeHalfEdge_set_originVertex(whiteout_M2PolytopeHalfEdge* self, uint8_t value);
+/* The face this half-edge bounds, indexing PolytopeShape::facePlanes. */
+uint8_t whiteout_m2_M2PolytopeHalfEdge_get_faceIndex(const whiteout_M2PolytopeHalfEdge* self);
+void whiteout_m2_M2PolytopeHalfEdge_set_faceIndex(whiteout_M2PolytopeHalfEdge* self, uint8_t value);
+/* Next half-edge around @ref faceIndex. */
+uint8_t whiteout_m2_M2PolytopeHalfEdge_get_nextEdge(const whiteout_M2PolytopeHalfEdge* self);
+void whiteout_m2_M2PolytopeHalfEdge_set_nextEdge(whiteout_M2PolytopeHalfEdge* self, uint8_t value);
+
+/* ── M2PolytopeShape ─────────────────────────────────────────────── */
+
+/* PLYT — a convex hull, version 3+. Domino's `dmPolytope`. */
+/*  */
+/* The chunk stores fixed-size headers and variable-size payloads in two blocks; both halves are folded into this one struct, and the header's counts are recomputed from the vectors on write. The header's four pointer fields are filled in by the client at load time and are zero in every file, so they are not kept. */
+whiteout_M2PolytopeShape* whiteout_m2_M2PolytopeShape_new(void);
+void whiteout_m2_M2PolytopeShape_delete(whiteout_M2PolytopeShape* self);
+
+/* Hull corners. */
+size_t whiteout_m2_M2PolytopeShape_get_vertices_count(const whiteout_M2PolytopeShape* self);
+void whiteout_m2_M2PolytopeShape_resize_vertices(whiteout_M2PolytopeShape* self, size_t count);
+const float* whiteout_m2_M2PolytopeShape_get_vertices_data(const whiteout_M2PolytopeShape* self);
+void whiteout_m2_M2PolytopeShape_assign_vertices(whiteout_M2PolytopeShape* self, const float* data, size_t count);
+/* Outward plane of each face, `xyz` normal and `w` offset. */
+size_t whiteout_m2_M2PolytopeShape_get_facePlanes_count(const whiteout_M2PolytopeShape* self);
+void whiteout_m2_M2PolytopeShape_resize_facePlanes(whiteout_M2PolytopeShape* self, size_t count);
+const float* whiteout_m2_M2PolytopeShape_get_facePlanes_data(const whiteout_M2PolytopeShape* self);
+void whiteout_m2_M2PolytopeShape_assign_facePlanes(whiteout_M2PolytopeShape* self, const float* data, size_t count);
+/* One entry per face: any half-edge bounding it, as the entry point for walking the face through PolytopeHalfEdge::nextEdge. */
+size_t whiteout_m2_M2PolytopeShape_get_faceFirstEdges_count(const whiteout_M2PolytopeShape* self);
+void whiteout_m2_M2PolytopeShape_resize_faceFirstEdges(whiteout_M2PolytopeShape* self, size_t count);
+const uint8_t* whiteout_m2_M2PolytopeShape_get_faceFirstEdges_data(const whiteout_M2PolytopeShape* self);
+void whiteout_m2_M2PolytopeShape_assign_faceFirstEdges(whiteout_M2PolytopeShape* self, const uint8_t* data, size_t count);
+size_t whiteout_m2_M2PolytopeShape_get_edges_count(const whiteout_M2PolytopeShape* self);
+void whiteout_m2_M2PolytopeShape_resize_edges(whiteout_M2PolytopeShape* self, size_t count);
+whiteout_M2PolytopeHalfEdge* whiteout_m2_M2PolytopeShape_get_edges_at(whiteout_M2PolytopeShape* self, size_t index);
+/* Volume-weighted, not the vertex average. */
+whiteout_Vector3f* whiteout_m2_M2PolytopeShape_get_centroid(whiteout_M2PolytopeShape* self);
+void whiteout_m2_M2PolytopeShape_set_centroid(whiteout_M2PolytopeShape* self, const whiteout_Vector3f* value);
+/* Hull volume. */
+float whiteout_m2_M2PolytopeShape_get_volume(const whiteout_M2PolytopeShape* self);
+void whiteout_m2_M2PolytopeShape_set_volume(whiteout_M2PolytopeShape* self, float value);
+/* Hull surface area. */
+float whiteout_m2_M2PolytopeShape_get_surfaceArea(const whiteout_M2PolytopeShape* self);
+void whiteout_m2_M2PolytopeShape_set_surfaceArea(whiteout_M2PolytopeShape* self, float value);
+/* The four-byte gaps each count leaves in front of its 64-bit pointer, and the one that trails the header. Uninitialised in the files — some carry fragments of unrelated strings — so they are kept verbatim for writing. */
+uint32_t whiteout_m2_M2PolytopeShape_get_padding04(const whiteout_M2PolytopeShape* self);
+void whiteout_m2_M2PolytopeShape_set_padding04(whiteout_M2PolytopeShape* self, uint32_t value);
+uint32_t whiteout_m2_M2PolytopeShape_get_padding14(const whiteout_M2PolytopeShape* self);
+void whiteout_m2_M2PolytopeShape_set_padding14(whiteout_M2PolytopeShape* self, uint32_t value);
+uint32_t whiteout_m2_M2PolytopeShape_get_padding2c(const whiteout_M2PolytopeShape* self);
+void whiteout_m2_M2PolytopeShape_set_padding2c(whiteout_M2PolytopeShape* self, uint32_t value);
+uint32_t whiteout_m2_M2PolytopeShape_get_padding4c(const whiteout_M2PolytopeShape* self);
+void whiteout_m2_M2PolytopeShape_set_padding4c(whiteout_M2PolytopeShape* self, uint32_t value);
+
+/* ── M2PhysicsJoint ─────────────────────────────────────────────── */
+
+/* JOIN — connects two bodies with the joint named by @ref jointType. */
+whiteout_M2PhysicsJoint* whiteout_m2_M2PhysicsJoint_new(void);
+void whiteout_m2_M2PhysicsJoint_delete(whiteout_M2PhysicsJoint* self);
+
+uint32_t whiteout_m2_M2PhysicsJoint_get_bodyAIndex(const whiteout_M2PhysicsJoint* self);
+void whiteout_m2_M2PhysicsJoint_set_bodyAIndex(whiteout_M2PhysicsJoint* self, uint32_t value);
+uint32_t whiteout_m2_M2PhysicsJoint_get_bodyBIndex(const whiteout_M2PhysicsJoint* self);
+void whiteout_m2_M2PhysicsJoint_set_bodyBIndex(whiteout_M2PhysicsJoint* self, uint32_t value);
+/* Zero in every corpus joint. */
+uint32_t whiteout_m2_M2PhysicsJoint_get_padding08(const whiteout_M2PhysicsJoint* self);
+void whiteout_m2_M2PhysicsJoint_set_padding08(whiteout_M2PhysicsJoint* self, uint32_t value);
+int32_t whiteout_m2_M2PhysicsJoint_get_jointType(const whiteout_M2PhysicsJoint* self);
+void whiteout_m2_M2PhysicsJoint_set_jointType(whiteout_M2PhysicsJoint* self, int32_t value);
+/* Entry index within the joint array @ref jointType selects. */
+int16_t whiteout_m2_M2PhysicsJoint_get_jointId(const whiteout_M2PhysicsJoint* self);
+void whiteout_m2_M2PhysicsJoint_set_jointId(whiteout_M2PhysicsJoint* self, int16_t value);
+
+/* ── M2WeldJoint ─────────────────────────────────────────────── */
+
+/* WELJ/WLJ2/WLJ3 — a soft rigid connection. Zero frequency means the axis is solved as a hard constraint. */
+whiteout_M2WeldJoint* whiteout_m2_M2WeldJoint_new(void);
+void whiteout_m2_M2WeldJoint_delete(whiteout_M2WeldJoint* self);
+
+whiteout_M2PhysicsFrame* whiteout_m2_M2WeldJoint_get_frameA(whiteout_M2WeldJoint* self);
+void whiteout_m2_M2WeldJoint_set_frameA(whiteout_M2WeldJoint* self, const whiteout_M2PhysicsFrame* value);
+whiteout_M2PhysicsFrame* whiteout_m2_M2WeldJoint_get_frameB(whiteout_M2WeldJoint* self);
+void whiteout_m2_M2WeldJoint_set_frameB(whiteout_M2WeldJoint* self, const whiteout_M2PhysicsFrame* value);
+float whiteout_m2_M2WeldJoint_get_angularFrequencyHz(const whiteout_M2WeldJoint* self);
+void whiteout_m2_M2WeldJoint_set_angularFrequencyHz(whiteout_M2WeldJoint* self, float value);
+float whiteout_m2_M2WeldJoint_get_angularDampingRatio(const whiteout_M2WeldJoint* self);
+void whiteout_m2_M2WeldJoint_set_angularDampingRatio(whiteout_M2WeldJoint* self, float value);
+/* WLJ2+ */
+float whiteout_m2_M2WeldJoint_get_linearFrequencyHz(const whiteout_M2WeldJoint* self);
+void whiteout_m2_M2WeldJoint_set_linearFrequencyHz(whiteout_M2WeldJoint* self, float value);
+/* WLJ2+ */
+float whiteout_m2_M2WeldJoint_get_linearDampingRatio(const whiteout_M2WeldJoint* self);
+void whiteout_m2_M2WeldJoint_set_linearDampingRatio(whiteout_M2WeldJoint* self, float value);
+/* WLJ3+. Zero in 265 of 274 weld joints. */
+float whiteout_m2_M2WeldJoint_get_unknown70(const whiteout_M2WeldJoint* self);
+void whiteout_m2_M2WeldJoint_set_unknown70(whiteout_M2WeldJoint* self, float value);
+
+/* ── M2SphericalJoint ─────────────────────────────────────────────── */
+
+/* SPHJ — a ball joint between two anchor points. */
+whiteout_M2SphericalJoint* whiteout_m2_M2SphericalJoint_new(void);
+void whiteout_m2_M2SphericalJoint_delete(whiteout_M2SphericalJoint* self);
+
+whiteout_Vector3f* whiteout_m2_M2SphericalJoint_get_anchorA(whiteout_M2SphericalJoint* self);
+void whiteout_m2_M2SphericalJoint_set_anchorA(whiteout_M2SphericalJoint* self, const whiteout_Vector3f* value);
+whiteout_Vector3f* whiteout_m2_M2SphericalJoint_get_anchorB(whiteout_M2SphericalJoint* self);
+void whiteout_m2_M2SphericalJoint_set_anchorB(whiteout_M2SphericalJoint* self, const whiteout_Vector3f* value);
+float whiteout_m2_M2SphericalJoint_get_frictionTorque(const whiteout_M2SphericalJoint* self);
+void whiteout_m2_M2SphericalJoint_set_frictionTorque(whiteout_M2SphericalJoint* self, float value);
+
+/* ── M2ShoulderJoint ─────────────────────────────────────────────── */
+
+/* SHOJ/SHJ2 — a twist-and-cone joint, the one that chains cloth. */
+whiteout_M2ShoulderJoint* whiteout_m2_M2ShoulderJoint_new(void);
+void whiteout_m2_M2ShoulderJoint_delete(whiteout_M2ShoulderJoint* self);
+
+whiteout_M2PhysicsFrame* whiteout_m2_M2ShoulderJoint_get_frameA(whiteout_M2ShoulderJoint* self);
+void whiteout_m2_M2ShoulderJoint_set_frameA(whiteout_M2ShoulderJoint* self, const whiteout_M2PhysicsFrame* value);
+whiteout_M2PhysicsFrame* whiteout_m2_M2ShoulderJoint_get_frameB(whiteout_M2ShoulderJoint* self);
+void whiteout_m2_M2ShoulderJoint_set_frameB(whiteout_M2ShoulderJoint* self, const whiteout_M2PhysicsFrame* value);
+float whiteout_m2_M2ShoulderJoint_get_lowerTwistAngle(const whiteout_M2ShoulderJoint* self);
+void whiteout_m2_M2ShoulderJoint_set_lowerTwistAngle(whiteout_M2ShoulderJoint* self, float value);
+float whiteout_m2_M2ShoulderJoint_get_upperTwistAngle(const whiteout_M2ShoulderJoint* self);
+void whiteout_m2_M2ShoulderJoint_set_upperTwistAngle(whiteout_M2ShoulderJoint* self, float value);
+/* Degrees: the corpus holds 20, 35, 45 and 60, while `dmShoulderJoint` clamps its own cone to [10°, 170°] expressed in radians — so the loader converts on the way in. */
+float whiteout_m2_M2ShoulderJoint_get_coneAngle(const whiteout_M2ShoulderJoint* self);
+void whiteout_m2_M2ShoulderJoint_set_coneAngle(whiteout_M2ShoulderJoint* self, float value);
+/* version 2+ */
+float whiteout_m2_M2ShoulderJoint_get_maxMotorTorque(const whiteout_M2ShoulderJoint* self);
+void whiteout_m2_M2ShoulderJoint_set_maxMotorTorque(whiteout_M2ShoulderJoint* self, float value);
+/* version 2+ */
+uint32_t whiteout_m2_M2ShoulderJoint_get_motorMode(const whiteout_M2ShoulderJoint* self);
+void whiteout_m2_M2ShoulderJoint_set_motorMode(whiteout_M2ShoulderJoint* self, uint32_t value);
+/* SHJ2 */
+float whiteout_m2_M2ShoulderJoint_get_motorFrequencyHz(const whiteout_M2ShoulderJoint* self);
+void whiteout_m2_M2ShoulderJoint_set_motorFrequencyHz(whiteout_M2ShoulderJoint* self, float value);
+/* SHJ2 */
+float whiteout_m2_M2ShoulderJoint_get_motorDampingRatio(const whiteout_M2ShoulderJoint* self);
+void whiteout_m2_M2ShoulderJoint_set_motorDampingRatio(whiteout_M2ShoulderJoint* self, float value);
+
+/* ── M2PrismaticJoint ─────────────────────────────────────────────── */
+
+/* PRSJ/PRS2 — a sliding joint, version 2+. */
+whiteout_M2PrismaticJoint* whiteout_m2_M2PrismaticJoint_new(void);
+void whiteout_m2_M2PrismaticJoint_delete(whiteout_M2PrismaticJoint* self);
+
+whiteout_M2PhysicsFrame* whiteout_m2_M2PrismaticJoint_get_frameA(whiteout_M2PrismaticJoint* self);
+void whiteout_m2_M2PrismaticJoint_set_frameA(whiteout_M2PrismaticJoint* self, const whiteout_M2PhysicsFrame* value);
+whiteout_M2PhysicsFrame* whiteout_m2_M2PrismaticJoint_get_frameB(whiteout_M2PrismaticJoint* self);
+void whiteout_m2_M2PrismaticJoint_set_frameB(whiteout_M2PrismaticJoint* self, const whiteout_M2PhysicsFrame* value);
+float whiteout_m2_M2PrismaticJoint_get_lowerLimit(const whiteout_M2PrismaticJoint* self);
+void whiteout_m2_M2PrismaticJoint_set_lowerLimit(whiteout_M2PrismaticJoint* self, float value);
+float whiteout_m2_M2PrismaticJoint_get_upperLimit(const whiteout_M2PrismaticJoint* self);
+void whiteout_m2_M2PrismaticJoint_set_upperLimit(whiteout_M2PrismaticJoint* self, float value);
+/* Unidentified; zero in all twelve corpus prismatic joints. Domino's prismatic def carries an enable-limit flag next to the limit pair. */
+float whiteout_m2_M2PrismaticJoint_get_unknown68(const whiteout_M2PrismaticJoint* self);
+void whiteout_m2_M2PrismaticJoint_set_unknown68(whiteout_M2PrismaticJoint* self, float value);
+float whiteout_m2_M2PrismaticJoint_get_maxMotorForce(const whiteout_M2PrismaticJoint* self);
+void whiteout_m2_M2PrismaticJoint_set_maxMotorForce(whiteout_M2PrismaticJoint* self, float value);
+/* Unidentified; zero in all twelve. */
+float whiteout_m2_M2PrismaticJoint_get_unknown70(const whiteout_M2PrismaticJoint* self);
+void whiteout_m2_M2PrismaticJoint_set_unknown70(whiteout_M2PrismaticJoint* self, float value);
+uint32_t whiteout_m2_M2PrismaticJoint_get_motorMode(const whiteout_M2PrismaticJoint* self);
+void whiteout_m2_M2PrismaticJoint_set_motorMode(whiteout_M2PrismaticJoint* self, uint32_t value);
+/* PRS2 */
+float whiteout_m2_M2PrismaticJoint_get_motorFrequencyHz(const whiteout_M2PrismaticJoint* self);
+void whiteout_m2_M2PrismaticJoint_set_motorFrequencyHz(whiteout_M2PrismaticJoint* self, float value);
+/* PRS2 */
+float whiteout_m2_M2PrismaticJoint_get_motorDampingRatio(const whiteout_M2PrismaticJoint* self);
+void whiteout_m2_M2PrismaticJoint_set_motorDampingRatio(whiteout_M2PrismaticJoint* self, float value);
+
+/* ── M2RevoluteJoint ─────────────────────────────────────────────── */
+
+/* REVJ/REV2 — a hinge, version 2+. */
+whiteout_M2RevoluteJoint* whiteout_m2_M2RevoluteJoint_new(void);
+void whiteout_m2_M2RevoluteJoint_delete(whiteout_M2RevoluteJoint* self);
+
+whiteout_M2PhysicsFrame* whiteout_m2_M2RevoluteJoint_get_frameA(whiteout_M2RevoluteJoint* self);
+void whiteout_m2_M2RevoluteJoint_set_frameA(whiteout_M2RevoluteJoint* self, const whiteout_M2PhysicsFrame* value);
+whiteout_M2PhysicsFrame* whiteout_m2_M2RevoluteJoint_get_frameB(whiteout_M2RevoluteJoint* self);
+void whiteout_m2_M2RevoluteJoint_set_frameB(whiteout_M2RevoluteJoint* self, const whiteout_M2PhysicsFrame* value);
+float whiteout_m2_M2RevoluteJoint_get_lowerAngle(const whiteout_M2RevoluteJoint* self);
+void whiteout_m2_M2RevoluteJoint_set_lowerAngle(whiteout_M2RevoluteJoint* self, float value);
+float whiteout_m2_M2RevoluteJoint_get_upperAngle(const whiteout_M2RevoluteJoint* self);
+void whiteout_m2_M2RevoluteJoint_set_upperAngle(whiteout_M2RevoluteJoint* self, float value);
+float whiteout_m2_M2RevoluteJoint_get_maxMotorTorque(const whiteout_M2RevoluteJoint* self);
+void whiteout_m2_M2RevoluteJoint_set_maxMotorTorque(whiteout_M2RevoluteJoint* self, float value);
+/* 1: position mode (frequency > 0), 2: velocity mode. */
+uint32_t whiteout_m2_M2RevoluteJoint_get_motorMode(const whiteout_M2RevoluteJoint* self);
+void whiteout_m2_M2RevoluteJoint_set_motorMode(whiteout_M2RevoluteJoint* self, uint32_t value);
+/* REV2 */
+float whiteout_m2_M2RevoluteJoint_get_motorFrequencyHz(const whiteout_M2RevoluteJoint* self);
+void whiteout_m2_M2RevoluteJoint_set_motorFrequencyHz(whiteout_M2RevoluteJoint* self, float value);
+/* REV2 */
+float whiteout_m2_M2RevoluteJoint_get_motorDampingRatio(const whiteout_M2RevoluteJoint* self);
+void whiteout_m2_M2RevoluteJoint_set_motorDampingRatio(whiteout_M2RevoluteJoint* self, float value);
+
+/* ── M2DistanceJoint ─────────────────────────────────────────────── */
+
+/* DSTJ — holds two anchors a fixed distance apart, version 2+. */
+whiteout_M2DistanceJoint* whiteout_m2_M2DistanceJoint_new(void);
+void whiteout_m2_M2DistanceJoint_delete(whiteout_M2DistanceJoint* self);
+
+whiteout_Vector3f* whiteout_m2_M2DistanceJoint_get_localAnchorA(whiteout_M2DistanceJoint* self);
+void whiteout_m2_M2DistanceJoint_set_localAnchorA(whiteout_M2DistanceJoint* self, const whiteout_Vector3f* value);
+whiteout_Vector3f* whiteout_m2_M2DistanceJoint_get_localAnchorB(whiteout_M2DistanceJoint* self);
+void whiteout_m2_M2DistanceJoint_set_localAnchorB(whiteout_M2DistanceJoint* self, const whiteout_Vector3f* value);
+float whiteout_m2_M2DistanceJoint_get_distance(const whiteout_M2DistanceJoint* self);
+void whiteout_m2_M2DistanceJoint_set_distance(whiteout_M2DistanceJoint* self, float value);
+
+/* ── M2PhysicsTuning ─────────────────────────────────────────────── */
+
+/* PHYV — six floats that overwrite the head of a tuning block the client otherwise fills with constants. Version 1+. */
+whiteout_M2PhysicsTuning* whiteout_m2_M2PhysicsTuning_new(void);
+void whiteout_m2_M2PhysicsTuning_delete(whiteout_M2PhysicsTuning* self);
+
+size_t whiteout_m2_M2PhysicsTuning_values_size(void);
+float whiteout_m2_M2PhysicsTuning_get_values_at(const whiteout_M2PhysicsTuning* self, size_t index);
+void whiteout_m2_M2PhysicsTuning_set_values_at(whiteout_M2PhysicsTuning* self, size_t index, float value);
+
+/* ── M2PhysicsUnknownChunk ─────────────────────────────────────────────── */
+
+/* A `.phys` chunk this library does not know, kept verbatim so a parse/write cycle does not drop it. */
+whiteout_M2PhysicsUnknownChunk* whiteout_m2_M2PhysicsUnknownChunk_new(void);
+void whiteout_m2_M2PhysicsUnknownChunk_delete(whiteout_M2PhysicsUnknownChunk* self);
+
+/* FourCC as written on disk — `.phys` stores chunk ids reversed, so a PHYS chunk reads as "SYHP". */
+size_t whiteout_m2_M2PhysicsUnknownChunk_tag_size(void);
+int8_t whiteout_m2_M2PhysicsUnknownChunk_get_tag_at(const whiteout_M2PhysicsUnknownChunk* self, size_t index);
+void whiteout_m2_M2PhysicsUnknownChunk_set_tag_at(whiteout_M2PhysicsUnknownChunk* self, size_t index, int8_t value);
+size_t whiteout_m2_M2PhysicsUnknownChunk_get_data_count(const whiteout_M2PhysicsUnknownChunk* self);
+void whiteout_m2_M2PhysicsUnknownChunk_resize_data(whiteout_M2PhysicsUnknownChunk* self, size_t count);
+const uint8_t* whiteout_m2_M2PhysicsUnknownChunk_get_data_data(const whiteout_M2PhysicsUnknownChunk* self);
+void whiteout_m2_M2PhysicsUnknownChunk_assign_data(whiteout_M2PhysicsUnknownChunk* self, const uint8_t* data, size_t count);
+
+/* ── M2PhysicsData ─────────────────────────────────────────────── */
+
+/* A whole `.phys` file — Blizzard's Domino rigid-body setup for a model, either a `.phys` sibling or an M2's inline PFDC chunk. */
+/*  */
+/* Bodies attach to bones and are linked by joints; each body owns a run of @ref shapes, and each shape indexes the array its type names. */
+whiteout_M2PhysicsData* whiteout_m2_M2PhysicsData_new(void);
+void whiteout_m2_M2PhysicsData_delete(whiteout_M2PhysicsData* self);
+
+/* 0 (MoP) through 6. Decides which layout each chunk is written in — see the per-field version notes on the structs above. */
+uint16_t whiteout_m2_M2PhysicsData_get_version(const whiteout_M2PhysicsData* self);
+void whiteout_m2_M2PhysicsData_set_version(whiteout_M2PhysicsData* self, uint16_t value);
+size_t whiteout_m2_M2PhysicsData_get_bodies_count(const whiteout_M2PhysicsData* self);
+void whiteout_m2_M2PhysicsData_resize_bodies(whiteout_M2PhysicsData* self, size_t count);
+whiteout_M2PhysicsBody* whiteout_m2_M2PhysicsData_get_bodies_at(whiteout_M2PhysicsData* self, size_t index);
+size_t whiteout_m2_M2PhysicsData_get_shapes_count(const whiteout_M2PhysicsData* self);
+void whiteout_m2_M2PhysicsData_resize_shapes(whiteout_M2PhysicsData* self, size_t count);
+whiteout_M2PhysicsShape* whiteout_m2_M2PhysicsData_get_shapes_at(whiteout_M2PhysicsData* self, size_t index);
+size_t whiteout_m2_M2PhysicsData_get_boxShapes_count(const whiteout_M2PhysicsData* self);
+void whiteout_m2_M2PhysicsData_resize_boxShapes(whiteout_M2PhysicsData* self, size_t count);
+whiteout_M2BoxShape* whiteout_m2_M2PhysicsData_get_boxShapes_at(whiteout_M2PhysicsData* self, size_t index);
+size_t whiteout_m2_M2PhysicsData_get_capsuleShapes_count(const whiteout_M2PhysicsData* self);
+void whiteout_m2_M2PhysicsData_resize_capsuleShapes(whiteout_M2PhysicsData* self, size_t count);
+whiteout_M2CapsuleShape* whiteout_m2_M2PhysicsData_get_capsuleShapes_at(whiteout_M2PhysicsData* self, size_t index);
+size_t whiteout_m2_M2PhysicsData_get_sphereShapes_count(const whiteout_M2PhysicsData* self);
+void whiteout_m2_M2PhysicsData_resize_sphereShapes(whiteout_M2PhysicsData* self, size_t count);
+whiteout_M2SphereShape* whiteout_m2_M2PhysicsData_get_sphereShapes_at(whiteout_M2PhysicsData* self, size_t index);
+size_t whiteout_m2_M2PhysicsData_get_polytopeShapes_count(const whiteout_M2PhysicsData* self);
+void whiteout_m2_M2PhysicsData_resize_polytopeShapes(whiteout_M2PhysicsData* self, size_t count);
+whiteout_M2PolytopeShape* whiteout_m2_M2PhysicsData_get_polytopeShapes_at(whiteout_M2PhysicsData* self, size_t index);
+size_t whiteout_m2_M2PhysicsData_get_joints_count(const whiteout_M2PhysicsData* self);
+void whiteout_m2_M2PhysicsData_resize_joints(whiteout_M2PhysicsData* self, size_t count);
+whiteout_M2PhysicsJoint* whiteout_m2_M2PhysicsData_get_joints_at(whiteout_M2PhysicsData* self, size_t index);
+size_t whiteout_m2_M2PhysicsData_get_weldJoints_count(const whiteout_M2PhysicsData* self);
+void whiteout_m2_M2PhysicsData_resize_weldJoints(whiteout_M2PhysicsData* self, size_t count);
+whiteout_M2WeldJoint* whiteout_m2_M2PhysicsData_get_weldJoints_at(whiteout_M2PhysicsData* self, size_t index);
+size_t whiteout_m2_M2PhysicsData_get_sphericalJoints_count(const whiteout_M2PhysicsData* self);
+void whiteout_m2_M2PhysicsData_resize_sphericalJoints(whiteout_M2PhysicsData* self, size_t count);
+whiteout_M2SphericalJoint* whiteout_m2_M2PhysicsData_get_sphericalJoints_at(whiteout_M2PhysicsData* self, size_t index);
+size_t whiteout_m2_M2PhysicsData_get_shoulderJoints_count(const whiteout_M2PhysicsData* self);
+void whiteout_m2_M2PhysicsData_resize_shoulderJoints(whiteout_M2PhysicsData* self, size_t count);
+whiteout_M2ShoulderJoint* whiteout_m2_M2PhysicsData_get_shoulderJoints_at(whiteout_M2PhysicsData* self, size_t index);
+size_t whiteout_m2_M2PhysicsData_get_prismaticJoints_count(const whiteout_M2PhysicsData* self);
+void whiteout_m2_M2PhysicsData_resize_prismaticJoints(whiteout_M2PhysicsData* self, size_t count);
+whiteout_M2PrismaticJoint* whiteout_m2_M2PhysicsData_get_prismaticJoints_at(whiteout_M2PhysicsData* self, size_t index);
+size_t whiteout_m2_M2PhysicsData_get_revoluteJoints_count(const whiteout_M2PhysicsData* self);
+void whiteout_m2_M2PhysicsData_resize_revoluteJoints(whiteout_M2PhysicsData* self, size_t count);
+whiteout_M2RevoluteJoint* whiteout_m2_M2PhysicsData_get_revoluteJoints_at(whiteout_M2PhysicsData* self, size_t index);
+size_t whiteout_m2_M2PhysicsData_get_distanceJoints_count(const whiteout_M2PhysicsData* self);
+void whiteout_m2_M2PhysicsData_resize_distanceJoints(whiteout_M2PhysicsData* self, size_t count);
+whiteout_M2DistanceJoint* whiteout_m2_M2PhysicsData_get_distanceJoints_at(whiteout_M2PhysicsData* self, size_t index);
+/* PHYV. A file that has one carries nothing else. */
+size_t whiteout_m2_M2PhysicsData_get_tuning_count(const whiteout_M2PhysicsData* self);
+void whiteout_m2_M2PhysicsData_resize_tuning(whiteout_M2PhysicsData* self, size_t count);
+whiteout_M2PhysicsTuning* whiteout_m2_M2PhysicsData_get_tuning_at(whiteout_M2PhysicsData* self, size_t index);
+
+/* ── M2BoneOverride ─────────────────────────────────────────────── */
+
+/* One bone's replacement transform, from a `.bone` file. */
+whiteout_M2BoneOverride* whiteout_m2_M2BoneOverride_new(void);
+void whiteout_m2_M2BoneOverride_delete(whiteout_M2BoneOverride* self);
+
+/* Indexes Model::bones. Every id in the WoW corpus is below its model's bone count, and the ids within a file are strictly ascending. */
+uint16_t whiteout_m2_M2BoneOverride_get_boneIndex(const whiteout_M2BoneOverride* self);
+void whiteout_m2_M2BoneOverride_set_boneIndex(whiteout_M2BoneOverride* self, uint16_t value);
+
+/* ── M2BoneOverrideSet ─────────────────────────────────────────────── */
+
+/* A whole `.bone` file: the skeleton edits one customization choice needs. */
+/*  */
+/* On disk this is two parallel chunks — `BIDA` holds the bone ids and `BOMT` the matrices — but their lengths match in every corpus file, so they are paired here and split again on write. */
+whiteout_M2BoneOverrideSet* whiteout_m2_M2BoneOverrideSet_new(void);
+void whiteout_m2_M2BoneOverrideSet_delete(whiteout_M2BoneOverrideSet* self);
+
+/* 1 in every known file. */
+uint32_t whiteout_m2_M2BoneOverrideSet_get_version(const whiteout_M2BoneOverrideSet* self);
+void whiteout_m2_M2BoneOverrideSet_set_version(whiteout_M2BoneOverrideSet* self, uint32_t value);
+/* Ascending by @ref BoneOverride::boneIndex, which is the order the files store and what lets the client binary-search a bone. */
+size_t whiteout_m2_M2BoneOverrideSet_get_overrides_count(const whiteout_M2BoneOverrideSet* self);
+void whiteout_m2_M2BoneOverrideSet_resize_overrides(whiteout_M2BoneOverrideSet* self, size_t count);
+whiteout_M2BoneOverride* whiteout_m2_M2BoneOverrideSet_get_overrides_at(whiteout_M2BoneOverrideSet* self, size_t index);
+
 /* ── M2Model ─────────────────────────────────────────────── */
 
 whiteout_M2Model* whiteout_m2_M2Model_new(void);
@@ -1093,11 +1588,15 @@ void whiteout_m2_M2Model_assign_geometryParticleModelIds(whiteout_M2Model* self,
 size_t whiteout_m2_M2Model_get_particleGeosets_count(const whiteout_M2Model* self);
 void whiteout_m2_M2Model_resize_particleGeosets(whiteout_M2Model* self, size_t count);
 whiteout_M2ParticleGeosetData* whiteout_m2_M2Model_get_particleGeosets_at(whiteout_M2Model* self, size_t index);
-/* PFDC */
-size_t whiteout_m2_M2Model_get_physicsFileData_count(const whiteout_M2Model* self);
-void whiteout_m2_M2Model_resize_physicsFileData(whiteout_M2Model* self, size_t count);
-const uint8_t* whiteout_m2_M2Model_get_physicsFileData_data(const whiteout_M2Model* self);
-void whiteout_m2_M2Model_assign_physicsFileData(whiteout_M2Model* self, const uint8_t* data, size_t count);
+/* One entry per customization choice, in BFID order — see bone_file.h. */
+size_t whiteout_m2_M2Model_get_boneOverrides_count(const whiteout_M2Model* self);
+void whiteout_m2_M2Model_resize_boneOverrides(whiteout_M2Model* self, size_t count);
+whiteout_M2BoneOverrideSet* whiteout_m2_M2Model_get_boneOverrides_at(whiteout_M2Model* self, size_t index);
+/* BFID, kept so a model that named its `.bone` files by id keeps doing so. Parallel to @ref boneOverrides when both are present. */
+size_t whiteout_m2_M2Model_get_boneFileIds_count(const whiteout_M2Model* self);
+void whiteout_m2_M2Model_resize_boneFileIds(whiteout_M2Model* self, size_t count);
+const uint32_t* whiteout_m2_M2Model_get_boneFileIds_data(const whiteout_M2Model* self);
+void whiteout_m2_M2Model_assign_boneFileIds(whiteout_M2Model* self, const uint32_t* data, size_t count);
 /* EDGF */
 size_t whiteout_m2_M2Model_get_edgeFadeEntries_count(const whiteout_M2Model* self);
 void whiteout_m2_M2Model_resize_edgeFadeEntries(whiteout_M2Model* self, size_t count);
@@ -1178,6 +1677,7 @@ whiteout_CString whiteout_m2_M2Writer_getIssues_at(const whiteout_M2Writer* self
 
 /* ── M2AnimationTrackVector3f ─────────────────────────────────────────────── */
 
+/* instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline */
 whiteout_M2AnimationTrackVector3f* whiteout_m2_M2AnimationTrackVector3f_new(void);
 void whiteout_m2_M2AnimationTrackVector3f_delete(whiteout_M2AnimationTrackVector3f* self);
 
@@ -1200,6 +1700,7 @@ void whiteout_m2_M2AnimationTrackVector3f_assign_values_inner(whiteout_M2Animati
 
 /* ── M2AnimationTrackM2CompatQuaternion ─────────────────────────────────────────────── */
 
+/* instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline */
 whiteout_M2AnimationTrackM2CompatQuaternion* whiteout_m2_M2AnimationTrackM2CompatQuaternion_new(void);
 void whiteout_m2_M2AnimationTrackM2CompatQuaternion_delete(whiteout_M2AnimationTrackM2CompatQuaternion* self);
 
@@ -1221,6 +1722,7 @@ whiteout_M2CompatQuaternion* whiteout_m2_M2AnimationTrackM2CompatQuaternion_get_
 
 /* ── M2AnimationTrackI16 ─────────────────────────────────────────────── */
 
+/* instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline */
 whiteout_M2AnimationTrackI16* whiteout_m2_M2AnimationTrackI16_new(void);
 void whiteout_m2_M2AnimationTrackI16_delete(whiteout_M2AnimationTrackI16* self);
 
@@ -1243,6 +1745,7 @@ void whiteout_m2_M2AnimationTrackI16_assign_values_inner(whiteout_M2AnimationTra
 
 /* ── M2AnimationTrackQuaternion ─────────────────────────────────────────────── */
 
+/* instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline */
 whiteout_M2AnimationTrackQuaternion* whiteout_m2_M2AnimationTrackQuaternion_new(void);
 void whiteout_m2_M2AnimationTrackQuaternion_delete(whiteout_M2AnimationTrackQuaternion* self);
 
@@ -1265,6 +1768,7 @@ void whiteout_m2_M2AnimationTrackQuaternion_assign_values_inner(whiteout_M2Anima
 
 /* ── M2AnimationTrackF32 ─────────────────────────────────────────────── */
 
+/* instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline */
 whiteout_M2AnimationTrackF32* whiteout_m2_M2AnimationTrackF32_new(void);
 void whiteout_m2_M2AnimationTrackF32_delete(whiteout_M2AnimationTrackF32* self);
 
@@ -1287,6 +1791,7 @@ void whiteout_m2_M2AnimationTrackF32_assign_values_inner(whiteout_M2AnimationTra
 
 /* ── M2AnimationTrackU8 ─────────────────────────────────────────────── */
 
+/* instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline */
 whiteout_M2AnimationTrackU8* whiteout_m2_M2AnimationTrackU8_new(void);
 void whiteout_m2_M2AnimationTrackU8_delete(whiteout_M2AnimationTrackU8* self);
 
@@ -1309,6 +1814,7 @@ void whiteout_m2_M2AnimationTrackU8_assign_values_inner(whiteout_M2AnimationTrac
 
 /* ── M2AnimationTrackM2CameraSpline ─────────────────────────────────────────────── */
 
+/* instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline */
 whiteout_M2AnimationTrackM2CameraSpline* whiteout_m2_M2AnimationTrackM2CameraSpline_new(void);
 void whiteout_m2_M2AnimationTrackM2CameraSpline_delete(whiteout_M2AnimationTrackM2CameraSpline* self);
 
@@ -1330,6 +1836,7 @@ whiteout_M2CameraSpline* whiteout_m2_M2AnimationTrackM2CameraSpline_get_values_a
 
 /* ── M2AnimationTrackU16 ─────────────────────────────────────────────── */
 
+/* instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline */
 whiteout_M2AnimationTrackU16* whiteout_m2_M2AnimationTrackU16_new(void);
 void whiteout_m2_M2AnimationTrackU16_delete(whiteout_M2AnimationTrackU16* self);
 

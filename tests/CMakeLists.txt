@@ -66,6 +66,8 @@ whiteout_add_test(texture_array_test texture_array_test.cpp)
 whiteout_add_test(m2_corpus_test m2_corpus_test.cpp)
 whiteout_add_test(m2_diag_test m2_diag_test.cpp)
 whiteout_add_test(m2_legacy_version_test m2_legacy_version_test.cpp)
+whiteout_add_test(m2_phys_test m2_phys_test.cpp)
+whiteout_add_test(m2_bone_test m2_bone_test.cpp)
 
 # SNO / Diablo Tests
 whiteout_add_test(d3_ani_corpus_test d3_ani_corpus_test.cpp)

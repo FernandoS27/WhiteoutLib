@@ -41,6 +41,7 @@ public:
     void setSkinChunk(const SFIDChunk& chunk);
     void setAnimChunk(const AFIDChunk& chunk);
     void setSkeletonChunk(const SKIDChunk& chunk);
+    void setPhysicsChunk(const PFIDChunk& chunk);
     void setParentSkeletonChunk(const SKPDChunk& chunk);
 
     std::span<const u8> getSkin(u32 skinId, bool isLod);
@@ -102,10 +103,23 @@ public:
 
     std::span<const u8> getSkeleton();
 
-    /// @brief The `.phys` sibling a pre-Legion model names by path when its
-    ///        LoadPhysicsData flag is set. Chunked models carry the same data
-    ///        inline (PFDC), so CASC-by-id mode has nothing to resolve here.
+    /// @brief The model's `.phys`, when it is not carried inline as PFDC: the
+    ///        `<stem>.phys` sibling by path, or the file PFID names by id.
     std::span<const u8> getPhysics();
+
+    /// @brief Tell the file system which `.bone` files the model claims, so
+    ///        getBone() can resolve them by id in CASC mode.
+    void setBoneChunk(const BFIDChunk& chunk);
+
+    /// @brief How many `.bone` files the model has: BFID's length, or the count
+    ///        of `<stem>_NN.bone` siblings found on disk.
+    u32 boneCount();
+
+    /// @brief The @p index-th `.bone`: the `<stem>_NN.bone` sibling by path, or
+    ///        the file BFID names by id. Empty when it is not there.
+    std::span<const u8> getBone(u32 index);
+
+    void writeBoneFile(u32 index, std::vector<u8> data);
 
     void exploratorySearch();
 
@@ -131,7 +145,9 @@ public:
 
     void writeSkeletonFile(u32 handle, std::vector<u8> data);
 
-    void writePhysicsFile(std::vector<u8> data);
+    /// @p cascFileId is the PFID the model keeps; unused in path mode, where
+    /// the file is named `<stem>.phys`.
+    void writePhysicsFile(std::vector<u8> data, u32 cascFileId = 0);
 
     void flush();
 
@@ -149,12 +165,18 @@ private:
     SFIDChunk m_sfid;
     AFIDChunk m_afid;
     SKIDChunk m_skid;
+    PFIDChunk m_pfid;
+    BFIDChunk m_bfid;
 
     std::map<u32, std::vector<u8>> m_skinCache;
     std::map<u32, std::vector<u8>> m_lodSkinCache;
     std::map<u32, std::vector<u8>> m_animCache;
     std::vector<u8> m_skelCache;
     std::vector<u8> m_physCache;
+    std::map<u32, std::vector<u8>> m_boneCache;
+    bool m_boneScanned = false;
+    u32 m_boneCount = 0;
+    u32 m_physFileId = 0;
     bool m_physLoaded = false;
     bool m_skelLoaded = false;
     bool m_isParentSkeleton = false;
@@ -177,6 +199,10 @@ private:
     std::string buildSkelPath() const;
 
     std::string buildPhysPath() const;
+
+    std::string buildBonePath(u32 index) const;
+
+    void scanBones();
 
     u32 allocateHandle(const std::string& pathHint);
 };

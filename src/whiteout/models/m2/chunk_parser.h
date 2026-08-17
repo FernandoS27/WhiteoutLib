@@ -25,9 +25,15 @@ public:
     void parseChunkedBase(common::BinaryReader& reader, BaseFile& m2file, WoWFileSystem* wfs);
     void parseChunkedSkeleton(common::BinaryReader& reader, SkeletonFile& skeletonFile,
                               WoWFileSystem* wfs);
-    void parseChunkedBone(common::BinaryReader& reader, BoneFile& boneFile, WoWFileSystem* wfs);
+    /// @brief Read a whole `.bone` payload. False when the two chunks
+    ///        disagree on how many entries they hold.
+    bool parseBoneOverrides(common::BinaryReader& reader, BoneOverrideSet& overrides);
     void parseChunkedAnim(common::BinaryReader& reader, AnimFile& animFile, WoWFileSystem* wfs,
                           bool isChunked = false);
+
+    /// @brief Read a whole `.phys` payload — a standalone file or an M2's
+    ///        inline PFDC chunk, which are the same bytes.
+    void parsePhysics(common::BinaryReader& reader, PhysicsData& physics);
 
     void reportIssue(const std::string& message);
 
@@ -48,6 +54,7 @@ private:
     };
 
     std::vector<ChunkEntry> collectChunks(common::BinaryReader& reader);
+    std::vector<ChunkEntry> collectPhysChunks(common::BinaryReader& reader);
     void skipUnknownChunk(common::BinaryReader& reader, u32 tag, u32 size);
 
     std::vector<std::string> issues;

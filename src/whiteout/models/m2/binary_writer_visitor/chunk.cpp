@@ -133,10 +133,6 @@ void BinaryWriterVisitor::visit(const WFV3Chunk& chunk) {
     visit(chunk.data);
 }
 
-void BinaryWriterVisitor::visit(const PFDCChunk& chunk) {
-    writer.write(chunk.physicsData);
-}
-
 void BinaryWriterVisitor::visit(const EdgeFadeData& entry) {
     writer.write(entry.value0);
     writer.write(entry.value8);

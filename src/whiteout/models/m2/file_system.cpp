@@ -22,6 +22,24 @@ std::string format_anim_id(int anim_id, int variant) {
     return oss.str();
 }
 
+// A sibling only counts when the whole suffix is digits: `<stem>_00.bone` is
+// this model's, but `<stem>_sdr_00.bone` belongs to `<stem>_sdr`, which is a
+// model of its own. std::stoi would take the prefix — or, with exceptions off,
+// abort on one that starts with a letter.
+std::optional<int> parseDecimal(std::string_view s) {
+
+    if (s.empty() || s.size() > 9)
+        return std::nullopt;
+
+    int value = 0;
+    for (char c : s) {
+        if (c < '0' || c > '9')
+            return std::nullopt;
+        value = value * 10 + (c - '0');
+    }
+    return value;
+}
+
 std::optional<std::pair<int, int>> parseAnimSuffix(std::string_view s) {
 
     if (s.size() < 11)
@@ -29,30 +47,32 @@ std::optional<std::pair<int, int>> parseAnimSuffix(std::string_view s) {
     if (s[4] != '-' || s.substr(7) != ".anim")
         return std::nullopt;
 
-    int const anim = std::stoi(std::string(s.substr(0, 4)));
-    int const var = std::stoi(std::string(s.substr(5, 2)));
-    return {{anim, var}};
+    auto const anim = parseDecimal(s.substr(0, 4));
+    auto const var = parseDecimal(s.substr(5, 2));
+    if (!anim || !var)
+        return std::nullopt;
+    return {{*anim, *var}};
 }
 
 std::optional<int> parseBaseSkin(std::string_view s) {
 
     if (!s.ends_with(".skin"))
         return std::nullopt;
-    return std::stoi(std::string(s.substr(0, s.size() - 5)));
+    return parseDecimal(s.substr(0, s.size() - 5));
 }
 
 std::optional<int> parseLodSkin(std::string_view s) {
 
     if (!s.starts_with("_lod") || !s.ends_with(".skin"))
         return std::nullopt;
-    return std::stoi(std::string(s.substr(4, 2)));
+    return parseDecimal(s.substr(4, s.size() - 9));
 }
 
 std::optional<int> parseBone(std::string_view s) {
 
     if (!s.starts_with("_") || !s.ends_with(".bone"))
         return std::nullopt;
-    return std::stoi(std::string(s.substr(1, s.size() - 6)));
+    return parseDecimal(s.substr(1, s.size() - 6));
 }
 
 } // namespace

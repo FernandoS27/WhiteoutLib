@@ -23,11 +23,12 @@ class BinaryWriterVisitor {
 public:
     explicit BinaryWriterVisitor(common::BinaryWriter& writer);
 
-    template <typename T>
-    void write(const T& header) {
+    /// See BinaryParseVisitor::read for what the extra arguments are.
+    template <typename T, typename... Args>
+    void write(const T& header, Args... args) {
         start();
         deferredWrites.clear();
-        deferredWrites.push_back([this, &header]() { visit(header); });
+        deferredWrites.push_back([this, &header, args...]() { visit(header, args...); });
         while (!deferredWrites.empty()) {
             auto writeFunc = std::move(deferredWrites.front());
             deferredWrites.pop_front();
@@ -99,7 +100,6 @@ protected:
     void visit(const PGD1Chunk& chunk);
     void visit(const WaterfallData& data);
     void visit(const WFV3Chunk& chunk);
-    void visit(const PFDCChunk& chunk);
     void visit(const EdgeFadeData& entry);
     void visit(const EDGFChunk& chunk);
     void visit(const DistanceFadeData& entry);
@@ -115,39 +115,21 @@ protected:
     void visit(const TEXLChunk& chunk);
     void visit(const ParticleEmitterExtension& chunk);
 
-    void visit(const PHYSHeader& header);
-    void visit(const PHYTEntry& entry);
-    void visit(const BODYEntry& entry);
-    void visit(const BDY2Entry& entry);
-    void visit(const BDY3Entry& entry);
-    void visit(const BDY4Entry& entry);
-    void visit(const SHAPEntry& entry);
-    void visit(const SHP2Entry& entry);
-    void visit(const BOXSEntry& entry);
-    void visit(const CAPSEntry& entry);
-    void visit(const SPHSEntry& entry);
-    void visit(const PLYTNode& node);
-    void visit(const PLYTData& data, const PLYTHeader& header);
-    void visit(const PLYTEntry& entry);
-    void visit(const JOINEntry& entry);
-    void visit(const Matrix3x4& matrix);
-    void visit(const WELJEntry& entry);
-    void visit(const WLJ2Entry& entry);
-    void visit(const WLJ3Entry& entry);
-    void visit(const SPHJEntry& entry);
-    void visit(const SHOJEntry& entry);
-    void visit(const SHJ2Entry& entry);
-    void visit(const PRSJEntry& entry);
-    void visit(const PRS2Entry& entry);
-    void visit(const REVJEntry& entry);
-    void visit(const REV2Entry& entry);
-    void visit(const DSTJEntry& entry);
-    void visit(const PHYVEntry& entry);
-
-    void visit(const BONEHeader& header);
-    void visit(const Matrix44f& matrix);
-    void visit(const BIDAChunk& chunk);
-    void visit(const BOMTChunk& chunk);
+    void visit(const PhysicsFrame& frame);
+    void visit(const PhysicsBody& body, PhysBodyLayout layout);
+    void visit(const PhysicsShape& shape, PhysShapeLayout layout);
+    void visit(const BoxShape& shape);
+    void visit(const CapsuleShape& shape);
+    void visit(const SphereShape& shape);
+    void visit(const std::vector<PolytopeShape>& shapes);
+    void visit(const PhysicsJoint& joint);
+    void visit(const WeldJoint& joint, PhysWeldLayout layout);
+    void visit(const SphericalJoint& joint);
+    void visit(const ShoulderJoint& joint, PhysShoulderLayout layout);
+    void visit(const PrismaticJoint& joint, PhysMotorLayout layout);
+    void visit(const RevoluteJoint& joint, PhysMotorLayout layout);
+    void visit(const DistanceJoint& joint);
+    void visit(const PhysicsTuning& tuning);
 
     void visit(const AFM2Chunk& chunk);
     void visit(const AFSAChunk& chunk);

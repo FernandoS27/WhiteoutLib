@@ -25,9 +25,13 @@
 #include <whiteout/models/m2/types.h>
 #include <whiteout/models/m2/structures/base.h>
 #include <whiteout/models/m2/structures/extensions.h>
+#include <whiteout/models/m2/structures/phys.h>
+#include <whiteout/models/m2/structures/bone_overrides.h>
 #include <whiteout/models/m2/structures/skin.h>
 #include <whiteout/models/m2/structures.h>
 #include <whiteout/models/m2/parser.h>
+#include <whiteout/models/m2/phys_file.h>
+#include <whiteout/models/m2/bone_file.h>
 #include <whiteout/models/m2/writer.h>
 #include <whiteout/interfaces.h>
 
@@ -48,18 +52,24 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u16>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Quaternion>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector2f>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector3f>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::Vector4f>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::f32>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::AnimationTrackBase>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::Attachment>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::Batch>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::Bone>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::BoneOverride>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::BoneOverrideSet>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::BoxShape>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::Camera>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::CameraSpline>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::CapsuleShape>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::ColorAnimation>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::CompatQuaternion>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DebugOcclusionData>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DetailedLightData>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DistanceFadeData>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::DistanceJoint>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::EdgeFadeData>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::Event>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::Extent>);
@@ -68,16 +78,28 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::Light>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::Material>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::ParticleEmitter>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::ParticleGeosetData>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::PhysicsBody>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::PhysicsJoint>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::PhysicsShape>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::PhysicsTuning>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::PolytopeHalfEdge>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::PolytopeShape>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::PrismaticJoint>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::RevoluteJoint>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::RibbonEmitter>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::Sequence>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::ShadowBatch>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::ShoulderJoint>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::SkinProfile>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::SkinSection>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::SphereShape>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::SphericalJoint>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::Texture>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::TextureTransform>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::TextureWeight>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::TexturedLightData>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::Vertex>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::WeldJoint>);
 
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
@@ -257,11 +279,42 @@ void bind_m2(py::module_& m) {
         .value("DYNAMIC_WIND", whiteout::m2::ParticleFlag::DynamicWind)
     ;
 
+    py::enum_<whiteout::m2::PhysicsBodyType>(m, "PhysicsBodyType", R"doc(How the client drives a body — the value stored in BODY is inverted relative to Domino's own `dmBodyType`.)doc")
+        .value("KINEMATIC", whiteout::m2::PhysicsBodyType::Kinematic, R"doc(Animation-driven collider. Becomes `dmBodyType` 1; the client keeps it glued to its bone and the simulation only reads it.)doc")
+        .value("DYNAMIC", whiteout::m2::PhysicsBodyType::Dynamic, R"doc(Simulated. Becomes `dmBodyType` 0 and gets its bone transform written back every frame. These are the cloth/tassel segments.)doc")
+    ;
+
+    py::enum_<whiteout::m2::PhysicsShapeType>(m, "PhysicsShapeType", R"doc(Which shape chunk a PhysicsShape indexes into.)doc")
+        .value("BOX", whiteout::m2::PhysicsShapeType::Box, R"doc(BOXS)doc")
+        .value("CAPSULE", whiteout::m2::PhysicsShapeType::Capsule, R"doc(CAPS)doc")
+        .value("SPHERE", whiteout::m2::PhysicsShapeType::Sphere, R"doc(SPHS)doc")
+        .value("POLYTOPE", whiteout::m2::PhysicsShapeType::Polytope, R"doc(PLYT, version 3+)doc")
+    ;
+
+    py::enum_<whiteout::m2::PhysicsJointType>(m, "PhysicsJointType", R"doc(Which joint chunk a PhysicsJoint indexes into.)doc")
+        .value("SPHERICAL", whiteout::m2::PhysicsJointType::Spherical, R"doc(SPHJ)doc")
+        .value("SHOULDER", whiteout::m2::PhysicsJointType::Shoulder, R"doc(SHOJ / SHJ2)doc")
+        .value("WELD", whiteout::m2::PhysicsJointType::Weld, R"doc(WELJ / WLJ2 / WLJ3)doc")
+        .value("REVOLUTE", whiteout::m2::PhysicsJointType::Revolute, R"doc(REVJ / REV2, version 2+)doc")
+        .value("PRISMATIC", whiteout::m2::PhysicsJointType::Prismatic, R"doc(PRSJ / PRS2, version 2+)doc")
+        .value("DISTANCE", whiteout::m2::PhysicsJointType::Distance, R"doc(DSTJ, version 2+)doc")
+    ;
+
     py::class_<whiteout::m2::Extent>(m, "Extent")
         .def(py::init<>())
         .def_readwrite("minimum", &whiteout::m2::Extent::minimum)
         .def_readwrite("maximum", &whiteout::m2::Extent::maximum)
         .def_readwrite("sphere_radius", &whiteout::m2::Extent::sphereRadius)
+    ;
+
+    py::class_<whiteout::m2::PhysicsFrame>(m, "PhysicsFrame", R"doc(The affine frame the Domino chunks store: three basis columns and an origin, twelve floats in all.
+
+The client reassembles it as `dmMtx{axisX, axisY, axisZ}` -> `dmQuatFromMtx` plus `origin` as the translation, giving a `dmTransform`.)doc")
+        .def(py::init<>())
+        .def_readwrite("axis_x", &whiteout::m2::PhysicsFrame::axisX)
+        .def_readwrite("axis_y", &whiteout::m2::PhysicsFrame::axisY)
+        .def_readwrite("axis_z", &whiteout::m2::PhysicsFrame::axisZ)
+        .def_readwrite("origin", &whiteout::m2::PhysicsFrame::origin)
     ;
 
     py::class_<whiteout::m2::CompatQuaternion>(m, "CompatQuaternion")
@@ -755,6 +808,223 @@ Kept only by a lazily parsed model (Parser::setLazyAnimations), which leaves the
         .def_readwrite("enabled", &whiteout::m2::Event::enabled)
     ;
 
+    py::class_<whiteout::m2::PhysicsBody>(m, "PhysicsBody", R"doc(One rigid body, bound to a single model bone — BODY/BDY2/BDY3/BDY4.
+
+The four on-disk layouts are the same fields accreting over time, so they share one struct; PhysicsData::version decides which of them is written back, and fields the older layouts lack keep their defaults.)doc")
+        .def(py::init<>())
+        .def_readwrite("type", &whiteout::m2::PhysicsBody::type)
+        .def_readwrite("bone_index", &whiteout::m2::PhysicsBody::boneIndex)
+        .def_readwrite("position", &whiteout::m2::PhysicsBody::position, R"doc(Offset from the bone's animated position, not an absolute position: the client spawns the body at `bonePosition + position`.)doc")
+        .def_readwrite("shape_index", &whiteout::m2::PhysicsBody::shapeIndex, R"doc(First entry in PhysicsData::shapes belonging to this body. 32 bits wide in BODY/BDY2, 16 from BDY3 on — writing a larger index back into one of those truncates it.)doc")
+        .def_readwrite("shape_count", &whiteout::m2::PhysicsBody::shapeCount)
+        .def_readwrite("gravity_scale", &whiteout::m2::PhysicsBody::gravityScale, R"doc(BDY3+. 1.0 on all but 45 of 1213 kinematic bodies but tuned freely on dynamic ones, negatives included — the shape of `dmBodyDef::m_gravityScale`.)doc")
+        .def_readwrite("inertia_scale", &whiteout::m2::PhysicsBody::inertiaScale, R"doc(BDY2+. 1.0 in 3457 of 3526 bodies, otherwise 1.1-10 — `dmBodyDef::m_inertiaScale`.)doc")
+        .def_readwrite("linear_damping", &whiteout::m2::PhysicsBody::linearDamping, R"doc(BDY3+. Zero on 1196 of 1213 kinematic bodies and 0-10 on dynamic ones — `dmBodyDef::m_linearDamping`.)doc")
+        .def_readwrite("angular_damping", &whiteout::m2::PhysicsBody::angularDamping, R"doc(BDY3+. Same kinematic/dynamic split as @ref linearDamping — `dmBodyDef::m_angularDamping`.)doc")
+        .def_readwrite("unknown28", &whiteout::m2::PhysicsBody::unknown28, R"doc(BDY3+. Unidentified. Unlike the four above it is set on kinematic and dynamic bodies alike, so it is not a rigid-body integration parameter; values cluster on 0.5, 0.01, 0.9 and 0.1.)doc")
+        .def_readwrite("unknown2c", &whiteout::m2::PhysicsBody::unknown2c, R"doc(BDY4+. Unidentified; 0 in half the corpus, otherwise small values or 0x8000 alone, which reads like a bit field.)doc")
+        .def_readwrite("padding2e", &whiteout::m2::PhysicsBody::padding2e, R"doc(BDY4+. Zero in every corpus body.)doc")
+    ;
+
+    py::class_<whiteout::m2::PhysicsShape>(m, "PhysicsShape", R"doc(One collision shape reference — SHAP/SHP2. Points at an entry of the box/capsule/sphere/polytope array named by @ref shapeType.)doc")
+        .def(py::init<>())
+        .def_readwrite("shape_type", &whiteout::m2::PhysicsShape::shapeType)
+        .def_readwrite("shape_index", &whiteout::m2::PhysicsShape::shapeIndex)
+        .def_readwrite("padding04", &whiteout::m2::PhysicsShape::padding04, R"doc(Zero in every corpus shape.)doc")
+        .def_readwrite("friction", &whiteout::m2::PhysicsShape::friction)
+        .def_readwrite("restitution", &whiteout::m2::PhysicsShape::restitution)
+        .def_readwrite("density", &whiteout::m2::PhysicsShape::density)
+        .def_readwrite("unknown14", &whiteout::m2::PhysicsShape::unknown14, R"doc(SHP2+. Unidentified, but a float: only 0, 0.01, 0.8 and 1.0 occur. The one `dmFixtureDef` float the rest of this struct does not account for is `m_rollingResistance`.)doc")
+        .def_readwrite("scale", &whiteout::m2::PhysicsShape::scale, R"doc(SHP2+. 1.0 in 3229 of 3230 shapes, matching the `m_scaleOrRadius` the client hands every fixture.)doc")
+        .def_readwrite("unknown1c", &whiteout::m2::PhysicsShape::unknown1c, R"doc(SHP2+. Zero in every corpus shape.)doc")
+        .def_readwrite("padding1e", &whiteout::m2::PhysicsShape::padding1e, R"doc(SHP2+. Uninitialised on disk; kept so writes match.)doc")
+    ;
+
+    py::class_<whiteout::m2::BoxShape>(m, "BoxShape", R"doc(BOXS — an oriented box. The client turns it straight into a polytope via `CPhysicsBoxShapeDef::SetPolytopeData(frame, halfExtents)`.)doc")
+        .def(py::init<>())
+        .def_readwrite("frame", &whiteout::m2::BoxShape::frame)
+        .def_readwrite("half_extents", &whiteout::m2::BoxShape::halfExtents)
+    ;
+
+    py::class_<whiteout::m2::CapsuleShape>(m, "CapsuleShape", R"doc(CAPS — a capsule between two local points.)doc")
+        .def(py::init<>())
+        .def_readwrite("local_position1", &whiteout::m2::CapsuleShape::localPosition1)
+        .def_readwrite("local_position2", &whiteout::m2::CapsuleShape::localPosition2)
+        .def_readwrite("radius", &whiteout::m2::CapsuleShape::radius)
+    ;
+
+    py::class_<whiteout::m2::SphereShape>(m, "SphereShape", R"doc(SPHS — a sphere at a local point.)doc")
+        .def(py::init<>())
+        .def_readwrite("local_position", &whiteout::m2::SphereShape::localPosition)
+        .def_readwrite("radius", &whiteout::m2::SphereShape::radius)
+    ;
+
+    py::class_<whiteout::m2::PolytopeHalfEdge>(m, "PolytopeHalfEdge", R"doc(One half-edge of a polytope — Domino's `dmSubEdge`, four bytes.
+
+Half-edges are stored in twin pairs at adjacent indices, and the ones bounding a face form a cycle through @ref nextEdge.)doc")
+        .def(py::init<>())
+        .def_readwrite("twin_offset", &whiteout::m2::PolytopeHalfEdge::twinOffset, R"doc(Signed step to the paired half-edge: the twin of edge `i` is `i + twinOffset`. Only +1 and -1 occur, in equal numbers.)doc")
+        .def_readwrite("origin_vertex", &whiteout::m2::PolytopeHalfEdge::originVertex, R"doc(Where this half-edge starts, indexing PolytopeShape::vertices.)doc")
+        .def_readwrite("face_index", &whiteout::m2::PolytopeHalfEdge::faceIndex, R"doc(The face this half-edge bounds, indexing PolytopeShape::facePlanes.)doc")
+        .def_readwrite("next_edge", &whiteout::m2::PolytopeHalfEdge::nextEdge, R"doc(Next half-edge around @ref faceIndex.)doc")
+    ;
+
+    py::class_<whiteout::m2::PolytopeShape>(m, "PolytopeShape", R"doc(PLYT — a convex hull, version 3+. Domino's `dmPolytope`.
+
+The chunk stores fixed-size headers and variable-size payloads in two blocks; both halves are folded into this one struct, and the header's counts are recomputed from the vectors on write. The header's four pointer fields are filled in by the client at load time and are zero in every file, so they are not kept.)doc")
+        .def(py::init<>())
+        .def_readwrite("vertices", &whiteout::m2::PolytopeShape::vertices, R"doc(Hull corners.)doc")
+        .def_readwrite("face_planes", &whiteout::m2::PolytopeShape::facePlanes, R"doc(Outward plane of each face, `xyz` normal and `w` offset.)doc")
+        .def_readwrite("face_first_edges", &whiteout::m2::PolytopeShape::faceFirstEdges, R"doc(One entry per face: any half-edge bounding it, as the entry point for walking the face through PolytopeHalfEdge::nextEdge.)doc")
+        .def_readwrite("edges", &whiteout::m2::PolytopeShape::edges)
+        .def_readwrite("centroid", &whiteout::m2::PolytopeShape::centroid, R"doc(Volume-weighted, not the vertex average.)doc")
+        .def_readwrite("volume", &whiteout::m2::PolytopeShape::volume, R"doc(Hull volume.)doc")
+        .def_readwrite("surface_area", &whiteout::m2::PolytopeShape::surfaceArea, R"doc(Hull surface area.)doc")
+        .def_readwrite("padding04", &whiteout::m2::PolytopeShape::padding04, R"doc(The four-byte gaps each count leaves in front of its 64-bit pointer, and the one that trails the header. Uninitialised in the files — some carry fragments of unrelated strings — so they are kept verbatim for writing.)doc")
+        .def_readwrite("padding14", &whiteout::m2::PolytopeShape::padding14)
+        .def_readwrite("padding2c", &whiteout::m2::PolytopeShape::padding2c)
+        .def_readwrite("padding4c", &whiteout::m2::PolytopeShape::padding4c)
+    ;
+
+    py::class_<whiteout::m2::PhysicsJoint>(m, "PhysicsJoint", R"doc(JOIN — connects two bodies with the joint named by @ref jointType.)doc")
+        .def(py::init<>())
+        .def_readwrite("body_a_index", &whiteout::m2::PhysicsJoint::bodyAIndex)
+        .def_readwrite("body_b_index", &whiteout::m2::PhysicsJoint::bodyBIndex)
+        .def_readwrite("padding08", &whiteout::m2::PhysicsJoint::padding08, R"doc(Zero in every corpus joint.)doc")
+        .def_readwrite("joint_type", &whiteout::m2::PhysicsJoint::jointType)
+        .def_readwrite("joint_id", &whiteout::m2::PhysicsJoint::jointId, R"doc(Entry index within the joint array @ref jointType selects.)doc")
+    ;
+
+    py::class_<whiteout::m2::WeldJoint>(m, "WeldJoint", R"doc(WELJ/WLJ2/WLJ3 — a soft rigid connection. Zero frequency means the axis is solved as a hard constraint.)doc")
+        .def(py::init<>())
+        .def_readwrite("frame_a", &whiteout::m2::WeldJoint::frameA)
+        .def_readwrite("frame_b", &whiteout::m2::WeldJoint::frameB)
+        .def_readwrite("angular_frequency_hz", &whiteout::m2::WeldJoint::angularFrequencyHz)
+        .def_readwrite("angular_damping_ratio", &whiteout::m2::WeldJoint::angularDampingRatio)
+        .def_readwrite("linear_frequency_hz", &whiteout::m2::WeldJoint::linearFrequencyHz, R"doc(WLJ2+)doc")
+        .def_readwrite("linear_damping_ratio", &whiteout::m2::WeldJoint::linearDampingRatio, R"doc(WLJ2+)doc")
+        .def_readwrite("unknown70", &whiteout::m2::WeldJoint::unknown70, R"doc(WLJ3+. Zero in 265 of 274 weld joints.)doc")
+    ;
+
+    py::class_<whiteout::m2::SphericalJoint>(m, "SphericalJoint", R"doc(SPHJ — a ball joint between two anchor points.)doc")
+        .def(py::init<>())
+        .def_readwrite("anchor_a", &whiteout::m2::SphericalJoint::anchorA)
+        .def_readwrite("anchor_b", &whiteout::m2::SphericalJoint::anchorB)
+        .def_readwrite("friction_torque", &whiteout::m2::SphericalJoint::frictionTorque)
+    ;
+
+    py::class_<whiteout::m2::ShoulderJoint>(m, "ShoulderJoint", R"doc(SHOJ/SHJ2 — a twist-and-cone joint, the one that chains cloth.)doc")
+        .def(py::init<>())
+        .def_readwrite("frame_a", &whiteout::m2::ShoulderJoint::frameA)
+        .def_readwrite("frame_b", &whiteout::m2::ShoulderJoint::frameB)
+        .def_readwrite("lower_twist_angle", &whiteout::m2::ShoulderJoint::lowerTwistAngle)
+        .def_readwrite("upper_twist_angle", &whiteout::m2::ShoulderJoint::upperTwistAngle)
+        .def_readwrite("cone_angle", &whiteout::m2::ShoulderJoint::coneAngle, R"doc(Degrees: the corpus holds 20, 35, 45 and 60, while `dmShoulderJoint` clamps its own cone to [10°, 170°] expressed in radians — so the loader converts on the way in.)doc")
+        .def_readwrite("max_motor_torque", &whiteout::m2::ShoulderJoint::maxMotorTorque, R"doc(version 2+)doc")
+        .def_readwrite("motor_mode", &whiteout::m2::ShoulderJoint::motorMode, R"doc(version 2+)doc")
+        .def_readwrite("motor_frequency_hz", &whiteout::m2::ShoulderJoint::motorFrequencyHz, R"doc(SHJ2)doc")
+        .def_readwrite("motor_damping_ratio", &whiteout::m2::ShoulderJoint::motorDampingRatio, R"doc(SHJ2)doc")
+    ;
+
+    py::class_<whiteout::m2::PrismaticJoint>(m, "PrismaticJoint", R"doc(PRSJ/PRS2 — a sliding joint, version 2+.)doc")
+        .def(py::init<>())
+        .def_readwrite("frame_a", &whiteout::m2::PrismaticJoint::frameA)
+        .def_readwrite("frame_b", &whiteout::m2::PrismaticJoint::frameB)
+        .def_readwrite("lower_limit", &whiteout::m2::PrismaticJoint::lowerLimit)
+        .def_readwrite("upper_limit", &whiteout::m2::PrismaticJoint::upperLimit)
+        .def_readwrite("unknown68", &whiteout::m2::PrismaticJoint::unknown68, R"doc(Unidentified; zero in all twelve corpus prismatic joints. Domino's prismatic def carries an enable-limit flag next to the limit pair.)doc")
+        .def_readwrite("max_motor_force", &whiteout::m2::PrismaticJoint::maxMotorForce)
+        .def_readwrite("unknown70", &whiteout::m2::PrismaticJoint::unknown70, R"doc(Unidentified; zero in all twelve.)doc")
+        .def_readwrite("motor_mode", &whiteout::m2::PrismaticJoint::motorMode)
+        .def_readwrite("motor_frequency_hz", &whiteout::m2::PrismaticJoint::motorFrequencyHz, R"doc(PRS2)doc")
+        .def_readwrite("motor_damping_ratio", &whiteout::m2::PrismaticJoint::motorDampingRatio, R"doc(PRS2)doc")
+    ;
+
+    py::class_<whiteout::m2::RevoluteJoint>(m, "RevoluteJoint", R"doc(REVJ/REV2 — a hinge, version 2+.)doc")
+        .def(py::init<>())
+        .def_readwrite("frame_a", &whiteout::m2::RevoluteJoint::frameA)
+        .def_readwrite("frame_b", &whiteout::m2::RevoluteJoint::frameB)
+        .def_readwrite("lower_angle", &whiteout::m2::RevoluteJoint::lowerAngle)
+        .def_readwrite("upper_angle", &whiteout::m2::RevoluteJoint::upperAngle)
+        .def_readwrite("max_motor_torque", &whiteout::m2::RevoluteJoint::maxMotorTorque)
+        .def_readwrite("motor_mode", &whiteout::m2::RevoluteJoint::motorMode, R"doc(1: position mode (frequency > 0), 2: velocity mode.)doc")
+        .def_readwrite("motor_frequency_hz", &whiteout::m2::RevoluteJoint::motorFrequencyHz, R"doc(REV2)doc")
+        .def_readwrite("motor_damping_ratio", &whiteout::m2::RevoluteJoint::motorDampingRatio, R"doc(REV2)doc")
+    ;
+
+    py::class_<whiteout::m2::DistanceJoint>(m, "DistanceJoint", R"doc(DSTJ — holds two anchors a fixed distance apart, version 2+.)doc")
+        .def(py::init<>())
+        .def_readwrite("local_anchor_a", &whiteout::m2::DistanceJoint::localAnchorA)
+        .def_readwrite("local_anchor_b", &whiteout::m2::DistanceJoint::localAnchorB)
+        .def_readwrite("distance", &whiteout::m2::DistanceJoint::distance)
+    ;
+
+    py::class_<whiteout::m2::PhysicsTuning>(m, "PhysicsTuning", R"doc(PHYV — six floats that overwrite the head of a tuning block the client otherwise fills with constants. Version 1+.)doc")
+        .def(py::init<>())
+        .def("get_values",
+            [](const whiteout::m2::PhysicsTuning& self) {
+                return std::vector<whiteout::f32>(self.values.begin(), self.values.end());
+            })
+        .def("set_values",
+            [](whiteout::m2::PhysicsTuning& self, const std::vector<whiteout::f32>& v) {
+                if (v.size() != self.values.size())
+                    throw std::runtime_error("setter expected exactly "
+                        + std::to_string(self.values.size()) + " elements");
+                for (std::size_t i = 0; i < v.size(); ++i) self.values[i] = v[i];
+            })
+    ;
+
+    py::class_<whiteout::m2::PhysicsUnknownChunk>(m, "PhysicsUnknownChunk", R"doc(A `.phys` chunk this library does not know, kept verbatim so a parse/write cycle does not drop it.)doc")
+        .def(py::init<>())
+        .def_readwrite("data", &whiteout::m2::PhysicsUnknownChunk::data)
+        .def("get_tag",
+            [](const whiteout::m2::PhysicsUnknownChunk& self) {
+                return std::vector<char>(self.tag.begin(), self.tag.end());
+            })
+        .def("set_tag",
+            [](whiteout::m2::PhysicsUnknownChunk& self, const std::vector<char>& v) {
+                if (v.size() != self.tag.size())
+                    throw std::runtime_error("setter expected exactly "
+                        + std::to_string(self.tag.size()) + " elements");
+                for (std::size_t i = 0; i < v.size(); ++i) self.tag[i] = v[i];
+            })
+    ;
+
+    py::class_<whiteout::m2::PhysicsData>(m, "PhysicsData", R"doc(A whole `.phys` file — Blizzard's Domino rigid-body setup for a model, either a `.phys` sibling or an M2's inline PFDC chunk.
+
+Bodies attach to bones and are linked by joints; each body owns a run of @ref shapes, and each shape indexes the array its type names.)doc")
+        .def(py::init<>())
+        .def_readwrite("version", &whiteout::m2::PhysicsData::version, R"doc(0 (MoP) through 6. Decides which layout each chunk is written in — see the per-field version notes on the structs above.)doc")
+        .def_readwrite("phyt", &whiteout::m2::PhysicsData::phyt, R"doc(PHYT, version 1+. A small enum, 0 through 4; meaning unknown.)doc")
+        .def_readwrite("bodies", &whiteout::m2::PhysicsData::bodies)
+        .def_readwrite("shapes", &whiteout::m2::PhysicsData::shapes)
+        .def_readwrite("box_shapes", &whiteout::m2::PhysicsData::boxShapes)
+        .def_readwrite("capsule_shapes", &whiteout::m2::PhysicsData::capsuleShapes)
+        .def_readwrite("sphere_shapes", &whiteout::m2::PhysicsData::sphereShapes)
+        .def_readwrite("polytope_shapes", &whiteout::m2::PhysicsData::polytopeShapes)
+        .def_readwrite("joints", &whiteout::m2::PhysicsData::joints)
+        .def_readwrite("weld_joints", &whiteout::m2::PhysicsData::weldJoints)
+        .def_readwrite("spherical_joints", &whiteout::m2::PhysicsData::sphericalJoints)
+        .def_readwrite("shoulder_joints", &whiteout::m2::PhysicsData::shoulderJoints)
+        .def_readwrite("prismatic_joints", &whiteout::m2::PhysicsData::prismaticJoints)
+        .def_readwrite("revolute_joints", &whiteout::m2::PhysicsData::revoluteJoints)
+        .def_readwrite("distance_joints", &whiteout::m2::PhysicsData::distanceJoints)
+        .def_readwrite("tuning", &whiteout::m2::PhysicsData::tuning, R"doc(PHYV. A file that has one carries nothing else.)doc")
+    ;
+
+    py::class_<whiteout::m2::BoneOverride>(m, "BoneOverride", R"doc(One bone's replacement transform, from a `.bone` file.)doc")
+        .def(py::init<>())
+        .def_readwrite("bone_index", &whiteout::m2::BoneOverride::boneIndex, R"doc(Indexes Model::bones. Every id in the WoW corpus is below its model's bone count, and the ids within a file are strictly ascending.)doc")
+    ;
+
+    py::class_<whiteout::m2::BoneOverrideSet>(m, "BoneOverrideSet", R"doc(A whole `.bone` file: the skeleton edits one customization choice needs.
+
+On disk this is two parallel chunks — `BIDA` holds the bone ids and `BOMT` the matrices — but their lengths match in every corpus file, so they are paired here and split again on write.)doc")
+        .def(py::init<>())
+        .def_readwrite("version", &whiteout::m2::BoneOverrideSet::version, R"doc(1 in every known file.)doc")
+        .def_readwrite("overrides", &whiteout::m2::BoneOverrideSet::overrides, R"doc(Ascending by @ref BoneOverride::boneIndex, which is the order the files store and what lets the client binary-search a bone.)doc")
+    ;
+
     py::class_<whiteout::m2::Model>(m, "Model")
         .def(py::init<>())
         .def_readwrite("model_name", &whiteout::m2::Model::modelName)
@@ -805,7 +1075,10 @@ Kept only by a lazily parsed model (Parser::setLazyAnimations), which leaves the
         .def_readwrite("geometry_particle_model_ids", &whiteout::m2::Model::geometryParticleModelIds, R"doc(GPID)doc")
         .def_readwrite("water_data", &whiteout::m2::Model::waterData, R"doc(WFV3)doc")
         .def_readwrite("particle_geosets", &whiteout::m2::Model::particleGeosets, R"doc(PGD1)doc")
-        .def_readwrite("physics_file_data", &whiteout::m2::Model::physicsFileData, R"doc(PFDC)doc")
+        .def_readwrite("physics", &whiteout::m2::Model::physics, R"doc(PFDC, or a `.phys` sibling)doc")
+        .def_readwrite("physics_file_id", &whiteout::m2::Model::physicsFileId)
+        .def_readwrite("bone_overrides", &whiteout::m2::Model::boneOverrides, R"doc(One entry per customization choice, in BFID order — see bone_file.h.)doc")
+        .def_readwrite("bone_file_ids", &whiteout::m2::Model::boneFileIds, R"doc(BFID, kept so a model that named its `.bone` files by id keeps doing so. Parallel to @ref boneOverrides when both are present.)doc")
         .def_readwrite("edge_fade_entries", &whiteout::m2::Model::edgeFadeEntries, R"doc(EDGF)doc")
         .def_readwrite("nerf_entries", &whiteout::m2::Model::nerfEntries, R"doc(NERF)doc")
         .def_readwrite("detailed_light_entries", &whiteout::m2::Model::detailedLightEntries, R"doc(DETL)doc")
@@ -845,6 +1118,7 @@ The @p fs passed to parse() has to outlive the returned Model, because the defer
         .def(py::init<>())
         .def_readwrite("m2_data", &whiteout::m2::M2SerializeResult::m2Data)
         .def_readwrite("skeleton_data", &whiteout::m2::M2SerializeResult::skeletonData)
+        .def_readwrite("physics_data", &whiteout::m2::M2SerializeResult::physicsData)
     ;
 
     py::class_<whiteout::m2::Writer>(m, "Writer")
@@ -857,7 +1131,7 @@ The @p fs passed to parse() has to outlive the returned Model, because the defer
         .def("get_issues", &whiteout::m2::Writer::getIssues)
     ;
 
-    py::class_<whiteout::m2::AnimationTrack<whiteout::Vector3f>>(m, "AnimationTrackVector3f")
+    py::class_<whiteout::m2::AnimationTrack<whiteout::Vector3f>>(m, "AnimationTrackVector3f", R"doc(instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline)doc")
         .def(py::init<>())
         .def_readwrite("interpolation_type", &whiteout::m2::AnimationTrack<whiteout::Vector3f>::interpolationType)
         .def_readwrite("global_sequence_id", &whiteout::m2::AnimationTrack<whiteout::Vector3f>::globalSequenceId)
@@ -865,7 +1139,7 @@ The @p fs passed to parse() has to outlive the returned Model, because the defer
         .def_readwrite("values", &whiteout::m2::AnimationTrack<whiteout::Vector3f>::values)
     ;
 
-    py::class_<whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>>(m, "AnimationTrackM2CompatQuaternion")
+    py::class_<whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>>(m, "AnimationTrackM2CompatQuaternion", R"doc(instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline)doc")
         .def(py::init<>())
         .def_readwrite("interpolation_type", &whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::interpolationType)
         .def_readwrite("global_sequence_id", &whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::globalSequenceId)
@@ -873,7 +1147,7 @@ The @p fs passed to parse() has to outlive the returned Model, because the defer
         .def_readwrite("values", &whiteout::m2::AnimationTrack<whiteout::m2::CompatQuaternion>::values)
     ;
 
-    py::class_<whiteout::m2::AnimationTrack<whiteout::i16>>(m, "AnimationTrackI16")
+    py::class_<whiteout::m2::AnimationTrack<whiteout::i16>>(m, "AnimationTrackI16", R"doc(instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline)doc")
         .def(py::init<>())
         .def_readwrite("interpolation_type", &whiteout::m2::AnimationTrack<whiteout::i16>::interpolationType)
         .def_readwrite("global_sequence_id", &whiteout::m2::AnimationTrack<whiteout::i16>::globalSequenceId)
@@ -881,7 +1155,7 @@ The @p fs passed to parse() has to outlive the returned Model, because the defer
         .def_readwrite("values", &whiteout::m2::AnimationTrack<whiteout::i16>::values)
     ;
 
-    py::class_<whiteout::m2::AnimationTrack<whiteout::Quaternion>>(m, "AnimationTrackQuaternion")
+    py::class_<whiteout::m2::AnimationTrack<whiteout::Quaternion>>(m, "AnimationTrackQuaternion", R"doc(instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline)doc")
         .def(py::init<>())
         .def_readwrite("interpolation_type", &whiteout::m2::AnimationTrack<whiteout::Quaternion>::interpolationType)
         .def_readwrite("global_sequence_id", &whiteout::m2::AnimationTrack<whiteout::Quaternion>::globalSequenceId)
@@ -889,7 +1163,7 @@ The @p fs passed to parse() has to outlive the returned Model, because the defer
         .def_readwrite("values", &whiteout::m2::AnimationTrack<whiteout::Quaternion>::values)
     ;
 
-    py::class_<whiteout::m2::AnimationTrack<whiteout::f32>>(m, "AnimationTrackF32")
+    py::class_<whiteout::m2::AnimationTrack<whiteout::f32>>(m, "AnimationTrackF32", R"doc(instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline)doc")
         .def(py::init<>())
         .def_readwrite("interpolation_type", &whiteout::m2::AnimationTrack<whiteout::f32>::interpolationType)
         .def_readwrite("global_sequence_id", &whiteout::m2::AnimationTrack<whiteout::f32>::globalSequenceId)
@@ -897,7 +1171,7 @@ The @p fs passed to parse() has to outlive the returned Model, because the defer
         .def_readwrite("values", &whiteout::m2::AnimationTrack<whiteout::f32>::values)
     ;
 
-    py::class_<whiteout::m2::AnimationTrack<whiteout::u8>>(m, "AnimationTrackU8")
+    py::class_<whiteout::m2::AnimationTrack<whiteout::u8>>(m, "AnimationTrackU8", R"doc(instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline)doc")
         .def(py::init<>())
         .def_readwrite("interpolation_type", &whiteout::m2::AnimationTrack<whiteout::u8>::interpolationType)
         .def_readwrite("global_sequence_id", &whiteout::m2::AnimationTrack<whiteout::u8>::globalSequenceId)
@@ -905,7 +1179,7 @@ The @p fs passed to parse() has to outlive the returned Model, because the defer
         .def_readwrite("values", &whiteout::m2::AnimationTrack<whiteout::u8>::values)
     ;
 
-    py::class_<whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>>(m, "AnimationTrackM2CameraSpline")
+    py::class_<whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>>(m, "AnimationTrackM2CameraSpline", R"doc(instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline)doc")
         .def(py::init<>())
         .def_readwrite("interpolation_type", &whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::interpolationType)
         .def_readwrite("global_sequence_id", &whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::globalSequenceId)
@@ -913,7 +1187,7 @@ The @p fs passed to parse() has to outlive the returned Model, because the defer
         .def_readwrite("values", &whiteout::m2::AnimationTrack<whiteout::m2::CameraSpline>::values)
     ;
 
-    py::class_<whiteout::m2::AnimationTrack<whiteout::u16>>(m, "AnimationTrackU16")
+    py::class_<whiteout::m2::AnimationTrack<whiteout::u16>>(m, "AnimationTrackU16", R"doc(instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline)doc")
         .def(py::init<>())
         .def_readwrite("interpolation_type", &whiteout::m2::AnimationTrack<whiteout::u16>::interpolationType)
         .def_readwrite("global_sequence_id", &whiteout::m2::AnimationTrack<whiteout::u16>::globalSequenceId)
@@ -945,13 +1219,18 @@ The @p fs passed to parse() has to outlive the returned Model, because the defer
     py::bind_vector<std::vector<whiteout::m2::Attachment>>(m, "VectorM2Attachment");
     py::bind_vector<std::vector<whiteout::m2::Batch>>(m, "VectorM2Batch");
     py::bind_vector<std::vector<whiteout::m2::Bone>>(m, "VectorM2Bone");
+    py::bind_vector<std::vector<whiteout::m2::BoneOverride>>(m, "VectorM2BoneOverride");
+    py::bind_vector<std::vector<whiteout::m2::BoneOverrideSet>>(m, "VectorM2BoneOverrideSet");
+    py::bind_vector<std::vector<whiteout::m2::BoxShape>>(m, "VectorM2BoxShape");
     py::bind_vector<std::vector<whiteout::m2::Camera>>(m, "VectorM2Camera");
     py::bind_vector<std::vector<whiteout::m2::CameraSpline>>(m, "VectorM2CameraSpline");
+    py::bind_vector<std::vector<whiteout::m2::CapsuleShape>>(m, "VectorM2CapsuleShape");
     py::bind_vector<std::vector<whiteout::m2::ColorAnimation>>(m, "VectorM2ColorAnimation");
     py::bind_vector<std::vector<whiteout::m2::CompatQuaternion>>(m, "VectorM2CompatQuaternion");
     py::bind_vector<std::vector<whiteout::m2::DebugOcclusionData>>(m, "VectorM2DebugOcclusionData");
     py::bind_vector<std::vector<whiteout::m2::DetailedLightData>>(m, "VectorM2DetailedLightData");
     py::bind_vector<std::vector<whiteout::m2::DistanceFadeData>>(m, "VectorM2DistanceFadeData");
+    py::bind_vector<std::vector<whiteout::m2::DistanceJoint>>(m, "VectorM2DistanceJoint");
     py::bind_vector<std::vector<whiteout::m2::EdgeFadeData>>(m, "VectorM2EdgeFadeData");
     py::bind_vector<std::vector<whiteout::m2::Event>>(m, "VectorM2Event");
     py::bind_vector<std::vector<whiteout::m2::Extent>>(m, "VectorM2Extent");
@@ -960,15 +1239,27 @@ The @p fs passed to parse() has to outlive the returned Model, because the defer
     py::bind_vector<std::vector<whiteout::m2::Material>>(m, "VectorM2Material");
     py::bind_vector<std::vector<whiteout::m2::ParticleEmitter>>(m, "VectorM2ParticleEmitter");
     py::bind_vector<std::vector<whiteout::m2::ParticleGeosetData>>(m, "VectorM2ParticleGeosetData");
+    py::bind_vector<std::vector<whiteout::m2::PhysicsBody>>(m, "VectorM2PhysicsBody");
+    py::bind_vector<std::vector<whiteout::m2::PhysicsJoint>>(m, "VectorM2PhysicsJoint");
+    py::bind_vector<std::vector<whiteout::m2::PhysicsShape>>(m, "VectorM2PhysicsShape");
+    py::bind_vector<std::vector<whiteout::m2::PhysicsTuning>>(m, "VectorM2PhysicsTuning");
+    py::bind_vector<std::vector<whiteout::m2::PolytopeHalfEdge>>(m, "VectorM2PolytopeHalfEdge");
+    py::bind_vector<std::vector<whiteout::m2::PolytopeShape>>(m, "VectorM2PolytopeShape");
+    py::bind_vector<std::vector<whiteout::m2::PrismaticJoint>>(m, "VectorM2PrismaticJoint");
+    py::bind_vector<std::vector<whiteout::m2::RevoluteJoint>>(m, "VectorM2RevoluteJoint");
     py::bind_vector<std::vector<whiteout::m2::RibbonEmitter>>(m, "VectorM2RibbonEmitter");
     py::bind_vector<std::vector<whiteout::m2::Sequence>>(m, "VectorM2Sequence");
     py::bind_vector<std::vector<whiteout::m2::ShadowBatch>>(m, "VectorM2ShadowBatch");
+    py::bind_vector<std::vector<whiteout::m2::ShoulderJoint>>(m, "VectorM2ShoulderJoint");
     py::bind_vector<std::vector<whiteout::m2::SkinProfile>>(m, "VectorM2SkinProfile");
     py::bind_vector<std::vector<whiteout::m2::SkinSection>>(m, "VectorM2SkinSection");
+    py::bind_vector<std::vector<whiteout::m2::SphereShape>>(m, "VectorM2SphereShape");
+    py::bind_vector<std::vector<whiteout::m2::SphericalJoint>>(m, "VectorM2SphericalJoint");
     py::bind_vector<std::vector<whiteout::m2::Texture>>(m, "VectorM2Texture");
     py::bind_vector<std::vector<whiteout::m2::TextureTransform>>(m, "VectorM2TextureTransform");
     py::bind_vector<std::vector<whiteout::m2::TextureWeight>>(m, "VectorM2TextureWeight");
     py::bind_vector<std::vector<whiteout::m2::TexturedLightData>>(m, "VectorM2TexturedLightData");
     py::bind_vector<std::vector<whiteout::m2::Vertex>>(m, "VectorM2Vertex");
+    py::bind_vector<std::vector<whiteout::m2::WeldJoint>>(m, "VectorM2WeldJoint");
 
 }

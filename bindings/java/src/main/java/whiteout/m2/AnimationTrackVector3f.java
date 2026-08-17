@@ -11,7 +11,7 @@ import whiteout.common.internal.NativeCommon;
 import whiteout.m2.internal.Native;
 
 /**
- * Java binding for the native AnimationTrack<whiteout::Vector3f> type.
+ * instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * AnimationTrack<whiteout::Vector3f> allocation. Always release them with

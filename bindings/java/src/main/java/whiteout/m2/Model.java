@@ -29,7 +29,7 @@ import whiteout.m2.internal.Native;
  * external access if a handle is shared across threads.
  */
 public final class Model implements AutoCloseable {
-    private static final long BYTES = 1560L;
+    private static final long BYTES = 1976L;
 
     final MemorySegment handle;
     final boolean owned;
@@ -933,29 +933,49 @@ public final class Model implements AutoCloseable {
         };
     }
     /**
-     * PFDC
-     * @return the physicsFileData field of this M2Model.
+     * One entry per customization choice, in BFID order — see bone_file.h.
+     * @return the boneOverrides field of this M2Model.
      */
-    public int getPhysicsFileDataCount() {
-        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_physicsFileData_count, handle);
+    public int getBoneOverridesCount() {
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_boneOverrides_count, handle);
     }
-    public byte[] getPhysicsFileData() {
-        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_physicsFileData_count, handle);
-        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_physicsFileData_data, handle);
-        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new byte[0];
+    public BoneOverrideSet getBoneOverridesAt(int index) {
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_boneOverrides_at, handle, (long) index);
+        return new BoneOverrideSet(__h, false);
+    }
+    public void resizeBoneOverrides(int count) {
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_boneOverrides, handle, (long) count);
+    }
+    public java.util.List<BoneOverrideSet> boneOverridesView() {
+        return new java.util.AbstractList<BoneOverrideSet>() {
+            @Override public int size() { return getBoneOverridesCount(); }
+            @Override public BoneOverrideSet get(int index) { return getBoneOverridesAt(index); }
+        };
+    }
+    /**
+     * BFID, kept so a model that named its `.bone` files by id keeps doing so. Parallel to @ref boneOverrides when both are present.
+     * @return the boneFileIds field of this M2Model.
+     */
+    public int getBoneFileIdsCount() {
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_boneFileIds_count, handle);
+    }
+    public int[] getBoneFileIds() {
+        long __count = (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_boneFileIds_count, handle);
+        MemorySegment __ptr = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_boneFileIds_data, handle);
+        if (__count == 0 || __ptr == null || __ptr.equals(MemorySegment.NULL)) return new int[0];
         long __scalars = __count * 1L;
-        return __ptr.reinterpret(__scalars * 1L).toArray(ValueLayout.JAVA_BYTE);
+        return __ptr.reinterpret(__scalars * 4L).toArray(ValueLayout.JAVA_INT);
     }
-    public void setPhysicsFileData(byte[] values) {
+    public void setBoneFileIds(int[] values) {
         try (Arena arena = Arena.ofConfined()) {
             long __count = (long) values.length / 1;
-            MemorySegment __seg = arena.allocate((long) values.length * 1L);
-            if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_BYTE, 0, values.length);
-            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_physicsFileData, handle, __seg, __count);
+            MemorySegment __seg = arena.allocate((long) values.length * 4L);
+            if (values.length > 0) MemorySegment.copy(values, 0, __seg, ValueLayout.JAVA_INT, 0, values.length);
+            NativeCommon.invokeNative(Native.whiteout_m2_M2Model_assign_boneFileIds, handle, __seg, __count);
         }
     }
-    public void resizePhysicsFileData(int count) {
-        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_physicsFileData, handle, (long) count);
+    public void resizeBoneFileIds(int count) {
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_boneFileIds, handle, (long) count);
     }
     /**
      * EDGF

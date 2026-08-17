@@ -8,6 +8,7 @@ using Whiteout.M2.Internal;
 
 namespace Whiteout.M2;
 
+/// <summary>instantiate=Vector3f;CompatQuaternion;Quaternion;i16;u8;u16;f32;CameraSpline</summary>
 public sealed class AnimationTrackM2CompatQuaternion : WhiteoutHandle
 {
     public AnimationTrackM2CompatQuaternion() : base(NativeMethods.whiteout_m2_M2AnimationTrackM2CompatQuaternion_new()) { }

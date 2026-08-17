@@ -1,7 +1,9 @@
 
 #pragma once
 
+#include "bone_file.h"
 #include "parser.h"
+#include "phys_file.h"
 #include "sequence_loader.h"
 #include "structures.h"
 #include "types.h"

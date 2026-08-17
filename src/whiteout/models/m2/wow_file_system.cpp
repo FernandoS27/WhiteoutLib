@@ -84,6 +84,13 @@ void WoWFileSystem::setAnimChunk(const AFIDChunk& chunk) {
 void WoWFileSystem::setSkeletonChunk(const SKIDChunk& chunk) {
     m_skid = chunk;
 }
+
+void WoWFileSystem::setPhysicsChunk(const PFIDChunk& chunk) {
+    m_pfid = chunk;
+}
+void WoWFileSystem::setBoneChunk(const BFIDChunk& chunk) {
+    m_bfid = chunk;
+}
 void WoWFileSystem::setParentSkeletonChunk(const SKPDChunk& chunk) {
     SKIDChunk parentSkid;
     parentSkid.skeletonFileDataId = chunk.parentSkeletonFileId;
@@ -214,7 +221,12 @@ std::span<const u8> WoWFileSystem::getPhysics() {
     }
     m_physLoaded = true;
 
-    if (m_pathFs) {
+    if (m_cascFs) {
+        if (m_pfid.physFileDataId == 0) {
+            return {};
+        }
+        m_physCache = m_cascFs->readFile(m_pfid.physFileDataId);
+    } else {
         std::string const path = buildPhysPath();
         if (m_pathFs->fileExists(path)) {
             m_physCache = m_pathFs->readFile(path);
@@ -242,6 +254,64 @@ std::string WoWFileSystem::buildSkelPath() const {
 
 std::string WoWFileSystem::buildPhysPath() const {
     return m_baseStem + ".phys";
+}
+
+std::string WoWFileSystem::buildBonePath(u32 index) const {
+    return m_baseStem + "_" + zeroPad(static_cast<int>(index), 2) + ".bone";
+}
+
+// Path mode has no BFID to count, so the sibling run is probed instead. The
+// files are numbered from zero without gaps in the WoW corpus, so the first
+// miss ends the run.
+void WoWFileSystem::scanBones() {
+    if (m_boneScanned) {
+        return;
+    }
+    m_boneScanned = true;
+
+    if (!m_bfid.boneFileDataIds.empty()) {
+        m_boneCount = static_cast<u32>(m_bfid.boneFileDataIds.size());
+        return;
+    }
+    if (!m_pathFs || m_baseStem.empty()) {
+        return;
+    }
+    while (m_pathFs->fileExists(buildBonePath(m_boneCount))) {
+        ++m_boneCount;
+    }
+}
+
+u32 WoWFileSystem::boneCount() {
+    scanBones();
+    return m_boneCount;
+}
+
+std::span<const u8> WoWFileSystem::getBone(u32 index) {
+    scanBones();
+    if (index >= m_boneCount) {
+        return {};
+    }
+    if (auto it = m_boneCache.find(index); it != m_boneCache.end()) {
+        return it->second;
+    }
+
+    std::vector<u8> data;
+    if (m_cascFs && index < m_bfid.boneFileDataIds.size()) {
+        const u32 fileId = m_bfid.boneFileDataIds[index];
+        if (fileId != 0) {
+            data = m_cascFs->readFile(fileId);
+        }
+    } else if (m_pathFs) {
+        std::string const path = buildBonePath(index);
+        if (m_pathFs->fileExists(path)) {
+            data = m_pathFs->readFile(path);
+        }
+    }
+    return m_boneCache.emplace(index, std::move(data)).first->second;
+}
+
+void WoWFileSystem::writeBoneFile(u32 index, std::vector<u8> data) {
+    m_boneCache[index] = std::move(data);
 }
 
 void WoWFileSystem::exploratorySearch() {
@@ -405,9 +475,10 @@ void WoWFileSystem::writeSkeletonFile([[maybe_unused]] u32 handle, std::vector<u
     m_skelLoaded = true;
 }
 
-void WoWFileSystem::writePhysicsFile(std::vector<u8> data) {
+void WoWFileSystem::writePhysicsFile(std::vector<u8> data, u32 cascFileId) {
     assert(m_mode == WoWFileSystemMode::Create);
     m_physCache = std::move(data);
+    m_physFileId = cascFileId;
     m_physLoaded = true;
 }
 
@@ -450,6 +521,12 @@ void WoWFileSystem::flush() {
         if (m_physLoaded && !m_physCache.empty()) {
             m_pathFs->writeFile(buildPhysPath(), m_physCache);
         }
+
+        for (const auto& [index, data] : m_boneCache) {
+            if (!data.empty()) {
+                m_pathFs->writeFile(buildBonePath(index), data);
+            }
+        }
     } else if (m_cascFs) {
 
         for (u32 const handle : m_registeredSkins) {
@@ -475,6 +552,21 @@ void WoWFileSystem::flush() {
 
         if (m_skelLoaded && !m_skelCache.empty() && m_registeredSkelId != 0) {
             m_cascFs->writeFile(m_registeredSkelId, m_skelCache);
+        }
+
+        if (m_physLoaded && !m_physCache.empty() && m_physFileId != 0) {
+            m_cascFs->writeFile(m_physFileId, m_physCache);
+        }
+
+        // BFID is the only thing naming these in CASC mode, so a model that
+        // never carried one cannot write its `.bone` files back.
+        for (const auto& [index, data] : m_boneCache) {
+            if (data.empty() || index >= m_bfid.boneFileDataIds.size()) {
+                continue;
+            }
+            if (const u32 fileId = m_bfid.boneFileDataIds[index]; fileId != 0) {
+                m_cascFs->writeFile(fileId, data);
+            }
         }
     }
 }

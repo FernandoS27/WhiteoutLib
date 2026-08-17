@@ -397,6 +397,96 @@ impl core::fmt::Debug for ParticleFlag {
     }
 }
 
+/// How the client drives a body — the value stored in BODY is inverted relative to Domino's own `dmBodyType`.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PhysicsBodyType {
+    /// Animation-driven collider. Becomes `dmBodyType` 1; the client keeps it glued to its bone and the simulation only reads it.
+    Kinematic = 0,
+    /// Simulated. Becomes `dmBodyType` 0 and gets its bone transform written back every frame. These are the cloth/tassel segments.
+    Dynamic = 1,
+}
+
+impl TryFrom<i32> for PhysicsBodyType {
+    type Error = crate::Error;
+    fn try_from(v: i32) -> Result<Self, crate::Error> {
+        match v {
+            0 => Ok(PhysicsBodyType::Kinematic),
+            1 => Ok(PhysicsBodyType::Dynamic),
+            other => Err(crate::Error::UnknownEnum {
+                name: "PhysicsBodyType",
+                value: other,
+            }),
+        }
+    }
+}
+
+/// Which shape chunk a PhysicsShape indexes into.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PhysicsShapeType {
+    /// BOXS
+    Box = 0,
+    /// CAPS
+    Capsule = 1,
+    /// SPHS
+    Sphere = 2,
+    /// PLYT, version 3+
+    Polytope = 3,
+}
+
+impl TryFrom<i32> for PhysicsShapeType {
+    type Error = crate::Error;
+    fn try_from(v: i32) -> Result<Self, crate::Error> {
+        match v {
+            0 => Ok(PhysicsShapeType::Box),
+            1 => Ok(PhysicsShapeType::Capsule),
+            2 => Ok(PhysicsShapeType::Sphere),
+            3 => Ok(PhysicsShapeType::Polytope),
+            other => Err(crate::Error::UnknownEnum {
+                name: "PhysicsShapeType",
+                value: other,
+            }),
+        }
+    }
+}
+
+/// Which joint chunk a PhysicsJoint indexes into.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PhysicsJointType {
+    /// SPHJ
+    Spherical = 0,
+    /// SHOJ / SHJ2
+    Shoulder = 1,
+    /// WELJ / WLJ2 / WLJ3
+    Weld = 2,
+    /// REVJ / REV2, version 2+
+    Revolute = 3,
+    /// PRSJ / PRS2, version 2+
+    Prismatic = 4,
+    /// DSTJ, version 2+
+    Distance = 5,
+}
+
+impl TryFrom<i32> for PhysicsJointType {
+    type Error = crate::Error;
+    fn try_from(v: i32) -> Result<Self, crate::Error> {
+        match v {
+            0 => Ok(PhysicsJointType::Spherical),
+            1 => Ok(PhysicsJointType::Shoulder),
+            2 => Ok(PhysicsJointType::Weld),
+            3 => Ok(PhysicsJointType::Revolute),
+            4 => Ok(PhysicsJointType::Prismatic),
+            5 => Ok(PhysicsJointType::Distance),
+            other => Err(crate::Error::UnknownEnum {
+                name: "PhysicsJointType",
+                value: other,
+            }),
+        }
+    }
+}
+
 pub struct CompatQuaternion {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2CompatQuaternion>,
 }
@@ -6215,6 +6305,3304 @@ impl Default for Event {
     }
 }
 
+/// The affine frame the Domino chunks store: three basis columns and an origin, twelve floats in all.
+///
+/// The client reassembles it as `dmMtx{axisX, axisY, axisZ}` -> `dmQuatFromMtx` plus `origin` as the translation, giving a `dmTransform`.
+pub struct PhysicsFrame {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2PhysicsFrame>,
+}
+
+impl Drop for PhysicsFrame {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2PhysicsFrame_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl PhysicsFrame {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2PhysicsFrame) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| PhysicsFrame { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for PhysicsFrame {}
+
+impl core::fmt::Debug for PhysicsFrame {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PhysicsFrame").finish_non_exhaustive()
+    }
+}
+
+impl PhysicsFrame {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2PhysicsFrame_new();
+            Self::from_raw(raw).expect("native PhysicsFrame allocation failed")
+        }
+    }
+
+    pub fn axis_x(&self) -> crate::math::Vector3f {
+        // SAFETY: the getter returns an interior pointer to a
+        // layout-identical POD; we copy it out immediately.
+        unsafe {
+            *(ffi::whiteout_m2_M2PhysicsFrame_get_axisX(self.raw.as_ptr())
+                as *const crate::math::Vector3f)
+        }
+    }
+
+    pub fn set_axis_x(&mut self, value: crate::math::Vector3f) {
+        // SAFETY: as above, in the other direction.
+        unsafe {
+            ffi::whiteout_m2_M2PhysicsFrame_set_axisX(
+                self.raw.as_ptr(),
+                &value as *const crate::math::Vector3f as *const _,
+            )
+        }
+    }
+
+    pub fn axis_y(&self) -> crate::math::Vector3f {
+        // SAFETY: the getter returns an interior pointer to a
+        // layout-identical POD; we copy it out immediately.
+        unsafe {
+            *(ffi::whiteout_m2_M2PhysicsFrame_get_axisY(self.raw.as_ptr())
+                as *const crate::math::Vector3f)
+        }
+    }
+
+    pub fn set_axis_y(&mut self, value: crate::math::Vector3f) {
+        // SAFETY: as above, in the other direction.
+        unsafe {
+            ffi::whiteout_m2_M2PhysicsFrame_set_axisY(
+                self.raw.as_ptr(),
+                &value as *const crate::math::Vector3f as *const _,
+            )
+        }
+    }
+
+    pub fn axis_z(&self) -> crate::math::Vector3f {
+        // SAFETY: the getter returns an interior pointer to a
+        // layout-identical POD; we copy it out immediately.
+        unsafe {
+            *(ffi::whiteout_m2_M2PhysicsFrame_get_axisZ(self.raw.as_ptr())
+                as *const crate::math::Vector3f)
+        }
+    }
+
+    pub fn set_axis_z(&mut self, value: crate::math::Vector3f) {
+        // SAFETY: as above, in the other direction.
+        unsafe {
+            ffi::whiteout_m2_M2PhysicsFrame_set_axisZ(
+                self.raw.as_ptr(),
+                &value as *const crate::math::Vector3f as *const _,
+            )
+        }
+    }
+
+    pub fn origin(&self) -> crate::math::Vector3f {
+        // SAFETY: the getter returns an interior pointer to a
+        // layout-identical POD; we copy it out immediately.
+        unsafe {
+            *(ffi::whiteout_m2_M2PhysicsFrame_get_origin(self.raw.as_ptr())
+                as *const crate::math::Vector3f)
+        }
+    }
+
+    pub fn set_origin(&mut self, value: crate::math::Vector3f) {
+        // SAFETY: as above, in the other direction.
+        unsafe {
+            ffi::whiteout_m2_M2PhysicsFrame_set_origin(
+                self.raw.as_ptr(),
+                &value as *const crate::math::Vector3f as *const _,
+            )
+        }
+    }
+}
+
+impl Default for PhysicsFrame {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// One rigid body, bound to a single model bone — BODY/BDY2/BDY3/BDY4.
+///
+/// The four on-disk layouts are the same fields accreting over time, so they share one struct; PhysicsData::version decides which of them is written back, and fields the older layouts lack keep their defaults.
+pub struct PhysicsBody {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2PhysicsBody>,
+}
+
+impl Drop for PhysicsBody {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl PhysicsBody {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2PhysicsBody) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| PhysicsBody { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for PhysicsBody {}
+
+impl core::fmt::Debug for PhysicsBody {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PhysicsBody").finish_non_exhaustive()
+    }
+}
+
+impl PhysicsBody {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2PhysicsBody_new();
+            Self::from_raw(raw).expect("native PhysicsBody allocation failed")
+        }
+    }
+
+    pub fn type_(&self) -> PhysicsBodyType {
+        // SAFETY: scalar read; the discriminant is validated below.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_get_type(self.raw.as_ptr()) }
+            .try_into()
+            .expect("unknown enum discriminant from the native library")
+    }
+
+    pub fn set_type_(&mut self, value: PhysicsBodyType) {
+        // SAFETY: scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_set_type(self.raw.as_ptr(), value as i32) }
+    }
+
+    pub fn bone_index(&self) -> u16 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_get_boneIndex(self.raw.as_ptr()) }
+    }
+
+    pub fn set_bone_index(&mut self, value: u16) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_set_boneIndex(self.raw.as_ptr(), value) }
+    }
+
+    /// Offset from the bone's animated position, not an absolute position: the client spawns the body at `bonePosition + position`.
+    pub fn position(&self) -> crate::math::Vector3f {
+        // SAFETY: the getter returns an interior pointer to a
+        // layout-identical POD; we copy it out immediately.
+        unsafe {
+            *(ffi::whiteout_m2_M2PhysicsBody_get_position(self.raw.as_ptr())
+                as *const crate::math::Vector3f)
+        }
+    }
+
+    pub fn set_position(&mut self, value: crate::math::Vector3f) {
+        // SAFETY: as above, in the other direction.
+        unsafe {
+            ffi::whiteout_m2_M2PhysicsBody_set_position(
+                self.raw.as_ptr(),
+                &value as *const crate::math::Vector3f as *const _,
+            )
+        }
+    }
+
+    /// First entry in PhysicsData::shapes belonging to this body. 32 bits wide in BODY/BDY2, 16 from BDY3 on — writing a larger index back into one of those truncates it.
+    pub fn shape_index(&self) -> i32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_get_shapeIndex(self.raw.as_ptr()) }
+    }
+
+    pub fn set_shape_index(&mut self, value: i32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_set_shapeIndex(self.raw.as_ptr(), value) }
+    }
+
+    pub fn shape_count(&self) -> i32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_get_shapeCount(self.raw.as_ptr()) }
+    }
+
+    pub fn set_shape_count(&mut self, value: i32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_set_shapeCount(self.raw.as_ptr(), value) }
+    }
+
+    /// BDY3+. 1.0 on all but 45 of 1213 kinematic bodies but tuned freely on dynamic ones, negatives included — the shape of `dmBodyDef::m_gravityScale`.
+    pub fn gravity_scale(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_get_gravityScale(self.raw.as_ptr()) }
+    }
+
+    pub fn set_gravity_scale(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_set_gravityScale(self.raw.as_ptr(), value) }
+    }
+
+    /// BDY2+. 1.0 in 3457 of 3526 bodies, otherwise 1.1-10 — `dmBodyDef::m_inertiaScale`.
+    pub fn inertia_scale(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_get_inertiaScale(self.raw.as_ptr()) }
+    }
+
+    pub fn set_inertia_scale(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_set_inertiaScale(self.raw.as_ptr(), value) }
+    }
+
+    /// BDY3+. Zero on 1196 of 1213 kinematic bodies and 0-10 on dynamic ones — `dmBodyDef::m_linearDamping`.
+    pub fn linear_damping(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_get_linearDamping(self.raw.as_ptr()) }
+    }
+
+    pub fn set_linear_damping(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_set_linearDamping(self.raw.as_ptr(), value) }
+    }
+
+    /// BDY3+. Same kinematic/dynamic split as @ref linearDamping — `dmBodyDef::m_angularDamping`.
+    pub fn angular_damping(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_get_angularDamping(self.raw.as_ptr()) }
+    }
+
+    pub fn set_angular_damping(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_set_angularDamping(self.raw.as_ptr(), value) }
+    }
+
+    /// BDY3+. Unidentified. Unlike the four above it is set on kinematic and dynamic bodies alike, so it is not a rigid-body integration parameter; values cluster on 0.5, 0.01, 0.9 and 0.1.
+    pub fn unknown_28(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_get_unknown28(self.raw.as_ptr()) }
+    }
+
+    pub fn set_unknown_28(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_set_unknown28(self.raw.as_ptr(), value) }
+    }
+
+    /// BDY4+. Unidentified; 0 in half the corpus, otherwise small values or 0x8000 alone, which reads like a bit field.
+    pub fn unknown_2c(&self) -> u16 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_get_unknown2c(self.raw.as_ptr()) }
+    }
+
+    pub fn set_unknown_2c(&mut self, value: u16) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_set_unknown2c(self.raw.as_ptr(), value) }
+    }
+
+    /// BDY4+. Zero in every corpus body.
+    pub fn padding_2e(&self) -> u16 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_get_padding2e(self.raw.as_ptr()) }
+    }
+
+    pub fn set_padding_2e(&mut self, value: u16) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsBody_set_padding2e(self.raw.as_ptr(), value) }
+    }
+}
+
+impl Default for PhysicsBody {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// One collision shape reference — SHAP/SHP2. Points at an entry of the box/capsule/sphere/polytope array named by @ref shapeType.
+pub struct PhysicsShape {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2PhysicsShape>,
+}
+
+impl Drop for PhysicsShape {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl PhysicsShape {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2PhysicsShape) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| PhysicsShape { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for PhysicsShape {}
+
+impl core::fmt::Debug for PhysicsShape {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PhysicsShape").finish_non_exhaustive()
+    }
+}
+
+impl PhysicsShape {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2PhysicsShape_new();
+            Self::from_raw(raw).expect("native PhysicsShape allocation failed")
+        }
+    }
+
+    pub fn shape_type(&self) -> PhysicsShapeType {
+        // SAFETY: scalar read; the discriminant is validated below.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_get_shapeType(self.raw.as_ptr()) }
+            .try_into()
+            .expect("unknown enum discriminant from the native library")
+    }
+
+    pub fn set_shape_type(&mut self, value: PhysicsShapeType) {
+        // SAFETY: scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_set_shapeType(self.raw.as_ptr(), value as i32) }
+    }
+
+    pub fn shape_index(&self) -> i16 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_get_shapeIndex(self.raw.as_ptr()) }
+    }
+
+    pub fn set_shape_index(&mut self, value: i16) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_set_shapeIndex(self.raw.as_ptr(), value) }
+    }
+
+    /// Zero in every corpus shape.
+    pub fn padding_04(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_get_padding04(self.raw.as_ptr()) }
+    }
+
+    pub fn set_padding_04(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_set_padding04(self.raw.as_ptr(), value) }
+    }
+
+    pub fn friction(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_get_friction(self.raw.as_ptr()) }
+    }
+
+    pub fn set_friction(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_set_friction(self.raw.as_ptr(), value) }
+    }
+
+    pub fn restitution(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_get_restitution(self.raw.as_ptr()) }
+    }
+
+    pub fn set_restitution(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_set_restitution(self.raw.as_ptr(), value) }
+    }
+
+    pub fn density(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_get_density(self.raw.as_ptr()) }
+    }
+
+    pub fn set_density(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_set_density(self.raw.as_ptr(), value) }
+    }
+
+    /// SHP2+. Unidentified, but a float: only 0, 0.01, 0.8 and 1.0 occur. The one `dmFixtureDef` float the rest of this struct does not account for is `m_rollingResistance`.
+    pub fn unknown_14(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_get_unknown14(self.raw.as_ptr()) }
+    }
+
+    pub fn set_unknown_14(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_set_unknown14(self.raw.as_ptr(), value) }
+    }
+
+    /// SHP2+. 1.0 in 3229 of 3230 shapes, matching the `m_scaleOrRadius` the client hands every fixture.
+    pub fn scale(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_get_scale(self.raw.as_ptr()) }
+    }
+
+    pub fn set_scale(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_set_scale(self.raw.as_ptr(), value) }
+    }
+
+    /// SHP2+. Zero in every corpus shape.
+    pub fn unknown_1c(&self) -> u16 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_get_unknown1c(self.raw.as_ptr()) }
+    }
+
+    pub fn set_unknown_1c(&mut self, value: u16) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_set_unknown1c(self.raw.as_ptr(), value) }
+    }
+
+    /// SHP2+. Uninitialised on disk; kept so writes match.
+    pub fn padding_1e(&self) -> u16 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_get_padding1e(self.raw.as_ptr()) }
+    }
+
+    pub fn set_padding_1e(&mut self, value: u16) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsShape_set_padding1e(self.raw.as_ptr(), value) }
+    }
+}
+
+impl Default for PhysicsShape {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// BOXS — an oriented box. The client turns it straight into a polytope via `CPhysicsBoxShapeDef::SetPolytopeData(frame, halfExtents)`.
+pub struct BoxShape {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2BoxShape>,
+}
+
+impl Drop for BoxShape {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2BoxShape_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl BoxShape {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2BoxShape) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| BoxShape { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for BoxShape {}
+
+impl core::fmt::Debug for BoxShape {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("BoxShape").finish_non_exhaustive()
+    }
+}
+
+impl BoxShape {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2BoxShape_new();
+            Self::from_raw(raw).expect("native BoxShape allocation failed")
+        }
+    }
+
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn frame(&self) -> crate::support::Ref<'_, PhysicsFrame> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(PhysicsFrame {
+                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m2_M2BoxShape_get_frame(
+                    self.raw.as_ptr(),
+                )),
+            })
+        }
+    }
+
+    pub fn frame_mut(&mut self) -> crate::support::RefMut<'_, PhysicsFrame> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(PhysicsFrame {
+                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m2_M2BoxShape_get_frame(
+                    self.raw.as_ptr(),
+                )),
+            })
+        }
+    }
+
+    pub fn half_extents(&self) -> crate::math::Vector3f {
+        // SAFETY: the getter returns an interior pointer to a
+        // layout-identical POD; we copy it out immediately.
+        unsafe {
+            *(ffi::whiteout_m2_M2BoxShape_get_halfExtents(self.raw.as_ptr())
+                as *const crate::math::Vector3f)
+        }
+    }
+
+    pub fn set_half_extents(&mut self, value: crate::math::Vector3f) {
+        // SAFETY: as above, in the other direction.
+        unsafe {
+            ffi::whiteout_m2_M2BoxShape_set_halfExtents(
+                self.raw.as_ptr(),
+                &value as *const crate::math::Vector3f as *const _,
+            )
+        }
+    }
+}
+
+impl Default for BoxShape {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// CAPS — a capsule between two local points.
+pub struct CapsuleShape {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2CapsuleShape>,
+}
+
+impl Drop for CapsuleShape {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2CapsuleShape_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl CapsuleShape {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2CapsuleShape) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| CapsuleShape { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for CapsuleShape {}
+
+impl core::fmt::Debug for CapsuleShape {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("CapsuleShape").finish_non_exhaustive()
+    }
+}
+
+impl CapsuleShape {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2CapsuleShape_new();
+            Self::from_raw(raw).expect("native CapsuleShape allocation failed")
+        }
+    }
+
+    pub fn local_position_1(&self) -> crate::math::Vector3f {
+        // SAFETY: the getter returns an interior pointer to a
+        // layout-identical POD; we copy it out immediately.
+        unsafe {
+            *(ffi::whiteout_m2_M2CapsuleShape_get_localPosition1(self.raw.as_ptr())
+                as *const crate::math::Vector3f)
+        }
+    }
+
+    pub fn set_local_position_1(&mut self, value: crate::math::Vector3f) {
+        // SAFETY: as above, in the other direction.
+        unsafe {
+            ffi::whiteout_m2_M2CapsuleShape_set_localPosition1(
+                self.raw.as_ptr(),
+                &value as *const crate::math::Vector3f as *const _,
+            )
+        }
+    }
+
+    pub fn local_position_2(&self) -> crate::math::Vector3f {
+        // SAFETY: the getter returns an interior pointer to a
+        // layout-identical POD; we copy it out immediately.
+        unsafe {
+            *(ffi::whiteout_m2_M2CapsuleShape_get_localPosition2(self.raw.as_ptr())
+                as *const crate::math::Vector3f)
+        }
+    }
+
+    pub fn set_local_position_2(&mut self, value: crate::math::Vector3f) {
+        // SAFETY: as above, in the other direction.
+        unsafe {
+            ffi::whiteout_m2_M2CapsuleShape_set_localPosition2(
+                self.raw.as_ptr(),
+                &value as *const crate::math::Vector3f as *const _,
+            )
+        }
+    }
+
+    pub fn radius(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2CapsuleShape_get_radius(self.raw.as_ptr()) }
+    }
+
+    pub fn set_radius(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2CapsuleShape_set_radius(self.raw.as_ptr(), value) }
+    }
+}
+
+impl Default for CapsuleShape {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// SPHS — a sphere at a local point.
+pub struct SphereShape {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2SphereShape>,
+}
+
+impl Drop for SphereShape {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2SphereShape_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl SphereShape {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2SphereShape) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| SphereShape { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for SphereShape {}
+
+impl core::fmt::Debug for SphereShape {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("SphereShape").finish_non_exhaustive()
+    }
+}
+
+impl SphereShape {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2SphereShape_new();
+            Self::from_raw(raw).expect("native SphereShape allocation failed")
+        }
+    }
+
+    pub fn local_position(&self) -> crate::math::Vector3f {
+        // SAFETY: the getter returns an interior pointer to a
+        // layout-identical POD; we copy it out immediately.
+        unsafe {
+            *(ffi::whiteout_m2_M2SphereShape_get_localPosition(self.raw.as_ptr())
+                as *const crate::math::Vector3f)
+        }
+    }
+
+    pub fn set_local_position(&mut self, value: crate::math::Vector3f) {
+        // SAFETY: as above, in the other direction.
+        unsafe {
+            ffi::whiteout_m2_M2SphereShape_set_localPosition(
+                self.raw.as_ptr(),
+                &value as *const crate::math::Vector3f as *const _,
+            )
+        }
+    }
+
+    pub fn radius(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2SphereShape_get_radius(self.raw.as_ptr()) }
+    }
+
+    pub fn set_radius(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2SphereShape_set_radius(self.raw.as_ptr(), value) }
+    }
+}
+
+impl Default for SphereShape {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// One half-edge of a polytope — Domino's `dmSubEdge`, four bytes.
+///
+/// Half-edges are stored in twin pairs at adjacent indices, and the ones bounding a face form a cycle through @ref nextEdge.
+pub struct PolytopeHalfEdge {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2PolytopeHalfEdge>,
+}
+
+impl Drop for PolytopeHalfEdge {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2PolytopeHalfEdge_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl PolytopeHalfEdge {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2PolytopeHalfEdge) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| PolytopeHalfEdge { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for PolytopeHalfEdge {}
+
+impl core::fmt::Debug for PolytopeHalfEdge {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PolytopeHalfEdge").finish_non_exhaustive()
+    }
+}
+
+impl PolytopeHalfEdge {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2PolytopeHalfEdge_new();
+            Self::from_raw(raw).expect("native PolytopeHalfEdge allocation failed")
+        }
+    }
+
+    /// Signed step to the paired half-edge: the twin of edge `i` is `i + twinOffset`. Only +1 and -1 occur, in equal numbers.
+    pub fn twin_offset(&self) -> i8 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PolytopeHalfEdge_get_twinOffset(self.raw.as_ptr()) }
+    }
+
+    pub fn set_twin_offset(&mut self, value: i8) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PolytopeHalfEdge_set_twinOffset(self.raw.as_ptr(), value) }
+    }
+
+    /// Where this half-edge starts, indexing PolytopeShape::vertices.
+    pub fn origin_vertex(&self) -> u8 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PolytopeHalfEdge_get_originVertex(self.raw.as_ptr()) }
+    }
+
+    pub fn set_origin_vertex(&mut self, value: u8) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PolytopeHalfEdge_set_originVertex(self.raw.as_ptr(), value) }
+    }
+
+    /// The face this half-edge bounds, indexing PolytopeShape::facePlanes.
+    pub fn face_index(&self) -> u8 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PolytopeHalfEdge_get_faceIndex(self.raw.as_ptr()) }
+    }
+
+    pub fn set_face_index(&mut self, value: u8) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PolytopeHalfEdge_set_faceIndex(self.raw.as_ptr(), value) }
+    }
+
+    /// Next half-edge around @ref faceIndex.
+    pub fn next_edge(&self) -> u8 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PolytopeHalfEdge_get_nextEdge(self.raw.as_ptr()) }
+    }
+
+    pub fn set_next_edge(&mut self, value: u8) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PolytopeHalfEdge_set_nextEdge(self.raw.as_ptr(), value) }
+    }
+}
+
+impl Default for PolytopeHalfEdge {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// PLYT — a convex hull, version 3+. Domino's `dmPolytope`.
+///
+/// The chunk stores fixed-size headers and variable-size payloads in two blocks; both halves are folded into this one struct, and the header's counts are recomputed from the vectors on write. The header's four pointer fields are filled in by the client at load time and are zero in every file, so they are not kept.
+pub struct PolytopeShape {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2PolytopeShape>,
+}
+
+impl Drop for PolytopeShape {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2PolytopeShape_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl PolytopeShape {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2PolytopeShape) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| PolytopeShape { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for PolytopeShape {}
+
+impl core::fmt::Debug for PolytopeShape {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PolytopeShape").finish_non_exhaustive()
+    }
+}
+
+impl PolytopeShape {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2PolytopeShape_new();
+            Self::from_raw(raw).expect("native PolytopeShape allocation failed")
+        }
+    }
+
+    /// Hull corners.
+    /// Zero-copy view of the underlying `std::vector`.
+    pub fn vertices(&self) -> &[crate::math::Vector3f] {
+        // SAFETY: `_data`/`_count` describe one contiguous C++
+        // allocation, borrowed for as long as `self` is.
+        unsafe {
+            let n = ffi::whiteout_m2_M2PolytopeShape_get_vertices_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m2_M2PolytopeShape_get_vertices_data(self.raw.as_ptr())
+                as *const crate::math::Vector3f;
+            if p.is_null() || n == 0 {
+                &[]
+            } else {
+                core::slice::from_raw_parts(p, n)
+            }
+        }
+    }
+
+    /// Zero-copy mutable view. Resize first — the borrow forbids it after.
+    pub fn vertices_mut(&mut self) -> &mut [crate::math::Vector3f] {
+        // SAFETY: as above; `&mut self` rules out aliasing and resizing.
+        unsafe {
+            let n = ffi::whiteout_m2_M2PolytopeShape_get_vertices_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m2_M2PolytopeShape_get_vertices_data(self.raw.as_ptr())
+                as *const crate::math::Vector3f as *mut crate::math::Vector3f;
+            if p.is_null() || n == 0 {
+                &mut []
+            } else {
+                core::slice::from_raw_parts_mut(p, n)
+            }
+        }
+    }
+
+    pub fn set_vertices(&mut self, values: &[crate::math::Vector3f]) {
+        // SAFETY: the native side copies `values` before returning.
+        unsafe {
+            ffi::whiteout_m2_M2PolytopeShape_assign_vertices(
+                self.raw.as_ptr(),
+                values.as_ptr() as *const _,
+                values.len(),
+            )
+        }
+    }
+
+    pub fn resize_vertices(&mut self, count: usize) {
+        // SAFETY: reallocation is safe here precisely because
+        // `&mut self` means no slice borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2PolytopeShape_resize_vertices(self.raw.as_ptr(), count) }
+    }
+
+    /// Outward plane of each face, `xyz` normal and `w` offset.
+    /// Zero-copy view of the underlying `std::vector`.
+    pub fn face_planes(&self) -> &[crate::math::Vector4f] {
+        // SAFETY: `_data`/`_count` describe one contiguous C++
+        // allocation, borrowed for as long as `self` is.
+        unsafe {
+            let n = ffi::whiteout_m2_M2PolytopeShape_get_facePlanes_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m2_M2PolytopeShape_get_facePlanes_data(self.raw.as_ptr())
+                as *const crate::math::Vector4f;
+            if p.is_null() || n == 0 {
+                &[]
+            } else {
+                core::slice::from_raw_parts(p, n)
+            }
+        }
+    }
+
+    /// Zero-copy mutable view. Resize first — the borrow forbids it after.
+    pub fn face_planes_mut(&mut self) -> &mut [crate::math::Vector4f] {
+        // SAFETY: as above; `&mut self` rules out aliasing and resizing.
+        unsafe {
+            let n = ffi::whiteout_m2_M2PolytopeShape_get_facePlanes_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m2_M2PolytopeShape_get_facePlanes_data(self.raw.as_ptr())
+                as *const crate::math::Vector4f as *mut crate::math::Vector4f;
+            if p.is_null() || n == 0 {
+                &mut []
+            } else {
+                core::slice::from_raw_parts_mut(p, n)
+            }
+        }
+    }
+
+    pub fn set_face_planes(&mut self, values: &[crate::math::Vector4f]) {
+        // SAFETY: the native side copies `values` before returning.
+        unsafe {
+            ffi::whiteout_m2_M2PolytopeShape_assign_facePlanes(
+                self.raw.as_ptr(),
+                values.as_ptr() as *const _,
+                values.len(),
+            )
+        }
+    }
+
+    pub fn resize_face_planes(&mut self, count: usize) {
+        // SAFETY: reallocation is safe here precisely because
+        // `&mut self` means no slice borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2PolytopeShape_resize_facePlanes(self.raw.as_ptr(), count) }
+    }
+
+    /// One entry per face: any half-edge bounding it, as the entry point for walking the face through PolytopeHalfEdge::nextEdge.
+    /// Zero-copy view of the underlying `std::vector`.
+    pub fn face_first_edges(&self) -> &[u8] {
+        // SAFETY: `_data`/`_count` describe one contiguous C++
+        // allocation, borrowed for as long as `self` is.
+        unsafe {
+            let n = ffi::whiteout_m2_M2PolytopeShape_get_faceFirstEdges_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m2_M2PolytopeShape_get_faceFirstEdges_data(self.raw.as_ptr());
+            if p.is_null() || n == 0 {
+                &[]
+            } else {
+                core::slice::from_raw_parts(p, n)
+            }
+        }
+    }
+
+    /// Zero-copy mutable view. Resize first — the borrow forbids it after.
+    pub fn face_first_edges_mut(&mut self) -> &mut [u8] {
+        // SAFETY: as above; `&mut self` rules out aliasing and resizing.
+        unsafe {
+            let n = ffi::whiteout_m2_M2PolytopeShape_get_faceFirstEdges_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m2_M2PolytopeShape_get_faceFirstEdges_data(self.raw.as_ptr())
+                as *mut u8;
+            if p.is_null() || n == 0 {
+                &mut []
+            } else {
+                core::slice::from_raw_parts_mut(p, n)
+            }
+        }
+    }
+
+    pub fn set_face_first_edges(&mut self, values: &[u8]) {
+        // SAFETY: the native side copies `values` before returning.
+        unsafe {
+            ffi::whiteout_m2_M2PolytopeShape_assign_faceFirstEdges(
+                self.raw.as_ptr(),
+                values.as_ptr() as *const _,
+                values.len(),
+            )
+        }
+    }
+
+    pub fn resize_face_first_edges(&mut self, count: usize) {
+        // SAFETY: reallocation is safe here precisely because
+        // `&mut self` means no slice borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2PolytopeShape_resize_faceFirstEdges(self.raw.as_ptr(), count) }
+    }
+
+    pub fn edges_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PolytopeShape_get_edges_count(self.raw.as_ptr()) }
+    }
+
+    /// Borrows element `index` in place. `None` when out of range.
+    pub fn edges(&self, index: usize) -> Option<crate::support::Ref<'_, PolytopeHalfEdge>> {
+        if index >= self.edges_len() {
+            return None;
+        }
+        // SAFETY: index checked above; the pointer is interior to `self`.
+        unsafe {
+            Some(crate::support::Ref::new(PolytopeHalfEdge {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PolytopeShape_get_edges_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    pub fn edges_mut(
+        &mut self,
+        index: usize,
+    ) -> Option<crate::support::RefMut<'_, PolytopeHalfEdge>> {
+        if index >= self.edges_len() {
+            return None;
+        }
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            Some(crate::support::RefMut::new(PolytopeHalfEdge {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PolytopeShape_get_edges_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    /// Iterate the elements, borrowing each in turn.
+    pub fn edges_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, PolytopeHalfEdge>> {
+        (0..self.edges_len()).map(move |i| self.edges(i).expect("index below len"))
+    }
+
+    pub fn resize_edges(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2PolytopeShape_resize_edges(self.raw.as_ptr(), count) }
+    }
+
+    /// Volume-weighted, not the vertex average.
+    pub fn centroid(&self) -> crate::math::Vector3f {
+        // SAFETY: the getter returns an interior pointer to a
+        // layout-identical POD; we copy it out immediately.
+        unsafe {
+            *(ffi::whiteout_m2_M2PolytopeShape_get_centroid(self.raw.as_ptr())
+                as *const crate::math::Vector3f)
+        }
+    }
+
+    pub fn set_centroid(&mut self, value: crate::math::Vector3f) {
+        // SAFETY: as above, in the other direction.
+        unsafe {
+            ffi::whiteout_m2_M2PolytopeShape_set_centroid(
+                self.raw.as_ptr(),
+                &value as *const crate::math::Vector3f as *const _,
+            )
+        }
+    }
+
+    /// Hull volume.
+    pub fn volume(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PolytopeShape_get_volume(self.raw.as_ptr()) }
+    }
+
+    pub fn set_volume(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PolytopeShape_set_volume(self.raw.as_ptr(), value) }
+    }
+
+    /// Hull surface area.
+    pub fn surface_area(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PolytopeShape_get_surfaceArea(self.raw.as_ptr()) }
+    }
+
+    pub fn set_surface_area(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PolytopeShape_set_surfaceArea(self.raw.as_ptr(), value) }
+    }
+
+    /// The four-byte gaps each count leaves in front of its 64-bit pointer, and the one that trails the header. Uninitialised in the files — some carry fragments of unrelated strings — so they are kept verbatim for writing.
+    pub fn padding_04(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PolytopeShape_get_padding04(self.raw.as_ptr()) }
+    }
+
+    pub fn set_padding_04(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PolytopeShape_set_padding04(self.raw.as_ptr(), value) }
+    }
+
+    pub fn padding_14(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PolytopeShape_get_padding14(self.raw.as_ptr()) }
+    }
+
+    pub fn set_padding_14(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PolytopeShape_set_padding14(self.raw.as_ptr(), value) }
+    }
+
+    pub fn padding_2c(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PolytopeShape_get_padding2c(self.raw.as_ptr()) }
+    }
+
+    pub fn set_padding_2c(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PolytopeShape_set_padding2c(self.raw.as_ptr(), value) }
+    }
+
+    pub fn padding_4c(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PolytopeShape_get_padding4c(self.raw.as_ptr()) }
+    }
+
+    pub fn set_padding_4c(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PolytopeShape_set_padding4c(self.raw.as_ptr(), value) }
+    }
+}
+
+impl Default for PolytopeShape {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// JOIN — connects two bodies with the joint named by @ref jointType.
+pub struct PhysicsJoint {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2PhysicsJoint>,
+}
+
+impl Drop for PhysicsJoint {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2PhysicsJoint_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl PhysicsJoint {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2PhysicsJoint) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| PhysicsJoint { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for PhysicsJoint {}
+
+impl core::fmt::Debug for PhysicsJoint {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PhysicsJoint").finish_non_exhaustive()
+    }
+}
+
+impl PhysicsJoint {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2PhysicsJoint_new();
+            Self::from_raw(raw).expect("native PhysicsJoint allocation failed")
+        }
+    }
+
+    pub fn body_a_index(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsJoint_get_bodyAIndex(self.raw.as_ptr()) }
+    }
+
+    pub fn set_body_a_index(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsJoint_set_bodyAIndex(self.raw.as_ptr(), value) }
+    }
+
+    pub fn body_b_index(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsJoint_get_bodyBIndex(self.raw.as_ptr()) }
+    }
+
+    pub fn set_body_b_index(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsJoint_set_bodyBIndex(self.raw.as_ptr(), value) }
+    }
+
+    /// Zero in every corpus joint.
+    pub fn padding_08(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsJoint_get_padding08(self.raw.as_ptr()) }
+    }
+
+    pub fn set_padding_08(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsJoint_set_padding08(self.raw.as_ptr(), value) }
+    }
+
+    pub fn joint_type(&self) -> PhysicsJointType {
+        // SAFETY: scalar read; the discriminant is validated below.
+        unsafe { ffi::whiteout_m2_M2PhysicsJoint_get_jointType(self.raw.as_ptr()) }
+            .try_into()
+            .expect("unknown enum discriminant from the native library")
+    }
+
+    pub fn set_joint_type(&mut self, value: PhysicsJointType) {
+        // SAFETY: scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsJoint_set_jointType(self.raw.as_ptr(), value as i32) }
+    }
+
+    /// Entry index within the joint array @ref jointType selects.
+    pub fn joint_id(&self) -> i16 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsJoint_get_jointId(self.raw.as_ptr()) }
+    }
+
+    pub fn set_joint_id(&mut self, value: i16) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsJoint_set_jointId(self.raw.as_ptr(), value) }
+    }
+}
+
+impl Default for PhysicsJoint {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// WELJ/WLJ2/WLJ3 — a soft rigid connection. Zero frequency means the axis is solved as a hard constraint.
+pub struct WeldJoint {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2WeldJoint>,
+}
+
+impl Drop for WeldJoint {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2WeldJoint_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl WeldJoint {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2WeldJoint) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| WeldJoint { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for WeldJoint {}
+
+impl core::fmt::Debug for WeldJoint {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("WeldJoint").finish_non_exhaustive()
+    }
+}
+
+impl WeldJoint {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2WeldJoint_new();
+            Self::from_raw(raw).expect("native WeldJoint allocation failed")
+        }
+    }
+
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn frame_a(&self) -> crate::support::Ref<'_, PhysicsFrame> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(PhysicsFrame {
+                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m2_M2WeldJoint_get_frameA(
+                    self.raw.as_ptr(),
+                )),
+            })
+        }
+    }
+
+    pub fn frame_a_mut(&mut self) -> crate::support::RefMut<'_, PhysicsFrame> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(PhysicsFrame {
+                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m2_M2WeldJoint_get_frameA(
+                    self.raw.as_ptr(),
+                )),
+            })
+        }
+    }
+
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn frame_b(&self) -> crate::support::Ref<'_, PhysicsFrame> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(PhysicsFrame {
+                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m2_M2WeldJoint_get_frameB(
+                    self.raw.as_ptr(),
+                )),
+            })
+        }
+    }
+
+    pub fn frame_b_mut(&mut self) -> crate::support::RefMut<'_, PhysicsFrame> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(PhysicsFrame {
+                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m2_M2WeldJoint_get_frameB(
+                    self.raw.as_ptr(),
+                )),
+            })
+        }
+    }
+
+    pub fn angular_frequency_hz(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2WeldJoint_get_angularFrequencyHz(self.raw.as_ptr()) }
+    }
+
+    pub fn set_angular_frequency_hz(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2WeldJoint_set_angularFrequencyHz(self.raw.as_ptr(), value) }
+    }
+
+    pub fn angular_damping_ratio(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2WeldJoint_get_angularDampingRatio(self.raw.as_ptr()) }
+    }
+
+    pub fn set_angular_damping_ratio(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2WeldJoint_set_angularDampingRatio(self.raw.as_ptr(), value) }
+    }
+
+    /// WLJ2+
+    pub fn linear_frequency_hz(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2WeldJoint_get_linearFrequencyHz(self.raw.as_ptr()) }
+    }
+
+    pub fn set_linear_frequency_hz(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2WeldJoint_set_linearFrequencyHz(self.raw.as_ptr(), value) }
+    }
+
+    /// WLJ2+
+    pub fn linear_damping_ratio(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2WeldJoint_get_linearDampingRatio(self.raw.as_ptr()) }
+    }
+
+    pub fn set_linear_damping_ratio(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2WeldJoint_set_linearDampingRatio(self.raw.as_ptr(), value) }
+    }
+
+    /// WLJ3+. Zero in 265 of 274 weld joints.
+    pub fn unknown_70(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2WeldJoint_get_unknown70(self.raw.as_ptr()) }
+    }
+
+    pub fn set_unknown_70(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2WeldJoint_set_unknown70(self.raw.as_ptr(), value) }
+    }
+}
+
+impl Default for WeldJoint {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// SPHJ — a ball joint between two anchor points.
+pub struct SphericalJoint {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2SphericalJoint>,
+}
+
+impl Drop for SphericalJoint {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2SphericalJoint_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl SphericalJoint {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2SphericalJoint) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| SphericalJoint { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for SphericalJoint {}
+
+impl core::fmt::Debug for SphericalJoint {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("SphericalJoint").finish_non_exhaustive()
+    }
+}
+
+impl SphericalJoint {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2SphericalJoint_new();
+            Self::from_raw(raw).expect("native SphericalJoint allocation failed")
+        }
+    }
+
+    pub fn anchor_a(&self) -> crate::math::Vector3f {
+        // SAFETY: the getter returns an interior pointer to a
+        // layout-identical POD; we copy it out immediately.
+        unsafe {
+            *(ffi::whiteout_m2_M2SphericalJoint_get_anchorA(self.raw.as_ptr())
+                as *const crate::math::Vector3f)
+        }
+    }
+
+    pub fn set_anchor_a(&mut self, value: crate::math::Vector3f) {
+        // SAFETY: as above, in the other direction.
+        unsafe {
+            ffi::whiteout_m2_M2SphericalJoint_set_anchorA(
+                self.raw.as_ptr(),
+                &value as *const crate::math::Vector3f as *const _,
+            )
+        }
+    }
+
+    pub fn anchor_b(&self) -> crate::math::Vector3f {
+        // SAFETY: the getter returns an interior pointer to a
+        // layout-identical POD; we copy it out immediately.
+        unsafe {
+            *(ffi::whiteout_m2_M2SphericalJoint_get_anchorB(self.raw.as_ptr())
+                as *const crate::math::Vector3f)
+        }
+    }
+
+    pub fn set_anchor_b(&mut self, value: crate::math::Vector3f) {
+        // SAFETY: as above, in the other direction.
+        unsafe {
+            ffi::whiteout_m2_M2SphericalJoint_set_anchorB(
+                self.raw.as_ptr(),
+                &value as *const crate::math::Vector3f as *const _,
+            )
+        }
+    }
+
+    pub fn friction_torque(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2SphericalJoint_get_frictionTorque(self.raw.as_ptr()) }
+    }
+
+    pub fn set_friction_torque(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2SphericalJoint_set_frictionTorque(self.raw.as_ptr(), value) }
+    }
+}
+
+impl Default for SphericalJoint {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// SHOJ/SHJ2 — a twist-and-cone joint, the one that chains cloth.
+pub struct ShoulderJoint {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2ShoulderJoint>,
+}
+
+impl Drop for ShoulderJoint {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2ShoulderJoint_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl ShoulderJoint {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2ShoulderJoint) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| ShoulderJoint { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for ShoulderJoint {}
+
+impl core::fmt::Debug for ShoulderJoint {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ShoulderJoint").finish_non_exhaustive()
+    }
+}
+
+impl ShoulderJoint {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2ShoulderJoint_new();
+            Self::from_raw(raw).expect("native ShoulderJoint allocation failed")
+        }
+    }
+
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn frame_a(&self) -> crate::support::Ref<'_, PhysicsFrame> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(PhysicsFrame {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2ShoulderJoint_get_frameA(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    pub fn frame_a_mut(&mut self) -> crate::support::RefMut<'_, PhysicsFrame> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(PhysicsFrame {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2ShoulderJoint_get_frameA(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn frame_b(&self) -> crate::support::Ref<'_, PhysicsFrame> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(PhysicsFrame {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2ShoulderJoint_get_frameB(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    pub fn frame_b_mut(&mut self) -> crate::support::RefMut<'_, PhysicsFrame> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(PhysicsFrame {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2ShoulderJoint_get_frameB(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    pub fn lower_twist_angle(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2ShoulderJoint_get_lowerTwistAngle(self.raw.as_ptr()) }
+    }
+
+    pub fn set_lower_twist_angle(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2ShoulderJoint_set_lowerTwistAngle(self.raw.as_ptr(), value) }
+    }
+
+    pub fn upper_twist_angle(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2ShoulderJoint_get_upperTwistAngle(self.raw.as_ptr()) }
+    }
+
+    pub fn set_upper_twist_angle(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2ShoulderJoint_set_upperTwistAngle(self.raw.as_ptr(), value) }
+    }
+
+    /// Degrees: the corpus holds 20, 35, 45 and 60, while `dmShoulderJoint` clamps its own cone to [10°, 170°] expressed in radians — so the loader converts on the way in.
+    pub fn cone_angle(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2ShoulderJoint_get_coneAngle(self.raw.as_ptr()) }
+    }
+
+    pub fn set_cone_angle(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2ShoulderJoint_set_coneAngle(self.raw.as_ptr(), value) }
+    }
+
+    /// version 2+
+    pub fn max_motor_torque(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2ShoulderJoint_get_maxMotorTorque(self.raw.as_ptr()) }
+    }
+
+    pub fn set_max_motor_torque(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2ShoulderJoint_set_maxMotorTorque(self.raw.as_ptr(), value) }
+    }
+
+    /// version 2+
+    pub fn motor_mode(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2ShoulderJoint_get_motorMode(self.raw.as_ptr()) }
+    }
+
+    pub fn set_motor_mode(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2ShoulderJoint_set_motorMode(self.raw.as_ptr(), value) }
+    }
+
+    /// SHJ2
+    pub fn motor_frequency_hz(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2ShoulderJoint_get_motorFrequencyHz(self.raw.as_ptr()) }
+    }
+
+    pub fn set_motor_frequency_hz(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2ShoulderJoint_set_motorFrequencyHz(self.raw.as_ptr(), value) }
+    }
+
+    /// SHJ2
+    pub fn motor_damping_ratio(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2ShoulderJoint_get_motorDampingRatio(self.raw.as_ptr()) }
+    }
+
+    pub fn set_motor_damping_ratio(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2ShoulderJoint_set_motorDampingRatio(self.raw.as_ptr(), value) }
+    }
+}
+
+impl Default for ShoulderJoint {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// PRSJ/PRS2 — a sliding joint, version 2+.
+pub struct PrismaticJoint {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2PrismaticJoint>,
+}
+
+impl Drop for PrismaticJoint {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2PrismaticJoint_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl PrismaticJoint {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2PrismaticJoint) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| PrismaticJoint { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for PrismaticJoint {}
+
+impl core::fmt::Debug for PrismaticJoint {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PrismaticJoint").finish_non_exhaustive()
+    }
+}
+
+impl PrismaticJoint {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2PrismaticJoint_new();
+            Self::from_raw(raw).expect("native PrismaticJoint allocation failed")
+        }
+    }
+
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn frame_a(&self) -> crate::support::Ref<'_, PhysicsFrame> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(PhysicsFrame {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PrismaticJoint_get_frameA(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    pub fn frame_a_mut(&mut self) -> crate::support::RefMut<'_, PhysicsFrame> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(PhysicsFrame {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PrismaticJoint_get_frameA(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn frame_b(&self) -> crate::support::Ref<'_, PhysicsFrame> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(PhysicsFrame {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PrismaticJoint_get_frameB(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    pub fn frame_b_mut(&mut self) -> crate::support::RefMut<'_, PhysicsFrame> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(PhysicsFrame {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PrismaticJoint_get_frameB(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    pub fn lower_limit(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PrismaticJoint_get_lowerLimit(self.raw.as_ptr()) }
+    }
+
+    pub fn set_lower_limit(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PrismaticJoint_set_lowerLimit(self.raw.as_ptr(), value) }
+    }
+
+    pub fn upper_limit(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PrismaticJoint_get_upperLimit(self.raw.as_ptr()) }
+    }
+
+    pub fn set_upper_limit(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PrismaticJoint_set_upperLimit(self.raw.as_ptr(), value) }
+    }
+
+    /// Unidentified; zero in all twelve corpus prismatic joints. Domino's prismatic def carries an enable-limit flag next to the limit pair.
+    pub fn unknown_68(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PrismaticJoint_get_unknown68(self.raw.as_ptr()) }
+    }
+
+    pub fn set_unknown_68(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PrismaticJoint_set_unknown68(self.raw.as_ptr(), value) }
+    }
+
+    pub fn max_motor_force(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PrismaticJoint_get_maxMotorForce(self.raw.as_ptr()) }
+    }
+
+    pub fn set_max_motor_force(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PrismaticJoint_set_maxMotorForce(self.raw.as_ptr(), value) }
+    }
+
+    /// Unidentified; zero in all twelve.
+    pub fn unknown_70(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PrismaticJoint_get_unknown70(self.raw.as_ptr()) }
+    }
+
+    pub fn set_unknown_70(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PrismaticJoint_set_unknown70(self.raw.as_ptr(), value) }
+    }
+
+    pub fn motor_mode(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PrismaticJoint_get_motorMode(self.raw.as_ptr()) }
+    }
+
+    pub fn set_motor_mode(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PrismaticJoint_set_motorMode(self.raw.as_ptr(), value) }
+    }
+
+    /// PRS2
+    pub fn motor_frequency_hz(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PrismaticJoint_get_motorFrequencyHz(self.raw.as_ptr()) }
+    }
+
+    pub fn set_motor_frequency_hz(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PrismaticJoint_set_motorFrequencyHz(self.raw.as_ptr(), value) }
+    }
+
+    /// PRS2
+    pub fn motor_damping_ratio(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PrismaticJoint_get_motorDampingRatio(self.raw.as_ptr()) }
+    }
+
+    pub fn set_motor_damping_ratio(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PrismaticJoint_set_motorDampingRatio(self.raw.as_ptr(), value) }
+    }
+}
+
+impl Default for PrismaticJoint {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// REVJ/REV2 — a hinge, version 2+.
+pub struct RevoluteJoint {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2RevoluteJoint>,
+}
+
+impl Drop for RevoluteJoint {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2RevoluteJoint_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl RevoluteJoint {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2RevoluteJoint) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| RevoluteJoint { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for RevoluteJoint {}
+
+impl core::fmt::Debug for RevoluteJoint {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("RevoluteJoint").finish_non_exhaustive()
+    }
+}
+
+impl RevoluteJoint {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2RevoluteJoint_new();
+            Self::from_raw(raw).expect("native RevoluteJoint allocation failed")
+        }
+    }
+
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn frame_a(&self) -> crate::support::Ref<'_, PhysicsFrame> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(PhysicsFrame {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2RevoluteJoint_get_frameA(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    pub fn frame_a_mut(&mut self) -> crate::support::RefMut<'_, PhysicsFrame> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(PhysicsFrame {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2RevoluteJoint_get_frameA(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn frame_b(&self) -> crate::support::Ref<'_, PhysicsFrame> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(PhysicsFrame {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2RevoluteJoint_get_frameB(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    pub fn frame_b_mut(&mut self) -> crate::support::RefMut<'_, PhysicsFrame> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(PhysicsFrame {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2RevoluteJoint_get_frameB(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    pub fn lower_angle(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2RevoluteJoint_get_lowerAngle(self.raw.as_ptr()) }
+    }
+
+    pub fn set_lower_angle(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2RevoluteJoint_set_lowerAngle(self.raw.as_ptr(), value) }
+    }
+
+    pub fn upper_angle(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2RevoluteJoint_get_upperAngle(self.raw.as_ptr()) }
+    }
+
+    pub fn set_upper_angle(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2RevoluteJoint_set_upperAngle(self.raw.as_ptr(), value) }
+    }
+
+    pub fn max_motor_torque(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2RevoluteJoint_get_maxMotorTorque(self.raw.as_ptr()) }
+    }
+
+    pub fn set_max_motor_torque(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2RevoluteJoint_set_maxMotorTorque(self.raw.as_ptr(), value) }
+    }
+
+    /// 1: position mode (frequency > 0), 2: velocity mode.
+    pub fn motor_mode(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2RevoluteJoint_get_motorMode(self.raw.as_ptr()) }
+    }
+
+    pub fn set_motor_mode(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2RevoluteJoint_set_motorMode(self.raw.as_ptr(), value) }
+    }
+
+    /// REV2
+    pub fn motor_frequency_hz(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2RevoluteJoint_get_motorFrequencyHz(self.raw.as_ptr()) }
+    }
+
+    pub fn set_motor_frequency_hz(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2RevoluteJoint_set_motorFrequencyHz(self.raw.as_ptr(), value) }
+    }
+
+    /// REV2
+    pub fn motor_damping_ratio(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2RevoluteJoint_get_motorDampingRatio(self.raw.as_ptr()) }
+    }
+
+    pub fn set_motor_damping_ratio(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2RevoluteJoint_set_motorDampingRatio(self.raw.as_ptr(), value) }
+    }
+}
+
+impl Default for RevoluteJoint {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// DSTJ — holds two anchors a fixed distance apart, version 2+.
+pub struct DistanceJoint {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2DistanceJoint>,
+}
+
+impl Drop for DistanceJoint {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2DistanceJoint_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl DistanceJoint {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2DistanceJoint) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| DistanceJoint { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for DistanceJoint {}
+
+impl core::fmt::Debug for DistanceJoint {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DistanceJoint").finish_non_exhaustive()
+    }
+}
+
+impl DistanceJoint {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2DistanceJoint_new();
+            Self::from_raw(raw).expect("native DistanceJoint allocation failed")
+        }
+    }
+
+    pub fn local_anchor_a(&self) -> crate::math::Vector3f {
+        // SAFETY: the getter returns an interior pointer to a
+        // layout-identical POD; we copy it out immediately.
+        unsafe {
+            *(ffi::whiteout_m2_M2DistanceJoint_get_localAnchorA(self.raw.as_ptr())
+                as *const crate::math::Vector3f)
+        }
+    }
+
+    pub fn set_local_anchor_a(&mut self, value: crate::math::Vector3f) {
+        // SAFETY: as above, in the other direction.
+        unsafe {
+            ffi::whiteout_m2_M2DistanceJoint_set_localAnchorA(
+                self.raw.as_ptr(),
+                &value as *const crate::math::Vector3f as *const _,
+            )
+        }
+    }
+
+    pub fn local_anchor_b(&self) -> crate::math::Vector3f {
+        // SAFETY: the getter returns an interior pointer to a
+        // layout-identical POD; we copy it out immediately.
+        unsafe {
+            *(ffi::whiteout_m2_M2DistanceJoint_get_localAnchorB(self.raw.as_ptr())
+                as *const crate::math::Vector3f)
+        }
+    }
+
+    pub fn set_local_anchor_b(&mut self, value: crate::math::Vector3f) {
+        // SAFETY: as above, in the other direction.
+        unsafe {
+            ffi::whiteout_m2_M2DistanceJoint_set_localAnchorB(
+                self.raw.as_ptr(),
+                &value as *const crate::math::Vector3f as *const _,
+            )
+        }
+    }
+
+    pub fn distance(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2DistanceJoint_get_distance(self.raw.as_ptr()) }
+    }
+
+    pub fn set_distance(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2DistanceJoint_set_distance(self.raw.as_ptr(), value) }
+    }
+}
+
+impl Default for DistanceJoint {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// PHYV — six floats that overwrite the head of a tuning block the client otherwise fills with constants. Version 1+.
+pub struct PhysicsTuning {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2PhysicsTuning>,
+}
+
+impl Drop for PhysicsTuning {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2PhysicsTuning_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl PhysicsTuning {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2PhysicsTuning) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| PhysicsTuning { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for PhysicsTuning {}
+
+impl core::fmt::Debug for PhysicsTuning {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PhysicsTuning").finish_non_exhaustive()
+    }
+}
+
+impl PhysicsTuning {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2PhysicsTuning_new();
+            Self::from_raw(raw).expect("native PhysicsTuning allocation failed")
+        }
+    }
+
+    /// Number of elements — a fixed-size C++ array.
+    pub const fn values_len() -> usize {
+        6
+    }
+
+    /// # Panics
+    /// If `index >= 6`, matching Rust slice indexing.
+    pub fn values(&self, index: usize) -> f32 {
+        assert!(index < 6, "values index {index} out of range (len 6)");
+        // SAFETY: index checked above; plain scalar read.
+        unsafe { ffi::whiteout_m2_M2PhysicsTuning_get_values_at(self.raw.as_ptr(), index) }
+    }
+
+    /// # Panics
+    /// If `index >= 6`.
+    pub fn set_values(&mut self, index: usize, value: f32) {
+        assert!(index < 6, "values index {index} out of range (len 6)");
+        // SAFETY: index checked above.
+        unsafe { ffi::whiteout_m2_M2PhysicsTuning_set_values_at(self.raw.as_ptr(), index, value) }
+    }
+}
+
+impl Default for PhysicsTuning {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A `.phys` chunk this library does not know, kept verbatim so a parse/write cycle does not drop it.
+pub struct PhysicsUnknownChunk {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2PhysicsUnknownChunk>,
+}
+
+impl Drop for PhysicsUnknownChunk {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2PhysicsUnknownChunk_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl PhysicsUnknownChunk {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2PhysicsUnknownChunk) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| PhysicsUnknownChunk { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for PhysicsUnknownChunk {}
+
+impl core::fmt::Debug for PhysicsUnknownChunk {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PhysicsUnknownChunk")
+            .finish_non_exhaustive()
+    }
+}
+
+impl PhysicsUnknownChunk {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2PhysicsUnknownChunk_new();
+            Self::from_raw(raw).expect("native PhysicsUnknownChunk allocation failed")
+        }
+    }
+
+    /// FourCC as written on disk — `.phys` stores chunk ids reversed, so a PHYS chunk reads as "SYHP".
+    /// Number of elements — a fixed-size C++ array.
+    pub const fn tag_len() -> usize {
+        4
+    }
+
+    /// # Panics
+    /// If `index >= 4`, matching Rust slice indexing.
+    pub fn tag(&self, index: usize) -> i8 {
+        assert!(index < 4, "tag index {index} out of range (len 4)");
+        // SAFETY: index checked above; plain scalar read.
+        unsafe { ffi::whiteout_m2_M2PhysicsUnknownChunk_get_tag_at(self.raw.as_ptr(), index) }
+    }
+
+    /// # Panics
+    /// If `index >= 4`.
+    pub fn set_tag(&mut self, index: usize, value: i8) {
+        assert!(index < 4, "tag index {index} out of range (len 4)");
+        // SAFETY: index checked above.
+        unsafe {
+            ffi::whiteout_m2_M2PhysicsUnknownChunk_set_tag_at(self.raw.as_ptr(), index, value)
+        }
+    }
+
+    /// Zero-copy view of the underlying `std::vector`.
+    pub fn data(&self) -> &[u8] {
+        // SAFETY: `_data`/`_count` describe one contiguous C++
+        // allocation, borrowed for as long as `self` is.
+        unsafe {
+            let n = ffi::whiteout_m2_M2PhysicsUnknownChunk_get_data_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m2_M2PhysicsUnknownChunk_get_data_data(self.raw.as_ptr());
+            if p.is_null() || n == 0 {
+                &[]
+            } else {
+                core::slice::from_raw_parts(p, n)
+            }
+        }
+    }
+
+    /// Zero-copy mutable view. Resize first — the borrow forbids it after.
+    pub fn data_mut(&mut self) -> &mut [u8] {
+        // SAFETY: as above; `&mut self` rules out aliasing and resizing.
+        unsafe {
+            let n = ffi::whiteout_m2_M2PhysicsUnknownChunk_get_data_count(self.raw.as_ptr());
+            let p =
+                ffi::whiteout_m2_M2PhysicsUnknownChunk_get_data_data(self.raw.as_ptr()) as *mut u8;
+            if p.is_null() || n == 0 {
+                &mut []
+            } else {
+                core::slice::from_raw_parts_mut(p, n)
+            }
+        }
+    }
+
+    pub fn set_data(&mut self, values: &[u8]) {
+        // SAFETY: the native side copies `values` before returning.
+        unsafe {
+            ffi::whiteout_m2_M2PhysicsUnknownChunk_assign_data(
+                self.raw.as_ptr(),
+                values.as_ptr() as *const _,
+                values.len(),
+            )
+        }
+    }
+
+    pub fn resize_data(&mut self, count: usize) {
+        // SAFETY: reallocation is safe here precisely because
+        // `&mut self` means no slice borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2PhysicsUnknownChunk_resize_data(self.raw.as_ptr(), count) }
+    }
+}
+
+impl Default for PhysicsUnknownChunk {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A whole `.phys` file — Blizzard's Domino rigid-body setup for a model, either a `.phys` sibling or an M2's inline PFDC chunk.
+///
+/// Bodies attach to bones and are linked by joints; each body owns a run of @ref shapes, and each shape indexes the array its type names.
+pub struct PhysicsData {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2PhysicsData>,
+}
+
+impl Drop for PhysicsData {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl PhysicsData {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2PhysicsData) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| PhysicsData { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for PhysicsData {}
+
+impl core::fmt::Debug for PhysicsData {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PhysicsData").finish_non_exhaustive()
+    }
+}
+
+impl PhysicsData {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2PhysicsData_new();
+            Self::from_raw(raw).expect("native PhysicsData allocation failed")
+        }
+    }
+
+    /// 0 (MoP) through 6. Decides which layout each chunk is written in — see the per-field version notes on the structs above.
+    pub fn version(&self) -> u16 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_get_version(self.raw.as_ptr()) }
+    }
+
+    pub fn set_version(&mut self, value: u16) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_set_version(self.raw.as_ptr(), value) }
+    }
+
+    pub fn bodies_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_get_bodies_count(self.raw.as_ptr()) }
+    }
+
+    /// Borrows element `index` in place. `None` when out of range.
+    pub fn bodies(&self, index: usize) -> Option<crate::support::Ref<'_, PhysicsBody>> {
+        if index >= self.bodies_len() {
+            return None;
+        }
+        // SAFETY: index checked above; the pointer is interior to `self`.
+        unsafe {
+            Some(crate::support::Ref::new(PhysicsBody {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_bodies_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    pub fn bodies_mut(&mut self, index: usize) -> Option<crate::support::RefMut<'_, PhysicsBody>> {
+        if index >= self.bodies_len() {
+            return None;
+        }
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            Some(crate::support::RefMut::new(PhysicsBody {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_bodies_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    /// Iterate the elements, borrowing each in turn.
+    pub fn bodies_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, PhysicsBody>> {
+        (0..self.bodies_len()).map(move |i| self.bodies(i).expect("index below len"))
+    }
+
+    pub fn resize_bodies(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_resize_bodies(self.raw.as_ptr(), count) }
+    }
+
+    pub fn shapes_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_get_shapes_count(self.raw.as_ptr()) }
+    }
+
+    /// Borrows element `index` in place. `None` when out of range.
+    pub fn shapes(&self, index: usize) -> Option<crate::support::Ref<'_, PhysicsShape>> {
+        if index >= self.shapes_len() {
+            return None;
+        }
+        // SAFETY: index checked above; the pointer is interior to `self`.
+        unsafe {
+            Some(crate::support::Ref::new(PhysicsShape {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_shapes_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    pub fn shapes_mut(&mut self, index: usize) -> Option<crate::support::RefMut<'_, PhysicsShape>> {
+        if index >= self.shapes_len() {
+            return None;
+        }
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            Some(crate::support::RefMut::new(PhysicsShape {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_shapes_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    /// Iterate the elements, borrowing each in turn.
+    pub fn shapes_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, PhysicsShape>> {
+        (0..self.shapes_len()).map(move |i| self.shapes(i).expect("index below len"))
+    }
+
+    pub fn resize_shapes(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_resize_shapes(self.raw.as_ptr(), count) }
+    }
+
+    pub fn box_shapes_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_get_boxShapes_count(self.raw.as_ptr()) }
+    }
+
+    /// Borrows element `index` in place. `None` when out of range.
+    pub fn box_shapes(&self, index: usize) -> Option<crate::support::Ref<'_, BoxShape>> {
+        if index >= self.box_shapes_len() {
+            return None;
+        }
+        // SAFETY: index checked above; the pointer is interior to `self`.
+        unsafe {
+            Some(crate::support::Ref::new(BoxShape {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_boxShapes_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    pub fn box_shapes_mut(&mut self, index: usize) -> Option<crate::support::RefMut<'_, BoxShape>> {
+        if index >= self.box_shapes_len() {
+            return None;
+        }
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            Some(crate::support::RefMut::new(BoxShape {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_boxShapes_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    /// Iterate the elements, borrowing each in turn.
+    pub fn box_shapes_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, BoxShape>> {
+        (0..self.box_shapes_len()).map(move |i| self.box_shapes(i).expect("index below len"))
+    }
+
+    pub fn resize_box_shapes(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_resize_boxShapes(self.raw.as_ptr(), count) }
+    }
+
+    pub fn capsule_shapes_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_get_capsuleShapes_count(self.raw.as_ptr()) }
+    }
+
+    /// Borrows element `index` in place. `None` when out of range.
+    pub fn capsule_shapes(&self, index: usize) -> Option<crate::support::Ref<'_, CapsuleShape>> {
+        if index >= self.capsule_shapes_len() {
+            return None;
+        }
+        // SAFETY: index checked above; the pointer is interior to `self`.
+        unsafe {
+            Some(crate::support::Ref::new(CapsuleShape {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_capsuleShapes_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    pub fn capsule_shapes_mut(
+        &mut self,
+        index: usize,
+    ) -> Option<crate::support::RefMut<'_, CapsuleShape>> {
+        if index >= self.capsule_shapes_len() {
+            return None;
+        }
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            Some(crate::support::RefMut::new(CapsuleShape {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_capsuleShapes_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    /// Iterate the elements, borrowing each in turn.
+    pub fn capsule_shapes_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, CapsuleShape>> {
+        (0..self.capsule_shapes_len())
+            .map(move |i| self.capsule_shapes(i).expect("index below len"))
+    }
+
+    pub fn resize_capsule_shapes(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_resize_capsuleShapes(self.raw.as_ptr(), count) }
+    }
+
+    pub fn sphere_shapes_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_get_sphereShapes_count(self.raw.as_ptr()) }
+    }
+
+    /// Borrows element `index` in place. `None` when out of range.
+    pub fn sphere_shapes(&self, index: usize) -> Option<crate::support::Ref<'_, SphereShape>> {
+        if index >= self.sphere_shapes_len() {
+            return None;
+        }
+        // SAFETY: index checked above; the pointer is interior to `self`.
+        unsafe {
+            Some(crate::support::Ref::new(SphereShape {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_sphereShapes_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    pub fn sphere_shapes_mut(
+        &mut self,
+        index: usize,
+    ) -> Option<crate::support::RefMut<'_, SphereShape>> {
+        if index >= self.sphere_shapes_len() {
+            return None;
+        }
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            Some(crate::support::RefMut::new(SphereShape {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_sphereShapes_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    /// Iterate the elements, borrowing each in turn.
+    pub fn sphere_shapes_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, SphereShape>> {
+        (0..self.sphere_shapes_len()).map(move |i| self.sphere_shapes(i).expect("index below len"))
+    }
+
+    pub fn resize_sphere_shapes(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_resize_sphereShapes(self.raw.as_ptr(), count) }
+    }
+
+    pub fn polytope_shapes_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_get_polytopeShapes_count(self.raw.as_ptr()) }
+    }
+
+    /// Borrows element `index` in place. `None` when out of range.
+    pub fn polytope_shapes(&self, index: usize) -> Option<crate::support::Ref<'_, PolytopeShape>> {
+        if index >= self.polytope_shapes_len() {
+            return None;
+        }
+        // SAFETY: index checked above; the pointer is interior to `self`.
+        unsafe {
+            Some(crate::support::Ref::new(PolytopeShape {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_polytopeShapes_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    pub fn polytope_shapes_mut(
+        &mut self,
+        index: usize,
+    ) -> Option<crate::support::RefMut<'_, PolytopeShape>> {
+        if index >= self.polytope_shapes_len() {
+            return None;
+        }
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            Some(crate::support::RefMut::new(PolytopeShape {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_polytopeShapes_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    /// Iterate the elements, borrowing each in turn.
+    pub fn polytope_shapes_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, PolytopeShape>> {
+        (0..self.polytope_shapes_len())
+            .map(move |i| self.polytope_shapes(i).expect("index below len"))
+    }
+
+    pub fn resize_polytope_shapes(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_resize_polytopeShapes(self.raw.as_ptr(), count) }
+    }
+
+    pub fn joints_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_get_joints_count(self.raw.as_ptr()) }
+    }
+
+    /// Borrows element `index` in place. `None` when out of range.
+    pub fn joints(&self, index: usize) -> Option<crate::support::Ref<'_, PhysicsJoint>> {
+        if index >= self.joints_len() {
+            return None;
+        }
+        // SAFETY: index checked above; the pointer is interior to `self`.
+        unsafe {
+            Some(crate::support::Ref::new(PhysicsJoint {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_joints_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    pub fn joints_mut(&mut self, index: usize) -> Option<crate::support::RefMut<'_, PhysicsJoint>> {
+        if index >= self.joints_len() {
+            return None;
+        }
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            Some(crate::support::RefMut::new(PhysicsJoint {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_joints_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    /// Iterate the elements, borrowing each in turn.
+    pub fn joints_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, PhysicsJoint>> {
+        (0..self.joints_len()).map(move |i| self.joints(i).expect("index below len"))
+    }
+
+    pub fn resize_joints(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_resize_joints(self.raw.as_ptr(), count) }
+    }
+
+    pub fn weld_joints_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_get_weldJoints_count(self.raw.as_ptr()) }
+    }
+
+    /// Borrows element `index` in place. `None` when out of range.
+    pub fn weld_joints(&self, index: usize) -> Option<crate::support::Ref<'_, WeldJoint>> {
+        if index >= self.weld_joints_len() {
+            return None;
+        }
+        // SAFETY: index checked above; the pointer is interior to `self`.
+        unsafe {
+            Some(crate::support::Ref::new(WeldJoint {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_weldJoints_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    pub fn weld_joints_mut(
+        &mut self,
+        index: usize,
+    ) -> Option<crate::support::RefMut<'_, WeldJoint>> {
+        if index >= self.weld_joints_len() {
+            return None;
+        }
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            Some(crate::support::RefMut::new(WeldJoint {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_weldJoints_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    /// Iterate the elements, borrowing each in turn.
+    pub fn weld_joints_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, WeldJoint>> {
+        (0..self.weld_joints_len()).map(move |i| self.weld_joints(i).expect("index below len"))
+    }
+
+    pub fn resize_weld_joints(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_resize_weldJoints(self.raw.as_ptr(), count) }
+    }
+
+    pub fn spherical_joints_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_get_sphericalJoints_count(self.raw.as_ptr()) }
+    }
+
+    /// Borrows element `index` in place. `None` when out of range.
+    pub fn spherical_joints(
+        &self,
+        index: usize,
+    ) -> Option<crate::support::Ref<'_, SphericalJoint>> {
+        if index >= self.spherical_joints_len() {
+            return None;
+        }
+        // SAFETY: index checked above; the pointer is interior to `self`.
+        unsafe {
+            Some(crate::support::Ref::new(SphericalJoint {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_sphericalJoints_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    pub fn spherical_joints_mut(
+        &mut self,
+        index: usize,
+    ) -> Option<crate::support::RefMut<'_, SphericalJoint>> {
+        if index >= self.spherical_joints_len() {
+            return None;
+        }
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            Some(crate::support::RefMut::new(SphericalJoint {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_sphericalJoints_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    /// Iterate the elements, borrowing each in turn.
+    pub fn spherical_joints_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, SphericalJoint>> {
+        (0..self.spherical_joints_len())
+            .map(move |i| self.spherical_joints(i).expect("index below len"))
+    }
+
+    pub fn resize_spherical_joints(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_resize_sphericalJoints(self.raw.as_ptr(), count) }
+    }
+
+    pub fn shoulder_joints_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_get_shoulderJoints_count(self.raw.as_ptr()) }
+    }
+
+    /// Borrows element `index` in place. `None` when out of range.
+    pub fn shoulder_joints(&self, index: usize) -> Option<crate::support::Ref<'_, ShoulderJoint>> {
+        if index >= self.shoulder_joints_len() {
+            return None;
+        }
+        // SAFETY: index checked above; the pointer is interior to `self`.
+        unsafe {
+            Some(crate::support::Ref::new(ShoulderJoint {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_shoulderJoints_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    pub fn shoulder_joints_mut(
+        &mut self,
+        index: usize,
+    ) -> Option<crate::support::RefMut<'_, ShoulderJoint>> {
+        if index >= self.shoulder_joints_len() {
+            return None;
+        }
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            Some(crate::support::RefMut::new(ShoulderJoint {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_shoulderJoints_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    /// Iterate the elements, borrowing each in turn.
+    pub fn shoulder_joints_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, ShoulderJoint>> {
+        (0..self.shoulder_joints_len())
+            .map(move |i| self.shoulder_joints(i).expect("index below len"))
+    }
+
+    pub fn resize_shoulder_joints(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_resize_shoulderJoints(self.raw.as_ptr(), count) }
+    }
+
+    pub fn prismatic_joints_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_get_prismaticJoints_count(self.raw.as_ptr()) }
+    }
+
+    /// Borrows element `index` in place. `None` when out of range.
+    pub fn prismatic_joints(
+        &self,
+        index: usize,
+    ) -> Option<crate::support::Ref<'_, PrismaticJoint>> {
+        if index >= self.prismatic_joints_len() {
+            return None;
+        }
+        // SAFETY: index checked above; the pointer is interior to `self`.
+        unsafe {
+            Some(crate::support::Ref::new(PrismaticJoint {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_prismaticJoints_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    pub fn prismatic_joints_mut(
+        &mut self,
+        index: usize,
+    ) -> Option<crate::support::RefMut<'_, PrismaticJoint>> {
+        if index >= self.prismatic_joints_len() {
+            return None;
+        }
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            Some(crate::support::RefMut::new(PrismaticJoint {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_prismaticJoints_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    /// Iterate the elements, borrowing each in turn.
+    pub fn prismatic_joints_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, PrismaticJoint>> {
+        (0..self.prismatic_joints_len())
+            .map(move |i| self.prismatic_joints(i).expect("index below len"))
+    }
+
+    pub fn resize_prismatic_joints(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_resize_prismaticJoints(self.raw.as_ptr(), count) }
+    }
+
+    pub fn revolute_joints_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_get_revoluteJoints_count(self.raw.as_ptr()) }
+    }
+
+    /// Borrows element `index` in place. `None` when out of range.
+    pub fn revolute_joints(&self, index: usize) -> Option<crate::support::Ref<'_, RevoluteJoint>> {
+        if index >= self.revolute_joints_len() {
+            return None;
+        }
+        // SAFETY: index checked above; the pointer is interior to `self`.
+        unsafe {
+            Some(crate::support::Ref::new(RevoluteJoint {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_revoluteJoints_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    pub fn revolute_joints_mut(
+        &mut self,
+        index: usize,
+    ) -> Option<crate::support::RefMut<'_, RevoluteJoint>> {
+        if index >= self.revolute_joints_len() {
+            return None;
+        }
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            Some(crate::support::RefMut::new(RevoluteJoint {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_revoluteJoints_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    /// Iterate the elements, borrowing each in turn.
+    pub fn revolute_joints_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, RevoluteJoint>> {
+        (0..self.revolute_joints_len())
+            .map(move |i| self.revolute_joints(i).expect("index below len"))
+    }
+
+    pub fn resize_revolute_joints(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_resize_revoluteJoints(self.raw.as_ptr(), count) }
+    }
+
+    pub fn distance_joints_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_get_distanceJoints_count(self.raw.as_ptr()) }
+    }
+
+    /// Borrows element `index` in place. `None` when out of range.
+    pub fn distance_joints(&self, index: usize) -> Option<crate::support::Ref<'_, DistanceJoint>> {
+        if index >= self.distance_joints_len() {
+            return None;
+        }
+        // SAFETY: index checked above; the pointer is interior to `self`.
+        unsafe {
+            Some(crate::support::Ref::new(DistanceJoint {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_distanceJoints_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    pub fn distance_joints_mut(
+        &mut self,
+        index: usize,
+    ) -> Option<crate::support::RefMut<'_, DistanceJoint>> {
+        if index >= self.distance_joints_len() {
+            return None;
+        }
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            Some(crate::support::RefMut::new(DistanceJoint {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_distanceJoints_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    /// Iterate the elements, borrowing each in turn.
+    pub fn distance_joints_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, DistanceJoint>> {
+        (0..self.distance_joints_len())
+            .map(move |i| self.distance_joints(i).expect("index below len"))
+    }
+
+    pub fn resize_distance_joints(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_resize_distanceJoints(self.raw.as_ptr(), count) }
+    }
+
+    /// PHYV. A file that has one carries nothing else.
+    pub fn tuning_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_get_tuning_count(self.raw.as_ptr()) }
+    }
+
+    /// Borrows element `index` in place. `None` when out of range.
+    pub fn tuning(&self, index: usize) -> Option<crate::support::Ref<'_, PhysicsTuning>> {
+        if index >= self.tuning_len() {
+            return None;
+        }
+        // SAFETY: index checked above; the pointer is interior to `self`.
+        unsafe {
+            Some(crate::support::Ref::new(PhysicsTuning {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_tuning_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    pub fn tuning_mut(
+        &mut self,
+        index: usize,
+    ) -> Option<crate::support::RefMut<'_, PhysicsTuning>> {
+        if index >= self.tuning_len() {
+            return None;
+        }
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            Some(crate::support::RefMut::new(PhysicsTuning {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2PhysicsData_get_tuning_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    /// Iterate the elements, borrowing each in turn.
+    pub fn tuning_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, PhysicsTuning>> {
+        (0..self.tuning_len()).map(move |i| self.tuning(i).expect("index below len"))
+    }
+
+    pub fn resize_tuning(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2PhysicsData_resize_tuning(self.raw.as_ptr(), count) }
+    }
+}
+
+impl Default for PhysicsData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// One bone's replacement transform, from a `.bone` file.
+pub struct BoneOverride {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2BoneOverride>,
+}
+
+impl Drop for BoneOverride {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2BoneOverride_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl BoneOverride {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2BoneOverride) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| BoneOverride { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for BoneOverride {}
+
+impl core::fmt::Debug for BoneOverride {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("BoneOverride").finish_non_exhaustive()
+    }
+}
+
+impl BoneOverride {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2BoneOverride_new();
+            Self::from_raw(raw).expect("native BoneOverride allocation failed")
+        }
+    }
+
+    /// Indexes Model::bones. Every id in the WoW corpus is below its model's bone count, and the ids within a file are strictly ascending.
+    pub fn bone_index(&self) -> u16 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2BoneOverride_get_boneIndex(self.raw.as_ptr()) }
+    }
+
+    pub fn set_bone_index(&mut self, value: u16) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2BoneOverride_set_boneIndex(self.raw.as_ptr(), value) }
+    }
+}
+
+impl Default for BoneOverride {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A whole `.bone` file: the skeleton edits one customization choice needs.
+///
+/// On disk this is two parallel chunks — `BIDA` holds the bone ids and `BOMT` the matrices — but their lengths match in every corpus file, so they are paired here and split again on write.
+pub struct BoneOverrideSet {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2BoneOverrideSet>,
+}
+
+impl Drop for BoneOverrideSet {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2BoneOverrideSet_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl BoneOverrideSet {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2BoneOverrideSet) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| BoneOverrideSet { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for BoneOverrideSet {}
+
+impl core::fmt::Debug for BoneOverrideSet {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("BoneOverrideSet").finish_non_exhaustive()
+    }
+}
+
+impl BoneOverrideSet {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2BoneOverrideSet_new();
+            Self::from_raw(raw).expect("native BoneOverrideSet allocation failed")
+        }
+    }
+
+    /// 1 in every known file.
+    pub fn version(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2BoneOverrideSet_get_version(self.raw.as_ptr()) }
+    }
+
+    pub fn set_version(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2BoneOverrideSet_set_version(self.raw.as_ptr(), value) }
+    }
+
+    /// Ascending by @ref BoneOverride::boneIndex, which is the order the files store and what lets the client binary-search a bone.
+    pub fn overrides_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2BoneOverrideSet_get_overrides_count(self.raw.as_ptr()) }
+    }
+
+    /// Borrows element `index` in place. `None` when out of range.
+    pub fn overrides(&self, index: usize) -> Option<crate::support::Ref<'_, BoneOverride>> {
+        if index >= self.overrides_len() {
+            return None;
+        }
+        // SAFETY: index checked above; the pointer is interior to `self`.
+        unsafe {
+            Some(crate::support::Ref::new(BoneOverride {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2BoneOverrideSet_get_overrides_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    pub fn overrides_mut(
+        &mut self,
+        index: usize,
+    ) -> Option<crate::support::RefMut<'_, BoneOverride>> {
+        if index >= self.overrides_len() {
+            return None;
+        }
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            Some(crate::support::RefMut::new(BoneOverride {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2BoneOverrideSet_get_overrides_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    /// Iterate the elements, borrowing each in turn.
+    pub fn overrides_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, BoneOverride>> {
+        (0..self.overrides_len()).map(move |i| self.overrides(i).expect("index below len"))
+    }
+
+    pub fn resize_overrides(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2BoneOverrideSet_resize_overrides(self.raw.as_ptr(), count) }
+    }
+}
+
+impl Default for BoneOverrideSet {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct Model {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2Model>,
 }
@@ -8346,14 +11734,65 @@ impl Model {
         unsafe { ffi::whiteout_m2_M2Model_resize_particleGeosets(self.raw.as_ptr(), count) }
     }
 
-    /// PFDC
+    /// One entry per customization choice, in BFID order — see bone_file.h.
+    pub fn bone_overrides_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2Model_get_boneOverrides_count(self.raw.as_ptr()) }
+    }
+
+    /// Borrows element `index` in place. `None` when out of range.
+    pub fn bone_overrides(&self, index: usize) -> Option<crate::support::Ref<'_, BoneOverrideSet>> {
+        if index >= self.bone_overrides_len() {
+            return None;
+        }
+        // SAFETY: index checked above; the pointer is interior to `self`.
+        unsafe {
+            Some(crate::support::Ref::new(BoneOverrideSet {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2Model_get_boneOverrides_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    pub fn bone_overrides_mut(
+        &mut self,
+        index: usize,
+    ) -> Option<crate::support::RefMut<'_, BoneOverrideSet>> {
+        if index >= self.bone_overrides_len() {
+            return None;
+        }
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            Some(crate::support::RefMut::new(BoneOverrideSet {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m2_M2Model_get_boneOverrides_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    /// Iterate the elements, borrowing each in turn.
+    pub fn bone_overrides_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, BoneOverrideSet>> {
+        (0..self.bone_overrides_len())
+            .map(move |i| self.bone_overrides(i).expect("index below len"))
+    }
+
+    pub fn resize_bone_overrides(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2Model_resize_boneOverrides(self.raw.as_ptr(), count) }
+    }
+
+    /// BFID, kept so a model that named its `.bone` files by id keeps doing so. Parallel to @ref boneOverrides when both are present.
     /// Zero-copy view of the underlying `std::vector`.
-    pub fn physics_file_data(&self) -> &[u8] {
+    pub fn bone_file_ids(&self) -> &[u32] {
         // SAFETY: `_data`/`_count` describe one contiguous C++
         // allocation, borrowed for as long as `self` is.
         unsafe {
-            let n = ffi::whiteout_m2_M2Model_get_physicsFileData_count(self.raw.as_ptr());
-            let p = ffi::whiteout_m2_M2Model_get_physicsFileData_data(self.raw.as_ptr());
+            let n = ffi::whiteout_m2_M2Model_get_boneFileIds_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m2_M2Model_get_boneFileIds_data(self.raw.as_ptr());
             if p.is_null() || n == 0 {
                 &[]
             } else {
@@ -8363,11 +11802,11 @@ impl Model {
     }
 
     /// Zero-copy mutable view. Resize first — the borrow forbids it after.
-    pub fn physics_file_data_mut(&mut self) -> &mut [u8] {
+    pub fn bone_file_ids_mut(&mut self) -> &mut [u32] {
         // SAFETY: as above; `&mut self` rules out aliasing and resizing.
         unsafe {
-            let n = ffi::whiteout_m2_M2Model_get_physicsFileData_count(self.raw.as_ptr());
-            let p = ffi::whiteout_m2_M2Model_get_physicsFileData_data(self.raw.as_ptr()) as *mut u8;
+            let n = ffi::whiteout_m2_M2Model_get_boneFileIds_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m2_M2Model_get_boneFileIds_data(self.raw.as_ptr()) as *mut u32;
             if p.is_null() || n == 0 {
                 &mut []
             } else {
@@ -8376,10 +11815,10 @@ impl Model {
         }
     }
 
-    pub fn set_physics_file_data(&mut self, values: &[u8]) {
+    pub fn set_bone_file_ids(&mut self, values: &[u32]) {
         // SAFETY: the native side copies `values` before returning.
         unsafe {
-            ffi::whiteout_m2_M2Model_assign_physicsFileData(
+            ffi::whiteout_m2_M2Model_assign_boneFileIds(
                 self.raw.as_ptr(),
                 values.as_ptr() as *const _,
                 values.len(),
@@ -8387,10 +11826,10 @@ impl Model {
         }
     }
 
-    pub fn resize_physics_file_data(&mut self, count: usize) {
+    pub fn resize_bone_file_ids(&mut self, count: usize) {
         // SAFETY: reallocation is safe here precisely because
         // `&mut self` means no slice borrow is outstanding.
-        unsafe { ffi::whiteout_m2_M2Model_resize_physicsFileData(self.raw.as_ptr(), count) }
+        unsafe { ffi::whiteout_m2_M2Model_resize_boneFileIds(self.raw.as_ptr(), count) }
     }
 
     /// EDGF
@@ -11567,6 +15006,86 @@ pub mod ffi {
         _private: [u8; 0],
     }
     #[repr(C)]
+    pub struct whiteout_M2PhysicsFrame {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M2PhysicsBody {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M2PhysicsShape {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M2BoxShape {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M2CapsuleShape {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M2SphereShape {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M2PolytopeHalfEdge {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M2PolytopeShape {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M2PhysicsJoint {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M2WeldJoint {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M2SphericalJoint {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M2ShoulderJoint {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M2PrismaticJoint {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M2RevoluteJoint {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M2DistanceJoint {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M2PhysicsTuning {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M2PhysicsUnknownChunk {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M2PhysicsData {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M2BoneOverride {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M2BoneOverrideSet {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
     pub struct whiteout_M2Model {
         _private: [u8; 0],
     }
@@ -13258,6 +16777,917 @@ pub mod ffi {
             self_: *mut whiteout_M2Event,
             value: *const whiteout_M2AnimationTrackBase,
         );
+        // PhysicsFrame
+        pub fn whiteout_m2_M2PhysicsFrame_new() -> *mut whiteout_M2PhysicsFrame;
+        pub fn whiteout_m2_M2PhysicsFrame_delete(self_: *mut whiteout_M2PhysicsFrame);
+        pub fn whiteout_m2_M2PhysicsFrame_get_axisX(
+            self_: *mut whiteout_M2PhysicsFrame,
+        ) -> *mut core::ffi::c_void;
+        pub fn whiteout_m2_M2PhysicsFrame_set_axisX(
+            self_: *mut whiteout_M2PhysicsFrame,
+            value: *const core::ffi::c_void,
+        );
+        pub fn whiteout_m2_M2PhysicsFrame_get_axisY(
+            self_: *mut whiteout_M2PhysicsFrame,
+        ) -> *mut core::ffi::c_void;
+        pub fn whiteout_m2_M2PhysicsFrame_set_axisY(
+            self_: *mut whiteout_M2PhysicsFrame,
+            value: *const core::ffi::c_void,
+        );
+        pub fn whiteout_m2_M2PhysicsFrame_get_axisZ(
+            self_: *mut whiteout_M2PhysicsFrame,
+        ) -> *mut core::ffi::c_void;
+        pub fn whiteout_m2_M2PhysicsFrame_set_axisZ(
+            self_: *mut whiteout_M2PhysicsFrame,
+            value: *const core::ffi::c_void,
+        );
+        pub fn whiteout_m2_M2PhysicsFrame_get_origin(
+            self_: *mut whiteout_M2PhysicsFrame,
+        ) -> *mut core::ffi::c_void;
+        pub fn whiteout_m2_M2PhysicsFrame_set_origin(
+            self_: *mut whiteout_M2PhysicsFrame,
+            value: *const core::ffi::c_void,
+        );
+        // PhysicsBody
+        pub fn whiteout_m2_M2PhysicsBody_new() -> *mut whiteout_M2PhysicsBody;
+        pub fn whiteout_m2_M2PhysicsBody_delete(self_: *mut whiteout_M2PhysicsBody);
+        pub fn whiteout_m2_M2PhysicsBody_get_type(self_: *mut whiteout_M2PhysicsBody) -> i32;
+        pub fn whiteout_m2_M2PhysicsBody_set_type(self_: *mut whiteout_M2PhysicsBody, value: i32);
+        pub fn whiteout_m2_M2PhysicsBody_get_boneIndex(self_: *mut whiteout_M2PhysicsBody) -> u16;
+        pub fn whiteout_m2_M2PhysicsBody_set_boneIndex(
+            self_: *mut whiteout_M2PhysicsBody,
+            value: u16,
+        );
+        pub fn whiteout_m2_M2PhysicsBody_get_position(
+            self_: *mut whiteout_M2PhysicsBody,
+        ) -> *mut core::ffi::c_void;
+        pub fn whiteout_m2_M2PhysicsBody_set_position(
+            self_: *mut whiteout_M2PhysicsBody,
+            value: *const core::ffi::c_void,
+        );
+        pub fn whiteout_m2_M2PhysicsBody_get_shapeIndex(self_: *mut whiteout_M2PhysicsBody) -> i32;
+        pub fn whiteout_m2_M2PhysicsBody_set_shapeIndex(
+            self_: *mut whiteout_M2PhysicsBody,
+            value: i32,
+        );
+        pub fn whiteout_m2_M2PhysicsBody_get_shapeCount(self_: *mut whiteout_M2PhysicsBody) -> i32;
+        pub fn whiteout_m2_M2PhysicsBody_set_shapeCount(
+            self_: *mut whiteout_M2PhysicsBody,
+            value: i32,
+        );
+        pub fn whiteout_m2_M2PhysicsBody_get_gravityScale(
+            self_: *mut whiteout_M2PhysicsBody,
+        ) -> f32;
+        pub fn whiteout_m2_M2PhysicsBody_set_gravityScale(
+            self_: *mut whiteout_M2PhysicsBody,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PhysicsBody_get_inertiaScale(
+            self_: *mut whiteout_M2PhysicsBody,
+        ) -> f32;
+        pub fn whiteout_m2_M2PhysicsBody_set_inertiaScale(
+            self_: *mut whiteout_M2PhysicsBody,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PhysicsBody_get_linearDamping(
+            self_: *mut whiteout_M2PhysicsBody,
+        ) -> f32;
+        pub fn whiteout_m2_M2PhysicsBody_set_linearDamping(
+            self_: *mut whiteout_M2PhysicsBody,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PhysicsBody_get_angularDamping(
+            self_: *mut whiteout_M2PhysicsBody,
+        ) -> f32;
+        pub fn whiteout_m2_M2PhysicsBody_set_angularDamping(
+            self_: *mut whiteout_M2PhysicsBody,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PhysicsBody_get_unknown28(self_: *mut whiteout_M2PhysicsBody) -> f32;
+        pub fn whiteout_m2_M2PhysicsBody_set_unknown28(
+            self_: *mut whiteout_M2PhysicsBody,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PhysicsBody_get_unknown2c(self_: *mut whiteout_M2PhysicsBody) -> u16;
+        pub fn whiteout_m2_M2PhysicsBody_set_unknown2c(
+            self_: *mut whiteout_M2PhysicsBody,
+            value: u16,
+        );
+        pub fn whiteout_m2_M2PhysicsBody_get_padding2e(self_: *mut whiteout_M2PhysicsBody) -> u16;
+        pub fn whiteout_m2_M2PhysicsBody_set_padding2e(
+            self_: *mut whiteout_M2PhysicsBody,
+            value: u16,
+        );
+        // PhysicsShape
+        pub fn whiteout_m2_M2PhysicsShape_new() -> *mut whiteout_M2PhysicsShape;
+        pub fn whiteout_m2_M2PhysicsShape_delete(self_: *mut whiteout_M2PhysicsShape);
+        pub fn whiteout_m2_M2PhysicsShape_get_shapeType(self_: *mut whiteout_M2PhysicsShape)
+            -> i32;
+        pub fn whiteout_m2_M2PhysicsShape_set_shapeType(
+            self_: *mut whiteout_M2PhysicsShape,
+            value: i32,
+        );
+        pub fn whiteout_m2_M2PhysicsShape_get_shapeIndex(
+            self_: *mut whiteout_M2PhysicsShape,
+        ) -> i16;
+        pub fn whiteout_m2_M2PhysicsShape_set_shapeIndex(
+            self_: *mut whiteout_M2PhysicsShape,
+            value: i16,
+        );
+        pub fn whiteout_m2_M2PhysicsShape_get_padding04(self_: *mut whiteout_M2PhysicsShape)
+            -> u32;
+        pub fn whiteout_m2_M2PhysicsShape_set_padding04(
+            self_: *mut whiteout_M2PhysicsShape,
+            value: u32,
+        );
+        pub fn whiteout_m2_M2PhysicsShape_get_friction(self_: *mut whiteout_M2PhysicsShape) -> f32;
+        pub fn whiteout_m2_M2PhysicsShape_set_friction(
+            self_: *mut whiteout_M2PhysicsShape,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PhysicsShape_get_restitution(
+            self_: *mut whiteout_M2PhysicsShape,
+        ) -> f32;
+        pub fn whiteout_m2_M2PhysicsShape_set_restitution(
+            self_: *mut whiteout_M2PhysicsShape,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PhysicsShape_get_density(self_: *mut whiteout_M2PhysicsShape) -> f32;
+        pub fn whiteout_m2_M2PhysicsShape_set_density(
+            self_: *mut whiteout_M2PhysicsShape,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PhysicsShape_get_unknown14(self_: *mut whiteout_M2PhysicsShape)
+            -> f32;
+        pub fn whiteout_m2_M2PhysicsShape_set_unknown14(
+            self_: *mut whiteout_M2PhysicsShape,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PhysicsShape_get_scale(self_: *mut whiteout_M2PhysicsShape) -> f32;
+        pub fn whiteout_m2_M2PhysicsShape_set_scale(
+            self_: *mut whiteout_M2PhysicsShape,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PhysicsShape_get_unknown1c(self_: *mut whiteout_M2PhysicsShape)
+            -> u16;
+        pub fn whiteout_m2_M2PhysicsShape_set_unknown1c(
+            self_: *mut whiteout_M2PhysicsShape,
+            value: u16,
+        );
+        pub fn whiteout_m2_M2PhysicsShape_get_padding1e(self_: *mut whiteout_M2PhysicsShape)
+            -> u16;
+        pub fn whiteout_m2_M2PhysicsShape_set_padding1e(
+            self_: *mut whiteout_M2PhysicsShape,
+            value: u16,
+        );
+        // BoxShape
+        pub fn whiteout_m2_M2BoxShape_new() -> *mut whiteout_M2BoxShape;
+        pub fn whiteout_m2_M2BoxShape_delete(self_: *mut whiteout_M2BoxShape);
+        pub fn whiteout_m2_M2BoxShape_get_frame(
+            self_: *mut whiteout_M2BoxShape,
+        ) -> *mut whiteout_M2PhysicsFrame;
+        pub fn whiteout_m2_M2BoxShape_set_frame(
+            self_: *mut whiteout_M2BoxShape,
+            value: *const whiteout_M2PhysicsFrame,
+        );
+        pub fn whiteout_m2_M2BoxShape_get_halfExtents(
+            self_: *mut whiteout_M2BoxShape,
+        ) -> *mut core::ffi::c_void;
+        pub fn whiteout_m2_M2BoxShape_set_halfExtents(
+            self_: *mut whiteout_M2BoxShape,
+            value: *const core::ffi::c_void,
+        );
+        // CapsuleShape
+        pub fn whiteout_m2_M2CapsuleShape_new() -> *mut whiteout_M2CapsuleShape;
+        pub fn whiteout_m2_M2CapsuleShape_delete(self_: *mut whiteout_M2CapsuleShape);
+        pub fn whiteout_m2_M2CapsuleShape_get_localPosition1(
+            self_: *mut whiteout_M2CapsuleShape,
+        ) -> *mut core::ffi::c_void;
+        pub fn whiteout_m2_M2CapsuleShape_set_localPosition1(
+            self_: *mut whiteout_M2CapsuleShape,
+            value: *const core::ffi::c_void,
+        );
+        pub fn whiteout_m2_M2CapsuleShape_get_localPosition2(
+            self_: *mut whiteout_M2CapsuleShape,
+        ) -> *mut core::ffi::c_void;
+        pub fn whiteout_m2_M2CapsuleShape_set_localPosition2(
+            self_: *mut whiteout_M2CapsuleShape,
+            value: *const core::ffi::c_void,
+        );
+        pub fn whiteout_m2_M2CapsuleShape_get_radius(self_: *mut whiteout_M2CapsuleShape) -> f32;
+        pub fn whiteout_m2_M2CapsuleShape_set_radius(
+            self_: *mut whiteout_M2CapsuleShape,
+            value: f32,
+        );
+        // SphereShape
+        pub fn whiteout_m2_M2SphereShape_new() -> *mut whiteout_M2SphereShape;
+        pub fn whiteout_m2_M2SphereShape_delete(self_: *mut whiteout_M2SphereShape);
+        pub fn whiteout_m2_M2SphereShape_get_localPosition(
+            self_: *mut whiteout_M2SphereShape,
+        ) -> *mut core::ffi::c_void;
+        pub fn whiteout_m2_M2SphereShape_set_localPosition(
+            self_: *mut whiteout_M2SphereShape,
+            value: *const core::ffi::c_void,
+        );
+        pub fn whiteout_m2_M2SphereShape_get_radius(self_: *mut whiteout_M2SphereShape) -> f32;
+        pub fn whiteout_m2_M2SphereShape_set_radius(self_: *mut whiteout_M2SphereShape, value: f32);
+        // PolytopeHalfEdge
+        pub fn whiteout_m2_M2PolytopeHalfEdge_new() -> *mut whiteout_M2PolytopeHalfEdge;
+        pub fn whiteout_m2_M2PolytopeHalfEdge_delete(self_: *mut whiteout_M2PolytopeHalfEdge);
+        pub fn whiteout_m2_M2PolytopeHalfEdge_get_twinOffset(
+            self_: *mut whiteout_M2PolytopeHalfEdge,
+        ) -> i8;
+        pub fn whiteout_m2_M2PolytopeHalfEdge_set_twinOffset(
+            self_: *mut whiteout_M2PolytopeHalfEdge,
+            value: i8,
+        );
+        pub fn whiteout_m2_M2PolytopeHalfEdge_get_originVertex(
+            self_: *mut whiteout_M2PolytopeHalfEdge,
+        ) -> u8;
+        pub fn whiteout_m2_M2PolytopeHalfEdge_set_originVertex(
+            self_: *mut whiteout_M2PolytopeHalfEdge,
+            value: u8,
+        );
+        pub fn whiteout_m2_M2PolytopeHalfEdge_get_faceIndex(
+            self_: *mut whiteout_M2PolytopeHalfEdge,
+        ) -> u8;
+        pub fn whiteout_m2_M2PolytopeHalfEdge_set_faceIndex(
+            self_: *mut whiteout_M2PolytopeHalfEdge,
+            value: u8,
+        );
+        pub fn whiteout_m2_M2PolytopeHalfEdge_get_nextEdge(
+            self_: *mut whiteout_M2PolytopeHalfEdge,
+        ) -> u8;
+        pub fn whiteout_m2_M2PolytopeHalfEdge_set_nextEdge(
+            self_: *mut whiteout_M2PolytopeHalfEdge,
+            value: u8,
+        );
+        // PolytopeShape
+        pub fn whiteout_m2_M2PolytopeShape_new() -> *mut whiteout_M2PolytopeShape;
+        pub fn whiteout_m2_M2PolytopeShape_delete(self_: *mut whiteout_M2PolytopeShape);
+        pub fn whiteout_m2_M2PolytopeShape_get_vertices_count(
+            self_: *mut whiteout_M2PolytopeShape,
+        ) -> usize;
+        pub fn whiteout_m2_M2PolytopeShape_resize_vertices(
+            self_: *mut whiteout_M2PolytopeShape,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PolytopeShape_get_vertices_data(
+            self_: *mut whiteout_M2PolytopeShape,
+        ) -> *const f32;
+        pub fn whiteout_m2_M2PolytopeShape_assign_vertices(
+            self_: *mut whiteout_M2PolytopeShape,
+            data: *const f32,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PolytopeShape_get_facePlanes_count(
+            self_: *mut whiteout_M2PolytopeShape,
+        ) -> usize;
+        pub fn whiteout_m2_M2PolytopeShape_resize_facePlanes(
+            self_: *mut whiteout_M2PolytopeShape,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PolytopeShape_get_facePlanes_data(
+            self_: *mut whiteout_M2PolytopeShape,
+        ) -> *const f32;
+        pub fn whiteout_m2_M2PolytopeShape_assign_facePlanes(
+            self_: *mut whiteout_M2PolytopeShape,
+            data: *const f32,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PolytopeShape_get_faceFirstEdges_count(
+            self_: *mut whiteout_M2PolytopeShape,
+        ) -> usize;
+        pub fn whiteout_m2_M2PolytopeShape_resize_faceFirstEdges(
+            self_: *mut whiteout_M2PolytopeShape,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PolytopeShape_get_faceFirstEdges_data(
+            self_: *mut whiteout_M2PolytopeShape,
+        ) -> *const u8;
+        pub fn whiteout_m2_M2PolytopeShape_assign_faceFirstEdges(
+            self_: *mut whiteout_M2PolytopeShape,
+            data: *const u8,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PolytopeShape_get_edges_count(
+            self_: *mut whiteout_M2PolytopeShape,
+        ) -> usize;
+        pub fn whiteout_m2_M2PolytopeShape_resize_edges(
+            self_: *mut whiteout_M2PolytopeShape,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PolytopeShape_get_edges_at(
+            self_: *mut whiteout_M2PolytopeShape,
+            index: usize,
+        ) -> *mut whiteout_M2PolytopeHalfEdge;
+        pub fn whiteout_m2_M2PolytopeShape_get_centroid(
+            self_: *mut whiteout_M2PolytopeShape,
+        ) -> *mut core::ffi::c_void;
+        pub fn whiteout_m2_M2PolytopeShape_set_centroid(
+            self_: *mut whiteout_M2PolytopeShape,
+            value: *const core::ffi::c_void,
+        );
+        pub fn whiteout_m2_M2PolytopeShape_get_volume(self_: *mut whiteout_M2PolytopeShape) -> f32;
+        pub fn whiteout_m2_M2PolytopeShape_set_volume(
+            self_: *mut whiteout_M2PolytopeShape,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PolytopeShape_get_surfaceArea(
+            self_: *mut whiteout_M2PolytopeShape,
+        ) -> f32;
+        pub fn whiteout_m2_M2PolytopeShape_set_surfaceArea(
+            self_: *mut whiteout_M2PolytopeShape,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PolytopeShape_get_padding04(
+            self_: *mut whiteout_M2PolytopeShape,
+        ) -> u32;
+        pub fn whiteout_m2_M2PolytopeShape_set_padding04(
+            self_: *mut whiteout_M2PolytopeShape,
+            value: u32,
+        );
+        pub fn whiteout_m2_M2PolytopeShape_get_padding14(
+            self_: *mut whiteout_M2PolytopeShape,
+        ) -> u32;
+        pub fn whiteout_m2_M2PolytopeShape_set_padding14(
+            self_: *mut whiteout_M2PolytopeShape,
+            value: u32,
+        );
+        pub fn whiteout_m2_M2PolytopeShape_get_padding2c(
+            self_: *mut whiteout_M2PolytopeShape,
+        ) -> u32;
+        pub fn whiteout_m2_M2PolytopeShape_set_padding2c(
+            self_: *mut whiteout_M2PolytopeShape,
+            value: u32,
+        );
+        pub fn whiteout_m2_M2PolytopeShape_get_padding4c(
+            self_: *mut whiteout_M2PolytopeShape,
+        ) -> u32;
+        pub fn whiteout_m2_M2PolytopeShape_set_padding4c(
+            self_: *mut whiteout_M2PolytopeShape,
+            value: u32,
+        );
+        // PhysicsJoint
+        pub fn whiteout_m2_M2PhysicsJoint_new() -> *mut whiteout_M2PhysicsJoint;
+        pub fn whiteout_m2_M2PhysicsJoint_delete(self_: *mut whiteout_M2PhysicsJoint);
+        pub fn whiteout_m2_M2PhysicsJoint_get_bodyAIndex(
+            self_: *mut whiteout_M2PhysicsJoint,
+        ) -> u32;
+        pub fn whiteout_m2_M2PhysicsJoint_set_bodyAIndex(
+            self_: *mut whiteout_M2PhysicsJoint,
+            value: u32,
+        );
+        pub fn whiteout_m2_M2PhysicsJoint_get_bodyBIndex(
+            self_: *mut whiteout_M2PhysicsJoint,
+        ) -> u32;
+        pub fn whiteout_m2_M2PhysicsJoint_set_bodyBIndex(
+            self_: *mut whiteout_M2PhysicsJoint,
+            value: u32,
+        );
+        pub fn whiteout_m2_M2PhysicsJoint_get_padding08(self_: *mut whiteout_M2PhysicsJoint)
+            -> u32;
+        pub fn whiteout_m2_M2PhysicsJoint_set_padding08(
+            self_: *mut whiteout_M2PhysicsJoint,
+            value: u32,
+        );
+        pub fn whiteout_m2_M2PhysicsJoint_get_jointType(self_: *mut whiteout_M2PhysicsJoint)
+            -> i32;
+        pub fn whiteout_m2_M2PhysicsJoint_set_jointType(
+            self_: *mut whiteout_M2PhysicsJoint,
+            value: i32,
+        );
+        pub fn whiteout_m2_M2PhysicsJoint_get_jointId(self_: *mut whiteout_M2PhysicsJoint) -> i16;
+        pub fn whiteout_m2_M2PhysicsJoint_set_jointId(
+            self_: *mut whiteout_M2PhysicsJoint,
+            value: i16,
+        );
+        // WeldJoint
+        pub fn whiteout_m2_M2WeldJoint_new() -> *mut whiteout_M2WeldJoint;
+        pub fn whiteout_m2_M2WeldJoint_delete(self_: *mut whiteout_M2WeldJoint);
+        pub fn whiteout_m2_M2WeldJoint_get_frameA(
+            self_: *mut whiteout_M2WeldJoint,
+        ) -> *mut whiteout_M2PhysicsFrame;
+        pub fn whiteout_m2_M2WeldJoint_set_frameA(
+            self_: *mut whiteout_M2WeldJoint,
+            value: *const whiteout_M2PhysicsFrame,
+        );
+        pub fn whiteout_m2_M2WeldJoint_get_frameB(
+            self_: *mut whiteout_M2WeldJoint,
+        ) -> *mut whiteout_M2PhysicsFrame;
+        pub fn whiteout_m2_M2WeldJoint_set_frameB(
+            self_: *mut whiteout_M2WeldJoint,
+            value: *const whiteout_M2PhysicsFrame,
+        );
+        pub fn whiteout_m2_M2WeldJoint_get_angularFrequencyHz(
+            self_: *mut whiteout_M2WeldJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2WeldJoint_set_angularFrequencyHz(
+            self_: *mut whiteout_M2WeldJoint,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2WeldJoint_get_angularDampingRatio(
+            self_: *mut whiteout_M2WeldJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2WeldJoint_set_angularDampingRatio(
+            self_: *mut whiteout_M2WeldJoint,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2WeldJoint_get_linearFrequencyHz(
+            self_: *mut whiteout_M2WeldJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2WeldJoint_set_linearFrequencyHz(
+            self_: *mut whiteout_M2WeldJoint,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2WeldJoint_get_linearDampingRatio(
+            self_: *mut whiteout_M2WeldJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2WeldJoint_set_linearDampingRatio(
+            self_: *mut whiteout_M2WeldJoint,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2WeldJoint_get_unknown70(self_: *mut whiteout_M2WeldJoint) -> f32;
+        pub fn whiteout_m2_M2WeldJoint_set_unknown70(self_: *mut whiteout_M2WeldJoint, value: f32);
+        // SphericalJoint
+        pub fn whiteout_m2_M2SphericalJoint_new() -> *mut whiteout_M2SphericalJoint;
+        pub fn whiteout_m2_M2SphericalJoint_delete(self_: *mut whiteout_M2SphericalJoint);
+        pub fn whiteout_m2_M2SphericalJoint_get_anchorA(
+            self_: *mut whiteout_M2SphericalJoint,
+        ) -> *mut core::ffi::c_void;
+        pub fn whiteout_m2_M2SphericalJoint_set_anchorA(
+            self_: *mut whiteout_M2SphericalJoint,
+            value: *const core::ffi::c_void,
+        );
+        pub fn whiteout_m2_M2SphericalJoint_get_anchorB(
+            self_: *mut whiteout_M2SphericalJoint,
+        ) -> *mut core::ffi::c_void;
+        pub fn whiteout_m2_M2SphericalJoint_set_anchorB(
+            self_: *mut whiteout_M2SphericalJoint,
+            value: *const core::ffi::c_void,
+        );
+        pub fn whiteout_m2_M2SphericalJoint_get_frictionTorque(
+            self_: *mut whiteout_M2SphericalJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2SphericalJoint_set_frictionTorque(
+            self_: *mut whiteout_M2SphericalJoint,
+            value: f32,
+        );
+        // ShoulderJoint
+        pub fn whiteout_m2_M2ShoulderJoint_new() -> *mut whiteout_M2ShoulderJoint;
+        pub fn whiteout_m2_M2ShoulderJoint_delete(self_: *mut whiteout_M2ShoulderJoint);
+        pub fn whiteout_m2_M2ShoulderJoint_get_frameA(
+            self_: *mut whiteout_M2ShoulderJoint,
+        ) -> *mut whiteout_M2PhysicsFrame;
+        pub fn whiteout_m2_M2ShoulderJoint_set_frameA(
+            self_: *mut whiteout_M2ShoulderJoint,
+            value: *const whiteout_M2PhysicsFrame,
+        );
+        pub fn whiteout_m2_M2ShoulderJoint_get_frameB(
+            self_: *mut whiteout_M2ShoulderJoint,
+        ) -> *mut whiteout_M2PhysicsFrame;
+        pub fn whiteout_m2_M2ShoulderJoint_set_frameB(
+            self_: *mut whiteout_M2ShoulderJoint,
+            value: *const whiteout_M2PhysicsFrame,
+        );
+        pub fn whiteout_m2_M2ShoulderJoint_get_lowerTwistAngle(
+            self_: *mut whiteout_M2ShoulderJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2ShoulderJoint_set_lowerTwistAngle(
+            self_: *mut whiteout_M2ShoulderJoint,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2ShoulderJoint_get_upperTwistAngle(
+            self_: *mut whiteout_M2ShoulderJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2ShoulderJoint_set_upperTwistAngle(
+            self_: *mut whiteout_M2ShoulderJoint,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2ShoulderJoint_get_coneAngle(
+            self_: *mut whiteout_M2ShoulderJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2ShoulderJoint_set_coneAngle(
+            self_: *mut whiteout_M2ShoulderJoint,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2ShoulderJoint_get_maxMotorTorque(
+            self_: *mut whiteout_M2ShoulderJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2ShoulderJoint_set_maxMotorTorque(
+            self_: *mut whiteout_M2ShoulderJoint,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2ShoulderJoint_get_motorMode(
+            self_: *mut whiteout_M2ShoulderJoint,
+        ) -> u32;
+        pub fn whiteout_m2_M2ShoulderJoint_set_motorMode(
+            self_: *mut whiteout_M2ShoulderJoint,
+            value: u32,
+        );
+        pub fn whiteout_m2_M2ShoulderJoint_get_motorFrequencyHz(
+            self_: *mut whiteout_M2ShoulderJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2ShoulderJoint_set_motorFrequencyHz(
+            self_: *mut whiteout_M2ShoulderJoint,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2ShoulderJoint_get_motorDampingRatio(
+            self_: *mut whiteout_M2ShoulderJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2ShoulderJoint_set_motorDampingRatio(
+            self_: *mut whiteout_M2ShoulderJoint,
+            value: f32,
+        );
+        // PrismaticJoint
+        pub fn whiteout_m2_M2PrismaticJoint_new() -> *mut whiteout_M2PrismaticJoint;
+        pub fn whiteout_m2_M2PrismaticJoint_delete(self_: *mut whiteout_M2PrismaticJoint);
+        pub fn whiteout_m2_M2PrismaticJoint_get_frameA(
+            self_: *mut whiteout_M2PrismaticJoint,
+        ) -> *mut whiteout_M2PhysicsFrame;
+        pub fn whiteout_m2_M2PrismaticJoint_set_frameA(
+            self_: *mut whiteout_M2PrismaticJoint,
+            value: *const whiteout_M2PhysicsFrame,
+        );
+        pub fn whiteout_m2_M2PrismaticJoint_get_frameB(
+            self_: *mut whiteout_M2PrismaticJoint,
+        ) -> *mut whiteout_M2PhysicsFrame;
+        pub fn whiteout_m2_M2PrismaticJoint_set_frameB(
+            self_: *mut whiteout_M2PrismaticJoint,
+            value: *const whiteout_M2PhysicsFrame,
+        );
+        pub fn whiteout_m2_M2PrismaticJoint_get_lowerLimit(
+            self_: *mut whiteout_M2PrismaticJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2PrismaticJoint_set_lowerLimit(
+            self_: *mut whiteout_M2PrismaticJoint,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PrismaticJoint_get_upperLimit(
+            self_: *mut whiteout_M2PrismaticJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2PrismaticJoint_set_upperLimit(
+            self_: *mut whiteout_M2PrismaticJoint,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PrismaticJoint_get_unknown68(
+            self_: *mut whiteout_M2PrismaticJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2PrismaticJoint_set_unknown68(
+            self_: *mut whiteout_M2PrismaticJoint,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PrismaticJoint_get_maxMotorForce(
+            self_: *mut whiteout_M2PrismaticJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2PrismaticJoint_set_maxMotorForce(
+            self_: *mut whiteout_M2PrismaticJoint,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PrismaticJoint_get_unknown70(
+            self_: *mut whiteout_M2PrismaticJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2PrismaticJoint_set_unknown70(
+            self_: *mut whiteout_M2PrismaticJoint,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PrismaticJoint_get_motorMode(
+            self_: *mut whiteout_M2PrismaticJoint,
+        ) -> u32;
+        pub fn whiteout_m2_M2PrismaticJoint_set_motorMode(
+            self_: *mut whiteout_M2PrismaticJoint,
+            value: u32,
+        );
+        pub fn whiteout_m2_M2PrismaticJoint_get_motorFrequencyHz(
+            self_: *mut whiteout_M2PrismaticJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2PrismaticJoint_set_motorFrequencyHz(
+            self_: *mut whiteout_M2PrismaticJoint,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2PrismaticJoint_get_motorDampingRatio(
+            self_: *mut whiteout_M2PrismaticJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2PrismaticJoint_set_motorDampingRatio(
+            self_: *mut whiteout_M2PrismaticJoint,
+            value: f32,
+        );
+        // RevoluteJoint
+        pub fn whiteout_m2_M2RevoluteJoint_new() -> *mut whiteout_M2RevoluteJoint;
+        pub fn whiteout_m2_M2RevoluteJoint_delete(self_: *mut whiteout_M2RevoluteJoint);
+        pub fn whiteout_m2_M2RevoluteJoint_get_frameA(
+            self_: *mut whiteout_M2RevoluteJoint,
+        ) -> *mut whiteout_M2PhysicsFrame;
+        pub fn whiteout_m2_M2RevoluteJoint_set_frameA(
+            self_: *mut whiteout_M2RevoluteJoint,
+            value: *const whiteout_M2PhysicsFrame,
+        );
+        pub fn whiteout_m2_M2RevoluteJoint_get_frameB(
+            self_: *mut whiteout_M2RevoluteJoint,
+        ) -> *mut whiteout_M2PhysicsFrame;
+        pub fn whiteout_m2_M2RevoluteJoint_set_frameB(
+            self_: *mut whiteout_M2RevoluteJoint,
+            value: *const whiteout_M2PhysicsFrame,
+        );
+        pub fn whiteout_m2_M2RevoluteJoint_get_lowerAngle(
+            self_: *mut whiteout_M2RevoluteJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2RevoluteJoint_set_lowerAngle(
+            self_: *mut whiteout_M2RevoluteJoint,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2RevoluteJoint_get_upperAngle(
+            self_: *mut whiteout_M2RevoluteJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2RevoluteJoint_set_upperAngle(
+            self_: *mut whiteout_M2RevoluteJoint,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2RevoluteJoint_get_maxMotorTorque(
+            self_: *mut whiteout_M2RevoluteJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2RevoluteJoint_set_maxMotorTorque(
+            self_: *mut whiteout_M2RevoluteJoint,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2RevoluteJoint_get_motorMode(
+            self_: *mut whiteout_M2RevoluteJoint,
+        ) -> u32;
+        pub fn whiteout_m2_M2RevoluteJoint_set_motorMode(
+            self_: *mut whiteout_M2RevoluteJoint,
+            value: u32,
+        );
+        pub fn whiteout_m2_M2RevoluteJoint_get_motorFrequencyHz(
+            self_: *mut whiteout_M2RevoluteJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2RevoluteJoint_set_motorFrequencyHz(
+            self_: *mut whiteout_M2RevoluteJoint,
+            value: f32,
+        );
+        pub fn whiteout_m2_M2RevoluteJoint_get_motorDampingRatio(
+            self_: *mut whiteout_M2RevoluteJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2RevoluteJoint_set_motorDampingRatio(
+            self_: *mut whiteout_M2RevoluteJoint,
+            value: f32,
+        );
+        // DistanceJoint
+        pub fn whiteout_m2_M2DistanceJoint_new() -> *mut whiteout_M2DistanceJoint;
+        pub fn whiteout_m2_M2DistanceJoint_delete(self_: *mut whiteout_M2DistanceJoint);
+        pub fn whiteout_m2_M2DistanceJoint_get_localAnchorA(
+            self_: *mut whiteout_M2DistanceJoint,
+        ) -> *mut core::ffi::c_void;
+        pub fn whiteout_m2_M2DistanceJoint_set_localAnchorA(
+            self_: *mut whiteout_M2DistanceJoint,
+            value: *const core::ffi::c_void,
+        );
+        pub fn whiteout_m2_M2DistanceJoint_get_localAnchorB(
+            self_: *mut whiteout_M2DistanceJoint,
+        ) -> *mut core::ffi::c_void;
+        pub fn whiteout_m2_M2DistanceJoint_set_localAnchorB(
+            self_: *mut whiteout_M2DistanceJoint,
+            value: *const core::ffi::c_void,
+        );
+        pub fn whiteout_m2_M2DistanceJoint_get_distance(
+            self_: *mut whiteout_M2DistanceJoint,
+        ) -> f32;
+        pub fn whiteout_m2_M2DistanceJoint_set_distance(
+            self_: *mut whiteout_M2DistanceJoint,
+            value: f32,
+        );
+        // PhysicsTuning
+        pub fn whiteout_m2_M2PhysicsTuning_new() -> *mut whiteout_M2PhysicsTuning;
+        pub fn whiteout_m2_M2PhysicsTuning_delete(self_: *mut whiteout_M2PhysicsTuning);
+        pub fn whiteout_m2_M2PhysicsTuning_values_size() -> usize;
+        pub fn whiteout_m2_M2PhysicsTuning_get_values_at(
+            self_: *mut whiteout_M2PhysicsTuning,
+            index: usize,
+        ) -> f32;
+        pub fn whiteout_m2_M2PhysicsTuning_set_values_at(
+            self_: *mut whiteout_M2PhysicsTuning,
+            index: usize,
+            value: f32,
+        );
+        // PhysicsUnknownChunk
+        pub fn whiteout_m2_M2PhysicsUnknownChunk_new() -> *mut whiteout_M2PhysicsUnknownChunk;
+        pub fn whiteout_m2_M2PhysicsUnknownChunk_delete(self_: *mut whiteout_M2PhysicsUnknownChunk);
+        pub fn whiteout_m2_M2PhysicsUnknownChunk_tag_size() -> usize;
+        pub fn whiteout_m2_M2PhysicsUnknownChunk_get_tag_at(
+            self_: *mut whiteout_M2PhysicsUnknownChunk,
+            index: usize,
+        ) -> i8;
+        pub fn whiteout_m2_M2PhysicsUnknownChunk_set_tag_at(
+            self_: *mut whiteout_M2PhysicsUnknownChunk,
+            index: usize,
+            value: i8,
+        );
+        pub fn whiteout_m2_M2PhysicsUnknownChunk_get_data_count(
+            self_: *mut whiteout_M2PhysicsUnknownChunk,
+        ) -> usize;
+        pub fn whiteout_m2_M2PhysicsUnknownChunk_resize_data(
+            self_: *mut whiteout_M2PhysicsUnknownChunk,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PhysicsUnknownChunk_get_data_data(
+            self_: *mut whiteout_M2PhysicsUnknownChunk,
+        ) -> *const u8;
+        pub fn whiteout_m2_M2PhysicsUnknownChunk_assign_data(
+            self_: *mut whiteout_M2PhysicsUnknownChunk,
+            data: *const u8,
+            count: usize,
+        );
+        // PhysicsData
+        pub fn whiteout_m2_M2PhysicsData_new() -> *mut whiteout_M2PhysicsData;
+        pub fn whiteout_m2_M2PhysicsData_delete(self_: *mut whiteout_M2PhysicsData);
+        pub fn whiteout_m2_M2PhysicsData_get_version(self_: *mut whiteout_M2PhysicsData) -> u16;
+        pub fn whiteout_m2_M2PhysicsData_set_version(
+            self_: *mut whiteout_M2PhysicsData,
+            value: u16,
+        );
+        pub fn whiteout_m2_M2PhysicsData_get_bodies_count(
+            self_: *mut whiteout_M2PhysicsData,
+        ) -> usize;
+        pub fn whiteout_m2_M2PhysicsData_resize_bodies(
+            self_: *mut whiteout_M2PhysicsData,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PhysicsData_get_bodies_at(
+            self_: *mut whiteout_M2PhysicsData,
+            index: usize,
+        ) -> *mut whiteout_M2PhysicsBody;
+        pub fn whiteout_m2_M2PhysicsData_get_shapes_count(
+            self_: *mut whiteout_M2PhysicsData,
+        ) -> usize;
+        pub fn whiteout_m2_M2PhysicsData_resize_shapes(
+            self_: *mut whiteout_M2PhysicsData,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PhysicsData_get_shapes_at(
+            self_: *mut whiteout_M2PhysicsData,
+            index: usize,
+        ) -> *mut whiteout_M2PhysicsShape;
+        pub fn whiteout_m2_M2PhysicsData_get_boxShapes_count(
+            self_: *mut whiteout_M2PhysicsData,
+        ) -> usize;
+        pub fn whiteout_m2_M2PhysicsData_resize_boxShapes(
+            self_: *mut whiteout_M2PhysicsData,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PhysicsData_get_boxShapes_at(
+            self_: *mut whiteout_M2PhysicsData,
+            index: usize,
+        ) -> *mut whiteout_M2BoxShape;
+        pub fn whiteout_m2_M2PhysicsData_get_capsuleShapes_count(
+            self_: *mut whiteout_M2PhysicsData,
+        ) -> usize;
+        pub fn whiteout_m2_M2PhysicsData_resize_capsuleShapes(
+            self_: *mut whiteout_M2PhysicsData,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PhysicsData_get_capsuleShapes_at(
+            self_: *mut whiteout_M2PhysicsData,
+            index: usize,
+        ) -> *mut whiteout_M2CapsuleShape;
+        pub fn whiteout_m2_M2PhysicsData_get_sphereShapes_count(
+            self_: *mut whiteout_M2PhysicsData,
+        ) -> usize;
+        pub fn whiteout_m2_M2PhysicsData_resize_sphereShapes(
+            self_: *mut whiteout_M2PhysicsData,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PhysicsData_get_sphereShapes_at(
+            self_: *mut whiteout_M2PhysicsData,
+            index: usize,
+        ) -> *mut whiteout_M2SphereShape;
+        pub fn whiteout_m2_M2PhysicsData_get_polytopeShapes_count(
+            self_: *mut whiteout_M2PhysicsData,
+        ) -> usize;
+        pub fn whiteout_m2_M2PhysicsData_resize_polytopeShapes(
+            self_: *mut whiteout_M2PhysicsData,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PhysicsData_get_polytopeShapes_at(
+            self_: *mut whiteout_M2PhysicsData,
+            index: usize,
+        ) -> *mut whiteout_M2PolytopeShape;
+        pub fn whiteout_m2_M2PhysicsData_get_joints_count(
+            self_: *mut whiteout_M2PhysicsData,
+        ) -> usize;
+        pub fn whiteout_m2_M2PhysicsData_resize_joints(
+            self_: *mut whiteout_M2PhysicsData,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PhysicsData_get_joints_at(
+            self_: *mut whiteout_M2PhysicsData,
+            index: usize,
+        ) -> *mut whiteout_M2PhysicsJoint;
+        pub fn whiteout_m2_M2PhysicsData_get_weldJoints_count(
+            self_: *mut whiteout_M2PhysicsData,
+        ) -> usize;
+        pub fn whiteout_m2_M2PhysicsData_resize_weldJoints(
+            self_: *mut whiteout_M2PhysicsData,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PhysicsData_get_weldJoints_at(
+            self_: *mut whiteout_M2PhysicsData,
+            index: usize,
+        ) -> *mut whiteout_M2WeldJoint;
+        pub fn whiteout_m2_M2PhysicsData_get_sphericalJoints_count(
+            self_: *mut whiteout_M2PhysicsData,
+        ) -> usize;
+        pub fn whiteout_m2_M2PhysicsData_resize_sphericalJoints(
+            self_: *mut whiteout_M2PhysicsData,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PhysicsData_get_sphericalJoints_at(
+            self_: *mut whiteout_M2PhysicsData,
+            index: usize,
+        ) -> *mut whiteout_M2SphericalJoint;
+        pub fn whiteout_m2_M2PhysicsData_get_shoulderJoints_count(
+            self_: *mut whiteout_M2PhysicsData,
+        ) -> usize;
+        pub fn whiteout_m2_M2PhysicsData_resize_shoulderJoints(
+            self_: *mut whiteout_M2PhysicsData,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PhysicsData_get_shoulderJoints_at(
+            self_: *mut whiteout_M2PhysicsData,
+            index: usize,
+        ) -> *mut whiteout_M2ShoulderJoint;
+        pub fn whiteout_m2_M2PhysicsData_get_prismaticJoints_count(
+            self_: *mut whiteout_M2PhysicsData,
+        ) -> usize;
+        pub fn whiteout_m2_M2PhysicsData_resize_prismaticJoints(
+            self_: *mut whiteout_M2PhysicsData,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PhysicsData_get_prismaticJoints_at(
+            self_: *mut whiteout_M2PhysicsData,
+            index: usize,
+        ) -> *mut whiteout_M2PrismaticJoint;
+        pub fn whiteout_m2_M2PhysicsData_get_revoluteJoints_count(
+            self_: *mut whiteout_M2PhysicsData,
+        ) -> usize;
+        pub fn whiteout_m2_M2PhysicsData_resize_revoluteJoints(
+            self_: *mut whiteout_M2PhysicsData,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PhysicsData_get_revoluteJoints_at(
+            self_: *mut whiteout_M2PhysicsData,
+            index: usize,
+        ) -> *mut whiteout_M2RevoluteJoint;
+        pub fn whiteout_m2_M2PhysicsData_get_distanceJoints_count(
+            self_: *mut whiteout_M2PhysicsData,
+        ) -> usize;
+        pub fn whiteout_m2_M2PhysicsData_resize_distanceJoints(
+            self_: *mut whiteout_M2PhysicsData,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PhysicsData_get_distanceJoints_at(
+            self_: *mut whiteout_M2PhysicsData,
+            index: usize,
+        ) -> *mut whiteout_M2DistanceJoint;
+        pub fn whiteout_m2_M2PhysicsData_get_tuning_count(
+            self_: *mut whiteout_M2PhysicsData,
+        ) -> usize;
+        pub fn whiteout_m2_M2PhysicsData_resize_tuning(
+            self_: *mut whiteout_M2PhysicsData,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2PhysicsData_get_tuning_at(
+            self_: *mut whiteout_M2PhysicsData,
+            index: usize,
+        ) -> *mut whiteout_M2PhysicsTuning;
+        // BoneOverride
+        pub fn whiteout_m2_M2BoneOverride_new() -> *mut whiteout_M2BoneOverride;
+        pub fn whiteout_m2_M2BoneOverride_delete(self_: *mut whiteout_M2BoneOverride);
+        pub fn whiteout_m2_M2BoneOverride_get_boneIndex(self_: *mut whiteout_M2BoneOverride)
+            -> u16;
+        pub fn whiteout_m2_M2BoneOverride_set_boneIndex(
+            self_: *mut whiteout_M2BoneOverride,
+            value: u16,
+        );
+        // BoneOverrideSet
+        pub fn whiteout_m2_M2BoneOverrideSet_new() -> *mut whiteout_M2BoneOverrideSet;
+        pub fn whiteout_m2_M2BoneOverrideSet_delete(self_: *mut whiteout_M2BoneOverrideSet);
+        pub fn whiteout_m2_M2BoneOverrideSet_get_version(
+            self_: *mut whiteout_M2BoneOverrideSet,
+        ) -> u32;
+        pub fn whiteout_m2_M2BoneOverrideSet_set_version(
+            self_: *mut whiteout_M2BoneOverrideSet,
+            value: u32,
+        );
+        pub fn whiteout_m2_M2BoneOverrideSet_get_overrides_count(
+            self_: *mut whiteout_M2BoneOverrideSet,
+        ) -> usize;
+        pub fn whiteout_m2_M2BoneOverrideSet_resize_overrides(
+            self_: *mut whiteout_M2BoneOverrideSet,
+            count: usize,
+        );
+        pub fn whiteout_m2_M2BoneOverrideSet_get_overrides_at(
+            self_: *mut whiteout_M2BoneOverrideSet,
+            index: usize,
+        ) -> *mut whiteout_M2BoneOverride;
         // Model
         pub fn whiteout_m2_M2Model_new() -> *mut whiteout_M2Model;
         pub fn whiteout_m2_M2Model_delete(self_: *mut whiteout_M2Model);
@@ -13724,18 +18154,19 @@ pub mod ffi {
             self_: *mut whiteout_M2Model,
             index: usize,
         ) -> *mut whiteout_M2ParticleGeosetData;
-        pub fn whiteout_m2_M2Model_get_physicsFileData_count(self_: *mut whiteout_M2Model)
-            -> usize;
-        pub fn whiteout_m2_M2Model_resize_physicsFileData(
+        pub fn whiteout_m2_M2Model_get_boneOverrides_count(self_: *mut whiteout_M2Model) -> usize;
+        pub fn whiteout_m2_M2Model_resize_boneOverrides(self_: *mut whiteout_M2Model, count: usize);
+        pub fn whiteout_m2_M2Model_get_boneOverrides_at(
             self_: *mut whiteout_M2Model,
-            count: usize,
-        );
-        pub fn whiteout_m2_M2Model_get_physicsFileData_data(
+            index: usize,
+        ) -> *mut whiteout_M2BoneOverrideSet;
+        pub fn whiteout_m2_M2Model_get_boneFileIds_count(self_: *mut whiteout_M2Model) -> usize;
+        pub fn whiteout_m2_M2Model_resize_boneFileIds(self_: *mut whiteout_M2Model, count: usize);
+        pub fn whiteout_m2_M2Model_get_boneFileIds_data(self_: *mut whiteout_M2Model)
+            -> *const u32;
+        pub fn whiteout_m2_M2Model_assign_boneFileIds(
             self_: *mut whiteout_M2Model,
-        ) -> *const u8;
-        pub fn whiteout_m2_M2Model_assign_physicsFileData(
-            self_: *mut whiteout_M2Model,
-            data: *const u8,
+            data: *const u32,
             count: usize,
         );
         pub fn whiteout_m2_M2Model_get_edgeFadeEntries_count(self_: *mut whiteout_M2Model)

@@ -172,6 +172,9 @@ Uses the PImpl (Pointer to Implementation) idiom to hide internals.
         .def("total_file_count", &whiteout::storages::casc::Storage::totalFileCount, R"doc(@return Total number of files in the root manifest.)doc")
         .def("import_keys_from_string", &whiteout::storages::casc::Storage::importKeysFromString, py::arg("keyList"), R"doc(Import encryption keys from a formatted string (one per line).)doc")
         .def("import_keys_from_file", &whiteout::storages::casc::Storage::importKeysFromFile, py::arg("keyFilePath"), R"doc(Import encryption keys from a file.)doc")
+        .def("set_zero_fill_encrypted", &whiteout::storages::casc::Storage::setZeroFillEncrypted, py::arg("on"), R"doc(Substitute zeros for any frame whose encryption key is unavailable, instead of failing the read. Off by default.
+
+Unreleased content ships encrypted with keys that are not published, and a single such frame otherwise takes a whole file with it — a client database that is 99% readable is worth more than none of it. CascLib spells this CASC_OVERCOME_ENCRYPTED. Turn it on only where a partly blank file is more useful than no file.)doc")
         .def("find_encryption_key", &whiteout::storages::casc::Storage::findEncryptionKey, py::arg("keyName"), R"doc(@return The encryption key for @p keyName, or std::nullopt if not found.)doc")
         .def("flush_cache", &whiteout::storages::casc::Storage::flushCache, R"doc(Clear the in-memory decoded-data cache (container cache).)doc")
         .def("prefetch", &whiteout::storages::casc::Storage::prefetch, R"doc(Force every deferred load (encoding, root, VFS, index files, orphan bitvector) to resolve. Idempotent.)doc")

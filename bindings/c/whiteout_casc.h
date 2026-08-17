@@ -150,6 +150,10 @@ int32_t whiteout_casc_CascStorage_totalFileCount(const whiteout_CascStorage* sel
 int32_t whiteout_casc_CascStorage_importKeysFromString(whiteout_CascStorage* self, const char* keyList);
 /* Import encryption keys from a file. */
 int32_t whiteout_casc_CascStorage_importKeysFromFile(whiteout_CascStorage* self, const char* keyFilePath);
+/* Substitute zeros for any frame whose encryption key is unavailable, instead of failing the read. Off by default. */
+/*  */
+/* Unreleased content ships encrypted with keys that are not published, and a single such frame otherwise takes a whole file with it — a client database that is 99% readable is worth more than none of it. CascLib spells this CASC_OVERCOME_ENCRYPTED. Turn it on only where a partly blank file is more useful than no file. */
+void whiteout_casc_CascStorage_setZeroFillEncrypted(whiteout_CascStorage* self, int32_t on);
 /* @return The encryption key for @p keyName, or std::nullopt if not found. */
 int32_t whiteout_casc_CascStorage_findEncryptionKey(const whiteout_CascStorage* self, uint64_t keyName, uint8_t* out_value);
 /* Clear the in-memory decoded-data cache (container cache). */

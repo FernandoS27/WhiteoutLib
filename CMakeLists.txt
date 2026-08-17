@@ -373,18 +373,20 @@ add_library(whiteout_lib
     # M2
     src/whiteout/models/m2/parser.cpp
     src/whiteout/models/m2/chunk_parser.cpp
+    src/whiteout/models/m2/phys_file.cpp
+    src/whiteout/models/m2/bone_file.cpp
     src/whiteout/models/m2/writer.cpp
     src/whiteout/models/m2/binary_parse_visitor/base.cpp
     src/whiteout/models/m2/binary_parse_visitor/chunk.cpp
+    src/whiteout/models/m2/binary_parse_visitor/phys.cpp
     src/whiteout/models/m2/binary_parse_visitor/extensions.cpp
     src/whiteout/models/m2/binary_parse_visitor/skin.cpp
-    src/whiteout/models/m2/binary_parse_visitor/bone.cpp
     src/whiteout/models/m2/binary_parse_visitor/anim.cpp
     src/whiteout/models/m2/binary_writer_visitor/base.cpp
     src/whiteout/models/m2/binary_writer_visitor/chunk.cpp
+    src/whiteout/models/m2/binary_writer_visitor/phys.cpp
     src/whiteout/models/m2/binary_writer_visitor/extensions.cpp
     src/whiteout/models/m2/binary_writer_visitor/skin.cpp
-    src/whiteout/models/m2/binary_writer_visitor/bone.cpp
     src/whiteout/models/m2/binary_writer_visitor/anim.cpp
     src/whiteout/models/m2/file_system.cpp
     src/whiteout/models/m2/sequence_loader.cpp

@@ -2,7 +2,9 @@
 #pragma once
 
 #include "structures/base.h"
+#include "structures/bone_overrides.h"
 #include "structures/extensions.h"
+#include "structures/phys.h"
 #include "structures/skin.h"
 #include "types.h"
 
@@ -72,18 +74,24 @@ struct Model {
 
     // ── Chunk extension data ──────────
 
-    std::vector<u32> texture_ids;                          ///< TXID
-    std::optional<LodProfile> lodProfile;                  ///< LDV1
-    std::vector<std::array<u8, 2>> textureCombinerHints;   ///< TXAC
-    std::vector<u16> parentSequenceReplacements;           ///< PABC
-    std::vector<TextureWeight> parentTextureWeights;       ///< PADC
-    std::vector<Extent> parentSequenceBounds;              ///< PSBC
-    std::vector<AnimationTrackBase> parentEventData;       ///< PEDC
-    std::vector<u32> recursiveParticleModelIds;            ///< RPID
-    std::vector<u32> geometryParticleModelIds;             ///< GPID
-    std::optional<WaterfallData> waterData;                ///< WFV3
-    std::vector<ParticleGeosetData> particleGeosets;       ///< PGD1
-    std::vector<u8> physicsFileData;                       ///< PFDC
+    std::vector<u32> texture_ids;                        ///< TXID
+    std::optional<LodProfile> lodProfile;                ///< LDV1
+    std::vector<std::array<u8, 2>> textureCombinerHints; ///< TXAC
+    std::vector<u16> parentSequenceReplacements;         ///< PABC
+    std::vector<TextureWeight> parentTextureWeights;     ///< PADC
+    std::vector<Extent> parentSequenceBounds;            ///< PSBC
+    std::vector<AnimationTrackBase> parentEventData;     ///< PEDC
+    std::vector<u32> recursiveParticleModelIds;          ///< RPID
+    std::vector<u32> geometryParticleModelIds;           ///< GPID
+    std::optional<WaterfallData> waterData;              ///< WFV3
+    std::vector<ParticleGeosetData> particleGeosets;     ///< PGD1
+    std::optional<PhysicsData> physics;                  ///< PFDC, or a `.phys` sibling
+    std::optional<u32> physicsFileId;
+    /// One entry per customization choice, in BFID order — see bone_file.h.
+    std::vector<BoneOverrideSet> boneOverrides;
+    /// BFID, kept so a model that named its `.bone` files by id keeps doing so.
+    /// Parallel to @ref boneOverrides when both are present.
+    std::vector<u32> boneFileIds;
     std::vector<EdgeFadeData> edgeFadeEntries;             ///< EDGF
     std::vector<DistanceFadeData> nerfEntries;             ///< NERF
     std::vector<DetailedLightData> detailedLightEntries;   ///< DETL

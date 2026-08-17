@@ -325,6 +325,10 @@ int32_t whiteout_casc_CascStorage_importKeysFromFile(whiteout_CascStorage* self,
     return reinterpret_cast<whiteout::storages::casc::Storage*>(self)->importKeysFromFile(std::string(keyFilePath ? keyFilePath : ""));
 }
 
+void whiteout_casc_CascStorage_setZeroFillEncrypted(whiteout_CascStorage* self, int32_t on) {
+    reinterpret_cast<whiteout::storages::casc::Storage*>(self)->setZeroFillEncrypted(on);
+}
+
 int32_t whiteout_casc_CascStorage_findEncryptionKey(const whiteout_CascStorage* self, uint64_t keyName, uint8_t* out_value) {
     auto __r = reinterpret_cast<const whiteout::storages::casc::Storage*>(self)->findEncryptionKey(keyName);
     if (!__r) return 0;

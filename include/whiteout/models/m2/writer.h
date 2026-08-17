@@ -43,10 +43,19 @@ struct M2SerializeResult {
         size_t pathOffset = 0;
     };
 
+    /// A `.phys` written as its own file rather than inline: set when the
+    /// model carries Model::physicsFileId, cleared when it becomes PFDC.
+    struct PhysicsFileEntry {
+        u32 fileDataId = 0;
+        std::vector<u8> data;
+        size_t pathOffset = 0;
+    };
+
     std::vector<u8> m2Data;
     std::vector<SkinFileEntry> skinData;
     std::vector<SkinFileEntry> skinlodData;
     std::optional<SkeletonFileEntry> skeletonData;
+    std::optional<PhysicsFileEntry> physicsData;
 
     std::vector<AnimDataEntry> animData;
 
@@ -58,6 +67,13 @@ struct M2SerializeResult {
     void patchSkinLodFileId(u32 skinLodId, u32 newId) {
         skinlodData[skinLodId].fileDataId = newId;
         applyPatch(m2Data, skinlodData[skinLodId].pathOffset, newId);
+    }
+
+    void patchPhysicsFileId(u32 newId) {
+        if (physicsData.has_value()) {
+            physicsData->fileDataId = newId;
+            applyPatch(m2Data, physicsData->pathOffset, newId);
+        }
     }
 
     void patchSkeletonFileId(u32 newId) {

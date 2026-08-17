@@ -29,7 +29,7 @@ import whiteout.m2.internal.Native;
  * external access if a handle is shared across threads.
  */
 public final class SerializeResult implements AutoCloseable {
-    private static final long BYTES = 144L;
+    private static final long BYTES = 192L;
 
     final MemorySegment handle;
     final boolean owned;

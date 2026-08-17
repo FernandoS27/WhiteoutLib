@@ -136,8 +136,6 @@ void BinaryParseVisitor::visit(WFV3Chunk& chunk) {
     visit(chunk.data);
 }
 
-void BinaryParseVisitor::visit(PFDCChunk& /*chunk*/) {}
-
 void BinaryParseVisitor::visit(EdgeFadeData& entry) {
     entry.value0 = reader.readArray<f32, 2>();
     entry.value8 = reader.read<f32>();

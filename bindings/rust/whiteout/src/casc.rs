@@ -603,6 +603,19 @@ impl Storage {
         }
     }
 
+    /// Substitute zeros for any frame whose encryption key is unavailable, instead of failing the read. Off by default.
+    ///
+    /// Unreleased content ships encrypted with keys that are not published, and a single such frame otherwise takes a whole file with it — a client database that is 99% readable is worth more than none of it. CascLib spells this CASC_OVERCOME_ENCRYPTED. Turn it on only where a partly blank file is more useful than no file.
+    pub fn set_zero_fill_encrypted(&mut self, on: bool) {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            ffi::whiteout_casc_CascStorage_setZeroFillEncrypted(
+                self.raw.as_ptr(),
+                if on { 1 } else { 0 },
+            );
+        }
+    }
+
     /// @return The encryption key for @p keyName, or std::nullopt if not found.
     pub fn find_encryption_key(&self, key_name: u64) -> Option<[u8; 16]> {
         let mut __v: [u8; 16] = Default::default();
@@ -1017,6 +1030,10 @@ pub mod ffi {
             self_: *mut whiteout_CascStorage,
             key_file_path: *const core::ffi::c_char,
         ) -> i32;
+        pub fn whiteout_casc_CascStorage_setZeroFillEncrypted(
+            self_: *mut whiteout_CascStorage,
+            on: i32,
+        );
         pub fn whiteout_casc_CascStorage_findEncryptionKey(
             self_: *mut whiteout_CascStorage,
             key_name: u64,

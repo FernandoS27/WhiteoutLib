@@ -210,6 +210,10 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_casc_CascStorage_setZeroFillEncrypted(IntPtr self, int on);
+
+
+    [LibraryImport(Runtime.LibraryName)]
     internal static partial void whiteout_casc_CascStorage_flushCache(IntPtr self);
 
 
