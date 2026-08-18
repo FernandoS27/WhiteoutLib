@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -140,6 +141,22 @@ static std::string formatLocaleFlags(whiteout::u32 flags) {
 // Commands
 // ============================================================================
 
+/// Name of a root manifest format, for the info command.
+static const char* rootFormatName(casc::RootFormat f) {
+    switch (f) {
+    case casc::RootFormat::Wow:       return "WoW (MFST)";
+    case casc::RootFormat::WowTvfs:   return "WoW (TVFS)";
+    case casc::RootFormat::Diablo3:   return "Diablo III";
+    case casc::RootFormat::Diablo4:   return "Diablo IV";
+    case casc::RootFormat::Tvfs:      return "TVFS";
+    case casc::RootFormat::Mndx:      return "MNDX";
+    case casc::RootFormat::Overwatch: return "Overwatch";
+    case casc::RootFormat::Agent:     return "Agent / S1 text";
+    case casc::RootFormat::Unknown:   break;
+    }
+    return "unknown";
+}
+
 template<typename S>
 static void cmdInfo(S& storage) {
     auto prod = storage.product();
@@ -152,42 +169,107 @@ static void cmdInfo(S& storage) {
         if (!prod->buildId.empty())
             std::cout << "    Build ID:     " << prod->buildId << "\n";
     }
+    std::cout << "    Root format:  " << rootFormatName(storage.rootFormat()) << "\n";
     if (count)
-        std::cout << "    Total files:  " << *count << "\n";
+        std::cout << "    Root entries: " << *count << "\n";
+
+    // The listable count is what list/export/extract actually see. On a partly
+    // downloaded install it is well below the root count, so show both.
+    size_t listable = 0, named = 0;
+    uint64_t totalBytes = 0;
+    auto const start = std::chrono::steady_clock::now();
+    storage.enumerate([&](const casc::EnumerateEntry& e) {
+        ++listable;
+        if (!e.path.empty())
+            ++named;
+        totalBytes += e.fileSize;
+        return true;
+    });
+    auto const secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - start);
+
+    std::cout << "    Listable:     " << listable << " (" << named << " named)\n"
+              << "    Total size:   " << formatSize(totalBytes) << "\n"
+              << "    Walk time:    " << std::fixed << std::setprecision(2) << secs.count()
+              << " s\n";
+    if (count && *count > listable) {
+        std::cout << "    Note:         " << (*count - listable)
+                  << " root entries are not in this install; pass --all to list them.\n";
+    }
 }
+
+/// Cap on how many matches are held for sorting. Overwatch lists millions of
+/// files, and materializing them all just to show the first screenful is what
+/// used to make this command feel like a hang.
+static constexpr size_t kListSortCap = 200000;
+static constexpr size_t kListShowLimit = 200;
 
 template<typename S>
 static void cmdList(S& storage, const std::string& pattern) {
-    auto files = storage.listFiles();
+    std::vector<std::pair<std::string, uint64_t>> collected;
+    size_t matched = 0;
 
-    std::vector<std::string> matched;
-    for (const auto& name : files) {
-        if (pattern.empty() || pattern == "*" || wildcardMatch(pattern, name))
-            matched.push_back(name);
-    }
+    auto const start = std::chrono::steady_clock::now();
+    storage.enumerate(pattern.empty() ? std::string("*") : pattern,
+                      [&](const casc::EnumerateEntry& e) {
+                          ++matched;
+                          if (collected.size() < kListSortCap)
+                              collected.emplace_back(std::string(e.path), e.fileSize);
+                          return true;
+                      });
+    auto const secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - start);
 
-    std::sort(matched.begin(), matched.end());
-
-    if (matched.empty()) {
-        std::cout << "  No files match \"" << pattern << "\".\n";
+    if (matched == 0) {
+        std::cout << "  No files match \"" << (pattern.empty() ? "*" : pattern) << "\".\n";
         return;
     }
 
+    std::sort(collected.begin(), collected.end());
+
     std::cout << "\n";
     size_t shown = 0;
-    for (const auto& name : matched) {
-        auto sz = storage.fileSize(name);
-        std::cout << "  " << name;
-        if (sz)
-            std::cout << "  (" << formatSize(*sz) << ")";
-        std::cout << "\n";
-        ++shown;
-        if (shown >= 200) {
-            std::cout << "  ... and " << (matched.size() - shown) << " more.\n";
+    for (const auto& [name, size] : collected) {
+        std::cout << "  " << name << "  (" << formatSize(size) << ")\n";
+        if (++shown >= kListShowLimit)
             break;
-        }
     }
-    std::cout << "\n  " << matched.size() << " file(s) matched.\n";
+    if (matched > shown)
+        std::cout << "  ... and " << (matched - shown) << " more (use 'export' for the full list).\n";
+
+    std::cout << "\n  " << matched << " file(s) matched in " << std::fixed << std::setprecision(2)
+              << secs.count() << " s.\n";
+    if (matched > kListSortCap) {
+        std::cout << "  (Shown names are the alphabetically first of the leading "
+                  << kListSortCap << " matches, not of all " << matched << ".)\n";
+    }
+}
+
+template<typename S>
+static void cmdExport(S& storage, const std::string& pattern) {
+    std::cout << "  Output file [listing.txt]: ";
+    std::string outPath;
+    readLine(outPath);
+    if (outPath.empty())
+        outPath = "listing.txt";
+
+    std::ofstream out(outPath, std::ios::binary | std::ios::trunc);
+    if (!out) {
+        std::cout << "  Cannot write to " << outPath << "\n";
+        return;
+    }
+
+    size_t written = 0;
+    auto const start = std::chrono::steady_clock::now();
+    storage.enumerate(pattern.empty() ? std::string("*") : pattern,
+                      [&](const casc::EnumerateEntry& e) {
+                          out << e.path << '\t' << e.fileSize << '\n';
+                          ++written;
+                          return true;
+                      });
+    out.close();
+    auto const secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - start);
+
+    std::cout << "  Wrote " << written << " entries to " << outPath << " in " << std::fixed
+              << std::setprecision(2) << secs.count() << " s.\n";
 }
 
 template<typename S>
@@ -808,18 +890,26 @@ int main(int argc, char* argv[]) {
     whiteout::utils::SimpleThreadPool pool(numThreads);
     std::cout << "Thread pool: " << numThreads << " workers.\n\n";
 
-    // Pre-scan for --listfile <path> (can appear anywhere in args).
+    // Pre-scan for options (they can appear anywhere in args).
     std::string listfilePath;
     std::vector<uint8_t> listfileData;
+    bool listAllFiles = false;
     {
         std::vector<std::string> filteredArgs;
         for (int i = 1; i < argc; ++i) {
             std::string a = argv[i];
             if (a == "--listfile" && i + 1 < argc) {
                 listfilePath = argv[++i];
+            } else if (a == "--all") {
+                listAllFiles = true;
             } else {
                 filteredArgs.push_back(std::move(a));
             }
+        }
+
+        if (listAllFiles) {
+            std::cout << "Listing every file the root declares, downloaded or not "
+                         "(--all).\n";
         }
 
         // Load listfile.
@@ -966,14 +1056,25 @@ int main(int argc, char* argv[]) {
             openOpts.pool = &pool;
             if (!listfileData.empty())
                 openOpts.listfile = listfileData;
+            if (listAllFiles)
+                openOpts.flags |= casc::StorageFeatureFlags::ListAllFiles;
+            std::string openError;
+            openOpts.errorOut = &openError;
 
+            auto const openStart = std::chrono::steady_clock::now();
             auto local = casc::StorageWritable::open(openOpts);
+            auto const openSecs =
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - openStart);
 
             if (!local || !*local) {
                 std::cerr << "Failed to open CASC storage.\n";
+                if (!openError.empty())
+                    std::cerr << "  " << openError << "\n";
                 std::cerr << "  lastError = " << casc::Storage::lastError() << "\n";
                 return 1;
             }
+            std::cout << "Opened in " << std::fixed << std::setprecision(2) << openSecs.count()
+                      << " s.\n";
             storage.emplace(std::move(*local));
         }
     } else {
@@ -1074,6 +1175,8 @@ int main(int argc, char* argv[]) {
             opts.cacheDir = cacheDir;
         if (!listfileData.empty())
             opts.listfile = listfileData;
+        if (listAllFiles)
+            opts.flags |= casc::StorageFeatureFlags::ListAllFiles;
 
         std::cout << "Connecting to " << region << " CDN for '" << product << "' ...\n";
 
@@ -1114,6 +1217,7 @@ int main(int argc, char* argv[]) {
                   << "  11. entries          Browse raw entries\n"
                   << "  12. keys             Import encryption keys\n"
                   << "  13. sample           Extract random files by extension\n"
+                  << "  14. export [pattern] Write the full listing to a file\n"
                   << "  0.  quit\n"
                   << "> ";
 
@@ -1180,6 +1284,8 @@ int main(int argc, char* argv[]) {
                 cmdKeys(s);
             else if (cmd == "13" || cmd == "sample")
                 cmdSample(s);
+            else if (cmd == "14" || cmd == "export")
+                cmdExport(s, arg);
             else
                 std::cout << "  Unknown command. Try 'list', 'read', 'extract', etc.\n";
         }, *storage);

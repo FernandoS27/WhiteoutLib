@@ -71,6 +71,8 @@ public:
 
     // --- RootManifest interface ---
     std::vector<const RootEntry*> findByPath(const std::string& path) const override;
+    std::vector<const RootEntry*> findByNormalizedPath(
+        const std::string& normalizedPath) const override;
     std::vector<const RootEntry*> findByFileDataId(
         u32 fileDataId, FileIdHint hint = FileIdHint::None) const override;
     bool hasFileDataId(u32, FileIdHint = FileIdHint::None) const override {
@@ -104,11 +106,19 @@ private:
     /// Text root manifest entries.
     std::vector<OwRootFileEntry> m_manifestEntries;
 
-    /// GUID-based lookup (GUID stored in fileNameHash field).
-    EntryIndex<u64> m_byGuid;
+    /// GUID → entry index, sorted for binary search. A hash multimap costs
+    /// about five times as much per entry, which at Overwatch's scale is a
+    /// gigabyte; TACTLib binary-searches its hash list for the same reason.
+    std::vector<std::pair<u64, u32>> m_byGuid;
 
-    /// Path-based lookup (for manifest file entries).
-    EntryIndex<std::string> m_byPath;
+    /// Path lookup for the manifest rows only. An asset's path ends in its own
+    /// GUID, so those are found through @ref m_byGuid instead — a string index
+    /// over a current Overwatch install's twelve million assets costs more than
+    /// the entries it points at.
+    EntryIndex<std::string> m_byManifestPath;
+
+    /// Number of leading entries in @ref m_entries that are manifest rows.
+    size_t m_manifestRowCount = 0;
 
     void buildIndices();
 };

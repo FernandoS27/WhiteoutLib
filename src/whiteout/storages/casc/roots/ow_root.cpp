@@ -355,8 +355,6 @@ static bool parseCmfBody(std::span<const u8> body, const CmfHeader& header,
     if (totalHashSize > hashBody.size())
         return false;
 
-    outEntries.reserve(outEntries.size() + size_t(header.dataCount));
-
     // Parse hash data entries.
     for (i32 i = 0; i < header.dataCount; ++i) {
         const u8* p = hashBody.data() + size_t(i) * recordSize;
@@ -403,6 +401,24 @@ static bool parseCmf(std::span<const u8> data, const std::string& pathPrefix,
     return parseCmfBody(body, header, outEntries, pathPrefix);
 }
 
+/// Recover the GUID from an asset path's trailing 16 hex digits.
+static bool parseTrailingGuid(std::string_view path, u64& out) {
+    auto const slash = path.find_last_of('\\');
+    auto const leaf = (slash == std::string_view::npos) ? path : path.substr(slash + 1);
+    if (leaf.size() != 16)
+        return false;
+
+    u64 guid = 0;
+    for (char const c : leaf) {
+        u8 const nibble = hexNibble(c);
+        if (nibble == 0xFF)
+            return false;
+        guid = (guid << 4) | nibble;
+    }
+    out = guid;
+    return true;
+}
+
 /// Check if a file has the OW text root format.
 /// Returns true if data starts with '#' (header line).
 static bool isOwTextRoot(std::span<const u8> data) {
@@ -443,9 +459,20 @@ std::unique_ptr<OwRoot> OwRoot::fromManifestEntries(std::vector<OwRootFileEntry>
         re.path = storages::common::normalizeCascPath(mf.fileName);
         root->m_entries.push_back(std::move(re));
     }
+    root->m_manifestRowCount = root->m_entries.size();
 
-    // If a resolver is provided, fetch and parse CMF files.
+    // If a resolver is provided, fetch and parse CMF files. Headers are read
+    // first so the entry vector is sized once: a current Overwatch install
+    // yields twelve million entries, and letting the vector grow into that
+    // costs more transient memory than every manifest put together.
     if (resolver) {
+        struct PendingCmf {
+            std::vector<u8> data;
+            std::string pathPrefix;
+        };
+        std::vector<PendingCmf> pending;
+        size_t assetCount = 0;
+
         for (auto& mf : root->m_manifestEntries) {
             // Only process .cmf files.
             auto fileName = mf.fileName;
@@ -457,14 +484,22 @@ std::unique_ptr<OwRoot> OwRoot::fromManifestEntries(std::vector<OwRootFileEntry>
             if (cmfData.empty())
                 continue;
 
+            CmfHeader header;
+            if (!parseCmfHeader(cmfData, header) || header.encrypted || header.dataCount < 0)
+                continue;
+            assetCount += size_t(header.dataCount);
+
             // The prefix is derived from the manifest name as written, before
             // normalization folds its case — the field tags are what carry the
             // platform, locale and asset apart.
-            auto const prefix =
-                storages::common::normalizeCascPath(buildAssetPathPrefix(mf.fileName)) + "\\";
-
-            parseCmf(cmfData, prefix, root->m_entries);
+            pending.push_back(
+                {std::move(cmfData),
+                 storages::common::normalizeCascPath(buildAssetPathPrefix(mf.fileName)) + "\\"});
         }
+
+        root->m_entries.reserve(root->m_entries.size() + assetCount);
+        for (auto& cmf : pending)
+            parseCmf(cmf.data, cmf.pathPrefix, root->m_entries);
     }
 
     root->buildIndices();
@@ -472,8 +507,25 @@ std::unique_ptr<OwRoot> OwRoot::fromManifestEntries(std::vector<OwRootFileEntry>
 }
 
 std::vector<const RootEntry*> OwRoot::findByPath(const std::string& path) const {
-    auto normalizedPath = storages::common::normalizeCascPath(path);
-    return m_byPath.findAll(m_entries, normalizedPath);
+    return findByNormalizedPath(storages::common::normalizeCascPath(path));
+}
+
+std::vector<const RootEntry*> OwRoot::findByNormalizedPath(const std::string& path) const {
+    auto results = m_byManifestPath.findAll(m_entries, path);
+    if (!results.empty())
+        return results;
+
+    u64 guid = 0;
+    if (!parseTrailingGuid(path, guid))
+        return results;
+
+    // The GUID narrows the candidates to a handful — one per manifest that
+    // carries the asset — and the full path then picks the right one.
+    for (auto* e : findByGuid(guid)) {
+        if (e->path == path)
+            results.push_back(e);
+    }
+    return results;
 }
 
 std::vector<const RootEntry*> OwRoot::findByFileDataId(u32 /*fileDataId*/,
@@ -483,20 +535,31 @@ std::vector<const RootEntry*> OwRoot::findByFileDataId(u32 /*fileDataId*/,
 }
 
 std::vector<const RootEntry*> OwRoot::findByGuid(u64 guid) const {
-    return m_byGuid.findAll(m_entries, guid);
+    auto const cmp = [](const std::pair<u64, u32>& a, u64 key) { return a.first < key; };
+    auto it = std::lower_bound(m_byGuid.begin(), m_byGuid.end(), guid, cmp);
+
+    std::vector<const RootEntry*> results;
+    for (; it != m_byGuid.end() && it->first == guid; ++it)
+        results.push_back(&m_entries[it->second]);
+    return results;
 }
 
 void OwRoot::buildIndices() {
-    m_byGuid.reserve(m_entries.size());
-    m_byPath.reserve(m_entries.size());
+    m_byGuid.reserve(m_entries.size() - m_manifestRowCount);
+    m_byManifestPath.reserve(m_manifestRowCount);
 
     for (size_t i = 0; i < m_entries.size(); ++i) {
         auto& e = m_entries[i];
         if (e.fileNameHash != 0)
-            m_byGuid.emplace(e.fileNameHash, i);
-        if (!e.path.empty())
-            m_byPath.emplace(e.path, i);
+            m_byGuid.emplace_back(e.fileNameHash, u32(i));
+        if (i < m_manifestRowCount && !e.path.empty())
+            m_byManifestPath.emplace(e.path, i);
     }
+
+    // Stable so that entries for one GUID stay in manifest order — the first
+    // hit is the one from the manifest listed first in the root.
+    std::stable_sort(m_byGuid.begin(), m_byGuid.end(),
+                     [](const auto& a, const auto& b) { return a.first < b.first; });
 }
 
 } // namespace whiteout::storages::casc

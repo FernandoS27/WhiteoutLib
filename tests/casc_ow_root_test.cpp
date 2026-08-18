@@ -802,6 +802,50 @@ TEST_CASE("OW root ignores non-CMF files during resolution", "[casc][ow_root]") 
     CHECK(root->entryCount() == 2);
 }
 
+TEST_CASE("OW root separates one GUID across manifests", "[casc][ow_root]") {
+    // The same asset appears in every manifest that ships it, so a path lookup
+    // has to pick the right one out of the GUID's candidates.
+    std::vector<std::pair<u64, std::array<u8, 16>>> rcnEntries = {{0x99ULL, makeCKey(0x70)}};
+    std::vector<std::pair<u64, std::array<u8, 16>>> devEntries = {{0x99ULL, makeCKey(0x80)}};
+
+    auto rcnBlob = buildCmfV26(rcnEntries);
+    auto devBlob = buildCmfV26(devEntries);
+    auto rcnCKey = makeCKey(0x10);
+    auto devCKey = makeCKey(0x20);
+
+    CKeyResolver resolver = [&](std::span<const u8, 16> cKey) -> std::vector<u8> {
+        if (std::memcmp(cKey.data(), rcnCKey.data(), 16) == 0)
+            return rcnBlob;
+        if (std::memcmp(cKey.data(), devCKey.data(), 16) == 0)
+            return devBlob;
+        return {};
+    };
+
+    std::vector<OwRootFileEntry> manifestEntries = {
+        {"1", rcnCKey, 0, 1, 0, "TactManifest/WinPrism_SPWin_RCN_EExt.cmf", ""},
+        {"2", devCKey, 0, 1, 0, "TactManifest/WinPrism_SPWin_RDev_EExt.cmf", ""},
+    };
+
+    auto root = OwRoot::fromManifestEntries(std::move(manifestEntries), resolver);
+    REQUIRE(root != nullptr);
+    CHECK(root->entryCount() == 4);
+
+    // The GUID reaches both; each path reaches exactly one.
+    CHECK(root->findByGuid(0x99ULL).size() == 2);
+
+    auto rcn = root->findByPath("ContentManifestFiles\\Windows-RCN\\0000000000000099");
+    REQUIRE(rcn.size() == 1);
+    CHECK(rcn[0]->cKey == makeCKey(0x70));
+
+    auto dev = root->findByPath("ContentManifestFiles\\Windows-RDev\\0000000000000099");
+    REQUIRE(dev.size() == 1);
+    CHECK(dev[0]->cKey == makeCKey(0x80));
+
+    // A well-formed but absent asset path, and a manifest row, both still work.
+    CHECK(root->findByPath("ContentManifestFiles\\Windows-RCN\\0000000000000098").empty());
+    CHECK_FALSE(root->findByPath("TactManifest/WinPrism_SPWin_RCN_EExt.cmf").empty());
+}
+
 TEST_CASE("OW root resolves pre-1.22 CMF entries", "[casc][ow_root]") {
     auto cmfCKey = makeCKey(0x10);
     std::vector<std::pair<u64, std::array<u8, 16>>> cmfHashEntries = {
