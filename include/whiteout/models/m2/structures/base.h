@@ -339,10 +339,10 @@ enum class ParticleBlending : u8 {
 
 enum class ParticleFlag : u32 {
     None = 0,
-    Shaded = 0x1,         // ~flags & 1 → CParticleMat bit 0 (inverted); lighting enabled by default
+    Unlit = 0x1,          // Sets the material unlit bit; particles are lit by default
     SortParticles = 0x2,  // Depth-sorted rendering via s_pq priority queue
     VelocityOrient = 0x4, // Billboard aligns along velocity vector
-    Unshaded = 0x8,       // Clears lit flag on CParticleMat
+    Unfogged = 0x8,       // Sets the material unfogged bit (CParticleMat bit 1 = !(flags & 0x8))
     WorldSpace = 0x10,    // Particles operate in world space; skips bone matrix transform in
                           // CreateParticle/UpdateXform.
     InheritBoneScale = 0x20, // In IBuildVertices: multiplies particle size by m_scaleFactor, which
@@ -364,12 +364,16 @@ enum class ParticleFlag : u32 {
     HeadStyle = 0x20000,             // Controls head particle style bit pattern in SetParticleStyle
     TailStyle = 0x40000,             // Controls tail particle style bit pattern in SetParticleStyle
     UnscaledSizeVariation = 0x80000, // Independent X/Y scale variation (2 random floats)
-    Unfogged = 0x100000,             // Sets unfogged flag on CParticleMat
+    Refraction = 0x100000,           // ParticleType 3: drawn with the Particle_Refraction shader,
+                                     // forced unlit, skipped while the camera is submerged.
+                                     // MultiTexture takes precedence when both are set.
     RandFlipbookStart = 0x200000,    // Random starting frame via SetRandFlipBookStart
-    Unk_0x400000 = 0x400000,         // ?
-    CompressedGravity = 0x800000,    // Gravity is compressed.
+    Unk_0x400000 = 0x400000,         // Present in data but never read by the client
+    CompressedGravity = 0x800000,    // Gravity keys are compressed direction vectors
+                                     // (int8 x,y + int16 z) instead of z-axis floats
     BoneGeneratorBone =
-        0x1000000, // Select CBoneGeneratorBone (1) vs CBoneGeneratorJoint (0); emitterType 4
+        0x1000000, // Select CBoneGeneratorBone (1) vs CBoneGeneratorJoint (0); only consulted
+                   // when emitterType == Bone — exporters set it on other emitter types too
     NoGlobalViewScale = 0x2000000, // Skip s_globalViewScale multiplication on emission rate
     LodIgnoreDistance =
         0x4000000, // Skip distance-based LOD emissionrate scaling in EmitNewParticles

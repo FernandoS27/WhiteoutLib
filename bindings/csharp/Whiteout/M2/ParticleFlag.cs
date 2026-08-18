@@ -7,10 +7,10 @@ namespace Whiteout.M2;
 public enum ParticleFlag : int
 {
     None = 0,
-    Shaded = 1,
+    Unlit = 1,
     SortParticles = 2,
     VelocityOrient = 4,
-    Unshaded = 8,
+    Unfogged = 8,
     WorldSpace = 16,
     InheritBoneScale = 32,
     InheritVelocity = 64,
@@ -27,7 +27,7 @@ public enum ParticleFlag : int
     HeadStyle = 131072,
     TailStyle = 262144,
     UnscaledSizeVariation = 524288,
-    Unfogged = 1048576,
+    Refraction = 1048576,
     RandFlipbookStart = 2097152,
     Unk0x400000 = 4194304,
     CompressedGravity = 8388608,

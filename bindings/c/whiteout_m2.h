@@ -92,10 +92,10 @@ typedef enum {
 
 typedef enum {
     whiteout_m2_ParticleFlag_None,
-    whiteout_m2_ParticleFlag_Shaded,
+    whiteout_m2_ParticleFlag_Unlit,
     whiteout_m2_ParticleFlag_SortParticles,
     whiteout_m2_ParticleFlag_VelocityOrient,
-    whiteout_m2_ParticleFlag_Unshaded,
+    whiteout_m2_ParticleFlag_Unfogged,
     whiteout_m2_ParticleFlag_WorldSpace,
     whiteout_m2_ParticleFlag_InheritBoneScale,
     whiteout_m2_ParticleFlag_InheritVelocity,
@@ -112,7 +112,7 @@ typedef enum {
     whiteout_m2_ParticleFlag_HeadStyle,
     whiteout_m2_ParticleFlag_TailStyle,
     whiteout_m2_ParticleFlag_UnscaledSizeVariation,
-    whiteout_m2_ParticleFlag_Unfogged,
+    whiteout_m2_ParticleFlag_Refraction,
     whiteout_m2_ParticleFlag_RandFlipbookStart,
     whiteout_m2_ParticleFlag_Unk_0x400000,
     whiteout_m2_ParticleFlag_CompressedGravity,

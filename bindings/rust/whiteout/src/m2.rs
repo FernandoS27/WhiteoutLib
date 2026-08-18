@@ -323,10 +323,10 @@ pub struct ParticleFlag(pub i32);
 
 impl ParticleFlag {
     pub const NONE: Self = Self(0);
-    pub const SHADED: Self = Self(1);
+    pub const UNLIT: Self = Self(1);
     pub const SORT_PARTICLES: Self = Self(2);
     pub const VELOCITY_ORIENT: Self = Self(4);
-    pub const UNSHADED: Self = Self(8);
+    pub const UNFOGGED: Self = Self(8);
     pub const WORLD_SPACE: Self = Self(16);
     pub const INHERIT_BONE_SCALE: Self = Self(32);
     pub const INHERIT_VELOCITY: Self = Self(64);
@@ -343,7 +343,7 @@ impl ParticleFlag {
     pub const HEAD_STYLE: Self = Self(131072);
     pub const TAIL_STYLE: Self = Self(262144);
     pub const UNSCALED_SIZE_VARIATION: Self = Self(524288);
-    pub const UNFOGGED: Self = Self(1048576);
+    pub const REFRACTION: Self = Self(1048576);
     pub const RAND_FLIPBOOK_START: Self = Self(2097152);
     pub const UNK_0X_400000: Self = Self(4194304);
     pub const COMPRESSED_GRAVITY: Self = Self(8388608);
