@@ -188,6 +188,44 @@ static std::vector<u8> buildCmfV24(
     return buf;
 }
 
+/// Build a minimal unencrypted pre-1.22 CMF blob: a 36-byte header (one fewer
+/// unknown than the 1.22 layout) and 28-byte hash records.
+static std::vector<u8> buildCmfV100(
+    const std::vector<std::pair<u64, std::array<u8, 16>>>& hashEntries,
+    u32 buildVersion = 30000) {
+
+    i32 dataCount = i32(hashEntries.size());
+    i32 entryCount = dataCount;
+
+    std::vector<u8> buf;
+
+    // buildVersion(4) + unk04(4) + unk08(4) + unk10(4) + unk14(4)
+    // + dataCount(4) + unk1C(4) + entryCount(4) + magic(4)
+    writeLE32(buf, buildVersion);
+    writeLE32(buf, 0);
+    writeLE32(buf, 0);
+    writeLE32(buf, 0);
+    writeLE32(buf, 0);
+    writeLE32(buf, u32(dataCount));
+    writeLE32(buf, 0);
+    writeLE32(buf, u32(entryCount));
+    writeLE32(buf, 0x18000000u);    // magic: version 24, non-encrypted
+
+    for (i32 i = 0; i < entryCount; ++i) {
+        writeLE32(buf, u32(i + 1));
+        writeLE64(buf, hashEntries[size_t(i)].first);
+        writeLE64(buf, 0);
+    }
+
+    for (auto& [guid, ckey] : hashEntries) {
+        writeLE64(buf, guid);
+        writeLE32(buf, 256);
+        writeBytes(buf, ckey.data(), 16);
+    }
+
+    return buf;
+}
+
 /// Build a minimal unencrypted CMF v26 blob (1.48+).
 static std::vector<u8> buildCmfV26(
     const std::vector<std::pair<u64, std::array<u8, 16>>>& hashEntries,
@@ -580,10 +618,43 @@ TEST_CASE("OW root findByPath for CMF content entries", "[casc][ow_root]") {
     auto root = OwRoot::fromManifestEntries(std::move(manifestEntries), resolver);
     REQUIRE(root != nullptr);
 
-    // CMF entries get paths like "win_spwin_rcn\12345".
-    auto found = root->findByPath("win_spwin_rcn\\12345");
+    // Assets are named the way CascLib names them: the manifest's platform,
+    // locale and asset fields become folders, the GUID a 16-digit hex leaf.
+    auto found = root->findByPath("ContentManifestFiles\\Windows-RCN\\0000000000003039");
     REQUIRE_FALSE(found.empty());
     CHECK(found[0]->cKey == makeCKey(0xB0));
+}
+
+TEST_CASE("OW root asset paths carry platform, locale and asset", "[casc][ow_root]") {
+    auto cmfCKey = makeCKey(0x10);
+    std::vector<std::pair<u64, std::array<u8, 16>>> cmfHashEntries = {
+        {0x05D0000000000086ULL, makeCKey(0xB0)},
+    };
+
+    auto cmfBlob = buildCmfV25(cmfHashEntries);
+    CKeyResolver resolver = [&](std::span<const u8, 16> cKey) -> std::vector<u8> {
+        if (std::memcmp(cKey.data(), cmfCKey.data(), 16) == 0)
+            return cmfBlob;
+        return {};
+    };
+
+    // Overwatch shipped these names title-cased and later lowercased them; both
+    // spellings have to land on the same asset path.
+    for (auto* spelling : {"TactManifest/Win_SPWin_RCN_LesES_Speech_EExt.cmf",
+                           "tactmanifest/win_spwin_rcn_leses_speech_eext.cmf"}) {
+        INFO(spelling);
+        std::vector<OwRootFileEntry> manifestEntries = {
+            {"1", cmfCKey, 0, 1, 0, spelling, ""},
+        };
+
+        auto root = OwRoot::fromManifestEntries(std::move(manifestEntries), resolver);
+        REQUIRE(root != nullptr);
+
+        auto found =
+            root->findByPath("ContentManifestFiles\\Windows-RCN\\esES\\Speech\\05d0000000000086");
+        REQUIRE_FALSE(found.empty());
+        CHECK(found[0]->cKey == makeCKey(0xB0));
+    }
 }
 
 // ============================================================================
@@ -729,6 +800,102 @@ TEST_CASE("OW root ignores non-CMF files during resolution", "[casc][ow_root]") 
     // Resolver should not be called for non-CMF files.
     CHECK_FALSE(resolverCalled);
     CHECK(root->entryCount() == 2);
+}
+
+TEST_CASE("OW root resolves pre-1.22 CMF entries", "[casc][ow_root]") {
+    auto cmfCKey = makeCKey(0x10);
+    std::vector<std::pair<u64, std::array<u8, 16>>> cmfHashEntries = {
+        {0x1111ULL, makeCKey(0xC0)},
+        {0x2222ULL, makeCKey(0xC1)},
+    };
+
+    auto cmfBlob = buildCmfV100(cmfHashEntries);
+    CKeyResolver resolver = [&](std::span<const u8, 16> cKey) -> std::vector<u8> {
+        if (std::memcmp(cKey.data(), cmfCKey.data(), 16) == 0)
+            return cmfBlob;
+        return {};
+    };
+
+    std::vector<OwRootFileEntry> manifestEntries = {
+        {"1", cmfCKey, 0, 1, 0, "Win_SPWin_RCN.cmf", ""},
+    };
+
+    auto root = OwRoot::fromManifestEntries(std::move(manifestEntries), resolver);
+    REQUIRE(root != nullptr);
+    CHECK(root->entryCount() == 3);
+
+    auto found = root->findByGuid(0x2222ULL);
+    REQUIRE_FALSE(found.empty());
+    CHECK(found[0]->cKey == makeCKey(0xC1));
+    CHECK(found[0]->fileSize == 256);
+}
+
+TEST_CASE("OW root header layout follows the build version, not the magic",
+          "[casc][ow_root]") {
+    // A 1.22-layout CMF whose magic byte says version 26. Selecting the layout
+    // from the magic would read the counts 8 bytes too far in and lose the
+    // entries; selecting it from the build version reads them correctly.
+    std::vector<std::pair<u64, std::array<u8, 16>>> cmfHashEntries = {
+        {0x4242ULL, makeCKey(0xD0)},
+    };
+    auto cmfBlob = buildCmfV25(cmfHashEntries, 60000);
+    cmfBlob[36] = 0x00;
+    cmfBlob[37] = 0x00;
+    cmfBlob[38] = 0x00;
+    cmfBlob[39] = 0x1A; // magic: version 26, non-encrypted
+
+    auto cmfCKey = makeCKey(0x10);
+    CKeyResolver resolver = [&](std::span<const u8, 16> cKey) -> std::vector<u8> {
+        if (std::memcmp(cKey.data(), cmfCKey.data(), 16) == 0)
+            return cmfBlob;
+        return {};
+    };
+
+    std::vector<OwRootFileEntry> manifestEntries = {
+        {"1", cmfCKey, 0, 1, 0, "Win_SPWin_RCN.cmf", ""},
+    };
+
+    auto root = OwRoot::fromManifestEntries(std::move(manifestEntries), resolver);
+    REQUIRE(root != nullptr);
+    CHECK(root->entryCount() == 2);
+    CHECK_FALSE(root->findByGuid(0x4242ULL).empty());
+}
+
+TEST_CASE("OW root skips encrypted CMFs without failing", "[casc][ow_root]") {
+    // Half of a current Overwatch install's manifests are AES-encrypted and we
+    // have no key generator for them. Dropping one must not cost the others.
+    std::vector<std::pair<u64, std::array<u8, 16>>> cmfHashEntries = {
+        {0x5555ULL, makeCKey(0xE0)},
+    };
+
+    auto plainBlob = buildCmfV26(cmfHashEntries);
+    auto encryptedBlob = buildCmfV26(cmfHashEntries);
+    encryptedBlob[44] = 0x1B;
+    encryptedBlob[45] = 0x66;
+    encryptedBlob[46] = 0x6D;
+    encryptedBlob[47] = 0x63; // magic: 0x636D661B — "cmf" in the upper 3 bytes
+
+    auto plainCKey = makeCKey(0x10);
+    auto encryptedCKey = makeCKey(0x20);
+    CKeyResolver resolver = [&](std::span<const u8, 16> cKey) -> std::vector<u8> {
+        if (std::memcmp(cKey.data(), plainCKey.data(), 16) == 0)
+            return plainBlob;
+        if (std::memcmp(cKey.data(), encryptedCKey.data(), 16) == 0)
+            return encryptedBlob;
+        return {};
+    };
+
+    std::vector<OwRootFileEntry> manifestEntries = {
+        {"1", encryptedCKey, 0, 1, 0, "Win_SPWin_RCN.cmf", ""},
+        {"2", plainCKey, 0, 1, 0, "WinPrism_SPWin_RDev.cmf", ""},
+    };
+
+    auto root = OwRoot::fromManifestEntries(std::move(manifestEntries), resolver);
+    REQUIRE(root != nullptr);
+
+    // Two manifest entries, plus the one asset the readable CMF contributed.
+    CHECK(root->entryCount() == 3);
+    CHECK_FALSE(root->findByPath("ContentManifestFiles\\Windows-RDev\\0000000000005555").empty());
 }
 
 TEST_CASE("OW root handles truncated CMF data gracefully", "[casc][ow_root]") {

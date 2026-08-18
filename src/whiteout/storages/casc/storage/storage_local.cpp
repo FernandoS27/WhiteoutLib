@@ -17,6 +17,40 @@ namespace whiteout::storages::casc {
 
 namespace {
 
+/// Subdirectories of an install that can hold the CASC storage, in CascLib's
+/// order. "data/casc" leads: Overwatch nests its storage one level deeper than
+/// every other product, and the "data" entry would otherwise swallow it.
+constexpr const char* kDataDirCandidates[] = {
+    "data/casc", "data", "Data", "SC2Data", "HeroesData", "BNTData",
+};
+
+/// True when @p dir holds both halves of a CASC storage: the config store and
+/// the index/archive store ("darch" is the pre-30414 Heroes of the Storm name).
+bool isCascDataDir(const std::string& dir) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    if (!fs::is_directory(fs::path(dir) / "config", ec))
+        return false;
+    return fs::is_directory(fs::path(dir) / "data", ec) ||
+           fs::is_directory(fs::path(dir) / "darch", ec);
+}
+
+/// The install directory owning the data directory @p dataDir — the nearest
+/// ancestor with a `.build.info`, else the immediate parent. Overwatch needs
+/// the search: its `.build.info` sits two levels up from "data/casc".
+std::string installRootFor(const std::string& dataDir) {
+    namespace fs = std::filesystem;
+    fs::path probe(dataDir);
+    std::string const immediate = probe.parent_path().string();
+    for (int i = 0; i < 3 && probe.has_parent_path(); ++i) {
+        probe = probe.parent_path();
+        std::error_code ec;
+        if (fs::exists(probe / ".build.info", ec))
+            return probe.string();
+    }
+    return immediate;
+}
+
 std::vector<std::filesystem::path> scanLocalConfigs(const std::string& dataPath) {
     namespace fs = std::filesystem;
     std::vector<fs::path> out;
@@ -360,21 +394,44 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
         }
     }
 
-    auto leaf = fs::path(basePath).filename().string();
-    std::transform(leaf.begin(), leaf.end(), leaf.begin(), ::tolower);
-    if (leaf == "data" || leaf == "sc2data" || leaf == "heroesdata") {
+    // A candidate only counts when it holds both halves of the storage. Bare
+    // existence is not enough: Overwatch keeps its storage in "data/casc", so a
+    // plain existence test picks the "data" directory that merely contains it
+    // and then finds no `.idx` anywhere beneath. Mirrors CascLib's
+    // CheckArchiveFilesDirectories.
+    if (isCascDataDir(basePath)) {
         dataPath = basePath;
-        basePath = fs::path(basePath).parent_path().string();
-    } else if (fs::exists(basePath + "/Data")) {
-        dataPath = basePath + "/Data";
-    } else if (fs::exists(basePath + "/data")) {
-        dataPath = basePath + "/data";
-    } else if (fs::exists(basePath + "/SC2Data")) {
-        dataPath = basePath + "/SC2Data";
-    } else if (fs::exists(basePath + "/HeroesData")) {
-        dataPath = basePath + "/HeroesData";
+        basePath = installRootFor(basePath);
     } else {
-        dataPath = basePath;
+        for (auto* candidate : kDataDirCandidates) {
+            std::string const dir = basePath + "/" + candidate;
+            if (isCascDataDir(dir)) {
+                dataPath = dir;
+                break;
+            }
+        }
+    }
+
+    // Layouts that fail the two-halves test — a data directory whose configs
+    // were pruned, a flat one — still opened before, and the build config can
+    // be recovered from the index. Keep the old by-name guess for them.
+    if (dataPath.empty()) {
+        auto leaf = fs::path(basePath).filename().string();
+        std::transform(leaf.begin(), leaf.end(), leaf.begin(), ::tolower);
+        if (leaf == "data" || leaf == "sc2data" || leaf == "heroesdata") {
+            dataPath = basePath;
+            basePath = fs::path(basePath).parent_path().string();
+        } else if (fs::exists(basePath + "/Data")) {
+            dataPath = basePath + "/Data";
+        } else if (fs::exists(basePath + "/data")) {
+            dataPath = basePath + "/data";
+        } else if (fs::exists(basePath + "/SC2Data")) {
+            dataPath = basePath + "/SC2Data";
+        } else if (fs::exists(basePath + "/HeroesData")) {
+            dataPath = basePath + "/HeroesData";
+        } else {
+            dataPath = basePath;
+        }
     }
 
     basePath = fs::path(basePath).lexically_normal().string();

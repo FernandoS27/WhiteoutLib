@@ -114,6 +114,35 @@ TEST_CASE("Product selection without .build.info", "[casc][open]") {
     std::filesystem::remove_all(testDir, ec);
 }
 
+TEST_CASE("Open finds an Overwatch-style data/casc storage", "[casc][open]") {
+    const std::string testDir = "test_casc_open_layout_ow";
+    REQUIRE(buildStorage(testDir, "pro"));
+
+    // Overwatch nests the storage one level deeper than every other product.
+    // The intervening "data" directory holds nothing else, so picking a data
+    // directory by name alone lands on it and finds no index beneath.
+    // Staged through a third name because "Data" and "data" are the same
+    // directory on a case-insensitive filesystem.
+    std::error_code ec;
+    std::filesystem::rename(testDir + "/Data", testDir + "/casc", ec);
+    REQUIRE_FALSE(ec);
+    std::filesystem::create_directories(testDir + "/data", ec);
+    std::filesystem::rename(testDir + "/casc", testDir + "/data/casc", ec);
+    REQUIRE_FALSE(ec);
+    REQUIRE(std::filesystem::exists(testDir + "/data/casc/config"));
+
+    std::string error;
+    auto storage = Storage::open(testDir, &error);
+    INFO(error);
+    REQUIRE(storage.has_value());
+    CHECK(storage->readFile("dir/file1.txt") == makeTestData(2048, 0x11));
+
+    // The data directory names itself just as well as the install root does.
+    CHECK(Storage::open(testDir + "/data/casc").has_value());
+
+    std::filesystem::remove_all(testDir, ec);
+}
+
 TEST_CASE("Open fails without .build.info and without configs", "[casc][open]") {
     const std::string testDir = "test_casc_open_recovery_nothing";
     REQUIRE(buildStorage(testDir));

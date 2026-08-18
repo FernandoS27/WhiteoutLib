@@ -26,23 +26,29 @@ namespace {
 /// Overwatch CMF magic constants.
 static constexpr u32 kCmfEncryptedMagic = 0x636D66; // "cmf"
 
-/// Minimum supported build version (OW 1.30+).
-static constexpr u32 kMinBuildVersion = 52320;
+/// Oldest build we will read a CMF from; retail Overwatch 1.0 was build 24919.
+static constexpr u32 kMinBuildVersion = 20000;
 
 /// Maximum sane build version.
 static constexpr u32 kMaxBuildVersion = 12923648;
 
-/// Version 25 CMF header size.
-static constexpr size_t kCmfHeader25Size = 40;
+/// Build versions at which the CMF header grew, per CascLib's overwatch.h.
+static constexpr u32 kBuild122Ptr = 47161;
+static constexpr u32 kBuild148Ptr = 68309;
 
-/// Version 26+ CMF header size.
-static constexpr size_t kCmfHeader26Size = 48;
+/// Overwatch 1.35 added the Unknown byte to the HashData record.
+static constexpr u32 kBuildHashData135 = 57230;
 
-/// HashData v24 record size (no Unknown byte): GUID(8) + Size(4) + CKey(16) = 28.
-static constexpr size_t kHashData24Size = 28;
+/// CMF header sizes, one per layout.
+static constexpr size_t kCmfHeader100Size = 36;
+static constexpr size_t kCmfHeader122Size = 40;
+static constexpr size_t kCmfHeader148Size = 48;
 
-/// HashData v25+ record size: GUID(8) + Size(4) + Unknown(1) + CKey(16) = 29.
-static constexpr size_t kHashData25Size = 29;
+/// Pre-1.35 HashData record: GUID(8) + Size(4) + CKey(16) = 28.
+static constexpr size_t kHashDataOldSize = 28;
+
+/// 1.35+ HashData record: GUID(8) + Size(4) + Unknown(1) + CKey(16) = 29.
+static constexpr size_t kHashDataSize = 29;
 
 /// CMF entry size: index(4) + hashA(8) + hashB(8) = 20.
 static constexpr size_t kCmfEntrySize = 20;
@@ -207,65 +213,135 @@ static bool parseTextRoot(std::span<const u8> data, std::vector<OwRootFileEntry>
 // CMF parser
 // ============================================================================
 
-/// Parse CMF header. Supports v25 (pre-1.48) and v26+ (1.48+).
+/// Size of the CMF header for a given build. The three layouts differ only in
+/// how many unknown fields precede the tail.
+static size_t cmfHeaderSize(u32 buildVersion) {
+    if (buildVersion > kBuild148Ptr)
+        return kCmfHeader148Size;
+    if (buildVersion > kBuild122Ptr)
+        return kCmfHeader122Size;
+    return kCmfHeader100Size;
+}
+
+/// Parse a CMF header. The layout is chosen by the build version in the first
+/// field, the way CascLib and TACTLib do it — the magic cannot be the selector,
+/// because where the magic lives is exactly what the layout decides.
 static bool parseCmfHeader(std::span<const u8> data, CmfHeader& out) {
-    if (data.size() < kCmfHeader25Size)
+    if (data.size() < kCmfHeader100Size)
         return false;
 
-    // Read as v26 first (larger header).
-    if (data.size() >= kCmfHeader26Size) {
-        out.buildVersion = readLE32(data.data());
-
-        // Check build version range.
-        if (out.buildVersion >= kMinBuildVersion && out.buildVersion < kMaxBuildVersion) {
-            // V26 header (1.48+):
-            // buildVersion(4) + unk04(4) + unk08(4) + unk0C(4) + unk10(4) + unk14(4)
-            // + unk18(4) + dataPatchRecordCount(4) + dataCount(4) + entryPatchRecordCount(4)
-            // + entryCount(4) + magic(4) = 48 bytes
-            out.dataCount = i32(readLE32(data.data() + 32));
-            out.entryCount = i32(readLE32(data.data() + 40));
-            out.magic = readLE32(data.data() + 44);
-
-            // Check if encrypted.
-            out.encrypted = ((out.magic >> 8) == kCmfEncryptedMagic);
-            if (out.encrypted)
-                out.version = u8(out.magic & 0xFF);
-            else
-                out.version = u8((out.magic >> 24) & 0xFF);
-
-            // Validate: version should be >= 26 for this header layout.
-            if (out.version >= 26)
-                return true;
-        }
-    }
-
-    // Try v25 header (pre-1.48):
-    // buildVersion(4) + unk04(4) + unk08(4) + unk0C(4) + unk10(4) + unk14(4)
-    // + dataCount(4) + unk1C(4) + entryCount(4) + magic(4) = 40 bytes
     out.buildVersion = readLE32(data.data());
     if (out.buildVersion < kMinBuildVersion || out.buildVersion >= kMaxBuildVersion)
         return false;
 
-    out.dataCount = i32(readLE32(data.data() + 24));
-    out.entryCount = i32(readLE32(data.data() + 32));
-    out.magic = readLE32(data.data() + 36);
+    size_t const headerSize = cmfHeaderSize(out.buildVersion);
+    if (data.size() < headerSize)
+        return false;
+
+    // All three layouts end the same way: dataCount, an unknown, entryCount,
+    // then the magic. Only the run of unknowns ahead of them differs.
+    const u8* const tail = data.data() + headerSize;
+    out.dataCount = i32(readLE32(tail - 16));
+    out.entryCount = i32(readLE32(tail - 8));
+    out.magic = readLE32(tail - 4);
 
     out.encrypted = ((out.magic >> 8) == kCmfEncryptedMagic);
-    if (out.encrypted)
-        out.version = u8(out.magic & 0xFF);
-    else
-        out.version = u8((out.magic >> 24) & 0xFF);
-
+    out.version = out.encrypted ? u8(out.magic & 0xFF) : u8((out.magic >> 24) & 0xFF);
     return true;
 }
 
+/// Lowercase hex of a 64-bit GUID, most significant nibble first — the form
+/// CascLib prints after byte-reversing the little-endian GUID.
+static std::string guidHex(u64 guid) {
+    static const char hex[] = "0123456789abcdef";
+    std::string s(16, '0');
+    for (size_t i = 16; i-- > 0;) {
+        s[i] = hex[guid & 0xF];
+        guid >>= 4;
+    }
+    return s;
+}
+
+static bool startsWithNoCase(std::string_view s, std::string_view prefix) {
+    if (s.size() < prefix.size())
+        return false;
+    for (size_t i = 0; i < prefix.size(); ++i) {
+        if (std::tolower(static_cast<unsigned char>(s[i])) !=
+            std::tolower(static_cast<unsigned char>(prefix[i])))
+            return false;
+    }
+    return true;
+}
+
+/// The run of characters up to the next field separator.
+static std::string_view assetToken(std::string_view s) {
+    auto const end = s.find_first_of("_.");
+    return end == std::string_view::npos ? s : s.substr(0, end);
+}
+
+/// Folder prefix for the assets of one CMF, e.g. "Win_SPWin_RCN_LesES_Speech_
+/// EExt.cmf" becomes "ContentManifestFiles\Windows-RCN\esES\Speech\".
+/// Matches CascLib's BuildAssetFileNameTemplate, except that the field tags are
+/// compared case-insensitively: CascLib tests them against upper-case spellings
+/// and current Overwatch ships the names lowercased, which would otherwise
+/// collapse every field onto the trailing one.
+static std::string buildAssetPathPrefix(std::string_view cmfFileName) {
+    auto const slash = cmfFileName.find_last_of("\\/");
+    std::string_view name =
+        (slash == std::string_view::npos) ? cmfFileName : cmfFileName.substr(slash + 1);
+    auto const dot = name.find('.');
+    if (dot != std::string_view::npos)
+        name = name.substr(0, dot);
+
+    std::string platform, locale, asset;
+
+    for (size_t i = 0; i < name.size();) {
+        if (name[i] != '_') {
+            ++i;
+            continue;
+        }
+        std::string_view const rest = name.substr(i);
+
+        if (startsWithNoCase(rest, "_spwin_")) {
+            platform = "Windows";
+            i += 6; // Leave the trailing '_' to open the next field.
+        } else if (startsWithNoCase(rest, "_eext")) {
+            i += 5;
+        } else if (rest.size() >= 2 && (rest[1] == 'r' || rest[1] == 'R')) {
+            auto const tok = assetToken(rest.substr(1));
+            platform += '-';
+            platform += tok;
+            i += 1 + tok.size();
+        } else if (rest.size() >= 2 && (rest[1] == 'l' || rest[1] == 'L')) {
+            locale = assetToken(rest.substr(2));
+            i += 2 + locale.size();
+        } else {
+            auto const tok = assetToken(rest.substr(1));
+            asset = tok;
+            i += 1 + tok.size();
+        }
+    }
+
+    std::string out = "ContentManifestFiles\\";
+    for (auto* field : {&platform, &locale, &asset}) {
+        if (!field->empty()) {
+            out += *field;
+            out += '\\';
+        }
+    }
+    return out;
+}
+
 /// Parse CMF entries and hash data from a (decrypted) body.
-/// @param body     Data after the header (entries + hash data).
-/// @param header   Parsed CMF header.
+/// @param body       Data after the header (entries + hash data).
+/// @param header     Parsed CMF header.
 /// @param outEntries Appended with root entries from the CMF.
-/// @param cmfName  Name of the CMF file (used for path prefix).
+/// @param pathPrefix Normalized asset folder, separator-terminated.
 static bool parseCmfBody(std::span<const u8> body, const CmfHeader& header,
-                         std::vector<RootEntry>& outEntries, const std::string& cmfName) {
+                         std::vector<RootEntry>& outEntries, const std::string& pathPrefix) {
+    if (header.dataCount < 0 || header.entryCount < 0)
+        return false;
+
     // Skip CMF entries (we don't need them for root lookup, but must account for their size).
     size_t const entryBlockSize = size_t(header.entryCount) * kCmfEntrySize;
     if (entryBlockSize > body.size())
@@ -273,12 +349,13 @@ static bool parseCmfBody(std::span<const u8> body, const CmfHeader& header,
 
     auto hashBody = body.subspan(entryBlockSize);
 
-    // Determine hash data record size based on version.
-    bool const useV25 = (header.version >= 25);
-    size_t const recordSize = useV25 ? kHashData25Size : kHashData24Size;
+    size_t const recordSize =
+        (header.buildVersion >= kBuildHashData135) ? kHashDataSize : kHashDataOldSize;
     size_t const totalHashSize = size_t(header.dataCount) * recordSize;
     if (totalHashSize > hashBody.size())
         return false;
+
+    outEntries.reserve(outEntries.size() + size_t(header.dataCount));
 
     // Parse hash data entries.
     for (i32 i = 0; i < header.dataCount; ++i) {
@@ -287,7 +364,7 @@ static bool parseCmfBody(std::span<const u8> body, const CmfHeader& header,
         CmfHashData hd;
         hd.guid = readLE64(p);
         hd.size = readLE32(p + 8);
-        if (useV25) {
+        if (recordSize == kHashDataSize) {
             hd.unknown = p[12];
             std::memcpy(hd.contentKey.data(), p + 13, 16);
         } else {
@@ -299,7 +376,7 @@ static bool parseCmfBody(std::span<const u8> body, const CmfHeader& header,
         re.cKey = hd.contentKey;
         re.fileNameHash = hd.guid;
         re.fileSize = hd.size;
-        re.path = cmfName + "\\" + std::to_string(hd.guid);
+        re.path = pathPrefix + guidHex(hd.guid);
         outEntries.push_back(std::move(re));
     }
 
@@ -307,23 +384,23 @@ static bool parseCmfBody(std::span<const u8> body, const CmfHeader& header,
 }
 
 /// Parse a complete (unencrypted) CMF file and append entries.
-static bool parseCmf(std::span<const u8> data, const std::string& cmfName,
+static bool parseCmf(std::span<const u8> data, const std::string& pathPrefix,
                      std::vector<RootEntry>& outEntries) {
     CmfHeader header;
     if (!parseCmfHeader(data, header))
         return false;
 
-    // We do not support encrypted CMFs in this implementation.
+    // Encrypted CMFs need an AES key derived by a per-build generator; we have
+    // none, so the manifest is skipped rather than taking the whole root down.
     if (header.encrypted)
         return false;
 
-    // Determine header size.
-    size_t const headerSize = (header.version >= 26) ? kCmfHeader26Size : kCmfHeader25Size;
+    size_t const headerSize = cmfHeaderSize(header.buildVersion);
     if (headerSize > data.size())
         return false;
 
     auto body = data.subspan(headerSize);
-    return parseCmfBody(body, header, outEntries, cmfName);
+    return parseCmfBody(body, header, outEntries, pathPrefix);
 }
 
 /// Check if a file has the OW text root format.
@@ -380,12 +457,13 @@ std::unique_ptr<OwRoot> OwRoot::fromManifestEntries(std::vector<OwRootFileEntry>
             if (cmfData.empty())
                 continue;
 
-            std::string cmfName = storages::common::normalizeCascPath(mf.fileName);
-            // Strip .cmf extension for prefix.
-            if (cmfName.size() > 4)
-                cmfName = cmfName.substr(0, cmfName.size() - 4);
+            // The prefix is derived from the manifest name as written, before
+            // normalization folds its case — the field tags are what carry the
+            // platform, locale and asset apart.
+            auto const prefix =
+                storages::common::normalizeCascPath(buildAssetPathPrefix(mf.fileName)) + "\\";
 
-            parseCmf(cmfData, cmfName, root->m_entries);
+            parseCmf(cmfData, prefix, root->m_entries);
         }
     }
 

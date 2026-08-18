@@ -34,7 +34,7 @@ struct OwRootFileEntry {
     std::string installPath;
 };
 
-/// CMF header (version 26+, Overwatch 1.48+).
+/// CMF header, normalized across the pre-1.22, 1.22 and 1.48 on-disk layouts.
 struct CmfHeader {
     u32 buildVersion = 0;
     i32 dataCount = 0;
@@ -44,7 +44,7 @@ struct CmfHeader {
     bool encrypted = false;
 };
 
-/// CMF hash data entry (version 25+).
+/// CMF hash data entry, widened to the 1.35+ record.
 struct CmfHashData {
     u64 guid = 0;
     u32 size = 0;
