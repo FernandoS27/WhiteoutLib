@@ -164,6 +164,8 @@ std::optional<PixelFormat> dxt_alpha_type_to_format(u8 alpha_type) {
         return PixelFormat::BC2;
     case 7:
         return PixelFormat::BC3;
+    case 11:
+        return PixelFormat::BC5;
     default:
         return std::nullopt;
     }
