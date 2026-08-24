@@ -10,7 +10,7 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter, u32 version) {
 
     writer.write(emitter.initialSpeed);
     writer.write(emitter.initialSpeedRandom);
-    if (version <= 14) {
+    if (version <= 16) {
         writer.write<u32>(
             hasFlag(emitter.additionalFlags, ParticleAdditionalFlag::EmitSpeedRandomize) ? 1u : 0u);
     }
@@ -21,7 +21,7 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter, u32 version) {
 
     writer.write(emitter.lifetime);
     writer.write(emitter.lifetimeRandom);
-    if (version <= 14) {
+    if (version <= 16) {
         writer.write<u32>(
             hasFlag(emitter.additionalFlags, ParticleAdditionalFlag::LifespanRandomize) ? 1u : 0u);
     }
@@ -38,7 +38,7 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter, u32 version) {
         writer.write(emitter.rotationMidTime);
     }
 
-    if (version >= 14) {
+    if (version >= 13) {
         writer.write(emitter.sizeMidHoldTime);
         writer.write(emitter.colorMidHoldTime);
         writer.write(emitter.alphaMidHoldTime);
@@ -62,7 +62,7 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter, u32 version) {
     }
 
     writer.write(emitter.drag);
-    if (version <= 14) {
+    if (version <= 16) {
         writer.write<u32>(
             hasFlag(emitter.additionalFlags, ParticleAdditionalFlag::MassRandomize) ? 1u : 0u);
     }
@@ -71,7 +71,7 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter, u32 version) {
     if (version >= 12) {
         writer.write(emitter.massSizeMultiplier);
     }
-    if (version <= 14) {
+    if (version <= 16) {
         writer.write<u32>(
             hasFlag(emitter.additionalFlags, ParticleAdditionalFlag::WorldSpace) ? 1u : 0u);
     }
@@ -139,10 +139,14 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter, u32 version) {
     writer.write(emitter.collisionSpawnEnergy);
     writer.write(emitter.collisionDieBounce);
 
-    writer.write(emitter.instanceType);
+    // Legacy model particles keep the raw on-disk instanceType (a ribbon
+    // index) in ribbonLinkIndex; see the parse-time upgrade.
+    writer.write((version <= 22 && hasFlag(emitter.flags, ParticleFlag::ModelParticles))
+                     ? static_cast<ParticleInstanceType>(emitter.ribbonLinkIndex)
+                     : emitter.instanceType);
     writer.write(emitter.tailLength);
     writer.write(emitter.instanceAngle);
-    if (version >= 17) {
+    if (version >= 16) {
         writer.write(emitter.instanceDistance);
     }
 
@@ -184,13 +188,13 @@ void BinaryWriterVisitor::visit(const ParticleEmitter& emitter, u32 version) {
         writer.write(emitter.rotationFlags);
     }
 
-    if (version >= 14) {
+    if (version >= 13) {
         writer.write(emitter.colorSmoothing);
         writer.write(emitter.sizeSmoothing);
         writer.write(emitter.rotationSmoothing);
     }
 
-    if (version >= 17) {
+    if (version >= 15) {
         writer.write(emitter.alphaThreshold);
         writer.write(emitter.uvOffset);
         writer.write(emitter.uvAngle);
@@ -263,7 +267,7 @@ void BinaryWriterVisitor::visit(const RibbonEmitter& emitter, u32 version) {
 
     writer.write(emitter.initialSpeed);
     writer.write(emitter.initialSpeedRandom);
-    if (version <= 6) {
+    if (version <= 7) {
         writer.write<u32>(
             hasFlag(emitter.additionalFlags, RibbonAdditionalFlag::SpeedRandomize) ? 1u : 0u);
     }
@@ -281,7 +285,7 @@ void BinaryWriterVisitor::visit(const RibbonEmitter& emitter, u32 version) {
 
     writer.write(emitter.lifetime);
     writer.write(emitter.lifetimeRandom);
-    if (version <= 6) {
+    if (version <= 7) {
         writer.write<u32>(
             hasFlag(emitter.additionalFlags, RibbonAdditionalFlag::LifespanRandomize) ? 1u : 0u);
     }
@@ -297,7 +301,7 @@ void BinaryWriterVisitor::visit(const RibbonEmitter& emitter, u32 version) {
         writer.write(emitter.alphaMidTime);
         writer.write(emitter.rotationMidTime);
     }
-    if (version >= 8) {
+    if (version >= 7) {
         writer.write(emitter.sizeMidHoldTime);
         writer.write(emitter.colorMidHoldTime);
         writer.write(emitter.alphaMidHoldTime);
@@ -321,14 +325,14 @@ void BinaryWriterVisitor::visit(const RibbonEmitter& emitter, u32 version) {
     }
 
     writer.write(emitter.drag);
-    if (version <= 6) {
+    if (version <= 7) {
         writer.write<u32>(
             hasFlag(emitter.additionalFlags, RibbonAdditionalFlag::MassRandomize) ? 1u : 0u);
     }
     writer.write(emitter.mass);
     writer.write(emitter.massRandom);
     writer.write(emitter.massSizeMultiplier);
-    if (version <= 6) {
+    if (version <= 7) {
         writer.write<u32>(hasFlag(emitter.additionalFlags, RibbonAdditionalFlag::WorldSpace) ? 1u
                                                                                              : 0u);
     }
@@ -363,7 +367,7 @@ void BinaryWriterVisitor::visit(const RibbonEmitter& emitter, u32 version) {
     writer.write(emitter.active);
 
     writer.write(emitter.flags);
-    if (version >= 8) {
+    if (version >= 7) {
         writer.write(emitter.sizeSmoothing);
         writer.write(emitter.colorSmoothing);
     }

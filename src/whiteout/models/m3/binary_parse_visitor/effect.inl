@@ -12,7 +12,9 @@ void BinaryParseVisitor::visit(ParticleEmitter& value, u32 version) {
     // Initial Velocity
     value.initialSpeed = reader.read<AnimRef<f32>>();
     value.initialSpeedRandom = reader.read<AnimRef<f32>>();
-    if (version <= 14) {
+    // The standalone randomize/world-space booleans exist through v16; the
+    // SC2 upgrade folds them into additionalFlags bits 1/2/4/8.
+    if (version <= 16) {
         if (reader.read<u32>())
             value.additionalFlags |= ParticleAdditionalFlag::EmitSpeedRandomize;
     }
@@ -24,7 +26,7 @@ void BinaryParseVisitor::visit(ParticleEmitter& value, u32 version) {
     // Lifetime
     value.lifetime = reader.read<AnimRef<f32>>();
     value.lifetimeRandom = reader.read<AnimRef<f32>>();
-    if (version <= 14) {
+    if (version <= 16) {
         if (reader.read<u32>())
             value.additionalFlags |= ParticleAdditionalFlag::LifespanRandomize;
     }
@@ -43,8 +45,8 @@ void BinaryParseVisitor::visit(ParticleEmitter& value, u32 version) {
         value.rotationMidTime = reader.read<f32>();
     }
 
-    // Hold Times (since v14)
-    if (version >= 14) {
+    // Hold Times (since v13 per the SC2 loader; earliest corpus version is v14)
+    if (version >= 13) {
         value.sizeMidHoldTime = reader.read<f32>();
         value.colorMidHoldTime = reader.read<f32>();
         value.alphaMidHoldTime = reader.read<f32>();
@@ -70,7 +72,7 @@ void BinaryParseVisitor::visit(ParticleEmitter& value, u32 version) {
 
     // Physics
     value.drag = reader.read<f32>();
-    if (version <= 14) {
+    if (version <= 16) {
         if (reader.read<u32>())
             value.additionalFlags |= ParticleAdditionalFlag::MassRandomize;
     }
@@ -79,7 +81,7 @@ void BinaryParseVisitor::visit(ParticleEmitter& value, u32 version) {
     if (version >= 12) {
         value.massSizeMultiplier = reader.read<f32>();
     }
-    if (version <= 14) {
+    if (version <= 16) {
         if (reader.read<u32>())
             value.additionalFlags |= ParticleAdditionalFlag::WorldSpace;
     }
@@ -157,7 +159,8 @@ void BinaryParseVisitor::visit(ParticleEmitter& value, u32 version) {
     value.instanceType = reader.read<ParticleInstanceType>();
     value.tailLength = reader.read<f32>();
     value.instanceAngle = reader.read<Vector3f>();
-    if (version >= 17) {
+    // The SC2 loader forces the value to 1.0 below v20 even when present
+    if (version >= 16) {
         value.instanceDistance = reader.read<f32>();
     }
 
@@ -203,15 +206,31 @@ void BinaryParseVisitor::visit(ParticleEmitter& value, u32 version) {
         value.rotationFlags = reader.read<ParticleRotationFlag>();
     }
 
-    // Smoothing (since v14)
-    if (version >= 14) {
+    // Smoothing (since v13 per the SC2 loader; earliest corpus version is v14)
+    if (version >= 13) {
         value.colorSmoothing = reader.read<InterpolationMode>();
         value.sizeSmoothing = reader.read<InterpolationMode>();
         value.rotationSmoothing = reader.read<InterpolationMode>();
+    } else {
+        // Pre-v13 smoothing lived in the Old*Smooth/Bezier flag bits; the SC2
+        // upgrade derives the enums from them. Size has no LinearSmooth
+        // mapping in the client — OldSizeSmooth (0x800) is ignored.
+        value.colorSmoothing =
+            hasFlag(value.flags, ParticleFlag::OldColorBezier)   ? InterpolationMode::Bezier
+            : hasFlag(value.flags, ParticleFlag::OldColorSmooth) ? InterpolationMode::LinearSmooth
+                                                                 : InterpolationMode::Linear;
+        value.sizeSmoothing = hasFlag(value.flags, ParticleFlag::OldSizeBezier)
+                                  ? InterpolationMode::Bezier
+                                  : InterpolationMode::Linear;
+        value.rotationSmoothing = hasFlag(value.flags, ParticleFlag::OldRotationBezier)
+                                      ? InterpolationMode::Bezier
+                                  : hasFlag(value.flags, ParticleFlag::OldRotationSmooth)
+                                      ? InterpolationMode::LinearSmooth
+                                      : InterpolationMode::Linear;
     }
 
-    // UV Screen Space (since v17)
-    if (version >= 17) {
+    // UV Screen Space (since v15 per the SC2 loader; earliest corpus version is v17)
+    if (version >= 15) {
         value.alphaThreshold = reader.read<AnimRef<f32>>();
         value.uvOffset = reader.read<AnimRef<Vector2f>>();
         value.uvAngle = reader.read<AnimRef<Vector3f>>();
@@ -247,6 +266,58 @@ void BinaryParseVisitor::visit(ParticleEmitter& value, u32 version) {
     if (version >= 23) {
         value.spawnRibbonOnBounceChance = reader.read<f32>();
         value.ribbonLinkIndex = reader.read<i32>();
+    }
+
+    // --- SC2 version-upgrade fixups (M3_ProcessChunks PAR_ converter) ---
+    // Only fields absent from the parsed version are synthesized; values the
+    // file provides are never rewritten. (The client goes further at load —
+    // it also ORs the rotation bits into v18-20 file values and forces
+    // instanceDistance to 1.0 below v20.)
+    if (version < 24) {
+        value.worldForcesMassMultiplier = 1.0f;
+    }
+    if (version < 18) {
+        if (value.rotationRandomEnable) {
+            value.rotationFlags |= ParticleRotationFlag::Relative;
+        }
+        value.rotationFlags |= ParticleRotationFlag::Unknown6;
+    }
+    if (version <= 22 && hasFlag(value.flags, ParticleFlag::ModelParticles)) {
+        // Legacy model particles store the linked ribbon index in the
+        // instanceType slot; the client moves it into ribbonLinkIndex and
+        // re-derives the visual type. ribbonLinkIndex keeps the raw value, so
+        // the writer reconstructs the on-disk instanceType from it.
+        value.ribbonLinkIndex = static_cast<i32>(value.instanceType);
+        value.spawnRibbonOnBounceChance = 1.0f; // client stamps integer 1
+        const u32 oldType = static_cast<u32>(value.instanceType);
+        if (hasFlag(value.additionalFlags, ParticleAdditionalFlag::WorldSpace)) {
+            switch (oldType) {
+            case 0:
+                value.instanceType = ParticleInstanceType::FaceWorldDir;
+                if (version < 18)
+                    value.rotationFlags |= ParticleRotationFlag::Unknown7;
+                break;
+            case 1:
+            case 9:
+            case 10:
+                value.instanceType = ParticleInstanceType::FaceTravelDir;
+                break;
+            case 4:
+                value.instanceType = ParticleInstanceType::FaceWorldDir;
+                break;
+            default:
+                break;
+            }
+        } else if (oldType <= 10) {
+            // Types {1,2,4,5,6,9,10} (mask 0x676) collapse to FaceWorldDir
+            if ((0x676u >> oldType) & 1u) {
+                value.instanceType = ParticleInstanceType::FaceWorldDir;
+            } else if (oldType == 0) {
+                value.instanceType = ParticleInstanceType::FaceWorldDir;
+                if (version < 18)
+                    value.rotationFlags |= ParticleRotationFlag::Unknown7;
+            }
+        }
     }
 }
 
@@ -293,7 +364,9 @@ void BinaryParseVisitor::visit(RibbonEmitter& value, u32 version) {
     // Initial velocity
     value.initialSpeed = reader.read<AnimRef<f32>>();
     value.initialSpeedRandom = reader.read<AnimRef<f32>>();
-    if (version <= 6) {
+    // The standalone randomize/world-space booleans exist through v7; the
+    // SC2 upgrade folds them into additionalFlags bits 1/2/4/8.
+    if (version <= 7) {
         if (reader.read<u32>())
             value.additionalFlags |= RibbonAdditionalFlag::SpeedRandomize;
     }
@@ -312,7 +385,7 @@ void BinaryParseVisitor::visit(RibbonEmitter& value, u32 version) {
     // Lifetime
     value.lifetime = reader.read<AnimRef<f32>>();
     value.lifetimeRandom = reader.read<AnimRef<f32>>();
-    if (version <= 6) {
+    if (version <= 7) {
         if (reader.read<u32>())
             value.additionalFlags |= RibbonAdditionalFlag::LifespanRandomize;
     }
@@ -330,7 +403,7 @@ void BinaryParseVisitor::visit(RibbonEmitter& value, u32 version) {
         value.alphaMidTime = reader.read<f32>();
         value.rotationMidTime = reader.read<f32>();
     }
-    if (version >= 8) {
+    if (version >= 7) {
         value.sizeMidHoldTime = reader.read<f32>();
         value.colorMidHoldTime = reader.read<f32>();
         value.alphaMidHoldTime = reader.read<f32>();
@@ -356,14 +429,14 @@ void BinaryParseVisitor::visit(RibbonEmitter& value, u32 version) {
 
     // Physics
     value.drag = reader.read<f32>();
-    if (version <= 6) {
+    if (version <= 7) {
         if (reader.read<u32>())
             value.additionalFlags |= RibbonAdditionalFlag::MassRandomize;
     }
     value.mass = reader.read<f32>();
     value.massRandom = reader.read<f32>();
     value.massSizeMultiplier = reader.read<f32>();
-    if (version <= 6) {
+    if (version <= 7) {
         if (reader.read<u32>())
             value.additionalFlags |= RibbonAdditionalFlag::WorldSpace;
     }
@@ -402,10 +475,21 @@ void BinaryParseVisitor::visit(RibbonEmitter& value, u32 version) {
     value.active = reader.read<AnimRef<u32>>();
 
     // Flags & smoothing
+    // Note: the SC2 upgrade also force-sets bit 31 of flags on every upgraded
+    // ribbon — a runtime-internal marker with no reader in the binary, not
+    // replicated here.
     value.flags = static_cast<RibbonFlag>(reader.read<u32>());
-    if (version >= 8) {
+    if (version >= 7) {
         value.sizeSmoothing = reader.read<InterpolationMode>();
         value.colorSmoothing = reader.read<InterpolationMode>();
+    } else {
+        // Pre-v7 size smoothing lived in the SmoothSize/BezierSmoothSize flag
+        // bits; the SC2 upgrade derives the enum from them.
+        value.sizeSmoothing =
+            hasFlag(value.flags, RibbonFlag::BezierSmoothSize) ? InterpolationMode::Bezier
+            : hasFlag(value.flags, RibbonFlag::SmoothSize)     ? InterpolationMode::LinearSmooth
+                                                               : InterpolationMode::Linear;
+        value.colorSmoothing = InterpolationMode::Linear;
     }
 
     // Collision & LOD
@@ -446,4 +530,10 @@ void BinaryParseVisitor::visit(RibbonEmitter& value, u32 version) {
     // Parent velocity & phase
     value.particleVelocity = reader.read<AnimRef<f32>>();
     value.overlay = reader.read<AnimRef<f32>>();
+
+    // SC2 version-upgrade fixup: the field only exists from v9; the client
+    // defaults it to 1.0 (not 0) for older ribbons.
+    if (version <= 8) {
+        value.worldForcesMassMultiplier = 1.0f;
+    }
 }

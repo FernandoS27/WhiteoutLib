@@ -49,11 +49,19 @@ void BinaryWriterVisitor::visit(const PhysicsShape& shape, u32 version) {
         writer.write<u8>(0);
         writer.write<u8>(0);
         writer.write<u8>(0);
-        visit(shape.deprecated.v1.legacyVertices);
+        auto& legacyVertices = legacyVec3Scratch.emplace_back();
+        const auto& positions = shape.shapeType == PhysicsShapeType::Mesh
+                                    ? shape.meshVertexPositions
+                                    : shape.hullVertexPositions;
+        legacyVertices.reserve(positions.size());
+        for (const auto& v : positions) {
+            legacyVertices.push_back(Vector3f{v.x, v.y, v.z});
+        }
+        visit(legacyVertices);
         visit(shape.deprecated.v1.unknown0);
         visit(shape.deprecated.v1.faceIndices);
         visit(shape.deprecated.v1.planeEquations);
-        writer.write(shape.deprecated.v1.halfExtents);
+        writer.write(shape.shapeDimensions); // v1 halfExtents
         return;
     }
 
@@ -87,10 +95,37 @@ void BinaryWriterVisitor::visit(const PhysicsShape& shape, u32 version) {
     writer.write(shape.meshBoundsExtent);
     writer.write(shape.meshTolerance);
     if (version == 2) {
-        visit(shape.deprecated.v2.meshBvhNodes);
-        visit(shape.deprecated.v2.meshVertexPositions);
-        visit(shape.deprecated.v2.unknown);
+        visit(shape.meshBvhNodes);
+        auto& legacyPositions = legacyVec3Scratch.emplace_back();
+        legacyPositions.reserve(shape.meshVertexPositions.size());
+        for (const auto& v : shape.meshVertexPositions) {
+            legacyPositions.push_back(Vector3f{v.x, v.y, v.z});
+        }
+        visit(legacyPositions);
+        auto& triangles = legacyTriangleScratch.emplace_back();
+        triangles.reserve(shape.meshFaceIndices32.size());
+        for (const auto& f : shape.meshFaceIndices32) {
+            auto& t = triangles.emplace_back();
+            t.vertexIndex0 = f[0];
+            t.vertexIndex1 = f[1];
+            t.vertexIndex2 = f[2];
+            t.edgeIndex0 = f[3];
+            t.edgeIndex1 = f[4];
+            t.edgeIndex2 = f[5];
+            t.reserved = static_cast<u16>(f[6] & 0xFFFF);
+            t.flags = static_cast<u16>(f[6] >> 16);
+            t.setVersion(0);
+        }
+        visit(triangles);
         visit(shape.deprecated.v2.unknown2);
+        // 6-dword v2 tail (292-byte entry); see the parse visitor
+        writer.write(shape.deprecated.v2.tailUnknown0);
+        writer.write(shape.meshVertexCount);
+        writer.write(shape.meshFaceIndex32Count);
+        writer.write(shape.deprecated.v2.tailUnknown1);
+        writer.write(shape.deprecated.v2.tailUnknown2);
+        writer.write(shape.meshTreeDepth);
+        return;
     }
     writer.write(shape.meshNormalCount);
     writer.write(shape.meshVertexCount);

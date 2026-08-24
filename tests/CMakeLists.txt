@@ -63,6 +63,7 @@ whiteout_add_test(quantize_test quantize_test.cpp)
 whiteout_add_test(texture_array_test texture_array_test.cpp)
 
 # Model Tests
+whiteout_add_test(m3_upgrade_corpus_test m3_upgrade_corpus_test.cpp)
 whiteout_add_test(m2_corpus_test m2_corpus_test.cpp)
 whiteout_add_test(m2_diag_test m2_diag_test.cpp)
 whiteout_add_test(m2_legacy_version_test m2_legacy_version_test.cpp)

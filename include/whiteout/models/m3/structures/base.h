@@ -474,8 +474,10 @@ M3_DEFINE_FLAG_OPS(ParticleAdditionalFlag, u32)
 /** @brief Particle rotation flags (PAR_.rotationFlags, v18+) */
 enum class ParticleRotationFlag : u32 {
     None = 0x0,
-    Relative = 0x2,  ///< Relative rotation
+    Relative = 0x2, ///< Relative rotation; the SC2 upgrade sets it from rotationRandomEnable (v≤18)
     AlwaysSet = 0x4, ///< Always set
+    Unknown6 = 0x40, ///< Force-set by the SC2 version upgrade for all v≤20 emitters (role TBD)
+    Unknown7 = 0x80, ///< Set by the SC2 upgrade for remapped Billboard model particles (role TBD)
 };
 M3_DEFINE_FLAG_OPS(ParticleRotationFlag, u32)
 

@@ -48,11 +48,28 @@ void BinaryParseVisitor::visit(PhysicsShape& value, u32 version) {
         value.collisionMargin = reader.read<f32>();
         value.shapeType = static_cast<PhysicsShapeType>(reader.read<u8>());
         reader.skip(3);
-        visit(value.deprecated.v1.legacyVertices);
+        std::vector<Vector3f> legacyVertices;
+        visit(legacyVertices);
         visit(value.deprecated.v1.unknown0);
         visit(value.deprecated.v1.faceIndices);
         visit(value.deprecated.v1.planeEquations);
-        value.deprecated.v1.halfExtents = reader.read<Vector3f>();
+        // v1 halfExtents; the SC2 upgrade maps them into the v3
+        // shape-dimensions slot.
+        value.shapeDimensions = reader.read<Vector3f>();
+        // v1 stores raw hull/mesh vertices; migrate them into the v3 vertex
+        // arrays (w=0). The remaining v3 hull/mesh data (normals, half-edges,
+        // BVH) does not exist in v1 — the runtime rebuilds it from these.
+        auto& positions = value.shapeType == PhysicsShapeType::Mesh ? value.meshVertexPositions
+                                                                    : value.hullVertexPositions;
+        positions.reserve(legacyVertices.size());
+        for (const auto& v : legacyVertices) {
+            positions.push_back(Vector4f{v.x, v.y, v.z, 0.0f});
+        }
+        if (value.shapeType == PhysicsShapeType::Mesh) {
+            value.meshVertexCount = static_cast<u32>(positions.size());
+        } else if (value.shapeType == PhysicsShapeType::ConvexHull) {
+            value.hullVertexCount = static_cast<u32>(positions.size());
+        }
         return;
     }
 
@@ -85,10 +102,36 @@ void BinaryParseVisitor::visit(PhysicsShape& value, u32 version) {
     value.meshBoundsExtent = reader.read<Vector3f>();
     value.meshTolerance = reader.read<Vector3f>();
     if (version == 2) {
-        visit(value.deprecated.v2.meshBvhNodes);
-        visit(value.deprecated.v2.meshVertexPositions);
-        visit(value.deprecated.v2.unknown);
+        visit(value.meshBvhNodes);
+        // v2 vertex positions are VEC3; widen to the v3 VEC4 form (w=0)
+        std::vector<Vector3f> legacyPositions;
+        visit(legacyPositions);
+        value.meshVertexPositions.reserve(legacyPositions.size());
+        for (const auto& v : legacyPositions) {
+            value.meshVertexPositions.push_back(Vector4f{v.x, v.y, v.z, 0.0f});
+        }
+        // v2 DMMT triangles have the same 28-byte record layout as MT32
+        // entries ({v0,v1,v2,adj0,adj1,adj2,flags}); migrate them
+        std::vector<PhysicsMeshTriangle> triangles;
+        visit(triangles);
+        value.meshFaceIndices32.reserve(triangles.size());
+        for (const auto& t : triangles) {
+            value.meshFaceIndices32.push_back(
+                {t.vertexIndex0, t.vertexIndex1, t.vertexIndex2, t.edgeIndex0, t.edgeIndex1,
+                 t.edgeIndex2, static_cast<u32>(t.reserved) | (static_cast<u32>(t.flags) << 16)});
+        }
         visit(value.deprecated.v2.unknown2);
+        // The v2 tail is 6 dwords (292-byte entry, not 300). Field mapping per
+        // the SC2 upgrade copier: vertex/face counts land in the v3 count
+        // slots (faces in the 32-bit slot), tree depth keeps its meaning, and
+        // three dwords the client never reads are preserved for write-back.
+        value.deprecated.v2.tailUnknown0 = reader.read<u32>();
+        value.meshVertexCount = reader.read<u32>();
+        value.meshFaceIndex32Count = reader.read<u32>();
+        value.deprecated.v2.tailUnknown1 = reader.read<u32>();
+        value.deprecated.v2.tailUnknown2 = reader.read<u32>();
+        value.meshTreeDepth = reader.read<u32>();
+        return;
     }
     value.meshNormalCount = reader.read<u32>();
     value.meshVertexCount = reader.read<u32>();
@@ -115,6 +158,12 @@ void BinaryParseVisitor::visit(RigidBody& value, u32 version) {
         value.parentBoneIndex = reader.read<u16>();
         value.deprecated.boneIndex = reader.read<u16>();
         value.deprecated.reserved = reader.readArray<u32, 4>();
+        // Fields absent before v3, defaulted as in the SC2 upgrade. (The
+        // client additionally discards the Havok material above in favor of
+        // Domino defaults — density 1000, friction 0.3, gravityScale 1 —
+        // the file values are kept here since the fields still exist.)
+        value.simulationType = 0;
+        value.physicsType = 24;
     } else {
         value.simulationType = reader.read<u16>();
         value.parentBoneIndex = reader.read<u16>();

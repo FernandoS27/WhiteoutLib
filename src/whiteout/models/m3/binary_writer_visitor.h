@@ -108,6 +108,12 @@ protected:
     std::deque<std::function<void()>> deferredWrites;
     std::vector<IndexEntry> indexTable;
 
+    // Legacy PHSH chunks are reconstructed from the canonical fields at write
+    // time; the containers must outlive the deferred chunk writes, which
+    // capture them by reference.
+    std::deque<std::vector<Vector3f>> legacyVec3Scratch;
+    std::deque<std::vector<PhysicsMeshTriangle>> legacyTriangleScratch;
+
     common::BinaryWriter& writer;
     bool ismd33;
 };

@@ -222,12 +222,17 @@ struct PhysicsMeshEdge {
 };
 
 /**
- * @brief PHSH — Physics shape (v0–v3, 132–300 bytes)
+ * @brief PHSH — Physics shape (v0–v3, 132/292/300 bytes)
  *
  * The 300-byte v3 layout is a three-part union. Bytes 0–79 are the common
  * header. Bytes 80–103 hold shape dimensions for simple shapes (0–3) or
  * are zero for complex shapes. Bytes 80–183 form the convex hull section
  * (shapeType 4); bytes 184–299 form the mesh section (shapeType 5).
+ *
+ * v2 shares the v3 layout through the hull section but has a shorter mesh
+ * section (292 bytes total): bounds/tolerance, four legacy geometry refs,
+ * then a 6-dword tail (unknown, vertexCount, faceCount, 2× unknown,
+ * treeDepth) — verified against the SC2 client's version-upgrade copier.
  */
 struct PhysicsShape {
     Matrix44f transform; ///< 4×4 shape transform matrix
@@ -272,20 +277,23 @@ struct PhysicsShape {
     u32 meshTreeDepth;        ///< BVH tree height (root-to-leaf path length, 1–12)
     f32 meshCollisionMargin;  ///< Collision margin (MT16: small float; MT32: 0.0)
 
-    /// Deprecated shape data from older versions
+    /// Deprecated shape data with no v3 counterpart. Legacy data that has a
+    /// canonical home is migrated on parse instead: v1 halfExtents →
+    /// shapeDimensions, v1 vertices → hull/meshVertexPositions (by shape
+    /// type), v2 BVH nodes / vertex positions / DMMT triangles →
+    /// meshBvhNodes / meshVertexPositions / meshFaceIndices32. The writer
+    /// reconstructs the old chunks from the canonical fields.
     struct {
         struct {
-            std::vector<PhysicsMeshBvhNode> meshBvhNodes; ///< v2 only: BVH tree nodes
-            std::vector<Vector3f> meshVertexPositions;    ///< v2 only: vertex positions
-            std::vector<PhysicsMeshTriangle> unknown;     ///< v2 only: triangles
-            std::vector<PhysicsMeshEdge> unknown2;        ///< v2 only: edges
+            std::vector<PhysicsMeshEdge> unknown2; ///< v2 only: edges
+            u32 tailUnknown0 = 0;                  ///< v2 only: tail dword the client never reads
+            u32 tailUnknown1 = 0;                  ///< v2 only: tail dword the client never reads
+            u32 tailUnknown2 = 0;                  ///< v2 only: tail dword the client never reads
         } v2;
         struct {
-            std::vector<Vector3f> legacyVertices; ///< v1 only: convex hull / mesh vertices
             std::vector<u8> unknown0;             ///< v1 only: convex hull unknown data
             std::vector<u16> faceIndices;         ///< v1 only: mesh face indices
             std::vector<Vector4f> planeEquations; ///< v1 only: convex hull plane equations
-            Vector3f halfExtents;                 ///< v1 only: shape bounding half-extents
         } v1;
     } deprecated;
     M3_DEFINE_VERSION_ACCESSORS()
