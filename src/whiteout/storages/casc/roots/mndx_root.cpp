@@ -3,8 +3,10 @@
 
 #include "../../common/byte_order.h"
 #include "../../common/string_utils.h"
-#include "common/root_build_utils.h"
 #include "mndx_root.h"
+
+#include <whiteout/interfaces.h>
+#include <whiteout/utils/job_group.h>
 
 #include <algorithm>
 #include <cassert>
@@ -1238,7 +1240,7 @@ static_assert(sizeof(MndxCKeyEntry) == 24, "MndxCKeyEntry must be 24 bytes");
 // ============================================================================
 
 std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
-                                          interfaces::WorkerPool* /*pool*/) {
+                                          interfaces::WorkerPool* pool) {
     ensureBitPosTable();
 
     if (data.size() < sizeof(MndxHeader))
@@ -1360,6 +1362,10 @@ std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
     // Enumerate all file names from MAR[1] (stripped names) and build entries.
     auto root = std::make_unique<MndxRoot>();
     {
+        // Every CKey entry becomes exactly one RootEntry, so this bound is
+        // tight — the push_back loop never reallocates.
+        root->m_entries.reserve(ckeyCount);
+
         SearchState search;
         search.searchMask = "";
         search.cchSearchMask = 0;
@@ -1369,8 +1375,6 @@ std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
             if (search.nIndex >= fileNameCount)
                 continue;
 
-            std::string const strippedName(search.foundPath, search.cchFoundPath);
-
             // Get all CKey entries for this file name (across packages).
             const MndxCKeyEntry* entryPtr = fileNameToCKey[search.nIndex];
             const MndxCKeyEntry* ckeyEnd = ckeyEntries + ckeyCount;
@@ -1378,19 +1382,20 @@ std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
             while (entryPtr < ckeyEnd) {
                 u32 const packageIndex = entryPtr->flags & kPackageIndexMask;
 
-                // Build full path: packageName/strippedName.
-                std::string fullPath;
-                if (packageIndex < packages.size() && !packages[packageIndex].empty()) {
-                    fullPath = packages[packageIndex] + "/" + strippedName;
-                } else {
-                    fullPath = strippedName;
-                }
-
-                RootEntry entry;
+                root->m_entries.emplace_back();
+                RootEntry& entry = root->m_entries.back();
                 std::memcpy(entry.cKey.data(), entryPtr->cKey, kCKeySize);
-                entry.path = std::move(fullPath);
 
-                root->m_entries.push_back(std::move(entry));
+                // Full path: packageName/strippedName, in one allocation.
+                if (packageIndex < packages.size() && !packages[packageIndex].empty()) {
+                    const std::string& pkg = packages[packageIndex];
+                    entry.path.reserve(pkg.size() + 1 + search.cchFoundPath);
+                    entry.path.append(pkg);
+                    entry.path.push_back('/');
+                    entry.path.append(search.foundPath, search.cchFoundPath);
+                } else {
+                    entry.path.assign(search.foundPath, search.cchFoundPath);
+                }
 
                 bool const isLast = (entryPtr->flags & kMndxLastCKeyEntry) != 0;
                 entryPtr++;
@@ -1400,22 +1405,48 @@ std::unique_ptr<MndxRoot> MndxRoot::parse(std::span<const u8> data,
         }
     }
 
-    root->buildIndices();
+    // With a pool the path index is built now, hashing in parallel; without
+    // one it is deferred to the first path lookup (see ensurePathIndex).
+    if (pool)
+        root->buildPathIndex(pool);
     return root;
 }
 
 std::vector<const RootEntry*> MndxRoot::findByPath(const std::string& path) const {
-    auto key = normalizeCascPath(path);
-    return findByNormalizedPath(key);
+    return findByPathKey(normalizeCascPath(path));
 }
 
 std::vector<const RootEntry*> MndxRoot::findByNormalizedPath(
     const std::string& normalizedPath) const {
-    return m_byPath.findAll(m_entries, normalizedPath);
+    return findByPathKey(normalizedPath);
+}
+
+std::vector<const RootEntry*> MndxRoot::findByPathKey(const std::string& normalizedKey) const {
+    ensurePathIndex();
+
+    auto* head = m_byPathHead.find(storages::common::cascPathHash64(normalizedKey));
+    if (!head)
+        return {};
+
+    std::vector<const RootEntry*> results;
+    for (u32 i = *head; i != kNoPathChain; i = m_pathChain[i]) {
+        if (storages::common::normalizedCascPathEquals(m_entries[i].path, normalizedKey))
+            results.push_back(&m_entries[i]);
+    }
+    return results;
 }
 
 bool MndxRoot::hasPath(const std::string& normalizedPath) const {
-    return m_byPath.contains(normalizedPath);
+    ensurePathIndex();
+
+    auto* head = m_byPathHead.find(storages::common::cascPathHash64(normalizedPath));
+    if (!head)
+        return false;
+    for (u32 i = *head; i != kNoPathChain; i = m_pathChain[i]) {
+        if (storages::common::normalizedCascPathEquals(m_entries[i].path, normalizedPath))
+            return true;
+    }
+    return false;
 }
 
 std::vector<const RootEntry*> MndxRoot::findByFileDataId(u32 /*fileDataId*/,
@@ -1424,12 +1455,63 @@ std::vector<const RootEntry*> MndxRoot::findByFileDataId(u32 /*fileDataId*/,
     return {};
 }
 
-void MndxRoot::buildIndices() {
-    m_byPath.clear();
-    m_byPath.reserve(m_entries.size());
-    for (size_t i = 0; i < m_entries.size(); ++i) {
-        if (!m_entries[i].path.empty())
-            m_byPath.emplace(normalizeCascPath(m_entries[i].path), i);
+void MndxRoot::buildPathIndex(interfaces::WorkerPool* pool) {
+    std::call_once(m_pathIndexOnce, [&]() { buildPathIndexImpl(pool); });
+}
+
+void MndxRoot::ensurePathIndex() const {
+    // No pool here: this runs on whichever thread first calls findByPath, which
+    // may itself be one of the pool's workers — fanning out and waiting would
+    // deadlock once the other workers block on this same call_once.
+    std::call_once(m_pathIndexOnce, [this]() { buildPathIndexImpl(nullptr); });
+}
+
+void MndxRoot::buildPathIndexImpl(interfaces::WorkerPool* pool) const {
+    size_t const n = m_entries.size();
+
+    // Hashing normalises on the fly, so no per-entry string is materialised.
+    // A zero hash means "no path" — cascPathHash64 never returns 0.
+    std::vector<u64> hashes(n, 0);
+    auto hashRange = [&](size_t begin, size_t end) {
+        for (size_t i = begin; i < end; ++i) {
+            if (!m_entries[i].path.empty())
+                hashes[i] = storages::common::normalizedCascPathHash64(m_entries[i].path);
+        }
+    };
+
+    if (pool && n > 10000) {
+        size_t const numThreads = std::max<size_t>(pool->threadCount(), 1);
+        size_t const chunkSize = (n + numThreads - 1) / numThreads;
+        size_t const chunks = (n + chunkSize - 1) / chunkSize;
+
+        utils::JobGroup jobGroup;
+        jobGroup.add(chunks);
+        for (size_t c = 0; c < chunks; ++c) {
+            interfaces::WorkerTask task;
+            task.fn = [&, c]() {
+                hashRange(c * chunkSize, std::min((c + 1) * chunkSize, n));
+                jobGroup.done();
+            };
+            pool->submit(task);
+        }
+        jobGroup.wait();
+    } else {
+        hashRange(0, n);
+    }
+
+    // Chained back to front so each chain reads out in ascending entry order —
+    // manifest order, which is what selectBestEntry's first-match rule sees.
+    m_pathChain.assign(n, kNoPathChain);
+    m_byPathHead.reserve(n);
+    for (size_t i = n; i-- > 0;) {
+        if (hashes[i] == 0)
+            continue;
+        if (auto* head = m_byPathHead.find(hashes[i])) {
+            m_pathChain[i] = *head;
+            m_byPathHead.insertOrAssign(hashes[i], u32(i));
+        } else {
+            m_byPathHead.emplace(hashes[i], u32(i));
+        }
     }
 }
 

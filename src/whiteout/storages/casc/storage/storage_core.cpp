@@ -657,7 +657,7 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
         if (!report.begin(ProgressStep::LoadingRootManifest, "ROOT") && cancelledOut())
             return false;
 
-        auto rootData = resolveCKey(buildConfig.rootCKey);
+        auto rootData = resolveCKey(buildConfig.rootCKey, pool);
         if (rootData.empty()) {
             s_lastError = kRootNotFound;
             return false;
