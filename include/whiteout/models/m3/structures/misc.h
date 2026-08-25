@@ -106,15 +106,27 @@ struct TurretBehavior {
 /**
  * @brief BBSC — Billboard behavior (v0, 48 bytes)
  *
- * Makes a bone always face the camera or a specified direction.
+ * Turns one bone to face the camera. The only source of billboarding there is:
+ * `BoneFlag::Billboard1/2` are set on no bone in the whole corpus.
+ *
+ * StarCraft II applies these at draw time, per view, from `sub_10290A890` —
+ * `CBBSolver::Solve` is a stub — and writes the bone's *local* rotation, so
+ * the subtree follows.
  */
 struct BillboardBehavior {
-    std::vector<u16> dependents; ///< Dependent bone indices (U16_)
+    std::vector<u16> dependents; ///< Dependent bone indices (U16_). Empty in every
+                                 ///< shipped record; the engine never reads them
     u16 boneIndex;               ///< Index into BONE array
-    u8 billboardType;            ///< Billboard mode type
-    u8 cameraLookAt = 1;         ///< Camera look-at flag (default: enabled)
-    Quaternion up;               ///< Up direction quaternion
-    Quaternion forward;          ///< Forward direction quaternion
+    u8 billboardType;            ///< Which axes may turn — see BillboardType
+    u8 cameraLookAt = 1;         ///< Non-zero: aim from this bone at the eye. Zero:
+                                 ///< aim along the camera's view direction instead,
+                                 ///< so every such bone shares one orientation
+    Quaternion up;               ///< MISNAMED: not a direction. A rotation applied
+                                 ///< *before* the billboard basis, and only by the
+                                 ///< axis-locked types 0/1/2
+    Quaternion forward;          ///< MISNAMED likewise: the same kind of pre-rotation,
+                                 ///< taken only by type 6, and only on a bone whose
+                                 ///< parent is another bone. Types 3/4/5 take neither
     M3_DEFINE_VERSION_ACCESSORS()
 };
 

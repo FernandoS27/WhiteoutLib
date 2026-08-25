@@ -81,7 +81,10 @@ struct Batch {
     u16 regionIndex;   ///< Index into REGN array
     u32 unknown2;      ///< Unknown field
     u16 materialIndex; ///< Index into MATM material map array
-    u16 boneCount;     ///< Number of bones affecting this batch
+    u16 boneCount;     ///< Bone whose animated visibility gates this batch's draw
+                       ///< (0xFFFF = always drawn). Misnamed — it is a bone index,
+                       ///< not a count: the engine's submit loop reads it and skips
+                       ///< the batch when that bone is invisible.
     M3_DEFINE_VERSION_ACCESSORS()
 };
 

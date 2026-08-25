@@ -215,14 +215,31 @@ enum class SequenceFlag : u32 {
 };
 M3_DEFINE_FLAG_OPS(SequenceFlag, u32)
 
-/** @brief Bone flags (BONE.flags) — inheritance, billboard, IK, skin */
+/**
+ * @brief BBSC.billboardType — which axes a billboarded bone may turn about.
+ *
+ * Recovered from `CBBSolver::ApplyBillboard` (SC2 `0x1027F1F30`). The aim
+ * direction points *away* from the eye, so "aims at" below means the named
+ * axis lies along it and its negation points back at the camera.
+ */
+enum class BillboardType : u8 {
+    LockWorldX = 0, ///< Turns about world X; local +Y aims along the direction
+    LockWorldY = 1, ///< Turns about world Y; local +X aims (Y is the locked one)
+    LockWorldZ = 2, ///< Turns about world Z; local +Y aims. The upright poster
+    LockBoneX = 3,  ///< Turns about the bone's own world X; local +Z faces the camera
+    Disabled = 4,   ///< Parsed and instantiated, never applied
+    LockBoneY = 5,  ///< The bone's own world Y becomes local Z; local +Y faces the camera
+    Full = 6,       ///< Free; local +Y aims, and the camera's up axis sets the roll
+};
+
+/** @brief Bone flags (BONE.flags) — inheritance, IK, skin */
 enum class BoneFlag : u32 {
     None = 0x0,
     InheritTranslation = 0x0001, ///< Inherit parent translation
     InheritScale = 0x0002,       ///< Inherit parent scale
     InheritRotation = 0x0004,    ///< Inherit parent rotation
-    Billboard1 = 0x0010,         ///< Billboard mode 1
-    Billboard2 = 0x0040,         ///< Billboard mode 2
+    Billboard1 = 0x0010,         ///< Unused: set on no bone in 51469 corpus files
+    Billboard2 = 0x0040,         ///< Unused: likewise. Billboarding comes from BBSC
     Project2D = 0x0100,          ///< 2D projection mode
     Animated = 0x0200,           ///< Has animation data
     InverseKinematics = 0x0400,  ///< IK bone
