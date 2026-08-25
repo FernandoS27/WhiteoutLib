@@ -128,8 +128,9 @@ struct IKJoint {
     std::vector<u16> dependents; ///< Dependent bone indices (U16_)
     u16 boneIndex1;              ///< First bone index
     u16 boneIndex2;              ///< Second bone index
-    f32 raycastUp;               ///< Raycast upward distance
-    f32 raycastDown;             ///< Raycast downward distance
+    f32 raycastUp;               ///< Raycast upward distance (positive; shipped 1.5 / 3.0)
+    f32 raycastDown;             ///< Raycast downward offset, SIGNED (shipped -4.0 / -3.0):
+                                 ///< the surface window is [z + raycastDown, z + raycastUp]
     f32 maxSpeed;                ///< Maximum IK solving speed
     f32 goalThreshold;           ///< Goal distance threshold
     M3_DEFINE_VERSION_ACCESSORS()

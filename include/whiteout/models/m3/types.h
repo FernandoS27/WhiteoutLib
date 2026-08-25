@@ -218,9 +218,10 @@ struct VertexBuffer {
 
     /// @brief Extract vertex positions (Vector3f, 12 bytes at offset 0)
     std::vector<Vector3f> getPositions() const;
-    /// @brief Extract vertex normals (3 x i8 at offset 20, divided by 127.0)
+    /// @brief Extract vertex normals (3 x u8 UNORM at offset 20: v / 255 * 2 - 1)
     std::vector<Vector3f> getNormals() const;
-    /// @brief Extract tangent vectors (3 x i8 + sign byte at end of vertex)
+    /// @brief Extract tangent vectors (3 x u8 UNORM at end of vertex; .w is the
+    /// bitangent handedness, read from the normal's fourth byte: 0 -> -1, 255 -> +1)
     std::vector<Vector4f> getTangents() const;
     /// @brief Extract UV coordinates for a layer (i16 pairs, divided by 2048.0)
     std::vector<Vector2f> getUVs(size_t which) const;

@@ -920,16 +920,18 @@ M3ConvertResult M3Converter::toM3(const Model& wemModel, u32 /*targetVersion*/) 
                 ptr[19] = mesh.boneIndices[v][3];
             }
 
-            // Normal (packed 3xi8 + sign at offset 20)
+            // Normal (3 x u8 UNORM at offset 20; byte 23 is the bitangent
+            // handedness the game reads as sign(2 * w - 1))
+            auto packUnorm = [](f32 x) {
+                return static_cast<u8>((std::max(-1.0f, std::min(1.0f, x)) + 1.0f) * 127.5f +
+                                       0.5f);
+            };
             if (v < mesh.normals.size()) {
                 auto n = mesh.normals[v];
-                ptr[20] = static_cast<u8>(
-                    static_cast<i8>(std::max(-127.0f, std::min(127.0f, n.x * 127.0f))));
-                ptr[21] = static_cast<u8>(
-                    static_cast<i8>(std::max(-127.0f, std::min(127.0f, n.y * 127.0f))));
-                ptr[22] = static_cast<u8>(
-                    static_cast<i8>(std::max(-127.0f, std::min(127.0f, n.z * 127.0f))));
-                ptr[23] = 0; // sign byte
+                ptr[20] = packUnorm(n.x);
+                ptr[21] = packUnorm(n.y);
+                ptr[22] = packUnorm(n.z);
+                ptr[23] = (v < mesh.tangents.size() && mesh.tangents[v].w < 0.0f) ? 0 : 255;
             }
 
             size_t off = 24;
@@ -966,16 +968,14 @@ M3ConvertResult M3Converter::toM3(const Model& wemModel, u32 /*targetVersion*/) 
                 off += 4;
             }
 
-            // Tangent (packed 3xi8 + sign at end of vertex)
+            // Tangent (3 x u8 UNORM at end of vertex; the fourth byte is 255
+            // on every shipped vertex — the sign rides the normal's, above)
             if (v < mesh.tangents.size()) {
                 auto t = mesh.tangents[v];
-                ptr[off + 0] = static_cast<u8>(
-                    static_cast<i8>(std::max(-127.0f, std::min(127.0f, t.x * 127.0f))));
-                ptr[off + 1] = static_cast<u8>(
-                    static_cast<i8>(std::max(-127.0f, std::min(127.0f, t.y * 127.0f))));
-                ptr[off + 2] = static_cast<u8>(
-                    static_cast<i8>(std::max(-127.0f, std::min(127.0f, t.z * 127.0f))));
-                ptr[off + 3] = (t.w >= 0.0f) ? 0 : 0xFF; // bitangent sign
+                ptr[off + 0] = packUnorm(t.x);
+                ptr[off + 1] = packUnorm(t.y);
+                ptr[off + 2] = packUnorm(t.z);
+                ptr[off + 3] = 255;
             }
         }
 

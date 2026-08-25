@@ -147,6 +147,15 @@ std::vector<Vector3f> VertexBuffer::getPositions() const {
     return positions;
 }
 
+// The normal and tangent bytes are UNORM — `ubyte4n` in the game's vertex
+// declaration, decoded as `2 * v - 1` (vsmodelvertexformat.fx TranslateVert).
+// Not SNORM: an i8/127 read of the same bytes gives vectors of length
+// 0.73..1.41 pointing the wrong way (measured over the SC2 and HotS corpora:
+// 20% of vertices unit-length that way, 100% this way).
+static f32 DecodeUnorm8(u8 v) {
+    return static_cast<f32>(v) * (2.0f / 255.0f) - 1.0f;
+}
+
 std::vector<Vector3f> VertexBuffer::getNormals() const {
     std::vector<Vector3f> normals;
     if (!impl || impl->count == 0) {
@@ -158,16 +167,10 @@ std::vector<Vector3f> VertexBuffer::getNormals() const {
     for (size_t i = 0; i < impl->count; ++i) {
         size_t const offset = i * impl->stride + 20; // Normal at offset 20
 
-        // Read as signed bytes
-        i8 const nx = static_cast<i8>(data[offset + 0]);
-        i8 const ny = static_cast<i8>(data[offset + 1]);
-        i8 const nz = static_cast<i8>(data[offset + 2]);
-
-        // Normalize by dividing by 127.0
         Vector3f normal;
-        normal.x = static_cast<f32>(nx) / 127.0f;
-        normal.y = static_cast<f32>(ny) / 127.0f;
-        normal.z = static_cast<f32>(nz) / 127.0f;
+        normal.x = DecodeUnorm8(data[offset + 0]);
+        normal.y = DecodeUnorm8(data[offset + 1]);
+        normal.z = DecodeUnorm8(data[offset + 2]);
 
         normals.push_back(normal);
     }
@@ -184,24 +187,18 @@ std::vector<Vector4f> VertexBuffer::getTangents() const {
     tangents.reserve(impl->count);
 
     for (size_t i = 0; i < impl->count; ++i) {
-        // Tangent is stored in the last 4 bytes of each vertex:
-        // tangent[3] (i8 x,y,z) + tangentSign (i8 handedness)
+        // Tangent xyz: the last 4 bytes of each vertex, UNORM like the normal.
         size_t const offset = i * impl->stride + (impl->stride - 4);
 
-        i8 const tx = static_cast<i8>(data[offset + 0]);
-        i8 const ty = static_cast<i8>(data[offset + 1]);
-        i8 const tz = static_cast<i8>(data[offset + 2]);
-        i8 const tw = static_cast<i8>(data[offset + 3]);
-
         Vector4f tangent;
-        tangent.x = static_cast<f32>(tx) / 127.0f;
-        tangent.y = static_cast<f32>(ty) / 127.0f;
-        tangent.z = static_cast<f32>(tz) / 127.0f;
-        // Handedness sign: -1 or +1 (stored as i8, typically -1 (0xFF) or 0)
-        // 0xFF (-1 as i8) -> -1.0/127 ~ -0.008 -> treat as -1
-        // 0x00 (0)        -> 0.0/127 = 0       -> treat as +1
-        // The engine reads these as UNORM and remaps, but for simplicity:
-        tangent.w = (tw < 0) ? -1.0f : 1.0f;
+        tangent.x = DecodeUnorm8(data[offset + 0]);
+        tangent.y = DecodeUnorm8(data[offset + 1]);
+        tangent.z = DecodeUnorm8(data[offset + 2]);
+        // The bitangent handedness lives in the NORMAL's fourth byte (0 -> -1,
+        // 255 -> +1): binormal = cross(normal, tangent) * sign(normal.w) in
+        // model.fx EmitModelBinormal. The tangent's own fourth byte is 255 on
+        // every shipped vertex and carries nothing.
+        tangent.w = (data[i * impl->stride + 23] >= 128) ? 1.0f : -1.0f;
 
         tangents.push_back(tangent);
     }
