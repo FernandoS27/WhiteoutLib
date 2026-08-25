@@ -61,6 +61,10 @@ public:
     bool read(AnimSet& out);
     /// Parse into `out`; false if the header or length is invalid.
     bool read(Appearances& out);
+    /// Parse into `out`; false if the header or length is invalid.
+    bool read(Surface& out);
+    /// Parse into `out`; false if the header or length is invalid.
+    bool read(Shaders& out);
 
 protected:
     void visit(const layout::AABB& src, AABB& dst);
@@ -159,8 +163,15 @@ protected:
     void visit(const layout::Particle& src, Particle& dst);
     void visit(const layout::PhysMesh& src, PhysMesh& dst);
     void visit(const layout::Physics& src, Physics& dst);
+    void visit(const layout::RenderParams& src, RenderParams& dst);
+    void visit(const layout::TextureStageParams& src, TextureStageParams& dst);
+    void visit(const layout::ShaderTagMapEntry& src, ShaderTagMapEntry& dst);
+    void visit(const layout::RenderPass& src, RenderPass& dst);
     void visit(const layout::ShaderMapEntry& src, ShaderMapEntry& dst);
     void visit(const layout::ShaderMap& src, ShaderMap& dst);
+    void visit(const layout::Shaders& src, Shaders& dst);
+    void visit(const layout::SurfaceTagMapEntry& src, SurfaceTagMapEntry& dst);
+    void visit(const layout::Surface& src, Surface& dst);
     void visit(const layout::Texture& src, Texture& dst);
 
     /// Point at a variable array's elements, rejecting any range that would

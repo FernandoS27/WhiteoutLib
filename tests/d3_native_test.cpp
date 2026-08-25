@@ -27,6 +27,10 @@
 #include <whiteout/sno/sno_types.h>
 #include <whiteout/sno/sno_value.h>
 
+// The generated SNO group registry, so a reference's group can be checked
+// against a second table built by a different generator from the same dump.
+#include "whiteout/sno/d3/sno_defs.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -34,6 +38,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -1042,4 +1047,178 @@ TEST_CASE("D3 native: speed vs the generic reader", "[d3][native][!benchmark]") 
 
     CHECK(sink != 0);
     CHECK(nativeMs < genericMs);
+}
+
+// ---------------------------------------------------------------------------
+// Every reference the native parsers hand back must name a real SNO group.
+//
+// `AssetRef::group` is the key `AssetProvider::load()` resolves on, so a ref
+// left at Group::Unknown is a dependency the caller cannot follow -- silently,
+// because nothing about the parse itself fails.  Two of the nineteen refs were
+// exactly that until the group table was rebuilt from the engine's own
+// group-handler registry: ShaderMapEntry::snoShader (a .shd) and
+// Cloth::snoAmbientSound (a .ams), neither of which the enum could even name.
+//
+// The check is deliberately two-sided.  Asserting `group != Unknown` alone
+// would pass on a garbage id; asserting against the generated SnoTypeRegistry
+// as well means the answer has to satisfy a second table, built by a different
+// generator, before it counts.  And it runs over corpus files rather than over
+// the tables, which is the only way to catch a ref whose group never reaches
+// the parsed struct -- the failure mode that survived every table-level test
+// the last time this was wired.
+// ---------------------------------------------------------------------------
+TEST_CASE("D3 native: every reference names a real SNO group", "[d3][native]") {
+    const fs::path corpus = findCorpus();
+    if (corpus.empty()) SKIP("D3 corpus not found");
+
+    // field name -> group id -> how many refs carried it
+    std::map<std::string, std::map<int, size_t>> seen;
+    auto note = [&seen](const char* field, const nat::AssetRef& r) {
+        if (r.id == -1) return; // an absent reference has nothing to resolve
+        seen[field][static_cast<int>(r.group)] += 1;
+    };
+
+    // Walk up to `cap` files of one group and hand each parsed root to `fn`.
+    auto walk = [&corpus](const char* sub, size_t cap, auto&& fn) {
+        const fs::path dir = corpus / sub;
+        if (!fs::is_directory(dir)) return size_t{0};
+        size_t n = 0;
+        for (const auto& e : fs::directory_iterator(dir)) {
+            if (n >= cap) break;
+            if (!e.is_regular_file()) continue;
+            const auto data = readFile(e.path());
+            if (data.size() < 16) continue;
+            if (fn(data)) ++n;
+        }
+        return n;
+    };
+
+    auto noteMaterial = [&note](const nat::UberMaterial& m) {
+        note("UberMaterial::snoShaderMap", m.snoShaderMap);
+        for (const auto& t : m.arTextures)
+            note("MaterialTextureEntry::snoTexture", t.snoTexture);
+    };
+
+    const size_t nActor = walk("Actor", 200, [&](const std::vector<u8>& d) {
+        auto a = nat::parseActor(d);
+        if (!a) return false;
+        note("Actor::snoAppearance", a->snoAppearance);
+        note("Actor::snoPhysMesh", a->snoPhysMesh);
+        note("Actor::snoAnimSet", a->snoAnimSet);
+        note("Actor::snoMonster", a->snoMonster);
+        note("Actor::snoPhysics", a->snoPhysics);
+        return true;
+    });
+
+    const size_t nApp = walk("Appearances", 120, [&](const std::vector<u8>& d) {
+        auto a = nat::parseAppearances(d);
+        if (!a) return false;
+        for (const auto& b : a->arBones) note("BoneStructure::snoParticle", b.snoParticle);
+        for (const auto* gs : {&a->tGeoSet0, &a->tGeoSet1})
+            for (const auto& so : gs->arSubObjects) note("SubObject::snoSurface", so.snoSurface);
+        for (const auto& m : a->arMaterials)
+            for (const auto& v : m.arVariants) {
+                note("SubObjectAppearance::snoCloth", v.snoCloth);
+                note("SubObjectAppearance::snoMaterial", v.snoMaterial);
+                noteMaterial(v.tMaterial);
+            }
+        return true;
+    });
+
+    const size_t nMat = walk("Material", 120, [&](const std::vector<u8>& d) {
+        auto m = nat::parseMaterial(d);
+        if (!m) return false;
+        noteMaterial(m->tMaterial);
+        return true;
+    });
+
+    const size_t nShm = walk("ShaderMap", 120, [&](const std::vector<u8>& d) {
+        auto s = nat::parseShaderMap(d);
+        if (!s) return false;
+        for (const auto& e : s->arShaders) note("ShaderMapEntry::snoShader", e.snoShader);
+        return true;
+    });
+
+    const size_t nClt = walk("Cloth", 120, [&](const std::vector<u8>& d) {
+        auto c = nat::parseCloth(d);
+        if (!c) return false;
+        note("Cloth::snoAmbientSound", c->snoAmbientSound);
+        return true;
+    });
+
+    const size_t nPrt = walk("Particle", 120, [&](const std::vector<u8>& d) {
+        auto p = nat::parseParticle(d);
+        if (!p) return false;
+        note("Particle::snoPhysics", p->snoPhysics);
+        note("Particle::snoActor", p->snoActor);
+        noteMaterial(p->tMaterial);
+        return true;
+    });
+
+    const size_t nAni = walk("Anim", 120, [&](const std::vector<u8>& d) {
+        auto a = nat::parseAnim(d);
+        if (!a) return false;
+        note("Anim::snoAppearance", a->snoAppearance);
+        return true;
+    });
+
+    const size_t nAns = walk("AnimSet", 120, [&](const std::vector<u8>& d) {
+        auto s = nat::parseAnimSet(d);
+        if (!s) return false;
+        note("AnimSet::snoBaseAnimSet", s->snoBaseAnimSet);
+        for (const auto& e : s->tCoreTagMap) note("AnimSetTagMapEntry::snoAnim", e.snoAnim);
+        for (const auto& e : s->tmHth) note("AnimSetTagMapEntry::snoAnim", e.snoAnim);
+        return true;
+    });
+
+    const size_t nAnt = walk("AnimTree", 120, [&](const std::vector<u8>& d) {
+        auto t = nat::parseAnimTree(d);
+        if (!t) return false;
+        for (const auto& l : t->arLeaves) note("AnimTreeLeaf::snoAnim", l.snoAnim);
+        return true;
+    });
+
+    INFO("parsed " << nActor << " actors, " << nApp << " appearances, " << nMat
+                   << " materials, " << nShm << " shadermaps, " << nClt << " cloths, "
+                   << nPrt << " particles, " << nAni << " anims, " << nAns
+                   << " animsets, " << nAnt << " animtrees");
+    REQUIRE(nActor + nApp + nMat + nShm + nClt + nPrt > 0);
+    REQUIRE_FALSE(seen.empty());
+
+    const auto& reg = whiteout::sno::d3::SnoTypeRegistry::instance();
+    size_t total = 0;
+    for (const auto& [field, groups] : seen) {
+        for (const auto& [gid, count] : groups) {
+            total += count;
+            UNSCOPED_INFO("  " << field << " -> group " << gid << " x" << count);
+            INFO(field << " carried group " << gid << " on " << count << " ref(s)");
+            // Not Unknown: the caller has something to resolve.
+            CHECK(gid != static_cast<int>(nat::Group::Unknown));
+            // And a group the independently generated registry also knows.
+            CHECK(reg.snoGroup(static_cast<whiteout::u32>(gid)) != nullptr);
+        }
+    }
+    CHECK(total > 0);
+
+    // The refs this test was written for, pinned to the group the engine's
+    // registry names -- so a regression reports the right group, not merely
+    // "some group".  snoShader and snoAmbientSound were Group::Unknown before.
+    //
+    // Cloth::snoAmbientSound is pinned but NOT currently exercised: all 74 .clt
+    // in the corpus leave it at -1, so `seen` never gets an entry and the pin
+    // is skipped.  Its group is right in the generated code, but only the
+    // engine's registry vouches for it -- no file here does.  The pin stays so
+    // it starts checking the moment a corpus turns up that sets the field.
+    struct Pin { const char* field; nat::Group group; };
+    for (const Pin p : {Pin{"Actor::snoAppearance", nat::Group::Appearance},
+                        Pin{"ShaderMapEntry::snoShader", nat::Group::Shaders},
+                        Pin{"Cloth::snoAmbientSound", nat::Group::AmbientSound},
+                        Pin{"MaterialTextureEntry::snoTexture", nat::Group::Textures},
+                        Pin{"UberMaterial::snoShaderMap", nat::Group::ShaderMap}}) {
+        const auto it = seen.find(p.field);
+        if (it == seen.end()) continue; // that corpus is not present
+        INFO(p.field << " should point at group " << static_cast<int>(p.group));
+        CHECK(it->second.size() == 1); // one group per field, never a mixture
+        CHECK(it->second.count(static_cast<int>(p.group)) == 1);
+    }
 }

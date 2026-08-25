@@ -25,6 +25,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <span>
@@ -481,4 +482,90 @@ TEST_CASE("WowTvfsRoot::create without listfile keeps the encoded paths",
         return true;
     });
     CHECK(visible == tvfsPaths.size());
+}
+
+TEST_CASE("WowTvfsRoot path lookups ignore case and separator style with a listfile",
+          "[casc][wow_tvfs_root]") {
+    // Community listfiles are mixed-case with forward slashes; callers address
+    // files in whatever spelling they have. Every spelling must resolve.
+    struct Sample {
+        u32 fdid;
+        std::string listfilePath;
+    };
+    std::vector<Sample> samples = {
+        { 100, "World/Maps/Azeroth/Azeroth.wdt" },
+        { 200, "Interface\\Glue\\LoadingBar.BLP" },
+        { 400, "creature/orc/grunt.m2" },
+        { 500, "Sound/Music/ZoneMusic/Elwynn.mp3" },
+    };
+
+    std::vector<std::string> tvfsPaths;
+    tvfsPaths.push_back("vfs-1:");
+    for (auto& s : samples) {
+        tvfsPaths.push_back("vfs-1:" + makeEncodedName(0xFF, 0, s.fdid, makeCKey(u8(s.fdid)),
+                                                         /*wide=*/false));
+    }
+    auto tvfs = TvfsRoot::parse(buildFlatTvfs(tvfsPaths));
+    REQUIRE(tvfs);
+
+    std::string listfile;
+    for (auto& s : samples)
+        listfile += std::to_string(s.fdid) + ';' + s.listfilePath + '\n';
+    std::span<const u8> listfileSpan(reinterpret_cast<const u8*>(listfile.data()),
+                                      listfile.size());
+
+    auto wow = WowTvfsRoot::create(std::move(tvfs), nullptr, listfileSpan);
+    REQUIRE(wow);
+
+    struct Query {
+        std::string path;
+        u32 expectFdid;
+    };
+    std::vector<Query> queries = {
+        { "World/Maps/Azeroth/Azeroth.wdt", 100 },      // exact listfile spelling
+        { "world/maps/azeroth/azeroth.wdt", 100 },      // lowercase
+        { "WORLD\\MAPS\\AZEROTH\\AZEROTH.WDT", 100 },   // uppercase + backslashes
+        { "/World\\Maps/Azeroth\\Azeroth.WDT", 100 },   // leading + mixed separators
+        { "interface/glue/loadingbar.blp", 200 },       // listfile used backslashes + caps
+        { "Interface\\Glue\\LoadingBar.BLP", 200 },
+        { "CREATURE/ORC/GRUNT.M2", 400 },               // listfile was lowercase
+        { "sound\\music\\zonemusic\\elwynn.MP3", 500 },
+    };
+
+    SECTION("findByPath") {
+        for (auto& q : queries) {
+            CAPTURE(q.path);
+            auto hits = wow->findByPath(q.path);
+            REQUIRE(hits.size() == 1);
+            CHECK(hits[0]->fileDataId == q.expectFdid);
+        }
+    }
+
+    SECTION("findByNormalizedPath / hasPath (Storage's entry points)") {
+        CHECK(wow->hasPath("world\\maps\\azeroth\\azeroth.wdt"));
+        CHECK(wow->hasPath("interface\\glue\\loadingbar.blp"));
+        CHECK(wow->hasPath("creature\\orc\\grunt.m2"));
+        auto hits = wow->findByNormalizedPath("interface\\glue\\loadingbar.blp");
+        REQUIRE(hits.size() == 1);
+        CHECK(hits[0]->fileDataId == 200);
+    }
+
+    SECTION("enumerated paths keep the listfile's original spelling") {
+        std::vector<std::string> seen;
+        wow->enumerate([&](const RootEntry& e) {
+            if (!e.path.empty()) seen.push_back(e.path);
+            return true;
+        });
+        std::vector<std::string> expected;
+        for (auto& s : samples) expected.push_back(s.listfilePath);
+        std::sort(seen.begin(), seen.end());
+        std::sort(expected.begin(), expected.end());
+        CHECK(seen == expected);
+    }
+
+    SECTION("misses stay misses") {
+        CHECK(wow->findByPath("world/maps/azeroth/azeroth.wdl").empty());
+        CHECK(wow->findByPath("World/Maps/Azeroth").empty());
+        CHECK_FALSE(wow->hasPath("world\\maps"));
+    }
 }

@@ -28,7 +28,7 @@ void BinaryParseVisitor::visit(const layout::Material& src, Material& dst) {
 void BinaryParseVisitor::visit(const layout::ShaderMapEntry& src, ShaderMapEntry& dst) {
     dst.nValueType = src.nValueType;
     dst.dwTagId = src.dwTagId;
-    dst.snoShader = AssetRef{src.snoShader, Group::Unknown};
+    dst.snoShader = AssetRef{src.snoShader, Group::Shaders};
 }
 
 void BinaryParseVisitor::visit(const layout::ShaderMap& src, ShaderMap& dst) {

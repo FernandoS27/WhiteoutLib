@@ -50,6 +50,12 @@ std::optional<PhysMesh> parsePhysMesh(std::span<const u8> file);
 /// Parse a group 36 (ShaderMap) asset; nullopt if the header or length is bad.
 std::optional<ShaderMap> parseShaderMap(std::span<const u8> file);
 
+/// Parse a group 37 (Shaders) asset; nullopt if the header or length is bad.
+std::optional<Shaders> parseShaders(std::span<const u8> file);
+
+/// Parse a group 43 (Surface) asset; nullopt if the header or length is bad.
+std::optional<Surface> parseSurface(std::span<const u8> file);
+
 /// Parse a group 44 (Texture) asset; nullopt if the header or length is bad.
 std::optional<Texture> parseTexture(std::span<const u8> file);
 

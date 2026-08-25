@@ -2014,6 +2014,114 @@ static_assert(offsetof(Physics, accUnread3C) == 60, "Physics.accUnread3C moved")
 static_assert(offsetof(Physics, accUnread40) == 64, "Physics.accUnread40 moved");
 static_assert(sizeof(Physics) == 68, "Physics changed size");
 
+struct RenderParams {
+    i32 dwUnknown00;
+    i32 dwUnknown04;
+    i32 dwUnknown08;
+    f32 flUnknown0C;
+    f32 flUnknown10;
+    i32 dwUnknown14;
+    i32 dwUnknown18;
+    i32 dwUnknown1C;
+    i32 dwUnknown20;
+    i32 dwUnknown24;
+    i32 dwUnknown28;
+    i32 dwUnknown2C;
+    i32 dwUnknown30;
+    u8 bUnknown34;
+    u8 _pad0[3];
+    i32 dwUnknown38;
+    i32 dwUnknown3C;
+    i32 dwUnknown40;
+    i32 dwUnknown44;
+    i32 dwUnknown48;
+    i32 dwUnknown4C;
+    i32 dwUnknown50;
+    i32 dwUnknown54;
+    i32 dwUnknown58;
+    u8 _pad1[4];
+};
+static_assert(offsetof(RenderParams, dwUnknown00) == 0, "RenderParams.dwUnknown00 moved");
+static_assert(offsetof(RenderParams, dwUnknown04) == 4, "RenderParams.dwUnknown04 moved");
+static_assert(offsetof(RenderParams, dwUnknown08) == 8, "RenderParams.dwUnknown08 moved");
+static_assert(offsetof(RenderParams, flUnknown0C) == 12, "RenderParams.flUnknown0C moved");
+static_assert(offsetof(RenderParams, flUnknown10) == 16, "RenderParams.flUnknown10 moved");
+static_assert(offsetof(RenderParams, dwUnknown14) == 20, "RenderParams.dwUnknown14 moved");
+static_assert(offsetof(RenderParams, dwUnknown18) == 24, "RenderParams.dwUnknown18 moved");
+static_assert(offsetof(RenderParams, dwUnknown1C) == 28, "RenderParams.dwUnknown1C moved");
+static_assert(offsetof(RenderParams, dwUnknown20) == 32, "RenderParams.dwUnknown20 moved");
+static_assert(offsetof(RenderParams, dwUnknown24) == 36, "RenderParams.dwUnknown24 moved");
+static_assert(offsetof(RenderParams, dwUnknown28) == 40, "RenderParams.dwUnknown28 moved");
+static_assert(offsetof(RenderParams, dwUnknown2C) == 44, "RenderParams.dwUnknown2C moved");
+static_assert(offsetof(RenderParams, dwUnknown30) == 48, "RenderParams.dwUnknown30 moved");
+static_assert(offsetof(RenderParams, bUnknown34) == 52, "RenderParams.bUnknown34 moved");
+static_assert(offsetof(RenderParams, dwUnknown38) == 56, "RenderParams.dwUnknown38 moved");
+static_assert(offsetof(RenderParams, dwUnknown3C) == 60, "RenderParams.dwUnknown3C moved");
+static_assert(offsetof(RenderParams, dwUnknown40) == 64, "RenderParams.dwUnknown40 moved");
+static_assert(offsetof(RenderParams, dwUnknown44) == 68, "RenderParams.dwUnknown44 moved");
+static_assert(offsetof(RenderParams, dwUnknown48) == 72, "RenderParams.dwUnknown48 moved");
+static_assert(offsetof(RenderParams, dwUnknown4C) == 76, "RenderParams.dwUnknown4C moved");
+static_assert(offsetof(RenderParams, dwUnknown50) == 80, "RenderParams.dwUnknown50 moved");
+static_assert(offsetof(RenderParams, dwUnknown54) == 84, "RenderParams.dwUnknown54 moved");
+static_assert(offsetof(RenderParams, dwUnknown58) == 88, "RenderParams.dwUnknown58 moved");
+static_assert(sizeof(RenderParams) == 96, "RenderParams changed size");
+
+struct TextureStageParams {
+    i32 dwUnknown00;
+    i32 dwUnknown04;
+    i32 dwUnknown08;
+    i32 dwUnknown0C;
+    i32 dwUnknown10;
+    f32 flUnknown14;
+};
+static_assert(offsetof(TextureStageParams, dwUnknown00) == 0, "TextureStageParams.dwUnknown00 moved");
+static_assert(offsetof(TextureStageParams, dwUnknown04) == 4, "TextureStageParams.dwUnknown04 moved");
+static_assert(offsetof(TextureStageParams, dwUnknown08) == 8, "TextureStageParams.dwUnknown08 moved");
+static_assert(offsetof(TextureStageParams, dwUnknown0C) == 12, "TextureStageParams.dwUnknown0C moved");
+static_assert(offsetof(TextureStageParams, dwUnknown10) == 16, "TextureStageParams.dwUnknown10 moved");
+static_assert(offsetof(TextureStageParams, flUnknown14) == 20, "TextureStageParams.flUnknown14 moved");
+static_assert(sizeof(TextureStageParams) == 24, "TextureStageParams changed size");
+
+struct ShaderTagMapEntry {
+    i32 nValueType;
+    u32 dwTagId;
+    u32 dwValue;
+};
+static_assert(offsetof(ShaderTagMapEntry, nValueType) == 0, "ShaderTagMapEntry.nValueType moved");
+static_assert(offsetof(ShaderTagMapEntry, dwTagId) == 4, "ShaderTagMapEntry.dwTagId moved");
+static_assert(offsetof(ShaderTagMapEntry, dwValue) == 8, "ShaderTagMapEntry.dwValue moved");
+static_assert(sizeof(ShaderTagMapEntry) == 12, "ShaderTagMapEntry changed size");
+
+struct RenderPass {
+    i32 dwUnknown00;
+    i32 dwUnknown04;
+    RenderParams tRenderParams;
+    i32 dwUnknown68;
+    i32 dwTextureStageCount;
+    i32 arTextureStages;      // byte offset into the payload
+    i32 arTextureStages_size; // byte length
+    u8 _pad0[8];
+    i32 dwPassFlags;
+    char szEffectFile[256];
+    char szVertexShaderEntry[64];
+    char szPixelShaderEntry[64];
+    i32 arShaderParams;      // byte offset into the payload
+    i32 arShaderParams_size; // byte length
+    u8 _pad1[44];
+};
+static_assert(offsetof(RenderPass, dwUnknown00) == 0, "RenderPass.dwUnknown00 moved");
+static_assert(offsetof(RenderPass, dwUnknown04) == 4, "RenderPass.dwUnknown04 moved");
+static_assert(offsetof(RenderPass, tRenderParams) == 8, "RenderPass.tRenderParams moved");
+static_assert(offsetof(RenderPass, dwUnknown68) == 104, "RenderPass.dwUnknown68 moved");
+static_assert(offsetof(RenderPass, dwTextureStageCount) == 108, "RenderPass.dwTextureStageCount moved");
+static_assert(offsetof(RenderPass, arTextureStages) == 112, "RenderPass.arTextureStages moved");
+static_assert(offsetof(RenderPass, dwPassFlags) == 128, "RenderPass.dwPassFlags moved");
+static_assert(offsetof(RenderPass, szEffectFile) == 132, "RenderPass.szEffectFile moved");
+static_assert(offsetof(RenderPass, szVertexShaderEntry) == 388, "RenderPass.szVertexShaderEntry moved");
+static_assert(offsetof(RenderPass, szPixelShaderEntry) == 452, "RenderPass.szPixelShaderEntry moved");
+static_assert(offsetof(RenderPass, arShaderParams) == 516, "RenderPass.arShaderParams moved");
+static_assert(sizeof(RenderPass) == 568, "RenderPass changed size");
+
 struct ShaderMapEntry {
     i32 nValueType;
     u32 dwTagId;
@@ -2036,6 +2144,52 @@ static_assert(offsetof(ShaderMap, dwSnoId) == 0, "ShaderMap.dwSnoId moved");
 static_assert(offsetof(ShaderMap, dwShaderMapFlags) == 12, "ShaderMap.dwShaderMapFlags moved");
 static_assert(offsetof(ShaderMap, arShaders) == 16, "ShaderMap.arShaders moved");
 static_assert(sizeof(ShaderMap) == 32, "ShaderMap changed size");
+
+struct Shaders {
+    i32 dwSnoId;
+    u8 _pad0[8];
+    i32 dwShaderFlags;
+    i32 dwUnknown10;
+    i32 dwRenderPassCount;
+    i32 arRenderPasses;      // byte offset into the payload
+    i32 arRenderPasses_size; // byte length
+    u8 _pad1[8];
+    char szName[256];
+};
+static_assert(offsetof(Shaders, dwSnoId) == 0, "Shaders.dwSnoId moved");
+static_assert(offsetof(Shaders, dwShaderFlags) == 12, "Shaders.dwShaderFlags moved");
+static_assert(offsetof(Shaders, dwUnknown10) == 16, "Shaders.dwUnknown10 moved");
+static_assert(offsetof(Shaders, dwRenderPassCount) == 20, "Shaders.dwRenderPassCount moved");
+static_assert(offsetof(Shaders, arRenderPasses) == 24, "Shaders.arRenderPasses moved");
+static_assert(offsetof(Shaders, szName) == 40, "Shaders.szName moved");
+static_assert(sizeof(Shaders) == 296, "Shaders changed size");
+
+struct SurfaceTagMapEntry {
+    i32 nValueType;
+    u32 dwTagId;
+    u32 dwValue;
+};
+static_assert(offsetof(SurfaceTagMapEntry, nValueType) == 0, "SurfaceTagMapEntry.nValueType moved");
+static_assert(offsetof(SurfaceTagMapEntry, dwTagId) == 4, "SurfaceTagMapEntry.dwTagId moved");
+static_assert(offsetof(SurfaceTagMapEntry, dwValue) == 8, "SurfaceTagMapEntry.dwValue moved");
+static_assert(sizeof(SurfaceTagMapEntry) == 12, "SurfaceTagMapEntry changed size");
+
+struct Surface {
+    i32 dwSnoId;
+    u8 _pad0[8];
+    i32 dwSurfaceFlags;
+    i32 snoParticle;
+    i32 dwUnknown14;
+    i32 arSurfaceParams;      // byte offset into the payload
+    i32 arSurfaceParams_size; // byte length
+    u8 _pad1[8];
+};
+static_assert(offsetof(Surface, dwSnoId) == 0, "Surface.dwSnoId moved");
+static_assert(offsetof(Surface, dwSurfaceFlags) == 12, "Surface.dwSurfaceFlags moved");
+static_assert(offsetof(Surface, snoParticle) == 16, "Surface.snoParticle moved");
+static_assert(offsetof(Surface, dwUnknown14) == 20, "Surface.dwUnknown14 moved");
+static_assert(offsetof(Surface, arSurfaceParams) == 24, "Surface.arSurfaceParams moved");
+static_assert(sizeof(Surface) == 40, "Surface changed size");
 
 struct Texture {
     u8 _pad0[16];

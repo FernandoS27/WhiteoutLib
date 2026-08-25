@@ -23,36 +23,81 @@ namespace sno {
 namespace d3 {
 namespace native {
 
-/// D3 SNO group ids, from the engine's group-handler registry (2.6.2).
+/// Every D3 SNO group, from the engine's own group-handler registry
+/// (2.6.2).  Ids run 1..69 with 16, 30 and 50 unused; the names and the
+/// file extensions are the game's own, not this library's.
 ///
 /// Not sno_types.h's SnoGroup: that enum carries Diablo IV's ids, which
 /// diverge from D3's (PhysMesh is 30 in D4, 61 in D3) and omit several D3
 /// groups entirely, Monster among them.
 enum class Group : i32 {
     Unknown = -1,
-    Actor = 1,
-    Anim = 6,
-    Anim2D = 7,
-    AnimSet = 8,
-    Appearance = 9,
-    Cloth = 11,
-    EffectGroup = 14,
-    Explosion = 17,
-    Font = 19,
-    Light = 23,
-    Monster = 25,
-    Particle = 27,
-    Physics = 28,
-    Scene = 33,
-    ShaderMap = 36,
-    Shaders = 37,
-    Surface = 43,
-    Texture = 44,
-    UI = 46,
-    Weather = 47,
-    Material = 57,
-    PhysMesh = 61,
-    AnimTree = 67,
+    Actor            =  1,  ///< .acr
+    Adventure        =  2,  ///< .adv
+    AIBehavior       =  3,  ///< .aib
+    AIState          =  4,  ///< .ais
+    AmbientSound     =  5,  ///< .ams
+    Anim             =  6,  ///< .ani
+    Anim2D           =  7,  ///< .an2
+    AnimSet          =  8,  ///< .ans
+    Appearance       =  9,  ///< .app
+    Hero             = 10,  ///< .hro
+    Cloth            = 11,  ///< .clt
+    Conversation     = 12,  ///< .cnv
+    ConversationList = 13,  ///< .cnl
+    EffectGroup      = 14,  ///< .efg
+    Encounter        = 15,  ///< .enc
+    Explosion        = 17,  ///< .xpl
+    FlagSet          = 18,  ///< .flg
+    Font             = 19,  ///< .fnt
+    GameBalance      = 20,  ///< .gam
+    Globals          = 21,  ///< .glo
+    LevelArea        = 22,  ///< .lvl
+    Light            = 23,  ///< .lit
+    MarkerSet        = 24,  ///< .mrk
+    Monster          = 25,  ///< .mon
+    Observer         = 26,  ///< .obs
+    Particle         = 27,  ///< .prt
+    Physics          = 28,  ///< .phy
+    Power            = 29,  ///< .pow
+    Quest            = 31,  ///< .qst
+    Rope             = 32,  ///< .rop
+    Scene            = 33,  ///< .scn
+    SceneGroup       = 34,  ///< .scg
+    Script           = 35,  ///< .scr
+    ShaderMap        = 36,  ///< .shm
+    Shaders          = 37,  ///< .shd
+    Shakes           = 38,  ///< .shk
+    SkillKit         = 39,  ///< .skl
+    Sound            = 40,  ///< .snd
+    SoundBank        = 41,  ///< .sbk
+    StringList       = 42,  ///< .stl
+    Surface          = 43,  ///< .srf
+    Textures         = 44,  ///< .tex
+    Trail            = 45,  ///< .trl
+    UI               = 46,  ///< .ui
+    Weather          = 47,  ///< .wth
+    Worlds           = 48,  ///< .wrl
+    Recipe           = 49,  ///< .rcp
+    Condition        = 51,  ///< .cnd
+    TreasureClass    = 52,  ///< .trs
+    Account          = 53,  ///< .acc
+    Conductor        = 54,  ///< .con
+    TimedEvent       = 55,  ///< .tme
+    Act              = 56,  ///< .act
+    Material         = 57,  ///< .mat
+    QuestRange       = 58,  ///< .qsr
+    Lore             = 59,  ///< .lor
+    Reverb           = 60,  ///< .rev
+    PhysMesh         = 61,  ///< .phm
+    Music            = 62,  ///< .mus
+    Tutorial         = 63,  ///< .tut
+    BossEncounter    = 64,  ///< .bos
+    ControlScheme    = 65,  ///< .ctr
+    Accolade         = 66,  ///< .aco
+    AnimTree         = 67,  ///< .ant
+    Vibrations       = 68,  ///< .vib
+    DungeonFinder    = 69,  ///< .dfn
 };
 
 /// A reference to another asset, carrying the group it points at so it can
@@ -159,8 +204,15 @@ struct VelocityPath;
 struct Particle;
 struct PhysMesh;
 struct Physics;
+struct RenderParams;
+struct TextureStageParams;
+struct ShaderTagMapEntry;
+struct RenderPass;
 struct ShaderMapEntry;
 struct ShaderMap;
+struct Shaders;
+struct SurfaceTagMapEntry;
+struct Surface;
 struct Texture;
 
 /// AABB -- 24 bytes on disk.
@@ -1241,6 +1293,65 @@ struct Physics {
     f32 accUnread40{};
 };
 
+/// RenderParams -- 96 bytes on disk.
+struct RenderParams {
+    i32 dwUnknown00{};
+    i32 dwUnknown04{};
+    i32 dwUnknown08{};
+    f32 flUnknown0C{};
+    f32 flUnknown10{};
+    i32 dwUnknown14{};
+    i32 dwUnknown18{};
+    i32 dwUnknown1C{};
+    i32 dwUnknown20{};
+    i32 dwUnknown24{};
+    i32 dwUnknown28{};
+    i32 dwUnknown2C{};
+    i32 dwUnknown30{};
+    u8 bUnknown34{};
+    i32 dwUnknown38{};
+    i32 dwUnknown3C{};
+    i32 dwUnknown40{};
+    i32 dwUnknown44{};
+    i32 dwUnknown48{};
+    i32 dwUnknown4C{};
+    i32 dwUnknown50{};
+    i32 dwUnknown54{};
+    i32 dwUnknown58{};
+};
+
+/// TextureStageParams -- 24 bytes on disk.
+struct TextureStageParams {
+    i32 dwUnknown00{};
+    i32 dwUnknown04{};
+    i32 dwUnknown08{};
+    i32 dwUnknown0C{};
+    i32 dwUnknown10{};
+    f32 flUnknown14{};
+};
+
+/// ShaderTagMapEntry -- 12 bytes on disk.
+struct ShaderTagMapEntry {
+    i32 nValueType{};
+    u32 dwTagId{};
+    u32 dwValue{};
+};
+
+/// RenderPass -- 568 bytes on disk.
+struct RenderPass {
+    i32 dwUnknown00{};
+    i32 dwUnknown04{};
+    RenderParams tRenderParams{};
+    i32 dwUnknown68{};
+    i32 dwTextureStageCount{};
+    std::vector<TextureStageParams> arTextureStages;
+    i32 dwPassFlags{};
+    std::string szEffectFile;
+    std::string szVertexShaderEntry;
+    std::string szPixelShaderEntry;
+    std::vector<ShaderTagMapEntry> arShaderParams;
+};
+
 /// ShaderMapEntry -- 12 bytes on disk.
 struct ShaderMapEntry {
     i32 nValueType{};
@@ -1253,6 +1364,32 @@ struct ShaderMap {
     i32 dwSnoId{};
     i32 dwShaderMapFlags{};
     std::vector<ShaderMapEntry> arShaders;
+};
+
+/// Shaders -- 296 bytes on disk.
+struct Shaders {
+    i32 dwSnoId{};
+    i32 dwShaderFlags{};
+    i32 dwUnknown10{};
+    i32 dwRenderPassCount{};
+    std::vector<RenderPass> arRenderPasses;
+    std::string szName;
+};
+
+/// SurfaceTagMapEntry -- 12 bytes on disk.
+struct SurfaceTagMapEntry {
+    i32 nValueType{};
+    u32 dwTagId{};
+    u32 dwValue{};
+};
+
+/// Surface -- 40 bytes on disk.
+struct Surface {
+    i32 dwSnoId{};
+    i32 dwSurfaceFlags{};
+    AssetRef snoParticle;
+    i32 dwUnknown14{};
+    std::vector<SurfaceTagMapEntry> arSurfaceParams;
 };
 
 /// Texture -- 608 bytes on disk.

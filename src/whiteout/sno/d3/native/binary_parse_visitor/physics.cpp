@@ -29,7 +29,7 @@ void BinaryParseVisitor::visit(const layout::Cloth& src, Cloth& dst) {
     dst.nCollisionPlane1 = src.nCollisionPlane1;
     dst.nCollisionPlane2 = src.nCollisionPlane2;
     dst.nCollisionPlane3 = src.nCollisionPlane3;
-    dst.snoAmbientSound = AssetRef{src.snoAmbientSound, Group::Unknown};
+    dst.snoAmbientSound = AssetRef{src.snoAmbientSound, Group::AmbientSound};
     dst.nUseCustomWind = src.nUseCustomWind;
     dst.vWindVelocity = src.vWindVelocity;
 }

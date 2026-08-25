@@ -104,6 +104,20 @@ bool BinaryParseVisitor::read(Appearances& out) {
     return true;
 }
 
+bool BinaryParseVisitor::read(Surface& out) {
+    const layout::Surface* img = image<layout::Surface>();
+    if (!img) return false;
+    visit(*img, out);
+    return true;
+}
+
+bool BinaryParseVisitor::read(Shaders& out) {
+    const layout::Shaders* img = image<layout::Shaders>();
+    if (!img) return false;
+    visit(*img, out);
+    return true;
+}
+
 } // namespace native
 } // namespace d3
 } // namespace sno

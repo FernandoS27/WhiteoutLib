@@ -48,7 +48,7 @@ void BinaryParseVisitor::visit(const layout::MaterialTextureAnim& src, MaterialT
 void BinaryParseVisitor::visit(const layout::MaterialTextureEntry& src, MaterialTextureEntry& dst) {
     dst.dwSlotIndex = src.dwSlotIndex;
     dst.dwUnknown04 = src.dwUnknown04;
-    dst.snoTexture = AssetRef{src.snoTexture, Group::Texture};
+    dst.snoTexture = AssetRef{src.snoTexture, Group::Textures};
     dst.dwTextureFlags = src.dwTextureFlags;
     dst.vUvRow0 = src.vUvRow0;
     dst.vUvRow1 = src.vUvRow1;
