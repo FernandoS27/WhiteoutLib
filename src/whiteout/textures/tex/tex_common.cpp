@@ -266,6 +266,7 @@ std::optional<D4FormatMapping> d4_tex_format_to_pixel_format(u32 d4_fmt) {
         return D4FormatMapping{PixelFormat::BC1, false, 4, 8};
     case D4_TEX_FMT_BC1_SRGB:
         return D4FormatMapping{PixelFormat::BC1, true, 4, 8};
+    case D4_TEX_FMT_BC2_D3:
     case D4_TEX_FMT_BC2:
         return D4FormatMapping{PixelFormat::BC2, false, 4, 16};
     case D4_TEX_FMT_BC3:
@@ -278,15 +279,44 @@ std::optional<D4FormatMapping> d4_tex_format_to_pixel_format(u32 d4_fmt) {
         return D4FormatMapping{PixelFormat::BC4, false, 4, 8};
     case D4_TEX_FMT_BC5:
     case D4_TEX_FMT_BC5_ALT:
-    case D4_TEX_FMT_BC5_SNORM:
         return D4FormatMapping{PixelFormat::BC5, false, 4, 16};
+    case D4_TEX_FMT_BC5_SNORM:
+        return D4FormatMapping{PixelFormat::BC5, false, 4, 16, true};
     case D4_TEX_FMT_BC3_ALT:
         return D4FormatMapping{PixelFormat::BC3, false, 4, 16};
+    case D4_TEX_FMT_BC3_ALT_SRGB:
+        return D4FormatMapping{PixelFormat::BC3, true, 4, 16};
     case D4_TEX_FMT_BC7:
         return D4FormatMapping{PixelFormat::BC7, false, 4, 16};
     default:
         return std::nullopt;
     }
+}
+
+u32 d4_stored_mip_count(u32 d4_fmt, u32 width, u32 height, u32 mip_min, u32 mip_max) {
+    auto mapping = d4_tex_format_to_pixel_format(d4_fmt);
+    if (!mapping || width == 0 || height == 0)
+        return 0;
+
+    // `Texture_ComputeMipInfo` (0x140872F90):
+    //     top  = min(10, dwMipMapLevelMax)
+    //     unit = 4 for block-compressed formats, 1 otherwise
+    //     while ((w >> (top - mipMin)) < unit || (h >> (top - mipMin)) < unit) --top;
+    //     count = top - mipMin + 1
+    // The shrink loop is why block-compressed textures never store a mip smaller
+    // than one 4×4 block.
+    if (mip_max < mip_min)
+        return 0;
+
+    u32 const unit = mapping->block_dim;
+    u32 top = std::min(mip_max, D4_MAX_MIP_SLOTS - 1);
+    while (top > mip_min) {
+        u32 const i = top - mip_min;
+        if ((width >> i) >= unit && (height >> i) >= unit)
+            break;
+        --top;
+    }
+    return top - mip_min + 1;
 }
 
 u64 d4_compute_aligned_mip_size(u32 d4_fmt, u32 width, u32 height) {

@@ -461,6 +461,7 @@ add_library(whiteout_lib
     # Diablo IV
     src/whiteout/sno/sno_types.cpp
     src/whiteout/sno/core_toc.cpp
+    src/whiteout/sno/d4/binary_types.cpp
     src/whiteout/sno/d4/sno_defs.cpp
     src/whiteout/sno/sno_value.cpp
     src/whiteout/sno/sno_reader.cpp

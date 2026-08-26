@@ -100,23 +100,44 @@ struct D4TexFrame {
     f32 trimV1;      ///< Trimmed content bottom UV.
 };
 
+/// Spherical-harmonic coefficients attached to a cubemap light probe
+/// (`TGCoeffs`: `DT_FIXEDARRAY[3]` of `DT_VECTOR4D` — 3 colour channels x
+/// 4 coefficients, the L0 + L1 bands).
+struct D4TexSHCoeffs {
+    std::array<std::array<f32, 4>, 3> coeff{}; ///< [channel][coefficient]
+};
+
 /// Metadata extracted from a Diablo IV TEX file by the parser.
+///
+/// Field names mirror `TextureDefinition` in the D4 SNO type registry; see
+/// docs/D4 Specs/TEX_ENGINE_NOTES.md for the record layout they come from.
 struct D4TexInfo {
-    i32 snoId;                      ///< SNO identifier.
+    i32 snoId;                      ///< SNO identifier (record offset 0).
+    u32 recordFlags;                ///< Record header flags dword (record offset 4).
+    u32 uiStylePreset;              ///< `sUIStylePreset` — SNO id in group 153 (Preset), 0 = none.
     u32 texFormat;                  ///< Raw eTexFormat value.
     u32 width;                      ///< Full-resolution width.
     u32 height;                     ///< Full-resolution height.
     u32 depth;                      ///< Texture depth (1 for 2D).
+    u32 volumeXSlices;              ///< `dwVolumeXSlices` (u16 on disk; 1 for non-volume).
+    u32 volumeYSlices;              ///< `dwVolumeYSlices` (u16 on disk; 1 for non-volume).
     u32 faceCount;                  ///< 1 for 2D, 6 for cubemaps.
     u32 mipMapLevelMin;             ///< Smallest stored mip index.
     u32 mipMapLevelMax;             ///< Largest stored mip index.
     u32 importFlags;                ///< Import flag bitfield.
-    u32 textureResourceType;        ///< 0 = standard, 1 = cubemap probe.
+    u32 textureResourceType;        ///< 0 = 2D, 1 = cubemap probe, 2 = volume.
     std::array<f32, 4> avgColor;    ///< Average linear RGBA colour.
+    std::array<i32, 2> hotspot;     ///< `pHotspot` anchor point (x, y).
     std::vector<D4TexFrame> frames; ///< Atlas frame entries.
-    bool isTwoTier;                 ///< True when pixel data uses two-tier streaming.
-    u32 hiResMipCount;              ///< Number of mip levels in the hi-res payload.
-    u32 lowResMipCount; ///< Number of mip levels in the low-res payload (0 if single-tier).
+    std::vector<D4TexSHCoeffs> shCoeffs; ///< `ptGCoeffs` — present on cubemap probes.
+    bool isSnorm;               ///< Source format was a signed BCn variant (eTexFormat 44).
+    bool hasLowPayload;         ///< Record flag bit 27: a `paylow/` payload exists.
+    bool hasMedPayload;         ///< Record flag bit 26: a `paymed/` payload exists.
+    bool isStubRecord;          ///< Record flag bit 28: header-only, no payload content.
+    bool isTwoTier;             ///< True when pixel data uses two-tier streaming.
+    u32 hiResMipCount;          ///< Number of mip levels in the hi-res payload.
+    u32 lowResMipCount;         ///< Number of mip levels in the low-res payload (0 if single-tier).
+    bool payloadHeaderStripped; ///< True when a 16-byte SNO header was skipped on the payload.
 };
 
 } // namespace whiteout::textures::tex

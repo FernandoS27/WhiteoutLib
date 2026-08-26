@@ -84,7 +84,10 @@ whiteout_add_test(d3_native_test d3_native_test.cpp)
 target_include_directories(d3_native_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(d3_app_corpus_test d3_app_corpus_test.cpp)
 whiteout_add_test(d4_sno_diag_test d4_sno_diag_test.cpp)
+whiteout_add_test(d4_binary_types_test d4_binary_types_test.cpp)
+target_include_directories(d4_binary_types_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(d4_tex_corpus_test d4_tex_corpus_test.cpp)
+whiteout_add_test(d4_tex_synth_test d4_tex_synth_test.cpp)
 
 # MDL Tests
 whiteout_add_test(mdl_parser_test mdl_parser_test.cpp)

@@ -3,6 +3,7 @@
 
 #include <whiteout/sno/sno_reader.h>
 #include "d3/sno_defs.h"
+#include "d4/binary_types.h"
 #include "d4/sno_defs.h"
 
 #include "../common/binary_reader.h"
@@ -106,6 +107,19 @@ static void subTypeHashes(const u32 typeHashes[3], u32 out[3]) {
     out[2] = TypeHash::DT_NULL;
 }
 
+/// Does this header word look like a D4 format hash rather than a D3 version?
+///
+/// D3 and D4 put different things in the same header slot: D3 stores a small
+/// struct version that increments per layout change (`data/d3_group_versions.json`
+/// records the full shipped range -- the largest is in the low hundreds), while
+/// D4 stores a hash.  The smallest D4 format hash across both the compiled
+/// registry and the tables recovered from the client is 419536, so 0xFFFF sits
+/// two orders of magnitude clear of D3 and six times below the D4 floor.
+/// Used to keep the D4-only fallbacks in parse() from firing on D3 input.
+static bool isD4FormatHash(u32 formatHash) {
+    return formatHash > 0xFFFFu;
+}
+
 /// Check whether a field carries external payload data.  D4 only -- see below.
 ///
 /// D3: these bits do NOT mean "payload".  In the D3 engine (2.6.2 Switch,
@@ -123,18 +137,13 @@ static void subTypeHashes(const u32 typeHashes[3], u32 out[3]) {
 /// same Read(stream, offset, size, dst) it uses for the struct itself.  So the D3
 /// path must fall through to the normal in-buffer read.
 ///
-/// KNOWN BUG (D4, unfixed): 0x200000 and 0x400000 are two distinct flags, not one
-/// concept -- across the 19571 D4 field defs they are mutually exclusive (45 set
-/// only 0x200000, 141 set only 0x400000, zero set both).  They also differ in
-/// kind: 44 of the 45 0x200000 fields are variable arrays, whereas 138 of the 141
-/// 0x400000 fields are not arrays at all.  That points to 0x200000 being the
-/// array-payload bit and 0x400000 meaning something else, so OR-ing them
-/// mis-routes some D4 fields (notably any with an *internal* payload) to the
-/// external buffer.  Settling which bit is which needs D4 engine ground truth;
-/// until then this preserves the existing D4 behaviour exactly.
+/// D4: only 0x200000 marks an external payload array.  0x400000 is a different
+/// flag entirely -- it marks a *runtime-only pointer* that is never serialized.
+/// See docs/D4 Specs/TEX_ENGINE_NOTES.md section 6.
 static bool isExternalField(const SnoFieldDef* field, SnoFormat format) {
-    if (format != SnoFormat::D4) return false;
-    return field && (field->flags & (0x200000 | 0x400000));
+    if (format != SnoFormat::D4)
+        return false;
+    return field && (field->flags & 0x200000);
 }
 
 /// Read a trivially-copyable value, advance readLength, return SnoValue.
@@ -825,6 +834,14 @@ std::optional<SnoFile> SnoReader::parse(std::span<const u8> data, SnoGroup group
     if (formatHash != 0)
         rootTypeHash = m_registry.typeHashFromKey(formatHash);
 
+    // The compiled registry comes from d4data and lags behind live builds:
+    // Blizzard rehashes a root type's format hash on every layout change.
+    // d4::rootTypeHashForFormatHash() carries the extra hashes read straight
+    // out of the shipped client's SNO group containers, so a file stamped with
+    // a revision d4data has not caught up to still finds its root type.
+    if (rootTypeHash == 0 && isD4FormatHash(formatHash))
+        rootTypeHash = d4::rootTypeHashForFormatHash(formatHash);
+
     // If D4 format-hash lookup failed and the D3 registry has an explicit
     // group mapping, prefer D3 over the D4 name-based fallback.  D3 SNO
     // files store a version number (small integer) in the same field that
@@ -837,9 +854,24 @@ std::optional<SnoFile> SnoReader::parse(std::span<const u8> data, SnoGroup group
             return parseD3(data, group);
     }
 
-    // If the format hash map doesn't contain this hash (e.g. game was
-    // patched and format hashes changed), try to resolve the root type
-    // by constructing the expected type name from the SNO group name.
+    // Format hash still unresolved: fall back to the group's root type as the
+    // shipped client itself binds it (one SnoContainer per group, each built
+    // with its root type).  This is exact where the name-based guess below is
+    // not — the guess cannot reach nine of the 135 groups, either because the
+    // type is spelled differently (NPCComponentSet, Subzone, Storyboard,
+    // ABTest) or named outright differently (UI -> UIDialogDefinition,
+    // Modal -> UIModalDefinition), or because snoGroupName() has no case for
+    // the group at all (CrowdTemplates, CrowdPlacements, Pip).
+    //
+    // Gated on isD4FormatHash: this table covers 135 of the 181 group ids and
+    // D3 reuses that same id space, so without the gate a D3 file whose group
+    // the D3 registry happens not to cover would resolve a D4 root here and be
+    // parsed as D4 instead of falling through to parseD3 below.
+    if (rootTypeHash == 0 && isD4FormatHash(formatHash) && group != SnoGroup::None)
+        rootTypeHash = d4::rootTypeHashForGroup(static_cast<i32>(group));
+
+    // Last D4 resort: construct the expected type name from the SNO group
+    // name.  Only reachable for a group with no container in the client.
     if (rootTypeHash == 0 && formatHash != 0 && group != SnoGroup::None) {
         const char* gn = snoGroupName(group);
         if (gn) {
