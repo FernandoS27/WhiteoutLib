@@ -819,6 +819,18 @@ RootFormat Storage::rootFormat() const noexcept {
     return m_impl->root->format();
 }
 
+u64 Storage::entryCount() const {
+    if (!m_impl || !m_impl->isValid)
+        return 0;
+    // Same preamble as enumerate(): a lazily-opened storage has no root until
+    // the deferred load runs, and answering 0 there would have a caller draw a
+    // finished bar over work that has not started.
+    if (!m_impl->ensureLoaded())
+        return 0;
+    std::shared_lock const lock(m_impl->mutex);
+    return m_impl->root ? static_cast<u64>(m_impl->root->entryCount()) : 0;
+}
+
 // ============================================================================
 // Read operations
 // ============================================================================

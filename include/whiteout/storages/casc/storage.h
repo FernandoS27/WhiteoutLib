@@ -160,6 +160,20 @@ public:
     /// @return The root manifest format, or RootFormat::Unknown.
     RootFormat rootFormat() const noexcept;
 
+    /**
+     * @brief How many entries enumerate() will visit.
+     *
+     * The denominator a caller needs to report progress across a walk: on a
+     * StarCraft II install that is three quarters of a million entries, and
+     * without a total the only honest thing a UI can draw is a marquee.
+     *
+     * Cheap — the root manifest already knows — but it forces the deferred
+     * load on a LoadOnDemand storage, exactly as enumerate() would.
+     *
+     * @return 0 when the storage has no root, or the root cannot say.
+     */
+    u64 entryCount() const;
+
     // ── Read operations ──────────────────────────────────────────────
 
     /// @return File contents, or std::nullopt if the path is not found.
