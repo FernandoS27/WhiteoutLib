@@ -98,18 +98,23 @@
       - [REV2 (Revolute Joint v2) — 120 bytes](#rev2-revolute-joint-v2--120-bytes)
     - [17.11 PFDC Inline Physics](#1711-pfdc-inline-physics)
     - [17.12 How a model finds its physics](#1712-how-a-model-finds-its-physics)
-  - [18. Bundle Naming Conventions](#18-bundle-naming-conventions)
-  - [19. WhiteoutLib Implementation Notes](#19-whiteoutlib-implementation-notes)
-    - [19.1 Parser](#191-parser)
-    - [19.2 Writer](#192-writer)
-    - [19.3 API Surface](#193-api-surface)
-    - [19.4 Known Limitations](#194-known-limitations)
-  - [20. Corpus Validation Results](#20-corpus-validation-results)
-    - [20.1 Overview](#201-overview)
-    - [20.2 Key Findings](#202-key-findings)
-    - [20.3 Size Validation](#203-size-validation)
-    - [20.4 PHYS Corpus Validation](#204-phys-corpus-validation)
-  - [21. References](#21-references)
+    - [17.13 Where the field names come from](#1713-where-the-field-names-come-from)
+  - [18. Chunked Geometry and Model3 — 11.x Client Formats](#18-chunked-geometry-and-model3--11x-client-formats)
+    - [18.1 Chunked Geometry (`.skin` successor)](#181-chunked-geometry-skin-successor)
+    - [18.2 Geometry Collision Chunks](#182-geometry-collision-chunks)
+    - [18.3 Model3 (`.m3`) — WoW](#183-model3-m3--wow)
+  - [19. Bundle Naming Conventions](#19-bundle-naming-conventions)
+  - [20. WhiteoutLib Implementation Notes](#20-whiteoutlib-implementation-notes)
+    - [20.1 Parser](#201-parser)
+    - [20.2 Writer](#202-writer)
+    - [20.3 API Surface](#203-api-surface)
+    - [20.4 Known Limitations](#204-known-limitations)
+  - [21. Corpus Validation Results](#21-corpus-validation-results)
+    - [21.1 Overview](#211-overview)
+    - [21.2 Key Findings](#212-key-findings)
+    - [21.3 Size Validation](#213-size-validation)
+    - [21.4 PHYS Corpus Validation](#214-phys-corpus-validation)
+  - [22. References](#22-references)
 
 ---
 
@@ -301,6 +306,24 @@ struct M2Array<T> {
 - **Chunked `MD21`**: offsets are relative to the start of the MD21 chunk's **data** (after the 8-byte chunk header)
 
 WhiteoutLib resolves these at parse time into `std::vector<T>`.
+
+**Runtime form (client memory, not the file)**: the 11.x client relocates each
+array **in place** rather than into a side table. It writes the resolved pointer
+over the `offset` field and stores the pointer's high 16 bits in the *upper half
+of the `count` field*, so an M2Array in a loaded model reads as:
+
+```cpp
+struct M2ArrayResolved {
+    u16 count;    // low half of the original u32 count
+    u16 ptrHi;    // high 16 bits of the resolved 48-bit pointer
+    u32 ptrLo;    // low 32 bits
+};
+// pointer = ptrLo | (u64(ptrHi) << 32)
+```
+
+The on-disk layout is unchanged — this only matters when comparing a memory dump
+against a file, and it is why the client reads element counts as `u16`
+throughout the chunk loader.
 
 ### 5.2 Animation Tracks
 
@@ -1606,13 +1629,28 @@ struct PEDCChunk {
 **LDV1** — LOD configuration:
 ```cpp
 struct LDV1Chunk {
-    u16 unknown0;
-    u16 lodCount;                    // maxLod = lodCount - 1
-    f32 unknown2;                    // used in: fmaxf(fminf(740.0/unk2, 5.0), 0.5)
+    u16 flags;                       // bit 3 (0x08) gates lodScaleRaw, see below
+    u16 lodCount;                    // maxLod = lodCount - 1; client clamps to 8
+    f32 lodDistance;                 // used in: fmaxf(fminf(740.0/lodDistance, 5.0), 0.5)
     std::array<u8, 4> particleBoneLod;  // per-LOD particle bone mask
-    u32 unknown4;
+    u16 lodScaleRaw;                 // fixed point: scale = lodScaleRaw / 2048.0
+    u8  lodBatchCount;               // nonzero iff flags & 0x04
+    u8  reserved1;
 };                                   // 16 bytes (confirmed: all 3630 files = 16B)
 ```
+
+**Client behaviour** (LDV1 is applied inline by the chunk loader, not deferred):
+
+- `lodCount` is **clamped to 8**; the client also keeps `lodCount - 1` (or 0)
+  as the max LOD index.
+- `particleBoneLod` stores only **four** bytes but the client drives **eight**
+  LOD slots: it copies `[0..3]` and then **replicates `[3]` into slots 4..7**.
+- The two bytes at +12 are a single `u16` fixed-point scale: the client uses
+  `lodScaleRaw / 2048.0` when `flags & 0x08` is set and `1.0` otherwise. Reading
+  them as two separate bytes is what made the high byte look like a mirror of
+  flags bit 3 — `0x0800 / 2048 == 1.0`.
+- Two flag bits are set at runtime and are not file state: `0x04` when
+  `lodDistance >= FLT_MIN`, and `0x8000` unconditionally.
 
 LOD skins (e.g., `_lod01.skin`) are selected based on `entityLodDist` and `doodadLodDist` CVars. The `particleBoneLod` array determines particle visibility at each LOD:
 ```cpp
@@ -1725,7 +1763,10 @@ struct DPIVChunk {
 // Total size: N × 32 bytes. 14 files have 32 bytes (1 entry), 1 file has 64 bytes (2 entries).
 ```
 
-15 files in the corpus contain DPIV data.
+15 files in the corpus contain DPIV data. The record count is confirmed by the
+client, which stores the payload pointer and `chunkSize / 32` as a separate
+count field and exposes that count directly — a reader that assumes a single
+32-byte record silently drops the second one.
 
 ### 13.9 Miscellaneous Chunks
 
@@ -2468,7 +2509,94 @@ Sections above say which is which.
 
 ---
 
-## 18. Bundle Naming Conventions
+## 18. Chunked Geometry and Model3 — 11.x Client Formats
+
+> **Status**: identified by reverse-engineering the 11.x retail client. These
+> chunk families are **not implemented by WhiteoutLib** and have **not** been
+> corpus-validated — unlike the rest of this document, the tag lists below come
+> from the client's dispatch code alone. Payload layouts are given only where
+> the client's own code shows them.
+
+### 18.1 Chunked Geometry (`.skin` successor)
+
+Modern builds carry a second, chunked geometry container alongside the classic
+`.skin` profile of [Section 12](#12-skin-file-skin). Each vertex stream is a
+chunk whose payload begins with a **format code** — itself a FourCC — followed
+by the packed elements:
+
+```cpp
+struct GeoStreamChunk {
+    u32 magic;    // e.g. 'VPOS'
+    u32 size;     // payload bytes, excluding this 8-byte header
+    u32 format;   // M2VertexFormat, see below
+    u8  data[];   // size - 4 bytes of packed elements
+};
+```
+
+| Format | Meaning | Bytes/element |
+|---|---|---|
+| `1U16` | 1 × u16 | 2 |
+| `2F32` | 2 × f32 | 8 |
+| `3F32` | 3 × f32 | 12 |
+| `4U8N` | 4 × u8, normalised | 4 |
+
+| Chunk | Contents | Observed format |
+|---|---|---|
+| `M3VR` | Container version | — |
+| `VGEO` | Geometry descriptor | — |
+| `RBAT` | Render batches | — |
+| `LODS` | LOD table | — |
+| `VPOS` | Vertex positions | `3F32` |
+| `VNML` | Vertex normals | `3F32` |
+| `VTAN` | Vertex tangents | — |
+| `VUV0`–`VUV5` | UV sets 0–5 | `2F32` |
+| `VCL0`, `VCL1` | Vertex colours | `4U8N` |
+| `VWTS` | Vertex weights | — |
+| `VIBP` | Bone indices / bind pose | — |
+| `VSTR` | Vertex stream descriptor | — |
+| `VINX` | Vertex indices | `1U16` |
+| `SKIN` | Skin profile container | — |
+
+The client can also synthesise one of these buffers procedurally: a 1380-byte
+buffer describing a **unit box** (24 vertices via `VPOS`/`VNML` at 288 B each,
+24 UVs per set at 192 B, 24 colours at 96 B, and 36 indices at 72 B).
+
+### 18.2 Geometry Collision Chunks
+
+A separate collision triple appears in the same family:
+
+| Chunk | Contents |
+|---|---|
+| `CPOS` | Collision vertex positions |
+| `CNML` | Collision face normals |
+| `CINX` | Collision indices |
+
+### 18.3 Model3 (`.m3`) — WoW
+
+11.x also contains a parser for a model container tagged `M3*`. **This is not
+the StarCraft II / Heroes of the Storm `MD34` format** described in
+`M3_FILE_FORMAT_SPECIFICATION.md`; the two share only the name.
+
+Structural chunks: `M3DT`, `M3CL`, `M3EP`, `M3SI`, `M3ST`, `M3VS`, `M3XF`,
+`M3PT`, `MES3`.
+
+Material chunks are stored with **byte-reversed** FourCCs, the same convention
+`.phys` uses (see [Section 17](#17-physics-file-phys-and-pfdc)) — the bytes on
+disk are the reverse of the name below:
+
+| Name | On-disk bytes |
+|---|---|
+| `MAIN` | `NIAM` |
+| `MALI` | `ILAM` |
+| `MALS` | `SLAM` |
+| `EMIS` | `SIME` |
+| `BURS` | `SRUB` |
+| `SHDR` | `RDHS` |
+| `P3DT` | `TD3P` |
+
+Payload layouts for both families are still unknown.
+
+## 19. Bundle Naming Conventions
 
 WhiteoutLib's `collectBundle()` discovers sibling files by stem-matching in the same directory as the `.m2`:
 
@@ -2487,9 +2615,9 @@ Where `{NN}` is zero-padded to 2 digits and `{NNNN}` to 4 digits.
 
 ---
 
-## 19. WhiteoutLib Implementation Notes
+## 20. WhiteoutLib Implementation Notes
 
-### 19.1 Parser
+### 20.1 Parser
 
 ```cpp
 whiteout::m2::Parser parser(ParseMode::Lenient);
@@ -2518,7 +2646,7 @@ FileSystem fs = parser.parse("path/to/model.m2");
 
 **Unknown chunks**: Reported via the issue system and skipped by their declared size.
 
-### 19.2 Writer
+### 20.2 Writer
 
 ```cpp
 whiteout::m2::Writer writer;
@@ -2536,7 +2664,7 @@ Chunks are written back-to-back with no inter-chunk alignment padding. Each chun
 
 **PFDC**: Serialized from `PhysicsData` by `m2::writePhysics()`, then zero-padded to a 16-byte multiple.
 
-### 19.3 API Surface
+### 20.3 API Surface
 
 **Public headers:**
 
@@ -2600,7 +2728,7 @@ writer.write("output/scorpion.m2", model);
 - `examples/m2_loader_example.cpp` — Loads and prints model statistics
 - `examples/m2_writer_example.cpp` — Loads, then writes to output path (round-trip)
 
-### 19.4 Known Limitations
+### 20.4 Known Limitations
 
 | Area | Status |
 |---|---|
@@ -2610,14 +2738,17 @@ writer.write("output/scorpion.m2", model);
 | Anim file writing | `Writer::write(path, model)` emits base, skins, skeleton, `.phys` and `.bone`; `.anim` siblings only when the model splits them |
 | PHYS chunks not in the corpus | `BOXS`, `SPHJ`, `DSTJ` and `PRSJ` are implemented from the wiki but unverified; so is version 2, of which no file was found |
 | Vanilla rotation format | Full `C4Quaternion` (16-byte) bone rotation (pre-BC) not separately handled |
+| Chunked geometry | The `VPOS`/`VNML`/`VINX`/… stream container of [Section 18](#18-chunked-geometry-and-model3--11x-client-formats) is not parsed |
+| Model3 (`.m3`, WoW) | Chunk tags identified, no parser; distinct from the SC2/HotS `MD34` format |
+| DPIV record fields | Record count and 32-byte stride confirmed; field meanings still inferred from corpus values |
 
 ---
 
-## 20. Corpus Validation Results
+## 21. Corpus Validation Results
 
 This specification was validated against a corpus of **9059 M2 files** and **14443 SKIN files** from `Models/WoW/` (covering Dragonflight through The War Within 11.x era models). Analysis scripts are in `scripts/m2_corpus_analysis.py`, `scripts/m2_pgd1_analysis.py`, and `scripts/m2_seqflags_analysis.py`.
 
-### 20.1 Overview
+### 21.1 Overview
 
 | Statistic | Value |
 |---|---|
@@ -2631,7 +2762,7 @@ This specification was validated against a corpus of **9059 M2 files** and **144
 | Unique chunk tags | 26 of 30 documented |
 | Unknown chunk tags | 0 |
 
-### 20.2 Key Findings
+### 21.2 Key Findings
 
 **Global Flags (Section 6.2)**:
 - `0x80` is set on **all 9059 files** — universal in modern exports, not DH-tattoo-specific
@@ -2670,7 +2801,7 @@ This specification was validated against a corpus of **9059 M2 files** and **144
 - Shadow batch flags2 distribution: 0x02 (42358), 0x03 (14511), 0x00 (5778)
 - Regular batch flags: 0x10 (62561), 0x80 (22942), 0x88 (10715)
 
-### 20.3 Size Validation
+### 21.3 Size Validation
 
 | Chunk | Validation | Result |
 |---|---|---|
@@ -2682,7 +2813,7 @@ This specification was validated against a corpus of **9059 M2 files** and **144
 | DBOC | size = entries × 16 | ✅ All sizes explained |
 | DETL | size = align16(lights × 12) | ✅ All sizes explained |
 
-### 20.4 PHYS Corpus Validation
+### 21.4 PHYS Corpus Validation
 
 Validated against **96 standalone `.phys` files** and **219 inline PFDC chunks** (315 payloads) from
 `Corpus/WoW`. The check is `tests/m2_phys_test.cpp`: parse, write, compare bytes.
@@ -2720,7 +2851,7 @@ Validated against **96 standalone `.phys` files** and **219 inline PFDC chunks**
 
 ---
 
-## 21. References
+## 22. References
 
 1. **wowdev.wiki M2**: <https://wowdev.wiki/M2> — Community reverse-engineering documentation
 2. **wowdev.wiki M2/.skin**: <https://wowdev.wiki/M2/.skin> — Skin file format

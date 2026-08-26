@@ -160,8 +160,13 @@ struct AFRAChunk {
 
 struct PCOLChunk : PhysicsCollision {};
 
+/// Pivot displacement records, 32 bytes each.
+///
+/// The client keeps the payload pointer and a record count of `chunkSize / 32`
+/// (M2Data +1584 / +1592 in the 11.x client), so a chunk may hold more than one
+/// record — the corpus already contains 64-byte, two-record DPIV chunks.
 struct DPIVChunk {
-    std::array<u8, 32> data = {0};
+    std::vector<PivotDisplacementData> entries;
 };
 
 struct TEXLChunk {

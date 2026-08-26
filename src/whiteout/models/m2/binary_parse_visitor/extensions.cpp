@@ -19,8 +19,7 @@ void BinaryParseVisitor::visit(LodProfile& chunk) {
     chunk.numLodLevels = reader.read<u16>();
     chunk.lodDistance = reader.read<f32>();
     chunk.particleBoneLod = reader.readArray<u8, 4>();
-    chunk.reserved0 = reader.read<u8>();
-    chunk.lodFlags = reader.read<u8>();
+    chunk.lodScaleRaw = reader.read<u16>();
     chunk.lodBatchCount = reader.read<u8>();
     chunk.reserved1 = reader.read<u8>();
 }

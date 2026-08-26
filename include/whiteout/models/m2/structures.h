@@ -98,7 +98,7 @@ struct Model {
     std::vector<DebugOcclusionData> debugOcclusionEntries; ///< DBOC
     std::vector<u8> animFrameData;                         ///< AFRA
     std::optional<PhysicsCollision> physicsCollision;      ///< PCOL
-    std::optional<std::array<u8, 32>> dpivData;            ///< DPIV
+    std::vector<PivotDisplacementData> dpivData;           ///< DPIV (32 B per record)
     std::vector<TexturedLightData> texturedLightEntries;   ///< TEXL
 
     /// @brief Set only by a lazy parse: what the deferred `.anim` siblings are

@@ -198,7 +198,11 @@ void BinaryWriterVisitor::visit(const PCOLChunk& chunk) {
 }
 
 void BinaryWriterVisitor::visit(const DPIVChunk& chunk) {
-    writer.write(chunk.data);
+    for (const auto& entry : chunk.entries) {
+        writer.write(entry.offset);
+        writer.write(entry.flags);
+        writer.write(entry.reserved);
+    }
 }
 
 void BinaryWriterVisitor::visit(const TexturedLightData& entry) {

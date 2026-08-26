@@ -77,7 +77,10 @@ public final class LodProfile implements AutoCloseable {
     public void setLodDistance(float value) {
         handle.set(ValueLayout.JAVA_FLOAT, 4L, value);
     }
-    /** @return the particleBoneLod field of this M2LodProfile. */
+    /**
+     * Per-LOD particle bone mask index. Only four are stored, but the client drives up to eight LOD levels: it copies [0..3] into its first four slots and then replicates entry [3] into slots 4..7.
+     * @return the particleBoneLod field of this M2LodProfile.
+     */
     public int getParticleBoneLodCount() {
         return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2LodProfile_particleBoneLod_size);
     }
@@ -87,19 +90,15 @@ public final class LodProfile implements AutoCloseable {
     public void setParticleBoneLodAt(int index, byte value) {
         NativeCommon.invokeNative(Native.whiteout_m2_M2LodProfile_set_particleBoneLod_at, handle, (long) index, value);
     }
-    /** @return the reserved0 field of this M2LodProfile. */
-    public byte getReserved0() {
-        return handle.get(ValueLayout.JAVA_BYTE, 12L);
+    /**
+     * Fixed-point LOD scale, applied as `lodScaleRaw / 2048.0` and only when `flags & 0x08` is set (otherwise the client uses 1.0). This is the pair of bytes previously read as `reserved0` + `lodFlags`; reading it as a u16 explains why the high byte looked like a mirror of flags bit 3, since 0x0800 / 2048 == 1.0.
+     * @return the lodScaleRaw field of this M2LodProfile.
+     */
+    public short getLodScaleRaw() {
+        return handle.get(ValueLayout.JAVA_SHORT, 12L);
     }
-    public void setReserved0(byte value) {
-        handle.set(ValueLayout.JAVA_BYTE, 12L, value);
-    }
-    /** @return the lodFlags field of this M2LodProfile. */
-    public byte getLodFlags() {
-        return handle.get(ValueLayout.JAVA_BYTE, 13L);
-    }
-    public void setLodFlags(byte value) {
-        handle.set(ValueLayout.JAVA_BYTE, 13L, value);
+    public void setLodScaleRaw(short value) {
+        handle.set(ValueLayout.JAVA_SHORT, 12L, value);
     }
     /** @return the lodBatchCount field of this M2LodProfile. */
     public byte getLodBatchCount() {
@@ -116,7 +115,7 @@ public final class LodProfile implements AutoCloseable {
         handle.set(ValueLayout.JAVA_BYTE, 15L, value);
     }
     @Override public String toString() {
-        return "LodProfile(" + "flags=" + getFlags() + ", " + "numLodLevels=" + getNumLodLevels() + ", " + "lodDistance=" + getLodDistance() + ", " + "reserved0=" + getReserved0() + ", " + "lodFlags=" + getLodFlags() + ", " + "lodBatchCount=" + getLodBatchCount() + ", " + "reserved1=" + getReserved1() + ")";
+        return "LodProfile(" + "flags=" + getFlags() + ", " + "numLodLevels=" + getNumLodLevels() + ", " + "lodDistance=" + getLodDistance() + ", " + "lodScaleRaw=" + getLodScaleRaw() + ", " + "lodBatchCount=" + getLodBatchCount() + ", " + "reserved1=" + getReserved1() + ")";
     }
 
 }

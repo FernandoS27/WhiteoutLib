@@ -518,9 +518,9 @@ BaseFile Writer::Impl::wrapModel(const Model& model) const {
         pcol.flags = model.physicsCollision->flags;
         base.pcol_chunk = std::move(pcol);
     }
-    if (model.dpivData) {
+    if (!model.dpivData.empty()) {
         DPIVChunk dpiv;
-        dpiv.data = *model.dpivData;
+        dpiv.entries = model.dpivData;
         base.dpiv_chunk = std::move(dpiv);
     }
     if (!model.texturedLightEntries.empty()) {

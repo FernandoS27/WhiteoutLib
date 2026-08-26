@@ -29,7 +29,7 @@ import whiteout.m2.internal.Native;
  * external access if a handle is shared across threads.
  */
 public final class Model implements AutoCloseable {
-    private static final long BYTES = 1976L;
+    private static final long BYTES = 1960L;
 
     final MemorySegment handle;
     final boolean owned;
@@ -1081,6 +1081,26 @@ public final class Model implements AutoCloseable {
     }
     public void resizeAnimFrameData(int count) {
         NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_animFrameData, handle, (long) count);
+    }
+    /**
+     * DPIV (32 B per record)
+     * @return the dpivData field of this M2Model.
+     */
+    public int getDpivDataCount() {
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_dpivData_count, handle);
+    }
+    public PivotDisplacementData getDpivDataAt(int index) {
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m2_M2Model_get_dpivData_at, handle, (long) index);
+        return new PivotDisplacementData(__h, false);
+    }
+    public void resizeDpivData(int count) {
+        NativeCommon.invokeNative(Native.whiteout_m2_M2Model_resize_dpivData, handle, (long) count);
+    }
+    public java.util.List<PivotDisplacementData> dpivDataView() {
+        return new java.util.AbstractList<PivotDisplacementData>() {
+            @Override public int size() { return getDpivDataCount(); }
+            @Override public PivotDisplacementData get(int index) { return getDpivDataAt(index); }
+        };
     }
     /**
      * TEXL

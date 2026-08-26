@@ -142,17 +142,10 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial byte whiteout_m2_M2LodProfile_get_reserved0(IntPtr self);
+    internal static partial ushort whiteout_m2_M2LodProfile_get_lodScaleRaw(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m2_M2LodProfile_set_reserved0(IntPtr self, byte value);
-
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial byte whiteout_m2_M2LodProfile_get_lodFlags(IntPtr self);
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m2_M2LodProfile_set_lodFlags(IntPtr self, byte value);
+    internal static partial void whiteout_m2_M2LodProfile_set_lodScaleRaw(IntPtr self, ushort value);
 
 
     [LibraryImport(Runtime.LibraryName)]
@@ -461,6 +454,26 @@ internal static partial class NativeMethods
 
     [LibraryImport(Runtime.LibraryName)]
     internal static partial void whiteout_m2_M2TexturedLightData_set_unknown2(IntPtr self, int value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PivotDisplacementData_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PivotDisplacementData_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2PivotDisplacementData_get_offset(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PivotDisplacementData_set_offset(IntPtr self, IntPtr value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m2_M2PivotDisplacementData_get_flags(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m2_M2PivotDisplacementData_set_flags(IntPtr self, uint value);
 
 
     [LibraryImport(Runtime.LibraryName)]
@@ -2580,6 +2593,13 @@ internal static partial class NativeMethods
 
     [LibraryImport(Runtime.LibraryName)]
     internal static partial IntPtr whiteout_m2_M2Model_get_debugOcclusionEntries_at(IntPtr self, nuint index);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial nuint whiteout_m2_M2Model_get_dpivData_count(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m2_M2Model_get_dpivData_at(IntPtr self, nuint index);
 
 
     [LibraryImport(Runtime.LibraryName)]

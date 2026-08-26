@@ -95,10 +95,8 @@ public final class Native {
     public static final MethodHandle whiteout_m2_M2LodProfile_particleBoneLod_size = find("whiteout_m2_M2LodProfile_particleBoneLod_size", FunctionDescriptor.of(ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m2_M2LodProfile_get_particleBoneLod_at = find("whiteout_m2_M2LodProfile_get_particleBoneLod_at", FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m2_M2LodProfile_set_particleBoneLod_at = find("whiteout_m2_M2LodProfile_set_particleBoneLod_at", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_BYTE));
-    public static final MethodHandle whiteout_m2_M2LodProfile_get_reserved0 = find("whiteout_m2_M2LodProfile_get_reserved0", FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2LodProfile_set_reserved0 = find("whiteout_m2_M2LodProfile_set_reserved0", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE));
-    public static final MethodHandle whiteout_m2_M2LodProfile_get_lodFlags = find("whiteout_m2_M2LodProfile_get_lodFlags", FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m2_M2LodProfile_set_lodFlags = find("whiteout_m2_M2LodProfile_set_lodFlags", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE));
+    public static final MethodHandle whiteout_m2_M2LodProfile_get_lodScaleRaw = find("whiteout_m2_M2LodProfile_get_lodScaleRaw", FunctionDescriptor.of(ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2LodProfile_set_lodScaleRaw = find("whiteout_m2_M2LodProfile_set_lodScaleRaw", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
     public static final MethodHandle whiteout_m2_M2LodProfile_get_lodBatchCount = find("whiteout_m2_M2LodProfile_get_lodBatchCount", FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2LodProfile_set_lodBatchCount = find("whiteout_m2_M2LodProfile_set_lodBatchCount", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE));
     public static final MethodHandle whiteout_m2_M2LodProfile_get_reserved1 = find("whiteout_m2_M2LodProfile_get_reserved1", FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
@@ -226,6 +224,19 @@ public final class Native {
     public static final MethodHandle whiteout_m2_M2TexturedLightData_set_textureLookup = find("whiteout_m2_M2TexturedLightData_set_textureLookup", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
     public static final MethodHandle whiteout_m2_M2TexturedLightData_get_unknown2 = find("whiteout_m2_M2TexturedLightData_get_unknown2", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2TexturedLightData_set_unknown2 = find("whiteout_m2_M2TexturedLightData_set_unknown2", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+
+    // -- M2PivotDisplacementData --
+    public static final MethodHandle whiteout_m2_M2PivotDisplacementData_new = find(
+        "whiteout_m2_M2PivotDisplacementData_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PivotDisplacementData_delete = find(
+        "whiteout_m2_M2PivotDisplacementData_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PivotDisplacementData_get_offset = find("whiteout_m2_M2PivotDisplacementData_get_offset", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PivotDisplacementData_set_offset = find("whiteout_m2_M2PivotDisplacementData_set_offset", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PivotDisplacementData_get_flags = find("whiteout_m2_M2PivotDisplacementData_get_flags", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2PivotDisplacementData_set_flags = find("whiteout_m2_M2PivotDisplacementData_set_flags", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m2_M2PivotDisplacementData_reserved_size = find("whiteout_m2_M2PivotDisplacementData_reserved_size", FunctionDescriptor.of(ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2PivotDisplacementData_get_reserved_at = find("whiteout_m2_M2PivotDisplacementData_get_reserved_at", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2PivotDisplacementData_set_reserved_at = find("whiteout_m2_M2PivotDisplacementData_set_reserved_at", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT));
 
     // -- M2PhysicsCollision --
     public static final MethodHandle whiteout_m2_M2PhysicsCollision_new = find(
@@ -1315,6 +1326,9 @@ public final class Native {
     public static final MethodHandle whiteout_m2_M2Model_resize_animFrameData = find("whiteout_m2_M2Model_resize_animFrameData", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m2_M2Model_get_animFrameData_data = find("whiteout_m2_M2Model_get_animFrameData_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2Model_assign_animFrameData = find("whiteout_m2_M2Model_assign_animFrameData", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2Model_get_dpivData_count = find("whiteout_m2_M2Model_get_dpivData_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m2_M2Model_resize_dpivData = find("whiteout_m2_M2Model_resize_dpivData", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m2_M2Model_get_dpivData_at = find("whiteout_m2_M2Model_get_dpivData_at", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m2_M2Model_get_texturedLightEntries_count = find("whiteout_m2_M2Model_get_texturedLightEntries_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m2_M2Model_resize_texturedLightEntries = find("whiteout_m2_M2Model_resize_texturedLightEntries", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m2_M2Model_get_texturedLightEntries_at = find("whiteout_m2_M2Model_get_texturedLightEntries_at", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));

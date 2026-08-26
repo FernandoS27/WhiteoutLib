@@ -265,7 +265,7 @@ void Parser::Impl::parse(WoWFileSystem& wfs, Model& result) {
         result.physicsCollision = std::move(pc);
     }
     if (m2.dpiv_chunk)
-        result.dpivData = m2.dpiv_chunk->data;
+        result.dpivData = m2.dpiv_chunk->entries;
     if (m2.texl_chunk)
         result.texturedLightEntries = std::move(m2.texl_chunk->texturedLights);
 

@@ -1088,6 +1088,7 @@ impl LodProfile {
         unsafe { ffi::whiteout_m2_M2LodProfile_set_lodDistance(self.raw.as_ptr(), value) }
     }
 
+    /// Per-LOD particle bone mask index. Only four are stored, but the client drives up to eight LOD levels: it copies [0..3] into its first four slots and then replicates entry [3] into slots 4..7.
     /// Number of elements — a fixed-size C++ array.
     pub const fn particle_bone_lod_len() -> usize {
         4
@@ -1117,24 +1118,15 @@ impl LodProfile {
         }
     }
 
-    pub fn reserved_0(&self) -> u8 {
+    /// Fixed-point LOD scale, applied as `lodScaleRaw / 2048.0` and only when `flags & 0x08` is set (otherwise the client uses 1.0). This is the pair of bytes previously read as `reserved0` + `lodFlags`; reading it as a u16 explains why the high byte looked like a mirror of flags bit 3, since 0x0800 / 2048 == 1.0.
+    pub fn lod_scale_raw(&self) -> u16 {
         // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m2_M2LodProfile_get_reserved0(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m2_M2LodProfile_get_lodScaleRaw(self.raw.as_ptr()) }
     }
 
-    pub fn set_reserved_0(&mut self, value: u8) {
+    pub fn set_lod_scale_raw(&mut self, value: u16) {
         // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m2_M2LodProfile_set_reserved0(self.raw.as_ptr(), value) }
-    }
-
-    pub fn lod_flags(&self) -> u8 {
-        // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m2_M2LodProfile_get_lodFlags(self.raw.as_ptr()) }
-    }
-
-    pub fn set_lod_flags(&mut self, value: u8) {
-        // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m2_M2LodProfile_set_lodFlags(self.raw.as_ptr(), value) }
+        unsafe { ffi::whiteout_m2_M2LodProfile_set_lodScaleRaw(self.raw.as_ptr(), value) }
     }
 
     pub fn lod_batch_count(&self) -> u8 {
@@ -1950,6 +1942,122 @@ impl TexturedLightData {
 }
 
 impl Default for TexturedLightData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// One DPIV (pivot displacement) record, 32 bytes.
+///
+/// The client keeps the payload pointer and a record count of `chunkSize / 32`, so a chunk holds N of these — the corpus has both 1- and 2-record chunks.
+pub struct PivotDisplacementData {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M2PivotDisplacementData>,
+}
+
+impl Drop for PivotDisplacementData {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m2_M2PivotDisplacementData_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl PivotDisplacementData {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M2PivotDisplacementData) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| PivotDisplacementData { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for PivotDisplacementData {}
+
+impl core::fmt::Debug for PivotDisplacementData {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PivotDisplacementData")
+            .finish_non_exhaustive()
+    }
+}
+
+impl PivotDisplacementData {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m2_M2PivotDisplacementData_new();
+            Self::from_raw(raw).expect("native PivotDisplacementData allocation failed")
+        }
+    }
+
+    /// small displacement; Z varies most
+    pub fn offset(&self) -> crate::math::Vector3f {
+        // SAFETY: the getter returns an interior pointer to a
+        // layout-identical POD; we copy it out immediately.
+        unsafe {
+            *(ffi::whiteout_m2_M2PivotDisplacementData_get_offset(self.raw.as_ptr())
+                as *const crate::math::Vector3f)
+        }
+    }
+
+    pub fn set_offset(&mut self, value: crate::math::Vector3f) {
+        // SAFETY: as above, in the other direction.
+        unsafe {
+            ffi::whiteout_m2_M2PivotDisplacementData_set_offset(
+                self.raw.as_ptr(),
+                &value as *const crate::math::Vector3f as *const _,
+            )
+        }
+    }
+
+    /// 0 or 1
+    pub fn flags(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2PivotDisplacementData_get_flags(self.raw.as_ptr()) }
+    }
+
+    pub fn set_flags(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m2_M2PivotDisplacementData_set_flags(self.raw.as_ptr(), value) }
+    }
+
+    /// always 0
+    /// Number of elements — a fixed-size C++ array.
+    pub const fn reserved_len() -> usize {
+        4
+    }
+
+    /// # Panics
+    /// If `index >= 4`, matching Rust slice indexing.
+    pub fn reserved(&self, index: usize) -> u32 {
+        assert!(index < 4, "reserved index {index} out of range (len 4)");
+        // SAFETY: index checked above; plain scalar read.
+        unsafe {
+            ffi::whiteout_m2_M2PivotDisplacementData_get_reserved_at(self.raw.as_ptr(), index)
+        }
+    }
+
+    /// # Panics
+    /// If `index >= 4`.
+    pub fn set_reserved(&mut self, index: usize, value: u32) {
+        assert!(index < 4, "reserved index {index} out of range (len 4)");
+        // SAFETY: index checked above.
+        unsafe {
+            ffi::whiteout_m2_M2PivotDisplacementData_set_reserved_at(
+                self.raw.as_ptr(),
+                index,
+                value,
+            )
+        }
+    }
+}
+
+impl Default for PivotDisplacementData {
     fn default() -> Self {
         Self::new()
     }
@@ -12088,6 +12196,61 @@ impl Model {
         unsafe { ffi::whiteout_m2_M2Model_resize_animFrameData(self.raw.as_ptr(), count) }
     }
 
+    /// DPIV (32 B per record)
+    pub fn dpiv_data_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_m2_M2Model_get_dpivData_count(self.raw.as_ptr()) }
+    }
+
+    /// Borrows element `index` in place. `None` when out of range.
+    pub fn dpiv_data(
+        &self,
+        index: usize,
+    ) -> Option<crate::support::Ref<'_, PivotDisplacementData>> {
+        if index >= self.dpiv_data_len() {
+            return None;
+        }
+        // SAFETY: index checked above; the pointer is interior to `self`.
+        unsafe {
+            Some(crate::support::Ref::new(PivotDisplacementData {
+                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m2_M2Model_get_dpivData_at(
+                    self.raw.as_ptr(),
+                    index,
+                )),
+            }))
+        }
+    }
+
+    pub fn dpiv_data_mut(
+        &mut self,
+        index: usize,
+    ) -> Option<crate::support::RefMut<'_, PivotDisplacementData>> {
+        if index >= self.dpiv_data_len() {
+            return None;
+        }
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            Some(crate::support::RefMut::new(PivotDisplacementData {
+                raw: core::ptr::NonNull::new_unchecked(ffi::whiteout_m2_M2Model_get_dpivData_at(
+                    self.raw.as_ptr(),
+                    index,
+                )),
+            }))
+        }
+    }
+
+    /// Iterate the elements, borrowing each in turn.
+    pub fn dpiv_data_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, PivotDisplacementData>> {
+        (0..self.dpiv_data_len()).map(move |i| self.dpiv_data(i).expect("index below len"))
+    }
+
+    pub fn resize_dpiv_data(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe { ffi::whiteout_m2_M2Model_resize_dpivData(self.raw.as_ptr(), count) }
+    }
+
     /// TEXL
     pub fn textured_light_entries_len(&self) -> usize {
         // SAFETY: scalar read through a live handle.
@@ -14914,6 +15077,10 @@ pub mod ffi {
         _private: [u8; 0],
     }
     #[repr(C)]
+    pub struct whiteout_M2PivotDisplacementData {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
     pub struct whiteout_M2PhysicsCollision {
         _private: [u8; 0],
     }
@@ -15274,10 +15441,11 @@ pub mod ffi {
             index: usize,
             value: u8,
         );
-        pub fn whiteout_m2_M2LodProfile_get_reserved0(self_: *mut whiteout_M2LodProfile) -> u8;
-        pub fn whiteout_m2_M2LodProfile_set_reserved0(self_: *mut whiteout_M2LodProfile, value: u8);
-        pub fn whiteout_m2_M2LodProfile_get_lodFlags(self_: *mut whiteout_M2LodProfile) -> u8;
-        pub fn whiteout_m2_M2LodProfile_set_lodFlags(self_: *mut whiteout_M2LodProfile, value: u8);
+        pub fn whiteout_m2_M2LodProfile_get_lodScaleRaw(self_: *mut whiteout_M2LodProfile) -> u16;
+        pub fn whiteout_m2_M2LodProfile_set_lodScaleRaw(
+            self_: *mut whiteout_M2LodProfile,
+            value: u16,
+        );
         pub fn whiteout_m2_M2LodProfile_get_lodBatchCount(self_: *mut whiteout_M2LodProfile) -> u8;
         pub fn whiteout_m2_M2LodProfile_set_lodBatchCount(
             self_: *mut whiteout_M2LodProfile,
@@ -15583,6 +15751,35 @@ pub mod ffi {
         pub fn whiteout_m2_M2TexturedLightData_set_unknown2(
             self_: *mut whiteout_M2TexturedLightData,
             value: i32,
+        );
+        // PivotDisplacementData
+        pub fn whiteout_m2_M2PivotDisplacementData_new() -> *mut whiteout_M2PivotDisplacementData;
+        pub fn whiteout_m2_M2PivotDisplacementData_delete(
+            self_: *mut whiteout_M2PivotDisplacementData,
+        );
+        pub fn whiteout_m2_M2PivotDisplacementData_get_offset(
+            self_: *mut whiteout_M2PivotDisplacementData,
+        ) -> *mut core::ffi::c_void;
+        pub fn whiteout_m2_M2PivotDisplacementData_set_offset(
+            self_: *mut whiteout_M2PivotDisplacementData,
+            value: *const core::ffi::c_void,
+        );
+        pub fn whiteout_m2_M2PivotDisplacementData_get_flags(
+            self_: *mut whiteout_M2PivotDisplacementData,
+        ) -> u32;
+        pub fn whiteout_m2_M2PivotDisplacementData_set_flags(
+            self_: *mut whiteout_M2PivotDisplacementData,
+            value: u32,
+        );
+        pub fn whiteout_m2_M2PivotDisplacementData_reserved_size() -> usize;
+        pub fn whiteout_m2_M2PivotDisplacementData_get_reserved_at(
+            self_: *mut whiteout_M2PivotDisplacementData,
+            index: usize,
+        ) -> u32;
+        pub fn whiteout_m2_M2PivotDisplacementData_set_reserved_at(
+            self_: *mut whiteout_M2PivotDisplacementData,
+            index: usize,
+            value: u32,
         );
         // PhysicsCollision
         pub fn whiteout_m2_M2PhysicsCollision_new() -> *mut whiteout_M2PhysicsCollision;
@@ -18217,6 +18414,12 @@ pub mod ffi {
             data: *const u8,
             count: usize,
         );
+        pub fn whiteout_m2_M2Model_get_dpivData_count(self_: *mut whiteout_M2Model) -> usize;
+        pub fn whiteout_m2_M2Model_resize_dpivData(self_: *mut whiteout_M2Model, count: usize);
+        pub fn whiteout_m2_M2Model_get_dpivData_at(
+            self_: *mut whiteout_M2Model,
+            index: usize,
+        ) -> *mut whiteout_M2PivotDisplacementData;
         pub fn whiteout_m2_M2Model_get_texturedLightEntries_count(
             self_: *mut whiteout_M2Model,
         ) -> usize;

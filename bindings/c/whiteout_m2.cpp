@@ -294,20 +294,12 @@ void whiteout_m2_M2LodProfile_set_particleBoneLod_at(whiteout_M2LodProfile* self
     reinterpret_cast<whiteout::m2::LodProfile*>(self)->particleBoneLod[index] = value;
 }
 
-uint8_t whiteout_m2_M2LodProfile_get_reserved0(const whiteout_M2LodProfile* self) {
-    return reinterpret_cast<const whiteout::m2::LodProfile*>(self)->reserved0;
+uint16_t whiteout_m2_M2LodProfile_get_lodScaleRaw(const whiteout_M2LodProfile* self) {
+    return reinterpret_cast<const whiteout::m2::LodProfile*>(self)->lodScaleRaw;
 }
 
-void whiteout_m2_M2LodProfile_set_reserved0(whiteout_M2LodProfile* self, uint8_t value) {
-    reinterpret_cast<whiteout::m2::LodProfile*>(self)->reserved0 = value;
-}
-
-uint8_t whiteout_m2_M2LodProfile_get_lodFlags(const whiteout_M2LodProfile* self) {
-    return reinterpret_cast<const whiteout::m2::LodProfile*>(self)->lodFlags;
-}
-
-void whiteout_m2_M2LodProfile_set_lodFlags(whiteout_M2LodProfile* self, uint8_t value) {
-    reinterpret_cast<whiteout::m2::LodProfile*>(self)->lodFlags = value;
+void whiteout_m2_M2LodProfile_set_lodScaleRaw(whiteout_M2LodProfile* self, uint16_t value) {
+    reinterpret_cast<whiteout::m2::LodProfile*>(self)->lodScaleRaw = value;
 }
 
 uint8_t whiteout_m2_M2LodProfile_get_lodBatchCount(const whiteout_M2LodProfile* self) {
@@ -746,6 +738,48 @@ int32_t whiteout_m2_M2TexturedLightData_get_unknown2(const whiteout_M2TexturedLi
 
 void whiteout_m2_M2TexturedLightData_set_unknown2(whiteout_M2TexturedLightData* self, int32_t value) {
     reinterpret_cast<whiteout::m2::TexturedLightData*>(self)->unknown2 = value;
+}
+
+} // extern "C"
+
+// ── M2PivotDisplacementData ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M2PivotDisplacementData* whiteout_m2_M2PivotDisplacementData_new(void) {
+    return reinterpret_cast<whiteout_M2PivotDisplacementData*>(new whiteout::m2::PivotDisplacementData());
+}
+
+void whiteout_m2_M2PivotDisplacementData_delete(whiteout_M2PivotDisplacementData* self) {
+    delete reinterpret_cast<whiteout::m2::PivotDisplacementData*>(self);
+}
+
+whiteout_Vector3f* whiteout_m2_M2PivotDisplacementData_get_offset(whiteout_M2PivotDisplacementData* self) {
+    return reinterpret_cast<whiteout_Vector3f*>(&reinterpret_cast<whiteout::m2::PivotDisplacementData*>(self)->offset);
+}
+
+void whiteout_m2_M2PivotDisplacementData_set_offset(whiteout_M2PivotDisplacementData* self, const whiteout_Vector3f* value) {
+    reinterpret_cast<whiteout::m2::PivotDisplacementData*>(self)->offset = *reinterpret_cast<const whiteout::Vector3f*>(value);
+}
+
+uint32_t whiteout_m2_M2PivotDisplacementData_get_flags(const whiteout_M2PivotDisplacementData* self) {
+    return reinterpret_cast<const whiteout::m2::PivotDisplacementData*>(self)->flags;
+}
+
+void whiteout_m2_M2PivotDisplacementData_set_flags(whiteout_M2PivotDisplacementData* self, uint32_t value) {
+    reinterpret_cast<whiteout::m2::PivotDisplacementData*>(self)->flags = value;
+}
+
+size_t whiteout_m2_M2PivotDisplacementData_reserved_size(void) {
+    return 4;
+}
+
+uint32_t whiteout_m2_M2PivotDisplacementData_get_reserved_at(const whiteout_M2PivotDisplacementData* self, size_t index) {
+    return reinterpret_cast<const whiteout::m2::PivotDisplacementData*>(self)->reserved[index];
+}
+
+void whiteout_m2_M2PivotDisplacementData_set_reserved_at(whiteout_M2PivotDisplacementData* self, size_t index, uint32_t value) {
+    reinterpret_cast<whiteout::m2::PivotDisplacementData*>(self)->reserved[index] = value;
 }
 
 } // extern "C"
@@ -4771,6 +4805,18 @@ void whiteout_m2_M2Model_assign_animFrameData(whiteout_M2Model* self, const uint
     auto& __v = reinterpret_cast<whiteout::m2::Model*>(self)->animFrameData;
     __v.resize(count);
     if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u8));
+}
+
+size_t whiteout_m2_M2Model_get_dpivData_count(const whiteout_M2Model* self) {
+    return reinterpret_cast<const whiteout::m2::Model*>(self)->dpivData.size();
+}
+
+void whiteout_m2_M2Model_resize_dpivData(whiteout_M2Model* self, size_t count) {
+    reinterpret_cast<whiteout::m2::Model*>(self)->dpivData.resize(count);
+}
+
+whiteout_M2PivotDisplacementData* whiteout_m2_M2Model_get_dpivData_at(whiteout_M2Model* self, size_t index) {
+    return reinterpret_cast<whiteout_M2PivotDisplacementData*>(&reinterpret_cast<whiteout::m2::Model*>(self)->dpivData[index]);
 }
 
 size_t whiteout_m2_M2Model_get_texturedLightEntries_count(const whiteout_M2Model* self) {

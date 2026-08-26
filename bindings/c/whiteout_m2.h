@@ -163,6 +163,7 @@ typedef struct whiteout_M2DistanceFadeData whiteout_M2DistanceFadeData;
 typedef struct whiteout_M2DetailedLightData whiteout_M2DetailedLightData;
 typedef struct whiteout_M2DebugOcclusionData whiteout_M2DebugOcclusionData;
 typedef struct whiteout_M2TexturedLightData whiteout_M2TexturedLightData;
+typedef struct whiteout_M2PivotDisplacementData whiteout_M2PivotDisplacementData;
 typedef struct whiteout_M2PhysicsCollision whiteout_M2PhysicsCollision;
 typedef struct whiteout_M2SkinSection whiteout_M2SkinSection;
 typedef struct whiteout_M2Batch whiteout_M2Batch;
@@ -298,13 +299,13 @@ uint16_t whiteout_m2_M2LodProfile_get_numLodLevels(const whiteout_M2LodProfile* 
 void whiteout_m2_M2LodProfile_set_numLodLevels(whiteout_M2LodProfile* self, uint16_t value);
 float whiteout_m2_M2LodProfile_get_lodDistance(const whiteout_M2LodProfile* self);
 void whiteout_m2_M2LodProfile_set_lodDistance(whiteout_M2LodProfile* self, float value);
+/* Per-LOD particle bone mask index. Only four are stored, but the client drives up to eight LOD levels: it copies [0..3] into its first four slots and then replicates entry [3] into slots 4..7. */
 size_t whiteout_m2_M2LodProfile_particleBoneLod_size(void);
 uint8_t whiteout_m2_M2LodProfile_get_particleBoneLod_at(const whiteout_M2LodProfile* self, size_t index);
 void whiteout_m2_M2LodProfile_set_particleBoneLod_at(whiteout_M2LodProfile* self, size_t index, uint8_t value);
-uint8_t whiteout_m2_M2LodProfile_get_reserved0(const whiteout_M2LodProfile* self);
-void whiteout_m2_M2LodProfile_set_reserved0(whiteout_M2LodProfile* self, uint8_t value);
-uint8_t whiteout_m2_M2LodProfile_get_lodFlags(const whiteout_M2LodProfile* self);
-void whiteout_m2_M2LodProfile_set_lodFlags(whiteout_M2LodProfile* self, uint8_t value);
+/* Fixed-point LOD scale, applied as `lodScaleRaw / 2048.0` and only when `flags & 0x08` is set (otherwise the client uses 1.0). This is the pair of bytes previously read as `reserved0` + `lodFlags`; reading it as a u16 explains why the high byte looked like a mirror of flags bit 3, since 0x0800 / 2048 == 1.0. */
+uint16_t whiteout_m2_M2LodProfile_get_lodScaleRaw(const whiteout_M2LodProfile* self);
+void whiteout_m2_M2LodProfile_set_lodScaleRaw(whiteout_M2LodProfile* self, uint16_t value);
 uint8_t whiteout_m2_M2LodProfile_get_lodBatchCount(const whiteout_M2LodProfile* self);
 void whiteout_m2_M2LodProfile_set_lodBatchCount(whiteout_M2LodProfile* self, uint8_t value);
 uint8_t whiteout_m2_M2LodProfile_get_reserved1(const whiteout_M2LodProfile* self);
@@ -432,6 +433,25 @@ int32_t whiteout_m2_M2TexturedLightData_get_textureLookup(const whiteout_M2Textu
 void whiteout_m2_M2TexturedLightData_set_textureLookup(whiteout_M2TexturedLightData* self, int32_t value);
 int32_t whiteout_m2_M2TexturedLightData_get_unknown2(const whiteout_M2TexturedLightData* self);
 void whiteout_m2_M2TexturedLightData_set_unknown2(whiteout_M2TexturedLightData* self, int32_t value);
+
+/* ── M2PivotDisplacementData ─────────────────────────────────────────────── */
+
+/* One DPIV (pivot displacement) record, 32 bytes. */
+/*  */
+/* The client keeps the payload pointer and a record count of `chunkSize / 32`, so a chunk holds N of these — the corpus has both 1- and 2-record chunks. */
+whiteout_M2PivotDisplacementData* whiteout_m2_M2PivotDisplacementData_new(void);
+void whiteout_m2_M2PivotDisplacementData_delete(whiteout_M2PivotDisplacementData* self);
+
+/* small displacement; Z varies most */
+whiteout_Vector3f* whiteout_m2_M2PivotDisplacementData_get_offset(whiteout_M2PivotDisplacementData* self);
+void whiteout_m2_M2PivotDisplacementData_set_offset(whiteout_M2PivotDisplacementData* self, const whiteout_Vector3f* value);
+/* 0 or 1 */
+uint32_t whiteout_m2_M2PivotDisplacementData_get_flags(const whiteout_M2PivotDisplacementData* self);
+void whiteout_m2_M2PivotDisplacementData_set_flags(whiteout_M2PivotDisplacementData* self, uint32_t value);
+/* always 0 */
+size_t whiteout_m2_M2PivotDisplacementData_reserved_size(void);
+uint32_t whiteout_m2_M2PivotDisplacementData_get_reserved_at(const whiteout_M2PivotDisplacementData* self, size_t index);
+void whiteout_m2_M2PivotDisplacementData_set_reserved_at(whiteout_M2PivotDisplacementData* self, size_t index, uint32_t value);
 
 /* ── M2PhysicsCollision ─────────────────────────────────────────────── */
 
@@ -1618,6 +1638,10 @@ size_t whiteout_m2_M2Model_get_animFrameData_count(const whiteout_M2Model* self)
 void whiteout_m2_M2Model_resize_animFrameData(whiteout_M2Model* self, size_t count);
 const uint8_t* whiteout_m2_M2Model_get_animFrameData_data(const whiteout_M2Model* self);
 void whiteout_m2_M2Model_assign_animFrameData(whiteout_M2Model* self, const uint8_t* data, size_t count);
+/* DPIV (32 B per record) */
+size_t whiteout_m2_M2Model_get_dpivData_count(const whiteout_M2Model* self);
+void whiteout_m2_M2Model_resize_dpivData(whiteout_M2Model* self, size_t count);
+whiteout_M2PivotDisplacementData* whiteout_m2_M2Model_get_dpivData_at(whiteout_M2Model* self, size_t index);
 /* TEXL */
 size_t whiteout_m2_M2Model_get_texturedLightEntries_count(const whiteout_M2Model* self);
 void whiteout_m2_M2Model_resize_texturedLightEntries(whiteout_M2Model* self, size_t count);

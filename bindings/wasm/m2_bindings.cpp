@@ -231,8 +231,7 @@ EMSCRIPTEN_BINDINGS(m2) {
         .property("flags", &whiteout::m2::LodProfile::flags)
         .property("numLodLevels", &whiteout::m2::LodProfile::numLodLevels)
         .property("lodDistance", &whiteout::m2::LodProfile::lodDistance)
-        .property("reserved0", &whiteout::m2::LodProfile::reserved0)
-        .property("lodFlags", &whiteout::m2::LodProfile::lodFlags)
+        .property("lodScaleRaw", &whiteout::m2::LodProfile::lodScaleRaw)
         .property("lodBatchCount", &whiteout::m2::LodProfile::lodBatchCount)
         .property("reserved1", &whiteout::m2::LodProfile::reserved1)
         .function("getParticleBoneLod",
@@ -315,6 +314,16 @@ EMSCRIPTEN_BINDINGS(m2) {
         .property("unknown1", &whiteout::m2::TexturedLightData::unknown1)
         .property("textureLookup", &whiteout::m2::TexturedLightData::textureLookup)
         .property("unknown2", &whiteout::m2::TexturedLightData::unknown2)
+    ;
+
+    class_<whiteout::m2::PivotDisplacementData>("M2PivotDisplacementData")
+        .constructor<>()
+        .property("offset", &whiteout::m2::PivotDisplacementData::offset)
+        .property("flags", &whiteout::m2::PivotDisplacementData::flags)
+        .function("getReserved",
+                  optional_override([](const whiteout::m2::PivotDisplacementData& self) { return arrayToVec(self.reserved); }))
+        .function("setReserved",
+                  optional_override([](    whiteout::m2::PivotDisplacementData& self, const std::vector<whiteout::u32>& v) { vecToArray(self.reserved, v); }));
     ;
 
     class_<whiteout::m2::PhysicsCollision>("M2PhysicsCollision")
@@ -1032,6 +1041,7 @@ EMSCRIPTEN_BINDINGS(m2) {
     register_vector<whiteout::m2::PhysicsJoint>("VectorM2PhysicsJoint");
     register_vector<whiteout::m2::PhysicsShape>("VectorM2PhysicsShape");
     register_vector<whiteout::m2::PhysicsTuning>("VectorM2PhysicsTuning");
+    register_vector<whiteout::m2::PivotDisplacementData>("VectorM2PivotDisplacementData");
     register_vector<whiteout::m2::PolytopeHalfEdge>("VectorM2PolytopeHalfEdge");
     register_vector<whiteout::m2::PolytopeShape>("VectorM2PolytopeShape");
     register_vector<whiteout::m2::PrismaticJoint>("VectorM2PrismaticJoint");

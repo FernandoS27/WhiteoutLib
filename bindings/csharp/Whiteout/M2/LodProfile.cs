@@ -41,17 +41,11 @@ public sealed class LodProfile : WhiteoutHandle
     }
 
 
-    public byte Reserved0
+    /// <summary>Fixed-point LOD scale, applied as `lodScaleRaw / 2048.0` and only when `flags &amp; 0x08` is set (otherwise the client uses 1.0). This is the pair of bytes previously read as `reserved0` + `lodFlags`; reading it as a u16 explains why the high byte looked like a mirror of flags bit 3, since 0x0800 / 2048 == 1.0.</summary>
+    public ushort LodScaleRaw
     {
-        get => NativeMethods.whiteout_m2_M2LodProfile_get_reserved0(DangerousGet());
-        set => NativeMethods.whiteout_m2_M2LodProfile_set_reserved0(DangerousGet(), value);
-    }
-
-
-    public byte LodFlags
-    {
-        get => NativeMethods.whiteout_m2_M2LodProfile_get_lodFlags(DangerousGet());
-        set => NativeMethods.whiteout_m2_M2LodProfile_set_lodFlags(DangerousGet(), value);
+        get => NativeMethods.whiteout_m2_M2LodProfile_get_lodScaleRaw(DangerousGet());
+        set => NativeMethods.whiteout_m2_M2LodProfile_set_lodScaleRaw(DangerousGet(), value);
     }
 
 

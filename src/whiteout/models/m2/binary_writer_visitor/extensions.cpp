@@ -12,8 +12,7 @@ void BinaryWriterVisitor::visit(const LodProfile& chunk) {
     writer.write(chunk.numLodLevels);
     writer.write(chunk.lodDistance);
     writer.write(chunk.particleBoneLod);
-    writer.write(chunk.reserved0);
-    writer.write(chunk.lodFlags);
+    writer.write(chunk.lodScaleRaw);
     writer.write(chunk.lodBatchCount);
     writer.write(chunk.reserved1);
 }

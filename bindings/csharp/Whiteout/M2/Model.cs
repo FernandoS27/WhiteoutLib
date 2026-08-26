@@ -247,6 +247,14 @@ public sealed class Model : WhiteoutHandle
             (h, i) => new DebugOcclusionData(NativeMethods.whiteout_m2_M2Model_get_debugOcclusionEntries_at(h, i), owned: false));
 
 
+    /// <summary>DPIV (32 B per record)</summary>
+    public IReadOnlyList<PivotDisplacementData> DpivData =>
+        new NativeListView<PivotDisplacementData>(
+            DangerousGet(),
+            NativeMethods.whiteout_m2_M2Model_get_dpivData_count,
+            (h, i) => new PivotDisplacementData(NativeMethods.whiteout_m2_M2Model_get_dpivData_at(h, i), owned: false));
+
+
     /// <summary>TEXL</summary>
     public IReadOnlyList<TexturedLightData> TexturedLightEntries =>
         new NativeListView<TexturedLightData>(

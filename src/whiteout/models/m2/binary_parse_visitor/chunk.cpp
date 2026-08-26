@@ -191,7 +191,7 @@ void BinaryParseVisitor::visit(PCOLChunk& chunk) {
 }
 
 void BinaryParseVisitor::visit(DPIVChunk& chunk) {
-    chunk.data = reader.readArray<u8, 32>();
+    parse_chunked_vector(chunk.entries);
 }
 
 void BinaryParseVisitor::visit(TexturedLightData& entry) {

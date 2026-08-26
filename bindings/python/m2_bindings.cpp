@@ -82,6 +82,7 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::PhysicsBody>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::PhysicsJoint>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::PhysicsShape>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::PhysicsTuning>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::PivotDisplacementData>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::PolytopeHalfEdge>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::PolytopeShape>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m2::PrismaticJoint>);
@@ -352,8 +353,7 @@ Kept only by a lazily parsed model (Parser::setLazyAnimations), which leaves the
         .def_readwrite("flags", &whiteout::m2::LodProfile::flags)
         .def_readwrite("num_lod_levels", &whiteout::m2::LodProfile::numLodLevels)
         .def_readwrite("lod_distance", &whiteout::m2::LodProfile::lodDistance)
-        .def_readwrite("reserved0", &whiteout::m2::LodProfile::reserved0)
-        .def_readwrite("lod_flags", &whiteout::m2::LodProfile::lodFlags)
+        .def_readwrite("lod_scale_raw", &whiteout::m2::LodProfile::lodScaleRaw, R"doc(Fixed-point LOD scale, applied as `lodScaleRaw / 2048.0` and only when `flags & 0x08` is set (otherwise the client uses 1.0). This is the pair of bytes previously read as `reserved0` + `lodFlags`; reading it as a u16 explains why the high byte looked like a mirror of flags bit 3, since 0x0800 / 2048 == 1.0.)doc")
         .def_readwrite("lod_batch_count", &whiteout::m2::LodProfile::lodBatchCount)
         .def_readwrite("reserved1", &whiteout::m2::LodProfile::reserved1)
         .def("get_particle_bone_lod",
@@ -464,6 +464,25 @@ Kept only by a lazily parsed model (Parser::setLazyAnimations), which leaves the
         .def_readwrite("unknown1", &whiteout::m2::TexturedLightData::unknown1)
         .def_readwrite("texture_lookup", &whiteout::m2::TexturedLightData::textureLookup)
         .def_readwrite("unknown2", &whiteout::m2::TexturedLightData::unknown2)
+    ;
+
+    py::class_<whiteout::m2::PivotDisplacementData>(m, "PivotDisplacementData", R"doc(One DPIV (pivot displacement) record, 32 bytes.
+
+The client keeps the payload pointer and a record count of `chunkSize / 32`, so a chunk holds N of these — the corpus has both 1- and 2-record chunks.)doc")
+        .def(py::init<>())
+        .def_readwrite("offset", &whiteout::m2::PivotDisplacementData::offset, R"doc(small displacement; Z varies most)doc")
+        .def_readwrite("flags", &whiteout::m2::PivotDisplacementData::flags, R"doc(0 or 1)doc")
+        .def("get_reserved",
+            [](const whiteout::m2::PivotDisplacementData& self) {
+                return std::vector<whiteout::u32>(self.reserved.begin(), self.reserved.end());
+            })
+        .def("set_reserved",
+            [](whiteout::m2::PivotDisplacementData& self, const std::vector<whiteout::u32>& v) {
+                if (v.size() != self.reserved.size())
+                    throw std::runtime_error("setter expected exactly "
+                        + std::to_string(self.reserved.size()) + " elements");
+                for (std::size_t i = 0; i < v.size(); ++i) self.reserved[i] = v[i];
+            })
     ;
 
     py::class_<whiteout::m2::PhysicsCollision>(m, "PhysicsCollision")
@@ -1085,7 +1104,7 @@ On disk this is two parallel chunks — `BIDA` holds the bone ids and `BOMT` the
         .def_readwrite("debug_occlusion_entries", &whiteout::m2::Model::debugOcclusionEntries, R"doc(DBOC)doc")
         .def_readwrite("anim_frame_data", &whiteout::m2::Model::animFrameData, R"doc(AFRA)doc")
         .def_readwrite("physics_collision", &whiteout::m2::Model::physicsCollision, R"doc(PCOL)doc")
-        .def_readwrite("dpiv_data", &whiteout::m2::Model::dpivData, R"doc(DPIV)doc")
+        .def_readwrite("dpiv_data", &whiteout::m2::Model::dpivData, R"doc(DPIV (32 B per record))doc")
         .def_readwrite("textured_light_entries", &whiteout::m2::Model::texturedLightEntries, R"doc(TEXL)doc")
     ;
 
@@ -1243,6 +1262,7 @@ The @p fs passed to parse() has to outlive the returned Model, because the defer
     py::bind_vector<std::vector<whiteout::m2::PhysicsJoint>>(m, "VectorM2PhysicsJoint");
     py::bind_vector<std::vector<whiteout::m2::PhysicsShape>>(m, "VectorM2PhysicsShape");
     py::bind_vector<std::vector<whiteout::m2::PhysicsTuning>>(m, "VectorM2PhysicsTuning");
+    py::bind_vector<std::vector<whiteout::m2::PivotDisplacementData>>(m, "VectorM2PivotDisplacementData");
     py::bind_vector<std::vector<whiteout::m2::PolytopeHalfEdge>>(m, "VectorM2PolytopeHalfEdge");
     py::bind_vector<std::vector<whiteout::m2::PolytopeShape>>(m, "VectorM2PolytopeShape");
     py::bind_vector<std::vector<whiteout::m2::PrismaticJoint>>(m, "VectorM2PrismaticJoint");
