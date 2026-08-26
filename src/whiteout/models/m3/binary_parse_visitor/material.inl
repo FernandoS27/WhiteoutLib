@@ -258,30 +258,42 @@ void BinaryParseVisitor::visit(LensFlare& value, u32 version) {
     }
 }
 
-void BinaryParseVisitor::visit(MaterialAddData& value, u32 version) {
-    visit(value.keyName);
-    visit(value.keyHash);
+void BinaryParseVisitor::visit(DataDrivenMaterial& value, u32 version) {
+    visit(value.materialName);
+    visit(value.fragmentHashes);
     if (version >= 2) {
-        visit(value.extraHash);
+        visit(value.extraHashes);
     }
-    visit(value.valuePath);
-    visit(value.valueData);
-    for (auto& reservedRef : value.reserved) {
-        reservedRef = readReferenceFunc();
+    visitCharBlob(value.propertyBlob);
+    visit(value.texturePaths);
+
+    // 48 bytes the engine's loader never resolves as references, and that are
+    // zero in all 2582 records of the HotS corpus across every version. Kept out
+    // of the struct; flagged rather than silently dropped if that ever breaks.
+    for (int i = 0; i < 4; ++i) {
+        const Reference reserved = readReferenceFunc();
+        if (reserved.entries != 0 || reserved.index != 0 || reserved.flags != 0) {
+            issues.emplace_back("MADD reserved slot " + std::to_string(i) +
+                                " is non-zero; data dropped");
+        }
     }
-    value.frequency = reader.read<f32>();
-    value.intensity = reader.read<f32>();
-    value.holdTime = reader.read<f32>();
-    value.randomHash = reader.read<u32>();
-    value.animationType = reader.read<u32>();
-    value.padding0 = reader.read<u32>();
-    value.loopCount = reader.read<i32>();
-    value.flags = reader.read<u32>();
-    value.subType = reader.read<u32>();
-    value.configA = reader.read<u32>();
-    value.configB = reader.read<u32>();
+
+    value.unknown108 = reader.read<f32>();
+    value.unknown112 = reader.read<f32>();
+    value.unknown116 = reader.read<f32>();
+    value.effectNameHash = reader.read<u32>();
+    value.unknown124 = reader.read<u32>();
+    value.padding128 = reader.read<u32>();
+    value.unknown132 = reader.read<i32>();
+    value.unknown136 = reader.read<u32>();
+    value.unknown140 = reader.read<u32>();
+    value.unknown144 = reader.read<u32>();
+    value.unknown148 = reader.read<u8>();
+    value.alphaFresnelFlags = reader.read<u8>();
+    value.shaderType = static_cast<MaterialShaderType>(reader.read<u8>());
+    value.unknown151 = reader.read<u8>();
     if (version >= 3) {
-        value.extraId0 = reader.read<u32>();
-        value.extraId1 = reader.read<u32>();
+        value.effectNameHash2 = reader.read<u32>();
+        value.effectNameHash3 = reader.read<u32>();
     }
 }

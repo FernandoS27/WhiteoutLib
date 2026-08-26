@@ -13,7 +13,9 @@ import whiteout.m3.internal.Native;
 /**
  * BBSC — Billboard behavior (v0, 48 bytes)
  * 
- * Makes a bone always face the camera or a specified direction.
+ * Turns one bone to face the camera. The only source of billboarding there is: `BoneFlag::Billboard1/2` are set on no bone in the whole corpus.
+ * 
+ * StarCraft II applies these at draw time, per view, from `sub_10290A890` — `CBBSolver::Solve` is a stub — and writes the bone's *local* rotation, so the subtree follows.
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * BillboardBehavior allocation. Always release them with
@@ -59,7 +61,7 @@ public final class BillboardBehavior implements AutoCloseable {
     }
 
     /**
-     * Dependent bone indices (U16_)
+     * Dependent bone indices (U16_). Empty in every shipped record; the engine never reads them
      * @return the dependents field of this M3BillboardBehavior.
      */
     public int getDependentsCount() {
@@ -94,7 +96,7 @@ public final class BillboardBehavior implements AutoCloseable {
         handle.set(ValueLayout.JAVA_SHORT, 24L, value);
     }
     /**
-     * Billboard mode type
+     * Which axes may turn — see BillboardType
      * @return the billboardType field of this M3BillboardBehavior.
      */
     public byte getBillboardType() {
@@ -104,7 +106,7 @@ public final class BillboardBehavior implements AutoCloseable {
         handle.set(ValueLayout.JAVA_BYTE, 26L, value);
     }
     /**
-     * Camera look-at flag (default: enabled)
+     * Non-zero: aim from this bone at the eye. Zero: aim along the camera's view direction instead, so every such bone shares one orientation
      * @return the cameraLookAt field of this M3BillboardBehavior.
      */
     public byte getCameraLookAt() {
@@ -114,7 +116,7 @@ public final class BillboardBehavior implements AutoCloseable {
         handle.set(ValueLayout.JAVA_BYTE, 27L, value);
     }
     /**
-     * Up direction quaternion
+     * MISNAMED: not a direction. A rotation applied *before* the billboard basis, and only by the axis-locked types 0/1/2
      * @return the up field of this M3BillboardBehavior.
      */
     public Quaternion getUp() {
@@ -128,7 +130,7 @@ public final class BillboardBehavior implements AutoCloseable {
         MemorySegment.copy(Handles.segmentOf(value), 0L, handle, 28L, 16L);
     }
     /**
-     * Forward direction quaternion
+     * MISNAMED likewise: the same kind of pre-rotation, taken only by type 6, and only on a bone whose parent is another bone. Types 3/4/5 take neither
      * @return the forward field of this M3BillboardBehavior.
      */
     public Quaternion getForward() {

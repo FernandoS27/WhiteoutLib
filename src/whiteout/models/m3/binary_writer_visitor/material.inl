@@ -258,31 +258,36 @@ void BinaryWriterVisitor::visit(const LensFlare& flare, u32 version) {
     }
 }
 
-void BinaryWriterVisitor::visit(const MaterialAddData& data, u32 version) {
-    visit(data.keyName);
-    visit(data.keyHash);
+void BinaryWriterVisitor::visit(const DataDrivenMaterial& data, u32 version) {
+    visit(data.materialName);
+    visit(data.fragmentHashes);
     if (version >= 2) {
-        visit(data.extraHash);
+        visit(data.extraHashes);
     }
-    visit(data.valuePath);
-    visit(data.valueData);
-    for (const auto& reservedRef : data.reserved) {
-        Reference ref = reservedRef;
-        writeReferenceFunc(ref);
+    visitCharBlob(data.propertyBlob);
+    visit(data.texturePaths);
+
+    for (int i = 0; i < 4; ++i) {
+        Reference reserved = {};
+        writeReferenceFunc(reserved);
     }
-    writer.write(data.frequency);
-    writer.write(data.intensity);
-    writer.write(data.holdTime);
-    writer.write(data.randomHash);
-    writer.write(data.animationType);
-    writer.write(data.padding0);
-    writer.write(data.loopCount);
-    writer.write(data.flags);
-    writer.write(data.subType);
-    writer.write(data.configA);
-    writer.write(data.configB);
+
+    writer.write(data.unknown108);
+    writer.write(data.unknown112);
+    writer.write(data.unknown116);
+    writer.write(data.effectNameHash);
+    writer.write(data.unknown124);
+    writer.write(data.padding128);
+    writer.write(data.unknown132);
+    writer.write(data.unknown136);
+    writer.write(data.unknown140);
+    writer.write(data.unknown144);
+    writer.write(data.unknown148);
+    writer.write(data.alphaFresnelFlags);
+    writer.write(static_cast<u8>(data.shaderType));
+    writer.write(data.unknown151);
     if (version >= 3) {
-        writer.write(data.extraId0);
-        writer.write(data.extraId1);
+        writer.write(data.effectNameHash2);
+        writer.write(data.effectNameHash3);
     }
 }

@@ -41,7 +41,7 @@ enum class MaterialType : u32 {
     SplatTerrainBake = 9, ///< STBM — Splat terrain bake material
     Reflection = 10,      ///< REF_ — Reflection material
     LensFlare = 11,       ///< LFLR — Lens flare material
-    BufferMaterial = 12,  ///< MADD — Buffer / additional material data
+    DataDriven = 12,      ///< MADD — Data-driven material; what every other type is converted into at load
 };
 
 /** @brief Light source type (LITE) */

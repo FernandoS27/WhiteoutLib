@@ -13,7 +13,7 @@
  * (DIS_), CompositeMaterial (CMP_), TerrainMaterial (TER_), VolumeMaterial
  * (VOL_), HairMaterial (HAI_, defunct), VolumeNoiseMaterial (VON_),
  * CreepMaterial (CREP), STBMaterial (STBM), ReflectionMaterial (REF_),
- * LensFlare (LFLR), and MaterialAddData (MADD).
+ * LensFlare (LFLR), and DataDrivenMaterial (MADD).
  *
  * @see M3_FILE_FORMAT_SPECIFICATION.md §11 Materials
  */
@@ -350,33 +350,150 @@ struct LensFlare {
 };
 
 /**
- * @brief MADD — Material additional data (v0–v3, 140–160 bytes)
+ * @brief Shader family that prefixes a data-driven material's permutation name
  *
- * Buffer-style material extension storing key–value pairs, hashes, and
- * animation parameters. Added in MODL v30.
+ * Selects the base token the renderer seeds the effect-name hash with, before
+ * appending the fragment names.
  */
-struct MaterialAddData {
-    std::string keyName;                ///< Key name (Ref<CHAR>)
-    std::vector<u32> keyHash;           ///< Key hash values (U32_)
-    std::vector<u32> extraHash;         ///< Extra hash values (U32_, v2+)
-    std::string valuePath;              ///< Value file path (Ref<CHAR>)
-    std::vector<std::string> valueData; ///< Value data strings
-    std::array<Reference, 4> reserved;  ///< Reserved references
-    f32 frequency;                      ///< Animation frequency
-    f32 intensity;                      ///< Effect intensity
-    f32 holdTime;                       ///< Hold time duration
-    u32 randomHash;                     ///< Random seed hash
-    u32 animationType;                  ///< Animation type code
-    u32 padding0;                       ///< Alignment padding
-    i32 loopCount;                      ///< Loop count (-1 = infinite)
-    u32 flags;                          ///< Flags
-    u32 subType;                        ///< Sub-type identifier
-    u32 configA;                        ///< Configuration parameter A
-    u32 configB;                        ///< Configuration parameter B
-    u32 extraId0;                       ///< Extra identifier 0 (v3+)
-    u32 extraId1;                       ///< Extra identifier 1 (v3+)
+enum class MaterialShaderType : u8 {
+    Material = 0,         ///< "Material"
+    MaterialMedium = 1,   ///< "MaterialMedium"
+    MaterialSimple = 2,   ///< "MaterialSimple"
+    MaterialParticle = 3, ///< "MaterialParticle"
+    MaterialSplat = 4,    ///< "MaterialSplat"
+};
+
+/**
+ * @brief One decoded property of a data-driven material
+ *
+ * `data` is the raw value; its shape depends on `size`:
+ * 4 = scalar (f32, u32 enum, or BGRA colour — depends on the property),
+ * 8 = `{u32 index into DataDrivenMaterial::texturePaths, u32 texture source}`,
+ * 12 = 3 floats, 16 = 4 floats,
+ * 20 = `{u32 ColorChannelSelect, f32 multiply, f32 add, f32, u16 flags}`,
+ * 32 = `{f32 offsetU/V, tilingU/V, angleU/V/W, u32 flags}`,
+ * 48 = fresnel `{u32 FresnelMode, f32 exponent, min, max, rotation, mask}`.
+ */
+struct DataDrivenProperty {
+    u32 nameHash;        ///< crc32 of the property name
+    std::string name;    ///< Resolved name, empty when the hash is unknown
+    std::vector<u8> data; ///< @bind array_with_view — Raw value bytes
     M3_DEFINE_VERSION_ACCESSORS()
 };
+
+/**
+ * @brief One shader fragment of a data-driven material, with its properties
+ */
+struct DataDrivenGroup {
+    u32 nameHash;                              ///< crc32 of the fragment name
+    std::string name;                          ///< Resolved name, empty when unknown
+    std::vector<DataDrivenProperty> properties; ///< Properties, in stored order
+    M3_DEFINE_VERSION_ACCESSORS()
+};
+
+/**
+ * @brief The decoded contents of DataDrivenMaterial::propertyBlob
+ */
+struct DataDrivenProperties {
+    std::vector<DataDrivenGroup> groups; ///< Fragment groups, in stored order
+    M3_DEFINE_VERSION_ACCESSORS()
+};
+
+/**
+ * @brief Outcome of rebuilding a StandardMaterial from a DataDrivenMaterial
+ *
+ * Not every data-driven material has a standard equivalent: some were authored
+ * directly against the shader-graph vocabulary, and others are the converted
+ * form of a DisplacementMaterial or ReflectionMaterial. `blocker` says which.
+ *
+ * Conversion is lossy even when it succeeds, because the forward direction is:
+ * variant fragments collapse onto one layer slot, several fragments are derived
+ * from the model rather than the material, and per-field animation links are not
+ * carried in the blob. `lossy` lists what was dropped for this material.
+ */
+struct StandardMaterialConversion {
+    bool converted = false;         ///< Whether `material` was produced
+    std::string blocker;            ///< Why not, when `converted` is false
+    std::vector<std::string> lossy; ///< What the standard form cannot represent
+    StandardMaterial material;      ///< Only meaningful when `converted`
+    M3_DEFINE_VERSION_ACCESSORS()
+};
+
+/**
+ * @brief MADD — Data-driven material (v0–v3, 140–160 bytes)
+ *
+ * The engine's own name for this chunk is `SDataDrivenMaterialData`. It is not
+ * "additional" data: at load the renderer converts every StandardMaterial (1),
+ * DisplacementMaterial (2) and ReflectionMaterial (10) in the model into one of
+ * these and rewrites the MaterialMap to MaterialType::DataDriven, so this is the
+ * only material representation the renderer actually consumes.
+ *
+ * `fragmentHashes` names the shader fragments the material links, in order.
+ * Concatenating `shaderType`'s token with those names gives the shader
+ * permutation name, and its crc32 is the effect-cache lookup key.
+ *
+ * `propertyBlob` is a self-describing two-level dictionary keyed by crc32 of
+ * unprefixed names — decode it with decodeProperties().
+ *
+ * @see M3_FILE_FORMAT_SPECIFICATION.md §11 Materials
+ */
+/// @bind methods
+struct DataDrivenMaterial {
+    std::string materialName;              ///< Material name (Ref<CHAR>)
+    std::vector<u32> fragmentHashes;       ///< crc32 of each shader fragment name, in link order (U32_)
+    std::vector<u32> extraHashes;          ///< Secondary hash list (U32_, v2+)
+    std::vector<u8> propertyBlob;          ///< @bind array_with_view — Property dictionary (Ref<CHAR>)
+    std::vector<std::string> texturePaths; ///< Texture paths, indexed by the Tex* properties (SCHR)
+    f32 unknown108;                        ///< 1.0, 1.5 or 2.0 across the corpus
+    f32 unknown112;                        ///< 1.0 in every known record
+    f32 unknown116;
+    u32 effectNameHash;      ///< crc32 of the shader permutation name; 0 = compute it at load
+    u32 unknown124;
+    u32 padding128;          ///< Zero in every known record
+    i32 unknown132;
+    u32 unknown136;          ///< Packed bit field
+    u32 unknown140;
+    u32 unknown144;
+    u8 unknown148;
+    u8 alphaFresnelFlags;    ///< Derived cache the loader recomputes; do not trust over the blob
+    MaterialShaderType shaderType; ///< Shader family prefix for the permutation name
+    u8 unknown151;
+    u32 effectNameHash2;     ///< Second permutation hash, 0xFFFFFFFF = none (v3+)
+    u32 effectNameHash3;     ///< Third permutation hash, 0xFFFFFFFF = none (v3+)
+
+    /** @brief Decode propertyBlob into fragment groups and named properties */
+    DataDrivenProperties decodeProperties() const;
+
+    /**
+     * @brief Rebuild the StandardMaterial this was converted from, where possible
+     *
+     * The engine only converts in the other direction, and does so lossily, so
+     * this reverses what it can and reports the rest. See
+     * StandardMaterialConversion.
+     */
+    StandardMaterialConversion toStandardMaterial() const;
+
+    /**
+     * @brief Best-effort StandardMaterial for a material that has no exact one
+     *
+     * toStandardMaterial() refuses shader-graph materials, which were authored
+     * in the node editor and never had a StandardMaterial form. This infers one
+     * anyway, from the node types, the per-node names in extraHashes, and the
+     * texture filenames. The blob stores nodes but not the edges between them,
+     * so the graph topology cannot be recovered and the result is a likeness,
+     * not a conversion — `lossy` always says so. Materials that are already
+     * fixed-function are forwarded to toStandardMaterial() unchanged.
+     */
+    StandardMaterialConversion approximateStandardMaterial() const;
+
+    M3_DEFINE_VERSION_ACCESSORS()
+};
+
+/**
+ * @brief Look up a MADD property or fragment name by its crc32
+ * @return The name, or nullptr when the hash is not in the recovered table
+ */
+const char* dataDrivenName(u32 hash);
 
 } // namespace m3
 } // namespace whiteout

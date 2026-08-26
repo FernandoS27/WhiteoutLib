@@ -261,12 +261,12 @@ public sealed class Model : WhiteoutHandle
             (h, i) => new LensFlare(NativeMethods.whiteout_m3_M3Model_get_lensFlareMaterials_at(h, i), owned: false));
 
 
-    /// <summary>Buffer material data (MADD, v30+)</summary>
-    public IReadOnlyList<MaterialAddData> MaterialAddData =>
-        new NativeListView<MaterialAddData>(
+    /// <summary>Data-driven materials (MADD, v30+)</summary>
+    public IReadOnlyList<DataDrivenMaterial> DataDrivenMaterials =>
+        new NativeListView<DataDrivenMaterial>(
             DangerousGet(),
-            NativeMethods.whiteout_m3_M3Model_get_materialAddData_count,
-            (h, i) => new MaterialAddData(NativeMethods.whiteout_m3_M3Model_get_materialAddData_at(h, i), owned: false));
+            NativeMethods.whiteout_m3_M3Model_get_dataDrivenMaterials_count,
+            (h, i) => new DataDrivenMaterial(NativeMethods.whiteout_m3_M3Model_get_dataDrivenMaterials_at(h, i), owned: false));
 
 
     /// <summary>Particle emitters (PAR_)</summary>

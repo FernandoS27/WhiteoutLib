@@ -28,8 +28,8 @@ public enum MaterialType {
     Reflection(10),
     /** LFLR — Lens flare material */
     LensFlare(11),
-    /** MADD — Buffer / additional material data */
-    BufferMaterial(12);
+    /** MADD — Data-driven material; what every other type is converted into at load */
+    DataDriven(12);
 
     public final int value;
     MaterialType(int v) { this.value = v; }

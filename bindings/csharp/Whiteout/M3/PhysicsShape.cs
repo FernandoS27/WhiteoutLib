@@ -8,7 +8,7 @@ using Whiteout.M3.Internal;
 
 namespace Whiteout.M3;
 
-/// <summary>PHSH — Physics shape (v0–v3, 132–300 bytes)</summary>
+/// <summary>PHSH — Physics shape (v0–v3, 132/292/300 bytes)</summary>
 public sealed class PhysicsShape : WhiteoutHandle
 {
     public PhysicsShape() : base(NativeMethods.whiteout_m3_M3PhysicsShape_new()) { }

@@ -53,7 +53,7 @@ public sealed class Batch : WhiteoutHandle
     }
 
 
-    /// <summary>Number of bones affecting this batch</summary>
+    /// <summary>Bone whose animated visibility gates this batch's draw (0xFFFF = always drawn). Misnamed — it is a bone index, not a count: the engine's submit loop reads it and skips the batch when that bone is invisible.</summary>
     public ushort BoneCount
     {
         get => NativeMethods.whiteout_m3_M3Batch_get_boneCount(DangerousGet());

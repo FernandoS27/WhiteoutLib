@@ -29,7 +29,7 @@ public sealed class BillboardBehavior : WhiteoutHandle
     }
 
 
-    /// <summary>Billboard mode type</summary>
+    /// <summary>Which axes may turn — see BillboardType</summary>
     public byte BillboardType
     {
         get => NativeMethods.whiteout_m3_M3BillboardBehavior_get_billboardType(DangerousGet());
@@ -37,7 +37,7 @@ public sealed class BillboardBehavior : WhiteoutHandle
     }
 
 
-    /// <summary>Camera look-at flag (default: enabled)</summary>
+    /// <summary>Non-zero: aim from this bone at the eye. Zero: aim along the camera's view direction instead, so every such bone shares one orientation</summary>
     public byte CameraLookAt
     {
         get => NativeMethods.whiteout_m3_M3BillboardBehavior_get_cameraLookAt(DangerousGet());
@@ -45,7 +45,7 @@ public sealed class BillboardBehavior : WhiteoutHandle
     }
 
 
-    /// <summary>Up direction quaternion</summary>
+    /// <summary>MISNAMED: not a direction. A rotation applied *before* the billboard basis, and only by the axis-locked types 0/1/2</summary>
     public unsafe Quaternion Up
     {
         get
@@ -69,7 +69,7 @@ public sealed class BillboardBehavior : WhiteoutHandle
     }
 
 
-    /// <summary>Forward direction quaternion</summary>
+    /// <summary>MISNAMED likewise: the same kind of pre-rotation, taken only by type 6, and only on a bone whose parent is another bone. Types 3/4/5 take neither</summary>
     public unsafe Quaternion Forward
     {
         get

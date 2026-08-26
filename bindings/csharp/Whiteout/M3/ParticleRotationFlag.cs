@@ -8,8 +8,12 @@ namespace Whiteout.M3;
 public enum ParticleRotationFlag : int
 {
     None = 0,
-    /// <summary>Relative rotation</summary>
+    /// <summary>Relative rotation; the SC2 upgrade sets it from rotationRandomEnable (v≤18)</summary>
     Relative = 2,
     /// <summary>Always set</summary>
     AlwaysSet = 4,
+    /// <summary>Force-set by the SC2 version upgrade for all v≤20 emitters (role TBD)</summary>
+    Unknown6 = 64,
+    /// <summary>Set by the SC2 upgrade for remapped Billboard model particles (role TBD)</summary>
+    Unknown7 = 128,
 }

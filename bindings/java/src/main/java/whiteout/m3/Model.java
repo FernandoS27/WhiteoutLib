@@ -15,7 +15,7 @@ import whiteout.m3.internal.Native;
  * 
  * The root of all model data. Contains Ref<T> fields pointing to every sub-chunk in the file: skeleton, mesh, materials, particles, physics, etc. The preamble (bytes 0x000–0x0E3) is identical across all versions; version-dependent material and physics references follow at 0x0E4+.
  * 
- * Version history: - v23 (784 bytes): Base release layout - v24 (+ikCCD): 796 bytes - v25 (+volumeNoiseMaterials): 808 bytes - v26 (+stbMaterials): 820 bytes - v28 (+reflectionMaterials, +clothPhysics): 844 bytes - v29 (+lensFlareMaterials): 856 bytes - v30 (+materialAddData): 868 bytes
+ * Version history: - v23 (784 bytes): Base release layout - v24 (+ikCCD): 796 bytes - v25 (+volumeNoiseMaterials): 808 bytes - v26 (+stbMaterials): 820 bytes - v28 (+reflectionMaterials, +clothPhysics): 844 bytes - v29 (+lensFlareMaterials): 856 bytes - v30 (+dataDrivenMaterials): 868 bytes
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * Model allocation. Always release them with
@@ -745,23 +745,23 @@ public final class Model implements AutoCloseable {
         };
     }
     /**
-     * Buffer material data (MADD, v30+)
-     * @return the materialAddData field of this M3Model.
+     * Data-driven materials (MADD, v30+)
+     * @return the dataDrivenMaterials field of this M3Model.
      */
-    public int getMaterialAddDataCount() {
-        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_materialAddData_count, handle);
+    public int getDataDrivenMaterialsCount() {
+        return (int) (long) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_dataDrivenMaterials_count, handle);
     }
-    public MaterialAddData getMaterialAddDataAt(int index) {
-        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_materialAddData_at, handle, (long) index);
-        return new MaterialAddData(__h, false);
+    public DataDrivenMaterial getDataDrivenMaterialsAt(int index) {
+        MemorySegment __h = (MemorySegment) NativeCommon.invokeNative(Native.whiteout_m3_M3Model_get_dataDrivenMaterials_at, handle, (long) index);
+        return new DataDrivenMaterial(__h, false);
     }
-    public void resizeMaterialAddData(int count) {
-        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_materialAddData, handle, (long) count);
+    public void resizeDataDrivenMaterials(int count) {
+        NativeCommon.invokeNative(Native.whiteout_m3_M3Model_resize_dataDrivenMaterials, handle, (long) count);
     }
-    public java.util.List<MaterialAddData> materialAddDataView() {
-        return new java.util.AbstractList<MaterialAddData>() {
-            @Override public int size() { return getMaterialAddDataCount(); }
-            @Override public MaterialAddData get(int index) { return getMaterialAddDataAt(index); }
+    public java.util.List<DataDrivenMaterial> dataDrivenMaterialsView() {
+        return new java.util.AbstractList<DataDrivenMaterial>() {
+            @Override public int size() { return getDataDrivenMaterialsCount(); }
+            @Override public DataDrivenMaterial get(int index) { return getDataDrivenMaterialsAt(index); }
         };
     }
     /**

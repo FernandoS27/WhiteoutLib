@@ -2192,114 +2192,229 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial IntPtr whiteout_m3_M3MaterialAddData_new();
+    internal static partial IntPtr whiteout_m3_M3DataDrivenProperty_new();
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3MaterialAddData_delete(IntPtr self);
+    internal static partial void whiteout_m3_M3DataDrivenProperty_delete(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial Whiteout.Common.NativeCString whiteout_m3_M3MaterialAddData_get_keyName(IntPtr self);
+    internal static partial uint whiteout_m3_M3DataDrivenProperty_get_nameHash(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3MaterialAddData_set_keyName(IntPtr self, [MarshalAs(UnmanagedType.LPUTF8Str)] string value);
-
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial Whiteout.Common.NativeCString whiteout_m3_M3MaterialAddData_get_valuePath(IntPtr self);
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3MaterialAddData_set_valuePath(IntPtr self, [MarshalAs(UnmanagedType.LPUTF8Str)] string value);
+    internal static partial void whiteout_m3_M3DataDrivenProperty_set_nameHash(IntPtr self, uint value);
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial float whiteout_m3_M3MaterialAddData_get_frequency(IntPtr self);
+    internal static partial Whiteout.Common.NativeCString whiteout_m3_M3DataDrivenProperty_get_name(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3MaterialAddData_set_frequency(IntPtr self, float value);
-
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial float whiteout_m3_M3MaterialAddData_get_intensity(IntPtr self);
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3MaterialAddData_set_intensity(IntPtr self, float value);
+    internal static partial void whiteout_m3_M3DataDrivenProperty_set_name(IntPtr self, [MarshalAs(UnmanagedType.LPUTF8Str)] string value);
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial float whiteout_m3_M3MaterialAddData_get_holdTime(IntPtr self);
+    internal static partial IntPtr whiteout_m3_M3DataDrivenGroup_new();
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3MaterialAddData_set_holdTime(IntPtr self, float value);
-
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial uint whiteout_m3_M3MaterialAddData_get_randomHash(IntPtr self);
+    internal static partial void whiteout_m3_M3DataDrivenGroup_delete(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3MaterialAddData_set_randomHash(IntPtr self, uint value);
-
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial uint whiteout_m3_M3MaterialAddData_get_animationType(IntPtr self);
+    internal static partial uint whiteout_m3_M3DataDrivenGroup_get_nameHash(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3MaterialAddData_set_animationType(IntPtr self, uint value);
+    internal static partial void whiteout_m3_M3DataDrivenGroup_set_nameHash(IntPtr self, uint value);
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial uint whiteout_m3_M3MaterialAddData_get_padding0(IntPtr self);
+    internal static partial Whiteout.Common.NativeCString whiteout_m3_M3DataDrivenGroup_get_name(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3MaterialAddData_set_padding0(IntPtr self, uint value);
-
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial int whiteout_m3_M3MaterialAddData_get_loopCount(IntPtr self);
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3MaterialAddData_set_loopCount(IntPtr self, int value);
+    internal static partial void whiteout_m3_M3DataDrivenGroup_set_name(IntPtr self, [MarshalAs(UnmanagedType.LPUTF8Str)] string value);
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial uint whiteout_m3_M3MaterialAddData_get_flags(IntPtr self);
+    internal static partial nuint whiteout_m3_M3DataDrivenGroup_get_properties_count(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3MaterialAddData_set_flags(IntPtr self, uint value);
-
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial uint whiteout_m3_M3MaterialAddData_get_subType(IntPtr self);
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3MaterialAddData_set_subType(IntPtr self, uint value);
+    internal static partial IntPtr whiteout_m3_M3DataDrivenGroup_get_properties_at(IntPtr self, nuint index);
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial uint whiteout_m3_M3MaterialAddData_get_configA(IntPtr self);
+    internal static partial IntPtr whiteout_m3_M3DataDrivenProperties_new();
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3MaterialAddData_set_configA(IntPtr self, uint value);
-
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial uint whiteout_m3_M3MaterialAddData_get_configB(IntPtr self);
+    internal static partial void whiteout_m3_M3DataDrivenProperties_delete(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3MaterialAddData_set_configB(IntPtr self, uint value);
-
-
-    [LibraryImport(Runtime.LibraryName)]
-    internal static partial uint whiteout_m3_M3MaterialAddData_get_extraId0(IntPtr self);
+    internal static partial nuint whiteout_m3_M3DataDrivenProperties_get_groups_count(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3MaterialAddData_set_extraId0(IntPtr self, uint value);
+    internal static partial IntPtr whiteout_m3_M3DataDrivenProperties_get_groups_at(IntPtr self, nuint index);
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial uint whiteout_m3_M3MaterialAddData_get_extraId1(IntPtr self);
+    internal static partial IntPtr whiteout_m3_M3StandardMaterialConversion_new();
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial void whiteout_m3_M3MaterialAddData_set_extraId1(IntPtr self, uint value);
+    internal static partial void whiteout_m3_M3StandardMaterialConversion_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial int whiteout_m3_M3StandardMaterialConversion_get_converted(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3StandardMaterialConversion_set_converted(IntPtr self, int value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial Whiteout.Common.NativeCString whiteout_m3_M3StandardMaterialConversion_get_blocker(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3StandardMaterialConversion_set_blocker(IntPtr self, [MarshalAs(UnmanagedType.LPUTF8Str)] string value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m3_M3DataDrivenMaterial_new();
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3DataDrivenMaterial_delete(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial Whiteout.Common.NativeCString whiteout_m3_M3DataDrivenMaterial_get_materialName(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3DataDrivenMaterial_set_materialName(IntPtr self, [MarshalAs(UnmanagedType.LPUTF8Str)] string value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m3_M3DataDrivenMaterial_get_unknown108(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3DataDrivenMaterial_set_unknown108(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m3_M3DataDrivenMaterial_get_unknown112(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3DataDrivenMaterial_set_unknown112(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial float whiteout_m3_M3DataDrivenMaterial_get_unknown116(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3DataDrivenMaterial_set_unknown116(IntPtr self, float value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m3_M3DataDrivenMaterial_get_effectNameHash(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3DataDrivenMaterial_set_effectNameHash(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m3_M3DataDrivenMaterial_get_unknown124(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3DataDrivenMaterial_set_unknown124(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m3_M3DataDrivenMaterial_get_padding128(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3DataDrivenMaterial_set_padding128(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial int whiteout_m3_M3DataDrivenMaterial_get_unknown132(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3DataDrivenMaterial_set_unknown132(IntPtr self, int value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m3_M3DataDrivenMaterial_get_unknown136(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3DataDrivenMaterial_set_unknown136(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m3_M3DataDrivenMaterial_get_unknown140(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3DataDrivenMaterial_set_unknown140(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m3_M3DataDrivenMaterial_get_unknown144(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3DataDrivenMaterial_set_unknown144(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial byte whiteout_m3_M3DataDrivenMaterial_get_unknown148(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3DataDrivenMaterial_set_unknown148(IntPtr self, byte value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial byte whiteout_m3_M3DataDrivenMaterial_get_alphaFresnelFlags(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3DataDrivenMaterial_set_alphaFresnelFlags(IntPtr self, byte value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial int whiteout_m3_M3DataDrivenMaterial_get_shaderType(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3DataDrivenMaterial_set_shaderType(IntPtr self, int value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial byte whiteout_m3_M3DataDrivenMaterial_get_unknown151(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3DataDrivenMaterial_set_unknown151(IntPtr self, byte value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m3_M3DataDrivenMaterial_get_effectNameHash2(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3DataDrivenMaterial_set_effectNameHash2(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial uint whiteout_m3_M3DataDrivenMaterial_get_effectNameHash3(IntPtr self);
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial void whiteout_m3_M3DataDrivenMaterial_set_effectNameHash3(IntPtr self, uint value);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m3_M3DataDrivenMaterial_decodeProperties(IntPtr self);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m3_M3DataDrivenMaterial_toStandardMaterial(IntPtr self);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial IntPtr whiteout_m3_M3DataDrivenMaterial_approximateStandardMaterial(IntPtr self);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    internal static partial int whiteout_m3_M3DataDrivenMaterial_getVersion(IntPtr self);
+
+
+    [LibraryImport(Runtime.LibraryName)]
+    [return: MarshalAs(UnmanagedType.I4)]
+    internal static partial int whiteout_m3_M3DataDrivenMaterial_setVersion(IntPtr self, int newVersion);
 
 
     [LibraryImport(Runtime.LibraryName)]
@@ -4284,10 +4399,10 @@ internal static partial class NativeMethods
 
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial nuint whiteout_m3_M3Model_get_materialAddData_count(IntPtr self);
+    internal static partial nuint whiteout_m3_M3Model_get_dataDrivenMaterials_count(IntPtr self);
 
     [LibraryImport(Runtime.LibraryName)]
-    internal static partial IntPtr whiteout_m3_M3Model_get_materialAddData_at(IntPtr self, nuint index);
+    internal static partial IntPtr whiteout_m3_M3Model_get_dataDrivenMaterials_at(IntPtr self, nuint index);
 
 
     [LibraryImport(Runtime.LibraryName)]

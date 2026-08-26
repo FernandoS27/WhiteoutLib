@@ -83,7 +83,7 @@ EMSCRIPTEN_BINDINGS(m3) {
         .value("SplatTerrainBake", whiteout::m3::MaterialType::SplatTerrainBake)
         .value("Reflection", whiteout::m3::MaterialType::Reflection)
         .value("LensFlare", whiteout::m3::MaterialType::LensFlare)
-        .value("BufferMaterial", whiteout::m3::MaterialType::BufferMaterial);
+        .value("DataDriven", whiteout::m3::MaterialType::DataDriven);
 
     enum_<whiteout::m3::LightType>("M3LightType")
         .value("Omni", whiteout::m3::LightType::Omni)
@@ -188,6 +188,15 @@ EMSCRIPTEN_BINDINGS(m3) {
         .value("AlwaysGlobal", whiteout::m3::SequenceFlag::AlwaysGlobal)
         .value("Unknown0x4", whiteout::m3::SequenceFlag::Unknown0x4)
         .value("GlobalInPreviewer", whiteout::m3::SequenceFlag::GlobalInPreviewer);
+
+    enum_<whiteout::m3::BillboardType>("M3BillboardType")
+        .value("LockWorldX", whiteout::m3::BillboardType::LockWorldX)
+        .value("LockWorldY", whiteout::m3::BillboardType::LockWorldY)
+        .value("LockWorldZ", whiteout::m3::BillboardType::LockWorldZ)
+        .value("LockBoneX", whiteout::m3::BillboardType::LockBoneX)
+        .value("Disabled", whiteout::m3::BillboardType::Disabled)
+        .value("LockBoneY", whiteout::m3::BillboardType::LockBoneY)
+        .value("Full", whiteout::m3::BillboardType::Full);
 
     enum_<whiteout::m3::BoneFlag>("M3BoneFlag")
         .value("None", whiteout::m3::BoneFlag::None)
@@ -399,7 +408,9 @@ EMSCRIPTEN_BINDINGS(m3) {
     enum_<whiteout::m3::ParticleRotationFlag>("M3ParticleRotationFlag")
         .value("None", whiteout::m3::ParticleRotationFlag::None)
         .value("Relative", whiteout::m3::ParticleRotationFlag::Relative)
-        .value("AlwaysSet", whiteout::m3::ParticleRotationFlag::AlwaysSet);
+        .value("AlwaysSet", whiteout::m3::ParticleRotationFlag::AlwaysSet)
+        .value("Unknown6", whiteout::m3::ParticleRotationFlag::Unknown6)
+        .value("Unknown7", whiteout::m3::ParticleRotationFlag::Unknown7);
 
     enum_<whiteout::m3::RibbonFlag>("M3RibbonFlag")
         .value("None", whiteout::m3::RibbonFlag::None)
@@ -450,6 +461,13 @@ EMSCRIPTEN_BINDINGS(m3) {
         .value("Unknown6", whiteout::m3::RigidBodyFlag::Unknown6)
         .value("NoSimulation", whiteout::m3::RigidBodyFlag::NoSimulation)
         .value("Unknown9", whiteout::m3::RigidBodyFlag::Unknown9);
+
+    enum_<whiteout::m3::MaterialShaderType>("M3MaterialShaderType")
+        .value("Material", whiteout::m3::MaterialShaderType::Material)
+        .value("MaterialMedium", whiteout::m3::MaterialShaderType::MaterialMedium)
+        .value("MaterialSimple", whiteout::m3::MaterialShaderType::MaterialSimple)
+        .value("MaterialParticle", whiteout::m3::MaterialShaderType::MaterialParticle)
+        .value("MaterialSplat", whiteout::m3::MaterialShaderType::MaterialSplat);
 
     // ── Value-object types (plain JS objects) ────────────────────────────
     value_object<whiteout::m3::Extent>("M3Extent")
@@ -1053,30 +1071,69 @@ EMSCRIPTEN_BINDINGS(m3) {
         .property("size", &whiteout::m3::LensFlare::size)
     ;
 
-    class_<whiteout::m3::MaterialAddData>("M3MaterialAddData")
+    class_<whiteout::m3::DataDrivenProperty>("M3DataDrivenProperty")
         .constructor<>()
-        .property("keyName", &whiteout::m3::MaterialAddData::keyName)
-        .property("keyHash", &whiteout::m3::MaterialAddData::keyHash)
-        .property("extraHash", &whiteout::m3::MaterialAddData::extraHash)
-        .property("valuePath", &whiteout::m3::MaterialAddData::valuePath)
-        .property("valueData", &whiteout::m3::MaterialAddData::valueData)
-        .property("frequency", &whiteout::m3::MaterialAddData::frequency)
-        .property("intensity", &whiteout::m3::MaterialAddData::intensity)
-        .property("holdTime", &whiteout::m3::MaterialAddData::holdTime)
-        .property("randomHash", &whiteout::m3::MaterialAddData::randomHash)
-        .property("animationType", &whiteout::m3::MaterialAddData::animationType)
-        .property("padding0", &whiteout::m3::MaterialAddData::padding0)
-        .property("loopCount", &whiteout::m3::MaterialAddData::loopCount)
-        .property("flags", &whiteout::m3::MaterialAddData::flags)
-        .property("subType", &whiteout::m3::MaterialAddData::subType)
-        .property("configA", &whiteout::m3::MaterialAddData::configA)
-        .property("configB", &whiteout::m3::MaterialAddData::configB)
-        .property("extraId0", &whiteout::m3::MaterialAddData::extraId0)
-        .property("extraId1", &whiteout::m3::MaterialAddData::extraId1)
-        .function("getReserved",
-                  optional_override([](const whiteout::m3::MaterialAddData& self) { return arrayToVec(self.reserved); }))
-        .function("setReserved",
-                  optional_override([](    whiteout::m3::MaterialAddData& self, const std::vector<whiteout::m3::Reference>& v) { vecToArray(self.reserved, v); }));
+        .property("nameHash", &whiteout::m3::DataDrivenProperty::nameHash)
+        .property("name", &whiteout::m3::DataDrivenProperty::name)
+        .property("data", &whiteout::m3::DataDrivenProperty::data)
+        .function("dataView",
+                  optional_override([](const whiteout::m3::DataDrivenProperty& self) {
+                      return val(typed_memory_view(self.data.size(), self.data.data()));
+                  }))
+    ;
+
+    class_<whiteout::m3::DataDrivenGroup>("M3DataDrivenGroup")
+        .constructor<>()
+        .property("nameHash", &whiteout::m3::DataDrivenGroup::nameHash)
+        .property("name", &whiteout::m3::DataDrivenGroup::name)
+        .property("properties", &whiteout::m3::DataDrivenGroup::properties)
+    ;
+
+    class_<whiteout::m3::DataDrivenProperties>("M3DataDrivenProperties")
+        .constructor<>()
+        .property("groups", &whiteout::m3::DataDrivenProperties::groups)
+    ;
+
+    class_<whiteout::m3::StandardMaterialConversion>("M3StandardMaterialConversion")
+        .constructor<>()
+        .property("converted", &whiteout::m3::StandardMaterialConversion::converted)
+        .property("blocker", &whiteout::m3::StandardMaterialConversion::blocker)
+        .property("lossy", &whiteout::m3::StandardMaterialConversion::lossy)
+        .property("material", &whiteout::m3::StandardMaterialConversion::material)
+    ;
+
+    class_<whiteout::m3::DataDrivenMaterial>("M3DataDrivenMaterial")
+        .constructor<>()
+        .property("materialName", &whiteout::m3::DataDrivenMaterial::materialName)
+        .property("fragmentHashes", &whiteout::m3::DataDrivenMaterial::fragmentHashes)
+        .property("extraHashes", &whiteout::m3::DataDrivenMaterial::extraHashes)
+        .property("propertyBlob", &whiteout::m3::DataDrivenMaterial::propertyBlob)
+        .function("propertyBlobView",
+                  optional_override([](const whiteout::m3::DataDrivenMaterial& self) {
+                      return val(typed_memory_view(self.propertyBlob.size(), self.propertyBlob.data()));
+                  }))
+        .property("texturePaths", &whiteout::m3::DataDrivenMaterial::texturePaths)
+        .property("unknown108", &whiteout::m3::DataDrivenMaterial::unknown108)
+        .property("unknown112", &whiteout::m3::DataDrivenMaterial::unknown112)
+        .property("unknown116", &whiteout::m3::DataDrivenMaterial::unknown116)
+        .property("effectNameHash", &whiteout::m3::DataDrivenMaterial::effectNameHash)
+        .property("unknown124", &whiteout::m3::DataDrivenMaterial::unknown124)
+        .property("padding128", &whiteout::m3::DataDrivenMaterial::padding128)
+        .property("unknown132", &whiteout::m3::DataDrivenMaterial::unknown132)
+        .property("unknown136", &whiteout::m3::DataDrivenMaterial::unknown136)
+        .property("unknown140", &whiteout::m3::DataDrivenMaterial::unknown140)
+        .property("unknown144", &whiteout::m3::DataDrivenMaterial::unknown144)
+        .property("unknown148", &whiteout::m3::DataDrivenMaterial::unknown148)
+        .property("alphaFresnelFlags", &whiteout::m3::DataDrivenMaterial::alphaFresnelFlags)
+        .property("shaderType", &whiteout::m3::DataDrivenMaterial::shaderType)
+        .property("unknown151", &whiteout::m3::DataDrivenMaterial::unknown151)
+        .property("effectNameHash2", &whiteout::m3::DataDrivenMaterial::effectNameHash2)
+        .property("effectNameHash3", &whiteout::m3::DataDrivenMaterial::effectNameHash3)
+        .function("decodeProperties", &whiteout::m3::DataDrivenMaterial::decodeProperties)
+        .function("toStandardMaterial", &whiteout::m3::DataDrivenMaterial::toStandardMaterial)
+        .function("approximateStandardMaterial", &whiteout::m3::DataDrivenMaterial::approximateStandardMaterial)
+        .function("getVersion", &whiteout::m3::DataDrivenMaterial::getVersion)
+        .function("setVersion", &whiteout::m3::DataDrivenMaterial::setVersion)
     ;
 
     class_<whiteout::m3::Bone>("M3Bone")
@@ -1533,7 +1590,7 @@ EMSCRIPTEN_BINDINGS(m3) {
         .property("stbMaterials", &whiteout::m3::Model::stbMaterials)
         .property("reflectionMaterials", &whiteout::m3::Model::reflectionMaterials)
         .property("lensFlareMaterials", &whiteout::m3::Model::lensFlareMaterials)
-        .property("materialAddData", &whiteout::m3::Model::materialAddData)
+        .property("dataDrivenMaterials", &whiteout::m3::Model::dataDrivenMaterials)
         .property("particleEmitters", &whiteout::m3::Model::particleEmitters)
         .property("particleEmitterCopies", &whiteout::m3::Model::particleEmitterCopies)
         .property("ribbonEmitters", &whiteout::m3::Model::ribbonEmitters)
@@ -1693,6 +1750,9 @@ EMSCRIPTEN_BINDINGS(m3) {
     register_vector<whiteout::m3::CompositeSection>("VectorM3CompositeSection");
     register_vector<whiteout::m3::ConvexHullHalfEdge>("VectorM3ConvexHullHalfEdge");
     register_vector<whiteout::m3::CreepMaterial>("VectorM3CreepMaterial");
+    register_vector<whiteout::m3::DataDrivenGroup>("VectorM3DataDrivenGroup");
+    register_vector<whiteout::m3::DataDrivenMaterial>("VectorM3DataDrivenMaterial");
+    register_vector<whiteout::m3::DataDrivenProperty>("VectorM3DataDrivenProperty");
     register_vector<whiteout::m3::DisplacementMaterial>("VectorM3DisplacementMaterial");
     register_vector<whiteout::m3::Force>("VectorM3Force");
     register_vector<whiteout::m3::HairMaterial>("VectorM3HairMaterial");
@@ -1703,7 +1763,6 @@ EMSCRIPTEN_BINDINGS(m3) {
     register_vector<whiteout::m3::InitialReference>("VectorM3InitialReference");
     register_vector<whiteout::m3::LensFlare>("VectorM3LensFlare");
     register_vector<whiteout::m3::Light>("VectorM3Light");
-    register_vector<whiteout::m3::MaterialAddData>("VectorM3MaterialAddData");
     register_vector<whiteout::m3::MaterialMap>("VectorM3MaterialMap");
     register_vector<whiteout::m3::MeshDivision>("VectorM3MeshDivision");
     register_vector<whiteout::m3::MeshSection>("VectorM3MeshSection");

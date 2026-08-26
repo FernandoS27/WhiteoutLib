@@ -104,7 +104,7 @@ public final class IKJoint implements AutoCloseable {
         handle.set(ValueLayout.JAVA_SHORT, 26L, value);
     }
     /**
-     * Raycast upward distance
+     * Raycast upward distance (positive; shipped 1.5 / 3.0)
      * @return the raycastUp field of this M3IKJoint.
      */
     public float getRaycastUp() {
@@ -114,7 +114,7 @@ public final class IKJoint implements AutoCloseable {
         handle.set(ValueLayout.JAVA_FLOAT, 28L, value);
     }
     /**
-     * Raycast downward distance
+     * Raycast downward offset, SIGNED (shipped -4.0 / -3.0): the surface window is [z + raycastDown, z + raycastUp]
      * @return the raycastDown field of this M3IKJoint.
      */
     public float getRaycastDown() {

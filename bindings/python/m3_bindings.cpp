@@ -61,6 +61,9 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::CompositeMaterial>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::CompositeSection>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::ConvexHullHalfEdge>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::CreepMaterial>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::DataDrivenGroup>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::DataDrivenMaterial>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::DataDrivenProperty>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::DisplacementMaterial>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::Force>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::HairMaterial>);
@@ -71,7 +74,6 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::IKTwoJoint>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::InitialReference>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::LensFlare>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::Light>);
-PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::MaterialAddData>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::MaterialMap>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::MeshDivision>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::m3::MeshSection>);
@@ -193,7 +195,7 @@ These bitmask flags control the per-vertex data layout in the U8__ vertex blob. 
         .value("SPLAT_TERRAIN_BAKE", whiteout::m3::MaterialType::SplatTerrainBake, R"doc(STBM — Splat terrain bake material)doc")
         .value("REFLECTION", whiteout::m3::MaterialType::Reflection, R"doc(REF_ — Reflection material)doc")
         .value("LENS_FLARE", whiteout::m3::MaterialType::LensFlare, R"doc(LFLR — Lens flare material)doc")
-        .value("BUFFER_MATERIAL", whiteout::m3::MaterialType::BufferMaterial, R"doc(MADD — Buffer / additional material data)doc")
+        .value("DATA_DRIVEN", whiteout::m3::MaterialType::DataDriven, R"doc(MADD — Data-driven material; what every other type is converted into at load)doc")
     ;
 
     py::enum_<whiteout::m3::LightType>(m, "LightType", R"doc(Light source type (LITE))doc")
@@ -315,13 +317,25 @@ Maps to RibbonParticleCommon.fx constants. Used by PAR_ colorSmoothing / sizeSmo
         .value("GLOBAL_IN_PREVIEWER", whiteout::m3::SequenceFlag::GlobalInPreviewer, R"doc(Global playback in editor)doc")
     ;
 
-    py::enum_<whiteout::m3::BoneFlag>(m, "BoneFlag", R"doc(Bone flags (BONE.flags) — inheritance, billboard, IK, skin)doc")
+    py::enum_<whiteout::m3::BillboardType>(m, "BillboardType", R"doc(BBSC.billboardType — which axes a billboarded bone may turn about.
+
+Recovered from `CBBSolver::ApplyBillboard` (SC2 `0x1027F1F30`). The aim direction points *away* from the eye, so "aims at" below means the named axis lies along it and its negation points back at the camera.)doc")
+        .value("LOCK_WORLD_X", whiteout::m3::BillboardType::LockWorldX, R"doc(Turns about world X; local +Y aims along the direction)doc")
+        .value("LOCK_WORLD_Y", whiteout::m3::BillboardType::LockWorldY, R"doc(Turns about world Y; local +X aims (Y is the locked one))doc")
+        .value("LOCK_WORLD_Z", whiteout::m3::BillboardType::LockWorldZ, R"doc(Turns about world Z; local +Y aims. The upright poster)doc")
+        .value("LOCK_BONE_X", whiteout::m3::BillboardType::LockBoneX, R"doc(Turns about the bone's own world X; local +Z faces the camera)doc")
+        .value("DISABLED", whiteout::m3::BillboardType::Disabled, R"doc(Parsed and instantiated, never applied)doc")
+        .value("LOCK_BONE_Y", whiteout::m3::BillboardType::LockBoneY, R"doc(The bone's own world Y becomes local Z; local +Y faces the camera)doc")
+        .value("FULL", whiteout::m3::BillboardType::Full, R"doc(Free; local +Y aims, and the camera's up axis sets the roll)doc")
+    ;
+
+    py::enum_<whiteout::m3::BoneFlag>(m, "BoneFlag", R"doc(Bone flags (BONE.flags) — inheritance, IK, skin)doc")
         .value("NONE", whiteout::m3::BoneFlag::None)
         .value("INHERIT_TRANSLATION", whiteout::m3::BoneFlag::InheritTranslation, R"doc(Inherit parent translation)doc")
         .value("INHERIT_SCALE", whiteout::m3::BoneFlag::InheritScale, R"doc(Inherit parent scale)doc")
         .value("INHERIT_ROTATION", whiteout::m3::BoneFlag::InheritRotation, R"doc(Inherit parent rotation)doc")
-        .value("BILLBOARD1", whiteout::m3::BoneFlag::Billboard1, R"doc(Billboard mode 1)doc")
-        .value("BILLBOARD2", whiteout::m3::BoneFlag::Billboard2, R"doc(Billboard mode 2)doc")
+        .value("BILLBOARD1", whiteout::m3::BoneFlag::Billboard1, R"doc(Unused: set on no bone in 51469 corpus files)doc")
+        .value("BILLBOARD2", whiteout::m3::BoneFlag::Billboard2, R"doc(Unused: likewise. Billboarding comes from BBSC)doc")
         .value("PROJECT2_D", whiteout::m3::BoneFlag::Project2D, R"doc(2D projection mode)doc")
         .value("ANIMATED", whiteout::m3::BoneFlag::Animated, R"doc(Has animation data)doc")
         .value("INVERSE_KINEMATICS", whiteout::m3::BoneFlag::InverseKinematics, R"doc(IK bone)doc")
@@ -543,8 +557,10 @@ Maps to RibbonParticleCommon.fx constants. Used by PAR_ colorSmoothing / sizeSmo
 
     py::enum_<whiteout::m3::ParticleRotationFlag>(m, "ParticleRotationFlag", R"doc(Particle rotation flags (PAR_.rotationFlags, v18+))doc")
         .value("NONE", whiteout::m3::ParticleRotationFlag::None)
-        .value("RELATIVE", whiteout::m3::ParticleRotationFlag::Relative, R"doc(Relative rotation)doc")
+        .value("RELATIVE", whiteout::m3::ParticleRotationFlag::Relative, R"doc(Relative rotation; the SC2 upgrade sets it from rotationRandomEnable (v≤18))doc")
         .value("ALWAYS_SET", whiteout::m3::ParticleRotationFlag::AlwaysSet, R"doc(Always set)doc")
+        .value("UNKNOWN6", whiteout::m3::ParticleRotationFlag::Unknown6, R"doc(Force-set by the SC2 version upgrade for all v≤20 emitters (role TBD))doc")
+        .value("UNKNOWN7", whiteout::m3::ParticleRotationFlag::Unknown7, R"doc(Set by the SC2 upgrade for remapped Billboard model particles (role TBD))doc")
     ;
 
     py::enum_<whiteout::m3::RibbonFlag>(m, "RibbonFlag", R"doc(Ribbon emitter main flags (RIB_.flags))doc")
@@ -600,6 +616,16 @@ Maps to RibbonParticleCommon.fx constants. Used by PAR_ colorSmoothing / sizeSmo
         .value("UNKNOWN6", whiteout::m3::RigidBodyFlag::Unknown6, R"doc(Unknown)doc")
         .value("NO_SIMULATION", whiteout::m3::RigidBodyFlag::NoSimulation, R"doc(Disable simulation)doc")
         .value("UNKNOWN9", whiteout::m3::RigidBodyFlag::Unknown9, R"doc(Unknown)doc")
+    ;
+
+    py::enum_<whiteout::m3::MaterialShaderType>(m, "MaterialShaderType", R"doc(Shader family that prefixes a data-driven material's permutation name
+
+Selects the base token the renderer seeds the effect-name hash with, before appending the fragment names.)doc")
+        .value("MATERIAL", whiteout::m3::MaterialShaderType::Material, R"doc("Material")doc")
+        .value("MATERIAL_MEDIUM", whiteout::m3::MaterialShaderType::MaterialMedium, R"doc("MaterialMedium")doc")
+        .value("MATERIAL_SIMPLE", whiteout::m3::MaterialShaderType::MaterialSimple, R"doc("MaterialSimple")doc")
+        .value("MATERIAL_PARTICLE", whiteout::m3::MaterialShaderType::MaterialParticle, R"doc("MaterialParticle")doc")
+        .value("MATERIAL_SPLAT", whiteout::m3::MaterialShaderType::MaterialSplat, R"doc("MaterialSplat")doc")
     ;
 
     py::class_<whiteout::m3::Extent>(m, "Extent", R"doc(Axis-aligned bounding box with bounding sphere radius (28 bytes)
@@ -1266,39 +1292,91 @@ Lens flare effect with animated intensity, color, HDR, size, sub-flare elements,
         .def_readwrite("size", &whiteout::m3::LensFlare::size, R"doc(Animated size)doc")
     ;
 
-    py::class_<whiteout::m3::MaterialAddData>(m, "MaterialAddData", R"doc(MADD — Material additional data (v0–v3, 140–160 bytes)
+    py::class_<whiteout::m3::DataDrivenProperty>(m, "DataDrivenProperty", R"doc(One decoded property of a data-driven material
 
-Buffer-style material extension storing key–value pairs, hashes, and animation parameters. Added in MODL v30.)doc")
+`data` is the raw value; its shape depends on `size`: 4 = scalar (f32, u32 enum, or BGRA colour — depends on the property), 8 = `{u32 index into DataDrivenMaterial::texturePaths, u32 texture source}`, 12 = 3 floats, 16 = 4 floats, 20 = `{u32 ColorChannelSelect, f32 multiply, f32 add, f32, u16 flags}`, 32 = `{f32 offsetU/V, tilingU/V, angleU/V/W, u32 flags}`, 48 = fresnel `{u32 FresnelMode, f32 exponent, min, max, rotation, mask}`.)doc")
         .def(py::init<>())
-        .def_readwrite("key_name", &whiteout::m3::MaterialAddData::keyName, R"doc(Key name (Ref<CHAR>))doc")
-        .def_readwrite("key_hash", &whiteout::m3::MaterialAddData::keyHash, R"doc(Key hash values (U32_))doc")
-        .def_readwrite("extra_hash", &whiteout::m3::MaterialAddData::extraHash, R"doc(Extra hash values (U32_, v2+))doc")
-        .def_readwrite("value_path", &whiteout::m3::MaterialAddData::valuePath, R"doc(Value file path (Ref<CHAR>))doc")
-        .def_readwrite("value_data", &whiteout::m3::MaterialAddData::valueData, R"doc(Value data strings)doc")
-        .def_readwrite("frequency", &whiteout::m3::MaterialAddData::frequency, R"doc(Animation frequency)doc")
-        .def_readwrite("intensity", &whiteout::m3::MaterialAddData::intensity, R"doc(Effect intensity)doc")
-        .def_readwrite("hold_time", &whiteout::m3::MaterialAddData::holdTime, R"doc(Hold time duration)doc")
-        .def_readwrite("random_hash", &whiteout::m3::MaterialAddData::randomHash, R"doc(Random seed hash)doc")
-        .def_readwrite("animation_type", &whiteout::m3::MaterialAddData::animationType, R"doc(Animation type code)doc")
-        .def_readwrite("padding0", &whiteout::m3::MaterialAddData::padding0, R"doc(Alignment padding)doc")
-        .def_readwrite("loop_count", &whiteout::m3::MaterialAddData::loopCount, R"doc(Loop count (-1 = infinite))doc")
-        .def_readwrite("flags", &whiteout::m3::MaterialAddData::flags, R"doc(Flags)doc")
-        .def_readwrite("sub_type", &whiteout::m3::MaterialAddData::subType, R"doc(Sub-type identifier)doc")
-        .def_readwrite("config_a", &whiteout::m3::MaterialAddData::configA, R"doc(Configuration parameter A)doc")
-        .def_readwrite("config_b", &whiteout::m3::MaterialAddData::configB, R"doc(Configuration parameter B)doc")
-        .def_readwrite("extra_id0", &whiteout::m3::MaterialAddData::extraId0, R"doc(Extra identifier 0 (v3+))doc")
-        .def_readwrite("extra_id1", &whiteout::m3::MaterialAddData::extraId1, R"doc(Extra identifier 1 (v3+))doc")
-        .def("get_reserved",
-            [](const whiteout::m3::MaterialAddData& self) {
-                return std::vector<whiteout::m3::Reference>(self.reserved.begin(), self.reserved.end());
+        .def_readwrite("name_hash", &whiteout::m3::DataDrivenProperty::nameHash, R"doc(crc32 of the property name)doc")
+        .def_readwrite("name", &whiteout::m3::DataDrivenProperty::name, R"doc(Resolved name, empty when the hash is unknown)doc")
+        .def_readwrite("data", &whiteout::m3::DataDrivenProperty::data, R"doc(Raw value bytes)doc")
+        .def("data_view",
+            [](const whiteout::m3::DataDrivenProperty& self) {
+                return py::memoryview::from_memory(
+                    static_cast<const void*>(self.data.data()),
+                    static_cast<py::ssize_t>(self.data.size()));
             })
-        .def("set_reserved",
-            [](whiteout::m3::MaterialAddData& self, const std::vector<whiteout::m3::Reference>& v) {
-                if (v.size() != self.reserved.size())
-                    throw std::runtime_error("setter expected exactly "
-                        + std::to_string(self.reserved.size()) + " elements");
-                for (std::size_t i = 0; i < v.size(); ++i) self.reserved[i] = v[i];
+    ;
+
+    py::class_<whiteout::m3::DataDrivenGroup>(m, "DataDrivenGroup", R"doc(One shader fragment of a data-driven material, with its properties)doc")
+        .def(py::init<>())
+        .def_readwrite("name_hash", &whiteout::m3::DataDrivenGroup::nameHash, R"doc(crc32 of the fragment name)doc")
+        .def_readwrite("name", &whiteout::m3::DataDrivenGroup::name, R"doc(Resolved name, empty when unknown)doc")
+        .def_readwrite("properties", &whiteout::m3::DataDrivenGroup::properties, R"doc(Properties, in stored order)doc")
+    ;
+
+    py::class_<whiteout::m3::DataDrivenProperties>(m, "DataDrivenProperties", R"doc(The decoded contents of DataDrivenMaterial::propertyBlob)doc")
+        .def(py::init<>())
+        .def_readwrite("groups", &whiteout::m3::DataDrivenProperties::groups, R"doc(Fragment groups, in stored order)doc")
+    ;
+
+    py::class_<whiteout::m3::StandardMaterialConversion>(m, "StandardMaterialConversion", R"doc(Outcome of rebuilding a StandardMaterial from a DataDrivenMaterial
+
+Not every data-driven material has a standard equivalent: some were authored directly against the shader-graph vocabulary, and others are the converted form of a DisplacementMaterial or ReflectionMaterial. `blocker` says which.
+
+Conversion is lossy even when it succeeds, because the forward direction is: variant fragments collapse onto one layer slot, several fragments are derived from the model rather than the material, and per-field animation links are not carried in the blob. `lossy` lists what was dropped for this material.)doc")
+        .def(py::init<>())
+        .def_readwrite("converted", &whiteout::m3::StandardMaterialConversion::converted, R"doc(Whether `material` was produced)doc")
+        .def_readwrite("blocker", &whiteout::m3::StandardMaterialConversion::blocker, R"doc(Why not, when `converted` is false)doc")
+        .def_readwrite("lossy", &whiteout::m3::StandardMaterialConversion::lossy, R"doc(What the standard form cannot represent)doc")
+        .def_readwrite("material", &whiteout::m3::StandardMaterialConversion::material, R"doc(Only meaningful when `converted`)doc")
+    ;
+
+    py::class_<whiteout::m3::DataDrivenMaterial>(m, "DataDrivenMaterial", R"doc(MADD — Data-driven material (v0–v3, 140–160 bytes)
+
+The engine's own name for this chunk is `SDataDrivenMaterialData`. It is not "additional" data: at load the renderer converts every StandardMaterial (1), DisplacementMaterial (2) and ReflectionMaterial (10) in the model into one of these and rewrites the MaterialMap to MaterialType::DataDriven, so this is the only material representation the renderer actually consumes.
+
+`fragmentHashes` names the shader fragments the material links, in order. Concatenating `shaderType`'s token with those names gives the shader permutation name, and its crc32 is the effect-cache lookup key.
+
+`propertyBlob` is a self-describing two-level dictionary keyed by crc32 of unprefixed names — decode it with decodeProperties().
+
+@see M3_FILE_FORMAT_SPECIFICATION.md §11 Materials)doc")
+        .def(py::init<>())
+        .def_readwrite("material_name", &whiteout::m3::DataDrivenMaterial::materialName, R"doc(Material name (Ref<CHAR>))doc")
+        .def_readwrite("fragment_hashes", &whiteout::m3::DataDrivenMaterial::fragmentHashes, R"doc(crc32 of each shader fragment name, in link order (U32_))doc")
+        .def_readwrite("extra_hashes", &whiteout::m3::DataDrivenMaterial::extraHashes, R"doc(Secondary hash list (U32_, v2+))doc")
+        .def_readwrite("property_blob", &whiteout::m3::DataDrivenMaterial::propertyBlob, R"doc(Property dictionary (Ref<CHAR>))doc")
+        .def("property_blob_view",
+            [](const whiteout::m3::DataDrivenMaterial& self) {
+                return py::memoryview::from_memory(
+                    static_cast<const void*>(self.propertyBlob.data()),
+                    static_cast<py::ssize_t>(self.propertyBlob.size()));
             })
+        .def_readwrite("texture_paths", &whiteout::m3::DataDrivenMaterial::texturePaths, R"doc(Texture paths, indexed by the Tex* properties (SCHR))doc")
+        .def_readwrite("unknown108", &whiteout::m3::DataDrivenMaterial::unknown108, R"doc(1.0, 1.5 or 2.0 across the corpus)doc")
+        .def_readwrite("unknown112", &whiteout::m3::DataDrivenMaterial::unknown112, R"doc(1.0 in every known record)doc")
+        .def_readwrite("unknown116", &whiteout::m3::DataDrivenMaterial::unknown116)
+        .def_readwrite("effect_name_hash", &whiteout::m3::DataDrivenMaterial::effectNameHash, R"doc(crc32 of the shader permutation name; 0 = compute it at load)doc")
+        .def_readwrite("unknown124", &whiteout::m3::DataDrivenMaterial::unknown124)
+        .def_readwrite("padding128", &whiteout::m3::DataDrivenMaterial::padding128, R"doc(Zero in every known record)doc")
+        .def_readwrite("unknown132", &whiteout::m3::DataDrivenMaterial::unknown132)
+        .def_readwrite("unknown136", &whiteout::m3::DataDrivenMaterial::unknown136, R"doc(Packed bit field)doc")
+        .def_readwrite("unknown140", &whiteout::m3::DataDrivenMaterial::unknown140)
+        .def_readwrite("unknown144", &whiteout::m3::DataDrivenMaterial::unknown144)
+        .def_readwrite("unknown148", &whiteout::m3::DataDrivenMaterial::unknown148)
+        .def_readwrite("alpha_fresnel_flags", &whiteout::m3::DataDrivenMaterial::alphaFresnelFlags, R"doc(Derived cache the loader recomputes; do not trust over the blob)doc")
+        .def_readwrite("shader_type", &whiteout::m3::DataDrivenMaterial::shaderType, R"doc(Shader family prefix for the permutation name)doc")
+        .def_readwrite("unknown151", &whiteout::m3::DataDrivenMaterial::unknown151)
+        .def_readwrite("effect_name_hash2", &whiteout::m3::DataDrivenMaterial::effectNameHash2, R"doc(Second permutation hash, 0xFFFFFFFF = none (v3+))doc")
+        .def_readwrite("effect_name_hash3", &whiteout::m3::DataDrivenMaterial::effectNameHash3, R"doc(Third permutation hash, 0xFFFFFFFF = none (v3+))doc")
+        .def("decode_properties", &whiteout::m3::DataDrivenMaterial::decodeProperties, R"doc(Decode propertyBlob into fragment groups and named properties)doc")
+        .def("to_standard_material", &whiteout::m3::DataDrivenMaterial::toStandardMaterial, R"doc(Rebuild the StandardMaterial this was converted from, where possible
+
+The engine only converts in the other direction, and does so lossily, so this reverses what it can and reports the rest. See StandardMaterialConversion.)doc")
+        .def("approximate_standard_material", &whiteout::m3::DataDrivenMaterial::approximateStandardMaterial, R"doc(Best-effort StandardMaterial for a material that has no exact one
+
+toStandardMaterial() refuses shader-graph materials, which were authored in the node editor and never had a StandardMaterial form. This infers one anyway, from the node types, the per-node names in extraHashes, and the texture filenames. The blob stores nodes but not the edges between them, so the graph topology cannot be recovered and the result is a likeness, not a conversion — `lossy` always says so. Materials that are already fixed-function are forwarded to toStandardMaterial() unchanged.)doc")
+        .def("get_version", &whiteout::m3::DataDrivenMaterial::getVersion)
+        .def("set_version", &whiteout::m3::DataDrivenMaterial::setVersion, py::arg("newVersion"))
     ;
 
     py::class_<whiteout::m3::Bone>(m, "Bone", R"doc(BONE — Skeleton bone (v0–v1, 160 bytes)
@@ -1346,7 +1424,7 @@ Associates a Region with a material for rendering. Multiple batches may referenc
         .def_readwrite("region_index", &whiteout::m3::Batch::regionIndex, R"doc(Index into REGN array)doc")
         .def_readwrite("unknown2", &whiteout::m3::Batch::unknown2, R"doc(Unknown field)doc")
         .def_readwrite("material_index", &whiteout::m3::Batch::materialIndex, R"doc(Index into MATM material map array)doc")
-        .def_readwrite("bone_count", &whiteout::m3::Batch::boneCount, R"doc(Number of bones affecting this batch)doc")
+        .def_readwrite("bone_count", &whiteout::m3::Batch::boneCount, R"doc(Bone whose animated visibility gates this batch's draw (0xFFFF = always drawn). Misnamed — it is a bone index, not a count: the engine's submit loop reads it and skips the batch when that bone is invisible.)doc")
     ;
 
     py::class_<whiteout::m3::MeshSection>(m, "MeshSection", R"doc(MSEC — Mesh section bounds (v0–v1, 80 bytes)
@@ -1445,14 +1523,16 @@ Configures turret rotation constraints for a bone with yaw/pitch limits, weights
 
     py::class_<whiteout::m3::BillboardBehavior>(m, "BillboardBehavior", R"doc(BBSC — Billboard behavior (v0, 48 bytes)
 
-Makes a bone always face the camera or a specified direction.)doc")
+Turns one bone to face the camera. The only source of billboarding there is: `BoneFlag::Billboard1/2` are set on no bone in the whole corpus.
+
+StarCraft II applies these at draw time, per view, from `sub_10290A890` — `CBBSolver::Solve` is a stub — and writes the bone's *local* rotation, so the subtree follows.)doc")
         .def(py::init<>())
-        .def_readwrite("dependents", &whiteout::m3::BillboardBehavior::dependents, R"doc(Dependent bone indices (U16_))doc")
+        .def_readwrite("dependents", &whiteout::m3::BillboardBehavior::dependents, R"doc(Dependent bone indices (U16_). Empty in every shipped record; the engine never reads them)doc")
         .def_readwrite("bone_index", &whiteout::m3::BillboardBehavior::boneIndex, R"doc(Index into BONE array)doc")
-        .def_readwrite("billboard_type", &whiteout::m3::BillboardBehavior::billboardType, R"doc(Billboard mode type)doc")
-        .def_readwrite("camera_look_at", &whiteout::m3::BillboardBehavior::cameraLookAt, R"doc(Camera look-at flag (default: enabled))doc")
-        .def_readwrite("up", &whiteout::m3::BillboardBehavior::up, R"doc(Up direction quaternion)doc")
-        .def_readwrite("forward", &whiteout::m3::BillboardBehavior::forward, R"doc(Forward direction quaternion)doc")
+        .def_readwrite("billboard_type", &whiteout::m3::BillboardBehavior::billboardType, R"doc(Which axes may turn — see BillboardType)doc")
+        .def_readwrite("camera_look_at", &whiteout::m3::BillboardBehavior::cameraLookAt, R"doc(Non-zero: aim from this bone at the eye. Zero: aim along the camera's view direction instead, so every such bone shares one orientation)doc")
+        .def_readwrite("up", &whiteout::m3::BillboardBehavior::up, R"doc(MISNAMED: not a direction. A rotation applied *before* the billboard basis, and only by the axis-locked types 0/1/2)doc")
+        .def_readwrite("forward", &whiteout::m3::BillboardBehavior::forward, R"doc(MISNAMED likewise: the same kind of pre-rotation, taken only by type 6, and only on a bone whose parent is another bone. Types 3/4/5 take neither)doc")
     ;
 
     py::class_<whiteout::m3::IKJoint>(m, "IKJoint", R"doc(IKJT — IK joint (v0, 32 bytes)
@@ -1462,8 +1542,8 @@ Inverse kinematics joint with raycast up/down range, max speed, and goal thresho
         .def_readwrite("dependents", &whiteout::m3::IKJoint::dependents, R"doc(Dependent bone indices (U16_))doc")
         .def_readwrite("bone_index1", &whiteout::m3::IKJoint::boneIndex1, R"doc(First bone index)doc")
         .def_readwrite("bone_index2", &whiteout::m3::IKJoint::boneIndex2, R"doc(Second bone index)doc")
-        .def_readwrite("raycast_up", &whiteout::m3::IKJoint::raycastUp, R"doc(Raycast upward distance)doc")
-        .def_readwrite("raycast_down", &whiteout::m3::IKJoint::raycastDown, R"doc(Raycast downward distance)doc")
+        .def_readwrite("raycast_up", &whiteout::m3::IKJoint::raycastUp, R"doc(Raycast upward distance (positive; shipped 1.5 / 3.0))doc")
+        .def_readwrite("raycast_down", &whiteout::m3::IKJoint::raycastDown, R"doc(Raycast downward offset, SIGNED (shipped -4.0 / -3.0): the surface window is [z + raycastDown, z + raycastUp])doc")
         .def_readwrite("max_speed", &whiteout::m3::IKJoint::maxSpeed, R"doc(Maximum IK solving speed)doc")
         .def_readwrite("goal_threshold", &whiteout::m3::IKJoint::goalThreshold, R"doc(Goal distance threshold)doc")
     ;
@@ -1613,9 +1693,11 @@ PHSH meshTreeDepth gives the tree height (longest root-to-leaf path in nodes).)d
         .def_readwrite("face_b", &whiteout::m3::PhysicsMeshEdge::faceB, R"doc(Second adjacent face)doc")
     ;
 
-    py::class_<whiteout::m3::PhysicsShape>(m, "PhysicsShape", R"doc(PHSH — Physics shape (v0–v3, 132–300 bytes)
+    py::class_<whiteout::m3::PhysicsShape>(m, "PhysicsShape", R"doc(PHSH — Physics shape (v0–v3, 132/292/300 bytes)
 
-The 300-byte v3 layout is a three-part union. Bytes 0–79 are the common header. Bytes 80–103 hold shape dimensions for simple shapes (0–3) or are zero for complex shapes. Bytes 80–183 form the convex hull section (shapeType 4); bytes 184–299 form the mesh section (shapeType 5).)doc")
+The 300-byte v3 layout is a three-part union. Bytes 0–79 are the common header. Bytes 80–103 hold shape dimensions for simple shapes (0–3) or are zero for complex shapes. Bytes 80–183 form the convex hull section (shapeType 4); bytes 184–299 form the mesh section (shapeType 5).
+
+v2 shares the v3 layout through the hull section but has a shorter mesh section (292 bytes total): bounds/tolerance, four legacy geometry refs, then a 6-dword tail (unknown, vertexCount, faceCount, 2× unknown, treeDepth) — verified against the SC2 client's version-upgrade copier.)doc")
         .def(py::init<>())
         .def_readwrite("collision_margin", &whiteout::m3::PhysicsShape::collisionMargin, R"doc(Havok convex radius (v1 only, ≈ 0.019685))doc")
         .def_readwrite("shape_type", &whiteout::m3::PhysicsShape::shapeType, R"doc(Shape type (box/sphere/capsule/cylinder/hull/mesh))doc")
@@ -1798,7 +1880,7 @@ Bone-attached camera with animated FOV, clip planes, shadow clip distance, depth
 
 The root of all model data. Contains Ref<T> fields pointing to every sub-chunk in the file: skeleton, mesh, materials, particles, physics, etc. The preamble (bytes 0x000–0x0E3) is identical across all versions; version-dependent material and physics references follow at 0x0E4+.
 
-Version history: - v23 (784 bytes): Base release layout - v24 (+ikCCD): 796 bytes - v25 (+volumeNoiseMaterials): 808 bytes - v26 (+stbMaterials): 820 bytes - v28 (+reflectionMaterials, +clothPhysics): 844 bytes - v29 (+lensFlareMaterials): 856 bytes - v30 (+materialAddData): 868 bytes)doc")
+Version history: - v23 (784 bytes): Base release layout - v24 (+ikCCD): 796 bytes - v25 (+volumeNoiseMaterials): 808 bytes - v26 (+stbMaterials): 820 bytes - v28 (+reflectionMaterials, +clothPhysics): 844 bytes - v29 (+lensFlareMaterials): 856 bytes - v30 (+dataDrivenMaterials): 868 bytes)doc")
         .def(py::init<>())
         .def_readwrite("name", &whiteout::m3::Model::name, R"doc(Model file path (Ref<CHAR>))doc")
         .def_readwrite("flags", &whiteout::m3::Model::flags, R"doc(Model flags (tangents, FOW, instancing, etc.))doc")
@@ -1835,7 +1917,7 @@ Version history: - v23 (784 bytes): Base release layout - v24 (+ikCCD): 796 byte
         .def_readwrite("stb_materials", &whiteout::m3::Model::stbMaterials, R"doc(Splat terrain bake materials (STBM, v26+))doc")
         .def_readwrite("reflection_materials", &whiteout::m3::Model::reflectionMaterials, R"doc(Reflection materials (REF_, v28+))doc")
         .def_readwrite("lens_flare_materials", &whiteout::m3::Model::lensFlareMaterials, R"doc(Lens flare materials (LFLR, v29+))doc")
-        .def_readwrite("material_add_data", &whiteout::m3::Model::materialAddData, R"doc(Buffer material data (MADD, v30+))doc")
+        .def_readwrite("data_driven_materials", &whiteout::m3::Model::dataDrivenMaterials, R"doc(Data-driven materials (MADD, v30+))doc")
         .def_readwrite("particle_emitters", &whiteout::m3::Model::particleEmitters, R"doc(Particle emitters (PAR_))doc")
         .def_readwrite("particle_emitter_copies", &whiteout::m3::Model::particleEmitterCopies, R"doc(Particle emitter copies (PARC))doc")
         .def_readwrite("ribbon_emitters", &whiteout::m3::Model::ribbonEmitters, R"doc(Ribbon emitters (RIB_))doc")
@@ -2026,6 +2108,9 @@ Holds both a constant default value and a link to keyframed animation data. If a
     py::bind_vector<std::vector<whiteout::m3::CompositeSection>>(m, "VectorM3CompositeSection");
     py::bind_vector<std::vector<whiteout::m3::ConvexHullHalfEdge>>(m, "VectorM3ConvexHullHalfEdge");
     py::bind_vector<std::vector<whiteout::m3::CreepMaterial>>(m, "VectorM3CreepMaterial");
+    py::bind_vector<std::vector<whiteout::m3::DataDrivenGroup>>(m, "VectorM3DataDrivenGroup");
+    py::bind_vector<std::vector<whiteout::m3::DataDrivenMaterial>>(m, "VectorM3DataDrivenMaterial");
+    py::bind_vector<std::vector<whiteout::m3::DataDrivenProperty>>(m, "VectorM3DataDrivenProperty");
     py::bind_vector<std::vector<whiteout::m3::DisplacementMaterial>>(m, "VectorM3DisplacementMaterial");
     py::bind_vector<std::vector<whiteout::m3::Force>>(m, "VectorM3Force");
     py::bind_vector<std::vector<whiteout::m3::HairMaterial>>(m, "VectorM3HairMaterial");
@@ -2036,7 +2121,6 @@ Holds both a constant default value and a link to keyframed animation data. If a
     py::bind_vector<std::vector<whiteout::m3::InitialReference>>(m, "VectorM3InitialReference");
     py::bind_vector<std::vector<whiteout::m3::LensFlare>>(m, "VectorM3LensFlare");
     py::bind_vector<std::vector<whiteout::m3::Light>>(m, "VectorM3Light");
-    py::bind_vector<std::vector<whiteout::m3::MaterialAddData>>(m, "VectorM3MaterialAddData");
     py::bind_vector<std::vector<whiteout::m3::MaterialMap>>(m, "VectorM3MaterialMap");
     py::bind_vector<std::vector<whiteout::m3::MeshDivision>>(m, "VectorM3MeshDivision");
     py::bind_vector<std::vector<whiteout::m3::MeshSection>>(m, "VectorM3MeshSection");

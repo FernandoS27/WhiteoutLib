@@ -49,7 +49,7 @@ namespace m3 {
  * - v26 (+stbMaterials): 820 bytes
  * - v28 (+reflectionMaterials, +clothPhysics): 844 bytes
  * - v29 (+lensFlareMaterials): 856 bytes
- * - v30 (+materialAddData): 868 bytes
+ * - v30 (+dataDrivenMaterials): 868 bytes
  */
 struct Model {
     // ─── Preamble (0x000–0x0E3, 228 bytes) ────────────────────────
@@ -94,7 +94,7 @@ struct Model {
     std::vector<STBMaterial> stbMaterials; ///< Splat terrain bake materials (STBM, v26+)
     std::vector<ReflectionMaterial> reflectionMaterials; ///< Reflection materials (REF_, v28+)
     std::vector<LensFlare> lensFlareMaterials;           ///< Lens flare materials (LFLR, v29+)
-    std::vector<MaterialAddData> materialAddData;        ///< Buffer material data (MADD, v30+)
+    std::vector<DataDrivenMaterial> dataDrivenMaterials; ///< Data-driven materials (MADD, v30+)
 
     // ─── Effects ───────────────────────────────────────────────────
     std::vector<ParticleEmitter> particleEmitters;          ///< Particle emitters (PAR_)

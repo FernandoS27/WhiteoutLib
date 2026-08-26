@@ -50,7 +50,7 @@ protected:
     void visit(const STBMaterial& material, u32 version);
     void visit(const ReflectionMaterial& material, u32 version);
     void visit(const LensFlare& flare, u32 version);
-    void visit(const MaterialAddData& data, u32 version);
+    void visit(const DataDrivenMaterial& data, u32 version);
     void visit(const ParticleEmitter& emitter, u32 version);
     void visit(const ParticleEmitterCopy& copy, u32 version);
     void visit(const RibbonEmitter& emitter, u32 version);
@@ -99,6 +99,8 @@ protected:
 
     void visit(const std::string& str, u32 version);
     void visit(const std::string& str);
+
+    void visitCharBlob(const std::vector<u8>& blob);
 
     void transferDeferredWrites(bool pre_order = true);
 

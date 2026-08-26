@@ -4,7 +4,7 @@
 
 namespace Whiteout.M3;
 
-/// <summary>Bone flags (BONE.flags) — inheritance, billboard, IK, skin</summary>
+/// <summary>Bone flags (BONE.flags) — inheritance, IK, skin</summary>
 public enum BoneFlag : int
 {
     None = 0,
@@ -14,9 +14,9 @@ public enum BoneFlag : int
     InheritScale = 2,
     /// <summary>Inherit parent rotation</summary>
     InheritRotation = 4,
-    /// <summary>Billboard mode 1</summary>
+    /// <summary>Unused: set on no bone in 51469 corpus files</summary>
     Billboard1 = 16,
-    /// <summary>Billboard mode 2</summary>
+    /// <summary>Unused: likewise. Billboarding comes from BBSC</summary>
     Billboard2 = 64,
     /// <summary>2D projection mode</summary>
     Project2D = 256,

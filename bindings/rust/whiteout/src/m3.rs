@@ -99,8 +99,8 @@ pub enum MaterialType {
     Reflection = 10,
     /// LFLR — Lens flare material
     LensFlare = 11,
-    /// MADD — Buffer / additional material data
-    BufferMaterial = 12,
+    /// MADD — Data-driven material; what every other type is converted into at load
+    DataDriven = 12,
 }
 
 impl TryFrom<i32> for MaterialType {
@@ -118,7 +118,7 @@ impl TryFrom<i32> for MaterialType {
             9 => Ok(MaterialType::SplatTerrainBake),
             10 => Ok(MaterialType::Reflection),
             11 => Ok(MaterialType::LensFlare),
-            12 => Ok(MaterialType::BufferMaterial),
+            12 => Ok(MaterialType::DataDriven),
             other => Err(crate::Error::UnknownEnum {
                 name: "MaterialType",
                 value: other,
@@ -623,7 +623,48 @@ impl core::fmt::Debug for SequenceFlag {
     }
 }
 
-/// Bone flags (BONE.flags) — inheritance, billboard, IK, skin
+/// BBSC.billboardType — which axes a billboarded bone may turn about.
+///
+/// Recovered from `CBBSolver::ApplyBillboard` (SC2 `0x1027F1F30`). The aim direction points *away* from the eye, so "aims at" below means the named axis lies along it and its negation points back at the camera.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BillboardType {
+    /// Turns about world X; local +Y aims along the direction
+    LockWorldX = 0,
+    /// Turns about world Y; local +X aims (Y is the locked one)
+    LockWorldY = 1,
+    /// Turns about world Z; local +Y aims. The upright poster
+    LockWorldZ = 2,
+    /// Turns about the bone's own world X; local +Z faces the camera
+    LockBoneX = 3,
+    /// Parsed and instantiated, never applied
+    Disabled = 4,
+    /// The bone's own world Y becomes local Z; local +Y faces the camera
+    LockBoneY = 5,
+    /// Free; local +Y aims, and the camera's up axis sets the roll
+    Full = 6,
+}
+
+impl TryFrom<i32> for BillboardType {
+    type Error = crate::Error;
+    fn try_from(v: i32) -> Result<Self, crate::Error> {
+        match v {
+            0 => Ok(BillboardType::LockWorldX),
+            1 => Ok(BillboardType::LockWorldY),
+            2 => Ok(BillboardType::LockWorldZ),
+            3 => Ok(BillboardType::LockBoneX),
+            4 => Ok(BillboardType::Disabled),
+            5 => Ok(BillboardType::LockBoneY),
+            6 => Ok(BillboardType::Full),
+            other => Err(crate::Error::UnknownEnum {
+                name: "BillboardType",
+                value: other,
+            }),
+        }
+    }
+}
+
+/// Bone flags (BONE.flags) — inheritance, IK, skin
 /// Bit flags. Combine with `|`, test with [`BoneFlag::contains`].
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct BoneFlag(pub i32);
@@ -636,9 +677,9 @@ impl BoneFlag {
     pub const INHERIT_SCALE: Self = Self(2);
     /// Inherit parent rotation
     pub const INHERIT_ROTATION: Self = Self(4);
-    /// Billboard mode 1
+    /// Unused: set on no bone in 51469 corpus files
     pub const BILLBOARD_1: Self = Self(16);
-    /// Billboard mode 2
+    /// Unused: likewise. Billboarding comes from BBSC
     pub const BILLBOARD_2: Self = Self(64);
     /// 2D projection mode
     pub const PROJECT_2D: Self = Self(256);
@@ -1617,28 +1658,59 @@ impl core::fmt::Debug for ParticleAdditionalFlag {
 }
 
 /// Particle rotation flags (PAR_.rotationFlags, v18+)
-#[repr(i32)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum ParticleRotationFlag {
-    None = 0,
-    /// Relative rotation
-    Relative = 2,
+/// Bit flags. Combine with `|`, test with [`ParticleRotationFlag::contains`].
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct ParticleRotationFlag(pub i32);
+
+impl ParticleRotationFlag {
+    pub const NONE: Self = Self(0);
+    /// Relative rotation; the SC2 upgrade sets it from rotationRandomEnable (v≤18)
+    pub const RELATIVE: Self = Self(2);
     /// Always set
-    AlwaysSet = 4,
+    pub const ALWAYS_SET: Self = Self(4);
+    /// Force-set by the SC2 version upgrade for all v≤20 emitters (role TBD)
+    pub const UNKNOWN_6: Self = Self(64);
+    /// Set by the SC2 upgrade for remapped Billboard model particles (role TBD)
+    pub const UNKNOWN_7: Self = Self(128);
+
+    #[inline]
+    pub const fn contains(self, other: Self) -> bool {
+        (self.0 & other.0) == other.0
+    }
+
+    #[inline]
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
 }
 
-impl TryFrom<i32> for ParticleRotationFlag {
-    type Error = crate::Error;
-    fn try_from(v: i32) -> Result<Self, crate::Error> {
-        match v {
-            0 => Ok(ParticleRotationFlag::None),
-            2 => Ok(ParticleRotationFlag::Relative),
-            4 => Ok(ParticleRotationFlag::AlwaysSet),
-            other => Err(crate::Error::UnknownEnum {
-                name: "ParticleRotationFlag",
-                value: other,
-            }),
-        }
+impl core::ops::BitOr for ParticleRotationFlag {
+    type Output = Self;
+    #[inline]
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl core::ops::BitAnd for ParticleRotationFlag {
+    type Output = Self;
+    #[inline]
+    fn bitand(self, rhs: Self) -> Self {
+        Self(self.0 & rhs.0)
+    }
+}
+
+impl core::ops::Not for ParticleRotationFlag {
+    type Output = Self;
+    #[inline]
+    fn not(self) -> Self {
+        Self(!self.0)
+    }
+}
+
+impl core::fmt::Debug for ParticleRotationFlag {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "ParticleRotationFlag({:#x})", self.0)
     }
 }
 
@@ -1954,6 +2026,41 @@ impl core::ops::Not for RigidBodyFlag {
 impl core::fmt::Debug for RigidBodyFlag {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "RigidBodyFlag({:#x})", self.0)
+    }
+}
+
+/// Shader family that prefixes a data-driven material's permutation name
+///
+/// Selects the base token the renderer seeds the effect-name hash with, before appending the fragment names.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MaterialShaderType {
+    /// "Material"
+    Material = 0,
+    /// "MaterialMedium"
+    MaterialMedium = 1,
+    /// "MaterialSimple"
+    MaterialSimple = 2,
+    /// "MaterialParticle"
+    MaterialParticle = 3,
+    /// "MaterialSplat"
+    MaterialSplat = 4,
+}
+
+impl TryFrom<i32> for MaterialShaderType {
+    type Error = crate::Error;
+    fn try_from(v: i32) -> Result<Self, crate::Error> {
+        match v {
+            0 => Ok(MaterialShaderType::Material),
+            1 => Ok(MaterialShaderType::MaterialMedium),
+            2 => Ok(MaterialShaderType::MaterialSimple),
+            3 => Ok(MaterialShaderType::MaterialParticle),
+            4 => Ok(MaterialShaderType::MaterialSplat),
+            other => Err(crate::Error::UnknownEnum {
+                name: "MaterialShaderType",
+                value: other,
+            }),
+        }
     }
 }
 
@@ -5255,17 +5362,15 @@ impl ParticleEmitter {
 
     /// Rotation flags (v18+)
     pub fn rotation_flags(&self) -> ParticleRotationFlag {
-        // SAFETY: scalar read; the discriminant is validated below.
-        unsafe { ffi::whiteout_m3_M3ParticleEmitter_get_rotationFlags(self.raw.as_ptr()) }
-            .try_into()
-            .expect("unknown enum discriminant from the native library")
+        // SAFETY: scalar read; a flag set accepts any bits.
+        ParticleRotationFlag(unsafe {
+            ffi::whiteout_m3_M3ParticleEmitter_get_rotationFlags(self.raw.as_ptr())
+        })
     }
 
     pub fn set_rotation_flags(&mut self, value: ParticleRotationFlag) {
         // SAFETY: scalar write through a live handle.
-        unsafe {
-            ffi::whiteout_m3_M3ParticleEmitter_set_rotationFlags(self.raw.as_ptr(), value as i32)
-        }
+        unsafe { ffi::whiteout_m3_M3ParticleEmitter_set_rotationFlags(self.raw.as_ptr(), value.0) }
     }
 
     pub fn color_smoothing(&self) -> InterpolationMode {
@@ -11331,26 +11436,26 @@ impl Default for LensFlare {
     }
 }
 
-/// MADD — Material additional data (v0–v3, 140–160 bytes)
+/// One decoded property of a data-driven material
 ///
-/// Buffer-style material extension storing key–value pairs, hashes, and animation parameters. Added in MODL v30.
-pub struct MaterialAddData {
-    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3MaterialAddData>,
+/// `data` is the raw value; its shape depends on `size`: 4 = scalar (f32, u32 enum, or BGRA colour — depends on the property), 8 = `{u32 index into DataDrivenMaterial::texturePaths, u32 texture source}`, 12 = 3 floats, 16 = 4 floats, 20 = `{u32 ColorChannelSelect, f32 multiply, f32 add, f32, u16 flags}`, 32 = `{f32 offsetU/V, tilingU/V, angleU/V/W, u32 flags}`, 48 = fresnel `{u32 FresnelMode, f32 exponent, min, max, rotation, mask}`.
+pub struct DataDrivenProperty {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3DataDrivenProperty>,
 }
 
-impl Drop for MaterialAddData {
+impl Drop for DataDrivenProperty {
     fn drop(&mut self) {
         // SAFETY: `raw` came from a native constructor and Drop runs once.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_delete(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m3_M3DataDrivenProperty_delete(self.raw.as_ptr()) }
     }
 }
 
-impl MaterialAddData {
+impl DataDrivenProperty {
     /// # Safety
     /// `raw` must be a live handle this value takes ownership of.
     #[allow(dead_code)] // used by whichever methods return this type
-    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M3MaterialAddData) -> Option<Self> {
-        core::ptr::NonNull::new(raw).map(|raw| MaterialAddData { raw })
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M3DataDrivenProperty) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| DataDrivenProperty { raw })
     }
 }
 
@@ -11358,50 +11463,61 @@ impl MaterialAddData {
 // is deliberately NOT implemented — the C++ types make no documented
 // guarantee about concurrent use, and claiming one we haven't verified
 // would be unsound. See `@bind thread_safe` in the plan.
-unsafe impl Send for MaterialAddData {}
+unsafe impl Send for DataDrivenProperty {}
 
-impl core::fmt::Debug for MaterialAddData {
+impl core::fmt::Debug for DataDrivenProperty {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("MaterialAddData").finish_non_exhaustive()
+        f.debug_struct("DataDrivenProperty").finish_non_exhaustive()
     }
 }
 
-impl MaterialAddData {
+impl DataDrivenProperty {
     /// # Panics
     /// Panics if the native allocation fails.
     pub fn new() -> Self {
         // SAFETY: the native constructor returns a live handle; a null here
         // means the library is unusable.
         unsafe {
-            let raw = ffi::whiteout_m3_M3MaterialAddData_new();
-            Self::from_raw(raw).expect("native MaterialAddData allocation failed")
+            let raw = ffi::whiteout_m3_M3DataDrivenProperty_new();
+            Self::from_raw(raw).expect("native DataDrivenProperty allocation failed")
         }
     }
 
-    /// Key name (`Ref<CHAR>`)
-    pub fn key_name(&self) -> String {
+    /// crc32 of the property name
+    pub fn name_hash(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenProperty_get_nameHash(self.raw.as_ptr()) }
+    }
+
+    pub fn set_name_hash(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenProperty_set_nameHash(self.raw.as_ptr(), value) }
+    }
+
+    /// Resolved name, empty when the hash is unknown
+    pub fn name(&self) -> String {
         // SAFETY: the native side hands over an owned CString.
         unsafe {
-            crate::support::take_string(ffi::whiteout_m3_M3MaterialAddData_get_keyName(
+            crate::support::take_string(ffi::whiteout_m3_M3DataDrivenProperty_get_name(
                 self.raw.as_ptr(),
             ))
         }
     }
 
-    pub fn set_key_name(&mut self, value: &str) {
+    pub fn set_name(&mut self, value: &str) {
         let value = std::ffi::CString::new(value).unwrap_or_default();
         // SAFETY: the pointer outlives the call.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_set_keyName(self.raw.as_ptr(), value.as_ptr()) }
+        unsafe { ffi::whiteout_m3_M3DataDrivenProperty_set_name(self.raw.as_ptr(), value.as_ptr()) }
     }
 
-    /// Key hash values (U32_)
+    /// Raw value bytes
     /// Zero-copy view of the underlying `std::vector`.
-    pub fn key_hash(&self) -> &[u32] {
+    pub fn data(&self) -> &[u8] {
         // SAFETY: `_data`/`_count` describe one contiguous C++
         // allocation, borrowed for as long as `self` is.
         unsafe {
-            let n = ffi::whiteout_m3_M3MaterialAddData_get_keyHash_count(self.raw.as_ptr());
-            let p = ffi::whiteout_m3_M3MaterialAddData_get_keyHash_data(self.raw.as_ptr());
+            let n = ffi::whiteout_m3_M3DataDrivenProperty_get_data_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m3_M3DataDrivenProperty_get_data_data(self.raw.as_ptr());
             if p.is_null() || n == 0 {
                 &[]
             } else {
@@ -11411,12 +11527,12 @@ impl MaterialAddData {
     }
 
     /// Zero-copy mutable view. Resize first — the borrow forbids it after.
-    pub fn key_hash_mut(&mut self) -> &mut [u32] {
+    pub fn data_mut(&mut self) -> &mut [u8] {
         // SAFETY: as above; `&mut self` rules out aliasing and resizing.
         unsafe {
-            let n = ffi::whiteout_m3_M3MaterialAddData_get_keyHash_count(self.raw.as_ptr());
+            let n = ffi::whiteout_m3_M3DataDrivenProperty_get_data_count(self.raw.as_ptr());
             let p =
-                ffi::whiteout_m3_M3MaterialAddData_get_keyHash_data(self.raw.as_ptr()) as *mut u32;
+                ffi::whiteout_m3_M3DataDrivenProperty_get_data_data(self.raw.as_ptr()) as *mut u8;
             if p.is_null() || n == 0 {
                 &mut []
             } else {
@@ -11425,10 +11541,10 @@ impl MaterialAddData {
         }
     }
 
-    pub fn set_key_hash(&mut self, values: &[u32]) {
+    pub fn set_data(&mut self, values: &[u8]) {
         // SAFETY: the native side copies `values` before returning.
         unsafe {
-            ffi::whiteout_m3_M3MaterialAddData_assign_keyHash(
+            ffi::whiteout_m3_M3DataDrivenProperty_assign_data(
                 self.raw.as_ptr(),
                 values.as_ptr() as *const _,
                 values.len(),
@@ -11436,20 +11552,458 @@ impl MaterialAddData {
         }
     }
 
-    pub fn resize_key_hash(&mut self, count: usize) {
+    pub fn resize_data(&mut self, count: usize) {
         // SAFETY: reallocation is safe here precisely because
         // `&mut self` means no slice borrow is outstanding.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_resize_keyHash(self.raw.as_ptr(), count) }
+        unsafe { ffi::whiteout_m3_M3DataDrivenProperty_resize_data(self.raw.as_ptr(), count) }
+    }
+}
+
+impl Default for DataDrivenProperty {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// One shader fragment of a data-driven material, with its properties
+pub struct DataDrivenGroup {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3DataDrivenGroup>,
+}
+
+impl Drop for DataDrivenGroup {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m3_M3DataDrivenGroup_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl DataDrivenGroup {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M3DataDrivenGroup) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| DataDrivenGroup { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for DataDrivenGroup {}
+
+impl core::fmt::Debug for DataDrivenGroup {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DataDrivenGroup").finish_non_exhaustive()
+    }
+}
+
+impl DataDrivenGroup {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m3_M3DataDrivenGroup_new();
+            Self::from_raw(raw).expect("native DataDrivenGroup allocation failed")
+        }
     }
 
-    /// Extra hash values (U32_, v2+)
+    /// crc32 of the fragment name
+    pub fn name_hash(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenGroup_get_nameHash(self.raw.as_ptr()) }
+    }
+
+    pub fn set_name_hash(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenGroup_set_nameHash(self.raw.as_ptr(), value) }
+    }
+
+    /// Resolved name, empty when unknown
+    pub fn name(&self) -> String {
+        // SAFETY: the native side hands over an owned CString.
+        unsafe {
+            crate::support::take_string(ffi::whiteout_m3_M3DataDrivenGroup_get_name(
+                self.raw.as_ptr(),
+            ))
+        }
+    }
+
+    pub fn set_name(&mut self, value: &str) {
+        let value = std::ffi::CString::new(value).unwrap_or_default();
+        // SAFETY: the pointer outlives the call.
+        unsafe { ffi::whiteout_m3_M3DataDrivenGroup_set_name(self.raw.as_ptr(), value.as_ptr()) }
+    }
+
+    /// Properties, in stored order
+    pub fn properties_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenGroup_get_properties_count(self.raw.as_ptr()) }
+    }
+
+    /// Borrows element `index` in place. `None` when out of range.
+    pub fn properties(&self, index: usize) -> Option<crate::support::Ref<'_, DataDrivenProperty>> {
+        if index >= self.properties_len() {
+            return None;
+        }
+        // SAFETY: index checked above; the pointer is interior to `self`.
+        unsafe {
+            Some(crate::support::Ref::new(DataDrivenProperty {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m3_M3DataDrivenGroup_get_properties_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    pub fn properties_mut(
+        &mut self,
+        index: usize,
+    ) -> Option<crate::support::RefMut<'_, DataDrivenProperty>> {
+        if index >= self.properties_len() {
+            return None;
+        }
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            Some(crate::support::RefMut::new(DataDrivenProperty {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m3_M3DataDrivenGroup_get_properties_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    /// Iterate the elements, borrowing each in turn.
+    pub fn properties_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, DataDrivenProperty>> {
+        (0..self.properties_len()).map(move |i| self.properties(i).expect("index below len"))
+    }
+
+    pub fn resize_properties(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe { ffi::whiteout_m3_M3DataDrivenGroup_resize_properties(self.raw.as_ptr(), count) }
+    }
+}
+
+impl Default for DataDrivenGroup {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// The decoded contents of DataDrivenMaterial::propertyBlob
+pub struct DataDrivenProperties {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3DataDrivenProperties>,
+}
+
+impl Drop for DataDrivenProperties {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m3_M3DataDrivenProperties_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl DataDrivenProperties {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M3DataDrivenProperties) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| DataDrivenProperties { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for DataDrivenProperties {}
+
+impl core::fmt::Debug for DataDrivenProperties {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DataDrivenProperties")
+            .finish_non_exhaustive()
+    }
+}
+
+impl DataDrivenProperties {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m3_M3DataDrivenProperties_new();
+            Self::from_raw(raw).expect("native DataDrivenProperties allocation failed")
+        }
+    }
+
+    /// Fragment groups, in stored order
+    pub fn groups_len(&self) -> usize {
+        // SAFETY: scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenProperties_get_groups_count(self.raw.as_ptr()) }
+    }
+
+    /// Borrows element `index` in place. `None` when out of range.
+    pub fn groups(&self, index: usize) -> Option<crate::support::Ref<'_, DataDrivenGroup>> {
+        if index >= self.groups_len() {
+            return None;
+        }
+        // SAFETY: index checked above; the pointer is interior to `self`.
+        unsafe {
+            Some(crate::support::Ref::new(DataDrivenGroup {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m3_M3DataDrivenProperties_get_groups_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    pub fn groups_mut(
+        &mut self,
+        index: usize,
+    ) -> Option<crate::support::RefMut<'_, DataDrivenGroup>> {
+        if index >= self.groups_len() {
+            return None;
+        }
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            Some(crate::support::RefMut::new(DataDrivenGroup {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m3_M3DataDrivenProperties_get_groups_at(self.raw.as_ptr(), index),
+                ),
+            }))
+        }
+    }
+
+    /// Iterate the elements, borrowing each in turn.
+    pub fn groups_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, DataDrivenGroup>> {
+        (0..self.groups_len()).map(move |i| self.groups(i).expect("index below len"))
+    }
+
+    pub fn resize_groups(&mut self, count: usize) {
+        // SAFETY: exclusive access, so no borrow is outstanding.
+        unsafe { ffi::whiteout_m3_M3DataDrivenProperties_resize_groups(self.raw.as_ptr(), count) }
+    }
+}
+
+impl Default for DataDrivenProperties {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Outcome of rebuilding a StandardMaterial from a DataDrivenMaterial
+///
+/// Not every data-driven material has a standard equivalent: some were authored directly against the shader-graph vocabulary, and others are the converted form of a DisplacementMaterial or ReflectionMaterial. `blocker` says which.
+///
+/// Conversion is lossy even when it succeeds, because the forward direction is: variant fragments collapse onto one layer slot, several fragments are derived from the model rather than the material, and per-field animation links are not carried in the blob. `lossy` lists what was dropped for this material.
+pub struct StandardMaterialConversion {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3StandardMaterialConversion>,
+}
+
+impl Drop for StandardMaterialConversion {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m3_M3StandardMaterialConversion_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl StandardMaterialConversion {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(
+        raw: *mut ffi::whiteout_M3StandardMaterialConversion,
+    ) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| StandardMaterialConversion { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for StandardMaterialConversion {}
+
+impl core::fmt::Debug for StandardMaterialConversion {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("StandardMaterialConversion")
+            .finish_non_exhaustive()
+    }
+}
+
+impl StandardMaterialConversion {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m3_M3StandardMaterialConversion_new();
+            Self::from_raw(raw).expect("native StandardMaterialConversion allocation failed")
+        }
+    }
+
+    /// Whether `material` was produced
+    pub fn converted(&self) -> bool {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe {
+            ffi::whiteout_m3_M3StandardMaterialConversion_get_converted(self.raw.as_ptr()) != 0
+        }
+    }
+
+    pub fn set_converted(&mut self, value: bool) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe {
+            ffi::whiteout_m3_M3StandardMaterialConversion_set_converted(
+                self.raw.as_ptr(),
+                if value { 1 } else { 0 },
+            )
+        }
+    }
+
+    /// Why not, when `converted` is false
+    pub fn blocker(&self) -> String {
+        // SAFETY: the native side hands over an owned CString.
+        unsafe {
+            crate::support::take_string(ffi::whiteout_m3_M3StandardMaterialConversion_get_blocker(
+                self.raw.as_ptr(),
+            ))
+        }
+    }
+
+    pub fn set_blocker(&mut self, value: &str) {
+        let value = std::ffi::CString::new(value).unwrap_or_default();
+        // SAFETY: the pointer outlives the call.
+        unsafe {
+            ffi::whiteout_m3_M3StandardMaterialConversion_set_blocker(
+                self.raw.as_ptr(),
+                value.as_ptr(),
+            )
+        }
+    }
+
+    /// Only meaningful when `converted`
+    /// Borrows the field in place — no copy, no allocation.
+    pub fn material(&self) -> crate::support::Ref<'_, StandardMaterial> {
+        // SAFETY: an interior pointer into `self`, valid for this
+        // borrow and never freed by the `Ref`.
+        unsafe {
+            crate::support::Ref::new(StandardMaterial {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m3_M3StandardMaterialConversion_get_material(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+
+    pub fn material_mut(&mut self) -> crate::support::RefMut<'_, StandardMaterial> {
+        // SAFETY: as above; `&mut self` guarantees exclusivity.
+        unsafe {
+            crate::support::RefMut::new(StandardMaterial {
+                raw: core::ptr::NonNull::new_unchecked(
+                    ffi::whiteout_m3_M3StandardMaterialConversion_get_material(self.raw.as_ptr()),
+                ),
+            })
+        }
+    }
+}
+
+impl Default for StandardMaterialConversion {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// MADD — Data-driven material (v0–v3, 140–160 bytes)
+///
+/// The engine's own name for this chunk is `SDataDrivenMaterialData`. It is not "additional" data: at load the renderer converts every StandardMaterial (1), DisplacementMaterial (2) and ReflectionMaterial (10) in the model into one of these and rewrites the MaterialMap to MaterialType::DataDriven, so this is the only material representation the renderer actually consumes.
+///
+/// `fragmentHashes` names the shader fragments the material links, in order. Concatenating `shaderType`'s token with those names gives the shader permutation name, and its crc32 is the effect-cache lookup key.
+///
+/// `propertyBlob` is a self-describing two-level dictionary keyed by crc32 of unprefixed names — decode it with decodeProperties().
+///
+/// @see M3_FILE_FORMAT_SPECIFICATION.md §11 Materials
+pub struct DataDrivenMaterial {
+    pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3DataDrivenMaterial>,
+}
+
+impl Drop for DataDrivenMaterial {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from a native constructor and Drop runs once.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_delete(self.raw.as_ptr()) }
+    }
+}
+
+impl DataDrivenMaterial {
+    /// # Safety
+    /// `raw` must be a live handle this value takes ownership of.
+    #[allow(dead_code)] // used by whichever methods return this type
+    pub(crate) unsafe fn from_raw(raw: *mut ffi::whiteout_M3DataDrivenMaterial) -> Option<Self> {
+        core::ptr::NonNull::new(raw).map(|raw| DataDrivenMaterial { raw })
+    }
+}
+
+// SAFETY: handles are plain heap pointers with no thread affinity. `Sync`
+// is deliberately NOT implemented — the C++ types make no documented
+// guarantee about concurrent use, and claiming one we haven't verified
+// would be unsound. See `@bind thread_safe` in the plan.
+unsafe impl Send for DataDrivenMaterial {}
+
+impl core::fmt::Debug for DataDrivenMaterial {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DataDrivenMaterial").finish_non_exhaustive()
+    }
+}
+
+impl DataDrivenMaterial {
+    /// # Panics
+    /// Panics if the native allocation fails.
+    pub fn new() -> Self {
+        // SAFETY: the native constructor returns a live handle; a null here
+        // means the library is unusable.
+        unsafe {
+            let raw = ffi::whiteout_m3_M3DataDrivenMaterial_new();
+            Self::from_raw(raw).expect("native DataDrivenMaterial allocation failed")
+        }
+    }
+
+    /// Material name (`Ref<CHAR>`)
+    pub fn material_name(&self) -> String {
+        // SAFETY: the native side hands over an owned CString.
+        unsafe {
+            crate::support::take_string(ffi::whiteout_m3_M3DataDrivenMaterial_get_materialName(
+                self.raw.as_ptr(),
+            ))
+        }
+    }
+
+    pub fn set_material_name(&mut self, value: &str) {
+        let value = std::ffi::CString::new(value).unwrap_or_default();
+        // SAFETY: the pointer outlives the call.
+        unsafe {
+            ffi::whiteout_m3_M3DataDrivenMaterial_set_materialName(
+                self.raw.as_ptr(),
+                value.as_ptr(),
+            )
+        }
+    }
+
+    /// crc32 of each shader fragment name, in link order (U32_)
     /// Zero-copy view of the underlying `std::vector`.
-    pub fn extra_hash(&self) -> &[u32] {
+    pub fn fragment_hashes(&self) -> &[u32] {
         // SAFETY: `_data`/`_count` describe one contiguous C++
         // allocation, borrowed for as long as `self` is.
         unsafe {
-            let n = ffi::whiteout_m3_M3MaterialAddData_get_extraHash_count(self.raw.as_ptr());
-            let p = ffi::whiteout_m3_M3MaterialAddData_get_extraHash_data(self.raw.as_ptr());
+            let n =
+                ffi::whiteout_m3_M3DataDrivenMaterial_get_fragmentHashes_count(self.raw.as_ptr());
+            let p =
+                ffi::whiteout_m3_M3DataDrivenMaterial_get_fragmentHashes_data(self.raw.as_ptr());
             if p.is_null() || n == 0 {
                 &[]
             } else {
@@ -11459,11 +12013,12 @@ impl MaterialAddData {
     }
 
     /// Zero-copy mutable view. Resize first — the borrow forbids it after.
-    pub fn extra_hash_mut(&mut self) -> &mut [u32] {
+    pub fn fragment_hashes_mut(&mut self) -> &mut [u32] {
         // SAFETY: as above; `&mut self` rules out aliasing and resizing.
         unsafe {
-            let n = ffi::whiteout_m3_M3MaterialAddData_get_extraHash_count(self.raw.as_ptr());
-            let p = ffi::whiteout_m3_M3MaterialAddData_get_extraHash_data(self.raw.as_ptr())
+            let n =
+                ffi::whiteout_m3_M3DataDrivenMaterial_get_fragmentHashes_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m3_M3DataDrivenMaterial_get_fragmentHashes_data(self.raw.as_ptr())
                 as *mut u32;
             if p.is_null() || n == 0 {
                 &mut []
@@ -11473,10 +12028,10 @@ impl MaterialAddData {
         }
     }
 
-    pub fn set_extra_hash(&mut self, values: &[u32]) {
+    pub fn set_fragment_hashes(&mut self, values: &[u32]) {
         // SAFETY: the native side copies `values` before returning.
         unsafe {
-            ffi::whiteout_m3_M3MaterialAddData_assign_extraHash(
+            ffi::whiteout_m3_M3DataDrivenMaterial_assign_fragmentHashes(
                 self.raw.as_ptr(),
                 values.as_ptr() as *const _,
                 values.len(),
@@ -11484,175 +12039,345 @@ impl MaterialAddData {
         }
     }
 
-    pub fn resize_extra_hash(&mut self, count: usize) {
+    pub fn resize_fragment_hashes(&mut self, count: usize) {
         // SAFETY: reallocation is safe here precisely because
         // `&mut self` means no slice borrow is outstanding.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_resize_extraHash(self.raw.as_ptr(), count) }
+        unsafe {
+            ffi::whiteout_m3_M3DataDrivenMaterial_resize_fragmentHashes(self.raw.as_ptr(), count)
+        }
     }
 
-    /// Value file path (`Ref<CHAR>`)
-    pub fn value_path(&self) -> String {
-        // SAFETY: the native side hands over an owned CString.
+    /// Secondary hash list (U32_, v2+)
+    /// Zero-copy view of the underlying `std::vector`.
+    pub fn extra_hashes(&self) -> &[u32] {
+        // SAFETY: `_data`/`_count` describe one contiguous C++
+        // allocation, borrowed for as long as `self` is.
         unsafe {
-            crate::support::take_string(ffi::whiteout_m3_M3MaterialAddData_get_valuePath(
+            let n = ffi::whiteout_m3_M3DataDrivenMaterial_get_extraHashes_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m3_M3DataDrivenMaterial_get_extraHashes_data(self.raw.as_ptr());
+            if p.is_null() || n == 0 {
+                &[]
+            } else {
+                core::slice::from_raw_parts(p, n)
+            }
+        }
+    }
+
+    /// Zero-copy mutable view. Resize first — the borrow forbids it after.
+    pub fn extra_hashes_mut(&mut self) -> &mut [u32] {
+        // SAFETY: as above; `&mut self` rules out aliasing and resizing.
+        unsafe {
+            let n = ffi::whiteout_m3_M3DataDrivenMaterial_get_extraHashes_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m3_M3DataDrivenMaterial_get_extraHashes_data(self.raw.as_ptr())
+                as *mut u32;
+            if p.is_null() || n == 0 {
+                &mut []
+            } else {
+                core::slice::from_raw_parts_mut(p, n)
+            }
+        }
+    }
+
+    pub fn set_extra_hashes(&mut self, values: &[u32]) {
+        // SAFETY: the native side copies `values` before returning.
+        unsafe {
+            ffi::whiteout_m3_M3DataDrivenMaterial_assign_extraHashes(
+                self.raw.as_ptr(),
+                values.as_ptr() as *const _,
+                values.len(),
+            )
+        }
+    }
+
+    pub fn resize_extra_hashes(&mut self, count: usize) {
+        // SAFETY: reallocation is safe here precisely because
+        // `&mut self` means no slice borrow is outstanding.
+        unsafe {
+            ffi::whiteout_m3_M3DataDrivenMaterial_resize_extraHashes(self.raw.as_ptr(), count)
+        }
+    }
+
+    /// Property dictionary (`Ref<CHAR>`)
+    /// Zero-copy view of the underlying `std::vector`.
+    pub fn property_blob(&self) -> &[u8] {
+        // SAFETY: `_data`/`_count` describe one contiguous C++
+        // allocation, borrowed for as long as `self` is.
+        unsafe {
+            let n = ffi::whiteout_m3_M3DataDrivenMaterial_get_propertyBlob_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m3_M3DataDrivenMaterial_get_propertyBlob_data(self.raw.as_ptr());
+            if p.is_null() || n == 0 {
+                &[]
+            } else {
+                core::slice::from_raw_parts(p, n)
+            }
+        }
+    }
+
+    /// Zero-copy mutable view. Resize first — the borrow forbids it after.
+    pub fn property_blob_mut(&mut self) -> &mut [u8] {
+        // SAFETY: as above; `&mut self` rules out aliasing and resizing.
+        unsafe {
+            let n = ffi::whiteout_m3_M3DataDrivenMaterial_get_propertyBlob_count(self.raw.as_ptr());
+            let p = ffi::whiteout_m3_M3DataDrivenMaterial_get_propertyBlob_data(self.raw.as_ptr())
+                as *mut u8;
+            if p.is_null() || n == 0 {
+                &mut []
+            } else {
+                core::slice::from_raw_parts_mut(p, n)
+            }
+        }
+    }
+
+    pub fn set_property_blob(&mut self, values: &[u8]) {
+        // SAFETY: the native side copies `values` before returning.
+        unsafe {
+            ffi::whiteout_m3_M3DataDrivenMaterial_assign_propertyBlob(
+                self.raw.as_ptr(),
+                values.as_ptr() as *const _,
+                values.len(),
+            )
+        }
+    }
+
+    pub fn resize_property_blob(&mut self, count: usize) {
+        // SAFETY: reallocation is safe here precisely because
+        // `&mut self` means no slice borrow is outstanding.
+        unsafe {
+            ffi::whiteout_m3_M3DataDrivenMaterial_resize_propertyBlob(self.raw.as_ptr(), count)
+        }
+    }
+
+    /// 1.0, 1.5 or 2.0 across the corpus
+    pub fn unknown_108(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_get_unknown108(self.raw.as_ptr()) }
+    }
+
+    pub fn set_unknown_108(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_set_unknown108(self.raw.as_ptr(), value) }
+    }
+
+    /// 1.0 in every known record
+    pub fn unknown_112(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_get_unknown112(self.raw.as_ptr()) }
+    }
+
+    pub fn set_unknown_112(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_set_unknown112(self.raw.as_ptr(), value) }
+    }
+
+    pub fn unknown_116(&self) -> f32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_get_unknown116(self.raw.as_ptr()) }
+    }
+
+    pub fn set_unknown_116(&mut self, value: f32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_set_unknown116(self.raw.as_ptr(), value) }
+    }
+
+    /// crc32 of the shader permutation name; 0 = compute it at load
+    pub fn effect_name_hash(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_get_effectNameHash(self.raw.as_ptr()) }
+    }
+
+    pub fn set_effect_name_hash(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe {
+            ffi::whiteout_m3_M3DataDrivenMaterial_set_effectNameHash(self.raw.as_ptr(), value)
+        }
+    }
+
+    pub fn unknown_124(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_get_unknown124(self.raw.as_ptr()) }
+    }
+
+    pub fn set_unknown_124(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_set_unknown124(self.raw.as_ptr(), value) }
+    }
+
+    /// Zero in every known record
+    pub fn padding_128(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_get_padding128(self.raw.as_ptr()) }
+    }
+
+    pub fn set_padding_128(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_set_padding128(self.raw.as_ptr(), value) }
+    }
+
+    pub fn unknown_132(&self) -> i32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_get_unknown132(self.raw.as_ptr()) }
+    }
+
+    pub fn set_unknown_132(&mut self, value: i32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_set_unknown132(self.raw.as_ptr(), value) }
+    }
+
+    /// Packed bit field
+    pub fn unknown_136(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_get_unknown136(self.raw.as_ptr()) }
+    }
+
+    pub fn set_unknown_136(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_set_unknown136(self.raw.as_ptr(), value) }
+    }
+
+    pub fn unknown_140(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_get_unknown140(self.raw.as_ptr()) }
+    }
+
+    pub fn set_unknown_140(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_set_unknown140(self.raw.as_ptr(), value) }
+    }
+
+    pub fn unknown_144(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_get_unknown144(self.raw.as_ptr()) }
+    }
+
+    pub fn set_unknown_144(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_set_unknown144(self.raw.as_ptr(), value) }
+    }
+
+    pub fn unknown_148(&self) -> u8 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_get_unknown148(self.raw.as_ptr()) }
+    }
+
+    pub fn set_unknown_148(&mut self, value: u8) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_set_unknown148(self.raw.as_ptr(), value) }
+    }
+
+    /// Derived cache the loader recomputes; do not trust over the blob
+    pub fn alpha_fresnel_flags(&self) -> u8 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_get_alphaFresnelFlags(self.raw.as_ptr()) }
+    }
+
+    pub fn set_alpha_fresnel_flags(&mut self, value: u8) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe {
+            ffi::whiteout_m3_M3DataDrivenMaterial_set_alphaFresnelFlags(self.raw.as_ptr(), value)
+        }
+    }
+
+    /// Shader family prefix for the permutation name
+    pub fn shader_type(&self) -> MaterialShaderType {
+        // SAFETY: scalar read; the discriminant is validated below.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_get_shaderType(self.raw.as_ptr()) }
+            .try_into()
+            .expect("unknown enum discriminant from the native library")
+    }
+
+    pub fn set_shader_type(&mut self, value: MaterialShaderType) {
+        // SAFETY: scalar write through a live handle.
+        unsafe {
+            ffi::whiteout_m3_M3DataDrivenMaterial_set_shaderType(self.raw.as_ptr(), value as i32)
+        }
+    }
+
+    pub fn unknown_151(&self) -> u8 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_get_unknown151(self.raw.as_ptr()) }
+    }
+
+    pub fn set_unknown_151(&mut self, value: u8) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_set_unknown151(self.raw.as_ptr(), value) }
+    }
+
+    /// Second permutation hash, 0xFFFFFFFF = none (v3+)
+    pub fn effect_name_hash_2(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_get_effectNameHash2(self.raw.as_ptr()) }
+    }
+
+    pub fn set_effect_name_hash_2(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe {
+            ffi::whiteout_m3_M3DataDrivenMaterial_set_effectNameHash2(self.raw.as_ptr(), value)
+        }
+    }
+
+    /// Third permutation hash, 0xFFFFFFFF = none (v3+)
+    pub fn effect_name_hash_3(&self) -> u32 {
+        // SAFETY: plain scalar read through a live handle.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_get_effectNameHash3(self.raw.as_ptr()) }
+    }
+
+    pub fn set_effect_name_hash_3(&mut self, value: u32) {
+        // SAFETY: plain scalar write through a live handle.
+        unsafe {
+            ffi::whiteout_m3_M3DataDrivenMaterial_set_effectNameHash3(self.raw.as_ptr(), value)
+        }
+    }
+
+    /// Decode propertyBlob into fragment groups and named properties
+    pub fn decode_properties(&self) -> Option<DataDrivenProperties> {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            DataDrivenProperties::from_raw(ffi::whiteout_m3_M3DataDrivenMaterial_decodeProperties(
                 self.raw.as_ptr(),
             ))
         }
     }
 
-    pub fn set_value_path(&mut self, value: &str) {
-        let value = std::ffi::CString::new(value).unwrap_or_default();
-        // SAFETY: the pointer outlives the call.
+    /// Rebuild the StandardMaterial this was converted from, where possible
+    ///
+    /// The engine only converts in the other direction, and does so lossily, so this reverses what it can and reports the rest. See StandardMaterialConversion.
+    pub fn to_standard_material(&self) -> Option<StandardMaterialConversion> {
+        // SAFETY: handle is live for the duration of the call.
         unsafe {
-            ffi::whiteout_m3_M3MaterialAddData_set_valuePath(self.raw.as_ptr(), value.as_ptr())
+            StandardMaterialConversion::from_raw(
+                ffi::whiteout_m3_M3DataDrivenMaterial_toStandardMaterial(self.raw.as_ptr()),
+            )
         }
     }
 
-    /// Animation frequency
-    pub fn frequency(&self) -> f32 {
-        // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_get_frequency(self.raw.as_ptr()) }
+    /// Best-effort StandardMaterial for a material that has no exact one
+    ///
+    /// toStandardMaterial() refuses shader-graph materials, which were authored in the node editor and never had a StandardMaterial form. This infers one anyway, from the node types, the per-node names in extraHashes, and the texture filenames. The blob stores nodes but not the edges between them, so the graph topology cannot be recovered and the result is a likeness, not a conversion — `lossy` always says so. Materials that are already fixed-function are forwarded to toStandardMaterial() unchanged.
+    pub fn approximate_standard_material(&self) -> Option<StandardMaterialConversion> {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            StandardMaterialConversion::from_raw(
+                ffi::whiteout_m3_M3DataDrivenMaterial_approximateStandardMaterial(
+                    self.raw.as_ptr(),
+                ),
+            )
+        }
     }
 
-    pub fn set_frequency(&mut self, value: f32) {
-        // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_set_frequency(self.raw.as_ptr(), value) }
+    pub fn version(&self) -> i32 {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe { ffi::whiteout_m3_M3DataDrivenMaterial_getVersion(self.raw.as_ptr()) }
     }
 
-    /// Effect intensity
-    pub fn intensity(&self) -> f32 {
-        // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_get_intensity(self.raw.as_ptr()) }
-    }
-
-    pub fn set_intensity(&mut self, value: f32) {
-        // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_set_intensity(self.raw.as_ptr(), value) }
-    }
-
-    /// Hold time duration
-    pub fn hold_time(&self) -> f32 {
-        // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_get_holdTime(self.raw.as_ptr()) }
-    }
-
-    pub fn set_hold_time(&mut self, value: f32) {
-        // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_set_holdTime(self.raw.as_ptr(), value) }
-    }
-
-    /// Random seed hash
-    pub fn random_hash(&self) -> u32 {
-        // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_get_randomHash(self.raw.as_ptr()) }
-    }
-
-    pub fn set_random_hash(&mut self, value: u32) {
-        // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_set_randomHash(self.raw.as_ptr(), value) }
-    }
-
-    /// Animation type code
-    pub fn animation_type(&self) -> u32 {
-        // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_get_animationType(self.raw.as_ptr()) }
-    }
-
-    pub fn set_animation_type(&mut self, value: u32) {
-        // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_set_animationType(self.raw.as_ptr(), value) }
-    }
-
-    /// Alignment padding
-    pub fn padding_0(&self) -> u32 {
-        // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_get_padding0(self.raw.as_ptr()) }
-    }
-
-    pub fn set_padding_0(&mut self, value: u32) {
-        // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_set_padding0(self.raw.as_ptr(), value) }
-    }
-
-    /// Loop count (-1 = infinite)
-    pub fn loop_count(&self) -> i32 {
-        // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_get_loopCount(self.raw.as_ptr()) }
-    }
-
-    pub fn set_loop_count(&mut self, value: i32) {
-        // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_set_loopCount(self.raw.as_ptr(), value) }
-    }
-
-    /// Flags
-    pub fn flags(&self) -> u32 {
-        // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_get_flags(self.raw.as_ptr()) }
-    }
-
-    pub fn set_flags(&mut self, value: u32) {
-        // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_set_flags(self.raw.as_ptr(), value) }
-    }
-
-    /// Sub-type identifier
-    pub fn sub_type(&self) -> u32 {
-        // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_get_subType(self.raw.as_ptr()) }
-    }
-
-    pub fn set_sub_type(&mut self, value: u32) {
-        // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_set_subType(self.raw.as_ptr(), value) }
-    }
-
-    /// Configuration parameter A
-    pub fn config_a(&self) -> u32 {
-        // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_get_configA(self.raw.as_ptr()) }
-    }
-
-    pub fn set_config_a(&mut self, value: u32) {
-        // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_set_configA(self.raw.as_ptr(), value) }
-    }
-
-    /// Configuration parameter B
-    pub fn config_b(&self) -> u32 {
-        // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_get_configB(self.raw.as_ptr()) }
-    }
-
-    pub fn set_config_b(&mut self, value: u32) {
-        // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_set_configB(self.raw.as_ptr(), value) }
-    }
-
-    /// Extra identifier 0 (v3+)
-    pub fn extra_id_0(&self) -> u32 {
-        // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_get_extraId0(self.raw.as_ptr()) }
-    }
-
-    pub fn set_extra_id_0(&mut self, value: u32) {
-        // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_set_extraId0(self.raw.as_ptr(), value) }
-    }
-
-    /// Extra identifier 1 (v3+)
-    pub fn extra_id_1(&self) -> u32 {
-        // SAFETY: plain scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_get_extraId1(self.raw.as_ptr()) }
-    }
-
-    pub fn set_extra_id_1(&mut self, value: u32) {
-        // SAFETY: plain scalar write through a live handle.
-        unsafe { ffi::whiteout_m3_M3MaterialAddData_set_extraId1(self.raw.as_ptr(), value) }
+    pub fn set_version(&mut self, new_version: i32) -> bool {
+        // SAFETY: handle is live for the duration of the call.
+        unsafe {
+            ffi::whiteout_m3_M3DataDrivenMaterial_setVersion(self.raw.as_ptr(), new_version) != 0
+        }
     }
 }
 
-impl Default for MaterialAddData {
+impl Default for DataDrivenMaterial {
     fn default() -> Self {
         Self::new()
     }
@@ -12189,7 +12914,7 @@ impl Batch {
         unsafe { ffi::whiteout_m3_M3Batch_set_materialIndex(self.raw.as_ptr(), value) }
     }
 
-    /// Number of bones affecting this batch
+    /// Bone whose animated visibility gates this batch's draw (0xFFFF = always drawn). Misnamed — it is a bone index, not a count: the engine's submit loop reads it and skips the batch when that bone is invisible.
     pub fn bone_count(&self) -> u16 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3Batch_get_boneCount(self.raw.as_ptr()) }
@@ -13531,7 +14256,9 @@ impl Default for TurretBehavior {
 
 /// BBSC — Billboard behavior (v0, 48 bytes)
 ///
-/// Makes a bone always face the camera or a specified direction.
+/// Turns one bone to face the camera. The only source of billboarding there is: `BoneFlag::Billboard1/2` are set on no bone in the whole corpus.
+///
+/// StarCraft II applies these at draw time, per view, from `sub_10290A890` — `CBBSolver::Solve` is a stub — and writes the bone's *local* rotation, so the subtree follows.
 pub struct BillboardBehavior {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3BillboardBehavior>,
 }
@@ -13576,7 +14303,7 @@ impl BillboardBehavior {
         }
     }
 
-    /// Dependent bone indices (U16_)
+    /// Dependent bone indices (U16_). Empty in every shipped record; the engine never reads them
     /// Zero-copy view of the underlying `std::vector`.
     pub fn dependents(&self) -> &[u16] {
         // SAFETY: `_data`/`_count` describe one contiguous C++
@@ -13635,7 +14362,7 @@ impl BillboardBehavior {
         unsafe { ffi::whiteout_m3_M3BillboardBehavior_set_boneIndex(self.raw.as_ptr(), value) }
     }
 
-    /// Billboard mode type
+    /// Which axes may turn — see BillboardType
     pub fn billboard_type(&self) -> u8 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3BillboardBehavior_get_billboardType(self.raw.as_ptr()) }
@@ -13646,7 +14373,7 @@ impl BillboardBehavior {
         unsafe { ffi::whiteout_m3_M3BillboardBehavior_set_billboardType(self.raw.as_ptr(), value) }
     }
 
-    /// Camera look-at flag (default: enabled)
+    /// Non-zero: aim from this bone at the eye. Zero: aim along the camera's view direction instead, so every such bone shares one orientation
     pub fn camera_look_at(&self) -> u8 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3BillboardBehavior_get_cameraLookAt(self.raw.as_ptr()) }
@@ -13657,7 +14384,7 @@ impl BillboardBehavior {
         unsafe { ffi::whiteout_m3_M3BillboardBehavior_set_cameraLookAt(self.raw.as_ptr(), value) }
     }
 
-    /// Up direction quaternion
+    /// MISNAMED: not a direction. A rotation applied *before* the billboard basis, and only by the axis-locked types 0/1/2
     pub fn up(&self) -> crate::math::Quaternion {
         // SAFETY: the getter returns an interior pointer to a
         // layout-identical POD; we copy it out immediately.
@@ -13677,7 +14404,7 @@ impl BillboardBehavior {
         }
     }
 
-    /// Forward direction quaternion
+    /// MISNAMED likewise: the same kind of pre-rotation, taken only by type 6, and only on a bone whose parent is another bone. Types 3/4/5 take neither
     pub fn forward(&self) -> crate::math::Quaternion {
         // SAFETY: the getter returns an interior pointer to a
         // layout-identical POD; we copy it out immediately.
@@ -13820,7 +14547,7 @@ impl IKJoint {
         unsafe { ffi::whiteout_m3_M3IKJoint_set_boneIndex2(self.raw.as_ptr(), value) }
     }
 
-    /// Raycast upward distance
+    /// Raycast upward distance (positive; shipped 1.5 / 3.0)
     pub fn raycast_up(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3IKJoint_get_raycastUp(self.raw.as_ptr()) }
@@ -13831,7 +14558,7 @@ impl IKJoint {
         unsafe { ffi::whiteout_m3_M3IKJoint_set_raycastUp(self.raw.as_ptr(), value) }
     }
 
-    /// Raycast downward distance
+    /// Raycast downward offset, SIGNED (shipped -4.0 / -3.0): the surface window is [z + raycastDown, z + raycastUp]
     pub fn raycast_down(&self) -> f32 {
         // SAFETY: plain scalar read through a live handle.
         unsafe { ffi::whiteout_m3_M3IKJoint_get_raycastDown(self.raw.as_ptr()) }
@@ -15588,9 +16315,11 @@ impl Default for PhysicsMeshEdge {
     }
 }
 
-/// PHSH — Physics shape (v0–v3, 132–300 bytes)
+/// PHSH — Physics shape (v0–v3, 132/292/300 bytes)
 ///
 /// The 300-byte v3 layout is a three-part union. Bytes 0–79 are the common header. Bytes 80–103 hold shape dimensions for simple shapes (0–3) or are zero for complex shapes. Bytes 80–183 form the convex hull section (shapeType 4); bytes 184–299 form the mesh section (shapeType 5).
+///
+/// v2 shares the v3 layout through the hull section but has a shorter mesh section (292 bytes total): bounds/tolerance, four legacy geometry refs, then a 6-dword tail (unknown, vertexCount, faceCount, 2× unknown, treeDepth) — verified against the SC2 client's version-upgrade copier.
 pub struct PhysicsShape {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3PhysicsShape>,
 }
@@ -18482,7 +19211,7 @@ impl Default for Camera {
 ///
 /// The root of all model data. Contains `Ref<T>` fields pointing to every sub-chunk in the file: skeleton, mesh, materials, particles, physics, etc. The preamble (bytes 0x000–0x0E3) is identical across all versions; version-dependent material and physics references follow at 0x0E4+.
 ///
-/// Version history: - v23 (784 bytes): Base release layout - v24 (+ikCCD): 796 bytes - v25 (+volumeNoiseMaterials): 808 bytes - v26 (+stbMaterials): 820 bytes - v28 (+reflectionMaterials, +clothPhysics): 844 bytes - v29 (+lensFlareMaterials): 856 bytes - v30 (+materialAddData): 868 bytes
+/// Version history: - v23 (784 bytes): Base release layout - v24 (+ikCCD): 796 bytes - v25 (+volumeNoiseMaterials): 808 bytes - v26 (+stbMaterials): 820 bytes - v28 (+reflectionMaterials, +clothPhysics): 844 bytes - v29 (+lensFlareMaterials): 856 bytes - v30 (+dataDrivenMaterials): 868 bytes
 pub struct Model {
     pub(crate) raw: core::ptr::NonNull<ffi::whiteout_M3Model>,
 }
@@ -20102,58 +20831,58 @@ impl Model {
         unsafe { ffi::whiteout_m3_M3Model_resize_lensFlareMaterials(self.raw.as_ptr(), count) }
     }
 
-    /// Buffer material data (MADD, v30+)
-    pub fn material_add_data_len(&self) -> usize {
+    /// Data-driven materials (MADD, v30+)
+    pub fn data_driven_materials_len(&self) -> usize {
         // SAFETY: scalar read through a live handle.
-        unsafe { ffi::whiteout_m3_M3Model_get_materialAddData_count(self.raw.as_ptr()) }
+        unsafe { ffi::whiteout_m3_M3Model_get_dataDrivenMaterials_count(self.raw.as_ptr()) }
     }
 
     /// Borrows element `index` in place. `None` when out of range.
-    pub fn material_add_data(
+    pub fn data_driven_materials(
         &self,
         index: usize,
-    ) -> Option<crate::support::Ref<'_, MaterialAddData>> {
-        if index >= self.material_add_data_len() {
+    ) -> Option<crate::support::Ref<'_, DataDrivenMaterial>> {
+        if index >= self.data_driven_materials_len() {
             return None;
         }
         // SAFETY: index checked above; the pointer is interior to `self`.
         unsafe {
-            Some(crate::support::Ref::new(MaterialAddData {
+            Some(crate::support::Ref::new(DataDrivenMaterial {
                 raw: core::ptr::NonNull::new_unchecked(
-                    ffi::whiteout_m3_M3Model_get_materialAddData_at(self.raw.as_ptr(), index),
+                    ffi::whiteout_m3_M3Model_get_dataDrivenMaterials_at(self.raw.as_ptr(), index),
                 ),
             }))
         }
     }
 
-    pub fn material_add_data_mut(
+    pub fn data_driven_materials_mut(
         &mut self,
         index: usize,
-    ) -> Option<crate::support::RefMut<'_, MaterialAddData>> {
-        if index >= self.material_add_data_len() {
+    ) -> Option<crate::support::RefMut<'_, DataDrivenMaterial>> {
+        if index >= self.data_driven_materials_len() {
             return None;
         }
         // SAFETY: as above; `&mut self` guarantees exclusivity.
         unsafe {
-            Some(crate::support::RefMut::new(MaterialAddData {
+            Some(crate::support::RefMut::new(DataDrivenMaterial {
                 raw: core::ptr::NonNull::new_unchecked(
-                    ffi::whiteout_m3_M3Model_get_materialAddData_at(self.raw.as_ptr(), index),
+                    ffi::whiteout_m3_M3Model_get_dataDrivenMaterials_at(self.raw.as_ptr(), index),
                 ),
             }))
         }
     }
 
     /// Iterate the elements, borrowing each in turn.
-    pub fn material_add_data_iter(
+    pub fn data_driven_materials_iter(
         &self,
-    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, MaterialAddData>> {
-        (0..self.material_add_data_len())
-            .map(move |i| self.material_add_data(i).expect("index below len"))
+    ) -> impl ExactSizeIterator<Item = crate::support::Ref<'_, DataDrivenMaterial>> {
+        (0..self.data_driven_materials_len())
+            .map(move |i| self.data_driven_materials(i).expect("index below len"))
     }
 
-    pub fn resize_material_add_data(&mut self, count: usize) {
+    pub fn resize_data_driven_materials(&mut self, count: usize) {
         // SAFETY: exclusive access, so no borrow is outstanding.
-        unsafe { ffi::whiteout_m3_M3Model_resize_materialAddData(self.raw.as_ptr(), count) }
+        unsafe { ffi::whiteout_m3_M3Model_resize_dataDrivenMaterials(self.raw.as_ptr(), count) }
     }
 
     /// Particle emitters (PAR_)
@@ -22859,7 +23588,23 @@ pub mod ffi {
         _private: [u8; 0],
     }
     #[repr(C)]
-    pub struct whiteout_M3MaterialAddData {
+    pub struct whiteout_M3DataDrivenProperty {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M3DataDrivenGroup {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M3DataDrivenProperties {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M3StandardMaterialConversion {
+        _private: [u8; 0],
+    }
+    #[repr(C)]
+    pub struct whiteout_M3DataDrivenMaterial {
         _private: [u8; 0],
     }
     #[repr(C)]
@@ -26055,144 +26800,292 @@ pub mod ffi {
             self_: *mut whiteout_M3LensFlare,
             value: *const whiteout_M3AnimRefF32,
         );
-        // MaterialAddData
-        pub fn whiteout_m3_M3MaterialAddData_new() -> *mut whiteout_M3MaterialAddData;
-        pub fn whiteout_m3_M3MaterialAddData_delete(self_: *mut whiteout_M3MaterialAddData);
-        pub fn whiteout_m3_M3MaterialAddData_get_keyName(
-            self_: *mut whiteout_M3MaterialAddData,
+        // DataDrivenProperty
+        pub fn whiteout_m3_M3DataDrivenProperty_new() -> *mut whiteout_M3DataDrivenProperty;
+        pub fn whiteout_m3_M3DataDrivenProperty_delete(self_: *mut whiteout_M3DataDrivenProperty);
+        pub fn whiteout_m3_M3DataDrivenProperty_get_nameHash(
+            self_: *mut whiteout_M3DataDrivenProperty,
+        ) -> u32;
+        pub fn whiteout_m3_M3DataDrivenProperty_set_nameHash(
+            self_: *mut whiteout_M3DataDrivenProperty,
+            value: u32,
+        );
+        pub fn whiteout_m3_M3DataDrivenProperty_get_name(
+            self_: *mut whiteout_M3DataDrivenProperty,
         ) -> RawCString;
-        pub fn whiteout_m3_M3MaterialAddData_set_keyName(
-            self_: *mut whiteout_M3MaterialAddData,
+        pub fn whiteout_m3_M3DataDrivenProperty_set_name(
+            self_: *mut whiteout_M3DataDrivenProperty,
             value: *const core::ffi::c_char,
         );
-        pub fn whiteout_m3_M3MaterialAddData_get_keyHash_count(
-            self_: *mut whiteout_M3MaterialAddData,
+        pub fn whiteout_m3_M3DataDrivenProperty_get_data_count(
+            self_: *mut whiteout_M3DataDrivenProperty,
         ) -> usize;
-        pub fn whiteout_m3_M3MaterialAddData_resize_keyHash(
-            self_: *mut whiteout_M3MaterialAddData,
+        pub fn whiteout_m3_M3DataDrivenProperty_resize_data(
+            self_: *mut whiteout_M3DataDrivenProperty,
             count: usize,
         );
-        pub fn whiteout_m3_M3MaterialAddData_get_keyHash_data(
-            self_: *mut whiteout_M3MaterialAddData,
-        ) -> *const u32;
-        pub fn whiteout_m3_M3MaterialAddData_assign_keyHash(
-            self_: *mut whiteout_M3MaterialAddData,
-            data: *const u32,
+        pub fn whiteout_m3_M3DataDrivenProperty_get_data_data(
+            self_: *mut whiteout_M3DataDrivenProperty,
+        ) -> *const u8;
+        pub fn whiteout_m3_M3DataDrivenProperty_assign_data(
+            self_: *mut whiteout_M3DataDrivenProperty,
+            data: *const u8,
             count: usize,
         );
-        pub fn whiteout_m3_M3MaterialAddData_get_extraHash_count(
-            self_: *mut whiteout_M3MaterialAddData,
-        ) -> usize;
-        pub fn whiteout_m3_M3MaterialAddData_resize_extraHash(
-            self_: *mut whiteout_M3MaterialAddData,
-            count: usize,
+        // DataDrivenGroup
+        pub fn whiteout_m3_M3DataDrivenGroup_new() -> *mut whiteout_M3DataDrivenGroup;
+        pub fn whiteout_m3_M3DataDrivenGroup_delete(self_: *mut whiteout_M3DataDrivenGroup);
+        pub fn whiteout_m3_M3DataDrivenGroup_get_nameHash(
+            self_: *mut whiteout_M3DataDrivenGroup,
+        ) -> u32;
+        pub fn whiteout_m3_M3DataDrivenGroup_set_nameHash(
+            self_: *mut whiteout_M3DataDrivenGroup,
+            value: u32,
         );
-        pub fn whiteout_m3_M3MaterialAddData_get_extraHash_data(
-            self_: *mut whiteout_M3MaterialAddData,
-        ) -> *const u32;
-        pub fn whiteout_m3_M3MaterialAddData_assign_extraHash(
-            self_: *mut whiteout_M3MaterialAddData,
-            data: *const u32,
-            count: usize,
-        );
-        pub fn whiteout_m3_M3MaterialAddData_get_valuePath(
-            self_: *mut whiteout_M3MaterialAddData,
+        pub fn whiteout_m3_M3DataDrivenGroup_get_name(
+            self_: *mut whiteout_M3DataDrivenGroup,
         ) -> RawCString;
-        pub fn whiteout_m3_M3MaterialAddData_set_valuePath(
-            self_: *mut whiteout_M3MaterialAddData,
+        pub fn whiteout_m3_M3DataDrivenGroup_set_name(
+            self_: *mut whiteout_M3DataDrivenGroup,
             value: *const core::ffi::c_char,
         );
-        pub fn whiteout_m3_M3MaterialAddData_get_frequency(
-            self_: *mut whiteout_M3MaterialAddData,
-        ) -> f32;
-        pub fn whiteout_m3_M3MaterialAddData_set_frequency(
-            self_: *mut whiteout_M3MaterialAddData,
-            value: f32,
+        pub fn whiteout_m3_M3DataDrivenGroup_get_properties_count(
+            self_: *mut whiteout_M3DataDrivenGroup,
+        ) -> usize;
+        pub fn whiteout_m3_M3DataDrivenGroup_resize_properties(
+            self_: *mut whiteout_M3DataDrivenGroup,
+            count: usize,
         );
-        pub fn whiteout_m3_M3MaterialAddData_get_intensity(
-            self_: *mut whiteout_M3MaterialAddData,
-        ) -> f32;
-        pub fn whiteout_m3_M3MaterialAddData_set_intensity(
-            self_: *mut whiteout_M3MaterialAddData,
-            value: f32,
+        pub fn whiteout_m3_M3DataDrivenGroup_get_properties_at(
+            self_: *mut whiteout_M3DataDrivenGroup,
+            index: usize,
+        ) -> *mut whiteout_M3DataDrivenProperty;
+        // DataDrivenProperties
+        pub fn whiteout_m3_M3DataDrivenProperties_new() -> *mut whiteout_M3DataDrivenProperties;
+        pub fn whiteout_m3_M3DataDrivenProperties_delete(
+            self_: *mut whiteout_M3DataDrivenProperties,
         );
-        pub fn whiteout_m3_M3MaterialAddData_get_holdTime(
-            self_: *mut whiteout_M3MaterialAddData,
-        ) -> f32;
-        pub fn whiteout_m3_M3MaterialAddData_set_holdTime(
-            self_: *mut whiteout_M3MaterialAddData,
-            value: f32,
+        pub fn whiteout_m3_M3DataDrivenProperties_get_groups_count(
+            self_: *mut whiteout_M3DataDrivenProperties,
+        ) -> usize;
+        pub fn whiteout_m3_M3DataDrivenProperties_resize_groups(
+            self_: *mut whiteout_M3DataDrivenProperties,
+            count: usize,
         );
-        pub fn whiteout_m3_M3MaterialAddData_get_randomHash(
-            self_: *mut whiteout_M3MaterialAddData,
-        ) -> u32;
-        pub fn whiteout_m3_M3MaterialAddData_set_randomHash(
-            self_: *mut whiteout_M3MaterialAddData,
-            value: u32,
+        pub fn whiteout_m3_M3DataDrivenProperties_get_groups_at(
+            self_: *mut whiteout_M3DataDrivenProperties,
+            index: usize,
+        ) -> *mut whiteout_M3DataDrivenGroup;
+        // StandardMaterialConversion
+        pub fn whiteout_m3_M3StandardMaterialConversion_new(
+        ) -> *mut whiteout_M3StandardMaterialConversion;
+        pub fn whiteout_m3_M3StandardMaterialConversion_delete(
+            self_: *mut whiteout_M3StandardMaterialConversion,
         );
-        pub fn whiteout_m3_M3MaterialAddData_get_animationType(
-            self_: *mut whiteout_M3MaterialAddData,
-        ) -> u32;
-        pub fn whiteout_m3_M3MaterialAddData_set_animationType(
-            self_: *mut whiteout_M3MaterialAddData,
-            value: u32,
-        );
-        pub fn whiteout_m3_M3MaterialAddData_get_padding0(
-            self_: *mut whiteout_M3MaterialAddData,
-        ) -> u32;
-        pub fn whiteout_m3_M3MaterialAddData_set_padding0(
-            self_: *mut whiteout_M3MaterialAddData,
-            value: u32,
-        );
-        pub fn whiteout_m3_M3MaterialAddData_get_loopCount(
-            self_: *mut whiteout_M3MaterialAddData,
+        pub fn whiteout_m3_M3StandardMaterialConversion_get_converted(
+            self_: *mut whiteout_M3StandardMaterialConversion,
         ) -> i32;
-        pub fn whiteout_m3_M3MaterialAddData_set_loopCount(
-            self_: *mut whiteout_M3MaterialAddData,
+        pub fn whiteout_m3_M3StandardMaterialConversion_set_converted(
+            self_: *mut whiteout_M3StandardMaterialConversion,
             value: i32,
         );
-        pub fn whiteout_m3_M3MaterialAddData_get_flags(
-            self_: *mut whiteout_M3MaterialAddData,
+        pub fn whiteout_m3_M3StandardMaterialConversion_get_blocker(
+            self_: *mut whiteout_M3StandardMaterialConversion,
+        ) -> RawCString;
+        pub fn whiteout_m3_M3StandardMaterialConversion_set_blocker(
+            self_: *mut whiteout_M3StandardMaterialConversion,
+            value: *const core::ffi::c_char,
+        );
+        pub fn whiteout_m3_M3StandardMaterialConversion_get_material(
+            self_: *mut whiteout_M3StandardMaterialConversion,
+        ) -> *mut whiteout_M3StandardMaterial;
+        pub fn whiteout_m3_M3StandardMaterialConversion_set_material(
+            self_: *mut whiteout_M3StandardMaterialConversion,
+            value: *const whiteout_M3StandardMaterial,
+        );
+        // DataDrivenMaterial
+        pub fn whiteout_m3_M3DataDrivenMaterial_new() -> *mut whiteout_M3DataDrivenMaterial;
+        pub fn whiteout_m3_M3DataDrivenMaterial_delete(self_: *mut whiteout_M3DataDrivenMaterial);
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_materialName(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+        ) -> RawCString;
+        pub fn whiteout_m3_M3DataDrivenMaterial_set_materialName(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+            value: *const core::ffi::c_char,
+        );
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_fragmentHashes_count(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+        ) -> usize;
+        pub fn whiteout_m3_M3DataDrivenMaterial_resize_fragmentHashes(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+            count: usize,
+        );
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_fragmentHashes_data(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+        ) -> *const u32;
+        pub fn whiteout_m3_M3DataDrivenMaterial_assign_fragmentHashes(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+            data: *const u32,
+            count: usize,
+        );
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_extraHashes_count(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+        ) -> usize;
+        pub fn whiteout_m3_M3DataDrivenMaterial_resize_extraHashes(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+            count: usize,
+        );
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_extraHashes_data(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+        ) -> *const u32;
+        pub fn whiteout_m3_M3DataDrivenMaterial_assign_extraHashes(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+            data: *const u32,
+            count: usize,
+        );
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_propertyBlob_count(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+        ) -> usize;
+        pub fn whiteout_m3_M3DataDrivenMaterial_resize_propertyBlob(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+            count: usize,
+        );
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_propertyBlob_data(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+        ) -> *const u8;
+        pub fn whiteout_m3_M3DataDrivenMaterial_assign_propertyBlob(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+            data: *const u8,
+            count: usize,
+        );
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_unknown108(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+        ) -> f32;
+        pub fn whiteout_m3_M3DataDrivenMaterial_set_unknown108(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+            value: f32,
+        );
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_unknown112(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+        ) -> f32;
+        pub fn whiteout_m3_M3DataDrivenMaterial_set_unknown112(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+            value: f32,
+        );
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_unknown116(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+        ) -> f32;
+        pub fn whiteout_m3_M3DataDrivenMaterial_set_unknown116(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+            value: f32,
+        );
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_effectNameHash(
+            self_: *mut whiteout_M3DataDrivenMaterial,
         ) -> u32;
-        pub fn whiteout_m3_M3MaterialAddData_set_flags(
-            self_: *mut whiteout_M3MaterialAddData,
+        pub fn whiteout_m3_M3DataDrivenMaterial_set_effectNameHash(
+            self_: *mut whiteout_M3DataDrivenMaterial,
             value: u32,
         );
-        pub fn whiteout_m3_M3MaterialAddData_get_subType(
-            self_: *mut whiteout_M3MaterialAddData,
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_unknown124(
+            self_: *mut whiteout_M3DataDrivenMaterial,
         ) -> u32;
-        pub fn whiteout_m3_M3MaterialAddData_set_subType(
-            self_: *mut whiteout_M3MaterialAddData,
+        pub fn whiteout_m3_M3DataDrivenMaterial_set_unknown124(
+            self_: *mut whiteout_M3DataDrivenMaterial,
             value: u32,
         );
-        pub fn whiteout_m3_M3MaterialAddData_get_configA(
-            self_: *mut whiteout_M3MaterialAddData,
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_padding128(
+            self_: *mut whiteout_M3DataDrivenMaterial,
         ) -> u32;
-        pub fn whiteout_m3_M3MaterialAddData_set_configA(
-            self_: *mut whiteout_M3MaterialAddData,
+        pub fn whiteout_m3_M3DataDrivenMaterial_set_padding128(
+            self_: *mut whiteout_M3DataDrivenMaterial,
             value: u32,
         );
-        pub fn whiteout_m3_M3MaterialAddData_get_configB(
-            self_: *mut whiteout_M3MaterialAddData,
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_unknown132(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+        ) -> i32;
+        pub fn whiteout_m3_M3DataDrivenMaterial_set_unknown132(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+            value: i32,
+        );
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_unknown136(
+            self_: *mut whiteout_M3DataDrivenMaterial,
         ) -> u32;
-        pub fn whiteout_m3_M3MaterialAddData_set_configB(
-            self_: *mut whiteout_M3MaterialAddData,
+        pub fn whiteout_m3_M3DataDrivenMaterial_set_unknown136(
+            self_: *mut whiteout_M3DataDrivenMaterial,
             value: u32,
         );
-        pub fn whiteout_m3_M3MaterialAddData_get_extraId0(
-            self_: *mut whiteout_M3MaterialAddData,
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_unknown140(
+            self_: *mut whiteout_M3DataDrivenMaterial,
         ) -> u32;
-        pub fn whiteout_m3_M3MaterialAddData_set_extraId0(
-            self_: *mut whiteout_M3MaterialAddData,
+        pub fn whiteout_m3_M3DataDrivenMaterial_set_unknown140(
+            self_: *mut whiteout_M3DataDrivenMaterial,
             value: u32,
         );
-        pub fn whiteout_m3_M3MaterialAddData_get_extraId1(
-            self_: *mut whiteout_M3MaterialAddData,
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_unknown144(
+            self_: *mut whiteout_M3DataDrivenMaterial,
         ) -> u32;
-        pub fn whiteout_m3_M3MaterialAddData_set_extraId1(
-            self_: *mut whiteout_M3MaterialAddData,
+        pub fn whiteout_m3_M3DataDrivenMaterial_set_unknown144(
+            self_: *mut whiteout_M3DataDrivenMaterial,
             value: u32,
         );
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_unknown148(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+        ) -> u8;
+        pub fn whiteout_m3_M3DataDrivenMaterial_set_unknown148(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+            value: u8,
+        );
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_alphaFresnelFlags(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+        ) -> u8;
+        pub fn whiteout_m3_M3DataDrivenMaterial_set_alphaFresnelFlags(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+            value: u8,
+        );
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_shaderType(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+        ) -> i32;
+        pub fn whiteout_m3_M3DataDrivenMaterial_set_shaderType(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+            value: i32,
+        );
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_unknown151(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+        ) -> u8;
+        pub fn whiteout_m3_M3DataDrivenMaterial_set_unknown151(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+            value: u8,
+        );
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_effectNameHash2(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+        ) -> u32;
+        pub fn whiteout_m3_M3DataDrivenMaterial_set_effectNameHash2(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+            value: u32,
+        );
+        pub fn whiteout_m3_M3DataDrivenMaterial_get_effectNameHash3(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+        ) -> u32;
+        pub fn whiteout_m3_M3DataDrivenMaterial_set_effectNameHash3(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+            value: u32,
+        );
+        pub fn whiteout_m3_M3DataDrivenMaterial_decodeProperties(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+        ) -> *mut whiteout_M3DataDrivenProperties;
+        pub fn whiteout_m3_M3DataDrivenMaterial_toStandardMaterial(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+        ) -> *mut whiteout_M3StandardMaterialConversion;
+        pub fn whiteout_m3_M3DataDrivenMaterial_approximateStandardMaterial(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+        ) -> *mut whiteout_M3StandardMaterialConversion;
+        pub fn whiteout_m3_M3DataDrivenMaterial_getVersion(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+        ) -> i32;
+        pub fn whiteout_m3_M3DataDrivenMaterial_setVersion(
+            self_: *mut whiteout_M3DataDrivenMaterial,
+            new_version: i32,
+        ) -> i32;
         // Bone
         pub fn whiteout_m3_M3Bone_new() -> *mut whiteout_M3Bone;
         pub fn whiteout_m3_M3Bone_delete(self_: *mut whiteout_M3Bone);
@@ -28389,16 +29282,17 @@ pub mod ffi {
             self_: *mut whiteout_M3Model,
             index: usize,
         ) -> *mut whiteout_M3LensFlare;
-        pub fn whiteout_m3_M3Model_get_materialAddData_count(self_: *mut whiteout_M3Model)
-            -> usize;
-        pub fn whiteout_m3_M3Model_resize_materialAddData(
+        pub fn whiteout_m3_M3Model_get_dataDrivenMaterials_count(
+            self_: *mut whiteout_M3Model,
+        ) -> usize;
+        pub fn whiteout_m3_M3Model_resize_dataDrivenMaterials(
             self_: *mut whiteout_M3Model,
             count: usize,
         );
-        pub fn whiteout_m3_M3Model_get_materialAddData_at(
+        pub fn whiteout_m3_M3Model_get_dataDrivenMaterials_at(
             self_: *mut whiteout_M3Model,
             index: usize,
-        ) -> *mut whiteout_M3MaterialAddData;
+        ) -> *mut whiteout_M3DataDrivenMaterial;
         pub fn whiteout_m3_M3Model_get_particleEmitters_count(
             self_: *mut whiteout_M3Model,
         ) -> usize;

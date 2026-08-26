@@ -7,10 +7,14 @@ package whiteout.m3;
  */
 public enum ParticleRotationFlag {
     None(0),
-    /** Relative rotation */
+    /** Relative rotation; the SC2 upgrade sets it from rotationRandomEnable (v≤18) */
     Relative(2),
     /** Always set */
-    AlwaysSet(4);
+    AlwaysSet(4),
+    /** Force-set by the SC2 version upgrade for all v≤20 emitters (role TBD) */
+    Unknown6(64),
+    /** Set by the SC2 upgrade for remapped Billboard model particles (role TBD) */
+    Unknown7(128);
 
     public final int value;
     ParticleRotationFlag(int v) { this.value = v; }

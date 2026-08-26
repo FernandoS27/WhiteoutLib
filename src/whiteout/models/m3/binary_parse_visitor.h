@@ -57,7 +57,7 @@ protected:
     void visit(ReflectionMaterial& value, u32 version);
     void visit(SubFlare& value, u32 version);
     void visit(LensFlare& value, u32 version);
-    void visit(MaterialAddData& value, u32 version);
+    void visit(DataDrivenMaterial& value, u32 version);
     void visit(Light& value, u32 version);
     void visit(Camera& value, u32 version);
     void visit(Event& value, u32 version);
@@ -103,6 +103,10 @@ protected:
 
     void visit(std::string& str, u32 version);
     void visit(std::string& str);
+
+    // A CHAR chunk holding opaque bytes rather than text. Deliberately not an
+    // overload of visit(): std::vector<u8> already resolves to the U8_ template.
+    void visitCharBlob(std::vector<u8>& blob);
 
     std::function<Reference(void)> readReferenceFunc;
 

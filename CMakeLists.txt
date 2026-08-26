@@ -394,6 +394,8 @@ add_library(whiteout_lib
 
     # M3
     src/whiteout/models/m3/types.cpp
+    src/whiteout/models/m3/data_driven_material.cpp
+    src/whiteout/models/m3/data_driven_to_standard.cpp
     src/whiteout/models/m3/parser.cpp
     src/whiteout/models/m3/writer.cpp
     src/whiteout/models/m3/binary_parse_visitor.cpp

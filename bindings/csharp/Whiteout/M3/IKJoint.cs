@@ -37,7 +37,7 @@ public sealed class IKJoint : WhiteoutHandle
     }
 
 
-    /// <summary>Raycast upward distance</summary>
+    /// <summary>Raycast upward distance (positive; shipped 1.5 / 3.0)</summary>
     public float RaycastUp
     {
         get => NativeMethods.whiteout_m3_M3IKJoint_get_raycastUp(DangerousGet());
@@ -45,7 +45,7 @@ public sealed class IKJoint : WhiteoutHandle
     }
 
 
-    /// <summary>Raycast downward distance</summary>
+    /// <summary>Raycast downward offset, SIGNED (shipped -4.0 / -3.0): the surface window is [z + raycastDown, z + raycastUp]</summary>
     public float RaycastDown
     {
         get => NativeMethods.whiteout_m3_M3IKJoint_get_raycastDown(DangerousGet());

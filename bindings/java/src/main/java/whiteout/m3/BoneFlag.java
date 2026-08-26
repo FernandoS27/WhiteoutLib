@@ -3,7 +3,7 @@
 package whiteout.m3;
 
 /**
- * Bone flags (BONE.flags) — inheritance, billboard, IK, skin
+ * Bone flags (BONE.flags) — inheritance, IK, skin
  */
 public enum BoneFlag {
     None(0),
@@ -13,9 +13,9 @@ public enum BoneFlag {
     InheritScale(2),
     /** Inherit parent rotation */
     InheritRotation(4),
-    /** Billboard mode 1 */
+    /** Unused: set on no bone in 51469 corpus files */
     Billboard1(16),
-    /** Billboard mode 2 */
+    /** Unused: likewise. Billboarding comes from BBSC */
     Billboard2(64),
     /** 2D projection mode */
     Project2D(256),

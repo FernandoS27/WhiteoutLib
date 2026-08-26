@@ -1097,49 +1097,115 @@ public final class Native {
     public static final MethodHandle whiteout_m3_M3LensFlare_get_size = find("whiteout_m3_M3LensFlare_get_size", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3LensFlare_set_size = find("whiteout_m3_M3LensFlare_set_size", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
 
-    // -- M3MaterialAddData --
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_new = find(
-        "whiteout_m3_M3MaterialAddData_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_delete = find(
-        "whiteout_m3_M3MaterialAddData_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_get_keyName = find("whiteout_m3_M3MaterialAddData_get_keyName", FunctionDescriptor.of(CSTRING_LAYOUT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_set_keyName = find("whiteout_m3_M3MaterialAddData_set_keyName", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_get_keyHash_count = find("whiteout_m3_M3MaterialAddData_get_keyHash_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_resize_keyHash = find("whiteout_m3_M3MaterialAddData_resize_keyHash", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_get_keyHash_data = find("whiteout_m3_M3MaterialAddData_get_keyHash_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_assign_keyHash = find("whiteout_m3_M3MaterialAddData_assign_keyHash", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_get_extraHash_count = find("whiteout_m3_M3MaterialAddData_get_extraHash_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_resize_extraHash = find("whiteout_m3_M3MaterialAddData_resize_extraHash", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_get_extraHash_data = find("whiteout_m3_M3MaterialAddData_get_extraHash_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_assign_extraHash = find("whiteout_m3_M3MaterialAddData_assign_extraHash", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_get_valuePath = find("whiteout_m3_M3MaterialAddData_get_valuePath", FunctionDescriptor.of(CSTRING_LAYOUT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_set_valuePath = find("whiteout_m3_M3MaterialAddData_set_valuePath", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_get_frequency = find("whiteout_m3_M3MaterialAddData_get_frequency", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_set_frequency = find("whiteout_m3_M3MaterialAddData_set_frequency", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_get_intensity = find("whiteout_m3_M3MaterialAddData_get_intensity", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_set_intensity = find("whiteout_m3_M3MaterialAddData_set_intensity", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_get_holdTime = find("whiteout_m3_M3MaterialAddData_get_holdTime", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_set_holdTime = find("whiteout_m3_M3MaterialAddData_set_holdTime", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_get_randomHash = find("whiteout_m3_M3MaterialAddData_get_randomHash", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_set_randomHash = find("whiteout_m3_M3MaterialAddData_set_randomHash", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_get_animationType = find("whiteout_m3_M3MaterialAddData_get_animationType", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_set_animationType = find("whiteout_m3_M3MaterialAddData_set_animationType", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_get_padding0 = find("whiteout_m3_M3MaterialAddData_get_padding0", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_set_padding0 = find("whiteout_m3_M3MaterialAddData_set_padding0", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_get_loopCount = find("whiteout_m3_M3MaterialAddData_get_loopCount", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_set_loopCount = find("whiteout_m3_M3MaterialAddData_set_loopCount", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_get_flags = find("whiteout_m3_M3MaterialAddData_get_flags", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_set_flags = find("whiteout_m3_M3MaterialAddData_set_flags", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_get_subType = find("whiteout_m3_M3MaterialAddData_get_subType", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_set_subType = find("whiteout_m3_M3MaterialAddData_set_subType", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_get_configA = find("whiteout_m3_M3MaterialAddData_get_configA", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_set_configA = find("whiteout_m3_M3MaterialAddData_set_configA", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_get_configB = find("whiteout_m3_M3MaterialAddData_get_configB", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_set_configB = find("whiteout_m3_M3MaterialAddData_set_configB", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_get_extraId0 = find("whiteout_m3_M3MaterialAddData_get_extraId0", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_set_extraId0 = find("whiteout_m3_M3MaterialAddData_set_extraId0", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_get_extraId1 = find("whiteout_m3_M3MaterialAddData_get_extraId1", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3MaterialAddData_set_extraId1 = find("whiteout_m3_M3MaterialAddData_set_extraId1", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    // -- M3DataDrivenProperty --
+    public static final MethodHandle whiteout_m3_M3DataDrivenProperty_new = find(
+        "whiteout_m3_M3DataDrivenProperty_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenProperty_delete = find(
+        "whiteout_m3_M3DataDrivenProperty_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenProperty_get_nameHash = find("whiteout_m3_M3DataDrivenProperty_get_nameHash", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenProperty_set_nameHash = find("whiteout_m3_M3DataDrivenProperty_set_nameHash", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m3_M3DataDrivenProperty_get_name = find("whiteout_m3_M3DataDrivenProperty_get_name", FunctionDescriptor.of(CSTRING_LAYOUT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenProperty_set_name = find("whiteout_m3_M3DataDrivenProperty_set_name", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenProperty_get_data_count = find("whiteout_m3_M3DataDrivenProperty_get_data_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenProperty_resize_data = find("whiteout_m3_M3DataDrivenProperty_resize_data", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m3_M3DataDrivenProperty_get_data_data = find("whiteout_m3_M3DataDrivenProperty_get_data_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenProperty_assign_data = find("whiteout_m3_M3DataDrivenProperty_assign_data", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+
+    // -- M3DataDrivenGroup --
+    public static final MethodHandle whiteout_m3_M3DataDrivenGroup_new = find(
+        "whiteout_m3_M3DataDrivenGroup_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenGroup_delete = find(
+        "whiteout_m3_M3DataDrivenGroup_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenGroup_get_nameHash = find("whiteout_m3_M3DataDrivenGroup_get_nameHash", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenGroup_set_nameHash = find("whiteout_m3_M3DataDrivenGroup_set_nameHash", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m3_M3DataDrivenGroup_get_name = find("whiteout_m3_M3DataDrivenGroup_get_name", FunctionDescriptor.of(CSTRING_LAYOUT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenGroup_set_name = find("whiteout_m3_M3DataDrivenGroup_set_name", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenGroup_get_properties_count = find("whiteout_m3_M3DataDrivenGroup_get_properties_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenGroup_resize_properties = find("whiteout_m3_M3DataDrivenGroup_resize_properties", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m3_M3DataDrivenGroup_get_properties_at = find("whiteout_m3_M3DataDrivenGroup_get_properties_at", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+
+    // -- M3DataDrivenProperties --
+    public static final MethodHandle whiteout_m3_M3DataDrivenProperties_new = find(
+        "whiteout_m3_M3DataDrivenProperties_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenProperties_delete = find(
+        "whiteout_m3_M3DataDrivenProperties_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenProperties_get_groups_count = find("whiteout_m3_M3DataDrivenProperties_get_groups_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenProperties_resize_groups = find("whiteout_m3_M3DataDrivenProperties_resize_groups", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m3_M3DataDrivenProperties_get_groups_at = find("whiteout_m3_M3DataDrivenProperties_get_groups_at", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+
+    // -- M3StandardMaterialConversion --
+    public static final MethodHandle whiteout_m3_M3StandardMaterialConversion_new = find(
+        "whiteout_m3_M3StandardMaterialConversion_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3StandardMaterialConversion_delete = find(
+        "whiteout_m3_M3StandardMaterialConversion_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3StandardMaterialConversion_get_converted = find("whiteout_m3_M3StandardMaterialConversion_get_converted", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3StandardMaterialConversion_set_converted = find("whiteout_m3_M3StandardMaterialConversion_set_converted", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m3_M3StandardMaterialConversion_get_blocker = find("whiteout_m3_M3StandardMaterialConversion_get_blocker", FunctionDescriptor.of(CSTRING_LAYOUT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3StandardMaterialConversion_set_blocker = find("whiteout_m3_M3StandardMaterialConversion_set_blocker", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3StandardMaterialConversion_get_material = find("whiteout_m3_M3StandardMaterialConversion_get_material", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3StandardMaterialConversion_set_material = find("whiteout_m3_M3StandardMaterialConversion_set_material", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+
+    // -- M3DataDrivenMaterial --
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_new = find(
+        "whiteout_m3_M3DataDrivenMaterial_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_delete = find(
+        "whiteout_m3_M3DataDrivenMaterial_delete", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_decodeProperties = find(
+        "whiteout_m3_M3DataDrivenMaterial_decodeProperties", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_toStandardMaterial = find(
+        "whiteout_m3_M3DataDrivenMaterial_toStandardMaterial", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_approximateStandardMaterial = find(
+        "whiteout_m3_M3DataDrivenMaterial_approximateStandardMaterial", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_getVersion = find(
+        "whiteout_m3_M3DataDrivenMaterial_getVersion", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_setVersion = find(
+        "whiteout_m3_M3DataDrivenMaterial_setVersion", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_materialName = find("whiteout_m3_M3DataDrivenMaterial_get_materialName", FunctionDescriptor.of(CSTRING_LAYOUT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_set_materialName = find("whiteout_m3_M3DataDrivenMaterial_set_materialName", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_fragmentHashes_count = find("whiteout_m3_M3DataDrivenMaterial_get_fragmentHashes_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_resize_fragmentHashes = find("whiteout_m3_M3DataDrivenMaterial_resize_fragmentHashes", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_fragmentHashes_data = find("whiteout_m3_M3DataDrivenMaterial_get_fragmentHashes_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_assign_fragmentHashes = find("whiteout_m3_M3DataDrivenMaterial_assign_fragmentHashes", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_extraHashes_count = find("whiteout_m3_M3DataDrivenMaterial_get_extraHashes_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_resize_extraHashes = find("whiteout_m3_M3DataDrivenMaterial_resize_extraHashes", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_extraHashes_data = find("whiteout_m3_M3DataDrivenMaterial_get_extraHashes_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_assign_extraHashes = find("whiteout_m3_M3DataDrivenMaterial_assign_extraHashes", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_propertyBlob_count = find("whiteout_m3_M3DataDrivenMaterial_get_propertyBlob_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_resize_propertyBlob = find("whiteout_m3_M3DataDrivenMaterial_resize_propertyBlob", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_propertyBlob_data = find("whiteout_m3_M3DataDrivenMaterial_get_propertyBlob_data", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_assign_propertyBlob = find("whiteout_m3_M3DataDrivenMaterial_assign_propertyBlob", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_unknown108 = find("whiteout_m3_M3DataDrivenMaterial_get_unknown108", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_set_unknown108 = find("whiteout_m3_M3DataDrivenMaterial_set_unknown108", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_unknown112 = find("whiteout_m3_M3DataDrivenMaterial_get_unknown112", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_set_unknown112 = find("whiteout_m3_M3DataDrivenMaterial_set_unknown112", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_unknown116 = find("whiteout_m3_M3DataDrivenMaterial_get_unknown116", FunctionDescriptor.of(ValueLayout.JAVA_FLOAT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_set_unknown116 = find("whiteout_m3_M3DataDrivenMaterial_set_unknown116", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_effectNameHash = find("whiteout_m3_M3DataDrivenMaterial_get_effectNameHash", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_set_effectNameHash = find("whiteout_m3_M3DataDrivenMaterial_set_effectNameHash", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_unknown124 = find("whiteout_m3_M3DataDrivenMaterial_get_unknown124", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_set_unknown124 = find("whiteout_m3_M3DataDrivenMaterial_set_unknown124", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_padding128 = find("whiteout_m3_M3DataDrivenMaterial_get_padding128", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_set_padding128 = find("whiteout_m3_M3DataDrivenMaterial_set_padding128", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_unknown132 = find("whiteout_m3_M3DataDrivenMaterial_get_unknown132", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_set_unknown132 = find("whiteout_m3_M3DataDrivenMaterial_set_unknown132", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_unknown136 = find("whiteout_m3_M3DataDrivenMaterial_get_unknown136", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_set_unknown136 = find("whiteout_m3_M3DataDrivenMaterial_set_unknown136", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_unknown140 = find("whiteout_m3_M3DataDrivenMaterial_get_unknown140", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_set_unknown140 = find("whiteout_m3_M3DataDrivenMaterial_set_unknown140", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_unknown144 = find("whiteout_m3_M3DataDrivenMaterial_get_unknown144", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_set_unknown144 = find("whiteout_m3_M3DataDrivenMaterial_set_unknown144", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_unknown148 = find("whiteout_m3_M3DataDrivenMaterial_get_unknown148", FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_set_unknown148 = find("whiteout_m3_M3DataDrivenMaterial_set_unknown148", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_alphaFresnelFlags = find("whiteout_m3_M3DataDrivenMaterial_get_alphaFresnelFlags", FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_set_alphaFresnelFlags = find("whiteout_m3_M3DataDrivenMaterial_set_alphaFresnelFlags", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_shaderType = find("whiteout_m3_M3DataDrivenMaterial_get_shaderType", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_set_shaderType = find("whiteout_m3_M3DataDrivenMaterial_set_shaderType", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_unknown151 = find("whiteout_m3_M3DataDrivenMaterial_get_unknown151", FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_set_unknown151 = find("whiteout_m3_M3DataDrivenMaterial_set_unknown151", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_effectNameHash2 = find("whiteout_m3_M3DataDrivenMaterial_get_effectNameHash2", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_set_effectNameHash2 = find("whiteout_m3_M3DataDrivenMaterial_set_effectNameHash2", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_get_effectNameHash3 = find("whiteout_m3_M3DataDrivenMaterial_get_effectNameHash3", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3DataDrivenMaterial_set_effectNameHash3 = find("whiteout_m3_M3DataDrivenMaterial_set_effectNameHash3", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
 
     // -- M3Bone --
     public static final MethodHandle whiteout_m3_M3Bone_new = find(
@@ -2071,9 +2137,9 @@ public final class Native {
     public static final MethodHandle whiteout_m3_M3Model_get_lensFlareMaterials_count = find("whiteout_m3_M3Model_get_lensFlareMaterials_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3Model_resize_lensFlareMaterials = find("whiteout_m3_M3Model_resize_lensFlareMaterials", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m3_M3Model_get_lensFlareMaterials_at = find("whiteout_m3_M3Model_get_lensFlareMaterials_at", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m3_M3Model_get_materialAddData_count = find("whiteout_m3_M3Model_get_materialAddData_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
-    public static final MethodHandle whiteout_m3_M3Model_resize_materialAddData = find("whiteout_m3_M3Model_resize_materialAddData", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
-    public static final MethodHandle whiteout_m3_M3Model_get_materialAddData_at = find("whiteout_m3_M3Model_get_materialAddData_at", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m3_M3Model_get_dataDrivenMaterials_count = find("whiteout_m3_M3Model_get_dataDrivenMaterials_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+    public static final MethodHandle whiteout_m3_M3Model_resize_dataDrivenMaterials = find("whiteout_m3_M3Model_resize_dataDrivenMaterials", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+    public static final MethodHandle whiteout_m3_M3Model_get_dataDrivenMaterials_at = find("whiteout_m3_M3Model_get_dataDrivenMaterials_at", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m3_M3Model_get_particleEmitters_count = find("whiteout_m3_M3Model_get_particleEmitters_count", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
     public static final MethodHandle whiteout_m3_M3Model_resize_particleEmitters = find("whiteout_m3_M3Model_resize_particleEmitters", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     public static final MethodHandle whiteout_m3_M3Model_get_particleEmitters_at = find("whiteout_m3_M3Model_get_particleEmitters_at", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));

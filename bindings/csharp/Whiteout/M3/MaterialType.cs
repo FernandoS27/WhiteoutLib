@@ -29,6 +29,6 @@ public enum MaterialType : int
     Reflection = 10,
     /// <summary>LFLR — Lens flare material</summary>
     LensFlare = 11,
-    /// <summary>MADD — Buffer / additional material data</summary>
-    BufferMaterial = 12,
+    /// <summary>MADD — Data-driven material; what every other type is converted into at load</summary>
+    DataDriven = 12,
 }

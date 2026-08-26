@@ -466,7 +466,7 @@ struct ChunkTagTraits<LensFlare> {
 };
 
 template <>
-struct ChunkTagTraits<MaterialAddData> {
+struct ChunkTagTraits<DataDrivenMaterial> {
     static constexpr u32 value = TAG_MADD;
     static constexpr u32 max_version = 3;
     static constexpr bool is_trivial = false;

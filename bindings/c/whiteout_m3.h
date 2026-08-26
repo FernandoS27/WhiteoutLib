@@ -36,7 +36,7 @@ typedef enum {
     whiteout_m3_MaterialType_SplatTerrainBake,
     whiteout_m3_MaterialType_Reflection,
     whiteout_m3_MaterialType_LensFlare,
-    whiteout_m3_MaterialType_BufferMaterial,
+    whiteout_m3_MaterialType_DataDriven,
 } whiteout_m3_MaterialType;
 
 typedef enum {
@@ -155,6 +155,16 @@ typedef enum {
     whiteout_m3_SequenceFlag_Unknown0x4,
     whiteout_m3_SequenceFlag_GlobalInPreviewer,
 } whiteout_m3_SequenceFlag;
+
+typedef enum {
+    whiteout_m3_BillboardType_LockWorldX,
+    whiteout_m3_BillboardType_LockWorldY,
+    whiteout_m3_BillboardType_LockWorldZ,
+    whiteout_m3_BillboardType_LockBoneX,
+    whiteout_m3_BillboardType_Disabled,
+    whiteout_m3_BillboardType_LockBoneY,
+    whiteout_m3_BillboardType_Full,
+} whiteout_m3_BillboardType;
 
 typedef enum {
     whiteout_m3_BoneFlag_None,
@@ -386,6 +396,8 @@ typedef enum {
     whiteout_m3_ParticleRotationFlag_None,
     whiteout_m3_ParticleRotationFlag_Relative,
     whiteout_m3_ParticleRotationFlag_AlwaysSet,
+    whiteout_m3_ParticleRotationFlag_Unknown6,
+    whiteout_m3_ParticleRotationFlag_Unknown7,
 } whiteout_m3_ParticleRotationFlag;
 
 typedef enum {
@@ -443,6 +455,14 @@ typedef enum {
     whiteout_m3_RigidBodyFlag_Unknown9,
 } whiteout_m3_RigidBodyFlag;
 
+typedef enum {
+    whiteout_m3_MaterialShaderType_Material,
+    whiteout_m3_MaterialShaderType_MaterialMedium,
+    whiteout_m3_MaterialShaderType_MaterialSimple,
+    whiteout_m3_MaterialShaderType_MaterialParticle,
+    whiteout_m3_MaterialShaderType_MaterialSplat,
+} whiteout_m3_MaterialShaderType;
+
 /* ── Opaque handles ───────────────────────────────────────── */
 
 typedef struct whiteout_M3ColorBGRA whiteout_M3ColorBGRA;
@@ -474,7 +494,11 @@ typedef struct whiteout_M3STBMaterial whiteout_M3STBMaterial;
 typedef struct whiteout_M3ReflectionMaterial whiteout_M3ReflectionMaterial;
 typedef struct whiteout_M3SubFlare whiteout_M3SubFlare;
 typedef struct whiteout_M3LensFlare whiteout_M3LensFlare;
-typedef struct whiteout_M3MaterialAddData whiteout_M3MaterialAddData;
+typedef struct whiteout_M3DataDrivenProperty whiteout_M3DataDrivenProperty;
+typedef struct whiteout_M3DataDrivenGroup whiteout_M3DataDrivenGroup;
+typedef struct whiteout_M3DataDrivenProperties whiteout_M3DataDrivenProperties;
+typedef struct whiteout_M3StandardMaterialConversion whiteout_M3StandardMaterialConversion;
+typedef struct whiteout_M3DataDrivenMaterial whiteout_M3DataDrivenMaterial;
 typedef struct whiteout_M3Bone whiteout_M3Bone;
 typedef struct whiteout_M3Region whiteout_M3Region;
 typedef struct whiteout_M3Batch whiteout_M3Batch;
@@ -2119,69 +2143,159 @@ void whiteout_m3_M3LensFlare_set_hdr(whiteout_M3LensFlare* self, const whiteout_
 whiteout_M3AnimRefF32* whiteout_m3_M3LensFlare_get_size(whiteout_M3LensFlare* self);
 void whiteout_m3_M3LensFlare_set_size(whiteout_M3LensFlare* self, const whiteout_M3AnimRefF32* value);
 
-/* ── M3MaterialAddData ─────────────────────────────────────────────── */
+/* ── M3DataDrivenProperty ─────────────────────────────────────────────── */
 
-/* MADD — Material additional data (v0–v3, 140–160 bytes) */
+/* One decoded property of a data-driven material */
 /*  */
-/* Buffer-style material extension storing key–value pairs, hashes, and animation parameters. Added in MODL v30. */
-whiteout_M3MaterialAddData* whiteout_m3_M3MaterialAddData_new(void);
-void whiteout_m3_M3MaterialAddData_delete(whiteout_M3MaterialAddData* self);
+/* `data` is the raw value; its shape depends on `size`: 4 = scalar (f32, u32 enum, or BGRA colour — depends on the property), 8 = `{u32 index into DataDrivenMaterial::texturePaths, u32 texture source}`, 12 = 3 floats, 16 = 4 floats, 20 = `{u32 ColorChannelSelect, f32 multiply, f32 add, f32, u16 flags}`, 32 = `{f32 offsetU/V, tilingU/V, angleU/V/W, u32 flags}`, 48 = fresnel `{u32 FresnelMode, f32 exponent, min, max, rotation, mask}`. */
+whiteout_M3DataDrivenProperty* whiteout_m3_M3DataDrivenProperty_new(void);
+void whiteout_m3_M3DataDrivenProperty_delete(whiteout_M3DataDrivenProperty* self);
 
-/* Key name (Ref<CHAR>) */
-whiteout_CString whiteout_m3_M3MaterialAddData_get_keyName(const whiteout_M3MaterialAddData* self);
-void whiteout_m3_M3MaterialAddData_set_keyName(whiteout_M3MaterialAddData* self, const char* value);
-/* Key hash values (U32_) */
-size_t whiteout_m3_M3MaterialAddData_get_keyHash_count(const whiteout_M3MaterialAddData* self);
-void whiteout_m3_M3MaterialAddData_resize_keyHash(whiteout_M3MaterialAddData* self, size_t count);
-const uint32_t* whiteout_m3_M3MaterialAddData_get_keyHash_data(const whiteout_M3MaterialAddData* self);
-void whiteout_m3_M3MaterialAddData_assign_keyHash(whiteout_M3MaterialAddData* self, const uint32_t* data, size_t count);
-/* Extra hash values (U32_, v2+) */
-size_t whiteout_m3_M3MaterialAddData_get_extraHash_count(const whiteout_M3MaterialAddData* self);
-void whiteout_m3_M3MaterialAddData_resize_extraHash(whiteout_M3MaterialAddData* self, size_t count);
-const uint32_t* whiteout_m3_M3MaterialAddData_get_extraHash_data(const whiteout_M3MaterialAddData* self);
-void whiteout_m3_M3MaterialAddData_assign_extraHash(whiteout_M3MaterialAddData* self, const uint32_t* data, size_t count);
-/* Value file path (Ref<CHAR>) */
-whiteout_CString whiteout_m3_M3MaterialAddData_get_valuePath(const whiteout_M3MaterialAddData* self);
-void whiteout_m3_M3MaterialAddData_set_valuePath(whiteout_M3MaterialAddData* self, const char* value);
-/* Animation frequency */
-float whiteout_m3_M3MaterialAddData_get_frequency(const whiteout_M3MaterialAddData* self);
-void whiteout_m3_M3MaterialAddData_set_frequency(whiteout_M3MaterialAddData* self, float value);
-/* Effect intensity */
-float whiteout_m3_M3MaterialAddData_get_intensity(const whiteout_M3MaterialAddData* self);
-void whiteout_m3_M3MaterialAddData_set_intensity(whiteout_M3MaterialAddData* self, float value);
-/* Hold time duration */
-float whiteout_m3_M3MaterialAddData_get_holdTime(const whiteout_M3MaterialAddData* self);
-void whiteout_m3_M3MaterialAddData_set_holdTime(whiteout_M3MaterialAddData* self, float value);
-/* Random seed hash */
-uint32_t whiteout_m3_M3MaterialAddData_get_randomHash(const whiteout_M3MaterialAddData* self);
-void whiteout_m3_M3MaterialAddData_set_randomHash(whiteout_M3MaterialAddData* self, uint32_t value);
-/* Animation type code */
-uint32_t whiteout_m3_M3MaterialAddData_get_animationType(const whiteout_M3MaterialAddData* self);
-void whiteout_m3_M3MaterialAddData_set_animationType(whiteout_M3MaterialAddData* self, uint32_t value);
-/* Alignment padding */
-uint32_t whiteout_m3_M3MaterialAddData_get_padding0(const whiteout_M3MaterialAddData* self);
-void whiteout_m3_M3MaterialAddData_set_padding0(whiteout_M3MaterialAddData* self, uint32_t value);
-/* Loop count (-1 = infinite) */
-int32_t whiteout_m3_M3MaterialAddData_get_loopCount(const whiteout_M3MaterialAddData* self);
-void whiteout_m3_M3MaterialAddData_set_loopCount(whiteout_M3MaterialAddData* self, int32_t value);
-/* Flags */
-uint32_t whiteout_m3_M3MaterialAddData_get_flags(const whiteout_M3MaterialAddData* self);
-void whiteout_m3_M3MaterialAddData_set_flags(whiteout_M3MaterialAddData* self, uint32_t value);
-/* Sub-type identifier */
-uint32_t whiteout_m3_M3MaterialAddData_get_subType(const whiteout_M3MaterialAddData* self);
-void whiteout_m3_M3MaterialAddData_set_subType(whiteout_M3MaterialAddData* self, uint32_t value);
-/* Configuration parameter A */
-uint32_t whiteout_m3_M3MaterialAddData_get_configA(const whiteout_M3MaterialAddData* self);
-void whiteout_m3_M3MaterialAddData_set_configA(whiteout_M3MaterialAddData* self, uint32_t value);
-/* Configuration parameter B */
-uint32_t whiteout_m3_M3MaterialAddData_get_configB(const whiteout_M3MaterialAddData* self);
-void whiteout_m3_M3MaterialAddData_set_configB(whiteout_M3MaterialAddData* self, uint32_t value);
-/* Extra identifier 0 (v3+) */
-uint32_t whiteout_m3_M3MaterialAddData_get_extraId0(const whiteout_M3MaterialAddData* self);
-void whiteout_m3_M3MaterialAddData_set_extraId0(whiteout_M3MaterialAddData* self, uint32_t value);
-/* Extra identifier 1 (v3+) */
-uint32_t whiteout_m3_M3MaterialAddData_get_extraId1(const whiteout_M3MaterialAddData* self);
-void whiteout_m3_M3MaterialAddData_set_extraId1(whiteout_M3MaterialAddData* self, uint32_t value);
+/* crc32 of the property name */
+uint32_t whiteout_m3_M3DataDrivenProperty_get_nameHash(const whiteout_M3DataDrivenProperty* self);
+void whiteout_m3_M3DataDrivenProperty_set_nameHash(whiteout_M3DataDrivenProperty* self, uint32_t value);
+/* Resolved name, empty when the hash is unknown */
+whiteout_CString whiteout_m3_M3DataDrivenProperty_get_name(const whiteout_M3DataDrivenProperty* self);
+void whiteout_m3_M3DataDrivenProperty_set_name(whiteout_M3DataDrivenProperty* self, const char* value);
+/* Raw value bytes */
+size_t whiteout_m3_M3DataDrivenProperty_get_data_count(const whiteout_M3DataDrivenProperty* self);
+void whiteout_m3_M3DataDrivenProperty_resize_data(whiteout_M3DataDrivenProperty* self, size_t count);
+const uint8_t* whiteout_m3_M3DataDrivenProperty_get_data_data(const whiteout_M3DataDrivenProperty* self);
+void whiteout_m3_M3DataDrivenProperty_assign_data(whiteout_M3DataDrivenProperty* self, const uint8_t* data, size_t count);
+
+/* ── M3DataDrivenGroup ─────────────────────────────────────────────── */
+
+/* One shader fragment of a data-driven material, with its properties */
+whiteout_M3DataDrivenGroup* whiteout_m3_M3DataDrivenGroup_new(void);
+void whiteout_m3_M3DataDrivenGroup_delete(whiteout_M3DataDrivenGroup* self);
+
+/* crc32 of the fragment name */
+uint32_t whiteout_m3_M3DataDrivenGroup_get_nameHash(const whiteout_M3DataDrivenGroup* self);
+void whiteout_m3_M3DataDrivenGroup_set_nameHash(whiteout_M3DataDrivenGroup* self, uint32_t value);
+/* Resolved name, empty when unknown */
+whiteout_CString whiteout_m3_M3DataDrivenGroup_get_name(const whiteout_M3DataDrivenGroup* self);
+void whiteout_m3_M3DataDrivenGroup_set_name(whiteout_M3DataDrivenGroup* self, const char* value);
+/* Properties, in stored order */
+size_t whiteout_m3_M3DataDrivenGroup_get_properties_count(const whiteout_M3DataDrivenGroup* self);
+void whiteout_m3_M3DataDrivenGroup_resize_properties(whiteout_M3DataDrivenGroup* self, size_t count);
+whiteout_M3DataDrivenProperty* whiteout_m3_M3DataDrivenGroup_get_properties_at(whiteout_M3DataDrivenGroup* self, size_t index);
+
+/* ── M3DataDrivenProperties ─────────────────────────────────────────────── */
+
+/* The decoded contents of DataDrivenMaterial::propertyBlob */
+whiteout_M3DataDrivenProperties* whiteout_m3_M3DataDrivenProperties_new(void);
+void whiteout_m3_M3DataDrivenProperties_delete(whiteout_M3DataDrivenProperties* self);
+
+/* Fragment groups, in stored order */
+size_t whiteout_m3_M3DataDrivenProperties_get_groups_count(const whiteout_M3DataDrivenProperties* self);
+void whiteout_m3_M3DataDrivenProperties_resize_groups(whiteout_M3DataDrivenProperties* self, size_t count);
+whiteout_M3DataDrivenGroup* whiteout_m3_M3DataDrivenProperties_get_groups_at(whiteout_M3DataDrivenProperties* self, size_t index);
+
+/* ── M3StandardMaterialConversion ─────────────────────────────────────────────── */
+
+/* Outcome of rebuilding a StandardMaterial from a DataDrivenMaterial */
+/*  */
+/* Not every data-driven material has a standard equivalent: some were authored directly against the shader-graph vocabulary, and others are the converted form of a DisplacementMaterial or ReflectionMaterial. `blocker` says which. */
+/*  */
+/* Conversion is lossy even when it succeeds, because the forward direction is: variant fragments collapse onto one layer slot, several fragments are derived from the model rather than the material, and per-field animation links are not carried in the blob. `lossy` lists what was dropped for this material. */
+whiteout_M3StandardMaterialConversion* whiteout_m3_M3StandardMaterialConversion_new(void);
+void whiteout_m3_M3StandardMaterialConversion_delete(whiteout_M3StandardMaterialConversion* self);
+
+/* Whether `material` was produced */
+int32_t whiteout_m3_M3StandardMaterialConversion_get_converted(const whiteout_M3StandardMaterialConversion* self);
+void whiteout_m3_M3StandardMaterialConversion_set_converted(whiteout_M3StandardMaterialConversion* self, int32_t value);
+/* Why not, when `converted` is false */
+whiteout_CString whiteout_m3_M3StandardMaterialConversion_get_blocker(const whiteout_M3StandardMaterialConversion* self);
+void whiteout_m3_M3StandardMaterialConversion_set_blocker(whiteout_M3StandardMaterialConversion* self, const char* value);
+/* Only meaningful when `converted` */
+whiteout_M3StandardMaterial* whiteout_m3_M3StandardMaterialConversion_get_material(whiteout_M3StandardMaterialConversion* self);
+void whiteout_m3_M3StandardMaterialConversion_set_material(whiteout_M3StandardMaterialConversion* self, const whiteout_M3StandardMaterial* value);
+
+/* ── M3DataDrivenMaterial ─────────────────────────────────────────────── */
+
+/* MADD — Data-driven material (v0–v3, 140–160 bytes) */
+/*  */
+/* The engine's own name for this chunk is `SDataDrivenMaterialData`. It is not "additional" data: at load the renderer converts every StandardMaterial (1), DisplacementMaterial (2) and ReflectionMaterial (10) in the model into one of these and rewrites the MaterialMap to MaterialType::DataDriven, so this is the only material representation the renderer actually consumes. */
+/*  */
+/* `fragmentHashes` names the shader fragments the material links, in order. Concatenating `shaderType`'s token with those names gives the shader permutation name, and its crc32 is the effect-cache lookup key. */
+/*  */
+/* `propertyBlob` is a self-describing two-level dictionary keyed by crc32 of unprefixed names — decode it with decodeProperties(). */
+/*  */
+/* @see M3_FILE_FORMAT_SPECIFICATION.md §11 Materials */
+whiteout_M3DataDrivenMaterial* whiteout_m3_M3DataDrivenMaterial_new(void);
+void whiteout_m3_M3DataDrivenMaterial_delete(whiteout_M3DataDrivenMaterial* self);
+
+/* Decode propertyBlob into fragment groups and named properties */
+struct whiteout_M3DataDrivenProperties* whiteout_m3_M3DataDrivenMaterial_decodeProperties(const whiteout_M3DataDrivenMaterial* self);
+/* Rebuild the StandardMaterial this was converted from, where possible */
+/*  */
+/* The engine only converts in the other direction, and does so lossily, so this reverses what it can and reports the rest. See StandardMaterialConversion. */
+struct whiteout_M3StandardMaterialConversion* whiteout_m3_M3DataDrivenMaterial_toStandardMaterial(const whiteout_M3DataDrivenMaterial* self);
+/* Best-effort StandardMaterial for a material that has no exact one */
+/*  */
+/* toStandardMaterial() refuses shader-graph materials, which were authored in the node editor and never had a StandardMaterial form. This infers one anyway, from the node types, the per-node names in extraHashes, and the texture filenames. The blob stores nodes but not the edges between them, so the graph topology cannot be recovered and the result is a likeness, not a conversion — `lossy` always says so. Materials that are already fixed-function are forwarded to toStandardMaterial() unchanged. */
+struct whiteout_M3StandardMaterialConversion* whiteout_m3_M3DataDrivenMaterial_approximateStandardMaterial(const whiteout_M3DataDrivenMaterial* self);
+int32_t whiteout_m3_M3DataDrivenMaterial_getVersion(const whiteout_M3DataDrivenMaterial* self);
+int32_t whiteout_m3_M3DataDrivenMaterial_setVersion(whiteout_M3DataDrivenMaterial* self, int32_t newVersion);
+/* Material name (Ref<CHAR>) */
+whiteout_CString whiteout_m3_M3DataDrivenMaterial_get_materialName(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_set_materialName(whiteout_M3DataDrivenMaterial* self, const char* value);
+/* crc32 of each shader fragment name, in link order (U32_) */
+size_t whiteout_m3_M3DataDrivenMaterial_get_fragmentHashes_count(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_resize_fragmentHashes(whiteout_M3DataDrivenMaterial* self, size_t count);
+const uint32_t* whiteout_m3_M3DataDrivenMaterial_get_fragmentHashes_data(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_assign_fragmentHashes(whiteout_M3DataDrivenMaterial* self, const uint32_t* data, size_t count);
+/* Secondary hash list (U32_, v2+) */
+size_t whiteout_m3_M3DataDrivenMaterial_get_extraHashes_count(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_resize_extraHashes(whiteout_M3DataDrivenMaterial* self, size_t count);
+const uint32_t* whiteout_m3_M3DataDrivenMaterial_get_extraHashes_data(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_assign_extraHashes(whiteout_M3DataDrivenMaterial* self, const uint32_t* data, size_t count);
+/* Property dictionary (Ref<CHAR>) */
+size_t whiteout_m3_M3DataDrivenMaterial_get_propertyBlob_count(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_resize_propertyBlob(whiteout_M3DataDrivenMaterial* self, size_t count);
+const uint8_t* whiteout_m3_M3DataDrivenMaterial_get_propertyBlob_data(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_assign_propertyBlob(whiteout_M3DataDrivenMaterial* self, const uint8_t* data, size_t count);
+/* 1.0, 1.5 or 2.0 across the corpus */
+float whiteout_m3_M3DataDrivenMaterial_get_unknown108(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_set_unknown108(whiteout_M3DataDrivenMaterial* self, float value);
+/* 1.0 in every known record */
+float whiteout_m3_M3DataDrivenMaterial_get_unknown112(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_set_unknown112(whiteout_M3DataDrivenMaterial* self, float value);
+float whiteout_m3_M3DataDrivenMaterial_get_unknown116(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_set_unknown116(whiteout_M3DataDrivenMaterial* self, float value);
+/* crc32 of the shader permutation name; 0 = compute it at load */
+uint32_t whiteout_m3_M3DataDrivenMaterial_get_effectNameHash(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_set_effectNameHash(whiteout_M3DataDrivenMaterial* self, uint32_t value);
+uint32_t whiteout_m3_M3DataDrivenMaterial_get_unknown124(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_set_unknown124(whiteout_M3DataDrivenMaterial* self, uint32_t value);
+/* Zero in every known record */
+uint32_t whiteout_m3_M3DataDrivenMaterial_get_padding128(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_set_padding128(whiteout_M3DataDrivenMaterial* self, uint32_t value);
+int32_t whiteout_m3_M3DataDrivenMaterial_get_unknown132(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_set_unknown132(whiteout_M3DataDrivenMaterial* self, int32_t value);
+/* Packed bit field */
+uint32_t whiteout_m3_M3DataDrivenMaterial_get_unknown136(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_set_unknown136(whiteout_M3DataDrivenMaterial* self, uint32_t value);
+uint32_t whiteout_m3_M3DataDrivenMaterial_get_unknown140(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_set_unknown140(whiteout_M3DataDrivenMaterial* self, uint32_t value);
+uint32_t whiteout_m3_M3DataDrivenMaterial_get_unknown144(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_set_unknown144(whiteout_M3DataDrivenMaterial* self, uint32_t value);
+uint8_t whiteout_m3_M3DataDrivenMaterial_get_unknown148(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_set_unknown148(whiteout_M3DataDrivenMaterial* self, uint8_t value);
+/* Derived cache the loader recomputes; do not trust over the blob */
+uint8_t whiteout_m3_M3DataDrivenMaterial_get_alphaFresnelFlags(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_set_alphaFresnelFlags(whiteout_M3DataDrivenMaterial* self, uint8_t value);
+/* Shader family prefix for the permutation name */
+int32_t whiteout_m3_M3DataDrivenMaterial_get_shaderType(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_set_shaderType(whiteout_M3DataDrivenMaterial* self, int32_t value);
+uint8_t whiteout_m3_M3DataDrivenMaterial_get_unknown151(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_set_unknown151(whiteout_M3DataDrivenMaterial* self, uint8_t value);
+/* Second permutation hash, 0xFFFFFFFF = none (v3+) */
+uint32_t whiteout_m3_M3DataDrivenMaterial_get_effectNameHash2(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_set_effectNameHash2(whiteout_M3DataDrivenMaterial* self, uint32_t value);
+/* Third permutation hash, 0xFFFFFFFF = none (v3+) */
+uint32_t whiteout_m3_M3DataDrivenMaterial_get_effectNameHash3(const whiteout_M3DataDrivenMaterial* self);
+void whiteout_m3_M3DataDrivenMaterial_set_effectNameHash3(whiteout_M3DataDrivenMaterial* self, uint32_t value);
 
 /* ── M3Bone ─────────────────────────────────────────────── */
 
@@ -2296,7 +2410,7 @@ void whiteout_m3_M3Batch_set_unknown2(whiteout_M3Batch* self, uint32_t value);
 /* Index into MATM material map array */
 uint16_t whiteout_m3_M3Batch_get_materialIndex(const whiteout_M3Batch* self);
 void whiteout_m3_M3Batch_set_materialIndex(whiteout_M3Batch* self, uint16_t value);
-/* Number of bones affecting this batch */
+/* Bone whose animated visibility gates this batch's draw (0xFFFF = always drawn). Misnamed — it is a bone index, not a count: the engine's submit loop reads it and skips the batch when that bone is invisible. */
 uint16_t whiteout_m3_M3Batch_get_boneCount(const whiteout_M3Batch* self);
 void whiteout_m3_M3Batch_set_boneCount(whiteout_M3Batch* self, uint16_t value);
 
@@ -2529,11 +2643,13 @@ void whiteout_m3_M3TurretBehavior_set_mainBoneOffset(whiteout_M3TurretBehavior* 
 
 /* BBSC — Billboard behavior (v0, 48 bytes) */
 /*  */
-/* Makes a bone always face the camera or a specified direction. */
+/* Turns one bone to face the camera. The only source of billboarding there is: `BoneFlag::Billboard1/2` are set on no bone in the whole corpus. */
+/*  */
+/* StarCraft II applies these at draw time, per view, from `sub_10290A890` — `CBBSolver::Solve` is a stub — and writes the bone's *local* rotation, so the subtree follows. */
 whiteout_M3BillboardBehavior* whiteout_m3_M3BillboardBehavior_new(void);
 void whiteout_m3_M3BillboardBehavior_delete(whiteout_M3BillboardBehavior* self);
 
-/* Dependent bone indices (U16_) */
+/* Dependent bone indices (U16_). Empty in every shipped record; the engine never reads them */
 size_t whiteout_m3_M3BillboardBehavior_get_dependents_count(const whiteout_M3BillboardBehavior* self);
 void whiteout_m3_M3BillboardBehavior_resize_dependents(whiteout_M3BillboardBehavior* self, size_t count);
 const uint16_t* whiteout_m3_M3BillboardBehavior_get_dependents_data(const whiteout_M3BillboardBehavior* self);
@@ -2541,16 +2657,16 @@ void whiteout_m3_M3BillboardBehavior_assign_dependents(whiteout_M3BillboardBehav
 /* Index into BONE array */
 uint16_t whiteout_m3_M3BillboardBehavior_get_boneIndex(const whiteout_M3BillboardBehavior* self);
 void whiteout_m3_M3BillboardBehavior_set_boneIndex(whiteout_M3BillboardBehavior* self, uint16_t value);
-/* Billboard mode type */
+/* Which axes may turn — see BillboardType */
 uint8_t whiteout_m3_M3BillboardBehavior_get_billboardType(const whiteout_M3BillboardBehavior* self);
 void whiteout_m3_M3BillboardBehavior_set_billboardType(whiteout_M3BillboardBehavior* self, uint8_t value);
-/* Camera look-at flag (default: enabled) */
+/* Non-zero: aim from this bone at the eye. Zero: aim along the camera's view direction instead, so every such bone shares one orientation */
 uint8_t whiteout_m3_M3BillboardBehavior_get_cameraLookAt(const whiteout_M3BillboardBehavior* self);
 void whiteout_m3_M3BillboardBehavior_set_cameraLookAt(whiteout_M3BillboardBehavior* self, uint8_t value);
-/* Up direction quaternion */
+/* MISNAMED: not a direction. A rotation applied *before* the billboard basis, and only by the axis-locked types 0/1/2 */
 whiteout_Quaternion* whiteout_m3_M3BillboardBehavior_get_up(whiteout_M3BillboardBehavior* self);
 void whiteout_m3_M3BillboardBehavior_set_up(whiteout_M3BillboardBehavior* self, const whiteout_Quaternion* value);
-/* Forward direction quaternion */
+/* MISNAMED likewise: the same kind of pre-rotation, taken only by type 6, and only on a bone whose parent is another bone. Types 3/4/5 take neither */
 whiteout_Quaternion* whiteout_m3_M3BillboardBehavior_get_forward(whiteout_M3BillboardBehavior* self);
 void whiteout_m3_M3BillboardBehavior_set_forward(whiteout_M3BillboardBehavior* self, const whiteout_Quaternion* value);
 
@@ -2573,10 +2689,10 @@ void whiteout_m3_M3IKJoint_set_boneIndex1(whiteout_M3IKJoint* self, uint16_t val
 /* Second bone index */
 uint16_t whiteout_m3_M3IKJoint_get_boneIndex2(const whiteout_M3IKJoint* self);
 void whiteout_m3_M3IKJoint_set_boneIndex2(whiteout_M3IKJoint* self, uint16_t value);
-/* Raycast upward distance */
+/* Raycast upward distance (positive; shipped 1.5 / 3.0) */
 float whiteout_m3_M3IKJoint_get_raycastUp(const whiteout_M3IKJoint* self);
 void whiteout_m3_M3IKJoint_set_raycastUp(whiteout_M3IKJoint* self, float value);
-/* Raycast downward distance */
+/* Raycast downward offset, SIGNED (shipped -4.0 / -3.0): the surface window is [z + raycastDown, z + raycastUp] */
 float whiteout_m3_M3IKJoint_get_raycastDown(const whiteout_M3IKJoint* self);
 void whiteout_m3_M3IKJoint_set_raycastDown(whiteout_M3IKJoint* self, float value);
 /* Maximum IK solving speed */
@@ -2907,9 +3023,11 @@ void whiteout_m3_M3PhysicsMeshEdge_set_faceB(whiteout_M3PhysicsMeshEdge* self, u
 
 /* ── M3PhysicsShape ─────────────────────────────────────────────── */
 
-/* PHSH — Physics shape (v0–v3, 132–300 bytes) */
+/* PHSH — Physics shape (v0–v3, 132/292/300 bytes) */
 /*  */
 /* The 300-byte v3 layout is a three-part union. Bytes 0–79 are the common header. Bytes 80–103 hold shape dimensions for simple shapes (0–3) or are zero for complex shapes. Bytes 80–183 form the convex hull section (shapeType 4); bytes 184–299 form the mesh section (shapeType 5). */
+/*  */
+/* v2 shares the v3 layout through the hull section but has a shorter mesh section (292 bytes total): bounds/tolerance, four legacy geometry refs, then a 6-dword tail (unknown, vertexCount, faceCount, 2× unknown, treeDepth) — verified against the SC2 client's version-upgrade copier. */
 whiteout_M3PhysicsShape* whiteout_m3_M3PhysicsShape_new(void);
 void whiteout_m3_M3PhysicsShape_delete(whiteout_M3PhysicsShape* self);
 
@@ -3400,7 +3518,7 @@ void whiteout_m3_M3Camera_set_bokehMaxCoCDiameter(whiteout_M3Camera* self, const
 /*  */
 /* The root of all model data. Contains Ref<T> fields pointing to every sub-chunk in the file: skeleton, mesh, materials, particles, physics, etc. The preamble (bytes 0x000–0x0E3) is identical across all versions; version-dependent material and physics references follow at 0x0E4+. */
 /*  */
-/* Version history: - v23 (784 bytes): Base release layout - v24 (+ikCCD): 796 bytes - v25 (+volumeNoiseMaterials): 808 bytes - v26 (+stbMaterials): 820 bytes - v28 (+reflectionMaterials, +clothPhysics): 844 bytes - v29 (+lensFlareMaterials): 856 bytes - v30 (+materialAddData): 868 bytes */
+/* Version history: - v23 (784 bytes): Base release layout - v24 (+ikCCD): 796 bytes - v25 (+volumeNoiseMaterials): 808 bytes - v26 (+stbMaterials): 820 bytes - v28 (+reflectionMaterials, +clothPhysics): 844 bytes - v29 (+lensFlareMaterials): 856 bytes - v30 (+dataDrivenMaterials): 868 bytes */
 whiteout_M3Model* whiteout_m3_M3Model_new(void);
 void whiteout_m3_M3Model_delete(whiteout_M3Model* self);
 
@@ -3544,10 +3662,10 @@ whiteout_M3ReflectionMaterial* whiteout_m3_M3Model_get_reflectionMaterials_at(wh
 size_t whiteout_m3_M3Model_get_lensFlareMaterials_count(const whiteout_M3Model* self);
 void whiteout_m3_M3Model_resize_lensFlareMaterials(whiteout_M3Model* self, size_t count);
 whiteout_M3LensFlare* whiteout_m3_M3Model_get_lensFlareMaterials_at(whiteout_M3Model* self, size_t index);
-/* Buffer material data (MADD, v30+) */
-size_t whiteout_m3_M3Model_get_materialAddData_count(const whiteout_M3Model* self);
-void whiteout_m3_M3Model_resize_materialAddData(whiteout_M3Model* self, size_t count);
-whiteout_M3MaterialAddData* whiteout_m3_M3Model_get_materialAddData_at(whiteout_M3Model* self, size_t index);
+/* Data-driven materials (MADD, v30+) */
+size_t whiteout_m3_M3Model_get_dataDrivenMaterials_count(const whiteout_M3Model* self);
+void whiteout_m3_M3Model_resize_dataDrivenMaterials(whiteout_M3Model* self, size_t count);
+whiteout_M3DataDrivenMaterial* whiteout_m3_M3Model_get_dataDrivenMaterials_at(whiteout_M3Model* self, size_t index);
 /* Particle emitters (PAR_) */
 size_t whiteout_m3_M3Model_get_particleEmitters_count(const whiteout_M3Model* self);
 void whiteout_m3_M3Model_resize_particleEmitters(whiteout_M3Model* self, size_t count);

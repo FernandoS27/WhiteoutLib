@@ -99,7 +99,7 @@ public final class Batch implements AutoCloseable {
         handle.set(ValueLayout.JAVA_SHORT, 12L, value);
     }
     /**
-     * Number of bones affecting this batch
+     * Bone whose animated visibility gates this batch's draw (0xFFFF = always drawn). Misnamed — it is a bone index, not a count: the engine's submit loop reads it and skips the batch when that bone is invisible.
      * @return the boneCount field of this M3Batch.
      */
     public short getBoneCount() {

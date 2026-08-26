@@ -4116,176 +4116,391 @@ void whiteout_m3_M3LensFlare_set_size(whiteout_M3LensFlare* self, const whiteout
 
 } // extern "C"
 
-// ── M3MaterialAddData ─────────────────────────────────────────────────
+// ── M3DataDrivenProperty ─────────────────────────────────────────────────
 
 extern "C" {
 
-whiteout_M3MaterialAddData* whiteout_m3_M3MaterialAddData_new(void) {
-    return reinterpret_cast<whiteout_M3MaterialAddData*>(new whiteout::m3::MaterialAddData());
+whiteout_M3DataDrivenProperty* whiteout_m3_M3DataDrivenProperty_new(void) {
+    return reinterpret_cast<whiteout_M3DataDrivenProperty*>(new whiteout::m3::DataDrivenProperty());
 }
 
-void whiteout_m3_M3MaterialAddData_delete(whiteout_M3MaterialAddData* self) {
-    delete reinterpret_cast<whiteout::m3::MaterialAddData*>(self);
+void whiteout_m3_M3DataDrivenProperty_delete(whiteout_M3DataDrivenProperty* self) {
+    delete reinterpret_cast<whiteout::m3::DataDrivenProperty*>(self);
 }
 
-whiteout_CString whiteout_m3_M3MaterialAddData_get_keyName(const whiteout_M3MaterialAddData* self) {
-    auto* __owned = new std::string(reinterpret_cast<const whiteout::m3::MaterialAddData*>(self)->keyName);
+uint32_t whiteout_m3_M3DataDrivenProperty_get_nameHash(const whiteout_M3DataDrivenProperty* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenProperty*>(self)->nameHash;
+}
+
+void whiteout_m3_M3DataDrivenProperty_set_nameHash(whiteout_M3DataDrivenProperty* self, uint32_t value) {
+    reinterpret_cast<whiteout::m3::DataDrivenProperty*>(self)->nameHash = value;
+}
+
+whiteout_CString whiteout_m3_M3DataDrivenProperty_get_name(const whiteout_M3DataDrivenProperty* self) {
+    auto* __owned = new std::string(reinterpret_cast<const whiteout::m3::DataDrivenProperty*>(self)->name);
     return whiteout_CString{ __owned->c_str(), __owned->size(), __owned };
 }
 
-void whiteout_m3_M3MaterialAddData_set_keyName(whiteout_M3MaterialAddData* self, const char* value) {
-    reinterpret_cast<whiteout::m3::MaterialAddData*>(self)->keyName = (value ? value : "");
+void whiteout_m3_M3DataDrivenProperty_set_name(whiteout_M3DataDrivenProperty* self, const char* value) {
+    reinterpret_cast<whiteout::m3::DataDrivenProperty*>(self)->name = (value ? value : "");
 }
 
-size_t whiteout_m3_M3MaterialAddData_get_keyHash_count(const whiteout_M3MaterialAddData* self) {
-    return reinterpret_cast<const whiteout::m3::MaterialAddData*>(self)->keyHash.size();
+size_t whiteout_m3_M3DataDrivenProperty_get_data_count(const whiteout_M3DataDrivenProperty* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenProperty*>(self)->data.size();
 }
 
-void whiteout_m3_M3MaterialAddData_resize_keyHash(whiteout_M3MaterialAddData* self, size_t count) {
-    reinterpret_cast<whiteout::m3::MaterialAddData*>(self)->keyHash.resize(count);
+void whiteout_m3_M3DataDrivenProperty_resize_data(whiteout_M3DataDrivenProperty* self, size_t count) {
+    reinterpret_cast<whiteout::m3::DataDrivenProperty*>(self)->data.resize(count);
 }
 
-const uint32_t* whiteout_m3_M3MaterialAddData_get_keyHash_data(const whiteout_M3MaterialAddData* self) {
-    const auto& __v = reinterpret_cast<const whiteout::m3::MaterialAddData*>(self)->keyHash;
+const uint8_t* whiteout_m3_M3DataDrivenProperty_get_data_data(const whiteout_M3DataDrivenProperty* self) {
+    const auto& __v = reinterpret_cast<const whiteout::m3::DataDrivenProperty*>(self)->data;
+    return __v.empty() ? nullptr : reinterpret_cast<const uint8_t*>(__v.data());
+}
+
+void whiteout_m3_M3DataDrivenProperty_assign_data(whiteout_M3DataDrivenProperty* self, const uint8_t* data, size_t count) {
+    auto& __v = reinterpret_cast<whiteout::m3::DataDrivenProperty*>(self)->data;
+    __v.resize(count);
+    if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u8));
+}
+
+} // extern "C"
+
+// ── M3DataDrivenGroup ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M3DataDrivenGroup* whiteout_m3_M3DataDrivenGroup_new(void) {
+    return reinterpret_cast<whiteout_M3DataDrivenGroup*>(new whiteout::m3::DataDrivenGroup());
+}
+
+void whiteout_m3_M3DataDrivenGroup_delete(whiteout_M3DataDrivenGroup* self) {
+    delete reinterpret_cast<whiteout::m3::DataDrivenGroup*>(self);
+}
+
+uint32_t whiteout_m3_M3DataDrivenGroup_get_nameHash(const whiteout_M3DataDrivenGroup* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenGroup*>(self)->nameHash;
+}
+
+void whiteout_m3_M3DataDrivenGroup_set_nameHash(whiteout_M3DataDrivenGroup* self, uint32_t value) {
+    reinterpret_cast<whiteout::m3::DataDrivenGroup*>(self)->nameHash = value;
+}
+
+whiteout_CString whiteout_m3_M3DataDrivenGroup_get_name(const whiteout_M3DataDrivenGroup* self) {
+    auto* __owned = new std::string(reinterpret_cast<const whiteout::m3::DataDrivenGroup*>(self)->name);
+    return whiteout_CString{ __owned->c_str(), __owned->size(), __owned };
+}
+
+void whiteout_m3_M3DataDrivenGroup_set_name(whiteout_M3DataDrivenGroup* self, const char* value) {
+    reinterpret_cast<whiteout::m3::DataDrivenGroup*>(self)->name = (value ? value : "");
+}
+
+size_t whiteout_m3_M3DataDrivenGroup_get_properties_count(const whiteout_M3DataDrivenGroup* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenGroup*>(self)->properties.size();
+}
+
+void whiteout_m3_M3DataDrivenGroup_resize_properties(whiteout_M3DataDrivenGroup* self, size_t count) {
+    reinterpret_cast<whiteout::m3::DataDrivenGroup*>(self)->properties.resize(count);
+}
+
+whiteout_M3DataDrivenProperty* whiteout_m3_M3DataDrivenGroup_get_properties_at(whiteout_M3DataDrivenGroup* self, size_t index) {
+    return reinterpret_cast<whiteout_M3DataDrivenProperty*>(&reinterpret_cast<whiteout::m3::DataDrivenGroup*>(self)->properties[index]);
+}
+
+} // extern "C"
+
+// ── M3DataDrivenProperties ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M3DataDrivenProperties* whiteout_m3_M3DataDrivenProperties_new(void) {
+    return reinterpret_cast<whiteout_M3DataDrivenProperties*>(new whiteout::m3::DataDrivenProperties());
+}
+
+void whiteout_m3_M3DataDrivenProperties_delete(whiteout_M3DataDrivenProperties* self) {
+    delete reinterpret_cast<whiteout::m3::DataDrivenProperties*>(self);
+}
+
+size_t whiteout_m3_M3DataDrivenProperties_get_groups_count(const whiteout_M3DataDrivenProperties* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenProperties*>(self)->groups.size();
+}
+
+void whiteout_m3_M3DataDrivenProperties_resize_groups(whiteout_M3DataDrivenProperties* self, size_t count) {
+    reinterpret_cast<whiteout::m3::DataDrivenProperties*>(self)->groups.resize(count);
+}
+
+whiteout_M3DataDrivenGroup* whiteout_m3_M3DataDrivenProperties_get_groups_at(whiteout_M3DataDrivenProperties* self, size_t index) {
+    return reinterpret_cast<whiteout_M3DataDrivenGroup*>(&reinterpret_cast<whiteout::m3::DataDrivenProperties*>(self)->groups[index]);
+}
+
+} // extern "C"
+
+// ── M3StandardMaterialConversion ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M3StandardMaterialConversion* whiteout_m3_M3StandardMaterialConversion_new(void) {
+    return reinterpret_cast<whiteout_M3StandardMaterialConversion*>(new whiteout::m3::StandardMaterialConversion());
+}
+
+void whiteout_m3_M3StandardMaterialConversion_delete(whiteout_M3StandardMaterialConversion* self) {
+    delete reinterpret_cast<whiteout::m3::StandardMaterialConversion*>(self);
+}
+
+int32_t whiteout_m3_M3StandardMaterialConversion_get_converted(const whiteout_M3StandardMaterialConversion* self) {
+    return reinterpret_cast<const whiteout::m3::StandardMaterialConversion*>(self)->converted;
+}
+
+void whiteout_m3_M3StandardMaterialConversion_set_converted(whiteout_M3StandardMaterialConversion* self, int32_t value) {
+    reinterpret_cast<whiteout::m3::StandardMaterialConversion*>(self)->converted = value;
+}
+
+whiteout_CString whiteout_m3_M3StandardMaterialConversion_get_blocker(const whiteout_M3StandardMaterialConversion* self) {
+    auto* __owned = new std::string(reinterpret_cast<const whiteout::m3::StandardMaterialConversion*>(self)->blocker);
+    return whiteout_CString{ __owned->c_str(), __owned->size(), __owned };
+}
+
+void whiteout_m3_M3StandardMaterialConversion_set_blocker(whiteout_M3StandardMaterialConversion* self, const char* value) {
+    reinterpret_cast<whiteout::m3::StandardMaterialConversion*>(self)->blocker = (value ? value : "");
+}
+
+whiteout_M3StandardMaterial* whiteout_m3_M3StandardMaterialConversion_get_material(whiteout_M3StandardMaterialConversion* self) {
+    return reinterpret_cast<whiteout_M3StandardMaterial*>(&reinterpret_cast<whiteout::m3::StandardMaterialConversion*>(self)->material);
+}
+
+void whiteout_m3_M3StandardMaterialConversion_set_material(whiteout_M3StandardMaterialConversion* self, const whiteout_M3StandardMaterial* value) {
+    reinterpret_cast<whiteout::m3::StandardMaterialConversion*>(self)->material = *reinterpret_cast<const whiteout::m3::StandardMaterial*>(value);
+}
+
+} // extern "C"
+
+// ── M3DataDrivenMaterial ─────────────────────────────────────────────────
+
+extern "C" {
+
+whiteout_M3DataDrivenMaterial* whiteout_m3_M3DataDrivenMaterial_new(void) {
+    return reinterpret_cast<whiteout_M3DataDrivenMaterial*>(new whiteout::m3::DataDrivenMaterial());
+}
+
+void whiteout_m3_M3DataDrivenMaterial_delete(whiteout_M3DataDrivenMaterial* self) {
+    delete reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self);
+}
+
+struct whiteout_M3DataDrivenProperties* whiteout_m3_M3DataDrivenMaterial_decodeProperties(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<struct whiteout_M3DataDrivenProperties*>(
+        new whiteout::m3::DataDrivenProperties(reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->decodeProperties()));
+}
+
+struct whiteout_M3StandardMaterialConversion* whiteout_m3_M3DataDrivenMaterial_toStandardMaterial(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<struct whiteout_M3StandardMaterialConversion*>(
+        new whiteout::m3::StandardMaterialConversion(reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->toStandardMaterial()));
+}
+
+struct whiteout_M3StandardMaterialConversion* whiteout_m3_M3DataDrivenMaterial_approximateStandardMaterial(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<struct whiteout_M3StandardMaterialConversion*>(
+        new whiteout::m3::StandardMaterialConversion(reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->approximateStandardMaterial()));
+}
+
+int32_t whiteout_m3_M3DataDrivenMaterial_getVersion(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->getVersion();
+}
+
+int32_t whiteout_m3_M3DataDrivenMaterial_setVersion(whiteout_M3DataDrivenMaterial* self, int32_t newVersion) {
+    return reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->setVersion(newVersion);
+}
+
+whiteout_CString whiteout_m3_M3DataDrivenMaterial_get_materialName(const whiteout_M3DataDrivenMaterial* self) {
+    auto* __owned = new std::string(reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->materialName);
+    return whiteout_CString{ __owned->c_str(), __owned->size(), __owned };
+}
+
+void whiteout_m3_M3DataDrivenMaterial_set_materialName(whiteout_M3DataDrivenMaterial* self, const char* value) {
+    reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->materialName = (value ? value : "");
+}
+
+size_t whiteout_m3_M3DataDrivenMaterial_get_fragmentHashes_count(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->fragmentHashes.size();
+}
+
+void whiteout_m3_M3DataDrivenMaterial_resize_fragmentHashes(whiteout_M3DataDrivenMaterial* self, size_t count) {
+    reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->fragmentHashes.resize(count);
+}
+
+const uint32_t* whiteout_m3_M3DataDrivenMaterial_get_fragmentHashes_data(const whiteout_M3DataDrivenMaterial* self) {
+    const auto& __v = reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->fragmentHashes;
     return __v.empty() ? nullptr : reinterpret_cast<const uint32_t*>(__v.data());
 }
 
-void whiteout_m3_M3MaterialAddData_assign_keyHash(whiteout_M3MaterialAddData* self, const uint32_t* data, size_t count) {
-    auto& __v = reinterpret_cast<whiteout::m3::MaterialAddData*>(self)->keyHash;
+void whiteout_m3_M3DataDrivenMaterial_assign_fragmentHashes(whiteout_M3DataDrivenMaterial* self, const uint32_t* data, size_t count) {
+    auto& __v = reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->fragmentHashes;
     __v.resize(count);
     if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u32));
 }
 
-size_t whiteout_m3_M3MaterialAddData_get_extraHash_count(const whiteout_M3MaterialAddData* self) {
-    return reinterpret_cast<const whiteout::m3::MaterialAddData*>(self)->extraHash.size();
+size_t whiteout_m3_M3DataDrivenMaterial_get_extraHashes_count(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->extraHashes.size();
 }
 
-void whiteout_m3_M3MaterialAddData_resize_extraHash(whiteout_M3MaterialAddData* self, size_t count) {
-    reinterpret_cast<whiteout::m3::MaterialAddData*>(self)->extraHash.resize(count);
+void whiteout_m3_M3DataDrivenMaterial_resize_extraHashes(whiteout_M3DataDrivenMaterial* self, size_t count) {
+    reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->extraHashes.resize(count);
 }
 
-const uint32_t* whiteout_m3_M3MaterialAddData_get_extraHash_data(const whiteout_M3MaterialAddData* self) {
-    const auto& __v = reinterpret_cast<const whiteout::m3::MaterialAddData*>(self)->extraHash;
+const uint32_t* whiteout_m3_M3DataDrivenMaterial_get_extraHashes_data(const whiteout_M3DataDrivenMaterial* self) {
+    const auto& __v = reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->extraHashes;
     return __v.empty() ? nullptr : reinterpret_cast<const uint32_t*>(__v.data());
 }
 
-void whiteout_m3_M3MaterialAddData_assign_extraHash(whiteout_M3MaterialAddData* self, const uint32_t* data, size_t count) {
-    auto& __v = reinterpret_cast<whiteout::m3::MaterialAddData*>(self)->extraHash;
+void whiteout_m3_M3DataDrivenMaterial_assign_extraHashes(whiteout_M3DataDrivenMaterial* self, const uint32_t* data, size_t count) {
+    auto& __v = reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->extraHashes;
     __v.resize(count);
     if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u32));
 }
 
-whiteout_CString whiteout_m3_M3MaterialAddData_get_valuePath(const whiteout_M3MaterialAddData* self) {
-    auto* __owned = new std::string(reinterpret_cast<const whiteout::m3::MaterialAddData*>(self)->valuePath);
-    return whiteout_CString{ __owned->c_str(), __owned->size(), __owned };
+size_t whiteout_m3_M3DataDrivenMaterial_get_propertyBlob_count(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->propertyBlob.size();
 }
 
-void whiteout_m3_M3MaterialAddData_set_valuePath(whiteout_M3MaterialAddData* self, const char* value) {
-    reinterpret_cast<whiteout::m3::MaterialAddData*>(self)->valuePath = (value ? value : "");
+void whiteout_m3_M3DataDrivenMaterial_resize_propertyBlob(whiteout_M3DataDrivenMaterial* self, size_t count) {
+    reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->propertyBlob.resize(count);
 }
 
-float whiteout_m3_M3MaterialAddData_get_frequency(const whiteout_M3MaterialAddData* self) {
-    return reinterpret_cast<const whiteout::m3::MaterialAddData*>(self)->frequency;
+const uint8_t* whiteout_m3_M3DataDrivenMaterial_get_propertyBlob_data(const whiteout_M3DataDrivenMaterial* self) {
+    const auto& __v = reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->propertyBlob;
+    return __v.empty() ? nullptr : reinterpret_cast<const uint8_t*>(__v.data());
 }
 
-void whiteout_m3_M3MaterialAddData_set_frequency(whiteout_M3MaterialAddData* self, float value) {
-    reinterpret_cast<whiteout::m3::MaterialAddData*>(self)->frequency = value;
+void whiteout_m3_M3DataDrivenMaterial_assign_propertyBlob(whiteout_M3DataDrivenMaterial* self, const uint8_t* data, size_t count) {
+    auto& __v = reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->propertyBlob;
+    __v.resize(count);
+    if (count) std::memcpy(__v.data(), data, count * sizeof(whiteout::u8));
 }
 
-float whiteout_m3_M3MaterialAddData_get_intensity(const whiteout_M3MaterialAddData* self) {
-    return reinterpret_cast<const whiteout::m3::MaterialAddData*>(self)->intensity;
+float whiteout_m3_M3DataDrivenMaterial_get_unknown108(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->unknown108;
 }
 
-void whiteout_m3_M3MaterialAddData_set_intensity(whiteout_M3MaterialAddData* self, float value) {
-    reinterpret_cast<whiteout::m3::MaterialAddData*>(self)->intensity = value;
+void whiteout_m3_M3DataDrivenMaterial_set_unknown108(whiteout_M3DataDrivenMaterial* self, float value) {
+    reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->unknown108 = value;
 }
 
-float whiteout_m3_M3MaterialAddData_get_holdTime(const whiteout_M3MaterialAddData* self) {
-    return reinterpret_cast<const whiteout::m3::MaterialAddData*>(self)->holdTime;
+float whiteout_m3_M3DataDrivenMaterial_get_unknown112(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->unknown112;
 }
 
-void whiteout_m3_M3MaterialAddData_set_holdTime(whiteout_M3MaterialAddData* self, float value) {
-    reinterpret_cast<whiteout::m3::MaterialAddData*>(self)->holdTime = value;
+void whiteout_m3_M3DataDrivenMaterial_set_unknown112(whiteout_M3DataDrivenMaterial* self, float value) {
+    reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->unknown112 = value;
 }
 
-uint32_t whiteout_m3_M3MaterialAddData_get_randomHash(const whiteout_M3MaterialAddData* self) {
-    return reinterpret_cast<const whiteout::m3::MaterialAddData*>(self)->randomHash;
+float whiteout_m3_M3DataDrivenMaterial_get_unknown116(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->unknown116;
 }
 
-void whiteout_m3_M3MaterialAddData_set_randomHash(whiteout_M3MaterialAddData* self, uint32_t value) {
-    reinterpret_cast<whiteout::m3::MaterialAddData*>(self)->randomHash = value;
+void whiteout_m3_M3DataDrivenMaterial_set_unknown116(whiteout_M3DataDrivenMaterial* self, float value) {
+    reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->unknown116 = value;
 }
 
-uint32_t whiteout_m3_M3MaterialAddData_get_animationType(const whiteout_M3MaterialAddData* self) {
-    return reinterpret_cast<const whiteout::m3::MaterialAddData*>(self)->animationType;
+uint32_t whiteout_m3_M3DataDrivenMaterial_get_effectNameHash(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->effectNameHash;
 }
 
-void whiteout_m3_M3MaterialAddData_set_animationType(whiteout_M3MaterialAddData* self, uint32_t value) {
-    reinterpret_cast<whiteout::m3::MaterialAddData*>(self)->animationType = value;
+void whiteout_m3_M3DataDrivenMaterial_set_effectNameHash(whiteout_M3DataDrivenMaterial* self, uint32_t value) {
+    reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->effectNameHash = value;
 }
 
-uint32_t whiteout_m3_M3MaterialAddData_get_padding0(const whiteout_M3MaterialAddData* self) {
-    return reinterpret_cast<const whiteout::m3::MaterialAddData*>(self)->padding0;
+uint32_t whiteout_m3_M3DataDrivenMaterial_get_unknown124(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->unknown124;
 }
 
-void whiteout_m3_M3MaterialAddData_set_padding0(whiteout_M3MaterialAddData* self, uint32_t value) {
-    reinterpret_cast<whiteout::m3::MaterialAddData*>(self)->padding0 = value;
+void whiteout_m3_M3DataDrivenMaterial_set_unknown124(whiteout_M3DataDrivenMaterial* self, uint32_t value) {
+    reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->unknown124 = value;
 }
 
-int32_t whiteout_m3_M3MaterialAddData_get_loopCount(const whiteout_M3MaterialAddData* self) {
-    return reinterpret_cast<const whiteout::m3::MaterialAddData*>(self)->loopCount;
+uint32_t whiteout_m3_M3DataDrivenMaterial_get_padding128(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->padding128;
 }
 
-void whiteout_m3_M3MaterialAddData_set_loopCount(whiteout_M3MaterialAddData* self, int32_t value) {
-    reinterpret_cast<whiteout::m3::MaterialAddData*>(self)->loopCount = value;
+void whiteout_m3_M3DataDrivenMaterial_set_padding128(whiteout_M3DataDrivenMaterial* self, uint32_t value) {
+    reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->padding128 = value;
 }
 
-uint32_t whiteout_m3_M3MaterialAddData_get_flags(const whiteout_M3MaterialAddData* self) {
-    return reinterpret_cast<const whiteout::m3::MaterialAddData*>(self)->flags;
+int32_t whiteout_m3_M3DataDrivenMaterial_get_unknown132(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->unknown132;
 }
 
-void whiteout_m3_M3MaterialAddData_set_flags(whiteout_M3MaterialAddData* self, uint32_t value) {
-    reinterpret_cast<whiteout::m3::MaterialAddData*>(self)->flags = value;
+void whiteout_m3_M3DataDrivenMaterial_set_unknown132(whiteout_M3DataDrivenMaterial* self, int32_t value) {
+    reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->unknown132 = value;
 }
 
-uint32_t whiteout_m3_M3MaterialAddData_get_subType(const whiteout_M3MaterialAddData* self) {
-    return reinterpret_cast<const whiteout::m3::MaterialAddData*>(self)->subType;
+uint32_t whiteout_m3_M3DataDrivenMaterial_get_unknown136(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->unknown136;
 }
 
-void whiteout_m3_M3MaterialAddData_set_subType(whiteout_M3MaterialAddData* self, uint32_t value) {
-    reinterpret_cast<whiteout::m3::MaterialAddData*>(self)->subType = value;
+void whiteout_m3_M3DataDrivenMaterial_set_unknown136(whiteout_M3DataDrivenMaterial* self, uint32_t value) {
+    reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->unknown136 = value;
 }
 
-uint32_t whiteout_m3_M3MaterialAddData_get_configA(const whiteout_M3MaterialAddData* self) {
-    return reinterpret_cast<const whiteout::m3::MaterialAddData*>(self)->configA;
+uint32_t whiteout_m3_M3DataDrivenMaterial_get_unknown140(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->unknown140;
 }
 
-void whiteout_m3_M3MaterialAddData_set_configA(whiteout_M3MaterialAddData* self, uint32_t value) {
-    reinterpret_cast<whiteout::m3::MaterialAddData*>(self)->configA = value;
+void whiteout_m3_M3DataDrivenMaterial_set_unknown140(whiteout_M3DataDrivenMaterial* self, uint32_t value) {
+    reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->unknown140 = value;
 }
 
-uint32_t whiteout_m3_M3MaterialAddData_get_configB(const whiteout_M3MaterialAddData* self) {
-    return reinterpret_cast<const whiteout::m3::MaterialAddData*>(self)->configB;
+uint32_t whiteout_m3_M3DataDrivenMaterial_get_unknown144(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->unknown144;
 }
 
-void whiteout_m3_M3MaterialAddData_set_configB(whiteout_M3MaterialAddData* self, uint32_t value) {
-    reinterpret_cast<whiteout::m3::MaterialAddData*>(self)->configB = value;
+void whiteout_m3_M3DataDrivenMaterial_set_unknown144(whiteout_M3DataDrivenMaterial* self, uint32_t value) {
+    reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->unknown144 = value;
 }
 
-uint32_t whiteout_m3_M3MaterialAddData_get_extraId0(const whiteout_M3MaterialAddData* self) {
-    return reinterpret_cast<const whiteout::m3::MaterialAddData*>(self)->extraId0;
+uint8_t whiteout_m3_M3DataDrivenMaterial_get_unknown148(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->unknown148;
 }
 
-void whiteout_m3_M3MaterialAddData_set_extraId0(whiteout_M3MaterialAddData* self, uint32_t value) {
-    reinterpret_cast<whiteout::m3::MaterialAddData*>(self)->extraId0 = value;
+void whiteout_m3_M3DataDrivenMaterial_set_unknown148(whiteout_M3DataDrivenMaterial* self, uint8_t value) {
+    reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->unknown148 = value;
 }
 
-uint32_t whiteout_m3_M3MaterialAddData_get_extraId1(const whiteout_M3MaterialAddData* self) {
-    return reinterpret_cast<const whiteout::m3::MaterialAddData*>(self)->extraId1;
+uint8_t whiteout_m3_M3DataDrivenMaterial_get_alphaFresnelFlags(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->alphaFresnelFlags;
 }
 
-void whiteout_m3_M3MaterialAddData_set_extraId1(whiteout_M3MaterialAddData* self, uint32_t value) {
-    reinterpret_cast<whiteout::m3::MaterialAddData*>(self)->extraId1 = value;
+void whiteout_m3_M3DataDrivenMaterial_set_alphaFresnelFlags(whiteout_M3DataDrivenMaterial* self, uint8_t value) {
+    reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->alphaFresnelFlags = value;
+}
+
+int32_t whiteout_m3_M3DataDrivenMaterial_get_shaderType(const whiteout_M3DataDrivenMaterial* self) {
+    return static_cast<int32_t>(reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->shaderType);
+}
+
+void whiteout_m3_M3DataDrivenMaterial_set_shaderType(whiteout_M3DataDrivenMaterial* self, int32_t value) {
+    reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->shaderType = static_cast<whiteout::m3::MaterialShaderType>(value);
+}
+
+uint8_t whiteout_m3_M3DataDrivenMaterial_get_unknown151(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->unknown151;
+}
+
+void whiteout_m3_M3DataDrivenMaterial_set_unknown151(whiteout_M3DataDrivenMaterial* self, uint8_t value) {
+    reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->unknown151 = value;
+}
+
+uint32_t whiteout_m3_M3DataDrivenMaterial_get_effectNameHash2(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->effectNameHash2;
+}
+
+void whiteout_m3_M3DataDrivenMaterial_set_effectNameHash2(whiteout_M3DataDrivenMaterial* self, uint32_t value) {
+    reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->effectNameHash2 = value;
+}
+
+uint32_t whiteout_m3_M3DataDrivenMaterial_get_effectNameHash3(const whiteout_M3DataDrivenMaterial* self) {
+    return reinterpret_cast<const whiteout::m3::DataDrivenMaterial*>(self)->effectNameHash3;
+}
+
+void whiteout_m3_M3DataDrivenMaterial_set_effectNameHash3(whiteout_M3DataDrivenMaterial* self, uint32_t value) {
+    reinterpret_cast<whiteout::m3::DataDrivenMaterial*>(self)->effectNameHash3 = value;
 }
 
 } // extern "C"
@@ -7754,16 +7969,16 @@ whiteout_M3LensFlare* whiteout_m3_M3Model_get_lensFlareMaterials_at(whiteout_M3M
     return reinterpret_cast<whiteout_M3LensFlare*>(&reinterpret_cast<whiteout::m3::Model*>(self)->lensFlareMaterials[index]);
 }
 
-size_t whiteout_m3_M3Model_get_materialAddData_count(const whiteout_M3Model* self) {
-    return reinterpret_cast<const whiteout::m3::Model*>(self)->materialAddData.size();
+size_t whiteout_m3_M3Model_get_dataDrivenMaterials_count(const whiteout_M3Model* self) {
+    return reinterpret_cast<const whiteout::m3::Model*>(self)->dataDrivenMaterials.size();
 }
 
-void whiteout_m3_M3Model_resize_materialAddData(whiteout_M3Model* self, size_t count) {
-    reinterpret_cast<whiteout::m3::Model*>(self)->materialAddData.resize(count);
+void whiteout_m3_M3Model_resize_dataDrivenMaterials(whiteout_M3Model* self, size_t count) {
+    reinterpret_cast<whiteout::m3::Model*>(self)->dataDrivenMaterials.resize(count);
 }
 
-whiteout_M3MaterialAddData* whiteout_m3_M3Model_get_materialAddData_at(whiteout_M3Model* self, size_t index) {
-    return reinterpret_cast<whiteout_M3MaterialAddData*>(&reinterpret_cast<whiteout::m3::Model*>(self)->materialAddData[index]);
+whiteout_M3DataDrivenMaterial* whiteout_m3_M3Model_get_dataDrivenMaterials_at(whiteout_M3Model* self, size_t index) {
+    return reinterpret_cast<whiteout_M3DataDrivenMaterial*>(&reinterpret_cast<whiteout::m3::Model*>(self)->dataDrivenMaterials[index]);
 }
 
 size_t whiteout_m3_M3Model_get_particleEmitters_count(const whiteout_M3Model* self) {

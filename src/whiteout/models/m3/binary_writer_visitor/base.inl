@@ -115,7 +115,7 @@ void BinaryWriterVisitor::visit(const Model& model, u32 version) {
         visit(model.lensFlareMaterials);
     }
     if (version >= 30) {
-        visit(model.materialAddData);
+        visit(model.dataDrivenMaterials);
     }
 
     visit(model.particleEmitters);
@@ -164,6 +164,32 @@ void BinaryWriterVisitor::visit(const Model& model, u32 version) {
 void BinaryWriterVisitor::visit(const std::string& str, u32 version) {
     (void)version;
     visit(str);
+}
+
+void BinaryWriterVisitor::visitCharBlob(const std::vector<u8>& blob) {
+    Reference ref = {};
+    if (blob.empty()) {
+        writer.write(ref);
+        return;
+    }
+
+    auto ref_position = writer.getPosition();
+    writer.write(ref);
+    currentLevelWrites.push_back([this, ref_position, &blob]() {
+        auto new_entry_index = indexTable.size();
+        const auto currentOffset = writer.getPosition();
+        indexTable.push_back({ChunkTagTraits<char>::value, currentOffset,
+                              static_cast<u32>(blob.size()), 0});
+        auto& entry = indexTable[new_entry_index];
+        writer.setPosition(ref_position);
+        Reference written = {};
+        written.entries = static_cast<u32>(blob.size());
+        written.index = static_cast<u32>(new_entry_index);
+        writer.write(written);
+        writer.setPosition(entry.offset);
+        writer.writeBytes(reinterpret_cast<const char*>(blob.data()),
+                          static_cast<u32>(blob.size()));
+    });
 }
 
 void BinaryWriterVisitor::visit(const std::string& str) {

@@ -94,7 +94,7 @@ void BinaryParseVisitor::visit(Model& model, u32 version) {
         visit(model.lensFlareMaterials);
     }
     if (version >= 30) {
-        visit(model.materialAddData);
+        visit(model.dataDrivenMaterials);
     }
 
     visit(model.particleEmitters);
@@ -158,4 +158,20 @@ void BinaryParseVisitor::visit(std::string& str) {
 void BinaryParseVisitor::visit(std::string& str, u32 version) {
     (void)version;
     visit(str);
+}
+
+void BinaryParseVisitor::visitCharBlob(std::vector<u8>& blob) {
+    Reference ref = readReferenceFunc();
+    if (ref.entries == 0) {
+        blob.clear();
+        return;
+    }
+
+    const auto currentPos = reader.getPosition();
+    indexUsed[ref.index] = true;
+    reader.setPosition(indexTable[ref.index].offset);
+    assert(indexTable[ref.index].tag == ChunkTagTraits<char>::value);
+    blob.resize(ref.entries);
+    reader.readBytes(reinterpret_cast<char*>(blob.data()), ref.entries);
+    reader.setPosition(currentPos);
 }

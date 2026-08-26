@@ -11,9 +11,11 @@ import whiteout.common.internal.NativeCommon;
 import whiteout.m3.internal.Native;
 
 /**
- * PHSH — Physics shape (v0–v3, 132–300 bytes)
+ * PHSH — Physics shape (v0–v3, 132/292/300 bytes)
  * 
  * The 300-byte v3 layout is a three-part union. Bytes 0–79 are the common header. Bytes 80–103 hold shape dimensions for simple shapes (0–3) or are zero for complex shapes. Bytes 80–183 form the convex hull section (shapeType 4); bytes 184–299 form the mesh section (shapeType 5).
+ * 
+ * v2 shares the v3 layout through the hull section but has a shorter mesh section (292 bytes total): bounds/tolerance, four legacy geometry refs, then a 6-dword tail (unknown, vertexCount, faceCount, 2× unknown, treeDepth) — verified against the SC2 client's version-upgrade copier.
  *
  * <p><b>Lifecycle.</b> Instances hold a handle to a native
  * PhysicsShape allocation. Always release them with
@@ -31,7 +33,7 @@ import whiteout.m3.internal.Native;
  * external access if a handle is shared across threads.
  */
 public final class PhysicsShape implements AutoCloseable {
-    private static final long BYTES = 624L;
+    private static final long BYTES = 528L;
 
     final MemorySegment handle;
     final boolean owned;
