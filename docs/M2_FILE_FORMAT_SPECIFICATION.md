@@ -97,6 +97,7 @@
       - [REVJ (Revolute Joint) — 112 bytes](#revj-revolute-joint--112-bytes)
       - [REV2 (Revolute Joint v2) — 120 bytes](#rev2-revolute-joint-v2--120-bytes)
     - [17.11 PFDC Inline Physics](#1711-pfdc-inline-physics)
+    - [17.12 How a model finds its physics](#1712-how-a-model-finds-its-physics)
   - [18. Bundle Naming Conventions](#18-bundle-naming-conventions)
   - [19. WhiteoutLib Implementation Notes](#19-whiteoutlib-implementation-notes)
     - [19.1 Parser](#191-parser)
@@ -123,11 +124,11 @@ An M2 model is not a single file. It is a **bundle** of related files, each carr
 | `.m2` | Base model: header, geometry, bones, textures, materials, animations (or refs), cameras, lights, emitters, collision |
 | `.skin` | LOD views: index buffers, submesh definitions, draw batches |
 | `.anim` | Externalized animation keyframe data for low-priority sequences |
-| `.bone` | Bone-specific data (face-pose offset matrices) |
+| `.bone` | Per-customization bone override matrices |
 | `.skel` | Chunked skeleton: bones, attachments, sequences delegated from a parent skeleton hierarchy |
 | `.phys` | Ragdoll physics: rigid bodies, shapes, joints |
 
-WhiteoutLib supports parsing and writing all of the above except `.phys` (which is handled as inline raw data via the `PFDC` chunk).
+WhiteoutLib parses and writes all of the above. Physics reaches a model three ways — a `<stem>.phys` sibling by path, a `PFID` file id, or an inline `PFDC` chunk — and all three land in `Model::physics` as a parsed `PhysicsData`.
 
 ---
 
@@ -203,12 +204,16 @@ Version ranges are inclusive. Models are version-tagged by the exporter; the ver
 
 | Gate | Effect |
 |---|---|
-| `< WOTLK (264)` | Skin profiles are inline in the `.m2` instead of external `.skin` files |
-| `>= WOTLK (264)` | Header stores `numSkinProfiles` as `u32` instead of inline `M2Array<SkinProfile>` |
-| `< CATA (265)` | Camera has a flat `f32 fieldOfView` before far/near clip |
+| `< BC (260)` | Bone rotation keys are `C4Quaternion` (4 × `f32`) instead of compressed `CompatQuaternion`; particle `blendingType`/`emitterType` are each `u16` and there is no `particleColorIndex`; skin sections end at `centerPosition` (no `sortCenterPosition`/`sortRadius`) |
+| `< WOTLK (264)` | Tracks use the flat global-timeline layout (§5.6); sequences store `startTimestamp`/`endTimestamp` instead of `duration`; header carries `playableAnimationLookup` (after the sequence lookup) and `textureFlipbooks` (after texture weights); skin profiles are inline in the `.m2` instead of external `.skin` files; no `.anim` siblings exist; ribbons end at the visibility track (no `priorityPlane`/`ribbonColorIndex`/`textureTransformIndex`); particles use the fixed three-point color block (§11.2) and a single `spin` float, with no `lifespanVariation`/`emissionRateVariation` |
+| `>= WOTLK (264)` | Header stores `numSkinProfiles` as `u32` instead of inline `M2Array<SkinProfile>`; sequences whose `flags & 0x130 == 0` stream their keys from `.anim` siblings |
+| `< CATA (265)` | Camera has a flat `f32 fieldOfView` before far/near clip; particles carry `u8 particleType` + `u8 headOrTail` where `multiTexScale[2]` later lives |
 | `>= CATA (265)` | Camera has an `M2Track<f32> fieldOfViewTrack` after the roll track |
+| `< MOP (272)` | Sequence blend time is a single `u32 blendTime` instead of the `u16 blendTimeIn`/`u16 blendTimeOut` pair (the split gave both sides the old value) |
 | `NewParticleRecord` flag OR `> 271` | Particle emitter record is 492 bytes instead of 476: the extended `multiTexScrollMid[2][2]` / `multiTexScrollRange[2][2]` fields (16 × `fixed16_9` = 16 bytes) are appended |
 | `flag_use_texture_combiner_combos` | `textureCombinerCombos` array appended at header end |
+
+Pre-Legion models reference their sibling files by path rather than FileDataID: `<stem>%02d.skin`, `<stem>_LOD%02d.skin`, `<stem>%04d-%02d.anim` and — when the `LoadPhysicsData` global flag (0x100) is set — `<stem>.phys`. The naming was verified against the WoD 6.0.1 client's `CM2Shared::LoadSkinProfile` / `LoadLowPrioritySequence` format strings; matching is case-insensitive, as the client's own lookups are.
 
 ---
 
@@ -248,7 +253,7 @@ The M2 format makes extensive use of `fixed16` (same as `i16` / `snorm16`) for a
 | `Vector3f` | `f32 x, y, z` | 12 |
 | `Vector4f` | `f32 x, y, z, w` | 16 |
 | `Quaternion` | `f32 x, y, z, w` | 16 |
-| `Matrix3x4` | `f32[12]` | 48 |
+| `PhysicsFrame` | `Vector3f axisX, axisY, axisZ, origin` (column-major 3×4) | 48 |
 | `Matrix4x4` | `f32[16]` | 64 |
 
 ### Compressed Quaternion (`CompatQuaternion`)
@@ -400,6 +405,42 @@ struct ParticleAnimationTrack {
 
 This type backs the per-lifetime color/alpha/scale/UV-scroll tracks on
 `ParticleEmitter` and the `alphaCutoff` track in the `EXP2` extension.
+
+### 5.6 Legacy Tracks (versions < 264)
+
+Before WotLK, a track was not split per sequence. All keys live in **one flat
+array on a global timeline**, and each sequence owns a `[startTimestamp,
+endTimestamp]` window of that timeline (stored in the sequence record, §7.2):
+
+```
+Offset  Type              Field
+0x00    u16               interpolationType
+0x02    u16               globalSequenceId
+0x04    M2Array<M2Range>  interpolationRanges   → {firstKeyIndex, lastKeyIndex} per sequence,
+                                                  plus one trailing {0, 0} entry
+0x0C    M2Array<u32>      timestamps            → flat, global-timeline milliseconds
+0x14    M2Array<T>        values                → flat, same indexing as timestamps
+```
+
+That makes the legacy track header 28 bytes instead of 20 (24 vs 16 for the
+value-less event track). WhiteoutLib converts on the fly, in both directions:
+
+- **Reading**: each sequence's keys are the flat entries whose timestamp falls
+  inside its window, re-based to the window start. The ranges array is
+  redundant with the windows and is skipped. Global-sequence tracks
+  (`globalSequenceId != 0xFFFF`) keep their whole span as sub-array 0 — their
+  keys already run on the global loop's own clock.
+- **Writing**: sequences are laid out onto a fresh global timeline with a
+  3333 ms gap between windows, keys are merged back with their window start
+  added, and the ranges are regenerated. A sequence with zero or one keys in a
+  track that has keys elsewhere is written as an equal-valued pair on its
+  window boundaries — the layout old clients expect for constant sequences —
+  so a legacy round-trip can grow such sub-tracks from one key to two
+  playback-identical keys.
+
+Bone rotation values in vanilla files (`< 260`) are float quaternions; they are
+compressed to `CompatQuaternion` with the client's exact mapping
+(`v < 0 ? v + 32768 : v - 32767` per component, see §4) during conversion.
 
 ---
 
@@ -561,10 +602,12 @@ struct Sequence {
     Extent bounding;      // per-sequence bounding box
     i16 variationNext;    // index of next variation of this animation ID, or -1
     u16 aliasNext;        // if this is an alias (flag 0x40), index of target
-};                        // Total: 68 bytes
+};                        // Total: 64 bytes (68 for versions < 264, see below)
 ```
 
-The `blendTimeIn` / `blendTimeOut` split was introduced around WoD; older files had a single `u32 blendTime` in this slot. The client interpolates bone transforms between the ending state of one animation and the starting state of the next for the duration of the blend time.
+The `blendTimeIn` / `blendTimeOut` split was introduced around WoD; older files had a single `u32 blendTime` in this slot (WhiteoutLib reads it into both fields, and writes `blendTimeIn` back as the `u32` for versions < 272). The client interpolates bone transforms between the ending state of one animation and the starting state of the next for the duration of the blend time.
+
+**Versions < 264** replace `duration` with a `u32 startTimestamp` / `u32 endTimestamp` pair (making the record 68 bytes): each sequence occupies that window on the shared global timeline that all legacy tracks are keyed against (§5.6). WhiteoutLib exposes `duration = end - start` and rebuilds the windows on write.
 
 ### 7.3 Sequence Flags
 
@@ -786,11 +829,17 @@ Both are referenced indirectly from skin batches via the combo/lookup tables. If
 
 ```cpp
 struct TextureTransform {
-    AnimationTrack<Vector3f>          translation;
-    AnimationTrack<CompatQuaternion>  rotation;     // center = (0.5, 0.5)
-    AnimationTrack<Vector3f>          scaling;
+    AnimationTrack<Vector3f>    translation;
+    AnimationTrack<Quaternion>  rotation;     // center = (0.5, 0.5)
+    AnimationTrack<Vector3f>    scaling;
 };
 ```
+
+The rotation keys are **float quaternions** (`C4Quaternion`, 16 bytes per key)
+in every M2 version — unlike bone rotations, they were never compressed. This
+was verified against the client's `M2Init<M2TextureTransform>`, which routes
+the track through `M2Init<C4Quaternion>` (60-byte record: translation at +0,
+rotation at +20, scaling at +40).
 
 Used for animated textures: flowing water, lava, pulsing runes, etc. The rotation is applied around the texture center `(0.5, 0.5)`:
 
@@ -1020,11 +1069,12 @@ struct ParticleEmitter {
     std::string particleModelFilename;       // model-geometry particles (if non-empty)
     std::string childEmittersModelFilename;  // trail / child-emitter model per particle
 
-    ParticleBlending    blendingType;        // u8 (0–4)
-    ParticleEmitterType emitterType;         // u8 (1=Plane, 2=Sphere, 3=Spline, 4=Bone)
-    u16         particleColorIndex;          // 11/12/13 → ParticleColor.dbc row
+    ParticleBlending    blendingType;        // u8 (0–4); u16 in versions < 260
+    ParticleEmitterType emitterType;         // u8 (1=Plane, 2=Sphere, 3=Spline, 4=Bone); u16 in versions < 260
+    u16         particleColorIndex;          // 11/12/13 → ParticleColor.dbc row; absent < 260
 
-    fixed8_5    multiTexScale[2];            // per-layer texture scale (1 byte each)
+    u8          particleType, headOrTail;    // versions < 265 only, in the multiTexScale slot
+    fixed8_5    multiTexScale[2];            // per-layer texture scale (1 byte each); >= 265
     i16         textureTilerotation;         // -1, 0, or 1 — also serves as priorityPlane
     u16         rows;                        // texture atlas rows
     u16         columns;                     // texture atlas columns
@@ -1079,6 +1129,24 @@ struct ParticleEmitter {
 };
 ```
 
+**Versions < 264** have no `lifespanVariation` / `emissionRateVariation`, a
+single `f32 spin` in place of the four spin floats, and replace the five
+per-lifetime tracks + `scaleVary` with a fixed three-point block (52 bytes):
+
+```
+f32       midPoint;          // mid key's position in the particle lifetime [0, 1]
+u8[4][3]  colorValues;       // BGRA at begin / mid / end
+f32[4]    scaleValues;       // uniform scale at begin / mid / end (+1 unused)
+u16[2]    headCellBegin;  u16 pad;
+u16[2]    headCellEnd;    u16 pad;
+i16[4]    tiles;             // tail flipbook cells
+```
+
+WhiteoutLib converts this to/from three-key `ParticleAnimationTrack`s at
+timestamps `{0, midPoint, 1}` (colors as 0–255 floats, alpha widened to
+fixed-15, scalar scale duplicated into both `Vector2f` lanes). Writing samples
+the tracks back at begin/mid/end.
+
 > **Field-order notes (vs. older docs and wowdev.wiki):**
 > - WhiteoutLib reads **`emissionAreaWidth` before `emissionAreaLength`** (the
 >   reverse of some references). The parser and writer agree, so round-trips are
@@ -1129,10 +1197,10 @@ enum, which was reconstructed from the client's `CParticleEmitter2` /
 
 | Flag | Value | Description |
 |---|---|---|
-| `Shaded` | `0x1` | Lighting enabled (note: client uses `~flags & 1` → CParticleMat lit bit; lit by default) |
+| `Unlit` | `0x1` | Disables lighting (sets the material unlit bit); particles are lit by default |
 | `SortParticles` | `0x2` | Depth-sorted rendering via priority queue |
 | `VelocityOrient` | `0x4` | Billboard aligns along the velocity vector |
-| `Unshaded` | `0x8` | Clears the lit flag on CParticleMat |
+| `Unfogged` | `0x8` | Not affected by fog (sets the material unfogged bit) |
 | `WorldSpace` | `0x10` | Particles operate in world space; skips the bone-matrix transform |
 | `InheritBoneScale` | `0x20` | Scale particles by attached bone (sqrt of bone-matrix column length) |
 | `InheritVelocity` | `0x40` | Child emitter inherits parent velocity (scaled by `inheritVelocityScale`) |
@@ -1149,11 +1217,11 @@ enum, which was reconstructed from the client's `CParticleEmitter2` /
 | `HeadStyle` | `0x20000` | Head particle style bits in SetParticleStyle |
 | `TailStyle` | `0x40000` | Tail particle style bits in SetParticleStyle |
 | `UnscaledSizeVariation` | `0x80000` | Independent X/Y scale variation (two random floats) |
-| `Unfogged` | `0x100000` | Sets the unfogged flag on CParticleMat |
+| `Refraction` | `0x100000` | Refraction particle (type 3): drawn with the `Particle_Refraction` shader, forced unlit, not rendered while the camera is submerged; `MultiTexture` takes precedence when both are set |
 | `RandFlipbookStart` | `0x200000` | Random starting flipbook frame |
-| `Unk_0x400000` | `0x400000` | Unknown |
-| `CompressedGravity` | `0x800000` | Gravity keyframes use the compressed 4-byte format |
-| `BoneGeneratorBone` | `0x1000000` | Select bone (1) vs joint (0) generator; emitterType 4 |
+| `Unk_0x400000` | `0x400000` | Unknown — present in data but never read by the client |
+| `CompressedGravity` | `0x800000` | Gravity keyframes are compressed direction vectors (`int8 x, y` + `int16 z`) instead of z-axis floats |
+| `BoneGeneratorBone` | `0x1000000` | Select bone (1) vs joint (0) generator; only consulted when emitterType is Bone (4), meaningless otherwise |
 | `NoGlobalViewScale` | `0x2000000` | Skip the global-view-scale multiply on emission rate |
 | `LodIgnoreDistance` | `0x4000000` | Skip distance-based LOD emission-rate scaling |
 | `OffsetHeadBySpin` | `0x8000000` | Offset head particle position along the spin rotation axis |
@@ -1242,8 +1310,8 @@ struct SkinSection {
     u16 boneInfluences;     // max bones per vertex (1–4)
     u16 centerBoneIndex;    // bone for distance calculation
     Vector3f centerPosition;
-    Vector3f sortCenterPosition;
-    f32 sortRadius;
+    Vector3f sortCenterPosition;    // >= BC (260); vanilla sections end at centerPosition
+    f32 sortRadius;                 // >= BC (260)
 };
 ```
 
@@ -1761,32 +1829,60 @@ struct SKPDChunk {
 
 ## 15. Bone File (`.bone`)
 
-Bone files contain per-bone data for face-pose systems. The file uses chunked framing.
+A `.bone` carries the skeleton edits one character-customization choice needs:
+a sparse set of replacement transforms, keyed by bone. A model ships one per
+choice — 2309 files across 84 models in the corpus, under `character/` (1276)
+and `creature/` (1033).
 
-```cpp
+```c
 struct BoneFile {
-    BONEHeader header;                    // u32 unk = 1 (version?)
-    std::optional<BIDAChunk> bida_chunk;
-    std::optional<BOMTChunk> bomt_chunk;
-    u32 boneId;                           // from filename
+    u32 version;                      // 1 in every known file
+
+    // BIDA — the bones this file touches
+    u16 boneIndices[n];               // indexes the model's bone array
+
+    // BOMT — one transform each
+    f32 matrices[n][4][4];            // row-major, translation in the last row
 };
 ```
 
-**BIDA** — Bone ID array:
-```cpp
-struct BIDAChunk {
-    std::vector<u16> boneIds;  // count = (number of FacePose(808) sequences - 1)
-};
-```
+Two chunks, in that order, with the ordinary `tag + u32 size` framing and tags
+stored forward (`BIDA`, `BOMT` — not reversed the way `.phys` stores them).
+There is no padding between chunks and no trailing bytes.
 
-**BOMT** — Bone offset matrices:
-```cpp
-struct BOMTChunk {
-    std::vector<Matrix4x4> boneOffsetMatrices;  // same count as BIDA
-};
-```
+**Verified across all 2309 corpus files:**
 
----
+| Invariant | Result |
+|---|---|
+| `version == 1` | 2309 / 2309 |
+| exactly `BIDA` then `BOMT`, nothing else | 2309 / 2309 |
+| `sizeof(BIDA)/2 == sizeof(BOMT)/64` | 2309 / 2309 |
+| no trailing bytes after the last chunk | 2309 / 2309 |
+| `boneIndices` strictly ascending, no duplicates | 2309 / 2309 |
+| 4th matrix column is `(0, 0, 0, 1)` | 86174 / 86174 |
+| `max(boneIndex) < model bone count` | 972 / 972 files checked against their model |
+
+The ascending order is what lets the client binary-search a bone; the count is
+**not** tied to the number of `FacePose` sequences, as previously documented
+here — it is simply how many bones that customization choice moves. Of the
+86174 matrices, 40969 carry rotation or shear, 10708 are pure scale and 34497
+are translation-only; translations are small, with a median magnitude of
+0.0014 and a 99th percentile of 0.41.
+
+### 15.1 How a model finds its `.bone` files
+
+| Source | Condition | Where it lands |
+|---|---|---|
+| `<stem>_NN.bone` siblings | path mode; probed from `_00` until one is missing | `Model::boneOverrides[N]` |
+| `BFID` file ids | CASC mode; `BFID[i]` is the i-th file | `Model::boneOverrides[i]`, ids kept in `Model::boneFileIds` |
+
+`BFID` lives on the `.skel` for character models and on the `.m2` for models
+without one. Its length matches the sibling count for 74 of the 84 corpus
+models; the other 10 list more ids than the extraction contains.
+
+The suffix must be **all digits** — `bloodelffemale_hd_sdr_00.bone` belongs to
+`bloodelffemale_hd_sdr`, not to `bloodelffemale_hd`, even though it shares the
+prefix.
 
 ## 16. Animation File (`.anim`)
 
@@ -1840,13 +1936,23 @@ so `PHYS` on disk is stored as bytes `53 59 48 50`.
 ### 17.1 File Structure Overview
 
 A physics file is a sequence of named chunks, each with the standard `u32_reversed_tag + u32_size + u8[size]` framing.
-The top-level chunk ordering observed in the corpus:
+Every chunk but `PLYT` is a flat array of fixed-size records, so its entry count is `chunk_size / stride`.
+
+All 34 chunk orderings observed across the corpus are consistent with one sequence:
 
 ```
-PHYS → PHYT → [CAPS] → [PLYT] → SHP2 → BDY4 → {joint_data} → [REVJ|REV2] → JOIN → [null_sentinel]
+PHYS → PHYT → [BOXS] → [SPHS] → [CAPS] → [PLYT] → SHAP|SHP2 → BODY|BDY2|BDY3|BDY4
+     → SHOJ|SHJ2 → WELJ|WLJ2|WLJ3 → [SPHJ] → [PRSJ|PRS2] → [REVJ|REV2] → [DSTJ] → JOIN → [PHYV]
 ```
 
-The null sentinel (`tag=0x00000000, size=0`) appears at the end of some PFDC inline chunks (9 of 19 v6 files).
+`BOXS`, `SPHJ`, `DSTJ` and `PRSJ` appear nowhere in the corpus, so their positions above are inferred
+from their neighbours. A file carrying `PHYV` carries nothing else but `PHYS` and `PHYT`.
+
+**Trailing padding.** A standalone `.phys` ends at its last chunk. An inline `PFDC` payload is zero-padded
+to a **16-byte multiple** — 219 of 219 corpus payloads, including the 11 already aligned, which carry none.
+Read as chunk framing that padding looks like a null sentinel (`tag=0`, `size=0`), which is how it was first
+described; the alignment rule accounts for every case, the sentinel reading does not (observed pad lengths
+run 1–14 bytes, not just 0 and 8).
 
 ### 17.2 Version History
 
@@ -1857,16 +1963,39 @@ The null sentinel (`tag=0x00000000, size=0`) appears at the end of some PFDC inl
 | 2 | Legion 7.0.1.20979 | BDY2 | SHP2 | WLJ2 | — | — | Renamed chunks, added fields |
 | 3 | Legion 7.0.3.21287 | BDY3 | SHP2 | WLJ2 | — | — | Added PLYT polytope shapes |
 | 4 | Legion 7.0.3.21846 | BDY4 | SHP2 | WLJ2 | SHOJ | REVJ | |
-| 5 | Legion 7.3.0.24500 | BDY4 | SHP2 | WLJ2 | SHOJ | REVJ | PLYT header changes |
-| 6 | ≥7.3, ≤9.0 | BDY4 | SHP2 | WLJ3 | SHJ2 | REV2 | Newer joint structs |
+| 5 | Legion 7.3.0.24500 | BDY4 | SHP2 | WLJ2 | SHOJ | REVJ | Parsing unchanged from 4 |
+| 6 | ≥7.3, ≤9.0 | BDY4 | SHP2 | WLJ3 | SHJ2 | REV2 | Also PRS2 (prismatic) |
 
-**Corpus version distribution** (54 total: 35 standalone `.phys` + 19 inline PFDC):
+Version 6 is what the wiki leaves open as `#if version >= ??` for the `SHJ2`/`WLJ3`/`REV2`/`PRS2` spellings.
+The corpus settles it: those four names occur **only** at version 6, and `SHOJ`/`WLJ2`/`REVJ` occur only at
+3–5, with every chunk length an exact multiple of the corresponding stride.
+
+**Corpus version distribution** (315 payloads: 96 standalone `.phys` + 219 inline PFDC):
 
 | Version | Standalone | PFDC |
 |---------|-----------|------|
-| 4 | 24 | 0 |
-| 5 | 11 | 0 |
-| 6 | 0 | 19 |
+| 0 | 1 | 0 |
+| 1 | 2 | 0 |
+| 3 | 2 | 0 |
+| 4 | 29 | 0 |
+| 5 | 62 | 0 |
+| 6 | 0 | 219 |
+
+**Chunk occurrence by version** (files carrying each chunk):
+
+| Chunk | v0 | v1 | v3 | v4 | v5 | v6 |
+|---|---|---|---|---|---|---|
+| BODY / BDY3 / BDY4 | 1 | 2 | 1 (BDY3) | 28 | 62 | 219 |
+| SHAP / SHP2 | 1 | 2 | 1 | 28 | 62 | 214 |
+| CAPS | 1 | 2 | 1 | 28 | 61 | 199 |
+| SPHS | — | — | — | — | 2 | 1 |
+| PLYT | — | — | — | 24 | 31 | 85 |
+| WELJ / WLJ2 / WLJ3 | 1 | 2 | 1 | 15 | 19 | 39 |
+| SHOJ / SHJ2 | — | — | 1 | 27 | 58 | 181 |
+| REVJ / REV2 | — | — | 1 | 27 | 31 | 67 |
+| PRS2 | — | — | — | — | — | 3 |
+| PHYV | — | — | 1 | 1 | — | — |
+| JOIN | 1 | 2 | 1 | 28 | 62 | 219 |
 
 ### 17.3 PHYS Header
 
@@ -1890,86 +2019,134 @@ Chunk size is always 4 bytes. Observed values by version:
 
 | Version | Values |
 |---------|--------|
-| 4 | always 3 |
-| 5 | always 3 |
-| 6 | 4 (12×), 0 (4×), 3 (3×) |
+| 1 | 0 (2×) |
+| 3 | 2, 3 |
+| 4 | 3 (26×), 0, 2, 4 |
+| 5 | 4 (36×), 3 (21×), 0 (4×), 1 |
+| 6 | 4 (181×), 3 (34×), 0 (4×) |
 
 Likely meaning: ragdoll complexity or physics simulation type (0=none/simple, 3=standard, 4=enhanced).
 
 ### 17.5 Body Structures
 
-The corpus uses **BDY4** exclusively (all 429 bodies across 54 files).
+BODY/BDY2 keep the bone index at `+0x10` and address shapes with a 32-bit base; BDY3 moved the bone index
+up into the padding at `+0x02`, shrank the shape base to 16 bits, and appended the tuning floats.
 
 ```c
-struct BDY4Entry {   // 48 bytes
-    u16 type;           // 0=kinematic/static, 1=dynamic
-    u16 boneIndex;      // model bone index
-    Vector3f position;  // body position in bone space
-    u16 shapeIndex;     // starting index into SHP2 array
-    u8 padding_b[2];
-    i32 shapesCount;    // number of shapes in this body
-    f32 mass;           // (was unk0) body mass factor: 0.0–3.0 (typical: 0.5, 0.75, 1.0)
-    f32 massScale;      // (was unk_1c) mass multiplier: 1.0 (394×) or 10.0 (34×)
-    f32 drag;           // drag coefficient: 0.0–10.0
-    f32 angularDamping; // (was unk1) angular velocity damping: 0.0–20.0
-    f32 linearDamping;  // (was unk_28) linear velocity damping: 0.01–0.9 (default 0.9)
-    u8 unk_2c[4];       // flags/metadata (see below)
+struct BODYEntry {   // 28 bytes — versions 0–1
+    u16 type;           // PhysicsBodyType, see below
+    u16 padding_02;
+    Vector3f position;  // offset from the animated bone position
+    u16 boneIndex;
+    u16 padding_12;
+    i32 shapeIndex;     // first entry in SHAP/SHP2 belonging to this body
+    i32 shapeCount;
+};
+
+struct BDY2Entry {   // 32 bytes — version 2
+    // ... BODYEntry ...
+    f32 inertiaScale;   // dmBodyDef::m_inertiaScale
+};
+
+struct BDY3Entry {   // 44 bytes — version 3
+    u16 type;
+    u16 boneIndex;
+    Vector3f position;
+    u16 shapeIndex;
+    u16 padding_12;
+    i32 shapeCount;
+    f32 gravityScale;   // dmBodyDef::m_gravityScale
+    f32 inertiaScale;   // dmBodyDef::m_inertiaScale
+    f32 linearDamping;  // dmBodyDef::m_linearDamping
+    f32 angularDamping; // dmBodyDef::m_angularDamping
+    f32 unk_28;         // unidentified
+};
+
+struct BDY4Entry {   // 48 bytes — versions 4–6
+    // ... BDY3Entry ...
+    u16 unk_2c;         // unidentified; reads like a bit field
+    u16 padding_2e;     // 0 in every corpus body
 };
 ```
 
-**Body type distribution**: type=0 (kinematic): 99, type=1 (dynamic): 330
-**Bodies per file**: range 2–25 (most commonly 8–10)
+**`type` is inverted relative to Domino.** `Physics::LegacyLoadPhysData` maps file `1 → dmBody_SetType(0)`
+and file `0 → dmBody_SetType(1)`, and fatals with `"Unknown legacy body type: %d"` on anything else.
+`dmBody::Create` gives `dmBodyType` 0 unit mass, and `CPhysicsBodyDef::IsKinematicBody()` is
+`m_type == 1`. So:
 
-**Field value distributions** (corpus-validated):
+| file `type` | `dmBodyType` | Role |
+|---|---|---|
+| 0 | 1 (kinematic) | Animation-driven collider. Glued to its bone; the solver only reads it. |
+| 1 | 0 (dynamic) | Simulated. Its bone transform is written back every frame — this is the cloth. |
 
-| Field | Values | Interpretation |
-|-------|--------|----------------|
-| `mass` | 1.0 (141×), 0.75 (141×), 0.5 (127×), 0.25 (6×), 0.1 (2×) | Body mass relative weight |
-| `massScale` | 1.0 (394×), 10.0 (34×), 0.0 (1×) | Multiplier applied to mass |
-| `drag` | 0.0 (128×), 5.0 (119×), 4.0 (102×), 3.0 (40×), 1.0 (29×) | Air resistance |
-| `angularDamping` | 5.0 (190×), 0.0 (106×), 10.0 (93×), 4.0 (29×) | Spin slowdown |
-| `linearDamping` | 0.01 (174×), 0.1 (102×), 0.5 (97×), 0.9 (34×), 0.25 (17×) | Movement slowdown |
+`position` is an **offset**, not an absolute placement: `CPhysicsBodyDef::CreateInstance` spawns the body at
+`modelPos + m_position`, where `modelPos` is the animated bone position.
 
-**`unk_2c` analysis**: Only non-zero on type=0 (kinematic root) bodies:
-- v4: `0x0000C000` (alliance) or `0x00008000` (horde) — bit 14–15 flags
-- v5: `0x00008000` consistently
-- v6: small integers (3, 4, 9, 15, 19, 22) — collision group index?
+**Field value distributions** (3526 bodies: 1213 kinematic, 2313 dynamic):
+
+| Field | Kinematic bodies | Dynamic bodies |
+|---|---|---|
+| `gravityScale` | 1.0 (1168×), 0.0 (27×), 2.0 (16×) | 1.0 (1137×), 0.75 (677×), 0.5 (158×), 0.0 (156×), −0.1 (25×), 20 more |
+| `inertiaScale` | 1.0 (1193×), 1.5/2/5 (6× each) | 1.0 (2264×), 10.0 (34×), 2.0 (6×), 1.1 (5×) |
+| `linearDamping` | 0.0 (1196×), 1.0 (15×) | 3.0 (865×), 1.0 (693×), 0.0 (278×), 5.0 (173×), 4.0 (118×) |
+| `angularDamping` | 0.0 (1173×), 5.0 (21×), 10.0 (19×) | 5.0 (1076×), 10.0 (821×), 0.0 (119×), 6.0 (61×) |
+| `unk_28` | 0.5 (853×), 0.9 (152×), 0.01 (123×), 0.25 (41×) | 0.5 (1133×), 0.01 (672×), 0.9 (216×), 0.1 (185×) |
+
+The first four names come from `dmBodyDef`, whose only float members are exactly
+`m_linearDamping`, `m_angularDamping`, `m_gravityScale` and `m_inertiaScale`. The kinematic/dynamic split
+is what assigns them: a kinematic body is not integrated, so its damping is left at 0 (1196 and 1173 of
+1213) while its `gravityScale`/`inertiaScale` sit at the `dmBodyDef` default of 1.0. `unk_28` is set on
+both kinds with the same distribution, so it is *not* a rigid-body integration parameter and stays unnamed.
+
+**`unk_2c`** (BDY4+) is a `u16` followed by a `u16` that is zero in all 3526 bodies. The low half is 0 in
+1823, `0x8000` alone in 494, and otherwise a small value (1, 2, 3, 6, 7, 8, 15, …) — bit-field shaped, but
+unidentified.
 
 ### 17.6 Shape Structures
 
-The corpus uses **SHP2** exclusively (all 426 shapes).
-
 ```c
-enum ShapeType : i16 {
+enum ShapeType : u16 {
     Box = 0,        // → BOXS data
     Capsule = 1,    // → CAPS data
     Sphere = 2,     // → SPHS data
     Polytope = 3    // → PLYT data (version 3+)
 };
 
-struct SHP2Entry {   // 32 bytes
-    i16 shapeType;      // ShapeType enum
-    i16 shapeIndex;     // index into the corresponding shape data chunk
-    u8 unk[4];          // always 0x00000000 in corpus
-    f32 friction;       // 0.0–0.7 (most common: 0.6)
-    f32 restitution;    // 0.0–1.0 (most common: 0.0)
-    f32 density;        // mass per unit volume (20000 for capsules, varies for polytopes)
-    u32 unk_14;         // always 0 in corpus
-    f32 unk_18;         // 1.0 (425×) or 0.0 (1×) — likely a scale factor
-    u16 unk_1c;         // always 0 in corpus
-    u16 padding_1e;     // uninitialized in v4 (contains memory garbage), zeroed in v5+
+struct SHAPEntry {   // 20 bytes — versions 0–1
+    u16 shapeType;
+    i16 shapeIndex;     // index into the shape-data chunk shapeType names
+    u32 padding_04;     // 0 in all 3230 corpus shapes
+    f32 friction;       // CPhysicsShapeDef::SetFriction  → dmFixtureDef::m_friction
+    f32 restitution;    // CPhysicsShapeDef::SetRestitution
+    f32 density;        // CPhysicsShapeDef::SetDensity
+};
+
+struct SHP2Entry {   // 32 bytes — versions 2+
+    // ... SHAPEntry ...
+    f32 unk_14;         // unidentified float: only 0, 0.01, 0.8 and 1.0 occur
+    f32 scale;          // 1.0 in 3229 of 3230 — dmFixtureDef::m_scaleOrRadius
+    u16 unk_1c;         // 0 in all 3230
+    u16 padding_1e;     // uninitialized on disk; preserved verbatim
 };
 ```
 
-**Shape type distribution**: Capsule=131, Polytope=295, Box=0, Sphere=0
+`CPhysicsShapeDef::InitDMFixtureDef` copies exactly `friction`, `restitution` and `density` into the
+`dmFixtureDef`, then overrides `m_filter.m_includeMask = 0` and sets `m_filter.m_groupIndex` to a
+per-model-instance counter — that group index is what keeps two players' capes from colliding with each
+other. `m_scaleOrRadius` is initialised to 1.0 for every shape kind the client creates, which is what
+`scale` matches; `m_rollingResistance` is the one `dmFixtureDef` float that nothing else in the record
+accounts for, making it the candidate for `unk_14`, but with only 12 non-zero samples that stays a guess.
+
+**Shape kind distribution**, over the 3038 shapes reachable from a body in the 289 corpus models that
+carry physics: Capsule = 2190, Polytope = 844, Sphere = 4, Box = 0. No corpus file uses `BOXS`.
 
 **Physics material values**:
 
 | Property | Most common values |
 |----------|-------------------|
-| friction | 0.6 (226×), 0.5 (120×), 0.7 (50×), 0.2 (29×) |
-| restitution | 0.0 (238×), 0.1 (153×), 0.5 (34×) |
-| density | 20000 (85×, all capsules), 100–29326 (polytopes vary) |
+| friction | 0.6, 0.5, 0.7, 0.2 |
+| restitution | 0.0, 0.1, 0.5 |
+| density | 20000 (capsules), 100–29326 (polytopes vary) |
 
 ### 17.7 Shape Data: CAPS (Capsule)
 
@@ -1981,7 +2158,30 @@ struct CAPSEntry {   // 28 bytes
 };
 ```
 
-131 entries across 44 files. Chunk size = `entry_count × 28`.
+Chunk size = `entry_count × 28`. `CPhysicsCapsuleShapeDef::SetLocalPosition1/SetLocalPosition2/SetRadius`
+name all three fields.
+
+`SPHS` is the same idea with one point (16 bytes: `Vector3f localPosition; f32 radius`), and `BOXS` is
+60 bytes: a `PhysicsFrame` followed by `Vector3f halfExtents`. The client does not keep a box shape —
+`CPhysicsBoxShapeDef::SetPolytopeData(dmTransform, halfExtents)` converts it into a polytope immediately,
+which is why `dmFixtureDef::m_shapeType` is 2 (polytope) for both `BOXS` and `PLYT`.
+
+#### PhysicsFrame
+
+`BOXS` and every frame-based joint store the same twelve floats:
+
+```c
+struct PhysicsFrame {   // 48 bytes
+    Vector3f axisX;     // dmMtx::m_col[0]
+    Vector3f axisY;     // dmMtx::m_col[1]
+    Vector3f axisZ;     // dmMtx::m_col[2]
+    Vector3f origin;    // dmTransform::p
+};
+```
+
+`Physics::LegacyLoadPhysData` loads floats 0–8 as the three columns of a `dmMtx`, converts them with
+`dmQuatFromMtx`, and pairs the quaternion with floats 9–11 to make a `dmTransform`. It is a column-major
+3×4 affine frame, not an opaque blob.
 
 ### 17.8 Shape Data: PLYT (Polytope) — CORRECTED
 
@@ -2005,66 +2205,95 @@ PLYT chunk layout:
 └─────────────────────────────┘
 ```
 
+The header is a serialised `dmPolytope`: each count sits in front of its own 64-bit pointer, leaving a
+four-byte hole that the exporter never initialises.
+
 ```c
 struct PLYTHeader {   // 80 bytes (0x50)
-    u32 vertexCount;       // +0x00: convex hull vertex count
-    u32 unk_04;            // +0x04: 0 in v4, non-zero in v5+ (version-specific metadata)
-    u64 runtime_08_ptr;    // +0x08: always 0 on disk, filled at runtime
-    u32 faceCount;         // +0x10: number of faces (and face planes)
-    u32 unk_14;            // +0x14: 1 in v4, varies in v5+ (version-specific)
-    u64 runtime_18_ptr;    // +0x18: always 0 on disk
-    u64 runtime_20_ptr;    // +0x20: always 0 on disk
-    u32 nodeCount;         // +0x28: BSP tree node count
-    u32 unk_2c;            // +0x2C: 0 in v4, non-zero in v5+
-    u64 runtime_30_ptr;    // +0x30: always 0 on disk
-    f32 unk_38[6];         // +0x38: bounding data (pairs of Vector3f-like values)
+    u32 vertexCount;       // +0x00
+    u32 padding_04;        // +0x04: uninitialised
+    u64 runtime_vertices;  // +0x08: 0 on disk, dmPolytope::m_pVertices at runtime
+    u32 faceCount;         // +0x10
+    u32 padding_14;        // +0x14: uninitialised
+    u64 runtime_planes;    // +0x18: 0 on disk, dmPolytope::m_pPlanes
+    u64 runtime_faces;     // +0x20: 0 on disk, dmPolytope::m_pFaceEdges
+    u32 edgeCount;         // +0x28: half-edges, always even
+    u32 padding_2c;        // +0x2C: uninitialised
+    u64 runtime_edges;     // +0x30: 0 on disk, dmPolytope::m_pEdges
+    Vector3f centroid;     // +0x38: volume-weighted
+    f32 volume;            // +0x44
+    f32 surfaceArea;       // +0x48
+    u32 padding_4c;        // +0x4C: uninitialised
 };
 
 struct PLYTData {
-    Vector3f vertices[header.vertexCount];       // convex hull vertices
-    Vector4f facePlanes[header.faceCount];       // face plane equations (nx, ny, nz, d)
-    PLYTNode nodes[header.nodeCount];            // BSP tree for collision detection
-    u8 faceIndices[header.faceCount];            // per-face index/metadata
+    Vector3f vertices[header.vertexCount];
+    Vector4f facePlanes[header.faceCount];   // (nx, ny, nz, d)
+    u8 faceFirstEdge[header.faceCount];      // any half-edge bounding that face
+    dmSubEdge edges[header.edgeCount];
 };
 
-struct PLYTNode {   // 4 bytes
-    u8 byte0;      // node metadata / face reference
-    u8 byte1;      // index value
-    u8 byte2;      // child reference (0xFF = leaf)
-    u8 byte3;      // child reference
+struct dmSubEdge {   // 4 bytes
+    i8 twinOffset;    // twin of edge i is (i + twinOffset); only +1 and -1 occur
+    u8 originVertex;  // index into vertices
+    u8 faceIndex;     // index into facePlanes
+    u8 nextEdge;      // next half-edge around faceIndex
 };
 ```
 
-**Data size per entry**: `vertexCount × 12 + faceCount × 16 + nodeCount × 4 + faceCount`
+**Data size per entry**: `vertexCount × 12 + faceCount × 16 + faceCount + edgeCount × 4`
 
-**Corpus statistics** (all 295 PLYT entries are uniform):
-- vertexCount = 8 (box-like convex hulls)
-- faceCount = 6 (six-sided faces)
-- nodeCount = 24
-- entry data size = 8×12 + 6×16 + 24×4 + 6 = 294 bytes
-- All runtime pointers are zero on disk ✅
+This is **not** a BSP tree — it is Domino's half-edge mesh, and the client's two accessors define the byte
+roles exactly. `dmPolytope::FindEdge(v1, v2)` matches `edges[i].originVertex == v1` and then walks
+`edges[i + edges[i].twinOffset].originVertex == v2`, so byte 0 is a signed step to the twin and byte 1 is
+the origin vertex. `dmPolytope::GetSupportFace` starts at `m_pFaceEdges[face]` and loops on
+`edge = edges[edge].nextEdge` until it returns to the start, so byte 3 is the next edge around the face and
+the per-face byte array is that face's entry point.
 
-**Face planes** are proper plane equations: `(0,0,1, 0.35)`, `(-1,0,0, 0.20)`, `(0,-1,0, 0.02)` etc.
+**Corpus verification** (875 hulls, 6031 faces, 24712 half-edges — every one of them):
 
-**Version-dependent header fields** (`unk_04`, `unk_14`, `unk_2c`):
-- v4: all zero (clean)
-- v5: non-zero values consistent within a file (e.g., 110, 441, 648)
-- v6: larger values, possibly runtime metadata or offsets
+| Invariant | Result |
+|---|---|
+| `twinOffset` is ±1, and `twin(twin(e)) == e` | 24712 / 24712 |
+| `origin(twin(e)) == origin(next(e))` — the edge's other end | 24712 / 24712 |
+| `faceFirstEdge[f]` is an edge whose `faceIndex == f` | 6031 / 6031 |
+| the `nextEdge` cycle closes and every edge in it carries `faceIndex == f` | 6031 / 6031 |
+| every half-edge is reached by exactly one face walk | 24712 / 24712 |
+| `volume` and `surfaceArea` positive and within the vertex AABB's | 875 / 875 |
+| `centroid` equals the vertex mean | 847 / 875 (rest are volume-weighted) |
+| all four runtime pointers zero on disk | 875 / 875 |
+
+Face cycle lengths run 3–16, mostly quads (5360 of 6031). Hulls carry 8–77 vertices; the common 8-vertex /
+6-face / 24-half-edge case is a box. The `+1`/`−1` split of `twinOffset` is exactly even (12356 each),
+which is what "half-edges are stored in twin pairs at adjacent indices" means in practice.
 
 ### 17.9 Joint Structure
 
 ```c
 struct JOINEntry {   // 16 bytes
-    u32 bodyAIdx;      // index into body array
-    u32 bodyBIdx;      // index into body array
-    u8 unk[4];         // always 0x00000000 in corpus
-    i16 jointType;     // JointType enum
+    u32 bodyAIdx;      // CPhysicsJointDef::SetBodyAIdx
+    u32 bodyBIdx;      // CPhysicsJointDef::SetBodyBIdx
+    u32 padding_08;    // 0 in all 2449 corpus joints
+    u16 jointType;     // JointType enum
     i16 jointId;       // joint sub-index within its type chunk
 };
 ```
 
-**Joint type distribution**: Shoulder=252, Weld=35, Revolute=62
-**Joints per file**: range 1–18 (most commonly 6 or 9)
+The `jointType` values are the `CPhysicsDef::Create*Joint` ordering, **not** Domino's `dmJointType`
+(distance 1, mouse 2, prismatic 3, revolute 4, shoulder 5, spherical 6, weld 7):
+
+| file `jointType` | chunk | client class |
+|---|---|---|
+| 0 | `SPHJ` | `CPhysicsSphericalJointDef` |
+| 1 | `SHOJ`/`SHJ2` | `CPhysicsShoulderJointDef` |
+| 2 | `WELJ`/`WLJ2`/`WLJ3` | `CPhysicsWeldJointDef` |
+| 3 | `REVJ`/`REV2` | — (post-6.0.1) |
+| 4 | `PRSJ`/`PRS2` | — (post-6.0.1) |
+| 5 | `DSTJ` | — (post-6.0.1) |
+
+**Joint type distribution** across the 289 corpus models with physics: Shoulder = 1701, Revolute = 324,
+Weld = 240, Prismatic = 12. Shoulder joints are what chain cloth; welds mostly bolt the static collider
+capsules together.
 
 ### 17.10 Joint Types
 
@@ -2076,8 +2305,8 @@ struct JOINEntry {   // 16 bytes
 
 ```c
 struct SHOJEntry {
-    Matrix3x4 frameA;          // 48 bytes — reference frame in body A
-    Matrix3x4 frameB;          // 48 bytes — reference frame in body B
+    PhysicsFrame frameA;          // 48 bytes — reference frame in body A
+    PhysicsFrame frameB;          // 48 bytes — reference frame in body B
     f32 lowerTwistAngle;       // -15.0 (112×) or -20.0 (84×) degrees
     f32 upperTwistAngle;       // 15.0 (112×) or 20.0 (86×) degrees
     f32 coneAngle;             // 45.0 (120×), 35.0 (60×), 20.0, 60.0 degrees
@@ -2085,6 +2314,11 @@ struct SHOJEntry {
     u32 motorMode;             // 0=free (35×), 1=motor (165×)
 };
 ```
+
+`CPhysicsShoulderJointDef` names the first three: `SetLowerTwistAngle`, `SetUpperTwistAngle`,
+`SetConeAngle`. The angles are stored in **degrees** — `dmShoulderJoint::Create` clamps its own cone to
+`[0.17453294, 2.9670596]`, i.e. [10°, 170°] in radians, so the loader converts on the way in. The default
+`dmJointDef` cone before the loader touches it is π/4.
 
 #### SHJ2 (Shoulder Joint v2) — 124 bytes
 
@@ -2098,8 +2332,8 @@ Extends SHOJ with:
 
 ```c
 struct WLJ2Entry {
-    Matrix3x4 frameA;
-    Matrix3x4 frameB;
+    PhysicsFrame frameA;
+    PhysicsFrame frameB;
     f32 angularFrequencyHz;    // always 0.6 in corpus
     f32 angularDampingRatio;   // always 0.0
     f32 linearFrequencyHz;     // always 0.0
@@ -2107,19 +2341,26 @@ struct WLJ2Entry {
 };
 ```
 
+`WELJ` (version 0–1, 104 bytes) has only the first pair. Which pair is which comes from the client:
+`CPhysicsWeldJointDef::SetFrequency`/`SetDampingRatio` write `dmJointDef+0x70`/`+0x78`, which
+`dmWeldJoint::Create` copies to the joint's first softness slot, and `InitVelocityConstraints` reads that
+slot to gate the block that composes `frameA.q`, `frameB.q` and both body quaternions — the orientation
+constraint. The second pair drives the point constraint further down. Zero frequency means that axis is
+solved rigidly, which is why every corpus weld leaves the linear pair at 0.
+
 #### WLJ3 (Weld Joint v3) — 116 bytes
 
 Extends WLJ2 with:
 ```c
-    f32 unk70;                 // 0.0 (12×) or 0.005 (7×) — likely spring stiffness
+    f32 unk70;                 // 0.0 (265×), 0.005 (7×), 10.0, 5.0 — unidentified
 ```
 
 #### REVJ (Revolute Joint) — 112 bytes
 
 ```c
 struct REVJEntry {
-    Matrix3x4 frameA;
-    Matrix3x4 frameB;
+    PhysicsFrame frameA;
+    PhysicsFrame frameB;
     f32 lowerAngle;            // -60.0 (32×), -20.0, -30.0, -10.0 degrees
     f32 upperAngle;            // 60.0 (32×), 20.0, 30.0, 10.0 degrees
     f32 maxMotorTorque;        // 0.0 (16×), 0.1 (16×), 0.01 (5×)
@@ -2135,15 +2376,95 @@ Extends REVJ with:
     f32 motorDampingRatio;     // always 0.7 in corpus
 ```
 
+`dmRevoluteJoint::Create` reads `dmJointDef+0x70`/`+0x74` as the angle limits and `+0x78`/`+0x7C` as the
+motor pair, which is the order the file uses.
+
+#### SPHJ (Spherical Joint) — 28 bytes
+
+```c
+struct SPHJEntry {
+    Vector3f anchorA;          // CPhysicsSphericalJointDef::SetAnchorA
+    Vector3f anchorB;          // SetAnchorB
+    f32 frictionTorque;        // SetFictionTorque — Blizzard's own typo
+};
+```
+
+#### DSTJ (Distance Joint) — 28 bytes
+
+```c
+struct DSTJEntry {
+    Vector3f localAnchorA;
+    Vector3f localAnchorB;
+    f32 distance;              // dmDistanceJoint::Create broadcasts it as the target length
+};
+```
+
+#### PRSJ / PRS2 (Prismatic Joint) — 120 / 128 bytes
+
+```c
+struct PRSJEntry {
+    PhysicsFrame frameA;
+    PhysicsFrame frameB;
+    f32 lowerLimit;
+    f32 upperLimit;
+    f32 unk_68;                // 0 in all twelve corpus prismatic joints
+    f32 maxMotorForce;
+    f32 unk_70;                // 0 in all twelve
+    u32 motorMode;
+    // PRS2 only:
+    f32 motorFrequencyHz;
+    f32 motorDampingRatio;
+};
+```
+
+`dmPrismaticJoint::Create` takes the limit pair, then a bool, then the motor force and speed, so the two
+unknowns are most likely the enable-limit / enable-motor flags — but every corpus value is 0, so nothing
+distinguishes them from padding.
+
+Neither `SPHJ`, `DSTJ` nor `BOXS` occurs anywhere in the corpus; those three layouts are covered only by
+the synthetic write-then-read case in `m2_phys_test`.
+
 ### 17.11 PFDC Inline Physics
 
-When physics is inlined in the `.m2` via the **PFDC** chunk (Shadowlands+), the payload contains the same
-PHYS chunked structure. Some PFDC chunks end with a **null sentinel** (8 zero bytes: tag=0x00000000, size=0),
-observed in 9 of 19 v6 files.
+When physics is inlined in the `.m2` via the **PFDC** chunk (Shadowlands+), the payload is a complete `.phys`
+file — same chunks, same framing — zero-padded to a 16-byte multiple. The chunk size covers the padding.
 
-**All PFDC files in the corpus are version 6**, using the latest struct variants (BDY4, SHP2, SHJ2, WLJ3, REV2).
+**All 219 PFDC payloads in the corpus are version 6**, using the latest struct variants (BDY4, SHP2, SHJ2,
+WLJ3, REV2, PRS2).
 
-WhiteoutLib currently stores PFDC as raw bytes: `m2file.pfdc_chunk->physicsData = reader.read<std::vector<u8>>(chunkSize)`
+WhiteoutLib parses the payload into `PhysicsData` and regenerates the padding on write; `m2_phys_test`
+checks that all 315 corpus payloads come back byte for byte.
+
+### 17.12 How a model finds its physics
+
+| Source | Condition | Where it lands |
+|---|---|---|
+| `<stem>.phys` sibling | MD20 with the `LoadPhysicsData` global flag, path mode | `Model::physics` |
+| `PFID` file id | MD21 carrying `PFID`, resolved by id in CASC mode or by sibling path otherwise | `Model::physics`, id kept in `Model::physicsFileId` |
+| `PFDC` chunk | MD21 carrying the payload inline | `Model::physics` |
+
+The writer puts it back the way it came: a model with `physicsFileId` set emits `PFID` and a separate
+`.phys`, one without emits `PFDC` (MD21) or a `.phys` sibling (MD20).
+
+### 17.13 Where the field names come from
+
+The 6.0.1 macOS client ships with unstripped C++ symbols for the whole physics path, which is what fixes
+the names above rather than guessing them from value distributions. The relevant entry points:
+
+| Symbol | What it settles |
+|---|---|
+| `PhysData::Load` | the chunk table: which tag feeds which array, and each stride (`BOXS`/60, `CAPS`/28, `SPHS`/16, `SHAP`/20, `BODY`/28, `SPHJ`/28, `SHOJ`/108, `WELJ`/104, `JOIN`/16) |
+| `Physics::LegacyLoadPhysData` | the `type` inversion, the frame → `dmTransform` conversion, and the field order within every version-0 record |
+| `CPhysicsBodyDef` / `CPhysicsShapeDef` / `CPhysics*JointDef` setters | the individual field names |
+| `CPhysicsBodyDef::CreateInstance` | `position` is an offset from the animated bone position |
+| `CPhysicsShapeDef::InitDMFixtureDef` | friction/restitution/density mapping and the per-instance collision filter |
+| `dmPolytope::FindEdge` / `GetSupportFace` | the four bytes of a `PLYT` half-edge |
+| `dmBodyDef`, `dmFixtureDef`, `dmPolytope`, `dmFilter` | the candidate names for fields no 6.0.1 code path reads |
+
+6.0.1 only accepts `PHYS` version 0 (`PhysData::Load` bails unless the version word is zero), so everything
+version 2 and later — `PLYT`, the `BDY3` tuning floats, the `SHP2` tail, the motor parameters, `PHYT` and
+`PHYV` — is named from the Domino structures plus corpus evidence, not from a symbol the loader reads.
+Sections above say which is which.
 
 ---
 
@@ -2213,7 +2534,7 @@ writer.write("path/to/output.m2", fs);
 
 Chunks are written back-to-back with no inter-chunk alignment padding. Each chunk writes: tag (4B) → size placeholder (4B) → payload → seek back to patch actual size → return to end.
 
-**PFDC**: Written directly as raw bytes, bypassing the structured writer visitor.
+**PFDC**: Serialized from `PhysicsData` by `m2::writePhysics()`, then zero-padded to a 16-byte multiple.
 
 ### 19.3 API Surface
 
@@ -2230,7 +2551,8 @@ Chunks are written back-to-back with no inter-chunk alignment padding. Each chun
 | `include/whiteout/m2/structures/skeleton.h` | Skeleton chunks |
 | `include/whiteout/m2/structures/bone.h` | Bone file structures |
 | `include/whiteout/m2/structures/anim.h` | Animation file structures |
-| `include/whiteout/m2/structures/phys.h` | Physics structures |
+| `include/whiteout/m2/structures/phys.h` | Physics structures (`PhysicsData` and its records) |
+| `include/whiteout/m2/phys_file.h` | `parsePhysics()` / `writePhysics()` for standalone `.phys` |
 | `include/whiteout/m2/parser.h` | Parser class |
 | `include/whiteout/m2/writer.h` | Writer class |
 
@@ -2282,13 +2604,11 @@ writer.write("output/scorpion.m2", model);
 
 | Area | Status |
 |---|---|
-| PFDC chunk | Stored and round-tripped as raw bytes; no structured parse |
-| PFDC/PLYT parsing | `phys.h` PLYTEntry layout is wrong: file uses headers-then-data, not interleaved |
 | AFRA chunk | Stored as raw `vector<u8>` |
 | Pre-WotLK skins | Inline skin profiles not implemented (skins must be external `.skin` files) |
 | Pre-WotLK tracks | Single-timeline animation blocks (with `interpolation_ranges`) not implemented |
-| Bone/anim file writing | `Writer::write(path, model)` does not emit `.bone` or `.anim` files; only base, skins, skeleton |
-| Physics structured parse | `phys.h` defines all structures but the PFDC chunk does not use them |
+| Anim file writing | `Writer::write(path, model)` emits base, skins, skeleton, `.phys` and `.bone`; `.anim` siblings only when the model splits them |
+| PHYS chunks not in the corpus | `BOXS`, `SPHJ`, `DSTJ` and `PRSJ` are implemented from the wiki but unverified; so is version 2, of which no file was found |
 | Vanilla rotation format | Full `C4Quaternion` (16-byte) bone rotation (pre-BC) not separately handled |
 
 ---
@@ -2364,28 +2684,39 @@ This specification was validated against a corpus of **9059 M2 files** and **144
 
 ### 20.4 PHYS Corpus Validation
 
-Validated against **35 standalone `.phys` files** and **19 inline PFDC chunks** from M2 files (54 total).
-Analysis scripts: `scripts/m2_phys_analysis.py`, `scripts/m2_phys_deep_analysis.py`.
+Validated against **96 standalone `.phys` files** and **219 inline PFDC chunks** (315 payloads) from
+`Corpus/WoW`. The check is `tests/m2_phys_test.cpp`: parse, write, compare bytes.
 
 | Statistic | Value |
 |---|---|
-| Standalone `.phys` files | 35 (v4: 24, v5: 11) |
-| Inline PFDC chunks | 19 (all v6) |
+| Standalone `.phys` files | 96 (v0: 1, v1: 2, v3: 2, v4: 29, v5: 62) |
+| Inline PFDC chunks | 219 (all v6) |
 | Parse errors | 0 |
-| Size accounting errors | 0 (all bytes accounted for) |
-| Unknown chunks | 0 (null sentinels are end-of-data markers) |
-| Total bodies | 429 (all BDY4) |
-| Total shapes | 426 (all SHP2: 131 capsule, 295 polytope) |
-| Total joints | 349 (252 shoulder, 35 weld, 62 revolute) |
-| Total PLYT entries | 295 (all 8-vertex, 6-face, 24-node) |
+| Unknown chunks | 0 |
+| Byte-exact round-trips | 315 / 315 |
+| PLYT entries | 875 |
+| Polytope half-edges checked | 24712, against five structural invariants each |
 
 **Key PHYS findings**:
-- **PLYT layout corrected**: headers-then-data format with u32 count prefix (not interleaved)
-- **PLYT data includes Vector4f face planes** (not u8 arrays as previously assumed)
-- **BDY4 field names identified**: `unk0` → `mass`, `unk1` → `angularDamping`, `unk_28` → `linearDamping`
-- **SHP2 `unk_1e`** is uninitialized padding (ASCII garbage in v4, zeroed in v5+)
-- **Joint version correlation**: v4–5 use SHOJ/WLJ2/REVJ; v6 uses SHJ2/WLJ3/REV2
-- **PFDC null sentinel**: 9 of 19 v6 PFDC chunks end with 8 zero bytes
+- **PLYT layout**: headers-then-data with a `u32` count prefix, and within a payload the order is
+  vertices → face planes (`Vector4f`) → one byte per face → half-edges. The edge block being last is what
+  makes every `twinOffset` ±1 and every index land in range; any other split scatters them.
+- **PLYT is a half-edge mesh, not a BSP tree.** `twinOffset`/`originVertex`/`faceIndex`/`nextEdge` all hold
+  across 24712 of 24712 edges and 6031 of 6031 face cycles — see §17.8.
+- **The `u32`s beside each PLYT count are struct padding**, not version-specific metadata: they hold
+  uninitialised heap bytes, sometimes fragments of unrelated ASCII strings. Same for the sixth float of the
+  header tail, which is an integer-valued denormal rather than a float.
+- **Body damping is kinematic-gated**: `linearDamping` and `angularDamping` are 0 on 1196 and 1173 of the
+  1213 kinematic bodies and freely tuned on dynamic ones, which is what identifies them against
+  `dmBodyDef`.
+- **Version 6 chunk names**: `SHJ2` (0x7C), `WLJ3` (0x74), `REV2` (0x78) and `PRS2` (0x80) occur only at
+  version 6, and `SHOJ`/`WLJ2`/`REVJ` only at 3–5. This is what the wiki leaves as `#if version >= ??`.
+- **PFDC padding is 16-byte alignment**, not a fixed 6 bytes or an 8-byte null sentinel: observed pad
+  lengths run 1–14 bytes and always bring the payload to a 16-byte multiple.
+- **SHP2 `unk_1e`** is uninitialized padding (ASCII garbage in v4, zeroed in v5+), so it is preserved
+  verbatim rather than normalized.
+- **All PLYT runtime pointer fields are zero on disk** (875/875 entries × 4 fields); the client fills them
+  in after load, so they are not stored in `PolytopeShape`.
 
 ---
 

@@ -374,7 +374,7 @@ struct MODL {
         Ref<LFLR>   lensFlareMaterials;
     }
     if (version >= 30) {
-        Ref<MADD>   materialAddData;
+        Ref<MADD>   dataDrivenMaterials;
     }
 
     // ─── Effects ───────────────────────────────────────────
@@ -1074,7 +1074,7 @@ struct MATM {
 | 9 | Splat Terrain Bake | STBM |
 | 10 | Reflection | REF_ |
 | 11 | Lens Flare | LFLR |
-| 12 | Buffer Material | MADD |
+| 12 | Data-Driven Material | MADD |
 
 ### 11.2 MAT_ — Standard Material
 
@@ -1592,57 +1592,269 @@ struct SubFlare {
 > present. Mode 0 (no mask): uses only the `flareMap` atlas. Mode 1 (with mask):
 > multiplies the atlas color by a "dirty lens" mask texture.
 
-### 11.13 MADD — Buffer Material
+### 11.13 MADD — Data-Driven Material
 
 **Tag**: `MADD` | **Versions**: v1=140, v2=152, v3=160 bytes
 
-> ⚠️ **Disclaimer**: The field names and descriptions in this section are largely
-> educated guesses and AI-generated inferences — they have **not** been validated
-> against Blizzard tooling or reverse-engineered behavioural data.  The binary
-> **layout** (chunk sizes, version branching, reference counts and field widths) is
-> accurate as parsed from the corpus; only the semantic interpretation of the
-> individual fields is speculative.
+The engine's own name for this chunk is **`SDataDrivenMaterialData`**, taken from
+the chunk registration table in the Heroes client (`Heroes.decrypted`, macOS
+x86-64), which registers it as `(tag='DDAM', size=0xA0, version=3)`.
 
-Buffer material referenced via MATM materialType=12.  Also stored in
-MODL.materialAddData (v30+).
+It is not "additional" data. At load the Heroes renderer converts every
+`StandardMaterial` (MATM type 1), `DisplacementMaterial` (2) and
+`ReflectionMaterial` (10) in a model into one of these and rewrites the MATM
+entry to type 12, so this is the only material representation the renderer
+consumes. See §11.15.
 
 **Version layout**:
-- **v1** (140 bytes): 8 references (4 active + 4 reserved) + data fields at offset 96
-- **v2** (152 bytes): 9 references (+extraHash at offset 24) + data at offset 108
-- **v3** (160 bytes): Same as v2 + 2 appended u32 fields
+- **v1** (140 bytes): 4 references + 48 reserved bytes + 11 scalars
+- **v2** (152 bytes): +`extraHashes` at offset 24
+- **v3** (160 bytes): +2 appended u32 fields
 
 ```cpp
 struct MADD {
-    // Active references
-    Ref<CHAR>   keyName;
-    Ref<U32_>   keyHash;
+    Ref<CHAR>   materialName;       // 0
+    Ref<U32_>   fragmentHashes;     // 12  crc32 of each shader fragment name, in link order
     if (version >= 2) {
-        Ref<U32_>   extraHash;
+        Ref<U32_> extraHashes;      // 24
     }
-    Ref<CHAR>   valuePath;
-    Ref<SCHR>   valueData;
+    Ref<CHAR>   propertyBlob;       // 36  binary; the dictionary below
+    Ref<SCHR>   texturePaths;       // 48  array of Ref<CHAR>; indexed by the Tex* properties
 
-    // Reserved references (always null)
-    Ref<?>      reserved[4];
+    u8          reserved[48];       // zero in all 2582 corpus records, every version
 
-    // Data fields (offsets shown for v2/v3; subtract 12 for v1)
-    f32         frequency;      // Playback rate (default 1.0)
-    f32         intensity;      // Effect intensity (default 1.0)
-    f32         holdTime;       // Hold duration (usually 0.0)
-    u32         randomHash;     // Procedural hash/seed
-    u32         animationType;  // Playback type (0–7)
-    u32         padding0;       // Always 0
-    i32         loopCount;      // Repetitions (0=default, -1=infinite)
-    u32         flags;          // Control flags
-    u32         subType;        // Enum (0–4)
-    u32         configA;        // Packed configuration
-    u32         configB;        // Packed configuration
+    f32         unknown108;         // 1.0 / 1.5 / 2.0
+    f32         unknown112;         // 1.0 in every known record
+    f32         unknown116;
+    u32         effectNameHash;     // crc32 of the shader permutation name; 0 = compute at load
+    u32         unknown124;
+    u32         padding128;         // always 0
+    i32         unknown132;
+    u32         unknown136;         // packed bit field
+    u32         unknown140;
+    u32         unknown144;
+    u8          unknown148;
+    u8          alphaFresnelFlags;  // derived cache the loader recomputes
+    u8          shaderType;         // 0 Material, 1 Medium, 2 Simple, 3 Particle, 4 Splat
+    u8          unknown151;
     if (version >= 3) {
-        u32     extraId0;       // Optional hash/id
-        u32     extraId1;       // Optional hash/id
+        u32     effectNameHash2;    // 0xFFFFFFFF = none
+        u32     effectNameHash3;    // 0xFFFFFFFF = none
     }
 };
 ```
+
+The engine's per-record fixup resolves exactly **five** references — at 0, 12,
+24, 36 and 48 — and never touches bytes 60–107. Earlier revisions of this
+document modelled those 48 bytes as four more `Reference`s; both readings sum to
+the same element size, but the loader treats only five as references.
+
+#### The property blob
+
+`propertyBlob` is a self-describing two-level dictionary keyed by **`zlib`
+CRC32** of unprefixed names (`crc32("Diffuse")`, `crc32("DiffuseUVTransform")`).
+All offsets are absolute within the blob and 64-bit.
+
+```
+Level 1 — fragment map
+    u32  count
+    u64  ofsKeys            always 20
+    u64  ofsGroupOffsets    always 20 + 4*count
+    u32  key[count]         crc32(<FragmentName>)
+    u64  groupOffset[count]
+
+Level 2 — one property group per key
+    u32  count              CAPACITY, not population
+    u64  ofsHashes          always groupOffset + 36
+    u64  ofsSizes           ofsHashes + 4*count
+    u64  ofsTypes           ofsSizes  + 2*count
+    u64  ofsValueOffsets    ofsTypes  + count
+    u32  hash[count]        crc32(<PropertyName>)
+    u16  size[count]
+    u8   type[count]        1 == live slot
+    u64  valueOffset[count]
+```
+
+> ⚠️ **`count` is the array's capacity, not its population, and the writer never
+> clears the tail.** Stale slots carry plausible-looking hashes (really leftover
+> u16 index pairs), sizes like 29282, and value offsets near 2⁶³. **The live-slot
+> test is `type == 1`**, which holds for all 32,554 real slots corpus-wide and
+> nothing else. A live-typed slot whose `valueOffset + size` leaves the blob is
+> stale too and must be dropped individually — rejecting the whole record
+> discards 141 good ones.
+
+`fragmentHashes` duplicates the level-1 key list, in the same order.
+
+**Value shapes** by `size`:
+
+| size | shape |
+|------|-------|
+| 4 | scalar — `f32`, a `u32` enum, or a BGRA colour, depending on the property |
+| 8 | `Tex<X>`: `{u32 index into texturePaths, u32 texture source}` |
+| 12 | 3 floats (tri-planar offset / scale) |
+| 16 | 4 floats |
+| 20 | `<X>ChannelSelection`: `{u32 ColorChannelSelect, f32 multiply, f32 add, f32, u16 flags}` — the trailing field is a **u16**; the two bytes after it are uninitialised |
+| 32 | `<X>UVTransform`: `{f32 offsetU/V, tilingU/V, angleU/V/W, u32 flags}` |
+| 48 | `FresnelParams<X>`: `{u32 FresnelMode, f32 exponent, min, max, rotation, mask}` |
+
+`DataDrivenMaterial::decodeProperties()` returns this decoded, with names
+resolved against a table of 399 verified CRC32 → name pairs (387 of which were
+harvested from string literals in the Heroes client itself). Over the HotS
+corpus it names 34,981 of 35,026 properties.
+
+### 11.14 Runtime Material System (engine behaviour, informative)
+
+> This subsection documents how the StarCraft II engine *consumes* M3 materials at
+> render time. It is not part of the file format, but it explains how the type
+> arrays above are actually used. Reverse-engineered from the retail client
+> (`base71061`, macOS x86-64); function names are RE labels.
+
+**Model → runtime material objects.** At load, each per-type material array
+(`MAT_`/`DIS_`/`CMP_`/`TER_`/`VOL_`/`CREP`/`VON_`/`STBM`/`LFLR`) is instantiated
+into a concrete C++ material object deriving from a common **`CBaseMaterial`**
+(RTTI-confirmed classes: `CMaterial`, `CDisplacementMaterial`,
+`CCompositeMaterial`, `CCreepMaterial`, `CVolumeMaterialBase` →
+`CVolumeMaterialUniform`/`CVolumeMaterialNoisy`, `CSplatTerrainBakeMaterial`,
+`CReflectionMaterial`, `CLensFlareMaterial`, plus the aux `CCloakingMaterial`).
+The `MATM (materialType, materialIndex)` map is flattened into a **per-ref
+material-object list** (56-byte stride) indexed directly by a batch's
+`materialRefIndex`.
+
+**Dispatch is virtual, not a switch.** Rendering a mesh batch resolves its
+material object and calls the object's **`ApplyForDraw`** virtual — **vtable slot
+10 (offset `+0x50`)**. Each concrete class overrides that slot with its
+type-specific setup, and every override funnels into
+`CBaseMaterial::ApplyForDraw → Material_ResolveShaderStateForDraw`, which lazily
+resolves/compiles the VS+PS permutation via the shared shader pipeline (see the
+material→shader path: permutation-flag mask at `material+748` → resource-budget
+check → shader-pair cache/compile). Composite materials (`CMP_`) select an active
+sub-material and **re-dispatch** to *its* `ApplyForDraw`.
+
+**Draw call chain** (per mesh batch):
+
+```
+CModel::DrawMeshBatchMaterial            (CModel vtable slot 25, +0xC8)
+  → reads BAT_ materialRefIndex + region, uploads node transforms to shader scratch
+  → Model_DispatchMaterialByRef          (material = matList + 56*materialRefIndex)
+      → <Type>Material::ApplyForDraw      (vtable slot 10 / +0x50)   ← per-type setup
+          → CBaseMaterial::ApplyForDraw → Material_ResolveShaderStateForDraw
+              → ResolveMaterialShaderPermutation → GetOrCreateShaderPair (compile VS+PS)
+          → Material_UploadLayerUVTransform   (per-LAYR UV/rotation → shader scratch)
+          → CMaterial_BindStandardLayers      (binds the LAYR texture samplers)
+          → Material_BindShaderParamProvider  (resolves shader input registers)
+          → Material_CommitAndDraw            (commit constants + issue draw)
+```
+
+| MATM type | Class | `ApplyForDraw` configures |
+|-----------|-------|---------------------------|
+| 1 Standard | `CMaterial` | blend/pass flags from batch layer type; binds the 12 shader-used LAYR layers + standard param providers |
+| 2 Displacement | `CDisplacementMaterial` | displacement strength + normal layer |
+| 3 Composite | `CCompositeMaterial` | selects active sub-material, re-dispatches to it |
+| 5 Volume | `CVolumeMaterialUniform` | uniform-volume flags/layers |
+| 6 Volume Noise | `CVolumeMaterialNoisy` | 3 volume UV layers + noise setup |
+| 7 Creep | `CCreepMaterial` | creep LAYR/UV binds |
+| 9 Splat Terrain Bake | `CSplatTerrainBakeMaterial` | base permutation resolve only |
+| 10 Reflection | `CReflectionMaterial` | reflection layers |
+| 11 Lens Flare | `CLensFlareMaterial` | occlusion params |
+
+> **Terrain (type 4)** is *not* driven through `CModel::DrawMeshBatchMaterial`.
+> The `CTerrain3Material*` family (Solid/Ground/Cliff/Creep/HeightSample) lives in
+> a separate terrain-render subsystem (`CActorTerrain`/`CTerrain3`) with its own
+> splat draw loop; only its shader warmup (`terrain blender shader`, `Creep noise`)
+> shares the common pipeline.
+
+**Startup shader warmup.** All built-in engine materials —
+`Model`/`Cliff`/`Ribbon`/`Particle`/`Splat`/`Light` (M3 model set),
+`terrain blender shader`/`Creep noise`, and the UI/post-process materials — are
+precompiled across 5 quality levels by `PrecompileAllBuiltinMaterialShaders` so
+the per-draw path only hits the shader cache, never a stall.
+
+### 11.15 Data-Driven Material Pipeline (Heroes of the Storm, informative)
+
+> Heroes replaced the per-type virtual dispatch of §11.14 with a single
+> data-driven path. Reverse-engineered from `Heroes.decrypted` (macOS x86-64);
+> function names are RE labels. Not part of the file format.
+
+**Everything is converted at load.** A model-level pass walks the MATM table and
+rewrites the fixed-function materials into MADD records:
+
+| MATM type | chunk | stride | converter | result |
+|-----------|-------|--------|-----------|--------|
+| 1 Standard | `MAT_` | 340 | `sub_1027A2380` | MATM rewritten to `{12, newIndex}` |
+| 2 Displacement | `DIS_` | 68 | `sub_10279D220` | MATM rewritten to `{12, newIndex}` |
+| 10 Reflection | `REF_` | 160 | `sub_1027A0560` | type kept; `REF_[i]+156` links the record |
+| 3 Composite | `CMP_` | 28 | — | indirection, resolved first |
+| 12 Data-driven | `MADD` | 160 | — | already data-driven |
+
+Each converter also receives whether a particle system, ribbon, projector or
+composite material uses this material; those change which fragments are emitted
+(a projector adds `SplatPS`, for instance).
+
+**The fragment list is the shader permutation name.** To resolve a record to a
+compiled effect, the renderer seeds a CRC32 with the `shaderType` token and
+accumulates each fragment name in `fragmentHashes` order:
+
+```c
+u32 h = record.effectNameHash;
+if (h == 0 || h == 0xFFFFFFFF) {
+    h = crc32(0, shaderTypeToken(record.shaderType));   // "Material", "MaterialParticle", ...
+    for (i = 0; i < record.fragmentHashes.count; i++)
+        h = crc32(h, fragmentRegistry[record.fragmentHashes[i]].name);
+}
+record.effectIndex = lookup(effectRegistry, h);
+```
+
+Because `crc32(crc32(A), B) == crc32(A||B)`, the accumulated value is exactly
+`crc32("<ShaderType><fragment0><fragment1>…")`. The client's own registered
+permutation names decompose on that grammar, e.g.
+
+```
+Material         + AlphaMask + AlphaMask2 + AlphaTest                               + Halo
+MaterialParticle + AlphaMask + FresnelSetup + FresnelAlpha + AlphaTest              + ZFill
+```
+
+**Fragment order is fixed and part of the name.** Across the 1,903 corpus records
+that use only fixed-function fragments, the 67 fragments yield 891 ordered pairs
+with zero contradictions — no two records ever disagree on which of two fragments
+comes first. (Those pairs constrain only 40% of the possible orderings, so the
+data proves a consistent order exists without fully determining it.)
+
+**Two registries**, both built at runtime, 32-byte stride: a *fragment* registry
+keyed by `crc32(name)` and an *effect* registry keyed by `crc32(permutation
+name)`. On load the callback rewrites `fragmentHashes` **in place**, replacing
+each hash with its index in the fragment registry — so a live in-memory record
+holds indices where the file holds hashes.
+
+Records authored directly as data-driven (229 of 2,582 in the corpus) use
+fragments outside the fixed-function vocabulary, carry a pre-baked
+`effectNameHash`, and do not follow the fixed order.
+
+### 11.16 Shader-Graph Materials (Heroes of the Storm, informative)
+
+Not every MADD record was converted from a fixed-function material. 278 of the
+2,582 in the reference corpus were authored directly in the node editor, and use
+a separate fragment vocabulary — `Rail*`, `Surface*`, `GradientColorize` — in
+place of the layer fragments of §11.15. The two vocabularies are disjoint apart
+from pipeline fragments (`Fog`, `FOW`, `MaterialFinalize`, `FogAmount`,
+`SplatPS`, `SplatMaterialAttenuation`), so the presence of a `Rail*` or
+`Surface*` fragment is an exact test for one.
+
+**`extraHashes` is the node label array.** It runs parallel to the fragment
+list — one entry per node, holding `crc32` of the name the artist gave that node
+— and is `0` for pipeline fragments, which are not nodes. It is populated only
+for shader-graph records; every fixed-function record leaves it empty. Node names
+default to the node type, so `RailTex` and `RailLighting` appear as labels.
+
+The graph's *edges* are not stored. A record is a node list, not a graph, so the
+topology cannot be recovered from the file.
+
+`DataDrivenMaterial::approximateStandardMaterial()` produces a best-effort
+`StandardMaterial` for these anyway, assigning each sampled texture to a layer
+slot from the node type, the node label, and the texture filename, in that order.
+It forwards fixed-function records to `toStandardMaterial()` unchanged, and its
+result always carries an `approximated from a shader graph` entry in `lossy`.
+146 of the 278 approximate; the rest are procedural effects with no texture that
+denotes a surface role.
 
 ---
 
@@ -1962,6 +2174,13 @@ struct PAR {
 | 0x2000000 | UseLocalTime | Use local time |
 | 0x4000000 | SimulateInit | Simulate on initialization |
 | 0x8000000 | Copy | Copy emitter |
+| 0x10000000 | RequiresGpuSim † | Part of the `b_useProceduralPosition` trigger mask (`0x10480003`) — see *Shader Permutation Flags* below |
+| 0x40000000 | ShaderPerm30 † | Toggles a particle shader permutation flag in `SetupShaderFlags` (exact role TBD) |
+| 0x80000000 | ForceProceduralPosition † | Forces the GPU procedural-position path (`b_useProceduralPosition`) |
+
+† Bits ≥ `0x10000000` are consumed by the engine's `CParticleSystem::SetupShaderFlags`
+(reverse-engineered from SC2 build 71061) but are **not** part of the
+community-documented flag set — names above are provisional.
 
 **Additional Flags** (`additionalFlags` field, v17+):
 
@@ -1989,6 +2208,38 @@ struct PAR {
 | 2 | Bezier | Bezier curve interpolation |
 | 3 | LinearWithHold | Linear interpolation with hold at keyframes |
 | 4 | BezierWithHold | Bezier curve interpolation with hold at keyframes |
+
+**Shader Permutation Flags** (`Particle.fx` / `VSEmitters.fx`)
+
+Each emitter compiles a shader permutation. The engine's
+`CParticleSystem::SetupShaderFlags` (RE'd from SC2 base71061) derives these
+compile-time flags from `PAR_`; they select which `Particle.fx` code paths are
+compiled (validated against the SC2 shader source):
+
+| `PAR_` source | Shader permutation flag | Effect |
+|---|---|---|
+| `instanceType` | `b_iInstanceType` | Geometry path; values are the *Instance Type* enum (`PARTICLE_BILLBOARD`=0 … `PARTICLE_TRAIL`=10) |
+| `colorSmoothing` | `b_iParticleColorInterpolation` | Color keyframe interpolation (*Interpolation Mode* enum → `ITERPOLATION_*`) |
+| `sizeSmoothing` | `b_iParticleSizeInterpolation` | Size interpolation |
+| `rotationSmoothing` | `b_iParticleRotationInterpolation` | Rotation interpolation |
+| `additionalFlags & WorldSpace(0x8)` | `b_localSpace` (**inverted**) | When set, the VS multiplies particle position by the emitter world transform |
+| `flags & RandomFlipbookStart(0x10000)` | `b_randomFlipBookStart` | Randomizes the flipbook start cell |
+| `flags & ClampTailLength(0x40000)` and `instanceType != Pinned(9)` | `b_clampedTailLength` | Clamps tail length to the swept distance |
+| `flags & FixTailLengthOnCreation(0x100000)` | `b_fixedTailLength` | Fixed (creation-time) tail length vs. speed-scaled |
+| `flags & LitParts(0x8000)` | lit pixel-shader variant | Selects the lit shading path |
+| *emitter complexity* (below) | `b_useProceduralPosition` | VS runs `CalculatePositionAndVelocity` (GPU gravity/drag/velocity integration) instead of using CPU-computed positions |
+
+`b_useProceduralPosition` is enabled when the emitter needs runtime physics —
+`instanceType` ∈ {`TerrainOriented`(5), `TerrainDirOriented`(6)}, any bit of
+`flags & 0x10480003` (`Sort` | `CollideTerrain` | `SpawnTrailingParticles` |
+`ModelParticles` | `0x10000000`), nonzero force channels, or nonzero
+`windMultiplier` / `killRadius` / `noiseAmplitude` / `flags & 0x80000000`.
+
+Other particle shader flags not driven by a single `PAR_` bit:
+`b_useModelInstancing` (model-geometry particles), `b_iUVMapping[8]` /
+`b_UVRandomOffsetEnable[8]` / `b_iUVEmitterCount` (per-layer UV emission,
+incl. `UVMAP_PARTICLE_FLIPBOOK`=6), `b_splatTextureProjectorEnabled`,
+`b_enableVertexWarps`, `b_usePackedUVEmitter`.
 
 ### 12.2 PARC — Particle Emitter Copy
 
@@ -2224,6 +2475,38 @@ struct SplineRibbon {
     f32             velocityNormFactor;      // precomputed ≈ 0.01/velocity.initValue
 };
 ```
+
+**RIB_ v9 — runtime-verified byte offsets (informative).** Reverse-engineered
+from the retail client (`base71061`): the loader parses `RIB_` (v9) as a
+760-byte record and the runtime `CRibbon` stores the pointer at `CRibbon+616`
+(`pEmitterData`). The offsets below were confirmed against the loader
+(`M3_ResolveRefs_RIB`) and the `CRibbon` simulation code (IDA structs
+`SRibbonData` / `SplineRibbonData`). `AnimRef<f32>` = 20 B, `AnimRef<Vector3f>`
+= 36 B, `AnimRef<ColorBGRA>` = 20 B, `Ref` = 12 B.
+
+| Offset | Field | Used by CRibbon for |
+|--------|-------|---------------------|
+| 0x008 (8) | `additionalFlags` | `&8` = world-space (segment dragging / local-space force eval) |
+| 0x0B0–0x0B8 (176–184) | `gravityX/Y/gravity` | per-segment acceleration (Simulate_Type4) |
+| 0x160 (352) | `drag` | `dragCoeff = drag·dt` velocity damping |
+| 0x194 (404) | `ribbonType` | cross-section shape (0=Billboard,1=Planar,2=Cylinder,3=Star); loop gate |
+| 0x198 (408) | `divisions` | emission-rate density (segments/unit) |
+| 0x1A4 (420) | `maxLength` (AnimRef) | arc-length sample → segment re-spacing |
+| 0x1B8 (440) | `splineRibbons` (Ref&lt;SRIB&gt;) | spline-ribbon control data |
+| 0x1C4 (452) | `active` (AnimRef) | per-frame on/off emission gate (UpdateEmit) |
+| 0x1D8 (472) | `flags` | collide (0x02/0x04), yawFromSpeed (0x4000), inheritParentVelocity (0x10) |
+| 0x1DC/0x1E0 (476/480) | `sizeSmoothing`/`colorSmoothing` | batch-compatibility key |
+| 0x1EC/0x1F0 (492/496) | `lodReduce`/`lodCut` | quality/detail table indices |
+
+The `CRibbon` runtime object also **caches** several of these into its own
+fields at first use (e.g. the sampled emission rate and emit period), which is
+why the per-frame emit path reads `CRibbon+364`/`+924` rather than re-reading
+`RIB_` every frame. The parsed `RIB_` pointer lives at `CRibbon+616`
+(`pEmitterData`), and the resolved **`SRIB` (spline-ribbon) data pointer lives at
+`CRibbon+624`** (`splineData`) — the spline simulation path reads its `yawType`
+(+92), `pitchType` (+136), `velocityType` (+180) and the precomputed
+`emissionVectorNormFactor` (+264) / `velocityNormFactor` (+268) directly from
+that `SplineRibbonData` record.
 
 ### 12.4 PROJ — Projector
 
@@ -2470,15 +2753,25 @@ struct PHSH {
     }
 
     if (version == 2) {
-        // v2 mesh section
+        // v2 mesh section (entry ends at 292 bytes, not 300)
         Ref<DMMN>   meshBvhNodes;
         Ref<VEC3>   meshVertexPositions;// VEC3, not VEC4
         Ref<DMMT>   unknown;            // Physics mesh triangles
         Ref<DMME>   unknown2;           // Physics mesh edges
+        // 6-dword v2 tail, mapped per the SC2 client's version-upgrade
+        // copier (M3_ProcessChunks): the vertex/face counts land in the v3
+        // count slots (faces in the 32-bit slot), tree depth keeps its
+        // meaning, and the client never reads the three unknown dwords.
+        u32         tailUnknown0;
+        u32         meshVertexCount;
+        u32         meshFaceCount;      // → v3 meshFaceIndex32Count on upgrade
+        u32         tailUnknown1;
+        u32         tailUnknown2;
+        u32         meshTreeDepth;
     }
 
-    if (version >= 2) {
-        // Common mesh counters
+    if (version >= 3) {
+        // v3 mesh counters
         u32         meshNormalCount;    // DMMN entry count (= 2 * n_leaves - 1, always odd)
         u32         meshVertexCount;
         u32         meshFaceIndex16Count;// MT16 face count (0 when MT32 used)
@@ -2596,6 +2889,91 @@ struct PHAC {
     Ref<U32_>   proxyWeights;
 };
 ```
+
+### 13.6 Runtime Physics System (engine behaviour, informative)
+
+> How the engine *simulates* M3 physics. Reverse-engineered from the retail
+> client (`base71061`); function names are RE labels. The physics engine is
+> **Domino** — Blizzard's in-house Box2D/Box3D-lineage impulse solver (class
+> prefix `dm`), **not Havok** (fully replaced). Domino supports both rigid
+> bodies and soft bodies (`dmCloth`).
+
+**Chunk → Domino object mapping.** At load, a model's physics chunks are
+instantiated into Domino objects by `CModelPhysics_Build`:
+
+| M3 chunk | Domino object | Notes |
+|----------|---------------|-------|
+| `PHRB` rigid body | `dmBody` + fixtures | one body per PHRB, bound to its bone |
+| `PHSH` shape (`shapeType`) | `dmShape` subclass | 0=box / 3=cylinder / 4=hull → `dmPolytope`; 1=sphere → `dmSphere`; 2=capsule → `dmCapsule`; 5=mesh → `dmTreeMesh` (BVH) |
+| `PHYJ` joint (`jointType`) | `dmJoint` | 0=spherical, 1=revolute, 2=shoulder/cone-twist, 3=weld |
+| `PHCL` / `PHCC` / `PHAC` | `dmCloth` + collider capsules/spheres + anchors | mass-spring / position-based-dynamics cloth |
+
+Each rigid body's fixture carries a collision filter (category/mask/group)
+derived from the PHRB flags and the body's dynamic/kinematic/static type.
+
+**Lifecycle.**
+1. **Build** — `CModel_EnsurePhysics` → `Model_CreatePhysicsInstance` →
+   `CModelPhysics_Build` iterates `rigidBodies` (PHRB), `physicsJoints` (PHYJ),
+   and `clothPhysics` (PHCL). A `dmWorld` is shared per scene
+   (`CModelPhysicsScene_EnsureWorld`).
+2. **Per-frame sync** — `CModelPhysicsWorld_Update` runs, per instance:
+   pre-step sync (animated/kinematic bones → `dmBody`), `dmWorld::Step` × N
+   substeps, then **`CModelPhysics_PostStepSyncToBones`** — the ragdoll step:
+   it reads each dynamic `dmBody`'s position + orientation and writes the
+   simulated world transform straight into the M3 **bone/node matrix**, so the
+   animated skeleton is driven by the physics solve. Environment forces
+   (wind/fluid/force volumes) are applied via `dmBody::ApplyForce`, and cloth
+   colliders follow the bones.
+3. **Teardown** — `Model_DestroyPhysicsInstance` → `CModelPhysics_DestroyAll`
+   destroys all joints, bodies, and cloth.
+
+A per-bone state machine (`M3Physics_UpdateBodyDrivenState`) chooses, from the
+PHRB flags and an animated blend value, whether each bone is **dynamic**
+(physics drives the bone) or **kinematic** (animation drives the body),
+switching the `dmBody` type accordingly — this is how a unit blends from
+animation into a ragdoll on death. The gameplay impact/damage layer
+(`CActorMsgPhysicsImpact`, `CActorTermPhysicsImpact*`) applies impulses to these
+bodies.
+
+#### 13.6.1 Cloth solver (`dmCloth`, informative)
+
+`PHCL`/`PHCC`/`PHAC` are instantiated into a **`dmCloth`** object — a
+**Position-Based Dynamics** (PBD) solver, not a rigid body. `CModelPhysics_Build`
+gathers the authored cloth data (particles, triangles, colliders, anchors) plus
+the scene gravity into an `SPhysicsClothData` block and hands it to
+`dmCloth_Create`, which allocates one arena and precomputes per-particle weights
+(`dmCloth_InitParticleParams`): inverse mass scaled by `dt²`, constraint rest
+lengths, and a `powf`-curve **tether** look-up table.
+
+The solver stores, per particle, a current position, previous position, velocity,
+inverse mass, a **pin bit** (kinematic particles the solver never moves), and a
+render normal/tangent frame. Particles `[0, firstDynamicParticle)` are pinned and
+driven directly by the model's world transform; the rest are simulated.
+
+The cloth mesh drives three constraint families, all built from the triangle list
+by `dmCloth_BuildTriangles` (dedup edges → distance constraints from edges → bend
+constraints from adjacent-triangle pairs → island reorder):
+
+| Constraint | Endpoints | Enforces |
+|------------|-----------|----------|
+| **Distance** | 2 | edge rest length (structural stretch/shear) |
+| **Bend** | 4 (two triangles) | rest **dihedral angle** between adjacent faces |
+| **Tether** | 1 + anchor | maximum distance from an anchor (long-range attachment) |
+
+`dmCloth_Step` runs each frame in stages: **(1)** refresh world transforms →
+**(2)** `dmCloth_PreSolve` predictor (pinned particles snap to anchor/tether
+targets through the world SQT; dynamic particles integrate gravity + the inertia
+from the previous→current transform delta + velocity damping) → **(3)**
+`dmCloth_SolveConstraints` PBD projection sweeps (distance → bend → distance) →
+**(4)** `dmCloth_SolveTethersAndAttachments` (clamp tether distances, apply hard
+attachments) → **(5)** `dmCloth_ApplyAerodynamics` (per-triangle wind + drag) →
+**(6)** `dmCloth_CollideCapsulesAndSpheres` (project particles out of the collider
+and world-space capsules/spheres with friction, AABB-broadphased) → **(7)**
+`dmCloth_ApplyRestPose` (blend toward the rest curvature) → **(8)** derive each
+particle's velocity from `(current − previous) / dt`. A separate
+`dmCloth_UpdateParticleNormals` rebuilds the render normal/tangent frame from the
+triangle face normals. The mesh can also be queried (`dmCloth_SweptSphereQuery`)
+and kicked by explosions (`dmCloth_ApplyRadialImpulse`).
 
 ---
 
@@ -3729,7 +4107,7 @@ Lens flares only appear in Sc2M3 (481) and HotSM3 (16). Each LFLR references
 LFSB sub-flare entries (700 LFSB chunks total). The 16 HotSM3 specimens are all
 v3 and exclusively light/glow effects.
 
-#### D.4.15 MADD — Material Additional Data (686 files, HotS only)
+#### D.4.15 MADD — Data-Driven Material (686 files, HotS only)
 
 MADD is **exclusively a HotS feature** — not a single SC2 or Beta file contains it.
 All 686 files are MODL v30.
@@ -3839,7 +4217,7 @@ Files exercising the most simultaneous rare features (7+ rare chunk types):
 
 These files are the best comprehensive test cases for parser implementors as they
 exercise cloth physics (PHCL+PHAC+PHCC), rigid body joints (PHYJ), turret
-behaviors (PATU), trigger data (TRGD), and material add data (MADD) simultaneously.
+behaviors (PATU), trigger data (TRGD), and data-driven materials (MADD) simultaneously.
 
 Files with the most unique chunk tags overall (any tag, not just rare):
 
@@ -3898,7 +4276,7 @@ rarity tiers:
 | PARC | 537 | SC2 particle copy data |
 | DMMN | 561 | k-DOP BVH tree nodes for PHSH mesh collision (v0: Vector3f normal, v1: octahedral + slab bounds); see §14.9b |
 | TER_ | 656 | Terrain objects |
-| MADD | 686 | Material add data (HotS only) |
+| MADD | 686 | Data-driven material (HotS only) |
 | LFSB | 700 | Lens flare sub-elements |
 | PATU | 1,024 | Turret behaviors |
 | TRGD | 1,046 | Trigger data |
