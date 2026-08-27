@@ -3,6 +3,8 @@
 
 #include "ow_root.h"
 
+#include "ow_manifest_crypto.h"
+
 #include "../../common/byte_order.h"
 #include "../../common/string_utils.h"
 
@@ -381,6 +383,30 @@ static bool parseCmfBody(std::span<const u8> body, const CmfHeader& header,
     return true;
 }
 
+/// Decrypt an encrypted CMF in place and rewrite its magic to the plaintext
+/// form, so everything downstream sees an ordinary manifest.
+///
+/// @param fileName Manifest name exactly as the root lists it; the IV is keyed
+///                 on it, and Overwatch hashes the bare file name.
+static bool decryptCmfInPlace(std::vector<u8>& data, CmfHeader& header, std::string_view fileName) {
+    size_t const headerSize = cmfHeaderSize(header.buildVersion);
+    if (data.size() <= headerSize)
+        return false;
+
+    auto const slash = fileName.find_last_of("\\/");
+    auto const leaf = (slash == std::string_view::npos) ? fileName : fileName.substr(slash + 1);
+
+    ow::CmfCryptoHeader const crypto{header.buildVersion, header.dataCount, header.entryCount,
+                                     ow::cmfNonEncryptedMagic(header.magic)};
+    if (!ow::decryptCmfBody(std::span<u8>(data).subspan(headerSize), crypto, leaf))
+        return false;
+
+    header.magic = crypto.nonEncryptedMagic;
+    header.encrypted = false;
+    storages::common::writeLE32(data.data() + headerSize - 4, header.magic);
+    return true;
+}
+
 /// Parse a complete (unencrypted) CMF file and append entries.
 static bool parseCmf(std::span<const u8> data, const std::string& pathPrefix,
                      std::vector<RootEntry>& outEntries) {
@@ -388,8 +414,9 @@ static bool parseCmf(std::span<const u8> data, const std::string& pathPrefix,
     if (!parseCmfHeader(data, header))
         return false;
 
-    // Encrypted CMFs need an AES key derived by a per-build generator; we have
-    // none, so the manifest is skipped rather than taking the whole root down.
+    // Callers decrypt before getting here; an encrypted manifest at this point
+    // is one no provider covered, and is skipped rather than taking the whole
+    // root down.
     if (header.encrypted)
         return false;
 
@@ -485,7 +512,9 @@ std::unique_ptr<OwRoot> OwRoot::fromManifestEntries(std::vector<OwRootFileEntry>
                 continue;
 
             CmfHeader header;
-            if (!parseCmfHeader(cmfData, header) || header.encrypted || header.dataCount < 0)
+            if (!parseCmfHeader(cmfData, header) || header.dataCount < 0)
+                continue;
+            if (header.encrypted && !decryptCmfInPlace(cmfData, header, mf.fileName))
                 continue;
             assetCount += size_t(header.dataCount);
 

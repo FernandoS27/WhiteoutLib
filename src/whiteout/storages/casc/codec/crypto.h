@@ -80,4 +80,14 @@ void salsa20Decrypt(std::span<u8> data, std::span<const u8, 16> key, std::span<c
 /// ARC4 (RC4) decrypt/encrypt (symmetric). Operates in-place.
 void arc4Transform(std::span<u8> data, std::span<const u8> key);
 
+// ============================================================================
+// AES-256-CBC
+// ============================================================================
+
+/// AES-256-CBC decrypt, in place. Whole blocks only — a trailing partial block
+/// is left untouched, because Overwatch's manifest decrypter hands over the raw
+/// body and keeps only the records the header promises rather than trusting a
+/// padding byte.
+void aes256CbcDecrypt(std::span<u8> data, std::span<const u8, 32> key, std::span<const u8, 16> iv);
+
 } // namespace whiteout::storages::casc

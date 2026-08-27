@@ -43,6 +43,52 @@ SOFTWARE.
 
 ---
 
+## TACTLib
+
+The Overwatch manifest key and IV generators in
+`src/whiteout/storages/casc/roots/ow_manifest_providers.cpp` are derived from
+TACTLib. Blizzard regenerates the schedule and its 512-byte table for every
+game build, so TACTLib carries one C# class per build; that file is a
+mechanical translation of them produced by `tools/ow_provider_transpile.py`,
+and it is checked against the originals' own output by
+`tests/casc_ow_provider_test.cpp`. TACTLib is neither a build-time nor a
+runtime dependency; only its provider sources are read, during generation.
+
+- **Repository:** <https://github.com/overtools/TACTLib>
+- **Author:** overtools
+- **License:** MIT
+- **Generated from:** commit `a34e4e559e4e575e9f50369d3a26939d8e7b8ab7`
+- **Providers translated:** 176 `ProCMF_*` (builds 52717 to 152736) and 138
+  `ProTRG_*` (builds 68780 to 152736)
+
+### License Text
+
+```
+MIT License
+
+Copyright (c) 2020 overtools
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+---
+
 ## d4data
 
 The Diablo IV SNO type definitions (`src/whiteout/sno/d4/sno_defs.cpp` and
@@ -51,8 +97,14 @@ The Diablo IV SNO type definitions (`src/whiteout/sno/d4/sno_defs.cpp` and
 d4data project. d4data is not a build-time or runtime dependency; only its
 data files are used during code generation.
 
-- **Repository:** <https://github.com/blizzhackers/d4data>
+- **Repository:** <https://github.com/DiabloTools/d4data> (maintained fork of
+  <https://github.com/blizzhackers/d4data>)
 - **License:** MIT
+- **Generated from:** `definitions.json` for game build `3.1.3.73224`
+
+`data/d4_legacy_format_hashes.json` additionally carries root format hashes
+from earlier game builds; it is derived from previous generations of the same
+upstream data.
 
 ### License Text
 

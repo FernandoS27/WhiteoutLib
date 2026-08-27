@@ -4,13 +4,16 @@
 /// casc_crypto_test: Validates Salsa20, ARC4, and KeyRing implementations.
 
 #include "../src/whiteout/storages/casc/codec/crypto.h"
+#include "../src/whiteout/storages/common/sha1.h"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace whiteout;
@@ -168,9 +171,8 @@ TEST_CASE("KeyRing hex import", "[casc][crypto]") {
 
 TEST_CASE("KeyRing importFromString", "[casc][crypto]") {
     KeyRing ring;
-    std::string keyList =
-        "12345678ABCDEF00 0102030405060708090A0B0C0D0E0F10\n"
-        "AABBCCDD11223344 A0B0C0D0E0F0A1B1C1D1E1F1A2B2C2D2\n";
+    std::string keyList = "12345678ABCDEF00 0102030405060708090A0B0C0D0E0F10\n"
+                          "AABBCCDD11223344 A0B0C0D0E0F0A1B1C1D1E1F1A2B2C2D2\n";
     REQUIRE(ring.importFromString(keyList));
 
     const auto* k1 = ring.findKey(0x12345678ABCDEF00ULL);
@@ -182,4 +184,99 @@ TEST_CASE("KeyRing importFromString", "[casc][crypto]") {
     std::array<u8, 16> expected2 = {0xA0, 0xB0, 0xC0, 0xD0, 0xE0, 0xF0, 0xA1, 0xB1,
                                     0xC1, 0xD1, 0xE1, 0xF1, 0xA2, 0xB2, 0xC2, 0xD2};
     CHECK(*k2 == expected2);
+}
+
+// ============================================================================
+// SHA-1 Tests
+// ============================================================================
+
+static std::string hex(std::span<const u8> data) {
+    static const char* d = "0123456789abcdef";
+    std::string s;
+    for (u8 b : data) {
+        s += d[b >> 4];
+        s += d[b & 0xF];
+    }
+    return s;
+}
+
+static std::span<const u8> asBytes(const std::string& s) {
+    return {reinterpret_cast<const u8*>(s.data()), s.size()};
+}
+
+// FIPS 180-1 appendix A/B/C.
+TEST_CASE("SHA-1 matches the published vectors", "[casc][crypto]") {
+    using namespace whiteout::storages::common;
+
+    CHECK(hex(sha1Hash(asBytes(std::string("")))) == "da39a3ee5e6b4b0d3255bfef95601890afd80709");
+    CHECK(hex(sha1Hash(asBytes(std::string("abc")))) == "a9993e364706816aba3e25717850c26c9cd0d89d");
+    CHECK(hex(sha1Hash(
+              asBytes(std::string("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")))) ==
+          "84983e441c3bd26ebaae4aa1f95129e5e54670f1");
+    CHECK(hex(sha1Hash(asBytes(std::string(1000000, 'a')))) ==
+          "34aa973cd4c4daa4f61eeb2bdbad27316534016f");
+}
+
+// A digest fed in uneven pieces must match the one-shot digest, which is what
+// the 64-byte block buffering is there to guarantee.
+TEST_CASE("SHA-1 incremental update matches one-shot", "[casc][crypto]") {
+    using namespace whiteout::storages::common;
+
+    std::vector<u8> data(1000);
+    for (size_t i = 0; i < data.size(); ++i)
+        data[i] = u8(i * 7 + 3);
+
+    SHA1 h;
+    for (size_t off = 0, step = 1; off < data.size(); off += step, step = step % 97 + 1)
+        h.update(data.data() + off, std::min(step, data.size() - off));
+
+    CHECK(hex(h.finalize()) == hex(sha1Hash(data)));
+}
+
+// ============================================================================
+// AES-256-CBC Tests
+// ============================================================================
+
+static std::vector<u8> unhex(std::string_view s) {
+    auto nib = [](char c) { return u8(c <= '9' ? c - '0' : (c | 0x20) - 'a' + 10); };
+    std::vector<u8> out;
+    for (size_t i = 0; i + 1 < s.size(); i += 2)
+        out.push_back(u8((nib(s[i]) << 4) | nib(s[i + 1])));
+    return out;
+}
+
+// NIST SP 800-38A, F.2.6 CBC-AES256.Decrypt.
+TEST_CASE("AES-256-CBC matches the NIST vector", "[casc][crypto]") {
+    auto const key = unhex("603deb1015ca71be2b73aef0857d7781"
+                           "1f352c073b6108d72d9810a30914dff4");
+    auto const iv = unhex("000102030405060708090a0b0c0d0e0f");
+    auto data = unhex("f58c4c04d6e5f1ba779eabfb5f7bfbd6"
+                      "9cfc4e967edb808d679f777bc6702c7d"
+                      "39f23369a9d9bacfa530e26304231461"
+                      "b2eb05e2c39be9fcda6c19078c6a9d1b");
+
+    aes256CbcDecrypt(data, std::span<const u8, 32>(key), std::span<const u8, 16>(iv));
+
+    CHECK(hex(data) == "6bc1bee22e409f96e93d7e117393172a"
+                       "ae2d8a571e03ac9c9eb76fac45af8e51"
+                       "30c81c46a35ce411e5fbc1191a0a52ef"
+                       "f69f2445df4f9b17ad2b417be66c3710");
+}
+
+// The manifest decrypter hands over whatever whole blocks the body contains and
+// keeps only the records it expects, so a trailing partial block must be left
+// alone rather than treated as padding.
+TEST_CASE("AES-256-CBC ignores a trailing partial block", "[casc][crypto]") {
+    auto const key = unhex("603deb1015ca71be2b73aef0857d7781"
+                           "1f352c073b6108d72d9810a30914dff4");
+    auto const iv = unhex("000102030405060708090a0b0c0d0e0f");
+    auto data = unhex("f58c4c04d6e5f1ba779eabfb5f7bfbd6"
+                      "9cfc4e967edb808d679f777bc6702c7d"
+                      "deadbeef");
+
+    aes256CbcDecrypt(data, std::span<const u8, 32>(key), std::span<const u8, 16>(iv));
+
+    CHECK(hex(data) == "6bc1bee22e409f96e93d7e117393172a"
+                       "ae2d8a571e03ac9c9eb76fac45af8e51"
+                       "deadbeef");
 }

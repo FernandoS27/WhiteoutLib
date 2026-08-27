@@ -905,9 +905,10 @@ TEST_CASE("OW root header layout follows the build version, not the magic",
     CHECK_FALSE(root->findByGuid(0x4242ULL).empty());
 }
 
-TEST_CASE("OW root skips encrypted CMFs without failing", "[casc][ow_root]") {
-    // Half of a current Overwatch install's manifests are AES-encrypted and we
-    // have no key generator for them. Dropping one must not cost the others.
+TEST_CASE("OW root skips CMFs it cannot decrypt", "[casc][ow_root]") {
+    // This one is flagged encrypted but its body is not, so no key schedule can
+    // make sense of it -- the entry-index check rejects it. Dropping one
+    // manifest must not cost the others.
     std::vector<std::pair<u64, std::array<u8, 16>>> cmfHashEntries = {
         {0x5555ULL, makeCKey(0xE0)},
     };
@@ -961,4 +962,78 @@ TEST_CASE("OW root handles truncated CMF data gracefully", "[casc][ow_root]") {
 
     // Only the manifest entry (CMF parsing failed gracefully).
     CHECK(root->entryCount() == 1);
+}
+
+// A real encrypted manifest, produced out of band by tools/ow_make_test_cmf.py
+// so the encryptor is not our own decryptor run backwards. Build 152736, keyed
+// on the manifest name below.
+// 160 bytes: 48-byte header + 112 encrypted (98 meaningful)
+// build 152736, name 'Win_SPWin_RDEV_LesMX_EXWin_RCN.cmf'
+// key 7dcb7dcb7dcb7dcb7dcb7dcb7dcb7dcb7dcb7dcb7dcb7dcb7dcb7dcb7dcb7dcb
+// iv  f0d671e9f0d671e9f0d671e9f0d671e9
+// clang-format off
+static const u8 kEncryptedCmf[] = {
+    0xA0, 0x54, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x1A, 0x66, 0x6D, 0x63,
+    0xCD, 0x20, 0xEA, 0x25, 0x2D, 0xF3, 0x92, 0x32, 0x15, 0x8B, 0x68, 0xA6,
+    0xCD, 0xFF, 0x37, 0x8D, 0x5A, 0x08, 0xFE, 0xBA, 0xB0, 0xF5, 0x78, 0x24,
+    0x5C, 0xCF, 0xE4, 0xFA, 0x74, 0x84, 0x87, 0x48, 0x39, 0x84, 0x16, 0xCE,
+    0xB9, 0xBC, 0xEC, 0x48, 0xBF, 0x58, 0xCE, 0x72, 0xAC, 0xCC, 0x69, 0x17,
+    0x63, 0x17, 0x11, 0xBE, 0xC6, 0x8C, 0xEF, 0x4B, 0x2E, 0x06, 0xAF, 0x58,
+    0x3D, 0x23, 0x6F, 0x66, 0x8F, 0x61, 0xDD, 0xF0, 0x99, 0x61, 0x73, 0x98,
+    0xA9, 0x01, 0xC9, 0x9A, 0x67, 0xD3, 0x1C, 0xDA, 0x4E, 0xDF, 0xDE, 0x79,
+    0xC4, 0x33, 0xCA, 0x72, 0xD7, 0xAB, 0xA1, 0x8A, 0x6B, 0x7F, 0x6F, 0x5B,
+    0x70, 0x8E, 0x05, 0x1B, 0xBE, 0x5B, 0x3E, 0xA2, 0x9C, 0x03, 0x29, 0xB5,
+    0xE4, 0x38, 0x8C, 0x9A,
+};
+// clang-format on
+
+TEST_CASE("OW root decrypts an encrypted CMF", "[casc][ow_root][crypto]") {
+    auto cmfCKey = makeCKey(0x30);
+    CKeyResolver resolver = [&](std::span<const u8, 16> cKey) -> std::vector<u8> {
+        if (std::memcmp(cKey.data(), cmfCKey.data(), 16) == 0)
+            return std::vector<u8>(std::begin(kEncryptedCmf), std::end(kEncryptedCmf));
+        return {};
+    };
+
+    std::vector<OwRootFileEntry> manifestEntries = {
+        {"1", cmfCKey, 0, 1, 0, "Win_SPWin_RDEV_LesMX_EXWin_RCN.cmf", ""},
+    };
+
+    auto root = OwRoot::fromManifestEntries(std::move(manifestEntries), resolver);
+    REQUIRE(root != nullptr);
+
+    // One manifest row plus the two assets the decrypted CMF carries.
+    CHECK(root->entryCount() == 3);
+
+    auto found = root->findByGuid(0x1111ULL);
+    REQUIRE(found.size() == 1);
+    CHECK(found[0]->fileSize == 2048);
+    CHECK(found[0]->cKey[0] == 0xA0);
+
+    auto second = root->findByGuid(0x2222ULL);
+    REQUIRE(second.size() == 1);
+    CHECK(second[0]->cKey[0] == 0xB0);
+}
+
+// The IV is keyed on the manifest name, so the wrong name yields a wrong first
+// block -- and the entry-index check is what stops that reaching the index.
+TEST_CASE("OW root rejects an encrypted CMF under the wrong name", "[casc][ow_root][crypto]") {
+    auto cmfCKey = makeCKey(0x30);
+    CKeyResolver resolver = [&](std::span<const u8, 16> cKey) -> std::vector<u8> {
+        if (std::memcmp(cKey.data(), cmfCKey.data(), 16) == 0)
+            return std::vector<u8>(std::begin(kEncryptedCmf), std::end(kEncryptedCmf));
+        return {};
+    };
+
+    std::vector<OwRootFileEntry> manifestEntries = {
+        {"1", cmfCKey, 0, 1, 0, "Win_SPWin_RDEV_LesMX_EXWin_RCX.cmf", ""},
+    };
+
+    auto root = OwRoot::fromManifestEntries(std::move(manifestEntries), resolver);
+    REQUIRE(root != nullptr);
+    CHECK(root->entryCount() == 1);
+    CHECK(root->findByGuid(0x1111ULL).empty());
 }
