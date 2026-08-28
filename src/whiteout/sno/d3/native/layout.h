@@ -54,17 +54,17 @@ static_assert(offsetof(InterpolationScalar, flMax) == 8, "InterpolationScalar.fl
 static_assert(sizeof(InterpolationScalar) == 12, "InterpolationScalar changed size");
 
 struct InterpolationPathHeader {
-    i32 eInterpolation;
-    f32 flBias;
-    f32 flScale;
-    i32 nFlags;
-    InterpolationScalar tRandom;
+    i32 nNodeCount;
+    f32 flLoopStart;
+    f32 flLoopEnd;
+    i32 eDistribution;
+    InterpolationScalar tDriver;
 };
-static_assert(offsetof(InterpolationPathHeader, eInterpolation) == 0, "InterpolationPathHeader.eInterpolation moved");
-static_assert(offsetof(InterpolationPathHeader, flBias) == 4, "InterpolationPathHeader.flBias moved");
-static_assert(offsetof(InterpolationPathHeader, flScale) == 8, "InterpolationPathHeader.flScale moved");
-static_assert(offsetof(InterpolationPathHeader, nFlags) == 12, "InterpolationPathHeader.nFlags moved");
-static_assert(offsetof(InterpolationPathHeader, tRandom) == 16, "InterpolationPathHeader.tRandom moved");
+static_assert(offsetof(InterpolationPathHeader, nNodeCount) == 0, "InterpolationPathHeader.nNodeCount moved");
+static_assert(offsetof(InterpolationPathHeader, flLoopStart) == 4, "InterpolationPathHeader.flLoopStart moved");
+static_assert(offsetof(InterpolationPathHeader, flLoopEnd) == 8, "InterpolationPathHeader.flLoopEnd moved");
+static_assert(offsetof(InterpolationPathHeader, eDistribution) == 12, "InterpolationPathHeader.eDistribution moved");
+static_assert(offsetof(InterpolationPathHeader, tDriver) == 16, "InterpolationPathHeader.tDriver moved");
 static_assert(sizeof(InterpolationPathHeader) == 28, "InterpolationPathHeader changed size");
 
 struct AccelVectorPath {
@@ -937,32 +937,32 @@ static_assert(offsetof(PRSTransform, flScale) == 28, "PRSTransform.flScale moved
 static_assert(sizeof(PRSTransform) == 32, "PRSTransform changed size");
 
 struct CollisionShape {
+    i32 dwFlags;
     i32 eShapeType;
-    i32 dwUnknown04;
     i32 dwUnknown08;
-    i32 dwUnknown0C;
+    i32 nLodIndex;
     f32 flScaleX;
     f32 flScaleY;
     f32 flScaleZ;
     i32 arPolytopeData;      // byte offset into the payload
     i32 arPolytopeData_size; // byte length
     u8 _pad0[12];
-    Vector3f vUnknown30;
-    Vector3f vUnknown3C;
-    f32 flUnknown48;
+    Vector3f vPointA;
+    Vector3f vPointB;
+    f32 flRadius;
     u8 _pad1[4];
 };
-static_assert(offsetof(CollisionShape, eShapeType) == 0, "CollisionShape.eShapeType moved");
-static_assert(offsetof(CollisionShape, dwUnknown04) == 4, "CollisionShape.dwUnknown04 moved");
+static_assert(offsetof(CollisionShape, dwFlags) == 0, "CollisionShape.dwFlags moved");
+static_assert(offsetof(CollisionShape, eShapeType) == 4, "CollisionShape.eShapeType moved");
 static_assert(offsetof(CollisionShape, dwUnknown08) == 8, "CollisionShape.dwUnknown08 moved");
-static_assert(offsetof(CollisionShape, dwUnknown0C) == 12, "CollisionShape.dwUnknown0C moved");
+static_assert(offsetof(CollisionShape, nLodIndex) == 12, "CollisionShape.nLodIndex moved");
 static_assert(offsetof(CollisionShape, flScaleX) == 16, "CollisionShape.flScaleX moved");
 static_assert(offsetof(CollisionShape, flScaleY) == 20, "CollisionShape.flScaleY moved");
 static_assert(offsetof(CollisionShape, flScaleZ) == 24, "CollisionShape.flScaleZ moved");
 static_assert(offsetof(CollisionShape, arPolytopeData) == 28, "CollisionShape.arPolytopeData moved");
-static_assert(offsetof(CollisionShape, vUnknown30) == 48, "CollisionShape.vUnknown30 moved");
-static_assert(offsetof(CollisionShape, vUnknown3C) == 60, "CollisionShape.vUnknown3C moved");
-static_assert(offsetof(CollisionShape, flUnknown48) == 72, "CollisionShape.flUnknown48 moved");
+static_assert(offsetof(CollisionShape, vPointA) == 48, "CollisionShape.vPointA moved");
+static_assert(offsetof(CollisionShape, vPointB) == 60, "CollisionShape.vPointB moved");
+static_assert(offsetof(CollisionShape, flRadius) == 72, "CollisionShape.flRadius moved");
 static_assert(sizeof(CollisionShape) == 80, "CollisionShape changed size");
 
 struct PRTransform {
@@ -975,19 +975,19 @@ static_assert(sizeof(PRTransform) == 28, "PRTransform changed size");
 
 struct ConstraintParameters {
     char szName[64];
+    i32 dwFlags;
     i32 eConstraintType;
-    i32 dwUnknown0C;
-    i32 dwUnknown10;
-    i32 dwUnknown14;
+    i32 nBoneIndexA;
+    i32 nBoneIndexB;
     PRTransform tFrameA;
     Vector3f vUnknown34;
     PRTransform tFrameB;
     PRTransform tFrameC;
-    f32 flParam00;
-    f32 flParam01;
-    f32 flParam02;
-    f32 flParam03;
-    f32 flParam04;
+    f32 flLimitLower;
+    f32 flLimitUpper;
+    f32 flConeAngle;
+    f32 flTwistLower;
+    f32 flTwistUpper;
     f32 flParam05;
     f32 flParam06;
     f32 flParam07;
@@ -999,19 +999,19 @@ struct ConstraintParameters {
     char szBreakEffect[64];
 };
 static_assert(offsetof(ConstraintParameters, szName) == 0, "ConstraintParameters.szName moved");
-static_assert(offsetof(ConstraintParameters, eConstraintType) == 64, "ConstraintParameters.eConstraintType moved");
-static_assert(offsetof(ConstraintParameters, dwUnknown0C) == 68, "ConstraintParameters.dwUnknown0C moved");
-static_assert(offsetof(ConstraintParameters, dwUnknown10) == 72, "ConstraintParameters.dwUnknown10 moved");
-static_assert(offsetof(ConstraintParameters, dwUnknown14) == 76, "ConstraintParameters.dwUnknown14 moved");
+static_assert(offsetof(ConstraintParameters, dwFlags) == 64, "ConstraintParameters.dwFlags moved");
+static_assert(offsetof(ConstraintParameters, eConstraintType) == 68, "ConstraintParameters.eConstraintType moved");
+static_assert(offsetof(ConstraintParameters, nBoneIndexA) == 72, "ConstraintParameters.nBoneIndexA moved");
+static_assert(offsetof(ConstraintParameters, nBoneIndexB) == 76, "ConstraintParameters.nBoneIndexB moved");
 static_assert(offsetof(ConstraintParameters, tFrameA) == 80, "ConstraintParameters.tFrameA moved");
 static_assert(offsetof(ConstraintParameters, vUnknown34) == 108, "ConstraintParameters.vUnknown34 moved");
 static_assert(offsetof(ConstraintParameters, tFrameB) == 120, "ConstraintParameters.tFrameB moved");
 static_assert(offsetof(ConstraintParameters, tFrameC) == 148, "ConstraintParameters.tFrameC moved");
-static_assert(offsetof(ConstraintParameters, flParam00) == 176, "ConstraintParameters.flParam00 moved");
-static_assert(offsetof(ConstraintParameters, flParam01) == 180, "ConstraintParameters.flParam01 moved");
-static_assert(offsetof(ConstraintParameters, flParam02) == 184, "ConstraintParameters.flParam02 moved");
-static_assert(offsetof(ConstraintParameters, flParam03) == 188, "ConstraintParameters.flParam03 moved");
-static_assert(offsetof(ConstraintParameters, flParam04) == 192, "ConstraintParameters.flParam04 moved");
+static_assert(offsetof(ConstraintParameters, flLimitLower) == 176, "ConstraintParameters.flLimitLower moved");
+static_assert(offsetof(ConstraintParameters, flLimitUpper) == 180, "ConstraintParameters.flLimitUpper moved");
+static_assert(offsetof(ConstraintParameters, flConeAngle) == 184, "ConstraintParameters.flConeAngle moved");
+static_assert(offsetof(ConstraintParameters, flTwistLower) == 188, "ConstraintParameters.flTwistLower moved");
+static_assert(offsetof(ConstraintParameters, flTwistUpper) == 192, "ConstraintParameters.flTwistUpper moved");
 static_assert(offsetof(ConstraintParameters, flParam05) == 196, "ConstraintParameters.flParam05 moved");
 static_assert(offsetof(ConstraintParameters, flParam06) == 200, "ConstraintParameters.flParam06 moved");
 static_assert(offsetof(ConstraintParameters, flParam07) == 204, "ConstraintParameters.flParam07 moved");
@@ -1852,12 +1852,12 @@ struct Particle {
     i32 snoPhysics;
     f32 flMass;
     i32 nMaxInstances;
-    f32 flPhysicsParam0;
-    f32 flPhysicsParam1;
-    f32 flPhysicsParam2;
-    f32 flPhysicsParam3;
-    f32 flPhysicsParam4;
-    f32 flPhysicsParam5;
+    f32 flBurstZOffset;
+    f32 flSwayFrequency;
+    f32 flSwayDamping;
+    f32 flSwayMaxOffset;
+    f32 flSwayGustAmount;
+    f32 flSwayBaseAmount;
     f32 flPhysicsParam6;
     i32 snoActor;
     u8 _pad2[4];
@@ -1920,12 +1920,12 @@ static_assert(offsetof(Particle, tMaterial) == 680, "Particle.tMaterial moved");
 static_assert(offsetof(Particle, snoPhysics) == 784, "Particle.snoPhysics moved");
 static_assert(offsetof(Particle, flMass) == 788, "Particle.flMass moved");
 static_assert(offsetof(Particle, nMaxInstances) == 792, "Particle.nMaxInstances moved");
-static_assert(offsetof(Particle, flPhysicsParam0) == 796, "Particle.flPhysicsParam0 moved");
-static_assert(offsetof(Particle, flPhysicsParam1) == 800, "Particle.flPhysicsParam1 moved");
-static_assert(offsetof(Particle, flPhysicsParam2) == 804, "Particle.flPhysicsParam2 moved");
-static_assert(offsetof(Particle, flPhysicsParam3) == 808, "Particle.flPhysicsParam3 moved");
-static_assert(offsetof(Particle, flPhysicsParam4) == 812, "Particle.flPhysicsParam4 moved");
-static_assert(offsetof(Particle, flPhysicsParam5) == 816, "Particle.flPhysicsParam5 moved");
+static_assert(offsetof(Particle, flBurstZOffset) == 796, "Particle.flBurstZOffset moved");
+static_assert(offsetof(Particle, flSwayFrequency) == 800, "Particle.flSwayFrequency moved");
+static_assert(offsetof(Particle, flSwayDamping) == 804, "Particle.flSwayDamping moved");
+static_assert(offsetof(Particle, flSwayMaxOffset) == 808, "Particle.flSwayMaxOffset moved");
+static_assert(offsetof(Particle, flSwayGustAmount) == 812, "Particle.flSwayGustAmount moved");
+static_assert(offsetof(Particle, flSwayBaseAmount) == 816, "Particle.flSwayBaseAmount moved");
 static_assert(offsetof(Particle, flPhysicsParam6) == 820, "Particle.flPhysicsParam6 moved");
 static_assert(offsetof(Particle, snoActor) == 824, "Particle.snoActor moved");
 static_assert(offsetof(Particle, tEmitter) == 832, "Particle.tEmitter moved");

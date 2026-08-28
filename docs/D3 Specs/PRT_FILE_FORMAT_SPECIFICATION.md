@@ -4,7 +4,8 @@
 **Byte Order**: Little-endian
 **Magic**: `0xDEADBEEF`
 **Version**: 180
-**Corpus**: 21,593 files, all validated against this layout
+**Corpus**: 21,593 files, all validated against this layout
+
 **SNO Group**: 27 (`Particle`)
 **Registered revision**: 213 — the shipped data is v180, so the binary's compiled struct describes a *newer* layout (see below / README §4)
 
@@ -46,6 +47,17 @@ and the conventions used below.
 >    withdrawn.** Five flag bits are now known from the engine and none of them
 >    matches the guessed table; all three M3 channel correspondences are wrong.
 >
+> **Second pass, same day.** A further sweep closed most of what §14 still listed:
+> `eSystemType` is named for all ten shipped values (§11.3), the emitter shapes have
+> real distributions rather than just an arity (§7), six of the seven
+> `flPhysicsParam` floats are a **wind spring** and a burst Z-offset (§14), the
+> `dwPrtFlags` read-set is proved exhaustive at five bits, and `flUnknown2A0` is
+> proved to have **no runtime read at all**. One correction lands with them: this
+> document and `D3_PARTICLE_DESIGN.md` both said there is no wind anywhere in the
+> particle system. There is -- it just is not in `UpdateParticles`. Foliage and
+> clutter (`eSystemType` 6 and 8) are routed to it *instead of* the particle
+> simulation.
+>
 > **Revision note (earlier).** An earlier draft of this document split the file into
 > 48-byte "AnimRef" blocks that began at the keyframe `(offset, size)` pair. That
 > boundary is 40 bytes off. The engine's own struct — read out of the Diablo III
@@ -57,6 +69,42 @@ and the conventions used below.
 > all: they are the first animated channel's interpolation header. That is why
 > the old §14.2 "emitter type" enum and §14.3 "interpolation type" enum listed the
 > same values — they were the same field.
+
+---
+
+> **Corrections of 2026-08-28.** The particle *simulation* was read end to end
+> this pass (`ParticleSystem_UpdateParticles`, `Particle_BuildOrientationBasis`,
+> `Particle_ComputeInitialVelocity`, `sub_7100376430`). Four things below are
+> wrong and are corrected in place; the rest stands.
+>
+> 1. **`eInterpolation` is the NODE COUNT, not a curve type.** The engine uses
+>    `header[0]` as the loop bound when scanning the node array. Verified on
+>    **863,720 / 863,720** paths across all 21,593 files:
+>    `header[0] * sizeof(node) == nodeSize` exactly, and the 12- vs 28-byte split
+>    reproduces the vector-slot list of section 8 independently. **Section 11.1's
+>    enum is withdrawn** -- interpolation is always LINEAR; the format has no
+>    curve-type field at all.
+> 2. **`flBias` / `flScale` are a loop sub-range in normalised time**, not a bias
+>    and a node scale. Once `t` passes `flScale` it wraps back into
+>    `[flBias, flScale]`.
+> 3. **`nFlags` is a random-distribution selector, 0..8** -- nine remap curves
+>    applied to the uniform draw. The corpus holds exactly 0..8 over 798,941
+>    paths and nothing outside.
+> 4. **`tRandom` is a game-state DRIVER, not a randomiser.** `nMode` selects a
+>    source (a game scalar, distance from the emitter, height, an actor
+>    attribute, a health fraction) and the result *multiplies* the sampled value.
+>    Mode 10 *is* a uniform random and appears **zero** times in the corpus. The
+>    per-particle randomness lives in each node's `start..end` range instead.
+>
+> Also settled: **emitter slot 9 is channel 33 and slot 10 is channel 30**
+> (section 8), and the kinematic triples' frames -- ids 17/18/19 are WORLD space,
+> ids 20/21/22 are EMITTER-LOCAL, rotated by the emitter quaternion frozen on the
+> particle at birth. Flag `0x10000000` *enables* the 300-unit clamp rather than
+> bypassing it (section 11.2).
+>
+> Full derivations -- the nine distributions, the driver table, the fourteen
+> render modes and the five motion models -- are in **`D3_PARTICLE_DESIGN.md`**
+> in the WhiteoutFlakes repo root.
 
 ---
 
@@ -131,17 +179,17 @@ the array descriptor is the **last** 8 bytes, not the first.
 
 ```cpp
 struct InterpolationScalar {                    // 12 bytes
-    i32     nMode;              // 0x00: usually 0
-    f32     flMin;              // 0x04: usually 0.0
-    f32     flMax;              // 0x08: usually 1.0
+    i32     nMode;              // 0x00: DRIVER SOURCE, 0 = disabled
+    f32     flMin;              // 0x04: driver output range low
+    f32     flMax;              // 0x08: driver output range high (default 1.0)
 };
 
 struct InterpolationPathHeader {                // 28 bytes
-    i32                 eInterpolation; // 0x00: curve type, see §11.1
-    f32                 flBias;         // 0x04: usually 0.0
-    f32                 flScale;        // 0x08: usually 1.0 -- scales the nodes
-    i32                 nFlags;         // 0x0C: usually 0
-    InterpolationScalar tRandom;        // 0x10: per-particle randomisation
+    i32                 nNodeCount;     // 0x00: NODE COUNT (was "eInterpolation")
+    f32                 flLoopStart;    // 0x04: loop sub-range start, normalised time
+    f32                 flLoopEnd;      // 0x08: loop sub-range end,   normalised time
+    i32                 eDistribution;  // 0x0C: random distribution 0..8, see §11.1
+    InterpolationScalar tDriver;        // 0x10: game-state driver, MULTIPLIES the sample
 };
 
 struct InterpolationPath {                      // 48 bytes
@@ -226,20 +274,21 @@ struct Particle {                               // 2296 bytes
 
     InterpolationPath   arEmitterPath[13];  // 0x030 .. 0x2A0   (see §8)
 
-    f32                 flUnknown2A0;       // 0x2A0: default 0.01, meaning unknown
+    f32                 flUnknown2A0;       // 0x2A0: default 0.01; NEVER READ by the
+                                            //        shipped runtime (§14)
     u8                  _pad2[4];           // 0x2A4
     UberMaterial        tMaterial;          // 0x2A8 .. 0x310   (see §6)
 
     i32                 snoPhysics;         // 0x310: SNO ref, -1 = none
     f32                 flMass;             // 0x314: default 0.0310589
     i32                 nMaxInstances;      // 0x318: instance cap, 0 = unlimited
-    f32                 flPhysicsParam0;    // 0x31C: no default
-    f32                 flPhysicsParam1;    // 0x320: default 1.0
-    f32                 flPhysicsParam2;    // 0x324: default 0.3
-    f32                 flPhysicsParam3;    // 0x328: default 1.0
-    f32                 flPhysicsParam4;    // 0x32C: default 1.25
-    f32                 flPhysicsParam5;    // 0x330: default 0.0
-    f32                 flPhysicsParam6;    // 0x334: default 1.0
+    f32                 flBurstZOffset;     // 0x31C: +Z on scripted bursts, default 0
+    f32                 flSwayFrequency;    // 0x320: Hz, x2pi -> w.  default 1.0
+    f32                 flSwayDamping;      // 0x324: zeta.           default 0.3
+    f32                 flSwayMaxOffset;    // 0x328: x particle scale. default 1.0
+    f32                 flSwayGustAmount;   // 0x32C: default 1.25
+    f32                 flSwayBaseAmount;   // 0x330: default 0.0
+    f32                 flPhysicsParam6;    // 0x334: default 1.0, still unread
     i32                 snoActor;           // 0x338: SNO ref, -1 = none
     u8                  _pad3[4];           // 0x33C
 
@@ -387,6 +436,45 @@ struct EmitterParams {                          // 280 bytes
 | 10 | 265 | same as 4 |
 | 11 | 184 | actor / bone driven, and advances a sequential emission index |
 
+### What each shape actually samples
+
+Resolved 2026-08-28 from `ParticleSystem_SampleEmitterShape` @`0x7100372D50`
+(previously `sub_7100372D50`, and not even defined as a function in the IDB).
+`TickEmitter` only *precomputes* the extents into a 0x50-byte emit context; the
+sampling happens per particle inside that function, and the arity above was only
+half of it.
+
+**A `(lo, hi)` extent pair is an annulus, not a diameter.** `Rand_RadiusInAnnulus`
+@`0x71005BC350` draws an **area-uniform** radius:
+
+```
+r = sqrt(lo^2 + U * (hi^2 - lo^2))       // U in [0,1), one MWC draw,
+                                          // and NO draw at all when lo == hi
+```
+
+| Shape | Distribution |
+|------:|:-------------|
+| 1 | **Point.** `pos = base + offset`. No random draw. |
+| 4 | **Sphere shell.** `r` from `tShapeExtent0`; direction uniform on the full sphere (`elev = asin(2U-1)`, `azim = 2*pi*U`). |
+| 10 | **Hemisphere shell.** Identical, except the elevation draw is `asin(U)` with `U` in `[0,1)` -- the **+Z half only**. That is the *only* difference between shapes 4 and 10. |
+| 5 | **Cylinder.** `r` from `tShapeExtent0` in the XY plane (`azim = 2*pi*U`), then `z = ext1.lo + ext1.span * U`. An annular tube when `ext0.lo > 0`. |
+| 9 | **Spoked ring.** Same radius and Z as shape 5, but the azimuth is **deterministic and evenly spaced across the tick**: `phi = phi0 + (i * 2*pi) / n`, where `n` is the number of particles being emitted this tick, `i` the index within it, and `phi0` a single random draw taken at `i == 0`. |
+| 8 | **Box.** Each axis independently uniform between `tShapeExtent2` evaluated at `r = (0,0,0)` and at `r = (1,1,1)` -- the node range low and high corners. This case adds the base position but **not** the emit-context offset; it is the only one that skips it. |
+| 6, 7, 11 | **Skinned mesh surface** of the bound scene object. Sub-mesh index = the hardpoint, or uniform-random when the hardpoint is -1. Shapes 6 and 7 pick an area-weighted random triangle plus barycentric coordinates; **11 walks triangles in order** (`sequentialIndex % triangleCount`), which is what the sequential counter is for. Vertices are posed by the live skeleton and the dominant bone is returned to the caller. Shapes 6/11 resolve the object through the scene-object table at `gameCtx+2712`; shape 7 uses a different table and only for attachment kind 4. |
+
+**Any actor lookup failure falls through to the point case.** A tool with no bound
+actor therefore reproduces the engine exactly by treating shapes 6, 7 and 11 as
+shape 1.
+
+Two further details that only show up here:
+
+* The base position is normally `lerp(sys.prevPos, sys.pos, U)` -- a **sub-frame
+  emission interpolation** that draws one more value from the stream. It is the
+  current position only when `sys+13 & 1` is set, and the **world origin** when
+  `eSystemType == 10`.
+* The emit context carries a `Vec3` offset at `+0x04`, zeroed by `TickEmitter` and
+  used by `ParticleSystem_EmitBurst` -- which is where `flBurstZOffset` (`0x31C`) goes (§14).
+
 The corpus corroborates the actor/mesh split independently: `szDccShapeName` is
 populated for exactly the shapes the engine drives from geometry — 1,149 / 1,253
 of shape 6, 178 / 184 of shape 11 and 17 / 17 of shape 7 carry a name, against
@@ -449,19 +537,30 @@ node value.
 | 6 | **VelocityVector** | 38 | 1.1% | **Initial velocity**, emitter-local — the vector the cone perturbs, then rotated by the emitter orientation |
 | 7 | **VelocityVector** | 40 | 2.6% | **Initial velocity**, added *after* the emitter rotation (world-space term) |
 | 8 | Velocity | 32 | 50.5% | **Emission rate**, particles per second. The *only* emission driver in 3,884 files that have no count path |
-| 9 | Velocity | 33 or 30 | 5.1% | one of the two below — order not established |
-| 10 | Velocity | 30 or 33 | 6.5% | one of the two below — order not established |
+| 9 | Velocity | **33** | 5.1% | **Distance-based emission** — particles per unit of distance the emitter travels. Settled 2026-08-28, see below |
+| 10 | Velocity | **30** | 6.5% | **Speed-based life shortening** — `life *= 1 - (speed x value) x dt`, floored at one frame |
 | 11 | **Vector** | — | 3.6% | no counterpart in the registered revision; type only |
 | 12 | Float | — | 5.3% | no counterpart in the registered revision; type only |
 
-Slots 9 and 10 are channels 33 and 30, but **which is which is not established**:
-both are `VelocityPath`, both are used by a similar share of files, and the
-ordering constraints permit either assignment.
+**Slots 9 and 10 are settled (2026-08-28).** Declaration order permits either
+assignment, so the corpus decides it: **194 files set slot 9 while setting
+neither the count channel (slot 1) nor the rate channel (slot 8)**. If slot 9
+were ch 30 those files would emit nothing at all. Exactly **one** file
+(`g_rainImpact.prt`) is in that position for slot 10.
 
-* **ch 33** — particles emitted per unit of *distance the emitter travels*; the
-  sample is multiplied by the emitter's world speed and by `dt`.
-* **ch 30** — shortens the particle lifetime in proportion to emitter speed,
-  `life *= 1 − (speed × value) × dt`, floored at one frame.
+The names corroborate: all 194, and all 54 files that set both, are trails --
+`a3dun_Keep_Falling_Grate_Trail_Dust_Large.prt`,
+`Actor_decapitate_blood_red_groundTrail.prt`,
+`a1Dun_random_sparkleTrail_sparkles.prt`, `Actor_gib_blood_arcane_trails.prt`.
+A trail is exactly "emit per unit of distance moved".
+
+* **slot 9 = ch 33** — particles emitted per unit of *distance the emitter
+  travels*. `ParticleSystem_TickEmitter` accumulates
+  `speed x (value x 60 x dt) x dt`, where `speed = |sysPos - sysPrevPos| / dt`.
+  The `dt` appears twice; that is as measured, and frame-rate coupled.
+* **slot 10 = ch 30** — shortens the particle lifetime in proportion to emitter
+  speed, `life *= 1 - (speed x value) x dt`, floored at one frame. Read in
+  `Particle_InitLifeAndSize` @0x71000B6BB0 from SNO+384.
 
 `EmitterParams`' own three paths (§7) are the shape extents and are not part of
 this table.
@@ -475,30 +574,39 @@ this table.
 | 2 | Float | 6 | **Alpha.** The sample is multiplied by 255 and clamped into the alpha byte of channel 0's colour |
 | 3 | Float | 1 | **Size over life:** `size = this × baseSize(ch 28) × sizeMultiplier(ch 34)` |
 | 4 | Float | 2 | A second size/scale factor, default 1.0. Which quantity it drives is not established |
-| 5 | **Angle** | 24 | Rotation angle |
-| 6 | **AngularVelocity** | 25 | …and its rate (rad/s after ×60) |
-| 7 | **AngularVelocity** | 15 | A second rotation rate |
-| 8 | **Angle** | 16 | …and its angle. Note the pair is ordered rate-then-angle here, the reverse of 5/6 |
-| 9 | **Vector** | 23 | A direction / axis; default `(0,1,0)` when absent |
-| 10 | Float | 7 | A scalar… |
-| 11 | **Velocity** | 8 | …and its rate. Quantity not established |
-| 12 | **AngularVelocity** | 9 | A third angular rate |
-| 13 | **Vector** | 10 | A second direction / axis; default `(0,0,1)`, **normalised to unit length** at spawn |
-| 14 | Float | 11 | A scalar… |
-| 15 | **Velocity** | 12 | …and its rate. Quantity not established |
+| 5 | **Angle** | 24 | **Roll angle** — a scalar roll, integrated and wrapped into `[0, 2π]` |
+| 6 | **AngularVelocity** | 25 | **Roll rate** (rad/s after ×60); the sum is clamped to ±16π before wrapping |
+| 7 | **AngularVelocity** | 15 | **Spin rate** — a free 3-D spin about the ch 23 axis |
+| 8 | **Angle** | 16 | **Spin angle**, accumulated into the particle's orientation quaternion at `particle+216`. The difference sign is reversed relative to every other (scalar, rate) pair |
+| 9 | **Vector** | 23 | **Spin axis**; default `(0,1,0)` when absent, normalised |
+| 10 | Float | 7 | **Orbit radial offset** — cylindrical orbit about the ch 10 axis |
+| 11 | **Velocity** | 8 | **Orbit radial speed** |
+| 12 | **AngularVelocity** | 9 | **Orbit angular speed** about that axis |
+| 13 | **Vector** | 10 | **Orbit axis**; default `(0,0,1)`, **normalised to unit length** at spawn |
+| 14 | Float | 11 | **Radial offset** — push along `normalize(particlePos - sysPos)` |
+| 15 | **Velocity** | 12 | **Radial speed** along the same direction |
 | 16 | **Vector** | 17 | Offset ⎫ |
-| 17 | **VelocityVector** | 18 | Velocity ⎬ kinematic triple A |
+| 17 | **VelocityVector** | 18 | Velocity ⎬ kinematic triple A — **WORLD space** |
 | 18 | **AccelVector** | 19 | Acceleration ⎭ |
 | 19 | **Vector** | 20 | Offset ⎫ |
-| 20 | **VelocityVector** | 21 | Velocity ⎬ kinematic triple B |
+| 20 | **VelocityVector** | 21 | Velocity ⎬ kinematic triple B — **EMITTER-LOCAL** |
 | 21 | **AccelVector** | 22 | Acceleration ⎭ |
-| 22 | **Velocity** | 13 | A rate… |
-| 23 | Float | 14 | …and its scalar. Quantity not established |
+| 22 | **Velocity** | 13 | **Target-seek speed** toward the bound spawn target at `sys+352` |
+| 23 | Float | 14 | **Target-seek offset**, optionally scaled by the seek distance |
 
-Slots 16–21 are two identical *(offset, velocity, acceleration)* triples read back
-to back by `ParticleSystem_UpdateParticles`, typed by their ×60 / ×3600 scaling.
-They almost certainly differ by coordinate frame (emitter-local vs world), but
-**which is which is not established**.
+Slots 16-21 are two *(offset, velocity, acceleration)* triples read back to back
+by `ParticleSystem_UpdateParticles`, typed by their x60 / x3600 scaling. **Their
+frames are settled (2026-08-28): triple A (ids 17/18/19) is WORLD space** -- its
+displacement is added to the particle position directly -- **and triple B (ids
+20/21/22) is EMITTER-LOCAL**, its displacement rotated by the quaternion at
+`particle+184..196`, which `Particle_InitLifeAndSize` copies from the emitter's
+own orientation (`sys+100..112`) at birth and never updates. That is the same
+quaternion `Particle_ComputeInitialVelocity` applies to the birth velocity.
+
+The *offset* member of each triple is not applied to the position. It is
+differentiated against its own previous sample, cached on the particle, and the
+result added to the velocity: `v = velocityPath x 60 + (offsetNow - offsetPrev)/dt`.
+The same idiom governs every (scalar, rate) pair in the format.
 
 The twelve vector slots across both tables are exactly the twelve the earlier
 corpus-only analysis identified as `vec3` — derived independently, and a useful
@@ -564,22 +672,52 @@ event-count invariants on every build.
 
 ## 11. Enumerations
 
-### 11.1 Interpolation type (`InterpolationPathHeader.eInterpolation`)
+### 11.1 `eDistribution` (`InterpolationPathHeader` + 0x0C)
 
-| Value | Meaning |
-|------:|:--------|
-| 1 | Linear |
-| 2 | Step / hold |
-| 3 | Smooth (cubic / Hermite) |
-| 4 | Smooth in, linear out |
-| 5 | Linear in, smooth out |
-| 6 | Bezier |
-| 7 | Bezier smooth |
-| 9 | Auto-tangent / TCB |
+**The interpolation-type enum previously on this line is withdrawn.** `+0x00` is
+the node count and interpolation is always linear; this field is the random
+distribution applied to the per-particle uniform draw before it lerps each
+node's `start..end` range. With `u` the raw uniform and `c = u - 0.5`, all
+results clamped to `[0,1]`:
 
-Values up to 31 occur. Channel 0 of the emitter set uses `1` in 91.5% of files —
-this is the field the earlier draft reported as "emitter type = billboard,
-91.8%".
+| Value | Paths | Remap | Shape |
+|------:|------:|:------|:------|
+| 0 | 761,486 | `u` | uniform |
+| 1 | 13,885 | `min(u^2, 1)` | biased to `start` |
+| 2 | 1,020 | `0.5 + sign(c)*2c^2` | centre-weighted S |
+| 3 | 2,705 | `1 - u^2` | biased to `end` |
+| 4 | 4,897 | `c<0 ? 2c^2 : 1-2c^2` | tent |
+| 5 | 7,616 | `1 - sqrt(u)` | strongly biased to `start` |
+| 6 | 1,870 | `c<0 ? 0.5*sqrt(2|c|) : 1-0.5*sqrt(2|c|)` | tent, sqrt profile |
+| 7 | 1,781 | `sqrt(u)` | strongly biased to `end` |
+| 8 | 3,681 | `0.5 + sign(c)*0.5*sqrt(2|c|)` | edge-weighted inverse-S |
+
+Anything >= 9 returns 0. Counts are over all 37 emitter + particle paths in all
+21,593 files (798,941 samples); values outside 0..8 do not occur.
+`sub_71003751F0` @0x71003751F0 is the switch.
+
+### 11.1b `tDriver.nMode` (`InterpolationPathHeader` + 0x10)
+
+Selects a **game-state** value in `[0,1]` (`sub_7100374760` @0x7100374760); the
+result is mapped through `flMin..flMax` and multiplies the sampled channel.
+Mode 0 disables it.
+
+| Mode | Paths | Source |
+|-----:|------:|:-------|
+| 0 | 792,445 | disabled |
+| 1 | 4,703 | a game-supplied scalar (eval ctx + 20) |
+| 8 | 1,419 | an actor scalar, or actor field +960 |
+| 6 | 232 | normalised height above the system origin |
+| 3 | 55 | normalised distance from the system origin |
+| 2 | 40 | a global game value |
+| 13 | 32 | `clamp(actorAttr * 0.5, 0, 20) / 20` |
+| 9 | 10 | actor attribute `0xFFFFF0A7` |
+| 5 | 3 | an actor scalar |
+| 7 | 2 | `1 - clamp((actorScalar - 0.25)/0.08, 0, 1)` |
+| 10 | **0** | uniform random -- never authored |
+
+The two normalising divisors are `flMaxDistance` (`0x8DC`) and
+`flCameraDistScale` (`0x8E0`), which is a second role for both beyond section 5.
 
 ### 11.2 `dwPrtFlags` (0x010)
 
@@ -597,18 +735,58 @@ Only these bits have a traced read, all of them in `ParticleSystem_Spawn` and
 | `0x00008000` | raise the live-system budget from 128 to 256 |
 | `0x00080000` | early-out gate on spawn |
 | `0x00100000` | force the 128-system budget |
-| `0x10000000` | bypass the 300-unit emitter-speed clamp on distance-based emission |
+| `0x10000000` | **enable** the 300-unit emitter-speed clamp on distance-based emission. The guard is `speed < 300 \|\| !(flags & 0x10000000)`, so distance emission is skipped only when the bit is SET and the emitter is moving faster than 300 u/s. (Corrected 2026-08-28; the previous line had this inverted.) |
 
-The remaining bits are **not established**.
+**That list is now known to be exhaustive for this build** (2026-08-28). Only four
+functions in the whole image `SNO_AcquireAsset` the Particle group, and a scan of
+every dereference of the SNO pointer (`sys+856`) across all 350 functions of the
+particle module finds exactly one read of `+16` -- the `TickEmitter` one. The
+remaining 23 bits observed in the corpus have **no runtime read at all**; they are
+authoring-tool data. (The read-set is per build; the PC build may consume more.)
+
+Note also that the bits which gate *behaviour* are not these. `ParticleSystem_Spawn`
+derives a separate **capability mask** at `sys+8` by asking each channel whether its
+value range is non-trivial, and the simulation gates on that:
+
+| `sys+8` bit | Set when |
+|---|:--|
+| `0x0001` | orbit -- ch 8 or ch 7 has a non-zero x60 range |
+| `0x0002` | radial -- ch 12 |
+| `0x0004` | kinematic triple A (ids 17/18/19), world space |
+| `0x0008` | kinematic triple B (ids 20/21/22), emitter space |
+| `0x0010` | free spin -- ch 16 / ch 15 |
+| `0x0040` | spin axis ch 23 is not constant |
+| `0x0080` | target seek -- ch 13 / ch 14 |
+| `0x0100` | roll -- ch 24 / ch 25; **forced off for `eSystemType` 6 and 8** |
+| `0x2000` | `eSystemType` is 1, 3 or 4 |
 
 ### 11.3 `eSystemType` (0x00C)
 
-Ten distinct values over the corpus: 0 (16,685), 1 (4,790), 2 (31), 8 (30),
-6 (28), 9 (21), 4 (4), 7 (2), 3 (1), 10 (1). The engine branches on it in at
-least six places, which bounds what it can mean even though the individual values
-are not named: types **6 and 8** suppress the rotation channels, types **7 and 8**
-return early from the emitter tick and skip the frustum test, and `{1,3,4}`,
-`{2,3,9}` and `{4,5,6}` each take a dedicated path elsewhere.
+**Resolved 2026-08-28.** `ParticleSystem_UpdateDispatch` @`0x71000B1660` is the
+per-frame entry point and switches on this field to pick an update path; the
+corpus filenames then name the values without ambiguity.
+
+| Value | Files | Update path | Reading |
+|------:|------:|:------------|:--------|
+| 0 | 16,685 | normal | **Standard** particle system |
+| 1 | 4,790 | normal | **Ribbon / trail** -- `EmitParticle` takes a separate branch that appends 176-byte segment records instead of pool particles. Names: `cos_wings_*`, `*_helix`, `discEmitter`, `blastWave`, `flailSweep`, `Portal_Backing_Vertical` |
+| 2 | 31 | normal + physics body | **Swarm** -- each particle also owns a 40-byte `{invMass, pos, vel}` body in a shared world-collision solver. Names: `g_gnats`, `flies_deadbodies`, `TorchEmbers`, `Random_Stars` |
+| 3 | 1 | normal + physics body | ribbon **and** physics (`assaultBeast_death_popper`) |
+| 4 | 4 | **never updated** | **Light shaft / volumetric**: `P6_Church_lightShaft`, `Lightray_Blue`, `Coast_Mist`, `Misty_Wind` |
+| 5 | 0 | never updated | unused in this corpus |
+| 6 | 28 | **wind spring only** | **Wind-swayed foliage**: `BattleNet_Grass_C`, `Cattails*`, `DuneGrassA`, `Wheat*`, `Moss_Particle` |
+| 7 | 2 | **never updated** | **Static ground clutter**: `rockPebble_A_particle`, `Gravel_Clutter` |
+| 8 | 30 | **wind spring only** | **Wind-swayed clutter**: every name ends `_Clutter` |
+| 9 | 21 | normal + physics body | **Weather**: `g_Rain_*`, `g_Snow`, `g_SandStorm_*`, `g_Spores` |
+| 10 | 1 | normal | **World-anchored**: `g_rainRipple`. The emit base is the world origin, not the system position |
+
+Two consequences worth stating plainly:
+
+* Types **4, 5 and 7 are never simulated.** `UpdateDispatch` returns before doing
+  anything at all. They are authored as one static frame.
+* Types **6 and 8 never run the particle simulation either.** They run
+  `ParticleSystem_StepWindSpring` instead (§14), so none of the five motion models,
+  the emission accumulator or the channel evaluation applies to them.
 
 ### 11.4 `nRenderMode` (0x8D8)
 
@@ -616,7 +794,35 @@ Exactly 14 distinct values, and they are precisely 0..13 with nothing outside
 that range (0 ×9,181, 1 ×3,917, 7 ×2,312, 2 ×2,124, 12 ×1,428, 13 ×1,326,
 10 ×398, 4 ×351, 6 ×176, 5 ×145, …). `ParticleSystem_EmitParticle` and the
 batching code test it for **equality** with 1, which reads as an enum rather than
-a bit field. The individual values are **not established**.
+a bit field.
+
+**All fourteen cases are now characterised structurally (2026-08-28).**
+`Particle_BuildOrientationBasis` @0x71000BAB30 is one switch on this field, and
+every case leaves a normalised quaternion in its output. The differences are
+which vector seeds the frame — the particle axis, the velocity, a direction to a
+reference point, or a caller-supplied quaternion — and whether that seed is
+flattened onto the XY plane first. Modes **1 and 8 are no-ops** (they return
+immediately and leave the caller's frame); mode **13 discards the seed's Z**,
+producing a ground-aligned quad; modes **4 and 6** are XY-only variants of 5 and
+of the negated axis. The per-case table is in `D3_PARTICLE_DESIGN.md` §7.
+
+Two per-mode behaviours sit *outside* that switch, added 2026-08-28:
+
+* Modes **9 and 10 are ground-conforming.** `Particle_PrepareDrawFrame`
+  @`0x71000BCB10` raycasts the world under the particle and caches the surface
+  normal (defaulting to `(0,0,1)` on a miss); that normal is the vector the 9/10
+  case of `BuildOrientationBasis` normalises. The cast is re-done only when the
+  particle XY has changed, so a stationary particle casts once.
+* Mode **1 replaces the frozen birth quaternion.** Every particle normally copies
+  the emitter orientation at birth; when `nRenderMode == 1`,
+  `ParticleSystem_EmitParticle` writes a runtime global quaternion instead, so
+  mode-1 births align to a shared frame rather than to their emitter.
+
+The artist-facing **names** are still not established — retail compiles the enum
+tables out, and every field-name pointer in the type registration aims at the
+same empty string. `Particle_RegisterTypes` @`0x71001AEAC0` does contain two
+`TypeDesc_RegisterField_Plain_EnumTable` calls, but both are SNO-group references
+(Physics = 28 at `0x318`, Actor = 1 at `0x338`), not artist enums.
 
 ---
 
@@ -673,22 +879,28 @@ table above still stands; the per-channel mapping does not.
 
 | Area | Details |
 |------|:--------|
-| `flUnknown2A0` (`0x2A0`) | Registered default 0.01, and 0.01 in 19,468 of 21,593 files; other values seen are 0.2, 1.0, 0.1, 0.09 and 0. **No engine read was located** anywhere in the particle module. |
-| `flPhysicsParam0..6` (`0x31C..0x334`) | Seven floats following `snoPhysics` and `flMass`. Only their registered defaults are known; no engine read was traced to any individual member. |
-| Emitter channels 9 and 10 | They are engine channels 33 and 30, but the assignment between the two slots is not resolved — see §8. |
+| ~~`flUnknown2A0` (`0x2A0`)~~ | **Settled 2026-08-28, negatively.** A scan of every dereference of the Particle SNO across the whole particle module produces the complete runtime read-set, and `0x2A0` (runtime `+48`) is not in it. The field is authoring-only in this build. Its registered default is 0.01 and 19,468 of 21,593 files carry exactly that. |
+| ~~`flPhysicsParam0..6` (`0x31C..0x334`)~~ | **Six of the seven resolved 2026-08-28.** They are not one group: `0x31C` is consumed alone by `ParticleSystem_EmitBurst` as a **+Z spawn offset** for scripted bursts, and `0x320..0x330` are the five constants of the **wind spring** below. `0x334` (runtime `+196`, default 1.0) still has no traced read. |
+| Wind sway (`0x320..0x330`) | `ParticleSystem_StepWindSpring` @`0x71000BD610` is a 2-D damped harmonic oscillator run **per particle, in XY only**, and it is the *only* external-force integrator in the system. `w = flSwayFrequency * 2pi`; `a = -2*zeta*w*v - w^2*x + F`; `v += a*dt`; `x += v*dt`; when \|x\| exceeds `flSwayMaxOffset * particleScale` the offset is renormalised to 0.95 of the limit and the velocity is zeroed. The force is `windDir2D * (flSwayBaseAmount - flSwayGustAmount * cos(particlePhase * 2pi + windPhase) * windStrength) / 60`, where `particlePhase` is a per-particle random -- which is what makes a gust travel across a field of grass rather than moving it in lockstep. Reached only for `eSystemType` 6 and 8, and **instead of** the particle simulation, never alongside it. |
+| ~~Emitter channels 9 and 10~~ | **Resolved 2026-08-28**: slot 9 = ch 33, slot 10 = ch 30 — see §8. |
 | Emitter channels 11 and 12 | Retired in the registered revision, so only their storage (vector / float) is measurable. |
-| Particle channels 4, 10, 11, 14, 15, 22, 23 | Their *unit* is known from the path type and their evaluation order is known, but the quantity each drives is not established. |
-| Kinematic triples (particle 16–18 vs 19–21) | Two identical *(offset, velocity, acceleration)* sets; which is emitter-local and which is world is not established. |
-| `eSystemType`, `nRenderMode` | Small integer enums; value sets and several engine branches known (§11.3, §11.4), individual values not named. |
+| ~~Particle channels 10, 11, 14, 15, 22, 23~~ | **Resolved 2026-08-28**: 10/11 are an orbit radial offset and speed, 14/15 a radial offset and speed, 22/23 a target-seek speed and offset — see §8 and `D3_PARTICLE_DESIGN.md` §5. |
+| Particle channel 4 (ch 2) | Still open. Default 1.0, median 1.0 over the corpus, max 139.6. Its only traced consumer copies it to a spawned child actor's field `+956`. |
+| ~~Kinematic triples (particle 16–18 vs 19–21)~~ | **Resolved 2026-08-28**: 16–18 (ids 17/18/19) is WORLD space, 19–21 (ids 20/21/22) is EMITTER-LOCAL — see §8. |
+| ~~`eSystemType`~~ | **Resolved 2026-08-28** -- all ten shipped values named from the update dispatcher plus corpus filenames. See §11.3. |
+| `nRenderMode` | All fourteen cases are now characterised **structurally** — `Particle_BuildOrientationBasis` @0x71000BAB30 is one switch on this field and each case's basis construction is described in `D3_PARTICLE_DESIGN.md` §7. The artist-facing *names* are still unknown; retail compiles the enum tables out. |
 | `dwPrtFlags` | Five bits traced to engine reads (§11.2); the rest unknown. The previous set-rate-derived table is withdrawn. |
-| Triggered-event record | 412 bytes each, confirmed by `dwEventSize / dwEventCount` on 1,388 files. Internals undecoded; the registered revision's equivalent is 192 bytes, so it is not a shared layout. |
+| Triggered-event record | 412 bytes each in v180, confirmed by `dwEventSize / dwEventCount` on 1,388 files. The registered revision's entry is **192 bytes**, so it is not a shared layout and the v180 internals stay undecoded. What the runtime does with it *is* now known: `ParticleSystem_FireTriggeredEvents` walks the array, evaluates each entry's condition (`sub_7100342FF0`, entry+0 is a message type id), and dispatches under the particle-world mutex. Two ids are traced at their call sites -- **3500 = emission** and **3501 = the particle left `flMaxDistance`**. Ids 3502 and >3503 always dispatch as kind 1; the rest are suppressed by capability bit `0x1000`. |
 | `dwUnknown2C` (`0x02C`) | A registered field, not padding — but zero in 21,593 / 21,593 files. |
+
+| ~~Emitter-shape distributions~~ | **Resolved 2026-08-28.** Which distribution each extent describes is in §7: shape 4 is a sphere shell, 10 a hemisphere shell, 5 a cylinder, 9 an evenly-spoked ring, 8 a box, and 6/7/11 the skinned mesh surface. The `(lo, hi)` pairs are area-uniform annulus radii, not diameters. |
+| Particle channel 16 sign | Confirmed at instruction level 2026-08-28 (`0x71000BF124`: `FSUB S1, prev, now`). The reversed difference is **real**, not a decompiler artifact; every other `(scalar, rate)` pair in the system uses `now - prev`. |
 
 **No longer unknown**, for the record: the 104-byte block is `UberMaterial` and
 the "160-byte gradient stop" is `MaterialTextureEntry` (§6); `eEmitterShape` has
-nine values with known engine behaviour (§7); the tick rate is confirmed at 60 fps
-by the `0.016667` conversions in the engine; and `nCollisionFlags` is
-`nMaxInstances` (§5).
+nine values with known engine behaviour *and* known distributions (§7); the tick
+rate is confirmed at 60 fps by the `0.016667` conversions in the engine; and
+`nCollisionFlags` is `nMaxInstances` (§5).
 
 ---
 

@@ -112,10 +112,10 @@ void BinaryParseVisitor::visit(const layout::PRSTransform& src, PRSTransform& ds
 }
 
 void BinaryParseVisitor::visit(const layout::CollisionShape& src, CollisionShape& dst) {
+    dst.dwFlags = src.dwFlags;
     dst.eShapeType = src.eShapeType;
-    dst.dwUnknown04 = src.dwUnknown04;
     dst.dwUnknown08 = src.dwUnknown08;
-    dst.dwUnknown0C = src.dwUnknown0C;
+    dst.nLodIndex = src.nLodIndex;
     dst.flScaleX = src.flScaleX;
     dst.flScaleY = src.flScaleY;
     dst.flScaleZ = src.flScaleZ;
@@ -124,9 +124,9 @@ void BinaryParseVisitor::visit(const layout::CollisionShape& src, CollisionShape
         const u8* p = nullptr;
         if (locate<u8>(src.arPolytopeData, src.arPolytopeData_size, n, p)) dst.arPolytopeData.assign(p, p + n);
     }
-    dst.vUnknown30 = src.vUnknown30;
-    dst.vUnknown3C = src.vUnknown3C;
-    dst.flUnknown48 = src.flUnknown48;
+    dst.vPointA = src.vPointA;
+    dst.vPointB = src.vPointB;
+    dst.flRadius = src.flRadius;
 }
 
 void BinaryParseVisitor::visit(const layout::PRTransform& src, PRTransform& dst) {
@@ -136,19 +136,19 @@ void BinaryParseVisitor::visit(const layout::PRTransform& src, PRTransform& dst)
 
 void BinaryParseVisitor::visit(const layout::ConstraintParameters& src, ConstraintParameters& dst) {
     dst.szName = readChars(reinterpret_cast<const char*>(src.szName), 64);
+    dst.dwFlags = src.dwFlags;
     dst.eConstraintType = src.eConstraintType;
-    dst.dwUnknown0C = src.dwUnknown0C;
-    dst.dwUnknown10 = src.dwUnknown10;
-    dst.dwUnknown14 = src.dwUnknown14;
+    dst.nBoneIndexA = src.nBoneIndexA;
+    dst.nBoneIndexB = src.nBoneIndexB;
     visit(src.tFrameA, dst.tFrameA);
     dst.vUnknown34 = src.vUnknown34;
     visit(src.tFrameB, dst.tFrameB);
     visit(src.tFrameC, dst.tFrameC);
-    dst.flParam00 = src.flParam00;
-    dst.flParam01 = src.flParam01;
-    dst.flParam02 = src.flParam02;
-    dst.flParam03 = src.flParam03;
-    dst.flParam04 = src.flParam04;
+    dst.flLimitLower = src.flLimitLower;
+    dst.flLimitUpper = src.flLimitUpper;
+    dst.flConeAngle = src.flConeAngle;
+    dst.flTwistLower = src.flTwistLower;
+    dst.flTwistUpper = src.flTwistUpper;
     dst.flParam05 = src.flParam05;
     dst.flParam06 = src.flParam06;
     dst.flParam07 = src.flParam07;

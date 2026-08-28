@@ -237,11 +237,11 @@ struct InterpolationScalar {
 
 /// InterpolationPathHeader -- 28 bytes on disk.
 struct InterpolationPathHeader {
-    i32 eInterpolation{};
-    f32 flBias{};
-    f32 flScale{};
-    i32 nFlags{};
-    InterpolationScalar tRandom{};
+    i32 nNodeCount{};
+    f32 flLoopStart{};
+    f32 flLoopEnd{};
+    i32 eDistribution{};
+    InterpolationScalar tDriver{};
 };
 
 /// AccelVectorPath -- 48 bytes on disk.
@@ -709,17 +709,17 @@ struct PRSTransform {
 
 /// CollisionShape -- 80 bytes on disk.
 struct CollisionShape {
+    i32 dwFlags{};
     i32 eShapeType{};
-    i32 dwUnknown04{};
     i32 dwUnknown08{};
-    i32 dwUnknown0C{};
+    i32 nLodIndex{};
     f32 flScaleX{};
     f32 flScaleY{};
     f32 flScaleZ{};
     std::vector<u8> arPolytopeData;
-    Vector3f vUnknown30{};
-    Vector3f vUnknown3C{};
-    f32 flUnknown48{};
+    Vector3f vPointA{};
+    Vector3f vPointB{};
+    f32 flRadius{};
 };
 
 /// PRTransform -- 28 bytes on disk.
@@ -731,19 +731,19 @@ struct PRTransform {
 /// ConstraintParameters -- 292 bytes on disk.
 struct ConstraintParameters {
     std::string szName;
+    i32 dwFlags{};
     i32 eConstraintType{};
-    i32 dwUnknown0C{};
-    i32 dwUnknown10{};
-    i32 dwUnknown14{};
+    i32 nBoneIndexA{};
+    i32 nBoneIndexB{};
     PRTransform tFrameA{};
     Vector3f vUnknown34{};
     PRTransform tFrameB{};
     PRTransform tFrameC{};
-    f32 flParam00{};
-    f32 flParam01{};
-    f32 flParam02{};
-    f32 flParam03{};
-    f32 flParam04{};
+    f32 flLimitLower{};
+    f32 flLimitUpper{};
+    f32 flConeAngle{};
+    f32 flTwistLower{};
+    f32 flTwistUpper{};
     f32 flParam05{};
     f32 flParam06{};
     f32 flParam07{};
@@ -1225,12 +1225,12 @@ struct Particle {
     AssetRef snoPhysics;
     f32 flMass{};
     i32 nMaxInstances{};
-    f32 flPhysicsParam0{};
-    f32 flPhysicsParam1{};
-    f32 flPhysicsParam2{};
-    f32 flPhysicsParam3{};
-    f32 flPhysicsParam4{};
-    f32 flPhysicsParam5{};
+    f32 flBurstZOffset{};
+    f32 flSwayFrequency{};
+    f32 flSwayDamping{};
+    f32 flSwayMaxOffset{};
+    f32 flSwayGustAmount{};
+    f32 flSwayBaseAmount{};
     f32 flPhysicsParam6{};
     AssetRef snoActor;
     EmitterParams tEmitter{};

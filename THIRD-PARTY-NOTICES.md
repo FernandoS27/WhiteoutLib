@@ -46,7 +46,7 @@ SOFTWARE.
 ## TACTLib
 
 The Overwatch manifest key and IV generators in
-`src/whiteout/storages/casc/roots/ow_manifest_providers.cpp` are derived from
+`src/whiteout/storages/casc/roots/ow/ow_manifest_providers.cpp` are derived from
 TACTLib. Blizzard regenerates the schedule and its 512-byte table for every
 game build, so TACTLib carries one C# class per build; that file is a
 mechanical translation of them produced by `tools/ow_provider_transpile.py`,

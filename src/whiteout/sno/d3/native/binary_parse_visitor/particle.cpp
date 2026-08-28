@@ -23,11 +23,11 @@ void BinaryParseVisitor::visit(const layout::InterpolationScalar& src, Interpola
 }
 
 void BinaryParseVisitor::visit(const layout::InterpolationPathHeader& src, InterpolationPathHeader& dst) {
-    dst.eInterpolation = src.eInterpolation;
-    dst.flBias = src.flBias;
-    dst.flScale = src.flScale;
-    dst.nFlags = src.nFlags;
-    visit(src.tRandom, dst.tRandom);
+    dst.nNodeCount = src.nNodeCount;
+    dst.flLoopStart = src.flLoopStart;
+    dst.flLoopEnd = src.flLoopEnd;
+    dst.eDistribution = src.eDistribution;
+    visit(src.tDriver, dst.tDriver);
 }
 
 void BinaryParseVisitor::visit(const layout::AccelVectorPath& src, AccelVectorPath& dst) {
@@ -239,12 +239,12 @@ void BinaryParseVisitor::visit(const layout::Particle& src, Particle& dst) {
     dst.snoPhysics = AssetRef{src.snoPhysics, Group::Physics};
     dst.flMass = src.flMass;
     dst.nMaxInstances = src.nMaxInstances;
-    dst.flPhysicsParam0 = src.flPhysicsParam0;
-    dst.flPhysicsParam1 = src.flPhysicsParam1;
-    dst.flPhysicsParam2 = src.flPhysicsParam2;
-    dst.flPhysicsParam3 = src.flPhysicsParam3;
-    dst.flPhysicsParam4 = src.flPhysicsParam4;
-    dst.flPhysicsParam5 = src.flPhysicsParam5;
+    dst.flBurstZOffset = src.flBurstZOffset;
+    dst.flSwayFrequency = src.flSwayFrequency;
+    dst.flSwayDamping = src.flSwayDamping;
+    dst.flSwayMaxOffset = src.flSwayMaxOffset;
+    dst.flSwayGustAmount = src.flSwayGustAmount;
+    dst.flSwayBaseAmount = src.flSwayBaseAmount;
     dst.flPhysicsParam6 = src.flPhysicsParam6;
     dst.snoActor = AssetRef{src.snoActor, Group::Actor};
     visit(src.tEmitter, dst.tEmitter);
