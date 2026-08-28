@@ -471,6 +471,16 @@ bool Storage::Impl::ensureLoaded() const {
 // loadEncodingAndRoot (shared, dispatches VFS prefetch)
 // ============================================================================
 
+// libc++ only gained std::atomic_ref in LLVM 19; the macOS CI toolchain is
+// older, so fall back to the equivalent builtin there.
+static inline void markReferenced(u8& slot) {
+#if defined(__cpp_lib_atomic_ref)
+    std::atomic_ref<u8>(slot).store(1, std::memory_order_relaxed);
+#else
+    __atomic_store_n(&slot, u8{1}, __ATOMIC_RELAXED);
+#endif
+}
+
 bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBlte) const {
     ProgressReporter& report = *progress;
     auto cancelledOut = [&]() {
@@ -751,7 +761,7 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
         // eagerly, so every lookup below is a pure read, and each entry is
         // visited by exactly one worker. The mark is the one thing two workers
         // can reach at once — many root entries share a content key — so it
-        // goes through an atomic reference rather than being a plain race that
+        // goes through an atomic store rather than being a plain race that
         // happens to write the same value.
         root->resolveEntries(
             [this, encBase, wantAvailability](RootEntry& e, size_t index) {
@@ -764,8 +774,7 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
                     e.fileSize = enc->fileSize;
                     if (isZeroKey(e.cKey))
                         e.cKey = enc->cKey;
-                    std::atomic_ref<u8>(m_encodingReferenced[static_cast<size_t>(enc - encBase)])
-                        .store(1, std::memory_order_relaxed);
+                    markReferenced(m_encodingReferenced[static_cast<size_t>(enc - encBase)]);
                 }
                 if (wantAvailability && index < m_entryAvailable.size()) {
                     bool const here = (!isZeroKey(e.eKey) && isEKeyAvailableLocally(e.eKey)) ||
