@@ -18,7 +18,7 @@ namespace sno {
 namespace d3 {
 namespace d3_detail {
 
-static const char* kFieldNames[1227] = {
+static const char* kFieldNames[1229] = {
     "field_0x0",
     "field_0x8",
     "field_0xC",
@@ -968,7 +968,7 @@ static const char* kFieldNames[1227] = {
     "tAnim5",
     "dwTextureType",
     "dwUnknown9C",
-    "nEventType",
+    "eMessageType",
     "dwUnknown00",
     "dwPrimitiveCount",
     "arPrimitives",
@@ -1177,12 +1177,14 @@ static const char* kFieldNames[1227] = {
     "tmStart",
     "tmEnd",
     "nChance",
-    "tmUnknown04",
-    "tmUnknown08",
-    "tmUnknown0C",
-    "tmUnknown10",
-    "flImpulse14",
-    "flImpulse18",
+    "tmDelayMin",
+    "tmDelayRange",
+    "tmDelayMinAlt",
+    "tmDelayRangeAlt",
+    "flKeyValueMin",
+    "flKeyValueRange",
+    "nSubKey",
+    "dwCondFlags",
     "eTriggerType",
     "tConditions",
     "tPayload",
@@ -1955,7 +1957,7 @@ static const char* kTypeNames[704] = {
     "GizmoLocSet",
 };
 
-static const SnoFieldDef kFields[5409] = {
+static const SnoFieldDef kFields[5410] = {
     {{2764320258u, 1028442418u, 1028442418u}, 0u, 1u, 0, -1, -1, 0},
     {{2764320258u, 1028442418u, 1028442418u}, 1u, 1u, 8, -1, -1, 0},
     {{2764331143u, 1028442418u, 1028442418u}, 2u, 1u, 12, -1, -1, 0},
@@ -6864,7 +6866,7 @@ static const SnoFieldDef kFields[5409] = {
     {{2764320258u, 1028442418u, 1028442418u}, 871u, 0u, 44, -1, -1, 0},
     {{2764320258u, 1028442418u, 1028442418u}, 872u, 0u, 48, -1, -1, 0},
     {{2764331143u, 1028442418u, 1028442418u}, 873u, 0u, 52, -1, 29, 0},
-    {{2388214534u, 2764320258u, 1028442418u}, 874u, 0u, 56, 16, -1, 0},
+    {{2388214534u, 1028680983u, 1028442418u}, 874u, 0u, 56, 16, -1, 0},
     {{2764320258u, 1028442418u, 1028442418u}, 875u, 0u, 0, -1, -1, 0},
     {{2175310548u, 1028442418u, 1028442418u}, 876u, 0u, 4, 64, -1, 0},
     {{3040971521u, 1028442418u, 1028442418u}, 877u, 0u, 68, -1, -1, 0},
@@ -6958,6 +6960,7 @@ static const SnoFieldDef kFields[5409] = {
     {{2764320258u, 1028442418u, 1028442418u}, 947u, 0u, 152, -1, -1, 0},
     {{2764320258u, 1028442418u, 1028442418u}, 948u, 0u, 156, -1, -1, 0},
     {{2764320258u, 1028442418u, 1028442418u}, 949u, 0u, 0, -1, -1, 0},
+    {{3278054385u, 1028442418u, 1028442418u}, 877u, 0u, 4, -1, -1, 0},
     {{2764320258u, 1028442418u, 1028442418u}, 950u, 0u, 0, -1, -1, 0},
     {{2764320258u, 1028442418u, 1028442418u}, 934u, 0u, 4, -1, -1, 0},
     {{2764320258u, 1028442418u, 1028442418u}, 836u, 0u, 8, -1, -1, 0},
@@ -7272,42 +7275,42 @@ static const SnoFieldDef kFields[5409] = {
     {{2764320258u, 1028442418u, 1028442418u}, 1161u, 0u, 16, -1, -1, 0},
     {{3864020909u, 1028442418u, 1028442418u}, 1162u, 0u, 20, -1, -1, 0},
     {{3864020909u, 1028442418u, 1028442418u}, 1163u, 0u, 24, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1062u, 0u, 28, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1063u, 0u, 32, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1164u, 0u, 0, -1, -1, 0},
-    {{1572527989u, 1028442418u, 1028442418u}, 1165u, 0u, 4, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1164u, 0u, 28, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1165u, 0u, 32, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1166u, 0u, 0, -1, -1, 0},
+    {{1572527989u, 1028442418u, 1028442418u}, 1167u, 0u, 4, -1, -1, 0},
     {{2764320258u, 1028442418u, 1028442418u}, 1065u, 0u, 40, -1, -1, 0},
-    {{3670990058u, 1028442418u, 1028442418u}, 1166u, 0u, 44, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1167u, 0u, 52, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1168u, 0u, 56, -1, -1, 0},
+    {{3670990058u, 1028442418u, 1028442418u}, 1168u, 0u, 44, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1169u, 0u, 52, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1170u, 0u, 56, -1, -1, 0},
     {{2764320258u, 1028442418u, 1028442418u}, 1069u, 0u, 60, -1, -1, 0},
     {{2764320258u, 1028442418u, 1028442418u}, 1070u, 0u, 64, -1, -1, 0},
-    {{287451914u, 1028442418u, 1028442418u}, 1169u, 0u, 68, -1, -1, 0},
-    {{287451914u, 1028442418u, 1028442418u}, 1170u, 0u, 136, -1, -1, 0},
+    {{287451914u, 1028442418u, 1028442418u}, 1171u, 0u, 68, -1, -1, 0},
+    {{287451914u, 1028442418u, 1028442418u}, 1172u, 0u, 136, -1, -1, 0},
     {{2175310548u, 1028442418u, 1028442418u}, 917u, 0u, 204, 64, -1, 0},
-    {{2175310548u, 1028442418u, 1028442418u}, 1171u, 0u, 268, 64, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1172u, 0u, 332, -1, -1, 0},
-    {{3864020909u, 1028442418u, 1028442418u}, 1173u, 0u, 336, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1174u, 0u, 340, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1175u, 0u, 344, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1176u, 0u, 348, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1177u, 0u, 352, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1178u, 0u, 356, -1, -1, 0},
-    {{3864020909u, 1028442418u, 1028442418u}, 1179u, 0u, 360, -1, -1, 0},
-    {{3864020909u, 1028442418u, 1028442418u}, 1180u, 0u, 364, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1181u, 0u, 368, -1, -1, 0},
-    {{3864020909u, 1028442418u, 1028442418u}, 1182u, 0u, 372, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1183u, 0u, 376, -1, -1, 0},
-    {{3864020909u, 1028442418u, 1028442418u}, 1184u, 0u, 380, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1185u, 0u, 384, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1186u, 0u, 388, -1, -1, 0},
-    {{1028680983u, 1028442418u, 1028442418u}, 1187u, 0u, 392, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1188u, 0u, 396, -1, -1, 0},
-    {{1028680983u, 1028442418u, 1028442418u}, 1189u, 0u, 400, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1190u, 0u, 404, -1, -1, 0},
+    {{2175310548u, 1028442418u, 1028442418u}, 1173u, 0u, 268, 64, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1174u, 0u, 332, -1, -1, 0},
+    {{3864020909u, 1028442418u, 1028442418u}, 1175u, 0u, 336, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1176u, 0u, 340, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1177u, 0u, 344, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1178u, 0u, 348, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1179u, 0u, 352, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1180u, 0u, 356, -1, -1, 0},
+    {{3864020909u, 1028442418u, 1028442418u}, 1181u, 0u, 360, -1, -1, 0},
+    {{3864020909u, 1028442418u, 1028442418u}, 1182u, 0u, 364, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1183u, 0u, 368, -1, -1, 0},
+    {{3864020909u, 1028442418u, 1028442418u}, 1184u, 0u, 372, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1185u, 0u, 376, -1, -1, 0},
+    {{3864020909u, 1028442418u, 1028442418u}, 1186u, 0u, 380, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1187u, 0u, 384, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1188u, 0u, 388, -1, -1, 0},
+    {{1028680983u, 1028442418u, 1028442418u}, 1189u, 0u, 392, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1190u, 0u, 396, -1, -1, 0},
+    {{1028680983u, 1028442418u, 1028442418u}, 1191u, 0u, 400, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1192u, 0u, 404, -1, -1, 0},
     {{2764331143u, 1028442418u, 1028442418u}, 307u, 0u, 0, -1, 36, 0},
-    {{14920844u, 1028442418u, 1028442418u}, 1191u, 0u, 4, -1, -1, 0},
-    {{3244749660u, 411326725u, 1028442418u}, 1192u, 0u, 76, -1, -1, 0},
+    {{14920844u, 1028442418u, 1028442418u}, 1193u, 0u, 4, -1, -1, 0},
+    {{3244749660u, 411326725u, 1028442418u}, 1194u, 0u, 76, -1, -1, 0},
     {{3124492577u, 1028442418u, 1028442418u}, 524u, 0u, 0, -1, -1, 0},
     {{3124492577u, 1028442418u, 1028442418u}, 525u, 0u, 12, -1, -1, 0},
     {{3864020909u, 1028442418u, 1028442418u}, 526u, 0u, 24, -1, -1, 0},
@@ -7323,48 +7326,48 @@ static const SnoFieldDef kFields[5409] = {
     {{3864020909u, 1028442418u, 1028442418u}, 526u, 0u, 24, -1, -1, 0},
     {{1690709423u, 1028442418u, 1028442418u}, 527u, 0u, 0, -1, -1, 0},
     {{3244749660u, 924528641u, 1028442418u}, 528u, 0u, 40, -1, -1, 0},
-    {{4174905368u, 1028442418u, 1028442418u}, 1193u, 0u, 0, -1, -1, 0},
-    {{4174905368u, 1028442418u, 1028442418u}, 1194u, 0u, 8, -1, -1, 0},
-    {{4174905368u, 1028442418u, 1028442418u}, 1195u, 0u, 16, -1, -1, 0},
-    {{3124492577u, 1028442418u, 1028442418u}, 1196u, 0u, 0, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1197u, 0u, 12, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1198u, 0u, 16, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1199u, 0u, 20, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1200u, 0u, 24, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1201u, 0u, 28, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1202u, 0u, 32, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1203u, 0u, 36, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1204u, 0u, 40, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1205u, 0u, 0, -1, -1, 0},
-    {{3864020909u, 1028442418u, 1028442418u}, 1206u, 0u, 4, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1207u, 0u, 8, -1, -1, 0},
-    {{3864020909u, 1028442418u, 1028442418u}, 1208u, 0u, 12, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1209u, 0u, 16, -1, -1, 0},
-    {{3864020909u, 1028442418u, 1028442418u}, 1210u, 0u, 20, -1, -1, 0},
+    {{4174905368u, 1028442418u, 1028442418u}, 1195u, 0u, 0, -1, -1, 0},
+    {{4174905368u, 1028442418u, 1028442418u}, 1196u, 0u, 8, -1, -1, 0},
+    {{4174905368u, 1028442418u, 1028442418u}, 1197u, 0u, 16, -1, -1, 0},
+    {{3124492577u, 1028442418u, 1028442418u}, 1198u, 0u, 0, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1199u, 0u, 12, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1200u, 0u, 16, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1201u, 0u, 20, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1202u, 0u, 24, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1203u, 0u, 28, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1204u, 0u, 32, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1205u, 0u, 36, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1206u, 0u, 40, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1207u, 0u, 0, -1, -1, 0},
+    {{3864020909u, 1028442418u, 1028442418u}, 1208u, 0u, 4, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1209u, 0u, 8, -1, -1, 0},
+    {{3864020909u, 1028442418u, 1028442418u}, 1210u, 0u, 12, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1211u, 0u, 16, -1, -1, 0},
+    {{3864020909u, 1028442418u, 1028442418u}, 1212u, 0u, 20, -1, -1, 0},
     {{2175310548u, 1028442418u, 1028442418u}, 572u, 0u, 0, 64, -1, 0},
     {{2764320258u, 1028442418u, 1028442418u}, 875u, 0u, 64, -1, -1, 0},
-    {{3864020909u, 1028442418u, 1028442418u}, 1211u, 0u, 0, -1, -1, 0},
-    {{3864020909u, 1028442418u, 1028442418u}, 1212u, 0u, 4, -1, -1, 0},
-    {{3864020909u, 1028442418u, 1028442418u}, 1213u, 0u, 8, -1, -1, 0},
-    {{3864020909u, 1028442418u, 1028442418u}, 1211u, 0u, 0, -1, -1, 0},
-    {{3864020909u, 1028442418u, 1028442418u}, 1212u, 0u, 4, -1, -1, 0},
-    {{3864020909u, 1028442418u, 1028442418u}, 1213u, 0u, 8, -1, -1, 0},
-    {{3864020909u, 1028442418u, 1028442418u}, 1214u, 0u, 12, -1, -1, 0},
-    {{1028759507u, 1028442418u, 1028442418u}, 1215u, 0u, 0, -1, -1, 0},
-    {{1028759507u, 1028442418u, 1028442418u}, 1216u, 0u, 2, -1, -1, 0},
-    {{1028759507u, 1028442418u, 1028442418u}, 1217u, 0u, 4, -1, -1, 0},
-    {{1028759507u, 1028442418u, 1028442418u}, 1218u, 0u, 6, -1, -1, 0},
-    {{1028759507u, 1028442418u, 1028442418u}, 1219u, 0u, 8, -1, -1, 0},
-    {{1028759507u, 1028442418u, 1028442418u}, 1220u, 0u, 10, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1221u, 0u, 12, -1, -1, 0},
+    {{3864020909u, 1028442418u, 1028442418u}, 1213u, 0u, 0, -1, -1, 0},
+    {{3864020909u, 1028442418u, 1028442418u}, 1214u, 0u, 4, -1, -1, 0},
+    {{3864020909u, 1028442418u, 1028442418u}, 1215u, 0u, 8, -1, -1, 0},
+    {{3864020909u, 1028442418u, 1028442418u}, 1213u, 0u, 0, -1, -1, 0},
+    {{3864020909u, 1028442418u, 1028442418u}, 1214u, 0u, 4, -1, -1, 0},
+    {{3864020909u, 1028442418u, 1028442418u}, 1215u, 0u, 8, -1, -1, 0},
+    {{3864020909u, 1028442418u, 1028442418u}, 1216u, 0u, 12, -1, -1, 0},
+    {{1028759507u, 1028442418u, 1028442418u}, 1217u, 0u, 0, -1, -1, 0},
+    {{1028759507u, 1028442418u, 1028442418u}, 1218u, 0u, 2, -1, -1, 0},
+    {{1028759507u, 1028442418u, 1028442418u}, 1219u, 0u, 4, -1, -1, 0},
+    {{1028759507u, 1028442418u, 1028442418u}, 1220u, 0u, 6, -1, -1, 0},
+    {{1028759507u, 1028442418u, 1028442418u}, 1221u, 0u, 8, -1, -1, 0},
+    {{1028759507u, 1028442418u, 1028442418u}, 1222u, 0u, 10, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1223u, 0u, 12, -1, -1, 0},
     {{2764320258u, 1028442418u, 1028442418u}, 792u, 0u, 0, -1, -1, 0},
     {{2764320258u, 1028442418u, 1028442418u}, 793u, 0u, 4, -1, -1, 0},
     {{2764320258u, 1028442418u, 1028442418u}, 800u, 0u, 8, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1222u, 0u, 12, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1223u, 0u, 16, -1, -1, 0},
-    {{2764320258u, 1028442418u, 1028442418u}, 1224u, 0u, 20, -1, -1, 0},
-    {{1028759507u, 1028442418u, 1028442418u}, 1225u, 0u, 24, -1, -1, 0},
-    {{1028759507u, 1028442418u, 1028442418u}, 1226u, 0u, 26, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1224u, 0u, 12, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1225u, 0u, 16, -1, -1, 0},
+    {{2764320258u, 1028442418u, 1028442418u}, 1226u, 0u, 20, -1, -1, 0},
+    {{1028759507u, 1028442418u, 1028442418u}, 1227u, 0u, 24, -1, -1, 0},
+    {{1028759507u, 1028442418u, 1028442418u}, 1228u, 0u, 26, -1, -1, 0},
 };
 
 static const SnoTypeDef kTypes[704] = {
@@ -7374,7 +7377,7 @@ static const SnoTypeDef kTypes[704] = {
     {3982380u, 0u, 16u, 0u, 2157u, 2u, 0u}, // ItemLevelModTable
     {8570781u, 0u, 240u, 0u, 487u, 28u, 0u}, // BannerParams
     {14920844u, 0u, 72u, 0u, 4971u, 6u, 0u}, // legacy.MaterialColors
-    {30473231u, 0u, 24u, 0u, 5013u, 3u, 0u}, // legacy.OctreeLeaf
+    {30473231u, 0u, 24u, 0u, 5014u, 3u, 0u}, // legacy.OctreeLeaf
     {33966775u, 0u, 36u, 0u, 4334u, 11u, 0u}, // VertexSkinCPos
     {36554032u, 0u, 36u, 0u, 4176u, 9u, 0u}, // TriggerConditions
     {45097059u, 0u, 4780u, 0u, 3198u, 13u, 0u}, // PlayerSavedData
@@ -7399,11 +7402,11 @@ static const SnoTypeDef kTypes[704] = {
     {130356116u, 0u, 16u, 0u, 1776u, 2u, 0u}, // Hirelings
     {138132583u, 0u, 16u, 0u, 2266u, 2u, 0u}, // LegacyItemConversionTable
     {151293332u, 0u, 408u, 0u, 4572u, 35u, 0u}, // legacy.AnimPermutation
-    {155053454u, 0u, 24u, 0u, 5176u, 2u, 0u}, // legacy.RotationCurve
-    {159041264u, 0u, 248u, 0u, 5238u, 5u, 0u}, // legacy.SubObjectAppearance
+    {155053454u, 0u, 24u, 0u, 5177u, 2u, 0u}, // legacy.RotationCurve
+    {159041264u, 0u, 248u, 0u, 5239u, 5u, 0u}, // legacy.SubObjectAppearance
     {169605047u, 0u, 24u, 0u, 4265u, 4u, 0u}, // UIControlAnimationBinding
     {175404942u, 0u, 64u, 0u, 4966u, 1u, 0u}, // legacy.LookLink
-    {185813949u, 0u, 12u, 0u, 5264u, 3u, 0u}, // legacy.TagMapEntry
+    {185813949u, 0u, 12u, 0u, 5265u, 3u, 0u}, // legacy.TagMapEntry
     {191316239u, 0u, 16u, 0u, 2159u, 4u, 0u}, // ItemSalvageLevel
     {195476645u, 0u, 32u, 0u, 3372u, 4u, 0u}, // PreloadSceneDataMessage
     {197411873u, 0u, 16u, 0u, 2174u, 4u, 0u}, // ItemSubcondition
@@ -7419,7 +7422,7 @@ static const SnoTypeDef kTypes[704] = {
     {249729356u, 0u, 76u, 0u, 59u, 8u, 0u}, // ACDTranslateDetPathPieWedgeMessage
     {257480541u, 0u, 160u, 0u, 3546u, 7u, 0u}, // RareMonsterNamesEntry
     {258205086u, 0u, 16u, 0u, 1171u, 2u, 0u}, // ExperienceTableAlt
-    {260986738u, 0u, 24u, 0u, 5367u, 3u, 0u}, // legacy.VertInfluences
+    {260986738u, 0u, 24u, 0u, 5368u, 3u, 0u}, // legacy.VertInfluences
     {276216636u, 0u, 12u, 0u, 543u, 1u, 0u}, // BoolDataMessage
     {277734671u, 0u, 236u, 0u, 724u, 24u, 0u}, // ConstraintParameters
     {287451914u, 0u, 68u, 0u, 4936u, 2u, 0u}, // legacy.HardpointLink
@@ -7444,7 +7447,7 @@ static const SnoTypeDef kTypes[704] = {
     {374052350u, 0u, 16u, 0u, 3532u, 4u, 0u}, // RandomMusicSoundParams
     {389683074u, 0u, 12u, 0u, 1785u, 3u, 0u}, // IndexedTriangle
     {390180609u, 0u, 72u, 0u, 1763u, 9u, 0u}, // HirelingInfoUpdateMessage
-    {396369046u, 0u, 104u, 0u, 5096u, 9u, 0u}, // legacy.ParticleColorSet
+    {396369046u, 0u, 104u, 0u, 5097u, 9u, 0u}, // legacy.ParticleColorSet
     {409214062u, 0u, 1040u, 0u, 4364u, 2u, 0u}, // VoteKickMessage
     {411326725u, 0u, 160u, 0u, 4985u, 16u, 0u}, // legacy.MaterialTextureEntry
     {411536065u, 0u, 24u, 0u, 910u, 0u, 0u}, // DspEffect
@@ -7467,17 +7470,17 @@ static const SnoTypeDef kTypes[704] = {
     {521202679u, 0u, 48u, 0u, 4494u, 2u, 0u}, // legacy.AccelVectorPath
     {526680070u, 0u, 696u, 0u, 1815u, 119u, 0u}, // Item
     {534635533u, 0u, 200u, 0u, 2483u, 10u, 0u}, // MarkerSet
-    {539790366u, 0u, 16u, 0u, 5011u, 2u, 0u}, // legacy.OctreeCube
+    {539790366u, 0u, 16u, 0u, 5012u, 2u, 0u}, // legacy.OctreeCube
     {542938830u, 0u, 136u, 0u, 4345u, 8u, 0u}, // Vibrations
     {543478059u, 0u, 16u, 0u, 3152u, 3u, 0u}, // PlayerDWordDataMessage
     {566771393u, 0u, 24u, 0u, 4077u, 6u, 0u}, // TextureStageParams
-    {573416248u, 0u, 16u, 0u, 5206u, 2u, 0u}, // legacy.Sphere
+    {573416248u, 0u, 16u, 0u, 5207u, 2u, 0u}, // legacy.Sphere
     {588181967u, 0u, 88u, 0u, 1266u, 18u, 0u}, // FontPointSizeData
     {597699105u, 0u, 156u, 0u, 3171u, 2u, 0u}, // PlayerLoadoutEquipResultsMessage
     {601507180u, 0u, 28u, 0u, 597u, 3u, 0u}, // Capsule
     {603368934u, 0u, 120u, 0u, 948u, 9u, 0u}, // EffectGroup
     {604060222u, 0u, 128u, 0u, 3118u, 5u, 0u}, // PlayConvLineMessage
-    {606314721u, 0u, 48u, 0u, 5355u, 2u, 0u}, // legacy.VectorPath
+    {606314721u, 0u, 48u, 0u, 5356u, 2u, 0u}, // legacy.VectorPath
     {607574605u, 0u, 12u, 0u, 690u, 3u, 0u}, // ColorNode
     {610850932u, 0u, 44u, 0u, 4353u, 4u, 0u}, // VictimMessage
     {618534519u, 0u, 24u, 0u, 108u, 3u, 0u}, // ACDTranslateStoppedMessage
@@ -7501,7 +7504,7 @@ static const SnoTypeDef kTypes[704] = {
     {723191600u, 0u, 48u, 0u, 1797u, 3u, 0u}, // IntPath
     {734156300u, 0u, 220u, 0u, 3785u, 19u, 0u}, // SceneSpecification
     {736340097u, 0u, 12u, 0u, 4131u, 3u, 0u}, // TimeNode
-    {737526547u, 0u, 16u, 0u, 5394u, 7u, 0u}, // legacy.dmMeshNode
+    {737526547u, 0u, 16u, 0u, 5395u, 7u, 0u}, // legacy.dmMeshNode
     {740092543u, 0u, 8u, 0u, 1324u, 1u, 0u}, // GameErrorData
     {748724381u, 0u, 8u, 0u, 464u, 2u, 0u}, // AssetListEntry
     {752403026u, 0u, 96u, 0u, 3578u, 24u, 0u}, // RenderParams
@@ -7525,21 +7528,21 @@ static const SnoTypeDef kTypes[704] = {
     {862790969u, 0u, 96u, 0u, 3563u, 11u, 0u}, // RecipeEntry
     {865958282u, 0u, 18372u, 0u, 1726u, 6u, 0u}, // HeroStateData
     {868204027u, 0u, 40u, 0u, 111u, 3u, 0u}, // ACDTranslateSyncMessage
-    {877310753u, 0u, 296u, 0u, 5200u, 6u, 0u}, // legacy.Shaders
+    {877310753u, 0u, 296u, 0u, 5201u, 6u, 0u}, // legacy.Shaders
     {882164163u, 0u, 48u, 0u, 1222u, 3u, 0u}, // FloatPath
     {887825935u, 0u, 28u, 0u, 854u, 3u, 0u}, // Cylinder
     {890010351u, 0u, 72u, 0u, 3561u, 2u, 0u}, // Recipe
     {890635802u, 0u, 44u, 0u, 3360u, 3u, 0u}, // PrefetchActorDataMessage
     {895621382u, 0u, 12u, 0u, 595u, 2u, 0u}, // ByteDataMessage
     {909486470u, 0u, 624u, 0u, 2317u, 11u, 0u}, // LightStateParams
-    {924528641u, 0u, 28u, 0u, 5362u, 3u, 0u}, // legacy.VelocityVectorNode
+    {924528641u, 0u, 28u, 0u, 5363u, 3u, 0u}, // legacy.VelocityVectorNode
     {928450839u, 0u, 40u, 0u, 4239u, 5u, 0u}, // UIAnimationDescription
     {929370775u, 0u, 16u, 0u, 981u, 3u, 0u}, // EnchantAffixMessage
     {948307106u, 0u, 28u, 0u, 4810u, 5u, 0u}, // legacy.ClothFace
     {953124121u, 0u, 24u, 0u, 3772u, 3u, 0u}, // SceneClusterSet
     {954756847u, 0u, 2336u, 0u, 3623u, 11u, 0u}, // RevealSceneMessage
     {960394881u, 0u, 224u, 0u, 3602u, 18u, 0u}, // RenderPass
-    {966329728u, 0u, 12u, 0u, 5295u, 3u, 0u}, // legacy.TimeNode
+    {966329728u, 0u, 12u, 0u, 5296u, 3u, 0u}, // legacy.TimeNode
     {969465851u, 0u, 904u, 0u, 1936u, 221u, 0u}, // ItemDropTableEntry
     {975911589u, 0u, 632u, 0u, 4083u, 26u, 0u}, // Textures
     {977247701u, 0u, 28u, 0u, 150u, 3u, 0u}, // AccelVectorNode
@@ -7576,7 +7579,7 @@ static const SnoTypeDef kTypes[704] = {
     {1157248717u, 0u, 16u, 0u, 986u, 2u, 0u}, // EnchantItemAffixUseCountCostScalarsTable
     {1171854123u, 0u, 8u, 0u, 4060u, 2u, 0u}, // SubSceneLabel
     {1176545671u, 0u, 1016u, 0u, 1494u, 144u, 0u}, // Globals
-    {1180449286u, 0u, 8u, 0u, 5126u, 4u, 0u}, // legacy.Quaternion16
+    {1180449286u, 0u, 8u, 0u, 5127u, 4u, 0u}, // legacy.Quaternion16
     {1189222122u, 0u, 16u, 0u, 4470u, 7u, 0u}, // dmMeshNode
     {1190824931u, 0u, 16u, 0u, 462u, 2u, 0u}, // AssetList
     {1192581110u, 0u, 4u, 0u, 594u, 1u, 0u}, // ButtonBinding
@@ -7634,11 +7637,11 @@ static const SnoTypeDef kTypes[704] = {
     {1552568673u, 0u, 0u, 0u, 3907u, 0u, 0u}, // SocketedEffectsTableEntry
     {1552967300u, 0u, 300u, 0u, 4669u, 8u, 0u}, // legacy.AnimTreeNode
     {1559869807u, 0u, 76u, 0u, 217u, 7u, 0u}, // ActorCollisionData
-    {1565094158u, 0u, 12u, 0u, 5357u, 3u, 0u}, // legacy.VelocityNode
+    {1565094158u, 0u, 12u, 0u, 5358u, 3u, 0u}, // legacy.VelocityNode
     {1569348362u, 0u, 24u, 0u, 394u, 6u, 0u}, // AnimTreeBlendRamp
     {1571144799u, 0u, 8u, 0u, 3723u, 2u, 0u}, // SNOName
-    {1572527989u, 0u, 36u, 0u, 5309u, 9u, 0u}, // legacy.TriggerConditions
-    {1576398279u, 0u, 24u, 0u, 5305u, 2u, 0u}, // legacy.TranslationCurve
+    {1572527989u, 0u, 36u, 0u, 5310u, 9u, 0u}, // legacy.TriggerConditions
+    {1576398279u, 0u, 24u, 0u, 5306u, 2u, 0u}, // legacy.TranslationCurve
     {1578181840u, 0u, 128u, 0u, 4822u, 12u, 0u}, // legacy.ClothStructure
     {1578281345u, 0u, 16u, 0u, 2163u, 2u, 0u}, // ItemSalvageLevelTable
     {1578578713u, 0u, 20u, 0u, 914u, 2u, 0u}, // DuelResultMessage
@@ -7679,21 +7682,21 @@ static const SnoTypeDef kTypes[704] = {
     {1872242411u, 0u, 168u, 0u, 3214u, 4u, 0u}, // PlayerSavedQuest
     {1872449637u, 0u, 16u, 0u, 3557u, 2u, 0u}, // RareMonsterNamesTable
     {1910506715u, 0u, 18664u, 0u, 2926u, 14u, 0u}, // NewPlayerMessage
-    {1911481409u, 0u, 12u, 0u, 5387u, 3u, 0u}, // legacy.dmFloat3
+    {1911481409u, 0u, 12u, 0u, 5388u, 3u, 0u}, // legacy.dmFloat3
     {1912544178u, 0u, 12u, 0u, 4982u, 3u, 0u}, // legacy.MaterialTextureAnim
     {1922563316u, 0u, 56u, 0u, 3852u, 7u, 0u}, // Shaders
     {1922958069u, 0u, 544u, 0u, 247u, 41u, 0u}, // AffixTableEntry
     {1923893407u, 0u, 12u, 0u, 306u, 3u, 0u}, // AngularVelocityNode
     {1924758578u, 0u, 96u, 0u, 4933u, 3u, 0u}, // legacy.Hardpoint
-    {1928259028u, 0u, 16u, 0u, 5390u, 4u, 0u}, // legacy.dmFloat4
-    {1938003686u, 0u, 12u, 0u, 5178u, 2u, 0u}, // legacy.RotationKey
+    {1928259028u, 0u, 16u, 0u, 5391u, 4u, 0u}, // legacy.dmFloat4
+    {1938003686u, 0u, 12u, 0u, 5179u, 2u, 0u}, // legacy.RotationKey
     {1943505568u, 0u, 16u, 0u, 4148u, 3u, 0u}, // TransmogItemMessage
     {1946609037u, 0u, 16u, 0u, 4122u, 2u, 0u}, // TieredLootRunLevelTable
     {1953401733u, 0u, 88u, 0u, 81u, 10u, 0u}, // ACDTranslateDetPathSpiralMessage
-    {1961062370u, 0u, 48u, 0u, 5365u, 2u, 0u}, // legacy.VelocityVectorPath
+    {1961062370u, 0u, 48u, 0u, 5366u, 2u, 0u}, // legacy.VelocityVectorPath
     {1973475614u, 0u, 48u, 0u, 693u, 3u, 0u}, // ColorPath
-    {1984122524u, 0u, 40u, 0u, 5256u, 5u, 0u}, // legacy.Surface
-    {1986361755u, 0u, 16u, 0u, 5307u, 2u, 0u}, // legacy.TranslationKey
+    {1984122524u, 0u, 40u, 0u, 5257u, 5u, 0u}, // legacy.Surface
+    {1986361755u, 0u, 16u, 0u, 5308u, 2u, 0u}, // legacy.TranslationKey
     {1990844444u, 0u, 24u, 0u, 3125u, 3u, 0u}, // PlayHitEffectMessage
     {1991041538u, 0u, 44u, 0u, 4917u, 9u, 0u}, // legacy.FatVertex
     {1993331671u, 0u, 24u, 0u, 2222u, 4u, 0u}, // KillCountMessage
@@ -7721,12 +7724,12 @@ static const SnoTypeDef kTypes[704] = {
     {2164087263u, 0u, 704u, 0u, 3007u, 77u, 0u}, // Particle
     {2166559970u, 0u, 16u, 0u, 964u, 2u, 0u}, // EliteModifiers
     {2171312336u, 0u, 128u, 0u, 1139u, 30u, 0u}, // ExperienceLevelAlt
-    {2183850897u, 0u, 48u, 0u, 5360u, 2u, 0u}, // legacy.VelocityPath
-    {2185251270u, 0u, 12u, 0u, 5194u, 3u, 0u}, // legacy.ShaderMapEntry
+    {2183850897u, 0u, 48u, 0u, 5361u, 2u, 0u}, // legacy.VelocityPath
+    {2185251270u, 0u, 12u, 0u, 5195u, 3u, 0u}, // legacy.ShaderMapEntry
     {2188649346u, 0u, 4u, 0u, 2830u, 1u, 0u}, // MonsterSubcondition
-    {2190484658u, 0u, 12u, 0u, 5261u, 3u, 0u}, // legacy.SurfaceTagMapEntry
+    {2190484658u, 0u, 12u, 0u, 5262u, 3u, 0u}, // legacy.SurfaceTagMapEntry
     {2195616954u, 0u, 16u, 0u, 892u, 3u, 0u}, // DestroySceneMessage
-    {2196405910u, 0u, 12u, 0u, 5197u, 3u, 0u}, // legacy.ShaderTagMapEntry
+    {2196405910u, 0u, 12u, 0u, 5198u, 3u, 0u}, // legacy.ShaderTagMapEntry
     {2199331287u, 0u, 68u, 0u, 326u, 2u, 0u}, // Anim2DFrame
     {2215649963u, 0u, 12u, 0u, 591u, 3u, 0u}, // BuffSubcondition
     {2237236505u, 0u, 16u, 0u, 4160u, 2u, 0u}, // TransmuteRecipesTable
@@ -7753,7 +7756,7 @@ static const SnoTypeDef kTypes[704] = {
     {2352926617u, 0u, 16u, 0u, 24u, 3u, 0u}, // ACDInventoryUpdateActorSNO
     {2355639082u, 0u, 8u, 0u, 3187u, 2u, 0u}, // PlayerQuestHistoryEntry
     {2364973583u, 0u, 52u, 0u, 895u, 13u, 0u}, // DifficultyTuningParams
-    {2372000517u, 0u, 92u, 0u, 5208u, 15u, 0u}, // legacy.StaticLight
+    {2372000517u, 0u, 92u, 0u, 5209u, 15u, 0u}, // legacy.StaticLight
     {2372400066u, 0u, 8u, 0u, 1284u, 1u, 0u}, // GBHandle
     {2397713599u, 0u, 56u, 0u, 1284u, 0u, 0u}, // FrameAnim
     {2397897600u, 0u, 68u, 0u, 515u, 2u, 0u}, // BannerSigilPlacement
@@ -7808,7 +7811,7 @@ static const SnoTypeDef kTypes[704] = {
     {2707951965u, 0u, 12u, 0u, 1792u, 2u, 0u}, // IntDataMessage
     {2708611599u, 0u, 80u, 0u, 3756u, 7u, 0u}, // SceneCachedValues
     {2715163565u, 0u, 728u, 0u, 3267u, 15u, 0u}, // PowerDef
-    {2716401216u, 0u, 24u, 0u, 5289u, 6u, 0u}, // legacy.TextureStageParams
+    {2716401216u, 0u, 24u, 0u, 5290u, 6u, 0u}, // legacy.TextureStageParams
     {2719163142u, 0u, 24u, 0u, 2226u, 3u, 0u}, // LabelCondition
     {2723081785u, 0u, 8u, 0u, 2988u, 2u, 0u}, // OctreePrimitive
     {2725218023u, 0u, 864u, 0u, 2273u, 6u, 0u}, // LevelAreaServerData
@@ -7826,7 +7829,7 @@ static const SnoTypeDef kTypes[704] = {
     {2807628004u, 0u, 160u, 0u, 2918u, 8u, 0u}, // NetGameAdvert
     {2809814704u, 0u, 216u, 0u, 1227u, 17u, 0u}, // Font
     {2814919630u, 0u, 20u, 0u, 838u, 4u, 0u}, // CraftingResultsMessage
-    {2834275231u, 0u, 28u, 0u, 5401u, 8u, 0u}, // legacy.dmMeshTriangle
+    {2834275231u, 0u, 28u, 0u, 5402u, 8u, 0u}, // legacy.dmMeshTriangle
     {2846788962u, 0u, 48u, 0u, 656u, 3u, 0u}, // CollisionCapsule
     {2874139228u, 0u, 400u, 0u, 2995u, 10u, 0u}, // ParagonBonus
     {2895112594u, 0u, 24u, 0u, 3826u, 4u, 0u}, // ScriptedAchievementEvent
@@ -7850,7 +7853,7 @@ static const SnoTypeDef kTypes[704] = {
     {3021982825u, 0u, 80u, 0u, 674u, 12u, 0u}, // CollisionShape
     {3024739418u, 0u, 448u, 0u, 186u, 31u, 0u}, // Actor
     {3029696550u, 0u, 136u, 0u, 791u, 26u, 0u}, // ConversationTreeNode
-    {3040971521u, 0u, 412u, 0u, 5001u, 1u, 0u}, // legacy.MsgTriggeredEvent
+    {3040971521u, 0u, 412u, 0u, 5001u, 2u, 0u}, // legacy.MsgTriggeredEvent
     {3064753297u, 0u, 12u, 0u, 3893u, 3u, 0u}, // SkillSubcondition
     {3079925279u, 0u, 12u, 0u, 4651u, 3u, 0u}, // legacy.AnimTreeBlendCase
     {3082013237u, 0u, 40u, 0u, 916u, 3u, 0u}, // DungeonFinder
@@ -7863,7 +7866,7 @@ static const SnoTypeDef kTypes[704] = {
     {3144683154u, 0u, 40u, 0u, 849u, 5u, 0u}, // CustomTileInfo
     {3147516484u, 0u, 56u, 0u, 456u, 6u, 0u}, // AppearanceSamplingSubgrid
     {3166429728u, 0u, 8u, 0u, 3574u, 2u, 0u}, // RecipeIngredient
-    {3171842603u, 0u, 72u, 0u, 5002u, 9u, 0u}, // legacy.Octree
+    {3171842603u, 0u, 72u, 0u, 5003u, 9u, 0u}, // legacy.Octree
     {3174381931u, 0u, 40u, 0u, 3710u, 4u, 0u}, // RopeEffectMessageACDToPlace
     {3177845780u, 0u, 32u, 0u, 2289u, 7u, 0u}, // LevelAreaSpawnItem
     {3185871708u, 0u, 8u, 0u, 1225u, 2u, 0u}, // FollowerSubcondition
@@ -7878,10 +7881,10 @@ static const SnoTypeDef kTypes[704] = {
     {3234632084u, 0u, 28u, 0u, 4318u, 3u, 0u}, // VelocityVectorNode
     {3237617172u, 0u, 16u, 0u, 3150u, 2u, 0u}, // PlayerActorSetInitialMessage
     {3256077501u, 0u, 16u, 0u, 4466u, 4u, 0u}, // dmFloat4
-    {3260058410u, 0u, 400u, 0u, 5223u, 15u, 0u}, // legacy.SubObject
+    {3260058410u, 0u, 400u, 0u, 5224u, 15u, 0u}, // legacy.SubObject
     {3260253668u, 0u, 64u, 0u, 4701u, 1u, 0u}, // legacy.AppearanceLook
     {3275214734u, 0u, 136u, 0u, 4157u, 0u, 0u}, // TransmuteRecipe
-    {3278054385u, 0u, 408u, 0u, 5318u, 31u, 0u}, // legacy.TriggerEvent
+    {3278054385u, 0u, 408u, 0u, 5319u, 31u, 0u}, // legacy.TriggerEvent
     {3278356045u, 0u, 32u, 0u, 1215u, 2u, 0u}, // FlagSet
     {3289150021u, 0u, 1212u, 0u, 3194u, 2u, 0u}, // PlayerQuestRewardHistoryUpdateMessage
     {3290469179u, 0u, 16u, 0u, 2981u, 2u, 0u}, // OctreeCube
@@ -7910,11 +7913,11 @@ static const SnoTypeDef kTypes[704] = {
     {3422454455u, 0u, 40u, 0u, 1648u, 3u, 0u}, // Hardpoint
     {3423234123u, 0u, 36u, 0u, 4433u, 3u, 0u}, // WorldLocationMessageData
     {3433242718u, 0u, 1240u, 0u, 704u, 0u, 0u}, // Condition
-    {3437161580u, 0u, 104u, 0u, 5349u, 3u, 0u}, // legacy.UberMaterial
+    {3437161580u, 0u, 104u, 0u, 5350u, 3u, 0u}, // legacy.UberMaterial
     {3447440877u, 0u, 4u, 0u, 448u, 1u, 0u}, // AppearanceLook
     {3455128870u, 0u, 12u, 0u, 1655u, 3u, 0u}, // HealthDropInfo
     {3470874447u, 0u, 48u, 0u, 4549u, 2u, 0u}, // legacy.AnglePath
-    {3471454688u, 0u, 24u, 0u, 5182u, 2u, 0u}, // legacy.ScaleCurve
+    {3471454688u, 0u, 24u, 0u, 5183u, 2u, 0u}, // legacy.ScaleCurve
     {3483730410u, 0u, 56u, 0u, 2279u, 10u, 0u}, // LevelAreaSpawnGroup
     {3484490910u, 0u, 32u, 0u, 2178u, 8u, 0u}, // ItemTierData
     {3487674215u, 0u, 664u, 0u, 2591u, 156u, 0u}, // MonsterAffixesEntry
@@ -7926,35 +7929,35 @@ static const SnoTypeDef kTypes[704] = {
     {3539992584u, 0u, 480u, 0u, 4607u, 31u, 0u}, // legacy.AnimSet
     {3539992585u, 0u, 536u, 0u, 4704u, 39u, 0u}, // legacy.Appearances
     {3539992587u, 0u, 100u, 0u, 4783u, 21u, 0u}, // legacy.Cloth
-    {3539992603u, 0u, 2296u, 0u, 5032u, 64u, 0u}, // legacy.Particle
-    {3539992604u, 0u, 68u, 0u, 5111u, 15u, 0u}, // legacy.Physics
-    {3539992605u, 0u, 48u, 0u, 5106u, 5u, 0u}, // legacy.PhysMesh
-    {3539992607u, 0u, 32u, 0u, 5191u, 3u, 0u}, // legacy.ShaderMap
+    {3539992603u, 0u, 2296u, 0u, 5033u, 64u, 0u}, // legacy.Particle
+    {3539992604u, 0u, 68u, 0u, 5112u, 15u, 0u}, // legacy.Physics
+    {3539992605u, 0u, 48u, 0u, 5107u, 5u, 0u}, // legacy.PhysMesh
+    {3539992607u, 0u, 32u, 0u, 5192u, 3u, 0u}, // legacy.ShaderMap
     {3539992632u, 0u, 96u, 0u, 4641u, 10u, 0u}, // legacy.AnimTree
     {3539992633u, 0u, 136u, 0u, 4967u, 4u, 0u}, // legacy.Material
-    {3539992644u, 0u, 608u, 0u, 5267u, 16u, 0u}, // legacy.Texture
+    {3539992644u, 0u, 608u, 0u, 5268u, 16u, 0u}, // legacy.Texture
     {3539993001u, 0u, 312u, 0u, 4746u, 22u, 0u}, // legacy.BoneEntry
-    {3539993002u, 0u, 32u, 0u, 5027u, 3u, 0u}, // legacy.PRSTransform
+    {3539993002u, 0u, 32u, 0u, 5028u, 3u, 0u}, // legacy.PRSTransform
     {3539993003u, 0u, 144u, 0u, 4977u, 5u, 0u}, // legacy.MaterialEntry
-    {3539993004u, 0u, 400u, 0u, 5243u, 13u, 0u}, // legacy.SubmeshEntry
+    {3539993004u, 0u, 400u, 0u, 5244u, 13u, 0u}, // legacy.SubmeshEntry
     {3539993005u, 0u, 64u, 0u, 4965u, 1u, 0u}, // legacy.LookEntry
-    {3539993006u, 0u, 96u, 0u, 5130u, 4u, 0u}, // legacy.ReferencePoint
+    {3539993006u, 0u, 96u, 0u, 5131u, 4u, 0u}, // legacy.ReferencePoint
     {3539993007u, 0u, 104u, 0u, 4845u, 3u, 0u}, // legacy.CollisionCapsule
-    {3539993008u, 0u, 44u, 0u, 5370u, 9u, 0u}, // legacy.Vertex
-    {3539993009u, 0u, 24u, 0u, 5379u, 6u, 0u}, // legacy.VertexWeight
+    {3539993008u, 0u, 44u, 0u, 5371u, 9u, 0u}, // legacy.Vertex
+    {3539993009u, 0u, 24u, 0u, 5380u, 6u, 0u}, // legacy.VertexWeight
     {3539993010u, 0u, 120u, 0u, 4677u, 24u, 0u}, // legacy.AppMaterialDataBlock
-    {3539993011u, 0u, 160u, 0u, 5283u, 6u, 0u}, // legacy.TextureEntry
+    {3539993011u, 0u, 160u, 0u, 5284u, 6u, 0u}, // legacy.TextureEntry
     {3539993012u, 0u, 68u, 0u, 4544u, 2u, 0u}, // legacy.ActorLookSlot
     {3539993013u, 0u, 12u, 0u, 4563u, 3u, 0u}, // legacy.AnimEntry
-    {3539993014u, 0u, 16u, 0u, 5300u, 2u, 0u}, // legacy.TranslKeyframe
-    {3539993015u, 0u, 12u, 0u, 5168u, 5u, 0u}, // legacy.RotKeyframe
-    {3539993016u, 0u, 8u, 0u, 5186u, 2u, 0u}, // legacy.ScaleKeyframe
-    {3539993017u, 0u, 24u, 0u, 5302u, 3u, 0u}, // legacy.TranslTrackDesc
-    {3539993018u, 0u, 24u, 0u, 5173u, 3u, 0u}, // legacy.RotTrackDesc
-    {3539993019u, 0u, 24u, 0u, 5188u, 3u, 0u}, // legacy.ScaleTrackDesc
+    {3539993014u, 0u, 16u, 0u, 5301u, 2u, 0u}, // legacy.TranslKeyframe
+    {3539993015u, 0u, 12u, 0u, 5169u, 5u, 0u}, // legacy.RotKeyframe
+    {3539993016u, 0u, 8u, 0u, 5187u, 2u, 0u}, // legacy.ScaleKeyframe
+    {3539993017u, 0u, 24u, 0u, 5303u, 3u, 0u}, // legacy.TranslTrackDesc
+    {3539993018u, 0u, 24u, 0u, 5174u, 3u, 0u}, // legacy.RotTrackDesc
+    {3539993019u, 0u, 24u, 0u, 5189u, 3u, 0u}, // legacy.ScaleTrackDesc
     {3539993020u, 0u, 412u, 0u, 4566u, 6u, 0u}, // legacy.AnimLookEntry
     {3539993021u, 0u, 64u, 0u, 4769u, 1u, 0u}, // legacy.BoneNameEntry
-    {3539993022u, 0u, 12u, 0u, 5105u, 1u, 0u}, // legacy.PerFrameEntry
+    {3539993022u, 0u, 12u, 0u, 5106u, 1u, 0u}, // legacy.PerFrameEntry
     {3544697871u, 0u, 8u, 0u, 4246u, 2u, 0u}, // UIAnimationElementInt32
     {3545157779u, 0u, 16u, 0u, 2815u, 2u, 0u}, // MonsterLevelTable
     {3557303753u, 0u, 8u, 0u, 1788u, 2u, 0u}, // Influence
@@ -7966,7 +7969,7 @@ static const SnoTypeDef kTypes[704] = {
     {3635730838u, 0u, 96u, 0u, 2188u, 17u, 0u}, // ItemType
     {3656434501u, 0u, 196u, 0u, 2216u, 4u, 0u}, // JoinLANGameMessage
     {3670415631u, 0u, 16u, 0u, 4284u, 2u, 0u}, // UIDataElementInt32
-    {3670990058u, 0u, 8u, 0u, 5180u, 2u, 0u}, // legacy.SNOName
+    {3670990058u, 0u, 8u, 0u, 5181u, 2u, 0u}, // legacy.SNOName
     {3675108999u, 0u, 20u, 0u, 957u, 4u, 0u}, // EffectGroupACDToACDMessage
     {3677367897u, 0u, 24u, 0u, 165u, 4u, 0u}, // ActStartLocOverride
     {3690557699u, 0u, 2324u, 0u, 3196u, 2u, 0u}, // PlayerSavedConversationsUpdateMessage
@@ -7985,16 +7988,16 @@ static const SnoTypeDef kTypes[704] = {
     {3748002306u, 0u, 48u, 0u, 2986u, 2u, 0u}, // OctreeNode
     {3749654910u, 0u, 16u, 0u, 686u, 4u, 0u}, // ColorCorrectionParams
     {3754710252u, 0u, 72u, 0u, 881u, 9u, 0u}, // DataElements
-    {3755804984u, 0u, 8u, 0u, 5184u, 2u, 0u}, // legacy.ScaleKey
+    {3755804984u, 0u, 8u, 0u, 5185u, 2u, 0u}, // legacy.ScaleKey
     {3761649711u, 0u, 16u, 0u, 2205u, 2u, 0u}, // Items
     {3769425528u, 0u, 144u, 0u, 4436u, 13u, 0u}, // WorldServerData
     {3774698905u, 0u, 128u, 0u, 817u, 13u, 0u}, // ConvexHull
     {3785100849u, 0u, 4u, 0u, 4357u, 1u, 0u}, // VisualCosmeticItem
     {3789463416u, 0u, 96u, 0u, 379u, 12u, 0u}, // AnimTree
-    {3798377769u, 0u, 28u, 0u, 5030u, 2u, 0u}, // legacy.PRTransform
+    {3798377769u, 0u, 28u, 0u, 5031u, 2u, 0u}, // legacy.PRTransform
     {3803559364u, 0u, 24u, 0u, 4138u, 2u, 0u}, // TimedEventStartedMessage
     {3803875706u, 0u, 96u, 0u, 288u, 12u, 0u}, // AmbientSound
-    {3824276755u, 0u, 68u, 0u, 5385u, 2u, 0u}, // legacy.WeightedLook
+    {3824276755u, 0u, 68u, 0u, 5386u, 2u, 0u}, // legacy.WeightedLook
     {3825803463u, 0u, 48u, 0u, 4321u, 3u, 0u}, // VelocityVectorPath
     {3837453381u, 0u, 16u, 0u, 1778u, 3u, 0u}, // HotbarButtonData
     {3841782641u, 0u, 144u, 0u, 630u, 19u, 0u}, // ClothStructure
@@ -8002,7 +8005,7 @@ static const SnoTypeDef kTypes[704] = {
     {3859125982u, 0u, 28u, 0u, 861u, 7u, 0u}, // DPathSinData
     {3863972696u, 0u, 12u, 0u, 3718u, 2u, 0u}, // SNODataMessage
     {3866706884u, 0u, 12u, 0u, 4546u, 3u, 0u}, // legacy.AngleNode
-    {3871515291u, 0u, 48u, 0u, 5016u, 9u, 0u}, // legacy.OctreeNode
+    {3871515291u, 0u, 48u, 0u, 5017u, 9u, 0u}, // legacy.OctreeNode
     {3872217726u, 0u, 104u, 0u, 3896u, 9u, 0u}, // SkinningInfo
     {3877480008u, 0u, 16u, 0u, 3576u, 2u, 0u}, // RecipesTable
     {3880872839u, 0u, 192u, 0u, 2220u, 2u, 0u}, // KeyframedAttachment
@@ -8014,7 +8017,7 @@ static const SnoTypeDef kTypes[704] = {
     {3902601483u, 0u, 12u, 0u, 4309u, 3u, 0u}, // VelocityNode
     {3904007402u, 0u, 12u, 0u, 4422u, 2u, 0u}, // WeightedLook
     {3910717227u, 0u, 16u, 0u, 4071u, 1u, 0u}, // SwapSkillsMessage
-    {3912706827u, 0u, 96u, 0u, 5134u, 23u, 0u}, // legacy.RenderParams
+    {3912706827u, 0u, 96u, 0u, 5135u, 23u, 0u}, // legacy.RenderParams
     {3935076476u, 0u, 240u, 0u, 2755u, 60u, 0u}, // MonsterLevelDefinition
     {3936513194u, 0u, 16u, 0u, 2251u, 2u, 0u}, // Labels
     {3942091805u, 0u, 12u, 0u, 4157u, 3u, 0u}, // TransmuteRecipeIngredient
@@ -8022,9 +8025,9 @@ static const SnoTypeDef kTypes[704] = {
     {3946750616u, 0u, 16u, 0u, 2882u, 2u, 0u}, // NPCInteraction
     {3948310671u, 0u, 12u, 0u, 1326u, 2u, 0u}, // GameSetupMessage
     {3949492125u, 0u, 48u, 0u, 2207u, 6u, 0u}, // JoinBNetGameMessage
-    {3951545566u, 0u, 28u, 0u, 5352u, 3u, 0u}, // legacy.VectorNode
+    {3951545566u, 0u, 28u, 0u, 5353u, 3u, 0u}, // legacy.VectorNode
     {3953993291u, 0u, 480u, 0u, 4909u, 3u, 0u}, // legacy.EffectItem
-    {3955237907u, 0u, 48u, 0u, 5298u, 2u, 0u}, // legacy.TimePath
+    {3955237907u, 0u, 48u, 0u, 5299u, 2u, 0u}, // legacy.TimePath
     {3958259042u, 0u, 16u, 0u, 4296u, 2u, 0u}, // UInt64DataMessage
     {3971472312u, 0u, 24u, 0u, 469u, 3u, 0u}, // AssignSkillMessage
     {3976822401u, 0u, 6u, 0u, 703u, 1u, 0u}, // CompVertInfluences
@@ -8050,7 +8053,7 @@ static const SnoTypeDef kTypes[704] = {
     {4124038219u, 0u, 8u, 0u, 2481u, 2u, 0u}, // MarkerLink
     {4124960056u, 0u, 12u, 0u, 1219u, 3u, 0u}, // FloatNode
     {4131943181u, 0u, 168u, 0u, 9u, 7u, 0u}, // ACDEnterKnownMessage
-    {4132159360u, 0u, 568u, 0u, 5157u, 11u, 0u}, // legacy.RenderPass
+    {4132159360u, 0u, 568u, 0u, 5158u, 11u, 0u}, // legacy.RenderPass
     {4136868595u, 0u, 24u, 0u, 449u, 4u, 0u}, // AppearanceMaterial
     {4140729804u, 0u, 12u, 0u, 4248u, 2u, 0u}, // UIAnimationElementVector2D
     {4153312855u, 0u, 16u, 0u, 2186u, 2u, 0u}, // ItemTiers
@@ -8068,7 +8071,7 @@ static const SnoTypeDef kTypes[704] = {
     {4270096926u, 0u, 32u, 0u, 3849u, 3u, 0u}, // ShaderMap
     {4273939432u, 0u, 12u, 0u, 1285u, 2u, 0u}, // GBIDDataMessage
     {4277039181u, 0u, 84u, 0u, 4834u, 11u, 0u}, // legacy.ClothVertex
-    {4281408488u, 0u, 8u, 0u, 5025u, 2u, 0u}, // legacy.OctreePrimitive
+    {4281408488u, 0u, 8u, 0u, 5026u, 2u, 0u}, // legacy.OctreePrimitive
     {4281608210u, 0u, 16u, 0u, 4363u, 1u, 0u}, // VisualItem
     {4286328005u, 0u, 444u, 0u, 748u, 6u, 0u}, // ControlScheme
     {4287512475u, 0u, 832u, 0u, 1365u, 1u, 0u}, // GizmoLocSet

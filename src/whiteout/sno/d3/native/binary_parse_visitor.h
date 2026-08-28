@@ -65,6 +65,8 @@ public:
     bool read(Surface& out);
     /// Parse into `out`; false if the header or length is invalid.
     bool read(Shaders& out);
+    /// Parse into `out`; false if the header or length is invalid.
+    bool read(EffectGroup& out);
 
 protected:
     void visit(const layout::AABB& src, AABB& dst);
@@ -75,6 +77,10 @@ protected:
     void visit(const layout::AxialCylinder& src, AxialCylinder& dst);
     void visit(const layout::Sphere& src, Sphere& dst);
     void visit(const layout::TagMapEntry& src, TagMapEntry& dst);
+    void visit(const layout::TriggerConditions& src, TriggerConditions& dst);
+    void visit(const layout::SNOName& src, SNOName& dst);
+    void visit(const layout::HardpointLink& src, HardpointLink& dst);
+    void visit(const layout::TriggerEvent& src, TriggerEvent& dst);
     void visit(const layout::MsgTriggeredEvent& src, MsgTriggeredEvent& dst);
     void visit(const layout::WeightedLook& src, WeightedLook& dst);
     void visit(const layout::ActorCollisionFlags& src, ActorCollisionFlags& dst);
@@ -93,10 +99,6 @@ protected:
     void visit(const layout::RotationCurve& src, RotationCurve& dst);
     void visit(const layout::ScaleKey& src, ScaleKey& dst);
     void visit(const layout::ScaleCurve& src, ScaleCurve& dst);
-    void visit(const layout::TriggerConditions& src, TriggerConditions& dst);
-    void visit(const layout::SNOName& src, SNOName& dst);
-    void visit(const layout::HardpointLink& src, HardpointLink& dst);
-    void visit(const layout::TriggerEvent& src, TriggerEvent& dst);
     void visit(const layout::KeyframedAttachment& src, KeyframedAttachment& dst);
     void visit(const layout::AnimPermutation& src, AnimPermutation& dst);
     void visit(const layout::Anim& src, Anim& dst);
@@ -146,6 +148,8 @@ protected:
     void visit(const layout::CollisionMesh& src, CollisionMesh& dst);
     void visit(const layout::ColorNode& src, ColorNode& dst);
     void visit(const layout::ColorPath& src, ColorPath& dst);
+    void visit(const layout::EffectItem& src, EffectItem& dst);
+    void visit(const layout::EffectGroup& src, EffectGroup& dst);
     void visit(const layout::FloatNode& src, FloatNode& dst);
     void visit(const layout::FloatPath& src, FloatPath& dst);
     void visit(const layout::VectorNode& src, VectorNode& dst);

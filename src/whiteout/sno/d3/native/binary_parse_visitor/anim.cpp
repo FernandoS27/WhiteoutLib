@@ -10,6 +10,62 @@ namespace sno {
 namespace d3 {
 namespace native {
 
+void BinaryParseVisitor::visit(const layout::TriggerConditions& src, TriggerConditions& dst) {
+    dst.nChance = src.nChance;
+    dst.tmDelayMin = src.tmDelayMin;
+    dst.tmDelayRange = src.tmDelayRange;
+    dst.tmDelayMinAlt = src.tmDelayMinAlt;
+    dst.tmDelayRangeAlt = src.tmDelayRangeAlt;
+    dst.flKeyValueMin = src.flKeyValueMin;
+    dst.flKeyValueRange = src.flKeyValueRange;
+    dst.nSubKey = src.nSubKey;
+    dst.dwCondFlags = src.dwCondFlags;
+}
+
+void BinaryParseVisitor::visit(const layout::SNOName& src, SNOName& dst) {
+    dst.eSnoGroup = src.eSnoGroup;
+    dst.dwNameHandle = src.dwNameHandle;
+}
+
+void BinaryParseVisitor::visit(const layout::HardpointLink& src, HardpointLink& dst) {
+    dst.szName = readChars(reinterpret_cast<const char*>(src.szName), 64);
+    dst.nIndex = src.nIndex;
+}
+
+void BinaryParseVisitor::visit(const layout::TriggerEvent& src, TriggerEvent& dst) {
+    dst.eTriggerType = src.eTriggerType;
+    visit(src.tConditions, dst.tConditions);
+    dst.dwUnknown28 = src.dwUnknown28;
+    visit(src.tPayload, dst.tPayload);
+    dst.dwUnknown34 = src.dwUnknown34;
+    dst.dwFlags38 = src.dwFlags38;
+    dst.dwUnknown3C = src.dwUnknown3C;
+    dst.dwUnknown40 = src.dwUnknown40;
+    visit(src.tHardpoint0, dst.tHardpoint0);
+    visit(src.tHardpoint1, dst.tHardpoint1);
+    dst.szLookName = readChars(reinterpret_cast<const char*>(src.szLookName), 64);
+    dst.szConstraintName = readChars(reinterpret_cast<const char*>(src.szConstraintName), 64);
+    dst.dwUnknown14C = src.dwUnknown14C;
+    dst.flUnknown150 = src.flUnknown150;
+    dst.dwUnknown154 = src.dwUnknown154;
+    dst.dwUnknown158 = src.dwUnknown158;
+    dst.dwFlags15C = src.dwFlags15C;
+    dst.dwUnknown160 = src.dwUnknown160;
+    dst.dwUnknown164 = src.dwUnknown164;
+    dst.flUnknown168 = src.flUnknown168;
+    dst.flUnknown16C = src.flUnknown16C;
+    dst.dwUnknown170 = src.dwUnknown170;
+    dst.flUnknown174 = src.flUnknown174;
+    dst.dwUnknown178 = src.dwUnknown178;
+    dst.flVelocity17C = src.flVelocity17C;
+    dst.dwUnknown180 = src.dwUnknown180;
+    dst.tmDuration = src.tmDuration;
+    dst.dwColor188 = src.dwColor188;
+    dst.tmColor188Time = src.tmColor188Time;
+    dst.dwColor190 = src.dwColor190;
+    dst.tmColor190Time = src.tmColor190Time;
+}
+
 void BinaryParseVisitor::visit(const layout::BoneName& src, BoneName& dst) {
     dst.szBoneName = readChars(reinterpret_cast<const char*>(src.szBoneName), 64);
 }
@@ -70,62 +126,6 @@ void BinaryParseVisitor::visit(const layout::ScaleCurve& src, ScaleCurve& dst) {
             for (size_t i = 0; i < n; ++i) visit(p[i], dst.arKeys[i]);
         }
     }
-}
-
-void BinaryParseVisitor::visit(const layout::TriggerConditions& src, TriggerConditions& dst) {
-    dst.nChance = src.nChance;
-    dst.tmUnknown04 = src.tmUnknown04;
-    dst.tmUnknown08 = src.tmUnknown08;
-    dst.tmUnknown0C = src.tmUnknown0C;
-    dst.tmUnknown10 = src.tmUnknown10;
-    dst.flImpulse14 = src.flImpulse14;
-    dst.flImpulse18 = src.flImpulse18;
-    dst.dwUnknown1C = src.dwUnknown1C;
-    dst.dwUnknown20 = src.dwUnknown20;
-}
-
-void BinaryParseVisitor::visit(const layout::SNOName& src, SNOName& dst) {
-    dst.eSnoGroup = src.eSnoGroup;
-    dst.dwNameHandle = src.dwNameHandle;
-}
-
-void BinaryParseVisitor::visit(const layout::HardpointLink& src, HardpointLink& dst) {
-    dst.szName = readChars(reinterpret_cast<const char*>(src.szName), 64);
-    dst.nIndex = src.nIndex;
-}
-
-void BinaryParseVisitor::visit(const layout::TriggerEvent& src, TriggerEvent& dst) {
-    dst.eTriggerType = src.eTriggerType;
-    visit(src.tConditions, dst.tConditions);
-    dst.dwUnknown28 = src.dwUnknown28;
-    visit(src.tPayload, dst.tPayload);
-    dst.dwUnknown34 = src.dwUnknown34;
-    dst.dwFlags38 = src.dwFlags38;
-    dst.dwUnknown3C = src.dwUnknown3C;
-    dst.dwUnknown40 = src.dwUnknown40;
-    visit(src.tHardpoint0, dst.tHardpoint0);
-    visit(src.tHardpoint1, dst.tHardpoint1);
-    dst.szLookName = readChars(reinterpret_cast<const char*>(src.szLookName), 64);
-    dst.szConstraintName = readChars(reinterpret_cast<const char*>(src.szConstraintName), 64);
-    dst.dwUnknown14C = src.dwUnknown14C;
-    dst.flUnknown150 = src.flUnknown150;
-    dst.dwUnknown154 = src.dwUnknown154;
-    dst.dwUnknown158 = src.dwUnknown158;
-    dst.dwFlags15C = src.dwFlags15C;
-    dst.dwUnknown160 = src.dwUnknown160;
-    dst.dwUnknown164 = src.dwUnknown164;
-    dst.flUnknown168 = src.flUnknown168;
-    dst.flUnknown16C = src.flUnknown16C;
-    dst.dwUnknown170 = src.dwUnknown170;
-    dst.flUnknown174 = src.flUnknown174;
-    dst.dwUnknown178 = src.dwUnknown178;
-    dst.flVelocity17C = src.flVelocity17C;
-    dst.dwUnknown180 = src.dwUnknown180;
-    dst.tmDuration = src.tmDuration;
-    dst.dwColor188 = src.dwColor188;
-    dst.tmColor188Time = src.tmColor188Time;
-    dst.dwColor190 = src.dwColor190;
-    dst.tmColor190Time = src.tmColor190Time;
 }
 
 void BinaryParseVisitor::visit(const layout::KeyframedAttachment& src, KeyframedAttachment& dst) {

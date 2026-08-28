@@ -116,6 +116,10 @@ struct AccelVectorPath;
 struct AxialCylinder;
 struct Sphere;
 struct TagMapEntry;
+struct TriggerConditions;
+struct SNOName;
+struct HardpointLink;
+struct TriggerEvent;
 struct MsgTriggeredEvent;
 struct WeightedLook;
 struct ActorCollisionFlags;
@@ -134,10 +138,6 @@ struct RotationKey;
 struct RotationCurve;
 struct ScaleKey;
 struct ScaleCurve;
-struct TriggerConditions;
-struct SNOName;
-struct HardpointLink;
-struct TriggerEvent;
 struct KeyframedAttachment;
 struct AnimPermutation;
 struct Anim;
@@ -187,6 +187,8 @@ struct dmMeshNode;
 struct CollisionMesh;
 struct ColorNode;
 struct ColorPath;
+struct EffectItem;
+struct EffectGroup;
 struct FloatNode;
 struct FloatPath;
 struct VectorNode;
@@ -270,9 +272,77 @@ struct TagMapEntry {
     u32 dwValue{};
 };
 
+/// TriggerConditions -- 36 bytes on disk.
+struct TriggerConditions {
+    i32 nChance{};
+    i32 tmDelayMin{};
+    i32 tmDelayRange{};
+    i32 tmDelayMinAlt{};
+    i32 tmDelayRangeAlt{};
+    f32 flKeyValueMin{};
+    f32 flKeyValueRange{};
+    i32 nSubKey{};
+    i32 dwCondFlags{};
+};
+
+/// SNOName -- 8 bytes on disk.
+struct SNOName {
+    i32 eSnoGroup{};
+    i32 dwNameHandle{};
+};
+
+/// HardpointLink -- 68 bytes on disk.
+struct HardpointLink {
+    std::string szName;
+    i32 nIndex{};
+};
+
+/// TriggerEvent -- 408 bytes on disk.
+struct TriggerEvent {
+    i32 eTriggerType{};
+    TriggerConditions tConditions{};
+    i32 dwUnknown28{};
+    SNOName tPayload{};
+    i32 dwUnknown34{};
+    i32 dwFlags38{};
+    i32 dwUnknown3C{};
+    i32 dwUnknown40{};
+    HardpointLink tHardpoint0{};
+    HardpointLink tHardpoint1{};
+    std::string szLookName;
+    std::string szConstraintName;
+    i32 dwUnknown14C{};
+    f32 flUnknown150{};
+    i32 dwUnknown154{};
+    i32 dwUnknown158{};
+    i32 dwFlags15C{};
+    i32 dwUnknown160{};
+    i32 dwUnknown164{};
+    f32 flUnknown168{};
+    f32 flUnknown16C{};
+    i32 dwUnknown170{};
+    f32 flUnknown174{};
+    i32 dwUnknown178{};
+    f32 flVelocity17C{};
+    i32 dwUnknown180{};
+    i32 tmDuration{};
+    u32 dwColor188{};
+    i32 tmColor188Time{};
+    u32 dwColor190{};
+    i32 tmColor190Time{};
+};
+
 /// MsgTriggeredEvent -- 412 bytes on disk.
+///
+/// `eMessageType` is what the actor must be told for this event to fire.
+/// Measured over 19,177 `.acr` / 27,362 events: 1000 x15,630 (the actor came
+/// into existence -- the persistent ambient FX set), 25 x3,825, 22 x2,489,
+/// 17 x2,334 (end / death), 2021/2510/2550 (chest, shrine, waypoint activate),
+/// 4 (hit and break debris).  Inside an `.efg` it is 5000 in 30,463/30,463
+/// items, because there the group itself is the trigger.
 struct MsgTriggeredEvent {
-    i32 nEventType{};
+    i32 eMessageType{};
+    TriggerEvent tEvent{};
 };
 
 /// WeightedLook -- 68 bytes on disk.
@@ -420,66 +490,6 @@ struct ScaleKey {
 struct ScaleCurve {
     i32 dwKeyCount{};
     std::vector<ScaleKey> arKeys;
-};
-
-/// TriggerConditions -- 36 bytes on disk.
-struct TriggerConditions {
-    i32 nChance{};
-    i32 tmUnknown04{};
-    i32 tmUnknown08{};
-    i32 tmUnknown0C{};
-    i32 tmUnknown10{};
-    f32 flImpulse14{};
-    f32 flImpulse18{};
-    i32 dwUnknown1C{};
-    i32 dwUnknown20{};
-};
-
-/// SNOName -- 8 bytes on disk.
-struct SNOName {
-    i32 eSnoGroup{};
-    i32 dwNameHandle{};
-};
-
-/// HardpointLink -- 68 bytes on disk.
-struct HardpointLink {
-    std::string szName;
-    i32 nIndex{};
-};
-
-/// TriggerEvent -- 408 bytes on disk.
-struct TriggerEvent {
-    i32 eTriggerType{};
-    TriggerConditions tConditions{};
-    i32 dwUnknown28{};
-    SNOName tPayload{};
-    i32 dwUnknown34{};
-    i32 dwFlags38{};
-    i32 dwUnknown3C{};
-    i32 dwUnknown40{};
-    HardpointLink tHardpoint0{};
-    HardpointLink tHardpoint1{};
-    std::string szLookName;
-    std::string szConstraintName;
-    i32 dwUnknown14C{};
-    f32 flUnknown150{};
-    i32 dwUnknown154{};
-    i32 dwUnknown158{};
-    i32 dwFlags15C{};
-    i32 dwUnknown160{};
-    i32 dwUnknown164{};
-    f32 flUnknown168{};
-    f32 flUnknown16C{};
-    i32 dwUnknown170{};
-    f32 flUnknown174{};
-    i32 dwUnknown178{};
-    f32 flVelocity17C{};
-    i32 dwUnknown180{};
-    i32 tmDuration{};
-    u32 dwColor188{};
-    i32 tmColor188Time{};
-    u32 dwColor190{};
-    i32 tmColor190Time{};
 };
 
 /// KeyframedAttachment -- 412 bytes on disk.
@@ -1100,6 +1110,30 @@ struct ColorNode {
 struct ColorPath {
     InterpolationPathHeader tHeader{};
     std::vector<ColorNode> arNodes;
+};
+
+/// EffectItem -- 480 bytes on disk.
+struct EffectItem {
+    i32 nWeight{};
+    std::string szLookLink;
+    MsgTriggeredEvent tEvent{};
+};
+
+/// EffectGroup -- 120 bytes on disk.  Group 14, `.efg`, version 47.
+///
+/// D3's indirection layer between "something happened" and "play these
+/// assets", and the route that carries the bulk of the shipped particles:
+/// 11,849 of the 21,593 `.prt` are referenced from an `.efg` and from nowhere
+/// else.  See `eSelectMode` for which items actually fire.
+struct EffectGroup {
+    i32 dwSnoId{};
+    i32 dwFlags{};
+    std::vector<EffectItem> arEffectItems;
+    i32 dwEffectItemCount{};
+    i32 nRepeatMin{};
+    i32 nRepeatMax{};
+    i32 eSelectMode{};
+    AssetRef snoPower;
 };
 
 /// FloatNode -- 12 bytes on disk.

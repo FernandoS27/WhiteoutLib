@@ -17,7 +17,8 @@ void BinaryParseVisitor::visit(const layout::AxialCylinder& src, AxialCylinder& 
 }
 
 void BinaryParseVisitor::visit(const layout::MsgTriggeredEvent& src, MsgTriggeredEvent& dst) {
-    dst.nEventType = src.nEventType;
+    dst.eMessageType = src.eMessageType;
+    visit(src.tEvent, dst.tEvent);
 }
 
 void BinaryParseVisitor::visit(const layout::WeightedLook& src, WeightedLook& dst) {

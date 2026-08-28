@@ -106,11 +106,116 @@ static_assert(offsetof(TagMapEntry, dwTagId) == 4, "TagMapEntry.dwTagId moved");
 static_assert(offsetof(TagMapEntry, dwValue) == 8, "TagMapEntry.dwValue moved");
 static_assert(sizeof(TagMapEntry) == 12, "TagMapEntry changed size");
 
-struct MsgTriggeredEvent {
-    i32 nEventType;
-    u8 _pad0[408];
+struct TriggerConditions {
+    i32 nChance;
+    i32 tmDelayMin;
+    i32 tmDelayRange;
+    i32 tmDelayMinAlt;
+    i32 tmDelayRangeAlt;
+    f32 flKeyValueMin;
+    f32 flKeyValueRange;
+    i32 nSubKey;
+    i32 dwCondFlags;
 };
-static_assert(offsetof(MsgTriggeredEvent, nEventType) == 0, "MsgTriggeredEvent.nEventType moved");
+static_assert(offsetof(TriggerConditions, nChance) == 0, "TriggerConditions.nChance moved");
+static_assert(offsetof(TriggerConditions, tmDelayMin) == 4, "TriggerConditions.tmDelayMin moved");
+static_assert(offsetof(TriggerConditions, tmDelayRange) == 8, "TriggerConditions.tmDelayRange moved");
+static_assert(offsetof(TriggerConditions, tmDelayMinAlt) == 12, "TriggerConditions.tmDelayMinAlt moved");
+static_assert(offsetof(TriggerConditions, tmDelayRangeAlt) == 16, "TriggerConditions.tmDelayRangeAlt moved");
+static_assert(offsetof(TriggerConditions, flKeyValueMin) == 20, "TriggerConditions.flKeyValueMin moved");
+static_assert(offsetof(TriggerConditions, flKeyValueRange) == 24, "TriggerConditions.flKeyValueRange moved");
+static_assert(offsetof(TriggerConditions, nSubKey) == 28, "TriggerConditions.nSubKey moved");
+static_assert(offsetof(TriggerConditions, dwCondFlags) == 32, "TriggerConditions.dwCondFlags moved");
+static_assert(sizeof(TriggerConditions) == 36, "TriggerConditions changed size");
+
+struct SNOName {
+    i32 eSnoGroup;
+    i32 dwNameHandle;
+};
+static_assert(offsetof(SNOName, eSnoGroup) == 0, "SNOName.eSnoGroup moved");
+static_assert(offsetof(SNOName, dwNameHandle) == 4, "SNOName.dwNameHandle moved");
+static_assert(sizeof(SNOName) == 8, "SNOName changed size");
+
+struct HardpointLink {
+    char szName[64];
+    i32 nIndex;
+};
+static_assert(offsetof(HardpointLink, szName) == 0, "HardpointLink.szName moved");
+static_assert(offsetof(HardpointLink, nIndex) == 64, "HardpointLink.nIndex moved");
+static_assert(sizeof(HardpointLink) == 68, "HardpointLink changed size");
+
+struct TriggerEvent {
+    i32 eTriggerType;
+    TriggerConditions tConditions;
+    i32 dwUnknown28;
+    SNOName tPayload;
+    i32 dwUnknown34;
+    i32 dwFlags38;
+    i32 dwUnknown3C;
+    i32 dwUnknown40;
+    HardpointLink tHardpoint0;
+    HardpointLink tHardpoint1;
+    char szLookName[64];
+    char szConstraintName[64];
+    i32 dwUnknown14C;
+    f32 flUnknown150;
+    i32 dwUnknown154;
+    i32 dwUnknown158;
+    i32 dwFlags15C;
+    i32 dwUnknown160;
+    i32 dwUnknown164;
+    f32 flUnknown168;
+    f32 flUnknown16C;
+    i32 dwUnknown170;
+    f32 flUnknown174;
+    i32 dwUnknown178;
+    f32 flVelocity17C;
+    i32 dwUnknown180;
+    i32 tmDuration;
+    u32 dwColor188;
+    i32 tmColor188Time;
+    u32 dwColor190;
+    i32 tmColor190Time;
+};
+static_assert(offsetof(TriggerEvent, eTriggerType) == 0, "TriggerEvent.eTriggerType moved");
+static_assert(offsetof(TriggerEvent, tConditions) == 4, "TriggerEvent.tConditions moved");
+static_assert(offsetof(TriggerEvent, dwUnknown28) == 40, "TriggerEvent.dwUnknown28 moved");
+static_assert(offsetof(TriggerEvent, tPayload) == 44, "TriggerEvent.tPayload moved");
+static_assert(offsetof(TriggerEvent, dwUnknown34) == 52, "TriggerEvent.dwUnknown34 moved");
+static_assert(offsetof(TriggerEvent, dwFlags38) == 56, "TriggerEvent.dwFlags38 moved");
+static_assert(offsetof(TriggerEvent, dwUnknown3C) == 60, "TriggerEvent.dwUnknown3C moved");
+static_assert(offsetof(TriggerEvent, dwUnknown40) == 64, "TriggerEvent.dwUnknown40 moved");
+static_assert(offsetof(TriggerEvent, tHardpoint0) == 68, "TriggerEvent.tHardpoint0 moved");
+static_assert(offsetof(TriggerEvent, tHardpoint1) == 136, "TriggerEvent.tHardpoint1 moved");
+static_assert(offsetof(TriggerEvent, szLookName) == 204, "TriggerEvent.szLookName moved");
+static_assert(offsetof(TriggerEvent, szConstraintName) == 268, "TriggerEvent.szConstraintName moved");
+static_assert(offsetof(TriggerEvent, dwUnknown14C) == 332, "TriggerEvent.dwUnknown14C moved");
+static_assert(offsetof(TriggerEvent, flUnknown150) == 336, "TriggerEvent.flUnknown150 moved");
+static_assert(offsetof(TriggerEvent, dwUnknown154) == 340, "TriggerEvent.dwUnknown154 moved");
+static_assert(offsetof(TriggerEvent, dwUnknown158) == 344, "TriggerEvent.dwUnknown158 moved");
+static_assert(offsetof(TriggerEvent, dwFlags15C) == 348, "TriggerEvent.dwFlags15C moved");
+static_assert(offsetof(TriggerEvent, dwUnknown160) == 352, "TriggerEvent.dwUnknown160 moved");
+static_assert(offsetof(TriggerEvent, dwUnknown164) == 356, "TriggerEvent.dwUnknown164 moved");
+static_assert(offsetof(TriggerEvent, flUnknown168) == 360, "TriggerEvent.flUnknown168 moved");
+static_assert(offsetof(TriggerEvent, flUnknown16C) == 364, "TriggerEvent.flUnknown16C moved");
+static_assert(offsetof(TriggerEvent, dwUnknown170) == 368, "TriggerEvent.dwUnknown170 moved");
+static_assert(offsetof(TriggerEvent, flUnknown174) == 372, "TriggerEvent.flUnknown174 moved");
+static_assert(offsetof(TriggerEvent, dwUnknown178) == 376, "TriggerEvent.dwUnknown178 moved");
+static_assert(offsetof(TriggerEvent, flVelocity17C) == 380, "TriggerEvent.flVelocity17C moved");
+static_assert(offsetof(TriggerEvent, dwUnknown180) == 384, "TriggerEvent.dwUnknown180 moved");
+static_assert(offsetof(TriggerEvent, tmDuration) == 388, "TriggerEvent.tmDuration moved");
+static_assert(offsetof(TriggerEvent, dwColor188) == 392, "TriggerEvent.dwColor188 moved");
+static_assert(offsetof(TriggerEvent, tmColor188Time) == 396, "TriggerEvent.tmColor188Time moved");
+static_assert(offsetof(TriggerEvent, dwColor190) == 400, "TriggerEvent.dwColor190 moved");
+static_assert(offsetof(TriggerEvent, tmColor190Time) == 404, "TriggerEvent.tmColor190Time moved");
+static_assert(sizeof(TriggerEvent) == 408, "TriggerEvent changed size");
+
+struct MsgTriggeredEvent {
+    i32 eMessageType;
+    TriggerEvent tEvent;
+};
+static_assert(offsetof(MsgTriggeredEvent, eMessageType) == 0, "MsgTriggeredEvent.eMessageType moved");
+static_assert(offsetof(MsgTriggeredEvent, tEvent) == 4, "MsgTriggeredEvent.tEvent moved");
 static_assert(sizeof(MsgTriggeredEvent) == 412, "MsgTriggeredEvent changed size");
 
 struct WeightedLook {
@@ -360,110 +465,6 @@ struct ScaleCurve {
 static_assert(offsetof(ScaleCurve, dwKeyCount) == 0, "ScaleCurve.dwKeyCount moved");
 static_assert(offsetof(ScaleCurve, arKeys) == 4, "ScaleCurve.arKeys moved");
 static_assert(sizeof(ScaleCurve) == 24, "ScaleCurve changed size");
-
-struct TriggerConditions {
-    i32 nChance;
-    i32 tmUnknown04;
-    i32 tmUnknown08;
-    i32 tmUnknown0C;
-    i32 tmUnknown10;
-    f32 flImpulse14;
-    f32 flImpulse18;
-    i32 dwUnknown1C;
-    i32 dwUnknown20;
-};
-static_assert(offsetof(TriggerConditions, nChance) == 0, "TriggerConditions.nChance moved");
-static_assert(offsetof(TriggerConditions, tmUnknown04) == 4, "TriggerConditions.tmUnknown04 moved");
-static_assert(offsetof(TriggerConditions, tmUnknown08) == 8, "TriggerConditions.tmUnknown08 moved");
-static_assert(offsetof(TriggerConditions, tmUnknown0C) == 12, "TriggerConditions.tmUnknown0C moved");
-static_assert(offsetof(TriggerConditions, tmUnknown10) == 16, "TriggerConditions.tmUnknown10 moved");
-static_assert(offsetof(TriggerConditions, flImpulse14) == 20, "TriggerConditions.flImpulse14 moved");
-static_assert(offsetof(TriggerConditions, flImpulse18) == 24, "TriggerConditions.flImpulse18 moved");
-static_assert(offsetof(TriggerConditions, dwUnknown1C) == 28, "TriggerConditions.dwUnknown1C moved");
-static_assert(offsetof(TriggerConditions, dwUnknown20) == 32, "TriggerConditions.dwUnknown20 moved");
-static_assert(sizeof(TriggerConditions) == 36, "TriggerConditions changed size");
-
-struct SNOName {
-    i32 eSnoGroup;
-    i32 dwNameHandle;
-};
-static_assert(offsetof(SNOName, eSnoGroup) == 0, "SNOName.eSnoGroup moved");
-static_assert(offsetof(SNOName, dwNameHandle) == 4, "SNOName.dwNameHandle moved");
-static_assert(sizeof(SNOName) == 8, "SNOName changed size");
-
-struct HardpointLink {
-    char szName[64];
-    i32 nIndex;
-};
-static_assert(offsetof(HardpointLink, szName) == 0, "HardpointLink.szName moved");
-static_assert(offsetof(HardpointLink, nIndex) == 64, "HardpointLink.nIndex moved");
-static_assert(sizeof(HardpointLink) == 68, "HardpointLink changed size");
-
-struct TriggerEvent {
-    i32 eTriggerType;
-    TriggerConditions tConditions;
-    i32 dwUnknown28;
-    SNOName tPayload;
-    i32 dwUnknown34;
-    i32 dwFlags38;
-    i32 dwUnknown3C;
-    i32 dwUnknown40;
-    HardpointLink tHardpoint0;
-    HardpointLink tHardpoint1;
-    char szLookName[64];
-    char szConstraintName[64];
-    i32 dwUnknown14C;
-    f32 flUnknown150;
-    i32 dwUnknown154;
-    i32 dwUnknown158;
-    i32 dwFlags15C;
-    i32 dwUnknown160;
-    i32 dwUnknown164;
-    f32 flUnknown168;
-    f32 flUnknown16C;
-    i32 dwUnknown170;
-    f32 flUnknown174;
-    i32 dwUnknown178;
-    f32 flVelocity17C;
-    i32 dwUnknown180;
-    i32 tmDuration;
-    u32 dwColor188;
-    i32 tmColor188Time;
-    u32 dwColor190;
-    i32 tmColor190Time;
-};
-static_assert(offsetof(TriggerEvent, eTriggerType) == 0, "TriggerEvent.eTriggerType moved");
-static_assert(offsetof(TriggerEvent, tConditions) == 4, "TriggerEvent.tConditions moved");
-static_assert(offsetof(TriggerEvent, dwUnknown28) == 40, "TriggerEvent.dwUnknown28 moved");
-static_assert(offsetof(TriggerEvent, tPayload) == 44, "TriggerEvent.tPayload moved");
-static_assert(offsetof(TriggerEvent, dwUnknown34) == 52, "TriggerEvent.dwUnknown34 moved");
-static_assert(offsetof(TriggerEvent, dwFlags38) == 56, "TriggerEvent.dwFlags38 moved");
-static_assert(offsetof(TriggerEvent, dwUnknown3C) == 60, "TriggerEvent.dwUnknown3C moved");
-static_assert(offsetof(TriggerEvent, dwUnknown40) == 64, "TriggerEvent.dwUnknown40 moved");
-static_assert(offsetof(TriggerEvent, tHardpoint0) == 68, "TriggerEvent.tHardpoint0 moved");
-static_assert(offsetof(TriggerEvent, tHardpoint1) == 136, "TriggerEvent.tHardpoint1 moved");
-static_assert(offsetof(TriggerEvent, szLookName) == 204, "TriggerEvent.szLookName moved");
-static_assert(offsetof(TriggerEvent, szConstraintName) == 268, "TriggerEvent.szConstraintName moved");
-static_assert(offsetof(TriggerEvent, dwUnknown14C) == 332, "TriggerEvent.dwUnknown14C moved");
-static_assert(offsetof(TriggerEvent, flUnknown150) == 336, "TriggerEvent.flUnknown150 moved");
-static_assert(offsetof(TriggerEvent, dwUnknown154) == 340, "TriggerEvent.dwUnknown154 moved");
-static_assert(offsetof(TriggerEvent, dwUnknown158) == 344, "TriggerEvent.dwUnknown158 moved");
-static_assert(offsetof(TriggerEvent, dwFlags15C) == 348, "TriggerEvent.dwFlags15C moved");
-static_assert(offsetof(TriggerEvent, dwUnknown160) == 352, "TriggerEvent.dwUnknown160 moved");
-static_assert(offsetof(TriggerEvent, dwUnknown164) == 356, "TriggerEvent.dwUnknown164 moved");
-static_assert(offsetof(TriggerEvent, flUnknown168) == 360, "TriggerEvent.flUnknown168 moved");
-static_assert(offsetof(TriggerEvent, flUnknown16C) == 364, "TriggerEvent.flUnknown16C moved");
-static_assert(offsetof(TriggerEvent, dwUnknown170) == 368, "TriggerEvent.dwUnknown170 moved");
-static_assert(offsetof(TriggerEvent, flUnknown174) == 372, "TriggerEvent.flUnknown174 moved");
-static_assert(offsetof(TriggerEvent, dwUnknown178) == 376, "TriggerEvent.dwUnknown178 moved");
-static_assert(offsetof(TriggerEvent, flVelocity17C) == 380, "TriggerEvent.flVelocity17C moved");
-static_assert(offsetof(TriggerEvent, dwUnknown180) == 384, "TriggerEvent.dwUnknown180 moved");
-static_assert(offsetof(TriggerEvent, tmDuration) == 388, "TriggerEvent.tmDuration moved");
-static_assert(offsetof(TriggerEvent, dwColor188) == 392, "TriggerEvent.dwColor188 moved");
-static_assert(offsetof(TriggerEvent, tmColor188Time) == 396, "TriggerEvent.tmColor188Time moved");
-static_assert(offsetof(TriggerEvent, dwColor190) == 400, "TriggerEvent.dwColor190 moved");
-static_assert(offsetof(TriggerEvent, tmColor190Time) == 404, "TriggerEvent.tmColor190Time moved");
-static_assert(sizeof(TriggerEvent) == 408, "TriggerEvent changed size");
 
 struct KeyframedAttachment {
     f32 flFrame;
@@ -1667,6 +1668,41 @@ struct ColorPath {
 static_assert(offsetof(ColorPath, tHeader) == 0, "ColorPath.tHeader moved");
 static_assert(offsetof(ColorPath, arNodes) == 40, "ColorPath.arNodes moved");
 static_assert(sizeof(ColorPath) == 48, "ColorPath changed size");
+
+struct EffectItem {
+    i32 nWeight;
+    char szLookLink[64];
+    MsgTriggeredEvent tEvent;
+};
+static_assert(offsetof(EffectItem, nWeight) == 0, "EffectItem.nWeight moved");
+static_assert(offsetof(EffectItem, szLookLink) == 4, "EffectItem.szLookLink moved");
+static_assert(offsetof(EffectItem, tEvent) == 68, "EffectItem.tEvent moved");
+static_assert(sizeof(EffectItem) == 480, "EffectItem changed size");
+
+struct EffectGroup {
+    i32 dwSnoId;
+    u8 _pad0[8];
+    i32 dwFlags;
+    i32 arEffectItems;      // byte offset into the payload
+    i32 arEffectItems_size; // byte length
+    i32 dwEffectItemCount;
+    u8 _pad1[12];
+    i32 nRepeatMin;
+    i32 nRepeatMax;
+    i32 eSelectMode;
+    i32 snoPower;
+    u32 dwPlayedItemMask[16];
+};
+static_assert(offsetof(EffectGroup, dwSnoId) == 0, "EffectGroup.dwSnoId moved");
+static_assert(offsetof(EffectGroup, dwFlags) == 12, "EffectGroup.dwFlags moved");
+static_assert(offsetof(EffectGroup, arEffectItems) == 16, "EffectGroup.arEffectItems moved");
+static_assert(offsetof(EffectGroup, dwEffectItemCount) == 24, "EffectGroup.dwEffectItemCount moved");
+static_assert(offsetof(EffectGroup, nRepeatMin) == 40, "EffectGroup.nRepeatMin moved");
+static_assert(offsetof(EffectGroup, nRepeatMax) == 44, "EffectGroup.nRepeatMax moved");
+static_assert(offsetof(EffectGroup, eSelectMode) == 48, "EffectGroup.eSelectMode moved");
+static_assert(offsetof(EffectGroup, snoPower) == 52, "EffectGroup.snoPower moved");
+static_assert(offsetof(EffectGroup, dwPlayedItemMask) == 56, "EffectGroup.dwPlayedItemMask moved");
+static_assert(sizeof(EffectGroup) == 120, "EffectGroup changed size");
 
 struct FloatNode {
     f32 flStart;

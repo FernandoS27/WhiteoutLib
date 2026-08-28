@@ -10,6 +10,30 @@ namespace sno {
 namespace d3 {
 namespace native {
 
+void BinaryParseVisitor::visit(const layout::EffectItem& src, EffectItem& dst) {
+    dst.nWeight = src.nWeight;
+    dst.szLookLink = readChars(reinterpret_cast<const char*>(src.szLookLink), 64);
+    visit(src.tEvent, dst.tEvent);
+}
+
+void BinaryParseVisitor::visit(const layout::EffectGroup& src, EffectGroup& dst) {
+    dst.dwSnoId = src.dwSnoId;
+    dst.dwFlags = src.dwFlags;
+    {
+        size_t n = 0;
+        const layout::EffectItem* p = nullptr;
+        if (locate<layout::EffectItem>(src.arEffectItems, src.arEffectItems_size, n, p)) {
+            dst.arEffectItems.resize(n);
+            for (size_t i = 0; i < n; ++i) visit(p[i], dst.arEffectItems[i]);
+        }
+    }
+    dst.dwEffectItemCount = src.dwEffectItemCount;
+    dst.nRepeatMin = src.nRepeatMin;
+    dst.nRepeatMax = src.nRepeatMax;
+    dst.eSelectMode = src.eSelectMode;
+    dst.snoPower = AssetRef{src.snoPower, Group::Power};
+}
+
 void BinaryParseVisitor::visit(const layout::RenderParams& src, RenderParams& dst) {
     dst.dwUnknown00 = src.dwUnknown00;
     dst.dwUnknown04 = src.dwUnknown04;

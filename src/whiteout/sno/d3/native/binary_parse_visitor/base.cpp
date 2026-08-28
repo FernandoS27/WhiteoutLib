@@ -118,6 +118,13 @@ bool BinaryParseVisitor::read(Shaders& out) {
     return true;
 }
 
+bool BinaryParseVisitor::read(EffectGroup& out) {
+    const layout::EffectGroup* img = image<layout::EffectGroup>();
+    if (!img) return false;
+    visit(*img, out);
+    return true;
+}
+
 } // namespace native
 } // namespace d3
 } // namespace sno

@@ -38,6 +38,9 @@ std::optional<Appearances> parseAppearances(std::span<const u8> file);
 /// Parse a group 11 (Cloth) asset; nullopt if the header or length is bad.
 std::optional<Cloth> parseCloth(std::span<const u8> file);
 
+/// Parse a group 14 (EffectGroup) asset; nullopt if the header or length is bad.
+std::optional<EffectGroup> parseEffectGroup(std::span<const u8> file);
+
 /// Parse a group 27 (Particle) asset; nullopt if the header or length is bad.
 std::optional<Particle> parseParticle(std::span<const u8> file);
 
