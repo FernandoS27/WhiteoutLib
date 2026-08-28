@@ -4,10 +4,10 @@
 /// @file bc6h.h
 /// @brief BC6H encode and decode.
 ///
-/// Decompresses BC6H (DXGI_FORMAT_BC6H_UF16 -- unsigned half-float)
-/// blocks into RGBA32F pixels and compresses RGBA32F data back
-/// into BC6H.  All 14 BC6H modes are fully supported for decoding; the
-/// encoder uses mode 11 for a good quality/speed trade-off.
+/// Decompresses BC6H blocks into RGBA32F pixels and compresses RGBA32F data
+/// back into BC6H.  All 14 modes decode, in both the unsigned (BC6H_UF16) and
+/// signed (BC6H_SF16) variants; the encoder emits unsigned mode 11 for a good
+/// quality/speed trade-off.
 ///
 /// No external dependencies -- pure C++20.
 
@@ -29,6 +29,18 @@ namespace bc6h {
 /// @return The decoded texture, or std::nullopt on error.
 std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error = nullptr,
                                      interfaces::WorkerPool* pool = nullptr);
+
+/// Decode raw BC6H blocks straight into RGBA32F pixels.
+///
+/// `PixelFormat::BC6H` denotes the unsigned variant, so signed (SF16) data has
+/// no compressed representation in `Texture` and callers holding it must decode
+/// at load time.
+///
+/// @param blocks   Block data; at least ceil(w/4)*ceil(h/4)*16 bytes.
+/// @param isSigned true for BC6H_SF16, false for BC6H_UF16.
+/// @return width*height*4 floats, or an empty vector if `blocks` is too small.
+std::vector<f32> decodeBlocks(std::span<const u8> blocks, u32 width, u32 height, bool isSigned,
+                              interfaces::WorkerPool* pool = nullptr);
 
 // ---- Encode ----------------------------------------------------------------
 

@@ -19,6 +19,7 @@
 #include <whiteout/sno/sno_value.h>
 #include <whiteout/textures/texture.h>
 
+#include "../bcn/bc6h.h"
 #include "../io_helpers.h"
 #include "../issue_sink.h"
 #include "tex_internal.h"
@@ -315,6 +316,13 @@ static void convert_d4_mip(D4Conversion conversion, const u8* src, u8* dst, u32 
     case D4Conversion::A8ToRGBA8:
         convert_a8_to_rgba8(src, dst, pixel_count);
         break;
+    case D4Conversion::BC6HSf16ToRGBA32F: {
+        const auto pixels = bc6h::decodeBlocks(
+            std::span<const u8>{src, static_cast<size_t>((width + 3) / 4) * ((height + 3) / 4) * 16},
+            width, height, true);
+        std::memcpy(dst, pixels.data(), pixels.size() * sizeof(f32));
+        break;
+    }
     case D4Conversion::None:
         break;
     }
@@ -539,8 +547,7 @@ std::optional<Texture> parseD4Impl(std::span<const u8> texData, std::span<const 
         const u8* src = payload.data() + payload_offset;
 
         if (conversion != D4Conversion::None) {
-            const u64 src_raw_bytes =
-                static_cast<u64>(mip_width) * mip_height * mapping->bytes_per_unit;
+            const u64 src_raw_bytes = d4_compute_raw_mip_size(tex_fmt, mip_width, mip_height);
             std::vector<u8> temp(src_raw_bytes);
             copy_mip_stripping_alignment(src, temp.data(), tex_fmt, mip_width, mip_height);
             convert_d4_mip(conversion, temp.data(), dest.data(), mip_width, mip_height);

@@ -45,6 +45,7 @@ catch_discover_tests(mapped_file_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 # Texture Tests
 whiteout_add_test(bc2_test bc2_test.cpp)
 whiteout_add_test(bc7_roundtrip_test bc7_roundtrip_test.cpp)
+whiteout_add_test(bc6h_test bc6h_test.cpp)
 whiteout_add_test(bc7_block_decode_test bc7_block_decode_test.cpp)
 whiteout_add_test(blp0_test blp0_test.cpp)
 whiteout_add_test(jpeg_test jpeg_test.cpp)
@@ -84,6 +85,11 @@ whiteout_add_test(d3_native_test d3_native_test.cpp)
 # check parsed values against the raw on-disk image.
 target_include_directories(d3_native_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(d3_app_corpus_test d3_app_corpus_test.cpp)
+whiteout_add_test(d3_effect_test d3_effect_test.cpp)
+# Same reason as d3_native_test: the structural half of the .efg gate reads
+# the packed layout::EffectGroup image to check the parsed values against the
+# bytes they came from.
+target_include_directories(d3_effect_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(d4_sno_diag_test d4_sno_diag_test.cpp)
 whiteout_add_test(d4_binary_types_test d4_binary_types_test.cpp)
 target_include_directories(d4_binary_types_test PRIVATE ${CMAKE_SOURCE_DIR}/src)

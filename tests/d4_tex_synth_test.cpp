@@ -404,7 +404,9 @@ TEST_CASE("D4 TEX: BC7, BC6H and their gamma partners decode to the right format
     CHECK(texture->isSrgb() == e.srgb);
 }
 
-TEST_CASE("D4 TEX: BC6H_SF16 is rejected rather than decoded as unsigned", "[d4][tex]") {
+TEST_CASE("D4 TEX: BC6H_SF16 is decoded at load time", "[d4][tex]") {
+    // PixelFormat::BC6H means the unsigned variant, so format 43 cannot be
+    // handed back compressed -- the parser decodes it to RGBA32F instead.
     const MipGeom g = bcGeom(64, 64, 16);
 
     TexBuilder tb;
@@ -416,8 +418,15 @@ TEST_CASE("D4 TEX: BC6H_SF16 is rejected rather than decoded as unsigned", "[d4]
     fillMip(payload, 0, g);
 
     tex::Parser parser;
-    CHECK_FALSE(
-        parser.parse(std::span<const u8>{meta}, std::span<const u8>{payload}).has_value());
+    tex::D4TexInfo info{};
+    auto texture = parser.parse(std::span<const u8>{meta}, std::span<const u8>{payload}, &info);
+
+    REQUIRE(texture.has_value());
+    CHECK(info.texFormat == 43);
+    CHECK(texture->format() == PixelFormat::RGBA32F);
+    CHECK(texture->width() == 64);
+    CHECK(texture->height() == 64);
+    CHECK(texture->mipData(0, 0).size() == 64ull * 64ull * 16ull);
 }
 
 TEST_CASE("D4 TEX: B8G8R8A8 is swizzled and A8 lands in the alpha channel", "[d4][tex]") {

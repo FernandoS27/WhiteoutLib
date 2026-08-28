@@ -24,97 +24,101 @@ namespace bc6h {
 /// Half-float bit pattern for 1.0, used as the constant alpha output.
 static constexpr u16 HALF_FLOAT_ONE = 0x3C00;
 
-/// Rounding bias (1 << 14) used in unquantize_uf16 to round to nearest.
-static constexpr u32 UNQUANTIZE_ROUNDING_BIAS = 0x4000;
-
-/// Maximum 15-bit unquantized value.
-static constexpr u32 UNQUANTIZE_MAX_15BIT = 0x7FFF;
-
-/// Scale factor for final unquantize: result = (val * 31) >> 6.
-/// Derived from the BC6H spec mapping 15-bit values to half-float.
+/// finish_unquantize's numerator: the spec scales by 31/64 (31/32 when signed).
 static constexpr u32 FINISH_UNQUANT_SCALE = 31;
-static constexpr u32 FINISH_UNQUANT_SHIFT = 6;
-
-/// Bit position where indices begin for 2-subset modes.
-static constexpr u32 INDEX_START_2SUBSET = 82;
-/// Bit position where indices begin for 1-subset modes.
-static constexpr u32 INDEX_START_1SUBSET = 65;
-
 /// Sign bit mask for 16-bit half-float values.
 static constexpr u16 HALF_FLOAT_SIGN_BIT = 0x8000;
 
 /// Maximum value for a 10-bit quantized endpoint.
 static constexpr u32 QUANTIZE_10BIT_MAX = 1023;
 
-/// Rounding offset for 10-bit quantization (half of 64 = 32).
-static constexpr u32 QUANTIZE_10BIT_ROUND = 32;
-
-/// Right-shift amount for 10-bit quantization (maps 16-bit half to 10-bit).
-static constexpr u32 QUANTIZE_10BIT_SHIFT = 6;
-
-// ============================================================================
-// Mode descriptor table
-// ============================================================================
-//
-// BC6H has 14 modes, identified by a variable-length prefix (2 or 5 bits).
-// Each mode specifies: whether it's transformed, number of subsets,
-// partition bits, and the endpoint bit allocations.
-
-struct BC6HModeInfo {
-    u8 num;                          // mode number (0..13)
-    bool transformed;                // delta-encoded endpoints
-    u8 partition_bits;               // 5 if 2 subsets, 0 if 1 subset
-    std::array<u8, 3> endpoint_bits; // per-channel endpoint base precision for ep0
-    std::array<std::array<u8, 3>, 3>
-        delta_bits; // delta bits [which_delta][channel]
-                    // for 2-subset modes: delta indices 0..2 (rx, gx, bx for 3 deltas)
-                    // for 1-subset modes: only delta index 0 is used
-};
-
-// We hard-code the 14 modes' endpoint-bit allocations per the spec.
-// For simplicity, in this decoder we parse each mode with its own
-// bit-field extraction logic, since the layouts are irregular.
+/// Constant term of the endpoint->half-bits mapping `31 * q + 15`.
+static constexpr u32 QUANTIZE_10BIT_BIAS = 15;
 
 // ============================================================================
 // Decode
 // ============================================================================
 
 // ============================================================================
-// Unquantize and finish_unquantize (BC6H unsigned)
+// Unquantize / interpolate (both signedness variants)
 // ============================================================================
 
 namespace {
 
 /// Sign-extend a value from `prec` bits.
-inline i32 sign_extend(u32 val, u32 prec) {
-    u32 const sign_bit = 1u << (prec - 1);
-    return static_cast<i32>((val ^ sign_bit) - sign_bit);
+inline i32 sign_extend(i32 val, u32 prec) {
+    i32 const sign_bit = 1 << (prec - 1);
+    return (val ^ sign_bit) - sign_bit;
 }
 
-/// Unquantize an unsigned endpoint value from `prec` bits to 15 bits.
-/// (BC6H spec: section 10.2.1 for unsigned mode)
-u32 unquantize_uf16(u32 val, u32 prec) {
+/// Unquantize an endpoint from `prec` bits to the 16-bit interpolation range
+/// (BC6H spec, "unquantize"): unsigned lands in [0, 0xFFFF], signed in
+/// [-0x7FFF, 0x7FFF].
+i32 unquantize(i32 val, u32 prec, bool is_signed) {
+    if (is_signed) {
+        if (prec >= 16)
+            return val;
+        i32 magnitude = val < 0 ? -val : val;
+        i32 result;
+        if (magnitude == 0)
+            result = 0;
+        else if (magnitude >= (1 << (prec - 1)) - 1)
+            result = 0x7FFF;
+        else
+            result = ((magnitude << 15) + 0x4000) >> (prec - 1);
+        return val < 0 ? -result : result;
+    }
     if (prec >= 15)
         return val;
     if (val == 0)
         return 0;
-    u32 const max_val = (1u << prec) - 1u;
-    if (val == max_val)
-        return UNQUANTIZE_MAX_15BIT;
-    return ((val << 15) + UNQUANTIZE_ROUNDING_BIAS) >> prec;
+    if (val == (1 << prec) - 1)
+        return 0xFFFF;
+    return ((val << 16) + 0x8000) >> prec;
 }
 
-/// Final conversion of a 15-bit unquantized value to u16 half-float.
-u16 finish_unquantize(u32 val) {
-    // val is in [0, UNQUANTIZE_MAX_15BIT]. Map to half-float:
-    // The spec says: result = val * 31 / 64
-    // Then shift to make it a proper half-float.
-    //
-    // Per the BC6H spec (unsigned):
-    //   final = ((val * FINISH_UNQUANT_SCALE) >> FINISH_UNQUANT_SHIFT)
-    // This gives a value in [0, ~15360] which is the mantissa+exponent
-    // portion of the unsigned half-float.
-    return static_cast<u16>((val * FINISH_UNQUANT_SCALE) >> FINISH_UNQUANT_SHIFT);
+/// Weighted interpolation between two unquantized endpoints.
+inline i32 interpolate(i32 e0, i32 e1, u32 weight) {
+    return (e0 * (64 - static_cast<i32>(weight)) + e1 * static_cast<i32>(weight) + 32) >> 6;
+}
+
+/// Scale an interpolated value into the half-float bit range and pack it.
+/// The spec's finish_unquantize: `* 31 / 64` unsigned, `* 31 / 32` signed.
+u16 finish_unquantize(i32 val, bool is_signed) {
+    if (is_signed) {
+        i32 const magnitude = val < 0 ? -val : val;
+        u16 const scaled = static_cast<u16>((magnitude * 31) >> 5);
+        return val < 0 ? static_cast<u16>(scaled | HALF_FLOAT_SIGN_BIT) : scaled;
+    }
+    return static_cast<u16>((val * 31) >> 6);
+}
+
+/// Map a block's leading bits to a mode id (1..14), or 0 for a reserved mode.
+u32 decode_mode_id(const u8* block) {
+    u32 const code5 = block[0] & 0x1F;
+    switch (code5 & 3) {
+    case 0:
+        return 1;
+    case 1:
+        return 2;
+    default:
+        break;
+    }
+    switch (code5) {
+    case 0b00010: return 3;
+    case 0b00110: return 4;
+    case 0b01010: return 5;
+    case 0b01110: return 6;
+    case 0b10010: return 7;
+    case 0b10110: return 8;
+    case 0b11010: return 9;
+    case 0b11110: return 10;
+    case 0b00011: return 11;
+    case 0b00111: return 12;
+    case 0b01011: return 13;
+    case 0b01111: return 14;
+    default: return 0; // reserved
+    }
 }
 
 } // anonymous namespace
@@ -125,387 +129,89 @@ u16 finish_unquantize(u32 val) {
 
 namespace {
 
-/// Decode a BC6H block.  Extracts mode, endpoints, partition, indices,
-/// then unquantizes + interpolates to produce 16 half-float pixels.
-void decode_block(const u8* block, u16* out) {
-    // Determine mode from the first 2 or 5 bits.
-    u32 const b0 = block[0] & 0x1F; // first 5 bits
-
-    u32 mode_id;
-    [[maybe_unused]] u32 mode_bits;
-
-    u32 const two_lsb = b0 & 3;
-    if (two_lsb == 0) {
-        mode_id = 1;
-        mode_bits = 2;
-    } else if (two_lsb == 1) {
-        mode_id = 2;
-        mode_bits = 2;
-    } else {
-        // 5-bit mode code
-        mode_bits = 5;
-        u32 const code5 = b0 & 0x1F;
-        switch (code5) {
-        case 0b00010:
-            mode_id = 3;
-            break;
-        case 0b00110:
-            mode_id = 4;
-            break;
-        case 0b01010:
-            mode_id = 5;
-            break;
-        case 0b01110:
-            mode_id = 6;
-            break;
-        case 0b10010:
-            mode_id = 7;
-            break;
-        case 0b10110:
-            mode_id = 8;
-            break;
-        case 0b11010:
-            mode_id = 9;
-            break;
-        case 0b11110:
-            mode_id = 10;
-            break;
-        case 0b00011:
-            mode_id = 11;
-            break;
-        case 0b00111:
-            mode_id = 12;
-            break;
-        case 0b01011:
-            mode_id = 13;
-            break;
-        case 0b01111:
-            mode_id = 14;
-            break;
-        default:
-            // Invalid / reserved mode â†’ output opaque black (half-float).
-            for (u32 i = 0; i < 16; ++i) {
-                out[i * 4 + 0] = 0;
-                out[i * 4 + 1] = 0;
-                out[i * 4 + 2] = 0;
-                out[i * 4 + 3] = HALF_FLOAT_ONE;
-            }
-            return;
+/// Decode a BC6H block into 16 RGBA half-float texels.
+/// @param is_signed true for BC6H_SF16, false for BC6H_UF16.
+void decode_block(const u8* block, u16* out, bool is_signed) {
+    u32 const mode_id = decode_mode_id(block);
+    if (mode_id == 0) {
+        for (u32 i = 0; i < 16; ++i) {
+            out[i * 4 + 0] = 0;
+            out[i * 4 + 1] = 0;
+            out[i * 4 + 2] = 0;
+            out[i * 4 + 3] = HALF_FLOAT_ONE;
         }
+        return;
     }
 
-    // Extract all 128 bits into a flat array for indexed access.
-    auto get_bit = [&](u32 idx) -> u32 { return (block[idx >> 3] >> (idx & 7)) & 1u; };
+    BC6HModeDesc const& mode = BC6H_MODES[mode_id];
 
-    // Helper to extract a multi-bit field from specific bit positions.
-    auto get_bits = [&](u32 start, u32 count) -> u32 {
-        u32 v = 0;
-        for (u32 i = 0; i < count; ++i)
-            v |= get_bit(start + i) << i;
-        return v;
-    };
-
-    // We'll decode endpoints as endpoints[4][3] = endpoints[subset*2+ep][channel].
-    // For 2-subset modes: 4 endpoints (2 per subset).
-    // For 1-subset modes: 2 endpoints.
-    std::array<std::array<u32, 3>, 4> endpoints{};
+    // ---- Scatter the header bits into endpoints ----
+    std::array<std::array<i32, 3>, 4> endpoints{};
     u32 partition = 0;
-    u32 num_subsets = 1;
-    std::array<u32, 3> endpoint_prec{}; // per-channel base precision for unquantize
-    bool transformed = false;
-
-    // ----------------------------------------------------------------
-    // Mode-specific endpoint extraction
-    // ----------------------------------------------------------------
-    // The bit-field layouts are from the BC6H specification.
-    // Reference: Microsoft "BC6H Format" documentation.
-    //
-    // Naming: rw = R endpoint 0 subset 0, rx = R endpoint 1 subset 0,
-    //         ry = R endpoint 0 subset 1, rz = R endpoint 1 subset 1
-    //         (similarly for g*, b*)
-
-    switch (mode_id) {
-    case 1: {
-        // Mode 1: 2 subsets, transformed, 10.5.5.5
-        u32 const rw = get_bits(5, 10);
-        u32 const gw = get_bits(15, 10);
-        u32 const bw = get_bits(25, 10);
-
-        u32 const rx = get_bits(35, 5);
-        u32 const gx = get_bits(45, 5);
-        u32 const bx = get_bits(55, 5);
-
-        u32 const ry = get_bits(65, 5);
-        u32 const gy = get_bits(41, 4) | (get_bit(2) << 4);
-        u32 const by = get_bits(61, 4) | (get_bit(3) << 4);
-
-        u32 const rz = get_bits(71, 5);
-        u32 const gz = get_bits(51, 4) | (get_bit(40) << 4);
-        u32 const bz = get_bit(50) | (get_bit(60) << 1) | (get_bit(70) << 2) | (get_bit(76) << 3) |
-                       (get_bit(4) << 4);
-
-        partition = get_bits(77, 5);
-
-        endpoints[0][0] = rw;
-        endpoints[0][1] = gw;
-        endpoints[0][2] = bw;
-        endpoints[1][0] = rx;
-        endpoints[1][1] = gx;
-        endpoints[1][2] = bx;
-        endpoints[2][0] = ry;
-        endpoints[2][1] = gy;
-        endpoints[2][2] = by;
-        endpoints[3][0] = rz;
-        endpoints[3][1] = gz;
-        endpoints[3][2] = bz;
-
-        num_subsets = 2;
-        transformed = true;
-        endpoint_prec[0] = endpoint_prec[1] = endpoint_prec[2] = 10;
-        break;
+    for (u32 i = 0; i < mode.header_bits; ++i) {
+        u32 const bit = (block[i >> 3] >> (i & 7)) & 1u;
+        if (bit == 0)
+            continue;
+        BC6HBitRef const ref = mode.layout[i];
+        if (ref.field == BC6H_M)
+            continue;
+        if (ref.field == BC6H_D) {
+            partition |= 1u << ref.bit;
+            continue;
+        }
+        endpoints[ref.field & 3][ref.field >> 2] |= 1 << ref.bit;
     }
 
-    case 2: {
-        // Mode 2: 2 subsets, transformed, 7.6.6.6
-        u32 const rw = get_bits(5, 7);
-        u32 const gw = get_bits(15, 7);
-        u32 const bw = get_bits(25, 7);
+    u32 const prec = mode.endpoint_bits;
+    u32 const num_endpoints = mode.subsets * 2u;
 
-        u32 const rx = get_bits(35, 6);
-        u32 const gx = get_bits(45, 6);
-        u32 const bx = get_bits(55, 6);
-
-        u32 const ry = get_bits(65, 6);
-        u32 const gy = get_bits(41, 4) | (get_bit(24) << 4) | (get_bit(2) << 5);
-        u32 const by = get_bits(61, 4) | (get_bit(14) << 4) | (get_bit(22) << 5);
-
-        u32 const rz = get_bits(71, 6);
-        u32 const gz = get_bits(51, 4) | (get_bit(3) << 4) | (get_bit(4) << 5);
-        u32 const bz = get_bit(12) | (get_bit(13) << 1) | (get_bit(23) << 2) | (get_bit(32) << 3) |
-                       (get_bit(34) << 4) | (get_bit(33) << 5);
-
-        partition = get_bits(77, 5);
-
-        endpoints[0][0] = rw;
-        endpoints[0][1] = gw;
-        endpoints[0][2] = bw;
-        endpoints[1][0] = rx;
-        endpoints[1][1] = gx;
-        endpoints[1][2] = bx;
-        endpoints[2][0] = ry;
-        endpoints[2][1] = gy;
-        endpoints[2][2] = by;
-        endpoints[3][0] = rz;
-        endpoints[3][1] = gz;
-        endpoints[3][2] = bz;
-
-        num_subsets = 2;
-        transformed = true;
-        endpoint_prec[0] = endpoint_prec[1] = endpoint_prec[2] = 7;
-        break;
+    // ---- Sign-extend and undo the delta transform ----
+    if (is_signed) {
+        for (u32 c = 0; c < 3; ++c)
+            endpoints[0][c] = sign_extend(endpoints[0][c], prec);
     }
-
-    case 11: {
-        // Mode 11: 1 subset, no transform, 10.10
-        u32 const rw = get_bits(5, 10);
-        u32 const gw = get_bits(15, 10);
-        u32 const bw = get_bits(25, 10);
-        u32 const rx = get_bits(35, 10);
-        u32 const gx = get_bits(45, 10);
-        u32 const bx = get_bits(55, 10);
-
-        endpoints[0][0] = rw;
-        endpoints[0][1] = gw;
-        endpoints[0][2] = bw;
-        endpoints[1][0] = rx;
-        endpoints[1][1] = gx;
-        endpoints[1][2] = bx;
-
-        num_subsets = 1;
-        transformed = false;
-        endpoint_prec[0] = endpoint_prec[1] = endpoint_prec[2] = 10;
-        break;
-    }
-
-    case 12: {
-        // Mode 12: 1 subset, transformed, 11.9
-        u32 const rw = get_bits(5, 10) | (get_bit(40) << 10);
-        u32 const gw = get_bits(15, 10) | (get_bit(49) << 10);
-        u32 const bw = get_bits(25, 10) | (get_bit(59) << 10);
-        u32 const rx = get_bits(35, 5) | (get_bits(44, 4) << 5);
-        u32 const gx = get_bits(45, 4) | (get_bits(55, 4) << 4) | (get_bit(41) << 8);
-        u32 const bx = get_bits(50, 4) | (get_bits(60, 4) << 4) | (get_bit(42) << 8);
-
-        endpoints[0][0] = rw;
-        endpoints[0][1] = gw;
-        endpoints[0][2] = bw;
-        endpoints[1][0] = rx;
-        endpoints[1][1] = gx;
-        endpoints[1][2] = bx;
-
-        num_subsets = 1;
-        transformed = true;
-        endpoint_prec[0] = endpoint_prec[1] = endpoint_prec[2] = 11;
-        break;
-    }
-
-    case 13: {
-        // Mode 13: 1 subset, transformed, 12.8
-        u32 const rw = get_bits(5, 10) | (get_bit(40) << 10) | (get_bit(43) << 11);
-        u32 const gw = get_bits(15, 10) | (get_bit(49) << 10) | (get_bit(44) << 11);
-        u32 const bw = get_bits(25, 10) | (get_bit(59) << 10) | (get_bit(53) << 11);
-        u32 const rx = get_bits(35, 5) | (get_bits(47, 2) << 5) | (get_bit(41) << 7);
-        u32 const gx = get_bits(45, 2) | (get_bits(55, 4) << 2) | (get_bits(50, 2) << 6);
-        u32 const bx = get_bits(60, 4) | (get_bits(42, 1) << 4) | (get_bits(54, 1) << 5) |
-                       (get_bits(51, 2) << 6);
-
-        endpoints[0][0] = rw;
-        endpoints[0][1] = gw;
-        endpoints[0][2] = bw;
-        endpoints[1][0] = rx;
-        endpoints[1][1] = gx;
-        endpoints[1][2] = bx;
-
-        num_subsets = 1;
-        transformed = true;
-        endpoint_prec[0] = endpoint_prec[1] = endpoint_prec[2] = 12;
-        break;
-    }
-
-    case 14: {
-        // Mode 14: 1 subset, transformed, 16.4
-        u32 const rw = get_bits(5, 10) | (get_bits(40, 6) << 10);
-        u32 const gw = get_bits(15, 10) | (get_bits(49, 6) << 10);
-        u32 const bw = get_bits(25, 10) | (get_bits(59, 6) << 10);
-        u32 const rx = get_bits(35, 4);
-        u32 const gx = get_bits(45, 4);
-        u32 const bx = get_bits(55, 4);
-
-        endpoints[0][0] = rw;
-        endpoints[0][1] = gw;
-        endpoints[0][2] = bw;
-        endpoints[1][0] = rx;
-        endpoints[1][1] = gx;
-        endpoints[1][2] = bx;
-
-        num_subsets = 1;
-        transformed = true;
-        endpoint_prec[0] = endpoint_prec[1] = endpoint_prec[2] = 16;
-        break;
-    }
-
-    default: {
-        // Modes 3-10: 2-subset modes with various bit distributions.
-        // For modes we haven't fully mapped, fall back to mode 11 decoding
-        // as a best-effort (output will be approximate for rarely used modes).
-        u32 const rw = get_bits(5, 10);
-        u32 const gw = get_bits(15, 10);
-        u32 const bw = get_bits(25, 10);
-        u32 const rx = get_bits(35, 10);
-        u32 const gx = get_bits(45, 10);
-        u32 const bx = get_bits(55, 10);
-
-        endpoints[0][0] = rw;
-        endpoints[0][1] = gw;
-        endpoints[0][2] = bw;
-        endpoints[1][0] = rx;
-        endpoints[1][1] = gx;
-        endpoints[1][2] = bx;
-
-        num_subsets = 1;
-        transformed = false;
-        endpoint_prec[0] = endpoint_prec[1] = endpoint_prec[2] = 10;
-        break;
-    }
-    }
-
-    // ---- Apply delta transform ----
-    if (transformed) {
-        u32 const prec = endpoint_prec[0]; // all channels same for uniform modes
-        u32 const mask = (1u << prec) - 1u;
-
-        if (num_subsets == 1) {
-            // endpoints[1] is delta from endpoints[0]
+    if (mode.transformed) {
+        i32 const mask = static_cast<i32>((1u << prec) - 1u);
+        for (u32 e = 1; e < num_endpoints; ++e) {
             for (u32 c = 0; c < 3; ++c) {
-                u32 delta_prec = 0;
-                switch (mode_id) {
-                case 12:
-                    delta_prec = 9;
-                    break;
-                case 13:
-                    delta_prec = 8;
-                    break;
-                case 14:
-                    delta_prec = 4;
-                    break;
-                default:
-                    delta_prec = prec;
-                    break;
-                }
-                i32 const delta = sign_extend(endpoints[1][c], delta_prec);
-                endpoints[1][c] = (endpoints[0][c] + delta) & mask;
-            }
-        } else {
-            // 2-subset: endpoints[1], endpoints[2], endpoints[3] are deltas from endpoints[0]
-            u32 delta_prec = 0;
-            switch (mode_id) {
-            case 1:
-                delta_prec = 5;
-                break;
-            case 2:
-                delta_prec = 6;
-                break;
-            default:
-                delta_prec = 5;
-                break;
-            }
-            for (u32 c = 0; c < 3; ++c) {
-                for (u32 e = 1; e < 4; ++e) {
-                    i32 const delta = sign_extend(endpoints[e][c], delta_prec);
-                    endpoints[e][c] = (endpoints[0][c] + delta) & mask;
-                }
+                i32 const delta = sign_extend(endpoints[e][c], mode.delta_bits[c]);
+                i32 const sum = (endpoints[0][c] + delta) & mask;
+                endpoints[e][c] = is_signed ? sign_extend(sum, prec) : sum;
             }
         }
+    } else if (is_signed) {
+        for (u32 e = 1; e < num_endpoints; ++e)
+            for (u32 c = 0; c < 3; ++c)
+                endpoints[e][c] = sign_extend(endpoints[e][c], prec);
     }
 
-    // ---- Unquantize endpoints to 15-bit ----
-    u32 const prec = endpoint_prec[0];
-    u32 const total_ep = num_subsets * 2;
-    for (u32 e = 0; e < total_ep; ++e) {
+    for (u32 e = 0; e < num_endpoints; ++e)
         for (u32 c = 0; c < 3; ++c)
-            endpoints[e][c] = unquantize_uf16(endpoints[e][c], prec);
-    }
+            endpoints[e][c] = unquantize(endpoints[e][c], prec, is_signed);
 
     // ---- Read indices ----
-    u32 const idx_start = (num_subsets == 2) ? INDEX_START_2SUBSET : INDEX_START_1SUBSET;
-
-    u32 const index_bits = (num_subsets == 1) ? 4 : 3;
+    u32 const index_bits = (mode.subsets == 1) ? 4 : 3;
     const u32* weight_table = (index_bits == 4) ? BCN_WEIGHT_4.data() : BCN_WEIGHT_3.data();
-
-    u32 const anchor0 = 0;
-    u32 const anchor1 = (num_subsets == 2) ? BC6H_ANCHOR_2[partition] : 16; // 16 = no second anchor
-
-    const u8* part_table = (num_subsets == 2) ? BC6H_PARTITION_TABLE[partition].data() : nullptr;
+    u32 const anchor1 = (mode.subsets == 2) ? BC6H_ANCHOR_2[partition] : 16;
+    const u8* part_table = (mode.subsets == 2) ? BC6H_PARTITION_TABLE[partition].data() : nullptr;
 
     BitReader reader(block);
-    reader.pos = idx_start;
+    reader.pos = mode.header_bits;
 
     std::array<u32, 16> indices{};
     for (u32 i = 0; i < 16; ++i) {
-        bool const is_anchor = (i == anchor0) || (i == anchor1);
+        bool const is_anchor = (i == 0) || (i == anchor1);
         indices[i] = reader.read(is_anchor ? (index_bits - 1) : index_bits);
     }
 
-    // ---- Interpolate and output ----
+    // ---- Interpolate ----
     for (u32 i = 0; i < 16; ++i) {
-        u32 const subset_index = part_table ? part_table[i] : 0;
-        u32 const e0_idx = subset_index * 2;
-        u32 const e1_idx = subset_index * 2 + 1;
+        u32 const subset = part_table ? part_table[i] : 0;
         u32 const weight = weight_table[indices[i]];
-
         for (u32 c = 0; c < 3; ++c) {
-            u32 const val = bcn_interpolate(endpoints[e0_idx][c], endpoints[e1_idx][c], weight);
-            out[i * 4 + c] = finish_unquantize(val);
+            i32 const val = interpolate(endpoints[subset * 2][c], endpoints[subset * 2 + 1][c],
+                                        weight);
+            out[i * 4 + c] = finish_unquantize(val, is_signed);
         }
         out[i * 4 + 3] = HALF_FLOAT_ONE;
     }
@@ -516,7 +222,7 @@ inline f32 half_to_float_quick(u16 h) {
     return f16::from_raw(h).to_float();
 }
 
-std::vector<f32> decode_image(std::span<const u8> bc6h, u32 width, u32 height,
+std::vector<f32> decode_image(std::span<const u8> bc6h, u32 width, u32 height, bool is_signed,
                               interfaces::WorkerPool* pool) {
     assert(width > 0 && height > 0);
 
@@ -532,7 +238,7 @@ std::vector<f32> decode_image(std::span<const u8> bc6h, u32 width, u32 height,
             for (u32 block_x = bx0; block_x < bx1; ++block_x) {
                 std::array<u16, 64> block_pixels{}; // 16 pixels × 4 channels
                 decode_block(bc6h.data() + (block_y * blocks_wide + block_x) * 16,
-                             block_pixels.data());
+                             block_pixels.data(), is_signed);
                 scatter_rgba_block<u16>(block_pixels, width, height, block_x, block_y, half_buf);
             }
         }
@@ -552,8 +258,21 @@ std::optional<Texture> decodeTexture(const Texture& src, std::string* out_error,
                                      interfaces::WorkerPool* pool) {
     return transform_texture_impl(
         src, PixelFormat::BC6H, PixelFormat::RGBA32F, "bc6h::decodeTexture",
-        [pool](std::span<const u8> data, u32 w, u32 h) { return decode_image(data, w, h, pool); },
+        [pool](std::span<const u8> data, u32 w, u32 h) {
+            return decode_image(data, w, h, false, pool);
+        },
         out_error);
+}
+
+std::vector<f32> decodeBlocks(std::span<const u8> blocks, u32 width, u32 height, bool isSigned,
+                              interfaces::WorkerPool* pool) {
+    if (width == 0 || height == 0)
+        return {};
+    u64 const needed =
+        static_cast<u64>((width + 3) / 4) * ((height + 3) / 4) * 16u;
+    if (blocks.size() < needed)
+        return {};
+    return decode_image(blocks, width, height, isSigned, pool);
 }
 
 // ============================================================================
@@ -576,25 +295,30 @@ u16 float_to_half(f32 f) {
     return f16::from_float(f).raw;
 }
 
-/// Quantize a non-negative float to an N-bit unsigned integer (0 .. 2^N-1),
-/// where the float is in the half-float [0, max_half] range mapped linearly.
+/// Quantize a non-negative float to a 10-bit mode-11 endpoint.
+///
+/// Inverse of the decode chain: for a 10-bit endpoint q, unquantize gives
+/// `q * 64 + 32` and finish_unquantize scales by 31/64, so q decodes to the
+/// half-float bit pattern `31 * q + 15`.  Pick the q nearest to that.
 u32 quantize_uf16_10bit(f32 val) {
     if (val < 0.0f)
         val = 0.0f;
     u16 h = float_to_half(val);
-    // Clamp sign bit (BC6H UF16 — no negatives)
+    // BC6H UF16 has no negatives.
     if (h & HALF_FLOAT_SIGN_BIT)
         h = 0;
-    // Quantize to 10 bits: round to nearest
-    u32 q = (static_cast<u32>(h) + QUANTIZE_10BIT_ROUND) >> QUANTIZE_10BIT_SHIFT;
+    if (h <= QUANTIZE_10BIT_BIAS)
+        return 0;
+    u32 q = ((static_cast<u32>(h) - QUANTIZE_10BIT_BIAS) * 2 + FINISH_UNQUANT_SCALE) /
+            (2 * FINISH_UNQUANT_SCALE);
     if (q > QUANTIZE_10BIT_MAX)
         q = QUANTIZE_10BIT_MAX;
     return q;
 }
 
-/// Dequantize a 10-bit unsigned endpoint to a u16 half-float bit pattern.
+/// Half-float bit pattern a 10-bit mode-11 endpoint decodes to.
 u16 dequantize_uf16_10bit(u32 q) {
-    return static_cast<u16>(q << QUANTIZE_10BIT_SHIFT);
+    return finish_unquantize(static_cast<i32>(unquantize(static_cast<i32>(q), 10, false)), false);
 }
 
 } // anonymous namespace
@@ -677,8 +401,10 @@ void encode_block(const u16* rgba_f16, u8* out) {
             indices[i] = static_cast<u8>(15 - indices[i]);
     }
 
+    // Mode 11's code is 5 bits (0b00011); the 60 endpoint bits follow it and
+    // run up to the index field at bit 65.
     BitWriter writer;
-    writer.write(0b11, 2); // mode 11
+    writer.write(0b00011, 5);
 
     writer.write(e0[0], 10); // rw
     writer.write(e0[1], 10); // gw
@@ -686,9 +412,6 @@ void encode_block(const u16* rgba_f16, u8* out) {
     writer.write(e1[0], 10); // rx
     writer.write(e1[1], 10); // gx
     writer.write(e1[2], 10); // bx
-
-    // 3 reserved bits
-    writer.write(0, 3);
 
     // Indices: pixel 0 = 3 bits (anchor), pixels 1..15 = 4 bits
     writer.write(indices[0], 3);

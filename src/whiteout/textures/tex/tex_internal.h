@@ -91,7 +91,7 @@ static constexpr u32 D4_TEX_FMT_BC2 = 11;
 static constexpr u32 D4_TEX_FMT_BC3 = 12;
 static constexpr u32 D4_TEX_FMT_BC4 = 41;
 static constexpr u32 D4_TEX_FMT_BC5 = 42;
-static constexpr u32 D4_TEX_FMT_BC6H_SF16 = 43; ///< signed half; no decoder here
+static constexpr u32 D4_TEX_FMT_BC6H_SF16 = 43; ///< signed half; decoded to RGBA32F
 static constexpr u32 D4_TEX_FMT_BC7 = 44;
 static constexpr u32 D4_TEX_FMT_BC1_SRGB = 46;
 static constexpr u32 D4_TEX_FMT_BC1_SRGB_ALT = 47;
@@ -243,6 +243,7 @@ enum class D4Conversion : u8 {
     F16ToF32,      ///< RGBA16F widened to RGBA32F
     BGRA8ToRGBA8,  ///< B8G8R8A8 red/blue swap
     A8ToRGBA8,     ///< alpha-only expanded to RGBA8 with RGB = 0
+    BC6HSf16ToRGBA32F, ///< signed BC6H decoded at load time (see below)
 };
 
 struct D4FormatMapping {

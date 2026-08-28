@@ -304,9 +304,10 @@ std::optional<D4FormatMapping> d4_tex_format_to_pixel_format(u32 d4_fmt) {
     case D4_TEX_FMT_BC7_SRGB:
         return D4FormatMapping{PixelFormat::BC7, true, 4, 16};
     case D4_TEX_FMT_BC6H_SF16:
-        // PixelFormat::BC6H is the unsigned variant only; decoding signed
-        // endpoints as unsigned would silently produce wrong HDR values.
-        return std::nullopt;
+        // PixelFormat::BC6H denotes the unsigned variant, so signed data has no
+        // compressed representation to hand back -- decode it at load time.
+        return D4FormatMapping{PixelFormat::RGBA32F, false, 4, 16,
+                               D4Conversion::BC6HSf16ToRGBA32F};
     default:
         return std::nullopt;
     }
