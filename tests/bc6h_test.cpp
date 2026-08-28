@@ -11,6 +11,10 @@
 #include "../src/whiteout/textures/bcn/bc6h.h"
 #include "../src/whiteout/textures/bcn/bc6h_tables.h"
 
+#include "data/bc6h_golden_vectors.inc"
+
+#include <cmath>
+#include <iterator>
 #include <map>
 #include <set>
 #include <vector>
@@ -247,5 +251,71 @@ TEST_CASE("BC6H: a constant colour survives encode/decode", "[bcn][bc6h]") {
         CHECK(out[i * 4 + 0] == Catch::Approx(kRed).epsilon(0.01));
         CHECK(out[i * 4 + 1] == Catch::Approx(kGreen).epsilon(0.01));
         CHECK(out[i * 4 + 2] == Catch::Approx(kBlue).epsilon(0.01));
+    }
+}
+
+// ============================================================================
+// Hardware ground truth
+// ============================================================================
+
+namespace {
+
+u8 hexNibble(char c) {
+    return static_cast<u8>(c <= '9' ? c - '0' : (c | 0x20) - 'a' + 10);
+}
+
+std::vector<u8> fromHex(const char* s) {
+    std::vector<u8> out;
+    for (const char* p = s; p[0] && p[1]; p += 2)
+        out.push_back(static_cast<u8>((hexNibble(p[0]) << 4) | hexNibble(p[1])));
+    return out;
+}
+
+f32 halfBitsToFloat(u16 h) {
+    const u32 sign = (h >> 15) & 1u;
+    const u32 exp = (h >> 10) & 0x1Fu;
+    const u32 man = h & 0x3FFu;
+    f32 v;
+    if (exp == 0)
+        v = std::ldexp(static_cast<f32>(man), -24);
+    else
+        v = std::ldexp(static_cast<f32>(man + 1024u), static_cast<int>(exp) - 25);
+    return sign ? -v : v;
+}
+
+void checkGolden(const BC6HGoldenVector* vectors, size_t count, bool isSigned) {
+    for (size_t i = 0; i < count; ++i) {
+        const auto block = fromHex(vectors[i].block);
+        const auto expected = fromHex(vectors[i].expected);
+        REQUIRE(block.size() == 16);
+        REQUIRE(expected.size() == 96);
+
+        INFO("vector " << i << " (" << (isSigned ? "signed" : "unsigned") << ") block "
+                       << vectors[i].block);
+        const auto pixels = bc6h::decodeBlocks(block, 4, 4, isSigned);
+        REQUIRE(pixels.size() == 4 * 4 * 4);
+        for (u32 t = 0; t < 16; ++t) {
+            for (u32 c = 0; c < 3; ++c) {
+                const u16 bits = static_cast<u16>((expected[(t * 3 + c) * 2] << 8) |
+                                                  expected[(t * 3 + c) * 2 + 1]);
+                INFO("texel " << t << " channel " << c);
+                CHECK(pixels[t * 4 + c] == halfBitsToFloat(bits));
+            }
+        }
+    }
+}
+
+} // namespace
+
+TEST_CASE("BC6H: decode matches the hardware decoder in every mode", "[bcn][bc6h]") {
+    // A layout bug is invisible to self-consistency checks -- a table that reads
+    // one block bit twice still decodes "something", and mode 8/9/10 shipped
+    // wrong twice on hand-reconstructed tables.  These vectors come from a D3D11
+    // hardware decoder, which the spec defines bit-exactly.
+    SECTION("unsigned") {
+        checkGolden(kBC6HGoldenUnsigned, std::size(kBC6HGoldenUnsigned), false);
+    }
+    SECTION("signed") {
+        checkGolden(kBC6HGoldenSigned, std::size(kBC6HGoldenSigned), true);
     }
 }
