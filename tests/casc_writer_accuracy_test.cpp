@@ -31,6 +31,7 @@
 #include "../src/whiteout/storages/casc/tables/config.h"
 #include "../src/whiteout/storages/common/byte_order.h"
 #include "../src/whiteout/storages/common/hex.h"
+#include "../src/whiteout/storages/common/jenkins.h"
 #include "../src/whiteout/storages/common/md5.h"
 
 using namespace whiteout;
@@ -563,6 +564,7 @@ TEST_CASE("Index header checksum covers full block", "[casc][writer_accuracy]") 
     REQUIRE_FALSE(idxPaths.empty());
 
     for (auto& idxPath : idxPaths) {
+        INFO(idxPath);
         auto data = readAllBytes(idxPath);
         REQUIRE(data.size() >= 40);
 
@@ -572,31 +574,34 @@ TEST_CASE("Index header checksum covers full block", "[casc][writer_accuracy]") 
         CHECK(headerDataSize == 16);
 
         // Hash must cover all headerDataSize bytes starting at offset 8.
-        auto expectedHash = storages::common::md5Hash(
-            std::span<const u8>(data.data() + 8, headerDataSize));
+        u32 headerPc = 0, headerPb = 0;
+        storages::common::jenkinsHashlittle2(data.data() + 8, headerDataSize, headerPc, headerPb);
 
         u32 storedHash = 0;
         std::memcpy(&storedHash, data.data() + 4, 4);
-        u32 expectedHash4 = 0;
-        std::memcpy(&expectedHash4, expectedHash.data(), 4);
 
-        CHECK(storedHash == expectedHash4);
+        CHECK(storedHash == headerPc);
 
-        // Guarded block 2: data[32:36] = dataSize, data[36:40] = hash.
+        // Guarded block 2: data[32:36] = dataSize, data[36:40] = hash. The
+        // hash accumulates one hashlittle2 call per entry, not one over the
+        // block, so it must cover every entry the size field claims.
         u32 dataSize = 0;
         std::memcpy(&dataSize, data.data() + 32, 4);
         CHECK(dataSize > 0);
         REQUIRE(data.size() >= 40u + dataSize);
 
-        auto expectedDataHash = storages::common::md5Hash(
-            std::span<const u8>(data.data() + 40, dataSize));
+        size_t const entrySize = size_t(data[14]) + data[13] + data[12] + data[11];
+        REQUIRE(entrySize > 0);
+
+        u32 dataPc = 0, dataPb = 0;
+        for (size_t i = 0; i + entrySize <= dataSize; i += entrySize) {
+            storages::common::jenkinsHashlittle2(data.data() + 40 + i, entrySize, dataPc, dataPb);
+        }
 
         u32 storedDataHash = 0;
         std::memcpy(&storedDataHash, data.data() + 36, 4);
-        u32 expectedDataHash4 = 0;
-        std::memcpy(&expectedDataHash4, expectedDataHash.data(), 4);
 
-        CHECK(storedDataHash == expectedDataHash4);
+        CHECK(storedDataHash == dataPc);
     }
 
     cleanDir(testDir);

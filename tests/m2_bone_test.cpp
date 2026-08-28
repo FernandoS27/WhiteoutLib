@@ -158,7 +158,10 @@ TEST_CASE("M2 resolves .bone siblings into the model", "[m2][bone][corpus]") {
         if (!entry.is_regular_file() || entry.path().extension() != ".m2") {
             continue;
         }
-        const fs::path base = entry.path();
+        // Absolute: the vfs joins its root onto whatever it is handed, so a
+        // relative path here would send every sibling probe into
+        // <dir>/<dir>/<name> and quietly resolve nothing.
+        const fs::path base = fs::absolute(entry.path());
         if (!fs::exists(base.parent_path() / (base.stem().string() + "_00.bone"))) {
             continue;
         }

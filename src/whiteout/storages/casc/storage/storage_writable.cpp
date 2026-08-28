@@ -11,10 +11,36 @@
 
 #include <whiteout/storages/casc/storage_writable.h>
 
+#include <chrono>
 #include <filesystem>
+#include <thread>
 #include <unordered_set>
 
 namespace whiteout::storages::casc {
+
+namespace {
+
+/// Run a filesystem call until it stops failing, for up to a second.
+///
+/// Windows refuses to rename a directory while anything holds a handle
+/// anywhere below it, and a scanner or indexer opening the files the writer
+/// just closed is enough. It also keeps a deleted directory's name reserved
+/// until the last handle goes. Both clear within a few tens of milliseconds,
+/// but until they do the save fails outright.
+template <typename Fn>
+bool retryTransient(Fn&& fn) {
+    std::error_code ec;
+    for (int delayMs = 1; delayMs <= 512; delayMs *= 2) {
+        fn(ec);
+        if (!ec)
+            return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(delayMs));
+    }
+    fn(ec);
+    return !ec;
+}
+
+} // namespace
 
 // ============================================================================
 // StorageWritable construction
@@ -630,25 +656,26 @@ bool StorageWritable::save(const std::string& outputPath) {
 
     std::string const basePath = m_impl->localState ? m_impl->localState->basePath : "";
 
+    auto renameRetrying = [](const std::string& from, const std::string& to) {
+        return retryTransient([&](std::error_code& e) { fs::rename(from, to, e); });
+    };
+
     if (outputPath != basePath) {
-        fs::rename(tempDir, outputPath, ec);
-        if (ec) {
+        if (!renameRetrying(tempDir, outputPath)) {
             fs::remove_all(tempDir, ec);
             s_lastError = kSaveFailed;
             return false;
         }
     } else {
         std::string const oldDir = outputPath + ".old_save";
-        fs::remove_all(oldDir, ec);
-        fs::rename(outputPath, oldDir, ec);
-        if (ec) {
+        retryTransient([&](std::error_code& e) { fs::remove_all(oldDir, e); });
+        if (!renameRetrying(outputPath, oldDir)) {
             fs::remove_all(tempDir, ec);
             s_lastError = kSaveFailed;
             return false;
         }
-        fs::rename(tempDir, outputPath, ec);
-        if (ec) {
-            fs::rename(oldDir, outputPath, ec);
+        if (!renameRetrying(tempDir, outputPath)) {
+            renameRetrying(oldDir, outputPath);
             s_lastError = kSaveFailed;
             return false;
         }
