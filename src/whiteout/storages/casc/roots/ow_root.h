@@ -96,7 +96,7 @@ public:
     /// an entry this root does not own.
     std::string assetPath(const RootEntry& entry) const;
 
-    void enumerate(std::function<bool(const RootEntry&)> callback) const override;
+    void enumerateIndexed(std::function<bool(const RootEntry&, size_t)> callback) const override;
     void enumerateUnder(const std::string& normalizedPrefix,
                         std::function<bool(const RootEntry&)> callback) const override;
 

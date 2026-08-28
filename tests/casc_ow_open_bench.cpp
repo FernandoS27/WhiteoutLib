@@ -313,6 +313,43 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         table.add("Storage::open (end to end)", ms, 0, s->entryCount());
+
+        // The walk. Storage::enumerate does two things per entry the root does
+        // not: it synthesises the path and it probes whether the file is
+        // actually on disk, so both are timed apart as well as together.
+        u64 counted = 0, listed = 0, pathBytes = 0;
+        double const walkMs = bestOf(reps, [&] {
+            counted = 0;
+            pathBytes = 0;
+            s->enumerate([&](const EnumerateEntry& fe) {
+                ++counted;
+                pathBytes += fe.path.size();
+                return true;
+            });
+        });
+        table.add("W1. Storage::enumerate", walkMs, pathBytes, counted, "the walk");
+
+        double const listMs = bestOf(reps, [&] {
+            auto files = s->listFiles();
+            listed = files.size();
+        });
+        table.add("W2. Storage::listFiles", listMs, 0, listed, "same walk, keeps the strings");
+
+        OpenOptions all = o;
+        all.progressCallback = nullptr;
+        all.flags = StorageFeatureFlags::ListAllFiles;
+        if (auto sAll = Storage::open(all)) {
+            u64 n = 0;
+            double const allMs = bestOf(reps, [&] {
+                n = 0;
+                sAll->enumerate([&](const EnumerateEntry&) {
+                    ++n;
+                    return true;
+                });
+            });
+            table.add("W3. Storage::enumerate, ListAllFiles", allMs, 0, n,
+                      "no availability probe");
+        }
     }
 
     // --- Rebuild the pieces the root needs, so the root can be timed alone. ---

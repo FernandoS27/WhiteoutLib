@@ -259,37 +259,57 @@ static bool parseCmfHeader(std::span<const u8> data, CmfHeader& out) {
 
 static constexpr char kHexDigits[] = "0123456789abcdef";
 
-/// Lowercase hex of a 64-bit GUID, most significant nibble first — the form
-/// CascLib prints after byte-reversing the little-endian GUID.
-static void appendGuidHex(u64 guid, std::string& out) {
+/// An asset's file name: the GUID as sixteen lowercase hex digits — the form
+/// CascLib prints after byte-reversing the little-endian GUID — then the type
+/// as an extension. Types the client names get that name; a type it knows but
+/// does not register keeps its id, which is still what someone searching the
+/// tree would reach for.
+///
+/// Written into a caller-owned buffer rather than returned, because enumerate
+/// does this twenty-four million times per walk.
+static size_t writeAssetFileName(u64 guid, char* out) {
+    char* p = out;
     for (int shift = 60; shift >= 0; shift -= 4)
-        out.push_back(kHexDigits[(guid >> shift) & 0xF]);
-}
-
-/// Extension for an asset, so a GUID reads as a filename. Types the client
-/// names get that name; a type it knows but does not register keeps its id,
-/// which is still what someone searching the tree would reach for.
-static void appendAssetExtension(u64 guid, std::string& out) {
-    out.push_back('.');
+        *p++ = kHexDigits[(guid >> shift) & 0xF];
+    *p++ = '.';
 
     auto const typeId = ow::assetTypeId(guid);
-    if (typeId == 0) {
+    if (typeId != 0) {
+        auto const name = ow::assetTypeName(typeId);
+        if (!name.empty()) {
+            std::memcpy(p, name.data(), name.size());
+            return size_t(p - out) + name.size();
+        }
+    } else {
         // A GUID the client would reject outright. Its raw field can look just
         // like a valid type id, so mark it rather than let the two blur.
-        out.push_back('x');
-        auto const field = ow::assetTypeField(guid);
-        for (int shift = 8; shift >= 0; shift -= 4)
-            out.push_back(kHexDigits[(field >> shift) & 0xF]);
-        return;
+        *p++ = 'x';
     }
 
-    auto const name = ow::assetTypeName(typeId);
-    if (!name.empty()) {
-        out.append(name);
-        return;
-    }
+    u32 const field = typeId != 0 ? typeId : ow::assetTypeField(guid);
     for (int shift = 8; shift >= 0; shift -= 4)
-        out.push_back(kHexDigits[(typeId >> shift) & 0xF]);
+        *p++ = kHexDigits[(field >> shift) & 0xF];
+    return size_t(p - out);
+}
+
+/// Longest name @ref writeAssetFileName can produce: sixteen hex digits, a dot,
+/// and the longest registered type name.
+static constexpr size_t kLongestTypeName = [] {
+    size_t longest = 0;
+    for (auto const& [id, name] : ow::kAssetTypeNames)
+        longest = name.size() > longest ? name.size() : longest;
+    return longest;
+}();
+static constexpr size_t kMaxAssetFileName = 16 + 1 + kLongestTypeName;
+static_assert(kLongestTypeName >= 4, "type table looks empty");
+
+/// Replace @p out with @p prefix followed by @p guid's file name, keeping the
+/// buffer @p out already holds.
+static void appendAssetPath(const std::string& prefix, u64 guid, std::string& out) {
+    char name[kMaxAssetFileName];
+    size_t const n = writeAssetFileName(guid, name);
+    out.assign(prefix);
+    out.append(name, n);
 }
 
 /// True when @p entryPath names the same asset as @p query, allowing the query
@@ -693,9 +713,7 @@ void OwRoot::buildAssetPath(size_t index, std::string& out) const {
         out.assign(m_entries[index].path);
         return;
     }
-    out.assign(m_cmfPrefix[cmf]);
-    appendGuidHex(m_entries[index].fileNameHash, out);
-    appendAssetExtension(m_entries[index].fileNameHash, out);
+    appendAssetPath(m_cmfPrefix[cmf], m_entries[index].fileNameHash, out);
 }
 
 std::string OwRoot::assetPath(const RootEntry& entry) const {
@@ -707,25 +725,34 @@ std::string OwRoot::assetPath(const RootEntry& entry) const {
     return out;
 }
 
-void OwRoot::enumerate(std::function<bool(const RootEntry&)> callback) const {
+void OwRoot::enumerateIndexed(std::function<bool(const RootEntry&, size_t)> callback) const {
     if (!callback)
         return;
     for (size_t i = 0; i < m_manifestRowCount; ++i) {
-        if (!callback(m_entries[i]))
+        if (!callback(m_entries[i], i))
             return;
     }
 
     // Assets carry no path of their own, so each is handed over as a copy with
-    // one filled in. The buffer is moved in and back out rather than assigned,
-    // so the whole walk allocates once instead of twenty-four million times —
-    // which is the cost not storing the paths was meant to avoid, not move.
+    // one filled in. Two things keep that from costing what storing the paths
+    // did: the path buffer is moved in and back out rather than assigned, so
+    // the walk allocates once rather than twenty-four million times, and the
+    // manifest a path belongs to is tracked as a cursor rather than looked up
+    // per entry — the walk is in entry order, so it only ever moves forward.
     RootEntry scratch;
     std::string buf;
+    size_t cmf = 0;
     for (size_t i = m_manifestRowCount; i < m_entries.size(); ++i) {
+        while (cmf + 1 < m_cmfEntryStart.size() && m_cmfEntryStart[cmf + 1] <= i)
+            ++cmf;
+
         scratch = m_entries[i]; // its path is empty, so this allocates nothing
-        buildAssetPath(i, buf);
+        if (cmf < m_cmfPrefix.size())
+            appendAssetPath(m_cmfPrefix[cmf], m_entries[i].fileNameHash, buf);
+        else
+            buf.clear();
         scratch.path = std::move(buf);
-        bool const keepGoing = callback(scratch);
+        bool const keepGoing = callback(scratch, i);
         buf = std::move(scratch.path);
         if (!keepGoing)
             return;

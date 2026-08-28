@@ -669,6 +669,7 @@ bool StorageWritable::save(const std::string& outputPath) {
         m_impl->encodingTable = std::move(reopened->m_impl->encodingTable);
         m_impl->root = std::move(reopened->m_impl->root);
         m_impl->m_encodingReferenced = std::move(reopened->m_impl->m_encodingReferenced);
+        m_impl->m_entryAvailable = std::move(reopened->m_impl->m_entryAvailable);
         if (reopened->m_impl->localState) {
             m_impl->localState = std::move(reopened->m_impl->localState);
             m_impl->localState->dataSource = std::make_unique<LocalDataSource>(

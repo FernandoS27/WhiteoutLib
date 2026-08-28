@@ -129,12 +129,24 @@ public:
         return results;
     }
 
-    /// Enumerate all entries. Callback returns false to stop.
-    virtual void enumerate(std::function<bool(const RootEntry&)> callback) const {
-        for (auto& e : entries()) {
-            if (!callback(e))
+    /// Enumerate all entries, in @ref entries() order, with each entry's index
+    /// into it. Callback returns false to stop.
+    ///
+    /// The index is what lets a caller keep a side table keyed on entries —
+    /// pointer arithmetic on the reference does not work for a root that hands
+    /// over a synthesised entry rather than the stored one, which is how
+    /// Overwatch avoids storing a path per asset.
+    virtual void enumerateIndexed(std::function<bool(const RootEntry&, size_t)> callback) const {
+        auto const& all = entries();
+        for (size_t i = 0; i < all.size(); ++i) {
+            if (!callback(all[i], i))
                 break;
         }
+    }
+
+    /// Enumerate all entries. Callback returns false to stop.
+    void enumerate(const std::function<bool(const RootEntry&)>& callback) const {
+        enumerateIndexed([&callback](const RootEntry& e, size_t) { return callback(e); });
     }
 
     /// Enumerate entries whose path starts with @p normalizedPrefix.
@@ -163,7 +175,9 @@ public:
     /// Which root format this manifest represents.
     virtual RootFormat format() const = 0;
 
-    /// Pre-resolve additional data for all entries (e.g. file sizes from encoding).
+    /// Pre-resolve additional data for all entries (e.g. file sizes from
+    /// encoding). The callback is given each entry and its index, so it can
+    /// also fill side tables the storage layer keys on entries.
     ///
     /// With a @p pool the callback runs over disjoint stretches of the entries
     /// at once, which is worth having once a root holds millions of them —
@@ -176,8 +190,8 @@ public:
         auto& all = mutableEntries();
         constexpr size_t kMinParallel = 1u << 16;
         if (pool == nullptr || all.size() < kMinParallel) {
-            for (auto& e : all)
-                fn(e);
+            for (size_t i = 0; i < all.size(); ++i)
+                fn(all[i], i);
             return;
         }
 
@@ -194,7 +208,7 @@ public:
                 size_t const begin = c * chunk;
                 size_t const end = std::min(begin + chunk, all.size());
                 for (size_t i = begin; i < end; ++i)
-                    fn(all[i]);
+                    fn(all[i], i);
                 jobGroup.done();
             };
             pool->submit(task);

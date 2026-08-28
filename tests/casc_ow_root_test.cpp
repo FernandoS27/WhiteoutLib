@@ -1166,7 +1166,7 @@ TEST_CASE("OW root enumerate names every asset", "[casc][ow_root]") {
         CHECK_FALSE(p.empty());
 
     CHECK(paths[0] == "win_spwin_rcn_leses_speech_eext.cmf");
-    CHECK(paths[1] == "contentmanifestfiles\windows-rcn\eses\speech\\"
+    CHECK(paths[1] == R"(contentmanifestfiles\windows-rcn\eses\speech\)"
                       "0c00000000000001.txtr");
     CHECK(paths[2].ends_with("0d0000000000001d.model"));
     CHECK(paths[3].ends_with("08d000000000a877.voicewemfile"));
@@ -1224,8 +1224,8 @@ TEST_CASE("OW root GUID index merges manifests in order", "[casc][ow_root]") {
     REQUIRE(shared.size() == 2);
     CHECK(shared[0]->cKey == makeCKey(0xB1));
     CHECK(shared[1]->cKey == makeCKey(0xC1));
-    CHECK(root->assetPath(*shared[0]).starts_with("contentmanifestfiles\windows-rcn\\"));
-    CHECK(root->assetPath(*shared[1]).starts_with("contentmanifestfiles\windows-rdev\\"));
+    CHECK(root->assetPath(*shared[0]).starts_with(R"(contentmanifestfiles\windows-rcn\)"));
+    CHECK(root->assetPath(*shared[1]).starts_with(R"(contentmanifestfiles\windows-rdev\)"));
 
     CHECK(root->findByGuid(0x0C00000000000002ULL).empty());
 }

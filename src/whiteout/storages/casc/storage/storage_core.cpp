@@ -369,7 +369,7 @@ void Storage::Impl::ensureEncodingReferenced() const {
             return;
 
         const auto* encBase = encEntries.data();
-        root->resolveEntries([&](RootEntry& e) {
+        root->resolveEntries([&](RootEntry& e, size_t) {
             const EncodingEntry* enc = nullptr;
             if (!isZeroKey(e.cKey))
                 enc = encodingTable.findByCKey(e.cKey, kEKeyTruncSize);
@@ -738,6 +738,14 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
     if (!(featureFlags & StorageFeatureFlags::LazyEncodingFrames)) {
         m_encodingReferenced.assign(encodingTable.entryCount(), 0);
         const auto* encBase = encodingTable.entries().data();
+
+        // Listings hide what was never downloaded, and the encoding entry this
+        // pass looks up is exactly what answers that. Working it out here costs
+        // one more index lookup per entry on the pool; leaving it to the walk
+        // costs two random lookups per entry on one thread.
+        bool const wantAvailability = filterUnavailableInListings();
+        if (wantAvailability)
+            m_entryAvailable.assign(root->entryCount(), 0);
         // Safe to run in parallel: this branch always parsed the encoding table
         // eagerly, so every lookup below is a pure read, and each entry is
         // visited by exactly one worker. The mark is the one thing two workers
@@ -745,7 +753,7 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
         // goes through an atomic reference rather than being a plain race that
         // happens to write the same value.
         root->resolveEntries(
-            [this, encBase](RootEntry& e) {
+            [this, encBase, wantAvailability](RootEntry& e, size_t index) {
                 const EncodingEntry* enc = nullptr;
                 if (!isZeroKey(e.cKey))
                     enc = encodingTable.findByCKey(e.cKey, kEKeyTruncSize);
@@ -757,6 +765,11 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
                         e.cKey = enc->cKey;
                     std::atomic_ref<u8>(m_encodingReferenced[static_cast<size_t>(enc - encBase)])
                         .store(1, std::memory_order_relaxed);
+                }
+                if (wantAvailability && index < m_entryAvailable.size()) {
+                    bool const here = (!isZeroKey(e.eKey) && isEKeyAvailableLocally(e.eKey)) ||
+                                      (enc != nullptr && isEKeyAvailableLocally(enc->eKey));
+                    m_entryAvailable[index] = here ? 1 : 0;
                 }
             },
             pool);
@@ -1380,8 +1393,8 @@ void Storage::enumerate(std::function<bool(const EnumerateEntry&)> callback) con
     bool const filterUnavailable = m_impl->filterUnavailableInListings();
 
     EnumerateEntry fe;
-    m_impl->root->enumerate([&](const RootEntry& re) -> bool {
-        if (filterUnavailable && !m_impl->isRootEntryAvailableLocally(re))
+    m_impl->root->enumerateIndexed([&](const RootEntry& re, size_t index) -> bool {
+        if (filterUnavailable && !m_impl->rootEntryAvailable(re, index))
             return true; // skip: known to the root but not downloaded locally
         fe.cKey = re.cKey;
         fe.fileSize = re.fileSize;
@@ -1530,7 +1543,7 @@ void Storage::enumerate(const std::string& mask,
     bool const filterUnavailable = m_impl->filterUnavailableInListings();
 
     EnumerateEntry fe;
-    auto rootCallback = [&](const RootEntry& re) -> bool {
+    auto rootCallback = [&](const RootEntry& re, size_t index) -> bool {
         if (!prefix.empty()) {
             if (re.path.size() < prefix.size())
                 return true;
@@ -1544,7 +1557,7 @@ void Storage::enumerate(const std::string& mask,
         if (!match)
             return true;
 
-        if (filterUnavailable && !m_impl->isRootEntryAvailableLocally(re))
+        if (filterUnavailable && !m_impl->rootEntryAvailable(re, index))
             return true; // known but not downloaded locally
 
         fe.cKey = re.cKey;
@@ -1561,7 +1574,7 @@ void Storage::enumerate(const std::string& mask,
         return callback(fe);
     };
 
-    m_impl->root->enumerate(rootCallback);
+    m_impl->root->enumerateIndexed(rootCallback);
 
     // Orphan phase — skip if mask can't match hex-string paths.
     bool const canMatchOrphan = pureSuffix.empty() && prefix.empty();
@@ -1614,10 +1627,19 @@ std::vector<std::string> Storage::listFiles() const {
         return result;
     std::shared_lock const lock(m_impl->mutex);
     bool const filterUnavailable = m_impl->filterUnavailableInListings();
-    m_impl->root->enumerate([&](const RootEntry& re) -> bool {
+
+    // Growing into six million strings copies the vector's headers several
+    // times over, and the availability marks already say how many there will
+    // be. Only an upper bound — an entry with no path is still counted.
+    if (filterUnavailable && !m_impl->m_entryAvailable.empty()) {
+        result.reserve(size_t(std::count(m_impl->m_entryAvailable.begin(),
+                                         m_impl->m_entryAvailable.end(), u8(1))));
+    }
+
+    m_impl->root->enumerateIndexed([&](const RootEntry& re, size_t index) -> bool {
         if (re.path.empty())
             return true;
-        if (filterUnavailable && !m_impl->isRootEntryAvailableLocally(re))
+        if (filterUnavailable && !m_impl->rootEntryAvailable(re, index))
             return true; // known but not downloaded locally
         result.push_back(re.path);
         return true;

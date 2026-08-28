@@ -228,6 +228,25 @@ struct Storage::Impl {
     /// Builds m_encodingReferenced. Idempotent; forces ensureFullyParsed.
     void ensureEncodingReferenced() const;
 
+    /// m_entryAvailable[i] = 1 iff root entry i can be read from the local
+    /// index. Empty when nothing has computed it, which is the signal to fall
+    /// back to probing per entry.
+    ///
+    /// Listing a local storage hides files that were never downloaded, and
+    /// answering that per entry costs two random hash lookups — on Overwatch's
+    /// twenty-four million entries that is five seconds of a six-second walk.
+    /// The eager encoding pass already holds the encoding entry for every root
+    /// entry, so it answers the question there instead, on the pool.
+    mutable std::vector<u8> m_entryAvailable;
+
+    /// Availability for root entry @p index, probing @p re if it was not
+    /// precomputed.
+    bool rootEntryAvailable(const RootEntry& re, size_t index) const {
+        if (index < m_entryAvailable.size())
+            return m_entryAvailable[index] != 0;
+        return isRootEntryAvailableLocally(re);
+    }
+
     // ── State queries ────────────────────────────────────────────
 
     bool isLocal() const noexcept {
