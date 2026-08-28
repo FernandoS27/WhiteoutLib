@@ -13,10 +13,80 @@
 namespace whiteout {
 namespace sno {
 
+namespace {
+
+/// SNO ids are dense and small, so a multiply-shift keeps neighbours apart
+/// instead of piling them into consecutive buckets.
+inline size_t idSlotHash(i32 snoId) {
+    u64 h = static_cast<u64>(static_cast<u32>(snoId)) * 0x9E3779B97F4A7C15ull;
+    return static_cast<size_t>(h >> 29);
+}
+
+size_t nextPow2AtLeast(size_t v) {
+    size_t n = 16;
+    while (n < v)
+        n <<= 1;
+    return n;
+}
+
+} // namespace
+
+void CoreToc::idIndexReset(size_t count) {
+    size_t const buckets = nextPow2AtLeast(count * 2 + 16);
+    m_idSlots.assign(buckets, IdSlot{});
+    m_idMask = buckets - 1;
+}
+
+void CoreToc::idIndexSet(i32 snoId, size_t index) {
+    if (m_idSlots.empty())
+        idIndexReset(16);
+
+    size_t idx = idSlotHash(snoId) & m_idMask;
+    while (true) {
+        auto& slot = m_idSlots[idx];
+        if (slot.index == kEmptyIdSlot) {
+            slot.snoId = snoId;
+            slot.index = static_cast<u32>(index);
+            ++m_idCount;
+            break;
+        }
+        if (slot.snoId == snoId) {
+            slot.index = static_cast<u32>(index);
+            return;
+        }
+        idx = (idx + 1) & m_idMask;
+    }
+
+    if (m_idCount * 4 >= m_idSlots.size() * 3) {
+        std::vector<IdSlot> old = std::move(m_idSlots);
+        idIndexReset(m_idCount * 2);
+        m_idCount = 0;
+        for (auto& s : old)
+            if (s.index != kEmptyIdSlot)
+                idIndexSet(s.snoId, s.index);
+    }
+}
+
+u32 CoreToc::idIndexFind(i32 snoId) const {
+    if (m_idSlots.empty())
+        return kEmptyIdSlot;
+    size_t idx = idSlotHash(snoId) & m_idMask;
+    while (true) {
+        const auto& slot = m_idSlots[idx];
+        if (slot.index == kEmptyIdSlot)
+            return kEmptyIdSlot;
+        if (slot.snoId == snoId)
+            return slot.index;
+        idx = (idx + 1) & m_idMask;
+    }
+}
+
 bool CoreToc::parse(std::span<const u8> data) {
     m_all.clear();
     m_groupIndex.clear();
-    m_idIndex.clear();
+    m_idSlots.clear();
+    m_idMask = 0;
+    m_idCount = 0;
     m_formatHashes.clear();
     m_format = CoreTocFormat::Unknown;
 
@@ -111,6 +181,7 @@ bool CoreToc::parseD3Legacy(std::span<const u8> data) {
     for (auto& gi : groups)
         totalEstimate += gi.headerCount;
     m_all.reserve(totalEstimate);
+    idIndexReset(totalEstimate);
 
     for (size_t gi = 0; gi < groups.size(); ++gi) {
         const auto& info = groups[gi];
@@ -164,7 +235,7 @@ bool CoreToc::parseD3Legacy(std::span<const u8> data) {
             entry.snoId = snoId;
             entry.name = std::move(name);
 
-            m_idIndex[snoId] = m_all.size();
+            idIndexSet(snoId, m_all.size());
             m_all.push_back(std::move(entry));
         }
 
@@ -179,15 +250,19 @@ bool CoreToc::parseD3Legacy(std::span<const u8> data) {
 bool CoreToc::parseD4(std::span<const u8> data, bool newFormat) {
     const size_t tocOffset = newFormat ? 8 : 4;
 
-    common::span_streambuf sbuf(data);
-    std::istream stream(&sbuf);
-    common::BinaryReader reader(stream);
+    // A D4 CoreTOC holds close to a million entries, so this reads the blob
+    // directly rather than through BinaryReader: the two seeks and the
+    // byte-at-a-time readZString per entry cost more than everything else in
+    // D4Root::create put together.
+    auto rd32 = [&](size_t off) {
+        u32 v = 0;
+        std::memcpy(&v, data.data() + off, 4);
+        return v;
+    };
 
     // For newFormat: magic at 0-3, snoGroupsCount at 4-7.
     // For old format: snoGroupsCount at 0-3.
-    reader.setPosition(newFormat ? 4 : 0);
-    const u32 snoGroupsCount = reader.read<u32>();
-    // Reader is now at tocOffset where the header arrays begin.
+    const u32 snoGroupsCount = rd32(newFormat ? 4 : 0);
 
     if (snoGroupsCount > 1024) {
         return false; // sanity check
@@ -201,26 +276,14 @@ bool CoreToc::parseD4(std::span<const u8> data, bool newFormat) {
         return false;
     }
 
-    // Read per-group counts.
-    std::vector<u32> counts(snoGroupsCount);
-    for (u32 c = 0; c < snoGroupsCount; ++c) {
-        counts[c] = reader.read<u32>();
-    }
+    const size_t countsAt = tocOffset;
+    const size_t offsetsAt = countsAt + static_cast<size_t>(snoGroupsCount) * 4;
+    const size_t hashesAt = offsetsAt + static_cast<size_t>(snoGroupsCount) * 8;
 
-    // Read per-group offsets.
-    std::vector<u32> offsets(snoGroupsCount);
-    for (u32 c = 0; c < snoGroupsCount; ++c) {
-        offsets[c] = reader.read<u32>();
-    }
-
-    // Skip unk array.
-    reader.skip(snoGroupsCount * 4);
-
-    // Read format hashes (new format only).
     if (newFormat) {
-        for (u32 c = 0; c < snoGroupsCount; ++c) {
-            u32 const fh = reader.read<u32>();
-            if (c > 0 && fh != 0) {
+        for (u32 c = 1; c < snoGroupsCount; ++c) {
+            u32 const fh = rd32(hashesAt + static_cast<size_t>(c) * 4);
+            if (fh != 0) {
                 m_formatHashes[static_cast<i32>(c)] = fh;
             }
         }
@@ -230,60 +293,53 @@ bool CoreToc::parseD4(std::span<const u8> data, bool newFormat) {
     // (Matches parse.js: dataStart = (newFormat ? 12 : 8) + (newFormat ? 16 : 12) * snoGroupsCount)
     const size_t dataStart = headerSize + 4;
 
-    // First pass: count total entries.
     size_t totalEntries = 0;
     for (u32 c = 0; c < snoGroupsCount; ++c) {
-        totalEntries += counts[c];
+        totalEntries += rd32(countsAt + static_cast<size_t>(c) * 4);
     }
     m_all.reserve(totalEntries);
+    idIndexReset(totalEntries);
 
-    // Second pass: read entries.
     for (u32 c = 0; c < snoGroupsCount; ++c) {
-        const u32 entryCount = counts[c];
-        const u32 entryOffset = offsets[c];
-
+        const u32 entryCount = rd32(countsAt + static_cast<size_t>(c) * 4);
         if (entryCount == 0) {
             continue;
         }
 
-        const size_t groupDataStart = dataStart + entryOffset;
-
-        // Entry table: entryCount entries of 12 bytes each.
+        const size_t groupDataStart = dataStart + rd32(offsetsAt + static_cast<size_t>(c) * 4);
         const size_t entryTableSize = static_cast<size_t>(entryCount) * 12;
-
         // Names start after the entry table.
         const size_t nameTableStart = groupDataStart + entryTableSize;
 
-        // Bounds check.
-        if (groupDataStart + entryTableSize > data.size()) {
+        if (groupDataStart > data.size() || entryTableSize > data.size() - groupDataStart) {
             return false;
         }
 
         const size_t startIdx = m_all.size();
 
         for (u32 i = 0; i < entryCount; ++i) {
-            reader.setPosition(static_cast<u32>(groupDataStart + static_cast<size_t>(i) * 12));
+            const size_t rec = groupDataStart + static_cast<size_t>(i) * 12;
 
-            const i32 snoGroup = reader.read<i32>();
-            const i32 snoId = reader.read<i32>();
-            const i32 nameRelOffset = reader.read<i32>();
+            const i32 snoGroup = static_cast<i32>(rd32(rec));
+            const i32 snoId = static_cast<i32>(rd32(rec + 4));
+            const u32 nameRelOffset = rd32(rec + 8);
 
             // Name offset is relative: nameTableStart + nameRelOffset.
-            const size_t namePos = nameTableStart + static_cast<size_t>(nameRelOffset);
-
-            // Read null-terminated name.
-            std::string name;
-            if (namePos < data.size()) {
-                reader.setPosition(static_cast<u32>(namePos));
-                name = reader.readZString();
-            }
+            const size_t namePos = nameTableStart + nameRelOffset;
 
             TocEntry entry;
             entry.group = static_cast<SnoGroup>(snoGroup);
             entry.snoId = snoId;
-            entry.name = std::move(name);
+            if (namePos < data.size()) {
+                const char* p = reinterpret_cast<const char*>(data.data()) + namePos;
+                size_t const avail = data.size() - namePos;
+                size_t len = 0;
+                while (len < avail && p[len] != '\0')
+                    ++len;
+                entry.name.assign(p, len);
+            }
 
-            m_idIndex[snoId] = m_all.size();
+            idIndexSet(snoId, m_all.size());
             m_all.push_back(std::move(entry));
         }
 
@@ -303,11 +359,11 @@ std::span<const TocEntry> CoreToc::entriesForGroup(SnoGroup group) const {
 }
 
 const TocEntry* CoreToc::findById(i32 snoId) const {
-    auto it = m_idIndex.find(snoId);
-    if (it == m_idIndex.end()) {
+    u32 const idx = idIndexFind(snoId);
+    if (idx == kEmptyIdSlot) {
         return nullptr;
     }
-    return &m_all[it->second];
+    return &m_all[idx];
 }
 
 // ============================================================================
@@ -315,13 +371,13 @@ const TocEntry* CoreToc::findById(i32 snoId) const {
 // ============================================================================
 
 bool CoreToc::addEntry(const TocEntry& entry) {
-    if (m_idIndex.count(entry.snoId))
+    if (idIndexFind(entry.snoId) != kEmptyIdSlot)
         return false;
 
     const i32 groupId = static_cast<i32>(entry.group);
     const size_t idx = m_all.size();
     m_all.push_back(entry);
-    m_idIndex[entry.snoId] = idx;
+    idIndexSet(entry.snoId, idx);
 
     // Update group index — new entry appends to the group's range.
     auto git = m_groupIndex.find(groupId);

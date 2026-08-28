@@ -114,8 +114,25 @@ private:
     /// group-id → (start index, count) into m_all.
     std::unordered_map<i32, std::pair<size_t, size_t>> m_groupIndex;
 
-    /// snoId → index into m_all.
-    std::unordered_map<i32, size_t> m_idIndex;
+    /// snoId → index into m_all, as an open-addressed table. A D4 CoreTOC
+    /// holds close to a million ids and D4Root looks up nearly every one of
+    /// them, so this is a node-per-entry map's worth of allocation on the
+    /// critical path of every D4 open.
+    struct IdSlot {
+        i32 snoId = 0;
+        u32 index = kEmptyIdSlot;
+    };
+    static constexpr u32 kEmptyIdSlot = 0xFFFFFFFFu;
+    std::vector<IdSlot> m_idSlots;
+    size_t m_idMask = 0;
+    size_t m_idCount = 0;
+
+    /// Size m_idSlots for @p count ids at ~50 % load, discarding its contents.
+    void idIndexReset(size_t count);
+    /// Insert or overwrite. Grows the table if it would pass ~75 % load.
+    void idIndexSet(i32 snoId, size_t index);
+    /// Index into m_all, or kEmptyIdSlot when @p snoId is not present.
+    u32 idIndexFind(i32 snoId) const;
 
     /// group → format hash
     std::unordered_map<i32, u32> m_formatHashes;

@@ -12,7 +12,7 @@
 /// Internal header — not part of the public include path.
 #pragma once
 
-#include "common/entry_index.h"
+#include "../tables/flat_hash_map.h"
 #include "root.h"
 #include "tvfs_root.h"
 
@@ -60,18 +60,22 @@ protected:
     std::vector<RootEntry>& mutableEntries() override;
 
 private:
-    /// The underlying TVFS root we own.
+    /// The TVFS root the entries came out of. Emptied by takeEntries().
     std::unique_ptr<TvfsRoot> m_tvfs;
 
-    /// Enriched entries with human-readable paths.
-    /// Parallel to TVFS entries — same size, same order.
+    /// Enriched entries: the TVFS entries with SNO paths rewritten, followed by
+    /// shared-payload aliases and combined-meta sub-entries.
     std::vector<RootEntry> m_entries;
 
-    /// Normalized path → index into m_entries.
-    EntryIndex<std::string> m_byPath;
+    /// Hash of the normalized path → head index, collisions chained through
+    /// m_pathChain. The entries keep CoreTOC's capitalisation, so a lookup
+    /// confirms a hit by normalizing on the fly rather than comparing directly.
+    FlatHashMap<u32> m_byPathMap;
+    std::vector<u32> m_pathChain;
 
-    /// snoId (stored as fileDataId) → index into m_entries.
-    EntryIndex<u32> m_bySnoId;
+    /// snoId (stored as fileDataId) → head index, chained through m_snoChain.
+    FlatHashMap<u32> m_bySnoMap;
+    std::vector<u32> m_snoChain;
 
     void buildIndex(interfaces::WorkerPool* pool);
 };

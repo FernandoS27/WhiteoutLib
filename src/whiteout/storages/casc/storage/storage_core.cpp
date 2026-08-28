@@ -640,9 +640,10 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
         auto vfsData = resolveCKey(buildConfig.vfsRootCKey, pool);
         if (!vfsData.empty()) {
             auto hint = classifyTvfsProduct(buildConfig);
-            // WowTvfsRoot builds its own FileDataId/path indices; the plain
-            // TvfsRoot path map would be a wasted O(n) pass over ~1.5M entries.
-            bool const buildTvfsIdx = (hint != TvfsDecorator::WowTvfs);
+            // WowTvfsRoot and D4Root build their own indices; the plain TvfsRoot
+            // path map would be a wasted O(n) pass over ~1.5M entries.
+            bool const buildTvfsIdx =
+                (hint != TvfsDecorator::WowTvfs && hint != TvfsDecorator::Diablo4);
             auto tvfsRoot = TvfsRoot::parse(vfsData, vfsResolver, vfsEKeys, pool, buildTvfsIdx);
             if (tvfsRoot) {
                 EKeyReader const eKeyReader =

@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <iomanip>
@@ -69,6 +70,50 @@ static std::string findCorpus() {
             return p;
     }
     return "";
+}
+
+struct CorpusEntry {
+    std::string label;
+    std::string path;
+};
+
+/// Storages to validate: the corpus tree plus the products that are only ever
+/// installed in place. Battle.net puts those under Program Files by default but
+/// they are commonly moved, so WHITEOUT_CASC_<PRODUCT> overrides the guess.
+static std::vector<CorpusEntry> findStorages() {
+    std::vector<CorpusEntry> entries;
+
+    auto const corpus = findCorpus();
+    if (!corpus.empty()) {
+        for (auto* name : {"Diablo III", "Warcraft III", "Diablo IV"}) {
+            if (std::filesystem::exists(corpus + "/" + name))
+                entries.push_back({std::string(name) == "Warcraft III" ? "Warcraft III Reforged"
+                                                                       : name,
+                                   corpus + "/" + name});
+        }
+    }
+
+    struct Installed {
+        const char* label;
+        const char* env;
+        const char* fallback;
+    };
+    for (auto& p : {Installed{"Diablo IV", "WHITEOUT_CASC_D4",
+                              "C:/Program Files (x86)/Diablo IV"},
+                    Installed{"StarCraft II", "WHITEOUT_CASC_SC2",
+                              "C:/Program Files (x86)/StarCraft II"},
+                    Installed{"Heroes of the Storm", "WHITEOUT_CASC_HOTS",
+                              "C:/Program Files (x86)/Heroes of the Storm"}}) {
+        const char* override_ = std::getenv(p.env);
+        std::string const dir = override_ ? override_ : p.fallback;
+        bool const already = std::any_of(entries.begin(), entries.end(), [&](const CorpusEntry& e) {
+            return e.label == p.label;
+        });
+        if (!already && std::filesystem::exists(dir + "/.build.info"))
+            entries.push_back({p.label, dir});
+    }
+
+    return entries;
 }
 
 // ============================================================================
@@ -169,26 +214,8 @@ static std::optional<std::vector<u8>> cascLibReadFile(HANDLE hStorage, const std
 /// This avoids path-format incompatibilities (D3 synthetic paths vs CascLib
 /// human-readable paths, WC3R colon-separated sub-modules vs forward-slash).
 TEST_CASE("Storage Cross Validate", "[casc][cross_validate][corpus]") {
-    auto corpus = findCorpus();
-    if (corpus.empty()) { SKIP("Corpus not found"); }
-
-    struct CorpusEntry { std::string label; std::string path; };
-    std::vector<CorpusEntry> entries;
-    if (std::filesystem::exists(corpus + "/Diablo III"))
-        entries.push_back({"Diablo III", corpus + "/Diablo III"});
-    if (std::filesystem::exists(corpus + "/Warcraft III"))
-        entries.push_back({"Warcraft III Reforged", corpus + "/Warcraft III"});
-    if (std::filesystem::exists(corpus + "/Diablo IV"))
-        entries.push_back({"Diablo IV", corpus + "/Diablo IV"});
-    // SC2, HotS, and D4 use well-known install paths (not in corpus directory).
-    for (auto& [lbl, dir] : std::vector<std::pair<std::string, std::string>>{
-             {"Diablo IV",           "C:/Program Files (x86)/Diablo IV"},
-             {"StarCraft II",       "C:/Program Files (x86)/StarCraft II"},
-             {"Heroes of the Storm", "C:/Program Files (x86)/Heroes of the Storm"}}) {
-        if (std::filesystem::exists(dir + "/.build.info"))
-            entries.push_back({lbl, dir});
-    }
-    if (entries.empty()) SKIP("No corpus subdirectories found");
+    auto entries = findStorages();
+    if (entries.empty()) SKIP("No CASC storage found");
 
     for (auto& [label, path] : entries) {
     DYNAMIC_SECTION("Cross-validate: " << label) {
@@ -555,26 +582,8 @@ TEST_CASE("Storage Cross Validate", "[casc][cross_validate][corpus]") {
 // ============================================================================
 
 TEST_CASE("Storage Internal", "[casc][cross_validate][corpus]") {
-    auto corpus = findCorpus();
-    if (corpus.empty()) { SKIP("Corpus not found"); }
-
-    struct CorpusEntry { std::string label; std::string path; };
-    std::vector<CorpusEntry> entries;
-    if (std::filesystem::exists(corpus + "/Diablo III"))
-        entries.push_back({"Diablo III", corpus + "/Diablo III"});
-    if (std::filesystem::exists(corpus + "/Warcraft III"))
-        entries.push_back({"Warcraft III Reforged", corpus + "/Warcraft III"});
-    if (std::filesystem::exists(corpus + "/Diablo IV"))
-        entries.push_back({"Diablo IV", corpus + "/Diablo IV"});
-    // SC2, HotS, and D4 use well-known install paths (not in corpus directory).
-    for (auto& [lbl, dir] : std::vector<std::pair<std::string, std::string>>{
-             {"Diablo IV",           "C:/Program Files (x86)/Diablo IV"},
-             {"StarCraft II",       "C:/Program Files (x86)/StarCraft II"},
-             {"Heroes of the Storm", "C:/Program Files (x86)/Heroes of the Storm"}}) {
-        if (std::filesystem::exists(dir + "/.build.info"))
-            entries.push_back({lbl, dir});
-    }
-    if (entries.empty()) SKIP("No corpus subdirectories found");
+    auto entries = findStorages();
+    if (entries.empty()) SKIP("No CASC storage found");
 
     for (auto& [label, path] : entries) {
     DYNAMIC_SECTION("Internal: " << label) {

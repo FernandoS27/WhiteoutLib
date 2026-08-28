@@ -3,7 +3,6 @@
 
 #include "../../common/byte_order.h"
 #include "../../common/string_utils.h"
-#include "common/root_build_utils.h"
 #include "d4_root.h"
 
 #include <whiteout/interfaces.h>
@@ -15,11 +14,54 @@
 #include <cctype>
 #include <charconv>
 #include <cstring>
+#include <iterator>
+#include <mutex>
 #include <string_view>
+#include <unordered_set>
 
 namespace whiteout::storages::casc {
 
 using storages::common::normalizeCascPath;
+
+/// End-of-chain marker for the index chains.
+static constexpr u32 kNoChain = 0xFFFFFFFFu;
+
+/// Run @p fn over 0..@p count on @p pool, or on this thread without one.
+/// @p fn must not itself put work on the pool — waiting on pool tasks from
+/// inside a pool task deadlocks once the workers are all held here.
+/// @param minParallel Below this many items the pool is not worth its
+///        bookkeeping. The default suits per-entry work; a caller whose items
+///        are each worth milliseconds should lower it.
+template <typename Fn>
+static void runOverEntries(size_t count, interfaces::WorkerPool* pool, Fn&& fn,
+                           size_t minParallel = 2000) {
+    if (pool == nullptr || count < minParallel) {
+        for (size_t i = 0; i < count; ++i)
+            fn(i);
+        return;
+    }
+    // Four chunks per thread rather than one: the combined-meta containers
+    // differ in size by two orders of magnitude, and one chunk each leaves the
+    // pool waiting on whichever thread drew the biggest.
+    size_t const threads = std::max<size_t>(pool->threadCount(), 1);
+    size_t const chunk = std::max<size_t>(count / (threads * 4), 1);
+    size_t const chunks = (count + chunk - 1) / chunk;
+
+    utils::JobGroup jobGroup;
+    jobGroup.add(chunks);
+    for (size_t c = 0; c < chunks; ++c) {
+        interfaces::WorkerTask task;
+        task.fn = [&fn, &jobGroup, c, chunk, count]() {
+            size_t const begin = c * chunk;
+            size_t const end = std::min(begin + chunk, count);
+            for (size_t i = begin; i < end; ++i)
+                fn(i);
+            jobGroup.done();
+        };
+        pool->submit(task);
+    }
+    jobGroup.wait();
+}
 
 // ============================================================================
 // D4 folder structure constants
@@ -34,6 +76,17 @@ static constexpr std::string_view kSubFolders[] = {"child", "meta", "payload", "
 
 /// Sub-folders that carry payload data (used for shared-payload resolution).
 static constexpr std::string_view kPayloadSubFolders[] = {"payload", "paylow", "paymed"};
+
+/// True if @p tag — a 1-based index into kSubFolders, 0 meaning "no SNO path" —
+/// names a payload folder.
+static constexpr bool isPayloadTag(u8 tag) {
+    if (tag == 0 || tag > std::size(kSubFolders))
+        return false;
+    for (auto pf : kPayloadSubFolders)
+        if (kSubFolders[tag - 1] == pf)
+            return true;
+    return false;
+}
 
 /// Signature of D4 combined meta files (e.g. Texture-Global-Global.dat).
 static constexpr u32 kCombinedMetaMagic = 0x44CF00F5;
@@ -408,17 +461,30 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs, const EKe
     if (!tvfs)
         return nullptr;
 
-    // --- Phase 1: Find CoreTOC.dat in the TVFS tree ---
+    // --- Phase 1: Find CoreTOC.dat and the side-tables in the TVFS tree ---
     // D4 TVFS uses ':' as the sub-container separator: "base:coretoc.dat".
-    auto tocResults = tvfs->findByNormalizedPath("base:coretoc.dat");
-    if (tocResults.empty())
+    // One walk rather than three lookups, so the caller need not pay for a
+    // TVFS path index that nothing else here reads.
+    static constexpr std::string_view kTocPath = "base:coretoc.dat";
+    static constexpr std::string_view kSharedPayloadsPath =
+        "base:coretocsharedpayloadsmapping.dat";
+    static constexpr std::string_view kEncryptedSnosPath = "base:encryptedsnos.dat";
+
+    std::array<u8, 16> tocEKey{}, sharedEKey{}, encryptedEKey{};
+    tvfs->enumerate([&](const RootEntry& e) {
+        if (e.path == kTocPath)
+            tocEKey = e.eKey;
+        else if (e.path == kSharedPayloadsPath)
+            sharedEKey = e.eKey;
+        else if (e.path == kEncryptedSnosPath)
+            encryptedEKey = e.eKey;
+        return true;
+    });
+
+    if (tocEKey == std::array<u8, 16>{})
         return nullptr;
 
-    const RootEntry* tocEntry = tocResults[0];
-    if (tocEntry->eKey == std::array<u8, 16>{})
-        return nullptr;
-
-    auto tocData = reader(tocEntry->eKey);
+    auto tocData = reader(tocEKey);
     if (tocData.empty())
         return nullptr;
 
@@ -428,28 +494,18 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs, const EKe
 
     // --- Phase 2: Parse optional side-tables ---
 
-    // SharedPayloads mapping.
     SharedPayloads sharedPayloads;
-    {
-        auto spResults = tvfs->findByNormalizedPath("base:coretocsharedpayloadsmapping.dat");
-        if (!spResults.empty() && spResults[0]->eKey != std::array<u8, 16>{}) {
-            auto spData = reader(spResults[0]->eKey);
-            if (!spData.empty()) {
-                sharedPayloads.parse(spData);
-            }
-        }
+    if (sharedEKey != std::array<u8, 16>{}) {
+        auto spData = reader(sharedEKey);
+        if (!spData.empty())
+            sharedPayloads.parse(spData);
     }
 
-    // Encrypted SNOs.
     EncryptedSNOs encryptedSNOs;
-    {
-        auto encResults = tvfs->findByNormalizedPath("base:encryptedsnos.dat");
-        if (!encResults.empty() && encResults[0]->eKey != std::array<u8, 16>{}) {
-            auto encData = reader(encResults[0]->eKey);
-            if (!encData.empty()) {
-                encryptedSNOs.parse(encData);
-            }
-        }
+    if (encryptedEKey != std::array<u8, 16>{}) {
+        auto encData = reader(encryptedEKey);
+        if (!encData.empty())
+            encryptedSNOs.parse(encData);
     }
 
     // Build encrypted name overrides.
@@ -466,113 +522,73 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs, const EKe
     auto result = std::unique_ptr<D4Root>(new D4Root());
     result->m_tvfs = std::move(tvfs);
 
-    // Collect all entries from the TVFS root via public enumerate().
-    std::vector<const RootEntry*> tvfsEntryPtrs;
-    tvfsEntryPtrs.reserve(result->m_tvfs->entryCount());
-    result->m_tvfs->enumerate([&](const RootEntry& e) {
-        tvfsEntryPtrs.push_back(&e);
-        return true;
-    });
+    // The TVFS entries become ours: every field except the path survives
+    // enrichment unchanged, so copying them would be 1.6 M entries of pure
+    // duplication with the originals kept alive for nothing.
+    result->m_entries = result->m_tvfs->takeEntries();
+    const size_t entryCount = result->m_entries.size();
 
-    const size_t entryCount = tvfsEntryPtrs.size();
-    result->m_entries.resize(entryCount);
+    // Phase 4 needs each entry's classification and phase 3 is the only pass
+    // that has it — the original path is gone once the path is rewritten.
+    std::vector<u8> subFolderTag(entryCount, 0); // 0 = not an SNO path
+    std::vector<i32> subIds(entryCount, -1);
 
-    // Process entries: classify each path, enrich if it's a numeric SNO.
-    // This is embarrassingly parallel since each entry is independent.
-    auto enrichEntry = [&](size_t i) {
-        auto& dst = result->m_entries[i];
-        const auto& src = *tvfsEntryPtrs[i];
+    runOverEntries(
+        entryCount, pool,
+        [&](size_t i) {
+            auto& e = result->m_entries[i];
+            if (e.path.empty())
+                return;
 
-        // Copy base fields.
-        dst.cKey = src.cKey;
-        dst.eKey = src.eKey;
-        dst.fileDataId = src.fileDataId;
-        dst.fileNameHash = src.fileNameHash;
-        dst.localeFlags = src.localeFlags;
-        dst.contentFlags = src.contentFlags;
-        dst.fileSize = src.fileSize;
+            auto parsed = classifySnoPath(e.path);
+            if (!parsed.valid)
+                return; // Not an SNO entry — keep the TVFS path.
 
-        if (src.path.empty()) {
-            return;
-        }
+            for (size_t sf = 0; sf < std::size(kSubFolders); ++sf) {
+                if (parsed.subfolder == kSubFolders[sf]) {
+                    subFolderTag[i] = static_cast<u8>(sf + 1);
+                    break;
+                }
+            }
+            subIds[i] = parsed.subId;
 
-        // Try to classify as D4 SNO path.
-        auto parsed = classifySnoPath(src.path);
-        if (!parsed.valid) {
-            // Not an SNO entry — keep original path.
-            dst.path = src.path;
-            return;
-        }
+            // In D4, the snoId serves as the fileDataId.
+            e.fileDataId = static_cast<u32>(parsed.snoId);
 
-        // In D4, the snoId serves as the fileDataId.
-        dst.fileDataId = static_cast<u32>(parsed.snoId);
+            const sno::TocEntry* toc = coreToc.findById(parsed.snoId);
+            if (!toc || toc->name.empty())
+                return; // Unknown SNO — keep the TVFS path.
 
-        // Look up in CoreTOC.
-        const sno::TocEntry* toc = coreToc.findById(parsed.snoId);
-        if (!toc || toc->name.empty()) {
-            // Unknown SNO — keep original path.
-            dst.path = src.path;
-            return;
-        }
+            const char* nameOverride = nullptr;
+            auto encIt = encryptedNames.find(parsed.snoId);
+            if (encIt != encryptedNames.end())
+                nameOverride = encIt->second.c_str();
 
-        // Check for encrypted name override.
-        const char* nameOverride = nullptr;
-        auto encIt = encryptedNames.find(parsed.snoId);
-        if (encIt != encryptedNames.end()) {
-            nameOverride = encIt->second.c_str();
-        }
-
-        dst.path =
-            buildEnrichedPath(parsed.folder, parsed.subfolder, *toc, parsed.subId, nameOverride);
-    };
-
-    if (pool && entryCount > 2000) {
-        size_t const numThreads = std::max<size_t>(pool->threadCount(), 1);
-        size_t chunkSize = (entryCount + numThreads - 1) / numThreads;
-        size_t const chunks = (entryCount + chunkSize - 1) / chunkSize;
-
-        utils::JobGroup jobGroup;
-        jobGroup.add(chunks);
-        for (size_t c = 0; c < chunks; ++c) {
-            interfaces::WorkerTask task;
-            task.fn = [&, c]() {
-                size_t const start = c * chunkSize;
-                size_t const end = std::min(start + chunkSize, entryCount);
-                for (size_t i = start; i < end; ++i)
-                    enrichEntry(i);
-                jobGroup.done();
-            };
-            pool->submit(task);
-        }
-        jobGroup.wait();
-    } else {
-        for (size_t i = 0; i < entryCount; ++i)
-            enrichEntry(i);
-    }
+            // parsed's views point into e.path; the replacement is fully built
+            // before the assignment frees the buffer under them.
+            e.path = buildEnrichedPath(parsed.folder, parsed.subfolder, *toc, parsed.subId,
+                                       nameOverride);
+        });
 
     // --- Phase 4: Create shared-payload aliases ---
     // For each shared payload mapping (snoId → sharedSnoId), find the shared
     // entry in payload folders and create an alias entry for the original snoId.
     if (!sharedPayloads.mapping.empty()) {
         // Build a quick snoId→entry index from enriched entries for payload folders.
-        // Only index entries whose subfolder is a payload folder.
+        // Only entries that some mapping actually points at are worth indexing;
+        // the payload folders hold most of the root.
+        std::unordered_set<i32> shared;
+        shared.reserve(sharedPayloads.mapping.size());
+        for (auto& [snoId, sharedSnoId] : sharedPayloads.mapping)
+            shared.insert(sharedSnoId);
+
         std::unordered_multimap<i32, size_t> payloadBySnoId;
         for (size_t i = 0; i < entryCount; ++i) {
-            const auto& origPath = tvfsEntryPtrs[i]->path;
-            auto parsed = classifySnoPath(origPath);
-            if (!parsed.valid)
+            if (!isPayloadTag(subFolderTag[i]))
                 continue;
-
-            bool isPayload = false;
-            for (auto pf : kPayloadSubFolders) {
-                if (parsed.subfolder == pf) {
-                    isPayload = true;
-                    break;
-                }
-            }
-            if (isPayload) {
-                payloadBySnoId.emplace(parsed.snoId, i);
-            }
+            i32 const snoId = static_cast<i32>(result->m_entries[i].fileDataId);
+            if (shared.count(snoId))
+                payloadBySnoId.emplace(snoId, i);
         }
 
         for (auto& [snoId, sharedSnoId] : sharedPayloads.mapping) {
@@ -583,8 +599,10 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs, const EKe
             auto range = payloadBySnoId.equal_range(sharedSnoId);
             for (auto it = range.first; it != range.second; ++it) {
                 const auto& sharedEntry = result->m_entries[it->second];
-                const auto& sharedOrigPath = tvfsEntryPtrs[it->second]->path;
-                auto sharedParsed = classifySnoPath(sharedOrigPath);
+                std::string_view const sharedPath(sharedEntry.path);
+                auto const colon = sharedPath.find(':');
+                if (colon == std::string_view::npos)
+                    continue;
 
                 RootEntry alias;
                 alias.cKey = sharedEntry.cKey;
@@ -594,8 +612,9 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs, const EKe
                 alias.localeFlags = sharedEntry.localeFlags;
                 alias.contentFlags = sharedEntry.contentFlags;
                 alias.fileSize = sharedEntry.fileSize;
-                alias.path = buildEnrichedPath(sharedParsed.folder, sharedParsed.subfolder, *toc,
-                                               sharedParsed.subId);
+                alias.path = buildEnrichedPath(sharedPath.substr(0, colon),
+                                               kSubFolders[subFolderTag[it->second] - 1], *toc,
+                                               subIds[it->second]);
                 result->m_entries.push_back(std::move(alias));
             }
         }
@@ -613,6 +632,7 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs, const EKe
     {
         // Collect combined meta file candidates first (before mutating m_entries).
         struct CombinedMetaCandidate {
+            size_t sourceIndex; // Index in m_entries, for stable ordering.
             std::string folder; // e.g. "base"
             sno::SnoGroup group;
             std::array<u8, 16> eKey;
@@ -623,18 +643,22 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs, const EKe
             u32 contentFlags;
         };
 
+        // A handful of the million-odd entries are combined meta files, so the
+        // scan goes wide and the few hits take a lock.
         std::vector<CombinedMetaCandidate> candidates;
-        for (size_t i = 0; i < entryCount; ++i) {
+        std::mutex candidatesMutex;
+        runOverEntries(entryCount, pool, [&](size_t i) {
             const auto& entry = result->m_entries[i];
             if (entry.path.empty())
-                continue;
+                return;
 
             auto group = groupFromCombinedFileName(entry.path);
             if (group == sno::SnoGroup::None)
-                continue;
+                return;
 
             auto colonPos = entry.path.find(':');
             CombinedMetaCandidate cand;
+            cand.sourceIndex = i;
             cand.folder = (colonPos != std::string::npos) ? entry.path.substr(0, colonPos) : "base";
             cand.group = group;
             cand.eKey = entry.eKey;
@@ -643,21 +667,36 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs, const EKe
             cand.fileNameHash = static_cast<u32>(entry.fileNameHash);
             cand.localeFlags = localeFromCombinedFileName(entry.path);
             cand.contentFlags = entry.contentFlags;
-            candidates.push_back(std::move(cand));
-        }
 
-        for (auto& cand : candidates) {
+            std::lock_guard<std::mutex> const lk(candidatesMutex);
+            candidates.push_back(std::move(cand));
+        });
+
+        // Entry order, not scan order — where a synthesized entry lands in
+        // m_entries is part of what callers see.
+        std::sort(candidates.begin(), candidates.end(),
+                  [](const CombinedMetaCandidate& a, const CombinedMetaCandidate& b) {
+                      return a.sourceIndex < b.sourceIndex;
+                  });
+
+        // Each container is a few megabytes of BLTE to decode and a few tens of
+        // thousands of entries to build, and there are dozens of them. The
+        // reader must stay off the pool for this: an outer task waiting on
+        // frame tasks that no worker is free to run would deadlock the open.
+        std::vector<std::vector<RootEntry>> synthesized(candidates.size());
+        runOverEntries(candidates.size(), pool, [&](size_t c) {
+            const auto& cand = candidates[c];
             if (cand.eKey == std::array<u8, 16>{})
-                continue;
+                return;
 
             auto fileData = reader(cand.eKey);
             if (fileData.empty())
-                continue;
+                return;
 
             const bool isTexture = (cand.group == sno::SnoGroup::Texture);
             auto cmEntries = parseCombinedMetaIndex(fileData, isTexture);
             if (cmEntries.empty())
-                continue;
+                return;
 
             // Resolve the format hash for this group's SNO header.
             u32 fmtHash = 0;
@@ -676,6 +715,8 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs, const EKe
                 std::memcpy(hdrPrefix.data() + 12, &zero, 4);
             }
 
+            auto& out = synthesized[c];
+            out.reserve(cmEntries.size());
             for (auto& cm : cmEntries) {
                 const sno::TocEntry* toc = coreToc.findById(cm.snoId);
                 if (!toc || toc->name.empty())
@@ -694,9 +735,17 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs, const EKe
                 virtEntry.headerSize = 16;
                 virtEntry.headerPrefix = hdrPrefix;
                 virtEntry.path = buildEnrichedPath(cand.folder, "meta", *toc, -1);
-                result->m_entries.push_back(std::move(virtEntry));
+                out.push_back(std::move(virtEntry));
             }
-        }
+        }, /*minParallel=*/2);
+
+        size_t total = result->m_entries.size();
+        for (auto& out : synthesized)
+            total += out.size();
+        result->m_entries.reserve(total);
+        for (auto& out : synthesized)
+            result->m_entries.insert(result->m_entries.end(), std::make_move_iterator(out.begin()),
+                                     std::make_move_iterator(out.end()));
     }
 
     // --- Phase 6: Build lookup index ---
@@ -710,17 +759,38 @@ std::unique_ptr<D4Root> D4Root::create(std::unique_ptr<TvfsRoot> tvfs, const EKe
 // ============================================================================
 
 void D4Root::buildIndex(interfaces::WorkerPool* pool) {
-    // Normalize paths and build the multimap in bulk.
-    auto normalized = normalizeEntryPaths(m_entries, pool);
+    size_t const n = m_entries.size();
+    m_pathChain.assign(n, kNoChain);
+    m_snoChain.assign(n, kNoChain);
+    m_byPathMap.reserve(n);
+    m_bySnoMap.reserve(n);
 
-    m_byPath.reserve(m_entries.size());
-    m_bySnoId.reserve(m_entries.size());
-    for (size_t i = 0; i < m_entries.size(); ++i) {
-        if (!normalized[i].empty()) {
-            m_byPath.emplace(std::move(normalized[i]), i);
+    std::vector<u64> hashes(n);
+    runOverEntries(n, pool, [&](size_t i) {
+        hashes[i] = m_entries[i].path.empty()
+                        ? 0
+                        : storages::common::normalizedCascPathHash64(m_entries[i].path);
+    });
+
+    // Filled back to front so each chain comes out in ascending entry order,
+    // which is the order the root lists its entries in.
+    for (size_t i = n; i-- > 0;) {
+        if (hashes[i] != 0) {
+            if (auto* head = m_byPathMap.find(hashes[i])) {
+                m_pathChain[i] = *head;
+                m_byPathMap.insertOrAssign(hashes[i], static_cast<u32>(i));
+            } else {
+                m_byPathMap.emplace(hashes[i], static_cast<u32>(i));
+            }
         }
-        if (m_entries[i].fileDataId != kInvalidFileDataId) {
-            m_bySnoId.emplace(m_entries[i].fileDataId, i);
+        u32 const snoId = m_entries[i].fileDataId;
+        if (snoId != kInvalidFileDataId) {
+            if (auto* head = m_bySnoMap.find(snoId)) {
+                m_snoChain[i] = *head;
+                m_bySnoMap.insertOrAssign(snoId, static_cast<u32>(i));
+            } else {
+                m_bySnoMap.emplace(snoId, static_cast<u32>(i));
+            }
         }
     }
 }
@@ -736,11 +806,26 @@ std::vector<const RootEntry*> D4Root::findByPath(const std::string& path) const 
 
 std::vector<const RootEntry*> D4Root::findByNormalizedPath(
     const std::string& normalizedPath) const {
-    return m_byPath.findAll(m_entries, normalizedPath);
+    std::vector<const RootEntry*> results;
+    auto* head = m_byPathMap.find(storages::common::cascPathHash64(normalizedPath));
+    if (!head)
+        return results;
+    for (u32 idx = *head; idx != kNoChain; idx = m_pathChain[idx]) {
+        if (storages::common::normalizedCascPathEquals(m_entries[idx].path, normalizedPath))
+            results.push_back(&m_entries[idx]);
+    }
+    return results;
 }
 
 bool D4Root::hasPath(const std::string& normalizedPath) const {
-    return m_byPath.contains(normalizedPath);
+    auto* head = m_byPathMap.find(storages::common::cascPathHash64(normalizedPath));
+    if (!head)
+        return false;
+    for (u32 idx = *head; idx != kNoChain; idx = m_pathChain[idx]) {
+        if (storages::common::normalizedCascPathEquals(m_entries[idx].path, normalizedPath))
+            return true;
+    }
+    return false;
 }
 
 /// Map a FileIdHint to the expected D4 subfolder name.
@@ -777,7 +862,13 @@ static std::string_view extractSubfolder(std::string_view path) {
 std::vector<const RootEntry*> D4Root::findByFileDataId(u32 fileDataId, FileIdHint hint) const {
     // In D4, fileDataId == snoId.  Use the snoId index, then filter by
     // the subfolder implied by the hint.
-    auto all = m_bySnoId.findAll(m_entries, fileDataId);
+    std::vector<const RootEntry*> all;
+    if (fileDataId != kInvalidFileDataId) {
+        if (auto* head = m_bySnoMap.find(fileDataId)) {
+            for (u32 idx = *head; idx != kNoChain; idx = m_snoChain[idx])
+                all.push_back(&m_entries[idx]);
+        }
+    }
     if (all.empty() || hint == FileIdHint::None)
         return all;
 
