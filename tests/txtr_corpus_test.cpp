@@ -154,9 +154,9 @@ TEST_CASE("TXTR decodes textures out of an Overwatch install", "[txtr][overwatch
             continue;
         }
 
-        // Overwatch ships surfaces in formats the library has no encoding for
-        // — R16G16B16A16_FLOAT among them. Declining those is the parser
-        // behaving correctly, so they are counted rather than decoded.
+        // Every surface format the install ships now has a library encoding,
+        // so this should stay empty; a code turning up here means either a new
+        // format in a patch or a regression in the mapping table.
         txtr::Parser detector;
         if (!detector.detect(*header)) {
             ++stats.noEncoding;
@@ -240,8 +240,8 @@ TEST_CASE("TXTR decodes textures out of an Overwatch install", "[txtr][overwatch
 
     // A regression that rejected a whole class of texture would otherwise pass
     // on whatever still decoded, so both the count and the spread are pinned.
-    // Overwatch is about a quarter half-float, which the library cannot hold.
-    CHECK(stats.decoded > kSampleSize / 2);
+    CHECK(stats.noEncoding == 0);
+    CHECK(formats.count(PixelFormat::RGBA16F) > 0);
     CHECK(formats.count(PixelFormat::BC1) > 0);
     CHECK(formats.count(PixelFormat::BC7) > 0);
 }

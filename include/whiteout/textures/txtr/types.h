@@ -57,6 +57,7 @@ enum class TxtrFlags : u16 {
     Texture2D = 0x0002,     ///< Surface is two-dimensional.
     Texture3D = 0x0004,     ///< Surface is a volume; `surfaces` is its depth.
     TextureCube = 0x0008,   ///< Surface is a cube map; height is forced to width.
+    Srgb = 0x0020,          ///< Surface holds sRGB-encoded colour.
     Array = 0x0040,         ///< Promotes 1D/2D/Cube to their array form.
     KeepHeader = 0x0100,    ///< Runtime keeps the header blob after upload.
     PlatformTiled = 0x0800, ///< Pixel data is in a platform-specific tiled layout.
@@ -135,6 +136,27 @@ struct TxtrInfo {
     /// not supplied to the parser.
     u32 missingPayloads = 0;
 };
+
+// ============================================================================
+// Surface formats
+// ============================================================================
+
+/// The DXGI_FORMAT a raw surface format code corresponds to, or 0 when the code
+/// names one of the client's own formats that DXGI has no equivalent for.
+///
+/// Transcribed from the client's engine-to-DXGI table. The enum tracks DXGI
+/// exactly up to R10G10B10A2_UNORM, splices one client-only 32-bit format in at
+/// 25, then runs one slot ahead of DXGI as far as BC7_UNORM_SRGB. Codes 101-112
+/// are console-only block formats, and 113 is NV12.
+constexpr u32 dxgiFormatFor(u8 code) {
+    if (code <= 24)
+        return code;
+    if (code >= 26 && code <= 100)
+        return code - 1u;
+    if (code == 113)
+        return 103; // DXGI_FORMAT_NV12
+    return 0;
+}
 
 // ============================================================================
 // GUID helpers

@@ -48,6 +48,12 @@ enum class PixelFormat : u32 {
     RGBA8,   ///< 8-bit RGBA (4 bytes per pixel).
     RGBA16,  ///< 16-bit RGBA UNORM (8 bytes per pixel).
     RGBA32F, ///< Single-precision RGBA (16 bytes per pixel).
+    // The half formats sit here rather than beside their channel group because
+    // format_traits.h asserts that every uncompressed format keeps a
+    // contiguous index below BC1; regrouping them breaks its trait tables.
+    R16F,    ///< Half-precision single channel (2 bytes per pixel).
+    RG16F,   ///< Half-precision dual channel (4 bytes per pixel).
+    RGBA16F, ///< Half-precision RGBA (8 bytes per pixel).
     BC1,     ///< DXT1 – 8 bytes per 4×4 block (RGB + optional 1-bit alpha).
     BC2,     ///< DXT3 – 16 bytes per 4×4 block (explicit 4-bit alpha).
     BC3,     ///< DXT5 – 16 bytes per 4×4 block (interpolated alpha).
@@ -69,6 +75,9 @@ u32 bytesPerBlock(PixelFormat fmt);
 /// Uncompressed formats return 1; all BCn formats return 4.
 /// @param fmt Pixel format to query.
 u32 blockEdge(PixelFormat fmt);
+
+/// Return true if @p fmt stores half-precision floating-point channels.
+bool isHalfFormat(PixelFormat fmt);
 
 /// Compute the byte size of a single 2D image slice.
 /// Formula: ceil(width / edge) × ceil(height / edge) × bytesPerBlock.

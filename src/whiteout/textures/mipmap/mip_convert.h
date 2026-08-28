@@ -28,10 +28,12 @@ inline u32 channelCount(PixelFormat format) {
     case PixelFormat::R8:
     case PixelFormat::R16:
     case PixelFormat::R32F:
+    case PixelFormat::R16F:
         return 1;
     case PixelFormat::RG8:
     case PixelFormat::RG16:
     case PixelFormat::RG32F:
+    case PixelFormat::RG16F:
         return 2;
     default:
         return 4;
@@ -48,6 +50,9 @@ inline u32 bytesPerComponent(PixelFormat format) {
     case PixelFormat::R16:
     case PixelFormat::RG16:
     case PixelFormat::RGBA16:
+    case PixelFormat::R16F:
+    case PixelFormat::RG16F:
+    case PixelFormat::RGBA16F:
         return 2;
     case PixelFormat::R32F:
     case PixelFormat::RG32F:
@@ -63,7 +68,16 @@ inline u32 bytesPerComponent(PixelFormat format) {
 // ============================================================================
 
 /// Unpack integer/float texel data into [0,1] float.
-inline void unpackToFloat(const u8* src, f32* dst, size_t elementCount, u32 bytesPerElem) {
+inline void unpackToFloat(const u8* src, f32* dst, size_t elementCount, u32 bytesPerElem,
+                          bool half) {
+    if (half) {
+        for (size_t i = 0; i < elementCount; ++i) {
+            u16 raw;
+            std::memcpy(&raw, src + i * 2, 2);
+            dst[i] = f16::from_raw(raw).to_float();
+        }
+        return;
+    }
     switch (bytesPerElem) {
     case 1:
         for (size_t i = 0; i < elementCount; ++i)
@@ -85,7 +99,16 @@ inline void unpackToFloat(const u8* src, f32* dst, size_t elementCount, u32 byte
 }
 
 /// Pack [0,1] float data back into integer/float texel data.
-inline void packFromFloat(const f32* src, u8* dst, size_t elementCount, u32 bytesPerElem) {
+inline void packFromFloat(const f32* src, u8* dst, size_t elementCount, u32 bytesPerElem,
+                          bool half) {
+    // Half carries values outside [0,1], so it is packed unclamped like f32.
+    if (half) {
+        for (size_t i = 0; i < elementCount; ++i) {
+            u16 raw = f16::from_float(src[i]).raw;
+            std::memcpy(dst + i * 2, &raw, 2);
+        }
+        return;
+    }
     switch (bytesPerElem) {
     case 1:
         for (size_t i = 0; i < elementCount; ++i)
@@ -115,7 +138,8 @@ inline MipImage extractMip(const Texture& tex, u32 mip, u32 layer) {
     MipImage img(ml.width, ml.height, nc);
     if (bpc > 0) {
         const auto srcData = tex.mipData(mip, layer);
-        unpackToFloat(srcData.data(), img.pixels.data(), img.pixelCount() * nc, bpc);
+        unpackToFloat(srcData.data(), img.pixels.data(), img.pixelCount() * nc, bpc,
+                      isHalfFormat(tex.format()));
     }
     return img;
 }
@@ -126,7 +150,8 @@ inline void writeMip(Texture& tex, u32 mip, u32 layer, const MipImage& img) {
     const u32 bpc = bytesPerComponent(tex.format());
     if (bpc > 0) {
         auto dstData = tex.mipData(mip, layer);
-        packFromFloat(img.pixels.data(), dstData.data(), img.pixelCount() * nc, bpc);
+        packFromFloat(img.pixels.data(), dstData.data(), img.pixelCount() * nc, bpc,
+                      isHalfFormat(tex.format()));
     }
 }
 

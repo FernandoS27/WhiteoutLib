@@ -39,6 +39,12 @@ u32 bytesPerBlock(PixelFormat fmt) {
         return 8;
     case PixelFormat::RGBA32F:
         return 16;
+    case PixelFormat::R16F:
+        return 2;
+    case PixelFormat::RG16F:
+        return 4;
+    case PixelFormat::RGBA16F:
+        return 8;
     case PixelFormat::BC1:
     case PixelFormat::BC4:
         return 8;
@@ -63,10 +69,17 @@ u32 blockEdge(PixelFormat fmt) {
     case PixelFormat::RGBA8:
     case PixelFormat::RGBA16:
     case PixelFormat::RGBA32F:
+    case PixelFormat::R16F:
+    case PixelFormat::RG16F:
+    case PixelFormat::RGBA16F:
         return 1;
     default:
         return 4;
     }
+}
+
+bool isHalfFormat(PixelFormat fmt) {
+    return fmt == PixelFormat::R16F || fmt == PixelFormat::RG16F || fmt == PixelFormat::RGBA16F;
 }
 
 u64 computeImageSize(PixelFormat fmt, u32 width, u32 height) {
@@ -417,6 +430,8 @@ u32 format_bytes_per_channel(PixelFormat fmt) {
 }
 
 PixelFormat single_channel_format(PixelFormat fmt) {
+    if (isHalfFormat(fmt))
+        return PixelFormat::R16F;
     switch (format_bytes_per_channel(fmt)) {
     case 1:
         return PixelFormat::R8;
@@ -430,6 +445,8 @@ PixelFormat single_channel_format(PixelFormat fmt) {
 }
 
 PixelFormat rgba_format_for(PixelFormat fmt) {
+    if (isHalfFormat(fmt))
+        return PixelFormat::RGBA16F;
     switch (format_bytes_per_channel(fmt)) {
     case 1:
         return PixelFormat::RGBA8;
@@ -680,9 +697,10 @@ struct ExpandNormalOp {
 
         // UNORM decode/encode constants folded at compile time.
         // For integer types the stored range is [0, numeric_limits::max];
-        // for f32 it is the normalised [0, 1] interval, so max is 1.
-        constexpr f32 kTypeMax =
-            std::is_same_v<T, f32> ? 1.0f : static_cast<f32>(std::numeric_limits<T>::max());
+        // for the float types it is the normalised [0, 1] interval, so max is 1.
+        constexpr f32 kTypeMax = (std::is_same_v<T, f32> || std::is_same_v<T, f16>)
+                                     ? 1.0f
+                                     : static_cast<f32>(std::numeric_limits<T>::max());
         constexpr f32 kDecodeScale = 2.0f / kTypeMax; // maps [0, max] → [-1, 1]
         constexpr f32 kHalfMax = kTypeMax * 0.5f;     // maps [-1, 1] → [0, max]
 

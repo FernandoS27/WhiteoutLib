@@ -58,6 +58,9 @@ WHITEOUT_FORMAT_TRAITS(RG32F, f32, 2, 8);
 WHITEOUT_FORMAT_TRAITS(RGBA8, u8, 4, 4);
 WHITEOUT_FORMAT_TRAITS(RGBA16, u16, 4, 8);
 WHITEOUT_FORMAT_TRAITS(RGBA32F, f32, 4, 16);
+WHITEOUT_FORMAT_TRAITS(R16F, f16, 1, 2);
+WHITEOUT_FORMAT_TRAITS(RG16F, f16, 2, 4);
+WHITEOUT_FORMAT_TRAITS(RGBA16F, f16, 4, 8);
 
 #undef WHITEOUT_FORMAT_TRAITS
 
@@ -68,7 +71,7 @@ WHITEOUT_FORMAT_TRAITS(RGBA32F, f32, 4, 16);
 using UncompressedFormats =
     FormatList<PixelFormat::R8, PixelFormat::R16, PixelFormat::R32F, PixelFormat::RG8,
                PixelFormat::RG16, PixelFormat::RG32F, PixelFormat::RGBA8, PixelFormat::RGBA16,
-               PixelFormat::RGBA32F>;
+               PixelFormat::RGBA32F, PixelFormat::R16F, PixelFormat::RG16F, PixelFormat::RGBA16F>;
 
 static constexpr u32 kUncompressedCount = UncompressedFormats::size;
 
@@ -95,6 +98,8 @@ template <typename T>
 constexpr T alpha_default() {
     if constexpr (std::is_same_v<T, f32>)
         return 1.0f;
+    else if constexpr (std::is_same_v<T, f16>)
+        return f16::from_raw(0x3C00); // half 1.0
     else if constexpr (std::is_same_v<T, u16>)
         return u16{65535};
     else
@@ -131,6 +136,13 @@ constexpr Dst convert_channel(Src val) {
     // f32 → u16
     else if constexpr (std::is_same_v<Src, f32> && std::is_same_v<Dst, u16>) {
         return static_cast<u16>(std::lround(std::clamp(val, 0.0f, 1.0f) * 65535.0f));
+    }
+    // f16 has no direct integer path, so it routes through f32, which
+    // represents every half value exactly.
+    else if constexpr (std::is_same_v<Src, f16>) {
+        return convert_channel<Dst, f32>(val.to_float());
+    } else if constexpr (std::is_same_v<Dst, f16>) {
+        return f16::from_float(convert_channel<f32, Src>(val));
     } else {
         static_assert(!std::is_same_v<Src, Src>,
                       "unsupported channel type pair in convert_channel");

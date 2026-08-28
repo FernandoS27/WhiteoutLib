@@ -181,7 +181,7 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> headerBuffer,
     const auto mapping = txtr_format_mapping(h.format);
     if (!formatInfo || !mapping) {
         fail("Unsupported TXTR surface format code " + std::to_string(h.format) + " (DXGI " +
-             std::to_string(txtr_code_to_dxgi(h.format)) + ")");
+             std::to_string(dxgiFormatFor(h.format)) + ")");
         return std::nullopt;
     }
 
@@ -336,7 +336,7 @@ std::optional<Texture> Parser::Impl::parse(std::span<const u8> headerBuffer,
         outInfo->flags = h.flags;
         outInfo->dimension = *dimension;
         outInfo->formatCode = h.format;
-        outInfo->dxgiFormat = txtr_code_to_dxgi(h.format);
+        outInfo->dxgiFormat = dxgiFormatFor(h.format);
         outInfo->pixelFormat = mapping->format;
         outInfo->isSrgb = mapping->isSrgb;
         outInfo->width = geom.width;

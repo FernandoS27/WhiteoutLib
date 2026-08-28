@@ -54,6 +54,7 @@ enum DxgiFormat : u32 {
     DXGI_FORMAT_R8G8B8A8_UNORM_SRGB = 29,
     DXGI_FORMAT_R16G16_FLOAT = 34,
     DXGI_FORMAT_R16G16_UNORM = 35,
+    DXGI_FORMAT_R16_FLOAT = 54,
     DXGI_FORMAT_R32_FLOAT = 41,
     DXGI_FORMAT_R8G8_UNORM = 49,
     DXGI_FORMAT_R16_UNORM = 56,
@@ -148,6 +149,12 @@ inline std::optional<PixelFormat> dxgi_to_pixel_format(u32 dxgi_format) {
         return PixelFormat::RGBA16;
     case DXGI_FORMAT_R32G32B32A32_FLOAT:
         return PixelFormat::RGBA32F;
+    case DXGI_FORMAT_R16_FLOAT:
+        return PixelFormat::R16F;
+    case DXGI_FORMAT_R16G16_FLOAT:
+        return PixelFormat::RG16F;
+    case DXGI_FORMAT_R16G16B16A16_FLOAT:
+        return PixelFormat::RGBA16F;
     case DXGI_FORMAT_BC1_UNORM:
     case DXGI_FORMAT_BC1_UNORM_SRGB:
         return PixelFormat::BC1;
@@ -191,6 +198,12 @@ inline u32 pixel_format_to_dxgi(PixelFormat format) {
         return DXGI_FORMAT_R16G16B16A16_UNORM;
     case PixelFormat::RGBA32F:
         return DXGI_FORMAT_R32G32B32A32_FLOAT;
+    case PixelFormat::R16F:
+        return DXGI_FORMAT_R16_FLOAT;
+    case PixelFormat::RG16F:
+        return DXGI_FORMAT_R16G16_FLOAT;
+    case PixelFormat::RGBA16F:
+        return DXGI_FORMAT_R16G16B16A16_FLOAT;
     case PixelFormat::BC1:
         return DXGI_FORMAT_BC1_UNORM;
     case PixelFormat::BC2:
@@ -241,8 +254,8 @@ inline bool is_dxgi_srgb(u32 dxgi_format) {
 
 enum class LegacyChannelOrder { Rgba, Bgra };
 
-inline std::optional<PixelFormat> legacy_pixfmt_to_pixel_format(
-    const DDS_PIXELFORMAT& pixel_format, LegacyChannelOrder& order) {
+inline std::optional<PixelFormat> legacy_pixfmt_to_pixel_format(const DDS_PIXELFORMAT& pixel_format,
+                                                                LegacyChannelOrder& order) {
     order = LegacyChannelOrder::Rgba;
     if (pixel_format.flags & DDPF_FOURCC) {
         switch (pixel_format.fourCC) {
@@ -264,10 +277,10 @@ inline std::optional<PixelFormat> legacy_pixfmt_to_pixel_format(
     }
 
     if (pixel_format.flags & DDPF_RGB) {
-        const bool alpha_ok = !(pixel_format.flags & DDPF_ALPHAPIXELS) ||
-                              pixel_format.aBitMask == 0xFF000000u;
-        const bool is_32bpp = pixel_format.rgbBitCount == 32 &&
-                              pixel_format.gBitMask == 0x0000FF00u && alpha_ok;
+        const bool alpha_ok =
+            !(pixel_format.flags & DDPF_ALPHAPIXELS) || pixel_format.aBitMask == 0xFF000000u;
+        const bool is_32bpp =
+            pixel_format.rgbBitCount == 32 && pixel_format.gBitMask == 0x0000FF00u && alpha_ok;
 
         if (is_32bpp && pixel_format.rBitMask == 0x000000FFu &&
             pixel_format.bBitMask == 0x00FF0000u) {

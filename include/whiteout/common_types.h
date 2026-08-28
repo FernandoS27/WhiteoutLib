@@ -56,7 +56,7 @@ struct f16 {
     }
 
     /// Build from the raw 16-bit pattern.
-    static f16 from_raw(u16 bits) {
+    static constexpr f16 from_raw(u16 bits) {
         f16 r;
         r.raw = bits;
         return r;

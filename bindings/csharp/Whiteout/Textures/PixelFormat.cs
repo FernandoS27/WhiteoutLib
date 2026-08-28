@@ -25,18 +25,24 @@ public enum PixelFormat : int
     RGBA16 = 7,
     /// <summary>Single-precision RGBA (16 bytes per pixel).</summary>
     RGBA32F = 8,
+    /// <summary>Half-precision single channel (2 bytes per pixel).</summary>
+    R16F = 9,
+    /// <summary>Half-precision dual channel (4 bytes per pixel).</summary>
+    RG16F = 10,
+    /// <summary>Half-precision RGBA (8 bytes per pixel).</summary>
+    RGBA16F = 11,
     /// <summary>DXT1 – 8 bytes per 4×4 block (RGB + optional 1-bit alpha).</summary>
-    BC1 = 9,
+    BC1 = 12,
     /// <summary>DXT3 – 16 bytes per 4×4 block (explicit 4-bit alpha).</summary>
-    BC2 = 10,
+    BC2 = 13,
     /// <summary>DXT5 – 16 bytes per 4×4 block (interpolated alpha).</summary>
-    BC3 = 11,
+    BC3 = 14,
     /// <summary>Single-channel – 8 bytes per 4×4 block.</summary>
-    BC4 = 12,
+    BC4 = 15,
     /// <summary>Dual-channel – 16 bytes per 4×4 block.</summary>
-    BC5 = 13,
+    BC5 = 16,
     /// <summary>HDR RGB – 16 bytes per 4×4 block (half-float output).</summary>
-    BC6H = 14,
+    BC6H = 17,
     /// <summary>High-quality RGBA – 16 bytes per 4×4 block.</summary>
-    BC7 = 15,
+    BC7 = 18,
 }

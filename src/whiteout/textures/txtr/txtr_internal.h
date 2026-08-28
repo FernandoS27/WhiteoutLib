@@ -156,14 +156,6 @@ inline std::optional<FormatInfo> txtr_format_info(u8 code) {
     return std::nullopt;
 }
 
-/// The DXGI_FORMAT value a raw format code corresponds to.
-///
-/// The client's enum is DXGI with one extra 32-bit format spliced in at 23, so
-/// everything from there up sits one slot higher than its DXGI counterpart.
-constexpr u32 txtr_code_to_dxgi(u8 code) {
-    return code >= 23 ? static_cast<u32>(code) - 1u : static_cast<u32>(code);
-}
-
 /// How a surface format maps onto the library's own pixel formats.
 struct FormatMapping {
     PixelFormat format = PixelFormat::RGBA8;
@@ -174,12 +166,17 @@ struct FormatMapping {
 
 /// Map a raw format code onto a library PixelFormat, or nullopt when the
 /// library has no equivalent encoding.
+///
+/// TYPELESS and UINT variants share a layout with the UNORM form and map to the
+/// same library format. SNORM and SINT are left out: PixelFormat carries no
+/// signedness, so they would decode as unsigned and render wrong. Overwatch
+/// ships none of them.
 inline std::optional<FormatMapping> txtr_format_mapping(u8 code) {
     const auto info = txtr_format_info(code);
     if (!info)
         return std::nullopt;
 
-    const u32 dxgi = txtr_code_to_dxgi(code);
+    const u32 dxgi = dxgiFormatFor(code);
 
     switch (info->compression) {
     case Compression::BC1:
@@ -207,28 +204,50 @@ inline std::optional<FormatMapping> txtr_format_mapping(u8 code) {
     }
 
     switch (dxgi) {
+    case 1: // R32G32B32A32_TYPELESS
     case 2: // R32G32B32A32_FLOAT
         return FormatMapping{PixelFormat::RGBA32F, false, false, false};
+    case 9:  // R16G16B16A16_TYPELESS
+    case 10: // R16G16B16A16_FLOAT
+        return FormatMapping{PixelFormat::RGBA16F, false, false, false};
+    case 34: // R16G16_FLOAT
+        return FormatMapping{PixelFormat::RG16F, false, false, false};
+    case 54: // R16_FLOAT
+        return FormatMapping{PixelFormat::R16F, false, false, false};
     case 11: // R16G16B16A16_UNORM
+    case 12: // R16G16B16A16_UINT
         return FormatMapping{PixelFormat::RGBA16, false, false, false};
+    case 15: // R32G32_TYPELESS
     case 16: // R32G32_FLOAT
         return FormatMapping{PixelFormat::RG32F, false, false, false};
+    case 27: // R8G8B8A8_TYPELESS
     case 28: // R8G8B8A8_UNORM
+    case 30: // R8G8B8A8_UINT
         return FormatMapping{PixelFormat::RGBA8, false, false, false};
     case 29: // R8G8B8A8_UNORM_SRGB
         return FormatMapping{PixelFormat::RGBA8, true, false, false};
+    case 33: // R16G16_TYPELESS
     case 35: // R16G16_UNORM
+    case 36: // R16G16_UINT
         return FormatMapping{PixelFormat::RG16, false, false, false};
+    case 39: // R32_TYPELESS
     case 41: // R32_FLOAT
         return FormatMapping{PixelFormat::R32F, false, false, false};
+    case 48: // R8G8_TYPELESS
     case 49: // R8G8_UNORM
+    case 50: // R8G8_UINT
         return FormatMapping{PixelFormat::RG8, false, false, false};
+    case 53: // R16_TYPELESS
     case 56: // R16_UNORM
+    case 57: // R16_UINT
         return FormatMapping{PixelFormat::R16, false, false, false};
+    case 60: // R8_TYPELESS
     case 61: // R8_UNORM
+    case 62: // R8_UINT
     case 65: // A8_UNORM
         return FormatMapping{PixelFormat::R8, false, false, false};
     case 87: // B8G8R8A8_UNORM
+    case 90: // B8G8R8A8_TYPELESS
         return FormatMapping{PixelFormat::RGBA8, false, true, false};
     case 88: // B8G8R8X8_UNORM
         return FormatMapping{PixelFormat::RGBA8, false, true, true};

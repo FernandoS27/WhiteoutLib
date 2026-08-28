@@ -39,7 +39,8 @@ MipImage extractSlice(const Texture& tex, u32 mip, u32 layer, u32 z) {
         const size_t sliceElems =
             static_cast<size_t>(mipLevel.width) * mipLevel.height * numChannels;
         const size_t sliceBytes = sliceElems * bpc;
-        unpackToFloat(srcData.data() + z * sliceBytes, img.pixels.data(), sliceElems, bpc);
+        unpackToFloat(srcData.data() + z * sliceBytes, img.pixels.data(), sliceElems, bpc,
+                      isHalfFormat(tex.format()));
     }
     return img;
 }
@@ -54,7 +55,8 @@ void writeSlice(Texture& tex, u32 mip, u32 layer, u32 z, const MipImage& img) {
         const size_t sliceElems =
             static_cast<size_t>(mipLevel.width) * mipLevel.height * numChannels;
         const size_t sliceBytes = sliceElems * bpc;
-        packFromFloat(img.pixels.data(), dstData.data() + z * sliceBytes, sliceElems, bpc);
+        packFromFloat(img.pixels.data(), dstData.data() + z * sliceBytes, sliceElems, bpc,
+                      isHalfFormat(tex.format()));
     }
 }
 

@@ -26,20 +26,26 @@ public enum PixelFormat {
     RGBA16(7),
     /** Single-precision RGBA (16 bytes per pixel). */
     RGBA32F(8),
+    /** Half-precision single channel (2 bytes per pixel). */
+    R16F(9),
+    /** Half-precision dual channel (4 bytes per pixel). */
+    RG16F(10),
+    /** Half-precision RGBA (8 bytes per pixel). */
+    RGBA16F(11),
     /** DXT1 – 8 bytes per 4×4 block (RGB + optional 1-bit alpha). */
-    BC1(9),
+    BC1(12),
     /** DXT3 – 16 bytes per 4×4 block (explicit 4-bit alpha). */
-    BC2(10),
+    BC2(13),
     /** DXT5 – 16 bytes per 4×4 block (interpolated alpha). */
-    BC3(11),
+    BC3(14),
     /** Single-channel – 8 bytes per 4×4 block. */
-    BC4(12),
+    BC4(15),
     /** Dual-channel – 16 bytes per 4×4 block. */
-    BC5(13),
+    BC5(16),
     /** HDR RGB – 16 bytes per 4×4 block (half-float output). */
-    BC6H(14),
+    BC6H(17),
     /** High-quality RGBA – 16 bytes per 4×4 block. */
-    BC7(15);
+    BC7(18);
 
     public final int value;
     PixelFormat(int v) { this.value = v; }

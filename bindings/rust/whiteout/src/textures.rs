@@ -34,20 +34,26 @@ pub enum PixelFormat {
     RGBA16 = 7,
     /// Single-precision RGBA (16 bytes per pixel).
     RGBA32F = 8,
+    /// Half-precision single channel (2 bytes per pixel).
+    R16F = 9,
+    /// Half-precision dual channel (4 bytes per pixel).
+    RG16F = 10,
+    /// Half-precision RGBA (8 bytes per pixel).
+    RGBA16F = 11,
     /// DXT1 – 8 bytes per 4×4 block (RGB + optional 1-bit alpha).
-    BC1 = 9,
+    BC1 = 12,
     /// DXT3 – 16 bytes per 4×4 block (explicit 4-bit alpha).
-    BC2 = 10,
+    BC2 = 13,
     /// DXT5 – 16 bytes per 4×4 block (interpolated alpha).
-    BC3 = 11,
+    BC3 = 14,
     /// Single-channel – 8 bytes per 4×4 block.
-    BC4 = 12,
+    BC4 = 15,
     /// Dual-channel – 16 bytes per 4×4 block.
-    BC5 = 13,
+    BC5 = 16,
     /// HDR RGB – 16 bytes per 4×4 block (half-float output).
-    BC6H = 14,
+    BC6H = 17,
     /// High-quality RGBA – 16 bytes per 4×4 block.
-    BC7 = 15,
+    BC7 = 18,
 }
 
 impl TryFrom<i32> for PixelFormat {
@@ -63,13 +69,16 @@ impl TryFrom<i32> for PixelFormat {
             6 => Ok(PixelFormat::RGBA8),
             7 => Ok(PixelFormat::RGBA16),
             8 => Ok(PixelFormat::RGBA32F),
-            9 => Ok(PixelFormat::BC1),
-            10 => Ok(PixelFormat::BC2),
-            11 => Ok(PixelFormat::BC3),
-            12 => Ok(PixelFormat::BC4),
-            13 => Ok(PixelFormat::BC5),
-            14 => Ok(PixelFormat::BC6H),
-            15 => Ok(PixelFormat::BC7),
+            9 => Ok(PixelFormat::R16F),
+            10 => Ok(PixelFormat::RG16F),
+            11 => Ok(PixelFormat::RGBA16F),
+            12 => Ok(PixelFormat::BC1),
+            13 => Ok(PixelFormat::BC2),
+            14 => Ok(PixelFormat::BC3),
+            15 => Ok(PixelFormat::BC4),
+            16 => Ok(PixelFormat::BC5),
+            17 => Ok(PixelFormat::BC6H),
+            18 => Ok(PixelFormat::BC7),
             other => Err(crate::Error::UnknownEnum {
                 name: "PixelFormat",
                 value: other,

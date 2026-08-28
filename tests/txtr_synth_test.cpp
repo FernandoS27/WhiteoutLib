@@ -35,6 +35,13 @@ constexpr u8 kFmtBgra8Unorm = 88; // DXGI B8G8R8A8_UNORM
 constexpr u8 kFmtBgrx8Unorm = 89; // DXGI B8G8R8X8_UNORM
 constexpr u8 kFmtRgba8Unorm = 29; // DXGI R8G8B8A8_UNORM
 constexpr u8 kFmtRgba8Srgb = 30;  // DXGI R8G8B8A8_UNORM_SRGB
+constexpr u8 kFmtRgba8Uint = 31;  // DXGI R8G8B8A8_UINT
+constexpr u8 kFmtRgba16f = 10;    // DXGI R16G16B16A16_FLOAT
+constexpr u8 kFmtRg16f = 35;      // DXGI R16G16_FLOAT
+constexpr u8 kFmtR16f = 55;       // DXGI R16_FLOAT
+constexpr u8 kFmtRg8Uint = 51;    // DXGI R8G8_UINT
+constexpr u8 kFmtBc6hUf16 = 96;   // DXGI BC6H_UF16
+constexpr u8 kFmtBc7Srgb = 100;   // DXGI BC7_UNORM_SRGB
 
 void put16(std::vector<u8>& b, size_t off, u16 v) {
     b[off] = static_cast<u8>(v & 0xFF);
@@ -165,8 +172,8 @@ TEST_CASE("TXTR self-contained header decodes every mip", "[txtr]") {
     CHECK(texture->type() == TextureType::Texture2D);
 
     for (u32 mip = 0; mip < kMips; ++mip) {
-        const auto expected = pattern(blockMipBytes(8, kWidth, kHeight, mip),
-                                      static_cast<u8>(0x10 + mip));
+        const auto expected =
+            pattern(blockMipBytes(8, kWidth, kHeight, mip), static_cast<u8>(0x10 + mip));
         auto actual = texture->mipData(mip);
         REQUIRE(actual.size() == expected.size());
         CHECK(std::equal(expected.begin(), expected.end(), actual.begin()));
@@ -211,8 +218,8 @@ TEST_CASE("TXTR reassembles a split mip chain from its payloads", "[txtr]") {
         CHECK(texture->mipCount() == kMips);
 
         for (u32 mip = 0; mip < kMips; ++mip) {
-            const auto expected = pattern(blockMipBytes(8, kWidth, kHeight, mip),
-                                          static_cast<u8>(0x10 + mip));
+            const auto expected =
+                pattern(blockMipBytes(8, kWidth, kHeight, mip), static_cast<u8>(0x10 + mip));
             auto actual = texture->mipData(mip);
             REQUIRE(actual.size() == expected.size());
             CHECK(std::equal(expected.begin(), expected.end(), actual.begin()));
@@ -234,8 +241,8 @@ TEST_CASE("TXTR reassembles a split mip chain from its payloads", "[txtr]") {
         CHECK(texture->mipCount() == 3);
 
         for (u32 mip = 4; mip < kMips; ++mip) {
-            const auto expected = pattern(blockMipBytes(8, kWidth, kHeight, mip),
-                                          static_cast<u8>(0x10 + mip));
+            const auto expected =
+                pattern(blockMipBytes(8, kWidth, kHeight, mip), static_cast<u8>(0x10 + mip));
             auto actual = texture->mipData(mip - 4);
             REQUIRE(actual.size() == expected.size());
             CHECK(std::equal(expected.begin(), expected.end(), actual.begin()));
@@ -289,9 +296,8 @@ TEST_CASE("TXTR cube maps are laid out face-major", "[txtr]") {
 
     for (u32 face = 0; face < 6; ++face) {
         for (u32 mip = 0; mip < kMips; ++mip) {
-            const auto expected =
-                pattern(blockMipBytes(8, kSize, kSize, mip),
-                        static_cast<u8>(0x40 + face * 16 + mip));
+            const auto expected = pattern(blockMipBytes(8, kSize, kSize, mip),
+                                          static_cast<u8>(0x40 + face * 16 + mip));
             auto actual = texture->mipData(mip, face);
             REQUIRE(actual.size() == expected.size());
             CHECK(std::equal(expected.begin(), expected.end(), actual.begin()));
@@ -363,6 +369,13 @@ TEST_CASE("TXTR surface format codes map onto library formats", "[txtr]") {
         {kFmtRgba8Unorm, PixelFormat::RGBA8, false, 0, 4},
         {kFmtRgba8Srgb, PixelFormat::RGBA8, true, 0, 4},
         {kFmtBgra8Unorm, PixelFormat::RGBA8, false, 0, 4},
+        {kFmtRgba8Uint, PixelFormat::RGBA8, false, 0, 4},
+        {kFmtBc6hUf16, PixelFormat::BC6H, false, 16, 0},
+        {kFmtBc7Srgb, PixelFormat::BC7, true, 16, 0},
+        {kFmtRg8Uint, PixelFormat::RG8, false, 0, 2},
+        {kFmtR16f, PixelFormat::R16F, false, 0, 2},
+        {kFmtRg16f, PixelFormat::RG16F, false, 0, 4},
+        {kFmtRgba16f, PixelFormat::RGBA16F, false, 0, 8},
     };
 
     for (const auto& c : cases) {
@@ -374,10 +387,9 @@ TEST_CASE("TXTR surface format codes map onto library formats", "[txtr]") {
         hb.headerMipCount = 1;
         hb.width = 8;
         hb.height = 8;
-        hb.inlineBlock =
-            pattern(c.blockBytes ? blockMipBytes(c.blockBytes, 8, 8, 0)
-                                 : pixelMipBytes(c.bytesPerPixel, 8, 8, 0),
-                    0x33);
+        hb.inlineBlock = pattern(c.blockBytes ? blockMipBytes(c.blockBytes, 8, 8, 0)
+                                              : pixelMipBytes(c.bytesPerPixel, 8, 8, 0),
+                                 0x33);
 
         const auto file = hb.build();
 
@@ -392,6 +404,27 @@ TEST_CASE("TXTR surface format codes map onto library formats", "[txtr]") {
         CHECK(info.isSrgb == c.srgb);
         CHECK(texture->format() == c.format);
         CHECK(texture->isSrgb() == c.srgb);
+    }
+}
+
+// The client's own g_teFormat_ToDXGI table runs 0-24 as DXGI, has one
+// client-only format at 25, then runs one ahead of DXGI to 100. Getting the
+// step wrong shifts the whole R10G10B10A2 group, so the boundary is pinned
+// here rather than left to the shipped codes, none of which sit on it.
+TEST_CASE("TXTR surface codes resolve to the client's DXGI values", "[txtr]") {
+    struct Case {
+        u8 code;
+        u32 dxgi;
+    };
+
+    const Case cases[] = {
+        {0, 0},   {10, 10}, {22, 22}, {23, 23},  {24, 24}, {25, 0},
+        {26, 25}, {29, 28}, {72, 71}, {100, 99}, {101, 0}, {113, 103},
+    };
+
+    for (const auto& c : cases) {
+        CAPTURE(c.code);
+        CHECK(txtr::dxgiFormatFor(c.code) == c.dxgi);
     }
 }
 
