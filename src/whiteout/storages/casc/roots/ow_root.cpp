@@ -3,7 +3,8 @@
 
 #include "ow_root.h"
 
-#include "ow_manifest_crypto.h"
+#include "ow/ow_asset_types.h"
+#include "ow/ow_manifest_crypto.h"
 
 #include "../../common/byte_order.h"
 #include "../../common/string_utils.h"
@@ -264,6 +265,34 @@ static std::string guidHex(u64 guid) {
     return s;
 }
 
+/// Extension for an asset, so a GUID reads as a filename. Types the client
+/// names get that name; a type it knows but does not register keeps its id,
+/// which is still what someone searching the tree would reach for.
+static std::string assetExtension(u64 guid) {
+    static const char hex[] = "0123456789abcdef";
+    auto const typeId = ow::assetTypeId(guid);
+    if (typeId == 0) {
+        // A GUID the client would reject outright. Its raw field can look just
+        // like a valid type id, so mark it rather than let the two blur.
+        auto const field = ow::assetTypeField(guid);
+        return {'.', 'x', hex[(field >> 8) & 0xF], hex[(field >> 4) & 0xF], hex[field & 0xF]};
+    }
+
+    auto const name = ow::assetTypeName(typeId);
+    if (!name.empty())
+        return "." + std::string(name);
+    return {'.', hex[(typeId >> 8) & 0xF], hex[(typeId >> 4) & 0xF], hex[typeId & 0xF]};
+}
+
+/// True when @p entryPath names the same asset as @p query, allowing the query
+/// to leave off the type extension that asset paths now carry.
+static bool assetPathMatches(std::string_view entryPath, std::string_view query) {
+    if (entryPath == query)
+        return true;
+    return entryPath.size() > query.size() && entryPath.compare(0, query.size(), query) == 0 &&
+           entryPath[query.size()] == '.';
+}
+
 static bool startsWithNoCase(std::string_view s, std::string_view prefix) {
     if (s.size() < prefix.size())
         return false;
@@ -376,7 +405,7 @@ static bool parseCmfBody(std::span<const u8> body, const CmfHeader& header,
         re.cKey = hd.contentKey;
         re.fileNameHash = hd.guid;
         re.fileSize = hd.size;
-        re.path = pathPrefix + guidHex(hd.guid);
+        re.path = pathPrefix + guidHex(hd.guid) + assetExtension(hd.guid);
         outEntries.push_back(std::move(re));
     }
 
@@ -431,7 +460,14 @@ static bool parseCmf(std::span<const u8> data, const std::string& pathPrefix,
 /// Recover the GUID from an asset path's trailing 16 hex digits.
 static bool parseTrailingGuid(std::string_view path, u64& out) {
     auto const slash = path.find_last_of('\\');
-    auto const leaf = (slash == std::string_view::npos) ? path : path.substr(slash + 1);
+    auto leaf = (slash == std::string_view::npos) ? path : path.substr(slash + 1);
+
+    // Asset paths carry a type extension; callers that predate it, or that
+    // built the path from a GUID by hand, will not have one.
+    auto const dot = leaf.find('.');
+    if (dot != std::string_view::npos)
+        leaf = leaf.substr(0, dot);
+
     if (leaf.size() != 16)
         return false;
 
@@ -551,7 +587,7 @@ std::vector<const RootEntry*> OwRoot::findByNormalizedPath(const std::string& pa
     // The GUID narrows the candidates to a handful — one per manifest that
     // carries the asset — and the full path then picks the right one.
     for (auto* e : findByGuid(guid)) {
-        if (e->path == path)
+        if (assetPathMatches(e->path, path))
             results.push_back(e);
     }
     return results;

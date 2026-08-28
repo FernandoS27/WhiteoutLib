@@ -680,8 +680,9 @@ if(WHITEOUT_ENABLE_CASC)
         src/whiteout/storages/casc/roots/d4_root.cpp
         src/whiteout/storages/casc/roots/wow_tvfs_root.cpp
         src/whiteout/storages/casc/roots/ow_root.cpp
-        src/whiteout/storages/casc/roots/ow_manifest_providers.cpp
-        src/whiteout/storages/casc/roots/ow_manifest_crypto.cpp
+        src/whiteout/storages/casc/roots/ow/ow_manifest_providers.cpp
+        src/whiteout/storages/casc/roots/ow/ow_manifest_crypto.cpp
+        src/whiteout/storages/casc/roots/ow/ow_resource_graph.cpp
         src/whiteout/storages/casc/roots/s1_root.cpp
         src/whiteout/storages/casc/roots/install_root.cpp
         src/whiteout/storages/casc/storage/progress_reporter.cpp

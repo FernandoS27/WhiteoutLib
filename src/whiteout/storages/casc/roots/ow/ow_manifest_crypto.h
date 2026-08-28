@@ -31,9 +31,7 @@ struct CmfCryptoHeader {
     u32 nonEncryptedMagic = 0;
 };
 
-/// As CmfCryptoHeader, for the resource graph. Nothing parses TRG yet; the
-/// generators are here because they come from the same source and share the
-/// verification harness.
+/// As CmfCryptoHeader, for the resource graph.
 struct TrgCryptoHeader {
     u32 buildVersion = 0;
     i32 packageCount = 0;
@@ -82,5 +80,13 @@ const ManifestProvider<TrgCryptoHeader>* findTrgProvider(u32 build);
 /// @return false if no provider covers the build or the result fails the
 ///         plausibility check, in which case @p body is left unusable.
 bool decryptCmfBody(std::span<u8> body, const CmfCryptoHeader& header, std::string_view name);
+
+/// Decrypt a resource graph body in place, as decryptCmfBody does for a CMF.
+///
+/// There is no cheap plausibility check here: the graph's own block sizes have
+/// to add up before anything can be believed, so parseResourceGraph does the
+/// rejecting. This returns false only when no provider covers the build or a
+/// key schedule faults outright.
+bool decryptTrgBody(std::span<u8> body, const TrgCryptoHeader& header, std::string_view name);
 
 } // namespace whiteout::storages::casc::ow

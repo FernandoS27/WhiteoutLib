@@ -5,8 +5,8 @@
 
 #include "ow_manifest_crypto.h"
 
-#include "../../common/sha1.h"
-#include "../codec/crypto.h"
+#include "../../../common/sha1.h"
+#include "../../codec/crypto.h"
 
 #include <array>
 
@@ -56,6 +56,29 @@ bool decryptCmfBody(std::span<u8> body, const CmfCryptoHeader& header, std::stri
         if (body.size() < kEntrySize || readLE32(body.data()) != 1)
             return false;
     }
+    return true;
+}
+
+bool decryptTrgBody(std::span<u8> body, const TrgCryptoHeader& header, std::string_view name) {
+    const auto* provider = findTrgProvider(header.buildVersion);
+    if (provider == nullptr)
+        return false;
+
+    auto const digest =
+        storages::common::sha1Hash({reinterpret_cast<const u8*>(name.data()), name.size()});
+
+    std::array<u8, 32> key{};
+    if (!provider->key(header, key))
+        return false;
+
+    std::array<u8, kBlockSize> iv{};
+    provider->iv(header, digest, iv);
+
+    size_t const whole = (body.size() / kBlockSize) * kBlockSize;
+    if (whole == 0)
+        return false;
+    aes256CbcDecrypt(body.first(whole), std::span<const u8, 32>(key),
+                     std::span<const u8, kBlockSize>(iv));
     return true;
 }
 

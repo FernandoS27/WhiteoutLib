@@ -1037,3 +1037,91 @@ TEST_CASE("OW root rejects an encrypted CMF under the wrong name", "[casc][ow_ro
     CHECK(root->entryCount() == 1);
     CHECK(root->findByGuid(0x1111ULL).empty());
 }
+
+// Overwatch stores no filenames, so a GUID's 12-bit type is the only thing that
+// can make the tree searchable. Assets carry it as an extension: a name where
+// we have identified the type, its hex digits where we have not.
+TEST_CASE("OW root names assets by type", "[casc][ow_root]") {
+    std::vector<std::pair<u64, std::array<u8, 16>>> cmfHashEntries = {
+        {0x08D000000000A877ULL, makeCKey(0xE0)}, // Wwise audio
+        {0x0D0000000000001DULL, makeCKey(0xE1)}, // model
+        {0x0D908000F651AA2FULL, makeCKey(0xE2)}, // bundle
+        {0x0C00000000000001ULL, makeCKey(0xE3)}, // texture
+        {0x0020000000000001ULL, makeCKey(0xE4)}, // a type this build never registers
+        {0x0554000000000001ULL, makeCKey(0xE5)}, // a GUID the client would reject
+    };
+
+    auto cmfBlob = buildCmfV26(cmfHashEntries);
+    auto cmfCKey = makeCKey(0x10);
+    CKeyResolver resolver = [&](std::span<const u8, 16> cKey) -> std::vector<u8> {
+        if (std::memcmp(cKey.data(), cmfCKey.data(), 16) == 0)
+            return cmfBlob;
+        return {};
+    };
+
+    std::vector<OwRootFileEntry> manifestEntries = {
+        {"1", cmfCKey, 0, 1, 0, "Win_SPWin_RCN.cmf", ""},
+    };
+
+    auto root = OwRoot::fromManifestEntries(std::move(manifestEntries), resolver);
+    REQUIRE(root != nullptr);
+
+    // The type is not the leading hex of the GUID: the client bit-reverses the
+    // top 16 bits and adds one, so 0D00 is type 0x00C and 08D0 is type 0x0B2.
+    auto audio = root->findByGuid(0x08D000000000A877ULL);
+    REQUIRE(audio.size() == 1);
+    CHECK(audio[0]->path.ends_with("08d000000000a877.voicewemfile"));
+
+    auto model = root->findByGuid(0x0D0000000000001DULL);
+    REQUIRE(model.size() == 1);
+    CHECK(model[0]->path.ends_with("0d0000000000001d.model"));
+
+    auto bundle = root->findByGuid(0x0D908000F651AA2FULL);
+    REQUIRE(bundle.size() == 1);
+    CHECK(bundle[0]->path.ends_with("0d908000f651aa2f.binary_package_data"));
+
+    auto texture = root->findByGuid(0x0C00000000000001ULL);
+    REQUIRE(texture.size() == 1);
+    CHECK(texture[0]->path.ends_with("0c00000000000001.txtr"));
+
+    // A type id the client knows about but never registers keeps the id.
+    auto unregistered = root->findByGuid(0x0020000000000001ULL);
+    REQUIRE(unregistered.size() == 1);
+    CHECK(unregistered[0]->path.ends_with("0020000000000001.041"));
+
+    // A GUID with no type id at all. Its raw field, 0x554, would read as a
+    // perfectly ordinary type id, so it has to be marked as not being one.
+    auto rejected = root->findByGuid(0x0554000000000001ULL);
+    REQUIRE(rejected.size() == 1);
+    CHECK(rejected[0]->path.ends_with("0554000000000001.x554"));
+}
+
+// Paths gained an extension after callers had already been built against the
+// bare GUID form, so both have to resolve.
+TEST_CASE("OW root finds assets with or without the extension", "[casc][ow_root]") {
+    std::vector<std::pair<u64, std::array<u8, 16>>> cmfHashEntries = {
+        {0x08D000000000A877ULL, makeCKey(0xE0)},
+    };
+
+    auto cmfBlob = buildCmfV26(cmfHashEntries);
+    auto cmfCKey = makeCKey(0x10);
+    CKeyResolver resolver = [&](std::span<const u8, 16> cKey) -> std::vector<u8> {
+        if (std::memcmp(cKey.data(), cmfCKey.data(), 16) == 0)
+            return cmfBlob;
+        return {};
+    };
+
+    std::vector<OwRootFileEntry> manifestEntries = {
+        {"1", cmfCKey, 0, 1, 0, "Win_SPWin_RCN.cmf", ""},
+    };
+
+    auto root = OwRoot::fromManifestEntries(std::move(manifestEntries), resolver);
+    REQUIRE(root != nullptr);
+
+    std::string const named = std::string(root->findByGuid(0x08D000000000A877ULL)[0]->path);
+    std::string const bare = named.substr(0, named.find_last_of('.'));
+
+    CHECK_FALSE(root->findByPath(named).empty());
+    CHECK_FALSE(root->findByPath(bare).empty());
+    CHECK(root->findByPath(bare + ".wrong").empty());
+}
