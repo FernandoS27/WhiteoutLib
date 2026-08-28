@@ -423,6 +423,7 @@ add_library(whiteout_lib
     src/whiteout/textures/tex/tex_common.cpp
     src/whiteout/textures/d2r_texture/parser.cpp
     src/whiteout/textures/d2r_texture/writer.cpp
+    src/whiteout/textures/txtr/parser.cpp
     src/whiteout/textures/bmp/parser.cpp
     src/whiteout/textures/bmp/writer.cpp
     src/whiteout/textures/tga/parser.cpp

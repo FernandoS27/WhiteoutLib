@@ -23,6 +23,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace fs = std::filesystem;
@@ -58,9 +59,18 @@ struct GameResult {
 
 using Results = std::vector<GameResult>;
 
-/// Insert a result, checking for duplicate paths.
-[[maybe_unused]] void addResult(Results& results, std::unordered_set<std::string>& seen,
-                                BlizzardGame game, std::string name, std::string path) {
+/// Lowercased install path -> index into Results.
+using SeenPaths = std::unordered_map<std::string, size_t>;
+
+/// Insert a result, or name a game an earlier scanner could only guess at.
+///
+/// The scanners disagree about how well they can identify what they find: the
+/// Uninstall sweep only has a display name to go on, and Overwatch 2 still
+/// registers itself as plain "Overwatch". A later scanner reaching the same
+/// directory through a Battle.net product uid does know, so its answer replaces
+/// the guess instead of being dropped as a duplicate path.
+[[maybe_unused]] void addResult(Results& results, SeenPaths& seen, BlizzardGame game,
+                                std::string name, std::string path) {
     path = normalizePath(std::move(path));
     if (path.empty() || !directoryExists(path))
         return;
@@ -70,8 +80,17 @@ using Results = std::vector<GameResult>;
     std::transform(key.begin(), key.end(), key.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
-    if (seen.insert(key).second)
+    auto const [it, inserted] = seen.emplace(std::move(key), results.size());
+    if (inserted) {
         results.push_back({game, std::move(name), std::move(path)});
+        return;
+    }
+
+    GameResult& existing = results[it->second];
+    if (existing.game == BlizzardGame::Unknown && game != BlizzardGame::Unknown) {
+        existing.game = game;
+        existing.name = std::move(name);
+    }
 }
 
 /// Crude JSON string value extractor — finds "key" : "value" pairs.
@@ -140,6 +159,8 @@ static constexpr GameNameEntry kGameNames[] = {
     {"Diablo Immortal", BlizzardGame::DiabloImmortal},
     {"Heroes of the Storm", BlizzardGame::HeroesOfTheStorm},
     {"Overwatch 2", BlizzardGame::Overwatch2},
+    // What the client registers itself as; there is no separate OW1 id.
+    {"Overwatch", BlizzardGame::Overwatch2},
     {"Hearthstone", BlizzardGame::Hearthstone},
     {"Blizzard Arcade Collection", BlizzardGame::BlizzardArcadeCollection},
     {"Battle.net", BlizzardGame::BattleNet},
@@ -204,7 +225,7 @@ static constexpr SteamApp kSteamApps[] = {
 
 /// Scan a Battle.net config file for per-product install paths.
 [[maybe_unused]] void scanBattleNetConfigFile(const fs::path& configPath, Results& results,
-                                              std::unordered_set<std::string>& seen) {
+                                              SeenPaths& seen) {
     std::error_code ec;
     if (!fs::exists(configPath, ec))
         return;
@@ -238,8 +259,7 @@ static constexpr SteamApp kSteamApps[] = {
 /// Scan a Battle.net product.db for embedded install paths.
 /// Called from the Windows and macOS code paths; not referenced on Linux,
 /// which is fine — anonymous-namespace functions don't trip -Wunused-function.
-[[maybe_unused]] void scanProductDb(const fs::path& prodDb, Results& results,
-                                    std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanProductDb(const fs::path& prodDb, Results& results, SeenPaths& seen) {
     std::error_code ec;
     if (!fs::exists(prodDb, ec))
         return;
@@ -331,7 +351,7 @@ static constexpr SteamApp kSteamApps[] = {
 
 /// Scan Steam library folders for installed Blizzard games.
 [[maybe_unused]] void scanSteamLibraries(const std::string& steamRoot, Results& results,
-                                         std::unordered_set<std::string>& seen) {
+                                         SeenPaths& seen) {
     if (steamRoot.empty())
         return;
 
@@ -502,7 +522,7 @@ static constexpr RegEntry kRegistryEntries[] = {
      "Blizzard Arcade Collection", BlizzardGame::BlizzardArcadeCollection},
 };
 
-[[maybe_unused]] void scanRegistry(Results& results, std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanRegistry(Results& results, SeenPaths& seen) {
     for (auto& entry : kRegistryEntries) {
         std::string path = readRegString(HKEY_LOCAL_MACHINE, entry.subkey, entry.valueName);
         if (!path.empty())
@@ -539,7 +559,7 @@ static constexpr RegEntry kRegistryEntries[] = {
 // Windows: Battle.net config + product.db
 // ---------------------------------------------------------------------------
 
-[[maybe_unused]] void scanBattleNetConfig(Results& results, std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanBattleNetConfig(Results& results, SeenPaths& seen) {
     wchar_t* appDataPath = nullptr;
     if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &appDataPath))) {
         fs::path const configPath = fs::path(appDataPath) / "Battle.net" / "Battle.net.config";
@@ -559,7 +579,7 @@ static constexpr RegEntry kRegistryEntries[] = {
 // Windows: Steam
 // ---------------------------------------------------------------------------
 
-[[maybe_unused]] void scanSteam(Results& results, std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanSteam(Results& results, SeenPaths& seen) {
     std::string steamRoot =
         readRegString(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Valve\\Steam", L"InstallPath");
     if (steamRoot.empty())
@@ -624,7 +644,7 @@ static constexpr AppEntry kMacAppEntries[] = {
      BlizzardGame::BlizzardArcadeCollection},
 };
 
-[[maybe_unused]] void scanApplications(Results& results, std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanApplications(Results& results, SeenPaths& seen) {
     for (auto& app : kMacAppEntries) {
         // Check /Applications/<name>/ (some games use plain directories)
         fs::path appDir = fs::path("/Applications") / app.dirName;
@@ -644,7 +664,7 @@ static constexpr AppEntry kMacAppEntries[] = {
 // macOS: Battle.net config + product.db
 // ---------------------------------------------------------------------------
 
-[[maybe_unused]] void scanBattleNetConfig(Results& results, std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanBattleNetConfig(Results& results, SeenPaths& seen) {
     std::string home = getHomeDir();
     if (home.empty())
         return;
@@ -666,7 +686,7 @@ static constexpr AppEntry kMacAppEntries[] = {
 // macOS: Steam
 // ---------------------------------------------------------------------------
 
-[[maybe_unused]] void scanSteam(Results& results, std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanSteam(Results& results, SeenPaths& seen) {
     std::string home = getHomeDir();
     if (home.empty())
         return;
@@ -707,8 +727,7 @@ static constexpr AppEntry kMacAppEntries[] = {
 }
 
 /// Scan a single Wine/Proton prefix for Battle.net config and product.db.
-[[maybe_unused]] void scanWinePrefix(const fs::path& pfxRoot, Results& results,
-                                     std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanWinePrefix(const fs::path& pfxRoot, Results& results, SeenPaths& seen) {
     fs::path driveC = pfxRoot / "drive_c";
     std::error_code ec;
     if (!fs::is_directory(driveC, ec))
@@ -823,7 +842,7 @@ static constexpr AppEntry kMacAppEntries[] = {
 // Linux: Battle.net under Wine/Proton
 // ---------------------------------------------------------------------------
 
-[[maybe_unused]] void scanBattleNetConfig(Results& results, std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanBattleNetConfig(Results& results, SeenPaths& seen) {
     std::string home = getHomeDir();
     if (home.empty())
         return;
@@ -850,7 +869,7 @@ static constexpr AppEntry kMacAppEntries[] = {
 // Linux: Steam
 // ---------------------------------------------------------------------------
 
-[[maybe_unused]] void scanSteam(Results& results, std::unordered_set<std::string>& seen) {
+[[maybe_unused]] void scanSteam(Results& results, SeenPaths& seen) {
     for (auto& root : findSteamRoots())
         scanSteamLibraries(root, results, seen);
 }
@@ -865,7 +884,7 @@ static constexpr AppEntry kMacAppEntries[] = {
 
 std::vector<BlizzardGameInfo> findBlizzardGames() {
     Results results;
-    std::unordered_set<std::string> seen;
+    SeenPaths seen;
 
 #ifdef _WIN32
     scanRegistry(results, seen);
