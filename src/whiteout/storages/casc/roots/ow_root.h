@@ -58,7 +58,10 @@ public:
     /// @param data     Raw (BLTE-decoded) root file bytes (text format).
     /// @param resolver Callback that resolves CKey → file data (for CMF files).
     ///                 May be nullptr for root-only parsing (no CMF resolution).
-    /// @param pool     Optional worker pool for parallel CMF parsing.
+    ///                 With a @p pool it is called from several threads at
+    ///                 once, and must not itself put work on that pool — a
+    ///                 resolver waiting on pool tasks from inside one deadlocks.
+    /// @param pool     Optional worker pool for parallel CMF fetching and parsing.
     /// @return Parsed root, or nullptr on failure.
     static std::unique_ptr<OwRoot> parse(std::span<const u8> data, CKeyResolver resolver = nullptr,
                                          interfaces::WorkerPool* pool = nullptr);
@@ -81,6 +84,21 @@ public:
 
     /// Find entries by 64-bit Overwatch GUID.
     std::vector<const RootEntry*> findByGuid(u64 guid) const;
+
+    /// Path for @p entry. Asset entries do not carry one: an asset path is its
+    /// manifest's folder, its GUID in hex and its type extension, all of which
+    /// the entry already implies, and a current install has twenty-four million
+    /// of them — the strings alone cost more than a gigabyte and five seconds
+    /// of the open. @ref enumerate fills them in as it goes; a caller holding
+    /// an entry from @ref findByGuid asks for one here.
+    ///
+    /// Returns @p entry's own path for a manifest row, and an empty string for
+    /// an entry this root does not own.
+    std::string assetPath(const RootEntry& entry) const;
+
+    void enumerate(std::function<bool(const RootEntry&)> callback) const override;
+    void enumerateUnder(const std::string& normalizedPrefix,
+                        std::function<bool(const RootEntry&)> callback) const override;
 
     RootFormat format() const override {
         return RootFormat::Overwatch;
@@ -120,7 +138,21 @@ private:
     /// Number of leading entries in @ref m_entries that are manifest rows.
     size_t m_manifestRowCount = 0;
 
-    void buildIndices();
+    /// Folder prefix per CMF, and where each CMF's assets begin in
+    /// @ref m_entries — @ref m_cmfEntryStart has one extra element holding the
+    /// end. A hundred and eighty-six manifests, so @ref assetPath finds an
+    /// entry's folder with a binary search over a table that fits in cache
+    /// rather than by storing the folder on every entry.
+    std::vector<std::string> m_cmfPrefix;
+    std::vector<u32> m_cmfEntryStart;
+
+    void buildIndices(interfaces::WorkerPool* pool);
+
+    /// Write @p index's asset path into @p out, reusing its capacity.
+    void buildAssetPath(size_t index, std::string& out) const;
+
+    /// The CMF that owns entry @p index, or m_cmfPrefix.size() if none does.
+    size_t cmfForEntry(size_t index) const;
 };
 
 } // namespace whiteout::storages::casc

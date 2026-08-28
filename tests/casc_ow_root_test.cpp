@@ -1070,30 +1070,30 @@ TEST_CASE("OW root names assets by type", "[casc][ow_root]") {
     // top 16 bits and adds one, so 0D00 is type 0x00C and 08D0 is type 0x0B2.
     auto audio = root->findByGuid(0x08D000000000A877ULL);
     REQUIRE(audio.size() == 1);
-    CHECK(audio[0]->path.ends_with("08d000000000a877.voicewemfile"));
+    CHECK(root->assetPath(*audio[0]).ends_with("08d000000000a877.voicewemfile"));
 
     auto model = root->findByGuid(0x0D0000000000001DULL);
     REQUIRE(model.size() == 1);
-    CHECK(model[0]->path.ends_with("0d0000000000001d.model"));
+    CHECK(root->assetPath(*model[0]).ends_with("0d0000000000001d.model"));
 
     auto bundle = root->findByGuid(0x0D908000F651AA2FULL);
     REQUIRE(bundle.size() == 1);
-    CHECK(bundle[0]->path.ends_with("0d908000f651aa2f.binary_package_data"));
+    CHECK(root->assetPath(*bundle[0]).ends_with("0d908000f651aa2f.binary_package_data"));
 
     auto texture = root->findByGuid(0x0C00000000000001ULL);
     REQUIRE(texture.size() == 1);
-    CHECK(texture[0]->path.ends_with("0c00000000000001.txtr"));
+    CHECK(root->assetPath(*texture[0]).ends_with("0c00000000000001.txtr"));
 
     // A type id the client knows about but never registers keeps the id.
     auto unregistered = root->findByGuid(0x0020000000000001ULL);
     REQUIRE(unregistered.size() == 1);
-    CHECK(unregistered[0]->path.ends_with("0020000000000001.041"));
+    CHECK(root->assetPath(*unregistered[0]).ends_with("0020000000000001.041"));
 
     // A GUID with no type id at all. Its raw field, 0x554, would read as a
     // perfectly ordinary type id, so it has to be marked as not being one.
     auto rejected = root->findByGuid(0x0554000000000001ULL);
     REQUIRE(rejected.size() == 1);
-    CHECK(rejected[0]->path.ends_with("0554000000000001.x554"));
+    CHECK(root->assetPath(*rejected[0]).ends_with("0554000000000001.x554"));
 }
 
 // Paths gained an extension after callers had already been built against the
@@ -1118,10 +1118,114 @@ TEST_CASE("OW root finds assets with or without the extension", "[casc][ow_root]
     auto root = OwRoot::fromManifestEntries(std::move(manifestEntries), resolver);
     REQUIRE(root != nullptr);
 
-    std::string const named = std::string(root->findByGuid(0x08D000000000A877ULL)[0]->path);
+    std::string const named = root->assetPath(*root->findByGuid(0x08D000000000A877ULL)[0]);
     std::string const bare = named.substr(0, named.find_last_of('.'));
 
     CHECK_FALSE(root->findByPath(named).empty());
     CHECK_FALSE(root->findByPath(bare).empty());
     CHECK(root->findByPath(bare + ".wrong").empty());
+}
+
+// ============================================================================
+// Path synthesis and index construction
+// ============================================================================
+
+// Assets carry no path of their own any more, so enumerate() is what has to
+// produce them — listFiles and findFiles both reach the root through it.
+TEST_CASE("OW root enumerate names every asset", "[casc][ow_root]") {
+    std::vector<std::pair<u64, std::array<u8, 16>>> cmfHashEntries = {
+        {0x0C00000000000001ULL, makeCKey(0xA0)},
+        {0x0D0000000000001DULL, makeCKey(0xA1)},
+        {0x08D000000000A877ULL, makeCKey(0xA2)},
+    };
+
+    auto cmfBlob = buildCmfV26(cmfHashEntries);
+    auto cmfCKey = makeCKey(0x10);
+    CKeyResolver resolver = [&](std::span<const u8, 16> cKey) -> std::vector<u8> {
+        if (std::memcmp(cKey.data(), cmfCKey.data(), 16) == 0)
+            return cmfBlob;
+        return {};
+    };
+
+    std::vector<OwRootFileEntry> manifestEntries = {
+        {"1", cmfCKey, 0, 1, 0, "Win_SPWin_RCN_LesES_Speech_EExt.cmf", ""},
+    };
+
+    auto root = OwRoot::fromManifestEntries(std::move(manifestEntries), resolver);
+    REQUIRE(root != nullptr);
+
+    std::vector<std::string> paths;
+    root->enumerate([&](const RootEntry& e) {
+        paths.push_back(e.path);
+        return true;
+    });
+
+    // One manifest row plus the three assets, every one of them named.
+    REQUIRE(paths.size() == 4);
+    for (auto& p : paths)
+        CHECK_FALSE(p.empty());
+
+    CHECK(paths[0] == "win_spwin_rcn_leses_speech_eext.cmf");
+    CHECK(paths[1] == "contentmanifestfiles\windows-rcn\eses\speech\\"
+                      "0c00000000000001.txtr");
+    CHECK(paths[2].ends_with("0d0000000000001d.model"));
+    CHECK(paths[3].ends_with("08d000000000a877.voicewemfile"));
+
+    // What enumerate hands out has to agree with the direct accessor.
+    for (auto& p : paths)
+        CHECK_FALSE(root->findByPath(p).empty());
+}
+
+// The GUID index is built by merging each manifest's records rather than
+// sorting them all, which is only correct while the merge reproduces what a
+// stable sort by GUID would have given. Two manifests whose GUID ranges
+// interleave is the case that tells them apart.
+TEST_CASE("OW root GUID index merges manifests in order", "[casc][ow_root]") {
+    // Each manifest is internally sorted, and the two interleave.
+    std::vector<std::pair<u64, std::array<u8, 16>>> first = {
+        {0x0C00000000000001ULL, makeCKey(0xB0)},
+        {0x0C00000000000005ULL, makeCKey(0xB1)},
+        {0x0C00000000000009ULL, makeCKey(0xB2)},
+    };
+    std::vector<std::pair<u64, std::array<u8, 16>>> second = {
+        {0x0C00000000000003ULL, makeCKey(0xC0)},
+        {0x0C00000000000005ULL, makeCKey(0xC1)}, // same GUID as the first manifest
+        {0x0C00000000000007ULL, makeCKey(0xC2)},
+    };
+
+    auto firstBlob = buildCmfV26(first);
+    auto secondBlob = buildCmfV26(second);
+    auto firstCKey = makeCKey(0x20);
+    auto secondCKey = makeCKey(0x21);
+
+    CKeyResolver resolver = [&](std::span<const u8, 16> cKey) -> std::vector<u8> {
+        if (std::memcmp(cKey.data(), firstCKey.data(), 16) == 0)
+            return firstBlob;
+        if (std::memcmp(cKey.data(), secondCKey.data(), 16) == 0)
+            return secondBlob;
+        return {};
+    };
+
+    std::vector<OwRootFileEntry> manifestEntries = {
+        {"1", firstCKey, 0, 1, 0, "Win_SPWin_RCN.cmf", ""},
+        {"2", secondCKey, 0, 1, 0, "Win_SPWin_RDEV.cmf", ""},
+    };
+
+    auto root = OwRoot::fromManifestEntries(std::move(manifestEntries), resolver);
+    REQUIRE(root != nullptr);
+
+    for (u64 guid : {0x0C00000000000001ULL, 0x0C00000000000003ULL, 0x0C00000000000007ULL,
+                     0x0C00000000000009ULL})
+        CHECK(root->findByGuid(guid).size() == 1);
+
+    // The shared GUID reaches both, and the manifest listed first comes first —
+    // the ordering a stable sort guaranteed and the merge has to keep.
+    auto shared = root->findByGuid(0x0C00000000000005ULL);
+    REQUIRE(shared.size() == 2);
+    CHECK(shared[0]->cKey == makeCKey(0xB1));
+    CHECK(shared[1]->cKey == makeCKey(0xC1));
+    CHECK(root->assetPath(*shared[0]).starts_with("contentmanifestfiles\windows-rcn\\"));
+    CHECK(root->assetPath(*shared[1]).starts_with("contentmanifestfiles\windows-rdev\\"));
+
+    CHECK(root->findByGuid(0x0C00000000000002ULL).empty());
 }

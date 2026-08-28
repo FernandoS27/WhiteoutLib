@@ -216,9 +216,13 @@ struct Storage::Impl {
     mutable std::once_flag deferOnce;
     mutable bool deferLoadOk = true;
 
-    /// m_encodingReferenced[i] = true iff encoding entry i is referenced by
+    /// m_encodingReferenced[i] = 1 iff encoding entry i is referenced by
     /// some root entry. Used by enumerate() to skip non-orphans.
-    mutable std::vector<bool> m_encodingReferenced;
+    ///
+    /// Bytes rather than a bit each: the eager build marks entries from several
+    /// threads at once, and neighbouring bits in a std::vector<bool> share a
+    /// word, so two threads marking two entries would race.
+    mutable std::vector<u8> m_encodingReferenced;
     mutable std::once_flag m_encodingReferencedFlag;
 
     /// Builds m_encodingReferenced. Idempotent; forces ensureFullyParsed.

@@ -18,6 +18,7 @@
 #include "storage_impl.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <condition_variable>
 #include <cstring>
@@ -363,7 +364,7 @@ void Storage::Impl::ensureEncodingReferenced() const {
     std::call_once(m_encodingReferencedFlag, [this]() {
         // entries() forces ensureFullyParsed, which we need for pointer math.
         const auto& encEntries = encodingTable.entries();
-        m_encodingReferenced.assign(encEntries.size(), false);
+        m_encodingReferenced.assign(encEntries.size(), 0);
         if (!root)
             return;
 
@@ -377,7 +378,7 @@ void Storage::Impl::ensureEncodingReferenced() const {
             if (enc) {
                 size_t const idx = static_cast<size_t>(enc - encBase);
                 if (idx < m_encodingReferenced.size())
-                    m_encodingReferenced[idx] = true;
+                    m_encodingReferenced[idx] = 1;
             }
         });
     });
@@ -688,7 +689,15 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
 
             // Overwatch text root (starts with '#').
             if (!root && !rootData.empty() && rootData[0] == '#') {
-                root = OwRoot::parse(rootData, ckeyResolver, pool);
+                // OwRoot fetches its hundred-odd manifests on the pool, so the
+                // resolver must not put frame-level work on it as well: the
+                // outer tasks would hold every worker while waiting for inner
+                // tasks that can never be picked up. Same trade the TVFS
+                // sub-manifest prefetch makes.
+                CKeyResolver const owResolver = [this](std::span<const u8, 16> cKey) {
+                    return resolveCKey(cKey, nullptr);
+                };
+                root = OwRoot::parse(rootData, owResolver, pool);
             }
 
             // S1 / Agent text root (pipe-delimited path|ckey lines).
@@ -727,21 +736,30 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
     // fileInfo/fileSize fall back to findByCKey, enumerate() calls
     // ensureEncodingReferenced() on demand.
     if (!(featureFlags & StorageFeatureFlags::LazyEncodingFrames)) {
-        m_encodingReferenced.assign(encodingTable.entryCount(), false);
+        m_encodingReferenced.assign(encodingTable.entryCount(), 0);
         const auto* encBase = encodingTable.entries().data();
-        root->resolveEntries([this, encBase](RootEntry& e) {
-            const EncodingEntry* enc = nullptr;
-            if (!isZeroKey(e.cKey))
-                enc = encodingTable.findByCKey(e.cKey, kEKeyTruncSize);
-            if (!enc && !isZeroKey(e.eKey))
-                enc = encodingTable.findByEKey(e.eKey, kEKeyTruncSize);
-            if (enc) {
-                e.fileSize = enc->fileSize;
-                if (isZeroKey(e.cKey))
-                    e.cKey = enc->cKey;
-                m_encodingReferenced[static_cast<size_t>(enc - encBase)] = true;
-            }
-        });
+        // Safe to run in parallel: this branch always parsed the encoding table
+        // eagerly, so every lookup below is a pure read, and each entry is
+        // visited by exactly one worker. The mark is the one thing two workers
+        // can reach at once — many root entries share a content key — so it
+        // goes through an atomic reference rather than being a plain race that
+        // happens to write the same value.
+        root->resolveEntries(
+            [this, encBase](RootEntry& e) {
+                const EncodingEntry* enc = nullptr;
+                if (!isZeroKey(e.cKey))
+                    enc = encodingTable.findByCKey(e.cKey, kEKeyTruncSize);
+                if (!enc && !isZeroKey(e.eKey))
+                    enc = encodingTable.findByEKey(e.eKey, kEKeyTruncSize);
+                if (enc) {
+                    e.fileSize = enc->fileSize;
+                    if (isZeroKey(e.cKey))
+                        e.cKey = enc->cKey;
+                    std::atomic_ref<u8>(m_encodingReferenced[static_cast<size_t>(enc - encBase)])
+                        .store(1, std::memory_order_relaxed);
+                }
+            },
+            pool);
         // The bitvector is already correct — short-circuit ensureEncodingReferenced.
         std::call_once(m_encodingReferencedFlag, []() {});
     }

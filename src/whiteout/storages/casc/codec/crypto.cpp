@@ -10,6 +10,25 @@
 #include <fstream>
 #include <sstream>
 
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+#define WHITEOUT_AES_X86 1
+#include <wmmintrin.h>
+#if defined(_WIN32)
+#include <intrin.h>
+#else
+#include <cpuid.h>
+#endif
+// MSVC allows the AES intrinsics unconditionally; GCC and Clang need the
+// function that uses them to opt into the instruction set.
+#if defined(__GNUC__) || defined(__clang__)
+#define WHITEOUT_TARGET_AES __attribute__((target("aes,sse2")))
+#else
+#define WHITEOUT_TARGET_AES
+#endif
+#else
+#define WHITEOUT_AES_X86 0
+#endif
+
 namespace whiteout::storages::casc {
 
 // ============================================================================
@@ -275,6 +294,23 @@ constexpr u8 gmul(u8 a, u8 b) {
     return r;
 }
 
+/// InvMixColumns multiplies every byte by 9, 11, 13 and 14 in GF(2^8), which
+/// with a shift-and-add loop costs more than the whole rest of the round. The
+/// products are only 1 KB in total, so they are tabulated at compile time.
+constexpr std::array<std::array<u8, 256>, 4> makeInvMixTables() {
+    constexpr u8 coeff[4] = {9, 11, 13, 14};
+    std::array<std::array<u8, 256>, 4> t{};
+    for (int c = 0; c < 4; ++c)
+        for (int i = 0; i < 256; ++i)
+            t[size_t(c)][size_t(i)] = gmul(u8(i), coeff[c]);
+    return t;
+}
+constexpr std::array<std::array<u8, 256>, 4> kInvMix = makeInvMixTables();
+constexpr const std::array<u8, 256>& kMul9 = kInvMix[0];
+constexpr const std::array<u8, 256>& kMul11 = kInvMix[1];
+constexpr const std::array<u8, 256>& kMul13 = kInvMix[2];
+constexpr const std::array<u8, 256>& kMul14 = kInvMix[3];
+
 constexpr size_t kAesRounds = 14;
 constexpr size_t kExpandedKeySize = (kAesRounds + 1) * 16;
 
@@ -322,10 +358,10 @@ void invMixColumns(u8* state) {
     for (int c = 0; c < 4; ++c) {
         u8* p = state + c * 4;
         u8 const a0 = p[0], a1 = p[1], a2 = p[2], a3 = p[3];
-        p[0] = u8(gmul(a0, 14) ^ gmul(a1, 11) ^ gmul(a2, 13) ^ gmul(a3, 9));
-        p[1] = u8(gmul(a0, 9) ^ gmul(a1, 14) ^ gmul(a2, 11) ^ gmul(a3, 13));
-        p[2] = u8(gmul(a0, 13) ^ gmul(a1, 9) ^ gmul(a2, 14) ^ gmul(a3, 11));
-        p[3] = u8(gmul(a0, 11) ^ gmul(a1, 13) ^ gmul(a2, 9) ^ gmul(a3, 14));
+        p[0] = u8(kMul14[a0] ^ kMul11[a1] ^ kMul13[a2] ^ kMul9[a3]);
+        p[1] = u8(kMul9[a0] ^ kMul14[a1] ^ kMul11[a2] ^ kMul13[a3]);
+        p[2] = u8(kMul13[a0] ^ kMul9[a1] ^ kMul14[a2] ^ kMul11[a3]);
+        p[3] = u8(kMul11[a0] ^ kMul13[a1] ^ kMul9[a2] ^ kMul14[a3]);
     }
 }
 
@@ -342,9 +378,87 @@ void decryptBlock(const u8* rk, u8* state) {
     addRoundKey(state, rk);
 }
 
+#if WHITEOUT_AES_X86
+
+/// True when the CPU implements the AES-NI instruction set.
+bool detectAesNi() {
+#if defined(_WIN32)
+    int regs[4]{};
+    __cpuid(regs, 1);
+    return (regs[2] & (1 << 25)) != 0;
+#else
+    unsigned int a = 0, b = 0, c = 0, d = 0;
+    if (__get_cpuid(1, &a, &b, &c, &d) == 0)
+        return false;
+    return (c & (1u << 25)) != 0;
+#endif
+}
+
+/// CBC decryption is only chained in the final XOR — the block decryptions
+/// themselves are independent, so four run at once to fill the pipeline.
+WHITEOUT_TARGET_AES
+void cbcDecryptAesNi(std::span<u8> data, std::span<const u8, 32> key, std::span<const u8, 16> iv) {
+    u8 rk[kExpandedKeySize];
+    expandKey256(key.data(), rk);
+
+    // AES-NI decrypts with the equivalent inverse cipher: the encryption round
+    // keys in reverse, all but the outermost two passed through InvMixColumns.
+    __m128i dk[kAesRounds + 1];
+    dk[0] = _mm_loadu_si128(reinterpret_cast<const __m128i*>(rk + kAesRounds * 16));
+    for (size_t i = 1; i < kAesRounds; ++i)
+        dk[i] = _mm_aesimc_si128(
+            _mm_loadu_si128(reinterpret_cast<const __m128i*>(rk + (kAesRounds - i) * 16)));
+    dk[kAesRounds] = _mm_loadu_si128(reinterpret_cast<const __m128i*>(rk));
+
+    __m128i chain = _mm_loadu_si128(reinterpret_cast<const __m128i*>(iv.data()));
+    size_t const blocks = data.size() / 16;
+    size_t b = 0;
+
+    for (; b + 4 <= blocks; b += 4) {
+        auto* p = reinterpret_cast<__m128i*>(data.data() + b * 16);
+        __m128i const c0 = _mm_loadu_si128(p);
+        __m128i const c1 = _mm_loadu_si128(p + 1);
+        __m128i const c2 = _mm_loadu_si128(p + 2);
+        __m128i const c3 = _mm_loadu_si128(p + 3);
+        __m128i x0 = _mm_xor_si128(c0, dk[0]);
+        __m128i x1 = _mm_xor_si128(c1, dk[0]);
+        __m128i x2 = _mm_xor_si128(c2, dk[0]);
+        __m128i x3 = _mm_xor_si128(c3, dk[0]);
+        for (size_t r = 1; r < kAesRounds; ++r) {
+            x0 = _mm_aesdec_si128(x0, dk[r]);
+            x1 = _mm_aesdec_si128(x1, dk[r]);
+            x2 = _mm_aesdec_si128(x2, dk[r]);
+            x3 = _mm_aesdec_si128(x3, dk[r]);
+        }
+        x0 = _mm_aesdeclast_si128(x0, dk[kAesRounds]);
+        x1 = _mm_aesdeclast_si128(x1, dk[kAesRounds]);
+        x2 = _mm_aesdeclast_si128(x2, dk[kAesRounds]);
+        x3 = _mm_aesdeclast_si128(x3, dk[kAesRounds]);
+        _mm_storeu_si128(p, _mm_xor_si128(x0, chain));
+        _mm_storeu_si128(p + 1, _mm_xor_si128(x1, c0));
+        _mm_storeu_si128(p + 2, _mm_xor_si128(x2, c1));
+        _mm_storeu_si128(p + 3, _mm_xor_si128(x3, c2));
+        chain = c3;
+    }
+
+    for (; b < blocks; ++b) {
+        auto* p = reinterpret_cast<__m128i*>(data.data() + b * 16);
+        __m128i const c = _mm_loadu_si128(p);
+        __m128i x = _mm_xor_si128(c, dk[0]);
+        for (size_t r = 1; r < kAesRounds; ++r)
+            x = _mm_aesdec_si128(x, dk[r]);
+        x = _mm_aesdeclast_si128(x, dk[kAesRounds]);
+        _mm_storeu_si128(p, _mm_xor_si128(x, chain));
+        chain = c;
+    }
+}
+
+#endif // WHITEOUT_AES_X86
+
 } // namespace
 
-void aes256CbcDecrypt(std::span<u8> data, std::span<const u8, 32> key, std::span<const u8, 16> iv) {
+void aes256CbcDecryptPortable(std::span<u8> data, std::span<const u8, 32> key,
+                              std::span<const u8, 16> iv) {
     u8 rk[kExpandedKeySize];
     expandKey256(key.data(), rk);
 
@@ -361,6 +475,25 @@ void aes256CbcDecrypt(std::span<u8> data, std::span<const u8, 32> key, std::span
             p[i] ^= chain[i];
         std::memcpy(chain, next, 16);
     }
+}
+
+AesBackend aesBackend() noexcept {
+#if WHITEOUT_AES_X86
+    static bool const accelerated = detectAesNi();
+    if (accelerated)
+        return AesBackend::AesNi;
+#endif
+    return AesBackend::Portable;
+}
+
+void aes256CbcDecrypt(std::span<u8> data, std::span<const u8, 32> key, std::span<const u8, 16> iv) {
+#if WHITEOUT_AES_X86
+    if (aesBackend() == AesBackend::AesNi) {
+        cbcDecryptAesNi(data, key, iv);
+        return;
+    }
+#endif
+    aes256CbcDecryptPortable(data, key, iv);
 }
 
 } // namespace whiteout::storages::casc

@@ -90,4 +90,18 @@ void arc4Transform(std::span<u8> data, std::span<const u8> key);
 /// padding byte.
 void aes256CbcDecrypt(std::span<u8> data, std::span<const u8, 32> key, std::span<const u8, 16> iv);
 
+/// Which implementation @ref aes256CbcDecrypt dispatches to on this machine.
+enum class AesBackend : u8 {
+    Portable, ///< Table-driven C++.
+    AesNi,    ///< x86 AES-NI, roughly a hundred times faster.
+};
+
+AesBackend aesBackend() noexcept;
+
+/// The portable implementation, whatever @ref aesBackend reports. Exposed so
+/// the tests can hold both backends to the same vectors on a machine that only
+/// ever runs one of them.
+void aes256CbcDecryptPortable(std::span<u8> data, std::span<const u8, 32> key,
+                              std::span<const u8, 16> iv);
+
 } // namespace whiteout::storages::casc

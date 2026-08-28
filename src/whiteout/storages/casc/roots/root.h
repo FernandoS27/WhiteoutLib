@@ -7,8 +7,11 @@
 #pragma once
 
 #include <whiteout/common_types.h>
+#include <whiteout/interfaces.h>
 #include <whiteout/storages/casc/types.h>
+#include <whiteout/utils/job_group.h>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <functional>
@@ -161,10 +164,42 @@ public:
     virtual RootFormat format() const = 0;
 
     /// Pre-resolve additional data for all entries (e.g. file sizes from encoding).
+    ///
+    /// With a @p pool the callback runs over disjoint stretches of the entries
+    /// at once, which is worth having once a root holds millions of them —
+    /// Overwatch's holds twenty-four million, and the lookup behind this is a
+    /// cache miss per entry. The callback then has to tolerate that: writing to
+    /// its own entry or to per-index storage is fine, sharing a cursor or a
+    /// std::vector<bool> is not.
     template <typename Fn>
-    void resolveEntries(Fn&& fn) {
-        for (auto& e : mutableEntries())
-            fn(e);
+    void resolveEntries(Fn&& fn, interfaces::WorkerPool* pool = nullptr) {
+        auto& all = mutableEntries();
+        constexpr size_t kMinParallel = 1u << 16;
+        if (pool == nullptr || all.size() < kMinParallel) {
+            for (auto& e : all)
+                fn(e);
+            return;
+        }
+
+        size_t const threads = std::max<size_t>(pool->threadCount(), 1);
+        size_t const chunk =
+            std::max<size_t>((all.size() + threads * 4 - 1) / (threads * 4), 1u << 14);
+        size_t const chunks = (all.size() + chunk - 1) / chunk;
+
+        utils::JobGroup jobGroup;
+        jobGroup.add(chunks);
+        for (size_t c = 0; c < chunks; ++c) {
+            interfaces::WorkerTask task;
+            task.fn = [&, c]() {
+                size_t const begin = c * chunk;
+                size_t const end = std::min(begin + chunk, all.size());
+                for (size_t i = begin; i < end; ++i)
+                    fn(all[i]);
+                jobGroup.done();
+            };
+            pool->submit(task);
+        }
+        jobGroup.wait();
     }
 
     /// Auto-detect root format from raw (BLTE-decoded) data and construct

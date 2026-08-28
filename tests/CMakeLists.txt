@@ -157,6 +157,12 @@ if(WHITEOUT_ENABLE_CASC)
     target_link_libraries(casc_open_bench PRIVATE whiteout_casc)
     target_include_directories(casc_open_bench PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+    # Overwatch root-open profiler — standalone executable with custom main().
+    # Usage: casc_ow_open_bench <ow_path> [--reps N] [--threads N] [--no-e2e]
+    add_executable(casc_ow_open_bench casc_ow_open_bench.cpp)
+    target_link_libraries(casc_ow_open_bench PRIVATE whiteout_casc)
+    target_include_directories(casc_ow_open_bench PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
     # Open-then-read benchmark. Public API only, so the same source builds
     # against an unoptimised tree for A/B comparison.
     # Usage: casc_read_bench <casc_path> --listfile <path> [--files N] [--reps N]

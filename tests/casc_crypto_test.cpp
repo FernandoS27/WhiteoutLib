@@ -280,3 +280,61 @@ TEST_CASE("AES-256-CBC ignores a trailing partial block", "[casc][crypto]") {
                        "ae2d8a571e03ac9c9eb76fac45af8e51"
                        "deadbeef");
 }
+
+// The accelerated backend is a second implementation of the same function, so
+// every vector has to hold for both — on a machine where only one of them will
+// ever be reached at runtime.
+TEST_CASE("AES-256-CBC backends agree", "[casc][crypto]") {
+    INFO("backend: " << (aesBackend() == AesBackend::AesNi ? "AES-NI" : "portable"));
+
+    auto const key = unhex("603deb1015ca71be2b73aef0857d7781"
+                           "1f352c073b6108d72d9810a30914dff4");
+    auto const iv = unhex("000102030405060708090a0b0c0d0e0f");
+
+    // Lengths either side of the four-block group the accelerated path peels
+    // off, so the tail loop and the group loop are both exercised.
+    for (size_t blocks : {0u, 1u, 2u, 3u, 4u, 5u, 7u, 8u, 9u, 33u}) {
+        std::vector<u8> cipher(blocks * 16);
+        u64 state = 0x9E3779B97F4A7C15ull ^ blocks;
+        for (auto& b : cipher) {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            b = u8(state);
+        }
+
+        auto viaDispatch = cipher;
+        auto viaPortable = cipher;
+        aes256CbcDecrypt(viaDispatch, std::span<const u8, 32>(key), std::span<const u8, 16>(iv));
+        aes256CbcDecryptPortable(viaPortable, std::span<const u8, 32>(key),
+                                 std::span<const u8, 16>(iv));
+
+        INFO("blocks: " << blocks);
+        CHECK(hex(viaDispatch) == hex(viaPortable));
+    }
+}
+
+// A trailing partial block is data, not padding, and neither backend may touch
+// it — the accelerated one processes blocks four at a time and has its own
+// chance to run past the end.
+TEST_CASE("AES-256-CBC backends agree on a ragged tail", "[casc][crypto]") {
+    auto const key = unhex("603deb1015ca71be2b73aef0857d7781"
+                           "1f352c073b6108d72d9810a30914dff4");
+    auto const iv = unhex("000102030405060708090a0b0c0d0e0f");
+
+    for (size_t extra = 1; extra < 16; ++extra) {
+        std::vector<u8> cipher(5 * 16 + extra);
+        for (size_t i = 0; i < cipher.size(); ++i)
+            cipher[i] = u8(i * 37 + extra);
+
+        auto viaDispatch = cipher;
+        auto viaPortable = cipher;
+        aes256CbcDecrypt(viaDispatch, std::span<const u8, 32>(key), std::span<const u8, 16>(iv));
+        aes256CbcDecryptPortable(viaPortable, std::span<const u8, 32>(key),
+                                 std::span<const u8, 16>(iv));
+
+        INFO("trailing bytes: " << extra);
+        CHECK(hex(viaDispatch) == hex(viaPortable));
+        CHECK(std::equal(cipher.end() - i64(extra), cipher.end(), viaDispatch.end() - i64(extra)));
+    }
+}

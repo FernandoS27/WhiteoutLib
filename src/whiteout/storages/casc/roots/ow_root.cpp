@@ -9,10 +9,14 @@
 #include "../../common/byte_order.h"
 #include "../../common/string_utils.h"
 
+#include <whiteout/interfaces.h>
+#include <whiteout/utils/job_group.h>
+
 #include <algorithm>
 #include <cctype>
 #include <charconv>
 #include <cstring>
+#include <optional>
 #include <string_view>
 
 namespace whiteout::storages::casc {
@@ -253,35 +257,39 @@ static bool parseCmfHeader(std::span<const u8> data, CmfHeader& out) {
     return true;
 }
 
+static constexpr char kHexDigits[] = "0123456789abcdef";
+
 /// Lowercase hex of a 64-bit GUID, most significant nibble first — the form
 /// CascLib prints after byte-reversing the little-endian GUID.
-static std::string guidHex(u64 guid) {
-    static const char hex[] = "0123456789abcdef";
-    std::string s(16, '0');
-    for (size_t i = 16; i-- > 0;) {
-        s[i] = hex[guid & 0xF];
-        guid >>= 4;
-    }
-    return s;
+static void appendGuidHex(u64 guid, std::string& out) {
+    for (int shift = 60; shift >= 0; shift -= 4)
+        out.push_back(kHexDigits[(guid >> shift) & 0xF]);
 }
 
 /// Extension for an asset, so a GUID reads as a filename. Types the client
 /// names get that name; a type it knows but does not register keeps its id,
 /// which is still what someone searching the tree would reach for.
-static std::string assetExtension(u64 guid) {
-    static const char hex[] = "0123456789abcdef";
+static void appendAssetExtension(u64 guid, std::string& out) {
+    out.push_back('.');
+
     auto const typeId = ow::assetTypeId(guid);
     if (typeId == 0) {
         // A GUID the client would reject outright. Its raw field can look just
         // like a valid type id, so mark it rather than let the two blur.
+        out.push_back('x');
         auto const field = ow::assetTypeField(guid);
-        return {'.', 'x', hex[(field >> 8) & 0xF], hex[(field >> 4) & 0xF], hex[field & 0xF]};
+        for (int shift = 8; shift >= 0; shift -= 4)
+            out.push_back(kHexDigits[(field >> shift) & 0xF]);
+        return;
     }
 
     auto const name = ow::assetTypeName(typeId);
-    if (!name.empty())
-        return "." + std::string(name);
-    return {'.', hex[(typeId >> 8) & 0xF], hex[(typeId >> 4) & 0xF], hex[typeId & 0xF]};
+    if (!name.empty()) {
+        out.append(name);
+        return;
+    }
+    for (int shift = 8; shift >= 0; shift -= 4)
+        out.push_back(kHexDigits[(typeId >> shift) & 0xF]);
 }
 
 /// True when @p entryPath names the same asset as @p query, allowing the query
@@ -363,53 +371,55 @@ static std::string buildAssetPathPrefix(std::string_view cmfFileName) {
     return out;
 }
 
-/// Parse CMF entries and hash data from a (decrypted) body.
-/// @param body       Data after the header (entries + hash data).
-/// @param header     Parsed CMF header.
-/// @param outEntries Appended with root entries from the CMF.
-/// @param pathPrefix Normalized asset folder, separator-terminated.
-static bool parseCmfBody(std::span<const u8> body, const CmfHeader& header,
-                         std::vector<RootEntry>& outEntries, const std::string& pathPrefix) {
-    if (header.dataCount < 0 || header.entryCount < 0)
-        return false;
+/// Where a CMF's hash records live and how big they are, or nullopt when the
+/// header promises more than the body holds.
+struct CmfHashBlock {
+    const u8* data = nullptr;
+    size_t count = 0;
+    size_t recordSize = 0;
+};
 
-    // Skip CMF entries (we don't need them for root lookup, but must account for their size).
+static std::optional<CmfHashBlock> locateHashBlock(std::span<const u8> data,
+                                                   const CmfHeader& header) {
+    if (header.dataCount < 0 || header.entryCount < 0)
+        return std::nullopt;
+
+    size_t const headerSize = cmfHeaderSize(header.buildVersion);
+    if (headerSize > data.size())
+        return std::nullopt;
+    auto body = data.subspan(headerSize);
+
+    // The CMF entry block is not needed for root lookup, but its size has to be
+    // stepped over to reach the hash records.
     size_t const entryBlockSize = size_t(header.entryCount) * kCmfEntrySize;
     if (entryBlockSize > body.size())
-        return false;
-
+        return std::nullopt;
     auto hashBody = body.subspan(entryBlockSize);
 
-    size_t const recordSize =
+    CmfHashBlock block;
+    block.recordSize =
         (header.buildVersion >= kBuildHashData135) ? kHashDataSize : kHashDataOldSize;
-    size_t const totalHashSize = size_t(header.dataCount) * recordSize;
-    if (totalHashSize > hashBody.size())
-        return false;
+    block.count = size_t(header.dataCount);
+    if (block.count * block.recordSize > hashBody.size())
+        return std::nullopt;
+    block.data = hashBody.data();
+    return block;
+}
 
-    // Parse hash data entries.
-    for (i32 i = 0; i < header.dataCount; ++i) {
-        const u8* p = hashBody.data() + size_t(i) * recordSize;
+/// Turn a located hash block into root entries, written over @p out.
+///
+/// Asset paths are not stored — see OwRoot::assetPath. Everything a path is
+/// built from is either the GUID in the entry or the manifest the range
+/// belongs to.
+static void parseHashBlock(const CmfHashBlock& block, RootEntry* out) {
+    for (size_t i = 0; i < block.count; ++i) {
+        const u8* p = block.data + i * block.recordSize;
 
-        CmfHashData hd;
-        hd.guid = readLE64(p);
-        hd.size = readLE32(p + 8);
-        if (recordSize == kHashDataSize) {
-            hd.unknown = p[12];
-            std::memcpy(hd.contentKey.data(), p + 13, 16);
-        } else {
-            hd.unknown = 0;
-            std::memcpy(hd.contentKey.data(), p + 12, 16);
-        }
-
-        RootEntry re;
-        re.cKey = hd.contentKey;
-        re.fileNameHash = hd.guid;
-        re.fileSize = hd.size;
-        re.path = pathPrefix + guidHex(hd.guid) + assetExtension(hd.guid);
-        outEntries.push_back(std::move(re));
+        RootEntry& re = out[i];
+        re.fileNameHash = readLE64(p);
+        re.fileSize = readLE32(p + 8);
+        std::memcpy(re.cKey.data(), p + (block.recordSize == kHashDataSize ? 13 : 12), 16);
     }
-
-    return true;
 }
 
 /// Decrypt an encrypted CMF in place and rewrite its magic to the plaintext
@@ -434,27 +444,6 @@ static bool decryptCmfInPlace(std::vector<u8>& data, CmfHeader& header, std::str
     header.encrypted = false;
     storages::common::writeLE32(data.data() + headerSize - 4, header.magic);
     return true;
-}
-
-/// Parse a complete (unencrypted) CMF file and append entries.
-static bool parseCmf(std::span<const u8> data, const std::string& pathPrefix,
-                     std::vector<RootEntry>& outEntries) {
-    CmfHeader header;
-    if (!parseCmfHeader(data, header))
-        return false;
-
-    // Callers decrypt before getting here; an encrypted manifest at this point
-    // is one no provider covered, and is skipped rather than taking the whole
-    // root down.
-    if (header.encrypted)
-        return false;
-
-    size_t const headerSize = cmfHeaderSize(header.buildVersion);
-    if (headerSize > data.size())
-        return false;
-
-    auto body = data.subspan(headerSize);
-    return parseCmfBody(body, header, outEntries, pathPrefix);
 }
 
 /// Recover the GUID from an asset path's trailing 16 hex digits.
@@ -482,6 +471,79 @@ static bool parseTrailingGuid(std::string_view path, u64& out) {
     return true;
 }
 
+/// Run @p fn over 0..@p count on @p pool, or on this thread without one.
+template <typename Fn>
+static void runOverIndices(size_t count, Fn&& fn, interfaces::WorkerPool* pool) {
+    if (pool == nullptr || count < 2) {
+        for (size_t i = 0; i < count; ++i)
+            fn(i);
+        return;
+    }
+    utils::JobGroup jobGroup;
+    jobGroup.add(count);
+    for (size_t i = 0; i < count; ++i) {
+        interfaces::WorkerTask task;
+        task.fn = [&fn, &jobGroup, i]() {
+            fn(i);
+            jobGroup.done();
+        };
+        pool->submit(task);
+    }
+    jobGroup.wait();
+}
+
+/// Past this many runs the merge tree is deeper than a sort is expensive, and
+/// the input is not the layout the merge was written for anyway.
+static constexpr size_t kMaxMergeRuns = 1024;
+
+/// Merge adjacent sorted runs of @p data in place, pairing them off a round at
+/// a time. std::merge takes from the first range on a tie, so runs merged in
+/// order give exactly what a stable sort by GUID would have: the first hit for
+/// a GUID is the one from the manifest the root lists first.
+static void mergeGuidRuns(std::vector<std::pair<u64, u32>>& data, std::vector<size_t> bounds,
+                          interfaces::WorkerPool* pool) {
+    if (bounds.size() <= 2)
+        return;
+
+    using Pair = std::pair<u64, u32>;
+    auto const less = [](const Pair& a, const Pair& b) { return a.first < b.first; };
+
+    std::vector<Pair> scratch(data.size());
+    bool inScratch = false;
+
+    while (bounds.size() > 2) {
+        Pair* const src = inScratch ? scratch.data() : data.data();
+        Pair* const dst = inScratch ? data.data() : scratch.data();
+
+        size_t const merges = (bounds.size() - 1) / 2;
+        auto mergeOne = [&](size_t m) {
+            size_t const a = bounds[2 * m], b = bounds[2 * m + 1], c = bounds[2 * m + 2];
+            std::merge(src + a, src + b, src + b, src + c, dst + a, less);
+        };
+
+        runOverIndices(merges, mergeOne, pool);
+
+        // An odd run count leaves the last run unpaired, and it still has to
+        // move across to stay with the rest.
+        if ((bounds.size() - 1) % 2 != 0) {
+            size_t const a = bounds[bounds.size() - 2];
+            std::copy(src + a, src + bounds.back(), dst + a);
+        }
+        inScratch = !inScratch;
+
+        std::vector<size_t> next;
+        next.reserve(bounds.size() / 2 + 2);
+        for (size_t i = 0; i < bounds.size(); i += 2)
+            next.push_back(bounds[i]);
+        if (next.back() != bounds.back())
+            next.push_back(bounds.back());
+        bounds = std::move(next);
+    }
+
+    if (inScratch)
+        data.swap(scratch);
+}
+
 /// Check if a file has the OW text root format.
 /// Returns true if data starts with '#' (header line).
 static bool isOwTextRoot(std::span<const u8> data) {
@@ -497,7 +559,7 @@ static bool isOwTextRoot(std::span<const u8> data) {
 // ============================================================================
 
 std::unique_ptr<OwRoot> OwRoot::parse(std::span<const u8> data, CKeyResolver resolver,
-                                      interfaces::WorkerPool* /*pool*/) {
+                                      interfaces::WorkerPool* pool) {
     if (!isOwTextRoot(data))
         return nullptr;
 
@@ -505,12 +567,12 @@ std::unique_ptr<OwRoot> OwRoot::parse(std::span<const u8> data, CKeyResolver res
     if (!parseTextRoot(data, manifestEntries))
         return nullptr;
 
-    return fromManifestEntries(std::move(manifestEntries), std::move(resolver));
+    return fromManifestEntries(std::move(manifestEntries), std::move(resolver), pool);
 }
 
 std::unique_ptr<OwRoot> OwRoot::fromManifestEntries(std::vector<OwRootFileEntry> manifestEntries,
                                                     CKeyResolver resolver,
-                                                    interfaces::WorkerPool* /*pool*/) {
+                                                    interfaces::WorkerPool* pool) {
 
     auto root = std::make_unique<OwRoot>();
     root->m_manifestEntries = std::move(manifestEntries);
@@ -524,51 +586,162 @@ std::unique_ptr<OwRoot> OwRoot::fromManifestEntries(std::vector<OwRootFileEntry>
     }
     root->m_manifestRowCount = root->m_entries.size();
 
-    // If a resolver is provided, fetch and parse CMF files. Headers are read
-    // first so the entry vector is sized once: a current Overwatch install
-    // yields twelve million entries, and letting the vector grow into that
-    // costs more transient memory than every manifest put together.
+    // If a resolver is provided, fetch and parse CMF files. Fetching and
+    // decrypting comes first so every manifest's record count is known before a
+    // single entry is written: a current Overwatch install yields twenty-four
+    // million of them, and giving each manifest a range up front is what lets
+    // the record walk run on the pool and still land in manifest order.
     if (resolver) {
+        std::vector<size_t> cmfRows;
+        for (size_t i = 0; i < root->m_manifestEntries.size(); ++i) {
+            auto fileName = root->m_manifestEntries[i].fileName;
+            toLowerInPlace(fileName);
+            if (fileName.size() >= 4 && fileName.compare(fileName.size() - 4, 4, ".cmf") == 0)
+                cmfRows.push_back(i);
+        }
+
         struct PendingCmf {
             std::vector<u8> data;
+            CmfHashBlock block;
             std::string pathPrefix;
+            bool ok = false;
         };
-        std::vector<PendingCmf> pending;
-        size_t assetCount = 0;
+        std::vector<PendingCmf> pending(cmfRows.size());
 
-        for (auto& mf : root->m_manifestEntries) {
-            // Only process .cmf files.
-            auto fileName = mf.fileName;
-            toLowerInPlace(fileName);
-            if (fileName.size() < 4 || fileName.substr(fileName.size() - 4) != ".cmf")
-                continue;
+        // Fetching a manifest is a BLTE decode of a few megabytes and
+        // decrypting it is an AES pass over the result, both of which are the
+        // same work for every manifest — so they go wide, the way the TVFS
+        // sub-manifest prefetch does.
+        auto fetchOne = [&](size_t i) {
+            auto const& mf = root->m_manifestEntries[cmfRows[i]];
+            auto& slot = pending[i];
 
-            auto cmfData = resolver(mf.md5);
-            if (cmfData.empty())
-                continue;
+            slot.data = resolver(mf.md5);
+            if (slot.data.empty())
+                return;
 
             CmfHeader header;
-            if (!parseCmfHeader(cmfData, header) || header.dataCount < 0)
-                continue;
-            if (header.encrypted && !decryptCmfInPlace(cmfData, header, mf.fileName))
-                continue;
-            assetCount += size_t(header.dataCount);
+            if (!parseCmfHeader(slot.data, header) || header.dataCount < 0)
+                return;
+            if (header.encrypted && !decryptCmfInPlace(slot.data, header, mf.fileName))
+                return;
 
+            // A manifest no provider covered stays encrypted, and one whose
+            // header promises more records than the body holds is malformed;
+            // either way it is skipped rather than taking the whole root down.
+            if (header.encrypted)
+                return;
+            auto block = locateHashBlock(slot.data, header);
+            if (!block)
+                return;
+
+            slot.block = *block;
             // The prefix is derived from the manifest name as written, before
             // normalization folds its case — the field tags are what carry the
             // platform, locale and asset apart.
-            pending.push_back(
-                {std::move(cmfData),
-                 storages::common::normalizeCascPath(buildAssetPathPrefix(mf.fileName)) + "\\"});
-        }
+            slot.pathPrefix =
+                storages::common::normalizeCascPath(buildAssetPathPrefix(mf.fileName)) + "\\";
+            slot.ok = true;
+        };
 
-        root->m_entries.reserve(root->m_entries.size() + assetCount);
-        for (auto& cmf : pending)
-            parseCmf(cmf.data, cmf.pathPrefix, root->m_entries);
+        runOverIndices(cmfRows.size(), fetchOne, pool);
+
+        // Every manifest's record count is known now, so each gets a range of
+        // its own and the record walk can go wide without giving up the order
+        // the root lists them in.
+        root->m_cmfPrefix.reserve(pending.size());
+        root->m_cmfEntryStart.reserve(pending.size() + 1);
+        std::vector<size_t> kept;
+        kept.reserve(pending.size());
+        size_t total = root->m_entries.size();
+        for (size_t i = 0; i < pending.size(); ++i) {
+            if (!pending[i].ok)
+                continue;
+            kept.push_back(i);
+            root->m_cmfEntryStart.push_back(u32(total));
+            root->m_cmfPrefix.push_back(std::move(pending[i].pathPrefix));
+            total += pending[i].block.count;
+        }
+        root->m_cmfEntryStart.push_back(u32(total));
+        root->m_entries.resize(total);
+
+        RootEntry* const base = root->m_entries.data();
+        runOverIndices(
+            kept.size(),
+            [&](size_t k) {
+                parseHashBlock(pending[kept[k]].block, base + root->m_cmfEntryStart[k]);
+            },
+            pool);
     }
 
-    root->buildIndices();
+    root->buildIndices(pool);
     return root;
+}
+
+size_t OwRoot::cmfForEntry(size_t index) const {
+    if (index < m_manifestRowCount || m_cmfPrefix.empty())
+        return m_cmfPrefix.size();
+    auto it = std::upper_bound(m_cmfEntryStart.begin(), m_cmfEntryStart.end(), u32(index));
+    if (it == m_cmfEntryStart.begin() || it == m_cmfEntryStart.end())
+        return m_cmfPrefix.size();
+    return size_t(it - m_cmfEntryStart.begin()) - 1;
+}
+
+void OwRoot::buildAssetPath(size_t index, std::string& out) const {
+    size_t const cmf = cmfForEntry(index);
+    if (cmf >= m_cmfPrefix.size()) {
+        out.assign(m_entries[index].path);
+        return;
+    }
+    out.assign(m_cmfPrefix[cmf]);
+    appendGuidHex(m_entries[index].fileNameHash, out);
+    appendAssetExtension(m_entries[index].fileNameHash, out);
+}
+
+std::string OwRoot::assetPath(const RootEntry& entry) const {
+    auto const* base = m_entries.data();
+    if (&entry < base || &entry >= base + m_entries.size())
+        return {};
+    std::string out;
+    buildAssetPath(size_t(&entry - base), out);
+    return out;
+}
+
+void OwRoot::enumerate(std::function<bool(const RootEntry&)> callback) const {
+    if (!callback)
+        return;
+    for (size_t i = 0; i < m_manifestRowCount; ++i) {
+        if (!callback(m_entries[i]))
+            return;
+    }
+
+    // Assets carry no path of their own, so each is handed over as a copy with
+    // one filled in. The buffer is moved in and back out rather than assigned,
+    // so the whole walk allocates once instead of twenty-four million times —
+    // which is the cost not storing the paths was meant to avoid, not move.
+    RootEntry scratch;
+    std::string buf;
+    for (size_t i = m_manifestRowCount; i < m_entries.size(); ++i) {
+        scratch = m_entries[i]; // its path is empty, so this allocates nothing
+        buildAssetPath(i, buf);
+        scratch.path = std::move(buf);
+        bool const keepGoing = callback(scratch);
+        buf = std::move(scratch.path);
+        if (!keepGoing)
+            return;
+    }
+}
+
+void OwRoot::enumerateUnder(const std::string& normalizedPrefix,
+                            std::function<bool(const RootEntry&)> callback) const {
+    if (!callback)
+        return;
+    enumerate([&](const RootEntry& e) {
+        if (e.path.size() >= normalizedPrefix.size() &&
+            e.path.compare(0, normalizedPrefix.size(), normalizedPrefix) == 0)
+            return callback(e);
+        return true;
+    });
 }
 
 std::vector<const RootEntry*> OwRoot::findByPath(const std::string& path) const {
@@ -586,8 +759,10 @@ std::vector<const RootEntry*> OwRoot::findByNormalizedPath(const std::string& pa
 
     // The GUID narrows the candidates to a handful — one per manifest that
     // carries the asset — and the full path then picks the right one.
+    std::string candidate;
     for (auto* e : findByGuid(guid)) {
-        if (assetPathMatches(e->path, path))
+        buildAssetPath(size_t(e - m_entries.data()), candidate);
+        if (assetPathMatches(candidate, path))
             results.push_back(e);
     }
     return results;
@@ -609,22 +784,39 @@ std::vector<const RootEntry*> OwRoot::findByGuid(u64 guid) const {
     return results;
 }
 
-void OwRoot::buildIndices() {
-    m_byGuid.reserve(m_entries.size() - m_manifestRowCount);
+void OwRoot::buildIndices(interfaces::WorkerPool* pool) {
     m_byManifestPath.reserve(m_manifestRowCount);
-
-    for (size_t i = 0; i < m_entries.size(); ++i) {
-        auto& e = m_entries[i];
-        if (e.fileNameHash != 0)
-            m_byGuid.emplace_back(e.fileNameHash, u32(i));
-        if (i < m_manifestRowCount && !e.path.empty())
-            m_byManifestPath.emplace(e.path, i);
+    for (size_t i = 0; i < m_manifestRowCount; ++i) {
+        if (!m_entries[i].path.empty())
+            m_byManifestPath.emplace(m_entries[i].path, i);
     }
 
-    // Stable so that entries for one GUID stay in manifest order — the first
-    // hit is the one from the manifest listed first in the root.
-    std::stable_sort(m_byGuid.begin(), m_byGuid.end(),
-                     [](const auto& a, const auto& b) { return a.first < b.first; });
+    m_byGuid.reserve(m_entries.size() - m_manifestRowCount);
+
+    // Every manifest stores its hash records in GUID order, which makes the
+    // index a merge of sorted runs rather than a sort of all twenty-four
+    // million pairs. The runs are found rather than assumed — a manifest that
+    // broke the order would otherwise produce a silently wrong index.
+    std::vector<size_t> bounds{0};
+    for (size_t i = m_manifestRowCount; i < m_entries.size(); ++i) {
+        u64 const guid = m_entries[i].fileNameHash;
+        if (guid == 0)
+            continue;
+        if (!m_byGuid.empty() && guid < m_byGuid.back().first)
+            bounds.push_back(m_byGuid.size());
+        m_byGuid.emplace_back(guid, u32(i));
+    }
+    bounds.push_back(m_byGuid.size());
+
+    if (bounds.size() - 1 > kMaxMergeRuns) {
+        // Not the layout we expect. Stable so that entries for one GUID stay in
+        // manifest order — the first hit is the one from the manifest listed
+        // first in the root, which is also what the merge below preserves.
+        std::stable_sort(m_byGuid.begin(), m_byGuid.end(),
+                         [](const auto& a, const auto& b) { return a.first < b.first; });
+        return;
+    }
+    mergeGuidRuns(m_byGuid, std::move(bounds), pool);
 }
 
 } // namespace whiteout::storages::casc

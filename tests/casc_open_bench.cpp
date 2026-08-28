@@ -1187,6 +1187,21 @@ int main(int argc, char* argv[]) {
             o.listfile = std::span<const u8>(listfile);
         std::string err;
         o.errorOut = &err;
+        auto stepClock = std::make_shared<Clock::time_point>(Clock::now());
+        if (traceSteps) {
+            o.progressCallback = [stepClock](const ProgressInfo& info) {
+                if (info.state != ProgressState::End)
+                    return true;
+                std::cout << "  " << std::left << std::setw(24) << progressStepName(info.step)
+                          << std::right << std::setw(9) << std::fixed << std::setprecision(1)
+                          << msSince(*stepClock) << " ms";
+                if (info.total > 0)
+                    std::cout << "  (" << info.current << "/" << info.total << ")";
+                std::cout << "\n" << std::flush;
+                *stepClock = Clock::now();
+                return true;
+            };
+        }
         auto t = Clock::now();
         auto s = Storage::open(o);
         std::cout << "single open flags=0x" << std::hex << singleFlags << std::dec
