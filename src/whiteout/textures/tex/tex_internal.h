@@ -49,30 +49,56 @@ static constexpr u32 BC_MIP_PREFIX_SIZE = 16;
 // D4 TEX pixel format IDs
 // ============================================================================
 //
-// `eTexFormat` is the engine's own 0..85 renderer pixel-format enum:
-// `Texture_ComputeMipInfo` (0x140872F90) feeds it straight into
-// `PixelFormat_BytesPerBlockOrPixel` (0x14198A5D0) and
-// `TexFormat_IsBlockCompressed` (0x140878810).  Every id below matches that
-// binary's byte size.  See docs/D4 Specs/TEX_ENGINE_NOTES.md section 5.
-static constexpr u32 D4_TEX_FMT_R8G8B8A8 = 0;
-static constexpr u32 D4_TEX_FMT_BC1 = 9;
-static constexpr u32 D4_TEX_FMT_BC1_ALT = 10;
-static constexpr u32 D4_TEX_FMT_BC2_D3 = 11; ///< D3-inherited DXT3/BC2 id; 16 B/block
-static constexpr u32 D4_TEX_FMT_BC3 = 12;
-static constexpr u32 D4_TEX_FMT_R8 = 23;
+// `eTexFormat` is the engine's own 0..85 renderer pixel-format enum.  Three
+// places in the client (build 3.1.1.72836) pin every id down; see
+// docs/D4 Specs/TEX_ENGINE_NOTES.md section 5:
+//
+//   * `eTexFormat_ToPrismFormat` (0x140CCD450) maps it to the RHI ("Prism")
+//     format, whose values index the name table at 0x142F84E08 plus one, and
+//     whose DXGI equivalents sit in the table at 0x1424B30D0.
+//   * `Texture_SampleBlockTexel` (0x140873D10) routes 44 and 50 into the BC7
+//     block decoder, 12 and 49 into BC3, 11 and 48 into BC2, 9/46 and 10/47
+//     into BC1.
+//   * `PixelFormat_BytesPerBlockOrPixel` (0x14198A5D0) and
+//     `TexFormat_IsBlockCompressed` (0x140878810) agree on every size.
+//
+// Block size alone cannot separate BC3 from BC7, nor BC5 from BC6H -- all four
+// are 16 B/block -- so payload sizes must never be used to identify them.
+
+// ---- uncompressed ---------------------------------------------------------
+static constexpr u32 D4_TEX_FMT_B8G8R8A8 = 0; ///< D3-era A8R8G8B8; BGRA byte order
+static constexpr u32 D4_TEX_FMT_R8G8B8A8 = 1;
+static constexpr u32 D4_TEX_FMT_R8 = 7;
+static constexpr u32 D4_TEX_FMT_B8G8R8A8_ALT = 13;
+static constexpr u32 D4_TEX_FMT_R8G8B8A8_ALT = 14;
+static constexpr u32 D4_TEX_FMT_R8_ALT = 20;
+static constexpr u32 D4_TEX_FMT_R8G8B8A8_ALT2 = 21;
+static constexpr u32 D4_TEX_FMT_A8 = 23; ///< alpha-only; the engine leaves RGB at 0
 static constexpr u32 D4_TEX_FMT_RGBA16F = 25;
 static constexpr u32 D4_TEX_FMT_RGBA32F = 26;
+static constexpr u32 D4_TEX_FMT_B8G8R8A8_SRGB = 45;
+static constexpr u32 D4_TEX_FMT_RGBA16F_ALT = 52;
+static constexpr u32 D4_TEX_FMT_R8G8B8A8_ALT3 = 53;
+static constexpr u32 D4_TEX_FMT_B8G8R8A8_SRGB_ALT = 59;
+static constexpr u32 D4_TEX_FMT_R8G8B8A8_SRGB = 61;
+static constexpr u32 D4_TEX_FMT_A8_ALT = 64;
+static constexpr u32 D4_TEX_FMT_R8G8B8A8_SRGB_ALT = 67;
+
+// ---- block compressed -----------------------------------------------------
+static constexpr u32 D4_TEX_FMT_BC1 = 9;
+static constexpr u32 D4_TEX_FMT_BC1_ALT = 10;
+static constexpr u32 D4_TEX_FMT_BC2 = 11;
+static constexpr u32 D4_TEX_FMT_BC3 = 12;
 static constexpr u32 D4_TEX_FMT_BC4 = 41;
 static constexpr u32 D4_TEX_FMT_BC5 = 42;
-static constexpr u32 D4_TEX_FMT_BC5_ALT = 43; ///< D3-inherited BC5/ATI2 format ID
-static constexpr u32 D4_TEX_FMT_BC5_SNORM = 44;
-static constexpr u32 D4_TEX_FMT_R8G8B8A8_SRGB = 45;
-static constexpr u32 D4_TEX_FMT_BC1_LINEAR = 46;
-static constexpr u32 D4_TEX_FMT_BC1_SRGB = 47;
-static constexpr u32 D4_TEX_FMT_BC2 = 48;
-static constexpr u32 D4_TEX_FMT_BC3_ALT = 49;
-static constexpr u32 D4_TEX_FMT_BC3_ALT_SRGB = 50; ///< sRGB partner of 49, per corpus payload sizes
-static constexpr u32 D4_TEX_FMT_BC7 = 51; ///< 16 B/block, block-compressed; unused in corpus
+static constexpr u32 D4_TEX_FMT_BC6H_SF16 = 43; ///< signed half; no decoder here
+static constexpr u32 D4_TEX_FMT_BC7 = 44;
+static constexpr u32 D4_TEX_FMT_BC1_SRGB = 46;
+static constexpr u32 D4_TEX_FMT_BC1_SRGB_ALT = 47;
+static constexpr u32 D4_TEX_FMT_BC2_SRGB = 48;
+static constexpr u32 D4_TEX_FMT_BC3_SRGB = 49;
+static constexpr u32 D4_TEX_FMT_BC7_SRGB = 50;
+static constexpr u32 D4_TEX_FMT_BC6H_UF16 = 51;
 
 static constexpr u32 D4_ROW_ALIGNMENT = 256;
 static constexpr u32 D4_TEX_FORMAT_HASH = 0xF9CD83E6u;
@@ -210,12 +236,21 @@ void encode_mip_face(u32 tex_format, std::span<const u8> source, u8* destination
 u32 align_up(u32 value, u32 align);
 
 // D4 format helpers
+
+/// Rewrite applied to payload bytes on the way to `D4FormatMapping::format`.
+enum class D4Conversion : u8 {
+    None,          ///< payload already matches the destination format
+    F16ToF32,      ///< RGBA16F widened to RGBA32F
+    BGRA8ToRGBA8,  ///< B8G8R8A8 red/blue swap
+    A8ToRGBA8,     ///< alpha-only expanded to RGBA8 with RGB = 0
+};
+
 struct D4FormatMapping {
-    PixelFormat format;
+    PixelFormat format;      // destination format
     bool is_srgb;
-    u32 block_dim;         // 1 for uncompressed, 4 for BCn
-    u32 bytes_per_unit;    // per pixel or per 4×4 block
-    bool is_snorm = false; ///< true for the signed BC5 variant (format 44)
+    u32 block_dim;           // 1 for uncompressed, 4 for BCn
+    u32 bytes_per_unit;      // source bytes per pixel or per 4×4 block
+    D4Conversion conversion = D4Conversion::None;
 };
 
 std::optional<D4FormatMapping> d4_tex_format_to_pixel_format(u32 d4_fmt);

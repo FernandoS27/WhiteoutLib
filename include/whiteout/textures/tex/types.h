@@ -130,7 +130,6 @@ struct D4TexInfo {
     std::array<i32, 2> hotspot;     ///< `pHotspot` anchor point (x, y).
     std::vector<D4TexFrame> frames; ///< Atlas frame entries.
     std::vector<D4TexSHCoeffs> shCoeffs; ///< `ptGCoeffs` — present on cubemap probes.
-    bool isSnorm;               ///< Source format was a signed BCn variant (eTexFormat 44).
     bool hasLowPayload;         ///< Record flag bit 27: a `paylow/` payload exists.
     bool hasMedPayload;         ///< Record flag bit 26: a `paymed/` payload exists.
     bool isStubRecord;          ///< Record flag bit 28: header-only, no payload content.

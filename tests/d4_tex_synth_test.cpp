@@ -151,6 +151,16 @@ MipGeom bcGeom(u32 w, u32 h, u32 bytesPerBlock) {
     return g;
 }
 
+MipGeom pixelGeom(u32 w, u32 h, u32 bytesPerPixel) {
+    MipGeom g{};
+    g.rows = h;
+    g.rowBytes = w * bytesPerPixel;
+    g.pitch = (g.rowBytes + 255) & ~255u;
+    g.payloadBytes = g.pitch * g.rows;
+    g.tightBytes = g.rowBytes * g.rows;
+    return g;
+}
+
 /// Fill one mip's payload region: byte i of row r is (r + 1), padding is 0xEE.
 void fillMip(std::vector<u8>& payload, u32 base, const MipGeom& g) {
     for (u32 r = 0; r < g.rows; ++r) {
@@ -335,9 +345,9 @@ TEST_CASE("D4 TEX: a payload that kept its SNO header is detected", "[d4][tex]")
     }
 }
 
-TEST_CASE("D4 TEX: block-compressed formats 11 and 51 are accepted", "[d4][tex]") {
-    // Both are 16 bytes per 4x4 block per PixelFormat_BytesPerBlockOrPixel.
-    const auto fmt = GENERATE(11u, 48u, 49u, 50u, 51u);
+TEST_CASE("D4 TEX: the 16-byte-per-block formats are accepted", "[d4][tex]") {
+    // 16 bytes per 4x4 block per PixelFormat_BytesPerBlockOrPixel.
+    const auto fmt = GENERATE(11u, 12u, 42u, 44u, 48u, 49u, 50u, 51u);
     const MipGeom g = bcGeom(64, 64, 16);
 
     TexBuilder tb;
@@ -359,11 +369,25 @@ TEST_CASE("D4 TEX: block-compressed formats 11 and 51 are accepted", "[d4][tex]"
     CHECK(checkMip(texture->mipData(0, 0), g));
 }
 
-TEST_CASE("D4 TEX: the signed BC5 variant is reported", "[d4][tex]") {
+TEST_CASE("D4 TEX: BC7, BC6H and their gamma partners decode to the right format",
+          "[d4][tex]") {
+    // eTexFormat_ToPrismFormat: 44 -> BC7_RGBA, 50 -> BC7_RGBA_sRGB,
+    // 51 -> BC6H_RGBUfloat, 49 -> BC3_RGBA_sRGB.  All are 16 B/block, so only
+    // the format identity distinguishes them.
+    struct Expect {
+        u32 texFormat;
+        PixelFormat pixelFormat;
+        bool srgb;
+    };
+    const auto e = GENERATE(Expect{44u, PixelFormat::BC7, false},
+                            Expect{50u, PixelFormat::BC7, true},
+                            Expect{51u, PixelFormat::BC6H, false},
+                            Expect{49u, PixelFormat::BC3, true},
+                            Expect{12u, PixelFormat::BC3, false});
     const MipGeom g = bcGeom(64, 64, 16);
 
     TexBuilder tb;
-    tb.texFormat = 44; // BC5_SNORM
+    tb.texFormat = e.texFormat;
     tb.mipMax = 0;
     tb.serTex = {{0u, g.payloadBytes}};
     const auto meta = tb.build();
@@ -374,8 +398,90 @@ TEST_CASE("D4 TEX: the signed BC5 variant is reported", "[d4][tex]") {
     tex::D4TexInfo info{};
     auto texture = parser.parse(std::span<const u8>{meta}, std::span<const u8>{payload}, &info);
 
+    INFO("eTexFormat = " << e.texFormat);
     REQUIRE(texture.has_value());
-    CHECK(info.isSnorm);
+    CHECK(texture->format() == e.pixelFormat);
+    CHECK(texture->isSrgb() == e.srgb);
+}
+
+TEST_CASE("D4 TEX: BC6H_SF16 is rejected rather than decoded as unsigned", "[d4][tex]") {
+    const MipGeom g = bcGeom(64, 64, 16);
+
+    TexBuilder tb;
+    tb.texFormat = 43; // BC6H_RGBFloat -- signed endpoints
+    tb.mipMax = 0;
+    tb.serTex = {{0u, g.payloadBytes}};
+    const auto meta = tb.build();
+    std::vector<u8> payload(g.payloadBytes, 0);
+    fillMip(payload, 0, g);
+
+    tex::Parser parser;
+    CHECK_FALSE(
+        parser.parse(std::span<const u8>{meta}, std::span<const u8>{payload}).has_value());
+}
+
+TEST_CASE("D4 TEX: B8G8R8A8 is swizzled and A8 lands in the alpha channel", "[d4][tex]") {
+    SECTION("format 0 swaps red and blue") {
+        const MipGeom g = pixelGeom(4, 4, 4);
+
+        TexBuilder tb;
+        tb.texFormat = 0; // B8G8R8A8
+        tb.width = 4;
+        tb.height = 4;
+        tb.mipMax = 0;
+        tb.serTex = {{0u, g.payloadBytes}};
+        const auto meta = tb.build();
+
+        std::vector<u8> payload(g.payloadBytes, 0xEE);
+        for (u32 r = 0; r < g.rows; ++r) {
+            for (u32 x = 0; x < 4; ++x) {
+                u8* px = payload.data() + r * g.pitch + x * 4;
+                px[0] = 0x11; // B
+                px[1] = 0x22; // G
+                px[2] = 0x33; // R
+                px[3] = 0x44; // A
+            }
+        }
+
+        tex::Parser parser;
+        auto texture = parser.parse(std::span<const u8>{meta}, std::span<const u8>{payload});
+        REQUIRE(texture.has_value());
+        REQUIRE(texture->format() == PixelFormat::RGBA8);
+        const auto mip = texture->mipData(0, 0);
+        REQUIRE(mip.size() == g.tightBytes);
+        CHECK(mip[0] == 0x33);
+        CHECK(mip[1] == 0x22);
+        CHECK(mip[2] == 0x11);
+        CHECK(mip[3] == 0x44);
+    }
+
+    SECTION("format 23 expands to RGBA8 with RGB at zero") {
+        const MipGeom g = pixelGeom(4, 4, 1);
+
+        TexBuilder tb;
+        tb.texFormat = 23; // A8
+        tb.width = 4;
+        tb.height = 4;
+        tb.mipMax = 0;
+        tb.serTex = {{0u, g.payloadBytes}};
+        const auto meta = tb.build();
+
+        std::vector<u8> payload(g.payloadBytes, 0xEE);
+        for (u32 r = 0; r < g.rows; ++r)
+            for (u32 x = 0; x < 4; ++x)
+                payload[r * g.pitch + x] = 0x7Fu;
+
+        tex::Parser parser;
+        auto texture = parser.parse(std::span<const u8>{meta}, std::span<const u8>{payload});
+        REQUIRE(texture.has_value());
+        REQUIRE(texture->format() == PixelFormat::RGBA8);
+        const auto mip = texture->mipData(0, 0);
+        REQUIRE(mip.size() == 4ull * 4ull * 4ull);
+        CHECK(mip[0] == 0);
+        CHECK(mip[1] == 0);
+        CHECK(mip[2] == 0);
+        CHECK(mip[3] == 0x7Fu);
+    }
 }
 
 TEST_CASE("D4 TEX: every stored 2D level is decoded", "[d4][tex]") {

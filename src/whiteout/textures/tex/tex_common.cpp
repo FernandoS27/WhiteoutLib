@@ -254,40 +254,59 @@ u32 align_up(u32 value, u32 align) {
 
 std::optional<D4FormatMapping> d4_tex_format_to_pixel_format(u32 d4_fmt) {
     switch (d4_fmt) {
+    case D4_TEX_FMT_B8G8R8A8:
+    case D4_TEX_FMT_B8G8R8A8_ALT:
+        return D4FormatMapping{PixelFormat::RGBA8, false, 1, 4, D4Conversion::BGRA8ToRGBA8};
+    case D4_TEX_FMT_B8G8R8A8_SRGB:
+    case D4_TEX_FMT_B8G8R8A8_SRGB_ALT:
+        return D4FormatMapping{PixelFormat::RGBA8, true, 1, 4, D4Conversion::BGRA8ToRGBA8};
     case D4_TEX_FMT_R8G8B8A8:
+    case D4_TEX_FMT_R8G8B8A8_ALT:
+    case D4_TEX_FMT_R8G8B8A8_ALT2:
+    case D4_TEX_FMT_R8G8B8A8_ALT3:
         return D4FormatMapping{PixelFormat::RGBA8, false, 1, 4};
-    case D4_TEX_FMT_R8:
-        return D4FormatMapping{PixelFormat::R8, false, 1, 1};
     case D4_TEX_FMT_R8G8B8A8_SRGB:
+    case D4_TEX_FMT_R8G8B8A8_SRGB_ALT:
         return D4FormatMapping{PixelFormat::RGBA8, true, 1, 4};
+    case D4_TEX_FMT_R8:
+    case D4_TEX_FMT_R8_ALT:
+        return D4FormatMapping{PixelFormat::R8, false, 1, 1};
+    case D4_TEX_FMT_A8:
+    case D4_TEX_FMT_A8_ALT:
+        return D4FormatMapping{PixelFormat::RGBA8, false, 1, 1, D4Conversion::A8ToRGBA8};
+    case D4_TEX_FMT_RGBA16F:
+    case D4_TEX_FMT_RGBA16F_ALT:
+        return D4FormatMapping{PixelFormat::RGBA32F, false, 1, 8, D4Conversion::F16ToF32};
+    case D4_TEX_FMT_RGBA32F:
+        return D4FormatMapping{PixelFormat::RGBA32F, false, 1, 16};
     case D4_TEX_FMT_BC1:
     case D4_TEX_FMT_BC1_ALT:
-    case D4_TEX_FMT_BC1_LINEAR:
         return D4FormatMapping{PixelFormat::BC1, false, 4, 8};
     case D4_TEX_FMT_BC1_SRGB:
+    case D4_TEX_FMT_BC1_SRGB_ALT:
         return D4FormatMapping{PixelFormat::BC1, true, 4, 8};
-    case D4_TEX_FMT_BC2_D3:
     case D4_TEX_FMT_BC2:
         return D4FormatMapping{PixelFormat::BC2, false, 4, 16};
+    case D4_TEX_FMT_BC2_SRGB:
+        return D4FormatMapping{PixelFormat::BC2, true, 4, 16};
     case D4_TEX_FMT_BC3:
         return D4FormatMapping{PixelFormat::BC3, false, 4, 16};
-    case D4_TEX_FMT_RGBA16F:
-        return D4FormatMapping{PixelFormat::RGBA32F, false, 1, 8}; // will convert f16→f32
-    case D4_TEX_FMT_RGBA32F:
-        return D4FormatMapping{PixelFormat::RGBA32F, false, 1, 16}; // raw f32 RGBA
+    case D4_TEX_FMT_BC3_SRGB:
+        return D4FormatMapping{PixelFormat::BC3, true, 4, 16};
     case D4_TEX_FMT_BC4:
         return D4FormatMapping{PixelFormat::BC4, false, 4, 8};
     case D4_TEX_FMT_BC5:
-    case D4_TEX_FMT_BC5_ALT:
         return D4FormatMapping{PixelFormat::BC5, false, 4, 16};
-    case D4_TEX_FMT_BC5_SNORM:
-        return D4FormatMapping{PixelFormat::BC5, false, 4, 16, true};
-    case D4_TEX_FMT_BC3_ALT:
-        return D4FormatMapping{PixelFormat::BC3, false, 4, 16};
-    case D4_TEX_FMT_BC3_ALT_SRGB:
-        return D4FormatMapping{PixelFormat::BC3, true, 4, 16};
+    case D4_TEX_FMT_BC6H_UF16:
+        return D4FormatMapping{PixelFormat::BC6H, false, 4, 16};
     case D4_TEX_FMT_BC7:
         return D4FormatMapping{PixelFormat::BC7, false, 4, 16};
+    case D4_TEX_FMT_BC7_SRGB:
+        return D4FormatMapping{PixelFormat::BC7, true, 4, 16};
+    case D4_TEX_FMT_BC6H_SF16:
+        // PixelFormat::BC6H is the unsigned variant only; decoding signed
+        // endpoints as unsigned would silently produce wrong HDR values.
+        return std::nullopt;
     default:
         return std::nullopt;
     }

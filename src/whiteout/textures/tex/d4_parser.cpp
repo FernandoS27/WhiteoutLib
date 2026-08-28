@@ -302,6 +302,24 @@ static void convert_rgba16f_to_rgba32f(const u8* src, u8* dst, u32 width, u32 he
     }
 }
 
+static void convert_d4_mip(D4Conversion conversion, const u8* src, u8* dst, u32 width,
+                           u32 height) {
+    const u64 pixel_count = static_cast<u64>(width) * height;
+    switch (conversion) {
+    case D4Conversion::F16ToF32:
+        convert_rgba16f_to_rgba32f(src, dst, width, height);
+        break;
+    case D4Conversion::BGRA8ToRGBA8:
+        convert_a8r8g8b8_to_rgba8(src, dst, pixel_count);
+        break;
+    case D4Conversion::A8ToRGBA8:
+        convert_a8_to_rgba8(src, dst, pixel_count);
+        break;
+    case D4Conversion::None:
+        break;
+    }
+}
+
 // ============================================================================
 // Row-aligned copy (strips 256-byte row alignment padding)
 // ============================================================================
@@ -398,8 +416,8 @@ std::optional<Texture> parseD4Impl(std::span<const u8> texData, std::span<const 
         return std::nullopt;
     }
 
-    const bool is_rgba16f = (tex_fmt == D4_TEX_FMT_RGBA16F);
-    const PixelFormat pixel_fmt = mapping->format; // RGBA32F for RGBA16F
+    const D4Conversion conversion = mapping->conversion;
+    const PixelFormat pixel_fmt = mapping->format;
     const bool is_cubemap = (face_count == 6);
 
     // ---- Parse serTex entries ----------------------------------------------
@@ -520,11 +538,12 @@ std::optional<Texture> parseD4Impl(std::span<const u8> texData, std::span<const 
         auto dest = result.mipData(mip_idx, face);
         const u8* src = payload.data() + payload_offset;
 
-        if (is_rgba16f) {
-            const u64 src_raw_bytes = static_cast<u64>(mip_width) * mip_height * 8;
+        if (conversion != D4Conversion::None) {
+            const u64 src_raw_bytes =
+                static_cast<u64>(mip_width) * mip_height * mapping->bytes_per_unit;
             std::vector<u8> temp(src_raw_bytes);
             copy_mip_stripping_alignment(src, temp.data(), tex_fmt, mip_width, mip_height);
-            convert_rgba16f_to_rgba32f(temp.data(), dest.data(), mip_width, mip_height);
+            convert_d4_mip(conversion, temp.data(), dest.data(), mip_width, mip_height);
         } else {
             copy_mip_stripping_alignment(src, dest.data(), tex_fmt, mip_width, mip_height);
         }
@@ -570,7 +589,6 @@ std::optional<Texture> parseD4Impl(std::span<const u8> texData, std::span<const 
         outInfo->hotspot = extract_hotspot(root);
         outInfo->frames = extract_frames(root);
         outInfo->shCoeffs = extract_sh_coeffs(root);
-        outInfo->isSnorm = mapping->is_snorm;
         outInfo->hasLowPayload = flag_low_payload;
         outInfo->hasMedPayload = flag_med_payload;
         outInfo->isStubRecord = flag_stub;
