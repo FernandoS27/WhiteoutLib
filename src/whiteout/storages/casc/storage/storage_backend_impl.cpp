@@ -60,7 +60,7 @@ std::vector<u8> StorageBackendImpl<DT, CT>::resolveCKey(std::span<const u8, 16> 
         return {};
 
     // Index first, then loose-file fallback.
-    auto loc = m_data.findInIndex(eKeyTrunc(encEntry->eKey));
+    auto loc = m_data.findInIndex(encEntry->eKey);
     std::vector<u8> owned;
     std::span<const u8> blteData;
     if (loc) {
@@ -100,7 +100,7 @@ std::vector<u8> StorageBackendImpl<DT, CT>::resolveEKey(std::span<const u8, 16> 
     if (auto cached = m_cache.get(eKey16))
         return std::move(*cached);
 
-    auto loc = m_data.findInIndex(eKeyTrunc(eKey));
+    auto loc = m_data.findInIndex(eKey);
     std::vector<u8> owned;
     std::span<const u8> blteData;
     if (loc) {
@@ -161,22 +161,22 @@ std::optional<std::vector<u8>> StorageBackendImpl<DT, CT>::resolveRootEntry(
         // Local path: direct index lookup + mmap read + BLTE decode.
         // Prefer the entry's own EKey — TVFS roots carry it straight from the
         // manifest, so the CKey -> encoding-table lookup is a needless step.
-        const IndexEntry* idxEntry = nullptr;
+        std::optional<IndexLocation> loc;
         std::array<u8, 16> eKey{};
         if (!isZeroKey(best->eKey)) {
             eKey = best->eKey;
-            idxEntry = m_data.indexTable->find(eKeyTrunc(eKey));
+            loc = m_data.findInIndex(eKey);
         }
-        if (!idxEntry && !isZeroKey(best->cKey)) {
+        if (!loc && !isZeroKey(best->cKey)) {
             if (auto encEntry = m_encoding.findByCKey(best->cKey, kEKeyTruncSize)) {
                 eKey = encEntry->eKey;
-                idxEntry = m_data.indexTable->find(eKeyTrunc(eKey));
+                loc = m_data.findInIndex(eKey);
             }
         }
 
         std::vector<u8> blteData;
-        if (idxEntry) {
-            auto span = m_data.readBlteFromIndex(*idxEntry);
+        if (loc) {
+            auto span = m_data.viewBlte(*loc);
             blteData.assign(span.begin(), span.end());
         }
         if (blteData.empty()) {
@@ -297,21 +297,21 @@ void LocalDataTraits::resolveBatchPhase1(const EncodingTable& encoding, std::spa
             return;
         }
 
-        const IndexEntry* idxEntry = nullptr;
+        std::optional<IndexLocation> loc;
         if (!isZeroKey(best->eKey)) {
-            idxEntry = indexTable->find(eKeyTrunc(best->eKey));
+            loc = dataSource->findInIndex(best->eKey);
         }
-        if (!idxEntry && !isZeroKey(best->cKey)) {
+        if (!loc && !isZeroKey(best->cKey)) {
             auto encEntry = encoding.findByCKey(best->cKey, kEKeyTruncSize);
             if (encEntry)
-                idxEntry = indexTable->find(eKeyTrunc(encEntry->eKey));
+                loc = dataSource->findInIndex(encEntry->eKey);
         }
-        if (!idxEntry) {
+        if (!loc) {
             blob.error = "file not found in index";
             return;
         }
 
-        blob.blteSpan = dataSource->readBlteFromIndex(*idxEntry);
+        blob.blteSpan = dataSource->viewBlte(*loc);
         if (blob.blteSpan.empty()) {
             blob.error = "failed to read raw BLTE data from archive";
             return;

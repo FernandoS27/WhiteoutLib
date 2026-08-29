@@ -34,7 +34,6 @@ namespace whiteout::storages::casc {
 // ============================================================================
 
 struct LocalDataTraits {
-    const IndexTable* indexTable = nullptr;
     LocalDataSource* dataSource = nullptr;
 
     static constexpr bool isLocal() noexcept {
@@ -44,8 +43,8 @@ struct LocalDataTraits {
         return false;
     }
 
-    std::optional<IndexLocation> findInIndex(std::span<const u8> eKeyPrefix) const {
-        return dataSource->findInIndex(eKeyPrefix);
+    std::optional<IndexLocation> findInIndex(std::span<const u8, 16> eKey) const {
+        return dataSource->findInIndex(eKey);
     }
 
     std::vector<u8> fetchBlte(const IndexLocation& loc) const {
@@ -56,11 +55,6 @@ struct LocalDataTraits {
         return dataSource->fetchBlte(eKey);
     }
 
-    /// Zero-copy read from memory-mapped archive.
-    std::span<const u8> readBlteFromIndex(const IndexEntry& entry) const {
-        return dataSource->readBlteFromIndex(entry);
-    }
-
     static constexpr bool supportsZeroCopy() noexcept {
         return true;
     }
@@ -69,12 +63,7 @@ struct LocalDataTraits {
     /// place instead of copying it out first (the encoding table alone is
     /// ~180 MB). Valid for as long as the archives stay mapped.
     std::span<const u8> viewBlte(const IndexLocation& loc) const {
-        IndexEntry entry{};
-        entry.archiveIndex = loc.archiveIndex;
-        entry.archiveOffset = static_cast<u32>(loc.offset);
-        entry.encodedSize = loc.encodedSize;
-        entry.directBLTE = loc.directBLTE;
-        return dataSource->readBlteFromIndex(entry);
+        return dataSource->viewBlte(loc);
     }
 
     /// Batch Phase 1: parallel mmap reads via WorkerPool.
@@ -103,8 +92,8 @@ struct OnlineDataTraits {
         return true;
     }
 
-    std::optional<IndexLocation> findInIndex(std::span<const u8> eKeyPrefix) const {
-        return dataSource->findInIndex(eKeyPrefix);
+    std::optional<IndexLocation> findInIndex(std::span<const u8, 16> eKey) const {
+        return dataSource->findInIndex(eKey);
     }
 
     std::vector<u8> fetchBlte(const IndexLocation& loc) const {

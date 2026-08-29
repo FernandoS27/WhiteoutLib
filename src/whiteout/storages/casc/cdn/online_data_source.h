@@ -8,6 +8,7 @@
 
 #include "../../common/hex.h"
 #include "../storage/data_source.h"
+#include "../storage/key_utils.h"
 #include "cdn_fetcher.h"
 #include "online_index.h"
 
@@ -43,8 +44,8 @@ public:
         return data.value_or(std::vector<u8>{});
     }
 
-    std::optional<IndexLocation> findInIndex(std::span<const u8> eKeyPrefix) const override {
-        auto entry = m_archiveIndex->find(eKeyPrefix);
+    std::optional<IndexLocation> findInIndex(std::span<const u8, 16> eKey) const override {
+        auto entry = m_archiveIndex->find(eKeyTrunc(eKey));
         if (!entry)
             return std::nullopt;
         return IndexLocation{

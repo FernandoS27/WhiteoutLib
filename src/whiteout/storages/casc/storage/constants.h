@@ -24,6 +24,15 @@ namespace whiteout::storages::casc {
 /// Layout: EKey(16 reversed) + encodedSize(4 LE) + flags(2) + checksum(8) = 30 bytes.
 static constexpr u32 kArchiveEntryHeaderSize = 30;
 
+/// Archive slots reserved per chunk in a static-build-config install, whose
+/// archives are named `data.<chunk>.<uid>` rather than `data.<n>`.
+static constexpr u32 kStaticArchiveUidSpan = 256;
+
+/// Flatten a static-layout `data.<chunk>.<uid>` name into an archive slot.
+inline constexpr u32 staticArchiveSlot(u32 chunk, u32 uid) noexcept {
+    return chunk * kStaticArchiveUidSpan + uid;
+}
+
 // ============================================================================
 // Key sizes
 // ============================================================================

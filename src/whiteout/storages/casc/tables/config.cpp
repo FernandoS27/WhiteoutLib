@@ -282,6 +282,56 @@ BuildConfig parseBuildConfig(std::span<const u8> data) {
     return cfg;
 }
 
+StaticKeyLayout parseStaticKeyLayout(std::span<const u8> data) {
+    StaticKeyLayout layout;
+    if (data.empty())
+        return layout;
+
+    auto kvs = parseKeyValueFile(data);
+
+    // Non-zero index bits select between several key-layout-N lines by key
+    // content. No install we have does that, and guessing the rule would
+    // silently mislocate every file, so refuse instead.
+    auto indexBits = kvGet(kvs, "key-layout-index-bits");
+    if (!indexBits.empty() && indexBits != "0")
+        return layout;
+
+    auto spec = kvGet(kvs, "key-layout-0");
+    if (spec.empty())
+        return layout;
+
+    std::vector<u32> widths;
+    for (auto raw : split(spec, ' ')) {
+        auto tok = trim(raw);
+        if (tok.empty())
+            continue;
+        u32 v = 0;
+        auto res = std::from_chars(tok.data(), tok.data() + tok.size(), v);
+        if (res.ec != std::errc())
+            return layout;
+        widths.push_back(v);
+    }
+    if (widths.size() < 3)
+        return layout;
+
+    // Every field observed is a whole number of bytes; a sub-byte one would
+    // need a bit-level reader that no install exercises.
+    for (size_t i = 0; i < 3; ++i)
+        if (widths[i] == 0 || widths[i] % 8 != 0)
+            return layout;
+
+    u32 const locatorBytes = (widths[0] + widths[1] + widths[2]) / 8;
+    if (locatorBytes >= 16)
+        return layout;
+
+    layout.chunkBytes = widths[0] / 8;
+    layout.uidBytes = widths[1] / 8;
+    layout.offsetBytes = widths[2] / 8;
+    layout.hashBytes = 16 - locatorBytes;
+    layout.valid = true;
+    return layout;
+}
+
 CdnConfig parseCdnConfig(std::span<const u8> data) {
     CdnConfig cdn;
     if (data.empty())

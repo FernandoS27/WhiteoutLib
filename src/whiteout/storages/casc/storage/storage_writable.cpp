@@ -402,10 +402,7 @@ bool StorageWritable::save(const std::string& outputPath) {
 
     struct PendingRead {
         size_t entryIndex;
-        u32 archiveIndex;
-        u32 archiveOffset;
-        u32 encodedSize;
-        bool directBLTE;
+        IndexLocation loc;
     };
     std::vector<PendingRead> pendingReads;
 
@@ -470,12 +467,9 @@ bool StorageWritable::save(const std::string& outputPath) {
                 we.fileSize = encEntry->fileSize;
 
                 if (m_impl->localState) {
-                    auto idxEntry = m_impl->localState->indexTable.find(eKeyTrunc(encEntry->eKey));
-                    if (idxEntry) {
-                        pendingReads.push_back({entries.size(), idxEntry->archiveIndex,
-                                                idxEntry->archiveOffset, idxEntry->encodedSize,
-                                                idxEntry->directBLTE});
-                    }
+                    auto loc = m_impl->localState->dataSource->findInIndex(encEntry->eKey);
+                    if (loc)
+                        pendingReads.push_back({entries.size(), *loc});
                 }
             }
 
@@ -491,18 +485,8 @@ bool StorageWritable::save(const std::string& outputPath) {
                 jobGroup.add(pendingReads.size());
                 for (auto& pr : pendingReads) {
                     interfaces::WorkerTask task;
-                    task.fn = [&, idx = pr.entryIndex, ai = pr.archiveIndex, ao = pr.archiveOffset,
-                               es = pr.encodedSize, direct = pr.directBLTE]() {
-                        auto span = localDS.readRawBlteDirect(ai, ao, es);
-                        if (!direct) {
-                            // Use header-aware read.
-                            IndexEntry ie{};
-                            ie.archiveIndex = ai;
-                            ie.archiveOffset = ao;
-                            ie.encodedSize = es;
-                            ie.directBLTE = direct;
-                            span = localDS.readBlteFromIndex(ie);
-                        }
+                    task.fn = [&, idx = pr.entryIndex, loc = pr.loc]() {
+                        auto span = localDS.viewBlte(loc);
                         entries[idx].encodedBlob.assign(span.begin(), span.end());
                         entries[idx].hasPreEncoded = true;
                         jobGroup.done();
@@ -512,15 +496,7 @@ bool StorageWritable::save(const std::string& outputPath) {
                 jobGroup.wait();
             } else {
                 for (auto& pr : pendingReads) {
-                    auto span = pr.directBLTE
-                                    ? localDS.readRawBlteDirect(pr.archiveIndex, pr.archiveOffset,
-                                                                pr.encodedSize)
-                                    : localDS.readBlteFromIndex(IndexEntry{
-                                          .archiveIndex = pr.archiveIndex,
-                                          .archiveOffset = pr.archiveOffset,
-                                          .encodedSize = pr.encodedSize,
-                                          .directBLTE = pr.directBLTE,
-                                      });
+                    auto span = localDS.viewBlte(pr.loc);
                     entries[pr.entryIndex].encodedBlob.assign(span.begin(), span.end());
                     entries[pr.entryIndex].hasPreEncoded = true;
                 }
@@ -700,14 +676,14 @@ bool StorageWritable::save(const std::string& outputPath) {
         if (reopened->m_impl->localState) {
             m_impl->localState = std::move(reopened->m_impl->localState);
             m_impl->localState->dataSource = std::make_unique<LocalDataSource>(
-                &m_impl->localState->indexTable, &m_impl->localState->dataArchives);
+                &m_impl->localState->indexTable, &m_impl->localState->dataArchives,
+                m_impl->localState->staticLayout);
             m_impl->dataSource = m_impl->localState->dataSource.get();
 
             // Reconstruct backend for the reloaded local state.
             m_impl->backend = std::make_unique<StorageBackendImpl<LocalDataTraits, NoCachePolicy>>(
-                LocalDataTraits{&m_impl->localState->indexTable,
-                                m_impl->localState->dataSource.get()},
-                NoCachePolicy{}, m_impl->encodingTable, m_impl->keyRing, m_impl->pool);
+                LocalDataTraits{m_impl->localState->dataSource.get()}, NoCachePolicy{},
+                m_impl->encodingTable, m_impl->keyRing, m_impl->pool);
         }
         m_impl->isValid = true;
     }

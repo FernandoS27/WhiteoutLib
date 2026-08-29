@@ -167,7 +167,7 @@ std::vector<u8> Storage::Impl::resolveCKey(std::span<const u8, 16> cKey,
     if (!encEntry)
         return {};
 
-    auto loc = dataSource->findInIndex(eKeyTrunc(encEntry->eKey));
+    auto loc = dataSource->findInIndex(encEntry->eKey);
     std::vector<u8> blteData;
     if (loc) {
         blteData = dataSource->fetchBlte(*loc);
@@ -199,7 +199,7 @@ std::vector<u8> Storage::Impl::resolveEKey(std::span<const u8, 16> eKey,
             return std::move(*cached);
     }
 
-    auto loc = dataSource->findInIndex(eKeyTrunc(eKey));
+    auto loc = dataSource->findInIndex(eKey);
     std::vector<u8> blteData;
     if (loc) {
         blteData = dataSource->fetchBlte(*loc);
@@ -247,7 +247,6 @@ std::optional<std::vector<u8>> Storage::Impl::resolveRootEntry(
     }
 
     // Resolve CKey or EKey → index → BLTE.
-    const IndexEntry* idxEntry = nullptr;
     std::vector<u8> blteData;
 
     // For local storage, try single-pass key → index → mmap read. Prefer the
@@ -255,18 +254,19 @@ std::optional<std::vector<u8>> Storage::Impl::resolveRootEntry(
     // CKey → encoding-table lookup is a needless extra step.
     if (isLocal()) {
         auto& localDS = *localState->dataSource;
+        std::optional<IndexLocation> loc;
         if (!isZeroKey(best->eKey)) {
-            idxEntry = localState->indexTable.find(eKeyTrunc(best->eKey));
+            loc = localDS.findInIndex(best->eKey);
         }
-        if (!idxEntry && !isZeroKey(best->cKey)) {
+        if (!loc && !isZeroKey(best->cKey)) {
             auto encEntry = encodingTable.findByCKey(best->cKey, kEKeyTruncSize);
             if (encEntry) {
-                idxEntry = localState->indexTable.find(eKeyTrunc(encEntry->eKey));
+                loc = localDS.findInIndex(encEntry->eKey);
             }
         }
-        if (!idxEntry)
+        if (!loc)
             return std::nullopt;
-        auto span = localDS.readBlteFromIndex(*idxEntry);
+        auto span = localDS.viewBlte(*loc);
         if (span.empty())
             return std::nullopt;
         blteData.assign(span.begin(), span.end());
@@ -500,8 +500,8 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
     if (onlineState && onlineState->fetcher &&
         (featureFlags & StorageFeatureFlags::LazyEncodingFrames) != 0 &&
         prefetchedEncodingBlte.empty()) {
-        auto encLoc = (backend ? backend->findInIndex(eKeyTrunc(buildConfig.encodingEKey))
-                               : dataSource->findInIndex(eKeyTrunc(buildConfig.encodingEKey)));
+        auto encLoc = (backend ? backend->findInIndex(buildConfig.encodingEKey)
+                               : dataSource->findInIndex(buildConfig.encodingEKey));
         if (encLoc && encLoc->archiveIndex < cdnConfig.archiveEKeys.size()) {
             auto archiveKeyHex =
                 storages::common::hexEncode16(cdnConfig.archiveEKeys[encLoc->archiveIndex]);
@@ -524,7 +524,7 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
 
         if (encodingBlte.empty()) {
             if (backend) {
-                if (auto encLoc = backend->findInIndex(eKeyTrunc(buildConfig.encodingEKey))) {
+                if (auto encLoc = backend->findInIndex(buildConfig.encodingEKey)) {
                     encodingBlte = backend->viewBlte(*encLoc);
                     if (encodingBlte.empty()) {
                         encodingOwned = backend->fetchBlte(*encLoc);
@@ -532,7 +532,7 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
                     }
                 }
             } else {
-                if (auto encLoc = dataSource->findInIndex(eKeyTrunc(buildConfig.encodingEKey))) {
+                if (auto encLoc = dataSource->findInIndex(buildConfig.encodingEKey)) {
                     encodingOwned = dataSource->fetchBlte(*encLoc);
                     encodingBlte = encodingOwned;
                 }
@@ -797,7 +797,7 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
         if (backend && !backend->hasCache()) {
             MemCacheEnabled cacheTraits{std::make_unique<MemoryCache>(kD4MinCacheSize)};
             if (backend->isLocal()) {
-                LocalDataTraits dataTraits{&localState->indexTable, localState->dataSource.get()};
+                LocalDataTraits dataTraits{localState->dataSource.get()};
                 backend = std::make_unique<StorageBackendImpl<LocalDataTraits, MemCacheEnabled>>(
                     std::move(dataTraits), std::move(cacheTraits), encodingTable, keyRing, pool);
             } else {
@@ -1067,21 +1067,21 @@ std::vector<BatchReadResult> Storage::readBatch(std::span<const BatchReadRequest
                     return;
                 }
 
-                const IndexEntry* idxEntry = nullptr;
+                std::optional<IndexLocation> loc;
                 if (!isZeroKey(best->cKey)) {
                     auto encEntry = m_impl->encodingTable.findByCKey(best->cKey, kEKeyTruncSize);
                     if (encEntry)
-                        idxEntry = m_impl->localState->indexTable.find(eKeyTrunc(encEntry->eKey));
+                        loc = m_impl->localState->dataSource->findInIndex(encEntry->eKey);
                 }
-                if (!idxEntry && !isZeroKey(best->eKey)) {
-                    idxEntry = m_impl->localState->indexTable.find(eKeyTrunc(best->eKey));
+                if (!loc && !isZeroKey(best->eKey)) {
+                    loc = m_impl->localState->dataSource->findInIndex(best->eKey);
                 }
-                if (!idxEntry) {
+                if (!loc) {
                     blob.error = "file not found in index";
                     return;
                 }
 
-                blob.blteSpan = m_impl->localState->dataSource->readBlteFromIndex(*idxEntry);
+                blob.blteSpan = m_impl->localState->dataSource->viewBlte(*loc);
                 if (blob.blteSpan.empty()) {
                     blob.error = "failed to read raw BLTE data from archive";
                     return;
@@ -1642,8 +1642,8 @@ std::vector<std::string> Storage::listFiles() const {
     // times over, and the availability marks already say how many there will
     // be. Only an upper bound — an entry with no path is still counted.
     if (filterUnavailable && !m_impl->m_entryAvailable.empty()) {
-        result.reserve(size_t(std::count(m_impl->m_entryAvailable.begin(),
-                                         m_impl->m_entryAvailable.end(), u8(1))));
+        result.reserve(size_t(
+            std::count(m_impl->m_entryAvailable.begin(), m_impl->m_entryAvailable.end(), u8(1))));
     }
 
     m_impl->root->enumerateIndexed([&](const RootEntry& re, size_t index) -> bool {
@@ -1799,8 +1799,8 @@ void Storage::setProgressCallback(ProgressCallback callback) {
     if (!m_impl)
         return;
     std::unique_lock const lock(m_impl->mutex);
-    m_impl->progress = std::make_unique<ProgressReporter>(std::move(callback),
-                                                          std::vector<ProgressStep>{});
+    m_impl->progress =
+        std::make_unique<ProgressReporter>(std::move(callback), std::vector<ProgressStep>{});
 }
 
 u32 Storage::lastError() noexcept {

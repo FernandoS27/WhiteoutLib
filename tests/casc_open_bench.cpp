@@ -325,20 +325,11 @@ void instrumentedOpen(const Paths& paths, const PhaseOpts& opts, Results& res,
     LocalDataSource dataSource(&indexTable, &archives);
 
     // --- 6. encoding table: fetch / BLTE decode / parse ---
-    std::array<u8, 9> encTrunc{};
-    std::memcpy(encTrunc.data(), buildConfig.encodingEKey.data(), 9);
-
     t = Clock::now();
     std::vector<u8> encodingOwned;
     std::span<const u8> encodingBlte;
-    if (auto loc = dataSource.findInIndex(std::span<const u8>(encTrunc.data(), 9))) {
-        IndexEntry ie{};
-        ie.archiveIndex = loc->archiveIndex;
-        ie.archiveOffset = u32(loc->offset);
-        ie.encodedSize = loc->encodedSize;
-        ie.directBLTE = loc->directBLTE;
-        encodingBlte = dataSource.readBlteFromIndex(ie);
-    }
+    if (auto loc = dataSource.findInIndex(buildConfig.encodingEKey))
+        encodingBlte = dataSource.viewBlte(*loc);
     if (encodingBlte.empty()) {
         encodingOwned = dataSource.fetchBlte(buildConfig.encodingEKey);
         encodingBlte = encodingOwned;
@@ -348,7 +339,7 @@ void instrumentedOpen(const Paths& paths, const PhaseOpts& opts, Results& res,
         static constexpr char hx[] = "0123456789abcdef";
         std::string k;
         for (u8 b : buildConfig.encodingEKey) { k += hx[b >> 4]; k += hx[b & 0xF]; }
-        auto loc = dataSource.findInIndex(std::span<const u8>(encTrunc.data(), 9));
+        auto loc = dataSource.findInIndex(buildConfig.encodingEKey);
         std::cerr << "  [diag] encodingEKey=" << k << " indexHit=" << (loc ? "yes" : "no");
         if (loc)
             std::cerr << " arc=" << loc->archiveIndex << " off=" << loc->offset
@@ -385,14 +376,8 @@ void instrumentedOpen(const Paths& paths, const PhaseOpts& opts, Results& res,
                                  interfaces::WorkerPool* framePool) -> std::vector<u8> {
         std::vector<u8> owned;
         std::span<const u8> blte;
-        if (auto loc = dataSource.findInIndex(std::span<const u8>(eKey.data(), 9))) {
-            IndexEntry ie{};
-            ie.archiveIndex = loc->archiveIndex;
-            ie.archiveOffset = u32(loc->offset);
-            ie.encodedSize = loc->encodedSize;
-            ie.directBLTE = loc->directBLTE;
-            blte = dataSource.readBlteFromIndex(ie);
-        }
+        if (auto loc = dataSource.findInIndex(eKey))
+            blte = dataSource.viewBlte(*loc);
         if (blte.empty()) {
             owned = dataSource.fetchBlte(eKey);
             blte = owned;
@@ -450,15 +435,15 @@ void instrumentedOpen(const Paths& paths, const PhaseOpts& opts, Results& res,
         std::vector<size_t> large;
         std::vector<size_t> small;
         for (size_t i = 0; i < vfsEKeys.size(); ++i) {
-            auto loc = dataSource.findInIndex(std::span<const u8>(vfsEKeys[i].data(), 9));
+            auto loc = dataSource.findInIndex(vfsEKeys[i]);
             if (loc && loc->encodedSize >= kFrameParallelBytes)
                 large.push_back(i);
             else
                 small.push_back(i);
         }
         std::sort(large.begin(), large.end(), [&](size_t a, size_t b) {
-            auto la = dataSource.findInIndex(std::span<const u8>(vfsEKeys[a].data(), 9));
-            auto lb = dataSource.findInIndex(std::span<const u8>(vfsEKeys[b].data(), 9));
+            auto la = dataSource.findInIndex(vfsEKeys[a]);
+            auto lb = dataSource.findInIndex(vfsEKeys[b]);
             return (la ? la->encodedSize : 0) > (lb ? lb->encodedSize : 0);
         });
 

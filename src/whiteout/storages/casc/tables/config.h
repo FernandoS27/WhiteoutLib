@@ -65,6 +65,27 @@ struct BuildConfig {
 BuildConfig parseBuildConfig(std::span<const u8> data);
 
 // ============================================================================
+// Static Build Config
+// ============================================================================
+
+/// Where an EKey keeps its archive coordinates in a "static build config"
+/// install — the shape Steam ships. Such an install has no `.idx` files at
+/// all: the bytes trailing the hash in every EKey spell out which
+/// `data.<chunk>.<uid>` holds the blob and where, laid out as the config's
+/// `key-layout-N` line describes.
+struct StaticKeyLayout {
+    bool valid = false;
+    u32 hashBytes = 0; ///< Leading EKey bytes that are the real hash.
+    u32 chunkBytes = 0;
+    u32 uidBytes = 0;
+    u32 offsetBytes = 0;
+};
+
+/// Parse the `key-layout-*` lines of a static build config. Returns an invalid
+/// layout when they are absent or describe a shape we cannot decode.
+StaticKeyLayout parseStaticKeyLayout(std::span<const u8> data);
+
+// ============================================================================
 // CDN Config
 // ============================================================================
 

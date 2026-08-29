@@ -8,6 +8,7 @@
 #include "storage_backend_impl.h"
 #include "storage_impl.h"
 
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -241,6 +242,61 @@ bool LocalState::mapArchives(std::string* error, const ProgressSink* sink) {
     return true;
 }
 
+bool LocalState::mapStaticArchives(std::string* error, const ProgressSink* sink) {
+    namespace fs = std::filesystem;
+
+    std::error_code ec;
+    std::vector<std::pair<u32, fs::path>> found;
+    u32 maxSlot = 0;
+    for (auto& entry : fs::directory_iterator(dataPath, ec)) {
+        auto name = entry.path().filename().string();
+        u32 chunk = 0;
+        u32 uid = 0;
+        int consumed = 0;
+        if (std::sscanf(name.c_str(), "data.%u.%u%n", &chunk, &uid, &consumed) != 2)
+            continue;
+        // Reject anything trailing, so a stray `data.000.000.bak` is not mapped
+        // over the archive it was copied from.
+        if (static_cast<size_t>(consumed) != name.size() || uid >= kStaticArchiveUidSpan)
+            continue;
+        u32 const slot = staticArchiveSlot(chunk, uid);
+        maxSlot = std::max(maxSlot, slot);
+        found.emplace_back(slot, entry.path());
+    }
+
+    if (found.empty()) {
+        if (error)
+            *error = "No data.<chunk>.<uid> archives found under '" + dataPath + "'";
+        return false;
+    }
+
+    dataArchives.resize(maxSlot + 1);
+    bool sawSharingViolation = false;
+    std::string firstFailure;
+    u64 done = 0;
+    for (auto& [slot, path] : found) {
+        std::string mapErr;
+        auto mapped = storages::common::MappedFile::open(
+            path.string(), storages::common::AccessHint::Random, &mapErr);
+        if (mapped) {
+            dataArchives[slot] = std::move(*mapped);
+        } else if (firstFailure.empty()) {
+            firstFailure = "Failed to map '" + path.string() + "': " + mapErr;
+            if (storages::common::isSharingViolation(mapErr))
+                sawSharingViolation = true;
+        }
+        ++done;
+        if (sink && !(*sink)(done, found.size(), path.filename().string()))
+            break;
+    }
+
+    if (!firstFailure.empty() && error)
+        *error = firstFailure;
+    if (sawSharingViolation)
+        s_lastError = kSharingViolation;
+    return true;
+}
+
 // ============================================================================
 // prefetchVfsLocal — parallel resolve using JobGroup
 // ============================================================================
@@ -287,8 +343,8 @@ std::unordered_map<u64, std::vector<u8>> prefetchVfsLocal(
         std::vector<size_t> small;
         std::vector<size_t> large;
         for (size_t i = 0; i < vfsEKeys.size(); ++i) {
-            auto loc = impl.backend ? impl.backend->findInIndex(eKeyTrunc(vfsEKeys[i]))
-                                    : impl.dataSource->findInIndex(eKeyTrunc(vfsEKeys[i]));
+            auto loc = impl.backend ? impl.backend->findInIndex(vfsEKeys[i])
+                                    : impl.dataSource->findInIndex(vfsEKeys[i]);
             encodedSize[i] = loc ? loc->encodedSize : 0;
             (encodedSize[i] >= kVfsFrameParallelBytes ? large : small).push_back(i);
         }
@@ -436,6 +492,18 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
 
     basePath = fs::path(basePath).lexically_normal().string();
     dataPath = fs::path(dataPath).lexically_normal().string();
+
+    // A `.build.config` next to the archives marks a static-build-config
+    // install — what Steam ships. It names the build outright instead of
+    // pointing at the `config/` store, and there are no `.idx` files at all, so
+    // this layout gets its own open path rather than the one below.
+    {
+        std::string staticConfigPath = dataPath + "/.build.config";
+        if (!fs::exists(staticConfigPath))
+            staticConfigPath = basePath + "/.build.config";
+        if (fs::exists(staticConfigPath))
+            return Impl::openStatic(opts, basePath, dataPath, staticConfigPath);
+    }
 
     // Progress front-end. Owned here until the Impl exists, then handed over so
     // a deferred load reports through the same callback.
@@ -589,8 +657,8 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     if (!progress.begin(ProgressStep::LoadingIndexFiles) && failCancelled())
         return std::nullopt;
     if (opts.flags & StorageFeatureFlags::LazyIdxBuckets) {
-        impl.localState->indexTable = IndexTable::loadLazyBuckets(dataPath, opts.pool,
-                                                                  progress.sink());
+        impl.localState->indexTable =
+            IndexTable::loadLazyBuckets(dataPath, opts.pool, progress.sink());
     } else {
         impl.localState->indexTable = IndexTable::load(dataPath, opts.pool, progress.sink());
     }
@@ -701,8 +769,8 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
 
     // Step 7b: Construct specialised backend (NoCachePolicy; D4 upgrades to MemCacheEnabled later).
     impl.backend = std::make_unique<StorageBackendImpl<LocalDataTraits, NoCachePolicy>>(
-        LocalDataTraits{&impl.localState->indexTable, impl.localState->dataSource.get()},
-        NoCachePolicy{}, impl.encodingTable, impl.keyRing, impl.pool);
+        LocalDataTraits{impl.localState->dataSource.get()}, NoCachePolicy{}, impl.encodingTable,
+        impl.keyRing, impl.pool);
 
     // Step 8: Load encoding + root (or defer).
     if (opts.flags & StorageFeatureFlags::LoadOnDemand) {
@@ -723,6 +791,126 @@ std::optional<Storage> Storage::open(const OpenOptions& opts) {
     impl.isValid = true;
     Storage storage(std::move(implPtr));
     return storage;
+}
+
+// ============================================================================
+// Storage::openStatic — static build config (Steam) layout
+// ============================================================================
+
+std::optional<Storage> Storage::Impl::openStatic(const OpenOptions& opts,
+                                                 const std::string& basePath,
+                                                 const std::string& dataPath,
+                                                 const std::string& configPath) {
+    std::vector<ProgressStep> plan{
+        ProgressStep::LoadingBuildConfig,
+        ProgressStep::MappingArchives,
+    };
+    if (!(opts.flags & StorageFeatureFlags::LoadOnDemand)) {
+        plan.push_back(ProgressStep::LoadingEncodingTable);
+        plan.push_back(ProgressStep::LoadingRootManifest);
+    }
+    auto reporterOwned = std::make_unique<ProgressReporter>(opts.progressCallback, std::move(plan));
+    ProgressReporter& progress = *reporterOwned;
+
+    auto failCancelled = [&]() {
+        s_lastError = CascError::Cancelled;
+        if (opts.errorOut)
+            *opts.errorOut = "Open cancelled by the progress callback";
+        return true;
+    };
+
+    if (!progress.begin(ProgressStep::LoadingBuildConfig, ".build.config") && failCancelled())
+        return std::nullopt;
+
+    std::string sysErr;
+    auto configFile = storages::common::readFileFully(configPath, &sysErr);
+    if (!configFile) {
+        s_lastError =
+            storages::common::isSharingViolation(sysErr) ? kSharingViolation : kBuildConfigNotFound;
+        if (opts.errorOut)
+            *opts.errorOut = "Failed to read '" + configPath + "': " + sysErr;
+        return std::nullopt;
+    }
+
+    auto buildConfig = parseBuildConfig(*configFile);
+    auto staticLayout = parseStaticKeyLayout(*configFile);
+    if (!staticLayout.valid) {
+        s_lastError = kBuildConfigNotFound;
+        if (opts.errorOut)
+            *opts.errorOut = "'" + configPath + "' has no key layout this build can decode";
+        return std::nullopt;
+    }
+    progress.end(1);
+
+    if (!opts.product.empty()) {
+        std::string const wanted = storages::common::toLower(opts.product);
+        if (storages::common::toLower(buildConfig.buildUid) != wanted &&
+            storages::common::toLower(buildConfig.buildProduct) != wanted) {
+            s_lastError = kBuildInfoNotFound;
+            if (opts.errorOut)
+                *opts.errorOut = "Product '" + opts.product + "' does not match '" + configPath +
+                                 "' (build-uid '" + buildConfig.buildUid + "', build-product '" +
+                                 buildConfig.buildProduct + "')";
+            return std::nullopt;
+        }
+    }
+
+    auto implPtr = std::make_unique<Impl>();
+    auto& impl = *implPtr;
+    impl.pool = opts.pool;
+    impl.localeMask = opts.localeMask;
+    impl.featureFlags = opts.flags;
+    impl.listfileData = opts.listfile;
+    impl.buildConfig = std::move(buildConfig);
+    impl.progress = std::move(reporterOwned);
+
+    impl.localState = std::make_unique<LocalState>();
+    impl.localState->basePath = basePath;
+    impl.localState->dataPath = dataPath;
+    impl.localState->staticLayout = staticLayout;
+
+    if (opts.memoryCacheSize > 0)
+        impl.memCache = std::make_unique<MemoryCache>(opts.memoryCacheSize);
+
+    if (!progress.begin(ProgressStep::MappingArchives) && failCancelled())
+        return std::nullopt;
+    std::string mapError;
+    if (!impl.localState->mapStaticArchives(&mapError, progress.sink())) {
+        s_lastError = kIndexLoadFailed;
+        if (opts.errorOut)
+            *opts.errorOut = mapError;
+        return std::nullopt;
+    }
+    progress.end();
+    if (progress.cancelled() && failCancelled())
+        return std::nullopt;
+    if (!mapError.empty() && opts.errorOut && opts.errorOut->empty())
+        *opts.errorOut = mapError;
+
+    impl.localState->dataSource = std::make_unique<LocalDataSource>(
+        &impl.localState->indexTable, &impl.localState->dataArchives, staticLayout);
+    impl.dataSource = impl.localState->dataSource.get();
+
+    impl.backend = std::make_unique<StorageBackendImpl<LocalDataTraits, NoCachePolicy>>(
+        LocalDataTraits{impl.localState->dataSource.get()}, NoCachePolicy{}, impl.encodingTable,
+        impl.keyRing, impl.pool);
+
+    if (opts.flags & StorageFeatureFlags::LoadOnDemand) {
+        impl.deferMode = true;
+        impl.isValid = true;
+        progress.ready();
+        return Storage(std::move(implPtr));
+    }
+
+    if (!impl.loadEncodingAndRoot()) {
+        if (progress.cancelled())
+            failCancelled();
+        return std::nullopt;
+    }
+
+    progress.ready();
+    impl.isValid = true;
+    return Storage(std::move(implPtr));
 }
 
 } // namespace whiteout::storages::casc

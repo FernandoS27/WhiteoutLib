@@ -46,9 +46,11 @@ public:
         return fetchBlte(loc.archiveIndex, loc.offset, loc.encodedSize);
     }
 
-    /// Find an entry in the index by EKey prefix.
+    /// Locate the blob for @p eKey. Takes the whole key rather than the
+    /// truncated prefix an `.idx` lookup needs: a static-build-config install
+    /// keeps the archive coordinates in the bytes past that prefix.
     /// Returns std::nullopt if the key is not indexed.
-    virtual std::optional<IndexLocation> findInIndex(std::span<const u8> eKeyPrefix) const = 0;
+    virtual std::optional<IndexLocation> findInIndex(std::span<const u8, 16> eKey) const = 0;
 };
 
 } // namespace whiteout::storages::casc

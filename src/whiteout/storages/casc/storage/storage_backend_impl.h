@@ -47,8 +47,8 @@ public:
 
     // ── Data access ──────────────────────────────────────────────
 
-    std::optional<IndexLocation> findInIndex(std::span<const u8> eKeyPrefix) const override {
-        return m_data.findInIndex(eKeyPrefix);
+    std::optional<IndexLocation> findInIndex(std::span<const u8, 16> eKey) const override {
+        return m_data.findInIndex(eKey);
     }
 
     std::vector<u8> fetchBlte(const IndexLocation& loc) const override {

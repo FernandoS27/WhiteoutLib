@@ -83,8 +83,8 @@ public:
 
     // ── Data access (used by loadEncodingAndRoot) ────────────────
 
-    /// Find an entry in the index by EKey prefix.
-    virtual std::optional<IndexLocation> findInIndex(std::span<const u8> eKeyPrefix) const = 0;
+    /// Locate the blob for @p eKey (whole key — see DataSource::findInIndex).
+    virtual std::optional<IndexLocation> findInIndex(std::span<const u8, 16> eKey) const = 0;
 
     /// Fetch BLTE-encoded data from a resolved index location.
     virtual std::vector<u8> fetchBlte(const IndexLocation& loc) const = 0;

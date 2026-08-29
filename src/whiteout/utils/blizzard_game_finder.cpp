@@ -318,21 +318,38 @@ static constexpr SteamApp kSteamApps[] = {
     if (!file)
         return folders;
 
+    // A row is `"key"  "value"`. Steam has written two shapes of this file:
+    // current clients give each library a block with a "path" key, older ones a
+    // flat `"1"  "D:\\SteamLibrary"` line. Both reduce to one rule — take the
+    // value when the key is "path" or a plain number — which also skips the
+    // "TimeNextStatsReport" / "contentid" / "totalsize" rows either shape has.
+    auto quoted = [](const std::string& line, size_t from, size_t& end) -> std::string {
+        size_t const start = line.find('"', from);
+        if (start == std::string::npos)
+            return {};
+        size_t const stop = line.find('"', start + 1);
+        if (stop == std::string::npos)
+            return {};
+        end = stop + 1;
+        return line.substr(start + 1, stop - start - 1);
+    };
+
     std::string line;
     while (std::getline(file, line)) {
-        size_t const pathKey = line.find("\"path\"");
-        if (pathKey == std::string::npos)
+        size_t after = 0;
+        std::string const key = quoted(line, 0, after);
+        if (key.empty())
+            continue;
+        bool const isPathKey = key == "path" || std::all_of(key.begin(), key.end(), [](char c) {
+                                   return c >= '0' && c <= '9';
+                               });
+        if (!isPathKey)
             continue;
 
-        size_t valStart = line.find('"', pathKey + 6);
-        if (valStart == std::string::npos)
-            continue;
-        ++valStart;
-        size_t const valEnd = line.find('"', valStart);
-        if (valEnd == std::string::npos)
+        std::string folderPath = quoted(line, after, after);
+        if (folderPath.empty())
             continue;
 
-        std::string folderPath = line.substr(valStart, valEnd - valStart);
         // Unescape double backslashes
         std::string unescaped;
         for (size_t i = 0; i < folderPath.size(); ++i) {
@@ -549,6 +566,12 @@ static constexpr RegEntry kRegistryEntries[] = {
                 readRegString(HKEY_LOCAL_MACHINE, fullKey.c_str(), L"InstallLocation");
             if (!name.empty() && !loc.empty()) {
                 BlizzardGame const g = blizzardGameFromName(name);
+                // Report the canonical name for a title we recognise, so one
+                // game does not come back under two spellings when it is
+                // installed here and through Steam as well ("Overwatch" from
+                // the uninstall entry vs "Overwatch 2" from the app manifest).
+                if (g != BlizzardGame::Unknown)
+                    name = blizzardGameToName(g);
                 addResult(results, seen, g, std::move(name), std::move(loc));
             }
         }

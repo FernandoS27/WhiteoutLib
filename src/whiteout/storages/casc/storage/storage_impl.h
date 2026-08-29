@@ -121,6 +121,8 @@ struct LocalState {
     IndexTable indexTable;
     std::vector<storages::common::MappedFile> dataArchives;
     std::unique_ptr<LocalDataSource> dataSource;
+    /// Set only for a static-build-config install, which has no index table.
+    StaticKeyLayout staticLayout;
 
     /// Build a config file path from a 16-byte key.
     std::string configPath(std::span<const u8, 16> key) const {
@@ -132,6 +134,10 @@ struct LocalState {
     /// Discover and memory-map all data.XXX archives.
     /// @param sink Optional per-archive progress; null for no reporting.
     bool mapArchives(std::string* error, const ProgressSink* sink = nullptr);
+
+    /// Discover and memory-map the data.<chunk>.<uid> archives of a
+    /// static-build-config install, which sit directly in the data directory.
+    bool mapStaticArchives(std::string* error, const ProgressSink* sink = nullptr);
 };
 
 /// Online-only state: CDN infrastructure.
@@ -271,9 +277,9 @@ struct Storage::Impl {
         if (isZeroKey(eKey))
             return false;
         if (backend)
-            return backend->findInIndex(eKeyTrunc(eKey)).has_value();
+            return backend->findInIndex(eKey).has_value();
         if (dataSource)
-            return dataSource->findInIndex(eKeyTrunc(eKey)).has_value();
+            return dataSource->findInIndex(eKey).has_value();
         return false;
     }
 
@@ -335,6 +341,13 @@ struct Storage::Impl {
 
     /// Load encoding table and root manifest.
     bool loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBlte = {}) const;
+
+    /// Open a static-build-config install — the shape Steam ships, which names
+    /// its build in a `.build.config` beside the archives and carries no index
+    /// files. Defined in storage_local.cpp, next to the ordinary open path.
+    static std::optional<Storage> openStatic(const OpenOptions& opts, const std::string& basePath,
+                                             const std::string& dataPath,
+                                             const std::string& configPath);
 };
 
 // ── VFS prefetch helpers (defined in storage_local.cpp / storage_online.cpp) ─
