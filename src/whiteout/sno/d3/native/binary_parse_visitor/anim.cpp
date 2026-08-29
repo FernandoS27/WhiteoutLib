@@ -35,7 +35,7 @@ void BinaryParseVisitor::visit(const layout::HardpointLink& src, HardpointLink& 
 void BinaryParseVisitor::visit(const layout::TriggerEvent& src, TriggerEvent& dst) {
     dst.eTriggerType = src.eTriggerType;
     visit(src.tConditions, dst.tConditions);
-    dst.dwUnknown28 = src.dwUnknown28;
+    dst.ePayloadKind = src.ePayloadKind;
     visit(src.tPayload, dst.tPayload);
     dst.dwUnknown34 = src.dwUnknown34;
     dst.dwFlags38 = src.dwFlags38;

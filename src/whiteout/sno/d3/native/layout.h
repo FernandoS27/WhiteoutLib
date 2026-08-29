@@ -147,7 +147,7 @@ static_assert(sizeof(HardpointLink) == 68, "HardpointLink changed size");
 struct TriggerEvent {
     i32 eTriggerType;
     TriggerConditions tConditions;
-    i32 dwUnknown28;
+    i32 ePayloadKind;
     SNOName tPayload;
     i32 dwUnknown34;
     i32 dwFlags38;
@@ -179,7 +179,7 @@ struct TriggerEvent {
 };
 static_assert(offsetof(TriggerEvent, eTriggerType) == 0, "TriggerEvent.eTriggerType moved");
 static_assert(offsetof(TriggerEvent, tConditions) == 4, "TriggerEvent.tConditions moved");
-static_assert(offsetof(TriggerEvent, dwUnknown28) == 40, "TriggerEvent.dwUnknown28 moved");
+static_assert(offsetof(TriggerEvent, ePayloadKind) == 40, "TriggerEvent.ePayloadKind moved");
 static_assert(offsetof(TriggerEvent, tPayload) == 44, "TriggerEvent.tPayload moved");
 static_assert(offsetof(TriggerEvent, dwUnknown34) == 52, "TriggerEvent.dwUnknown34 moved");
 static_assert(offsetof(TriggerEvent, dwFlags38) == 56, "TriggerEvent.dwFlags38 moved");

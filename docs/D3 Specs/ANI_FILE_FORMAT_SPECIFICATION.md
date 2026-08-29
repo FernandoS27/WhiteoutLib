@@ -467,9 +467,11 @@ struct KeyframedAttachment {                    // 412 bytes
 };
 
 struct TriggerEvent {                           // 408 bytes
-    u32  eEventType;            // +0x000: 22 distinct; correlates 1:1 with nTargetSnoGroup
+    i32  eTriggerType;          // +0x000: 22 distinct. TriggerEvent_Execute's switch -- see 8.2
     TriggerConditions tCond;    // +0x004: 36 bytes (percent, 4 × time, 2 × impulse, 2 × int)
-    u32  _unknown028;           // +0x028: 3 (55.9%) / 1 (29.6%) / 0 (11.3%)
+    i32  ePayloadKind;          // +0x028: what the payload IS, in the runtime's dense enum --
+                                //         0 Actor, 1 Particle, 2 Light, 3 Sound, 5 AmbientSound,
+                                //         6 Explosion, 11 Shakes, 12 Vibrations. See 8.2.
     i32  nTargetSnoGroup;       // +0x02C: 40=Sound (28,069), −1 (10,555), 27=Particle (7,570),
                                 //         14 (3,234), 1=Actor, 38, 17=Explosion, 32, 45, 5
     u32  snoTarget;             // +0x030: 11,711 distinct ids
@@ -523,6 +525,53 @@ The look names are the Appearance look enum registered at `0x710069E4F0`
 are in fact a **hardpoint** name and a **look** name respectively: `Default` appears 63,203
 times in a hardpoint slot and **never** in a look slot, `A_riderless` appears once in a look
 slot and **never** in a hardpoint slot.
+
+### 8.2 What the two enums mean
+
+`TriggerEvent_Execute` (`0x7100211040`) switches on `eTriggerType` over 32 cases. The ones a
+renderer needs:
+
+| type | what it does |
+| --- | --- |
+| 0 | `TriggerEvent_Spawn` — spawn the payload. 27,973 attachments |
+| 4 | play a Trail (group 45), after matching the hardpoint name by hash |
+| 7 / 26 | stop the tracked instances carrying this event's tag |
+| 11 | play a Rope (group 32) |
+| 16 | `EffectGroup_Play` — 3,234 attachments, and every group 14 payload |
+| 25 | `TriggerEvent_SpawnAttached` — spawn, plus a lifetime from `+0x168` ticks and a
+       play-request reset on the spawned instance. 10,050 attachments |
+
+The previous revision recorded `eEventType` as "1:1 with the target SNO group". It is not — a
+Particle payload takes type 0 (3,287) *and* type 25 (4,283). **`+0x028` is the field that is
+1:1 with the group**, and it is what `TriggerEvent_Spawn` (`0x7100340F60`) actually dispatches
+on. Measured over all 52,138 attachments:
+
+| `ePayloadKind` | `nTargetSnoGroup` | agreement |
+| --- | --- | --- |
+| 0 | 1 Actor | 783 / 783 |
+| 1 | 27 Particle | 7,570 / 7,570 |
+| 2 | 23 Light | 12 / 12 |
+| 3 | 40 Sound | 28,069 / 28,069 |
+| 5 | 5 AmbientSound | 55 / 55 |
+| 6 | 17 Explosion | 736 / 736 |
+| 11 | 38 Shakes | 782 / 782 |
+| 12 | 68 Vibrations | 16 / 16 |
+
+It is a cache the editor stamps when the payload is set, so it is **stale** for the 10,555
+records with no payload and for every group 14 (EffectGroup) one — those take type 16 and never
+reach the switch. Read `nTargetSnoGroup` unless you are reproducing the dispatch.
+
+The pairing of the two enums is exact and holds at all three sites a `TriggerEvent` is authored
+(here, `Actor.arMsgTriggeredEvents`, and `EffectGroup.arEffectItems`): a Particle or Actor
+payload only ever rides type 0 or 25, an EffectGroup payload only ever type 16.
+
+### 8.3 A group 1 payload is another model
+
+`ePayloadKind == 0` sends `TriggerEvent_Spawn` to `Actor_SpawnFromSno` (`0x710021FDA0`), which
+builds a **whole ACD** — its own Appearance, its own AnimSet, named `<snoName>-<counter>` — and
+`Actor_ApplyAttachRequest` (`0x710021E6B0`) rides it on the event's hardpoint. So an attachment
+is not necessarily an effect: 783 of them (549 distinct `.acr`) add a second model to the scene
+at a frame. The relic an altar raises, the lid a chest throws, the corpse a death leaves behind.
 
 ---
 
@@ -747,8 +796,8 @@ Read unsigned instead, the same keys average |q| ≈ 1.65.
 | `_unknown04C` | perm +0x04C | registered default 5.0, carried by 17,069 / 17,249 (98.96 %). The 180 that deviate are strikingly uniform: 3.0 ×85, 2.0 ×24 and 1.0 ×4 are **almost entirely character-selection-screen idle loops** (`*_Selection_Idle_*`, `*_Selection_Screen_idle`, `*_SelectScreen`) across every playable class; 0.0 ×64 is a mixed set of `*_Evade_*`, `Skeleton_assemble_*`, `OmniNPC_*_talk_*` and other looping idles; 10.0 ×3 is `assaultBeast_killGuard_foreshadow_idle_01` and `lacuniMale_attack_combo`. Consistent with a per-clip idle timing knob the selection screen tunes down, but **unread by the engine** (§13.1), so not named. The curated legacy name `flBlendWeight` is an unverified guess |
 | `_unknown06C/070/074` | perm +0x06C…074 | One group of three hand-authored fractions, **unread by the engine** (§13.1). Invariants over 17,249 permutations: `+0x074` lies in [0,1] in **all** of them (a hard bound — note `+0x070` does *not*, reaching 10.0 in 199 records, correcting pass 3); all three are multiples of 0.05 in ≥ 99.5 %, so they are authored rather than computed; `+0x070 == 0` exactly when `+0x074 == 0` in 17,178 (99.59 %), so the pair gates together; `+0x070 == +0x074` in 16,132 (93.5 %) and `+0x070 >= +0x074` in 16,762 (97.18 %); `+0x06C != 0` implies `+0x070 == +0x074` in 17,226 (99.87 %); and the triple is constant across a file's permutations in 15,030 / 15,258 files. Two triples cover 87 % — `(0,0,0)` ×10,197 and the registered default `(0,1,1)` ×4,788 — the rest being 0.2/0.3/0.5-style fractions |
 | `vPoint[i]` pairing | perm +0x0D8…0x104 | the array itself is **resolved** (§4, §9.2), including its `(0, 0, 4)` registered default — what remains open is only whether point `i` belongs to marker frame `i`. They share the same 0..3 index space, but no engine path reads both together |
-| `TriggerEvent.eEventType` | attach +0x004 | 22 distinct values, 1:1 with the target SNO group; enum names not recovered |
-| 15 `_unknown*` in `TriggerEvent` | see §8 | offsets and value censuses are established; meanings are not |
+| `TriggerEvent.eTriggerType` | attach +0x004 | **partly resolved** (§8.2): 6 of the 22 named from `TriggerEvent_Execute`'s switch. The rest drive gameplay state — equipment visuals, animation speed, tint ramps — and are dispatched but not named |
+| 14 `_unknown*` in `TriggerEvent` | see §8 | offsets and value censuses are established; meanings are not. `_unknown028` has left this row: it is `ePayloadKind`, §8.2 |
 
 Two of 17,249 permutations have a non-ASCII or unterminated `szName`; not investigated.
 

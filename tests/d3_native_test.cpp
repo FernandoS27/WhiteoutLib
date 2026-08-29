@@ -659,6 +659,27 @@ TEST_CASE("D3 native: Particle paths and payloads", "[d3][native]") {
     CHECK(eventCountMismatch == 0);
 }
 
+/// SNO group -> the PayloadKind that mirrors it, from ANI spec 8.2.  The engine
+/// dispatches on the kind (`TriggerEvent_Spawn`, 0x7100340F60) but the editor
+/// stamps it from the payload, so where a payload exists the two words are two
+/// spellings of one fact -- which is what makes the enum nameable, and what
+/// fails loudly here if the field is ever read from the wrong offset.
+///
+/// Keyed by GROUP, because the group is the fact and the kind is the stamp: a
+/// group that is not in this table (14 EffectGroup, 32 Rope, 45 Trail) is one
+/// the runtime reaches without ever consulting the kind, so its stamp says
+/// nothing and is not checked.
+static const std::map<i32, nat::PayloadKind> kGroupPayloadKind = {
+    {static_cast<i32>(nat::Group::Actor), nat::PayloadKind::Actor},
+    {static_cast<i32>(nat::Group::Particle), nat::PayloadKind::Particle},
+    {static_cast<i32>(nat::Group::Light), nat::PayloadKind::Light},
+    {static_cast<i32>(nat::Group::Sound), nat::PayloadKind::Sound},
+    {static_cast<i32>(nat::Group::AmbientSound), nat::PayloadKind::AmbientSound},
+    {static_cast<i32>(nat::Group::Explosion), nat::PayloadKind::Explosion},
+    {static_cast<i32>(nat::Group::Shakes), nat::PayloadKind::Shakes},
+    {static_cast<i32>(nat::Group::Vibrations), nat::PayloadKind::Vibrations},
+};
+
 /// Anim's struct is 56 bytes and the animation data sits in the payload as an
 /// array of 408-byte AnimPermutation.  The previous table modelled it as a
 /// 448-byte struct holding one animation, which reads permutation 0 correctly
@@ -681,6 +702,10 @@ TEST_CASE("D3 native: Anim permutations", "[d3][native]") {
     size_t inPlaceSized = 0, inPlaceOk = 0, inPlaceChecked = 0, inPlacePopulated = 0;
     size_t quatKeys = 0, quatUnit = 0, keyCountBad = 0, keyOrderBad = 0;
     size_t densityOk = 0, densityChecked = 0;
+    size_t events = 0, kindChecked = 0, kindOk = 0, groupUnnamed = 0;
+    size_t noPayload = 0, efgPayload = 0, typePaired = 0, typeUnpaired = 0;
+    std::map<i32, size_t> kindCensus, typeCensus, groupCensus;
+    std::map<i32, size_t> groupChecked;
     f32 worstQuat = 0.0f;
 
     for (const auto& e : fs::directory_iterator(dir)) {
@@ -711,6 +736,51 @@ TEST_CASE("D3 native: Anim permutations", "[d3][native]") {
                 ++curveMismatch;
             if (static_cast<i64>(pm.arAttachments.size()) != pm.dwAttachmentCount)
                 ++rootMismatch;
+
+            // The two enums types.h declares, as corpus facts rather than prose.
+            // Scope is decided by the payload's GROUP: no payload means the
+            // stamp is stale, and a group the runtime resolves without the
+            // dispatch (14, 32, 45) means it was never refreshed either.
+            for (const auto& at : pm.arAttachments) {
+                ++events;
+                const i32 kind = at.tEvent.ePayloadKind;
+                const i32 type = at.tEvent.eTriggerType;
+                const i32 grp = at.tEvent.tPayload.eSnoGroup;
+                ++kindCensus[kind];
+                ++typeCensus[type];
+                if (grp < 0) {
+                    ++noPayload;
+                    continue;
+                }
+                ++groupCensus[grp];
+                if (grp == static_cast<i32>(nat::Group::EffectGroup)) {
+                    ++efgPayload;
+                    // PlayEffectGroup is the only type a group 14 payload takes.
+                    if (type == static_cast<i32>(nat::TriggerType::PlayEffectGroup))
+                        ++typePaired;
+                    else
+                        ++typeUnpaired;
+                    continue;
+                }
+                const auto it = kGroupPayloadKind.find(grp);
+                if (it == kGroupPayloadKind.end()) {
+                    ++groupUnnamed;
+                    continue;
+                }
+                ++kindChecked;
+                ++groupChecked[grp];
+                if (static_cast<i32>(it->second) == kind) ++kindOk;
+                // A Particle or Actor payload only ever rides Spawn or
+                // SpawnAttached -- the other half of the pairing.
+                if (grp == static_cast<i32>(nat::Group::Particle) ||
+                    grp == static_cast<i32>(nat::Group::Actor)) {
+                    if (type == static_cast<i32>(nat::TriggerType::Spawn) ||
+                        type == static_cast<i32>(nat::TriggerType::SpawnAttached))
+                        ++typePaired;
+                    else
+                        ++typeUnpaired;
+                }
+            }
 
             // The identity that pins both the root-motion array and the units of
             // vMovementVelocity: total displacement over the clip equals the
@@ -837,7 +907,20 @@ TEST_CASE("D3 native: Anim permutations", "[d3][native]") {
               << "key frames ascending: " << keyOrderBad << "\n"
               << "in-place track sized: " << (perms - inPlaceSized) << "\n"
               << "key density bit-exact:" << (densityChecked - densityOk) << " of "
-              << densityChecked << "\n";
+              << densityChecked << "\n"
+              << "ePayloadKind vs group: " << kindOk << " / " << kindChecked
+              << "   (no payload: " << noPayload << ", EffectGroup: " << efgPayload
+              << ", other unnamed group: " << groupUnnamed << ", of " << events
+              << " events)\n"
+              << "enum pairing:         " << typePaired << " paired, " << typeUnpaired
+              << " unpaired  (must be 0)\n";
+    std::cout << "payload group census:";
+    for (auto& [g, n] : groupCensus) std::cout << "  " << g << ":" << n;
+    std::cout << "\nePayloadKind census: ";
+    for (auto& [k, n] : kindCensus) std::cout << "  " << k << ":" << n;
+    std::cout << "\neTriggerType census: ";
+    for (auto& [t, n] : typeCensus) std::cout << "  " << t << ":" << n;
+    std::cout << "\n";
 
     CHECK(parsed == files);
     CHECK(perms > files);          // more permutations than files => multi-perm works
@@ -870,6 +953,20 @@ TEST_CASE("D3 native: Anim permutations", "[d3][native]") {
     // +0x50/54/58 are baked per-channel keyframe density, bit-exact in f32.
     CHECK(densityChecked > 0);
     CHECK(densityOk == densityChecked);
+    // ANI spec 8.2. Exact, not proportional: the field is a stamped mirror, so
+    // one disagreement means it is not the field the enum says it is.
+    CHECK(events > 0);
+    CHECK(kindChecked > 0);
+    CHECK(kindOk == kindChecked);
+    // Every one of the eight pairs is actually exercised, so the check above
+    // cannot pass by only ever seeing Sound.
+    for (const auto& kv : kGroupPayloadKind) {
+        INFO("payload group " << kv.first);
+        CHECK(groupChecked.count(kv.first) == 1);
+    }
+    // A payload's kind and its trigger type agree at every site.
+    CHECK(typePaired > 0);
+    CHECK(typeUnpaired == 0);
 }
 
 /// AnimSet is one core tag map plus a FixedArray of 28 override maps indexed by

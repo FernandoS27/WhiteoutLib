@@ -382,6 +382,35 @@ The array is `MaterialTextureEntry[]`, 160 bytes each — which is exactly why t
 "gradient size" was always a multiple of 160. That element type is already fully
 described by the `.mat` / `.app` work; nothing here needs a separate decode.
 
+**What the entries are for (2026-08-29).** `Particle_DrawBatch` @`0x71000B63A0`
+binds exactly four of them, by `EMaterialTextureType`, and skips the rest of the
+material system entirely -- no `Render_ResolveMaterialTextureStages`, no
+`Material` SNO, pass index literal 0:
+
+| Stage type | Runtime field |
+|-----------:|:--------------|
+| 1 | `sys+300` |
+| 19 | `sys+304` |
+| 12 | `sys+308` |
+| 14 | `sys+312` |
+
+Measured over all 21,593 files / 35,631 entries: type 1 x 18,462, 19 x 13,157,
+12 x 2,066, 14 x 1,622, plus 300 entries of twelve other types that no particle
+pass declares. Entries per file: 0 x 3,120, 1 x 5,327, 2 x 11,030, 3 x 544,
+4 x 1,572; the leading sets are `{1,19}` x 10,904 and `{1}` x 5,311.
+
+`snoShaderMap` resolves through the ordinary `ShaderMap_ResolveShaderOpaque`
+chain, and what it lands on is the FIXED-FUNCTION billboard family: of the
+18,420 files that resolve a pass, **16,420 are `Billboard.fx`** and 1,989 are
+`SoftBillboard.fx` (the same chain with stage type 39, the scene-colour copy,
+in front for a depth fade). Nineteen of the twenty corpus `SoftBillboard.fx`
+shaders still bind `ps_legacy`. So the `Legacy.fx` per-stage combine block --
+tens digit the op, units digit the MODULATE2X/4X gain -- is what governs the
+chain, and shipped gains reach x4 on the colour and x32 on the alpha. The
+render state is the pass's own: blend `(5,2)` x 7,450, `(5,6)` x 6,665,
+`(11,5)` x 3,142; depth write on 6 of 18,420; alpha test on 367; and the
+lighting tag `0xA000F` is 0, so particles are unlit.
+
 Every claim above is checked against all 21,593 files:
 
 | Check | Result |
@@ -769,10 +798,10 @@ corpus filenames then name the values without ambiguity.
 | Value | Files | Update path | Reading |
 |------:|------:|:------------|:--------|
 | 0 | 16,685 | normal | **Standard** particle system |
-| 1 | 4,790 | normal | **Ribbon / trail** -- `EmitParticle` takes a separate branch that appends 176-byte segment records instead of pool particles. Names: `cos_wings_*`, `*_helix`, `discEmitter`, `blastWave`, `flailSweep`, `Portal_Backing_Vertical` |
+| 1 | 4,790 | normal | **Child actor** -- `EmitParticle` takes a separate branch that spawns a whole `.acr` per emission and pools no particle at all. Names: `cos_wings_*`, `*_helix`, `discEmitter`, `blastWave`, `flailSweep`, `Portal_Backing_Vertical`. See below |
 | 2 | 31 | normal + physics body | **Swarm** -- each particle also owns a 40-byte `{invMass, pos, vel}` body in a shared world-collision solver. Names: `g_gnats`, `flies_deadbodies`, `TorchEmbers`, `Random_Stars` |
-| 3 | 1 | normal + physics body | ribbon **and** physics (`assaultBeast_death_popper`) |
-| 4 | 4 | **never updated** | **Light shaft / volumetric**: `P6_Church_lightShaft`, `Lightray_Blue`, `Coast_Mist`, `Misty_Wind` |
+| 3 | 1 | normal + physics body | child actor **and** physics (`assaultBeast_death_popper`) |
+| 4 | 4 | **never updated** | **Light shaft / volumetric**: `P6_Church_lightShaft`, `Lightray_Blue`, `Coast_Mist`, `Misty_Wind`. A child-actor type too, but its emitter never ticks |
 | 5 | 0 | never updated | unused in this corpus |
 | 6 | 28 | **wind spring only** | **Wind-swayed foliage**: `BattleNet_Grass_C`, `Cattails*`, `DuneGrassA`, `Wheat*`, `Moss_Particle` |
 | 7 | 2 | **never updated** | **Static ground clutter**: `rockPebble_A_particle`, `Gravel_Clutter` |
@@ -787,6 +816,44 @@ Two consequences worth stating plainly:
 * Types **6 and 8 never run the particle simulation either.** They run
   `ParticleSystem_StepWindSpring` instead (§14), so none of the five motion models,
   the emission accumulator or the channel evaluation applies to them.
+
+**CORRECTED 2026-08-29 -- type 1 is not a ribbon.** The earlier reading came
+from the `cos_wings_*` names and from a 176-byte record; both point elsewhere.
+`ParticleSystem_EmitParticle` @`0x71000B1A00` opens on
+
+```
+type = sys+4
+if ((type - 3) < 2 || type == 1)   -> the CHILD-ACTOR path      // 1, 3, 4
+else if (type == 9)                -> the 176-byte record path  // weather
+else                               -> the 664-byte particle pool
+```
+
+so the segment record belongs to **type 9**, and types 1, 3 and 4 never touch
+the particle pool: the branch builds a 352-byte record on the *stack*, runs
+`Particle_InitLifeAndSize` plus one `ParticleSystem_UpdateParticles` over it,
+and calls `Actor_SpawnFromSno` (`0x710021FDA0`). Every emission is a whole ACD.
+
+The corpus settles it from the other side. `snoActor` (`0x338`) is what the
+branch's first line requires (`if (sys+440 == -1) return`), and it is set on
+
+```
+type 1: 4,790 of 4,790     type 3: 1 of 1     type 4: 4 of 4
+type 0: 1 of 16,685 (banner_treasureGoblin_glow.prt -- never read)
+everything else: 0
+```
+
+Consequences: the emit clamp counts **children**, not particles
+(`sys+408 + sys+376`), which is why **4,189 of the 4,795 author a target count
+of exactly 1** and 4,279 author no emission rate at all; the spawned actor is
+then forgotten (no transform is ever pushed to it, and
+`ParticleSystem_ReleaseAttachments` frees the link nodes and nothing else); and
+the scale is the birth-size channel times the actor's own tags 65543/65544,
+pre-multiplied by the emit path so `Actor_SpawnFromSno` does not apply it twice.
+
+Also from the same pass: `ParticleSystem_TickEmitter` returns before the
+accumulator for types **7 and 8** (`if (type - 7 < 2) return 0`), and
+`ParticleSystem_Update` only reaches the emitter for types outside 4..8, so five
+of the ten values never emit per frame at all.
 
 ### 11.4 `nRenderMode` (0x8D8)
 

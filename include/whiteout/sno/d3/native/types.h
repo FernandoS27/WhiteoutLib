@@ -297,11 +297,50 @@ struct HardpointLink {
     i32 nIndex{};
 };
 
+/// What a TriggerEvent does, from `TriggerEvent_Execute`'s switch
+/// (0x7100211040). Only the members below are named; the dispatcher has 32
+/// cases and the rest drive gameplay state a viewer has no equivalent for.
+///
+/// The pairing with @ref PayloadKind is exact in the shipped data: a Particle
+/// or Actor payload only ever rides @ref Spawn or @ref SpawnAttached, and an
+/// EffectGroup payload only ever rides @ref PlayEffectGroup, at all three
+/// authoring sites.
+enum class TriggerType : i32 {
+    Spawn = 0,             ///< Spawn the payload. 17,663 .acr + 11,212 .efg + 27,973 .ani.
+    PlayTrail = 4,         ///< Group 45, after matching the hardpoint by hash.
+    StopTagged = 7,        ///< Stop the tracked instances carrying this event's tag.
+    PlayRope = 11,         ///< Group 32.
+    PlayEffectGroup = 16,  ///< EffectGroup_Play. The only type a group 14 payload takes.
+    SpawnAttached = 25,    ///< Spawn, plus a lifetime and a play-request reset.
+    StopTaggedAlt = 26,    ///< The other stop.
+};
+
+/// What kind of thing a TriggerEvent's payload is, in the dense enum the
+/// runtime dispatches on. It duplicates `tPayload.eSnoGroup` and the editor
+/// stamps it when the payload is set, so it is *stale* wherever a payload was
+/// later cleared or changed group: measured over 52,138 anim attachments it
+/// agrees perfectly for the eight kinds below and is garbage for the 10,555
+/// items with no payload at all and for every EffectGroup one.
+enum class PayloadKind : i32 {
+    Actor = 0,         ///< 783 of 783 anim attachments with a group 1 payload.
+    Particle = 1,      ///< 7,570 of 7,570.
+    Light = 2,         ///< 12 of 12.
+    Sound = 3,         ///< 28,069 of 28,069.
+    AmbientSound = 5,  ///< 55 of 55.
+    Explosion = 6,     ///< 736 of 736.
+    Shakes = 11,       ///< 782 of 782.
+    Vibrations = 12,   ///< 16 of 16.
+};
+
 /// TriggerEvent -- 408 bytes on disk.
 struct TriggerEvent {
     i32 eTriggerType{};
     TriggerConditions tConditions{};
-    i32 dwUnknown28{};
+    /// @ref PayloadKind. Read `tPayload.eSnoGroup` instead unless you are
+    /// reproducing the runtime's own dispatch: this is the key
+    /// `TriggerEvent_Spawn` (0x7100340F60) switches on, and it lies for a
+    /// payload the author cleared.
+    i32 ePayloadKind{};
     SNOName tPayload{};
     i32 dwUnknown34{};
     i32 dwFlags38{};
