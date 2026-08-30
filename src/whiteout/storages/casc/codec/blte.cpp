@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include "../../common/byte_order.h"
-#include "../../common/inflate_fast.h"
 #include "../../common/hex.h"
+#include "../../common/inflate_fast.h"
 #include "../../common/md5.h"
 #include "../../common/zlib.h"
 #include "blte.h"
@@ -147,8 +147,8 @@ static FrameDecodeResult decodeFramePayload(std::span<const u8> payload,
             std::array<u8, 8> nameBytes{};
             for (size_t i = 0; i < 8; ++i)
                 nameBytes[i] = u8(keyName >> (8 * (7 - i)));
-            result.error = "missing encryption key 0x" +
-                           storages::common::hexEncode(nameBytes.data(), 8);
+            result.error =
+                "missing encryption key 0x" + storages::common::hexEncode(nameBytes.data(), 8);
             return result;
         }
         if (encType != BlteEncryption::kSalsa20) {
@@ -192,6 +192,55 @@ static FrameDecodeResult decodeFramePayload(std::span<const u8> payload,
     }
 
     return result;
+}
+
+struct FrameDecodeIntoResult {
+    size_t written = 0;
+    bool success = false;
+    std::string error;
+};
+
+/// Decode one frame into @p dst rather than into a fresh buffer.
+///
+/// Only the two modes that make up a BLTE blob's bulk — raw and zlib — write
+/// straight through; encrypted and recursive frames are rare enough that they
+/// keep the allocating path and get copied in.
+static FrameDecodeIntoResult decodeFrameInto(std::span<const u8> payload, std::span<u8> dst,
+                                             u32 expectedUncompressedSize, const KeyRing* keys,
+                                             size_t frameIndex) {
+    FrameDecodeIntoResult out;
+
+    if (!payload.empty() && expectedUncompressedSize > 0) {
+        u8 const mode = payload[0];
+        auto inner = payload.subspan(1);
+        if (mode == BlteFrameMode::kRaw && inner.size() <= dst.size()) {
+            std::memcpy(dst.data(), inner.data(), inner.size());
+            out.written = inner.size();
+            out.success = true;
+            return out;
+        }
+        if (mode == BlteFrameMode::kZlib) {
+            if (auto n = storages::common::zlibInflateFastInto(dst, inner)) {
+                out.written = *n;
+                out.success = true;
+                return out;
+            }
+        }
+    }
+
+    auto fr = decodeFramePayload(payload, expectedUncompressedSize, keys, frameIndex);
+    if (!fr.success) {
+        out.error = std::move(fr.error);
+        return out;
+    }
+    if (fr.data.size() > dst.size()) {
+        out.error = "frame decodes past the size its frame table declares";
+        return out;
+    }
+    std::memcpy(dst.data(), fr.data.data(), fr.data.size());
+    out.written = fr.data.size();
+    out.success = true;
+    return out;
 }
 
 // ============================================================================
@@ -336,21 +385,40 @@ BlteDecodeResult blteDecode(std::span<const u8> blteData, const KeyRing* keys,
             }
             result.data = std::move(fr.data);
         } else {
-            // Multi-frame: pre-reserve total uncompressed size if known.
+            // Multi-frame: size the output once from the frame table and decode
+            // each frame straight into its slice. Decoding into a per-frame
+            // vector and appending costs an allocation plus a full copy of every
+            // byte, and a WoW open pushes ~470 MB through here.
             size_t totalUncompressed = 0;
             for (auto& f : frames)
                 totalUncompressed += f.uncompressedSize;
-            if (totalUncompressed > 0)
-                result.data.reserve(totalUncompressed);
+            result.data.resize(totalUncompressed);
+
+            size_t written = 0;
             for (size_t i = 0; i < frames.size(); ++i) {
                 auto payload = blteData.subspan(offsets[i], frames[i].compressedSize);
-                auto fr = decodeFramePayload(payload, frames[i].uncompressedSize, keys, i);
+                if (totalUncompressed == 0) {
+                    // A frame table declaring no output cannot size the buffer,
+                    // so take whatever the frames decode to instead of calling
+                    // that an overrun.
+                    auto fr = decodeFramePayload(payload, frames[i].uncompressedSize, keys, i);
+                    if (!fr.success) {
+                        result.error = "frame " + std::to_string(i) + ": " + fr.error;
+                        return result;
+                    }
+                    result.data.insert(result.data.end(), fr.data.begin(), fr.data.end());
+                    written = result.data.size();
+                    continue;
+                }
+                auto fr = decodeFrameInto(payload, std::span<u8>(result.data).subspan(written),
+                                          frames[i].uncompressedSize, keys, i);
                 if (!fr.success) {
                     result.error = "frame " + std::to_string(i) + ": " + fr.error;
                     return result;
                 }
-                result.data.insert(result.data.end(), fr.data.begin(), fr.data.end());
+                written += fr.written;
             }
+            result.data.resize(written);
         }
     }
 

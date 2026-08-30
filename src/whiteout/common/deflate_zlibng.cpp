@@ -116,14 +116,22 @@ std::vector<u8> zlibInflateFast(std::span<const u8> src, size_t expectedSize) {
         return {};
 
     std::vector<u8> out(expectedSize);
-    size_t destLen = expectedSize;
-    int const rc = zng_uncompress(out.data(), &destLen, src.data(), src.size());
-    if (rc != Z_OK) {
+    auto written = zlibInflateFastInto(out, src);
+    if (!written) {
         // Size hint wrong or stream needs the growable path — fall back.
         return ::whiteout::zlib_decompress(src, nullptr, expectedSize);
     }
-    out.resize(destLen);
+    out.resize(*written);
     return out;
+}
+
+std::optional<size_t> zlibInflateFastInto(std::span<u8> dst, std::span<const u8> src) {
+    if (src.size() < 6)
+        return std::nullopt;
+    size_t destLen = dst.size();
+    if (zng_uncompress(dst.data(), &destLen, src.data(), src.size()) != Z_OK)
+        return std::nullopt;
+    return destLen;
 }
 
 } // namespace whiteout::storages::common

@@ -86,6 +86,9 @@ public:
     /// Locate the blob for @p eKey (whole key — see DataSource::findInIndex).
     virtual std::optional<IndexLocation> findInIndex(std::span<const u8, 16> eKey) const = 0;
 
+    /// Warm the cache line a later findInIndex of @p eKey will touch.
+    virtual void prefetchIndex(std::span<const u8, 16> eKey) const = 0;
+
     /// Fetch BLTE-encoded data from a resolved index location.
     virtual std::vector<u8> fetchBlte(const IndexLocation& loc) const = 0;
 

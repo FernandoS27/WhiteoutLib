@@ -22,6 +22,18 @@
 
 namespace whiteout::storages::casc {
 
+/// Warm the cache line at @p p. Table lookups that chain through an index into
+/// a second array need this for the second hop, which no key alone can locate.
+inline void prefetchAddress(const void* p) {
+#if defined(__GNUC__) || defined(__clang__)
+    __builtin_prefetch(p, 0, 1);
+#elif defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
+    _mm_prefetch(static_cast<const char*>(p), _MM_HINT_T0);
+#else
+    (void)p;
+#endif
+}
+
 /// Open-addressing hash map with u64 keys and fixed-type values.
 ///
 /// Uses identity masking (key & mask) instead of std::hash, exploiting the

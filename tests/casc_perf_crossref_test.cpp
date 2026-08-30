@@ -1630,13 +1630,18 @@ static void runPerfCrossRef(const std::string& cascPath,
 // Game discovery helpers
 // ============================================================================
 
-/// A local CASC storage is rooted at a `.build.info` manifest — the same marker
-/// Storage::open() keys off. This cleanly distinguishes CASC titles from
-/// MPQ-era ones (Warcraft III classic, StarCraft, Diablo II, …) without
-/// hard-coding a per-game allow-list.
+/// A local CASC storage is rooted at a `.build.info` manifest, or — for the
+/// static layout Steam ships — a `data/.build.config`. Those are the markers
+/// Storage::open() keys off, so this distinguishes CASC titles from MPQ-era
+/// ones (Warcraft III classic, StarCraft, Diablo II, …) without hard-coding a
+/// per-game allow-list. CascLib may still refuse a storage listed here; the
+/// benchmark reports that as a failed open rather than hiding the title.
 static bool looksLikeCascStorage(const std::string& path) {
     std::error_code ec;
-    return fs::exists(fs::path(path) / ".build.info", ec);
+    fs::path const root(path);
+    return fs::exists(root / ".build.info", ec) ||
+           fs::exists(root / "data" / ".build.config", ec) ||
+           fs::exists(root / ".build.config", ec);
 }
 
 /// Turn a display name into a filesystem-safe CSV stem.
@@ -1719,10 +1724,17 @@ int main(int argc, char* argv[]) {
     std::cout << "\n" << cascGames.size() << " CASC title(s) will be benchmarked.\n";
     if (listOnly) return 0;
 
+    std::unordered_map<std::string, int> stemUses;
+
     for (size_t i = 0; i < cascGames.size(); ++i) {
         auto& g = cascGames[i];
         std::string display = g.name.empty() ? ("game" + std::to_string(i)) : g.name;
-        std::string csvPath = "casc_perf_" + sanitizeName(display) + ".csv";
+        // One title can be installed twice (Battle.net and Steam), so keep the
+        // second copy from overwriting the first one's CSV.
+        std::string stem = sanitizeName(display);
+        if (int n = ++stemUses[stem]; n > 1)
+            stem += "_" + std::to_string(n);
+        std::string csvPath = "casc_perf_" + stem + ".csv";
 
         std::cout << "\n##################################################################\n";
         std::cout << "# [" << (i + 1) << "/" << cascGames.size() << "] " << display << "\n";

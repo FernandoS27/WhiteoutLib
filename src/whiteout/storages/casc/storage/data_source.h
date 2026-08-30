@@ -51,6 +51,13 @@ public:
     /// keeps the archive coordinates in the bytes past that prefix.
     /// Returns std::nullopt if the key is not indexed.
     virtual std::optional<IndexLocation> findInIndex(std::span<const u8, 16> eKey) const = 0;
+
+    /// Warm the cache line a later findInIndex of @p eKey will touch. A sweep
+    /// over millions of root entries is DRAM-latency bound, so issuing this a
+    /// few entries ahead hides most of the miss. No-op by default.
+    virtual void prefetchIndex(std::span<const u8, 16> eKey) const {
+        (void)eKey;
+    }
 };
 
 } // namespace whiteout::storages::casc

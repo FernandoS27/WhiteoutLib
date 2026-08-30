@@ -68,6 +68,9 @@ public:
     /// Matches first 9 bytes of eKeyPrefix.
     const IndexEntry* find(std::span<const u8> eKeyPrefix) const;
 
+    /// Warm the bucket a later find of @p eKeyPrefix will probe.
+    void prefetch(std::span<const u8> eKeyPrefix) const;
+
     void insert(const IndexEntry& entry);
     std::vector<std::pair<std::string, std::vector<u8>>> serialize() const;
 

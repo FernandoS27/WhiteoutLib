@@ -438,7 +438,15 @@ EncodingTable EncodingTable::parse(std::span<const u8> data, interfaces::WorkerP
         pool->submit(ekeyTask);
         jobGroup.wait();
     } else {
+        // Both maps are far larger than cache, so each insert is a DRAM miss.
+        // Interleaving the two builds and warming a few entries ahead keeps
+        // several of those misses in flight at once.
+        constexpr size_t kAhead = 8;
         for (size_t i = 0; i < n; ++i) {
+            if (i + kAhead < n) {
+                table.m_cKeyIndex.prefetch(keyHash64(table.m_entries[i + kAhead].cKey));
+                table.m_eKeyIndex.prefetch(keyHash64(table.m_entries[i + kAhead].eKey));
+            }
             table.m_cKeyIndex.emplace(keyHash64(table.m_entries[i].cKey), i);
             table.m_eKeyIndex.emplace(keyHash64(table.m_entries[i].eKey), i);
         }
@@ -586,6 +594,17 @@ void EncodingTable::ensureFullyParsed() const {
 // ============================================================================
 // findByCKey
 // ============================================================================
+
+void EncodingTable::prefetchCKey(std::span<const u8, 16> cKey) const {
+    m_cKeyIndex.prefetch(keyHash64(cKey.data()));
+}
+
+void EncodingTable::prefetchCKeyEntry(std::span<const u8, 16> cKey) const {
+    if (m_lazy)
+        return; // A miss here would fault in a page; that is not a prefetch.
+    if (auto* idx = m_cKeyIndex.find(keyHash64(cKey.data())))
+        prefetchAddress(&m_entries[*idx]);
+}
 
 const EncodingEntry* EncodingTable::findByCKey(std::span<const u8, 16> cKey,
                                                size_t matchBytes) const {

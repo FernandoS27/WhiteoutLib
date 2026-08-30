@@ -178,6 +178,12 @@ if(WHITEOUT_ENABLE_CASC)
     target_link_libraries(casc_d4_open_bench PRIVATE whiteout_casc)
     target_include_directories(casc_d4_open_bench PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+    # Diagnostic for the D4 readBatch cliff — standalone, public API only.
+    # Usage: casc_d4_batch_probe [casc_path] [--sample N] [--chunk N]
+    add_executable(casc_d4_batch_probe casc_d4_batch_probe.cpp)
+    target_link_libraries(casc_d4_batch_probe PRIVATE whiteout_casc)
+    target_include_directories(casc_d4_batch_probe PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
     # Open-then-read benchmark. Public API only, so the same source builds
     # against an unoptimised tree for A/B comparison.
     # Usage: casc_read_bench <casc_path> --listfile <path> [--files N] [--reps N]

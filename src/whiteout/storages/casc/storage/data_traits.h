@@ -47,6 +47,10 @@ struct LocalDataTraits {
         return dataSource->findInIndex(eKey);
     }
 
+    void prefetchIndex(std::span<const u8, 16> eKey) const {
+        dataSource->prefetchIndex(eKey);
+    }
+
     std::vector<u8> fetchBlte(const IndexLocation& loc) const {
         return dataSource->fetchBlte(loc);
     }
@@ -94,6 +98,10 @@ struct OnlineDataTraits {
 
     std::optional<IndexLocation> findInIndex(std::span<const u8, 16> eKey) const {
         return dataSource->findInIndex(eKey);
+    }
+
+    void prefetchIndex(std::span<const u8, 16> eKey) const {
+        dataSource->prefetchIndex(eKey);
     }
 
     std::vector<u8> fetchBlte(const IndexLocation& loc) const {

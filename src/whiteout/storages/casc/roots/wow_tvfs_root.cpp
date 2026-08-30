@@ -200,11 +200,42 @@ void WowTvfsRoot::buildFileDataIdIndex() {
         if (m_entries[i].fileDataId != kInvalidFileDataId)
             m_byFileDataId.emplace_back(m_entries[i].fileDataId, u32(i));
     }
+
     // Ties keep ascending entry order, so selectBestEntry resolves a FileDataId
     // with several locale/content variants to the one the manifest lists first.
     // The unordered_multimap this replaced enumerated equal keys in hash-bucket
     // order, which is neither portable nor meaningful.
-    std::sort(m_byFileDataId.begin(), m_byFileDataId.end());
+    //
+    // Two 16-bit LSD radix passes: the pairs are built in ascending index
+    // order, and a stable sort on the id alone therefore preserves the tie
+    // rule, at ~3x the speed of comparison-sorting 3.2M pairs. Small inputs
+    // are not worth the scratch buffer.
+    constexpr size_t kMinRadix = 1u << 16;
+    if (m_byFileDataId.size() < kMinRadix) {
+        std::sort(m_byFileDataId.begin(), m_byFileDataId.end());
+        return;
+    }
+
+    size_t const n = m_byFileDataId.size();
+    std::vector<std::pair<u32, u32>> scratch(n);
+    auto* src = m_byFileDataId.data();
+    auto* dst = scratch.data();
+    std::vector<u32> counts(1u << 16);
+    for (int shift = 0; shift <= 16; shift += 16) {
+        std::fill(counts.begin(), counts.end(), 0u);
+        for (size_t i = 0; i < n; ++i)
+            ++counts[(src[i].first >> shift) & 0xFFFF];
+        u32 running = 0;
+        for (auto& c : counts) {
+            u32 const here = c;
+            c = running;
+            running += here;
+        }
+        for (size_t i = 0; i < n; ++i)
+            dst[counts[(src[i].first >> shift) & 0xFFFF]++] = src[i];
+        std::swap(src, dst);
+    }
+    // Two passes land the result back in m_byFileDataId's own buffer.
 }
 
 void WowTvfsRoot::buildPathIndex(interfaces::WorkerPool* pool) {

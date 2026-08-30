@@ -46,6 +46,11 @@ public:
         };
     }
 
+    void prefetchIndex(std::span<const u8, 16> eKey) const override {
+        if (!m_static.valid)
+            m_index->prefetch(eKeyTrunc(eKey));
+    }
+
     std::vector<u8> fetchBlte(const std::array<u8, 16>& eKey) override {
         auto loc = findInIndex(std::span<const u8, 16>(eKey));
         if (!loc)

@@ -45,14 +45,24 @@ struct Info {
 
 namespace detail {
 
+/// Digit value, or 0xFF for a non-hex character. Table-driven: WoW retail
+/// decodes ~52 hex digits for each of 3.2M leaf names at open, and the compare
+/// chain this replaces was the bulk of that pass.
+inline constexpr std::array<u8, 256> kHexValues = [] {
+    std::array<u8, 256> t{};
+    for (auto& v : t)
+        v = 0xFF;
+    for (u8 i = 0; i < 10; ++i)
+        t[static_cast<size_t>('0') + i] = i;
+    for (u8 i = 0; i < 6; ++i) {
+        t[static_cast<size_t>('a') + i] = static_cast<u8>(10 + i);
+        t[static_cast<size_t>('A') + i] = static_cast<u8>(10 + i);
+    }
+    return t;
+}();
+
 inline u8 hexDigit(char c) noexcept {
-    if (c >= '0' && c <= '9')
-        return static_cast<u8>(c - '0');
-    if (c >= 'a' && c <= 'f')
-        return static_cast<u8>(c - 'a' + 10);
-    if (c >= 'A' && c <= 'F')
-        return static_cast<u8>(c - 'A' + 10);
-    return 0xFF;
+    return kHexValues[static_cast<u8>(c)];
 }
 
 /// Parse @p len hex digits at @p s into a u32 (most-significant nibble first).

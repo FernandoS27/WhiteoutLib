@@ -1151,7 +1151,9 @@ int main(int argc, char* argv[]) {
     if (!dumpPath.empty()) {
         OpenOptions o;
         o.path = cascPath;
-        o.pool = &pool;
+        // --nopool makes the dump comparable against the single-threaded open,
+        // which is the path the pooled one has to agree with.
+        o.pool = singleNoPool ? nullptr : &pool;
         if (!listfile.empty())
             o.listfile = std::span<const u8>(listfile);
         auto s = Storage::open(o);

@@ -11,8 +11,10 @@
 #include <whiteout/utils/job_group.h>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <mutex>
+#include <string_view>
 
 namespace whiteout::storages::casc {
 
@@ -157,14 +159,65 @@ struct SubtreeJob {
     int depth = 0;
 };
 
+/// The VFS sub-manifest EKeys, packed for membership testing.
+///
+/// TVFS pins eKeySize at 9 (parseHeader rejects anything else), so each key
+/// fits in a u64 plus one trailing byte and every binary-search step becomes an
+/// integer compare instead of a memcmp call.
+struct VfsKeySet {
+    std::vector<std::pair<u64, u8>> keys; ///< Sorted.
+
+    /// One bit per 16-bit key prefix. A manifest names far more files than it
+    /// has sub-manifests (3.2M against 864 on WoW retail), so nearly every
+    /// query is a miss and this rejects it from an 8 KB table instead of
+    /// walking the search.
+    std::array<u64, 1024> prefixBits{};
+
+    static std::pair<u64, u8> pack(const u8* k) {
+        u64 hi = 0;
+        for (int i = 0; i < 8; ++i)
+            hi = (hi << 8) | k[i];
+        return {hi, k[8]};
+    }
+
+    static u32 prefixOf(const u8* k) {
+        return (u32(k[0]) << 8) | k[1];
+    }
+
+    void build(const std::vector<std::array<u8, 16>>& src) {
+        keys.clear();
+        keys.reserve(src.size());
+        prefixBits.fill(0);
+        for (auto& k : src) {
+            keys.push_back(pack(k.data()));
+            u32 const p = prefixOf(k.data());
+            prefixBits[p >> 6] |= u64(1) << (p & 63);
+        }
+        std::sort(keys.begin(), keys.end());
+    }
+
+    bool empty() const {
+        return keys.empty();
+    }
+
+    bool contains(const u8* eKey) const {
+        u32 const p = prefixOf(eKey);
+        if ((prefixBits[p >> 6] & (u64(1) << (p & 63))) == 0)
+            return false;
+        auto const probe = pack(eKey);
+        auto it = std::lower_bound(keys.begin(), keys.end(), probe);
+        return it != keys.end() && *it == probe;
+    }
+};
+
 /// Context for recursive path-tree traversal.
 struct TraversalCtx {
     std::span<const u8> data;
     const TvfsHeader& hdr;
     u32 cftOffsSize;
     std::vector<RootEntry>& entries;
-    const VfsResolver* resolver;                     ///< null when no sub-container resolution.
-    const std::vector<std::array<u8, 16>>* vfsEKeys; ///< null when no sub-container resolution.
+    const VfsResolver* resolver; ///< null when no sub-container resolution.
+    const VfsKeySet* vfsKeys;    ///< null when no sub-container resolution.
     /// When non-null, sub-containers are queued here instead of recursed into
     /// inline — lets the caller traverse them in parallel. Null in job contexts
     /// (nested sub-containers recurse inline within their parent job).
@@ -188,25 +241,22 @@ static void copyKey16(std::array<u8, 16>& dst, const u8* src, u32 srcSize) {
 }
 
 /// Membership test against the VFS sub-manifest EKeys. Every single-span entry
-/// asks this, so on WoW retail a linear scan is 3.2M entries × 864 keys. The
-/// list is sorted by traverseTvfsBlob before any context points at it.
+/// asks it, so on WoW retail that is 3.2M queries against ~864 keys, and a
+/// 9-byte memcmp per binary-search step cost more than the traversal around it.
+/// Packing each key into a (first 8 bytes, 9th byte) pair makes every step an
+/// integer compare over an array that stays in L1.
 static bool isVfsSubManifest(const TraversalCtx& ctx, const u8* eKey) {
-    if (!ctx.vfsEKeys)
+    if (!ctx.vfsKeys || ctx.vfsKeys->empty())
         return false;
-    u32 const len = ctx.hdr.eKeySize;
-    auto it = std::lower_bound(ctx.vfsEKeys->begin(), ctx.vfsEKeys->end(), eKey,
-                               [len](const std::array<u8, 16>& a, const u8* k) {
-                                   return std::memcmp(a.data(), k, len) < 0;
-                               });
-    return it != ctx.vfsEKeys->end() && std::memcmp(it->data(), eKey, len) == 0;
+    return ctx.vfsKeys->contains(eKey);
 }
 
 /// If a single-span entry resolves to a known VFS sub-manifest, emit a
 /// container entry, recurse into the sub-manifest with a `path:` prefix,
 /// and return true. Returns false to fall through to the normal-entry path.
-static bool tryEmitSubContainer(TraversalCtx& ctx, const std::string& path, size_t vfsPos,
+static bool tryEmitSubContainer(TraversalCtx& ctx, std::string_view path, size_t vfsPos,
                                 u32 spanEntrySize, bool hasCKey) {
-    if (!ctx.resolver || !ctx.vfsEKeys)
+    if (!ctx.resolver || !ctx.vfsKeys)
         return false;
 
     auto& hdr = ctx.hdr;
@@ -226,7 +276,8 @@ static bool tryEmitSubContainer(TraversalCtx& ctx, const std::string& path, size
         return false;
 
     // CascLib uses ':' to separate the sub-container from its parent path.
-    std::string containerPath = path + ":";
+    std::string containerPath(path);
+    containerPath += ':';
 
     RootEntry containerEntry;
     containerEntry.path = containerPath;
@@ -251,7 +302,7 @@ static bool tryEmitSubContainer(TraversalCtx& ctx, const std::string& path, size
         if (parseHeader(subData, subHdr)) {
             u32 const subCftOffsSize = getCftOffsSize(subHdr.cftTableSize);
             TraversalCtx subCtx{subData,     subHdr,       subCftOffsSize,
-                                ctx.entries, ctx.resolver, ctx.vfsEKeys};
+                                ctx.entries, ctx.resolver, ctx.vfsKeys};
             parsePathTable(subCtx, containerPath);
         }
     }
@@ -259,7 +310,7 @@ static bool tryEmitSubContainer(TraversalCtx& ctx, const std::string& path, size
 }
 
 /// Leaf node: resolve VFS → CFT → EKey [+ CKey], emit one entry per span.
-static void processFileEntry(TraversalCtx& ctx, const std::string& path, u32 vfsOffset) {
+static void processFileEntry(TraversalCtx& ctx, std::string_view path, u32 vfsOffset) {
     auto& hdr = ctx.hdr;
     const u8* vfsBase = ctx.data.data() + hdr.vfsTableOffset;
     const u8* cftBase = ctx.data.data() + hdr.cftTableOffset;
@@ -292,16 +343,31 @@ static void processFileEntry(TraversalCtx& ctx, const std::string& path, u32 vfs
         if (cftOffset + cftEntrySize > hdr.cftTableSize)
             continue;
 
-        RootEntry entry;
+        // Built in place: a local RootEntry would be zero-filled, then moved
+        // 128 bytes into the vector, for each of 3.2M entries. The keys need no
+        // clearing either — emplace_back already zeroed them.
+        auto& entry = ctx.entries.emplace_back();
         entry.path = path;
-        copyKey16(entry.eKey, cftBase + cftOffset, hdr.eKeySize);
+        std::memcpy(entry.eKey.data(), cftBase + cftOffset, hdr.eKeySize);
         if (hasCKey)
-            copyKey16(entry.cKey, cftBase + cftOffset + hdr.eKeySize, hdr.eKeySize);
+            std::memcpy(entry.cKey.data(), cftBase + cftOffset + hdr.eKeySize, hdr.eKeySize);
         // else: cKey stays zero — resolution must use eKey directly.
-
-        ctx.entries.push_back(std::move(entry));
     }
 }
+
+/// Path bytes as CASC stores them: forward slashes become backslashes and
+/// ASCII upper case becomes lower case. Locale-free by construction —
+/// std::tolower would consult the C locale for every one of the ~170M
+/// characters a WoW retail traversal normalizes.
+inline constexpr std::array<u8, 256> kNormalizedPathChar = [] {
+    std::array<u8, 256> t{};
+    for (size_t i = 0; i < 256; ++i)
+        t[i] = static_cast<u8>(i);
+    for (u8 c = 'A'; c <= 'Z'; ++c)
+        t[c] = static_cast<u8>(c + ('a' - 'A'));
+    t[static_cast<size_t>('/')] = static_cast<u8>('\\');
+    return t;
+}();
 
 /// Recursive prefix-tree traversal.
 ///
@@ -339,22 +405,17 @@ static void traversePathTree(TraversalCtx& ctx, const u8* node, const u8* nodeEn
                 break;
         }
 
-        // Name fragment: [len][bytes].  Lowercase in-place so the path is
-        // already normalized for lookup (avoids a post-pass over all entries).
-        std::string name;
+        // Name fragment: [len][bytes]. Appended (and normalized) below rather
+        // than materialized here — a temporary would be a heap allocation per
+        // node, and WoW retail walks 3.2M of them.
+        const u8* nameData = nullptr;
+        u8 nameLen = 0;
         if (node < nodeEnd && *node != kTvfsNodeValueMarker) {
-            u8 const nameLen = *node++;
+            nameLen = *node++;
             if (node + nameLen > nodeEnd)
                 return;
-            if (nameLen > 0) {
-                name.assign(reinterpret_cast<const char*>(node), nameLen);
-                for (auto& c : name) {
-                    if (c == '/')
-                        c = '\\';
-                    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                }
-                node += nameLen;
-            }
+            nameData = node;
+            node += nameLen;
         }
 
         // Post-0x00: path separator after name.
@@ -383,7 +444,18 @@ static void traversePathTree(TraversalCtx& ctx, const u8* node, const u8* nodeEn
 
         // --- PathBuffer_AppendNode equivalent ---
         // (pre-separator was already appended above)
-        pathBuf += name;
+        //
+        // Normalized as it is copied so the path is ready for lookup without a
+        // post-pass over all entries. Through a table and a raw pointer: this
+        // runs over ~170M characters on WoW retail, and going through
+        // std::string::operator[] repeats the small-string check per character.
+        if (nameLen > 0) {
+            size_t const nameAt = pathBuf.size();
+            pathBuf.resize(nameAt + nameLen);
+            char* out = pathBuf.data() + nameAt;
+            for (u8 i = 0; i < nameLen; ++i)
+                out[i] = static_cast<char>(kNormalizedPathChar[nameData[i]]);
+        }
         if (hasPostSep)
             pathBuf += '\\';
 
@@ -418,10 +490,7 @@ static void traversePathTree(TraversalCtx& ctx, const u8* node, const u8* nodeEn
                 size_t e = pathBuf.size();
                 while (e > s && pathBuf[e - 1] == '\\')
                     --e;
-                if (s > 0 || e < pathBuf.size())
-                    processFileEntry(ctx, pathBuf.substr(s, e - s), nodeValue);
-                else
-                    processFileEntry(ctx, pathBuf, nodeValue);
+                processFileEntry(ctx, std::string_view(pathBuf).substr(s, e - s), nodeValue);
             }
 
             // Restore path buffer to the save-point (undo this entry + any
@@ -490,7 +559,7 @@ static constexpr int kMaxSplitDepth = 32;
 /// private buffer (concatenated once at the end) under a short-held lock.
 struct ParallelTraverseState {
     const VfsResolver* resolver = nullptr;
-    const std::vector<std::array<u8, 16>>* vfsEKeys = nullptr;
+    const VfsKeySet* vfsKeys = nullptr;
     /// One slot per job, each written by exactly one worker and concatenated in
     /// job order. Entry order decides which variant a FileDataId with several
     /// locale/content candidates resolves to, so it has to be reproducible —
@@ -503,7 +572,7 @@ struct ParallelTraverseState {
 /// array, so growing them in place would false-share their control blocks.
 static void traverseSubtreeJob(ParallelTraverseState& st, const SubtreeJob& job, size_t slot) {
     std::vector<RootEntry> local;
-    TraversalCtx ctx{job.data, job.hdr, job.cftOffsSize, local, st.resolver, st.vfsEKeys};
+    TraversalCtx ctx{job.data, job.hdr, job.cftOffsSize, local, st.resolver, st.vfsKeys};
     traversePathTree(ctx, job.node, job.nodeEnd, job.accumulated, job.depth);
     st.buffers[slot] = std::move(local);
 }
@@ -517,7 +586,7 @@ static void traverseSmallManifestJob(ParallelTraverseState& st, const SubManifes
         TvfsHeader subHdr;
         if (parseHeader(subData, subHdr)) {
             u32 const subCftOffsSize = getCftOffsSize(subHdr.cftTableSize);
-            TraversalCtx ctx{subData, subHdr, subCftOffsSize, local, st.resolver, st.vfsEKeys};
+            TraversalCtx ctx{subData, subHdr, subCftOffsSize, local, st.resolver, st.vfsKeys};
             parsePathTable(ctx, job.containerPath);
         }
     }
@@ -550,22 +619,36 @@ bool traverseTvfsBlob(std::span<const u8> data, const VfsResolver* resolver,
 
     u32 const cftOffsSize = getCftOffsSize(hdr.cftTableSize);
 
-    // isVfsSubManifest binary-searches this list, so sort a copy up front and
+    // isVfsSubManifest binary-searches this set, so pack + sort it up front and
     // point every traversal context at it instead of the caller's order.
-    std::vector<std::array<u8, 16>> sortedVfsEKeys;
+    VfsKeySet vfsKeySet;
+    const VfsKeySet* vfsKeys = nullptr;
     if (vfsEKeys && !vfsEKeys->empty()) {
-        sortedVfsEKeys = *vfsEKeys;
-        u32 const len = hdr.eKeySize;
-        std::sort(sortedVfsEKeys.begin(), sortedVfsEKeys.end(),
-                  [len](const std::array<u8, 16>& a, const std::array<u8, 16>& b) {
-                      return std::memcmp(a.data(), b.data(), len) < 0;
-                  });
-        vfsEKeys = &sortedVfsEKeys;
+        vfsKeySet.build(*vfsEKeys);
+        vfsKeys = &vfsKeySet;
     }
 
     // No sub-container resolution, or no pool — single-threaded recursion.
-    if (!resolver || !vfsEKeys || !pool) {
-        TraversalCtx ctx{data, hdr, cftOffsSize, outEntries, resolver, vfsEKeys};
+    if (!resolver || !vfsKeys || !pool) {
+        // Everything lands in one vector here, so size it before the walk: the
+        // parallel path gets an exact count for free when it concatenates its
+        // per-job buffers, but growing into 3.2M entries costs ~240 ms. The VFS
+        // table holds one record per file, so its byte size over the record
+        // stride lands within 0.1% of the real count on WoW retail.
+        if (resolver && vfsEKeys) {
+            auto entriesIn = [](const TvfsHeader& h) {
+                return h.vfsTableSize / (1 + 4 + 4 + getCftOffsSize(h.cftTableSize));
+            };
+            size_t predicted = entriesIn(hdr);
+            for (auto& k : *vfsEKeys) {
+                auto blob = (*resolver)(std::span<const u8>(k.data(), kTvfsEKeySize));
+                TvfsHeader subHdr;
+                if (!blob.empty() && parseHeader(blob, subHdr))
+                    predicted += entriesIn(subHdr);
+            }
+            outEntries.reserve(predicted);
+        }
+        TraversalCtx ctx{data, hdr, cftOffsSize, outEntries, resolver, vfsKeys};
         parsePathTable(ctx);
         return !outEntries.empty();
     }
@@ -579,7 +662,7 @@ bool traverseTvfsBlob(std::span<const u8> data, const VfsResolver* resolver,
     // queues folder children onto the worklist, queues sub-containers as refs.
     auto seedBlob = [&](std::span<const u8> bd, const TvfsHeader& bh, u32 bc,
                         const std::string& prefix) {
-        TraversalCtx ctx{bd, bh, bc, outEntries, resolver, vfsEKeys, &manifestRefs, &worklist};
+        TraversalCtx ctx{bd, bh, bc, outEntries, resolver, vfsKeys, &manifestRefs, &worklist};
         parsePathTable(ctx, prefix);
     };
 
@@ -589,8 +672,8 @@ bool traverseTvfsBlob(std::span<const u8> data, const VfsResolver* resolver,
     // the root blob must be walked completely to collect every sub-container
     // ref. Sub-containers are deferred (pendingJobs); folders recurse inline.
     {
-        TraversalCtx ctx{data,     hdr,      cftOffsSize,   outEntries,
-                         resolver, vfsEKeys, &manifestRefs, /*pendingSubtrees=*/nullptr};
+        TraversalCtx ctx{data,     hdr,     cftOffsSize,   outEntries,
+                         resolver, vfsKeys, &manifestRefs, /*pendingSubtrees=*/nullptr};
         parsePathTable(ctx);
     }
 
@@ -627,8 +710,8 @@ bool traverseTvfsBlob(std::span<const u8> data, const VfsResolver* resolver,
                 readyJobs.push_back(std::move(job));
                 continue;
             }
-            TraversalCtx ctx{job.data, job.hdr,  job.cftOffsSize, outEntries,
-                             resolver, vfsEKeys, &manifestRefs,   &worklist};
+            TraversalCtx ctx{job.data, job.hdr, job.cftOffsSize, outEntries,
+                             resolver, vfsKeys, &manifestRefs,   &worklist};
             traversePathTree(ctx, job.node, job.nodeEnd, job.accumulated, job.depth);
         }
     }
@@ -639,7 +722,7 @@ bool traverseTvfsBlob(std::span<const u8> data, const VfsResolver* resolver,
     // small) subtree fully into a private buffer. No job spawns work.
     ParallelTraverseState st;
     st.resolver = resolver;
-    st.vfsEKeys = vfsEKeys;
+    st.vfsKeys = vfsKeys;
     st.buffers.resize(readyJobs.size() + smallManifests.size());
     {
         utils::JobGroup jobGroup;

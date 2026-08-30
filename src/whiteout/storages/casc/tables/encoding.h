@@ -61,6 +61,15 @@ public:
     bool isValid() const;
 
     const EncodingEntry* findByCKey(std::span<const u8, 16> cKey, size_t matchBytes = 0) const;
+
+    /// Warm the bucket a later findByCKey of @p cKey will probe.
+    void prefetchCKey(std::span<const u8, 16> cKey) const;
+
+    /// Second stage of the same warm-up: resolve the bucket (already warm from
+    /// an earlier prefetchCKey) and touch the entry it points at. findByCKey
+    /// costs two dependent misses, and a key alone cannot locate the second.
+    void prefetchCKeyEntry(std::span<const u8, 16> cKey) const;
+
     const EncodingEntry* findByEKey(std::span<const u8, 16> eKey, size_t matchBytes = 0) const;
 
     void insert(const EncodingEntry& entry);

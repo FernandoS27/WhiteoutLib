@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -27,5 +28,14 @@ namespace whiteout::storages::common {
 /// @param expectedSize  Expected decompressed size (0 = unknown → growable path).
 /// @return Decompressed bytes, or empty vector on failure.
 std::vector<u8> zlibInflateFast(std::span<const u8> src, size_t expectedSize = 0);
+
+/// As above, but writing into @p dst instead of allocating. BLTE blobs are
+/// decoded frame by frame into one output buffer, so this lets the caller size
+/// that buffer once and skip a per-frame allocation and copy.
+///
+/// @param dst  Destination, at least as large as the decompressed stream.
+/// @param src  zlib-wrapped DEFLATE stream (RFC 1950).
+/// @return Bytes written, or std::nullopt on failure.
+std::optional<size_t> zlibInflateFastInto(std::span<u8> dst, std::span<const u8> src);
 
 } // namespace whiteout::storages::common

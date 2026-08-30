@@ -51,6 +51,10 @@ public:
         return m_data.findInIndex(eKey);
     }
 
+    void prefetchIndex(std::span<const u8, 16> eKey) const override {
+        m_data.prefetchIndex(eKey);
+    }
+
     std::vector<u8> fetchBlte(const IndexLocation& loc) const override {
         return m_data.fetchBlte(loc);
     }
