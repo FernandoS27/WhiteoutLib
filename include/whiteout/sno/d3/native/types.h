@@ -1368,39 +1368,40 @@ struct Physics {
 
 /// RenderParams -- 96 bytes on disk.
 struct RenderParams {
-    i32 dwUnknown00{};
-    i32 dwUnknown04{};
-    i32 dwUnknown08{};
-    f32 flUnknown0C{};
+    i32 dwCullMode{};
+    i32 dwZWriteEnable{};
+    i32 dwZFunc{};
+    f32 flDepthBias{};
     f32 flUnknown10{};
-    i32 dwUnknown14{};
-    i32 dwUnknown18{};
-    i32 dwUnknown1C{};
-    i32 dwUnknown20{};
-    i32 dwUnknown24{};
-    i32 dwUnknown28{};
-    i32 dwUnknown2C{};
-    i32 dwUnknown30{};
-    u8 bUnknown34{};
-    i32 dwUnknown38{};
-    i32 dwUnknown3C{};
-    i32 dwUnknown40{};
-    i32 dwUnknown44{};
-    i32 dwUnknown48{};
-    i32 dwUnknown4C{};
-    i32 dwUnknown50{};
-    i32 dwUnknown54{};
-    i32 dwUnknown58{};
+    i32 dwStencilEnable{};
+    i32 dwStencilFunc{};
+    i32 dwStencilRef{};
+    i32 dwStencilPass{};
+    i32 dwStencilFail{};
+    i32 dwStencilZFail{};
+    i32 dwAlphaTestEnable{};
+    i32 dwAlphaFunc{};
+    u8 bAlphaRef{};
+    i32 dwAlphaToCoverage{};
+    i32 dwFogEnable{};
+    i32 dwFillMode{};
+    i32 dwColorWriteEnable{};
+    i32 dwAlphaWriteEnable{};
+    i32 dwAlphaBlendEnable{};
+    i32 dwBlendOp{};
+    i32 dwSrcBlend{};
+    i32 dwDestBlend{};
+    i32 dwConstantColor{};
 };
 
 /// TextureStageParams -- 24 bytes on disk.
 struct TextureStageParams {
-    i32 dwUnknown00{};
-    i32 dwUnknown04{};
-    i32 dwUnknown08{};
-    i32 dwUnknown0C{};
-    i32 dwUnknown10{};
-    f32 flUnknown14{};
+    i32 dwTextureType{};
+    i32 dwAddressU{};
+    i32 dwAddressV{};
+    i32 dwAddressW{};
+    i32 dwFilter{};
+    f32 flMipMapLodBias{};
 };
 
 /// ShaderTagMapEntry -- 12 bytes on disk.

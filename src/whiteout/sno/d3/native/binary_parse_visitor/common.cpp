@@ -35,38 +35,39 @@ void BinaryParseVisitor::visit(const layout::EffectGroup& src, EffectGroup& dst)
 }
 
 void BinaryParseVisitor::visit(const layout::RenderParams& src, RenderParams& dst) {
-    dst.dwUnknown00 = src.dwUnknown00;
-    dst.dwUnknown04 = src.dwUnknown04;
-    dst.dwUnknown08 = src.dwUnknown08;
-    dst.flUnknown0C = src.flUnknown0C;
+    dst.dwCullMode = src.dwCullMode;
+    dst.dwZWriteEnable = src.dwZWriteEnable;
+    dst.dwZFunc = src.dwZFunc;
+    dst.flDepthBias = src.flDepthBias;
     dst.flUnknown10 = src.flUnknown10;
-    dst.dwUnknown14 = src.dwUnknown14;
-    dst.dwUnknown18 = src.dwUnknown18;
-    dst.dwUnknown1C = src.dwUnknown1C;
-    dst.dwUnknown20 = src.dwUnknown20;
-    dst.dwUnknown24 = src.dwUnknown24;
-    dst.dwUnknown28 = src.dwUnknown28;
-    dst.dwUnknown2C = src.dwUnknown2C;
-    dst.dwUnknown30 = src.dwUnknown30;
-    dst.bUnknown34 = src.bUnknown34;
-    dst.dwUnknown38 = src.dwUnknown38;
-    dst.dwUnknown3C = src.dwUnknown3C;
-    dst.dwUnknown40 = src.dwUnknown40;
-    dst.dwUnknown44 = src.dwUnknown44;
-    dst.dwUnknown48 = src.dwUnknown48;
-    dst.dwUnknown4C = src.dwUnknown4C;
-    dst.dwUnknown50 = src.dwUnknown50;
-    dst.dwUnknown54 = src.dwUnknown54;
-    dst.dwUnknown58 = src.dwUnknown58;
+    dst.dwStencilEnable = src.dwStencilEnable;
+    dst.dwStencilFunc = src.dwStencilFunc;
+    dst.dwStencilRef = src.dwStencilRef;
+    dst.dwStencilPass = src.dwStencilPass;
+    dst.dwStencilFail = src.dwStencilFail;
+    dst.dwStencilZFail = src.dwStencilZFail;
+    dst.dwAlphaTestEnable = src.dwAlphaTestEnable;
+    dst.dwAlphaFunc = src.dwAlphaFunc;
+    dst.bAlphaRef = src.bAlphaRef;
+    dst.dwAlphaToCoverage = src.dwAlphaToCoverage;
+    dst.dwFogEnable = src.dwFogEnable;
+    dst.dwFillMode = src.dwFillMode;
+    dst.dwColorWriteEnable = src.dwColorWriteEnable;
+    dst.dwAlphaWriteEnable = src.dwAlphaWriteEnable;
+    dst.dwAlphaBlendEnable = src.dwAlphaBlendEnable;
+    dst.dwBlendOp = src.dwBlendOp;
+    dst.dwSrcBlend = src.dwSrcBlend;
+    dst.dwDestBlend = src.dwDestBlend;
+    dst.dwConstantColor = src.dwConstantColor;
 }
 
 void BinaryParseVisitor::visit(const layout::TextureStageParams& src, TextureStageParams& dst) {
-    dst.dwUnknown00 = src.dwUnknown00;
-    dst.dwUnknown04 = src.dwUnknown04;
-    dst.dwUnknown08 = src.dwUnknown08;
-    dst.dwUnknown0C = src.dwUnknown0C;
-    dst.dwUnknown10 = src.dwUnknown10;
-    dst.flUnknown14 = src.flUnknown14;
+    dst.dwTextureType = src.dwTextureType;
+    dst.dwAddressU = src.dwAddressU;
+    dst.dwAddressV = src.dwAddressV;
+    dst.dwAddressW = src.dwAddressW;
+    dst.dwFilter = src.dwFilter;
+    dst.flMipMapLodBias = src.flMipMapLodBias;
 }
 
 void BinaryParseVisitor::visit(const layout::ShaderTagMapEntry& src, ShaderTagMapEntry& dst) {
