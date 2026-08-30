@@ -109,6 +109,12 @@ public:
     virtual void flushCache() = 0;
     virtual bool hasCache() const noexcept = 0;
 
+    /// Store a decoded blob under @p key. Must reach the same cache
+    /// `resolveBatch` probes in Phase 0.5 — readBatch decodes outside the
+    /// backend, so without this its results never warm that cache and every
+    /// repeat call re-decodes. No-op when this backend has no cache.
+    virtual void cacheStore(const std::array<u8, 16>& key, const std::vector<u8>& data) const = 0;
+
     // ── Queries ──────────────────────────────────────────────────
 
     virtual bool isLocal() const noexcept = 0;

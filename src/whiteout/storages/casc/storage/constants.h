@@ -33,6 +33,13 @@ inline constexpr u32 staticArchiveSlot(u32 chunk, u32 uid) noexcept {
     return chunk * kStaticArchiveUidSpan + uid;
 }
 
+/// Container cache budget for Diablo IV, whose root entries are slices of
+/// shared combined-meta containers. 3.0.x ships 30 of them, 382 MB decoded in
+/// total and 33 MB for the largest; a budget that cannot hold the working set
+/// thrashes, and each miss costs a full container re-decode. The cache fills
+/// lazily, so this is a ceiling and not an allocation.
+static constexpr size_t kD4ContainerCacheSize = 512ull * 1024 * 1024;
+
 // ============================================================================
 // Key sizes
 // ============================================================================

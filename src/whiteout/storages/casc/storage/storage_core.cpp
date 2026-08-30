@@ -788,14 +788,15 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
     }
 
     // Step 4: Container cache allocation (D4 combined-meta containers).
-    constexpr size_t kD4MinCacheSize = 64 * 1024 * 1024;
+    // A budget too small for the container working set turns every eviction
+    // into a full container re-decode — see kD4ContainerCacheSize.
     if (root->format() == RootFormat::Diablo4) {
-        if (!memCache)
-            memCache = std::make_unique<MemoryCache>(kD4MinCacheSize);
+        size_t const cacheBytes =
+            std::max<size_t>(kD4ContainerCacheSize, memCache ? memCache->maxBytes() : 0);
 
         // Upgrade backend to cache-enabled variant.
         if (backend && !backend->hasCache()) {
-            MemCacheEnabled cacheTraits{std::make_unique<MemoryCache>(kD4MinCacheSize)};
+            MemCacheEnabled cacheTraits{std::make_unique<MemoryCache>(cacheBytes)};
             if (backend->isLocal()) {
                 LocalDataTraits dataTraits{localState->dataSource.get()};
                 backend = std::make_unique<StorageBackendImpl<LocalDataTraits, MemCacheEnabled>>(
@@ -807,6 +808,13 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
                     std::move(dataTraits), std::move(cacheTraits), encodingTable, keyRing, pool);
             }
         }
+
+        // Every Impl resolver defers to the backend when there is one, so a
+        // second cache here would only ever be written, never read.
+        if (backend)
+            memCache.reset();
+        else if (!memCache)
+            memCache = std::make_unique<MemoryCache>(cacheBytes);
     }
 
     return true;
@@ -1211,11 +1219,16 @@ std::vector<BatchReadResult> Storage::readBatch(std::span<const BatchReadRequest
         }
     }
 
-    // Phase 2: Batch BLTE decode.
+    // Phase 2: Batch BLTE decode, one decode per distinct blob.
+    //
+    // Container sub-entries share their container's key, so a D4 batch can name
+    // the same multi-megabyte blob hundreds of times. Decoding per request
+    // instead of per blob turned a 225 MB read into 5.8 GB of inflate.
     std::vector<BlteBatchEntry> batchEntries;
-    std::vector<size_t> batchToResolveIdx;
+    std::vector<std::vector<size_t>> batchSharers;
+    std::unordered_map<std::array<u8, 16>, size_t, KeyHash64> blobToBatch;
     batchEntries.reserve(toResolve.size());
-    batchToResolveIdx.reserve(toResolve.size());
+    batchSharers.reserve(toResolve.size());
 
     for (size_t idx = 0; idx < toResolve.size(); ++idx) {
         if (toResolve[idx].cachedResult)
@@ -1224,12 +1237,27 @@ std::vector<BatchReadResult> Storage::readBatch(std::span<const BatchReadRequest
             results[toResolve[idx].requestIndex].error = std::move(resolvedBlobs[idx].error);
             continue;
         }
+
+        // Same key Phase 0.5 and Phase 3 use, so all three agree on identity.
+        std::array<u8, 16> blobKey{};
+        if (const RootEntry* best =
+                selectBestEntry(toResolve[idx].rootEntries, toResolve[idx].localeFlags))
+            blobKey = !isZeroKey(best->eKey) ? best->eKey : best->cKey;
+
+        if (!isZeroKey(blobKey)) {
+            auto [it, inserted] = blobToBatch.try_emplace(blobKey, batchEntries.size());
+            if (!inserted) {
+                batchSharers[it->second].push_back(idx);
+                continue;
+            }
+        }
+
         BlteBatchEntry entry;
         entry.blteData = resolvedBlobs[idx].useSpan
                              ? resolvedBlobs[idx].blteSpan
                              : std::span<const u8>(resolvedBlobs[idx].blteData);
         batchEntries.push_back(entry);
-        batchToResolveIdx.push_back(idx);
+        batchSharers.push_back({idx});
     }
 
     if (!batchEntries.empty()) {
@@ -1237,26 +1265,43 @@ std::vector<BatchReadResult> Storage::readBatch(std::span<const BatchReadRequest
 
         // Phase 3: Map results + container slicing.
         for (size_t d = 0; d < decoded.size(); ++d) {
-            size_t const resolveIdx = batchToResolveIdx[d];
-            size_t const requestIdx = toResolve[resolveIdx].requestIndex;
+            auto& sharers = batchSharers[d];
 
             if (!decoded[d].success) {
-                results[requestIdx].success = false;
-                if (!decoded[d].error.empty())
-                    results[requestIdx].error = std::move(decoded[d].error);
+                for (size_t resolveIdx : sharers) {
+                    size_t const requestIdx = toResolve[resolveIdx].requestIndex;
+                    results[requestIdx].success = false;
+                    if (!decoded[d].error.empty())
+                        results[requestIdx].error = decoded[d].error;
+                }
                 continue;
             }
 
-            const RootEntry* best = selectBestEntry(toResolve[resolveIdx].rootEntries,
-                                                    toResolve[resolveIdx].localeFlags);
-            if (best && best->containerOffset != 0) {
-                auto off = static_cast<size_t>(best->containerOffset);
-                auto sz = static_cast<size_t>(best->containerSize);
-                if (off + sz <= decoded[d].data.size()) {
-                    if (m_impl->memCache) {
-                        std::array<u8, 16> const cacheKey =
-                            !isZeroKey(best->eKey) ? best->eKey : best->cKey;
-                        m_impl->memCache->put(cacheKey, decoded[d].data);
+            // Cache the decoded container once, where Phase 0.5 will find it.
+            if (const RootEntry* first = selectBestEntry(toResolve[sharers.front()].rootEntries,
+                                                         toResolve[sharers.front()].localeFlags);
+                first && first->containerOffset != 0) {
+                std::array<u8, 16> const cacheKey =
+                    !isZeroKey(first->eKey) ? first->eKey : first->cKey;
+                if (m_impl->backend)
+                    m_impl->backend->cacheStore(cacheKey, decoded[d].data);
+                else if (m_impl->memCache)
+                    m_impl->memCache->put(cacheKey, decoded[d].data);
+            }
+
+            for (size_t s = 0; s < sharers.size(); ++s) {
+                size_t const resolveIdx = sharers[s];
+                size_t const requestIdx = toResolve[resolveIdx].requestIndex;
+
+                const RootEntry* best = selectBestEntry(toResolve[resolveIdx].rootEntries,
+                                                        toResolve[resolveIdx].localeFlags);
+                if (best && best->containerOffset != 0) {
+                    auto off = static_cast<size_t>(best->containerOffset);
+                    auto sz = static_cast<size_t>(best->containerSize);
+                    if (off + sz > decoded[d].data.size()) {
+                        results[requestIdx].error = "container sub-entry out of bounds";
+                        results[requestIdx].success = false;
+                        continue;
                     }
                     size_t const hdrSz = best->headerSize;
                     std::vector<u8> sliced(hdrSz + sz);
@@ -1264,15 +1309,13 @@ std::vector<BatchReadResult> Storage::readBatch(std::span<const BatchReadRequest
                         std::memcpy(sliced.data(), best->headerPrefix.data(), hdrSz);
                     std::memcpy(sliced.data() + hdrSz, decoded[d].data.data() + off, sz);
                     results[requestIdx].data = std::move(sliced);
+                } else if (s + 1 == sharers.size()) {
+                    results[requestIdx].data = std::move(decoded[d].data);
                 } else {
-                    results[requestIdx].error = "container sub-entry out of bounds";
-                    results[requestIdx].success = false;
-                    continue;
+                    results[requestIdx].data = decoded[d].data;
                 }
-            } else {
-                results[requestIdx].data = std::move(decoded[d].data);
+                results[requestIdx].success = true;
             }
-            results[requestIdx].success = true;
         }
     }
 

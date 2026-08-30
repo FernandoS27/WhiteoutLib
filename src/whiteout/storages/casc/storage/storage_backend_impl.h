@@ -83,6 +83,9 @@ public:
     bool hasCache() const noexcept override {
         return CacheTraits::hasCache();
     }
+    void cacheStore(const std::array<u8, 16>& key, const std::vector<u8>& data) const override {
+        m_cache.put(key, data);
+    }
 
     // ── Queries ──────────────────────────────────────────────────
 

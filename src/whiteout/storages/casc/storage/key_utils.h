@@ -52,4 +52,11 @@ inline bool isZeroKey(const std::array<u8, 16>& key) {
     return key == kZeroKey;
 }
 
+/// Hash functor for keying unordered containers on a 16-byte key.
+struct KeyHash64 {
+    size_t operator()(const std::array<u8, 16>& key) const noexcept {
+        return static_cast<size_t>(keyHash64(key));
+    }
+};
+
 } // namespace whiteout::storages::casc
