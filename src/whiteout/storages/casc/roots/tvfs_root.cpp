@@ -5,6 +5,7 @@
 #include "../../common/string_utils.h"
 #include "../storage/constants.h"
 #include "common/root_build_utils.h"
+#include "common/wow_tvfs_path.h"
 #include "tvfs_root.h"
 
 #include <whiteout/interfaces.h>
@@ -226,6 +227,7 @@ struct TraversalCtx {
     /// turns traversePathTree into a single-level walk so the caller can
     /// descend the tree breadth-first and farm out subtrees in parallel.
     std::vector<SubtreeJob>* pendingSubtrees = nullptr;
+    TvfsLeafDecode leafDecode = TvfsLeafDecode::None;
 };
 
 static void traversePathTree(TraversalCtx& ctx, const u8* node, const u8* nodeEnd,
@@ -301,8 +303,8 @@ static bool tryEmitSubContainer(TraversalCtx& ctx, std::string_view path, size_t
         TvfsHeader subHdr;
         if (parseHeader(subData, subHdr)) {
             u32 const subCftOffsSize = getCftOffsSize(subHdr.cftTableSize);
-            TraversalCtx subCtx{subData,     subHdr,       subCftOffsSize,
-                                ctx.entries, ctx.resolver, ctx.vfsKeys};
+            TraversalCtx subCtx{subData,     subHdr,  subCftOffsSize, ctx.entries,   ctx.resolver,
+                                ctx.vfsKeys, nullptr, nullptr,        ctx.leafDecode};
             parsePathTable(subCtx, containerPath);
         }
     }
@@ -331,6 +333,15 @@ static void processFileEntry(TraversalCtx& ctx, std::string_view path, u32 vfsOf
     if (spanCount == 1 && tryEmitSubContainer(ctx, path, vfsPos, spanEntrySize, hasCKey))
         return;
 
+    // Decoded once for the whole leaf: every span shares the name, and the name
+    // is in cache here. A decorator doing this afterwards walks several million
+    // scattered strings instead.
+    wow_tvfs_path::Info wowInfo;
+    bool wowDecoded = false;
+    if (ctx.leafDecode != TvfsLeafDecode::None)
+        wowDecoded = wow_tvfs_path::tryDecode(path, wowInfo);
+    bool const keepPath = !wowDecoded || ctx.leafDecode != TvfsLeafDecode::WowDropPath;
+
     for (u8 s = 0; s < spanCount; ++s) {
         if (vfsPos + spanEntrySize > hdr.vfsTableSize)
             return;
@@ -347,11 +358,21 @@ static void processFileEntry(TraversalCtx& ctx, std::string_view path, u32 vfsOf
         // 128 bytes into the vector, for each of 3.2M entries. The keys need no
         // clearing either — emplace_back already zeroed them.
         auto& entry = ctx.entries.emplace_back();
-        entry.path = path;
+        if (keepPath)
+            entry.path = path;
         std::memcpy(entry.eKey.data(), cftBase + cftOffset, hdr.eKeySize);
         if (hasCKey)
             std::memcpy(entry.cKey.data(), cftBase + cftOffset + hdr.eKeySize, hdr.eKeySize);
         // else: cKey stays zero — resolution must use eKey directly.
+
+        // After the CFT copy, which only carries a truncated CKey where the
+        // encoded name has the full 16 bytes.
+        if (wowDecoded) {
+            entry.cKey = wowInfo.cKey;
+            entry.localeFlags = wowInfo.localeFlags;
+            entry.contentFlags = wowInfo.contentFlags;
+            entry.fileDataId = wowInfo.fileDataId;
+        }
     }
 }
 
@@ -560,6 +581,7 @@ static constexpr int kMaxSplitDepth = 32;
 struct ParallelTraverseState {
     const VfsResolver* resolver = nullptr;
     const VfsKeySet* vfsKeys = nullptr;
+    TvfsLeafDecode leafDecode = TvfsLeafDecode::None;
     /// One slot per job, each written by exactly one worker and concatenated in
     /// job order. Entry order decides which variant a FileDataId with several
     /// locale/content candidates resolves to, so it has to be reproducible —
@@ -572,7 +594,8 @@ struct ParallelTraverseState {
 /// array, so growing them in place would false-share their control blocks.
 static void traverseSubtreeJob(ParallelTraverseState& st, const SubtreeJob& job, size_t slot) {
     std::vector<RootEntry> local;
-    TraversalCtx ctx{job.data, job.hdr, job.cftOffsSize, local, st.resolver, st.vfsKeys};
+    TraversalCtx ctx{job.data,   job.hdr, job.cftOffsSize, local,        st.resolver,
+                     st.vfsKeys, nullptr, nullptr,         st.leafDecode};
     traversePathTree(ctx, job.node, job.nodeEnd, job.accumulated, job.depth);
     st.buffers[slot] = std::move(local);
 }
@@ -586,7 +609,8 @@ static void traverseSmallManifestJob(ParallelTraverseState& st, const SubManifes
         TvfsHeader subHdr;
         if (parseHeader(subData, subHdr)) {
             u32 const subCftOffsSize = getCftOffsSize(subHdr.cftTableSize);
-            TraversalCtx ctx{subData, subHdr, subCftOffsSize, local, st.resolver, st.vfsKeys};
+            TraversalCtx ctx{subData,    subHdr,  subCftOffsSize, local,        st.resolver,
+                             st.vfsKeys, nullptr, nullptr,        st.leafDecode};
             parsePathTable(ctx, job.containerPath);
         }
     }
@@ -608,7 +632,8 @@ static void traverseSmallManifestJob(ParallelTraverseState& st, const SubManifes
 /// Without a pool it falls back to plain recursion.
 bool traverseTvfsBlob(std::span<const u8> data, const VfsResolver* resolver,
                       const std::vector<std::array<u8, 16>>* vfsEKeys,
-                      std::vector<RootEntry>& outEntries, interfaces::WorkerPool* pool) {
+                      std::vector<RootEntry>& outEntries, interfaces::WorkerPool* pool,
+                      TvfsLeafDecode leafDecode) {
     TvfsHeader hdr;
     if (!parseHeader(data, hdr))
         return false;
@@ -648,7 +673,8 @@ bool traverseTvfsBlob(std::span<const u8> data, const VfsResolver* resolver,
             }
             outEntries.reserve(predicted);
         }
-        TraversalCtx ctx{data, hdr, cftOffsSize, outEntries, resolver, vfsKeys};
+        TraversalCtx ctx{data,    hdr,     cftOffsSize, outEntries, resolver,
+                         vfsKeys, nullptr, nullptr,     leafDecode};
         parsePathTable(ctx);
         return !outEntries.empty();
     }
@@ -662,7 +688,8 @@ bool traverseTvfsBlob(std::span<const u8> data, const VfsResolver* resolver,
     // queues folder children onto the worklist, queues sub-containers as refs.
     auto seedBlob = [&](std::span<const u8> bd, const TvfsHeader& bh, u32 bc,
                         const std::string& prefix) {
-        TraversalCtx ctx{bd, bh, bc, outEntries, resolver, vfsKeys, &manifestRefs, &worklist};
+        TraversalCtx ctx{bd,        bh,        bc, outEntries, resolver, vfsKeys, &manifestRefs,
+                         &worklist, leafDecode};
         parsePathTable(ctx, prefix);
     };
 
@@ -672,8 +699,9 @@ bool traverseTvfsBlob(std::span<const u8> data, const VfsResolver* resolver,
     // the root blob must be walked completely to collect every sub-container
     // ref. Sub-containers are deferred (pendingJobs); folders recurse inline.
     {
-        TraversalCtx ctx{data,     hdr,     cftOffsSize,   outEntries,
-                         resolver, vfsKeys, &manifestRefs, /*pendingSubtrees=*/nullptr};
+        TraversalCtx ctx{data,      hdr,     cftOffsSize,   outEntries,
+                         resolver,  vfsKeys, &manifestRefs, /*pendingSubtrees=*/nullptr,
+                         leafDecode};
         parsePathTable(ctx);
     }
 
@@ -710,8 +738,8 @@ bool traverseTvfsBlob(std::span<const u8> data, const VfsResolver* resolver,
                 readyJobs.push_back(std::move(job));
                 continue;
             }
-            TraversalCtx ctx{job.data, job.hdr, job.cftOffsSize, outEntries,
-                             resolver, vfsKeys, &manifestRefs,   &worklist};
+            TraversalCtx ctx{job.data, job.hdr,       job.cftOffsSize, outEntries, resolver,
+                             vfsKeys,  &manifestRefs, &worklist,       leafDecode};
             traversePathTree(ctx, job.node, job.nodeEnd, job.accumulated, job.depth);
         }
     }
@@ -723,6 +751,7 @@ bool traverseTvfsBlob(std::span<const u8> data, const VfsResolver* resolver,
     ParallelTraverseState st;
     st.resolver = resolver;
     st.vfsKeys = vfsKeys;
+    st.leafDecode = leafDecode;
     st.buffers.resize(readyJobs.size() + smallManifests.size());
     {
         utils::JobGroup jobGroup;
@@ -762,9 +791,10 @@ bool traverseTvfsBlob(std::span<const u8> data, const VfsResolver* resolver,
 } // namespace
 
 std::unique_ptr<TvfsRoot> TvfsRoot::parse(std::span<const u8> data, interfaces::WorkerPool* pool,
-                                          bool buildIdx) {
+                                          bool buildIdx, TvfsLeafDecode leafDecode) {
     auto root = std::make_unique<TvfsRoot>();
-    if (!traverseTvfsBlob(data, nullptr, nullptr, root->m_entries, pool))
+    root->m_leafDecode = leafDecode;
+    if (!traverseTvfsBlob(data, nullptr, nullptr, root->m_entries, pool, leafDecode))
         return nullptr;
     if (buildIdx)
         root->buildIndices(pool, /*preNormalized=*/true);
@@ -773,9 +803,11 @@ std::unique_ptr<TvfsRoot> TvfsRoot::parse(std::span<const u8> data, interfaces::
 
 std::unique_ptr<TvfsRoot> TvfsRoot::parse(std::span<const u8> data, const VfsResolver& resolver,
                                           const std::vector<std::array<u8, 16>>& vfsEKeys,
-                                          interfaces::WorkerPool* pool, bool buildIdx) {
+                                          interfaces::WorkerPool* pool, bool buildIdx,
+                                          TvfsLeafDecode leafDecode) {
     auto root = std::make_unique<TvfsRoot>();
-    if (!traverseTvfsBlob(data, &resolver, &vfsEKeys, root->m_entries, pool))
+    root->m_leafDecode = leafDecode;
+    if (!traverseTvfsBlob(data, &resolver, &vfsEKeys, root->m_entries, pool, leafDecode))
         return nullptr;
     if (buildIdx)
         root->buildIndices(pool, /*preNormalized=*/true);

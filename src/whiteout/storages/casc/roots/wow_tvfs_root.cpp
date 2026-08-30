@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <string_view>
 
 namespace whiteout::storages::casc {
 
@@ -28,10 +29,16 @@ bool WowTvfsRoot::looksLikeWowTvfs(const TvfsRoot& tvfs) {
     // matches (or hit a wide non-match cap) handles that.
     constexpr size_t kRequiredMatches = 4;
     constexpr size_t kMaxNonMatches = 4096;
+    // A traversal that already decoded the leaf names answered this on the way
+    // past — and under WowDropPath it also threw the name away, leaving the
+    // pattern test nothing to run on. A decoded FileDataId is the same signal.
+    bool const preDecoded = tvfs.leafDecode() != TvfsLeafDecode::None;
     size_t matched = 0;
     size_t nonMatches = 0;
     tvfs.enumerate([&](const RootEntry& e) {
-        if (wow_tvfs_path::matches(e.path)) {
+        bool const isWowLeaf =
+            preDecoded ? (e.fileDataId != kInvalidFileDataId) : wow_tvfs_path::matches(e.path);
+        if (isWowLeaf) {
             if (++matched >= kRequiredMatches)
                 return false; // confirmed
         } else if (++nonMatches >= kMaxNonMatches) {
@@ -55,7 +62,8 @@ std::unique_ptr<WowTvfsRoot> WowTvfsRoot::create(std::unique_ptr<TvfsRoot> tvfs,
         return nullptr;
 
     // Parse listfile if provided (parallel — community listfiles are ~140 MB).
-    std::unordered_map<u32, std::string> listfilePaths;
+    // The index borrows from `listfile`, which outlives this call.
+    ListfileIndex listfilePaths;
     if (!listfile.empty())
         listfilePaths = casc::parseListfile(listfile, pool);
 
@@ -67,6 +75,7 @@ std::unique_ptr<WowTvfsRoot> WowTvfsRoot::create(std::unique_ptr<TvfsRoot> tvfs,
 
     const size_t entryCount = result->m_entries.size();
     const bool haveListfile = !listfilePaths.empty();
+    const bool preDecoded = result->m_tvfs->leafDecode() != TvfsLeafDecode::None;
 
     // Parse each encoded TVFS path to extract locale/content flags, FileDataId, and CKey.
     //
@@ -81,26 +90,25 @@ std::unique_ptr<WowTvfsRoot> WowTvfsRoot::create(std::unique_ptr<TvfsRoot> tvfs,
     auto enrichEntry = [&](size_t i) {
         auto& e = result->m_entries[i];
 
-        wow_tvfs_path::Info info;
-        const bool decoded = wow_tvfs_path::tryDecode(e.path, info);
-
-        if (decoded) {
-            e.cKey = info.cKey;
-            e.localeFlags = info.localeFlags;
-            e.contentFlags = info.contentFlags;
-            e.fileDataId = info.fileDataId;
+        if (!preDecoded) {
+            wow_tvfs_path::Info info;
+            if (wow_tvfs_path::tryDecode(e.path, info)) {
+                e.cKey = info.cKey;
+                e.localeFlags = info.localeFlags;
+                e.contentFlags = info.contentFlags;
+                e.fileDataId = info.fileDataId;
+            }
+            // else: keep the entry's existing cKey/locale/content/fileDataId.
         }
-        // else: keep the entry's existing cKey/locale/content/fileDataId.
 
         if (haveListfile) {
-            // tryDecode already consumed e.path; safe to overwrite.
-            std::string newPath;
-            if (decoded) {
-                auto it = listfilePaths.find(info.fileDataId);
-                if (it != listfilePaths.end())
-                    newPath = it->second;
-            }
-            e.path = std::move(newPath); // empty unless found in the listfile
+            std::string_view const found = e.fileDataId != kInvalidFileDataId
+                                               ? listfilePaths.find(e.fileDataId)
+                                               : std::string_view{};
+            if (found.empty())
+                e.path = std::string(); // release the encoded form, if still held
+            else
+                e.path.assign(found); // reuses the encoded form's buffer
         }
         // else: keep e.path (the encoded TVFS form).
     };
@@ -286,14 +294,22 @@ void WowTvfsRoot::buildPathIndexImpl(interfaces::WorkerPool* pool) const {
     // matching how findByFileDataId orders its ties.
     m_pathChain.assign(n, kNoPathChain);
     m_byPathHead.reserve(n);
+
+    // findOrInsert rather than find + insertOrAssign: the head is needed before
+    // it is overwritten, and probing twice doubles the DRAM misses over a table
+    // far too big to cache. Every hash is known up front, so the miss for the
+    // bucket a few iterations out can be issued now. The reserve above rules
+    // out a rehash, which would invalidate those addresses.
+    constexpr size_t kInsertPrefetchAhead = 8;
     for (size_t i = n; i-- > 0;) {
+        if (i >= kInsertPrefetchAhead && hashes[i - kInsertPrefetchAhead] != 0)
+            m_byPathHead.prefetch(hashes[i - kInsertPrefetchAhead]);
         if (hashes[i] == 0)
             continue;
-        if (auto* head = m_byPathHead.find(hashes[i])) {
-            m_pathChain[i] = *head;
-            m_byPathHead.insertOrAssign(hashes[i], u32(i));
-        } else {
-            m_byPathHead.emplace(hashes[i], u32(i));
+        u32& head = m_byPathHead.findOrInsert(hashes[i], u32(i));
+        if (head != u32(i)) {
+            m_pathChain[i] = head;
+            head = u32(i);
         }
     }
 }

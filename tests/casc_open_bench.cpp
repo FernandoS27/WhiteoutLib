@@ -544,7 +544,7 @@ void instrumentedOpen(const Paths& paths, const PhaseOpts& opts, Results& res,
 
     if (opts.indexExperiment) {
         auto entries = tvfsRoot->takeEntries();
-        std::unordered_map<u32, std::string> lf;
+        ListfileIndex lf;
         if (!opts.listfile.empty())
             lf = parseListfile(opts.listfile, opts.pool);
         bool const haveLf = !lf.empty();
@@ -559,11 +559,8 @@ void instrumentedOpen(const Paths& paths, const PhaseOpts& opts, Results& res,
             }
             if (haveLf) {
                 std::string np;
-                if (decoded) {
-                    auto it = lf.find(info.fileDataId);
-                    if (it != lf.end())
-                        np = it->second;
-                }
+                if (decoded)
+                    np.assign(lf.find(info.fileDataId));
                 e.path = std::move(np);
             }
         }

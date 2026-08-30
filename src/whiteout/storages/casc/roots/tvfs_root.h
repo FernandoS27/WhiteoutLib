@@ -30,6 +30,18 @@ namespace whiteout::storages::casc {
 /// it a single blob, so handing back copies dominated the parse.
 using VfsResolver = std::function<std::span<const u8>(std::span<const u8> eKey)>;
 
+/// Extra work the traversal does while a leaf name is still in cache.
+///
+/// WoW retail encodes locale/content flags, a FileDataId and a CKey in the leaf
+/// name itself. Decoding there rather than in a second pass over the finished
+/// table saves re-reading several million scattered strings, and a caller that
+/// has a listfile is going to replace every one of those names anyway.
+enum class TvfsLeafDecode : u8 {
+    None,        ///< Store leaf names verbatim.
+    Wow,         ///< Decode WoW leaf names into the entry and keep the name.
+    WowDropPath, ///< Decode WoW leaf names and leave the entry's path empty.
+};
+
 class TvfsRoot final : public RootManifest {
 public:
     /// Parse a single TVFS blob (no sub-container resolution).
@@ -41,7 +53,8 @@ public:
     /// @return Parsed root, or nullptr on failure.
     static std::unique_ptr<TvfsRoot> parse(std::span<const u8> data,
                                            interfaces::WorkerPool* pool = nullptr,
-                                           bool buildIdx = true);
+                                           bool buildIdx = true,
+                                           TvfsLeafDecode leafDecode = TvfsLeafDecode::None);
 
     /// Parse a TVFS blob with sub-container resolution (WC3 Reforged multi-VFS).
     /// When a leaf entry's EKey matches a known VFS sub-manifest, the entry is
@@ -56,7 +69,14 @@ public:
     static std::unique_ptr<TvfsRoot> parse(std::span<const u8> data, const VfsResolver& resolver,
                                            const std::vector<std::array<u8, 16>>& vfsEKeys,
                                            interfaces::WorkerPool* pool = nullptr,
-                                           bool buildIdx = true);
+                                           bool buildIdx = true,
+                                           TvfsLeafDecode leafDecode = TvfsLeafDecode::None);
+
+    /// Leaf handling this root was parsed with. Decorators use it to tell
+    /// whether the entries already carry decoded metadata.
+    TvfsLeafDecode leafDecode() const {
+        return m_leafDecode;
+    }
 
     /// Build the path index if it hasn't been built yet. No-op otherwise.
     void ensureIndexed(interfaces::WorkerPool* pool = nullptr);
@@ -99,6 +119,7 @@ protected:
 
 private:
     std::vector<RootEntry> m_entries;
+    TvfsLeafDecode m_leafDecode = TvfsLeafDecode::None;
 
     /// Hash-map index for O(1) exact path lookup.
     /// Keys are FNV-1a hashes of normalized paths; values are head indices

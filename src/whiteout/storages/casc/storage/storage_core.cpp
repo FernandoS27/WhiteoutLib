@@ -664,7 +664,15 @@ bool Storage::Impl::loadEncodingAndRoot(std::span<const u8> prefetchedEncodingBl
             // path map would be a wasted O(n) pass over ~1.5M entries.
             bool const buildTvfsIdx =
                 (hint != TvfsDecorator::WowTvfs && hint != TvfsDecorator::Diablo4);
-            auto tvfsRoot = TvfsRoot::parse(vfsData, vfsResolver, vfsEKeys, pool, buildTvfsIdx);
+            // WoW keeps its file metadata in the leaf names, so decode them
+            // while the traversal still has them in cache. With a listfile the
+            // name itself is dead on arrival — every one of them is about to be
+            // replaced — so don't allocate it at all.
+            auto const leafDecode = hint != TvfsDecorator::WowTvfs ? TvfsLeafDecode::None
+                                    : listfileData.empty()         ? TvfsLeafDecode::Wow
+                                                                   : TvfsLeafDecode::WowDropPath;
+            auto tvfsRoot =
+                TvfsRoot::parse(vfsData, vfsResolver, vfsEKeys, pool, buildTvfsIdx, leafDecode);
             if (tvfsRoot) {
                 EKeyReader const eKeyReader =
                     [this](std::span<const u8, 16> eKey) -> std::vector<u8> {

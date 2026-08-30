@@ -484,6 +484,101 @@ TEST_CASE("WowTvfsRoot::create without listfile keeps the encoded paths",
     CHECK(visible == tvfsPaths.size());
 }
 
+// ============================================================================
+// Leaf decoding inside the traversal
+// ============================================================================
+
+TEST_CASE("TvfsLeafDecode decodes WoW leaves during the traversal",
+          "[casc][wow_tvfs_root]") {
+    struct Sample {
+        u32 fdid;
+        u32 locale;
+        u32 content;
+        std::array<u8, 16> cKey;
+    };
+    std::vector<Sample> samples = {
+        { 100, 0x000000FF, 0x0008, makeCKey(0x10) },
+        { 200, 0x00000002, 0x0000, makeCKey(0x20) },
+        { 300, 0x000000FF, 0x0000, makeCKey(0x30) },
+        { 400, 0x00000002, 0x0010, makeCKey(0x40) },
+        { 500, 0x000000FF, 0x0000, makeCKey(0x50) },
+    };
+
+    std::vector<std::string> tvfsPaths;
+    for (auto& s : samples)
+        tvfsPaths.push_back(makeEncodedName(s.locale, s.content, s.fdid, s.cKey, /*wide=*/false));
+    auto blob = buildFlatTvfs(tvfsPaths);
+
+    std::string listfile;
+    for (auto& s : samples)
+        listfile += std::to_string(s.fdid) + ";content/" + std::to_string(s.fdid) + ".blp\n";
+    std::span<const u8> listfileSpan(reinterpret_cast<const u8*>(listfile.data()),
+                                      listfile.size());
+
+    SECTION("Wow decodes the metadata and keeps the encoded name") {
+        auto tvfs = TvfsRoot::parse(blob, nullptr, /*buildIdx=*/false, TvfsLeafDecode::Wow);
+        REQUIRE(tvfs);
+        REQUIRE(WowTvfsRoot::looksLikeWowTvfs(*tvfs));
+
+        auto wow = WowTvfsRoot::create(std::move(tvfs), nullptr, /*listfile=*/{});
+        REQUIRE(wow);
+        for (auto& s : samples) {
+            CAPTURE(s.fdid);
+            auto hits = wow->findByFileDataId(s.fdid);
+            REQUIRE(hits.size() == 1);
+            CHECK(hits[0]->localeFlags == s.locale);
+            CHECK(hits[0]->contentFlags == s.content);
+            CHECK(hits[0]->cKey == s.cKey);
+            CHECK(wow_tvfs_path::matches(hits[0]->path));
+        }
+    }
+
+    SECTION("WowDropPath never materialises the encoded name") {
+        auto tvfs = TvfsRoot::parse(blob, nullptr, /*buildIdx=*/false, TvfsLeafDecode::WowDropPath);
+        REQUIRE(tvfs);
+        tvfs->enumerate([](const RootEntry& e) {
+            CHECK(e.path.empty());
+            return true;
+        });
+        // Detection has to survive the name being gone.
+        REQUIRE(WowTvfsRoot::looksLikeWowTvfs(*tvfs));
+
+        auto wow = WowTvfsRoot::create(std::move(tvfs), nullptr, listfileSpan);
+        REQUIRE(wow);
+        for (auto& s : samples) {
+            CAPTURE(s.fdid);
+            auto hits = wow->findByFileDataId(s.fdid);
+            REQUIRE(hits.size() == 1);
+            CHECK(hits[0]->localeFlags == s.locale);
+            CHECK(hits[0]->contentFlags == s.content);
+            CHECK(hits[0]->cKey == s.cKey);
+            CHECK(hits[0]->path == "content/" + std::to_string(s.fdid) + ".blp");
+        }
+        auto hits = wow->findByPath("content/300.blp");
+        REQUIRE(hits.size() == 1);
+        CHECK(hits[0]->fileDataId == 300);
+    }
+
+    SECTION("a plain TVFS keeps its paths even under WowDropPath") {
+        std::vector<std::string> plain = {
+            "war3.w3mod/units/critters/sheep.mdx",
+            "war3.w3mod/textures/sheep.blp",
+            "ui/glues/loadingscreens/loadingscreen.blp",
+        };
+        auto tvfs = TvfsRoot::parse(buildFlatTvfs(plain), nullptr, /*buildIdx=*/true,
+                                    TvfsLeafDecode::WowDropPath);
+        REQUIRE(tvfs);
+        CHECK_FALSE(WowTvfsRoot::looksLikeWowTvfs(*tvfs));
+        size_t visible = 0;
+        tvfs->enumerate([&](const RootEntry& e) {
+            if (!e.path.empty())
+                ++visible;
+            return true;
+        });
+        CHECK(visible == plain.size());
+    }
+}
+
 TEST_CASE("WowTvfsRoot path lookups ignore case and separator style with a listfile",
           "[casc][wow_tvfs_root]") {
     // Community listfiles are mixed-case with forward slashes; callers address

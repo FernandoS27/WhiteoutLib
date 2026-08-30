@@ -107,6 +107,34 @@ public:
         }
     }
 
+    /// Reference to the value for @p key, inserting @p initial if it is absent.
+    /// A caller that needs the current value before overwriting it — chaining a
+    /// collision list, say — otherwise probes the table twice.
+    Value& findOrInsert(u64 key, const Value& initial) {
+        if (key == kEmpty) {
+            if (!m_hasZero) {
+                m_hasZero = true;
+                m_zeroValue = initial;
+                ++m_size;
+            }
+            return m_zeroValue;
+        }
+        maybeGrow();
+        size_t idx = key & m_mask;
+        while (true) {
+            auto& b = m_buckets[idx];
+            if (b.key == kEmpty) {
+                b.key = key;
+                b.value = initial;
+                ++m_size;
+                return b.value;
+            }
+            if (b.key == key)
+                return b.value;
+            idx = (idx + 1) & m_mask;
+        }
+    }
+
     /// Look up a key. Returns pointer to value, or nullptr if not found.
     const Value* find(u64 key) const {
         if (key == kEmpty)

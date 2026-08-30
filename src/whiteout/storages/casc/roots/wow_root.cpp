@@ -263,10 +263,10 @@ std::unique_ptr<WowRoot> WowRoot::parse(std::span<const u8> data, interfaces::Wo
                 auto& entry = root->m_entries[i];
                 if (entry.fileDataId == kInvalidFileDataId)
                     continue;
-                auto it = pathMap.find(entry.fileDataId);
-                if (it == pathMap.end())
+                auto found = pathMap.find(entry.fileDataId);
+                if (found.empty())
                     continue;
-                entry.path = it->second;
+                entry.path.assign(found);
                 auto h = common::jenkinsHash(entry.path);
                 root->m_byListfilePath.emplace(u64(h.pc) | (u64(h.pb) << 32), i);
             }
