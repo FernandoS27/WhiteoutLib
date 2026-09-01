@@ -13,10 +13,7 @@ language bindings.
 ## Why WhiteoutLib
 
 - **Pure C++ CASC implementation.** CASC reading *and writing* are implemented
-  in-house. To our knowledge,
-  WhiteoutLib is the only open-source library that ships a from-scratch C++
-  CASC writer with full BLTE encoding, encoding-table, and root-handler
-  support.
+  in-house. It's also the fastest and most complete implementation out there.
 - **Zero external codec dependencies.** Every codec the library needs — BCn
   (BC1/2/3/4/5/6H/7), JPEG baseline (for BLP1), PNG, Wu colour quantisation,
   mipmap filters — is implemented in-house. There is no zlib, bzip2, libjpeg,
@@ -41,7 +38,7 @@ language bindings.
   uses C++20 freely; the public headers fall back to compatibility shims
   (`std::optional`/`std::span` polyfills) so binding generators that target
   older standards still work.
-- **Round-trip read/write for most formats.** MDX, M3, BLP, DDS, TEX, PNG,
+- **Round-trip read/write for most formats.** MDX, M2, M3, BLP, DDS, TEX, PNG,
   JPEG, BMP, TGA all support both directions. The texture pipeline is
   exercised in production by [WhiteoutTex](https://github.com/FernandoS27/WhiteoutTex),
   which uses it for viewing, conversion, mipmap generation, and Blizzard
@@ -52,19 +49,18 @@ language bindings.
 - **Textures** and **Storage** are the most mature modules and have seen
   thorough testing. The texture module is exercised extensively by
   [WhiteoutTex](https://github.com/FernandoS27/WhiteoutTex).
-- **Models** is mixed:
-  - **MDX** has had the heaviest testing.
-  - **M3** can round-trip read and write StarCraft II and Heroes of the Storm
-    models.
-  - **M2** is still experimental — missing version-specific parsing for older
-    than Mists of Pandaria, and no `.phys` / `.bone` support yet.
+- **Models** is pretty mature:
+  - **MDX** is almost perfect
+  - **M3** all core nodes and setups are set and mostly validated.
+  - **M2** very advanced compared to other implementations out there.
 - **WEM** is an experimental intermediate model format intended to become the
   bridge between the other model formats.
 - **SNO** is currently the weakest module:
   - SNO is a binary JSON-style data type system used by Diablo III/IV.
   - Diablo IV support still requires more reverse engineering for some payload
     data types.
-  - Diablo III support is currently quite weak.
+  - Diablo III support is pretty complete for models, animations and effects but pretty weak on other sno types.
+  - Diablo III has native loading support to avoid the overhead caused by SNO.
 
 ## Format Support
 
@@ -74,7 +70,7 @@ language bindings.
 - **World of Warcraft (`.m2`)** — experimental; partial, see above
 - **StarCraft II / Heroes of the Storm (`.m3` / `.m3a`)**
 - **Diablo III & IV (`.acr`, `.app`, `.ani`, `.ans`, `.mat`, `.prt`, SNO format family)**
-- **WEM** — experimental intermediate format
+- **WEM** — Whiteout Editable Model - experimental intermediate format
 
 ### Textures
 
@@ -82,6 +78,7 @@ language bindings.
   Classic) and BLP2 (World of Warcraft)
 - **Direct3D Surface (`.dds`)**
 - **Diablo III & IV (`.tex`)**
+- **Overwatch (`.txtr`)**
 - **Standard formats** — `.jpeg`, `.bmp`, `.png`, `.tga`, plus `.gif` (write only)
 - **Mipmap generation** for PBR and legacy pipelines, with texture-type and
   channel-semantics awareness
