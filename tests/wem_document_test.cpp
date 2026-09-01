@@ -101,7 +101,8 @@ TEST_CASE("wem a clean document validates at every level", "[wem][document][vali
     CHECK(codes(Validate(document, ValidateLevel::Profile)) == "");
 
     // Levels are cumulative, and each one this phase touched has rules now.
-    CHECK(ValidationRulesFor(ValidateLevel::Structural).size() == 6u);
+    // P6 added the seventh: the child model an attach point rides.
+    CHECK(ValidationRulesFor(ValidateLevel::Structural).size() == 7u);
     CHECK(ValidationRulesFor(ValidateLevel::Manifold).size() == 1u);
     CHECK(ValidationRulesFor(ValidateLevel::Profile).size() == 3u);
 }
@@ -122,6 +123,47 @@ TEST_CASE("wem an undeclared profile set is structural", "[wem][document][valida
     // And so is a default nothing declares.
     document.defaultProfile = ProfileId::Diablo3;
     CHECK(errorCodes(Validate(document, ValidateLevel::Structural)) == "ProfileNotCarriedx1");
+}
+
+TEST_CASE("wem an attach point's child model is checked", "[wem][document][validate]") {
+    // What rides an Attachment node lives on the node (§9.5), which is what
+    // keeps `RemoveNode` from needing a referencer row for it — but the index
+    // still points out of the node, so it is checked like any other.
+    Document document = makeDocument(ProfileId::Sc2);
+    Node attach;
+    attach.name = "hp";
+    attach.kind = NodeKind::Attachment;
+    attach.resetPayloadForKind();
+    const u32 node = document.models[0].nodes.add(std::move(attach));
+
+    auto& payload =
+        std::get<AttachmentPayload>(document.models[0].nodes.nodes[node].payload);
+
+    SECTION("an unresolved attach point is normal") {
+        CHECK(errorCodes(Validate(document, ValidateLevel::Structural)) == "");
+    }
+
+    SECTION("a model index past the end is structural") {
+        payload.model = 7;
+        CHECK(errorCodes(Validate(document, ValidateLevel::Structural)) == "IndexOutOfRangex1");
+    }
+
+    SECTION("a model cannot ride itself") {
+        payload.model = 0;
+        CHECK(errorCodes(Validate(document, ValidateLevel::Structural)) == "IndexOutOfRangex1");
+    }
+
+    SECTION("a real sibling passes") {
+        document.models.push_back(document.models[0]);
+        payload.model = 1;
+        CHECK(errorCodes(Validate(document, ValidateLevel::Structural)) == "");
+    }
+}
+
+TEST_CASE("wem the default look must be in the table", "[wem][document][validate]") {
+    Document document = makeDocument(ProfileId::Sc2);
+    document.models[0].profileSets[0].defaultLook = 3;
+    CHECK(errorCodes(Validate(document, ValidateLevel::Structural)) == "LookBindingMalformedx1");
 }
 
 TEST_CASE("wem binding shape is checked, not assumed", "[wem][document][validate]") {

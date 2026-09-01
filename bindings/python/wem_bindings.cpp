@@ -306,13 +306,16 @@ M3's own layer op field is near-signal-free in shipped content (mod and add cove
         .value("COUNT", whiteout::models::wem::CompositeOp::Count)
     ;
 
-    py::enum_<whiteout::models::wem::CombinerOp>(m, "CombinerOp", R"doc(M2's vocabulary. The pixel shaders are literally named for it: `Combiners_Opaque_Mod2x` is stage 0 `Opaque`, stage 1 `Mod2x`.)doc")
+    py::enum_<whiteout::models::wem::CombinerOp>(m, "CombinerOp", R"doc(M2's vocabulary. The pixel shaders are literally named for it: `Combiners_Opaque_Mod2x` is stage 0 `Opaque`, stage 1 `Mod2x`.
+
+`Pass` is the one addition WoW did not need: D3's Legacy stage block encodes a per-channel **zero** meaning "this stage does not touch that channel" — a glow stage sampled `.xyz` and a mask stage sampled `.w` are mirror images of each other — and without an identity the chain would have to invent a modulate by white.)doc")
         .value("OPAQUE", whiteout::models::wem::CombinerOp::Opaque)
         .value("MOD", whiteout::models::wem::CombinerOp::Mod)
         .value("MOD2X", whiteout::models::wem::CombinerOp::Mod2x)
         .value("ADD", whiteout::models::wem::CombinerOp::Add)
         .value("DECAL", whiteout::models::wem::CombinerOp::Decal)
         .value("FADE", whiteout::models::wem::CombinerOp::Fade)
+        .value("PASS", whiteout::models::wem::CombinerOp::Pass)
         .value("COUNT", whiteout::models::wem::CombinerOp::Count)
     ;
 
@@ -774,8 +777,16 @@ Deterministic and idempotent. Fails only on a non-manifold face set, which `Mesh
         .def_readwrite("sphere", &whiteout::models::wem::BonePayload::sphere)
     ;
 
-    py::class_<whiteout::models::wem::AttachmentPayload>(m, "AttachmentPayload")
+    py::class_<whiteout::models::wem::AttachmentPayload>(m, "AttachmentPayload", R"doc(An attach point, and what is riding it.
+
+The placement is the node — that is the whole of an MDX or `.m2` attachment, and of a D3 hardpoint, which is skeleton-relative data shipped with the skeleton. The equip-slot key (M2's attachment `id`, the hardpoint's own name) lives in `native`.
+
+What rides it is the other half, and it is here rather than in a parallel list for §10.2's reason: removing or reparenting the node has to move everything that is *about* it, and a side table of `{node, child}` pairs would be one more referencer §10.6 has to invalidate.
+
+Both halves are optional and independent. `asset` is what the source named — an effect WEM does not contain (§18), or a model it does. `model` is filled when that name resolved to something the document now holds, which is how a D3 child actor arrives: it converts to a `Model` of its own and the attach point points at it.)doc")
         .def(py::init<>())
+        .def_readwrite("asset", &whiteout::models::wem::AttachmentPayload::asset, R"doc(What the source named, resolved or not.)doc")
+        .def_readwrite("model", &whiteout::models::wem::AttachmentPayload::model, R"doc(-> `Document::models[]` once it resolved.)doc")
     ;
 
     py::class_<whiteout::models::wem::LightPayload>(m, "LightPayload")
@@ -884,6 +895,9 @@ Sized to the set's `LookTable`. An entry of `kInvalidIndex` is a hole the covera
         .def(py::init<>())
         .def_readwrite("profile", &whiteout::models::wem::ProfileMaterialSet::profile)
         .def_readwrite("looks", &whiteout::models::wem::ProfileMaterialSet::looks, R"doc(Sized 1 for profiles without looks (§8).)doc")
+        .def_readwrite("default_look", &whiteout::models::wem::ProfileMaterialSet::defaultLook, R"doc(Which look this set draws when nobody says otherwise.
+
+On the set rather than the `Model` because the look axis is per set: D3's looks and WoW's texture variations are different vocabularies and share no index space. An importer that was *told* which look to build records it here, so the document says what it is rather than leaving the answer in the caller's arguments.)doc")
         .def_readwrite("materials", &whiteout::models::wem::ProfileMaterialSet::materials, R"doc(Set-local array.)doc")
         .def_readwrite("slot_bindings", &whiteout::models::wem::ProfileMaterialSet::slotBindings, R"doc(Parallel to `Model::materialSlots`.)doc")
         .def_readwrite("native", &whiteout::models::wem::ProfileMaterialSet::native)
@@ -930,7 +944,9 @@ Forward compatibility is the point: a newer writer's chunk survives a round-trip
         .def_readwrite("bounds", &whiteout::models::wem::Document::bounds)
         .def_readwrite("models", &whiteout::models::wem::Document::models)
         .def_readwrite("textures", &whiteout::models::wem::Document::textures)
-        .def_readwrite("unknown_chunks", &whiteout::models::wem::Document::unknownChunks)
+        .def_readwrite("unknown_chunks", &whiteout::models::wem::Document::unknownChunks, R"doc(Chunks this build did not understand, carried through unchanged (§11.4).
+
+The parser fills it and the writer reads it, so a read-edit-write round trip preserves them by doing nothing. Clearing it is how a caller drops them -- an act, not an omission.)doc")
         .def("carries", &whiteout::models::wem::Document::carries, py::arg("profile"))
         .def("declare", &whiteout::models::wem::Document::declare, py::arg("profile"), R"doc(Declares @p profile if it is not already declared. Does not create material sets — that is `AddProfileFromImport` or `DeriveProfile` (§6.6).)doc")
         .def("declared_mask", &whiteout::models::wem::Document::declaredMask, R"doc(Every declared profile as a mask.)doc")

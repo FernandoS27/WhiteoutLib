@@ -274,6 +274,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("Add", whiteout::models::wem::CombinerOp::Add)
         .value("Decal", whiteout::models::wem::CombinerOp::Decal)
         .value("Fade", whiteout::models::wem::CombinerOp::Fade)
+        .value("Pass", whiteout::models::wem::CombinerOp::Pass)
         .value("Count", whiteout::models::wem::CombinerOp::Count);
 
     enum_<whiteout::models::wem::LegacySlot>("WemLegacySlot")
@@ -710,6 +711,8 @@ EMSCRIPTEN_BINDINGS(wem) {
 
     class_<whiteout::models::wem::AttachmentPayload>("WemAttachmentPayload")
         .constructor<>()
+        .property("asset", &whiteout::models::wem::AttachmentPayload::asset)
+        .property("model", &whiteout::models::wem::AttachmentPayload::model)
     ;
 
     class_<whiteout::models::wem::LightPayload>("WemLightPayload")
@@ -808,6 +811,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .constructor<>()
         .property("profile", &whiteout::models::wem::ProfileMaterialSet::profile)
         .property("looks", &whiteout::models::wem::ProfileMaterialSet::looks)
+        .property("defaultLook", &whiteout::models::wem::ProfileMaterialSet::defaultLook)
         .property("materials", &whiteout::models::wem::ProfileMaterialSet::materials)
         .property("slotBindings", &whiteout::models::wem::ProfileMaterialSet::slotBindings)
         .property("native", &whiteout::models::wem::ProfileMaterialSet::native)

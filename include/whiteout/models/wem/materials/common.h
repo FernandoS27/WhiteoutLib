@@ -44,10 +44,8 @@ namespace whiteout {
 namespace models {
 namespace wem {
 
-/// "No index" on the material and model axes — the same `0xFFFFFFFF` as
-/// `geom::kInvalidId` and `kInvalidNode`, spelled once for everything above the
-/// geometry kernel.
-inline constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
+// `kInvalidIndex` moved to profile.h at P6: a node payload needs it too, and
+// `nodes/node.h` has no business including a material header for one constant.
 
 // ============================================================================
 // Kind-independent state
@@ -273,7 +271,13 @@ struct CompositeBody {
 
 /// M2's vocabulary. The pixel shaders are literally named for it:
 /// `Combiners_Opaque_Mod2x` is stage 0 `Opaque`, stage 1 `Mod2x`.
-enum class CombinerOp : u8 { Opaque = 0, Mod, Mod2x, Add, Decal, Fade, Count };
+///
+/// `Pass` is the one addition WoW did not need: D3's Legacy stage block encodes
+/// a per-channel **zero** meaning "this stage does not touch that channel" — a
+/// glow stage sampled `.xyz` and a mask stage sampled `.w` are mirror images of
+/// each other — and without an identity the chain would have to invent a
+/// modulate by white.
+enum class CombinerOp : u8 { Opaque = 0, Mod, Mod2x, Add, Decal, Fade, Pass, Count };
 
 const char* ToString(CombinerOp op);
 

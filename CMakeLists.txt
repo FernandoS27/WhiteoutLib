@@ -426,6 +426,7 @@ add_library(whiteout_lib
     src/whiteout/models/wem/materials/m2_shader_table.cpp
     src/whiteout/models/wem/materials/m2_core.cpp
     src/whiteout/models/wem/materials/m3_core.cpp
+    src/whiteout/models/wem/materials/d3_core.cpp
     src/whiteout/models/wem/model.cpp
     src/whiteout/models/wem/retarget.cpp
     src/whiteout/models/wem/native_bag.cpp
@@ -437,6 +438,7 @@ add_library(whiteout_lib
     src/whiteout/models/wem/converters/mdx_converter.cpp
     src/whiteout/models/wem/converters/m2_converter.cpp
     src/whiteout/models/wem/converters/m3_converter.cpp
+    src/whiteout/models/wem/converters/d3_converter.cpp
 
     # Textures
     src/whiteout/textures/texture.cpp

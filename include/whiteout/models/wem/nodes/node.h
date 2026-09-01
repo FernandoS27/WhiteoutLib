@@ -39,6 +39,7 @@
 #include "../asset_key.h"
 #include "../bounds.h"
 #include "../native_bag.h"
+#include "../profile.h"
 
 namespace whiteout {
 namespace models {
@@ -167,11 +168,34 @@ struct BonePayload {
     }
 };
 
+/**
+ * @brief An attach point, and what is riding it.
+ *
+ * The placement is the node — that is the whole of an MDX or `.m2` attachment,
+ * and of a D3 hardpoint, which is skeleton-relative data shipped with the
+ * skeleton. The equip-slot key (M2's attachment `id`, the hardpoint's own name)
+ * lives in `native`.
+ *
+ * What rides it is the other half, and it is here rather than in a parallel list
+ * for §10.2's reason: removing or reparenting the node has to move everything
+ * that is *about* it, and a side table of `{node, child}` pairs would be one more
+ * referencer §10.6 has to invalidate.
+ *
+ * Both halves are optional and independent. `asset` is what the source named —
+ * an effect WEM does not contain (§18), or a model it does. `model` is filled
+ * when that name resolved to something the document now holds, which is how a D3
+ * child actor arrives: it converts to a `Model` of its own and the attach point
+ * points at it.
+ */
 struct AttachmentPayload {
-    /// The node itself is the data. The equip-slot key (M2's attachment `id`,
-    /// D3's hardpoint name) lives in `native`.
+    AssetKey asset;            ///< What the source named, resolved or not.
+    u32 model = kInvalidIndex; ///< -> `Document::models[]` once it resolved.
+
     template <class V>
-    void reflect(V&) {}
+    void reflect(V& v) {
+        v.field("asset", asset);
+        v.field("model", model);
+    }
 };
 
 struct LightPayload {

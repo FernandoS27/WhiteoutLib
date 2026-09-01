@@ -77,8 +77,18 @@ using ModelNative = NativeBag;
 
 struct ProfileMaterialSet {
     ProfileId profile = ProfileId::Generic;
-    LookTable looks;                       ///< Sized 1 for profiles without looks (§8).
-    std::vector<Material> materials;       ///< Set-local array.
+    LookTable looks; ///< Sized 1 for profiles without looks (§8).
+
+    /// Which look this set draws when nobody says otherwise.
+    ///
+    /// On the set rather than the `Model` because the look axis is per set: D3's
+    /// looks and WoW's texture variations are different vocabularies and share no
+    /// index space. An importer that was *told* which look to build records it
+    /// here, so the document says what it is rather than leaving the answer in
+    /// the caller's arguments.
+    u32 defaultLook = 0;
+
+    std::vector<Material> materials; ///< Set-local array.
     std::vector<SlotBinding> slotBindings; ///< Parallel to `Model::materialSlots`.
     ModelNative native;
 
@@ -91,6 +101,7 @@ struct ProfileMaterialSet {
     void reflect(V& v) {
         v.field("profile", profile);
         v.field("looks", looks);
+        v.field("defaultLook", defaultLook);
         v.field("materials", materials);
         v.field("slotBindings", slotBindings);
         v.field("native", native);

@@ -91,6 +91,41 @@ void checkBindingShape(const Document& document, Diagnostics& out) {
                               number(set.looks.size()) + " looks",
                           ElementRef(ElementKind::Slot, static_cast<u32>(slot)), set.profile);
             }
+            // Only when there is a table to be out of range of: an empty one is
+            // already reported above, and saying it twice buries the first.
+            if (!set.looks.empty() && set.defaultLook >= set.looks.size()) {
+                out.error(DiagCode::LookBindingMalformed,
+                          "default look " + number(set.defaultLook) + " is past the " +
+                              number(set.looks.size()) + " this set carries",
+                          ElementRef(), set.profile);
+            }
+        }
+    }
+}
+
+/// A model an attach point rides has to exist (§10.2).
+///
+/// The child model index lives on the Attachment node's own payload rather than
+/// in a side table, which is what keeps `RemoveNode` from needing a referencer
+/// row for it — but the index still points *out* of the node, so it is exactly
+/// as checkable as any other cross-array reference.
+void checkAttachments(const Document& document, Diagnostics& out) {
+    for (std::size_t m = 0; m < document.models.size(); ++m) {
+        const NodeTree& tree = document.models[m].nodes;
+        for (std::size_t n = 0; n < tree.nodes.size(); ++n) {
+            const auto* payload = std::get_if<AttachmentPayload>(&tree.nodes[n].payload);
+            if (payload == nullptr || payload->model == kInvalidIndex) {
+                continue;
+            }
+            if (payload->model >= document.models.size()) {
+                out.error(DiagCode::IndexOutOfRange,
+                          "attach point rides model " + number(payload->model) + " of " +
+                              number(document.models.size()),
+                          ElementRef(ElementKind::Node, static_cast<u32>(n)));
+            } else if (payload->model == m) {
+                out.error(DiagCode::IndexOutOfRange, "attach point rides its own model",
+                          ElementRef(ElementKind::Node, static_cast<u32>(n)));
+            }
         }
     }
 }
@@ -394,12 +429,13 @@ void checkGeometryLimits(const Document& document, Diagnostics& out) {
 //   P3  structural: profile declarations, binding shape, body invariants,
 //                   native-kind agreement (§6.5), the §7.5 referencer table.
 //       profile:    coverage (§6.3), material and geometry limits.
-//   P6/P7 profile:  the actor and animation referencer rows of §10.6 and §7.5.
+//   P6  structural: the child model an attach point rides, and the default look.
+//   P7  profile:    the animation referencer rows of §10.6 and §7.5.
 // ---------------------------------------------------------------------------
 
 constexpr ValidationRule kStructuralRules[] = {
     checkMeshStructure, checkProfileDeclarations, checkBindingShape, checkMaterialBodies,
-    checkNativeKinds,   checkMaterialReferencers, nullptr,
+    checkNativeKinds,   checkMaterialReferencers, checkAttachments,  nullptr,
 };
 constexpr ValidationRule kManifoldRules[] = {checkMeshManifold, nullptr};
 constexpr ValidationRule kProfileRules[] = {

@@ -55,6 +55,7 @@
 #include "retarget.h"
 
 #include "converters.h"
+#include "d3_converter.h"
 #include "diagnostics.h"
 #include "parser.h"
 #include "profile.h"

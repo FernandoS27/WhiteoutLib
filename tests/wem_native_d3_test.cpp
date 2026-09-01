@@ -27,6 +27,8 @@
 
 #include <whiteout/models/wem/materials/material.h>
 
+#include "whiteout/models/wem/materials/d3_core.h"
+
 using namespace whiteout;
 using namespace whiteout::models::wem;
 
@@ -138,7 +140,71 @@ TEST_CASE("wem a d3 material fits the native variant", "[wem][materials][d3]") {
 }
 
 TEST_CASE("wem the d3 mirror declares no manual fields", "[wem][materials][d3]") {
-    // D3's renames all fit the mechanical copy, so nothing is converter-owned
-    // yet. P6's converter is what would add one.
+    // D3's renames all fit the mechanical copy, so nothing is converter-owned.
     CHECK(native::kD3ManualFieldCount == 0);
+}
+
+// ===========================================================================
+// P6: the block the converter actually produces
+// ===========================================================================
+//
+// The cases above pin the block's *shape* on hand-authored values, which was
+// all P3 could do. Now there is a converter, and what it emits is the thing
+// that has to hold.
+
+TEST_CASE("wem the d3 converter emits an authoritative block", "[wem][materials][d3]") {
+    namespace d3n = whiteout::sno::d3::native;
+
+    d3n::SubObjectAppearance variant;
+    variant.snoMaterial.id = 77;
+    variant.snoMaterial.group = d3n::Group::Material;
+    variant.snoCloth.id = 12;
+    variant.snoCloth.group = d3n::Group::Cloth;
+    variant.arShaderParams.push_back(d3n::TagMapEntry{1, 0xA000Fu, 1});
+    variant.tMaterial.tColors.vDiffuse = Vector4f{1, 0.5f, 0.25f, 1};
+    variant.tMaterial.arTextures.resize(2);
+    // The type is field @0x00. Reading @0x98 instead is what bound an arbitrary
+    // layer as the diffuse and left 320 variants binding nothing at all.
+    variant.tMaterial.arTextures[0].dwSlotIndex = 1;  // diffuse
+    variant.tMaterial.arTextures[0].snoTexture.id = 500;
+    variant.tMaterial.arTextures[0].snoTexture.group = d3n::Group::Textures;
+    variant.tMaterial.arTextures[0].dwTextureType = 0x3; // wrap, wrap
+    variant.tMaterial.arTextures[1].dwSlotIndex = 3;  // normal
+    variant.tMaterial.arTextures[1].snoTexture.id = 501;
+    variant.tMaterial.arTextures[1].snoTexture.group = d3n::Group::Textures;
+
+    d3_core::Context context;
+    context.internUnknownIds = true;
+    Diagnostics report;
+    const Material material = d3_core::ImportVariant(variant, "body", context, report);
+
+    REQUIRE(material.nativeKind() == NativeKind::D3);
+    // Import-only, so the block is the truth and `common` is a projection of a
+    // shader the game compiled. `InSync` would claim an export exists.
+    CHECK(material.sync() == NativeSync::NativeAuthoritative);
+
+    const auto& block = std::get<native::D3Material>(material.Native());
+    CHECK(block.sourceVersion == 260);
+    CHECK(block.cloth.id == 12);
+    CHECK(block.baseMaterial.id == 77);
+    REQUIRE(block.shaderParams.size() == 1);
+    CHECK(block.shaderParams[0].tagId == 0xA000Fu);
+    REQUIRE(block.uber.textures.size() == 2);
+    CHECK(block.uber.textures[0].type == 1);
+    // No provider, so no render state resolved — and the block says so by being
+    // empty rather than by carrying a guess.
+    CHECK(block.opaquePasses.empty());
+    CHECK(block.translucentPasses.empty());
+
+    // With no pass to carry a stage block, the shader-named types are a slot map.
+    REQUIRE(material.Common().kind() == MaterialKind::LegacyDeferred);
+    const LegacyDeferredBody* body = material.Common().legacy();
+    REQUIRE(body != nullptr);
+    REQUIRE(body->find(LegacySlot::Diffuse) != nullptr);
+    REQUIRE(body->find(LegacySlot::Normal) != nullptr);
+    CHECK(body->find(LegacySlot::Diffuse)->wrapU == WrapMode::Repeat);
+    CHECK(body->find(LegacySlot::Normal)->wrapU == WrapMode::Clamp);
+    // Two textures, two document entries, in first-use order.
+    REQUIRE(context.texturesBySno.size() == 2);
+    CHECK(context.texturesBySno[0].first == 500u);
 }

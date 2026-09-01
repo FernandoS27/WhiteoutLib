@@ -101,6 +101,7 @@ target_include_directories(wem_native_m3_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(wem_native_m2_test wem_native_m2_test.cpp)
 target_include_directories(wem_native_m2_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(wem_native_d3_test wem_native_d3_test.cpp)
+target_include_directories(wem_native_d3_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # P4 step 1: the reflection visitors against the hand-written v2 pair. Reaches
 # into src/ for both visitors -- the oracle is not public API and must not
@@ -115,6 +116,8 @@ whiteout_add_test(wem_convert_m2_test wem_convert_m2_test.cpp)
 target_include_directories(wem_convert_m2_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(wem_convert_m3_test wem_convert_m3_test.cpp)
 target_include_directories(wem_convert_m3_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+whiteout_add_test(wem_convert_d3_test wem_convert_d3_test.cpp)
+target_include_directories(wem_convert_d3_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(wem_convert_corpus_test wem_convert_corpus_test.cpp)
 target_include_directories(wem_convert_corpus_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # The expected-loss goldens live beside the test sources, and the sweep has to

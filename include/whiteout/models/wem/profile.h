@@ -32,6 +32,11 @@ namespace whiteout {
 namespace models {
 namespace wem {
 
+/// "No index" on the material, model and node-payload axes — the same
+/// `0xFFFFFFFF` as `geom::kInvalidId` and `kInvalidNode`, spelled once for
+/// everything above the geometry kernel.
+inline constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
+
 // ============================================================================
 // ProfileId
 // ============================================================================

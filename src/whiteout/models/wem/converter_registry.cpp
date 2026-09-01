@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Fernando Sahmkow
 
 #include "whiteout/models/wem/converters.h"
+#include "whiteout/models/wem/d3_converter.h"
 
 #include <algorithm>
 #include <memory>
@@ -58,6 +59,7 @@ void RegisterBuiltinConverters(ConverterRegistry& registry) {
     registry.registerConverter(std::make_shared<MdxConverter>());
     registry.registerConverter(std::make_shared<M2Converter>());
     registry.registerConverter(std::make_shared<M3Converter>());
+    registry.registerConverter(std::make_shared<D3Converter>());
 }
 
 ConverterRegistry::ConverterRegistry() : pImpl(std::make_unique<Impl>()) {

@@ -207,6 +207,9 @@ CompositeOp compositeOpOf(CombinerOp op, const KindContext& ctx) {
     case CombinerOp::Fade:
         ctx.approximated("combiner op 'fade' became alpha_blend");
         return CompositeOp::AlphaBlend;
+    // `Pass` never reaches here: a stage that does not touch the channel is not
+    // a layer of it, so the caller drops it rather than folding an identity.
+    case CombinerOp::Pass:
     case CombinerOp::Count:
         break;
     }
@@ -264,6 +267,11 @@ CompositeBody toComposite(const CommonMaterial& source, const KindContext& ctx) 
         out.diffuseFactor = combiners->diffuseFactor;
         out.emissiveFactor = combiners->emissiveFactor;
         for (const CombinerStage& stage : combiners->stages) {
+            // A stage whose colour op is `Pass` touches alpha alone, and a
+            // composite stack has no alpha-only layer to put it in.
+            if (stage.rgb == CombinerOp::Pass) {
+                continue;
+            }
             CompositeLayer layer;
             layer.input = stage.input;
             layer.target = SurfaceChannel::Color;

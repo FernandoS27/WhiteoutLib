@@ -363,9 +363,15 @@ struct ChunkTagTraits<Look> {
 /// until something claims it -- and it keeps P6 and P7 from having to pick
 /// around whatever P5 happened to take.
 namespace reserved {
-inline constexpr u32 kActor = kTag("ACTR");      ///< P6 `Actor`.
-inline constexpr u32 kActorEvent = kTag("EVNT"); ///< P6 `ActorEvent`.
-inline constexpr u32 kClip = kTag("CLIP");       ///< P7 `Clip`.
+// `ACTR` and `EVNT` were reserved for an `Actor` record and its events. P6
+// settled that there is no such record -- an actor is a join applied at
+// conversion, not a type WEM stores (§9.1) -- so the two are left claimed and
+// unused rather than recycled: a FourCC costs nothing, and a tag that once meant
+// something else is worth never meaning anything again.
+inline constexpr u32 kRetiredActor = kTag("ACTR");
+inline constexpr u32 kRetiredActorEvent = kTag("EVNT");
+
+inline constexpr u32 kClip = kTag("CLIP"); ///< P7 `Clip`.
 inline constexpr u32 kClipEvent = kTag("CLEV");  ///< P7 `ClipEvent`.
 inline constexpr u32 kSubTrackContainer = kTag("STCC");
 inline constexpr u32 kSubTrack = kTag("STRK");

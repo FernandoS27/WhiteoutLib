@@ -93,6 +93,8 @@ const char* ToString(CombinerOp op) {
         return "decal";
     case CombinerOp::Fade:
         return "fade";
+    case CombinerOp::Pass:
+        return "pass";
     case CombinerOp::Count:
         break;
     }

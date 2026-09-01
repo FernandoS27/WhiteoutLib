@@ -7,13 +7,17 @@
  * @file document.h
  * @brief `Document` — the root (WEM v3, design §9.1).
  *
- * D3 forces the root to change. An `.acr` references an `.app`; a trigger event
- * on that actor references *another* `.acr`; a hardpoint attachment is a whole
- * second model. One drawable is not the unit of a file any more, so the root is a
- * collection of models and actors rather than a model.
+ * D3 forces the root to hold **several** models. An `.acr` references an `.app`;
+ * a trigger event on that actor names *another* `.acr`; a hardpoint attachment is
+ * a whole second model. One drawable is not the unit of a file any more.
  *
- * Models and actors are index-addressed within the document, so an attachment is
- * a `u32` and there is no pointer graph to serialize.
+ * What it does **not** hold is an actor. An actor is a join — a drawable, a look,
+ * an animset, and things riding hardpoints — and every one of those is already a
+ * WEM concept, so the join is applied at conversion and its result stored (§9.1).
+ * Mirroring D3's `.acr` here would be putting a gameplay object in a model format.
+ *
+ * Models are index-addressed within the document, so an attach point names one
+ * with a `u32` and there is no pointer graph to serialize.
  *
  * Serialization is **not** here: §11's reflection-driven reader and writer arrive
  * at P4 and take this struct as their subject. Nothing in this header knows about
@@ -81,12 +85,14 @@ struct Document {
     std::string name;
     Extent bounds;
 
+    /// One per drawable. A D3 actor converts to `models[0]` and everything its
+    /// attach points reach follows it (§9.1); every other importer produces one.
     std::vector<Model> models;
+
     std::vector<TextureRef> textures;
 
-    // P6 adds `std::vector<Actor> actors`; P7 adds `clips` and `animSets`. Each
-    // is one field here and one chunk in the registry — the root does not change
-    // shape again.
+    // P7 adds `clips` and `animSets`. Each is one field here and one chunk in
+    // the registry — the root does not change shape again.
 
     /// Chunks this build did not understand, carried through unchanged (§11.4).
     ///
