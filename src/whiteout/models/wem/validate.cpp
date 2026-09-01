@@ -130,6 +130,122 @@ void checkAttachments(const Document& document, Diagnostics& out) {
     }
 }
 
+/// §10.8's own invariants: unique channel ids, sub-tracks that resolve, and a
+/// key stream sized for the type its channel declares.
+///
+/// The size rule is the one worth having. `SubTrack::values` is a byte blob and
+/// its element size comes from the *channel*, so a converter that keys three
+/// floats into a channel declared `F32` produces a stream nothing can read and
+/// nothing else would notice.
+void checkAnimation(const Document& document, Diagnostics& out) {
+    for (std::size_t m = 0; m < document.models.size(); ++m) {
+        const AnimChannelTable& table = document.models[m].animChannels;
+        for (std::size_t i = 0; i < table.channels.size(); ++i) {
+            for (std::size_t j = i + 1; j < table.channels.size(); ++j) {
+                if (table.channels[i].id != table.channels[j].id) {
+                    continue;
+                }
+                out.error(DiagCode::MaterialBodyInvalid,
+                          "two channels share id " + number(table.channels[j].id),
+                          ElementRef(ElementKind::Channel, table.channels[j].id));
+            }
+        }
+        for (const AnimChannel& channel : table.channels) {
+            if (channel.target.kind == TrackTarget::Kind::Section) {
+                const Model& model = document.models[m];
+                const bool inRange =
+                    channel.target.mesh < model.meshes.size() &&
+                    channel.target.sub < model.meshes[channel.target.mesh].sections.size();
+                if (!inRange) {
+                    out.error(DiagCode::IndexOutOfRange,
+                              "channel " + number(channel.id) + " drives section " +
+                                  number(channel.target.sub) + " of mesh " +
+                                  number(channel.target.mesh) + ", which the model does not have",
+                              ElementRef(ElementKind::Channel, channel.id));
+                }
+            }
+            if (channel.initValue.empty() || channel.hasInitValue()) {
+                continue;
+            }
+            out.error(DiagCode::AttributeCountMismatch,
+                      "channel " + number(channel.id) + " holds a " +
+                          number(channel.initValue.size()) + "-byte rest value for a " +
+                          ToString(channel.valueType) + " channel",
+                      ElementRef(ElementKind::Channel, channel.id));
+        }
+    }
+
+    for (std::size_t c = 0; c < document.clips.size(); ++c) {
+        const Clip& clip = document.clips[c];
+        const ElementRef where(ElementKind::Clip, static_cast<u32>(c));
+
+        if (clip.model >= document.models.size()) {
+            out.error(DiagCode::ClipTargetMissing,
+                      "clip '" + clip.name + "' drives model " + number(clip.model) + " of " +
+                          number(document.models.size()),
+                      where);
+            continue;
+        }
+        if (clip.containers.empty()) {
+            out.warn(DiagCode::ClipTargetMissing, "clip '" + clip.name + "' holds no containers",
+                     where);
+        }
+
+        const AnimChannelTable& table = document.models[clip.model].animChannels;
+        for (std::size_t k = 0; k < clip.containers.size(); ++k) {
+            for (const SubTrack& track : clip.containers[k].subTracks) {
+                const AnimChannel* channel = table.find(track.channel);
+                if (channel == nullptr) {
+                    out.error(
+                        DiagCode::AnimChannelInvalidated,
+                        "a sub-track joins on channel " + number(track.channel) + ", which model " +
+                            number(clip.model) + " does not declare",
+                        ElementRef(ElementKind::Track, static_cast<u32>(c), static_cast<u32>(k)));
+                    continue;
+                }
+                if (track.wellSized(channel->valueType)) {
+                    continue;
+                }
+                out.error(DiagCode::AttributeCountMismatch,
+                          "a sub-track holds " + number(track.values.size()) + " bytes for " +
+                              number(track.keyCount()) + " " + ToString(track.interp) +
+                              " keys of " + ToString(channel->valueType),
+                          ElementRef(ElementKind::Track, static_cast<u32>(c), static_cast<u32>(k)));
+            }
+        }
+    }
+
+    for (std::size_t a = 0; a < document.animSets.size(); ++a) {
+        const AnimSet& set = document.animSets[a];
+        const ElementRef where(ElementKind::Clip, static_cast<u32>(a));
+        if (set.baseAnimSet != kInvalidIndex && set.baseAnimSet >= document.animSets.size()) {
+            out.error(DiagCode::ClipTargetMissing,
+                      "anim set '" + set.name + "' falls back to set " + number(set.baseAnimSet) +
+                          " of " + number(document.animSets.size()),
+                      where);
+        }
+        for (const AnimTag& tag : set.byTag) {
+            if (tag.clip < document.clips.size()) {
+                continue;
+            }
+            out.error(DiagCode::ClipTargetMissing,
+                      "anim set '" + set.name + "' maps tag " + number(tag.tagId) + " to clip " +
+                          number(tag.clip) + " of " + number(document.clips.size()),
+                      where);
+        }
+    }
+
+    for (std::size_t m = 0; m < document.models.size(); ++m) {
+        const u32 set = document.models[m].animSet;
+        if (set == kInvalidIndex || set < document.animSets.size()) {
+            continue;
+        }
+        out.error(DiagCode::ClipTargetMissing,
+                  "model plays anim set " + number(set) + " of " + number(document.animSets.size()),
+                  ElementRef(ElementKind::Document, static_cast<u32>(m)));
+    }
+}
+
 /// §7.2's body invariants: at most one entry per deferred slot, `Orm` exclusive
 /// with the unpacked three, at most one feature of a kind per layer.
 void checkMaterialBodies(const Document& document, Diagnostics& out) {
@@ -222,6 +338,57 @@ void checkNativeKinds(const Document& document, Diagnostics& out) {
                           std::string("a ") + ToString(actual) + " native block in a " +
                               ToString(set.profile) + " set, which takes " + ToString(allowed),
                           ElementRef(ElementKind::Material, static_cast<u32>(m)), set.profile);
+            }
+        }
+    }
+}
+
+/// The §10.6 node row animation adds: a channel's target and an event's node.
+///
+/// Profile-level rather than structural because it is the same class of check as
+/// the coverage rule — a cross-array join whose failure means the document is
+/// wrong about itself, not that it cannot be read.
+void checkAnimReferencers(const Document& document, Diagnostics& out) {
+    for (std::size_t m = 0; m < document.models.size(); ++m) {
+        const Model& model = document.models[m];
+        const u32 nodeCount = model.nodes.size();
+
+        for (const AnimChannel& channel : model.animChannels.channels) {
+            if (channel.target.kind != TrackTarget::Kind::Node) {
+                continue;
+            }
+            if (channel.target.node >= nodeCount) {
+                out.error(DiagCode::DanglingNodeReference,
+                          "channel " + number(channel.id) + " drives node " +
+                              number(channel.target.node) + " of " + number(nodeCount),
+                          ElementRef(ElementKind::Channel, channel.id));
+            } else if (model.nodes.nodes[channel.target.node].removed) {
+                out.warn(DiagCode::AnimChannelInvalidated,
+                         "channel " + number(channel.id) + " drives a removed node",
+                         ElementRef(ElementKind::Channel, channel.id));
+            }
+        }
+    }
+
+    for (std::size_t c = 0; c < document.clips.size(); ++c) {
+        const Clip& clip = document.clips[c];
+        if (clip.model >= document.models.size()) {
+            continue; // Reported by the structural rule.
+        }
+        const NodeTree& tree = document.models[clip.model].nodes;
+        for (const ClipEvent& event : clip.events) {
+            if (event.node == kInvalidNode) {
+                continue;
+            }
+            // Only that the node exists: the *kind* is not an invariant. MDX and
+            // `.m2` key events at a dedicated `Event` node, but `.m3` keys them at
+            // a bone and D3 at an attachment, so requiring one kind would flag
+            // half of shipped content for having the shape its format has.
+            if (event.node >= tree.size()) {
+                out.error(DiagCode::DanglingNodeReference,
+                          "event '" + event.name + "' fires at node " + number(event.node) +
+                              " of " + number(tree.size()),
+                          ElementRef(ElementKind::Clip, static_cast<u32>(c)));
             }
         }
     }
@@ -430,19 +597,18 @@ void checkGeometryLimits(const Document& document, Diagnostics& out) {
 //                   native-kind agreement (§6.5), the §7.5 referencer table.
 //       profile:    coverage (§6.3), material and geometry limits.
 //   P6  structural: the child model an attach point rides, and the default look.
-//   P7  profile:    the animation referencer rows of §10.6 and §7.5.
+//   P7  structural: the channel table's ids and the sub-track key sizing.
+//       profile:    the animation referencer rows of §10.6 and §7.5.
 // ---------------------------------------------------------------------------
 
 constexpr ValidationRule kStructuralRules[] = {
-    checkMeshStructure, checkProfileDeclarations, checkBindingShape, checkMaterialBodies,
-    checkNativeKinds,   checkMaterialReferencers, checkAttachments,  nullptr,
+    checkMeshStructure,  checkProfileDeclarations, checkBindingShape,
+    checkMaterialBodies, checkNativeKinds,         checkMaterialReferencers,
+    checkAttachments,    checkAnimation,           nullptr,
 };
 constexpr ValidationRule kManifoldRules[] = {checkMeshManifold, nullptr};
 constexpr ValidationRule kProfileRules[] = {
-    checkCoverage,
-    checkMaterialLimits,
-    checkGeometryLimits,
-    nullptr,
+    checkCoverage, checkMaterialLimits, checkGeometryLimits, checkAnimReferencers, nullptr,
 };
 
 /// The tables above carry a `nullptr` terminator because a zero-sized array is

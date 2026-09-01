@@ -359,9 +359,8 @@ struct ChunkTagTraits<Look> {
     static constexpr bool is_trivial = false;
 };
 
-/// Tags reserved now, bodies later. Reserving is free -- a FourCC costs nothing
-/// until something claims it -- and it keeps P6 and P7 from having to pick
-/// around whatever P5 happened to take.
+/// Tags that are claimed and will never be issued. P7 took the last of the
+/// reservations, so what is left here is only the two P6 retired.
 namespace reserved {
 // `ACTR` and `EVNT` were reserved for an `Actor` record and its events. P6
 // settled that there is no such record -- an actor is a join applied at
@@ -371,13 +370,60 @@ namespace reserved {
 inline constexpr u32 kRetiredActor = kTag("ACTR");
 inline constexpr u32 kRetiredActorEvent = kTag("EVNT");
 
-inline constexpr u32 kClip = kTag("CLIP"); ///< P7 `Clip`.
-inline constexpr u32 kClipEvent = kTag("CLEV");  ///< P7 `ClipEvent`.
-inline constexpr u32 kSubTrackContainer = kTag("STCC");
-inline constexpr u32 kSubTrack = kTag("STRK");
-inline constexpr u32 kAnimChannel = kTag("ACHN");
-inline constexpr u32 kAnimSet = kTag("ASET");
 } // namespace reserved
+
+// --- Animation (§10.8) ---
+
+template <>
+struct ChunkTagTraits<AnimChannel> {
+    static constexpr u32 value = kTag("ACHN");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<SubTrack> {
+    static constexpr u32 value = kTag("STRK");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<SubTrackContainer> {
+    static constexpr u32 value = kTag("STCC");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<ClipEvent> {
+    static constexpr u32 value = kTag("CLEV");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<Clip> {
+    static constexpr u32 value = kTag("CLIP");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+/// One row of an `AnimSet`'s map. A chunk of its own because the set holds a
+/// vector of them and every vector element type needs a tag.
+template <>
+struct ChunkTagTraits<AnimTag> {
+    static constexpr u32 value = kTag("ATAG");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<AnimSet> {
+    static constexpr u32 value = kTag("ASET");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
 
 // ============================================================================
 // The runtime tag set
@@ -442,6 +488,13 @@ inline constexpr u32 kKnownChunkTags[] = {
     ChunkTagTraits<native::M2Material>::value,
     ChunkTagTraits<native::M3Material>::value,
     ChunkTagTraits<native::D3Material>::value,
+    ChunkTagTraits<AnimChannel>::value,
+    ChunkTagTraits<SubTrack>::value,
+    ChunkTagTraits<SubTrackContainer>::value,
+    ChunkTagTraits<ClipEvent>::value,
+    ChunkTagTraits<Clip>::value,
+    ChunkTagTraits<AnimTag>::value,
+    ChunkTagTraits<AnimSet>::value,
     kWoemMagic, // slot 0 is the header's own entry, not a chunk
     kHoleTag,
 };

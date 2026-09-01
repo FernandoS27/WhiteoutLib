@@ -22,8 +22,12 @@
  * |---|---|
  * | `SkinBinding` | `Influence::bone` |
  * | `MeshSection` | `rigidNode` |
- * | `AnimChannel` | `target.node` (P7) |
- * | `Actor` | `attachments[].node`; `events[].hardpoints[]` (P6) |
+ * | `AnimChannel` | `target.node` |
+ * | `ClipEvent` | `node` |
+ *
+ * P6 settled that there is no `Actor` row: an attach point's child model rides
+ * the node's own payload (§10.2), so removing the node takes it along and there
+ * is nothing left to invalidate.
  *
  * A new structure that stores a node index must add itself to that table, and
  * `Validate` cross-checks every listed field against the tree. The table's single
@@ -37,6 +41,7 @@
 #include <whiteout/common_types.h>
 #include <whiteout/compatibility.h>
 
+#include "../anim/clip.h"
 #include "../diagnostics.h"
 #include "../geometry/mesh.h"
 #include "tree.h"
@@ -71,9 +76,16 @@ struct RemoveResult {
 struct NodeReferencers {
     std::span<Mesh> meshes;
 
-    // P6 adds `std::span<Actor> actors`; P7 adds the animation channel table.
-    // Each is one field here and one loop in `remove.cpp` — the mechanism does
-    // not change again.
+    /// This model's channel table (§10.8). A channel whose node dies is
+    /// **invalidated, not dropped** — an id is never reused, and dropping the
+    /// declaration would leave its sub-tracks joining on nothing with no way to
+    /// tell that from a merge that has not landed yet.
+    AnimChannelTable* channels = nullptr;
+
+    /// The clips driving this model — `ClipEvent::node` is the referencer. The
+    /// caller filters by `Clip::model`, because a `NodeTree` does not know its
+    /// own index and a clip for another model must not be touched.
+    std::span<Clip> clips;
 };
 
 /**
@@ -111,7 +123,9 @@ NodeRemaps CompactNodes(NodeTree& tree, NodeReferencers referencers, Diagnostics
 
 /// Cross-checks every §10.6 referencer against the tree without changing
 /// anything — the `Validate` half of the table.
-void CheckNodeReferencers(const NodeTree& tree, std::span<const Mesh> meshes, Diagnostics& out);
+void CheckNodeReferencers(const NodeTree& tree, std::span<const Mesh> meshes, Diagnostics& out,
+                          const AnimChannelTable* channels = nullptr,
+                          std::span<const Clip> clips = {});
 
 } // namespace wem
 } // namespace models

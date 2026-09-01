@@ -172,7 +172,7 @@ TextureInput inputFor(const m3::TextureLayer& layer, const Context& context, u32
     }
     applyMapping(layer.uvMapping, input);
     // `color` is an AnimRef; the constant is its initial value, and the
-    // animation is P7's channel table.
+    // animation lives in the channel table (§10.8).
     const m3::ColorBGRA tint = layer.color.initValue;
     input.constant = Vector4f(static_cast<f32>(tint.r) / 255.0f, static_cast<f32>(tint.g) / 255.0f,
                               static_cast<f32>(tint.b) / 255.0f, static_cast<f32>(tint.a) / 255.0f);
@@ -209,11 +209,15 @@ void addFresnel(const m3::TextureLayer& layer, u32 ordinal, CommonMaterial& comm
 /// Appends one optional layer to the stack, if present.
 void appendLayer(const std::optional<m3::TextureLayer>& layer, SurfaceChannel channel,
                  CompositeOp op, const Context& context, CompositeBody& body,
-                 CommonMaterial& common, Diagnostics& out) {
+                 CommonMaterial& common, Diagnostics& out, StandardLayer slot,
+                 std::vector<u32>* ordinals) {
     if (!layer.has_value() || !LayerActive(*layer)) {
         return;
     }
     const u32 ordinal = static_cast<u32>(body.layers.size());
+    if (ordinals != nullptr) {
+        (*ordinals)[static_cast<std::size_t>(slot)] = ordinal;
+    }
     CompositeLayer entry;
     entry.input = inputFor(*layer, context, ordinal, out);
     entry.target = channel;
@@ -234,7 +238,7 @@ void reportDropped(const std::optional<m3::TextureLayer>& layer, const char* nam
 // ── the standard material ───────────────────────────────────────────────────
 
 void importStandard(const m3::StandardMaterial& source, const Context& context,
-                    CommonMaterial& common, Diagnostics& out) {
+                    CommonMaterial& common, Diagnostics& out, std::vector<u32>* ordinals) {
     common.blend = blendFor(source.blendMode);
     common.priorityPlane = source.priority;
     // M3 stores the cut-off as 0..255; `CommonMaterial` normalises, so a
@@ -267,22 +271,23 @@ void importStandard(const m3::StandardMaterial& source, const Context& context,
 
     const CompositeOp layerOp = opFor(source.layerBlendMode);
     appendLayer(source.diffuseLayer, SurfaceChannel::Color, CompositeOp::Set, context, body, common,
-                out);
-    appendLayer(source.decalLayer, SurfaceChannel::Color, layerOp, context, body, common, out);
+                out, StandardLayer::Diffuse, ordinals);
+    appendLayer(source.decalLayer, SurfaceChannel::Color, layerOp, context, body, common, out,
+                StandardLayer::Decal, ordinals);
     appendLayer(source.specularLayer, SurfaceChannel::Specular, CompositeOp::Set, context, body,
-                common, out);
+                common, out, StandardLayer::Specular, ordinals);
     appendLayer(source.emissiveLayer1, SurfaceChannel::Emissive, opFor(source.emissiveBlendMode1),
-                context, body, common, out);
+                context, body, common, out, StandardLayer::Emissive1, ordinals);
     appendLayer(source.emissiveLayer2, SurfaceChannel::Emissive, opFor(source.emissiveBlendMode2),
-                context, body, common, out);
+                context, body, common, out, StandardLayer::Emissive2, ordinals);
     appendLayer(source.environmentLayer, SurfaceChannel::Environment, CompositeOp::Set, context,
-                body, common, out);
+                body, common, out, StandardLayer::Environment, ordinals);
     appendLayer(source.environmentMaskLayer, SurfaceChannel::Environment, CompositeOp::Modulate,
-                context, body, common, out);
+                context, body, common, out, StandardLayer::EnvironmentMask, ordinals);
     appendLayer(source.normalLayer, SurfaceChannel::Normal, CompositeOp::Set, context, body, common,
-                out);
+                out, StandardLayer::Normal, ordinals);
     appendLayer(source.ambientOcclusionLayer, SurfaceChannel::AmbientOcclusion, CompositeOp::Set,
-                context, body, common, out);
+                context, body, common, out, StandardLayer::AmbientOcclusion, ordinals);
 
     reportDropped(source.glossLayer, "glossLayer", "gloss is a LegacySlot, not a channel", out);
     reportDropped(source.heightLayer, "heightLayer", "parallax is not a surface channel", out);
@@ -315,9 +320,11 @@ void importBestEffort(const char* kindName,
                       const Context& context, CommonMaterial& common, Diagnostics& out) {
     CompositeBody body;
     for (const std::optional<m3::TextureLayer>* layer : layers) {
+        // No ordinal map: the non-standard kinds have no `StandardLayer` slots
+        // to name, so their layers are unaddressable by animation either way.
         appendLayer(*layer, SurfaceChannel::Color,
                     body.layers.empty() ? CompositeOp::Set : CompositeOp::Modulate, context, body,
-                    common, out);
+                    common, out, StandardLayer::Count, nullptr);
     }
     common.body = std::move(body);
     out.warn(DiagCode::LossyKindConversion,
@@ -363,10 +370,39 @@ std::string Context::toPath(u32 documentTextureId) const {
 // Import
 // ============================================================================
 
+const std::optional<m3::TextureLayer>& LayerOf(const m3::StandardMaterial& material,
+                                               StandardLayer slot) {
+    switch (slot) {
+    case StandardLayer::Diffuse:
+        return material.diffuseLayer;
+    case StandardLayer::Decal:
+        return material.decalLayer;
+    case StandardLayer::Specular:
+        return material.specularLayer;
+    case StandardLayer::Emissive1:
+        return material.emissiveLayer1;
+    case StandardLayer::Emissive2:
+        return material.emissiveLayer2;
+    case StandardLayer::Environment:
+        return material.environmentLayer;
+    case StandardLayer::EnvironmentMask:
+        return material.environmentMaskLayer;
+    case StandardLayer::Normal:
+        return material.normalLayer;
+    case StandardLayer::AmbientOcclusion:
+    case StandardLayer::Count:
+        break;
+    }
+    return material.ambientOcclusionLayer;
+}
+
 Material ImportMaterial(const m3::Model& model, const m3::MaterialMap& entry, ProfileId profile,
-                        const Context& context, Diagnostics& out) {
+                        const Context& context, Diagnostics& out, std::vector<u32>* layerOrdinals) {
     Material result;
     CommonMaterial& common = result.InitCommon();
+    if (layerOrdinals != nullptr) {
+        layerOrdinals->assign(static_cast<std::size_t>(StandardLayer::Count), kInvalidIndex);
+    }
 
     native::M3Material block;
     block.sourceVersion = context.modelVersion;
@@ -389,7 +425,7 @@ Material ImportMaterial(const m3::Model& model, const m3::MaterialMap& entry, Pr
         }
         const m3::StandardMaterial& source = model.standardMaterials[index];
         result.name = source.name;
-        importStandard(source, context, common, out);
+        importStandard(source, context, common, out, layerOrdinals);
         native::M3Standard mirror;
         CopyToNative(source, mirror);
         block.body = std::move(mirror);
@@ -554,7 +590,7 @@ Material ImportMaterial(const m3::Model& model, const m3::MaterialMap& entry, Pr
             restored = source.approximateStandardMaterial();
         }
         if (restored.converted) {
-            importStandard(restored.material, context, common, out);
+            importStandard(restored.material, context, common, out, layerOrdinals);
             native::M3Standard standard;
             CopyToNative(restored.material, standard);
             block.restoredStandard = std::move(standard);

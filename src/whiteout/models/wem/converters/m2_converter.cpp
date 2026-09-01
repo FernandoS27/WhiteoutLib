@@ -38,6 +38,7 @@
 #include "whiteout/models/wem/geometry/render_view.h"
 
 #include "../materials/m2_core.h"
+#include "m2_anim.h"
 
 #include <algorithm>
 #include <array>
@@ -269,6 +270,10 @@ Result<Document> M2Converter::fromM2(const m2::Model& source, u32 sourceVersion)
     model.bounds = document.bounds;
     model.nodes = ImportNodes(source);
 
+    m2_anim::Context animContext;
+    animContext.bases = m2_anim::NodeBases::Of(source);
+    animContext.slotOfBatch.resize(source.skinProfiles.size());
+
     ProfileMaterialSet set;
     set.profile = ProfileId::Wow;
     set.looks.looks.push_back(Look{});
@@ -309,6 +314,7 @@ Result<Document> M2Converter::fromM2(const m2::Model& source, u32 sourceVersion)
             const u32 slot = model.addSlot(BatchSlotName(s, b));
             slotOfBatch[b] = slot;
         }
+        animContext.slotOfBatch[s] = slotOfBatch;
 
         geom::MeshBuilder builder;
         for (std::size_t sub = 0; sub < skin.submeshes.size(); ++sub) {
@@ -414,7 +420,11 @@ Result<Document> M2Converter::fromM2(const m2::Model& source, u32 sourceVersion)
 
     set.resizeBindings(model.materialSlots.size());
     model.profileSets.push_back(std::move(set));
+
+    const u32 modelIndex = static_cast<u32>(document.models.size());
     document.models.push_back(std::move(model));
+    m2_anim::Import(source, animContext, document, modelIndex, diagnostics);
+
     result.value = std::move(document);
     return result;
 }
@@ -429,6 +439,7 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
     if (!checkExportProfile(document, profile, result.diagnostics)) {
         return result;
     }
+    reportUnwrittenClips(document, result.diagnostics);
 
     Diagnostics& diagnostics = result.diagnostics;
     m2::Model out;

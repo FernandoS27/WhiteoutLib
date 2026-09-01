@@ -38,6 +38,7 @@
 #include "whiteout/models/wem/geometry/render_view.h"
 
 #include "../materials/m3_core.h"
+#include "m3_anim.h"
 
 #include <algorithm>
 #include <array>
@@ -339,9 +340,10 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
         model.materialSlots.push_back(SlotName(m));
     }
     set.resizeBindings(model.materialSlots.size());
+    std::vector<std::vector<u32>> layerOrdinals(source.materialMaps.size());
     for (std::size_t m = 0; m < source.materialMaps.size(); ++m) {
-        Material material =
-            m3_core::ImportMaterial(source, source.materialMaps[m], profile, context, diagnostics);
+        Material material = m3_core::ImportMaterial(source, source.materialMaps[m], profile,
+                                                    context, diagnostics, &layerOrdinals[m]);
         material.name = TrimNuls(material.name);
         if (material.name.empty()) {
             material.name = SlotName(m);
@@ -509,7 +511,15 @@ Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileO
     }
 
     model.profileSets.push_back(std::move(set));
+    m3_anim::Context animContext;
+    animContext.profile = profile;
+    animContext.bases = m3_anim::NodeBases::Of(source);
+    animContext.layerOrdinals = std::move(layerOrdinals);
+
+    const u32 modelIndex = static_cast<u32>(document.models.size());
     document.models.push_back(std::move(model));
+    m3_anim::Import(source, animContext, document, modelIndex, diagnostics);
+
     result.value = std::move(document);
     return result;
 }
@@ -524,6 +534,7 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
     if (!checkExportProfile(document, profile, result.diagnostics)) {
         return result;
     }
+    reportUnwrittenClips(document, result.diagnostics);
 
     Diagnostics& diagnostics = result.diagnostics;
     m3::Model out;
@@ -777,6 +788,20 @@ Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
 // ============================================================================
 // FormatConverter
 // ============================================================================
+
+Result<u32> M3Converter::mergeAnimation(Document& document, u32 model,
+                                        const m3::Model& external) const {
+    Result<u32> result;
+    if (model >= document.models.size()) {
+        result.diagnostics.error(DiagCode::ClipTargetMissing,
+                                 "model " + std::to_string(model) + " of " +
+                                     std::to_string(document.models.size()),
+                                 ElementRef(ElementKind::Document, model));
+        return result;
+    }
+    result.value = m3_anim::Merge(external, document, model, result.diagnostics);
+    return result;
+}
 
 std::string M3Converter::formatId() const {
     return "m3";

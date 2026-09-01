@@ -54,6 +54,8 @@ CONFIG = ModuleConfig(
         'include/whiteout/models/wem/geometry/mesh.h',
         'include/whiteout/models/wem/nodes/node.h',
         'include/whiteout/models/wem/nodes/tree.h',
+        'include/whiteout/models/wem/anim/channel.h',
+        'include/whiteout/models/wem/anim/clip.h',
         'include/whiteout/models/wem/model.h',
         'include/whiteout/models/wem/document.h',
         'include/whiteout/models/wem/parser.h',

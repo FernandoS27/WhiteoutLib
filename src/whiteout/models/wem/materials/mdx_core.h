@@ -102,8 +102,17 @@ bool HasLayersFor(const mdx::Material& material, ProfileId profile, const Contex
 ///
 /// Yields a `Composite` for `Wc3Classic` — or a `Combiners` when the stack
 /// collapses (§7.2.2) — and a `PBRDeferred` for `Wc3Reforged`.
+///
+/// @p layerOrdinals, when given, is resized to `material.layers.size()` and
+/// filled with the WEM ordinal each `.mdx` layer became, or `kInvalidIndex` for
+/// one this profile filtered out. Animation needs it: a layer's alpha track
+/// targets an **ordinal** (§10.8), and the ordinal is the layer's position in
+/// the *filtered* stack, not in the file. For `PBRDeferred` a layer can set
+/// several slots and the ordinal reported is the first of them — an alpha track
+/// on an HD layer means the surface's opacity rather than one slot's, and the
+/// first slot is the closest thing this ordinal space has to saying that.
 Material ImportMaterial(const mdx::Material& material, ProfileId profile, const Context& context,
-                        Diagnostics& out);
+                        Diagnostics& out, std::vector<u32>* layerOrdinals = nullptr);
 
 /// Whether the stack collapses to a single-draw combiner chain: the first layer
 /// must be opaque (filter `None`), every later layer must be `Modulate`,

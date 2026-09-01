@@ -34,6 +34,7 @@
 #include <whiteout/common_types.h>
 #include <whiteout/compatibility.h>
 
+#include "anim/channel.h"
 #include "bounds.h"
 #include "geometry/mesh.h"
 #include "materials/looks.h"
@@ -108,31 +109,24 @@ struct ProfileMaterialSet {
     }
 };
 
-/**
- * @brief The animatable properties of this model, declared once (§10.8).
- *
- * Empty until P7, and empty is a normal state — a model with no animation carries
- * no channels. It is declared now so `Model`'s shape is final and nothing has to
- * move when the semantics arrive.
- */
-struct AnimChannelTable {
-    bool empty() const {
-        return true;
-    }
-
-    /// Empty until P7, and an empty body writes nothing -- which is what
-    /// keeps `Model` byte-stable when the channels arrive.
-    template <class V>
-    void reflect(V&) {}
-};
-
 /// @bind methods
 struct Model {
     std::string name;
     std::vector<Mesh> meshes;               ///< Shared across profiles.
     NodeTree nodes;                         ///< Shared: bones, lights, attachments, emitters.
     std::vector<std::string> materialSlots; ///< Shared: the join key.
-    AnimChannelTable animChannels;          ///< Shared: the animatable properties.
+    AnimChannelTable animChannels;          ///< Shared: the animatable properties (§10.8).
+
+    /// The `Document::animSets[]` a host plays this model through by default,
+    /// or `kInvalidIndex`.
+    ///
+    /// On the `Model` because that is what a D3 actor's `snoAnimSet` names once
+    /// the actor has become one (§9.1) — there is no `Actor` to hang it on, and a
+    /// document-level pairing would be a side table with the model index in it,
+    /// which is the shape §10.2 exists to avoid. Two actors sharing an appearance
+    /// but not an animset are therefore two models, the same way two that equip
+    /// differently are.
+    u32 animSet = kInvalidIndex;
     std::vector<ProfileMaterialSet> profileSets;
     Extent bounds;
 
@@ -161,6 +155,7 @@ struct Model {
         // way to say.
         v.inlineList("materialSlots", materialSlots);
         v.field("animChannels", animChannels);
+        v.field("animSet", animSet);
         v.field("profileSets", profileSets);
         v.field("bounds", bounds);
     }

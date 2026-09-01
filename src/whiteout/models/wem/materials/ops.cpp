@@ -55,6 +55,27 @@ void eraseOrdinal(CommonMaterial& common, u32 ordinal) {
     }
 }
 
+/// Whether @p set binds @p material at (@p slot, @p look). A material can be
+/// bound at several, which is why the animation fix-ups below iterate the
+/// bindings rather than deriving one pair from the material index.
+bool bindsMaterial(const ProfileMaterialSet& set, std::size_t slot, std::size_t look,
+                   u32 material) {
+    return slot < set.slotBindings.size() && look < set.slotBindings[slot].byLook.size() &&
+           set.slotBindings[slot].byLook[look] == material;
+}
+
+/// Marks @p channel as pointing at nothing and records why. The declaration
+/// stays in the table: ids are never reused, and dropping it would leave the
+/// sub-tracks that joined on it indistinguishable from a merge that has not
+/// landed (§10.8.1).
+void invalidate(AnimChannel& channel, const char* why, ProfileId profile, RemovalResult& result) {
+    channel.target.material.slot = kInvalidIndex;
+    ++result.invalidated;
+    result.diagnostics.warn(DiagCode::AnimChannelInvalidated,
+                            "channel " + number(channel.id) + " targeted " + why,
+                            ElementRef(ElementKind::Channel, channel.id), profile);
+}
+
 } // namespace
 
 // ============================================================================
@@ -146,6 +167,29 @@ RemovalResult RemoveLayer(Model& model, ProfileId profile, u32 material, u32 ord
     }
     common.features = std::move(kept);
 
+    // `AnimChannel::target.material` (§7.5). A layer ordinal shifts exactly the
+    // way a feature's `layer` does; a feature *id* never does, which is why the
+    // target kind distinguishes the two.
+    for (AnimChannel& channel : model.animChannels.channels) {
+        if (channel.target.kind != TrackTarget::Kind::MaterialLayer ||
+            channel.target.material.profile != profile) {
+            continue;
+        }
+        if (!bindsMaterial(*set, channel.target.material.slot, channel.target.material.look,
+                           material)) {
+            continue;
+        }
+        if (channel.target.sub == kWholeMaterial) {
+            continue; // Not an ordinal, so nothing renumbers it.
+        }
+        if (channel.target.sub == ordinal) {
+            invalidate(channel, "the removed ordinal", profile, result);
+        } else if (channel.target.sub > ordinal) {
+            --channel.target.sub;
+            ++result.rewritten;
+        }
+    }
+
     result.removed = true;
     return result;
 }
@@ -171,6 +215,18 @@ RemovalResult RemoveFeature(Model& model, ProfileId profile, u32 material, u32 f
             continue;
         }
         common.features.erase(common.features.begin() + static_cast<std::ptrdiff_t>(i));
+
+        for (AnimChannel& channel : model.animChannels.channels) {
+            if (channel.target.kind != TrackTarget::Kind::MaterialFeature ||
+                channel.target.material.profile != profile || channel.target.sub != featureId) {
+                continue;
+            }
+            if (bindsMaterial(*set, channel.target.material.slot, channel.target.material.look,
+                              material)) {
+                invalidate(channel, "the removed feature", profile, result);
+            }
+        }
+
         result.removed = true;
         return result;
     }
@@ -211,6 +267,18 @@ RemovalResult RemoveLook(Model& model, ProfileId profile, u32 look) {
     for (SlotBinding& binding : set->slotBindings) {
         if (look < binding.byLook.size()) {
             binding.byLook.erase(binding.byLook.begin() + static_cast<std::size_t>(look));
+            ++result.rewritten;
+        }
+    }
+
+    for (AnimChannel& channel : model.animChannels.channels) {
+        if (!IsMaterialTarget(channel.target.kind) || channel.target.material.profile != profile) {
+            continue;
+        }
+        if (channel.target.material.look == look) {
+            invalidate(channel, "the removed look", profile, result);
+        } else if (channel.target.material.look > look) {
+            --channel.target.material.look;
             ++result.rewritten;
         }
     }
@@ -322,8 +390,59 @@ void CheckMaterialReferencers(const Model& model, u32 modelIndex, Diagnostics& o
         }
     }
 
-    // P6 adds the `Actor` row (defaultLook, ActorEvent::lookName); P7 adds
-    // `AnimChannel::target.material`. Each is one loop here, not one mechanism.
+    // --- AnimChannel -> target.material ---------------------------------------
+    //
+    // P6 settled that there is no `Actor` row: the default look is a field on the
+    // set and the range check for it lives in `Validate`.
+    for (const AnimChannel& channel : model.animChannels.channels) {
+        if (!IsMaterialTarget(channel.target.kind)) {
+            continue;
+        }
+        const MaterialChannelRef& ref = channel.target.material;
+        const ElementRef where(ElementKind::Channel, channel.id);
+
+        const ProfileMaterialSet* set = model.setFor(ref.profile);
+        if (set == nullptr) {
+            out.error(DiagCode::ProfileNotCarried,
+                      "channel " + number(channel.id) + " drives a " + ToString(ref.profile) +
+                          " material and the model carries no such set",
+                      where, ref.profile);
+            continue;
+        }
+        if (ref.slot >= model.materialSlots.size()) {
+            out.warn(DiagCode::AnimChannelInvalidated,
+                     "channel " + number(channel.id) + " names material slot " + number(ref.slot) +
+                         " of " + number(model.materialSlots.size()),
+                     where, ref.profile);
+            continue;
+        }
+        if (ref.look >= set->looks.size()) {
+            out.error(DiagCode::IndexOutOfRange,
+                      "channel " + number(channel.id) + " names look " + number(ref.look) + " of " +
+                          number(set->looks.size()),
+                      where, ref.profile);
+            continue;
+        }
+
+        // The ordinal is the half that shifts under editing, so it is the half
+        // worth checking against the material it actually resolves to.
+        if (channel.target.kind != TrackTarget::Kind::MaterialLayer) {
+            continue;
+        }
+        // `kWholeMaterial` is a legal ordinal here for the same reason it is on
+        // a feature: a WoW `M2Color` multiplies the whole batch, not one stage.
+        if (channel.target.sub == kWholeMaterial) {
+            continue;
+        }
+        const Material* material = Resolve(model, ref.slot, ref.profile, ref.look);
+        if (material != nullptr && channel.target.sub >= material->Common().ordinalCount()) {
+            out.error(DiagCode::IndexOutOfRange,
+                      "channel " + number(channel.id) + " targets ordinal " +
+                          number(channel.target.sub) + " of " +
+                          number(material->Common().ordinalCount()),
+                      where, ref.profile);
+        }
+    }
 }
 
 } // namespace wem

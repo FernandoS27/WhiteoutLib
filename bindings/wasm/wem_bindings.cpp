@@ -39,6 +39,8 @@
 #include <whiteout/models/wem/geometry/mesh.h>
 #include <whiteout/models/wem/nodes/node.h>
 #include <whiteout/models/wem/nodes/tree.h>
+#include <whiteout/models/wem/anim/channel.h>
+#include <whiteout/models/wem/anim/clip.h>
 #include <whiteout/models/wem/model.h>
 #include <whiteout/models/wem/document.h>
 #include <whiteout/models/wem/parser.h>
@@ -356,6 +358,38 @@ EMSCRIPTEN_BINDINGS(wem) {
     enum_<whiteout::models::wem::PoseSpace>("WemPoseSpace")
         .value("Model", whiteout::models::wem::PoseSpace::Model)
         .value("ParentRelative", whiteout::models::wem::PoseSpace::ParentRelative);
+
+    enum_<whiteout::models::wem::Channel>("WemChannel")
+        .value("Translation", whiteout::models::wem::Channel::Translation)
+        .value("Rotation", whiteout::models::wem::Channel::Rotation)
+        .value("Scale", whiteout::models::wem::Channel::Scale)
+        .value("Visibility", whiteout::models::wem::Channel::Visibility)
+        .value("Color", whiteout::models::wem::Channel::Color)
+        .value("Alpha", whiteout::models::wem::Channel::Alpha)
+        .value("Intensity", whiteout::models::wem::Channel::Intensity)
+        .value("AttenuationStart", whiteout::models::wem::Channel::AttenuationStart)
+        .value("AttenuationEnd", whiteout::models::wem::Channel::AttenuationEnd)
+        .value("UvTranslate", whiteout::models::wem::Channel::UvTranslate)
+        .value("UvRotate", whiteout::models::wem::Channel::UvRotate)
+        .value("UvScale", whiteout::models::wem::Channel::UvScale)
+        .value("Weight", whiteout::models::wem::Channel::Weight)
+        .value("TextureIndex", whiteout::models::wem::Channel::TextureIndex)
+        .value("Emissive", whiteout::models::wem::Channel::Emissive)
+        .value("Count", whiteout::models::wem::Channel::Count);
+
+    enum_<whiteout::models::wem::Interpolation>("WemInterpolation")
+        .value("Step", whiteout::models::wem::Interpolation::Step)
+        .value("Linear", whiteout::models::wem::Interpolation::Linear)
+        .value("Hermite", whiteout::models::wem::Interpolation::Hermite)
+        .value("Bezier", whiteout::models::wem::Interpolation::Bezier)
+        .value("Slerp", whiteout::models::wem::Interpolation::Slerp)
+        .value("Count", whiteout::models::wem::Interpolation::Count);
+
+    enum_<whiteout::models::wem::ClipFlags>("WemClipFlags")
+        .value("None", whiteout::models::wem::ClipFlags::None)
+        .value("AutoPlay", whiteout::models::wem::ClipFlags::AutoPlay)
+        .value("Persistent", whiteout::models::wem::ClipFlags::Persistent)
+        .value("WorldClocked", whiteout::models::wem::ClipFlags::WorldClocked);
 
     enum_<whiteout::models::wem::ValidateLevel>("WemValidateLevel")
         .value("Structural", whiteout::models::wem::ValidateLevel::Structural)
@@ -802,6 +836,84 @@ EMSCRIPTEN_BINDINGS(wem) {
         .function("conformPoses", &whiteout::models::wem::NodeTree::conformPoses)
     ;
 
+    class_<whiteout::models::wem::MaterialChannelRef>("WemMaterialChannelRef")
+        .constructor<>()
+        .property("profile", &whiteout::models::wem::MaterialChannelRef::profile)
+        .property("slot", &whiteout::models::wem::MaterialChannelRef::slot)
+        .property("look", &whiteout::models::wem::MaterialChannelRef::look)
+    ;
+
+    class_<whiteout::models::wem::TrackTarget>("WemTrackTarget")
+        .constructor<>()
+        .property("node", &whiteout::models::wem::TrackTarget::node)
+        .property("mesh", &whiteout::models::wem::TrackTarget::mesh)
+        .property("material", &whiteout::models::wem::TrackTarget::material)
+        .property("sub", &whiteout::models::wem::TrackTarget::sub)
+        .property("channel", &whiteout::models::wem::TrackTarget::channel)
+    ;
+
+    class_<whiteout::models::wem::AnimChannel>("WemAnimChannel")
+        .constructor<>()
+        .property("id", &whiteout::models::wem::AnimChannel::id)
+        .property("target", &whiteout::models::wem::AnimChannel::target)
+        .property("initValue", &whiteout::models::wem::AnimChannel::initValue)
+    ;
+
+    class_<whiteout::models::wem::AnimChannelTable>("WemAnimChannelTable")
+        .constructor<>()
+        .property("channels", &whiteout::models::wem::AnimChannelTable::channels)
+    ;
+
+    class_<whiteout::models::wem::SubTrack>("WemSubTrack")
+        .constructor<>()
+        .property("channel", &whiteout::models::wem::SubTrack::channel)
+        .property("interp", &whiteout::models::wem::SubTrack::interp)
+        .property("times", &whiteout::models::wem::SubTrack::times)
+        .property("values", &whiteout::models::wem::SubTrack::values)
+    ;
+
+    class_<whiteout::models::wem::SubTrackContainer>("WemSubTrackContainer")
+        .constructor<>()
+        .property("name", &whiteout::models::wem::SubTrackContainer::name)
+        .property("priority", &whiteout::models::wem::SubTrackContainer::priority)
+        .property("concurrent", &whiteout::models::wem::SubTrackContainer::concurrent)
+        .property("subTracks", &whiteout::models::wem::SubTrackContainer::subTracks)
+        .property("native", &whiteout::models::wem::SubTrackContainer::native)
+    ;
+
+    class_<whiteout::models::wem::ClipEvent>("WemClipEvent")
+        .constructor<>()
+        .property("time", &whiteout::models::wem::ClipEvent::time)
+        .property("node", &whiteout::models::wem::ClipEvent::node)
+        .property("name", &whiteout::models::wem::ClipEvent::name)
+        .property("value", &whiteout::models::wem::ClipEvent::value)
+    ;
+
+    class_<whiteout::models::wem::Clip>("WemClip")
+        .constructor<>()
+        .property("name", &whiteout::models::wem::Clip::name)
+        .property("model", &whiteout::models::wem::Clip::model)
+        .property("duration", &whiteout::models::wem::Clip::duration)
+        .property("looping", &whiteout::models::wem::Clip::looping)
+        .property("flags", &whiteout::models::wem::Clip::flags)
+        .property("containers", &whiteout::models::wem::Clip::containers)
+        .property("events", &whiteout::models::wem::Clip::events)
+        .property("native", &whiteout::models::wem::Clip::native)
+    ;
+
+    class_<whiteout::models::wem::AnimTag>("WemAnimTag")
+        .constructor<>()
+        .property("tagId", &whiteout::models::wem::AnimTag::tagId)
+        .property("clip", &whiteout::models::wem::AnimTag::clip)
+    ;
+
+    class_<whiteout::models::wem::AnimSet>("WemAnimSet")
+        .constructor<>()
+        .property("name", &whiteout::models::wem::AnimSet::name)
+        .property("byTag", &whiteout::models::wem::AnimSet::byTag)
+        .property("baseAnimSet", &whiteout::models::wem::AnimSet::baseAnimSet)
+    ;
+
     class_<whiteout::models::wem::SlotBinding>("WemSlotBinding")
         .constructor<>()
         .property("byLook", &whiteout::models::wem::SlotBinding::byLook)
@@ -817,10 +929,6 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("native", &whiteout::models::wem::ProfileMaterialSet::native)
     ;
 
-    class_<whiteout::models::wem::AnimChannelTable>("WemAnimChannelTable")
-        .constructor<>()
-    ;
-
     class_<whiteout::models::wem::Model>("WemModel")
         .constructor<>()
         .property("name", &whiteout::models::wem::Model::name)
@@ -828,6 +936,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("nodes", &whiteout::models::wem::Model::nodes)
         .property("materialSlots", &whiteout::models::wem::Model::materialSlots)
         .property("animChannels", &whiteout::models::wem::Model::animChannels)
+        .property("animSet", &whiteout::models::wem::Model::animSet)
         .property("profileSets", &whiteout::models::wem::Model::profileSets)
         .property("bounds", &whiteout::models::wem::Model::bounds)
         .function("slotIndex", &whiteout::models::wem::Model::slotIndex)
@@ -854,6 +963,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("bounds", &whiteout::models::wem::Document::bounds)
         .property("models", &whiteout::models::wem::Document::models)
         .property("textures", &whiteout::models::wem::Document::textures)
+        .property("clips", &whiteout::models::wem::Document::clips)
+        .property("animSets", &whiteout::models::wem::Document::animSets)
         .property("unknownChunks", &whiteout::models::wem::Document::unknownChunks)
         .function("carries", &whiteout::models::wem::Document::carries)
         .function("declare", &whiteout::models::wem::Document::declare)
@@ -911,6 +1022,11 @@ EMSCRIPTEN_BINDINGS(wem) {
     register_optional<whiteout::models::wem::Document>();
 
     // ── Vector containers ────────────────────────────────────────────────
+    register_vector<whiteout::models::wem::AnimChannel>("VectorWemAnimChannel");
+    register_vector<whiteout::models::wem::AnimSet>("VectorWemAnimSet");
+    register_vector<whiteout::models::wem::AnimTag>("VectorWemAnimTag");
+    register_vector<whiteout::models::wem::Clip>("VectorWemClip");
+    register_vector<whiteout::models::wem::ClipEvent>("VectorWemClipEvent");
     register_vector<whiteout::models::wem::CombinerStage>("VectorWemCombinerStage");
     register_vector<whiteout::models::wem::CompositeLayer>("VectorWemCompositeLayer");
     register_vector<whiteout::models::wem::Diagnostic>("VectorWemDiagnostic");
@@ -927,6 +1043,8 @@ EMSCRIPTEN_BINDINGS(wem) {
     register_vector<whiteout::models::wem::ProfileId>("VectorWemProfileId");
     register_vector<whiteout::models::wem::ProfileMaterialSet>("VectorWemProfileMaterialSet");
     register_vector<whiteout::models::wem::SlotBinding>("VectorWemSlotBinding");
+    register_vector<whiteout::models::wem::SubTrack>("VectorWemSubTrack");
+    register_vector<whiteout::models::wem::SubTrackContainer>("VectorWemSubTrackContainer");
     register_vector<whiteout::models::wem::TextureRef>("VectorWemTextureRef");
     register_vector<whiteout::models::wem::Transform>("VectorWemTransform");
     register_vector<whiteout::models::wem::UnknownChunk>("VectorWemUnknownChunk");

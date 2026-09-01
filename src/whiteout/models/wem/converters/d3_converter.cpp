@@ -42,6 +42,7 @@
 #include <whiteout/sno/d3/native/geometry.h>
 
 #include "../materials/d3_core.h"
+#include "d3_anim.h"
 
 #include <algorithm>
 #include <cctype>
@@ -463,6 +464,8 @@ struct AssetSource::Impl {
 
     std::unordered_map<i32, std::optional<d3n::Appearances>> appearances;
     std::unordered_map<i32, std::optional<d3n::Actor>> actors;
+    std::unordered_map<i32, std::optional<d3n::Anim>> anims;
+    std::unordered_map<i32, std::optional<d3n::AnimSet>> animSets;
     std::unordered_map<i32, std::optional<d3n::ShaderMap>> shaderMaps;
     std::unordered_map<i32, std::optional<d3n::Shaders>> shaders;
     std::unordered_map<i32, std::optional<d3n::Material>> materials;
@@ -508,6 +511,16 @@ const d3n::Appearances* AssetSource::appearance(i32 snoId) {
 const d3n::Actor* AssetSource::actor(i32 snoId) {
     return pImpl->fetch(pImpl->actors, d3n::Group::Actor, snoId,
                         [](const std::vector<u8>& bytes) { return d3n::parseActor(bytes); });
+}
+
+const d3n::Anim* AssetSource::anim(i32 snoId) {
+    return pImpl->fetch(pImpl->anims, d3n::Group::Anim, snoId,
+                        [](const std::vector<u8>& bytes) { return d3n::parseAnim(bytes); });
+}
+
+const d3n::AnimSet* AssetSource::animSet(i32 snoId) {
+    return pImpl->fetch(pImpl->animSets, d3n::Group::AnimSet, snoId,
+                        [](const std::vector<u8>& bytes) { return d3n::parseAnimSet(bytes); });
 }
 
 const d3n::ShaderMap* AssetSource::shaderMap(i32 snoId) {
@@ -821,7 +834,11 @@ Result<u32> D3Converter::appendActor(Document& document, const d3n::Actor& sourc
                 (wantedLook.empty() ||
                  (set->defaultLook < set->looks.size() &&
                   IEquals(set->looks.looks[set->defaultLook].name, wantedLook)));
-            if (sameLook) {
+            const NativeBag::Entry* animSet =
+                set != nullptr ? set->native.find("animSetSnoId") : nullptr;
+            const i64 wantedAnimSet = source.snoAnimSet.valid() ? source.snoAnimSet.id : -1;
+            const bool sameAnimSet = animSet != nullptr && animSet->value == wantedAnimSet;
+            if (sameLook && sameAnimSet) {
                 result.value = existing;
                 return result;
             }
@@ -891,10 +908,22 @@ Result<u32> D3Converter::appendActor(Document& document, const d3n::Actor& sourc
     }
 
     model.name = "actor_" + std::to_string(source.dwSnoId);
+    // The reuse key's second half. An actor is one model and an actor names one
+    // anim set, so two actors over one appearance with different animations are
+    // two models — the same rule the look and the attach points already state.
+    if (ProfileMaterialSet* set = model.setFor(ProfileId::Diablo3); set != nullptr) {
+        set->native.set("animSetSnoId",
+                        static_cast<i64>(source.snoAnimSet.valid() ? source.snoAnimSet.id : -1));
+    }
     const u32 index = static_cast<u32>(document.models.size());
     document.declare(ProfileId::Diablo3);
     document.models.push_back(std::move(model));
     result.value = index;
+
+    if (options.importAnimation && source.snoAnimSet.valid()) {
+        Result<u32> animSet = importAnimSet(document, index, source.snoAnimSet.id, assets);
+        diagnostics.append(animSet.diagnostics);
+    }
 
     // --- what rides the hardpoints -------------------------------------------
     //
@@ -969,6 +998,129 @@ Result<u32> D3Converter::appendActor(Document& document, const d3n::Actor& sourc
         document.models[index].nodes.add(std::move(attach));
     }
 
+    return result;
+}
+
+namespace {
+
+/// The 30 tag maps of an `.ans`, in the order the runtime numbers them. Named
+/// rather than indexed because a set is looked up by what the character holds,
+/// and "map 17" is not a thing a caller can ask for.
+using TagMapField = std::vector<d3n::AnimSetTagMapEntry> d3n::AnimSet::*;
+
+struct TagMap {
+    const char* name;
+    TagMapField field;
+};
+
+const TagMap kTagMaps[] = {
+    {"core", &d3n::AnimSet::tCoreTagMap},
+    {"hth", &d3n::AnimSet::tmHth},
+    {"1HSwing", &d3n::AnimSet::tm1HSwing},
+    {"1HThrust", &d3n::AnimSet::tm1HThrust},
+    {"2HSwing", &d3n::AnimSet::tm2HSwing},
+    {"2HThrust", &d3n::AnimSet::tm2HThrust},
+    {"staff", &d3n::AnimSet::tmStaff},
+    {"bow", &d3n::AnimSet::tmBow},
+    {"xbow", &d3n::AnimSet::tmXBow},
+    {"wand", &d3n::AnimSet::tmWand},
+    {"dualWield", &d3n::AnimSet::tmDualWield},
+    {"hthWithOrb", &d3n::AnimSet::tmHthWithOrb},
+    {"1HSwingWithOrb", &d3n::AnimSet::tm1HSwingWithOrb},
+    {"1HThrustWithOrb", &d3n::AnimSet::tm1HThrustWithOrb},
+    {"dualWieldSwordFist", &d3n::AnimSet::tmDualWieldSwordFist},
+    {"dualWieldFistFist", &d3n::AnimSet::tmDualWieldFistFist},
+    {"1HFist", &d3n::AnimSet::tm1HFist},
+    {"2HAxeMace", &d3n::AnimSet::tm2HAxeMace},
+    {"handXBow", &d3n::AnimSet::tmHandXBow},
+    {"wandWithOrb", &d3n::AnimSet::tmWandWithOrb},
+    {"1HSwingWithShield", &d3n::AnimSet::tm1HSwingWithShield},
+    {"1HThrustWithShield", &d3n::AnimSet::tm1HThrustWithShield},
+    {"hthWithShield", &d3n::AnimSet::tmHthWithShield},
+    {"2HSwingWithShield", &d3n::AnimSet::tm2HSwingWithShield},
+    {"2HThrustWithShield", &d3n::AnimSet::tm2HThrustWithShield},
+    {"staffWithShield", &d3n::AnimSet::tmStaffWithShield},
+    {"2HFlail", &d3n::AnimSet::tm2HFlail},
+    {"2HFlailWithShield", &d3n::AnimSet::tm2HFlailWithShield},
+    {"onHorse", &d3n::AnimSet::tmOnHorse},
+};
+
+} // namespace
+
+Result<u32> D3Converter::importAnimSet(Document& document, u32 model, i32 snoId,
+                                       AssetSource& assets) const {
+    Result<u32> result;
+    if (model >= document.models.size()) {
+        result.diagnostics.error(DiagCode::ClipTargetMissing,
+                                 "model " + std::to_string(model) + " of " +
+                                     std::to_string(document.models.size()));
+        return result;
+    }
+    const d3n::AnimSet* source = assets.animSet(snoId);
+    if (source == nullptr) {
+        result.diagnostics.warn(DiagCode::AssetUnresolved,
+                                "anim set " + std::to_string(snoId) + " did not load");
+        return result;
+    }
+
+    // One `.ani` imported once, however many tags name it — an `.ans` reuses an
+    // animation across weapon classes constantly, and a clip per reference would
+    // multiply the corpus by the number of maps.
+    std::vector<std::pair<i32, u32>> clipOfAnim;
+    const auto clipFor = [&](i32 animSno) -> u32 {
+        for (const auto& entry : clipOfAnim) {
+            if (entry.first == animSno) {
+                return entry.second;
+            }
+        }
+        const d3n::Anim* anim = assets.anim(animSno);
+        if (anim == nullptr) {
+            clipOfAnim.emplace_back(animSno, kInvalidIndex);
+            return kInvalidIndex;
+        }
+        const std::vector<u32> clips =
+            d3_anim::ImportAnim(*anim, document, model, result.diagnostics);
+        // A tag names the animation; which permutation plays is a weighted roll
+        // the runtime makes, so the tag points at the first and the rest are in
+        // the document beside it.
+        const u32 first = clips.empty() ? kInvalidIndex : clips.front();
+        clipOfAnim.emplace_back(animSno, first);
+        return first;
+    };
+
+    const u32 core = static_cast<u32>(document.animSets.size());
+    u32 unresolved = 0;
+    for (std::size_t m = 0; m < sizeof(kTagMaps) / sizeof(kTagMaps[0]); ++m) {
+        const std::vector<d3n::AnimSetTagMapEntry>& rows = source->*(kTagMaps[m].field);
+        if (m != 0 && rows.empty()) {
+            continue; // Only the core map is worth an empty set.
+        }
+        AnimSet set;
+        set.name = kTagMaps[m].name;
+        // The fallback field spelling the fallback: a weapon map with no row for
+        // a tag uses core's, which is what `baseAnimSet` means.
+        set.baseAnimSet = m == 0 ? kInvalidIndex : core;
+        for (const d3n::AnimSetTagMapEntry& row : rows) {
+            if (!row.snoAnim.valid()) {
+                continue;
+            }
+            const u32 clip = clipFor(row.snoAnim.id);
+            if (clip == kInvalidIndex) {
+                ++unresolved;
+                continue;
+            }
+            set.byTag.push_back(AnimTag{static_cast<u32>(row.dwTagId), clip});
+        }
+        document.animSets.push_back(std::move(set));
+    }
+
+    if (unresolved != 0) {
+        result.diagnostics.warn(DiagCode::AssetUnresolved,
+                                std::to_string(unresolved) +
+                                    " tags name an animation that did not load");
+    }
+    document.models[model].animSet = core;
+    result.value = core;
     return result;
 }
 

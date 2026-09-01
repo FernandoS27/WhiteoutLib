@@ -30,6 +30,7 @@
 #include <whiteout/common_types.h>
 #include <whiteout/compatibility.h>
 
+#include "anim/clip.h"
 #include "bounds.h"
 #include "materials/texture.h"
 #include "model.h"
@@ -91,8 +92,16 @@ struct Document {
 
     std::vector<TextureRef> textures;
 
-    // P7 adds `clips` and `animSets`. Each is one field here and one chunk in
-    // the registry — the root does not change shape again.
+    /// Every clip in the document, each naming the model it drives (§10.8).
+    ///
+    /// Document-level rather than per model because an `.m3a` merge and a D3
+    /// anim set both address clips across models, and because a clip index in an
+    /// `AnimSet` would otherwise have to carry a model index beside it.
+    std::vector<Clip> clips;
+
+    /// The named (tag -> clip) maps. D3 is the only importer that fills this
+    /// today; `Model::animSet` is how a model says which one is its default.
+    std::vector<AnimSet> animSets;
 
     /// Chunks this build did not understand, carried through unchanged (§11.4).
     ///
@@ -124,6 +133,8 @@ struct Document {
         v.field("bounds", bounds);
         v.field("models", models);
         v.field("textures", textures);
+        v.field("clips", clips);
+        v.field("animSets", animSets);
     }
 };
 

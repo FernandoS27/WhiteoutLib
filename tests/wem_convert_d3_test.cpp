@@ -30,6 +30,7 @@
 #include <whiteout/sno/d3/native/character.h>
 
 #include "test_helpers.h"
+#include "wem_d3_corpus.h"
 
 #include <cstring>
 #include <filesystem>
@@ -44,120 +45,12 @@ namespace d3n = whiteout::sno::d3::native;
 
 using namespace whiteout;
 using namespace whiteout::models::wem;
+using whiteout::test::d3::CorpusProvider;
+using whiteout::test::d3::corpusRoot;
+using whiteout::test::d3::EmptyProvider;
+using whiteout::test::d3::readWhole;
 
 namespace {
-
-std::vector<u8> readWhole(const fs::path& path) {
-    std::ifstream stream(path, std::ios::binary);
-    if (!stream) {
-        return {};
-    }
-    return std::vector<u8>((std::istreambuf_iterator<char>(stream)),
-                           std::istreambuf_iterator<char>());
-}
-
-fs::path corpusRoot() {
-    const std::string base = test::findCorpusBase("Corpus");
-    return base.empty() ? fs::path{} : fs::path(base) / "D3";
-}
-
-/// The extracted corpus, indexed by each file's own SNO id.
-///
-/// Every group this needs starts its payload with `dwSnoId`, so the index is a
-/// 4-byte read at offset 16 (past the SNO header) per file. Built lazily per
-/// group: indexing all 19,177 actors to answer a question about appearances
-/// would cost more than the test.
-class CorpusProvider final : public d3n::AssetProvider {
-public:
-    explicit CorpusProvider(fs::path root) : root_(std::move(root)) {}
-
-    std::vector<u8> load(d3n::Group group, i32 snoId) override {
-        ++loads;
-        const Index& index = indexOf(group);
-        const auto found = index.byId.find(snoId);
-        return found == index.byId.end() ? std::vector<u8>{} : readWhole(found->second);
-    }
-
-    /// The id a named file carries, so a test can name its fixture.
-    i32 idOf(d3n::Group group, const std::string& stem) {
-        const Index& index = indexOf(group);
-        const auto found = index.byStem.find(stem);
-        return found == index.byStem.end() ? -1 : found->second;
-    }
-
-    std::size_t count(d3n::Group group) {
-        return indexOf(group).byId.size();
-    }
-
-    u32 loads = 0;
-
-private:
-    struct Index {
-        std::map<i32, fs::path> byId;
-        std::map<std::string, i32> byStem;
-    };
-
-    static const char* directoryOf(d3n::Group group) {
-        switch (group) {
-        case d3n::Group::Appearance:
-            return "Appearances";
-        case d3n::Group::Actor:
-            return "Actor";
-        case d3n::Group::ShaderMap:
-            return "ShaderMap";
-        case d3n::Group::Shaders:
-            return "Shaders";
-        case d3n::Group::Material:
-            return "Material";
-        default:
-            return nullptr;
-        }
-    }
-
-    const Index& indexOf(d3n::Group group) {
-        const auto existing = indices_.find(static_cast<i32>(group));
-        if (existing != indices_.end()) {
-            return existing->second;
-        }
-        Index index;
-        const char* directory = directoryOf(group);
-        if (directory != nullptr && !root_.empty()) {
-            std::error_code error;
-            for (fs::directory_iterator it(root_ / directory, error);
-                 it != fs::directory_iterator(); it.increment(error)) {
-                if (error) {
-                    break;
-                }
-                std::ifstream stream(it->path(), std::ios::binary);
-                if (!stream) {
-                    continue;
-                }
-                // magic, version, eight zero bytes, then the payload's own id.
-                char header[20] = {};
-                stream.read(header, sizeof(header));
-                if (stream.gcount() < static_cast<std::streamsize>(sizeof(header))) {
-                    continue;
-                }
-                i32 snoId = 0;
-                std::memcpy(&snoId, header + 16, sizeof(snoId));
-                index.byId.emplace(snoId, it->path());
-                index.byStem.emplace(it->path().stem().string(), snoId);
-            }
-        }
-        return indices_.emplace(static_cast<i32>(group), std::move(index)).first->second;
-    }
-
-    fs::path root_;
-    std::map<i32, Index> indices_;
-};
-
-/// A provider that has nothing, for the arms that must work without one.
-class EmptyProvider final : public d3n::AssetProvider {
-public:
-    std::vector<u8> load(d3n::Group, i32) override {
-        return {};
-    }
-};
 
 std::vector<std::pair<std::string, d3n::Appearances>> loadPlayerAppearances() {
     std::vector<std::pair<std::string, d3n::Appearances>> out;

@@ -241,7 +241,8 @@ Material ImportBatch(const m2::Model& model, const m2::Batch& batch, const Conte
         // put here, and the shipped rule — only unit 0 takes it, and the
         // *product* of colour and transparency is what draws — is a statement
         // about that track. It targets the stage through §10.8's material
-        // channels at P7; the index is in the native block until then.
+        // channels (§10.8), and the resolved index on the block is what the
+        // animation import reads it back through.
         stage.input.weight = 1.0f;
         body.stages.push_back(std::move(stage));
     }

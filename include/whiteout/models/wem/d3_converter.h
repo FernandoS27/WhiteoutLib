@@ -95,6 +95,10 @@ public:
 
     const sno::d3::native::Appearances* appearance(i32 snoId);
     const sno::d3::native::Actor* actor(i32 snoId);
+    /// Group 6. One `.ani` holds every permutation of one action.
+    const sno::d3::native::Anim* anim(i32 snoId);
+    /// Group 8. The 30 tag maps an actor plays through (§10.8.4).
+    const sno::d3::native::AnimSet* animSet(i32 snoId);
     const sno::d3::native::ShaderMap* shaderMap(i32 snoId);
     const sno::d3::native::Shaders* shaders(i32 snoId);
     /// Group 57. The converter does not read it — a sub-object's embedded
@@ -150,6 +154,12 @@ struct D3ImportOptions {
     /// asset and stops; 1 (the default) converts the child and stops there.
     /// Bounded because the graph has cycles in it.
     u32 attachmentDepth = 1;
+
+    /// Whether an actor's `snoAnimSet` is followed. On by default, because an
+    /// actor without its clips is half an actor — but a caller drawing a
+    /// thumbnail grid loads one `.ans` and every `.ani` it names per cell, which
+    /// is a lot of parsing for a still frame.
+    bool importAnimation = true;
 };
 
 // ============================================================================
@@ -229,6 +239,22 @@ public:
     /// The SNO group @p data claims, from the 16-byte header's version word —
     /// the **last** step of the cascade. `Group::Unknown` when it matches none.
     static sno::d3::native::Group SniffGroup(std::span<const u8> data);
+
+    /**
+     * @brief Imports @p snoId's `.ans` and everything it names into @p document.
+     *
+     * One `AnimSet` per tag map — the core one plus the 29 keyed by what the
+     * character is holding — with each weapon map's `baseAnimSet` pointing at
+     * the core one, because that **is** the runtime's fallback: a weapon map
+     * with no row for a tag uses core's. A 30-wide struct would say the same
+     * thing in a shape nothing else could use.
+     *
+     * Each `.ani` a tag names is imported once, however many tags name it, and
+     * a tag maps to its first permutation's clip.
+     *
+     * Returns the index of the core set, or `kInvalidIndex`.
+     */
+    Result<u32> importAnimSet(Document& document, u32 model, i32 snoId, AssetSource& assets) const;
 
     /// The model in @p document built from appearance @p snoId, or
     /// `kInvalidIndex`.

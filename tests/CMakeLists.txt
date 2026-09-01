@@ -85,6 +85,12 @@ whiteout_add_test(wem_render_identity_test wem_render_identity_test.cpp)
 whiteout_add_test(wem_material_kind_test wem_material_kind_test.cpp)
 whiteout_add_test(wem_material_ops_test wem_material_ops_test.cpp)
 whiteout_add_test(wem_document_test wem_document_test.cpp)
+whiteout_add_test(wem_anim_test wem_anim_test.cpp)
+whiteout_add_test(wem_anim_mdx_test wem_anim_mdx_test.cpp)
+whiteout_add_test(wem_anim_m2_test wem_anim_m2_test.cpp)
+whiteout_add_test(wem_anim_m3_test wem_anim_m3_test.cpp)
+whiteout_add_test(wem_anim_d3_test wem_anim_d3_test.cpp)
+target_include_directories(wem_anim_d3_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 whiteout_add_test(wem_profile_derive_test wem_profile_derive_test.cpp)
 
 # The material converter cores live under src/ — they are P5's converters'

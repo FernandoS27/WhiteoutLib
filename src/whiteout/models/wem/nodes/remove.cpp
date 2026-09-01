@@ -310,10 +310,56 @@ NodeRemaps CompactNodes(NodeTree& tree, NodeReferencers referencers, Diagnostics
         }
     }
 
+    // AnimChannel::target.node
+    if (referencers.channels != nullptr) {
+        u32 dangling = 0;
+        for (AnimChannel& channel : referencers.channels->channels) {
+            if (channel.target.kind != TrackTarget::Kind::Node ||
+                channel.target.node == kInvalidNode) {
+                continue;
+            }
+            const u32 old = channel.target.node;
+            const u32 fresh = old < remaps.nodes.size() ? remaps.nodes[old] : kInvalidNode;
+            channel.target.node = fresh;
+            if (fresh == kInvalidNode) {
+                ++dangling;
+            }
+        }
+        if (dangling != 0) {
+            out.warn(DiagCode::AnimChannelInvalidated,
+                     number(dangling) + " channels named a node that no longer exists",
+                     ElementRef());
+        }
+    }
+
+    // ClipEvent::node
+    for (u32 c = 0; c < referencers.clips.size(); ++c) {
+        Clip& clip = referencers.clips[c];
+        u32 dangling = 0;
+        for (ClipEvent& event : clip.events) {
+            if (event.node == kInvalidNode) {
+                continue;
+            }
+            const u32 fresh =
+                event.node < remaps.nodes.size() ? remaps.nodes[event.node] : kInvalidNode;
+            event.node = fresh;
+            if (fresh == kInvalidNode) {
+                ++dangling;
+            }
+        }
+        if (dangling != 0) {
+            out.error(DiagCode::DanglingNodeReference,
+                      number(dangling) + " events in clip '" + clip.name +
+                          "' fire at a node that no longer exists",
+                      ElementRef(ElementKind::Clip, c));
+        }
+    }
+
     return remaps;
 }
 
-void CheckNodeReferencers(const NodeTree& tree, std::span<const Mesh> meshes, Diagnostics& out) {
+void CheckNodeReferencers(const NodeTree& tree, std::span<const Mesh> meshes, Diagnostics& out,
+                          const AnimChannelTable* channels, std::span<const Clip> clips) {
     const u32 count = tree.size();
     for (u32 m = 0; m < meshes.size(); ++m) {
         const Mesh& mesh = meshes[m];
@@ -345,6 +391,29 @@ void CheckNodeReferencers(const NodeTree& tree, std::span<const Mesh> meshes, Di
                 out.error(DiagCode::DanglingNodeReference,
                           "rigidNode names a node outside the tree",
                           ElementRef(ElementKind::Section, s));
+            }
+        }
+    }
+
+    if (channels != nullptr) {
+        for (const AnimChannel& channel : channels->channels) {
+            if (channel.target.kind != TrackTarget::Kind::Node) {
+                continue;
+            }
+            if (channel.target.node >= count) {
+                out.error(DiagCode::DanglingNodeReference,
+                          "channel " + number(channel.id) + " names a node outside the tree",
+                          ElementRef(ElementKind::Channel, channel.id));
+            }
+        }
+    }
+
+    for (u32 c = 0; c < clips.size(); ++c) {
+        for (const ClipEvent& event : clips[c].events) {
+            if (event.node != kInvalidNode && event.node >= count) {
+                out.error(DiagCode::DanglingNodeReference,
+                          "event '" + event.name + "' fires at a node outside the tree",
+                          ElementRef(ElementKind::Clip, c));
             }
         }
     }

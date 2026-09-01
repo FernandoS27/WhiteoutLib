@@ -118,6 +118,12 @@ protected:
     /// the diagnostic when @p profile is not one this converter serves, or not
     /// one @p document carries.
     bool checkExportProfile(const Document& document, ProfileId profile, Diagnostics& out) const;
+
+    /// Animation is **import-only in v3**: §16's P7 is four importers and no
+    /// exporter. Every `toX` calls this so a document's clips are not dropped in
+    /// silence — one row with the count, because the expected-loss golden diffs
+    /// the code *set* and a row per clip would bury everything else in it.
+    static void reportUnwrittenClips(const Document& document, Diagnostics& out);
 };
 
 // ============================================================================

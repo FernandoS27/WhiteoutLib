@@ -345,12 +345,15 @@ void importCombiners(const std::vector<const Layer*>& layers, const Context& con
 // ── import: the Reforged slot map ───────────────────────────────────────────
 
 void importPbr(const std::vector<const Layer*>& layers, const Context& context,
-               CommonMaterial& common, Diagnostics& out) {
+               CommonMaterial& common, Diagnostics& out, std::vector<u32>& ordinalOfLayer) {
     PbrDeferredBody body;
 
     for (std::size_t i = 0; i < layers.size(); ++i) {
         const Layer& layer = *layers[i];
         const u32 ordinal = static_cast<u32>(i);
+        // Where this layer's first slot landed in the body — the ordinal space
+        // for a deferred kind is the `slots` vector, not the layer stack.
+        ordinalOfLayer[i] = static_cast<u32>(body.slots.size());
 
         if (!layer.subTextures.empty()) {
             // v1200+: the slots name themselves.
@@ -453,8 +456,16 @@ bool StackCollapses(const std::vector<const Layer*>& layers) {
 }
 
 Material ImportMaterial(const mdx::Material& material, ProfileId profile, const Context& context,
-                        Diagnostics& out) {
+                        Diagnostics& out, std::vector<u32>* layerOrdinals) {
     const std::vector<const Layer*> layers = layersFor(material, profile, context.modelVersion);
+
+    // The filtered stack, back in the file's own numbering. `layersFor` keeps
+    // source order, so a pointer comparison recovers the join without it having
+    // to return one.
+    std::vector<u32> ordinalOfLayer(layers.size(), kInvalidIndex);
+    for (std::size_t i = 0; i < layers.size(); ++i) {
+        ordinalOfLayer[i] = static_cast<u32>(i);
+    }
 
     Material result;
     result.name = material.shader;
@@ -469,7 +480,7 @@ Material ImportMaterial(const mdx::Material& material, ProfileId profile, const 
     }
 
     if (profile == ProfileId::Wc3Reforged) {
-        importPbr(layers, context, common, out);
+        importPbr(layers, context, common, out, ordinalOfLayer);
     } else if (StackCollapses(layers)) {
         importCombiners(layers, context, common, out);
     } else {
@@ -511,6 +522,20 @@ Material ImportMaterial(const mdx::Material& material, ProfileId profile, const 
     }
     block.layers = std::move(kept);
     result.SetNativeInSync(std::move(block));
+
+    if (layerOrdinals != nullptr) {
+        layerOrdinals->assign(material.layers.size(), kInvalidIndex);
+        std::size_t filtered = 0;
+        for (std::size_t i = 0; i < material.layers.size(); ++i) {
+            if (IsHdLayer(material, material.layers[i], context.modelVersion) != wantsHd(profile)) {
+                continue;
+            }
+            if (filtered < ordinalOfLayer.size()) {
+                (*layerOrdinals)[i] = ordinalOfLayer[filtered];
+            }
+            ++filtered;
+        }
+    }
     return result;
 }
 

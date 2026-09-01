@@ -418,6 +418,8 @@ add_library(whiteout_lib
     src/whiteout/models/wem/nodes/tree.cpp
     src/whiteout/models/wem/nodes/visitor.cpp
     src/whiteout/models/wem/nodes/remove.cpp
+    src/whiteout/models/wem/anim/channel.cpp
+    src/whiteout/models/wem/anim/clip.cpp
     src/whiteout/models/wem/materials/texture.cpp
     src/whiteout/models/wem/materials/common.cpp
     src/whiteout/models/wem/materials/material.cpp
@@ -436,9 +438,13 @@ add_library(whiteout_lib
     src/whiteout/models/wem/document_io.cpp
     src/whiteout/models/wem/converter_registry.cpp
     src/whiteout/models/wem/converters/mdx_converter.cpp
+    src/whiteout/models/wem/converters/mdx_anim.cpp
     src/whiteout/models/wem/converters/m2_converter.cpp
+    src/whiteout/models/wem/converters/m2_anim.cpp
     src/whiteout/models/wem/converters/m3_converter.cpp
+    src/whiteout/models/wem/converters/m3_anim.cpp
     src/whiteout/models/wem/converters/d3_converter.cpp
+    src/whiteout/models/wem/converters/d3_anim.cpp
 
     # Textures
     src/whiteout/textures/texture.cpp

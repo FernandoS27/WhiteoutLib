@@ -44,6 +44,7 @@
  * @endcode
  */
 
+#include "anim/clip.h"
 #include "document.h"
 #include "geometry/builder.h"
 #include "geometry/ops.h"

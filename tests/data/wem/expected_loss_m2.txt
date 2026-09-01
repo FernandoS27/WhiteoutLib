@@ -4,6 +4,7 @@
 # recorded at, so a smaller run knows it may legitimately see fewer codes.
 limit=250
 validation_errors=1
+AnimTrackDropped
 IndexOutOfRange
 IndexWidthExceeded
 LayerDropped

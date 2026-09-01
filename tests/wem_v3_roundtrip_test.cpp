@@ -13,8 +13,10 @@
 /// material kind, so all four body chunks are exercised; both feature payloads;
 /// all three `TextureKey` alternatives plus the empty one; a node of every kind,
 /// so every payload alternative is visited; an optional that is set beside one
-/// that is not; and a repair log — the structure nothing produces unless the
-/// input was non-manifold, and therefore the one most likely to be forgotten.
+/// that is not; a repair log — the structure nothing produces unless the input
+/// was non-manifold, and therefore the one most likely to be forgotten; and a
+/// clip whose sub-tracks include a Hermite one, because that is the only
+/// interpolation whose keys are three values wide (§10.8.2).
 
 #include <cstring>
 #include <optional>
@@ -68,6 +70,31 @@ std::string dump(const Document& document) {
     std::ostringstream out;
     TextDump(out, "document", const_cast<Document&>(document));
     return out.str();
+}
+
+/// One value of @p T as the bytes a channel's stream holds. `SubTrack::values`
+/// is a typed blob and the type lives on the channel, so a fixture writing keys
+/// by hand is the honest way to prove the reader agrees about the width.
+template <class T>
+std::vector<u8> valueBytes(const T& value) {
+    std::vector<u8> bytes(sizeof(T));
+    std::memcpy(bytes.data(), &value, sizeof(T));
+    return bytes;
+}
+
+std::vector<u8> concat(std::vector<u8> first, const std::vector<u8>& second) {
+    first.insert(first.end(), second.begin(), second.end());
+    return first;
+}
+
+SubTrack makeTrack(u32 channel, Interpolation interp, std::vector<f32> times,
+                   std::vector<u8> values) {
+    SubTrack track;
+    track.channel = channel;
+    track.interp = interp;
+    track.times = std::move(times);
+    track.values = std::move(values);
+    return track;
 }
 
 TextureInput makeInput(u32 texture, u32 uvSet) {
@@ -277,8 +304,87 @@ Document makeDocument() {
     // Slot 1 is left unbound in this profile on purpose — a hole must survive.
     model.profileSets.push_back(std::move(sc2));
 
+    // --- animation (§10.8) ---------------------------------------------------
+    //
+    // One channel per target kind, one sub-track per interpolation width, and a
+    // container of each transparency — the axes that decide how the bytes are
+    // laid out.
+    AnimChannel bone;
+    bone.id = 7;
+    bone.target.kind = TrackTarget::Kind::Node;
+    bone.target.node = 1;
+    bone.target.channel = Channel::Rotation;
+    bone.valueType = geom::AttrType::Quat;
+    bone.initValue = valueBytes(Quaternion{0, 0, 0, 1});
+    model.animChannels.add(bone);
+
+    AnimChannel layerAlpha;
+    layerAlpha.id = 9;
+    layerAlpha.target.kind = TrackTarget::Kind::MaterialLayer;
+    layerAlpha.target.material.profile = ProfileId::Wc3Classic;
+    layerAlpha.target.material.slot = 0;
+    layerAlpha.target.material.look = 0;
+    layerAlpha.target.sub = 1;
+    layerAlpha.target.channel = Channel::Alpha;
+    layerAlpha.valueType = geom::AttrType::F32;
+    model.animChannels.add(layerAlpha); // no rest value: the empty case
+
+    AnimChannel scroll;
+    scroll.id = 11;
+    scroll.target.kind = TrackTarget::Kind::MaterialFeature;
+    scroll.target.material.profile = ProfileId::Sc2;
+    scroll.target.material.slot = 0;
+    scroll.target.material.look = 1;
+    scroll.target.sub = 3; // a feature id, which nothing renumbers
+    scroll.target.channel = Channel::UvTranslate;
+    scroll.valueType = geom::AttrType::F32x3;
+    scroll.initValue = valueBytes(Vector3f{0, 0, 0});
+    model.animChannels.add(scroll);
+
+    model.animSet = 0;
     model.bounds = document.bounds;
     document.models.push_back(std::move(model));
+
+    Clip clip;
+    clip.name = "Stand";
+    clip.model = 0;
+    clip.duration = 2.5f;
+    clip.looping = true;
+    clip.flags = ClipFlags::AutoPlay | ClipFlags::WorldClocked;
+    clip.native.set("sourceSequence", static_cast<i64>(3));
+
+    SubTrackContainer base;
+    base.name = "base";
+    base.priority = 0;
+    base.concurrent = false;
+    base.native.set("interpTypeRow", static_cast<i64>(2));
+    base.subTracks.push_back(makeTrack(7, Interpolation::Slerp,
+                                       {0.0f, 1.25f},
+                                       concat(valueBytes(Quaternion{0, 0, 0, 1}),
+                                              valueBytes(Quaternion{0, 1, 0, 0}))));
+    // Hermite: value, inTangent, outTangent per key, sharing the stream.
+    base.subTracks.push_back(makeTrack(9, Interpolation::Hermite, {0.0f},
+                                       concat(valueBytes(1.0f),
+                                              concat(valueBytes(0.0f), valueBytes(-0.5f)))));
+    clip.containers.push_back(std::move(base));
+
+    SubTrackContainer overlay;
+    overlay.name = "overlay";
+    overlay.priority = 4;
+    overlay.concurrent = true;
+    overlay.subTracks.push_back(makeTrack(11, Interpolation::Step, {0.0f, 0.5f},
+                                          concat(valueBytes(Vector3f{0, 0, 0}),
+                                                 valueBytes(Vector3f{1, 0, 0}))));
+    clip.containers.push_back(std::move(overlay));
+
+    clip.events.push_back(ClipEvent{0.75f, 7, "footstep", 42});
+    document.clips.push_back(std::move(clip));
+
+    AnimSet core;
+    core.name = "core";
+    core.byTag.push_back(AnimTag{0x1234, 0});
+    document.animSets.push_back(std::move(core));
+
     return document;
 }
 

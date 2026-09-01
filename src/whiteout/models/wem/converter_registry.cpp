@@ -47,6 +47,15 @@ bool FormatConverter::checkExportProfile(const Document& document, ProfileId pro
     return true;
 }
 
+void FormatConverter::reportUnwrittenClips(const Document& document, Diagnostics& out) {
+    if (document.clips.empty()) {
+        return;
+    }
+    out.info(DiagCode::AnimTrackDropped,
+             std::to_string(document.clips.size()) +
+                 " clips are not written: animation export is out of scope for v3");
+}
+
 // ============================================================================
 // ConverterRegistry
 // ============================================================================

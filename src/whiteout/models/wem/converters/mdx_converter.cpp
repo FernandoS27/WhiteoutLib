@@ -32,6 +32,7 @@
 #include "whiteout/models/wem/geometry/render_view.h"
 
 #include "../materials/mdx_core.h"
+#include "mdx_anim.h"
 
 #include <algorithm>
 #include <array>
@@ -342,6 +343,10 @@ struct NodeImport {
     NodeTree tree;
     std::unordered_map<u32, u32> byObjectId;
 
+    /// `mdx::Model::cameras[i]` -> node index. Cameras carry no `objectId`, so
+    /// they are the one kind the map above cannot reach.
+    std::vector<u32> cameraNodes;
+
     u32 resolve(u32 objectId) const {
         const auto it = byObjectId.find(objectId);
         return it == byObjectId.end() ? kInvalidNode : it->second;
@@ -376,7 +381,7 @@ NodeImport ImportNodes(const mdx::Model& source) {
 
         // See the file comment: the rest pose is the pivot, so the local
         // translation is the pivot difference and the rotation and scale are
-        // identity until P7 imports the tracks.
+        // identity; the tracks are the channel table's (§10.8).
         Vector3f parentPivot{0, 0, 0};
         if (node.parent != kInvalidNode && node.parent < out.tree.size()) {
             parentPivot = out.tree.nodes[node.parent].pivot;
@@ -402,6 +407,7 @@ NodeImport ImportNodes(const mdx::Model& source) {
         payload.farClip = camera.farClippingPlane;
         node.local.translation = camera.position;
         node.poses.push_back(node.local);
+        out.cameraNodes.push_back(out.tree.size());
         out.tree.add(std::move(node));
     }
 
@@ -620,26 +626,42 @@ Result<Document> MdxConverter::fromMdx(const mdx::Model& source) const {
     }
 
     // --- one material set per served profile --------------------------------
+    //
+    // The layer -> ordinal map falls out of this loop rather than being
+    // recomputed: an animated layer's ordinal is its position in the *filtered*
+    // stack, which only the material import knows (§10.8).
+    mdx_anim::Context animContext;
+    animContext.byObjectId = &nodes.byObjectId;
+    animContext.cameraNodes = nodes.cameraNodes;
+
     for (ProfileId profile : document.profiles) {
         ProfileMaterialSet set;
         set.profile = profile;
         set.looks.looks.push_back(Look{});
         set.resizeBindings(model.materialSlots.size());
 
+        mdx_anim::Context::ProfileLayers layers;
+        layers.profile = profile;
+        layers.byMaterial.resize(source.materials.size());
+
         for (std::size_t m = 0; m < source.materials.size(); ++m) {
             if (!HasProfile(slotProfiles[m], profile)) {
                 continue;
             }
             const u32 index = static_cast<u32>(set.materials.size());
-            set.materials.push_back(
-                mdx_core::ImportMaterial(source.materials[m], profile, context, diagnostics));
+            set.materials.push_back(mdx_core::ImportMaterial(source.materials[m], profile, context,
+                                                             diagnostics, &layers.byMaterial[m]));
             set.materials.back().name = SlotName(m);
             set.slotBindings[m].byLook[0] = index;
         }
         model.profileSets.push_back(std::move(set));
+        animContext.layerOrdinals.push_back(std::move(layers));
     }
 
+    const u32 modelIndex = static_cast<u32>(document.models.size());
     document.models.push_back(std::move(model));
+    mdx_anim::Import(source, animContext, document, modelIndex, diagnostics);
+
     result.value = std::move(document);
     return result;
 }
@@ -654,6 +676,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     if (!checkExportProfile(document, profile, result.diagnostics)) {
         return result;
     }
+    reportUnwrittenClips(document, result.diagnostics);
     if (document.models.empty()) {
         result.value = mdx::Model{};
         result.value->version = targetVersion;

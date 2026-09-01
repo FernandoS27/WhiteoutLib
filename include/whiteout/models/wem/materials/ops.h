@@ -19,8 +19,7 @@
  * |---|---|---|
  * | `SlotBinding` | `byLook[]` | `ProfileMaterialSet::materials`, by index |
  * | `MaterialFeature` | `layer` | a kind-body layer / stage / slot ordinal |
- * | `AnimChannel` | `target.material` | `(profile, slot, look, sub, channel)` (P7) |
- * | `Actor` | `defaultLook`; `ActorEvent::lookName` | the set's `LookTable` (P6) |
+ * | `AnimChannel` | `target.material` | `(profile, slot, look)` + `sub` (§10.8) |
  * | `MeshSection` | `materialSlot` | `Model::materialSlots` — §6.3's coverage rule |
  *
  * A new structure that stores a material-axis index adds itself to that table,
@@ -95,7 +94,9 @@ RemovalResult RemoveLayer(Model& model, ProfileId profile, u32 material, u32 ord
  * @brief Removes a feature by id.
  *
  * Ordinals are untouched: a feature is not something other features are numbered
- * relative to. P7's sub-tracks joining on the dead id are invalidated here.
+ * relative to. Channels targeting the dead id are invalidated here; the
+ * sub-tracks that joined on those channels go with them, which is the whole
+ * point of the id indirection (§10.8.1).
  */
 RemovalResult RemoveFeature(Model& model, ProfileId profile, u32 material, u32 featureId);
 

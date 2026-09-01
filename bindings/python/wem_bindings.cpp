@@ -37,6 +37,8 @@
 #include <whiteout/models/wem/geometry/mesh.h>
 #include <whiteout/models/wem/nodes/node.h>
 #include <whiteout/models/wem/nodes/tree.h>
+#include <whiteout/models/wem/anim/channel.h>
+#include <whiteout/models/wem/anim/clip.h>
 #include <whiteout/models/wem/model.h>
 #include <whiteout/models/wem/document.h>
 #include <whiteout/models/wem/parser.h>
@@ -44,9 +46,15 @@
 #include <whiteout/models/wem/validate.h>
 #include <whiteout/interfaces.h>
 
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::f32>);
 PYBIND11_MAKE_OPAQUE(std::vector<std::string>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u8>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::u32>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimChannel>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimSet>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::AnimTag>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Clip>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ClipEvent>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::CombinerStage>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::CompositeLayer>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Diagnostic>);
@@ -63,6 +71,8 @@ PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::PoseSchema>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ProfileId>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::ProfileMaterialSet>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::SlotBinding>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::SubTrack>);
+PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::SubTrackContainer>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::TextureRef>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::Transform>);
 PYBIND11_MAKE_OPAQUE(std::vector<whiteout::models::wem::UnknownChunk>);
@@ -412,6 +422,45 @@ The inherit bits and the billboard family are MDX's vocabulary, and M3's `BoneFl
     py::enum_<whiteout::models::wem::PoseSpace>(m, "PoseSpace")
         .value("MODEL", whiteout::models::wem::PoseSpace::Model, R"doc(Relative to the model root.)doc")
         .value("PARENT_RELATIVE", whiteout::models::wem::PoseSpace::ParentRelative, R"doc(Relative to the node's parent — the same space as `local`.)doc")
+    ;
+
+    py::enum_<whiteout::models::wem::Channel>(m, "Channel", R"doc(Which property, in the vocabulary all four formats share.
+
+Closed on purpose. A source property with no entry here is **dropped with an `AnimTrackDropped` diagnostic**, not smuggled through under a free-text name: a consumer that cannot enumerate what it might be handed cannot implement the table, and M3 alone would contribute hundreds of AnimRefs on structures WEM does not store at all (§18).)doc")
+        .value("TRANSLATION", whiteout::models::wem::Channel::Translation, R"doc(F32x3. MDX KGTR, M2 `Bone::translation`, M3 BONE, D3 `TranslationCurve`.)doc")
+        .value("ROTATION", whiteout::models::wem::Channel::Rotation, R"doc(Quat. Slerp by default; the source's interpolation still decides.)doc")
+        .value("SCALE", whiteout::models::wem::Channel::Scale, R"doc(F32x3, or F32 where the source ships one float (D3 `ScaleCurve`).)doc")
+        .value("VISIBILITY", whiteout::models::wem::Channel::Visibility, R"doc(F32 or Bool. MDX KATV/KLAV/KRVS, M2 attachment/light visibility, M3's SDFG-keyed dynamic state (§10.8.2).)doc")
+        .value("COLOR", whiteout::models::wem::Channel::Color, R"doc(F32x3. A light's colour, a geoset animation's tint, a fresnel colour.)doc")
+        .value("ALPHA", whiteout::models::wem::Channel::Alpha, R"doc(F32. MDX KMTA/KGAO, M2 texture weights, M3 layer alpha.)doc")
+        .value("INTENSITY", whiteout::models::wem::Channel::Intensity, R"doc(F32. Light.)doc")
+        .value("ATTENUATION_START", whiteout::models::wem::Channel::AttenuationStart, R"doc(F32. MDX KLAS, M2 `attenuationStart`.)doc")
+        .value("ATTENUATION_END", whiteout::models::wem::Channel::AttenuationEnd, R"doc(F32. MDX KLAE, M2 `attenuationEnd`.)doc")
+        .value("UV_TRANSLATE", whiteout::models::wem::Channel::UvTranslate, R"doc(F32x3 (MDX/M2 key three components even for a 2D transform).)doc")
+        .value("UV_ROTATE", whiteout::models::wem::Channel::UvRotate, R"doc(Quat on MDX/M2, F32 where the source keys an angle.)doc")
+        .value("UV_SCALE", whiteout::models::wem::Channel::UvScale, R"doc(F32x3.)doc")
+        .value("WEIGHT", whiteout::models::wem::Channel::Weight, R"doc(F32. A blend factor with no better name: MDX's fresnel team-colour amount, M3's layer blend weights.)doc")
+        .value("TEXTURE_INDEX", whiteout::models::wem::Channel::TextureIndex, R"doc(U32. MDX KMTF's flipbook frame and KRTX's ribbon slot.)doc")
+        .value("EMISSIVE", whiteout::models::wem::Channel::Emissive, R"doc(F32. MDX KMTE.)doc")
+        .value("COUNT", whiteout::models::wem::Channel::Count)
+    ;
+
+    py::enum_<whiteout::models::wem::Interpolation>(m, "Interpolation")
+        .value("STEP", whiteout::models::wem::Interpolation::Step, R"doc(Hold the previous key. M3's AnimRef flags **bit 4** (§10.8.2).)doc")
+        .value("LINEAR", whiteout::models::wem::Interpolation::Linear, R"doc(Componentwise lerp.)doc")
+        .value("HERMITE", whiteout::models::wem::Interpolation::Hermite, R"doc(Two tangents per key; see `ValuesPerKey`.)doc")
+        .value("BEZIER", whiteout::models::wem::Interpolation::Bezier, R"doc(Two control values per key; stored the same way.)doc")
+        .value("SLERP", whiteout::models::wem::Interpolation::Slerp, R"doc(Quaternion shortest-arc. The default for `Channel::Rotation`.)doc")
+        .value("COUNT", whiteout::models::wem::Interpolation::Count)
+    ;
+
+    py::enum_<whiteout::models::wem::ClipFlags>(m, "ClipFlags", R"doc(What starts this clip, beyond a host asking for it by name.
+
+**`AutoPlay | WorldClocked` is one concept across three formats**: M3's SEQS flag 0x2, M2's global sequences, MDX's `globalSeqId` tracks. All three are a loop the model runs on its own, off a clock that is not the host play's — and all three become this.)doc")
+        .value("NONE", whiteout::models::wem::ClipFlags::None)
+        .value("AUTO_PLAY", whiteout::models::wem::ClipFlags::AutoPlay, R"doc(Started at anim-state init, not by a play request.)doc")
+        .value("PERSISTENT", whiteout::models::wem::ClipFlags::Persistent, R"doc(Survives an anim-state change.)doc")
+        .value("WORLD_CLOCKED", whiteout::models::wem::ClipFlags::WorldClocked, R"doc(Timed off the world clock, not the play's own bracket.)doc")
     ;
 
     py::enum_<whiteout::models::wem::ValidateLevel>(m, "ValidateLevel")
@@ -884,6 +933,98 @@ The same composition D3's `Skeleton_ComposeWorldPose` performs. A node flagged `
         .def("conform_poses", &whiteout::models::wem::NodeTree::conformPoses, R"doc(Resizes every Bone node's `poses` to `poseSchema.size()`, filling new entries from `worldBind`/`local` as the schema's space asks.)doc")
     ;
 
+    py::class_<whiteout::models::wem::MaterialChannelRef>(m, "MaterialChannelRef", R"doc(Which material a channel drives, along the profile and look axes.
+
+A material *index* alone is ambiguous the moment a model carries several sets (§6.3) and several looks (§8), so the reference is spelled the way `Resolve` is: profile, slot, look. It is deliberately not the resolved index — a look removal renumbers those, and a slot name does not.)doc")
+        .def(py::init<>())
+        .def_readwrite("profile", &whiteout::models::wem::MaterialChannelRef::profile)
+        .def_readwrite("slot", &whiteout::models::wem::MaterialChannelRef::slot, R"doc(-> `Model::materialSlots`.)doc")
+        .def_readwrite("look", &whiteout::models::wem::MaterialChannelRef::look, R"doc(-> the set's `LookTable`.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::TrackTarget>(m, "TrackTarget")
+        .def(py::init<>())
+        .def_readwrite("node", &whiteout::models::wem::TrackTarget::node, R"doc(`Kind::Node`: -> `Model::nodes`.)doc")
+        .def_readwrite("mesh", &whiteout::models::wem::TrackTarget::mesh, R"doc(`Kind::Section`: -> `Model::meshes`.)doc")
+        .def_readwrite("material", &whiteout::models::wem::TrackTarget::material)
+        .def_readwrite("sub", &whiteout::models::wem::TrackTarget::sub, R"doc(What `kind` says it is. For a node it separates same-named properties of one node — an `.m2` light keys an ambient colour beside its diffuse one — and is 0 for everything with only one.)doc")
+        .def_readwrite("channel", &whiteout::models::wem::TrackTarget::channel)
+    ;
+
+    py::class_<whiteout::models::wem::AnimChannel>(m, "AnimChannel", R"doc(One animatable property, declared once. M3's AnimRef, hoisted out of the owner structs into a per-model table.)doc")
+        .def(py::init<>())
+        .def_readwrite("id", &whiteout::models::wem::AnimChannel::id, R"doc(The join key, stable for the model's life and **never reused**. M3's animId arrives here unchanged, which is what makes an `.m3a` merge a concatenation rather than a re-resolution; the other three importers allocate ids and the value is theirs to choose.)doc")
+        .def_readwrite("target", &whiteout::models::wem::AnimChannel::target)
+        .def_readwrite("init_value", &whiteout::models::wem::AnimChannel::initValue, R"doc(One element of `valueType`, or empty. What an **opaque** container contributes for this channel when it holds no sub-track for it — the asymmetry M3's split-body playback is built on (§10.8.1). Empty means the source declared no rest value, not "zero".)doc")
+    ;
+
+    py::class_<whiteout::models::wem::AnimChannelTable>(m, "AnimChannelTable", R"doc(The animatable properties of one model (§10.8).
+
+Empty is a normal state — a model with no animation carries no channels.)doc")
+        .def(py::init<>())
+        .def_readwrite("channels", &whiteout::models::wem::AnimChannelTable::channels)
+    ;
+
+    py::class_<whiteout::models::wem::SubTrack>(m, "SubTrack", R"doc(One channel's keyframe stream. M3's SD entry.
+
+`times` are **seconds**, converted at import from whatever ticks the source counts in, and are **not clamped or padded to `Clip::duration`**: M3 wraps the playhead modulo the *track's* own length, so a sub-track outlasting or undershooting its clip is data, not an error (§10.8.2).)doc")
+        .def(py::init<>())
+        .def_readwrite("channel", &whiteout::models::wem::SubTrack::channel, R"doc(An `AnimChannel::id`, never an index into the table.)doc")
+        .def_readwrite("interp", &whiteout::models::wem::SubTrack::interp)
+        .def_readwrite("times", &whiteout::models::wem::SubTrack::times)
+        .def_readwrite("values", &whiteout::models::wem::SubTrack::values, R"doc(`times.size() * ValuesPerKey(interp) * AttrTypeSize(channel's valueType)` bytes. The type is on the channel because every sub-track that drives one must agree about it, and storing it here would let two disagree.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::SubTrackContainer>(m, "SubTrackContainer", R"doc(One layer of a clip. M3's STC_.
+
+`concurrent` is the asymmetry: a **transparent** container (true) holding no sub-track for a channel is skipped and lower layers show through; an **opaque** one contributes the channel's `initValue` at full weight, forcing un-keyed channels back to rest. Every non-M3 importer writes one opaque container at priority 0, which is the degenerate case of the same rule.)doc")
+        .def(py::init<>())
+        .def_readwrite("name", &whiteout::models::wem::SubTrackContainer::name)
+        .def_readwrite("priority", &whiteout::models::wem::SubTrackContainer::priority, R"doc(STC `animPriority`.)doc")
+        .def_readwrite("concurrent", &whiteout::models::wem::SubTrackContainer::concurrent, R"doc(STC `runsConcurrent`.)doc")
+        .def_readwrite("sub_tracks", &whiteout::models::wem::SubTrackContainer::subTracks)
+        .def_readwrite("native", &whiteout::models::wem::SubTrackContainer::native)
+    ;
+
+    py::class_<whiteout::models::wem::ClipEvent>(m, "ClipEvent", R"doc(A discrete key firing at an `Event` node — the node is the *where*, the key is the *when*.
+
+MDX's `EventObject` plus its KEVT timestamps, M3's SDEV keys, D3's `flEventFrame`. What the event *means* is the host's: WEM carries the name and one integer because that is all three formats agree on.)doc")
+        .def(py::init<>())
+        .def_readwrite("time", &whiteout::models::wem::ClipEvent::time, R"doc(Seconds from the clip's start.)doc")
+        .def_readwrite("node", &whiteout::models::wem::ClipEvent::node, R"doc(The `Event` node it fires at; a §10.6 referencer.)doc")
+        .def_readwrite("name", &whiteout::models::wem::ClipEvent::name)
+        .def_readwrite("value", &whiteout::models::wem::ClipEvent::value)
+    ;
+
+    py::class_<whiteout::models::wem::Clip>(m, "Clip", R"doc(One playable animation. M3's SEQS plus its STG_.
+
+`model` exists because a document holds several models (§9.1) and a channel id is only meaningful within one model's table — a clip that did not say whose nodes its sub-tracks name would be ambiguous the moment a D3 actor brought a second model along on a hardpoint.)doc")
+        .def(py::init<>())
+        .def_readwrite("name", &whiteout::models::wem::Clip::name)
+        .def_readwrite("model", &whiteout::models::wem::Clip::model, R"doc(-> `Document::models[]`. Whose channel table this drives.)doc")
+        .def_readwrite("duration", &whiteout::models::wem::Clip::duration, R"doc(Seconds.)doc")
+        .def_readwrite("looping", &whiteout::models::wem::Clip::looping)
+        .def_readwrite("flags", &whiteout::models::wem::Clip::flags)
+        .def_readwrite("containers", &whiteout::models::wem::Clip::containers, R"doc(>= 1; one is the common case.)doc")
+        .def_readwrite("events", &whiteout::models::wem::Clip::events)
+        .def_readwrite("native", &whiteout::models::wem::Clip::native)
+    ;
+
+    py::class_<whiteout::models::wem::AnimTag>(m, "AnimTag", R"doc(One (tag -> clip) row. A struct rather than a `std::pair` because a pair has no `reflect()` and naming the halves is worth more than the two lines.)doc")
+        .def(py::init<>())
+        .def_readwrite("tag_id", &whiteout::models::wem::AnimTag::tagId, R"doc(The source's own tag id; D3 hashes a name into it.)doc")
+        .def_readwrite("clip", &whiteout::models::wem::AnimTag::clip, R"doc(-> `Document::clips[]`.)doc")
+    ;
+
+    py::class_<whiteout::models::wem::AnimSet>(m, "AnimSet", R"doc(A named (tag -> clip) map, with a fallback.
+
+D3's `.ans` is the shape this exists for: 30 tag maps in one asset, one core and 29 keyed by what the character is holding, and the runtime falls back to core when the weapon's map has no row for a tag. That is **one `AnimSet` per map**, with `baseAnimSet` pointing at the core one — the fallback field spelling the fallback, rather than a 30-wide struct nothing else could use. The same field carries `.ans`'s own `snoBaseAnimSet` link on the core set, because it means the same thing one level up.)doc")
+        .def(py::init<>())
+        .def_readwrite("name", &whiteout::models::wem::AnimSet::name)
+        .def_readwrite("by_tag", &whiteout::models::wem::AnimSet::byTag)
+        .def_readwrite("base_anim_set", &whiteout::models::wem::AnimSet::baseAnimSet, R"doc(-> `Document::animSets[]`.)doc")
+    ;
+
     py::class_<whiteout::models::wem::SlotBinding>(m, "SlotBinding", R"doc(Which material each look picks, for one slot.
 
 Sized to the set's `LookTable`. An entry of `kInvalidIndex` is a hole the coverage rule reports — §7.5's removal operations leave one rather than silently repointing at a neighbour, because "which material did you mean" is not a question this layer can answer.)doc")
@@ -903,19 +1044,16 @@ On the set rather than the `Model` because the look axis is per set: D3's looks 
         .def_readwrite("native", &whiteout::models::wem::ProfileMaterialSet::native)
     ;
 
-    py::class_<whiteout::models::wem::AnimChannelTable>(m, "AnimChannelTable", R"doc(The animatable properties of this model, declared once (§10.8).
-
-Empty until P7, and empty is a normal state — a model with no animation carries no channels. It is declared now so `Model`'s shape is final and nothing has to move when the semantics arrive.)doc")
-        .def(py::init<>())
-    ;
-
     py::class_<whiteout::models::wem::Model>(m, "Model")
         .def(py::init<>())
         .def_readwrite("name", &whiteout::models::wem::Model::name)
         .def_readwrite("meshes", &whiteout::models::wem::Model::meshes, R"doc(Shared across profiles.)doc")
         .def_readwrite("nodes", &whiteout::models::wem::Model::nodes, R"doc(Shared: bones, lights, attachments, emitters.)doc")
         .def_readwrite("material_slots", &whiteout::models::wem::Model::materialSlots, R"doc(Shared: the join key.)doc")
-        .def_readwrite("anim_channels", &whiteout::models::wem::Model::animChannels, R"doc(Shared: the animatable properties.)doc")
+        .def_readwrite("anim_channels", &whiteout::models::wem::Model::animChannels, R"doc(Shared: the animatable properties (§10.8).)doc")
+        .def_readwrite("anim_set", &whiteout::models::wem::Model::animSet, R"doc(The `Document::animSets[]` a host plays this model through by default, or `kInvalidIndex`.
+
+On the `Model` because that is what a D3 actor's `snoAnimSet` names once the actor has become one (§9.1) — there is no `Actor` to hang it on, and a document-level pairing would be a side table with the model index in it, which is the shape §10.2 exists to avoid. Two actors sharing an appearance but not an animset are therefore two models, the same way two that equip differently are.)doc")
         .def_readwrite("profile_sets", &whiteout::models::wem::Model::profileSets)
         .def_readwrite("bounds", &whiteout::models::wem::Model::bounds)
         .def("slot_index", &whiteout::models::wem::Model::slotIndex, py::arg("name"), R"doc(The index of the slot named @p name, or `kInvalidIndex`.)doc")
@@ -942,8 +1080,12 @@ Forward compatibility is the point: a newer writer's chunk survives a round-trip
         .def_readwrite("unit_scale", &whiteout::models::wem::Document::unitScale, R"doc(What one WEM unit is, if the caller knows. Scale is **not** normalised — geometry stays in the units it was authored in.)doc")
         .def_readwrite("name", &whiteout::models::wem::Document::name)
         .def_readwrite("bounds", &whiteout::models::wem::Document::bounds)
-        .def_readwrite("models", &whiteout::models::wem::Document::models)
+        .def_readwrite("models", &whiteout::models::wem::Document::models, R"doc(One per drawable. A D3 actor converts to `models[0]` and everything its attach points reach follows it (§9.1); every other importer produces one.)doc")
         .def_readwrite("textures", &whiteout::models::wem::Document::textures)
+        .def_readwrite("clips", &whiteout::models::wem::Document::clips, R"doc(Every clip in the document, each naming the model it drives (§10.8).
+
+Document-level rather than per model because an `.m3a` merge and a D3 anim set both address clips across models, and because a clip index in an `AnimSet` would otherwise have to carry a model index beside it.)doc")
+        .def_readwrite("anim_sets", &whiteout::models::wem::Document::animSets, R"doc(The named (tag -> clip) maps. D3 is the only importer that fills this today; `Model::animSet` is how a model says which one is its default.)doc")
         .def_readwrite("unknown_chunks", &whiteout::models::wem::Document::unknownChunks, R"doc(Chunks this build did not understand, carried through unchanged (§11.4).
 
 The parser fills it and the writer reads it, so a read-edit-write round trip preserves them by doing nothing. Clearing it is how a caller drops them -- an act, not an omission.)doc")
@@ -987,6 +1129,11 @@ The parser fills it and the writer reads it, so a read-edit-write round trip pre
         .def("diagnostics", &whiteout::models::wem::Writer::diagnostics)
     ;
 
+    py::bind_vector<std::vector<whiteout::models::wem::AnimChannel>>(m, "VectorWemAnimChannel");
+    py::bind_vector<std::vector<whiteout::models::wem::AnimSet>>(m, "VectorWemAnimSet");
+    py::bind_vector<std::vector<whiteout::models::wem::AnimTag>>(m, "VectorWemAnimTag");
+    py::bind_vector<std::vector<whiteout::models::wem::Clip>>(m, "VectorWemClip");
+    py::bind_vector<std::vector<whiteout::models::wem::ClipEvent>>(m, "VectorWemClipEvent");
     py::bind_vector<std::vector<whiteout::models::wem::CombinerStage>>(m, "VectorWemCombinerStage");
     py::bind_vector<std::vector<whiteout::models::wem::CompositeLayer>>(m, "VectorWemCompositeLayer");
     py::bind_vector<std::vector<whiteout::models::wem::Diagnostic>>(m, "VectorWemDiagnostic");
@@ -1003,6 +1150,8 @@ The parser fills it and the writer reads it, so a read-edit-write round trip pre
     py::bind_vector<std::vector<whiteout::models::wem::ProfileId>>(m, "VectorWemProfileId");
     py::bind_vector<std::vector<whiteout::models::wem::ProfileMaterialSet>>(m, "VectorWemProfileMaterialSet");
     py::bind_vector<std::vector<whiteout::models::wem::SlotBinding>>(m, "VectorWemSlotBinding");
+    py::bind_vector<std::vector<whiteout::models::wem::SubTrack>>(m, "VectorWemSubTrack");
+    py::bind_vector<std::vector<whiteout::models::wem::SubTrackContainer>>(m, "VectorWemSubTrackContainer");
     py::bind_vector<std::vector<whiteout::models::wem::TextureRef>>(m, "VectorWemTextureRef");
     py::bind_vector<std::vector<whiteout::models::wem::Transform>>(m, "VectorWemTransform");
     py::bind_vector<std::vector<whiteout::models::wem::UnknownChunk>>(m, "VectorWemUnknownChunk");

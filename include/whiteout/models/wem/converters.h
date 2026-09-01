@@ -128,6 +128,21 @@ public:
                             ProfileId profileOverride = ProfileId::Count) const;
     Result<m3::Model> toM3(const Document& document, ProfileId profile,
                            u32 targetVersion = 30) const;
+
+    /**
+     * @brief Merges an external animation file (`.m3a`) into an imported model.
+     *
+     * Nothing in a `.m3` names its `.m3a` — the caller decides which pair up —
+     * and the join inside is the **animId** alone. The merge therefore adds
+     * clips and containers that reference channels @p document already declares;
+     * a channel the base model never declared is skipped rather than invented,
+     * because an external file can supply new motion for a target but not a new
+     * target (§10.8.1).
+     *
+     * @return how many clips were added, or an error when @p model is not in the
+     *         document.
+     */
+    Result<u32> mergeAnimation(Document& document, u32 model, const m3::Model& external) const;
 };
 
 /// Registers the three built-in converters. Called by `ConverterRegistry`'s

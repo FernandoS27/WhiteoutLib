@@ -84,13 +84,44 @@ struct Context {
     std::string toPath(u32 documentTextureId) const;
 };
 
+/**
+ * @brief The `StandardMaterial` layers that become `Composite` layers, in the
+ *        order `ImportMaterial` appends them.
+ *
+ * An ordinal is a position in the assembled stack, and the stack skips every
+ * inactive layer — so "the diffuse layer is ordinal 0" is true only when the
+ * material has one. Animation needs the real answer (§10.8), and recomputing it
+ * outside would mean a second copy of the append order.
+ */
+enum class StandardLayer : u8 {
+    Diffuse,
+    Decal,
+    Specular,
+    Emissive1,
+    Emissive2,
+    Environment,
+    EnvironmentMask,
+    Normal,
+    AmbientOcclusion,
+    Count
+};
+
+/// The `TextureLayer` @p slot names on @p material, or null.
+const std::optional<m3::TextureLayer>& LayerOf(const m3::StandardMaterial& material,
+                                               StandardLayer slot);
+
 /// One `MaterialMap` entry -> one `wem::Material`.
 ///
 /// Yields a `Composite` (§7.2.6) with the native block attached `InSync`. A map
 /// entry naming a type the model has no array for, or an index past its end,
 /// produces a material with an empty body and an `IndexOutOfRange`.
+///
+/// @p layerOrdinals, when given, is resized to `StandardLayer::Count` and filled
+/// with the ordinal each slot became, or `kInvalidIndex` for one the material
+/// does not carry or the stack does not read.
 Material ImportMaterial(const m3::Model& model, const m3::MaterialMap& entry, ProfileId profile,
-                        const Context& context, Diagnostics& out);
+                        const Context& context, Diagnostics& out,
+                        std::vector<u32>* layerOrdinals = nullptr);
 
 /// Convenience: every `materialMaps` entry, in order. The result is index-aligned
 /// with `model.materialMaps`, which is the index space a region refers through.
