@@ -62,8 +62,13 @@ def main(argv: list[str] | None = None) -> int:
                             'c-common', 'c-common-header',
                             'java', 'java-common', 'jni',
                             'csharp', 'csharp-common',
-                            'rust-abi-header', 'rust-abi-source', 'rust-math', 'rust'],
+                            'rust-abi-header', 'rust-abi-source', 'rust-math', 'rust',
+                            'wem-native'],
                    default='embind')
+    p.add_argument('--wem-bump', default='',
+                   help='wem-native only: comma-separated native block names (or "all") '
+                        'whose schema change is accepted, raising their chunk version. '
+                        'Without this a changed block fails generation.')
     p.add_argument('--repo-root', default=Path(__file__).resolve().parents[2],
                    type=lambda s: Path(s).resolve(),
                    help='Repository root (defaults to autodetect)')
@@ -146,6 +151,16 @@ def main(argv: list[str] | None = None) -> int:
         from tools.codegen import emit_csharp
         files = emit_csharp.emit_common()
         return _write_files(args, files)
+    elif args.backend == 'wem-native':
+        from tools.codegen import emit_wem_native
+        files = emit_wem_native.emit(
+            module, config, args.repo_root,
+            {b.strip() for b in args.wem_bump.split(',') if b.strip()})
+        report = files.pop('_report', [])
+        rc = _write_files(args, files)
+        for line in report:
+            print(line)
+        return rc
     elif args.backend == 'rust':
         from tools.codegen import emit_rust
         return _write(args, f'bindings/rust/whiteout/src/{config.name}.rs',

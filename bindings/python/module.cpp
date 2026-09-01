@@ -44,6 +44,7 @@ using namespace whiteout;
 void bind_mdx     (py::module_& m);
 void bind_m2      (py::module_& m);
 void bind_m3      (py::module_& m);
+void bind_wem     (py::module_& m);
 void bind_textures(py::module_& m);   // texture parsers/writers + PixelFormat
 void bind_utils   (py::module_& m);   // VertexBuffer + VertexBufferBuilder
 void bind_host    (py::module_& m);   // OsFileSystem, SimpleThreadPool,
@@ -270,6 +271,9 @@ PYBIND11_MODULE(whiteout, root) {
 
     auto m3_m = root.def_submodule("m3", "StarCraft II / Heroes of the Storm M3");
     bind_m3(m3_m);
+
+    auto wem_m = root.def_submodule("wem", "Whiteout Edit Model — the editable document");
+    bind_wem(wem_m);
 
     auto utils_m = root.def_submodule("utils", "Vertex-buffer building + other helpers.");
     bind_utils(utils_m);

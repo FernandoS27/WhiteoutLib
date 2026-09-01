@@ -1,678 +1,516 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
+/**
+ * @file m3_converter.cpp
+ * @brief `.m3` <-> `Document` (design §14, §10.7, §6.2).
+ *
+ * ### The profile is the version
+ *
+ * `MODL` v30 and up is Heroes of the Storm, where the loader turns every
+ * material into a `DataDrivenMaterial` and `MADD` is the load-time truth; below
+ * that is StarCraft II. Both are the same *format*, which is why one converter
+ * serves two profiles and the caller may override the guess — content moved
+ * between the two games exists, and a version number is a strong signal, not a
+ * proof.
+ *
+ * ### The rebase is exact
+ *
+ * SC2 authors in Max's basis — `-Y` forward, `+X` left — and WEM's canonical
+ * space is Blizzard's `+X` forward, `+Y` left. The change of basis is
+ * `(x, y, z) -> (-y, x, z)`: an axis permutation with two sign flips,
+ * determinant +1. That matters twice — it is bit-exact in floating point, so a
+ * round trip loses nothing, and it is a rotation rather than a mirror, so
+ * winding is preserved and no index reversal is needed.
+ *
+ * ### Two indirections, both easy to get backwards
+ *
+ * A region's face values are **region-local** — indices into that region's own
+ * vertex slice, not into the division's buffer. And a vertex's bone index is an
+ * offset into its region's `boneLookup` window, not a bone id. Reading either as
+ * global produces a model that parses, builds, and is wrong.
+ */
+
 #include "whiteout/models/m3/parser.h"
 #include "whiteout/models/m3/writer.h"
 #include "whiteout/models/wem/converters.h"
+#include "whiteout/models/wem/geometry/builder.h"
+#include "whiteout/models/wem/geometry/render_view.h"
+
+#include "../materials/m3_core.h"
 
 #include <algorithm>
-#include <cmath>
+#include <array>
+#include <cstring>
+#include <string>
 
 namespace whiteout {
 namespace models {
 namespace wem {
 
-// ============================================================================
-// Helpers
-// ============================================================================
-
 namespace {
 
-wem::Extent convertM3Extent(const m3::Extent& src) {
-    wem::Extent dst;
-    dst.minimum = src.min;
-    dst.maximum = src.max;
-    dst.sphereRadius = src.radius;
-    return dst;
-}
+constexpr ProfileId kM3Profiles[] = {ProfileId::Sc2, ProfileId::Heroes};
 
-m3::Extent convertExtentToM3(const wem::Extent& src) {
-    m3::Extent dst;
-    dst.min = src.minimum;
-    dst.max = src.maximum;
-    dst.radius = src.sphereRadius;
-    return dst;
-}
+/// The first `MODL` version whose loader builds `MADD` (§7.2.6).
+constexpr u32 kHeroesModlVersion = 30;
 
-BlendMode convertM3BlendMode(m3::BlendMode bm) {
-    switch (bm) {
-    case m3::BlendMode::Opaque:
-        return BlendMode::Opaque;
-    case m3::BlendMode::AlphaBlend:
-        return BlendMode::AlphaBlend;
-    case m3::BlendMode::Add:
-        return BlendMode::Additive;
-    case m3::BlendMode::AlphaAdd:
-        return BlendMode::AdditiveAlpha;
-    case m3::BlendMode::Mod:
-        return BlendMode::Modulate;
-    case m3::BlendMode::Mod2x:
-        return BlendMode::Modulate2x;
-    default:
-        return BlendMode::Opaque;
+/// A shipped `.m3` string carries its terminator inside the `std::string` — the
+/// `Reference` count includes it — so anything comparing or storing one has to
+/// drop it first.
+std::string TrimNuls(std::string value) {
+    while (!value.empty() && value.back() == '\0') {
+        value.pop_back();
     }
+    return value;
 }
 
-m3::BlendMode convertBlendModeToM3(BlendMode bm) {
-    switch (bm) {
-    case BlendMode::Opaque:
-        return m3::BlendMode::Opaque;
-    case BlendMode::AlphaBlend:
-        return m3::BlendMode::AlphaBlend;
-    case BlendMode::Additive:
-        return m3::BlendMode::Add;
-    case BlendMode::AdditiveAlpha:
-        return m3::BlendMode::AlphaAdd;
-    case BlendMode::Modulate:
-        return m3::BlendMode::Mod;
-    case BlendMode::Modulate2x:
-        return m3::BlendMode::Mod2x;
-    case BlendMode::AlphaKey:
-        return m3::BlendMode::AlphaBlend;
-    case BlendMode::BlendAdd:
-        return m3::BlendMode::Add;
-    case BlendMode::Transparent:
-        return m3::BlendMode::AlphaBlend;
-    default:
-        return m3::BlendMode::Opaque;
+/// SC2's basis into WEM's canonical one. See the file comment.
+Vector3f Rebase(const Vector3f& v) {
+    return Vector3f{-v.y, v.x, v.z};
+}
+
+Vector3f Unrebase(const Vector3f& v) {
+    return Vector3f{v.y, -v.x, v.z};
+}
+
+Extent ToExtent(const m3::Extent& source) {
+    Extent out;
+    const Vector3f a = Rebase(source.min);
+    const Vector3f b = Rebase(source.max);
+    // The rebase is a rotation, so a corner can swap sides; min/max are
+    // recomputed rather than mapped.
+    out.minimum = Vector3f{std::min(a.x, b.x), std::min(a.y, b.y), std::min(a.z, b.z)};
+    out.maximum = Vector3f{std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z)};
+    out.sphereRadius = source.radius;
+    return out;
+}
+
+m3::Extent FromExtent(const Extent& source) {
+    m3::Extent out;
+    const Vector3f a = Unrebase(source.minimum);
+    const Vector3f b = Unrebase(source.maximum);
+    out.min = Vector3f{std::min(a.x, b.x), std::min(a.y, b.y), std::min(a.z, b.z)};
+    out.max = Vector3f{std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z)};
+    out.radius = source.sphereRadius;
+    return out;
+}
+
+/// M3 spells the inherit bits positively; WEM (and MDX) spell them as opt-outs.
+NodeFlags ToNodeFlags(m3::BoneFlag source) {
+    NodeFlags out = NodeFlags::None;
+    if (!hasFlag(source, m3::BoneFlag::InheritTranslation)) {
+        out |= NodeFlags::DontInheritTranslation;
     }
-}
-
-MaterialFlags convertM3MaterialFlags(m3::MaterialFlag mf) {
-    auto flags = MaterialFlags::None;
-    auto v = static_cast<u32>(mf);
-    if (v & static_cast<u32>(m3::MaterialFlag::Unshaded))
-        flags |= MaterialFlags::Unlit;
-    if (v & static_cast<u32>(m3::MaterialFlag::TwoSided))
-        flags |= MaterialFlags::TwoSided;
-    if (v & static_cast<u32>(m3::MaterialFlag::Unfogged))
-        flags |= MaterialFlags::Unfogged;
-    return flags;
-}
-
-m3::MaterialFlag convertMaterialFlagsToM3(MaterialFlags mf) {
-    auto result = m3::MaterialFlag::None;
-    if (hasFlag(mf, MaterialFlags::Unlit))
-        result = result | m3::MaterialFlag::Unshaded;
-    if (hasFlag(mf, MaterialFlags::TwoSided))
-        result = result | m3::MaterialFlag::TwoSided;
-    if (hasFlag(mf, MaterialFlags::Unfogged))
-        result = result | m3::MaterialFlag::Unfogged;
-    return result;
-}
-
-MaterialClass convertM3MaterialClass(m3::MaterialClass mc) {
-    switch (mc) {
-    case m3::MaterialClass::Unit:
-        return MaterialClass::Unit;
-    case m3::MaterialClass::Building:
-        return MaterialClass::Building;
-    case m3::MaterialClass::Doodad:
-        return MaterialClass::Doodad;
-    case m3::MaterialClass::SpecialFX:
-        return MaterialClass::SpecialFX;
-    default:
-        return MaterialClass::Unit;
+    if (!hasFlag(source, m3::BoneFlag::InheritScale)) {
+        out |= NodeFlags::DontInheritScale;
     }
-}
-
-m3::MaterialClass convertMaterialClassToM3(MaterialClass mc) {
-    switch (mc) {
-    case MaterialClass::Unit:
-        return m3::MaterialClass::Unit;
-    case MaterialClass::Building:
-        return m3::MaterialClass::Building;
-    case MaterialClass::Doodad:
-        return m3::MaterialClass::Doodad;
-    case MaterialClass::SpecialFX:
-        return m3::MaterialClass::SpecialFX;
-    default:
-        return m3::MaterialClass::Unit;
+    if (!hasFlag(source, m3::BoneFlag::InheritRotation)) {
+        out |= NodeFlags::DontInheritRotation;
     }
+    // The two `Billboard` bits are deliberately not mapped: they are set on no
+    // bone in the whole corpus, and billboarding comes from `BBSC`.
+    return out;
 }
 
-LayerBlendOp convertM3LayerBlendOp(m3::LayerBlendOp op) {
-    switch (op) {
-    case m3::LayerBlendOp::Mod:
-        return LayerBlendOp::Mod;
-    case m3::LayerBlendOp::Mod2x:
-        return LayerBlendOp::Mod2x;
-    case m3::LayerBlendOp::Add:
-        return LayerBlendOp::Add;
-    case m3::LayerBlendOp::Lerp:
-        return LayerBlendOp::Lerp;
-    case m3::LayerBlendOp::TeamColorEmissiveAdd:
-        return LayerBlendOp::TeamColorEmissiveAdd;
-    case m3::LayerBlendOp::TeamColorDiffuseAdd:
-        return LayerBlendOp::TeamColorDiffuse;
-    case m3::LayerBlendOp::AddNoAlpha:
-        return LayerBlendOp::OpNone;
-    default:
-        return LayerBlendOp::Mod;
-    }
+m3::BoneFlag FromNodeFlags(NodeFlags source, u32 rawFallback) {
+    u32 bits = rawFallback;
+    const auto set = [&bits](m3::BoneFlag bit, bool on) {
+        if (on) {
+            bits |= static_cast<u32>(bit);
+        } else {
+            bits &= ~static_cast<u32>(bit);
+        }
+    };
+    set(m3::BoneFlag::InheritTranslation, !hasFlag(source, NodeFlags::DontInheritTranslation));
+    set(m3::BoneFlag::InheritScale, !hasFlag(source, NodeFlags::DontInheritScale));
+    set(m3::BoneFlag::InheritRotation, !hasFlag(source, NodeFlags::DontInheritRotation));
+    return static_cast<m3::BoneFlag>(bits);
 }
 
-m3::LayerBlendOp convertLayerBlendOpToM3(LayerBlendOp op) {
-    switch (op) {
-    case LayerBlendOp::Mod:
-        return m3::LayerBlendOp::Mod;
-    case LayerBlendOp::Mod2x:
-        return m3::LayerBlendOp::Mod2x;
-    case LayerBlendOp::Add:
-        return m3::LayerBlendOp::Add;
-    case LayerBlendOp::Lerp:
-        return m3::LayerBlendOp::Lerp;
-    case LayerBlendOp::TeamColorEmissiveAdd:
-        return m3::LayerBlendOp::TeamColorEmissiveAdd;
-    case LayerBlendOp::TeamColorDiffuse:
-        return m3::LayerBlendOp::TeamColorDiffuseAdd;
-    case LayerBlendOp::OpNone:
-        return m3::LayerBlendOp::AddNoAlpha;
-    default:
-        return m3::LayerBlendOp::Mod;
-    }
+std::string SlotName(std::size_t materialMapIndex) {
+    return "material_" + std::to_string(materialMapIndex);
 }
 
-SpecularMode convertM3SpecularMode(m3::SpecularMode sm) {
-    switch (sm) {
-    case m3::SpecularMode::RGB:
-        return SpecularMode::RGB;
-    case m3::SpecularMode::AlphaOnly:
-        return SpecularMode::AlphaOnly;
-    default:
-        return SpecularMode::RGB;
-    }
-}
+/// One vertex of the `.m3` blob, as the parser reads it back.
+///
+/// The layout is not declared anywhere in the file — it is derived from
+/// `MODL.vertexFlags` and hard-coded in `m3::VertexBuffer::initialize`, so this
+/// is that function read backwards. Position f32x3 at 0, weights and indices as
+/// raw bytes at 12 and 16, the normal as UNORM bytes at 20 with the tangent's
+/// handedness in its fourth, then one i16 pair per UV layer at 1/2048 units, and
+/// the tangent last in the same UNORM encoding.
+struct M3VertexEncoder {
+    static constexpr std::size_t kBaseSize = 24;
+    static constexpr f32 kUvScale = 2048.0f;
 
-m3::SpecularMode convertSpecularModeToM3(SpecularMode sm) {
-    return (sm == SpecularMode::AlphaOnly) ? m3::SpecularMode::AlphaOnly : m3::SpecularMode::RGB;
-}
+    std::vector<u8> data;
+    std::size_t stride = 0;
+    std::size_t uvCount = 1;
 
-UVMappingMode convertM3UVMapping(m3::UVMappingMode uv) {
-    switch (uv) {
-    case m3::UVMappingMode::ExplicitUV0:
-        return UVMappingMode::ExplicitUV0;
-    case m3::UVMappingMode::ExplicitUV1:
-        return UVMappingMode::ExplicitUV1;
-    case m3::UVMappingMode::ExplicitUV2:
-        return UVMappingMode::ExplicitUV2;
-    case m3::UVMappingMode::ExplicitUV3:
-        return UVMappingMode::ExplicitUV3;
-    case m3::UVMappingMode::ReflectCubicEnvio:
-        return UVMappingMode::ReflectCubicEnvironment;
-    case m3::UVMappingMode::ReflectSphericalEnvio:
-        return UVMappingMode::SphericalEnvironment;
-    case m3::UVMappingMode::PlanarLocalX:
-        return UVMappingMode::PlanarLocalX;
-    case m3::UVMappingMode::PlanarLocalY:
-        return UVMappingMode::PlanarLocalY;
-    case m3::UVMappingMode::PlanarLocalZ:
-        return UVMappingMode::PlanarLocalZ;
-    case m3::UVMappingMode::PlanarWorldX:
-        return UVMappingMode::PlanarWorldX;
-    case m3::UVMappingMode::PlanarWorldY:
-        return UVMappingMode::PlanarWorldY;
-    case m3::UVMappingMode::PlanarWorldZ:
-        return UVMappingMode::PlanarWorldZ;
-    case m3::UVMappingMode::TriPlanarLocal:
-        return UVMappingMode::TriPlanarLocal;
-    case m3::UVMappingMode::TriPlanarWorld:
-        return UVMappingMode::TriPlanarWorld;
-    default:
-        return UVMappingMode::ExplicitUV0;
-    }
-}
-
-m3::UVMappingMode convertUVMappingToM3(UVMappingMode uv) {
-    switch (uv) {
-    case UVMappingMode::ExplicitUV0:
-        return m3::UVMappingMode::ExplicitUV0;
-    case UVMappingMode::ExplicitUV1:
-        return m3::UVMappingMode::ExplicitUV1;
-    case UVMappingMode::ExplicitUV2:
-        return m3::UVMappingMode::ExplicitUV2;
-    case UVMappingMode::ExplicitUV3:
-        return m3::UVMappingMode::ExplicitUV3;
-    case UVMappingMode::ReflectCubicEnvironment:
-        return m3::UVMappingMode::ReflectCubicEnvio;
-    case UVMappingMode::SphericalEnvironment:
-        return m3::UVMappingMode::ReflectSphericalEnvio;
-    case UVMappingMode::PlanarLocalX:
-        return m3::UVMappingMode::PlanarLocalX;
-    case UVMappingMode::PlanarLocalY:
-        return m3::UVMappingMode::PlanarLocalY;
-    case UVMappingMode::PlanarLocalZ:
-        return m3::UVMappingMode::PlanarLocalZ;
-    case UVMappingMode::PlanarWorldX:
-        return m3::UVMappingMode::PlanarWorldX;
-    case UVMappingMode::PlanarWorldY:
-        return m3::UVMappingMode::PlanarWorldY;
-    case UVMappingMode::PlanarWorldZ:
-        return m3::UVMappingMode::PlanarWorldZ;
-    case UVMappingMode::TriPlanarLocal:
-        return m3::UVMappingMode::TriPlanarLocal;
-    case UVMappingMode::TriPlanarWorld:
-        return m3::UVMappingMode::TriPlanarWorld;
-    default:
-        return m3::UVMappingMode::ExplicitUV0;
-    }
-}
-
-ColorChannelSelect convertM3ColorChannelSelect(m3::ColorChannelSelect cs) {
-    switch (cs) {
-    case m3::ColorChannelSelect::RGB:
-        return ColorChannelSelect::RGB;
-    case m3::ColorChannelSelect::RGBA:
-        return ColorChannelSelect::RGBA;
-    case m3::ColorChannelSelect::Alpha:
-        return ColorChannelSelect::Alpha;
-    case m3::ColorChannelSelect::Red:
-        return ColorChannelSelect::Red;
-    case m3::ColorChannelSelect::Green:
-        return ColorChannelSelect::Green;
-    case m3::ColorChannelSelect::Blue:
-        return ColorChannelSelect::Blue;
-    default:
-        return ColorChannelSelect::RGBA;
-    }
-}
-
-m3::ColorChannelSelect convertColorChannelToM3(ColorChannelSelect cs) {
-    switch (cs) {
-    case ColorChannelSelect::RGB:
-        return m3::ColorChannelSelect::RGB;
-    case ColorChannelSelect::RGBA:
-        return m3::ColorChannelSelect::RGBA;
-    case ColorChannelSelect::Alpha:
-        return m3::ColorChannelSelect::Alpha;
-    case ColorChannelSelect::Red:
-        return m3::ColorChannelSelect::Red;
-    case ColorChannelSelect::Green:
-        return m3::ColorChannelSelect::Green;
-    case ColorChannelSelect::Blue:
-        return m3::ColorChannelSelect::Blue;
-    default:
-        return m3::ColorChannelSelect::RGBA;
-    }
-}
-
-FresnelMode convertM3FresnelMode(m3::FresnelMode fm) {
-    switch (fm) {
-    case m3::FresnelMode::None:
-        return FresnelMode::None;
-    case m3::FresnelMode::Standard:
-        return FresnelMode::Standard;
-    case m3::FresnelMode::Inverted:
-        return FresnelMode::Inverted;
-    default:
-        return FresnelMode::None;
-    }
-}
-
-m3::FresnelMode convertFresnelModeToM3(FresnelMode fm) {
-    switch (fm) {
-    case FresnelMode::None:
-        return m3::FresnelMode::None;
-    case FresnelMode::Standard:
-        return m3::FresnelMode::Standard;
-    case FresnelMode::Inverted:
-        return m3::FresnelMode::Inverted;
-    default:
-        return m3::FresnelMode::None;
-    }
-}
-
-SubmeshFlags convertM3RegionFlags(m3::RegionFlag rf) {
-    auto flags = SubmeshFlags::None;
-    auto v = static_cast<u32>(rf);
-    if (v & static_cast<u32>(m3::RegionFlag::Hidden))
-        flags = flags | SubmeshFlags::Hidden;
-    if (v & static_cast<u32>(m3::RegionFlag::ClothSimulated))
-        flags = flags | SubmeshFlags::ClothSimulated;
-    if (v & static_cast<u32>(m3::RegionFlag::ClothInfluenced))
-        flags = flags | SubmeshFlags::ClothInfluenced;
-    return flags;
-}
-
-m3::RegionFlag convertSubmeshFlagsToM3(SubmeshFlags sf) {
-    auto result = m3::RegionFlag::None;
-    if (hasFlag(sf, SubmeshFlags::Hidden))
-        result = result | m3::RegionFlag::Hidden;
-    if (hasFlag(sf, SubmeshFlags::ClothSimulated))
-        result = result | m3::RegionFlag::ClothSimulated;
-    if (hasFlag(sf, SubmeshFlags::ClothInfluenced))
-        result = result | m3::RegionFlag::ClothInfluenced;
-    return result;
-}
-
-// Convert an M3 TextureLayer to a WEM TextureSlot
-TextureSlot convertTextureLayer(const m3::TextureLayer& layer, TextureSlotSemantic semantic,
-                                u32 textureIndex, std::vector<std::string>& /*issues*/) {
-    TextureSlot slot;
-    slot.semantic = semantic;
-    slot.textureIndex = textureIndex;
-    slot.uvMapping = convertM3UVMapping(layer.uvMapping);
-    slot.colorChannelSelect = convertM3ColorChannelSelect(layer.colorType);
-    slot.rgbMultiply = layer.rgbMultiply.initValue;
-    slot.rgbAdd = layer.rgbAdd.initValue;
-    slot.flipbookRows = layer.flipbookRows;
-    slot.flipbookColumns = layer.flipbookColumns;
-
-    // Wrap flags from TextureLayerFlag
-    auto layerFlags = static_cast<u32>(layer.flags);
-    slot.wrapU = (layerFlags & static_cast<u32>(m3::TextureLayerFlag::UVWrapX)) != 0;
-    slot.wrapV = (layerFlags & static_cast<u32>(m3::TextureLayerFlag::UVWrapY)) != 0;
-
-    // Fresnel
-    slot.fresnel.mode = convertM3FresnelMode(layer.fresnelMode);
-    slot.fresnel.exponent = layer.fresnelExponent;
-    slot.fresnel.min = layer.fresnelMin;
-    slot.fresnel.max = layer.fresnelMax;
-    slot.fresnel.translation = layer.fresnelTranslation;
-    slot.fresnel.mask = layer.fresnelMask;
-    slot.fresnel.rotation = layer.fresnelRotation;
-
-    // Resolve UV set index from mapping mode
-    switch (layer.uvMapping) {
-    case m3::UVMappingMode::ExplicitUV0:
-        slot.uvSetIndex = 0;
-        break;
-    case m3::UVMappingMode::ExplicitUV1:
-        slot.uvSetIndex = 1;
-        break;
-    case m3::UVMappingMode::ExplicitUV2:
-        slot.uvSetIndex = 2;
-        break;
-    case m3::UVMappingMode::ExplicitUV3:
-        slot.uvSetIndex = 3;
-        break;
-    default:
-        slot.uvSetIndex = 0;
-        break;
+    explicit M3VertexEncoder(std::size_t uvSets) : uvCount(uvSets) {
+        stride = kBaseSize + uvCount * 4 + 4;
     }
 
-    return slot;
-}
+    static u8 EncodeUnorm(f32 value) {
+        const f32 mapped = (std::clamp(value, -1.0f, 1.0f) * 0.5f + 0.5f) * 255.0f;
+        return static_cast<u8>(mapped + 0.5f);
+    }
 
-// Try to add a named texture layer from an M3 StandardMaterial to the material's texture slots
-void tryAddLayer(const std::optional<m3::TextureLayer>& layer, TextureSlotSemantic semantic,
-                 Material& wMat, std::vector<TextureRef>& textures,
-                 std::vector<std::string>& issues) {
-    if (!layer.has_value() || layer->texturePath.empty())
-        return;
+    void push(const Vector3f& position, const Vector3f& normal, const Vector2f& uv,
+              const std::array<u8, 4>& boneIndices, const std::array<u8, 4>& boneWeights) {
+        const std::size_t base = data.size();
+        data.resize(base + stride, 0);
+        u8* out = data.data() + base;
+        std::memcpy(out + 0, &position, sizeof(Vector3f));
+        std::memcpy(out + 12, boneWeights.data(), 4);
+        std::memcpy(out + 16, boneIndices.data(), 4);
+        out[20] = EncodeUnorm(normal.x);
+        out[21] = EncodeUnorm(normal.y);
+        out[22] = EncodeUnorm(normal.z);
+        out[23] = 255; // Tangent handedness: +1.
+        const i16 u = static_cast<i16>(std::clamp(uv.x * kUvScale, -32768.0f, 32767.0f));
+        const i16 v = static_cast<i16>(std::clamp(uv.y * kUvScale, -32768.0f, 32767.0f));
+        std::memcpy(out + kBaseSize, &u, 2);
+        std::memcpy(out + kBaseSize + 2, &v, 2);
+    }
+};
 
-    // Find or add texture
-    u32 texIdx = static_cast<u32>(textures.size());
-    for (u32 i = 0; i < textures.size(); ++i) {
-        if (textures[i].path == layer->texturePath) {
-            texIdx = i;
+NodeTree ImportNodes(const m3::Model& source) {
+    NodeTree tree;
+
+    // `IREF` is the one pose M3 carries: the inverse model-space bind pose, one
+    // matrix per bone.
+    PoseSchema schema;
+    schema.name = "iref";
+    schema.space = PoseSpace::Model;
+    schema.inverse = true;
+    tree.poseSchema.push_back(schema);
+    tree.authoritativePose = 0;
+
+    for (std::size_t b = 0; b < source.bones.size(); ++b) {
+        const m3::Bone& bone = source.bones[b];
+        Node node;
+        node.name = TrimNuls(bone.name);
+        node.kind = NodeKind::Bone;
+        node.resetPayloadForKind();
+        node.flags = ToNodeFlags(bone.flags);
+        node.parent = bone.parentIndex == 0xFFFFu ? kInvalidNode : bone.parentIndex;
+        node.native.set("flagBits", static_cast<i64>(static_cast<u32>(bone.flags)));
+
+        // The bone's own rest transform, in the source's own parent-relative
+        // terms -- rebased, because a translation is a vector in the basis
+        // being changed.
+        node.local.translation = Rebase(bone.position.initValue);
+        const Quaternion& rotation = bone.rotation.initValue;
+        // The same change of basis applied to a quaternion's vector part; the
+        // scalar is invariant under a rotation of the frame.
+        node.local.rotation = Quaternion{-rotation.y, rotation.x, rotation.z, rotation.w};
+        node.local.scale = bone.scale.initValue;
+        node.poses.push_back(node.local);
+        tree.add(std::move(node));
+    }
+
+    const u32 boneCount = tree.size();
+    for (const m3::AttachmentPoint& point : source.attachmentPoints) {
+        Node node;
+        node.name = TrimNuls(point.name);
+        node.kind = NodeKind::Attachment;
+        node.resetPayloadForKind();
+        node.parent = point.boneIndex < boneCount ? point.boneIndex : kInvalidNode;
+        node.poses.push_back(node.local);
+        tree.add(std::move(node));
+    }
+
+    for (std::size_t l = 0; l < source.lights.size(); ++l) {
+        const m3::Light& light = source.lights[l];
+        Node node;
+        node.name = "light_" + std::to_string(l);
+        node.kind = NodeKind::Light;
+        node.resetPayloadForKind();
+        node.parent = light.boneIndex < boneCount ? light.boneIndex : kInvalidNode;
+        auto& payload = std::get<LightPayload>(node.payload);
+        switch (light.lightType) {
+        case m3::LightType::Spot:
+            payload.kind = LightKind::Spot;
+            break;
+        case m3::LightType::Directional:
+            payload.kind = LightKind::Directional;
+            break;
+        default:
+            payload.kind = LightKind::Omni;
             break;
         }
-    }
-    if (texIdx == static_cast<u32>(textures.size())) {
-        TextureRef ref;
-        ref.path = layer->texturePath;
-        textures.push_back(std::move(ref));
+        payload.color = light.diffuseColor.initValue;
+        payload.intensity = light.intensityMultiplier.initValue;
+        payload.attenuationStart = light.attenuationStart.initValue;
+        payload.attenuationEnd = light.attenuationEnd;
+        payload.hotSpot = light.hotSpot.initValue;
+        payload.falloff = light.falloff.initValue;
+        node.native.set("lightFlags", static_cast<i64>(static_cast<u32>(light.flags)));
+        node.poses.push_back(node.local);
+        tree.add(std::move(node));
     }
 
-    wMat.textureSlots.push_back(convertTextureLayer(*layer, semantic, texIdx, issues));
+    for (const m3::Camera& camera : source.cameras) {
+        Node node;
+        node.name = TrimNuls(camera.name);
+        node.kind = NodeKind::Camera;
+        node.resetPayloadForKind();
+        node.parent = camera.boneIndex < boneCount ? camera.boneIndex : kInvalidNode;
+        auto& payload = std::get<CameraPayload>(node.payload);
+        payload.fov = camera.fieldOfView.initValue;
+        payload.nearClip = camera.nearClip.initValue;
+        payload.farClip = camera.farClip.initValue;
+        node.poses.push_back(node.local);
+        tree.add(std::move(node));
+    }
+
+    for (std::size_t p = 0; p < source.particleEmitters.size(); ++p) {
+        Node node;
+        node.name = "particle_" + std::to_string(p);
+        node.kind = NodeKind::ParticleEmitter;
+        node.resetPayloadForKind();
+        std::get<ParticlePayload>(node.payload).system.id = static_cast<u32>(p);
+        node.poses.push_back(node.local);
+        tree.add(std::move(node));
+    }
+
+    for (std::size_t r = 0; r < source.ribbonEmitters.size(); ++r) {
+        Node node;
+        node.name = "ribbon_" + std::to_string(r);
+        node.kind = NodeKind::RibbonEmitter;
+        node.resetPayloadForKind();
+        std::get<RibbonPayload>(node.payload).system.id = static_cast<u32>(r);
+        node.poses.push_back(node.local);
+        tree.add(std::move(node));
+    }
+
+    return tree;
 }
 
-} // anonymous namespace
+} // namespace
+
+ProfileId M3Converter::ProfileForVersion(u32 modelVersion) {
+    return modelVersion >= kHeroesModlVersion ? ProfileId::Heroes : ProfileId::Sc2;
+}
 
 // ============================================================================
 // fromM3
 // ============================================================================
 
-ConvertResult M3Converter::fromM3(const m3::Model& m3Model) const {
-    ConvertResult result;
-    auto& model = result.model;
-    auto& issues = result.issues;
+Result<Document> M3Converter::fromM3(const m3::Model& source, ProfileId profileOverride) const {
+    Result<Document> result;
+    Diagnostics& diagnostics = result.diagnostics;
 
-    model.name = m3Model.name;
-    model.bounds = convertM3Extent(m3Model.bounds);
+    const u32 modelVersion =
+        source.getVersion() < 0 ? kHeroesModlVersion : static_cast<u32>(source.getVersion());
+    const ProfileId profile =
+        profileOverride == ProfileId::Count ? ProfileForVersion(modelVersion) : profileOverride;
 
-    // ── Collect textures from materials (M3 stores paths inside layers) ────
-    // We build the texture table on-the-fly while converting materials.
+    Document document;
+    document.name = TrimNuls(source.name);
+    document.bounds = ToExtent(source.bounds);
+    document.space = CoordSpace::Blizzard;
+    document.declare(profile);
+    document.defaultProfile = profile;
 
-    // ── Materials ──────────────────────────────────────────────────
-    // M3 uses MaterialMap (MATM) to dispatch material types. We process the
-    // materialMaps array in order.
-    model.materials.reserve(m3Model.materialMaps.size());
-    for (const auto& matMap : m3Model.materialMaps) {
-        if (matMap.materialType == m3::MaterialType::Standard) {
-            if (matMap.materialIndex >= m3Model.standardMaterials.size()) {
-                issues.push_back("MaterialMap references out-of-range StandardMaterial index " +
-                                 std::to_string(matMap.materialIndex));
-                Material const dummy{};
-                model.materials.push_back(dummy);
-                continue;
-            }
-            const auto& src = m3Model.standardMaterials[matMap.materialIndex];
-            Material wMat;
-            wMat.type = MaterialType::Standard;
-            wMat.name = src.name;
-            wMat.priorityPlane = src.priority;
-            wMat.blendMode = convertM3BlendMode(src.blendMode);
-            wMat.flags = convertM3MaterialFlags(src.flags);
-            wMat.specularExponent = src.specularExponent;
-            wMat.alphaTestThreshold = static_cast<f32>(src.alphaTestThreshold);
-            wMat.depthBlendFalloff = src.depthBlendFalloff;
-            wMat.hdrSpecularMultiplier = src.hdrSpecularMultiplier;
-            wMat.hdrEmissiveMultiplier = src.hdrEmissiveMultiplier;
-            wMat.hdrEnvironmentConstant = src.hdrEnvironmentConstant;
-            wMat.hdrEnvironmentDiffuse = src.hdrEnvironmentDiffuse;
-            wMat.hdrEnvironmentSpecular = src.hdrEnvironmentSpecular;
-            wMat.materialClass = convertM3MaterialClass(src.materialClass);
-            wMat.layerBlendMode = convertM3LayerBlendOp(src.layerBlendMode);
-            wMat.emissiveBlendMode1 = convertM3LayerBlendOp(src.emissiveBlendMode1);
-            wMat.emissiveBlendMode2 = convertM3LayerBlendOp(src.emissiveBlendMode2);
-            wMat.specularMode = convertM3SpecularMode(src.specularMode);
+    Model model;
+    model.name = document.name;
+    model.bounds = document.bounds;
+    model.nodes = ImportNodes(source);
 
-            // Add named texture layers
-            tryAddLayer(src.diffuseLayer, TextureSlotSemantic::Diffuse, wMat, model.textures,
-                        issues);
-            tryAddLayer(src.decalLayer, TextureSlotSemantic::Decal, wMat, model.textures, issues);
-            tryAddLayer(src.specularLayer, TextureSlotSemantic::Specular, wMat, model.textures,
-                        issues);
-            tryAddLayer(src.glossLayer, TextureSlotSemantic::Gloss, wMat, model.textures, issues);
-            tryAddLayer(src.emissiveLayer1, TextureSlotSemantic::Emissive1, wMat, model.textures,
-                        issues);
-            tryAddLayer(src.emissiveLayer2, TextureSlotSemantic::Emissive2, wMat, model.textures,
-                        issues);
-            tryAddLayer(src.environmentLayer, TextureSlotSemantic::Environment, wMat,
-                        model.textures, issues);
-            tryAddLayer(src.environmentMaskLayer, TextureSlotSemantic::EnvironmentMask, wMat,
-                        model.textures, issues);
-            tryAddLayer(src.alphaLayer1, TextureSlotSemantic::Alpha1, wMat, model.textures, issues);
-            tryAddLayer(src.alphaLayer2, TextureSlotSemantic::Alpha2, wMat, model.textures, issues);
-            tryAddLayer(src.normalLayer, TextureSlotSemantic::Normal, wMat, model.textures, issues);
-            tryAddLayer(src.heightLayer, TextureSlotSemantic::Height, wMat, model.textures, issues);
-            tryAddLayer(src.lightMapLayer, TextureSlotSemantic::LightMap, wMat, model.textures,
-                        issues);
-            tryAddLayer(src.ambientOcclusionLayer, TextureSlotSemantic::AmbientOcclusion, wMat,
-                        model.textures, issues);
-            tryAddLayer(src.normalBlend1MaskLayer, TextureSlotSemantic::NormalBlend1Mask, wMat,
-                        model.textures, issues);
-            tryAddLayer(src.normalBlend2MaskLayer, TextureSlotSemantic::NormalBlend2Mask, wMat,
-                        model.textures, issues);
-            tryAddLayer(src.normalBlend1Layer, TextureSlotSemantic::NormalBlend1, wMat,
-                        model.textures, issues);
-            tryAddLayer(src.normalBlend2Layer, TextureSlotSemantic::NormalBlend2, wMat,
-                        model.textures, issues);
+    // --- materials ----------------------------------------------------------
+    //
+    // A region names a `MaterialMap` entry, so the slot list is index-aligned
+    // with `materialMaps` and a batch's `materialIndex` is the slot directly.
+    m3_core::Context context;
+    context.modelVersion = modelVersion;
+    context.internUnknownPaths = true;
 
-            model.materials.push_back(std::move(wMat));
-        } else if (matMap.materialType == m3::MaterialType::Composite) {
-            if (matMap.materialIndex >= m3Model.compositeMaterials.size()) {
-                issues.push_back("MaterialMap references out-of-range CompositeMaterial index " +
-                                 std::to_string(matMap.materialIndex));
-                Material const dummy{};
-                model.materials.push_back(dummy);
-                continue;
-            }
-            const auto& src = m3Model.compositeMaterials[matMap.materialIndex];
-            Material wMat;
-            wMat.type = MaterialType::Composite;
-            wMat.name = src.name;
-            wMat.priorityPlane = static_cast<i32>(src.priority);
-
-            for (const auto& sec : src.sections) {
-                CompositeSection cs;
-                // M3 CompositeSection.materialIndex indexes into MATM, not directly into
-                // standardMaterials. We map it to the WEM material index (same as MATM order).
-                cs.materialIndex = sec.materialIndex;
-                cs.blendWeight = sec.mapMultiplier.initValue;
-                wMat.sections.push_back(cs);
-            }
-
-            model.materials.push_back(std::move(wMat));
-        } else {
-            // Unsupported material type (displacement, terrain, volume, etc.)
-            issues.push_back("Unsupported M3 material type " +
-                             std::to_string(static_cast<u32>(matMap.materialType)) + " skipped");
-            Material dummy;
-            dummy.name = "unsupported_material_type_" +
-                         std::to_string(static_cast<u32>(matMap.materialType));
-            model.materials.push_back(std::move(dummy));
+    ProfileMaterialSet set;
+    set.profile = profile;
+    set.looks.looks.push_back(Look{});
+    // The `MODL` tail is profile-scoped (§6.3) -- it describes how this game
+    // reads the model, not the geometry both games would share.
+    set.native.set("modelVersion", static_cast<i64>(modelVersion));
+    set.native.set("modelFlags", static_cast<i64>(static_cast<u32>(source.flags)));
+    for (std::size_t m = 0; m < source.materialMaps.size(); ++m) {
+        model.materialSlots.push_back(SlotName(m));
+    }
+    set.resizeBindings(model.materialSlots.size());
+    for (std::size_t m = 0; m < source.materialMaps.size(); ++m) {
+        Material material =
+            m3_core::ImportMaterial(source, source.materialMaps[m], profile, context, diagnostics);
+        material.name = TrimNuls(material.name);
+        if (material.name.empty()) {
+            material.name = SlotName(m);
         }
+        set.slotBindings[m].byLook[0] = static_cast<u32>(set.materials.size());
+        set.materials.push_back(std::move(material));
     }
 
-    // ── Vertex data + Divisions → Meshes ───────────────────────────
-    const auto& vb = m3Model.vertices;
-    auto positions = vb.getPositions();
-    auto normals = vb.getNormals();
-    auto tangents = vb.getTangents();
-    auto boneIndices = vb.getBoneIndices();
-    auto boneWeights = vb.getBoneWeights();
-    size_t const numUVs = vb.UVsNum();
-    bool const hasColors = vb.hasVertexColors();
-
-    std::vector<std::vector<Vector2f>> allUVs(numUVs);
-    for (size_t u = 0; u < numUVs; ++u) {
-        allUVs[u] = vb.getUVs(u);
+    // The texture table is whatever the materials interned, in first-use order.
+    for (const auto& [path, index] : context.texturesByPath) {
+        if (index != document.textures.size()) {
+            diagnostics.warn(DiagCode::TextureUnresolved,
+                             "texture table went out of order interning " + path);
+        }
+        TextureRef ref;
+        ref.path = path;
+        ref.key = TexturePath{path};
+        document.textures.push_back(std::move(ref));
     }
 
-    std::vector<std::array<u8, 4>> vertexColors;
-    if (hasColors) {
-        auto colors = vb.getColors();
-        vertexColors.resize(colors.size());
-        for (size_t i = 0; i < colors.size(); ++i) {
-            // M3 stores BGRA, WEM stores RGBA
-            vertexColors[i] = {colors[i].b, colors[i].g, colors[i].r, colors[i].a};
-        }
+    // --- geometry -----------------------------------------------------------
+    const std::vector<Vector3f> positions = source.vertices.getPositions();
+    const std::vector<Vector3f> normals = source.vertices.getNormals();
+    const std::size_t uvCount = source.vertices.UVsNum();
+    std::vector<std::vector<Vector2f>> uvSets;
+    for (std::size_t u = 0; u < uvCount; ++u) {
+        uvSets.push_back(source.vertices.getUVs(u));
     }
+    // Both come back as raw bytes: an index is region-local and a weight is
+    // 0..255, so the divide is the converter's to do.
+    const std::vector<std::array<u8, 4>> boneIndices = source.vertices.getBoneIndices();
+    const std::vector<std::array<u8, 4>> boneWeights = source.vertices.getBoneWeights();
 
-    for (size_t di = 0; di < m3Model.divisions.size(); ++di) {
-        const auto& div = m3Model.divisions[di];
-        Mesh mesh;
-        mesh.name = m3Model.name + "_div" + std::to_string(di);
+    for (std::size_t d = 0; d < source.divisions.size(); ++d) {
+        const m3::MeshDivision& division = source.divisions[d];
 
-        // The division references a global vertex buffer; each region selects a range.
-        // We copy the full vertex data used by this division.
-        // Find the vertex range from regions
-        u32 minVertex = UINT32_MAX, maxVertex = 0;
-        for (const auto& reg : div.regions) {
-            if (reg.firstVertex < minVertex)
-                minVertex = reg.firstVertex;
-            u32 const endV = reg.firstVertex + reg.vertexCount;
-            if (endV > maxVertex)
-                maxVertex = endV;
-        }
-        if (minVertex > maxVertex) {
-            minVertex = 0;
-            maxVertex = 0;
-        }
-
-        u32 const vertRange = maxVertex - minVertex;
-        mesh.positions.resize(vertRange);
-        mesh.normals.resize(vertRange);
-        mesh.tangents.resize(vertRange);
-        mesh.boneIndices.resize(vertRange);
-        mesh.boneWeights.resize(vertRange);
-        mesh.uvSets.resize(numUVs);
-        for (size_t u = 0; u < numUVs; ++u) {
-            mesh.uvSets[u].resize(vertRange);
-        }
-        if (hasColors)
-            mesh.vertexColors.resize(vertRange);
-
-        for (u32 v = 0; v < vertRange; ++v) {
-            u32 const srcIdx = minVertex + v;
-            if (srcIdx < positions.size())
-                mesh.positions[v] = positions[srcIdx];
-            if (srcIdx < normals.size())
-                mesh.normals[v] = normals[srcIdx];
-            if (srcIdx < tangents.size())
-                mesh.tangents[v] = tangents[srcIdx];
-            if (srcIdx < boneIndices.size())
-                mesh.boneIndices[v] = boneIndices[srcIdx];
-            if (srcIdx < boneWeights.size())
-                mesh.boneWeights[v] = boneWeights[srcIdx];
-            for (size_t u = 0; u < numUVs; ++u) {
-                if (srcIdx < allUVs[u].size())
-                    mesh.uvSets[u][v] = allUVs[u][srcIdx];
+        // The batch that draws each region, and therefore the material its
+        // section binds. A region no batch names is imported and marked
+        // undrawn rather than dropped.
+        std::vector<u32> batchOfRegion(division.regions.size(), kInvalidIndex);
+        for (std::size_t b = 0; b < division.batches.size(); ++b) {
+            const m3::Batch& batch = division.batches[b];
+            if (batch.regionIndex < batchOfRegion.size() &&
+                batchOfRegion[batch.regionIndex] == kInvalidIndex) {
+                batchOfRegion[batch.regionIndex] = static_cast<u32>(b);
             }
-            if (hasColors && srcIdx < vertexColors.size())
-                mesh.vertexColors[v] = vertexColors[srcIdx];
         }
 
-        // Indices: u16 → u32, rebase from global to mesh-local
-        mesh.indices.reserve(div.faces.size());
-        for (u16 const idx : div.faces) {
-            u32 const rebased =
-                static_cast<u32>(idx) >= minVertex ? static_cast<u32>(idx) - minVertex : 0;
-            mesh.indices.push_back(rebased);
+        geom::MeshBuilder builder;
+        // A division's regions select ranges of the global vertex buffer;
+        // rebasing to the lowest one makes the mesh self-contained.
+        u32 lowest = 0xFFFFFFFFu;
+        u32 highest = 0;
+        for (const m3::Region& region : division.regions) {
+            lowest = std::min(lowest, region.firstVertex);
+            highest = std::max(highest, region.firstVertex + region.vertexCount);
+        }
+        if (lowest > highest) {
+            lowest = 0;
+            highest = 0;
         }
 
-        // Regions → Submeshes
-        mesh.submeshes.reserve(div.regions.size());
-        for (size_t ri = 0; ri < div.regions.size(); ++ri) {
-            const auto& reg = div.regions[ri];
-            Submesh sub;
-            sub.name = "region_" + std::to_string(ri);
-            sub.indexStart = reg.firstIndex;
-            sub.indexCount = reg.indexCount;
-            sub.vertexStart = reg.firstVertex - minVertex;
-            sub.vertexCount = reg.vertexCount;
-            sub.maxBoneInfluences = reg.boneWeightPairs;
-            sub.rootBone = reg.rootBone;
-            sub.flags = convertM3RegionFlags(reg.flags);
+        for (u32 v = lowest; v < highest; ++v) {
+            builder.addVertex(v < positions.size() ? Rebase(positions[v]) : Vector3f{0, 0, 0});
+        }
 
-            // Find the batch that references this region to get material
-            for (const auto& batch : div.batches) {
-                if (batch.regionIndex == ri) {
-                    // batch.materialIndex indexes into MATM (materialMaps),
-                    // which is the same order as our model.materials[]
-                    sub.materialIndex = batch.materialIndex;
-                    break;
+        std::vector<u32> sectionOfRegion(division.regions.size(), 0);
+        for (std::size_t r = 0; r < division.regions.size(); ++r) {
+            const m3::Region& region = division.regions[r];
+            MeshSection section;
+            section.name = "region_" + std::to_string(r);
+            section.native.set("rootBone", static_cast<i64>(region.rootBone));
+            section.native.set("regionFlags", static_cast<i64>(static_cast<u32>(region.flags)));
+            if (hasFlag(region.flags, m3::RegionFlag::Hidden)) {
+                section.flags = SectionFlags::Hidden;
+            }
+            const u32 batch = batchOfRegion[r];
+            if (batch == kInvalidIndex) {
+                section.profiles = kNoProfiles;
+                diagnostics.info(DiagCode::SectionUndrawn,
+                                 "region " + std::to_string(r) + " has no batch",
+                                 ElementRef(ElementKind::Section, r), profile);
+            } else {
+                const m3::Batch& record = division.batches[batch];
+                if (record.materialIndex < model.materialSlots.size()) {
+                    section.materialSlot = record.materialIndex;
+                } else {
+                    diagnostics.warn(DiagCode::IndexOutOfRange,
+                                     "batch names material map entry " +
+                                         std::to_string(record.materialIndex) + ", past the end",
+                                     ElementRef(ElementKind::Section, r), profile);
+                }
+                // §16's measured finding: `boneCount` is a bone *index* whose
+                // animated visibility gates the batch, and 0xFFFF means always
+                // drawn. It is section state, not a count.
+                section.native.set("visibilityBone", static_cast<i64>(record.boneCount));
+            }
+            sectionOfRegion[r] = builder.addSection(std::move(section));
+        }
+
+        for (std::size_t r = 0; r < division.regions.size(); ++r) {
+            const m3::Region& region = division.regions[r];
+            const u32 base = region.firstVertex - lowest;
+            const std::size_t first = region.firstIndex;
+            const std::size_t last = first + region.indexCount;
+            for (std::size_t i = first; i + 2 < last && i + 2 < division.faces.size(); i += 3) {
+                const std::array<u32, 3> corners = {static_cast<u32>(division.faces[i + 0]) + base,
+                                                    static_cast<u32>(division.faces[i + 1]) + base,
+                                                    static_cast<u32>(division.faces[i + 2]) + base};
+                if (corners[0] >= builder.vertexCount() || corners[1] >= builder.vertexCount() ||
+                    corners[2] >= builder.vertexCount()) {
+                    diagnostics.warn(DiagCode::IndexOutOfRange,
+                                     "region face corner past the division's vertex slice",
+                                     ElementRef(ElementKind::Mesh, d));
+                    continue;
+                }
+                const geom::FaceId face =
+                    builder.addTriangle(geom::VertexId(corners[0]), geom::VertexId(corners[1]),
+                                        geom::VertexId(corners[2]), sectionOfRegion[r]);
+                for (u32 c = 0; c < 3; ++c) {
+                    const u32 global = corners[c] + lowest;
+                    if (global < normals.size()) {
+                        builder.setCornerAttr(face, c, geom::names::kNormal,
+                                              Rebase(normals[global]));
+                    }
+                    for (std::size_t u = 0; u < uvSets.size(); ++u) {
+                        if (global < uvSets[u].size()) {
+                            builder.setCornerAttr(face, c, geom::names::uv(static_cast<u32>(u)),
+                                                  uvSets[u][global]);
+                        }
+                    }
                 }
             }
 
-            mesh.submeshes.push_back(std::move(sub));
-        }
-
-        // Compute mesh bounds
-        if (!mesh.positions.empty()) {
-            Vector3f minP = mesh.positions[0];
-            Vector3f maxP = mesh.positions[0];
-            f32 maxDistSq = 0;
-            for (const auto& p : mesh.positions) {
-                minP =
-                    Vector3f(std::min(minP.x, p.x), std::min(minP.y, p.y), std::min(minP.z, p.z));
-                maxP =
-                    Vector3f(std::max(maxP.x, p.x), std::max(maxP.y, p.y), std::max(maxP.z, p.z));
-                f32 const distSq = p.x * p.x + p.y * p.y + p.z * p.z;
-                if (distSq > maxDistSq)
-                    maxDistSq = distSq;
+            // Skinning, through the region's own bone-lookup window.
+            for (u32 v = 0; v < region.vertexCount; ++v) {
+                const u32 global = region.firstVertex + v;
+                if (global >= boneIndices.size() || global >= boneWeights.size()) {
+                    break;
+                }
+                for (std::size_t k = 0; k < 4; ++k) {
+                    const f32 weight = static_cast<f32>(boneWeights[global][k]) / 255.0f;
+                    if (weight <= 0.0f) {
+                        continue;
+                    }
+                    const std::size_t slot = region.firstBoneLookup + boneIndices[global][k];
+                    const u32 bone =
+                        slot < source.boneLookup.size() ? source.boneLookup[slot] : region.rootBone;
+                    if (bone >= model.nodes.size()) {
+                        diagnostics.warn(DiagCode::DanglingNodeReference,
+                                         "bone lookup names bone " + std::to_string(bone),
+                                         ElementRef(ElementKind::Mesh, d));
+                        continue;
+                    }
+                    builder.addInfluence(geom::VertexId(global - lowest), bone, weight);
+                }
             }
-            mesh.bounds.minimum = minP;
-            mesh.bounds.maximum = maxP;
-            mesh.bounds.sphereRadius = std::sqrt(maxDistSq);
         }
 
-        model.meshes.push_back(std::move(mesh));
+        geom::MeshBuilder::BuildOutcome outcome = builder.build();
+        outcome.mesh.name = "division_" + std::to_string(d);
+        outcome.mesh.lodLevel = static_cast<u32>(d);
+        outcome.mesh.recomputeBounds();
+        model.meshes.push_back(std::move(outcome.mesh));
     }
 
+    model.profileSets.push_back(std::move(set));
+    document.models.push_back(std::move(model));
+    result.value = std::move(document);
     return result;
 }
 
@@ -680,401 +518,312 @@ ConvertResult M3Converter::fromM3(const m3::Model& m3Model) const {
 // toM3
 // ============================================================================
 
-M3ConvertResult M3Converter::toM3(const Model& wemModel, u32 /*targetVersion*/) const {
-    M3ConvertResult result;
-    auto& m3 = result.model;
-    auto& issues = result.issues;
-
-    m3.name = wemModel.name;
-    m3.bounds = convertExtentToM3(wemModel.bounds);
-
-    // ── Materials ──────────────────────────────────────────────────
-    for (size_t mi = 0; mi < wemModel.materials.size(); ++mi) {
-        const auto& wMat = wemModel.materials[mi];
-
-        m3::MaterialMap matMap;
-        if (wMat.type == MaterialType::Standard) {
-            matMap.materialType = m3::MaterialType::Standard;
-            matMap.materialIndex = static_cast<u32>(m3.standardMaterials.size());
-
-            m3::StandardMaterial mat;
-            mat.name = wMat.name;
-            mat.priority = wMat.priorityPlane;
-            mat.blendMode = convertBlendModeToM3(wMat.blendMode);
-            mat.flags = convertMaterialFlagsToM3(wMat.flags);
-            mat.specularExponent = wMat.specularExponent;
-            mat.alphaTestThreshold = static_cast<u32>(wMat.alphaTestThreshold);
-            mat.depthBlendFalloff = wMat.depthBlendFalloff;
-            mat.hdrSpecularMultiplier = wMat.hdrSpecularMultiplier;
-            mat.hdrEmissiveMultiplier = wMat.hdrEmissiveMultiplier;
-            mat.hdrEnvironmentConstant = wMat.hdrEnvironmentConstant;
-            mat.hdrEnvironmentDiffuse = wMat.hdrEnvironmentDiffuse;
-            mat.hdrEnvironmentSpecular = wMat.hdrEnvironmentSpecular;
-            mat.materialClass = convertMaterialClassToM3(wMat.materialClass);
-            mat.layerBlendMode = convertLayerBlendOpToM3(wMat.layerBlendMode);
-            mat.emissiveBlendMode1 = convertLayerBlendOpToM3(wMat.emissiveBlendMode1);
-            mat.emissiveBlendMode2 = convertLayerBlendOpToM3(wMat.emissiveBlendMode2);
-            mat.specularMode = convertSpecularModeToM3(wMat.specularMode);
-
-            // Texture slots → named layers
-            for (const auto& slot : wMat.textureSlots) {
-                m3::TextureLayer layer{};
-                if (slot.textureIndex < wemModel.textures.size())
-                    layer.texturePath = wemModel.textures[slot.textureIndex].path;
-                layer.uvMapping = convertUVMappingToM3(slot.uvMapping);
-                layer.colorType = convertColorChannelToM3(slot.colorChannelSelect);
-                layer.rgbMultiply.initValue = slot.rgbMultiply;
-                layer.rgbAdd.initValue = slot.rgbAdd;
-                layer.flipbookRows = slot.flipbookRows;
-                layer.flipbookColumns = slot.flipbookColumns;
-                layer.fresnelMode = convertFresnelModeToM3(slot.fresnel.mode);
-                layer.fresnelExponent = slot.fresnel.exponent;
-                layer.fresnelMin = slot.fresnel.min;
-                layer.fresnelMax = slot.fresnel.max;
-                layer.fresnelTranslation = slot.fresnel.translation;
-                layer.fresnelMask = slot.fresnel.mask;
-                layer.fresnelRotation = slot.fresnel.rotation;
-
-                // Set wrap flags
-                u32 layerFlags = 0;
-                if (slot.wrapU)
-                    layerFlags |= static_cast<u32>(m3::TextureLayerFlag::UVWrapX);
-                if (slot.wrapV)
-                    layerFlags |= static_cast<u32>(m3::TextureLayerFlag::UVWrapY);
-                layer.flags = static_cast<m3::TextureLayerFlag>(layerFlags);
-
-                switch (slot.semantic) {
-                case TextureSlotSemantic::Diffuse:
-                    mat.diffuseLayer = layer;
-                    break;
-                case TextureSlotSemantic::Decal:
-                    mat.decalLayer = layer;
-                    break;
-                case TextureSlotSemantic::Specular:
-                    mat.specularLayer = layer;
-                    break;
-                case TextureSlotSemantic::Gloss:
-                    mat.glossLayer = layer;
-                    break;
-                case TextureSlotSemantic::Emissive1:
-                    mat.emissiveLayer1 = layer;
-                    break;
-                case TextureSlotSemantic::Emissive2:
-                    mat.emissiveLayer2 = layer;
-                    break;
-                case TextureSlotSemantic::Environment:
-                    mat.environmentLayer = layer;
-                    break;
-                case TextureSlotSemantic::EnvironmentMask:
-                    mat.environmentMaskLayer = layer;
-                    break;
-                case TextureSlotSemantic::Alpha1:
-                    mat.alphaLayer1 = layer;
-                    break;
-                case TextureSlotSemantic::Alpha2:
-                    mat.alphaLayer2 = layer;
-                    break;
-                case TextureSlotSemantic::Normal:
-                    mat.normalLayer = layer;
-                    break;
-                case TextureSlotSemantic::Height:
-                    mat.heightLayer = layer;
-                    break;
-                case TextureSlotSemantic::LightMap:
-                    mat.lightMapLayer = layer;
-                    break;
-                case TextureSlotSemantic::AmbientOcclusion:
-                    mat.ambientOcclusionLayer = layer;
-                    break;
-                case TextureSlotSemantic::NormalBlend1Mask:
-                    mat.normalBlend1MaskLayer = layer;
-                    break;
-                case TextureSlotSemantic::NormalBlend2Mask:
-                    mat.normalBlend2MaskLayer = layer;
-                    break;
-                case TextureSlotSemantic::NormalBlend1:
-                    mat.normalBlend1Layer = layer;
-                    break;
-                case TextureSlotSemantic::NormalBlend2:
-                    mat.normalBlend2Layer = layer;
-                    break;
-                case TextureSlotSemantic::Custom:
-                case TextureSlotSemantic::Roughness:
-                case TextureSlotSemantic::Metalness:
-                case TextureSlotSemantic::ORM:
-                    // No matching named slot; try diffuse if empty
-                    if (!mat.diffuseLayer.has_value()) {
-                        mat.diffuseLayer = layer;
-                    } else {
-                        issues.push_back("Custom texture slot has no M3 equivalent, dropped: " +
-                                         layer.texturePath);
-                    }
-                    break;
-                }
-            }
-
-            m3.standardMaterials.push_back(std::move(mat));
-        } else if (wMat.type == MaterialType::Composite) {
-            matMap.materialType = m3::MaterialType::Composite;
-            matMap.materialIndex = static_cast<u32>(m3.compositeMaterials.size());
-
-            m3::CompositeMaterial cmat;
-            cmat.name = wMat.name;
-            cmat.priority = static_cast<u32>(wMat.priorityPlane);
-
-            for (const auto& sec : wMat.sections) {
-                m3::CompositeSection csec;
-                csec.materialIndex = sec.materialIndex;
-                csec.mapMultiplier.initValue = sec.blendWeight;
-                cmat.sections.push_back(std::move(csec));
-            }
-
-            m3.compositeMaterials.push_back(std::move(cmat));
-        } else {
-            issues.push_back("Unsupported WEM material type for M3 export, skipped");
-            matMap.materialType = m3::MaterialType::Standard;
-            matMap.materialIndex = 0;
-        }
-
-        m3.materialMaps.push_back(matMap);
+Result<m3::Model> M3Converter::toM3(const Document& document, ProfileId profile,
+                                    u32 targetVersion) const {
+    Result<m3::Model> result;
+    if (!checkExportProfile(document, profile, result.diagnostics)) {
+        return result;
     }
 
-    // ── Meshes → VertexBuffer + Divisions ──────────────────────────
-    // M3 has a single global vertex buffer; we concatenate all mesh vertices.
-    // VertexBuffer needs raw interleaved data — we can't easily produce that from WEM SoA
-    // without the VertexBuffer encoder. Instead, we populate the accessors' source data
-    // and rely on the M3 writer to re-encode.
+    Diagnostics& diagnostics = result.diagnostics;
+    m3::Model out;
+    out.setVersion(static_cast<i32>(targetVersion));
+    if (document.models.empty()) {
+        result.value = std::move(out);
+        return result;
+    }
+
+    const Model& model = document.models.front();
+    out.name = document.name.empty() ? model.name : document.name;
+    out.bounds = FromExtent(model.bounds);
+    out.collisionBounds = out.bounds;
+    const ProfileMaterialSet* set = model.setFor(profile);
+    if (set != nullptr) {
+        out.flags = static_cast<m3::ModelFlag>(static_cast<u32>(set->native.value("modelFlags")));
+    }
+
+    // --- bones and the records that hang off them ---------------------------
+    std::vector<u32> boneOf(model.nodes.size(), 0xFFFFu);
+    for (std::size_t n = 0; n < model.nodes.size(); ++n) {
+        if (model.nodes.nodes[n].kind != NodeKind::Bone) {
+            continue;
+        }
+        const Node& node = model.nodes.nodes[n];
+        boneOf[n] = static_cast<u32>(out.bones.size());
+        m3::Bone bone;
+        bone.name = node.name;
+        bone.flags = FromNodeFlags(node.flags, static_cast<u32>(node.native.value("flagBits")));
+        bone.parentIndex = 0xFFFFu;
+        if (node.parent != kInvalidNode && node.parent < boneOf.size() &&
+            boneOf[node.parent] != 0xFFFFu) {
+            bone.parentIndex = static_cast<u16>(boneOf[node.parent]);
+        }
+        bone.position.initValue = Unrebase(node.local.translation);
+        const Quaternion& rotation = node.local.rotation;
+        bone.rotation.initValue = Quaternion{rotation.y, -rotation.x, rotation.z, rotation.w};
+        bone.scale.initValue = node.local.scale;
+        out.bones.push_back(std::move(bone));
+    }
+    out.skinBoneCount = static_cast<u32>(out.bones.size());
+
+    for (std::size_t n = 0; n < model.nodes.size(); ++n) {
+        const Node& node = model.nodes.nodes[n];
+        const u32 parentBone =
+            node.parent != kInvalidNode && node.parent < boneOf.size() ? boneOf[node.parent] : 0u;
+        switch (node.kind) {
+        case NodeKind::Attachment: {
+            m3::AttachmentPoint point;
+            point.name = node.name;
+            point.boneIndex = parentBone == 0xFFFFu ? 0u : parentBone;
+            out.attachmentPoints.push_back(std::move(point));
+            break;
+        }
+        case NodeKind::Light: {
+            m3::Light light;
+            light.boneIndex = static_cast<u16>(parentBone == 0xFFFFu ? 0u : parentBone);
+            light.flags =
+                static_cast<m3::LightFlag>(static_cast<u32>(node.native.value("lightFlags")));
+            if (const auto* payload = std::get_if<LightPayload>(&node.payload)) {
+                switch (payload->kind) {
+                case LightKind::Spot:
+                    light.lightType = m3::LightType::Spot;
+                    break;
+                case LightKind::Directional:
+                    light.lightType = m3::LightType::Directional;
+                    break;
+                case LightKind::Ambient:
+                    diagnostics.warn(DiagCode::FeatureDropped,
+                                     "M3 has no ambient light; written as omni",
+                                     ElementRef(ElementKind::Node, n), profile);
+                    [[fallthrough]];
+                default:
+                    light.lightType = m3::LightType::Omni;
+                    break;
+                }
+                light.diffuseColor.initValue = payload->color;
+                light.intensityMultiplier.initValue = payload->intensity;
+                light.attenuationStart.initValue = payload->attenuationStart;
+                light.attenuationEnd = payload->attenuationEnd;
+                light.hotSpot.initValue = payload->hotSpot;
+                light.falloff.initValue = payload->falloff;
+            }
+            out.lights.push_back(std::move(light));
+            break;
+        }
+        case NodeKind::Camera: {
+            m3::Camera camera;
+            camera.name = node.name;
+            camera.boneIndex = parentBone == 0xFFFFu ? 0u : parentBone;
+            if (const auto* payload = std::get_if<CameraPayload>(&node.payload)) {
+                camera.fieldOfView.initValue = payload->fov;
+                camera.nearClip.initValue = payload->nearClip;
+                camera.farClip.initValue = payload->farClip;
+            }
+            out.cameras.push_back(std::move(camera));
+            break;
+        }
+        default:
+            break;
+        }
+    }
+
+    // --- materials ----------------------------------------------------------
+    m3_core::Context context;
+    context.modelVersion = targetVersion;
+    for (const TextureRef& ref : document.textures) {
+        context.texturesByPath.emplace_back(ref.path,
+                                            static_cast<u32>(context.texturesByPath.size()));
+    }
+    // One map entry per slot, so a batch's `materialIndex` is the slot index.
+    for (std::size_t slot = 0; slot < model.materialSlots.size(); ++slot) {
+        const Material* material = Resolve(model, static_cast<u32>(slot), profile);
+        if (material == nullptr) {
+            out.materialMaps.push_back(m3::MaterialMap{});
+            diagnostics.warn(DiagCode::SlotNotBound,
+                             "slot " + model.materialSlots[slot] + " has no material",
+                             ElementRef(ElementKind::Slot, slot), profile);
+            continue;
+        }
+        out.materialMaps.push_back(
+            m3_core::ExportMaterial(*material, profile, context, out, diagnostics));
+    }
+
+    // --- geometry -----------------------------------------------------------
     //
-    // For now, build divisions from WEM meshes with correct region/batch layout.
-    // The actual vertex encoding is handled by the M3 writer.
+    // One division per mesh. Every division writes into the model's single
+    // vertex buffer, so the regions' `firstVertex` runs are the concatenation
+    // of the meshes'.
+    geom::RenderMeshDesc desc;
+    desc.attributes = {
+        {geom::names::kPosition, utils::AttributeClass::Position, utils::AttributeEncoding::Float32,
+         3, 0},
+        {geom::names::kNormal, utils::AttributeClass::Normal, utils::AttributeEncoding::Float32, 3,
+         0},
+        {geom::names::uv(0), utils::AttributeClass::UV, utils::AttributeEncoding::Float32, 2, 0},
+    };
+    desc.includeSkin = true;
+    desc.maxInfluences = Profile(profile).maxBoneInfluences;
 
-    // Determine vertex format flags
-    bool anyColors = false;
-    size_t maxUVs = 0;
-    for (const auto& mesh : wemModel.meshes) {
-        if (!mesh.vertexColors.empty())
-            anyColors = true;
-        if (mesh.uvSets.size() > maxUVs)
-            maxUVs = mesh.uvSets.size();
-    }
+    M3VertexEncoder encoder(1);
+    std::size_t writtenVertices = 0;
 
-    auto vflags = m3::VertexFormatFlag::None;
-    if (anyColors)
-        vflags = vflags | m3::VertexFormatFlag::VertexColor;
-    if (maxUVs >= 1)
-        vflags = vflags | m3::VertexFormatFlag::UV1;
-    if (maxUVs >= 2)
-        vflags = vflags | m3::VertexFormatFlag::UV2;
-    if (maxUVs >= 3)
-        vflags = vflags | m3::VertexFormatFlag::UV3;
-    if (maxUVs >= 4)
-        vflags = vflags | m3::VertexFormatFlag::UV4;
-    if (maxUVs >= 5)
-        vflags = vflags | m3::VertexFormatFlag::UV5;
-    m3.vertices.flags = vflags;
+    for (std::size_t m = 0; m < model.meshes.size(); ++m) {
+        const Mesh& mesh = model.meshes[m];
+        const geom::RenderMesh render = geom::BuildRenderMesh(mesh, desc);
+        diagnostics.append(render.diagnostics);
 
-    // We must build the raw vertex data blob. M3 vertex layout:
-    // position (12B) + boneWeights (4B) + boneIndices (4B) + normal (4B packed) +
-    // [vertexColor 4B] + [UV layers, 4B each] + tangent (4B packed)
-    // Total stride = 24 + (color ? 4 : 0) + (numUVs * 4) + 4
-    size_t const stride = 24 + (anyColors ? 4 : 0) + (maxUVs * 4) + 4;
-    size_t totalVerts = 0;
-    for (const auto& mesh : wemModel.meshes)
-        totalVerts += mesh.positions.size();
+        m3::MeshDivision division;
+        const u32 vertexBase = static_cast<u32>(writtenVertices);
+        const std::vector<Vector3f> positions = render.vertices.getPositions();
+        const std::vector<Vector3f> normals = render.vertices.getNormals();
+        const std::vector<Vector2f> uv0 = render.vertices.getUVs(0);
+        const std::vector<std::array<u32, 4>> boneIndices = render.vertices.getBoneIndices();
+        const std::vector<std::array<f32, 4>> boneWeights = render.vertices.getBoneWeights();
 
-    m3.vertices.data.resize(totalVerts * stride, 0);
+        for (const geom::RenderRange& range : render.ranges) {
+            m3::Region region;
+            region.index = static_cast<u32>(division.regions.size());
+            region.firstVertex = vertexBase;
+            region.vertexCount = static_cast<u32>(positions.size());
+            region.firstIndex = static_cast<u32>(division.faces.size());
+            region.indexCount = range.indexCount;
+            region.boneWeightPairs = 4;
+            region.boneIndexPairs = 4;
+            region.firstBoneLookup = static_cast<u16>(out.boneLookup.size());
 
-    u32 globalVertOffset = 0;
-    for (size_t mi = 0; mi < wemModel.meshes.size(); ++mi) {
-        const auto& mesh = wemModel.meshes[mi];
-        size_t const vertCount = mesh.positions.size();
-
-        m3::MeshDivision div;
-
-        // Write vertex data for this mesh
-        for (size_t v = 0; v < vertCount; ++v) {
-            size_t const base = (globalVertOffset + v) * stride;
-            u8* ptr = m3.vertices.data.data() + base;
-
-            // Position (12B float3)
-            if (v < mesh.positions.size()) {
-                auto* fp = reinterpret_cast<f32*>(ptr);
-                fp[0] = mesh.positions[v].x;
-                fp[1] = mesh.positions[v].y;
-                fp[2] = mesh.positions[v].z;
+            if (range.section < mesh.sections.size()) {
+                const MeshSection& section = mesh.sections[range.section];
+                region.rootBone = static_cast<u16>(section.native.value("rootBone"));
+                region.flags = static_cast<m3::RegionFlag>(static_cast<u32>(section.native.value(
+                    "regionFlags", hasFlag(section.flags, SectionFlags::Hidden)
+                                       ? static_cast<i64>(m3::RegionFlag::Hidden)
+                                       : 0)));
             }
 
-            // Bone weights (4B at offset 12)
-            if (v < mesh.boneWeights.size()) {
-                ptr[12] = mesh.boneWeights[v][0];
-                ptr[13] = mesh.boneWeights[v][1];
-                ptr[14] = mesh.boneWeights[v][2];
-                ptr[15] = mesh.boneWeights[v][3];
-            }
-
-            // Bone indices (4B at offset 16)
-            if (v < mesh.boneIndices.size()) {
-                ptr[16] = mesh.boneIndices[v][0];
-                ptr[17] = mesh.boneIndices[v][1];
-                ptr[18] = mesh.boneIndices[v][2];
-                ptr[19] = mesh.boneIndices[v][3];
-            }
-
-            // Normal (3 x u8 UNORM at offset 20; byte 23 is the bitangent
-            // handedness the game reads as sign(2 * w - 1))
-            auto packUnorm = [](f32 x) {
-                return static_cast<u8>((std::max(-1.0f, std::min(1.0f, x)) + 1.0f) * 127.5f +
-                                       0.5f);
+            // The region's bone-lookup window, built from the bones its own
+            // faces actually reference.
+            std::vector<u32> window;
+            const auto slotFor = [&window](u32 bone) -> u8 {
+                for (std::size_t i = 0; i < window.size(); ++i) {
+                    if (window[i] == bone) {
+                        return static_cast<u8>(i);
+                    }
+                }
+                window.push_back(bone);
+                return static_cast<u8>(window.size() - 1);
             };
-            if (v < mesh.normals.size()) {
-                auto n = mesh.normals[v];
-                ptr[20] = packUnorm(n.x);
-                ptr[21] = packUnorm(n.y);
-                ptr[22] = packUnorm(n.z);
-                ptr[23] = (v < mesh.tangents.size() && mesh.tangents[v].w < 0.0f) ? 0 : 255;
+
+            for (u32 i = 0; i < range.indexCount; ++i) {
+                const u32 index = render.indices[range.firstIndex + i];
+                division.faces.push_back(static_cast<u16>(index));
             }
 
-            size_t off = 24;
-
-            // Vertex color (4B BGRA if present)
-            if (anyColors) {
-                if (v < mesh.vertexColors.size()) {
-                    // WEM stores RGBA, M3 stores BGRA
-                    ptr[off + 0] = mesh.vertexColors[v][2]; // B
-                    ptr[off + 1] = mesh.vertexColors[v][1]; // G
-                    ptr[off + 2] = mesh.vertexColors[v][0]; // R
-                    ptr[off + 3] = mesh.vertexColors[v][3]; // A
-                } else {
-                    ptr[off + 0] = 255;
-                    ptr[off + 1] = 255;
-                    ptr[off + 2] = 255;
-                    ptr[off + 3] = 255;
+            // A region's vertices are written once, in the first region that
+            // claims them: `firstVertex`/`vertexCount` describe a run of the
+            // model's one buffer, and two regions of the same mesh share it.
+            if (vertexBase == writtenVertices) {
+                for (std::size_t v = 0; v < positions.size(); ++v) {
+                    std::array<u8, 4> indices{0, 0, 0, 0};
+                    std::array<u8, 4> weights{0, 0, 0, 0};
+                    for (std::size_t k = 0; k < 4; ++k) {
+                        if (v >= boneIndices.size() || v >= boneWeights.size() ||
+                            boneWeights[v][k] <= 0.0f) {
+                            continue;
+                        }
+                        const u32 node = boneIndices[v][k];
+                        const u32 bone = node < boneOf.size() ? boneOf[node] : 0xFFFFu;
+                        if (bone == 0xFFFFu) {
+                            continue;
+                        }
+                        indices[k] = slotFor(bone);
+                        weights[k] = static_cast<u8>(
+                            std::clamp(boneWeights[v][k], 0.0f, 1.0f) * 255.0f + 0.5f);
+                    }
+                    encoder.push(Unrebase(positions[v]),
+                                 v < normals.size() ? Unrebase(normals[v]) : Vector3f{0, 0, 1},
+                                 v < uv0.size() ? uv0[v] : Vector2f{0, 0}, indices, weights);
                 }
-                off += 4;
+                writtenVertices += positions.size();
             }
 
-            // UV layers (2xi16 each, scaled by 2048)
-            for (size_t u = 0; u < maxUVs; ++u) {
-                if (u < mesh.uvSets.size() && v < mesh.uvSets[u].size()) {
-                    Vector2f const uv = mesh.uvSets[u][v];
-                    auto uvI16u =
-                        static_cast<i16>(std::max(-32768.0f, std::min(32767.0f, uv.x * 2048.0f)));
-                    auto uvI16v =
-                        static_cast<i16>(std::max(-32768.0f, std::min(32767.0f, uv.y * 2048.0f)));
-                    auto* ip = reinterpret_cast<i16*>(ptr + off);
-                    ip[0] = uvI16u;
-                    ip[1] = uvI16v;
-                }
-                off += 4;
+            for (u32 bone : window) {
+                out.boneLookup.push_back(static_cast<u16>(bone));
             }
+            region.boneLookupCount = static_cast<u16>(window.size());
 
-            // Tangent (3 x u8 UNORM at end of vertex; the fourth byte is 255
-            // on every shipped vertex — the sign rides the normal's, above)
-            if (v < mesh.tangents.size()) {
-                auto t = mesh.tangents[v];
-                ptr[off + 0] = packUnorm(t.x);
-                ptr[off + 1] = packUnorm(t.y);
-                ptr[off + 2] = packUnorm(t.z);
-                ptr[off + 3] = 255;
+            m3::Batch batch;
+            batch.regionIndex = static_cast<u16>(division.regions.size());
+            batch.materialIndex = static_cast<u16>(range.materialSlot);
+            batch.boneCount = 0xFFFFu;
+            if (range.section < mesh.sections.size()) {
+                batch.boneCount = static_cast<u16>(
+                    mesh.sections[range.section].native.value("visibilityBone", 0xFFFF));
             }
+            division.regions.push_back(std::move(region));
+            division.batches.push_back(batch);
         }
 
-        // Faces: u32 → u16 (rebased to global vertex indices)
-        div.faces.reserve(mesh.indices.size());
-        for (u32 const idx : mesh.indices) {
-            u32 globalIdx = idx + globalVertOffset;
-            if (globalIdx > 0xFFFF) {
-                issues.push_back("Mesh " + std::to_string(mi) + " global index > 65535");
-                div.faces.push_back(0xFFFF);
-            } else {
-                div.faces.push_back(static_cast<u16>(globalIdx));
-            }
-        }
-
-        // Regions from submeshes
-        div.regions.reserve(mesh.submeshes.size());
-        for (size_t si = 0; si < mesh.submeshes.size(); ++si) {
-            const auto& sub = mesh.submeshes[si];
-            m3::Region reg{};
-            reg.index = static_cast<u32>(si);
-            reg.firstVertex = sub.vertexStart + globalVertOffset;
-            reg.vertexCount = sub.vertexCount;
-            reg.firstIndex = sub.indexStart;
-            reg.indexCount = sub.indexCount;
-            reg.boneWeightPairs = static_cast<u8>(sub.maxBoneInfluences);
-            reg.rootBone = sub.rootBone;
-            reg.flags = convertSubmeshFlagsToM3(sub.flags);
-            reg.uvScale = 1.0f;
-            reg.uvOffset = 0.0f;
-            div.regions.push_back(reg);
-
-            // Batch
-            m3::Batch batch{};
-            batch.regionIndex = static_cast<u16>(si);
-            batch.materialIndex = static_cast<u16>(sub.materialIndex);
-            div.batches.push_back(batch);
-        }
-
-        m3.divisions.push_back(std::move(div));
-        globalVertOffset += static_cast<u32>(vertCount);
+        out.divisions.push_back(std::move(division));
     }
 
-    m3.vertices.initialize();
+    out.vertices.flags = m3::VertexFormatFlag::UV1;
+    out.vertices.data = std::move(encoder.data);
+    out.vertices.initialize();
 
+    result.value = std::move(out);
     return result;
 }
 
 // ============================================================================
-// M3Converter — FormatConverter interface
+// FormatConverter
 // ============================================================================
 
 std::string M3Converter::formatId() const {
     return "m3";
 }
+
 std::string M3Converter::formatName() const {
-    return "StarCraft II / HotS M3";
+    return "StarCraft II / Heroes of the Storm M3";
 }
+
+std::span<const ProfileId> M3Converter::profiles() const {
+    return kM3Profiles;
+}
+
 bool M3Converter::supportsImport() const {
     return true;
 }
+
 bool M3Converter::supportsExport() const {
     return true;
 }
+
 u32 M3Converter::defaultExportVersion() const {
-    return 30;
+    return kHeroesModlVersion;
 }
 
-ConvertResult M3Converter::importFromBytes(std::span<const u8> data) const {
+Result<Document> M3Converter::importFromBytes(std::span<const u8> data) const {
     m3::Parser parser;
-    auto m3Model = parser.parse(data);
-    auto result = fromM3(m3Model);
-    for (const auto& issue : parser.getIssues()) {
-        result.issues.push_back(issue);
+    const m3::Model source = parser.parse(data);
+    Result<Document> result = fromM3(source);
+    for (const std::string& issue : parser.getIssues()) {
+        result.diagnostics.warn(DiagCode::Unspecified, issue);
     }
     return result;
 }
 
-ExportResult M3Converter::exportToBytes(const Model& model, u32 version) const {
-    auto m3Result = toM3(model, version == 0 ? defaultExportVersion() : version);
-    ExportResult result;
-    result.issues = std::move(m3Result.issues);
+Result<std::vector<u8>> M3Converter::exportToBytes(const Document& document, ProfileId profile,
+                                                   u32 version) const {
+    Result<m3::Model> converted =
+        toM3(document, profile, version == 0 ? defaultExportVersion() : version);
+    Result<std::vector<u8>> result;
+    result.diagnostics = std::move(converted.diagnostics);
+    if (!converted.ok()) {
+        return result;
+    }
     m3::Writer writer;
-    result.data = writer.write(m3Result.model);
+    result.value = writer.write(*converted);
     return result;
-}
-
-// ============================================================================
-// Legacy free functions
-// ============================================================================
-
-ConvertResult fromM3(const m3::Model& m3Model) {
-    static const M3Converter converter;
-    return converter.fromM3(m3Model);
-}
-
-M3ConvertResult toM3(const Model& wemModel, u32 targetVersion) {
-    static const M3Converter converter;
-    return converter.toM3(wemModel, targetVersion);
 }
 
 } // namespace wem

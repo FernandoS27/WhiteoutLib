@@ -225,6 +225,7 @@ inline bool hasFlag(MaterialFlag flags, MaterialFlag flag) {
     return (static_cast<u16>(flags) & static_cast<u16>(flag)) != 0;
 }
 
+/// @wem rename=M2RenderRecord
 struct Material {
     u16 flags = 0;
     u16 blendingMode = 0;

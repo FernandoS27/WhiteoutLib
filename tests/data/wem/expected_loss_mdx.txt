@@ -1,0 +1,12 @@
+# WEM P5 expected-loss list for the mdx converter.
+# One DiagCode per line, sorted. Counts are deliberately absent: they scale
+# with the file cap and the set of codes does not. `limit` is the cap this was
+# recorded at, so a smaller run knows it may legitimately see fewer codes.
+limit=250
+validation_errors=0
+CollapseRefused
+MaterialSlotUnused
+MixedShadedUnshadedStack
+SceneReadingMultiLayerStack
+Unspecified
+UvSetLimit

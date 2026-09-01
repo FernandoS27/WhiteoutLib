@@ -7,7 +7,7 @@ internal helper types that should NOT be exposed are listed in
 `auto_bind_skip`.
 """
 
-from tools.codegen.ir import ModuleConfig
+from tools.codegen.ir import ModuleConfig, WemNative
 
 CONFIG = ModuleConfig(
     name='m2',
@@ -44,4 +44,18 @@ CONFIG = ModuleConfig(
         # field. Keep internal.
         'Format',
     ],
+    # `--backend wem-native`: M2 is the one block whose *shape* is authored
+    # (design §7.3) — a WoW per-batch material is a join across four combo
+    # tables and no header states the join, so there is nothing to mirror. What
+    # is generated is what the join *reads*: the render-flag vocabulary, the
+    # batch record, and the texture record. `native::M2Material` itself lives
+    # in `native/m2_material.h`.
+    wem_native=WemNative(
+        prefix='M2',
+        header_path='include/whiteout/models/wem/native/m2_tables.h',
+        roots=['Batch', 'Texture', 'Material'],
+        extra_enums=['MaterialFlag'],
+        # All three are ingredients read during conversion, never chunks.
+        tags={},
+    ),
 )

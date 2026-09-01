@@ -1,0 +1,249 @@
+{
+  "_comment": "Per-block schema lock for the wem-native mirrors (WEM design \u00a715.2). A block whose hash changes must have its version bumped by hand in this file, or generation fails. The version becomes ChunkTagTraits<T>::max_version.",
+  "blocks": {
+    "d3": {
+      "D3AssetRef": {
+        "version": 1,
+        "hash": "d727d92871f72efe"
+      },
+      "D3Group": {
+        "version": 1,
+        "hash": "be966a03bee05bd0"
+      },
+      "D3MaterialAsset": {
+        "version": 1,
+        "hash": "7262b58d274c032c"
+      },
+      "D3MaterialColors": {
+        "version": 1,
+        "hash": "cfeb629312e83935"
+      },
+      "D3RenderParams": {
+        "version": 1,
+        "hash": "c5660c41f0f05a13"
+      },
+      "D3RenderState": {
+        "version": 1,
+        "hash": "86af54e2fac9e5e5"
+      },
+      "D3ShaderTagValue": {
+        "version": 1,
+        "hash": "023404eeb2a75f1f"
+      },
+      "D3TagValue": {
+        "version": 1,
+        "hash": "2ff201074414d31d"
+      },
+      "D3TexAnim": {
+        "version": 1,
+        "hash": "199503bb7d7e2bf2"
+      },
+      "D3TextureEntry": {
+        "version": 1,
+        "hash": "bbd4d1d8071f9806"
+      },
+      "D3TextureStage": {
+        "version": 1,
+        "hash": "3de9d3fd95d769a3"
+      },
+      "D3UberMaterial": {
+        "version": 1,
+        "hash": "4443186681f7d9e2"
+      }
+    },
+    "m2": {
+      "M2Batch": {
+        "version": 1,
+        "hash": "32c4a33d9d35fa57"
+      },
+      "M2MaterialFlag": {
+        "version": 1,
+        "hash": "d4a7a0aa4422ccc4"
+      },
+      "M2RenderRecord": {
+        "version": 1,
+        "hash": "947d151544eb7763"
+      },
+      "M2Texture": {
+        "version": 1,
+        "hash": "d38b79112940fc22"
+      }
+    },
+    "m3": {
+      "M3AnimRef": {
+        "version": 1,
+        "hash": "2e0b9a90094fba8b"
+      },
+      "M3BlendMode": {
+        "version": 1,
+        "hash": "5edcee8b1a5eaae6"
+      },
+      "M3ColorBGRA": {
+        "version": 1,
+        "hash": "d12bc9f7f1b597b7"
+      },
+      "M3ColorChannelSelect": {
+        "version": 1,
+        "hash": "b3904f6e96fae1bd"
+      },
+      "M3Composite": {
+        "version": 1,
+        "hash": "19c87408d1406566"
+      },
+      "M3CompositeSection": {
+        "version": 1,
+        "hash": "5f0bd7d7b09f0492"
+      },
+      "M3Creep": {
+        "version": 1,
+        "hash": "4a8c0de2d7c2754e"
+      },
+      "M3DataDriven": {
+        "version": 1,
+        "hash": "89b7a9a2231fa0af"
+      },
+      "M3DataDrivenGroup": {
+        "version": 1,
+        "hash": "4ab0293fa1785aad"
+      },
+      "M3DataDrivenProperties": {
+        "version": 1,
+        "hash": "a7d1ccaee35562c1"
+      },
+      "M3DataDrivenProperty": {
+        "version": 1,
+        "hash": "dd5ca562e8206d8e"
+      },
+      "M3Displacement": {
+        "version": 1,
+        "hash": "6e4cc7c0667d9cb8"
+      },
+      "M3FresnelMode": {
+        "version": 1,
+        "hash": "18cbdff1020f0cb6"
+      },
+      "M3LayerBlendOp": {
+        "version": 1,
+        "hash": "bd2b67386843b22a"
+      },
+      "M3LensFlare": {
+        "version": 1,
+        "hash": "0b2265c2778ba9e7"
+      },
+      "M3MaterialAdditionalFlag": {
+        "version": 1,
+        "hash": "e82285cc4c5590b5"
+      },
+      "M3MaterialClass": {
+        "version": 1,
+        "hash": "9fbfc8ac17e42f12"
+      },
+      "M3MaterialFlag": {
+        "version": 1,
+        "hash": "a25338d6dff1851f"
+      },
+      "M3MaterialKind": {
+        "version": 1,
+        "hash": "d3b73707c0b4e2ac"
+      },
+      "M3MaterialShaderType": {
+        "version": 1,
+        "hash": "e6ebd5f568b1079a"
+      },
+      "M3Reflection": {
+        "version": 1,
+        "hash": "9cc3cea663183867"
+      },
+      "M3ReflectionMaterialFlag": {
+        "version": 1,
+        "hash": "c937f75354efeb3c"
+      },
+      "M3SpecularMode": {
+        "version": 1,
+        "hash": "79564c9db6db003d"
+      },
+      "M3Standard": {
+        "version": 1,
+        "hash": "ca6df3690fff662a"
+      },
+      "M3Stb": {
+        "version": 1,
+        "hash": "30859c919abe7d9c"
+      },
+      "M3SubFlare": {
+        "version": 1,
+        "hash": "2ea5bbbe3b45f87e"
+      },
+      "M3Terrain": {
+        "version": 1,
+        "hash": "02e956d8e3cd387e"
+      },
+      "M3TextureLayer": {
+        "version": 1,
+        "hash": "30a7db7b56b39cdf"
+      },
+      "M3TextureLayerFlag": {
+        "version": 1,
+        "hash": "a231622d1b5eb751"
+      },
+      "M3UVMappingMode": {
+        "version": 1,
+        "hash": "337334b4fe40d3ea"
+      },
+      "M3Volume": {
+        "version": 1,
+        "hash": "256a882b46722fc9"
+      },
+      "M3VolumeFalloffType": {
+        "version": 1,
+        "hash": "3b654bfb45c27259"
+      },
+      "M3VolumeNoise": {
+        "version": 1,
+        "hash": "efd09758f592504f"
+      },
+      "M3VolumeNoiseCameraMode": {
+        "version": 1,
+        "hash": "96a875c2c720551e"
+      },
+      "M3VolumeNoiseMaterialFlag": {
+        "version": 1,
+        "hash": "85ea4f8c73d53068"
+      }
+    },
+    "mdx": {
+      "MdxFilterMode": {
+        "version": 1,
+        "hash": "df0c313e1506905c"
+      },
+      "MdxLayer": {
+        "version": 1,
+        "hash": "2b4b42bc331f0bc5"
+      },
+      "MdxMaterial": {
+        "version": 1,
+        "hash": "651b6daa499947b9"
+      },
+      "MdxMaterialFlag": {
+        "version": 1,
+        "hash": "5955596eeab07b37"
+      },
+      "MdxShaderType": {
+        "version": 1,
+        "hash": "06e8ec7aebab09af"
+      },
+      "MdxShadingFlag": {
+        "version": 1,
+        "hash": "5ffc98e2d0420855"
+      },
+      "MdxSlotType": {
+        "version": 1,
+        "hash": "b1678651cb482f01"
+      },
+      "MdxSubTexture": {
+        "version": 1,
+        "hash": "d2dc9403ad1d942d"
+      }
+    }
+  }
+}

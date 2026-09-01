@@ -3,7 +3,9 @@
 
 #pragma once
 
-#include <whiteout/models/wem/structures.h>
+#include <whiteout/models/wem/chunk_traits.h>
+#include <whiteout/models/wem/document.h>
+#include <whiteout/models/wem/materials/native.h>
 
 #include <array>
 
@@ -11,15 +13,18 @@ namespace whiteout {
 namespace models {
 namespace wem {
 
-constexpr u32 kWoemMagic = 0x4D454F57; // "WOEM" in little-endian
-constexpr u32 kCurrentVersion = 2;     // v2: index-table format
+/// The **container** — §11.1's "the M3-derived meta structure is kept, not
+/// replaced". The index table, the inline `Reference` and the 32-byte header
+/// come straight from `.m3`; what changed at v3 is what the chunks hold, not how
+/// the file addresses them.
+///
+/// One registry, at `wem` scope: the generic visitors name *one* traits template,
+/// and a per-generation registry would have meant a policy parameter on every
+/// visitor or two copies of every basic-type tag.
 
-constexpr u32 kTag(const char (&s)[5]) {
-    return static_cast<u32>(static_cast<u8>(s[0])) |
-           (static_cast<u32>(static_cast<u8>(s[1])) << 8) |
-           (static_cast<u32>(static_cast<u8>(s[2])) << 16) |
-           (static_cast<u32>(static_cast<u8>(s[3])) << 24);
-}
+constexpr u32 kWoemMagic = 0x4D454F57; // "WOEM" in little-endian
+
+constexpr u32 kCurrentVersion = 3; // The format this build reads and writes
 
 // ============================================================================
 // Index table structures (on disk)
@@ -42,12 +47,12 @@ struct Reference {
 
 /// File header (32 bytes, always at offset 0).
 struct WEMHeader {
-    u32 magic = 0;        ///< kWoemMagic
-    u32 version = 0;      ///< kCurrentVersion
-    u32 indexOffset = 0;  ///< Byte offset to index table
-    u32 indexCount = 0;   ///< Number of IndexEntry records
-    Reference modelRef{}; ///< Reference to MODL data
-    u32 padding = 0;      ///< Pad to 32 bytes
+    u32 magic = 0;           ///< kWoemMagic
+    u32 version = 0;         ///< `kCurrentVersion`
+    u32 indexOffset = 0;     ///< Byte offset to index table
+    u32 indexCount = 0;      ///< Number of IndexEntry records
+    Reference documentRef{}; ///< Root chunk: `WDOC`
+    u32 profileMask = 0;     ///< Bit per `ProfileId`.
 };
 
 static_assert(sizeof(IndexEntry) == 16, "IndexEntry must be 16 bytes");
@@ -57,9 +62,6 @@ static_assert(sizeof(WEMHeader) == 32, "WEMHeader must be 32 bytes");
 // ============================================================================
 // Chunk tag traits — associates each type with its FourCC tag and properties
 // ============================================================================
-
-template <typename T>
-struct ChunkTagTraits; // Primary template — specialize below
 
 // --- Basic types ---
 
@@ -161,7 +163,26 @@ struct ChunkTagTraits<std::array<u8, 4>> {
     static constexpr bool is_trivial = true;
 };
 
-// --- Structure types ---
+// ============================================================================
+// v3 (§11.3)
+// ============================================================================
+
+/// Every type that is written as a chunk -- an element of a `v.field` vector, or
+/// the referent of a `v.chunk`. A type that is only ever visited inline (a body
+/// factor, a `TextureInput`, a `Transform` inside a `Node`'s pose run) needs no
+/// tag, and deliberately does not get one: an index entry per such record would
+/// double the index table to make addressable something nothing addresses.
+///
+/// `max_version` is 1 across the board because v3 is the first version of every
+/// one of these. The field exists so a later build can add a `v.since(2)` field
+/// and bump exactly the chunk it changed.
+
+template <>
+struct ChunkTagTraits<Document> {
+    static constexpr u32 value = kTag("WDOC");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
 
 template <>
 struct ChunkTagTraits<Model> {
@@ -171,15 +192,15 @@ struct ChunkTagTraits<Model> {
 };
 
 template <>
-struct ChunkTagTraits<TextureRef> {
-    static constexpr u32 value = kTag("TEXR");
+struct ChunkTagTraits<ProfileMaterialSet> {
+    static constexpr u32 value = kTag("PROF");
     static constexpr u32 max_version = 1;
     static constexpr bool is_trivial = false;
 };
 
 template <>
-struct ChunkTagTraits<Material> {
-    static constexpr u32 value = kTag("MATL");
+struct ChunkTagTraits<SlotBinding> {
+    static constexpr u32 value = kTag("SBND");
     static constexpr u32 max_version = 1;
     static constexpr bool is_trivial = false;
 };
@@ -192,25 +213,241 @@ struct ChunkTagTraits<Mesh> {
 };
 
 template <>
-struct ChunkTagTraits<Submesh> {
-    static constexpr u32 value = kTag("SUBM");
+struct ChunkTagTraits<MeshSection> {
+    static constexpr u32 value = kTag("SECT");
     static constexpr u32 max_version = 1;
     static constexpr bool is_trivial = false;
 };
 
 template <>
-struct ChunkTagTraits<TextureSlot> {
-    static constexpr u32 value = kTag("TXSL");
+struct ChunkTagTraits<geom::AttrLayer> {
+    static constexpr u32 value = kTag("ATTR");
     static constexpr u32 max_version = 1;
     static constexpr bool is_trivial = false;
 };
 
 template <>
-struct ChunkTagTraits<CompositeSection> {
-    static constexpr u32 value = kTag("CSEC");
+struct ChunkTagTraits<geom::Influence> {
+    static constexpr u32 value = kTag("INFL");
     static constexpr u32 max_version = 1;
     static constexpr bool is_trivial = false;
 };
+
+template <>
+struct ChunkTagTraits<geom::VertexSplit> {
+    static constexpr u32 value = kTag("VSPL");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<geom::FaceRecord> {
+    static constexpr u32 value = kTag("FDRP");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<Transform> {
+    static constexpr u32 value = kTag("XFRM");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<Node> {
+    static constexpr u32 value = kTag("NODE");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<NativeBag::Entry> {
+    static constexpr u32 value = kTag("NBAG");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<PoseSchema> {
+    static constexpr u32 value = kTag("PSCH");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<Material> {
+    static constexpr u32 value = kTag("MATL");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<MaterialFeature> {
+    static constexpr u32 value = kTag("MFEA");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<FresnelFeature> {
+    static constexpr u32 value = kTag("FFRS");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<UvAnimationFeature> {
+    static constexpr u32 value = kTag("FUVA");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<CompositeBody> {
+    static constexpr u32 value = kTag("MKCP");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<CompositeLayer> {
+    static constexpr u32 value = kTag("MKCL");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<CombinersBody> {
+    static constexpr u32 value = kTag("MKCB");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<CombinerStage> {
+    static constexpr u32 value = kTag("MKCS");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<LegacyDeferredBody> {
+    static constexpr u32 value = kTag("MKLD");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<PbrDeferredBody> {
+    static constexpr u32 value = kTag("MKPB");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<TextureRef> {
+    static constexpr u32 value = kTag("TEXR");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+template <>
+struct ChunkTagTraits<Look> {
+    static constexpr u32 value = kTag("LOOK");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = false;
+};
+
+/// Tags reserved now, bodies later. Reserving is free -- a FourCC costs nothing
+/// until something claims it -- and it keeps P6 and P7 from having to pick
+/// around whatever P5 happened to take.
+namespace reserved {
+inline constexpr u32 kActor = kTag("ACTR");      ///< P6 `Actor`.
+inline constexpr u32 kActorEvent = kTag("EVNT"); ///< P6 `ActorEvent`.
+inline constexpr u32 kClip = kTag("CLIP");       ///< P7 `Clip`.
+inline constexpr u32 kClipEvent = kTag("CLEV");  ///< P7 `ClipEvent`.
+inline constexpr u32 kSubTrackContainer = kTag("STCC");
+inline constexpr u32 kSubTrack = kTag("STRK");
+inline constexpr u32 kAnimChannel = kTag("ACHN");
+inline constexpr u32 kAnimSet = kTag("ASET");
+} // namespace reserved
+
+// ============================================================================
+// The runtime tag set
+// ============================================================================
+
+/// A tag the writer emits for an index slot it is holding open -- see the
+/// writer's unknown-chunk handling. A reader skips it rather than preserving it,
+/// or holes would breed on every round trip.
+inline constexpr u32 kHoleTag = kTag("HOLE");
+
+/// Every tag this build understands, for the one question a template cannot
+/// answer: given an index entry, is this a chunk we know? §11.4 preservation is
+/// the caller, and it runs before any record is parsed, so it has a tag and
+/// nothing else.
+///
+/// Hand-maintained beside the specialisations above, because C++ gives no way to
+/// enumerate the specialisations of a template. A tag missing from this list is
+/// preserved as unknown *and* parsed as known -- it would be written twice -- so
+/// `wem_unknown_chunk_test` asserts the two agree.
+inline constexpr u32 kKnownChunkTags[] = {
+    ChunkTagTraits<char>::value,
+    ChunkTagTraits<u8>::value,
+    ChunkTagTraits<u16>::value,
+    ChunkTagTraits<u32>::value,
+    ChunkTagTraits<u64>::value,
+    ChunkTagTraits<i16>::value,
+    ChunkTagTraits<i32>::value,
+    ChunkTagTraits<f32>::value,
+    ChunkTagTraits<Vector2f>::value,
+    ChunkTagTraits<Vector3f>::value,
+    ChunkTagTraits<Vector4f>::value,
+    ChunkTagTraits<Quaternion>::value,
+    ChunkTagTraits<Extent>::value,
+    ChunkTagTraits<std::array<u8, 4>>::value,
+    ChunkTagTraits<Document>::value,
+    ChunkTagTraits<Model>::value,
+    ChunkTagTraits<ProfileMaterialSet>::value,
+    ChunkTagTraits<SlotBinding>::value,
+    ChunkTagTraits<Mesh>::value,
+    ChunkTagTraits<MeshSection>::value,
+    ChunkTagTraits<geom::AttrLayer>::value,
+    ChunkTagTraits<geom::Influence>::value,
+    ChunkTagTraits<geom::VertexSplit>::value,
+    ChunkTagTraits<geom::FaceRecord>::value,
+    ChunkTagTraits<Transform>::value,
+    ChunkTagTraits<Node>::value,
+    ChunkTagTraits<NativeBag::Entry>::value,
+    ChunkTagTraits<PoseSchema>::value,
+    ChunkTagTraits<Material>::value,
+    ChunkTagTraits<MaterialFeature>::value,
+    ChunkTagTraits<FresnelFeature>::value,
+    ChunkTagTraits<UvAnimationFeature>::value,
+    ChunkTagTraits<CompositeBody>::value,
+    ChunkTagTraits<CompositeLayer>::value,
+    ChunkTagTraits<CombinersBody>::value,
+    ChunkTagTraits<CombinerStage>::value,
+    ChunkTagTraits<LegacyDeferredBody>::value,
+    ChunkTagTraits<PbrDeferredBody>::value,
+    ChunkTagTraits<TextureRef>::value,
+    ChunkTagTraits<Look>::value,
+    ChunkTagTraits<native::MdxMaterial>::value,
+    ChunkTagTraits<native::M2Material>::value,
+    ChunkTagTraits<native::M3Material>::value,
+    ChunkTagTraits<native::D3Material>::value,
+    kWoemMagic, // slot 0 is the header's own entry, not a chunk
+    kHoleTag,
+};
+
+inline bool IsKnownChunkTag(u32 tag) {
+    for (const u32 known : kKnownChunkTags) {
+        if (known == tag) {
+            return true;
+        }
+    }
+    return false;
+}
 
 // Convenience: retrieve tag for a type
 template <typename T>

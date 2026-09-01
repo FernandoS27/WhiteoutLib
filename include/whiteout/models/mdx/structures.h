@@ -246,11 +246,13 @@ struct SoundEmitter {
  * Materials can have multiple layers, each with its own texture and blending mode.
  * Layers control how textures are combined and rendered.
  */
+/// @wem rename=MdxLayer
 struct Layer {
     /**
      * @brief Blending/filter mode for the layer
      */
     /// @bind
+    /// @wem rename=MdxFilterMode
     enum class FilterMode : u32 {
         None = 0,        ///< No blending
         Transparent = 1, ///< Alpha test transparency
@@ -266,6 +268,7 @@ struct Layer {
     // For MDX >= 1100 the layer's shaderIdMDL
     // is a raw uint32, so any of these values can appear on disk.
     /// @bind
+    /// @wem rename=MdxShaderType
     enum class ShaderType : u32 {
         SD = 0,
         HD = 1,
@@ -299,6 +302,7 @@ struct Layer {
      * @brief Shader and rendering flags
      */
     /// @bind
+    /// @wem rename=MdxShadingFlag
     enum class ShadingFlag : u32 {
         None = 0,
         Unshaded = 0x1,     ///< Not affected by lighting
@@ -313,6 +317,7 @@ struct Layer {
     };
 
     /// @bind
+    /// @wem rename=MdxSlotType
     enum class SlotType : u32 {
         DiffuseMap = 0,
         NormalMap = 1,
@@ -327,10 +332,11 @@ struct Layer {
      * @brief Sub-texture definition (Reforged multi-texture)
      */
     /// @bind
+    /// @wem rename=MdxSubTexture
     struct SubTexture {
         u32 textureId = 0;                    ///< Index into texture array
         SlotType slot = SlotType::DiffuseMap; ///< Texture slot number
-        Track<u32> tracks;                    ///< Texture ID animation
+        Track<u32> tracks; ///< @wem skip — Texture ID animation
     };
 
     FilterMode filterMode = FilterMode::None;     ///< Blending mode
@@ -346,17 +352,19 @@ struct Layer {
     f32 fresnelOpacity = 0.0f;                 ///< Fresnel effect opacity
     f32 fresnelTeamColor = 0.0f;               ///< Fresnel team color factor
 
-    ShaderType shader = ShaderType::SD;  ///< Shader to use for this layer
-    bool is_hd = false;                  ///< @bind rename=isHd — True if using Reforged HD shading
+    ShaderType shader = ShaderType::SD; ///< @wem rename=shaderType — Shader to use for this layer
+    bool is_hd = false; ///< @bind rename=isHd @wem rename=isHd — True if using Reforged HD shading
     std::vector<SubTexture> subTextures; ///< Multi-texture support (version 1200+)
 
-    // Animation tracks
-    Track<u32> textureIdTracks;         ///< Texture ID animation (versions 800-1100)
-    Track<f32> alphaTracks;             ///< Alpha animation
-    Track<f32> emissiveGainTracks;      ///< Emissive gain animation
-    Track<Vector3f> fresnelColorTracks; ///< Fresnel color animation
-    Track<f32> fresnelAlphaTracks;      ///< Fresnel alpha animation
-    Track<f32> fresnelTeamColorTracks;  ///< Fresnel team color animation
+    // Animation tracks. None of these is mirrored into the WEM native block:
+    // a track is animation, and WEM keeps animation in one channel table rather
+    // than scattered through the records that happen to be animated.
+    Track<u32> textureIdTracks; ///< @wem skip — Texture ID animation (versions 800-1100)
+    Track<f32> alphaTracks; ///< @wem skip — Alpha animation
+    Track<f32> emissiveGainTracks; ///< @wem skip — Emissive gain animation
+    Track<Vector3f> fresnelColorTracks; ///< @wem skip — Fresnel color animation
+    Track<f32> fresnelAlphaTracks; ///< @wem skip — Fresnel alpha animation
+    Track<f32> fresnelTeamColorTracks; ///< @wem skip — Fresnel team color animation
 };
 
 WHITEOUT_MDX_DEFINE_FLAG_OPERATORS(Layer::ShadingFlag)
@@ -371,11 +379,13 @@ WHITEOUT_MDX_DEFINE_FLAG_OPERATORS(Layer::ShadingFlag)
  * Materials define how surfaces are rendered. Each material contains one or more
  * layers that specify textures and blending modes.
  */
+/// @wem rename=MdxMaterial
 struct Material {
     /**
      * @brief Material-level flags
      */
     /// @bind
+    /// @wem rename=MdxMaterialFlag
     enum class Flag : u32 {
         None = 0x0,
         ConstantColor = 0x1,   ///< Use constant color (no per-vertex tinting)

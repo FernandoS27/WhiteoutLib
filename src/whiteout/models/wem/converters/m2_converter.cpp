@@ -1,300 +1,421 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2026 Fernando Sahmkow
 
+/**
+ * @file m2_converter.cpp
+ * @brief `.m2` <-> `Document` (design §14, §10.7, §5.5).
+ *
+ * ### The vertex indirection is the import
+ *
+ * A `SkinProfile` does not own vertices. Its `vertices` array is an indirection
+ * into the model's global vertex list, and its `indices` address *that* array,
+ * not the global one. Import flattens both into a mesh-local space, which is
+ * also what makes one `Mesh` per skin profile a self-contained thing an editor
+ * can work on.
+ *
+ * ### A batch is a draw, a submesh is a section
+ *
+ * §5.5's convention is one `MeshSection` per `SkinSection`, and a batch names a
+ * submesh plus everything about how it draws. Several batches can name the same
+ * submesh — that is M2's multi-pass — and a face carries one section, so the
+ * section binds the lowest-`materialLayer` batch and the later passes get slots
+ * of their own that no section references. They are reported as
+ * `MaterialSlotUnused` rather than dropped: the material is real, WEM's section
+ * model just has nowhere to draw it from yet.
+ *
+ * ### Nodes hang off their bone
+ *
+ * §10.7: an attachment, light, event or camera record carries a `boneId` and a
+ * position in **model space**. It becomes a child of that bone with the position
+ * rebased through the bone's bind pose, so moving the bone moves the attachment,
+ * which is what the game does and what a flat list of model-space points does
+ * not.
+ */
+
 #include "whiteout/models/m2/writer.h"
 #include "whiteout/models/wem/converters.h"
+#include "whiteout/models/wem/geometry/builder.h"
+#include "whiteout/models/wem/geometry/render_view.h"
+
+#include "../materials/m2_core.h"
 
 #include <algorithm>
-#include <cmath>
-#include <unordered_set>
+#include <array>
+#include <string>
+#include <variant>
 
 namespace whiteout {
 namespace models {
 namespace wem {
 
-// ============================================================================
-// Helpers
-// ============================================================================
-
 namespace {
 
-wem::Extent convertM2Extent(const m2::Extent& src) {
-    wem::Extent dst;
-    dst.minimum = src.minimum;
-    dst.maximum = src.maximum;
-    dst.sphereRadius = src.sphereRadius;
-    return dst;
+constexpr ProfileId kM2Profiles[] = {ProfileId::Wow};
+
+Extent ToExtent(const m2::Extent& source) {
+    Extent out;
+    out.minimum = source.minimum;
+    out.maximum = source.maximum;
+    out.sphereRadius = source.sphereRadius;
+    return out;
 }
 
-m2::Extent convertExtentToM2(const wem::Extent& src) {
-    m2::Extent dst;
-    dst.minimum = src.minimum;
-    dst.maximum = src.maximum;
-    dst.sphereRadius = src.sphereRadius;
-    return dst;
+m2::Extent FromExtent(const Extent& source) {
+    m2::Extent out;
+    out.minimum = source.minimum;
+    out.maximum = source.maximum;
+    out.sphereRadius = source.sphereRadius;
+    return out;
 }
 
-BlendMode convertM2BlendMode(u16 bm) {
-    switch (bm) {
-    case 0:
-        return BlendMode::Opaque;
-    case 1:
-        return BlendMode::AlphaKey;
-    case 2:
-        return BlendMode::AlphaBlend;
-    case 3:
-        return BlendMode::AdditiveAlpha;
-    case 4:
-        return BlendMode::Additive;
-    case 5:
-        return BlendMode::Modulate;
-    case 6:
-        return BlendMode::Modulate2x;
-    case 7:
-        return BlendMode::BlendAdd;
-    default:
-        return BlendMode::Opaque;
+/// A submesh's first index into `skin.indices`.
+///
+/// `SkinSection::indexStart` is a u16 and a skin profile routinely holds more
+/// than 65535 indices, so the format carries the missing high word in the
+/// neighbouring `level` field rather than widening the struct. Reading
+/// `indexStart` alone is *in bounds* -- it silently draws another submesh's
+/// triangles -- which is why the symptom was a 113% manifold-repair rate rather
+/// than a crash. `vertexStart` gets no such treatment: it tiles on its own and a
+/// profile stays under 65536 vertices.
+std::size_t IndexStart(const m2::SkinSection& section) {
+    return (static_cast<std::size_t>(section.level) << 16) | section.indexStart;
+}
+
+std::string BatchSlotName(std::size_t skin, std::size_t batch) {
+    return "batch_" + std::to_string(skin) + "_" + std::to_string(batch);
+}
+
+NodeFlags ToNodeFlags(u32 boneFlags) {
+    NodeFlags out = NodeFlags::None;
+    if (boneFlags & static_cast<u32>(m2::BoneFlag::IgnoreParentTranslate)) {
+        out |= NodeFlags::DontInheritTranslation;
     }
-}
-
-u16 convertBlendModeToM2(BlendMode bm) {
-    switch (bm) {
-    case BlendMode::Opaque:
-        return 0;
-    case BlendMode::AlphaKey:
-        return 1;
-    case BlendMode::AlphaBlend:
-        return 2;
-    case BlendMode::AdditiveAlpha:
-        return 3;
-    case BlendMode::Additive:
-        return 4;
-    case BlendMode::Modulate:
-        return 5;
-    case BlendMode::Modulate2x:
-        return 6;
-    case BlendMode::BlendAdd:
-        return 7;
-    case BlendMode::Transparent:
-        return 1; // closest M2 equivalent
-    default:
-        return 0;
+    if (boneFlags & static_cast<u32>(m2::BoneFlag::IgnoreParentScale)) {
+        out |= NodeFlags::DontInheritScale;
     }
+    if (boneFlags & static_cast<u32>(m2::BoneFlag::IgnoreParentRotation)) {
+        out |= NodeFlags::DontInheritRotation;
+    }
+    if (boneFlags & static_cast<u32>(m2::BoneFlag::SphericalBillboard)) {
+        out |= NodeFlags::Billboarded;
+    }
+    if (boneFlags & static_cast<u32>(m2::BoneFlag::CylindricalBillboardX)) {
+        out |= NodeFlags::BillboardLockX;
+    }
+    if (boneFlags & static_cast<u32>(m2::BoneFlag::CylindricalBillboardY)) {
+        out |= NodeFlags::BillboardLockY;
+    }
+    if (boneFlags & static_cast<u32>(m2::BoneFlag::CylindricalBillboardZ)) {
+        out |= NodeFlags::BillboardLockZ;
+    }
+    return out;
 }
 
-MaterialFlags convertM2MaterialFlags(u16 mf) {
-    auto flags = MaterialFlags::None;
-    if (mf & static_cast<u16>(m2::MaterialFlag::Unlit))
-        flags |= MaterialFlags::Unlit;
-    if (mf & static_cast<u16>(m2::MaterialFlag::Unfogged))
-        flags |= MaterialFlags::Unfogged;
-    if (mf & static_cast<u16>(m2::MaterialFlag::TwoSided))
-        flags |= MaterialFlags::TwoSided;
-    if (mf & static_cast<u16>(m2::MaterialFlag::DepthTest))
-        flags |= MaterialFlags::DepthTest;
-    if (mf & static_cast<u16>(m2::MaterialFlag::DepthWrite))
-        flags |= MaterialFlags::DepthWrite;
-    if (mf & static_cast<u16>(m2::MaterialFlag::NoAlphaComposite))
-        flags |= MaterialFlags::NoAlphaComposite;
-    return flags;
+/// Bones first, then every record that hangs off one.
+///
+/// Bone indices keep their source numbering because `Vertex::boneIndices` and
+/// `boneCombos` both address that array; the attached records go after, so the
+/// join survives.
+NodeTree ImportNodes(const m2::Model& source) {
+    NodeTree tree;
+    tree.poseSchema.push_back(PoseSchema{});
+    tree.authoritativePose = 0;
+
+    for (std::size_t b = 0; b < source.bones.size(); ++b) {
+        const m2::Bone& bone = source.bones[b];
+        Node node;
+        node.name = "bone_" + std::to_string(b);
+        node.kind = NodeKind::Bone;
+        node.resetPayloadForKind();
+        node.flags = ToNodeFlags(bone.flags);
+        node.parent = bone.parentBoneId < 0 ? kInvalidNode : static_cast<u32>(bone.parentBoneId);
+        node.native.set("keyBoneId", bone.keyBoneId);
+        node.native.set("flagBits", static_cast<i64>(bone.flags));
+        node.native.set("submeshId", static_cast<i64>(bone.submeshId));
+        node.native.set("boneNameCRC", static_cast<i64>(bone.boneNameCRC));
+
+        // M2 pivots are absolute model space, like MDX's, so the local
+        // translation is the difference from the parent's.
+        Vector3f parentPivot{0, 0, 0};
+        if (node.parent != kInvalidNode && node.parent < tree.size()) {
+            parentPivot = tree.nodes[node.parent].pivot;
+        }
+        node.pivot = bone.pivot;
+        node.local.translation =
+            Vector3f{bone.pivot.x - parentPivot.x, bone.pivot.y - parentPivot.y,
+                     bone.pivot.z - parentPivot.z};
+        node.poses.push_back(node.local);
+        tree.add(std::move(node));
+    }
+
+    const u32 boneCount = tree.size();
+    const auto attach = [&](u32 boneId, const Vector3f& modelSpace, Node& node) {
+        node.parent = boneId < boneCount ? boneId : kInvalidNode;
+        Vector3f origin{0, 0, 0};
+        if (node.parent != kInvalidNode) {
+            origin = tree.nodes[node.parent].pivot;
+        }
+        node.local.translation =
+            Vector3f{modelSpace.x - origin.x, modelSpace.y - origin.y, modelSpace.z - origin.z};
+        node.poses.push_back(node.local);
+    };
+
+    for (std::size_t a = 0; a < source.attachments.size(); ++a) {
+        const m2::Attachment& attachment = source.attachments[a];
+        Node node;
+        node.name = "attachment_" + std::to_string(attachment.id);
+        node.kind = NodeKind::Attachment;
+        node.resetPayloadForKind();
+        // The equip-slot key, which is the whole point of an M2 attachment.
+        node.native.set("attachmentId", static_cast<i64>(attachment.id));
+        attach(attachment.boneId, attachment.position, node);
+        tree.add(std::move(node));
+    }
+
+    for (std::size_t l = 0; l < source.lights.size(); ++l) {
+        const m2::Light& light = source.lights[l];
+        Node node;
+        node.name = "light_" + std::to_string(l);
+        node.kind = NodeKind::Light;
+        node.resetPayloadForKind();
+        auto& payload = std::get<LightPayload>(node.payload);
+        payload.kind = light.type == 0 ? LightKind::Directional : LightKind::Omni;
+        node.native.set("lightType", static_cast<i64>(light.type));
+        attach(light.boneId < 0 ? 0xFFFFu : static_cast<u32>(light.boneId), light.position, node);
+        tree.add(std::move(node));
+    }
+
+    for (std::size_t e = 0; e < source.events.size(); ++e) {
+        const m2::Event& event = source.events[e];
+        Node node;
+        node.name = "event_" + std::to_string(e);
+        node.kind = NodeKind::Event;
+        node.resetPayloadForKind();
+        std::get<EventPayload>(node.payload).id = event.identifier;
+        node.native.set("eventData", static_cast<i64>(event.data));
+        attach(event.boneId, event.position, node);
+        tree.add(std::move(node));
+    }
+
+    for (std::size_t r = 0; r < source.ribbonEmitters.size(); ++r) {
+        const m2::RibbonEmitter& ribbon = source.ribbonEmitters[r];
+        Node node;
+        node.name = "ribbon_" + std::to_string(r);
+        node.kind = NodeKind::RibbonEmitter;
+        node.resetPayloadForKind();
+        std::get<RibbonPayload>(node.payload).system.id = ribbon.ribbonId;
+        attach(ribbon.boneId, ribbon.position, node);
+        tree.add(std::move(node));
+    }
+
+    for (std::size_t c = 0; c < source.cameras.size(); ++c) {
+        const m2::Camera& camera = source.cameras[c];
+        Node node;
+        node.name = "camera_" + std::to_string(c);
+        node.kind = NodeKind::Camera;
+        node.resetPayloadForKind();
+        auto& payload = std::get<CameraPayload>(node.payload);
+        payload.fov = camera.fieldOfView;
+        payload.nearClip = camera.nearClip;
+        payload.farClip = camera.farClip;
+        node.native.set("cameraType", static_cast<i64>(camera.type));
+        node.local.translation = camera.positionBase;
+        node.poses.push_back(node.local);
+        tree.add(std::move(node));
+    }
+
+    return tree;
 }
 
-u16 convertMaterialFlagsToM2(MaterialFlags mf) {
-    u16 result = 0;
-    if (hasFlag(mf, MaterialFlags::Unlit))
-        result |= static_cast<u16>(m2::MaterialFlag::Unlit);
-    if (hasFlag(mf, MaterialFlags::Unfogged))
-        result |= static_cast<u16>(m2::MaterialFlag::Unfogged);
-    if (hasFlag(mf, MaterialFlags::TwoSided))
-        result |= static_cast<u16>(m2::MaterialFlag::TwoSided);
-    if (hasFlag(mf, MaterialFlags::DepthTest))
-        result |= static_cast<u16>(m2::MaterialFlag::DepthTest);
-    if (hasFlag(mf, MaterialFlags::DepthWrite))
-        result |= static_cast<u16>(m2::MaterialFlag::DepthWrite);
-    if (hasFlag(mf, MaterialFlags::NoAlphaComposite))
-        result |= static_cast<u16>(m2::MaterialFlag::NoAlphaComposite);
-    return result;
-}
-
-} // anonymous namespace
+} // namespace
 
 // ============================================================================
 // fromM2
 // ============================================================================
 
-ConvertResult M2Converter::fromM2(const m2::Model& header) const {
-    ConvertResult result;
-    auto& model = result.model;
-    auto& issues = result.issues;
+Result<Document> M2Converter::fromM2(const m2::Model& source, u32 sourceVersion) const {
+    Result<Document> result;
+    Document document;
+    Diagnostics& diagnostics = result.diagnostics;
 
-    model.name = header.modelName;
-    model.bounds = convertM2Extent(header.bounding);
+    document.name = source.modelName;
+    document.bounds = ToExtent(source.bounding);
+    document.space = CoordSpace::Blizzard;
+    document.declare(ProfileId::Wow);
+    document.defaultProfile = ProfileId::Wow;
 
-    // ── Textures ───────────────────────────────────────────────────
-    model.textures.reserve(header.textures.size());
-    for (const auto& tex : header.textures) {
+    m2_core::Context context;
+    context.sourceVersion = sourceVersion;
+    document.textures.reserve(source.textures.size());
+    for (std::size_t t = 0; t < source.textures.size(); ++t) {
         TextureRef ref;
-        ref.path = tex.filename;
-        ref.flags = tex.flags;
-        ref.type = tex.type;
-        model.textures.push_back(std::move(ref));
+        ref.path = source.textures[t].filename;
+        ref.flags = source.textures[t].flags;
+        // §7.4: WoW's texture *type* is the slot a skin or an item fills, and
+        // a type-2 (or 11/12/13) reference is blank in the file on purpose.
+        ref.slotType = static_cast<u8>(source.textures[t].type);
+        ref.replaceableId = source.textures[t].type;
+        if (t < source.texture_ids.size() && source.texture_ids[t] != 0) {
+            ref.key = TextureFileDataId{source.texture_ids[t]};
+        } else if (!ref.path.empty()) {
+            ref.key = TexturePath{ref.path};
+        }
+        context.textureIndexMap.push_back(static_cast<u32>(document.textures.size()));
+        document.textures.push_back(std::move(ref));
     }
 
-    // ── Materials ──────────────────────────────────────────────────
-    // M2 materials are render-flag pairs (flags + blendMode).
-    // Batches reference materials + textures independently, so we create
-    // one WEM Standard material per unique (materialIndex, batch texture set) pair.
-    // First pass: create base material entries from header.materials[]
-    model.materials.reserve(header.materials.size());
-    for (const auto& mat : header.materials) {
-        Material wMat;
-        wMat.type = MaterialType::Standard;
-        wMat.blendMode = convertM2BlendMode(mat.blendingMode);
-        wMat.flags = convertM2MaterialFlags(mat.flags);
-        model.materials.push_back(std::move(wMat));
-    }
+    Model model;
+    model.name = source.modelName;
+    model.bounds = document.bounds;
+    model.nodes = ImportNodes(source);
 
-    // ── Skin Profiles → Meshes ─────────────────────────────────────
-    // Each skin profile becomes a WEM Mesh
-    // Combine base skin profiles and LOD profiles
-    struct SkinRef {
-        const m2::SkinProfile* profile;
-        int lodLevel;
-        int index;
-    };
-    std::vector<SkinRef> allSkins;
-    for (size_t i = 0; i < header.skinProfiles.size(); ++i) {
-        allSkins.push_back({&header.skinProfiles[i], 0, static_cast<int>(i)});
-    }
-    for (size_t i = 0; i < header.lodProfiles.size(); ++i) {
-        allSkins.push_back({&header.lodProfiles[i], static_cast<int>(i + 1), static_cast<int>(i)});
-    }
+    ProfileMaterialSet set;
+    set.profile = ProfileId::Wow;
+    set.looks.looks.push_back(Look{});
+    // The model header's own fields are profile-scoped (§6.3): they describe how
+    // *this* game reads the model, and a second set would carry its own.
+    set.native.set("globalFlags", static_cast<i64>(static_cast<u32>(source.globalFlags.value)));
+    set.native.set("sourceVersion", static_cast<i64>(sourceVersion));
 
-    for (size_t si = 0; si < allSkins.size(); ++si) {
-        const auto& skinRef = allSkins[si];
-        const auto& skin = *skinRef.profile;
-        Mesh mesh;
-        mesh.name = header.modelName + "_skin" + std::to_string(si);
-        mesh.lodLevel = static_cast<u32>(skinRef.lodLevel);
+    // --- one mesh per skin profile -----------------------------------------
+    for (std::size_t s = 0; s < source.skinProfiles.size(); ++s) {
+        const m2::SkinProfile& skin = source.skinProfiles[s];
 
-        // Resolve skin vertex indices → copy from global vertex array
-        size_t const vertCount = skin.vertices.size();
-        mesh.positions.resize(vertCount);
-        mesh.normals.resize(vertCount);
-        mesh.boneIndices.resize(vertCount);
-        mesh.boneWeights.resize(vertCount);
-        mesh.uvSets.resize(2); // M2 always has 2 UV sets
-        mesh.uvSets[0].resize(vertCount);
-        mesh.uvSets[1].resize(vertCount);
-
-        for (size_t v = 0; v < vertCount; ++v) {
-            u32 const globalIdx = static_cast<u32>(skin.vertices[v]) + skin.lodVertexBase;
-            if (globalIdx < header.vertices.size()) {
-                const auto& vert = header.vertices[globalIdx];
-                mesh.positions[v] = vert.position;
-                mesh.normals[v] = vert.normal;
-                mesh.boneIndices[v] = vert.boneIndices;
-                mesh.boneWeights[v] = vert.boneWeights;
-                mesh.uvSets[0][v] = vert.texCoords[0];
-                mesh.uvSets[1][v] = vert.texCoords[1];
+        // A submesh's section index in this mesh, so a batch can find it.
+        std::vector<u32> sectionOfSubmesh(skin.submeshes.size(), kInvalidIndex);
+        // The batch each submesh draws with first — the one whose material the
+        // section binds. `kInvalidIndex` means nothing draws it.
+        std::vector<u32> baseBatchOfSubmesh(skin.submeshes.size(), kInvalidIndex);
+        for (std::size_t b = 0; b < skin.batches.size(); ++b) {
+            const m2::Batch& batch = skin.batches[b];
+            if (batch.skinSectionIndex >= skin.submeshes.size()) {
+                diagnostics.warn(DiagCode::IndexOutOfRange,
+                                 "batch names submesh " + std::to_string(batch.skinSectionIndex) +
+                                     ", past the end",
+                                 ElementRef(ElementKind::Mesh, s));
+                continue;
+            }
+            const u32 current = baseBatchOfSubmesh[batch.skinSectionIndex];
+            if (current == kInvalidIndex ||
+                batch.materialLayer < skin.batches[current].materialLayer) {
+                baseBatchOfSubmesh[batch.skinSectionIndex] = static_cast<u32>(b);
             }
         }
 
-        // Indices: skin.indices indexes into skin.vertices (already resolved above)
-        mesh.indices.reserve(skin.indices.size());
-        for (u16 idx : skin.indices) {
-            mesh.indices.push_back(static_cast<u32>(idx));
+        // Every batch becomes a slot and a material, in batch order, so the
+        // set's arrays and the source's line up whatever the sections bind.
+        std::vector<u32> slotOfBatch(skin.batches.size(), kInvalidIndex);
+        for (std::size_t b = 0; b < skin.batches.size(); ++b) {
+            const u32 slot = model.addSlot(BatchSlotName(s, b));
+            slotOfBatch[b] = slot;
         }
 
-        // Submeshes from SkinSections
-        mesh.submeshes.reserve(skin.submeshes.size());
-        for (size_t ssi = 0; ssi < skin.submeshes.size(); ++ssi) {
-            const auto& section = skin.submeshes[ssi];
-            Submesh sub;
-            sub.name = "section_" + std::to_string(ssi);
-            sub.indexStart = section.indexStart;
-            sub.indexCount = section.indexCount;
-            sub.vertexStart = section.vertexStart;
-            sub.vertexCount = section.vertexCount;
-            sub.selectionGroup = section.skinSectionId;
-            sub.centerPosition = section.centerPosition;
-            sub.sortCenterPosition = section.sortCenterPosition;
-            sub.sortRadius = section.sortRadius;
-            sub.centerBoneIndex = section.centerBoneIndex;
-            sub.maxBoneInfluences = section.boneInfluences;
+        geom::MeshBuilder builder;
+        for (std::size_t sub = 0; sub < skin.submeshes.size(); ++sub) {
+            const m2::SkinSection& submesh = skin.submeshes[sub];
+            MeshSection section;
+            section.name = "submesh_" + std::to_string(submesh.skinSectionId);
+            section.selectionGroup = submesh.skinSectionId;
+            section.native.set("skinSectionId", static_cast<i64>(submesh.skinSectionId));
+            // `level` is deliberately not carried: it is not independent data,
+            // it is the high word of `indexStart`, and export recomputes both
+            // from the ranges it actually writes.
+            const u32 base = baseBatchOfSubmesh[sub];
+            if (base != kInvalidIndex) {
+                section.materialSlot = slotOfBatch[base];
+                section.native.set("batchFlags", static_cast<i64>(skin.batches[base].flags));
+            } else {
+                section.profiles = kNoProfiles;
+                diagnostics.info(DiagCode::SectionUndrawn,
+                                 "submesh " + std::to_string(sub) + " has no batch",
+                                 ElementRef(ElementKind::Section, sub), ProfileId::Wow);
+            }
+            sectionOfSubmesh[sub] = builder.addSection(std::move(section));
+        }
 
-            // Find the batch that references this skin section to get material info
-            // Multiple batches can reference the same section for multi-pass;
-            // we take the first (primary) batch
-            bool batchFound = false;
-            for (const auto& batch : skin.batches) {
-                if (batch.skinSectionIndex == ssi) {
-                    sub.materialIndex = batch.materialIndex;
+        // The skin's vertex indirection, flattened.
+        std::vector<u32> globalOf(skin.vertices.size(), 0);
+        for (std::size_t v = 0; v < skin.vertices.size(); ++v) {
+            const u32 global = skin.vertices[v];
+            globalOf[v] = global;
+            const m2::Vertex& vertex =
+                global < source.vertices.size() ? source.vertices[global] : m2::Vertex{};
+            builder.addVertex(vertex.position);
+            for (std::size_t k = 0; k < 4; ++k) {
+                const f32 weight = static_cast<f32>(vertex.boneWeights[k]) / 255.0f;
+                if (weight <= 0.0f) {
+                    continue;
+                }
+                // A skin section's bone indices go through `boneCombos` from its
+                // own `boneComboIndex`; the vertex's byte is an offset into that
+                // window, not a bone id.
+                builder.addInfluence(geom::VertexId(static_cast<u32>(v)), vertex.boneIndices[k],
+                                     weight);
+            }
+        }
 
-                    // Resolve texture from combo table and attach to material
-                    if (batch.textureComboIndex < header.textureCombos.size()) {
-                        [[maybe_unused]] u16 const texIdx =
-                            header.textureCombos[batch.textureComboIndex];
-                        if (sub.materialIndex < model.materials.size()) {
-                            auto& mat = model.materials[sub.materialIndex];
-                            // Only add if not already populated
-                            if (mat.textureSlots.empty()) {
-                                mat.shaderId = batch.shaderId;
-                                mat.priorityPlane = batch.priorityPlane;
-                                for (u16 t = 0; t < batch.textureCount; ++t) {
-                                    u16 const comboIdx = batch.textureComboIndex + t;
-                                    if (comboIdx < header.textureCombos.size()) {
-                                        TextureSlot slot;
-                                        slot.textureIndex = header.textureCombos[comboIdx];
-                                        slot.semantic = (t == 0) ? TextureSlotSemantic::Diffuse
-                                                                 : TextureSlotSemantic::Custom;
-                                        // Resolve UV set from textureCoordCombos
-                                        u16 const uvComboIdx = batch.textureCoordComboIndex + t;
-                                        if (uvComboIdx < header.textureCoordCombos.size()) {
-                                            u16 const uvSel = header.textureCoordCombos[uvComboIdx];
-                                            slot.uvSetIndex = (uvSel <= 1) ? uvSel : 0;
-                                        }
-                                        mat.textureSlots.push_back(std::move(slot));
-                                    }
-                                }
-                            }
-                        }
+        for (std::size_t sub = 0; sub < skin.submeshes.size(); ++sub) {
+            const m2::SkinSection& submesh = skin.submeshes[sub];
+            const std::size_t first = IndexStart(submesh);
+            const std::size_t last = first + submesh.indexCount;
+            for (std::size_t i = first; i + 2 < last && i + 2 < skin.indices.size(); i += 3) {
+                const std::array<u32, 3> corners = {skin.indices[i + 0], skin.indices[i + 1],
+                                                    skin.indices[i + 2]};
+                if (corners[0] >= skin.vertices.size() || corners[1] >= skin.vertices.size() ||
+                    corners[2] >= skin.vertices.size()) {
+                    diagnostics.warn(DiagCode::IndexOutOfRange,
+                                     "submesh index past the skin's vertex list",
+                                     ElementRef(ElementKind::Mesh, s));
+                    continue;
+                }
+                const geom::FaceId face =
+                    builder.addTriangle(geom::VertexId(corners[0]), geom::VertexId(corners[1]),
+                                        geom::VertexId(corners[2]), sectionOfSubmesh[sub]);
+                for (u32 c = 0; c < 3; ++c) {
+                    const u32 global = globalOf[corners[c]];
+                    if (global >= source.vertices.size()) {
+                        continue;
                     }
-
-                    batchFound = true;
-                    break;
+                    const m2::Vertex& vertex = source.vertices[global];
+                    builder.setCornerAttr(face, c, geom::names::kNormal, vertex.normal);
+                    builder.setCornerAttr(face, c, geom::names::uv(0), vertex.texCoords[0]);
+                    builder.setCornerAttr(face, c, geom::names::uv(1), vertex.texCoords[1]);
                 }
             }
-            if (!batchFound) {
-                issues.push_back("Skin " + std::to_string(si) + " section " + std::to_string(ssi) +
-                                 " has no matching batch");
-            }
-
-            mesh.submeshes.push_back(std::move(sub));
         }
 
-        // Compute mesh bounds from vertex positions
-        if (!mesh.positions.empty()) {
-            Vector3f minP = mesh.positions[0];
-            Vector3f maxP = mesh.positions[0];
-            f32 maxDistSq = 0;
-            for (const auto& p : mesh.positions) {
-                minP =
-                    Vector3f(std::min(minP.x, p.x), std::min(minP.y, p.y), std::min(minP.z, p.z));
-                maxP =
-                    Vector3f(std::max(maxP.x, p.x), std::max(maxP.y, p.y), std::max(maxP.z, p.z));
-                f32 const distSq = p.x * p.x + p.y * p.y + p.z * p.z;
-                if (distSq > maxDistSq)
-                    maxDistSq = distSq;
-            }
-            mesh.bounds.minimum = minP;
-            mesh.bounds.maximum = maxP;
-            mesh.bounds.sphereRadius = std::sqrt(maxDistSq);
-        }
+        geom::MeshBuilder::BuildOutcome outcome = builder.build();
+        outcome.mesh.name = "skin_" + std::to_string(s);
+        outcome.mesh.lodLevel = static_cast<u32>(s);
+        outcome.mesh.recomputeBounds();
+        model.meshes.push_back(std::move(outcome.mesh));
 
-        model.meshes.push_back(std::move(mesh));
+        // The materials, after the mesh so a batch's diagnostics land with its
+        // mesh in the report's order.
+        for (std::size_t b = 0; b < skin.batches.size(); ++b) {
+            Material material = m2_core::ImportBatch(source, skin.batches[b], context, diagnostics);
+            material.name = BatchSlotName(s, b);
+            set.resizeBindings(model.materialSlots.size());
+            set.slotBindings[slotOfBatch[b]].byLook[0] = static_cast<u32>(set.materials.size());
+            set.materials.push_back(std::move(material));
+        }
+        for (std::size_t b = 0; b < skin.batches.size(); ++b) {
+            const u32 sub = skin.batches[b].skinSectionIndex;
+            if (sub < baseBatchOfSubmesh.size() && baseBatchOfSubmesh[sub] != b) {
+                diagnostics.info(DiagCode::MaterialSlotUnused,
+                                 "batch " + std::to_string(b) + " is pass " +
+                                     std::to_string(skin.batches[b].materialLayer) +
+                                     " over submesh " + std::to_string(sub) +
+                                     "; imported but no section draws it",
+                                 ElementRef(ElementKind::Slot, slotOfBatch[b]), ProfileId::Wow);
+            }
+        }
     }
 
+    set.resizeBindings(model.materialSlots.size());
+    model.profileSets.push_back(std::move(set));
+    document.models.push_back(std::move(model));
+    result.value = std::move(document);
     return result;
 }
 
@@ -302,189 +423,266 @@ ConvertResult M2Converter::fromM2(const m2::Model& header) const {
 // toM2
 // ============================================================================
 
-M2ConvertResult M2Converter::toM2(const Model& wemModel, u32 /*targetVersion*/) const {
-    M2ConvertResult result;
-    auto& header = result.model;
-    auto& issues = result.issues;
-
-    header.modelName = wemModel.name;
-    header.bounding = convertExtentToM2(wemModel.bounds);
-
-    // ── Textures ───────────────────────────────────────────────────
-    header.textures.reserve(wemModel.textures.size());
-    for (const auto& ref : wemModel.textures) {
-        m2::Texture tex;
-        tex.filename = ref.path;
-        tex.flags = ref.flags;
-        tex.type = ref.type;
-        header.textures.push_back(std::move(tex));
+Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
+                                    u32 targetVersion) const {
+    Result<m2::Model> result;
+    if (!checkExportProfile(document, profile, result.diagnostics)) {
+        return result;
     }
 
-    // ── Materials ──────────────────────────────────────────────────
-    header.materials.reserve(wemModel.materials.size());
-    for (const auto& wMat : wemModel.materials) {
-        if (wMat.type == MaterialType::Composite) {
-            issues.push_back("Composite material '" + wMat.name +
-                             "' not supported in M2, flattening to first section");
-            // Use first section's properties
-            if (!wMat.sections.empty() &&
-                wMat.sections[0].materialIndex < wemModel.materials.size()) {
-                const auto& srcMat = wemModel.materials[wMat.sections[0].materialIndex];
-                m2::Material mat;
-                mat.flags = convertMaterialFlagsToM2(srcMat.flags);
-                mat.blendingMode = convertBlendModeToM2(srcMat.blendMode);
-                header.materials.push_back(std::move(mat));
-            } else {
-                m2::Material mat;
-                header.materials.push_back(std::move(mat));
+    Diagnostics& diagnostics = result.diagnostics;
+    m2::Model out;
+    if (document.models.empty()) {
+        result.value = std::move(out);
+        return result;
+    }
+
+    const Model& model = document.models.front();
+    out.modelName = document.name.empty() ? model.name : document.name;
+    out.bounding = FromExtent(model.bounds);
+    out.collision = out.bounding;
+    const ProfileMaterialSet* set = model.setFor(profile);
+    if (set != nullptr) {
+        out.globalFlags.value =
+            static_cast<m2::GlobalFlag>(static_cast<u32>(set->native.value("globalFlags")));
+    }
+
+    // --- textures -----------------------------------------------------------
+    m2_core::Context context;
+    context.sourceVersion = targetVersion;
+    for (const TextureRef& ref : document.textures) {
+        m2::Texture texture;
+        texture.filename = ref.path;
+        texture.flags = ref.flags;
+        texture.type = ref.slotType;
+        context.textureIndexMap.push_back(static_cast<u32>(out.textures.size()));
+        out.textures.push_back(std::move(texture));
+        const auto* fileId = std::get_if<TextureFileDataId>(&ref.key);
+        out.texture_ids.push_back(fileId == nullptr ? 0u : fileId->value);
+    }
+
+    // --- bones --------------------------------------------------------------
+    //
+    // Only Bone nodes become bones, and they keep their WEM order, so a vertex's
+    // influence index is the bone index. The attached kinds are written from the
+    // same tree below, their local translation composed back into model space.
+    std::vector<u32> boneOf(model.nodes.size(), 0xFFFFu);
+    for (std::size_t n = 0; n < model.nodes.size(); ++n) {
+        if (model.nodes.nodes[n].kind != NodeKind::Bone) {
+            continue;
+        }
+        const Node& node = model.nodes.nodes[n];
+        boneOf[n] = static_cast<u32>(out.bones.size());
+        m2::Bone bone;
+        bone.keyBoneId = static_cast<i32>(node.native.value("keyBoneId", -1));
+        bone.flags = static_cast<u32>(node.native.value("flagBits"));
+        bone.submeshId = static_cast<u16>(node.native.value("submeshId"));
+        bone.boneNameCRC = static_cast<u32>(node.native.value("boneNameCRC"));
+        bone.parentBoneId = -1;
+        if (node.parent != kInvalidNode && node.parent < boneOf.size() &&
+            boneOf[node.parent] != 0xFFFFu) {
+            bone.parentBoneId = static_cast<i16>(boneOf[node.parent]);
+        }
+        bone.pivot = model.nodes.worldBind(static_cast<u32>(n)).translation;
+        out.bones.push_back(std::move(bone));
+    }
+
+    for (std::size_t n = 0; n < model.nodes.size(); ++n) {
+        const Node& node = model.nodes.nodes[n];
+        const Vector3f world = model.nodes.worldBind(static_cast<u32>(n)).translation;
+        const u16 parentBone = node.parent != kInvalidNode && node.parent < boneOf.size() &&
+                                       boneOf[node.parent] != 0xFFFFu
+                                   ? static_cast<u16>(boneOf[node.parent])
+                                   : 0u;
+        switch (node.kind) {
+        case NodeKind::Attachment: {
+            m2::Attachment attachment;
+            attachment.id = static_cast<u32>(node.native.value("attachmentId"));
+            attachment.boneId = parentBone;
+            attachment.position = world;
+            out.attachments.push_back(std::move(attachment));
+            break;
+        }
+        case NodeKind::Light: {
+            m2::Light light;
+            light.type = static_cast<u16>(node.native.value("lightType"));
+            light.boneId = static_cast<i16>(parentBone);
+            light.position = world;
+            out.lights.push_back(std::move(light));
+            break;
+        }
+        case NodeKind::Event: {
+            m2::Event event;
+            if (const auto* payload = std::get_if<EventPayload>(&node.payload)) {
+                event.identifier = payload->id;
             }
-        } else {
-            m2::Material mat;
-            mat.flags = convertMaterialFlagsToM2(wMat.flags);
-            mat.blendingMode = convertBlendModeToM2(wMat.blendMode);
-            header.materials.push_back(std::move(mat));
+            event.data = static_cast<u32>(node.native.value("eventData"));
+            event.boneId = parentBone;
+            event.position = world;
+            out.events.push_back(std::move(event));
+            break;
+        }
+        case NodeKind::Camera: {
+            m2::Camera camera;
+            camera.type = static_cast<u32>(node.native.value("cameraType"));
+            if (const auto* payload = std::get_if<CameraPayload>(&node.payload)) {
+                camera.fieldOfView = payload->fov;
+                camera.nearClip = payload->nearClip;
+                camera.farClip = payload->farClip;
+            }
+            camera.positionBase = world;
+            out.cameras.push_back(std::move(camera));
+            break;
+        }
+        default:
+            break;
         }
     }
 
-    // ── Build global vertex array from all meshes ──────────────────
-    // M2 has one global vertex array; skins reference subsets via index buffers
-    u32 globalVertexOffset = 0;
-    for (size_t mi = 0; mi < wemModel.meshes.size(); ++mi) {
-        const auto& mesh = wemModel.meshes[mi];
-        for (size_t v = 0; v < mesh.positions.size(); ++v) {
-            m2::Vertex vert;
-            vert.position = mesh.positions[v];
-            if (v < mesh.normals.size())
-                vert.normal = mesh.normals[v];
-            if (v < mesh.boneIndices.size())
-                vert.boneIndices = mesh.boneIndices[v];
-            if (v < mesh.boneWeights.size())
-                vert.boneWeights = mesh.boneWeights[v];
-            if (!mesh.uvSets.empty() && v < mesh.uvSets[0].size())
-                vert.texCoords[0] = mesh.uvSets[0][v];
-            if (mesh.uvSets.size() > 1 && v < mesh.uvSets[1].size())
-                vert.texCoords[1] = mesh.uvSets[1][v];
-            header.vertices.push_back(std::move(vert));
-        }
+    // --- geometry + batches -------------------------------------------------
+    //
+    // Export writes one skin profile per mesh, which is the inverse of import's
+    // one mesh per skin. The global vertex list is the concatenation of the
+    // meshes' and each skin's indirection is the identity over its own slice —
+    // WEM has no shared vertex pool to preserve, and building one would mean
+    // welding across meshes that the import deliberately kept apart.
+    geom::RenderMeshDesc desc;
+    desc.attributes = {
+        {geom::names::kPosition, utils::AttributeClass::Position, utils::AttributeEncoding::Float32,
+         3, 0},
+        {geom::names::kNormal, utils::AttributeClass::Normal, utils::AttributeEncoding::Float32, 3,
+         0},
+        {geom::names::uv(0), utils::AttributeClass::UV, utils::AttributeEncoding::Float32, 2, 0},
+        {geom::names::uv(1), utils::AttributeClass::UV, utils::AttributeEncoding::Float32, 2, 0},
+    };
+    desc.includeSkin = true;
+    desc.maxInfluences = Profile(profile).maxBoneInfluences;
+    desc.wantU16Indices = true;
 
-        // Build a skin profile for each mesh
+    for (std::size_t m = 0; m < model.meshes.size(); ++m) {
+        const Mesh& mesh = model.meshes[m];
+        const geom::RenderMesh render = geom::BuildRenderMesh(mesh, desc);
+        diagnostics.append(render.diagnostics);
+
         m2::SkinProfile skin;
-        skin.lodVertexBase = globalVertexOffset;
+        const u32 vertexBase = static_cast<u32>(out.vertices.size());
+        const std::vector<Vector3f> positions = render.vertices.getPositions();
+        const std::vector<Vector3f> normals = render.vertices.getNormals();
+        const std::vector<Vector2f> uv0 = render.vertices.getUVs(0);
+        const std::vector<Vector2f> uv1 = render.vertices.getUVs(1);
+        const std::vector<std::array<u32, 4>> boneIndices = render.vertices.getBoneIndices();
+        const std::vector<std::array<f32, 4>> boneWeights = render.vertices.getBoneWeights();
 
-        // vertices[] is just the identity mapping for this mesh's range
-        size_t const meshVertCount = mesh.positions.size();
-        skin.vertices.resize(meshVertCount);
-        for (size_t v = 0; v < meshVertCount; ++v) {
-            skin.vertices[v] = static_cast<u16>(v);
-        }
-
-        // Copy indices
-        skin.indices.reserve(mesh.indices.size());
-        for (u32 idx : mesh.indices) {
-            if (idx > 0xFFFF) {
-                issues.push_back("Mesh " + std::to_string(mi) + " index > 65535, clamped");
-                skin.indices.push_back(0xFFFF);
-            } else {
-                skin.indices.push_back(static_cast<u16>(idx));
-            }
-        }
-
-        // Submeshes → SkinSections + Batches
-        for (size_t si = 0; si < mesh.submeshes.size(); ++si) {
-            const auto& sub = mesh.submeshes[si];
-            m2::SkinSection section;
-            section.skinSectionId = sub.selectionGroup;
-            section.level = static_cast<u16>(mesh.lodLevel);
-            section.vertexStart = static_cast<u16>(sub.vertexStart);
-            section.vertexCount = static_cast<u16>(sub.vertexCount);
-            section.indexStart = static_cast<u16>(sub.indexStart);
-            section.indexCount = static_cast<u16>(sub.indexCount);
-            section.boneInfluences = sub.maxBoneInfluences;
-            section.centerBoneIndex = sub.centerBoneIndex;
-            section.centerPosition = sub.centerPosition;
-            section.sortCenterPosition = sub.sortCenterPosition;
-            section.sortRadius = sub.sortRadius;
-            skin.submeshes.push_back(section);
-
-            // Build a batch for each submesh
-            m2::Batch batch;
-            batch.skinSectionIndex = static_cast<u16>(si);
-            batch.materialIndex = static_cast<u16>(sub.materialIndex);
-
-            // Build texture combo entries
-            if (sub.materialIndex < wemModel.materials.size()) {
-                const auto& wMat = wemModel.materials[sub.materialIndex];
-                batch.shaderId = wMat.shaderId;
-                batch.priorityPlane = static_cast<i8>(wMat.priorityPlane);
-                batch.textureComboIndex = static_cast<u16>(header.textureCombos.size());
-                batch.textureCount = static_cast<u16>(wMat.textureSlots.size());
-                batch.textureCoordComboIndex = static_cast<u16>(header.textureCoordCombos.size());
-                for (const auto& slot : wMat.textureSlots) {
-                    header.textureCombos.push_back(static_cast<u16>(slot.textureIndex));
-                    header.textureCoordCombos.push_back(static_cast<u16>(slot.uvSetIndex));
+        for (std::size_t v = 0; v < positions.size(); ++v) {
+            m2::Vertex vertex;
+            vertex.position = positions[v];
+            vertex.normal = v < normals.size() ? normals[v] : Vector3f{0, 0, 1};
+            vertex.texCoords[0] = v < uv0.size() ? uv0[v] : Vector2f{0, 0};
+            vertex.texCoords[1] = v < uv1.size() ? uv1[v] : Vector2f{0, 0};
+            for (std::size_t k = 0; k < 4; ++k) {
+                if (v < boneIndices.size() && v < boneWeights.size()) {
+                    const u32 node = boneIndices[v][k];
+                    const u32 bone = node < boneOf.size() ? boneOf[node] : 0xFFFFu;
+                    vertex.boneIndices[k] = bone == 0xFFFFu ? 0u : static_cast<u8>(bone);
+                    vertex.boneWeights[k] =
+                        static_cast<u8>(std::clamp(boneWeights[v][k], 0.0f, 1.0f) * 255.0f + 0.5f);
                 }
             }
+            out.vertices.push_back(vertex);
+            if (vertexBase + v > 0xFFFFu) {
+                diagnostics.warn(DiagCode::IndexWidthExceeded,
+                                 "more than 65535 vertices across all meshes",
+                                 ElementRef(ElementKind::Mesh, m));
+            }
+            skin.vertices.push_back(static_cast<u16>(vertexBase + v));
+        }
 
+        for (const geom::RenderRange& range : render.ranges) {
+            m2::SkinSection submesh;
+            // The split form: low word in `indexStart`, high word in `level`.
+            const std::size_t start = skin.indices.size();
+            submesh.indexStart = static_cast<u16>(start & 0xFFFFu);
+            submesh.level = static_cast<u16>(start >> 16);
+            submesh.indexCount = static_cast<u16>(range.indexCount);
+            submesh.vertexStart = 0;
+            submesh.vertexCount = static_cast<u16>(positions.size());
+            if (range.section < mesh.sections.size()) {
+                const MeshSection& section = mesh.sections[range.section];
+                submesh.skinSectionId = static_cast<u16>(section.native.value(
+                    "skinSectionId", static_cast<i64>(section.selectionGroup)));
+            }
+            for (u32 i = 0; i < range.indexCount; ++i) {
+                const u32 index = render.indices[range.firstIndex + i];
+                skin.indices.push_back(static_cast<u16>(index));
+            }
+
+            const Material* material = range.materialSlot < model.materialSlots.size()
+                                           ? Resolve(model, range.materialSlot, profile)
+                                           : nullptr;
+            m2::Batch batch;
+            if (material != nullptr) {
+                batch = m2_core::ExportMaterial(*material, context, out, diagnostics);
+            }
+            batch.skinSectionIndex = static_cast<u16>(skin.submeshes.size());
+            batch.geosetIndex = batch.skinSectionIndex;
+            skin.submeshes.push_back(std::move(submesh));
             skin.batches.push_back(batch);
         }
 
-        header.skinProfiles.push_back(std::move(skin));
-        globalVertexOffset += static_cast<u32>(meshVertCount);
+        out.skinProfiles.push_back(std::move(skin));
     }
+    out.numSkinProfiles = static_cast<u32>(out.skinProfiles.size());
 
-    header.numSkinProfiles = static_cast<u32>(header.skinProfiles.size());
-
+    result.value = std::move(out);
     return result;
 }
 
 // ============================================================================
-// M2Converter — FormatConverter interface
+// FormatConverter
 // ============================================================================
 
 std::string M2Converter::formatId() const {
     return "m2";
 }
+
 std::string M2Converter::formatName() const {
     return "World of Warcraft M2";
 }
-bool M2Converter::supportsImport() const {
-    return true;
+
+std::span<const ProfileId> M2Converter::profiles() const {
+    return kM2Profiles;
 }
+
+bool M2Converter::supportsImport() const {
+    return false;
+}
+
 bool M2Converter::supportsExport() const {
     return true;
 }
+
 u32 M2Converter::defaultExportVersion() const {
     return 274;
 }
 
-ExportResult M2Converter::exportToBytes(const Model& model, u32 version) const {
-    auto m2Result = toM2(model, version == 0 ? defaultExportVersion() : version);
-    ExportResult result;
-    result.issues = std::move(m2Result.issues);
-
-    m2::WriteOptions opts;
-    opts.m2Version = version == 0 ? defaultExportVersion() : version;
-    m2::Writer writer(opts);
-    auto serResult = writer.write(m2Result.model);
-    result.data = std::move(serResult.m2Data);
-
-    result.issues.push_back("M2 byte-level export writes only the base .m2 file. "
-                            "Use toM2() for the full Model including skin profiles.");
+Result<std::vector<u8>> M2Converter::exportToBytes(const Document& document, ProfileId profile,
+                                                   u32 version) const {
+    Result<m2::Model> converted =
+        toM2(document, profile, version == 0 ? defaultExportVersion() : version);
+    Result<std::vector<u8>> result;
+    result.diagnostics = std::move(converted.diagnostics);
+    if (!converted.ok()) {
+        return result;
+    }
+    // The base `.m2` only: the skins and the animation sidecars are separate
+    // files, and a byte-level export has one return value.
+    m2::Writer writer;
+    m2::M2SerializeResult written = writer.write(*converted);
+    for (const std::string& issue : writer.getIssues()) {
+        result.diagnostics.warn(DiagCode::Unspecified, issue);
+    }
+    result.value = std::move(written.m2Data);
     return result;
-}
-
-// ============================================================================
-// Legacy free functions
-// ============================================================================
-
-ConvertResult fromM2(const m2::Model& m2Model) {
-    static const M2Converter converter;
-    return converter.fromM2(m2Model);
-}
-
-M2ConvertResult toM2(const Model& wemModel, u32 targetVersion) {
-    static const M2Converter converter;
-    return converter.toM2(wemModel, targetVersion);
 }
 
 } // namespace wem

@@ -95,15 +95,18 @@ std::vector<u8> writeM3(m3::Writer& writer, const m3::Model& model) {
     return writer.write(model);
 }
 
-models::wem::Model parseWem(models::wem::Parser& parser, const val& jsArray) {
+models::wem::Document parseWem(models::wem::Parser& parser, const val& jsArray) {
     const auto bytes = jsToBytes(jsArray);
     auto result = parser.parse(std::span<const u8>(bytes.data(), bytes.size()));
     if (!result) fail("wem parse returned no result");
     return std::move(*result);
 }
 
-std::vector<u8> writeWem(models::wem::Writer& writer, const models::wem::Model& model) {
-    return writer.write(model);
+// The unknown chunks a parse preserved are deliberately not threaded through
+// here: JS holds a `Document`, not a parser, so there is nothing to hand back
+// and a silent drop is the honest default rather than a hidden one.
+std::vector<u8> writeWem(models::wem::Writer& writer, const models::wem::Document& document) {
+    return writer.write(document);
 }
 
 // Accepts any concrete VirtualPathFileSystem: InMemoryFileSystem in the

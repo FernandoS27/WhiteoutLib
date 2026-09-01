@@ -35,6 +35,7 @@ pybind11_add_module(whiteout MODULE
     mdx_bindings.cpp
     m2_bindings.cpp
     m3_bindings.cpp
+    wem_bindings.cpp
     textures_bindings.cpp
     utils_bindings.cpp
     host_bindings.cpp

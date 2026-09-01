@@ -5,71 +5,43 @@
 
 /**
  * @file writer.h
- * @brief WEM file writer
+ * @brief Writing a `Document` (WEM v3, design §12).
  *
- * This file provides the Writer class for writing WEM model files.
- * The writer converts Model structures to binary WEM format.
- *
- * @example Basic writing
- * @code
- * wem::Model model;
- * // ... populate model data ...
- *
- * wem::Writer writer;
- * writer.write("output.wem", model);
- * @endcode
+ * §11.4's other half needs no parameter: the chunks this build did not
+ * understand ride on `Document::unknownChunks`, which the parser fills, so a
+ * read-edit-write round trip preserves them by doing nothing. Clearing that
+ * vector is how a caller drops them — an explicit act, not an omission.
  */
 
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "../../common_types.h"
-#include "structures.h"
+#include <whiteout/common_types.h>
+
+#include "diagnostics.h"
+#include "document.h"
 
 namespace whiteout {
 namespace models {
 namespace wem {
 
-// ============================================================================
-// WEM Writer
-// ============================================================================
-
-/**
- * @brief Writer for WEM model files
- *
- * The Writer takes a Model structure and writes it to disk in binary
- * WEM format. It automatically handles chunk serialization and size calculation.
- *
- * Uses the PImpl (Pointer to Implementation) idiom to hide implementation details.
- */
+/// @bind methods, js_name=WemWriter
 class Writer {
 public:
-    /// @brief Construct a new Writer
     Writer();
-
-    /// @brief Destructor (defined in .cpp for incomplete type)
     ~Writer();
+    Writer(Writer&&) noexcept;
+    Writer& operator=(Writer&&) noexcept;
 
-    /**
-     * @brief Write a WEM file to disk
-     * @param filePath Path where the WEM file should be written
-     * @param model Model data to write
-     * @return True on success
-     * @throws std::runtime_error If file cannot be created or written
-     */
-    bool write(const std::string& filePath, const Model& model);
+    bool write(const std::string& filePath, const Document& document);
+    std::vector<u8> write(const Document& document);
 
-    /**
-     * @brief Write a WEM model to a byte buffer
-     * @param model Model data to write
-     * @return Vector containing the binary WEM data
-     */
-    std::vector<u8> write(const Model& model);
+    const Diagnostics& diagnostics() const;
 
 private:
     class Impl;
-    std::unique_ptr<Impl> pImpl;
+    std::unique_ptr<Impl> impl_;
 };
 
 } // namespace wem

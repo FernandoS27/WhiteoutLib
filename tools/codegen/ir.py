@@ -51,6 +51,10 @@ class BindField:
     # C wrapper — only safe for plain-old-data fields (PRIMITIVE/ENUM
     # and bit-compatible nested PODs like Vector*).
     byte_offset: Optional[int] = None
+    # `@wem ...` directives from this field's doc comment. Kept separate from
+    # the `@bind` dict because a field can be perfectly bindable and still be
+    # wrong to mirror into a WEM native block (animation tracks are both).
+    wem: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -151,6 +155,12 @@ class BindEnum:
     # Optional Java package override (mirrors BindClass.java_package).
     # Set via `@bind java_package=foo.bar` on the enum declaration.
     java_package: str = ''
+    # C++ underlying type spelling ('u32', 'u8', 'int', ...). The mirror
+    # generator needs it: an `enum class : u32` holds any u32, so a flags
+    # word with an undocumented bit survives the mirror; a narrower guess
+    # would truncate it.
+    underlying: str = 'int'
+    wem: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -220,6 +230,15 @@ class BindClass:
     # `@bind java_package=foo.bar`. C symbol naming is unaffected
     # (symbols stay under the module's prefix to preserve ABI).
     java_package: str = ''
+    wem: dict = field(default_factory=dict)
+    # Fields the walk could not classify — `vector<array<T,N>>`, or a member
+    # whose type is not itself bound. The binding backends drop these (they
+    # have nowhere to point), and dropping them silently is right for a
+    # binding and wrong for a *mirror*: a native block that quietly loses a
+    # field the parser has is a lossy round trip nothing would report. Kept
+    # here as (name, cpp_type, wem_directives, doc, position) so `wem-native`
+    # can refuse — or, with `@wem as=`, put the field back in its original slot.
+    unbindable_fields: list = field(default_factory=list)
 
 
 @dataclass
@@ -240,6 +259,7 @@ class BindTemplateField:
     cpp_name: str
     cpp_text_template: str   # raw spelling with 'T' (or whatever) preserved
     doc: str = ''
+    wem: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -309,3 +329,42 @@ class ModuleConfig:
     # JS class names to exclude from emission (because another module owns
     # them — e.g. shared math types live in mdx_bindings.cpp).
     skip_class_js_names: list[str] = field(default_factory=list)
+    # `--backend wem-native` configuration; None on modules that mirror
+    # nothing. See WemNative below.
+    wem_native: Optional['WemNative'] = None
+
+
+@dataclass
+class WemNative:
+    """Per-module configuration for the `wem-native` mirror generator.
+
+    The generator closes over every type reachable from `roots` and emits one
+    header of WEM-owned mirror structs. Everything that is a *decision* —
+    which types are roots, what each mirror is called, which FourCC each takes
+    — is stated here or as a `@wem` annotation in the source header, never
+    inferred, because a mirror name and a chunk tag are part of the WEM file
+    format and must not move when someone refactors a parser struct.
+    """
+    prefix: str                       # 'Mdx' — mirror names default to prefix + short name
+    header_path: str                  # generated header, relative to repo root
+    roots: list[str] = field(default_factory=list)         # short names in cpp_namespace
+    # Roots that gain a synthetic `u32 sourceVersion` — the format version the
+    # record was read from, which no parser struct carries but every native
+    # block needs (§7.3).
+    versioned_roots: list[str] = field(default_factory=list)
+    # FourCC per mirror name. A generated struct with no tag here is inline
+    # data inside its parent's chunk, not a chunk of its own.
+    tags: dict = field(default_factory=dict)
+    # Sidecar `@wem` directives for headers that cannot carry annotations —
+    # `sno/d3/native` is machine-written, so an annotation added there is
+    # deleted by the next regeneration. Shape: {'TypeShortName': {'_type':
+    # {...}, 'fieldName': {...}}}. Merged over whatever the header says.
+    overrides: dict = field(default_factory=dict)
+    # Types reachable from the roots that the mirror must NOT contain — the
+    # generator reports them as dropped rather than silently pulling in half
+    # a parser header.
+    exclude: list[str] = field(default_factory=list)
+    # Enums to mirror although nothing reachable names them. The case for this
+    # is a discriminator: `m3::MaterialType` says which body a block holds, and
+    # the thing that holds it is the authored wrapper, not a mirrored struct.
+    extra_enums: list[str] = field(default_factory=list)

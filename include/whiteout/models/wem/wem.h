@@ -10,33 +10,53 @@
  * Include this single header to access all WEM types and data structures.
  *
  * WEM is a format-agnostic intermediate representation for 3D model data,
- * designed as a superset of the MDX, M2, and M3 model formats.
+ * designed as a superset of the MDX, M2, M3 and Diablo III model formats.
  *
- * v1 scope: mesh and material (static properties).
+ * The data model is a half-edge geometry kernel, profiles, a self-contained node
+ * model and per-game native material blocks alongside the common ones — see
+ * WEM_DESIGN.md.
  *
  * @example Basic Usage
  * @code
  * #include <whiteout/models/wem/wem.h>
  *
- * // Create a WEM model
- * whiteout::models::wem::Model model;
- * model.name = "My Model";
+ * namespace wem = whiteout::models::wem;
  *
- * // Add a texture reference
- * whiteout::models::wem::TextureRef tex;
- * tex.path = "diffuse.blp";
- * model.textures.push_back(tex);
+ * wem::Document document;
+ * document.declare(wem::ProfileId::Sc2);
+ * document.defaultProfile = wem::ProfileId::Sc2;
  *
- * // Add a material
- * whiteout::models::wem::Material mat;
- * mat.type = whiteout::models::wem::MaterialType::Standard;
- * mat.blendMode = whiteout::models::wem::BlendMode::Opaque;
- * model.materials.push_back(mat);
+ * wem::Model model;
+ * model.materialSlots.push_back("body");
+ *
+ * // One material set per profile, over the shared geometry and slot list.
+ * wem::ProfileMaterialSet set;
+ * set.profile = wem::ProfileId::Sc2;
+ * set.looks = wem::LookTable::Single();
+ * set.materials.emplace_back();
+ * set.resizeBindings(model.materialSlots.size());
+ * set.slotBindings[0].byLook[0] = 0;
+ * model.profileSets.push_back(std::move(set));
+ * document.models.push_back(std::move(model));
+ *
+ * const wem::Diagnostics report =
+ *     wem::Validate(document, wem::ValidateLevel::Profile);
  * @endcode
  */
 
+#include "document.h"
+#include "geometry/builder.h"
+#include "geometry/ops.h"
+#include "geometry/render_view.h"
+#include "materials/ops.h"
+#include "model.h"
+#include "nodes/remove.h"
+#include "nodes/visitor.h"
+#include "retarget.h"
+
 #include "converters.h"
+#include "diagnostics.h"
 #include "parser.h"
-#include "structures.h"
-#include "types.h"
+#include "profile.h"
+#include "validate.h"
 #include "writer.h"

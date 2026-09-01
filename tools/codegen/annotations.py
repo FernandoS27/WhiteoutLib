@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
-"""Parser for `@bind` annotations in C++ doc comments.
+"""Parser for `@bind` / `@wem` annotations in C++ doc comments.
 
 Annotation grammar:
 
@@ -23,6 +23,12 @@ Annotations may appear in any of these comment forms:
 The annotation runs from `@bind` up to either end-of-line, the next `@`
 directive, or one of the punctuation markers ` — ` / ` -- ` (commonly used
 to start the human-readable description that follows the annotation).
+
+`@wem` is a second, independent tag family with the same grammar, read by
+the `wem-native` backend (`@wem rename=`, `@wem skip`, `@wem manual`). It is
+separate from `@bind` on purpose: a field can be perfectly bindable and still
+be wrong to mirror into a WEM native block, and the reverse. The two never
+share a directive dict.
 """
 
 from __future__ import annotations
@@ -31,11 +37,15 @@ import re
 from typing import Any, Optional
 
 
-# Capture everything from `@bind` up to (but not including) the next
+# Capture everything from the tag up to (but not including) the next
 # newline, the next @-tag, an em-dash, or a `--` separator. The latter
 # two are conventional separators between the annotation and a human
 # description on the same line.
-_ANNOTATION_RE = re.compile(r'@bind\b\s*:?\s*(?P<rest>[^\n@—]*?)(?=\n|@|—|--|\Z)', re.MULTILINE)
+_ANNOTATION_RES = {
+    tag: re.compile(r'@' + tag + r'\b\s*:?\s*(?P<rest>[^\n@—]*?)(?=\n|@|—|--|\Z)',
+                    re.MULTILINE)
+    for tag in ('bind', 'wem')
+}
 
 
 def _strip_glyphs(line: str) -> str:
@@ -55,8 +65,8 @@ def _strip_glyphs(line: str) -> str:
     return s.rstrip()
 
 
-def parse(raw_comment: Optional[str]) -> dict[str, Any]:
-    """Return a dict of @bind directives. {} means "no @bind found"."""
+def parse_tag(raw_comment: Optional[str], tag: str) -> dict[str, Any]:
+    """Return a dict of `@<tag>` directives. {} means "no `@<tag>` found"."""
     if not raw_comment:
         return {}
     out: dict[str, Any] = {}
@@ -65,7 +75,7 @@ def parse(raw_comment: Optional[str]) -> dict[str, Any]:
     text_lines = [_strip_glyphs(line) for line in raw_comment.splitlines()]
     text = '\n'.join(text_lines)
 
-    for m in _ANNOTATION_RE.finditer(text):
+    for m in _ANNOTATION_RES[tag].finditer(text):
         out['_present'] = True
         rest = m.group('rest').strip()
         if not rest:
@@ -82,6 +92,16 @@ def parse(raw_comment: Optional[str]) -> dict[str, Any]:
     return out
 
 
+def parse(raw_comment: Optional[str]) -> dict[str, Any]:
+    """Return a dict of @bind directives. {} means "no @bind found"."""
+    return parse_tag(raw_comment, 'bind')
+
+
+def parse_wem(raw_comment: Optional[str]) -> dict[str, Any]:
+    """Return a dict of @wem directives. {} means "no @wem found"."""
+    return parse_tag(raw_comment, 'wem')
+
+
 def is_bound(annotations: dict[str, Any]) -> bool:
     return bool(annotations.get('_present'))
 
@@ -95,8 +115,8 @@ def extract_doc(raw_comment: Optional[str]) -> str:
     """Return the human-readable description from a doc comment.
 
     - Strips C++ comment glyphs (`///`, `///<`, `/**`, `* `, etc.).
-    - Removes any `@bind ...` annotation on the same line (everything
-      before the `—` / `--` separator, or the whole `@bind ...` clause
+    - Removes any `@bind ...` / `@wem ...` annotation on the same line
+      (everything before the `—` / `--` separator, or the whole clause
       if no separator).
     - Drops a leading `@brief ` tag.
     - Joins consecutive non-empty lines with spaces; preserves blank
@@ -109,20 +129,20 @@ def extract_doc(raw_comment: Optional[str]) -> str:
     paragraphs: list[list[str]] = [[]]
     for line in raw_comment.splitlines():
         s = _strip_glyphs(line)
-        if '@bind' in s:
-            bind_idx = s.find('@bind')
+        tag_idx = min((s.find(t) for t in ('@bind', '@wem') if t in s), default=-1)
+        if tag_idx >= 0:
             sep_idx = -1
             sep_len = 0
             for sep in ('—', '--'):
                 idx = s.find(sep)
-                if idx > bind_idx:
+                if idx > tag_idx:
                     sep_idx = idx
                     sep_len = len(sep)
                     break
             if sep_idx >= 0:
                 s = s[sep_idx + sep_len:].strip()
             else:
-                s = s[:bind_idx].strip()
+                s = s[:tag_idx].strip()
         if not s:
             if paragraphs[-1]:
                 paragraphs.append([])

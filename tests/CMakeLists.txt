@@ -73,6 +73,55 @@ whiteout_add_test(m2_legacy_version_test m2_legacy_version_test.cpp)
 whiteout_add_test(m2_phys_test m2_phys_test.cpp)
 whiteout_add_test(m2_bone_test m2_bone_test.cpp)
 
+# WEM Tests
+whiteout_add_test(wem_profile_test wem_profile_test.cpp)
+whiteout_add_test(wem_diagnostics_test wem_diagnostics_test.cpp)
+whiteout_add_test(wem_topology_test wem_topology_test.cpp)
+whiteout_add_test(wem_builder_test wem_builder_test.cpp)
+whiteout_add_test(wem_node_test wem_node_test.cpp)
+whiteout_add_test(wem_geometry_corpus_test wem_geometry_corpus_test.cpp)
+whiteout_add_test(wem_ops_test wem_ops_test.cpp)
+whiteout_add_test(wem_render_identity_test wem_render_identity_test.cpp)
+whiteout_add_test(wem_material_kind_test wem_material_kind_test.cpp)
+whiteout_add_test(wem_material_ops_test wem_material_ops_test.cpp)
+whiteout_add_test(wem_document_test wem_document_test.cpp)
+whiteout_add_test(wem_profile_derive_test wem_profile_derive_test.cpp)
+
+# The material converter cores live under src/ — they are P5's converters'
+# internals, not public API — so these three reach them through the src include
+# path, the same way deflate_test reaches the codec.
+whiteout_add_test(wem_material_collapse_test wem_material_collapse_test.cpp)
+target_include_directories(wem_material_collapse_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+whiteout_add_test(wem_two_profile_mdx_test wem_two_profile_mdx_test.cpp)
+target_include_directories(wem_two_profile_mdx_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+whiteout_add_test(wem_native_mdx_test wem_native_mdx_test.cpp)
+target_include_directories(wem_native_mdx_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+whiteout_add_test(wem_native_m3_test wem_native_m3_test.cpp)
+target_include_directories(wem_native_m3_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+whiteout_add_test(wem_native_m2_test wem_native_m2_test.cpp)
+target_include_directories(wem_native_m2_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+whiteout_add_test(wem_native_d3_test wem_native_d3_test.cpp)
+
+# P4 step 1: the reflection visitors against the hand-written v2 pair. Reaches
+# into src/ for both visitors -- the oracle is not public API and must not
+# become public API on its way to being deleted at P5.
+whiteout_add_test(wem_v3_roundtrip_test wem_v3_roundtrip_test.cpp)
+target_include_directories(wem_v3_roundtrip_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+whiteout_add_test(wem_unknown_chunk_test wem_unknown_chunk_test.cpp)
+target_include_directories(wem_unknown_chunk_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+whiteout_add_test(wem_convert_mdx_test wem_convert_mdx_test.cpp)
+target_include_directories(wem_convert_mdx_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+whiteout_add_test(wem_convert_m2_test wem_convert_m2_test.cpp)
+target_include_directories(wem_convert_m2_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+whiteout_add_test(wem_convert_m3_test wem_convert_m3_test.cpp)
+target_include_directories(wem_convert_m3_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+whiteout_add_test(wem_convert_corpus_test wem_convert_corpus_test.cpp)
+target_include_directories(wem_convert_corpus_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# The expected-loss goldens live beside the test sources, and the sweep has to
+# find them whatever directory CTest runs it from.
+target_compile_definitions(wem_convert_corpus_test
+    PRIVATE WHITEOUT_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+
 # SNO / Diablo Tests
 whiteout_add_test(d3_ani_corpus_test d3_ani_corpus_test.cpp)
 whiteout_add_test(d3_payload_test d3_payload_test.cpp)

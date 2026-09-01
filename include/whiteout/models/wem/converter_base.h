@@ -5,148 +5,144 @@
 
 /**
  * @file converter_base.h
- * @brief Base class and registry for extensible WEM format converters
+ * @brief `FormatConverter` and the registry (WEM v3, design §14).
  *
- * Provides the FormatConverter abstract interface and ConverterRegistry
- * factory for format conversion. New format converters can be added by
- * subclassing FormatConverter and registering with the registry.
+ * A converter is named for the **format** it reads; the profiles it lists are
+ * named for the games. `profiles()` is a span rather than a scalar because two
+ * of the four converters serve two profiles each — that granularity is the whole
+ * point of the profile axis, and a converter that returned one profile could not
+ * express "this `.mdx` carries both a classic and a Reforged material set over
+ * one geometry".
  *
- * @example Adding a new format converter
- * @code
- * class FbxConverter : public wem::FormatConverter {
- * public:
- *     std::string formatId() const override { return "fbx"; }
- *     std::string formatName() const override { return "Autodesk FBX"; }
- *     bool supportsImport() const override { return true; }
- *     bool supportsExport() const override { return false; }
- *     u32 defaultExportVersion() const override { return 0; }
- *
- *     ConvertResult importFromBytes(std::span<const u8> data) const override {
- *         // Parse FBX data and convert to WEM...
- *     }
- * };
- *
- * // Register at any point before use
- * wem::ConverterRegistry::instance().registerConverter(
- *     std::make_shared<FbxConverter>());
- * @endcode
+ * Import produces a whole `Document`; export takes one **profile's** material
+ * set and refuses a profile the document does not carry. There is no
+ * "export whatever is in there" mode: a document with two sets has two possible
+ * exports, and picking one silently is how the wrong one ships.
  */
 
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <whiteout/common_types.h>
 #include <whiteout/compatibility.h>
-#include "structures.h"
+
+#include "diagnostics.h"
+#include "document.h"
+#include "profile.h"
 
 namespace whiteout {
 namespace models {
 namespace wem {
 
-// ============================================================================
-// Conversion Results
-// ============================================================================
-
 /**
- * @brief Result of importing a model to WEM format
- */
-struct ConvertResult {
-    Model model;                     ///< The converted WEM model
-    std::vector<std::string> issues; ///< Warnings about lossy or dropped data
-};
-
-/**
- * @brief Result of exporting a WEM model to a format's binary representation
- */
-struct ExportResult {
-    std::vector<u8> data;            ///< The exported binary data
-    std::vector<std::string> issues; ///< Warnings about lossy or dropped data
-};
-
-// ============================================================================
-// FormatConverter — abstract base for extensible format converters
-// ============================================================================
-
-/**
- * @brief Abstract base class for bidirectional WEM format converters.
+ * @brief A value that may not have been produced, plus why (§13).
  *
- * Subclass this to add support for a new model format. Override the
- * import/export methods as needed and register with ConverterRegistry.
- * Each converter also provides typed methods for direct struct-to-struct
- * conversion (declared on the concrete subclass).
+ * Diagnostics ride along whether or not the value exists — a lossy conversion
+ * that succeeded and a conversion that failed are different states, and both
+ * have something to say. The library is exception-free, so this is the only
+ * error channel.
  */
+template <class T>
+struct Result {
+    std::optional<T> value;
+    Diagnostics diagnostics;
+
+    bool ok() const {
+        return value.has_value();
+    }
+    explicit operator bool() const {
+        return ok();
+    }
+
+    const T& operator*() const {
+        return *value;
+    }
+    T& operator*() {
+        return *value;
+    }
+    const T* operator->() const {
+        return &*value;
+    }
+    T* operator->() {
+        return &*value;
+    }
+
+    /// Moves the value out. Only valid when `ok()`.
+    T take() {
+        return std::move(*value);
+    }
+};
+
+// ============================================================================
+// FormatConverter
+// ============================================================================
+
 class FormatConverter {
 public:
     virtual ~FormatConverter() = default;
 
-    /** @brief Short lowercase format identifier (e.g. "mdx", "m2", "m3") */
+    /// Short lowercase format identifier — "mdx", "m2", "m3", "d3".
     virtual std::string formatId() const = 0;
 
-    /** @brief Human-readable format name (e.g. "Warcraft III MDX") */
+    /// Human-readable format name.
     virtual std::string formatName() const = 0;
 
-    /** @brief Whether this converter supports import (format -> WEM) */
-    virtual bool supportsImport() const = 0;
+    /// The games this format serves, in the order a caller should prefer them.
+    virtual std::span<const ProfileId> profiles() const = 0;
 
-    /** @brief Whether this converter supports export (WEM -> format) */
+    virtual bool supportsImport() const = 0;
     virtual bool supportsExport() const = 0;
 
-    /** @brief Default target format version for export */
+    /// Target format version used when `exportToBytes` is passed 0.
     virtual u32 defaultExportVersion() const = 0;
 
-    /**
-     * @brief Import a model from raw bytes in this format
-     * @param data Raw binary data to parse and convert
-     * @return Converted WEM model with conversion issues
-     *
-     * Default implementation returns an error result.
-     */
-    virtual ConvertResult importFromBytes(std::span<const u8> data) const;
+    /// Format bytes -> `Document`. The default refuses with
+    /// `OperationUnsupported`, which is the honest answer for a format whose
+    /// import needs more than one file.
+    virtual Result<Document> importFromBytes(std::span<const u8> data) const;
 
-    /**
-     * @brief Export a WEM model to raw bytes in this format
-     * @param model The WEM model to export
-     * @param version Target format version (0 = use defaultExportVersion())
-     * @return Exported binary data with conversion issues
-     *
-     * Default implementation returns an error result.
-     */
-    virtual ExportResult exportToBytes(const Model& model, u32 version = 0) const;
+    /// `Document` -> format bytes, for exactly one profile's material set.
+    ///
+    /// A profile the document does not carry is refused with `ProfileNotCarried`
+    /// rather than substituted: the sets are independent (§6.3), so there is no
+    /// nearest neighbour to fall back to.
+    virtual Result<std::vector<u8>> exportToBytes(const Document& document, ProfileId profile,
+                                                  u32 version = 0) const;
+
+protected:
+    /// Shared precondition for every `exportToBytes`. Returns false and files
+    /// the diagnostic when @p profile is not one this converter serves, or not
+    /// one @p document carries.
+    bool checkExportProfile(const Document& document, ProfileId profile, Diagnostics& out) const;
 };
 
 // ============================================================================
-// ConverterRegistry — central converter factory
+// ConverterRegistry
 // ============================================================================
 
 /**
- * @brief Singleton registry for discovering and accessing format converters.
+ * @brief Singleton registry keyed by `formatId()`.
  *
- * Built-in converters (MDX, M2, M3) are registered automatically on first
- * access. External converters can be registered via registerConverter().
+ * Built-in converters register themselves on first access. `findForProfile`
+ * exists because callers usually know the *game* — "load this Heroes model" —
+ * and the format is an implementation detail of that answer.
  */
 class ConverterRegistry {
 public:
-    /** @brief Access the singleton registry instance */
     static ConverterRegistry& instance();
 
-    /**
-     * @brief Register a format converter
-     * @param converter The converter to register (replaces existing with same formatId)
-     */
+    /// Registers @p converter, replacing any with the same `formatId()`.
     void registerConverter(std::shared_ptr<FormatConverter> converter);
 
-    /**
-     * @brief Find a converter by format ID
-     * @param formatId The format identifier (e.g. "mdx")
-     * @return Pointer to the converter, or nullptr if not found
-     */
     const FormatConverter* find(const std::string& formatId) const;
 
-    /**
-     * @brief Get all registered converters
-     * @return Vector of pointers to all registered converters
-     */
+    /// The first registered converter listing @p profile, or null.
+    const FormatConverter* findForProfile(ProfileId profile) const;
+
     std::vector<const FormatConverter*> all() const;
 
 private:

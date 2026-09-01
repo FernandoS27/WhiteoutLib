@@ -98,6 +98,7 @@ struct TextureLayer {
  * emissive, normal, height, etc.), blend mode, HDR multipliers, and
  * per-version extensions for normal-blend and gloss layers.
  */
+/// @wem rename=M3Standard
 struct StandardMaterial {
     std::string name; ///< Material name (Ref<CHAR>)
     MaterialAdditionalFlag additionalFlags = MaterialAdditionalFlag::None; ///< Additional flags
@@ -148,13 +149,14 @@ struct StandardMaterial {
  *
  * Applies vertex displacement via a normal map and animated strength.
  */
+/// @wem rename=M3Displacement
 struct DisplacementMaterial {
     std::string name;                        ///< Material name (Ref<CHAR>)
     u32 unknown;                             ///< Unknown field
     AnimRef<f32> strength;                   ///< Animated displacement strength
     std::optional<TextureLayer> normalMap;   ///< Normal / displacement direction map
     std::optional<TextureLayer> strengthMap; ///< Strength mask texture
-    Flag flags;                              ///< Displacement material flags
+    Flag flags; ///< @wem as=u32, member=value — Displacement material flags
     u32 priority;                            ///< Render priority
     M3_DEFINE_VERSION_ACCESSORS()
 };
@@ -165,6 +167,7 @@ struct DisplacementMaterial {
  * A single section within a composite material, referencing another material
  * index with an animated blend multiplier.
  */
+/// @wem rename=M3CompositeSection
 struct CompositeSection {
     u32 materialIndex;          ///< Index into MATM array
     AnimRef<f32> mapMultiplier; ///< Animated blend weight
@@ -176,6 +179,7 @@ struct CompositeSection {
  *
  * Blends multiple sub-materials via CompositeSection entries.
  */
+/// @wem rename=M3Composite
 struct CompositeMaterial {
     std::string name;                       ///< Material name (Ref<CHAR>)
     u32 priority;                           ///< Render priority
@@ -188,6 +192,7 @@ struct CompositeMaterial {
  *
  * Simple terrain-specific material with a single texture layer.
  */
+/// @wem rename=M3Terrain
 struct TerrainMaterial {
     std::string name;                       ///< Material name (Ref<CHAR>)
     std::optional<TextureLayer> terrainMap; ///< Terrain texture layer
@@ -201,6 +206,7 @@ struct TerrainMaterial {
  * Volumetric rendering material with density falloff, color map, and
  * two noise maps for procedural volumetric effects.
  */
+/// @wem rename=M3Volume
 struct VolumeMaterial {
     std::string name;                      ///< Material name (Ref<CHAR>)
     u32 blendMode;                         ///< Blend mode
@@ -210,7 +216,7 @@ struct VolumeMaterial {
     std::optional<TextureLayer> noiseMap1; ///< Noise map 1
     std::optional<TextureLayer> noiseMap2; ///< Noise map 2
     u32 alphaThreshold;                    ///< Alpha test threshold
-    Flag flags;                            ///< Volume material flags
+    Flag flags; ///< @wem as=u32, member=value — Volume material flags
     M3_DEFINE_VERSION_ACCESSORS()
 };
 
@@ -241,6 +247,7 @@ struct HairMaterial {
  * Volumetric noise-based rendering material with animated density, falloff,
  * scroll rate, position, scale, and rotation. Used for gas/smoke/cloud effects.
  */
+/// @wem rename=M3VolumeNoise
 struct VolumeNoiseMaterial {
     std::string name;                       ///< Material name (Ref<CHAR>)
     VolumeFalloffType falloffType;          ///< Density falloff type
@@ -265,6 +272,7 @@ struct VolumeNoiseMaterial {
  *
  * Material for Zerg creep rendering with a mask map and creep-low parameter.
  */
+/// @wem rename=M3Creep
 struct CreepMaterial {
     std::string name;                    ///< Material name (Ref<CHAR>)
     std::optional<TextureLayer> maskMap; ///< Creep mask texture
@@ -278,6 +286,7 @@ struct CreepMaterial {
  * Material for baked terrain splat rendering with diffuse, normal, and
  * specular texture layers.
  */
+/// @wem rename=M3Stb
 struct STBMaterial {
     std::string name;                        ///< Material name (Ref<CHAR>)
     std::optional<TextureLayer> diffuseMap;  ///< Diffuse / albedo map
@@ -292,6 +301,7 @@ struct STBMaterial {
  * Planar or cube-map reflection material with animated reflection/displacement
  * strength, blur, and multiple texture layers.
  */
+/// @wem rename=M3Reflection
 struct ReflectionMaterial {
     std::string name;                            ///< Material name (Ref<CHAR>)
     u32 unknown;                                 ///< Unknown field
@@ -314,6 +324,7 @@ struct ReflectionMaterial {
  * A single flare element within a LensFlare material, with position,
  * size, scale, fade, color, and offset parameters.
  */
+/// @wem rename=M3SubFlare
 struct SubFlare {
     u32 index;            ///< Flare element index
     f32 position;         ///< Position along the flare axis (0–1)
@@ -333,6 +344,7 @@ struct SubFlare {
  * Lens flare effect with animated intensity, color, HDR, size, sub-flare
  * elements, and flipbook texture grid parameters.
  */
+/// @wem rename=M3LensFlare
 struct LensFlare {
     std::string name;                     ///< Flare name (Ref<CHAR>)
     std::optional<TextureLayer> flareMap; ///< Flare texture atlas
@@ -438,6 +450,7 @@ struct StandardMaterialConversion {
  * @see M3_FILE_FORMAT_SPECIFICATION.md §11 Materials
  */
 /// @bind methods
+/// @wem rename=M3DataDriven
 struct DataDrivenMaterial {
     std::string materialName;              ///< Material name (Ref<CHAR>)
     std::vector<u32> fragmentHashes;       ///< crc32 of each shader fragment name, in link order (U32_)

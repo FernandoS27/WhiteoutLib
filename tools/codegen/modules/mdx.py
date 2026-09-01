@@ -6,7 +6,7 @@ Every other binding decision lives as a `@bind` annotation in the headers
 themselves.
 """
 
-from tools.codegen.ir import ModuleConfig
+from tools.codegen.ir import ModuleConfig, WemNative
 
 CONFIG = ModuleConfig(
     name='mdx',
@@ -31,4 +31,18 @@ CONFIG = ModuleConfig(
         # is excluded automatically by the codegen.
         'TrackHeader',
     ],
+    # `--backend wem-native`: the WC3 half of the WEM native material blocks
+    # (design §7.3). One block covers both WC3 profiles, because on disk the
+    # classic/Reforged distinction is per *layer* (`Layer::is_hd`), not per
+    # material — which is also what makes `DeriveProfile(Reforged -> Classic)`
+    # a layer filter rather than a re-derivation.
+    wem_native=WemNative(
+        prefix='Mdx',
+        header_path='include/whiteout/models/wem/native/mdx_native.h',
+        roots=['Material'],
+        versioned_roots=['Material'],
+        # `Material` is a chunk; a layer and a sub-texture are inline data
+        # inside it, so they take no tag of their own.
+        tags={'Material': 'NMDX'},
+    ),
 )

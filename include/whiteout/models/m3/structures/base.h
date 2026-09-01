@@ -29,6 +29,7 @@ namespace m3 {
 // ============================================================================
 
 /** @brief Identifies which material array a MATM entry references */
+/// @wem rename=M3MaterialKind
 enum class MaterialType : u32 {
     Standard = 1,         ///< MAT_ — Standard material
     Displacement = 2,     ///< DIS_ — Displacement material

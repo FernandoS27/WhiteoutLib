@@ -38,7 +38,8 @@ if cindex.Config.library_file is None:
             cindex.Config.set_library_file(_path)
             break
 
-from .annotations import parse as parse_annotations, is_bound, extract_doc
+from .annotations import (parse as parse_annotations, parse_wem, is_bound,
+                          extract_doc)
 from .ir import (
     BindClass, BindConstant, BindConstructor, BindEnum, BindEnumValue,
     BindField, BindMethod, BindMethodParam, BindModule, BindTemplate,
@@ -98,6 +99,18 @@ _CANONICAL_CLASS_ALIASES = {
 }
 
 STRING_TYPES = {'std::string', 'std::__cxx11::basic_string<char>'}
+
+
+# Underlying integer type of an enum, as the whiteout alias when there is
+# one. libclang always reports a fixed underlying type here (C++ gives an
+# unscoped enum without one an implementation-defined type, and every enum
+# in this tree is scoped with an explicit `: u32` / `: u8`).
+def _enum_underlying(cursor) -> str:
+    try:
+        spelling = cursor.enum_type.spelling
+    except Exception:
+        return 'int'
+    return _CANONICAL_TO_ALIAS.get(spelling, spelling).replace('whiteout::', '')
 
 
 def _strip_qualifiers(t: str) -> str:
@@ -964,6 +977,7 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
                         cpp_name=member.spelling,
                         cpp_text_template=member.type.spelling,
                         doc=extract_doc(member.raw_comment),
+                        wem=parse_wem(member.raw_comment),
                     ))
                 elif member.kind in (CursorKind.UNION_DECL,
                                      CursorKind.STRUCT_DECL) \
@@ -1026,6 +1040,8 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
             js_name=ann.get('js_name') or js_name_for_enum(qual, config.js_prefix),
             doc=extract_doc(cursor.raw_comment),
             java_package=ann.get('java_package', '') or '',
+            underlying=_enum_underlying(cursor),
+            wem=parse_wem(cursor.raw_comment),
             values=[
                 BindEnumValue(
                     js_name=v.spelling,
@@ -1077,6 +1093,7 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
             is_subclassable='subclassable' in ann,
             jni_package=ann.get('jni_package', '') or '',
             java_package=ann.get('java_package', '') or '',
+            wem=parse_wem(cursor.raw_comment),
         )
 
         # `fields=x;y;z` on the class annotation overrides AST inspection.
@@ -1113,6 +1130,7 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
                             cindex.AccessSpecifier.PROTECTED):
                         continue
                     field_ann = parse_annotations(member.raw_comment)
+                    field_wem = parse_wem(member.raw_comment)
                     if field_ann.get('skip'):
                         continue
                     cpp = member.type.get_canonical().spelling
@@ -1122,6 +1140,10 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
                     # backends — e.g. vector<array<T,N>> needs a specially-
                     # named container plus per-element conversions.
                     if _has_unbindable_inner(tref):
+                        bind_class.unbindable_fields.append(
+                            (member.spelling, cpp, field_wem,
+                             extract_doc(member.raw_comment),
+                             len(bind_class.fields)))
                         continue
                     remember_containers(tref)
                     # libclang reports the offset in BITS; we want bytes.
@@ -1140,6 +1162,7 @@ def parse_module(config: ModuleConfig, repo_root: Path) -> BindModule:
                         array_with_view=bool(field_ann.get('array_with_view')),
                         doc=extract_doc(member.raw_comment),
                         byte_offset=byte_off,
+                        wem=field_wem,
                     ))
                 elif member.kind in (CursorKind.UNION_DECL, CursorKind.STRUCT_DECL) \
                         and not member.spelling:

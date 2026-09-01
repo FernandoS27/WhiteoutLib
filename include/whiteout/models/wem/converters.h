@@ -5,36 +5,19 @@
 
 /**
  * @file converters.h
- * @brief Format converters between WEM and MDX/M2/M3 model formats
+ * @brief The three shipped format converters (WEM v3, design §14).
  *
- * Provides bidirectional conversion between WEM intermediate format and the
- * three engine-specific model formats via the factory-based converter system.
+ * Each one has a byte-level entry point from `FormatConverter` and a **typed**
+ * one taking the parsed format struct. The typed entry point is the real
+ * interface: `.m2` import needs a sibling bundle that bytes alone cannot supply,
+ * and every converter benefits from a caller that has already parsed once.
  *
- * Two usage levels are available:
- *
- * 1. **Generic (registry-based):** Use ConverterRegistry to find converters
- *    by format ID and call importFromBytes()/exportToBytes() for uniform
- *    byte-level I/O.
- *
- * 2. **Typed (direct):** Use MdxConverter, M2Converter, or M3Converter
- *    directly with format-specific typed methods (fromMdx, toMdx, etc.)
- *    for struct-to-struct conversion.
- *
- * Legacy free functions (fromMdx, toMdx, etc.) remain for backward
- * compatibility and delegate to the typed converter classes.
- *
- * @example Registry-based conversion
- * @code
- * auto* conv = wem::ConverterRegistry::instance().find("mdx");
- * auto result = conv->importFromBytes(mdxFileData);
- * @endcode
- *
- * @example Typed conversion
- * @code
- * wem::MdxConverter conv;
- * auto [wemModel, issues] = conv.fromMdx(mdxModel);
- * @endcode
+ * `D3Converter` is P6 and lands in its own header — it needs an `AssetSource`,
+ * which none of these do.
  */
+
+#include <span>
+#include <vector>
 
 #include "../m2/structures.h"
 #include "../m3/structures.h"
@@ -47,48 +30,36 @@ namespace models {
 namespace wem {
 
 // ============================================================================
-// Format-Specific Typed Results
-// ============================================================================
-
-struct MdxConvertResult {
-    mdx::Model model;
-    std::vector<std::string> issues;
-};
-
-struct M2ConvertResult {
-    m2::Model model;
-    std::vector<std::string> issues;
-};
-
-struct M3ConvertResult {
-    m3::Model model;
-    std::vector<std::string> issues;
-};
-
-// ============================================================================
 // MdxConverter
 // ============================================================================
 
 /**
- * @brief Converter between WEM and Warcraft III MDX format
+ * @brief Warcraft III `.mdx`, both directions, serving both WC3 profiles.
  *
- * Supports both byte-level and typed struct-to-struct conversion.
+ * One import produces up to **two** material sets from one file by partitioning
+ * layers on §7.2.1's HD test. A section whose material has layers for only one
+ * profile gets a mask naming only that profile, which is what makes a
+ * classic-only file produce no Reforged set at all rather than an empty one.
  */
 class MdxConverter final : public FormatConverter {
 public:
     std::string formatId() const override;
     std::string formatName() const override;
+    std::span<const ProfileId> profiles() const override;
     bool supportsImport() const override;
     bool supportsExport() const override;
     u32 defaultExportVersion() const override;
-    ConvertResult importFromBytes(std::span<const u8> data) const override;
-    ExportResult exportToBytes(const Model& model, u32 version = 0) const override;
 
-    /** @brief Convert an MDX model to WEM representation (mesh + material only) */
-    ConvertResult fromMdx(const mdx::Model& mdxModel) const;
+    Result<Document> importFromBytes(std::span<const u8> data) const override;
+    Result<std::vector<u8>> exportToBytes(const Document& document, ProfileId profile,
+                                          u32 version = 0) const override;
 
-    /** @brief Convert a WEM model to MDX representation (mesh + material only) */
-    MdxConvertResult toMdx(const Model& wemModel, u32 targetVersion = 800) const;
+    Result<Document> fromMdx(const mdx::Model& source) const;
+
+    /// @p profile picks which set's materials are written and which sections
+    /// are drawn; @p targetVersion is the `.mdx` version stamped on the result.
+    Result<mdx::Model> toMdx(const Document& document, ProfileId profile,
+                             u32 targetVersion = 800) const;
 };
 
 // ============================================================================
@@ -96,26 +67,31 @@ public:
 // ============================================================================
 
 /**
- * @brief Converter between WEM and World of Warcraft M2 format
+ * @brief World of Warcraft `.m2`.
  *
- * Byte-level import is not supported because M2 requires a multi-file bundle
- * (base .m2 + .skin + .anim files). Use fromM2() with a parsed Model.
- * Byte-level export writes only the base .m2 file.
+ * `importFromBytes` is unsupported and says so: an `.m2` is a bundle — the base
+ * file carries no geometry batches at all, those live in the `.skin` files — so
+ * the typed entry point taking an already-assembled `m2::Model` is the only
+ * honest byte-free interface. Export writes the base `.m2` only.
  */
 class M2Converter final : public FormatConverter {
 public:
     std::string formatId() const override;
     std::string formatName() const override;
+    std::span<const ProfileId> profiles() const override;
     bool supportsImport() const override;
     bool supportsExport() const override;
     u32 defaultExportVersion() const override;
-    ExportResult exportToBytes(const Model& model, u32 version = 0) const override;
 
-    /** @brief Convert a parsed M2 model to WEM representation */
-    ConvertResult fromM2(const m2::Model& m2Model) const;
+    Result<std::vector<u8>> exportToBytes(const Document& document, ProfileId profile,
+                                          u32 version = 0) const override;
 
-    /** @brief Convert a WEM model to M2 representation (mesh + material only) */
-    M2ConvertResult toM2(const Model& wemModel, u32 targetVersion = 274) const;
+    /// @p sourceVersion is the `.m2` header version the bundle was read from.
+    /// `m2::Model` does not carry it — the parser consumes it and keeps nothing
+    /// — but the native block records it, so the caller has to say.
+    Result<Document> fromM2(const m2::Model& source, u32 sourceVersion = 274) const;
+    Result<m2::Model> toM2(const Document& document, ProfileId profile,
+                           u32 targetVersion = 274) const;
 };
 
 // ============================================================================
@@ -123,39 +99,40 @@ public:
 // ============================================================================
 
 /**
- * @brief Converter between WEM and StarCraft II / Heroes of the Storm M3 format
+ * @brief StarCraft II / Heroes of the Storm `.m3`.
  *
- * Supports both byte-level and typed struct-to-struct conversion.
+ * The profile follows the `MODL` version — v30+ is Heroes, where `MADD` is the
+ * load-time truth — and a caller that knows better can override it. Geometry
+ * arrives in SC2's basis and is rebased into WEM's canonical space on import
+ * (§6.2); the rebase is an axis permutation with determinant +1, so it is
+ * bit-exact and preserves winding.
  */
 class M3Converter final : public FormatConverter {
 public:
     std::string formatId() const override;
     std::string formatName() const override;
+    std::span<const ProfileId> profiles() const override;
     bool supportsImport() const override;
     bool supportsExport() const override;
     u32 defaultExportVersion() const override;
-    ConvertResult importFromBytes(std::span<const u8> data) const override;
-    ExportResult exportToBytes(const Model& model, u32 version = 0) const override;
 
-    /** @brief Convert an M3 model to WEM representation (mesh + material only) */
-    ConvertResult fromM3(const m3::Model& m3Model) const;
+    Result<Document> importFromBytes(std::span<const u8> data) const override;
+    Result<std::vector<u8>> exportToBytes(const Document& document, ProfileId profile,
+                                          u32 version = 0) const override;
 
-    /** @brief Convert a WEM model to M3 representation (mesh + material only) */
-    M3ConvertResult toM3(const Model& wemModel, u32 targetVersion = 30) const;
+    /// The profile `fromM3` picks for a model of @p modelVersion.
+    static ProfileId ProfileForVersion(u32 modelVersion);
+
+    /// @p profileOverride of `ProfileId::Count` means "decide from the version".
+    Result<Document> fromM3(const m3::Model& source,
+                            ProfileId profileOverride = ProfileId::Count) const;
+    Result<m3::Model> toM3(const Document& document, ProfileId profile,
+                           u32 targetVersion = 30) const;
 };
 
-// ============================================================================
-// Legacy Free Functions (backward compatibility)
-// ============================================================================
-
-ConvertResult fromMdx(const mdx::Model& mdxModel);
-MdxConvertResult toMdx(const Model& wemModel, u32 targetVersion = 800);
-
-ConvertResult fromM2(const m2::Model& m2Model);
-M2ConvertResult toM2(const Model& wemModel, u32 targetVersion = 274);
-
-ConvertResult fromM3(const m3::Model& m3Model);
-M3ConvertResult toM3(const Model& wemModel, u32 targetVersion = 30);
+/// Registers the three built-in converters. Called by `ConverterRegistry`'s
+/// constructor; exposed so a host that builds its own registry can reuse it.
+void RegisterBuiltinConverters(ConverterRegistry& registry);
 
 } // namespace wem
 } // namespace models

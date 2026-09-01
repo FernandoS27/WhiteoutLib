@@ -28,6 +28,7 @@ set(_WHITEOUT_WASM_BASE_SOURCES
     mdx_bindings.cpp
     m2_bindings.cpp
     m3_bindings.cpp
+    wem_bindings.cpp
     textures_bindings.cpp
     utils_bindings.cpp
 )

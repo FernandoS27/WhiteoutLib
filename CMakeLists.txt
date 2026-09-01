@@ -402,10 +402,37 @@ add_library(whiteout_lib
     src/whiteout/models/m3/binary_writer_visitor.cpp
 
     # WEM
-    src/whiteout/models/wem/parser.cpp
-    src/whiteout/models/wem/writer.cpp
-    src/whiteout/models/wem/binary_parse_visitor.cpp
-    src/whiteout/models/wem/binary_writer_visitor.cpp
+    src/whiteout/models/wem/diagnostics.cpp
+    src/whiteout/models/wem/profile.cpp
+    src/whiteout/models/wem/validate.cpp
+    src/whiteout/models/wem/geometry/attributes.cpp
+    src/whiteout/models/wem/geometry/topology.cpp
+    src/whiteout/models/wem/geometry/repair.cpp
+    src/whiteout/models/wem/geometry/skin.cpp
+    src/whiteout/models/wem/geometry/mesh.cpp
+    src/whiteout/models/wem/geometry/builder.cpp
+    src/whiteout/models/wem/geometry/checks.cpp
+    src/whiteout/models/wem/geometry/ops.cpp
+    src/whiteout/models/wem/geometry/render_view.cpp
+    src/whiteout/models/wem/nodes/node.cpp
+    src/whiteout/models/wem/nodes/tree.cpp
+    src/whiteout/models/wem/nodes/visitor.cpp
+    src/whiteout/models/wem/nodes/remove.cpp
+    src/whiteout/models/wem/materials/texture.cpp
+    src/whiteout/models/wem/materials/common.cpp
+    src/whiteout/models/wem/materials/material.cpp
+    src/whiteout/models/wem/materials/ops.cpp
+    src/whiteout/models/wem/materials/mdx_core.cpp
+    src/whiteout/models/wem/materials/m2_shader_table.cpp
+    src/whiteout/models/wem/materials/m2_core.cpp
+    src/whiteout/models/wem/materials/m3_core.cpp
+    src/whiteout/models/wem/model.cpp
+    src/whiteout/models/wem/retarget.cpp
+    src/whiteout/models/wem/native_bag.cpp
+    src/whiteout/models/wem/binary_read_visitor.cpp
+    src/whiteout/models/wem/binary_write_visitor.cpp
+    src/whiteout/models/wem/text_dump.cpp
+    src/whiteout/models/wem/document_io.cpp
     src/whiteout/models/wem/converter_registry.cpp
     src/whiteout/models/wem/converters/mdx_converter.cpp
     src/whiteout/models/wem/converters/m2_converter.cpp
@@ -617,40 +644,12 @@ add_executable(blue_noise_generator
 
 target_link_libraries(blue_noise_generator PRIVATE whiteout_lib)
 
-# WEM Round-Trip Test
-add_executable(wem_round_trip_example
-    examples/wem_round_trip_example.cpp
-)
-
-target_link_libraries(wem_round_trip_example PRIVATE whiteout_lib)
-
 # Blizzard Game Finder Example
 add_executable(game_finder_example
     examples/game_finder_example.cpp
 )
 
 target_link_libraries(game_finder_example PRIVATE whiteout_lib)
-
-# MDX to WEM Converter Example
-add_executable(mdx_to_wem_example
-    examples/mdx_to_wem_example.cpp
-)
-
-target_link_libraries(mdx_to_wem_example PRIVATE whiteout_lib)
-
-# M2 to WEM Converter Example
-add_executable(m2_to_wem_example
-    examples/m2_to_wem_example.cpp
-)
-
-target_link_libraries(m2_to_wem_example PRIVATE whiteout_lib)
-
-# M3 to WEM Converter Example
-add_executable(m3_to_wem_example
-    examples/m3_to_wem_example.cpp
-)
-
-target_link_libraries(m3_to_wem_example PRIVATE whiteout_lib)
 
 endif() # WHITEOUT_BUILD_EXAMPLES
 

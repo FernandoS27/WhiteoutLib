@@ -6,7 +6,7 @@ bound by default; per-type overrides via `/// @bind ...` annotations on
 the C++ declaration.
 """
 
-from tools.codegen.ir import ModuleConfig
+from tools.codegen.ir import ModuleConfig, WemNative
 
 CONFIG = ModuleConfig(
     name='m3',
@@ -46,4 +46,34 @@ CONFIG = ModuleConfig(
         # better consumed via raw bytes than a per-attribute wrapper.
         'VertexBuffer',
     ],
+    # `--backend wem-native`: the SC2/Heroes half of the WEM native material
+    # blocks (design §7.3). The roots are the material bodies themselves; the
+    # `M3Material` wrapper that unions them, carries `sourceVersion` and holds
+    # the two MADD derivations is authored, because a variant over eleven
+    # alternatives is a decision and not a mirror of anything.
+    wem_native=WemNative(
+        prefix='M3',
+        header_path='include/whiteout/models/wem/native/m3_native.h',
+        roots=[
+            'StandardMaterial', 'DisplacementMaterial', 'CompositeMaterial',
+            'TerrainMaterial', 'VolumeMaterial', 'VolumeNoiseMaterial',
+            'CreepMaterial', 'STBMaterial', 'ReflectionMaterial', 'LensFlare',
+            'DataDrivenMaterial',
+            # The decoded MADD blob. Not a chunk — MADD stores it as bytes —
+            # but WEM keeps the decode so a consumer never has to re-run it,
+            # and §7.3 says the block keeps the authored groups.
+            'DataDrivenProperties',
+            'TextureLayer',
+        ],
+        # HAI_ is defunct: the parser header says "always null" and the corpus
+        # agrees, so the variant omits it and a non-null hairMaterials array
+        # diagnoses rather than parsing (§7.3). StandardMaterialConversion is a
+        # conversion *report*, not shipped data.
+        exclude=['HairMaterial', 'StandardMaterialConversion'],
+        # The kind discriminator. Nothing the generator can reach names it —
+        # `M3Material`, which does, is authored.
+        extra_enums=['MaterialType'],
+        # Every body is inline in the authored `M3Material`'s NM3_ chunk.
+        tags={},
+    ),
 )
