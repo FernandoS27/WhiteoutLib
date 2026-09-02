@@ -67,6 +67,10 @@ public:
     bool read(Shaders& out);
     /// Parse into `out`; false if the header or length is invalid.
     bool read(EffectGroup& out);
+    /// Parse into `out`; false if the header or length is invalid.
+    bool read(GameBalance& out);
+    /// Parse into `out`; false if the header or length is invalid.
+    bool read(StringList& out);
 
 protected:
     void visit(const layout::AABB& src, AABB& dst);
@@ -155,6 +159,8 @@ protected:
     void visit(const layout::VectorNode& src, VectorNode& dst);
     void visit(const layout::VectorPath& src, VectorPath& dst);
     void visit(const layout::EmitterParams& src, EmitterParams& dst);
+    void visit(const layout::Item& src, Item& dst);
+    void visit(const layout::GameBalance& src, GameBalance& dst);
     void visit(const layout::IntNode& src, IntNode& dst);
     void visit(const layout::IntPath& src, IntPath& dst);
     void visit(const layout::Material& src, Material& dst);
@@ -174,6 +180,8 @@ protected:
     void visit(const layout::ShaderMapEntry& src, ShaderMapEntry& dst);
     void visit(const layout::ShaderMap& src, ShaderMap& dst);
     void visit(const layout::Shaders& src, Shaders& dst);
+    void visit(const layout::StringTableEntry& src, StringTableEntry& dst);
+    void visit(const layout::StringList& src, StringList& dst);
     void visit(const layout::SurfaceTagMapEntry& src, SurfaceTagMapEntry& dst);
     void visit(const layout::Surface& src, Surface& dst);
     void visit(const layout::Texture& src, Texture& dst);

@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cctype>
+#include <string>
 
 namespace whiteout {
 namespace sno {
@@ -82,6 +83,36 @@ std::vector<std::string_view> splitToken(std::string_view t) {
     return parts;
 }
 
+// g_LookCategoryNames (retail 0x14776F0), by EEquipmentSlot ordinal.
+const char* lookCategoryNameOrNull(u32 c) {
+    switch (c) {
+    case 2: return "TRS";
+    case 3: return "RH1";
+    case 4: return "LH1";
+    case 5: return "GLV";
+    case 7: return "BTS";
+    case 9: return "LEG";
+    default: return nullptr;
+    }
+}
+
+// g_LookValueNames (retail 0x14777E0), indexed by look value.
+constexpr std::array<const char*, 19> kLookValueNames = {
+    "NKD",       "LIT_A",     "LIT_B",     "MED_A",     "MED_B",
+    "HVY_A",     "HVY_B",     "LIT_C",     "MED_C",     "HVY_C",
+    "CLS_LIT_A", "CLS_LIT_B", "CLS_LIT_C", "CLS_MED_A", "CLS_MED_B",
+    "CLS_MED_C", "CLS_HVY_A", "CLS_HVY_B", "CLS_HVY_C",
+};
+
+// g_HairStyleNames (retail 0x144CC50).
+constexpr std::array<const char*, 4> kHairStyleNames = {"NKD", "HLM1", "HLM2", "BALD"};
+
+// The five sheath hardpoints Hardpoint_IsSheath (retail 0xAB9840) tests.
+constexpr std::array<std::string_view, 5> kSheathHardpoints = {
+    "HP_sheath_left_Back", "HP_sheath_right_Back", "HP_sheath_left_Hip",
+    "HP_sheath_right_Hip", "HP_sheath_Shield",
+};
+
 } // namespace
 
 const char* playerClassName(PlayerClass cls) {
@@ -96,6 +127,18 @@ std::string playerAppearanceStem(PlayerClass cls, Gender gender) {
     if (!inRange(cls)) return {};
     return std::string(kAppearanceStems[static_cast<size_t>(cls)]) +
            (gender == Gender::Male ? "_Male" : "_Female");
+}
+
+std::optional<std::pair<PlayerClass, Gender>> playerFromAppearanceStem(std::string_view stem) {
+    for (i32 c = 0; c < static_cast<i32>(kPlayerClassCount); ++c) {
+        for (const Gender g : {Gender::Male, Gender::Female}) {
+            const std::string want = playerAppearanceStem(static_cast<PlayerClass>(c), g);
+            if (stem.size() < want.size()) continue;
+            if (iEquals(stem.substr(0, want.size()), want))
+                return std::make_pair(static_cast<PlayerClass>(c), g);
+        }
+    }
+    return std::nullopt;
 }
 
 std::span<const EquipSlotLook> equipSlotLookCategories() {
@@ -224,6 +267,296 @@ u32 armourWeightBaseLookValue(ArmourWeight weight) {
     case ArmourWeight::Heavy: return 5;
     default: return 0;
     }
+}
+
+std::optional<u32> lookCategoryForVisualSlot(EVisualSlot slot) {
+    for (const auto& p : kEquipSlotLooks)
+        if (p.visualSlot == static_cast<u32>(slot)) return p.lookCategory;
+    return std::nullopt;
+}
+
+const char* lookCategoryName(u32 lookCategory) {
+    return lookCategoryNameOrNull(lookCategory);
+}
+
+const char* lookValueName(u32 lookValue) {
+    // LookValue_GetName (retail 0xC04050) answers "NKD" for anything it does
+    // not know, which is what makes a bad value render naked, not invisible.
+    return lookValue < kLookValueNames.size() ? kLookValueNames[lookValue] : "NKD";
+}
+
+std::optional<u32> lookValueForGeoset(ArmourWeight weight, char variant, bool clsFamily) {
+    if (weight == ArmourWeight::Unknown) return std::nullopt;
+    const u32 v = (variant == 0 || variant == 'A') ? 0 : variant == 'B' ? 1 : variant == 'C' ? 2 : 3;
+    if (v == 3) return std::nullopt;
+    if (clsFamily) {
+        // 10..18 = CLS_{LIT,MED,HVY}_{A,B,C}; there is no CLS_NKD.
+        if (weight == ArmourWeight::Naked) return std::nullopt;
+        const u32 w = weight == ArmourWeight::Light ? 0 : weight == ArmourWeight::Medium ? 1 : 2;
+        return 10 + 3 * w + v;
+    }
+    if (weight == ArmourWeight::Naked) return v == 0 ? std::optional<u32>(0) : std::nullopt;
+    const u32 base = armourWeightBaseLookValue(weight);   // LIT 1 / MED 3 / HVY 5
+    if (v == 0) return base;                              // A
+    if (v == 1) return base + 1;                          // B: 2 / 4 / 6
+    return weight == ArmourWeight::Light ? 7u : weight == ArmourWeight::Medium ? 8u : 9u; // C
+}
+
+bool matchesLookCategory(std::string_view subObjectName, u32 lookCategory) {
+    const char* cat = lookCategoryNameOrNull(lookCategory);
+    if (!cat) return false;   // no name, no pattern -- ApplyLook returns early
+    return subObjectName.find(cat) != std::string_view::npos;
+}
+
+bool matchesLook(std::string_view subObjectName, u32 lookCategory, u32 lookValue) {
+    const char* cat = lookCategoryNameOrNull(lookCategory);
+    if (!cat) return false;
+    std::string pattern;
+    pattern.reserve(16);
+    pattern.append(cat).append("_").append(lookValueName(lookValue));
+    return subObjectName.find(pattern) != std::string_view::npos;
+}
+
+size_t findLookIndexByHash(const Appearances& app, u32 lookNameHash) {
+    for (size_t i = 0; i < app.arLooks.size(); ++i)
+        if (lookNameHash33(app.arLooks[i].szName) == lookNameHash) return i;
+    return 0; // Appearance_FindLookIndexById (retail 0x575730): first look on a miss
+}
+
+const char* hairStyleName(HairStyle style) {
+    const auto i = static_cast<size_t>(style);
+    return i < kHairStyleNames.size() ? kHairStyleNames[i] : "NKD";
+}
+
+u32 perClassArtTag(PlayerClass cls, Gender gender, bool secondary) {
+    // The switch in ActorModel_GetItemAttachModelSno (retail 0x750BD0),
+    // verbatim -- note DemonHunter is NOT at the base and Barbarian is the
+    // default case.
+    u32 off;
+    switch (cls) {
+    case PlayerClass::DemonHunter: off = 0x8; break;
+    case PlayerClass::Wizard:      off = 0x2; break;
+    case PlayerClass::WitchDoctor: off = 0x4; break;
+    case PlayerClass::Monk:        off = 0x6; break;
+    case PlayerClass::Crusader:    off = 0xA; break;
+    case PlayerClass::Necromancer: off = 0xC; break;
+    case PlayerClass::Barbarian:
+    default:                       off = 0x0; break;
+    }
+    return (secondary ? 0x17200u : 0x17000u) + off + (gender == Gender::Female ? 1u : 0u);
+}
+
+ItemTypeTraits itemTypeTraits(u32 gbidItemType) {
+    struct Row {
+        const char* type;
+        ItemTypeTraits t;
+    };
+    // Every name here cracks against a shipped gbidItemType value
+    // (Corpus/D3/GameBalance). Flag provenance is in the header comment; the
+    // hip/hidden sheath rows are in-game behaviour, marked as inference.
+    static const Row kRows[] = {
+        {"Shield", {.shield = true, .offhandOnly = true}},
+        {"CrusaderShield", {.shield = true, .offhandOnly = true}},
+        {"Mojo", {.offhandOnly = true}},
+        {"Orb", {.offhandOnly = true}},
+        {"Quiver", {.offhandOnly = true}},
+        {"Helm", {.helm = true}},
+        {"GenericHelm", {.helm = true}},
+        {"VoodooMask", {.helm = true}},
+        {"WizardHat", {.helm = true}},
+        {"SpiritStone", {.helm = true}},
+        {"Shoulders", {.shoulder = true}},
+        {"Dagger", {.sheathAtHip = true}},          // inference: hip holster
+        {"HandXBow", {.sheathAtHip = true}},        // inference: hip holster
+        {"FistWeapon", {.sheathHidden = true}},     // inference: vanishes sheathed
+    };
+    static const auto kByGbid = [] {
+        // The class-suffixed armour spellings (ItemTypeNames.stl ships 44:
+        // {Belt,Boots,ChestArmor,Gloves,Helm,Legs,Shoulders,SpiritStone} x
+        // class) hash as their own types, so the two families that ATTACH
+        // need their traits under every spelling -- a Helm_Monk item whose
+        // traits read empty resolves no hardpoint and silently never draws.
+        // The other six families are pure look-armour and correctly
+        // trait-less.
+        std::array<std::pair<u32, ItemTypeTraits>, std::size(kRows) + 2 * kPlayerClassCount + 1>
+            out{};
+        size_t n = 0;
+        for (size_t i = 0; i < std::size(kRows); ++i)
+            out[n++] = {gbidHash(kRows[i].type), kRows[i].t};
+        for (size_t c = 0; c < kPlayerClassCount; ++c) {
+            out[n++] = {gbidHash(std::string("Helm_") + kClassNames[c]),
+                        ItemTypeTraits{.helm = true}};
+            out[n++] = {gbidHash(std::string("Shoulders_") + kClassNames[c]),
+                        ItemTypeTraits{.shoulder = true}};
+        }
+        out[n++] = {gbidHash("SpiritStone_Monk"), ItemTypeTraits{.helm = true}};
+        return out;
+    }();
+    for (const auto& [gbid, traits] : kByGbid)
+        if (gbid == gbidItemType) return traits;
+    return {};
+}
+
+std::optional<PlayerClass> playerClassFromTypeName(std::string_view typeName) {
+    // The game's own encoding first: the `<Slot>_<Class>` armour spellings.
+    if (const auto us = typeName.rfind('_'); us != std::string_view::npos) {
+        const auto suffix = typeName.substr(us + 1);
+        for (size_t i = 0; i < kPlayerClassCount; ++i)
+            if (iEquals(suffix, kClassNames[i])) return static_cast<PlayerClass>(i);
+    }
+    // The class-locked base families -- the equip rules the server-side
+    // ItemTypes flags used to carry. Only types the game locks outright;
+    // shared families (Bow, Staff, Shield, Belt) stay out and read as neutral.
+    struct Row {
+        const char* type;
+        PlayerClass cls;
+    };
+    static constexpr Row kRows[] = {
+        {"MightyWeapon1H", PlayerClass::Barbarian},
+        {"MightyWeapon2H", PlayerClass::Barbarian},
+        {"VoodooMask", PlayerClass::WitchDoctor},
+        {"Mojo", PlayerClass::WitchDoctor},
+        {"CeremonialDagger", PlayerClass::WitchDoctor},
+        {"WizardHat", PlayerClass::Wizard},
+        {"Orb", PlayerClass::Wizard},
+        {"Wand", PlayerClass::Wizard},
+        {"FistWeapon", PlayerClass::Monk},
+        {"CombatStaff", PlayerClass::Monk},
+        {"HandXBow", PlayerClass::DemonHunter},
+        {"Quiver", PlayerClass::DemonHunter},
+        {"Cloak", PlayerClass::DemonHunter},
+        {"Flail", PlayerClass::Crusader},
+        {"Flail1H", PlayerClass::Crusader},
+        {"Flail2H", PlayerClass::Crusader},
+        {"CrusaderShield", PlayerClass::Crusader},
+        {"Scythe", PlayerClass::Necromancer},
+        {"Scythe1H", PlayerClass::Necromancer},
+        {"Scythe2H", PlayerClass::Necromancer},
+        {"NecromancerOffhand", PlayerClass::Necromancer},
+    };
+    for (const auto& row : kRows)
+        if (iEquals(typeName, row.type)) return row.cls;
+    return std::nullopt;
+}
+
+std::optional<PlayerClass> playerClassForSetKey(std::string_view setKey) {
+    struct Row {
+        const char* key;
+        PlayerClass cls;
+    };
+    // The six all-generic-typed class-locked sets, by ItemSets.stl key; the
+    // display names beside them are what a player knows them as.
+    static constexpr Row kRows[] = {
+        {"Ninja_Set_x1", PlayerClass::DemonHunter},      // The Shadow's Mantle
+        {"Monkey_King_Set_x1", PlayerClass::Monk},       // Monkey King's Garb
+        {"Dot_Set_x1", PlayerClass::WitchDoctor},        // Raiment of the Jade Harvester
+        {"Earthquake_Set_x1", PlayerClass::Barbarian},   // Might of the Earth
+        {"Arcane_Wraps_Set_x1", PlayerClass::Wizard},    // Vyr's Amazing Arcana
+        {"Thorns_Set_x1", PlayerClass::Crusader},        // Thorns of the Invoker
+    };
+    for (const auto& row : kRows)
+        if (iEquals(setKey, row.key)) return row.cls;
+    return std::nullopt;
+}
+
+std::optional<std::string_view> attachHardpointName(u32 holdType, EVisualSlot slot,
+                                                    const ItemTypeTraits& traits,
+                                                    bool sheathed) {
+    if (traits.neverDraw) return std::nullopt;
+
+    const auto s = static_cast<i32>(slot);
+    if (sheathed && !traits.ignoreSheathe) {
+        if (traits.shield) return std::string_view("HP_sheath_Shield");
+        if (traits.sheathHidden) return std::string_view("");
+        if (s == 4)
+            return std::string_view(traits.sheathAtHip ? "HP_sheath_right_Hip"
+                                                       : "HP_sheath_right_Back");
+        if (s == 5)
+            return std::string_view(traits.sheathAtHip ? "HP_sheath_left_Hip"
+                                                       : "HP_sheath_left_Back");
+        // Helm and shoulders fall through: sheathing only moves weapons.
+    }
+
+    // The drawn switch on the hold type (tag 0x10081), then the flag
+    // fall-through, exactly as 0xAB9060 orders them.
+    switch (holdType) {
+    case 0x0: case 0x1: case 0x2: case 0x5: case 0x8: case 0x11:
+        if (s == 4) return std::string_view("HP_rightWeapon");
+        if (s == 5) return std::string_view("HP_leftWeapon");
+        break;
+    case 0x3: case 0x4: case 0x7: case 0x10: case 0x19:
+        return std::string_view("HP_rightWeapon");
+    case 0x6:
+        return std::string_view("HP_leftWeapon");
+    case 0xF:
+        return std::string_view(s == 5 ? "HP_leftFist" : "HP_rightFist");
+    default:
+        break;
+    }
+    if (traits.shield) return std::string_view("HP_shield");
+    if (traits.offhandOnly) return std::string_view("HP_leftWeapon");
+    if (traits.helm && s == 0) return std::string_view("HP_helm");
+    if (traits.shoulder) return std::string_view("HP_left_shoulderPad");
+    if (s == 4) return std::string_view("HP_rightWeapon");
+    if (s == 5) return std::string_view("HP_shield");
+    return std::string_view("");
+}
+
+bool isSheathHardpoint(std::string_view hardpointName) {
+    for (const auto hp : kSheathHardpoints)
+        if (iEquals(hardpointName, hp)) return true;
+    return false;
+}
+
+EquipVisual resolveEquip(const Actor& itemActor, const ItemTypeTraits& traits,
+                         EVisualSlot slot, PlayerClass cls, Gender gender, bool sheathed) {
+    EquipVisual out;
+    const auto s = static_cast<i32>(slot);
+
+    if (lookCategoryForVisualSlot(slot).has_value()) {
+        // Armour: the two look tags, exactly ActorModel_ApplyItemLookForSlot
+        // (retail 0x750DE0). Absent tags stay absent -- the caller supplies
+        // the default look (value 0, look "A"), not this function.
+        const ItemLook look = itemLook(itemActor);
+        out.lookValue = look.lookValue;
+        out.lookNameHash = look.lookName;
+        return out;
+    }
+    if (s != 0 && s != 4 && s != 5 && s != 6) return out; // cosmetics: out of scope
+
+    const u32 hold = tagMapValue(itemActor.arTagMap, kTagItemHoldType).value_or(0);
+    const auto hp = attachHardpointName(hold, slot, traits, sheathed);
+    if (!hp) return out;   // flag-47 types: never drawn
+    out.hardpoint = *hp;
+    out.drawn = !out.hardpoint.empty();
+
+    // Model choice, ActorModel_GetItemAttachModelSno (retail 0x750BD0): the
+    // item's own Actor unless tag 0x17020 switches on the per-class pairs.
+    out.attachActorSno = itemActor.dwSnoId;
+    const bool perClass = tagMapValue(itemActor.arTagMap, kTagUsePerClassArt).value_or(0) != 0;
+    if (perClass) {
+        const auto primary = tagMapValue(itemActor.arTagMap, perClassArtTag(cls, gender, false));
+        out.attachActorSno = primary ? static_cast<i32>(*primary) : -1;
+        if (s == 5) {
+            // The left hand prefers the SECONDARY art when it exists.
+            const auto sec = tagMapValue(itemActor.arTagMap, perClassArtTag(cls, gender, true));
+            if (sec && static_cast<i32>(*sec) != -1) out.attachActorSno = static_cast<i32>(*sec);
+        }
+    }
+    if (s == 6) {
+        // Shoulders attach twice; the twin at HP_right_shoulderPad uses the
+        // secondary art for per-class items and the same model otherwise.
+        out.secondAttach = true;
+        out.secondAttachActorSno = itemActor.dwSnoId;
+        if (perClass) {
+            const auto sec = tagMapValue(itemActor.arTagMap, perClassArtTag(cls, gender, true));
+            out.secondAttachActorSno = sec ? static_cast<i32>(*sec) : -1;
+        }
+    }
+    if (s == 0)
+        out.hairStyle = static_cast<HairStyle>(
+            tagMapValue(itemActor.arTagMap, kTagItemHairStyle).value_or(0));
+    return out;
 }
 
 bool usesDyeType(i32 dyeType) {

@@ -378,3 +378,233 @@ TEST_CASE("d3_character_geoset_name_grammar", "[d3][character]") {
     mismatched.szMaterialName = "N_TRS_HVY_AShape_Something_Else_001";
     CHECK_FALSE(nat::parseGeosetName(mismatched).parsed);
 }
+
+TEST_CASE("d3_character_retail_tables", "[d3][character]") {
+    // g_LookCategoryNames (retail 0x14776F0): six categories, NULL elsewhere.
+    CHECK(nat::lookCategoryName(2) == std::string_view("TRS"));
+    CHECK(nat::lookCategoryName(3) == std::string_view("RH1"));
+    CHECK(nat::lookCategoryName(4) == std::string_view("LH1"));
+    CHECK(nat::lookCategoryName(5) == std::string_view("GLV"));
+    CHECK(nat::lookCategoryName(7) == std::string_view("BTS"));
+    CHECK(nat::lookCategoryName(9) == std::string_view("LEG"));
+    CHECK(nat::lookCategoryName(1) == nullptr);  // Head: attachment-only
+    CHECK(nat::lookCategoryName(8) == nullptr);  // Shoulders: attachment-only
+
+    // g_LookValueNames (retail 0x14777E0), all nineteen, NKD for unknown.
+    CHECK(nat::lookValueName(0) == std::string_view("NKD"));
+    CHECK(nat::lookValueName(1) == std::string_view("LIT_A"));
+    CHECK(nat::lookValueName(2) == std::string_view("LIT_B"));
+    CHECK(nat::lookValueName(7) == std::string_view("LIT_C"));
+    CHECK(nat::lookValueName(3) == std::string_view("MED_A"));
+    CHECK(nat::lookValueName(4) == std::string_view("MED_B"));
+    CHECK(nat::lookValueName(8) == std::string_view("MED_C"));
+    CHECK(nat::lookValueName(5) == std::string_view("HVY_A"));
+    CHECK(nat::lookValueName(6) == std::string_view("HVY_B"));
+    CHECK(nat::lookValueName(9) == std::string_view("HVY_C"));
+    CHECK(nat::lookValueName(10) == std::string_view("CLS_LIT_A"));
+    CHECK(nat::lookValueName(18) == std::string_view("CLS_HVY_C"));
+    CHECK(nat::lookValueName(99) == std::string_view("NKD"));
+
+    // The geoset-token inverse agrees with the name table.
+    using AW = nat::ArmourWeight;
+    CHECK(nat::lookValueForGeoset(AW::Naked, 0, false) == 0u);
+    CHECK(nat::lookValueForGeoset(AW::Light, 'C', false) == 7u);
+    CHECK(nat::lookValueForGeoset(AW::Medium, 'B', false) == 4u);
+    CHECK(nat::lookValueForGeoset(AW::Heavy, 'C', false) == 9u);
+    CHECK(nat::lookValueForGeoset(AW::Medium, 'A', true) == 13u);
+    CHECK_FALSE(nat::lookValueForGeoset(AW::Naked, 'A', true).has_value());
+
+    // The engine's substring match on a real corpus spelling.
+    const std::string_view name = "N_TRS_HVY_AShape_Barb_F_HVY_mat_001";
+    CHECK(nat::matchesLookCategory(name, 2));
+    CHECK(nat::matchesLook(name, 2, 5));        // TRS_HVY_A
+    CHECK_FALSE(nat::matchesLook(name, 2, 6));  // TRS_HVY_B
+    CHECK_FALSE(nat::matchesLookCategory(name, 9));
+    CHECK_FALSE(nat::matchesLookCategory(name, 8));  // unnamed category: never
+
+    // Str_Hash33 is case-sensitive, unlike gbidHash.
+    CHECK(nat::lookNameHash33("A") == u32('A'));
+    CHECK(nat::lookNameHash33("A") != nat::lookNameHash33("a"));
+    CHECK(nat::gbidHash("A") == nat::gbidHash("a"));
+}
+
+TEST_CASE("d3_character_attachment_rules", "[d3][character]") {
+    // perClassArtTag (retail 0x750BD0): a switch, not base + 2*class, and +1
+    // is FEMALE (measured: Helm_hell_base_01 0x17000 -> barbM, 0x17001 ->
+    // barbF).
+    using PC = nat::PlayerClass;
+    using G = nat::Gender;
+    CHECK(nat::perClassArtTag(PC::Barbarian, G::Male, false) == 0x17000u);
+    CHECK(nat::perClassArtTag(PC::Barbarian, G::Female, false) == 0x17001u);
+    CHECK(nat::perClassArtTag(PC::DemonHunter, G::Male, false) == 0x17008u);
+    CHECK(nat::perClassArtTag(PC::Wizard, G::Male, false) == 0x17002u);
+    CHECK(nat::perClassArtTag(PC::WitchDoctor, G::Male, false) == 0x17004u);
+    CHECK(nat::perClassArtTag(PC::Monk, G::Male, false) == 0x17006u);
+    CHECK(nat::perClassArtTag(PC::Crusader, G::Male, false) == 0x1700Au);
+    CHECK(nat::perClassArtTag(PC::Necromancer, G::Female, false) == 0x1700Du);
+    CHECK(nat::perClassArtTag(PC::Monk, G::Male, true) == 0x17206u);
+
+    // Item_GetAttachHardpointName (retail 0xAB9060).
+    using VS = nat::EVisualSlot;
+    const nat::ItemTypeTraits none{};
+    nat::ItemTypeTraits shield;
+    shield.shield = shield.offhandOnly = true;
+    nat::ItemTypeTraits helm;
+    helm.helm = true;
+    nat::ItemTypeTraits shoulder;
+    shoulder.shoulder = true;
+    nat::ItemTypeTraits hip;
+    hip.sheathAtHip = true;
+    nat::ItemTypeTraits never;
+    never.neverDraw = true;
+
+    auto hp = [](std::optional<std::string_view> v) { return v.value_or("<none>"); };
+    CHECK(hp(nat::attachHardpointName(0, VS::RightHand, none, false)) == "HP_rightWeapon");
+    CHECK(hp(nat::attachHardpointName(0, VS::LeftHand, none, false)) == "HP_leftWeapon");
+    CHECK(hp(nat::attachHardpointName(3, VS::LeftHand, none, false)) == "HP_rightWeapon");
+    CHECK(hp(nat::attachHardpointName(6, VS::RightHand, none, false)) == "HP_leftWeapon");
+    CHECK(hp(nat::attachHardpointName(0xF, VS::RightHand, none, false)) == "HP_rightFist");
+    CHECK(hp(nat::attachHardpointName(0xF, VS::LeftHand, none, false)) == "HP_leftFist");
+    CHECK(hp(nat::attachHardpointName(0, VS::LeftHand, shield, false)) == "HP_leftWeapon");
+    CHECK(hp(nat::attachHardpointName(0x12, VS::LeftHand, shield, false)) == "HP_shield");
+    CHECK(hp(nat::attachHardpointName(0, VS::Head, helm, false)) == "HP_helm");
+    CHECK(hp(nat::attachHardpointName(0, VS::Shoulders, shoulder, false)) == "HP_left_shoulderPad");
+    CHECK_FALSE(nat::attachHardpointName(0, VS::RightHand, never, false).has_value());
+
+    // Sheathed: shields to the sheath hardpoint, weapons to back or hip, the
+    // helm untouched.
+    CHECK(hp(nat::attachHardpointName(0, VS::RightHand, none, true)) == "HP_sheath_right_Back");
+    CHECK(hp(nat::attachHardpointName(0, VS::LeftHand, none, true)) == "HP_sheath_left_Back");
+    CHECK(hp(nat::attachHardpointName(0, VS::RightHand, hip, true)) == "HP_sheath_right_Hip");
+    CHECK(hp(nat::attachHardpointName(0, VS::LeftHand, shield, true)) == "HP_sheath_Shield");
+    CHECK(hp(nat::attachHardpointName(0, VS::Head, helm, true)) == "HP_helm");
+
+    // Hardpoint_IsSheath (retail 0xAB9840) is case-insensitive.
+    CHECK(nat::isSheathHardpoint("HP_sheath_left_Back"));
+    CHECK(nat::isSheathHardpoint("hp_SHEATH_shield"));
+    CHECK_FALSE(nat::isSheathHardpoint("HP_rightWeapon"));
+
+    // The trait table rows crack against shipped type names.
+    CHECK(nat::itemTypeTraits(nat::gbidHash("Shield")).shield);
+    CHECK(nat::itemTypeTraits(nat::gbidHash("CrusaderShield")).offhandOnly);
+    CHECK(nat::itemTypeTraits(nat::gbidHash("VoodooMask")).helm);
+    CHECK(nat::itemTypeTraits(nat::gbidHash("Shoulders")).shoulder);
+    CHECK(nat::itemTypeTraits(nat::gbidHash("Dagger")).sheathAtHip);
+    CHECK_FALSE(nat::itemTypeTraits(nat::gbidHash("Sword")).shield);
+
+    // g_HairStyleNames (retail 0x144CC50), BALD included.
+    CHECK(nat::hairStyleName(nat::HairStyle::Naked) == std::string_view("NKD"));
+    CHECK(nat::hairStyleName(nat::HairStyle::Helm1) == std::string_view("HLM1"));
+    CHECK(nat::hairStyleName(nat::HairStyle::Helm2) == std::string_view("HLM2"));
+    CHECK(nat::hairStyleName(nat::HairStyle::Bald) == std::string_view("BALD"));
+}
+
+TEST_CASE("d3_character_resolve_equip", "[d3][character]") {
+    using VS = nat::EVisualSlot;
+    using PC = nat::PlayerClass;
+    using G = nat::Gender;
+
+    // An armour item: the two look tags come through untouched, nothing is
+    // attached.
+    nat::Actor armour;
+    armour.dwSnoId = 4242;
+    armour.arTagMap = {{0, nat::kTagItemLookValue, 5}, {0, nat::kTagItemLookName, u32('B')}};
+    const auto a = nat::resolveEquip(armour, {}, VS::Torso, PC::Barbarian, G::Male, false);
+    CHECK(a.lookValue == 5u);
+    CHECK(a.lookNameHash == u32('B'));
+    CHECK(a.attachActorSno == -1);
+    CHECK_FALSE(a.drawn);
+
+    // A plain weapon in the right hand: its own actor at HP_rightWeapon.
+    nat::Actor sword;
+    sword.dwSnoId = 195174;
+    const auto w = nat::resolveEquip(sword, {}, VS::RightHand, PC::Barbarian, G::Male, false);
+    CHECK(w.drawn);
+    CHECK(w.attachActorSno == 195174);
+    CHECK(w.hardpoint == "HP_rightWeapon");
+    CHECK_FALSE(w.secondAttach);
+
+    // A per-class helm: the class/gender tag picks the model, the hair tag
+    // comes along (measured pair from Helm_hell_base_01.acr).
+    nat::Actor helmActor;
+    helmActor.dwSnoId = 1000;
+    helmActor.arTagMap = {{0, nat::kTagUsePerClassArt, 1},
+                          {0, 0x17000, 90588},
+                          {0, 0x17001, 95788},
+                          {0, nat::kTagItemHairStyle, 2}};
+    nat::ItemTypeTraits helmTraits;
+    helmTraits.helm = true;
+    const auto hm = nat::resolveEquip(helmActor, helmTraits, VS::Head, PC::Barbarian, G::Male, false);
+    CHECK(hm.drawn);
+    CHECK(hm.hardpoint == "HP_helm");
+    CHECK(hm.attachActorSno == 90588);
+    CHECK(hm.hairStyle == nat::HairStyle::Helm2);
+    const auto hf = nat::resolveEquip(helmActor, helmTraits, VS::Head, PC::Barbarian, G::Female, false);
+    CHECK(hf.attachActorSno == 95788);
+
+    // Shoulders attach twice; without per-class art the twin is the same
+    // model at the right pad.
+    nat::Actor pads;
+    pads.dwSnoId = 777;
+    nat::ItemTypeTraits padTraits;
+    padTraits.shoulder = true;
+    const auto sh = nat::resolveEquip(pads, padTraits, VS::Shoulders, PC::Monk, G::Male, false);
+    CHECK(sh.drawn);
+    CHECK(sh.hardpoint == "HP_left_shoulderPad");
+    CHECK(sh.secondAttach);
+    CHECK(sh.secondAttachActorSno == 777);
+}
+
+TEST_CASE("d3_character_stem_inverse", "[d3][character]") {
+    using PC = nat::PlayerClass;
+    using G = nat::Gender;
+    // Round-trip every class and gender, plus the suffixed rig variants the
+    // installs ship, which are the same character.
+    for (whiteout::i32 c = 0; c < static_cast<whiteout::i32>(nat::kPlayerClassCount); ++c) {
+        for (const G g : {G::Male, G::Female}) {
+            const auto cls = static_cast<PC>(c);
+            const auto back = nat::playerFromAppearanceStem(nat::playerAppearanceStem(cls, g));
+            REQUIRE(back.has_value());
+            CHECK(back->first == cls);
+            CHECK(back->second == g);
+        }
+    }
+    const auto sel = nat::playerFromAppearanceStem("Barbarian_Male_characterSelect");
+    REQUIRE(sel.has_value());
+    CHECK(sel->first == PC::Barbarian);
+    CHECK(sel->second == G::Male);
+    CHECK(nat::playerFromAppearanceStem("barbarian_female").has_value()); // case-blind
+    CHECK_FALSE(nat::playerFromAppearanceStem("SkeletonKing").has_value());
+    CHECK_FALSE(nat::playerFromAppearanceStem("").has_value());
+}
+
+TEST_CASE("d3_character_class_from_type", "[d3][character]") {
+    using PC = nat::PlayerClass;
+    // The game's own encoding: the 44 <Slot>_<Class> spellings.
+    CHECK(nat::playerClassFromTypeName("ChestArmor_Wizard") == PC::Wizard);
+    CHECK(nat::playerClassFromTypeName("SpiritStone_Monk") == PC::Monk);
+    CHECK(nat::playerClassFromTypeName("Helm_Necromancer") == PC::Necromancer);
+    CHECK(nat::playerClassFromTypeName("belt_barbarian") == PC::Barbarian); // case-blind
+    // The curated class-locked base families.
+    CHECK(nat::playerClassFromTypeName("MightyWeapon1H") == PC::Barbarian);
+    CHECK(nat::playerClassFromTypeName("CeremonialDagger") == PC::WitchDoctor);
+    CHECK(nat::playerClassFromTypeName("HandXBow") == PC::DemonHunter);
+    CHECK(nat::playerClassFromTypeName("NecromancerOffhand") == PC::Necromancer);
+    // Neutral and near-miss spellings stay neutral: shared families, the
+    // non-class underscore suffixes ItemTypeNames.stl really ships, and the
+    // record stems that LOOK suffixed but are not types at all.
+    CHECK_FALSE(nat::playerClassFromTypeName("Ring").has_value());
+    CHECK_FALSE(nat::playerClassFromTypeName("Sword2H").has_value());
+    CHECK_FALSE(nat::playerClassFromTypeName("Runestone_A").has_value());
+    CHECK_FALSE(nat::playerClassFromTypeName("CraftingPlan_Smith").has_value());
+    CHECK_FALSE(nat::playerClassFromTypeName("").has_value());
+
+    // The six all-generic-typed sets, and nothing else.
+    CHECK(nat::playerClassForSetKey("Ninja_Set_x1") == PC::DemonHunter);
+    CHECK(nat::playerClassForSetKey("Monkey_King_Set_x1") == PC::Monk);
+    CHECK(nat::playerClassForSetKey("Dot_Set_x1") == PC::WitchDoctor);
+    CHECK(nat::playerClassForSetKey("Earthquake_Set_x1") == PC::Barbarian);
+    CHECK(nat::playerClassForSetKey("Arcane_Wraps_Set_x1") == PC::Wizard);
+    CHECK(nat::playerClassForSetKey("Thorns_Set_x1") == PC::Crusader);
+    CHECK_FALSE(nat::playerClassForSetKey("Firebird_Set_x1").has_value());
+}

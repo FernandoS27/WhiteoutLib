@@ -70,6 +70,13 @@ std::optional<EffectGroup> parseEffectGroup(std::span<const u8> file) {
     return out;
 }
 
+std::optional<GameBalance> parseGameBalance(std::span<const u8> file) {
+    BinaryParseVisitor v(file);
+    GameBalance out;
+    if (!v.read(out)) return std::nullopt;
+    return out;
+}
+
 std::optional<Particle> parseParticle(std::span<const u8> file) {
     BinaryParseVisitor v(file);
     Particle out;
@@ -101,6 +108,13 @@ std::optional<ShaderMap> parseShaderMap(std::span<const u8> file) {
 std::optional<Shaders> parseShaders(std::span<const u8> file) {
     BinaryParseVisitor v(file);
     Shaders out;
+    if (!v.read(out)) return std::nullopt;
+    return out;
+}
+
+std::optional<StringList> parseStringList(std::span<const u8> file) {
+    BinaryParseVisitor v(file);
+    StringList out;
     if (!v.read(out)) return std::nullopt;
     return out;
 }

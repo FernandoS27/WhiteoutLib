@@ -137,6 +137,8 @@ whiteout_add_test(d3_payload_test d3_payload_test.cpp)
 whiteout_add_test(d3_graphics_sno_test d3_graphics_sno_test.cpp)
 whiteout_add_test(d3_sno_group_test d3_sno_group_test.cpp)
 whiteout_add_test(d3_character_test d3_character_test.cpp)
+whiteout_add_test(d3_gamebalance_test d3_gamebalance_test.cpp)
+whiteout_add_test(d3_stringlist_test d3_stringlist_test.cpp)
 whiteout_add_test(d3_native_test d3_native_test.cpp)
 # The public D3 native headers live in include/ and need no help. This is for
 # the white-box half of the test, which includes the build-internal layout.h to

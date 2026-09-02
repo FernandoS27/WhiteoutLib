@@ -1760,6 +1760,51 @@ static_assert(offsetof(EmitterParams, eEmitterShape) == 144, "EmitterParams.eEmi
 static_assert(offsetof(EmitterParams, szDccShapeName) == 148, "EmitterParams.szDccShapeName moved");
 static_assert(sizeof(EmitterParams) == 280, "EmitterParams changed size");
 
+struct Item {
+    char szName[256];
+    u32 dwGbid;
+    u8 _pad0[4];
+    i32 snoActor;
+    u32 gbidItemType;
+    u8 _pad1[100];
+    u32 gbidSet;
+    u8 _pad2[24];
+    i32 snoEquipEffectGroup;
+    i32 snoUnequipEffectGroup;
+    u8 _pad3[964];
+    i32 snoCosmeticEffectGroup;
+    u8 _pad4[32];
+};
+static_assert(offsetof(Item, szName) == 0, "Item.szName moved");
+static_assert(offsetof(Item, dwGbid) == 256, "Item.dwGbid moved");
+static_assert(offsetof(Item, snoActor) == 264, "Item.snoActor moved");
+static_assert(offsetof(Item, gbidItemType) == 268, "Item.gbidItemType moved");
+static_assert(offsetof(Item, gbidSet) == 372, "Item.gbidSet moved");
+static_assert(offsetof(Item, snoEquipEffectGroup) == 400, "Item.snoEquipEffectGroup moved");
+static_assert(offsetof(Item, snoUnequipEffectGroup) == 404, "Item.snoUnequipEffectGroup moved");
+static_assert(offsetof(Item, snoCosmeticEffectGroup) == 1372, "Item.snoCosmeticEffectGroup moved");
+static_assert(sizeof(Item) == 1408, "Item changed size");
+
+struct GameBalance {
+    i32 dwSnoId;
+    u8 _pad0[8];
+    i32 eGameBalanceType;
+    i32 dwUnknown10;
+    u8 _pad1[4];
+    u8 serItemTypes[16];
+    i32 arItems;      // byte offset into the payload
+    i32 arItems_size; // byte length
+    u8 _pad2[8];
+    u8 serOtherTables[512];
+};
+static_assert(offsetof(GameBalance, dwSnoId) == 0, "GameBalance.dwSnoId moved");
+static_assert(offsetof(GameBalance, eGameBalanceType) == 12, "GameBalance.eGameBalanceType moved");
+static_assert(offsetof(GameBalance, dwUnknown10) == 16, "GameBalance.dwUnknown10 moved");
+static_assert(offsetof(GameBalance, serItemTypes) == 24, "GameBalance.serItemTypes moved");
+static_assert(offsetof(GameBalance, arItems) == 40, "GameBalance.arItems moved");
+static_assert(offsetof(GameBalance, serOtherTables) == 56, "GameBalance.serOtherTables moved");
+static_assert(sizeof(GameBalance) == 568, "GameBalance changed size");
+
 struct IntNode {
     i32 nStart;
     i32 nEnd;
@@ -2200,6 +2245,33 @@ static_assert(offsetof(Shaders, dwRenderPassCount) == 20, "Shaders.dwRenderPassC
 static_assert(offsetof(Shaders, arRenderPasses) == 24, "Shaders.arRenderPasses moved");
 static_assert(offsetof(Shaders, szName) == 40, "Shaders.szName moved");
 static_assert(sizeof(Shaders) == 296, "Shaders changed size");
+
+struct StringTableEntry {
+    u8 _pad0[8]; // runtime pointer, zero on disk
+    i32 szKey;      // byte offset into the payload
+    i32 szKey_size; // byte length
+    u8 _pad1[8]; // runtime pointer, zero on disk
+    i32 szValue;      // byte offset into the payload
+    i32 szValue_size; // byte length
+    i32 dwKeyHash;
+    i32 dwUnknown24;
+};
+static_assert(offsetof(StringTableEntry, szKey) == 8, "StringTableEntry.szKey moved");
+static_assert(offsetof(StringTableEntry, szValue) == 24, "StringTableEntry.szValue moved");
+static_assert(offsetof(StringTableEntry, dwKeyHash) == 32, "StringTableEntry.dwKeyHash moved");
+static_assert(offsetof(StringTableEntry, dwUnknown24) == 36, "StringTableEntry.dwUnknown24 moved");
+static_assert(sizeof(StringTableEntry) == 40, "StringTableEntry changed size");
+
+struct StringList {
+    i32 dwSnoId;
+    u8 _pad0[20];
+    i32 arEntries;      // byte offset into the payload
+    i32 arEntries_size; // byte length
+    u8 _pad1[8];
+};
+static_assert(offsetof(StringList, dwSnoId) == 0, "StringList.dwSnoId moved");
+static_assert(offsetof(StringList, arEntries) == 24, "StringList.arEntries moved");
+static_assert(sizeof(StringList) == 40, "StringList changed size");
 
 struct SurfaceTagMapEntry {
     i32 nValueType;

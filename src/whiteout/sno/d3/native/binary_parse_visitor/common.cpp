@@ -34,6 +34,30 @@ void BinaryParseVisitor::visit(const layout::EffectGroup& src, EffectGroup& dst)
     dst.snoPower = AssetRef{src.snoPower, Group::Power};
 }
 
+void BinaryParseVisitor::visit(const layout::Item& src, Item& dst) {
+    dst.szName = readChars(reinterpret_cast<const char*>(src.szName), 256);
+    dst.snoActor = AssetRef{src.snoActor, Group::Actor};
+    dst.gbidItemType = src.gbidItemType;
+    dst.gbidSet = src.gbidSet;
+    dst.snoEquipEffectGroup = AssetRef{src.snoEquipEffectGroup, Group::EffectGroup};
+    dst.snoUnequipEffectGroup = AssetRef{src.snoUnequipEffectGroup, Group::EffectGroup};
+    dst.snoCosmeticEffectGroup = AssetRef{src.snoCosmeticEffectGroup, Group::EffectGroup};
+}
+
+void BinaryParseVisitor::visit(const layout::GameBalance& src, GameBalance& dst) {
+    dst.dwSnoId = src.dwSnoId;
+    dst.eGameBalanceType = src.eGameBalanceType;
+    dst.dwUnknown10 = src.dwUnknown10;
+    {
+        size_t n = 0;
+        const layout::Item* p = nullptr;
+        if (locate<layout::Item>(src.arItems, src.arItems_size, n, p)) {
+            dst.arItems.resize(n);
+            for (size_t i = 0; i < n; ++i) visit(p[i], dst.arItems[i]);
+        }
+    }
+}
+
 void BinaryParseVisitor::visit(const layout::RenderParams& src, RenderParams& dst) {
     dst.dwCullMode = src.dwCullMode;
     dst.dwZWriteEnable = src.dwZWriteEnable;
@@ -119,6 +143,32 @@ void BinaryParseVisitor::visit(const layout::Shaders& src, Shaders& dst) {
         }
     }
     dst.szName = readChars(reinterpret_cast<const char*>(src.szName), 256);
+}
+
+void BinaryParseVisitor::visit(const layout::StringTableEntry& src, StringTableEntry& dst) {
+    {
+        size_t n = 0;
+        const u8* p = nullptr;
+        if (locate<u8>(src.szKey, src.szKey_size, n, p)) dst.szKey.assign(p, p + n);
+    }
+    {
+        size_t n = 0;
+        const u8* p = nullptr;
+        if (locate<u8>(src.szValue, src.szValue_size, n, p)) dst.szValue.assign(p, p + n);
+    }
+    dst.dwKeyHash = src.dwKeyHash;
+}
+
+void BinaryParseVisitor::visit(const layout::StringList& src, StringList& dst) {
+    dst.dwSnoId = src.dwSnoId;
+    {
+        size_t n = 0;
+        const layout::StringTableEntry* p = nullptr;
+        if (locate<layout::StringTableEntry>(src.arEntries, src.arEntries_size, n, p)) {
+            dst.arEntries.resize(n);
+            for (size_t i = 0; i < n; ++i) visit(p[i], dst.arEntries[i]);
+        }
+    }
 }
 
 void BinaryParseVisitor::visit(const layout::SurfaceTagMapEntry& src, SurfaceTagMapEntry& dst) {

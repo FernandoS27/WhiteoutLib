@@ -194,6 +194,8 @@ struct FloatPath;
 struct VectorNode;
 struct VectorPath;
 struct EmitterParams;
+struct Item;
+struct GameBalance;
 struct IntNode;
 struct IntPath;
 struct Material;
@@ -213,6 +215,8 @@ struct RenderPass;
 struct ShaderMapEntry;
 struct ShaderMap;
 struct Shaders;
+struct StringTableEntry;
+struct StringList;
 struct SurfaceTagMapEntry;
 struct Surface;
 struct Texture;
@@ -1210,6 +1214,71 @@ struct EmitterParams {
     std::string szDccShapeName;
 };
 
+/// Item -- 1408 bytes on disk.
+///
+/// A GameBalance item record as the retail PC 2.8.0.99920 build ships it:
+/// 1408 bytes, and the same shape the retail runtime uses (WhiteoutFlakes
+/// D3_CHARACTER_DRESSING_RE.md) with the name inline -- unlike the Switch
+/// 2.6.2 reflection's 696-byte record, whose name is a vararray. Verified
+/// over all 3686 records in the four shipped Items tables: every record head
+/// is a printable name and every container size is an exact multiple of 1408.
+/// The attribute array @504 (sixteen 24-byte entries, formula blobs at the
+/// file tail; attribute 1432 = cosmetic pet) is documented but not emitted:
+/// nothing consumes it yet.
+struct Item {
+    std::string szName;
+    /// The item's art. GameBalance_GetActorSno (0xAC8890) reads the runtime
+    /// mirror of this field; verified Unique_Dagger_003 -> Actor
+    /// Dagger_norm_unique_03 (195174). -1 or 0 = no art (195 of 3686).
+    AssetRef snoActor;
+    /// Str_HashLower33 of the ItemType name; verified Unique_Dagger_003
+    /// carries hash("Dagger"). 131 distinct values across the shipped
+    /// tables; the ItemType records themselves are server-side in 2.8.
+    u32 gbidItemType{};
+    /// The item's set, as gbidHash of the ItemSets.stl KEY it belongs to
+    /// (Corpus/D3/StringList); 0xFFFFFFFF = not part of a set. Measured over
+    /// the snapshot: 127 distinct non-sentinel values, every one cracking
+    /// against a shipped ItemSets key.
+    u32 gbidSet{};
+    /// Played on equip; ActorModel_AttachCosmeticItem (0x753A80) reads the
+    /// runtime +400. Measured Art_Test_Wings_1 -> hero_angelWings_on (group
+    /// 14). Zero everywhere outside cosmetic items.
+    AssetRef snoEquipEffectGroup;
+    /// Played on unequip; ActorModel_DetachCosmeticItem (0x7592A0) reads the
+    /// runtime +404. Measured Art_Test_Wings_1 -> hero_angelWings_off.
+    AssetRef snoUnequipEffectGroup;
+    /// The cosmetic's persistent effect -- an EffectGroup, not an Actor as the
+    /// RE report first read it: measured Art_Test_Wings_1 ->
+    /// hero_angelWings_master (group 14). The spawned model arrives through
+    /// the EffectGroup's own payload.
+    AssetRef snoCosmeticEffectGroup;
+};
+
+/// GameBalance -- 568 bytes on disk.
+///
+/// The GameBalance root, re-derived from the retail PC 2.8.0.99920 install
+/// (format version 2469 -- newer than every build d3_group_versions.json
+/// tracks). The 568-byte shape and the container offsets match the Switch
+/// 2.6.2 reflection exactly; only the record layouts inside the containers
+/// moved between builds. One 16-byte {SerializeData, runtime pointer}
+/// container per table type; exactly one is populated per file, selected by
+/// eGameBalanceType. Only the Items container is emitted -- the full
+/// container map and the measurements are in Corpus/D3/GameBalance/README.md.
+struct GameBalance {
+    i32 dwSnoId{};
+    /// Selects the populated container. Measured over all twenty 2.8-client
+    /// files: 2 -> arItems @40, 8 -> AffixList @120, 28 -> @312, 29 -> @328,
+    /// 32 -> Recipes @424, 40 -> @472, 45 -> @488, 46 -> @504, 48 -> @72,
+    /// 49 -> @520, 50 -> @536, 51 -> @552.
+    i32 eGameBalanceType{};
+    /// A per-file hash-like word; NOT Str_HashLower33 of the file stem
+    /// (checked against all 20 shipped files).
+    i32 dwUnknown10{};
+    /// Populated iff eGameBalanceType == 2 (Items_Legendary, Item_ArtTest,
+    /// Items_Quests_Beta, Items_RandomPlaceholder, Items_PagesOfFate).
+    std::vector<Item> arItems;
+};
+
 /// IntNode -- 12 bytes on disk.
 struct IntNode {
     i32 nStart{};
@@ -1448,6 +1517,37 @@ struct Shaders {
     i32 dwRenderPassCount{};
     std::vector<RenderPass> arRenderPasses;
     std::string szName;
+};
+
+/// StringTableEntry -- 40 bytes on disk.
+///
+/// A StringList entry as the retail PC 2.8.0.99920 build ships it: 40 bytes,
+/// against the Switch 2.6.2 reflection's 24 -- the same build skew GameBalance
+/// Item has, and settled the same way, by measuring the shipped files. Two
+/// engine-layout serialized strings ({char* @0, SerializeData @+8} apiece):
+/// the KEY (the record identity other tables address, e.g. an Item.szName or
+/// an ItemTypes spelling) and the VALUE (the display text). Verified over all
+/// 6,600 entries of Items.stl plus the four other item StringLists: every key
+/// and value span is NUL-terminated text and every container size is an exact
+/// multiple of 40.
+struct StringTableEntry {
+    std::vector<u8> szKey;
+    std::vector<u8> szValue;
+    /// Case-SENSITIVE Str_Hash33(szKey) -- h*33+c over the bytes as written,
+    /// NOT the lowering gbid hash: verified 6,600/6,600 on Items.stl, where
+    /// gbidHash matches only 17.
+    i32 dwKeyHash{};
+};
+
+/// StringList -- 40 bytes on disk.
+///
+/// The StringList root (group 42, .stl). Matches the Switch 2.6.2 reflection:
+/// 40 bytes, with the entries container's SerializeData at +24 (the qword at
+/// +16 is the runtime element pointer, zero on disk). Only the ENTRY record
+/// moved between builds -- see StringTableEntry.
+struct StringList {
+    i32 dwSnoId{};
+    std::vector<StringTableEntry> arEntries;
 };
 
 /// SurfaceTagMapEntry -- 12 bytes on disk.

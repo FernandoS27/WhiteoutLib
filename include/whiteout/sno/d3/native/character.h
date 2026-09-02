@@ -42,6 +42,14 @@
 /// category/value numbering, the fallback chain and the dye maths are the
 /// opposite -- straight from the binary, and not observable in the files.
 /// Each declaration says which it is.
+///
+/// A second binary joined later: the **retail Windows 2.8.x exe** (imagebase
+/// 0x400000 -- addresses spelled `0x7100...` are the Switch build, five- to
+/// seven-digit ones are retail).  Retail ships the name tables the Switch
+/// pass could only infer around (`g_LookCategoryNames`, `g_LookValueNames`,
+/// `g_HairStyleNames`) and is where the whole attachment pipeline was
+/// recovered -- see `D3_CHARACTER_DRESSING_RE.md` in the WhiteoutFlakes repo
+/// for the full report.
 
 #pragma once
 
@@ -51,6 +59,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace whiteout {
@@ -96,9 +105,41 @@ const char* playerPortraitClassName(PlayerClass cls);
 /// 14 (7 classes x 2 genders) out of the corpus.
 std::string playerAppearanceStem(PlayerClass cls, Gender gender);
 
+/// The inverse: which class and gender a player Appearance stem names, or
+/// nullopt for a stem that is not a player rig. Case-insensitive, and it
+/// tolerates the suffixed variants the installs ship (`_characterSelect`,
+/// `_FrontEnd`) by matching on the prefix -- those are the same character.
+std::optional<std::pair<PlayerClass, Gender>> playerFromAppearanceStem(std::string_view stem);
+
 // ---------------------------------------------------------------------------
 // What the character is wearing: the item -> look pipeline
 // ---------------------------------------------------------------------------
+
+/// FROM THE BINARY (`Str_HashLower33`, retail Windows `0x54BF00`): the GBID
+/// hash. `h = h*33 + tolower(c)`, seed 0, over the record's `szName` -- an
+/// item is *addressed* by this: the shipped GameBalance records leave their
+/// `gbid` field zeroed and the engine stamps `gbidHash(szName)` in at load,
+/// and every cross-record reference (`gbidItemType`, dye and affix gbids) is
+/// this hash of the referee's name. Lower-casing is ASCII: the names are.
+inline u32 gbidHash(std::string_view name) {
+    u32 h = 0;
+    for (const char c : name)
+        h = h * 33 +
+            static_cast<u8>((c >= 'A' && c <= 'Z') ? c + ('a' - 'A') : c);
+    return h;
+}
+
+/// The text of a StringList serialized string (`StringTableEntry::szKey` /
+/// `szValue`): the span up to the first NUL. The raw span is the engine's
+/// SerializeData block, whose size INCLUDES the terminator -- returning it
+/// whole would hand every consumer a name that fails equality against the
+/// spelling it was written from.
+inline std::string_view stlText(const std::vector<u8>& s) {
+    const auto* p = reinterpret_cast<const char*>(s.data());
+    size_t n = 0;
+    while (n < s.size() && p[n] != '\0') ++n;
+    return {p, n};
+}
 
 /// FROM THE BINARY (`Actor_GetTagMapValue`, `0x7100609CD0`). The two tags an
 /// item's Actor carries; there is no per-item mesh or material asset for armour.
@@ -110,20 +151,42 @@ inline constexpr u32 kTagItemLookName = 0x10401;   ///< which material set
 inline constexpr u32 kDefaultLookValue = 0;
 inline constexpr std::string_view kDefaultLookName = "A";
 
-/// FROM THE BINARY (`g_EquipSlotToLookCategory`, `0x7100E3D28C`). Exactly four
-/// equipment slots drive geoset switching; everything else a character wears is
-/// an attached model on a hardpoint, not a visibility flip.
+/// FROM THE BINARY (`g_VisualSlotToLookCategory`, retail `0x140C758`; the
+/// Switch build's `g_EquipSlotToLookCategory` `0x7100E3D28C` is the same
+/// table). Exactly four equipment slots drive geoset switching; everything
+/// else a character wears is an attached model on a hardpoint, not a
+/// visibility flip.
 ///
-/// OPEN: which body part each pair refers to. The four are torso, legs, boots
-/// and gloves (that much is settled), but the visual-slot index is its own
-/// numbering, not `EEquipmentSlot`, and nothing has yet pinned slot 1 to a
-/// specific one of the four. The table is therefore exposed as the raw pairs the
-/// binary holds rather than as named body parts.
+/// Both sides of each pair are now identified: `visualSlot` is an
+/// `EVisualSlot` ordinal and `lookCategory` is an `EEquipmentSlot` ordinal
+/// (proved by the missing-component warning printing the category through
+/// `g_EnumNames_EquipmentSlot`, retail `0x1443AA8`). The four pairs read
+/// Torso->TRS, Feet->BTS, Hands->GLV, Legs->LEG.
 struct EquipSlotLook {
     u32 visualSlot;
     u32 lookCategory;
 };
 std::span<const EquipSlotLook> equipSlotLookCategories();
+
+/// FROM THE BINARY (`ActorModel_SetVisualEquipment`, retail `0x750880`): the
+/// index into the nine-slot `VisualEquipment` block at ACD+308. Its own
+/// numbering, NOT `EEquipmentSlot`. Slot 8 holds four raw cosmetic GBIDs
+/// rather than a VisualItem and is out of the dressing room's scope.
+enum class EVisualSlot : i32 {
+    Head = 0,
+    Torso = 1,
+    Feet = 2,
+    Hands = 3,
+    RightHand = 4,
+    LeftHand = 5,
+    Shoulders = 6,
+    Legs = 7,
+    Cosmetics = 8,
+};
+
+/// The look category a visual slot geoset-switches through, or nullopt for
+/// the attachment slots (0/4/5/6) and cosmetics.
+std::optional<u32> lookCategoryForVisualSlot(EVisualSlot slot);
 
 /// FROM THE BINARY. Category 8 with value 0 is handled separately by
 /// `ActorModel_ApplyLook`: it clears the draw bit on every sub-object whose
@@ -142,9 +205,55 @@ inline constexpr u32 kLookCategoryHairHelm = 8;
 ///
 ///     2, 7 -> 1        4, 8 -> 3        6, 9 -> 5        anything else -> 0
 ///
-/// Values above 9 skip the middle step entirely (the binary guards on `<= 9`).
+/// Values above 9 skip the middle step entirely (the binary guards on `<= 9`)
+/// -- that is the whole `CLS_*` family: it has no fallback and degrades
+/// straight to the naked mesh.
 /// Returns the single retry value; the caller falls back to 0 after that.
 u32 fallbackLookValue(u32 lookValue);
+
+/// FROM THE BINARY (`g_LookCategoryNames`, retail `0x14776F0`): the six look
+/// categories, by `EEquipmentSlot` ordinal. Returns nullptr for anything else
+/// -- which is exactly what `LookCategory_GetName` (`0xC04080`) does, and what
+/// makes categories 1 (Head) and 8 (Shoulders) attachment-only: with no name
+/// there is no pattern to match, and `ActorModel_ApplyLook` returns before
+/// touching a sub-object.
+const char* lookCategoryName(u32 lookCategory);
+
+/// FROM THE BINARY (`g_LookValueNames`, retail `0x14777E0`): all nineteen look
+/// values. 0 NKD; 1/2/7 LIT_A/B/C; 3/4/8 MED_A/B/C; 5/6/9 HVY_A/B/C; 10..18
+/// CLS_LIT/MED/HVY x A/B/C. Two long-standing open questions die here: the
+/// SECOND spare value of each weight group is the `C` variant, and the values
+/// >= 10 are a whole `CLS_` (class-specific) family. Returns "NKD" for an
+/// unknown value -- the engine's own behaviour (`LookValue_GetName`,
+/// `0xC04050`), which is why an out-of-range value renders the naked mesh
+/// rather than nothing.
+const char* lookValueName(u32 lookValue);
+
+/// FROM THE BINARY (`ActorModel_ApplyLook`, retail `0x7544A0`): the engine
+/// never parses a geoset name. It builds `sprintf("%s_%s", categoryName,
+/// valueName)` and does a case-SENSITIVE substring search: a sub-object
+/// matching the bare category name participates in the flip, and one matching
+/// the full pattern is the one drawn. `parseGeosetName()` stays the right way
+/// to LABEL the corpus; SELECTION must go through these two so a faithful
+/// reimplementation can never disagree with the engine on an oddly-spelled
+/// name.
+bool matchesLookCategory(std::string_view subObjectName, u32 lookCategory);
+bool matchesLook(std::string_view subObjectName, u32 lookCategory, u32 lookValue);
+
+/// FROM THE BINARY (`Str_Hash33`): the CASE-SENSITIVE cousin of `gbidHash`,
+/// `h = h*33 + c`, seed 0. Tag `0x10401` (the look NAME) stores this hash of
+/// the single-letter look name, and `Appearance_FindLookIndexById` (retail
+/// `0x575730`) resolves it by hashing each look's name -- returning 0, the
+/// first look, on a miss.
+inline u32 lookNameHash33(std::string_view name) {
+    u32 h = 0;
+    for (const char c : name) h = h * 33 + static_cast<u8>(c);
+    return h;
+}
+
+/// The index of the look whose name hashes to `lookNameHash`, resolved the
+/// way retail does (0 on a miss, never -1).
+size_t findLookIndexByHash(const Appearances& app, u32 lookNameHash);
 
 /// The value of one tag in a tag map, if present.
 std::optional<u32> tagMapValue(std::span<const TagMapEntry> tagMap, u32 tagId);
@@ -226,20 +335,125 @@ struct GeosetName {
 /// long as that `SubObject` is.
 GeosetName parseGeosetName(const SubObject& sub);
 
-/// The look value a weight class's plain variant uses.
-///
-/// INFERENCE, not a binary fact -- the strongest one in this header, but state
-/// it as what it is. The engine's fallback partitions the value space into
-/// {1,2,7} -> 1, {3,4,8} -> 3, {6,9} -> 5 and 0, and guards on `value <= 9`;
-/// that is exactly four groups of "a base plus up to two extras", which lines up
-/// with the four weight classes and with what the corpus holds (NKD has no
-/// variant, LIT only `A`, MED and HVY up to `A`/`B`/`C`). So Naked -> 0,
+/// The look value a weight class's plain (`A`) variant uses: Naked -> 0,
 /// Light -> 1, Medium -> 3, Heavy -> 5.
 ///
-/// What is NOT determined: which of the two spare values in each group a `B` or
-/// `C` variant takes. The fallback is symmetric (2 and 7 both degrade to 1), so
-/// the corpus cannot distinguish them, and no mapping is offered here.
+/// Once an inference from the fallback partition; now read straight off
+/// `g_LookValueNames` (retail `0x14777E0`), which also settles the spares --
+/// see `lookValueForGeoset` for the full mapping including `B`/`C` and the
+/// `CLS_` family.
 u32 armourWeightBaseLookValue(ArmourWeight weight);
+
+/// The look value a geoset-name token maps to, now that `g_LookValueNames`
+/// settles the whole table: NKD -> 0; LIT/MED/HVY A -> 1/3/5, B -> 2/4/6,
+/// C -> 7/8/9; with the CLS_ qualifier -> 10..18. Returns nullopt for a token
+/// combination outside the table (e.g. CLS_NKD, which no name exists for).
+std::optional<u32> lookValueForGeoset(ArmourWeight weight, char variant, bool clsFamily);
+
+// ---------------------------------------------------------------------------
+// Attachments: helms, weapons, shoulders (retail 2.8 pipeline)
+// ---------------------------------------------------------------------------
+
+/// FROM THE BINARY (`g_HairStyleNames`, retail `0x144CC50`): 0 NKD, 1 HLM1,
+/// 2 HLM2, 3 BALD -- a fourth style the corpus passes never surfaced. A
+/// helmet's Actor carries the style in tag `0x10404`; the sub-objects are
+/// literally named `Hair_<style>` and `ActorModel_ApplyHairStyle` (retail
+/// `0x764070`) draws exactly one of them.
+enum class HairStyle : u32 { Naked = 0, Helm1 = 1, Helm2 = 2, Bald = 3 };
+const char* hairStyleName(HairStyle style);
+
+/// FROM THE BINARY: the remaining tag ids the attachment pass reads off an
+/// item's Actor (`D3_CHARACTER_DRESSING_RE.md` section 6).
+inline constexpr u32 kTagItemHoldType = 0x10081;   ///< how a weapon is held
+inline constexpr u32 kTagItemHairStyle = 0x10404;  ///< helm -> HairStyle
+inline constexpr u32 kTagUsePerClassArt = 0x17020; ///< gates the 0x17xxx pairs
+
+/// FROM THE BINARY (`ActorModel_GetItemAttachModelSno`, retail `0x750BD0`):
+/// the per-class, per-gender art tag. A switch, NOT `0x17000 + 2*class` --
+/// DemonHunter (class 0) takes `0x17008` and Barbarian is the default at
+/// `0x17000`. `+1` selects the FEMALE art: measured on the corpus
+/// (`Helm_hell_base_01.acr` tag 0x17000 -> Helm_barbM..., 0x17001 ->
+/// Helm_barbF...), which also pins the runtime's gender flag as
+/// nonzero-for-female -- the OPPOSITE of this header's `Gender` enum, so the
+/// conversion lives here and nowhere else.
+u32 perClassArtTag(PlayerClass cls, Gender gender, bool secondary);
+
+/// What an item's TYPE contributes to the attachment path. The engine tests
+/// ItemType FLAG BITS (`Item_GetAttachHardpointName`, retail `0xAB9060`); a
+/// 2.8 client ships no ItemTypes records, so the flags cannot be read from
+/// data and are RECONSTRUCTED per type name instead -- each field names the
+/// flag it stands in for. `itemTypeTraits()` maps the known type-name gbids;
+/// a type it does not know contributes nothing, which degrades to the
+/// by-slot hardpoint defaults, not to a crash.
+struct ItemTypeTraits {
+    bool neverDraw = false;     ///< flag 47: equips, but has no world model
+    bool shield = false;        ///< flag 26: HP_shield / HP_sheath_Shield
+    bool offhandOnly = false;   ///< flag 51: never normalised into the right hand
+    bool helm = false;          ///< flag 25: slot 0 -> HP_helm
+    bool shoulder = false;      ///< flag 48: HP_left_shoulderPad (+ the twin)
+    bool sheathAtHip = false;   ///< flag 9 family: sheaths at the hip, not the back
+    bool sheathHidden = false;  ///< flags 52/92/134: carried but not drawn sheathed
+    bool ignoreSheathe = false; ///< flag 77: drawn in hand even when sheathed
+};
+
+/// The traits of a known item type, by its name's `gbidHash`. INFERENCE where
+/// it goes beyond the RE report's flag list (hip-sheathing daggers and hand
+/// crossbows, vanishing fist weapons -- in-game behaviour, not decompiled
+/// bits); the table is deliberately small and every row is a name the shipped
+/// `gbidItemType` values crack to.
+ItemTypeTraits itemTypeTraits(u32 gbidItemType);
+
+/// Which class an item TYPE is locked to, or nullopt for a type any class can
+/// wear. The class lives nowhere else client-side (no Hero SNOs ship, the
+/// ItemTypes tree with its flags went server-side): the game's own encoding is
+/// the type NAME -- 44 `<Slot>_<Class>` armour spellings in ItemTypeNames.stl
+/// (`ChestArmor_Wizard`, `SpiritStone_Monk`, ...) plus the class-locked base
+/// weapon/offhand families (mighty weapons, voodoo masks, wands, flails, ...).
+/// The suffix match is spelled by `playerClassName()`; the base-type rows are
+/// the game's equip rules, curated -- a type in neither bucket is genuinely
+/// class-neutral (rings, generic swords), NOT unknown. Case-insensitive, like
+/// every gbid-addressed name.
+std::optional<PlayerClass> playerClassFromTypeName(std::string_view typeName);
+
+/// The class of a SET the client data cannot class on its own. Exactly six
+/// shipped sets are class-locked in game while every member is generic-typed
+/// (verified member-by-member on the 2.8 snapshot); everything else derives
+/// from its members' types and must not be listed here. Keyed on the
+/// ItemSets.stl KEY (`Ninja_Set_x1`), not the display name.
+std::optional<PlayerClass> playerClassForSetKey(std::string_view setKey);
+
+/// FROM THE BINARY (`Item_GetAttachHardpointName`, retail `0xAB9060`), the
+/// whole decision: nullopt = do not draw at all (flag 47); an empty view =
+/// carried but not drawn; otherwise the hardpoint to attach at. `holdType` is
+/// tag `0x10081`'s value, defaulted to 0 when the tag is absent (the engine's
+/// tag-map default).
+std::optional<std::string_view> attachHardpointName(u32 holdType, EVisualSlot slot,
+                                                    const ItemTypeTraits& traits,
+                                                    bool sheathed);
+
+/// FROM THE BINARY (`Hardpoint_IsSheath`, retail `0xAB9840`): case-insensitive
+/// against the five `HP_sheath_*` names. A sheathed weapon zeroes its enchant
+/// effect level through exactly this test.
+bool isSheathHardpoint(std::string_view hardpointName);
+
+/// Everything one equipped item does to the character, resolved the way the
+/// engine resolves it (`D3_CHARACTER_DRESSING_RE.md` sections 5 and 6). Pure:
+/// reads only the arguments.
+struct EquipVisual {
+    // Armour slots (Torso/Feet/Hands/Legs): the geoset flip.
+    std::optional<u32> lookValue;     ///< tag 0x10400; empty = tag absent
+    std::optional<u32> lookNameHash;  ///< tag 0x10401 (Str_Hash33 of the look name)
+    // Attachment slots (Head/RightHand/LeftHand/Shoulders): a child model.
+    i32 attachActorSno = -1;          ///< per-class art or the item's own Actor
+    i32 secondAttachActorSno = -1;    ///< shoulders: the HP_right_shoulderPad twin
+    std::string_view hardpoint;       ///< empty = carried, not drawn
+    bool drawn = false;               ///< false for flag-47 types and empty hardpoints
+    bool secondAttach = false;        ///< slot 6 attaches twice
+    // Head only:
+    HairStyle hairStyle = HairStyle::Naked; ///< tag 0x10404 off the helm
+};
+EquipVisual resolveEquip(const Actor& itemActor, const ItemTypeTraits& traits,
+                         EVisualSlot slot, PlayerClass cls, Gender gender, bool sheathed);
 
 // ---------------------------------------------------------------------------
 // Dyes
@@ -250,10 +464,17 @@ u32 armourWeightBaseLookValue(ArmourWeight weight);
 ///     bUseDyeType = (dyeType != 0) ? 1.0 : 0.0
 ///     tintRampUV  = (dyeType >= 2) ? ((dyeType - 2) + 0.5) / 21.0 : 0.0
 ///
-/// So 0 is undyed, 1 is reserved, and 2..22 are twenty-one dye colours sampled
-/// at the ROW CENTRES of the `dye_ramp` texture. The 0.5 is what makes it a
-/// 21-row palette rather than a gradient -- interpolating between dyes is wrong.
+/// So 0 is undyed and 2..22 are twenty-one dye colours sampled at the ROW
+/// CENTRES of the `dye_ramp` texture. The 0.5 is what makes it a 21-row
+/// palette rather than a gradient -- interpolating between dyes is wrong.
+///
+/// **1 is HIDDEN, not reserved** (retail corrects the earlier reading):
+/// `ActorModel_ApplyLook` (`0x7544A0`) short-circuits `dyeType == 1` to the
+/// default (naked) look, and the attachment path groups it with `gbid == -1`
+/// -- the "vanishing dye" players use to hide a helmet. A dye of 1 must never
+/// reach the shader.
 inline constexpr i32 kDyeNone = 0;
+inline constexpr i32 kDyeHidden = 1;
 inline constexpr i32 kDyeFirst = 2;
 inline constexpr i32 kDyeLast = 22;
 inline constexpr i32 kDyeRampRows = 21;

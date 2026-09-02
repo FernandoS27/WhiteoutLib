@@ -125,6 +125,20 @@ bool BinaryParseVisitor::read(EffectGroup& out) {
     return true;
 }
 
+bool BinaryParseVisitor::read(GameBalance& out) {
+    const layout::GameBalance* img = image<layout::GameBalance>();
+    if (!img) return false;
+    visit(*img, out);
+    return true;
+}
+
+bool BinaryParseVisitor::read(StringList& out) {
+    const layout::StringList* img = image<layout::StringList>();
+    if (!img) return false;
+    visit(*img, out);
+    return true;
+}
+
 } // namespace native
 } // namespace d3
 } // namespace sno

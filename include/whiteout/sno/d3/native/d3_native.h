@@ -41,6 +41,9 @@ std::optional<Cloth> parseCloth(std::span<const u8> file);
 /// Parse a group 14 (EffectGroup) asset; nullopt if the header or length is bad.
 std::optional<EffectGroup> parseEffectGroup(std::span<const u8> file);
 
+/// Parse a group 20 (GameBalance) asset; nullopt if the header or length is bad.
+std::optional<GameBalance> parseGameBalance(std::span<const u8> file);
+
 /// Parse a group 27 (Particle) asset; nullopt if the header or length is bad.
 std::optional<Particle> parseParticle(std::span<const u8> file);
 
@@ -55,6 +58,9 @@ std::optional<ShaderMap> parseShaderMap(std::span<const u8> file);
 
 /// Parse a group 37 (Shaders) asset; nullopt if the header or length is bad.
 std::optional<Shaders> parseShaders(std::span<const u8> file);
+
+/// Parse a group 42 (StringList) asset; nullopt if the header or length is bad.
+std::optional<StringList> parseStringList(std::span<const u8> file);
 
 /// Parse a group 43 (Surface) asset; nullopt if the header or length is bad.
 std::optional<Surface> parseSurface(std::span<const u8> file);
