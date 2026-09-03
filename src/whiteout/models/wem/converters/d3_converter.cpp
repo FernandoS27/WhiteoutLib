@@ -180,6 +180,7 @@ void FillPoseSchema(NodeTree& tree) {
     // B is the pose skinning is defined against — entry 4 is its inverse, which
     // is what a skinning matrix palette wants. A is the hardpoint frame.
     tree.authoritativePose = 3;
+    tree.rig = RigConvention::ExplicitBind;
 }
 
 struct NodeBuild {

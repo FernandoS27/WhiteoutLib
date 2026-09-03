@@ -8,6 +8,7 @@
 #include <variant>
 
 #include <whiteout/models/wem/anim/clip.h>
+#include "../../m2/legacy.h"
 #include <whiteout/models/wem/native/m2_tables.h>
 
 namespace whiteout {
@@ -16,6 +17,15 @@ namespace wem {
 namespace m2_anim {
 
 namespace {
+
+/// Whether an extent says anything. A default-constructed one is all zeros, and
+/// `Extent::valid()` answers "min <= max", which all zeros satisfies -- so the
+/// question a caller means by "did the source give me one" is volume, not
+/// validity.
+bool HasExtent(const Extent& extent) {
+    return extent.sphereRadius > 0.0f || extent.maximum.x > extent.minimum.x ||
+           extent.maximum.y > extent.minimum.y || extent.maximum.z > extent.minimum.z;
+}
 
 constexpr u16 kNoGlobalSequence = 0xFFFF;
 
@@ -41,8 +51,16 @@ void Append(const Quaternion& value, std::vector<u8>& out) {
     AppendBytes(value, out);
 }
 void Append(const m2::CompatQuaternion& value, std::vector<u8>& out) {
-    const Quaternion decoded = value;
-    AppendBytes(decoded, out);
+    // `decompressQuat`, NOT `CompatQuaternion::operator Quaternion`. The two
+    // disagree: the operator reads x/y/z as a plain snorm16 and w as a unorm16,
+    // while a `.m2` compressed quaternion is WoW's own biased encoding —
+    // `(v < 0 ? v + 32768 : v - 32767) / 32767` on all four — which is what the
+    // writer half of this file already round-trips through and what the renderer
+    // decodes with. Off by that bias every component lands about a unit away, so
+    // every key comes back with |q| near 2 and a chain of them multiplies
+    // magnitudes by four per level: a fourteen-deep WoW arm ended 32 units out.
+    const Vector4f decoded = m2::decompressQuat(value);
+    AppendBytes(Quaternion{decoded.x, decoded.y, decoded.z, decoded.w}, out);
 }
 void Append(f32 value, std::vector<u8>& out) {
     AppendBytes(value, out);
@@ -173,6 +191,11 @@ private:
             // and WEM does not own the blender.
             clip.native.set("variationNext", static_cast<i64>(sequence.variationNext));
             clip.native.set("aliasNext", static_cast<i64>(sequence.aliasNext));
+            // The sequence's own bound: the posed model over this clip, which
+            // nothing in the file lets a reader derive back.
+            clip.bounds.minimum = sequence.bounding.minimum;
+            clip.bounds.maximum = sequence.bounding.maximum;
+            clip.bounds.sphereRadius = sequence.bounding.sphereRadius;
             clip.containers.push_back(baseContainer());
             clips_.push_back(std::move(clip));
         }
@@ -507,6 +530,530 @@ void Import(const m2::Model& source, const Context& context, Document& document,
         return;
     }
     Builder(source, context, document, model, out).run();
+}
+
+// ============================================================================
+// Export — clips back into `.m2`'s per-sequence tracks (§10.8.3)
+//
+// The easy direction, for the reason the import was easy: an `.m2` track is
+// already one inner array per sequence, so a clip IS an inner array and there
+// is nothing to slice or merge. What takes the work is the other end — where
+// each track has to be written back to.
+//
+// Bones, attachments, lights, events and cameras are reached through the node
+// map `toM2` filled. The three material tracks are reached through the native
+// block, which keeps the RESOLVED weight, transform and colour indices — the
+// same indices `appendCombos` writes back into the combo tables — so putting a
+// track at `textureWeights[block.units[ordinal].weight]` is all the join needs.
+// ============================================================================
+
+namespace {
+
+u32 MillisecondsOf(f32 seconds) {
+    const f32 ms = seconds * 1000.0f;
+    return ms <= 0.0f ? 0u : static_cast<u32>(ms + 0.5f);
+}
+
+m2::InterpolationType M2Interp(Interpolation interp) {
+    switch (interp) {
+    case Interpolation::Step:
+        return m2::InterpolationType::None;
+    case Interpolation::Hermite:
+        return m2::InterpolationType::Hermite;
+    case Interpolation::Bezier:
+        return m2::InterpolationType::Bezier;
+    case Interpolation::Linear:
+    case Interpolation::Slerp:
+    case Interpolation::Count:
+        break;
+    }
+    return m2::InterpolationType::Linear;
+}
+
+/// The inverse of the `Append` overloads above: WEM holds every one of these as
+/// `f32` or `u32`, and the destination type decides how it goes back.
+template <class T>
+struct Decoder;
+template <>
+struct Decoder<Vector3f> {
+    static Vector3f From(const u8* raw) {
+        Vector3f value{};
+        std::memcpy(&value, raw, sizeof(value));
+        return value;
+    }
+};
+template <>
+struct Decoder<Quaternion> {
+    static Quaternion From(const u8* raw) {
+        Quaternion value{};
+        std::memcpy(&value, raw, sizeof(value));
+        return value;
+    }
+};
+template <>
+struct Decoder<m2::CompatQuaternion> {
+    static m2::CompatQuaternion From(const u8* raw) {
+        Quaternion value{};
+        std::memcpy(&value, raw, sizeof(value));
+        // The inverse of `Append`'s `decompressQuat`, for the same reason.
+        return m2::compressQuat(Vector4f{value.x, value.y, value.z, value.w});
+    }
+};
+template <>
+struct Decoder<f32> {
+    static f32 From(const u8* raw) {
+        f32 value = 0.0f;
+        std::memcpy(&value, raw, sizeof(value));
+        return value;
+    }
+};
+template <>
+struct Decoder<i16> {
+    /// `x / 32767` on the way in, so `x * 32767` on the way out.
+    static i16 From(const u8* raw) {
+        f32 value = 0.0f;
+        std::memcpy(&value, raw, sizeof(value));
+        const f32 scaled = value * 32767.0f;
+        return static_cast<i16>(scaled < -32767.0f  ? -32767.0f
+                                : scaled > 32767.0f ? 32767.0f
+                                                    : scaled);
+    }
+};
+template <>
+struct Decoder<u8> {
+    /// A flag, not a byte. The import wrote 0 or 1 and this reads it back the
+    /// same way — scaling it by 255 is the bug that makes a model draw at
+    /// 1/255 opacity and look invisible rather than broken.
+    static u8 From(const u8* raw) {
+        f32 value = 0.0f;
+        std::memcpy(&value, raw, sizeof(value));
+        return value != 0.0f ? u8{1} : u8{0};
+    }
+};
+template <>
+struct Decoder<u16> {
+    static u16 From(const u8* raw) {
+        u32 value = 0;
+        std::memcpy(&value, raw, sizeof(value));
+        return static_cast<u16>(value);
+    }
+};
+template <>
+struct Decoder<m2::CameraSpline> {
+    static m2::CameraSpline From(const u8* raw) {
+        m2::CameraSpline value{};
+        std::memcpy(&value.value, raw, sizeof(Vector3f));
+        std::memcpy(&value.inTangent, raw + sizeof(Vector3f), sizeof(Vector3f));
+        std::memcpy(&value.outTangent, raw + 2 * sizeof(Vector3f), sizeof(Vector3f));
+        return value;
+    }
+};
+
+class Exporter {
+public:
+    Exporter(const Document& document, u32 modelIndex, const ExportContext& context, m2::Model& out,
+             Diagnostics& diagnostics)
+        : document_(document), model_(document.models[modelIndex]), modelIndex_(modelIndex),
+          context_(context), out_(out), diagnostics_(diagnostics) {}
+
+    void run() {
+        buildSequences();
+        for (const AnimChannel& channel : model_.animChannels.channels) {
+            emitChannel(channel);
+        }
+        emitEvents();
+    }
+
+private:
+    struct Slotting {
+        u32 clip = kInvalidIndex;
+        u32 sequence = kInvalidIndex; ///< Inner-array index, or invalid for a global loop.
+        u16 globalLoop = 0xFFFF;
+    };
+
+    static bool IsGlobalClip(const Clip& clip) {
+        return hasFlag(clip.flags, ClipFlags::AutoPlay) &&
+               hasFlag(clip.flags, ClipFlags::WorldClocked);
+    }
+
+    void buildSequences() {
+        for (std::size_t c = 0; c < document_.clips.size(); ++c) {
+            const Clip& clip = document_.clips[c];
+            if (clip.model != modelIndex_) {
+                continue;
+            }
+            Slotting slot;
+            slot.clip = static_cast<u32>(c);
+
+            if (IsGlobalClip(clip)) {
+                const i64 stored = clip.native.value("globalLoop", -1);
+                const u32 index = stored >= 0 ? static_cast<u32>(stored)
+                                              : static_cast<u32>(out_.globalLoops.size());
+                if (out_.globalLoops.size() <= index) {
+                    out_.globalLoops.resize(index + 1);
+                }
+                out_.globalLoops[index].timestamp = MillisecondsOf(clip.duration);
+                slot.globalLoop = static_cast<u16>(index);
+                slots_.push_back(slot);
+                continue;
+            }
+
+            m2::Sequence sequence;
+            sequence.id = static_cast<u16>(clip.native.value("animationId", 0));
+            sequence.variationIndex = static_cast<u16>(clip.native.value("variationIndex", 0));
+            sequence.duration = MillisecondsOf(clip.duration);
+            sequence.movespeed = static_cast<f32>(clip.native.value("movespeed", 0));
+            sequence.flags = static_cast<m2::SequenceFlag>(clip.native.value("flagBits", 0));
+            if (clip.looping) {
+                sequence.flags = sequence.flags | m2::SequenceFlag::Looping;
+            }
+            sequence.frequency = static_cast<i16>(clip.native.value("frequency", 0));
+            sequence.blendTimeIn = static_cast<u16>(clip.native.value("blendTimeIn", 0));
+            sequence.blendTimeOut = static_cast<u16>(clip.native.value("blendTimeOut", 0));
+            sequence.variationNext = static_cast<i16>(clip.native.value("variationNext", -1));
+            sequence.aliasNext = static_cast<u16>(clip.native.value("aliasNext", 0));
+            const Extent& extent = HasExtent(clip.bounds) ? clip.bounds : model_.bounds;
+            sequence.bounding.minimum = extent.minimum;
+            sequence.bounding.maximum = extent.maximum;
+            sequence.bounding.sphereRadius = extent.sphereRadius;
+
+            slot.sequence = static_cast<u32>(out_.sequences.size());
+            out_.sequences.push_back(std::move(sequence));
+            slots_.push_back(slot);
+        }
+    }
+
+    /// The sub-track driving @p channel in @p clip's first container that has
+    /// one. MDX, `.m2` and D3 all write exactly one container, so "the first"
+    /// is the only one on anything this converter produced.
+    const SubTrack* find(const Clip& clip, u32 channelId) const {
+        for (const SubTrackContainer& container : clip.containers) {
+            if (const SubTrack* track = container.find(channelId)) {
+                return track;
+            }
+        }
+        return nullptr;
+    }
+
+    /// Fills @p dst with one inner array per sequence. Returns false when no
+    /// clip drives this channel at all.
+    template <class T>
+    bool build(const AnimChannel& channel, m2::AnimationTrack<T>& dst) const {
+        const std::size_t elementSize = geom::AttrTypeSize(channel.valueType);
+        bool any = false;
+        bool interpSet = false;
+
+        dst.timestamps.assign(out_.sequences.size(), {});
+        dst.values.assign(out_.sequences.size(), {});
+
+        for (const Slotting& slot : slots_) {
+            const Clip& clip = document_.clips[slot.clip];
+            const SubTrack* track = find(clip, channel.id);
+            if (track == nullptr || track->times.empty()) {
+                continue;
+            }
+            if (!track->wellSized(channel.valueType)) {
+                diagnostics_.warn(DiagCode::AnimTrackDropped,
+                                  "a sub-track of clip '" + clip.name +
+                                      "' is not sized for its channel",
+                                  ElementRef(ElementKind::Track, channel.id), ProfileId::Wow);
+                continue;
+            }
+            if (!interpSet) {
+                dst.interpolationType = M2Interp(track->interp);
+                interpSet = true;
+            }
+
+            std::vector<u32> times;
+            std::vector<T> values;
+            const u32 stride = ValuesPerKey(track->interp) * static_cast<u32>(elementSize);
+            times.reserve(track->times.size());
+            values.reserve(track->times.size());
+            for (std::size_t k = 0; k < track->times.size(); ++k) {
+                times.push_back(MillisecondsOf(track->times[k]));
+                values.push_back(Decoder<T>::From(track->values.data() + k * stride));
+            }
+
+            if (slot.globalLoop != 0xFFFF) {
+                // A global loop keeps its keys in inner array 0 and runs on the
+                // world clock — the same shape the import read.
+                dst.globalSequenceId = slot.globalLoop;
+                dst.timestamps.assign(1, std::move(times));
+                dst.values.assign(1, std::move(values));
+                return true;
+            }
+            if (slot.sequence < dst.timestamps.size()) {
+                dst.timestamps[slot.sequence] = std::move(times);
+                dst.values[slot.sequence] = std::move(values);
+                any = true;
+            }
+        }
+        if (!any) {
+            dst.timestamps.clear();
+            dst.values.clear();
+        }
+        return any;
+    }
+
+    template <class T>
+    void emit(const AnimChannel& channel, m2::AnimationTrack<T>& dst) const {
+        m2::AnimationTrack<T> built;
+        if (build(channel, built)) {
+            dst = std::move(built);
+        }
+    }
+
+    void emitChannel(const AnimChannel& channel) {
+        switch (channel.target.kind) {
+        case TrackTarget::Kind::Node:
+            emitNodeChannel(channel);
+            return;
+        case TrackTarget::Kind::MaterialLayer:
+        case TrackTarget::Kind::MaterialFeature:
+            emitMaterialChannel(channel);
+            return;
+        case TrackTarget::Kind::Section:
+            // WoW keys a batch, never a geoset: a section channel is WC3's
+            // GeosetAnimation and there is nothing here it can drive.
+            diagnostics_.warn(DiagCode::AnimTrackDropped,
+                              "an `.m2` has no per-geoset animation to write a section track to",
+                              ElementRef(ElementKind::Mesh, channel.target.mesh), ProfileId::Wow);
+            return;
+        case TrackTarget::Kind::Count:
+            return;
+        }
+    }
+
+    void emitNodeChannel(const AnimChannel& channel) {
+        const u32 node = channel.target.node;
+        if (node >= context_.nodeSlots.size()) {
+            return;
+        }
+        const ExportContext::NodeSlot& slot = context_.nodeSlots[node];
+        switch (slot.slot) {
+        case ExportContext::Slot::Bone: {
+            if (slot.index >= out_.bones.size()) {
+                return;
+            }
+            m2::Bone& bone = out_.bones[slot.index];
+            switch (channel.target.channel) {
+            case Channel::Translation:
+                emit(channel, bone.translation);
+                return;
+            case Channel::Rotation:
+                emit(channel, bone.rotation);
+                return;
+            case Channel::Scale:
+                emit(channel, bone.scale);
+                return;
+            default:
+                break;
+            }
+            break;
+        }
+        case ExportContext::Slot::Attachment:
+            if (channel.target.channel == Channel::Visibility &&
+                slot.index < out_.attachments.size()) {
+                emit(channel, out_.attachments[slot.index].animate);
+                return;
+            }
+            break;
+        case ExportContext::Slot::Light: {
+            if (slot.index >= out_.lights.size()) {
+                return;
+            }
+            m2::Light& light = out_.lights[slot.index];
+            const bool ambient = channel.target.sub == 1;
+            switch (channel.target.channel) {
+            case Channel::Color:
+                emit(channel, ambient ? light.ambientColor : light.diffuseColor);
+                return;
+            case Channel::Intensity:
+                emit(channel, ambient ? light.ambientIntensity : light.diffuseIntensity);
+                return;
+            case Channel::AttenuationStart:
+                emit(channel, light.attenuationStart);
+                return;
+            case Channel::AttenuationEnd:
+                emit(channel, light.attenuationEnd);
+                return;
+            case Channel::Visibility:
+                emit(channel, light.visibility);
+                return;
+            default:
+                break;
+            }
+            break;
+        }
+        case ExportContext::Slot::Camera:
+            if (channel.target.channel == Channel::Translation &&
+                slot.index < out_.cameras.size()) {
+                emit(channel, out_.cameras[slot.index].positions);
+                return;
+            }
+            break;
+        default:
+            break;
+        }
+        diagnostics_.warn(DiagCode::AnimTrackDropped,
+                          std::string("no `.m2` record animates ") +
+                              ToString(channel.target.channel) + " on this node",
+                          ElementRef(ElementKind::Node, node), ProfileId::Wow);
+    }
+
+    /// The block is the join: it kept the resolved weight, transform and colour
+    /// indices, and `appendCombos` writes those same numbers back into the
+    /// combo tables — so the arrays only have to be long enough to hold them.
+    const native::M2Material* blockFor(const MaterialChannelRef& ref) const {
+        if (ref.profile != ProfileId::Wow) {
+            return nullptr;
+        }
+        const Material* material = Resolve(model_, ref.slot, ref.profile, ref.look);
+        if (material == nullptr || material->nativeKind() != NativeKind::M2) {
+            return nullptr;
+        }
+        return std::get_if<native::M2Material>(&material->Native());
+    }
+
+    void emitMaterialChannel(const AnimChannel& channel) {
+        const native::M2Material* block = blockFor(channel.target.material);
+        if (block == nullptr) {
+            if (channel.target.material.profile == ProfileId::Wow) {
+                diagnostics_.warn(DiagCode::AnimTrackDropped,
+                                  "a material track has no `.m2` block to place it through",
+                                  ElementRef(ElementKind::Slot, channel.target.material.slot),
+                                  ProfileId::Wow);
+            }
+            return;
+        }
+
+        // `M2Color` multiplies the whole batch rather than one stage, and the
+        // block keeps the index it was read from.
+        if (channel.target.kind == TrackTarget::Kind::MaterialLayer &&
+            channel.target.sub == kWholeMaterial) {
+            if (block->colorIndex < 0) {
+                return;
+            }
+            const auto index = static_cast<std::size_t>(block->colorIndex);
+            if (out_.colors.size() <= index) {
+                out_.colors.resize(index + 1);
+            }
+            if (channel.target.channel == Channel::Color) {
+                emit(channel, out_.colors[index].color);
+            } else if (channel.target.channel == Channel::Alpha) {
+                emit(channel, out_.colors[index].alpha);
+            }
+            return;
+        }
+
+        const u32 ordinal = channel.target.kind == TrackTarget::Kind::MaterialLayer
+                                ? channel.target.sub
+                                : featureLayer(channel.target.material, channel.target.sub);
+        if (ordinal >= block->units.size()) {
+            diagnostics_.warn(DiagCode::AnimTrackDropped,
+                              "a material track names unit " + std::to_string(ordinal) +
+                                  ", which this batch does not have",
+                              ElementRef(ElementKind::Slot, channel.target.material.slot),
+                              ProfileId::Wow);
+            return;
+        }
+        const native::M2TextureUnit& unit = block->units[ordinal];
+
+        if (channel.target.kind == TrackTarget::Kind::MaterialLayer) {
+            if (channel.target.channel != Channel::Alpha) {
+                return;
+            }
+            if (out_.textureWeights.size() <= unit.weight) {
+                out_.textureWeights.resize(unit.weight + 1);
+            }
+            emit(channel, out_.textureWeights[unit.weight].weight);
+            return;
+        }
+
+        if (out_.textureTransforms.size() <= unit.transform) {
+            out_.textureTransforms.resize(unit.transform + 1);
+        }
+        m2::TextureTransform& transform = out_.textureTransforms[unit.transform];
+        switch (channel.target.channel) {
+        case Channel::UvTranslate:
+            emit(channel, transform.translation);
+            return;
+        case Channel::UvRotate:
+            emit(channel, transform.rotation);
+            return;
+        case Channel::UvScale:
+            emit(channel, transform.scaling);
+            return;
+        default:
+            break;
+        }
+    }
+
+    /// Which layer ordinal a `MaterialFeature` id sits on.
+    u32 featureLayer(const MaterialChannelRef& ref, u32 featureId) const {
+        const Material* material = Resolve(model_, ref.slot, ref.profile, ref.look);
+        if (material == nullptr) {
+            return kInvalidIndex;
+        }
+        for (const MaterialFeature& feature : material->Common().features) {
+            if (feature.id == featureId) {
+                return feature.layer;
+            }
+        }
+        return kInvalidIndex;
+    }
+
+    void emitEvents() {
+        for (const Slotting& slot : slots_) {
+            const Clip& clip = document_.clips[slot.clip];
+            for (const ClipEvent& event : clip.events) {
+                if (event.node >= context_.nodeSlots.size()) {
+                    continue;
+                }
+                const ExportContext::NodeSlot& node = context_.nodeSlots[event.node];
+                if (node.slot != ExportContext::Slot::Event || node.index >= out_.events.size()) {
+                    diagnostics_.warn(DiagCode::AnimTrackDropped,
+                                      "event '" + event.name +
+                                          "' fires at a node that is not an `.m2` event",
+                                      ElementRef(ElementKind::Node, event.node), ProfileId::Wow);
+                    continue;
+                }
+                m2::Event& target = out_.events[node.index];
+                if (target.enabled.timestamps.size() < out_.sequences.size()) {
+                    target.enabled.timestamps.resize(out_.sequences.size());
+                }
+                if (slot.globalLoop != 0xFFFF) {
+                    target.enabled.globalSequenceId = slot.globalLoop;
+                    if (target.enabled.timestamps.empty()) {
+                        target.enabled.timestamps.resize(1);
+                    }
+                    target.enabled.timestamps[0].push_back(MillisecondsOf(event.time));
+                    continue;
+                }
+                if (slot.sequence < target.enabled.timestamps.size()) {
+                    target.enabled.timestamps[slot.sequence].push_back(MillisecondsOf(event.time));
+                }
+            }
+        }
+    }
+
+    const Document& document_;
+    const Model& model_;
+    u32 modelIndex_;
+    const ExportContext& context_;
+    m2::Model& out_;
+    Diagnostics& diagnostics_;
+    std::vector<Slotting> slots_;
+};
+
+} // namespace
+
+void Export(const Document& document, u32 model, const ExportContext& context, m2::Model& out,
+            Diagnostics& diagnostics) {
+    if (model >= document.models.size()) {
+        return;
+    }
+    Exporter(document, model, context, out, diagnostics).run();
 }
 
 } // namespace m2_anim

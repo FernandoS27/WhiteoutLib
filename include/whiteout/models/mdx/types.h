@@ -36,9 +36,14 @@ namespace mdx {
 
 /// @bind value_object
 struct Extent {
-    f32 boundsRadius;
-    Vector3f minimum;
-    Vector3f maximum;
+    // Zero-initialised, not merely declared. `Vector3f` is an aggregate over an
+    // anonymous union with no initialisers, so a default-constructed `Extent` --
+    // the `extent` of any `Sequence` or `Geoset` a caller builds rather than
+    // parses -- held indeterminate stack bytes, and a reader asking "did the
+    // source give me a bound" got whichever answer the stack happened to hold.
+    f32 boundsRadius = 0.0f;
+    Vector3f minimum{};
+    Vector3f maximum{};
 };
 
 // ============================================================================

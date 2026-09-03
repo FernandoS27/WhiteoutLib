@@ -431,6 +431,7 @@ add_library(whiteout_lib
     src/whiteout/models/wem/materials/d3_core.cpp
     src/whiteout/models/wem/model.cpp
     src/whiteout/models/wem/retarget.cpp
+    src/whiteout/models/wem/skeleton_retarget.cpp
     src/whiteout/models/wem/native_bag.cpp
     src/whiteout/models/wem/binary_read_visitor.cpp
     src/whiteout/models/wem/binary_write_visitor.cpp

@@ -28,6 +28,7 @@ endfunction()
 # Core Tests
 # =============================================================================
 
+whiteout_add_test(matrix_inverse_test matrix_inverse_test.cpp)
 whiteout_add_test(vertex_buffer_test vertex_buffer_test.cpp)
 whiteout_add_test(deflate_test deflate_test.cpp)
 target_include_directories(deflate_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -79,6 +80,7 @@ whiteout_add_test(wem_diagnostics_test wem_diagnostics_test.cpp)
 whiteout_add_test(wem_topology_test wem_topology_test.cpp)
 whiteout_add_test(wem_builder_test wem_builder_test.cpp)
 whiteout_add_test(wem_node_test wem_node_test.cpp)
+whiteout_add_test(wem_skeleton_retarget_test wem_skeleton_retarget_test.cpp)
 whiteout_add_test(wem_geometry_corpus_test wem_geometry_corpus_test.cpp)
 whiteout_add_test(wem_ops_test wem_ops_test.cpp)
 whiteout_add_test(wem_render_identity_test wem_render_identity_test.cpp)

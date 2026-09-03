@@ -92,6 +92,45 @@ enum class CoordSpace : u8 {
 
 enum class Handedness : u8 { Right, Left };
 
+/**
+ * @brief How a format's rig states the bind pose, and therefore what a node's
+ *        TRS animation channels mean.
+ *
+ * The two are one fact, not two: every format that ships a per-bone inverse
+ * bind matrix keys the bone's local transform absolutely, and every format that
+ * does not folds the bind into the node's own composition and keys an offset
+ * from it. All four agree, so naming them separately would only create a fifth
+ * combination nothing writes.
+ *
+ * This is the fact `RetargetSkeleton` needs and could not previously ask for,
+ * and it is why `.m3 -> .mdx` used to write a skeleton of zero pivots.
+ */
+enum class RigConvention : u8 {
+    /**
+     * @brief MDX, `.m2`. The inverse bind is the identity: the mesh is stored
+     * in the bind pose and a node at rest contributes nothing.
+     *
+     * A node composes `T(-pivot) * S * R * T(pivot + t)`, so a TRS channel is
+     * an **offset** and the pivot is a parameter of the composition rather than
+     * a transform of its own. The linear part is therefore always `diag(s) * R`
+     * — the format cannot hold shear, which is what makes the retarget into one
+     * of these the interesting direction.
+     */
+    PivotRelative,
+
+    /**
+     * @brief `.m3` (IREF), D3 (`tTransform4`). One inverse model-space bind
+     * matrix per bone, shipped beside the rest chain and **not** derivable from
+     * it — on `Marine.m3` the two disagree by 2.2 units.
+     *
+     * A node composes `S * R * T` from its channels directly, and `pivot` is
+     * zero.
+     */
+    ExplicitBind,
+};
+
+const char* ToString(RigConvention rig);
+
 enum class WindingOrder : u8 { CounterClockwise, Clockwise };
 
 enum class IndexWidth : u8 { U16, U32 };
@@ -194,6 +233,9 @@ struct ProfileDesc {
     CoordSpace sourceSpace = CoordSpace::Blizzard;
     Handedness handedness = Handedness::Right;
     WindingOrder winding = WindingOrder::CounterClockwise;
+
+    /// How this format states the bind pose — `RetargetSkeleton`'s target.
+    RigConvention rig = RigConvention::PivotRelative;
 
     /**
      * @brief The RENDERER's framing constant. Documentation, not an operation.

@@ -76,13 +76,15 @@ ProfileDesc makeDesc(ProfileId id, const char* name, const char* displayName, co
                      CoordSpace space, f32 sceneScale, u32 maxInfluences, u32 maxUvSets,
                      u32 maxPalette, IndexWidth width, bool ngons, bool vertexColor,
                      std::span<const BlendMode> blends, MaterialKindMask kinds, NativeKind native,
-                     bool looks, bool actors) {
+                     bool looks, bool actors,
+                     RigConvention rig = RigConvention::PivotRelative) {
     ProfileDesc d;
     d.id = id;
     d.name = name;
     d.displayName = displayName;
     d.formatId = formatId;
     d.sourceSpace = space;
+    d.rig = rig;
     d.handedness = Handedness::Right;
     d.winding = WindingOrder::CounterClockwise;
     d.sceneScale = sceneScale;
@@ -109,7 +111,11 @@ const std::array<ProfileDesc, static_cast<std::size_t>(ProfileId::Count)>& descs
         makeDesc(ProfileId::Generic, "generic", "Generic", nullptr, CoordSpace::Blizzard, 1.0f, 4,
                  8, 0, IndexWidth::U32, /*ngons*/ true, /*vcolor*/ true, modes(kAllBlendModes),
                  kAllMaterialKinds, NativeKind::None,
-                 /*looks*/ true, /*actors*/ true),
+                 /*looks*/ true, /*actors*/ true,
+                 // An explicit bind can state a pivot rig -- IREF is then
+                 // `T(-pivot)` -- and a pivot rig cannot state an explicit one,
+                 // so the permissive profile takes the wider of the two.
+                 RigConvention::ExplicitBind),
 
         // Warcraft III, SD. One UV set; the layer stack is Composite, and collapses
         // to Combiners when the whole stack folds into one draw (§7.2.2).
@@ -132,13 +138,13 @@ const std::array<ProfileDesc, static_cast<std::size_t>(ProfileId::Count)>& descs
         // StarCraft II. Five UV sets; the 256-entry bone palette is the M3 ceiling.
         makeDesc(ProfileId::Sc2, "sc2", "StarCraft II", "m3", CoordSpace::Sc2, 100.0f, 4, 5, 256,
                  IndexWidth::U16, false, true, modes(kM3BlendModes), kComposite, NativeKind::M3,
-                 false, false),
+                 false, false, RigConvention::ExplicitBind),
 
         // Heroes of the Storm. Same container and space; the difference is the
         // version range and therefore the available material kinds (MADD at v30).
         makeDesc(ProfileId::Heroes, "heroes", "Heroes of the Storm", "m3", CoordSpace::Sc2, 100.0f,
                  4, 5, 256, IndexWidth::U16, false, true, modes(kM3BlendModes), kComposite,
-                 NativeKind::M3, false, false),
+                 NativeKind::M3, false, false, RigConvention::ExplicitBind),
 
         // Diablo III. Three influences on disk, a packed vertex colour pair, and the
         // only profile with actors today. A Legacy stage block makes a material
@@ -147,7 +153,7 @@ const std::array<ProfileDesc, static_cast<std::size_t>(ProfileId::Count)>& descs
         makeDesc(ProfileId::Diablo3, "diablo3", "Diablo III", "d3", CoordSpace::Blizzard, 17.0f, 3,
                  2, 0, IndexWidth::U16, false, /*vcolor*/ true, modes(kD3BlendModes),
                  kCombiners | kLegacy, NativeKind::D3, /*looks*/ true,
-                 /*actors*/ true),
+                 /*actors*/ true, RigConvention::ExplicitBind),
     }};
     return table;
 }
@@ -171,6 +177,16 @@ ProfileId ProfileFromName(const std::string& name) {
         }
     }
     return ProfileId::Count;
+}
+
+const char* ToString(RigConvention rig) {
+    switch (rig) {
+    case RigConvention::PivotRelative:
+        return "pivot_relative";
+    case RigConvention::ExplicitBind:
+        return "explicit_bind";
+    }
+    return "invalid";
 }
 
 const char* ToString(CoordSpace space) {

@@ -359,6 +359,7 @@ NodeImport ImportNodes(const mdx::Model& source) {
 
     out.tree.poseSchema.push_back(PoseSchema{});
     out.tree.authoritativePose = 0;
+    out.tree.rig = RigConvention::PivotRelative;
 
     for (std::size_t i = 0; i < pending.size(); ++i) {
         out.byObjectId.emplace(pending[i].source->objectId, static_cast<u32>(i));
@@ -676,7 +677,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     if (!checkExportProfile(document, profile, result.diagnostics)) {
         return result;
     }
-    reportUnwrittenClips(document, result.diagnostics);
+    checkRigConvention(document, profile, result.diagnostics);
     if (document.models.empty()) {
         result.value = mdx::Model{};
         result.value->version = targetVersion;
@@ -710,6 +711,16 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     // The node array is written back in WEM order and renumbered, because a
     // document that has been edited has no `objectId` left to trust. `PIVT` is
     // parallel to it, which is what makes the renumbering safe.
+    // Where each node lands, for the animation export below: MDX keeps a
+    // record's tracks ON the record, so writing them back needs the map only
+    // this loop has.
+    mdx_anim::ExportContext animContext;
+    animContext.nodeSlots.assign(model.nodes.size(), mdx_anim::ExportContext::NodeSlot{});
+    const auto claim = [&animContext](std::size_t node, mdx_anim::ExportContext::Slot slot,
+                                      std::size_t index) {
+        animContext.nodeSlots[node] = {slot, static_cast<u32>(index)};
+    };
+
     out.pivotPoints.reserve(model.nodes.size());
     std::vector<u32> objectIdOf(model.nodes.size(), mdx::Node::NO_PARENT);
     u32 nextObjectId = 0;
@@ -746,11 +757,19 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
                 camera.nearClippingPlane = payload->nearClip;
                 camera.farClippingPlane = payload->farClip;
             }
+            claim(i, mdx_anim::ExportContext::Slot::Camera, out.cameras.size());
             out.cameras.push_back(std::move(camera));
             continue;
         }
 
-        out.pivotPoints.push_back(node.pivot);
+        // The pivot IS the rest pose here (see the file comment), and a
+        // document from a format that states its bind another way carries none
+        // — `.m3` leaves every `pivot` zero. Composing the rest chain is the
+        // best a bare export can do; `RetargetSkeleton` is what makes the
+        // tracks agree with it.
+        out.pivotPoints.push_back(model.nodes.rig == RigConvention::PivotRelative
+                                      ? node.pivot
+                                      : model.nodes.worldBind(static_cast<u32>(i)).translation);
         switch (node.kind) {
         case NodeKind::Bone: {
             mdx::Bone bone;
@@ -761,6 +780,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             if (const auto* animId = node.native.find("geosetAnimationId")) {
                 bone.geosetAnimationId = static_cast<u32>(animId->value);
             }
+            claim(i, mdx_anim::ExportContext::Slot::Bone, out.bones.size());
             out.bones.push_back(std::move(bone));
             break;
         }
@@ -791,6 +811,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
                                      ElementRef(ElementKind::Node, i));
                 }
             }
+            claim(i, mdx_anim::ExportContext::Slot::Light, out.lights.size());
             out.lights.push_back(std::move(light));
             break;
         }
@@ -800,6 +821,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             if (const auto* id = node.native.find("attachmentId")) {
                 attachment.attachmentId = static_cast<u32>(id->value);
             }
+            claim(i, mdx_anim::ExportContext::Slot::Attachment, out.attachments.size());
             out.attachments.push_back(std::move(attachment));
             break;
         }
@@ -811,6 +833,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
                     emitter.textureId = payload->system.id;
                 }
             }
+            claim(i, mdx_anim::ExportContext::Slot::ParticleEmitter2, out.particleEmitters2.size());
             out.particleEmitters2.push_back(std::move(emitter));
             break;
         }
@@ -825,6 +848,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             if (const auto* slot = node.native.find("textureSlot")) {
                 emitter.textureSlot = static_cast<u32>(slot->value);
             }
+            claim(i, mdx_anim::ExportContext::Slot::RibbonEmitter, out.ribbonEmitters.size());
             out.ribbonEmitters.push_back(std::move(emitter));
             break;
         }
@@ -834,6 +858,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             if (const auto* payload = std::get_if<EventPayload>(&node.payload)) {
                 event.globalSequenceId = payload->id;
             }
+            claim(i, mdx_anim::ExportContext::Slot::EventObject, out.eventObjects.size());
             out.eventObjects.push_back(std::move(event));
             break;
         }
@@ -868,6 +893,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
                     break;
                 }
             }
+            claim(i, mdx_anim::ExportContext::Slot::CollisionShape, out.collisionShapes.size());
             out.collisionShapes.push_back(std::move(shape));
             break;
         }
@@ -875,6 +901,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
         default: {
             mdx::Helper helper;
             helper.node = buildNode(i);
+            claim(i, mdx_anim::ExportContext::Slot::Helper, out.helpers.size());
             out.helpers.push_back(std::move(helper));
             break;
         }
@@ -887,6 +914,7 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
     // no fix-up table is needed. A slot this profile does not bind writes an
     // empty material rather than shifting every later index.
     out.materials.reserve(model.materialSlots.size());
+    animContext.layerOfOrdinal.resize(model.materialSlots.size());
     for (std::size_t slot = 0; slot < model.materialSlots.size(); ++slot) {
         const Material* material = set ? Resolve(model, static_cast<u32>(slot), profile) : nullptr;
         if (material == nullptr) {
@@ -894,6 +922,15 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
             continue;
         }
         out.materials.push_back(mdx_core::ExportMaterial(*material, profile, context, diagnostics));
+        // The ordinal is a position in the filtered stack and the export writes
+        // exactly that stack, so the map is the identity — recorded rather than
+        // assumed, because the two are only equal until something reorders a
+        // layer between them.
+        std::vector<u32>& ordinals = animContext.layerOfOrdinal[slot];
+        ordinals.resize(out.materials.back().layers.size());
+        for (std::size_t l = 0; l < ordinals.size(); ++l) {
+            ordinals[l] = static_cast<u32>(l);
+        }
     }
 
     // --- meshes -> geosets --------------------------------------------------
@@ -988,6 +1025,10 @@ Result<mdx::Model> MdxConverter::toMdx(const Document& document, ProfileId profi
 
         out.geosets.push_back(std::move(geoset));
     }
+
+    // Last, because a geoset animation names a geoset and an event object has
+    // to exist before its times can be written onto it.
+    mdx_anim::Export(document, 0, profile, animContext, out, diagnostics);
 
     result.value = std::move(out);
     return result;

@@ -622,7 +622,37 @@ std::vector<Vector4f> VertexBuffer::getTangents() const {
 }
 
 std::vector<Vector2f> VertexBuffer::getUVs(size_t which) const {
-    return getUVs(which, 1.0f / 2048.0f, 0.0f);
+    // The 1/2048 below is StarCraft II's REGN fixed point, and it is the
+    // default only because that is the buffer this reader was first written
+    // for. It belongs to the raw integer encodings and to nothing else: a
+    // Float32 UV already *is* the coordinate, and dividing one silently
+    // rescales it. Everything else decodes the way `decodeFloat` would, since
+    // the two-argument overload reads raw.
+    const Attribute* attr = findAttr(*this, AttributeClass::UV, which);
+    if (!attr)
+        return {};
+    f32 multiply = 1.0f / 2048.0f;
+    switch (attr->encoding) {
+    case AttributeEncoding::Float32:
+    case AttributeEncoding::Float16:
+        multiply = 1.0f;
+        break;
+    case AttributeEncoding::SNorm8:
+        multiply = 1.0f / 127.0f;
+        break;
+    case AttributeEncoding::SNorm16:
+        multiply = 1.0f / 32767.0f;
+        break;
+    case AttributeEncoding::UNorm8:
+        multiply = 1.0f / 255.0f;
+        break;
+    case AttributeEncoding::UNorm16:
+        multiply = 1.0f / 65535.0f;
+        break;
+    default:
+        break;
+    }
+    return getUVs(which, multiply, 0.0f);
 }
 
 std::vector<Vector2f> VertexBuffer::getUVs(size_t which, f32 uvMultiply, f32 uvOffset) const {

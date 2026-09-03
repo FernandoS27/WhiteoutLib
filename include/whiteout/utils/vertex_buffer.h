@@ -87,7 +87,10 @@ struct VertexBuffer {
     std::vector<Vector3f> getNormals() const;
     /// @brief Extract tangent vectors (3 x i8 + sign byte at end of vertex)
     std::vector<Vector4f> getTangents() const;
-    /// @brief Extract UV coordinates for a layer (i16 pairs, divided by 2048.0)
+    /// @brief Extract UV coordinates for a layer, decoded by the attribute's
+    /// encoding: float and normalized encodings give the coordinate itself,
+    /// and a raw integer one is StarCraft II's i16 fixed point (divided by
+    /// 2048.0), which is the buffer this reader was first written for.
     std::vector<Vector2f> getUVs(size_t which) const;
     /**
      * @brief Extract UV coordinates using region-level scale/offset (REGN v5+)

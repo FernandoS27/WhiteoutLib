@@ -396,6 +396,14 @@ const std::optional<m3::TextureLayer>& LayerOf(const m3::StandardMaterial& mater
     return material.ambientOcclusionLayer;
 }
 
+std::optional<m3::TextureLayer>& MutableLayerOf(m3::StandardMaterial& material,
+                                                StandardLayer slot) {
+    // The one authority for which member a slot names, reached the const way
+    // and cast back: writing a second switch is how the two drift.
+    return const_cast<std::optional<m3::TextureLayer>&>(
+        LayerOf(const_cast<const m3::StandardMaterial&>(material), slot));
+}
+
 Material ImportMaterial(const m3::Model& model, const m3::MaterialMap& entry, ProfileId profile,
                         const Context& context, Diagnostics& out, std::vector<u32>* layerOrdinals) {
     Material result;

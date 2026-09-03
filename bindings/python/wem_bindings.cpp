@@ -215,6 +215,8 @@ Codes are grouped by area and never renumbered once shipped: the recorded expect
         .value("ANIM_CHANNEL_INVALIDATED", whiteout::models::wem::DiagCode::AnimChannelInvalidated, R"doc(A channel's target was removed.)doc")
         .value("CLIP_TARGET_MISSING", whiteout::models::wem::DiagCode::ClipTargetMissing, R"doc(A clip references a model or set that is absent.)doc")
         .value("ANIM_TRACK_DROPPED", whiteout::models::wem::DiagCode::AnimTrackDropped, R"doc(A track the target format cannot express.)doc")
+        .value("ANIM_TRACK_APPROXIMATED", whiteout::models::wem::DiagCode::AnimTrackApproximated, R"doc(A track was written, but not as it was held.)doc")
+        .value("ANIM_CLIP_RETIMED", whiteout::models::wem::DiagCode::AnimClipRetimed, R"doc(A clip was placed on a timeline it did not come from.)doc")
         .value("EVENT_PAYLOAD_MISMATCH", whiteout::models::wem::DiagCode::EventPayloadMismatch, R"doc(`ActorEvent` kind and payload group disagree (§9.5).)doc")
         .value("ASSET_UNRESOLVED", whiteout::models::wem::DiagCode::AssetUnresolved, R"doc(An `AssetKey` the `AssetSource` could not load.)doc")
         .value("HARDPOINT_UNRESOLVED", whiteout::models::wem::DiagCode::HardpointUnresolved, R"doc(A hardpoint names a node the model does not have.)doc")
@@ -422,6 +424,15 @@ The inherit bits and the billboard family are MDX's vocabulary, and M3's `BoneFl
     py::enum_<whiteout::models::wem::PoseSpace>(m, "PoseSpace")
         .value("MODEL", whiteout::models::wem::PoseSpace::Model, R"doc(Relative to the model root.)doc")
         .value("PARENT_RELATIVE", whiteout::models::wem::PoseSpace::ParentRelative, R"doc(Relative to the node's parent — the same space as `local`.)doc")
+    ;
+
+    py::enum_<whiteout::models::wem::PoseStorage>(m, "PoseStorage", R"doc(Where one schema entry's authoritative value lives.
+
+`Trs` is the shape every format authors in and the one every consumer wants, so it is the default and `Node::poses` is the storage.
+
+`Matrix` exists because M3's `IREF` is not a TRS. It ships one 4x4 inverse model-space bind matrix per bone, and across 250 corpus `.m3` files 23 of them (9.2%) hold shear that no translation/rotation/scale can reproduce — the error reaches 30.7 units on a character-sized model, and allowing a negative scale component (which would cover a mirrored bone) fixes none of them. A TRS-only pose would therefore have been silently wrong on a tenth of StarCraft II, so the entry says so and `Node::poseMatrices` carries the matrix as shipped.)doc")
+        .value("TRS", whiteout::models::wem::PoseStorage::Trs, R"doc(`Node::poses[i]` is the value.)doc")
+        .value("MATRIX", whiteout::models::wem::PoseStorage::Matrix, R"doc(`Node::poseMatrices[i]` is the value; `poses[i]` is its decomposition.)doc")
     ;
 
     py::enum_<whiteout::models::wem::Channel>(m, "Channel", R"doc(Which property, in the vocabulary all four formats share.
@@ -905,6 +916,7 @@ Both halves are optional and independent. `asset` is what the source named — a
         .def_readwrite("name", &whiteout::models::wem::PoseSchema::name, R"doc("bind", "bindA", "bindAInverse", …)doc")
         .def_readwrite("space", &whiteout::models::wem::PoseSchema::space)
         .def_readwrite("inverse", &whiteout::models::wem::PoseSchema::inverse)
+        .def_readwrite("storage", &whiteout::models::wem::PoseSchema::storage)
     ;
 
     py::class_<whiteout::models::wem::NodeTree>(m, "NodeTree")
@@ -929,7 +941,10 @@ The pre-order is stored as one flat array with a per-node (offset, size), the Eu
         .def("world_bind", &whiteout::models::wem::NodeTree::worldBind, py::arg("node"), R"doc(Composes locals up the chain, honouring the inherit flags.
 
 The same composition D3's `Skeleton_ComposeWorldPose` performs. A node flagged `ModelSpace` stops the walk: its local *is* its world.)doc")
-        .def("pose_of", &whiteout::models::wem::NodeTree::poseOf, py::arg("node"), py::arg("pose"), R"doc(The pose value for @p node under schema entry @p pose, or its `local` (composed to the schema's space) when the node carries no pose array.)doc")
+        .def("pose_of", &whiteout::models::wem::NodeTree::poseOf, py::arg("node"), py::arg("pose"), R"doc(The pose value for @p node under schema entry @p pose, or its `local` (composed to the schema's space) when the node carries no pose array.
+
+A `PoseStorage::Matrix` entry answers with the *decomposition* of the stored matrix, which is what `poses` holds — use @ref poseMatrixOf when the exact value is what matters.)doc")
+        .def("pose_matrix_of", &whiteout::models::wem::NodeTree::poseMatrixOf, py::arg("node"), py::arg("pose"), R"doc(The same value as a matrix, and the authoritative one: a `PoseStorage::Matrix` entry with a stored matrix answers with it unchanged, and everything else composes @ref poseOf.)doc")
         .def("conform_poses", &whiteout::models::wem::NodeTree::conformPoses, R"doc(Resizes every Bone node's `poses` to `poseSchema.size()`, filling new entries from `worldBind`/`local` as the schema's space asks.)doc")
     ;
 
@@ -986,12 +1001,14 @@ Empty is a normal state — a model with no animation carries no channels.)doc")
         .def_readwrite("native", &whiteout::models::wem::SubTrackContainer::native)
     ;
 
-    py::class_<whiteout::models::wem::ClipEvent>(m, "ClipEvent", R"doc(A discrete key firing at an `Event` node — the node is the *where*, the key is the *when*.
+    py::class_<whiteout::models::wem::ClipEvent>(m, "ClipEvent", R"doc(A discrete key firing at a node — the node is the *where*, the key is the *when*.
 
-MDX's `EventObject` plus its KEVT timestamps, M3's SDEV keys, D3's `flEventFrame`. What the event *means* is the host's: WEM carries the name and one integer because that is all three formats agree on.)doc")
+MDX's `EventObject` plus its KEVT timestamps, M3's SDEV keys, D3's `flEventFrame`. What the event *means* is the host's: WEM carries the name and one integer because that is all three formats agree on.
+
+The node's **kind is not fixed**: MDX and `.m2` name a dedicated `Event` node, `.m3` names the bone the SDEV key sits on, and D3 names the attachment its hardpoint resolves to. All three are the place the event happens.)doc")
         .def(py::init<>())
         .def_readwrite("time", &whiteout::models::wem::ClipEvent::time, R"doc(Seconds from the clip's start.)doc")
-        .def_readwrite("node", &whiteout::models::wem::ClipEvent::node, R"doc(The `Event` node it fires at; a §10.6 referencer.)doc")
+        .def_readwrite("node", &whiteout::models::wem::ClipEvent::node, R"doc(The node it fires at, of any kind; a §10.6 referencer.)doc")
         .def_readwrite("name", &whiteout::models::wem::ClipEvent::name)
         .def_readwrite("value", &whiteout::models::wem::ClipEvent::value)
     ;
@@ -1008,6 +1025,9 @@ MDX's `EventObject` plus its KEVT timestamps, M3's SDEV keys, D3's `flEventFrame
         .def_readwrite("containers", &whiteout::models::wem::Clip::containers, R"doc(>= 1; one is the common case.)doc")
         .def_readwrite("events", &whiteout::models::wem::Clip::events)
         .def_readwrite("native", &whiteout::models::wem::Clip::native)
+        .def_readwrite("bounds", &whiteout::models::wem::Clip::bounds, R"doc(What the model occupies while this clip plays, when the source said so. All zeros when it did not — which `valid()` calls well-formed, so test the extent for volume, not validity.
+
+The one place WEM stores a bound it does not recompute. All four formats ship one per sequence — MDX's `Sequence::extent`, M2's `bounds`, M3's SEQS extents — and it is not derivable from the geometry: it is the union over the *posed* mesh across the clip, so recovering it means evaluating the whole skeleton at a sampling the source never recorded. A host reads it to frame a camera, and a conservative substitute (the model's own bounds) frames every clip as though it were the widest.)doc")
     ;
 
     py::class_<whiteout::models::wem::AnimTag>(m, "AnimTag", R"doc(One (tag -> clip) row. A struct rather than a `std::pair` because a pair has no `reflect()` and naming the halves is worth more than the two lines.)doc")

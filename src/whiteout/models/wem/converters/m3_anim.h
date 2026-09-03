@@ -44,6 +44,7 @@
 #include <whiteout/models/m3/structures.h>
 #include <whiteout/models/wem/diagnostics.h>
 #include <whiteout/models/wem/document.h>
+#include <whiteout/models/wem/profile.h>
 
 namespace whiteout {
 namespace models {
@@ -72,6 +73,30 @@ struct Context {
 
 void Import(const m3::Model& source, const Context& context, Document& document, u32 model,
             Diagnostics& out);
+
+/// Where each WEM node landed in the `.m3` being written, and which profile's
+/// materials are being written.
+///
+/// Same shape as the other two converters', and for the same reason: an M3
+/// keeps a property's `AnimRef` ON the record that owns the property, so the
+/// export has to know which array each node went into.
+struct ExportContext {
+    enum class Slot : u8 { None = 0, Bone, Attachment, Light, Camera };
+
+    struct NodeSlot {
+        Slot slot = Slot::None;
+        u32 index = 0;
+    };
+
+    ProfileId profile = ProfileId::Sc2;
+    /// Parallel to `Model::nodes`.
+    std::vector<NodeSlot> nodeSlots;
+};
+
+/// Writes `document`'s clips back onto `out` as SEQS / STG_ / STC_ and the SD
+/// blocks — the inverse of @ref Import.
+void Export(const Document& document, u32 model, const ExportContext& context, m3::Model& out,
+            Diagnostics& diagnostics);
 
 /// Merges an external animation file into @p document.
 ///

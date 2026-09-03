@@ -80,6 +80,26 @@ Transform Inverse(const Transform& transform);
 
 Vector3f TransformPoint(const Transform& transform, const Vector3f& point);
 
+/**
+ * @brief @p transform as a matrix, in the convention every bind and skinning
+ *        matrix in WEM uses: **row vectors**, `p * S * R + translation`, with
+ *        the translation in `data[3]`.
+ *
+ * That is the map `TransformPoint` performs and the one `Compose` chains, and
+ * it is the layout an `.m3` `IREF` and a D3 `tTransform4` arrive in, so a
+ * product composes child-first: `ToMatrix(child) * ToMatrix(parent)`.
+ *
+ * **Not `Matrix44f::compose`**, which pairs a *column*-vector 3x3 with a
+ * row-slot translation and applies the three in the opposite order. The two are
+ * self-consistent with `Matrix44f::extract_*` and equal for a pure translation,
+ * which is why the pivot formats never noticed.
+ */
+Matrix44f ToMatrix(const Transform& transform);
+
+/// The inverse of @ref ToMatrix, exact for a matrix that is one. A 3x3 carrying
+/// shear decomposes to the nearest scale-rotation, which is what a TRS can hold.
+Transform FromMatrix(const Matrix44f& matrix);
+
 // ============================================================================
 // Kinds and flags
 // ============================================================================
@@ -332,6 +352,22 @@ struct Node {
     /// kinds that carry none (§10.5).
     std::vector<Transform> poses;
 
+    /// Matrix values for the `PoseStorage::Matrix` entries of the same schema.
+    ///
+    /// Empty, or exactly as long as `poses`. Only the entries whose schema says
+    /// `Matrix` are authoritative; the rest are identity and must not be read,
+    /// because the TRS in `poses` is the value there. For a `Matrix` entry the
+    /// reverse holds: `poses[i]` is the decomposition, kept so a TRS-only
+    /// consumer still gets a usable bind pose, and never read back on export.
+    ///
+    /// M3's `IREF` is the reason this exists — see `PoseStorage`.
+    ///
+    /// @bind skip — the generator flattens `Vector2f`/`Vector3f`/`Vector4f`/
+    /// `Quaternion` into typed arrays and knows no such shape for a `Matrix44f`,
+    /// so a `std::vector<Matrix44f>` has no element binding to name. Saying so
+    /// here is the difference between a deliberate omission and a silent one.
+    std::vector<Matrix44f> poseMatrices;
+
     NodePayload payload;
     NodeNative native;
 
@@ -371,6 +407,10 @@ struct Node {
         v.field("local", local);
         v.field("uniformScaleOnly", uniformScaleOnly);
         v.field("poses", poses);
+        // v2: a `NODE` written before matrix poses existed has none, and
+        // `poseMatrices` being empty is exactly what "every pose is a TRS"
+        // means — so an old chunk reads correctly by reading nothing.
+        v.since(2).field("poseMatrices", poseMatrices);
 
         // `kind` and the payload alternative are redundant by design, and the
         // payload rides its own discriminator rather than `kind` so a file whose

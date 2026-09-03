@@ -121,6 +121,7 @@ NodeTree ImportNodes(const m2::Model& source) {
     NodeTree tree;
     tree.poseSchema.push_back(PoseSchema{});
     tree.authoritativePose = 0;
+    tree.rig = RigConvention::PivotRelative;
 
     for (std::size_t b = 0; b < source.bones.size(); ++b) {
         const m2::Bone& bone = source.bones[b];
@@ -156,6 +157,11 @@ NodeTree ImportNodes(const m2::Model& source) {
         if (node.parent != kInvalidNode) {
             origin = tree.nodes[node.parent].pivot;
         }
+        // The pivot as well as the local, because in a pivot rig the pivot IS
+        // the point the record names — that is what `.mdx` writes into `PIVT`
+        // for the same node, and leaving it at zero put every `.m2` attachment
+        // at the model origin on the way out to WC3.
+        node.pivot = modelSpace;
         node.local.translation =
             Vector3f{modelSpace.x - origin.x, modelSpace.y - origin.y, modelSpace.z - origin.z};
         node.poses.push_back(node.local);
@@ -352,9 +358,10 @@ Result<Document> M2Converter::fromM2(const m2::Model& source, u32 sourceVersion)
                 if (weight <= 0.0f) {
                     continue;
                 }
-                // A skin section's bone indices go through `boneCombos` from its
-                // own `boneComboIndex`; the vertex's byte is an offset into that
-                // window, not a bone id.
+                // Global, unlike `.m3`'s: the retail client indexes its bone
+                // matrix array with this byte directly. The section-local twin
+                // resolved through `boneCombos` lives in the `.skin`'s own
+                // `bones` array and reaches the same bone.
                 builder.addInfluence(geom::VertexId(static_cast<u32>(v)), vertex.boneIndices[k],
                                      weight);
             }
@@ -439,7 +446,7 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
     if (!checkExportProfile(document, profile, result.diagnostics)) {
         return result;
     }
-    reportUnwrittenClips(document, result.diagnostics);
+    checkRigConvention(document, profile, result.diagnostics);
 
     Diagnostics& diagnostics = result.diagnostics;
     m2::Model out;
@@ -477,6 +484,12 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
     // Only Bone nodes become bones, and they keep their WEM order, so a vertex's
     // influence index is the bone index. The attached kinds are written from the
     // same tree below, their local translation composed back into model space.
+    // Where each node lands, for the animation export below: an `.m2` keeps a
+    // record's tracks ON the record, and only this walk knows which array a
+    // node went into.
+    m2_anim::ExportContext animContext;
+    animContext.nodeSlots.assign(model.nodes.size(), m2_anim::ExportContext::NodeSlot{});
+
     std::vector<u32> boneOf(model.nodes.size(), 0xFFFFu);
     for (std::size_t n = 0; n < model.nodes.size(); ++n) {
         if (model.nodes.nodes[n].kind != NodeKind::Bone) {
@@ -484,6 +497,8 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
         }
         const Node& node = model.nodes.nodes[n];
         boneOf[n] = static_cast<u32>(out.bones.size());
+        animContext.nodeSlots[n] = {m2_anim::ExportContext::Slot::Bone,
+                                    static_cast<u32>(out.bones.size())};
         m2::Bone bone;
         bone.keyBoneId = static_cast<i32>(node.native.value("keyBoneId", -1));
         bone.flags = static_cast<u32>(node.native.value("flagBits"));
@@ -511,6 +526,8 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
             attachment.id = static_cast<u32>(node.native.value("attachmentId"));
             attachment.boneId = parentBone;
             attachment.position = world;
+            animContext.nodeSlots[n] = {m2_anim::ExportContext::Slot::Attachment,
+                                        static_cast<u32>(out.attachments.size())};
             out.attachments.push_back(std::move(attachment));
             break;
         }
@@ -519,6 +536,8 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
             light.type = static_cast<u16>(node.native.value("lightType"));
             light.boneId = static_cast<i16>(parentBone);
             light.position = world;
+            animContext.nodeSlots[n] = {m2_anim::ExportContext::Slot::Light,
+                                        static_cast<u32>(out.lights.size())};
             out.lights.push_back(std::move(light));
             break;
         }
@@ -530,6 +549,8 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
             event.data = static_cast<u32>(node.native.value("eventData"));
             event.boneId = parentBone;
             event.position = world;
+            animContext.nodeSlots[n] = {m2_anim::ExportContext::Slot::Event,
+                                        static_cast<u32>(out.events.size())};
             out.events.push_back(std::move(event));
             break;
         }
@@ -542,6 +563,8 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
                 camera.farClip = payload->farClip;
             }
             camera.positionBase = world;
+            animContext.nodeSlots[n] = {m2_anim::ExportContext::Slot::Camera,
+                                        static_cast<u32>(out.cameras.size())};
             out.cameras.push_back(std::move(camera));
             break;
         }
@@ -643,6 +666,10 @@ Result<m2::Model> M2Converter::toM2(const Document& document, ProfileId profile,
         out.skinProfiles.push_back(std::move(skin));
     }
     out.numSkinProfiles = static_cast<u32>(out.skinProfiles.size());
+
+    // Last, because a material track is placed through the native block's
+    // resolved indices and the batches that carry them are written above.
+    m2_anim::Export(document, 0, animContext, out, diagnostics);
 
     result.value = std::move(out);
     return result;

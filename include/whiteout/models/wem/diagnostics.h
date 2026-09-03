@@ -104,12 +104,17 @@ enum class DiagCode : u16 {
     SkinInfluenceReassigned, ///< `SkinPolicy::ReassignToParent` moved weights up (§10.6).
     DanglingNodeReference,   ///< A referencer pointed at a node that no longer exists.
     BindPoseRecomposed,      ///< `preserveWorld` rebuilt a survivor's local transform.
+    RigConventionChanged,    ///< `RetargetSkeleton` restated the tree's bind convention.
+    BoneShearSplit,          ///< A bind frame sheared; a helper parent carries the stretch.
+    BoneShearProjected,      ///< The shear was projected away — the pose is approximate.
 
     // --- animation (§10.8) ----------------------------------------------------
     MixedInterpolationInTrack, ///< A sub-track mixes interpolation modes (§10.8.2).
     AnimChannelInvalidated,    ///< A channel's target was removed.
     ClipTargetMissing,         ///< A clip references a model or set that is absent.
     AnimTrackDropped,          ///< A track the target format cannot express.
+    AnimTrackApproximated,     ///< A track was written, but not as it was held.
+    AnimClipRetimed,           ///< A clip was placed on a timeline it did not come from.
 
     // --- actors (§9) ----------------------------------------------------------
     EventPayloadMismatch, ///< `ActorEvent` kind and payload group disagree (§9.5).

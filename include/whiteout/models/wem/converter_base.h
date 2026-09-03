@@ -119,11 +119,26 @@ protected:
     /// one @p document carries.
     bool checkExportProfile(const Document& document, ProfileId profile, Diagnostics& out) const;
 
-    /// Animation is **import-only in v3**: §16's P7 is four importers and no
-    /// exporter. Every `toX` calls this so a document's clips are not dropped in
-    /// silence — one row with the count, because the expected-loss golden diffs
-    /// the code *set* and a row per clip would bury everything else in it.
-    static void reportUnwrittenClips(const Document& document, Diagnostics& out);
+    /**
+     * @brief Reports every model whose rig is not in @p profile's convention.
+     *
+     * A warning and not a refusal, because the bind pose still comes out right —
+     * `NodeTree::inverseBindMatrix` answers under whichever convention the tree
+     * holds — and only the node TRS tracks are then read as the wrong thing. The
+     * fix is `RetargetSkeleton`, which the caller runs the way it runs
+     * `DeriveProfile`; saying so is this layer's whole job, since a converter
+     * takes the document by const reference and cannot rearrange a skeleton.
+     */
+    void checkRigConvention(const Document& document, ProfileId profile, Diagnostics& out) const;
+
+    // Animation used to be import-only, and every `toX` called a
+    // `reportUnwrittenClips` here to say so. The three format exporters write
+    // their clips back now (`mdx_anim::Export`, `m2_anim::Export`,
+    // `m3_anim::Export`), so the report would be a lie; what remains lossy is
+    // per-format and reported per track by the exporter that hit it.
+    //
+    // Diablo III is unaffected: it has no export at all (§18), so there is no
+    // half-written animation to warn about.
 };
 
 // ============================================================================

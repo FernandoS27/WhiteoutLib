@@ -184,10 +184,11 @@ struct ChunkTagTraits<Document> {
     static constexpr bool is_trivial = false;
 };
 
+/// v2 adds `NodeTree::rig`, which is reflected inline in the model's body.
 template <>
 struct ChunkTagTraits<Model> {
     static constexpr u32 value = kTag("MODL");
-    static constexpr u32 max_version = 1;
+    static constexpr u32 max_version = 2;
     static constexpr bool is_trivial = false;
 };
 
@@ -254,10 +255,21 @@ struct ChunkTagTraits<Transform> {
     static constexpr bool is_trivial = false;
 };
 
+/// A pose matrix run (`Node::poseMatrices`). Trivial, unlike `Transform`: a
+/// `Matrix44f` has no `reflect()` and 16 floats have nothing to name, so the run
+/// is one memcpy rather than 16 fields per bone.
+template <>
+struct ChunkTagTraits<Matrix44f> {
+    static constexpr u32 value = kTag("MTX4");
+    static constexpr u32 max_version = 1;
+    static constexpr bool is_trivial = true;
+};
+
+/// v2 adds `Node::poseMatrices` (§10.5's matrix poses).
 template <>
 struct ChunkTagTraits<Node> {
     static constexpr u32 value = kTag("NODE");
-    static constexpr u32 max_version = 1;
+    static constexpr u32 max_version = 2;
     static constexpr bool is_trivial = false;
 };
 
@@ -268,10 +280,11 @@ struct ChunkTagTraits<NativeBag::Entry> {
     static constexpr bool is_trivial = false;
 };
 
+/// v2 adds `PoseSchema::storage`.
 template <>
 struct ChunkTagTraits<PoseSchema> {
     static constexpr u32 value = kTag("PSCH");
-    static constexpr u32 max_version = 1;
+    static constexpr u32 max_version = 2;
     static constexpr bool is_trivial = false;
 };
 
@@ -402,10 +415,11 @@ struct ChunkTagTraits<ClipEvent> {
     static constexpr bool is_trivial = false;
 };
 
+/// v2 adds `Clip::bounds` (§10.8's per-clip extent).
 template <>
 struct ChunkTagTraits<Clip> {
     static constexpr u32 value = kTag("CLIP");
-    static constexpr u32 max_version = 1;
+    static constexpr u32 max_version = 2;
     static constexpr bool is_trivial = false;
 };
 
@@ -469,6 +483,7 @@ inline constexpr u32 kKnownChunkTags[] = {
     ChunkTagTraits<geom::VertexSplit>::value,
     ChunkTagTraits<geom::FaceRecord>::value,
     ChunkTagTraits<Transform>::value,
+    ChunkTagTraits<Matrix44f>::value,
     ChunkTagTraits<Node>::value,
     ChunkTagTraits<NativeBag::Entry>::value,
     ChunkTagTraits<PoseSchema>::value,

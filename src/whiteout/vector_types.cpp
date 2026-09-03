@@ -10,71 +10,71 @@ namespace whiteout {
 
 namespace {
 
+/// Whether the last row/column is (0,0,0,1) — the *projective* part, which for
+/// `RowMajor` is the column beside the basis rows and NOT `data[3]`, where this
+/// layout keeps the translation.
 template <MatrixLayout layout>
 bool isAffine(const Matrix44f& m, float eps = 1e-6f) {
     auto absf = [](float x) { return std::abs(x); };
 
     if constexpr (layout == MatrixLayout::RowMajor) {
-        return absf(m.data[3][0]) < eps && absf(m.data[3][1]) < eps && absf(m.data[3][2]) < eps &&
+        return absf(m.data[0][3]) < eps && absf(m.data[1][3]) < eps && absf(m.data[2][3]) < eps &&
                absf(m.data[3][3] - 1.0f) < eps;
     } else // ColumnMajor
     {
-        return absf(m.data[0][3]) < eps && absf(m.data[1][3]) < eps && absf(m.data[2][3]) < eps &&
+        return absf(m.data[3][0]) < eps && absf(m.data[3][1]) < eps && absf(m.data[3][2]) < eps &&
                absf(m.data[3][3] - 1.0f) < eps;
     }
 }
 
+/// The inverse of an affine matrix: a real 3x3 inverse, not a transpose.
+///
+/// A transpose inverts the 3x3 only when it is orthonormal, so a fast path
+/// gated on "is affine" has to invert properly or it silently returns a wrong
+/// matrix for anything carrying scale or shear — `inverse(scaling(2,2,2))`
+/// coming back as scale 2 rather than 0.5. The stored 3x3 of the inverse is the
+/// inverse of the stored 3x3 in either layout; only the translation differs,
+/// because one layout holds it as a row and the other as a column.
+///
+/// @return false when the 3x3 is singular, leaving @p out untouched.
 template <MatrixLayout layout>
-Matrix44f inverseAffine(const Matrix44f& m) {
-    Matrix44f r{};
-
-    // Extract basis vectors depending on layout
-    Vector3f x, y, z, t;
-
-    if constexpr (layout == MatrixLayout::RowMajor) {
-        x = {m.data[0][0], m.data[0][1], m.data[0][2]};
-        y = {m.data[1][0], m.data[1][1], m.data[1][2]};
-        z = {m.data[2][0], m.data[2][1], m.data[2][2]};
-        t = {m.data[3][0], m.data[3][1], m.data[3][2]};
-    } else // ColumnMajor
-    {
-        x = {m.data[0][0], m.data[1][0], m.data[2][0]};
-        y = {m.data[0][1], m.data[1][1], m.data[2][1]};
-        z = {m.data[0][2], m.data[1][2], m.data[2][2]};
-        t = {m.data[0][3], m.data[1][3], m.data[2][3]};
+bool inverseAffine(const Matrix44f& m, Matrix44f& out) {
+    const f32 c00 = m.data[1][1] * m.data[2][2] - m.data[1][2] * m.data[2][1];
+    const f32 c01 = m.data[1][2] * m.data[2][0] - m.data[1][0] * m.data[2][2];
+    const f32 c02 = m.data[1][0] * m.data[2][1] - m.data[1][1] * m.data[2][0];
+    const f32 det = m.data[0][0] * c00 + m.data[0][1] * c01 + m.data[0][2] * c02;
+    if (std::abs(det) < 1e-12f) {
+        return false;
     }
+    const f32 invDet = 1.0f / det;
 
-    // Transpose rotation
-    r.data[0][0] = x.x;
-    r.data[0][1] = y.x;
-    r.data[0][2] = z.x;
-    r.data[1][0] = x.y;
-    r.data[1][1] = y.y;
-    r.data[1][2] = z.y;
-    r.data[2][0] = x.z;
-    r.data[2][1] = y.z;
-    r.data[2][2] = z.z;
+    Matrix44f r = Matrix44f::identity();
+    r.data[0][0] = c00 * invDet;
+    r.data[1][0] = c01 * invDet;
+    r.data[2][0] = c02 * invDet;
+    r.data[0][1] = (m.data[0][2] * m.data[2][1] - m.data[0][1] * m.data[2][2]) * invDet;
+    r.data[1][1] = (m.data[0][0] * m.data[2][2] - m.data[0][2] * m.data[2][0]) * invDet;
+    r.data[2][1] = (m.data[0][1] * m.data[2][0] - m.data[0][0] * m.data[2][1]) * invDet;
+    r.data[0][2] = (m.data[0][1] * m.data[1][2] - m.data[0][2] * m.data[1][1]) * invDet;
+    r.data[1][2] = (m.data[0][2] * m.data[1][0] - m.data[0][0] * m.data[1][2]) * invDet;
+    r.data[2][2] = (m.data[0][0] * m.data[1][1] - m.data[0][1] * m.data[1][0]) * invDet;
 
-    // Compute -R^T * t
-    Vector3f invT;
-    invT.x = -(r.data[0][0] * t.x + r.data[0][1] * t.y + r.data[0][2] * t.z);
-    invT.y = -(r.data[1][0] * t.x + r.data[1][1] * t.y + r.data[1][2] * t.z);
-    invT.z = -(r.data[2][0] * t.x + r.data[2][1] * t.y + r.data[2][2] * t.z);
-
-    // Write translation back
     if constexpr (layout == MatrixLayout::RowMajor) {
-        r.data[3][0] = invT.x;
-        r.data[3][1] = invT.y;
-        r.data[3][2] = invT.z;
-        r.data[3][3] = 1.0f;
+        // A row vector times the inverse basis: -t * A^-1.
+        const Vector3f t{m.data[3][0], m.data[3][1], m.data[3][2]};
+        for (int j = 0; j < 3; ++j) {
+            r.data[3][j] = -(t.x * r.data[0][j] + t.y * r.data[1][j] + t.z * r.data[2][j]);
+        }
     } else {
-        r.data[0][3] = invT.x;
-        r.data[1][3] = invT.y;
-        r.data[2][3] = invT.z;
-        r.data[3][3] = 1.0f;
+        // A column vector: -A^-1 * t.
+        const Vector3f t{m.data[0][3], m.data[1][3], m.data[2][3]};
+        for (int i = 0; i < 3; ++i) {
+            r.data[i][3] = -(r.data[i][0] * t.x + r.data[i][1] * t.y + r.data[i][2] * t.z);
+        }
     }
 
-    return r;
+    out = r;
+    return true;
 }
 
 Matrix44f inverseGeneral(const Matrix44f& m) {
@@ -451,12 +451,14 @@ Matrix44f Matrix44f::compose(const Vector3f& trans, const Quaternion& rot, const
 }
 
 Matrix44f Matrix44f::inverse(const Matrix44f& m, MatrixLayout layout) {
+    Matrix44f affine;
     if (layout == MatrixLayout::RowMajor) {
-        if (isAffine<MatrixLayout::RowMajor>(m))
-            return inverseAffine<MatrixLayout::RowMajor>(m);
+        if (isAffine<MatrixLayout::RowMajor>(m) && inverseAffine<MatrixLayout::RowMajor>(m, affine))
+            return affine;
     } else {
-        if (isAffine<MatrixLayout::ColumnMajor>(m))
-            return inverseAffine<MatrixLayout::ColumnMajor>(m);
+        if (isAffine<MatrixLayout::ColumnMajor>(m) &&
+            inverseAffine<MatrixLayout::ColumnMajor>(m, affine))
+            return affine;
     }
     return inverseGeneral(m);
 }

@@ -182,6 +182,8 @@ EMSCRIPTEN_BINDINGS(wem) {
         .value("AnimChannelInvalidated", whiteout::models::wem::DiagCode::AnimChannelInvalidated)
         .value("ClipTargetMissing", whiteout::models::wem::DiagCode::ClipTargetMissing)
         .value("AnimTrackDropped", whiteout::models::wem::DiagCode::AnimTrackDropped)
+        .value("AnimTrackApproximated", whiteout::models::wem::DiagCode::AnimTrackApproximated)
+        .value("AnimClipRetimed", whiteout::models::wem::DiagCode::AnimClipRetimed)
         .value("EventPayloadMismatch", whiteout::models::wem::DiagCode::EventPayloadMismatch)
         .value("AssetUnresolved", whiteout::models::wem::DiagCode::AssetUnresolved)
         .value("HardpointUnresolved", whiteout::models::wem::DiagCode::HardpointUnresolved)
@@ -358,6 +360,10 @@ EMSCRIPTEN_BINDINGS(wem) {
     enum_<whiteout::models::wem::PoseSpace>("WemPoseSpace")
         .value("Model", whiteout::models::wem::PoseSpace::Model)
         .value("ParentRelative", whiteout::models::wem::PoseSpace::ParentRelative);
+
+    enum_<whiteout::models::wem::PoseStorage>("WemPoseStorage")
+        .value("Trs", whiteout::models::wem::PoseStorage::Trs)
+        .value("Matrix", whiteout::models::wem::PoseStorage::Matrix);
 
     enum_<whiteout::models::wem::Channel>("WemChannel")
         .value("Translation", whiteout::models::wem::Channel::Translation)
@@ -814,6 +820,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("name", &whiteout::models::wem::PoseSchema::name)
         .property("space", &whiteout::models::wem::PoseSchema::space)
         .property("inverse", &whiteout::models::wem::PoseSchema::inverse)
+        .property("storage", &whiteout::models::wem::PoseSchema::storage)
     ;
 
     class_<whiteout::models::wem::NodeTree>("WemNodeTree")
@@ -833,6 +840,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .function("depth", &whiteout::models::wem::NodeTree::depth)
         .function("worldBind", &whiteout::models::wem::NodeTree::worldBind)
         .function("poseOf", &whiteout::models::wem::NodeTree::poseOf)
+        .function("poseMatrixOf", &whiteout::models::wem::NodeTree::poseMatrixOf)
         .function("conformPoses", &whiteout::models::wem::NodeTree::conformPoses)
     ;
 
@@ -899,6 +907,7 @@ EMSCRIPTEN_BINDINGS(wem) {
         .property("containers", &whiteout::models::wem::Clip::containers)
         .property("events", &whiteout::models::wem::Clip::events)
         .property("native", &whiteout::models::wem::Clip::native)
+        .property("bounds", &whiteout::models::wem::Clip::bounds)
     ;
 
     class_<whiteout::models::wem::AnimTag>("WemAnimTag")

@@ -106,6 +106,137 @@ DeriveResult DeriveProfile(Document& document, ProfileId from, ProfileId to,
  */
 DeriveResult AddProfileFromImport(Document& document, ProfileId profile, const Document& imported);
 
+// ============================================================================
+// RetargetSkeleton
+// ============================================================================
+
+/**
+ * @brief Restates every model's rig in @p to's `RigConvention` (§10.5).
+ *
+ * The third operation, and the one the other two do not cover: `DeriveProfile`
+ * and `AddProfileFromImport` rearrange material sets, while this rearranges the
+ * *skeleton* — and until it existed `.m3 -> .mdx` wrote a skeleton of zero
+ * pivots and `.mdx -> .m3` lost the pivot offset on every keyed bone.
+ *
+ * ### What is preserved, and why it is exact
+ *
+ * The skinning matrix, `skin(b, t) = inverseBind(b) * world(b, t)`, for every
+ * bone at every keyed time. For **any** constant invertible `B` per node,
+ *
+ * ```
+ * node'(b, t)     = B(b) * node(b, t) * inverse(B(parent))
+ * inverseBind'(b) = inverseBind(b) * inverse(B(b))
+ * ```
+ *
+ * leaves `skin` unchanged, because the two `B(b)` cancel. The convention is
+ * therefore just a choice of `B`, and each direction has exactly one:
+ *
+ * - **To `PivotRelative`**, which forces `inverseBind' = I`: `B = inverseBind`,
+ *   with the pivot set to the bone's model-space bind position — except on a
+ *   split bone, where it has to be zero (see below). `worldBind` still answers
+ *   with the bind position there; only a re-import through `.mdx`'s `PIVT`,
+ *   which has nowhere else to keep it, would lose it.
+ * - **To `ExplicitBind`**, from a rig whose bind is already the identity:
+ *   `B = T(rest position)`, which makes `IREF = T(-pivot)` and turns every
+ *   translation key into `key + pivot - parentPivot`. No shear can arise, so
+ *   that direction is exact and needs no extra nodes.
+ *
+ * ### The one thing a pivot rig cannot hold
+ *
+ * `T(-p) * S * R * T(p + t)` has linear part `diag(s) * R`, so a conjugated
+ * frame carrying **shear** does not fit in one node — 420 of 7,260 nodes across
+ * a 400-model `.m3` sweep. Any linear part factors exactly as a pure rotation
+ * followed by a scale-rotation (`A = U * (S V^T)` by SVD), so the default is to
+ * put the second half on a helper parent rather than project the shear away.
+ * Measured over that sweep, at the source's own key times:
+ *
+ * ```
+ *                     models exact   over 0.1 units   worst
+ *   split (default)   387 of 400            1         0.55 units
+ *   projected          318 of 400           59        53,181 units
+ * ```
+ *
+ * The projection is that bad because the error compounds: a bone whose ancestor
+ * lost shear inherits it and adds its own. The other direction needs none of
+ * this — no shear can arise — and reproduced 1,062 of 1,075 corpus `.mdx` files
+ * and 135 of 142 `.m2` files exactly, with no node added at all. The `.m2`
+ * remainder is not this operation: those models carry a rotation key that
+ * decodes to `|q| = 2`, whose linear part is four times a rotation, and fifteen
+ * of those in a chain put the frame at 1.5e9 — where the two compositions agree
+ * to one ULP and disagree by two units.
+ *
+ * ### What it approximates
+ *
+ * Keys are rewritten at the times the source keyed, so every key is exact and
+ * the curve *between* two keys is not: a conjugated slerp is not the slerp of
+ * the conjugates, and a split node's two factors interpolate independently.
+ * `refineKeys` is the lever for that, and it is spent only where it is needed.
+ *
+ * A pivot rig also has no way to hold a non-identity rest — `.m3`'s `IREF` is
+ * not the inverse of its own rest chain, by up to 2.2 units on `Marine.m3` — so
+ * a bone whose conjugated rest is not the identity gains a one-key track in each
+ * container that had none for it.
+ *
+ * Neither direction can honour `DontInheritTranslation`/`Rotation`/`Scale`: they
+ * modify the parent frame per component, and no single constant `B` cancels
+ * that. `ModelSpace` *is* honoured, because it removes the parent entirely.
+ * Everything here is reported rather than assumed.
+ */
+struct SkeletonRetargetOptions {
+    /**
+     * @brief Insert a helper parent where the conjugated frame shears.
+     *
+     * Clearing it projects the shear onto the nearest scale-rotation instead,
+     * which keeps the node count but is only approximate — the measured cost is
+     * in the file comment above. A caller that must not gain nodes (a fixed
+     * bone palette, a rig another asset joins on by index) is the reason the
+     * choice exists.
+     */
+    bool splitShearedNodes = true;
+
+    /// How far a linear part may stray from `diag(s) * R` before it counts as
+    /// sheared. Absolute, on matrix entries; bind frames are order-1.
+    f32 shearTolerance = 1e-4f;
+
+    /**
+     * @brief Extra keys per source interval on a split node.
+     *
+     * The rewrite is exact at every key and only between them, because the
+     * split's two factors interpolate independently and the product of two
+     * interpolants is not the interpolant of the products. Subdividing is the
+     * only lever, and it is spent only on the ~7% of nodes that split. Zero
+     * disables it.
+     */
+    u32 refineKeys = 3;
+};
+
+struct SkeletonRetargetResult {
+    bool ok = false;
+    Diagnostics diagnostics;
+
+    u32 nodesInserted = 0; ///< Helper parents the split added.
+    u32 shearedNodes = 0;  ///< Nodes whose conjugated frame did not fit one node.
+
+    /// (node, container) pairs whose TRS tracks were re-solved, and those that
+    /// gained a one-key track holding a rest the target has no other way to say.
+    u32 nodesRewritten = 0;
+    u32 restKeysAdded = 0;
+
+    /// Translation keys the `ExplicitBind` direction shifted by the pivot
+    /// difference — that direction's whole edit, and exact.
+    u32 keysOffset = 0;
+
+    /// Worst residual between the source skinning matrix and the retargeted
+    /// one, in units, sampled at each rewritten key at the bone origin and one
+    /// unit off it. Zero when nothing needed approximating.
+    f32 worstResidual = 0.0f;
+};
+
+/// Restates every model's rig in @p to's convention. A model already in it is
+/// left alone, and that is a success with one `Info`.
+SkeletonRetargetResult RetargetSkeleton(Document& document, ProfileId to,
+                                        const SkeletonRetargetOptions& options = {});
+
 } // namespace wem
 } // namespace models
 } // namespace whiteout

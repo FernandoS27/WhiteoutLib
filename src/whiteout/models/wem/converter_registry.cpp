@@ -47,13 +47,21 @@ bool FormatConverter::checkExportProfile(const Document& document, ProfileId pro
     return true;
 }
 
-void FormatConverter::reportUnwrittenClips(const Document& document, Diagnostics& out) {
-    if (document.clips.empty()) {
-        return;
+void FormatConverter::checkRigConvention(const Document& document, ProfileId profile,
+                                        Diagnostics& out) const {
+    const RigConvention want = Profile(profile).rig;
+    for (std::size_t m = 0; m < document.models.size(); ++m) {
+        const Model& model = document.models[m];
+        if (model.nodes.empty() || model.nodes.rig == want) {
+            continue;
+        }
+        out.warn(DiagCode::RigConventionChanged,
+                 std::string("model '") + model.name + "' holds a " +
+                     ToString(model.nodes.rig) + " rig and " + ToString(profile) + " wants " +
+                     ToString(want) + "; run RetargetSkeleton first or the node tracks mean "
+                                      "the wrong thing",
+                 ElementRef(ElementKind::Document, static_cast<u32>(m)), profile);
     }
-    out.info(DiagCode::AnimTrackDropped,
-             std::to_string(document.clips.size()) +
-                 " clips are not written: animation export is out of scope for v3");
 }
 
 // ============================================================================

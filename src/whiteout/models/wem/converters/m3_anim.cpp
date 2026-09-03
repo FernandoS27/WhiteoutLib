@@ -3,6 +3,7 @@
 
 #include "m3_anim.h"
 
+#include <algorithm>
 #include <cstring>
 #include <string>
 
@@ -54,6 +55,19 @@ constexpr f32 Seconds(f32 milliseconds) {
 /// a track that skipped this would play in SC2's basis over WEM's geometry.
 Vector3f Rebase(const Vector3f& v) {
     return Vector3f{-v.y, v.x, v.z};
+}
+
+/// An extent through the same change of basis. The rebase is a rotation, so a
+/// corner can swap sides and min/max are recomputed rather than mapped -- the
+/// same rule `m3_converter`'s `ToExtent` follows.
+Extent RebaseExtent(const m3::Extent& source) {
+    const Vector3f a = Rebase(source.min);
+    const Vector3f b = Rebase(source.max);
+    Extent out;
+    out.minimum = Vector3f{std::min(a.x, b.x), std::min(a.y, b.y), std::min(a.z, b.z)};
+    out.maximum = Vector3f{std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z)};
+    out.sphereRadius = source.radius;
+    return out;
 }
 
 Quaternion RebaseRotation(const Quaternion& q) {
@@ -460,6 +474,9 @@ private:
             clip.native.set("frequency", static_cast<i64>(sequence.frequency));
             clip.native.set("blendTime", static_cast<i64>(sequence.blendTime));
             clip.native.set("startFrame", static_cast<i64>(sequence.startFrame));
+            // The sequence's own bound: the posed model over this clip, which
+            // nothing in the file lets a reader derive back.
+            clip.bounds = RebaseExtent(sequence.bounds);
 
             const f32 origin = static_cast<f32>(sequence.startFrame);
             if (s < source_.animationGroups.size()) {
@@ -656,6 +673,576 @@ u32 Merge(const m3::Model& external, Document& document, u32 model, Diagnostics&
                  ElementRef(ElementKind::Document, model));
     }
     return added;
+}
+
+// ============================================================================
+// Export — clips back into SEQS / STG_ / STC_ and the SD blocks (§10.8.3)
+//
+// The 1:1 direction, and it stays 1:1: a clip is a SEQS plus the STG_ at the
+// same index, a container is an STC_, a sub-track is one typed SD block plus
+// the `(slot << 16) | block` reference that names it. What the import read out
+// of `animRefs`, this writes back into them.
+//
+// Three of the import's four traps apply unchanged and are handled here:
+//
+//   - **Interpolation is AnimRef flags bit 4**, so a `Step` channel sets it and
+//     nothing else does. `interpType` stays 0 — it is the row that lies.
+//   - **A keyed discrete channel goes back to SDFG, slot 11.** The rule that
+//     picks it is the channel's own: visibility and dynamic state are flags,
+//     and the value stream WEM holds for them is 0-or-1.
+//   - **The basis change is part of the value**, so a translation key is
+//     un-rebased on the way out exactly as the bone's rest transform is.
+//
+// The fourth — `animId` is the join and is kept verbatim — is what makes this
+// possible at all: the channel table already holds the ids the STC has to name.
+// ============================================================================
+
+namespace {
+
+i32 Ticks(f32 seconds) {
+    return static_cast<i32>(seconds * 1000.0f + (seconds < 0.0f ? -0.5f : 0.5f));
+}
+
+/// The inverse of `Rebase` — WEM's canonical basis back into SC2's.
+Vector3f Unrebase(const Vector3f& v) {
+    return Vector3f{v.y, -v.x, v.z};
+}
+
+Quaternion UnrebaseRotation(const Quaternion& q) {
+    return Quaternion{q.y, -q.x, q.z, q.w};
+}
+
+/// Whether an extent says anything. A default-constructed one is all zeros, and
+/// `Extent::valid()` answers "min <= max", which all zeros satisfies -- so the
+/// question a caller means by "did the source give me one" is volume, not
+/// validity.
+bool HasExtent(const Extent& extent) {
+    return extent.sphereRadius > 0.0f || extent.maximum.x > extent.minimum.x ||
+           extent.maximum.y > extent.minimum.y || extent.maximum.z > extent.minimum.z;
+}
+
+m3::Extent UnrebaseExtent(const Extent& source) {
+    const Vector3f a = Unrebase(source.minimum);
+    const Vector3f b = Unrebase(source.maximum);
+    m3::Extent out;
+    out.min = Vector3f{std::min(a.x, b.x), std::min(a.y, b.y), std::min(a.z, b.z)};
+    out.max = Vector3f{std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z)};
+    out.radius = source.sphereRadius;
+    return out;
+}
+
+m3::ColorBGRA FromRgba(const Vector4f& value) {
+    const auto byteOf = [](f32 v) {
+        const f32 scaled = v * 255.0f;
+        return static_cast<u8>(scaled <= 0.0f ? 0.0f : scaled >= 255.0f ? 255.0f : scaled + 0.5f);
+    };
+    m3::ColorBGRA color;
+    color.r = byteOf(value.x);
+    color.g = byteOf(value.y);
+    color.b = byteOf(value.z);
+    color.a = byteOf(value.w);
+    return color;
+}
+
+class Exporter {
+public:
+    Exporter(const Document& document, u32 modelIndex, const ExportContext& context, m3::Model& out,
+             Diagnostics& diagnostics)
+        : document_(document), model_(document.models[modelIndex]), modelIndex_(modelIndex),
+          context_(context), out_(out), diagnostics_(diagnostics) {}
+
+    void run() {
+        buildMaterialOrdinals();
+        for (std::size_t c = 0; c < document_.clips.size(); ++c) {
+            if (document_.clips[c].model == modelIndex_) {
+                buildClip(document_.clips[c]);
+            }
+        }
+    }
+
+private:
+    /// Where one channel's keys go: which typed array, and how a value is
+    /// written into it.
+    enum class Stream : u32 {
+        None = 0,
+        Sd2v = 1,
+        Sd3v = 2,
+        Sd4q = 3,
+        Sdcc = 4,
+        Sdr3 = 5,
+        Sdu3 = 10,
+        Sdfg = 11,
+    };
+
+    /// The slot a channel's values belong in.
+    ///
+    /// The one judgement here is `F32`: a **flag** goes back to SDFG (slot 11,
+    /// where every keyed visibility in shipped content lives) and a real scalar
+    /// to SDR3. Which it is, is a property of the channel — `Visibility` is the
+    /// only F32 the import read out of SDFG.
+    static Stream StreamFor(const AnimChannel& channel) {
+        switch (channel.valueType) {
+        case geom::AttrType::F32x2:
+            return Stream::Sd2v;
+        case geom::AttrType::F32x3:
+            return Stream::Sd3v;
+        case geom::AttrType::Quat:
+            return Stream::Sd4q;
+        case geom::AttrType::F32x4:
+            return Stream::Sdcc;
+        case geom::AttrType::U32:
+            return Stream::Sdu3;
+        case geom::AttrType::F32:
+            return channel.target.channel == Channel::Visibility ? Stream::Sdfg : Stream::Sdr3;
+        default:
+            return Stream::None;
+        }
+    }
+
+    /// Whether a translation / rotation channel's values were rebased on import
+    /// — the same test `declareBoneChannels` made, which is what keeps the two
+    /// directions symmetric.
+    static bool RebasesVector(const AnimChannel& channel) {
+        return channel.target.kind == TrackTarget::Kind::Node &&
+               channel.target.channel == Channel::Translation;
+    }
+    static bool RebasesQuaternion(const AnimChannel& channel) {
+        return channel.target.kind == TrackTarget::Kind::Node &&
+               channel.target.channel == Channel::Rotation;
+    }
+
+    void buildClip(const Clip& clip) {
+        m3::Sequence sequence;
+        sequence.name = clip.name;
+        sequence.id = static_cast<i32>(clip.native.value("sequenceId", 0));
+        sequence.index = static_cast<i32>(out_.sequences.size());
+        sequence.flags = static_cast<m3::SequenceFlag>(clip.native.value("flagBits", 0));
+        if (!clip.looping) {
+            sequence.flags = static_cast<m3::SequenceFlag>(
+                static_cast<u32>(sequence.flags) | static_cast<u32>(m3::SequenceFlag::NotLooping));
+        }
+        if (hasFlag(clip.flags, ClipFlags::AutoPlay)) {
+            sequence.flags =
+                static_cast<m3::SequenceFlag>(static_cast<u32>(sequence.flags) |
+                                              static_cast<u32>(m3::SequenceFlag::AlwaysGlobal));
+        }
+        sequence.frequency = static_cast<u32>(clip.native.value("frequency", 0));
+        sequence.blendTime = static_cast<u32>(clip.native.value("blendTime", 0));
+        const i32 origin = static_cast<i32>(clip.native.value("startFrame", 0));
+        sequence.startFrame = static_cast<u32>(origin);
+        sequence.endFrame = static_cast<u32>(origin + Ticks(clip.duration));
+        sequence.bounds = UnrebaseExtent(HasExtent(clip.bounds) ? clip.bounds : model_.bounds);
+
+        m3::AnimationGroup group;
+        group.name = clip.name;
+        bool eventsPending = !clip.events.empty();
+        for (const SubTrackContainer& container : clip.containers) {
+            const u32 index = buildContainer(container, clip, origin, eventsPending);
+            if (index != kInvalidIndex) {
+                group.subtrackIndices.push_back(index);
+                eventsPending = false;
+            }
+        }
+
+        out_.sequences.push_back(std::move(sequence));
+        out_.animationGroups.push_back(std::move(group));
+    }
+
+    u32 buildContainer(const SubTrackContainer& source, const Clip& clip, i32 origin,
+                       bool takeEvents) {
+        m3::SubTrackContainer stc;
+        stc.name = source.name;
+        stc.animPriority = static_cast<u16>(source.priority);
+        stc.runsConcurrent = source.concurrent ? 1u : 0u;
+        stc.animationStateIndex = static_cast<u16>(source.native.value("animationStateIndex", 0));
+        stc.padding = 0;
+        stc.unknown = 0;
+
+        for (const SubTrack& track : source.subTracks) {
+            const AnimChannel* channel = model_.animChannels.find(track.channel);
+            if (channel == nullptr) {
+                continue;
+            }
+            if (!track.wellSized(channel->valueType)) {
+                diagnostics_.warn(DiagCode::AnimTrackDropped,
+                                  "a sub-track of clip '" + clip.name +
+                                      "' is not sized for its channel",
+                                  ElementRef(ElementKind::Track, channel->id), profile());
+                continue;
+            }
+            const u32 animRef = writeStream(stc, *channel, track, origin);
+            if (animRef == kInvalidIndex) {
+                continue;
+            }
+            stc.animIds.push_back(channel->id);
+            stc.animRefs.push_back(animRef);
+            wireAnimRef(*channel, track);
+        }
+
+        // Events are the slot-0 stream, and they belong to the CLIP rather than
+        // to a container — so they go into the first container that is written
+        // and not into every one of them, which is how a three-layer clip would
+        // otherwise fire each of its events three times.
+        if (takeEvents && !clip.events.empty()) {
+            const u32 animRef = writeEvents(stc, clip, origin);
+            if (animRef != kInvalidIndex) {
+                stc.animIds.push_back(0);
+                stc.animRefs.push_back(animRef);
+            }
+        }
+
+        if (stc.animRefs.empty()) {
+            return kInvalidIndex;
+        }
+        out_.subTrackCollections.push_back(std::move(stc));
+        return static_cast<u32>(out_.subTrackCollections.size() - 1);
+    }
+
+    ProfileId profile() const {
+        return context_.profile;
+    }
+
+    /// Fills the typed block and returns `(slot << 16) | block`.
+    u32 writeStream(m3::SubTrackContainer& stc, const AnimChannel& channel, const SubTrack& track,
+                    i32 origin) {
+        const Stream stream = StreamFor(channel);
+        if (stream == Stream::None) {
+            return kInvalidIndex;
+        }
+        const std::size_t count = track.times.size();
+        const std::size_t size = geom::AttrTypeSize(channel.valueType);
+        const std::size_t stride = ValuesPerKey(track.interp) * size;
+
+        std::vector<i32> stamps;
+        stamps.reserve(count);
+        for (f32 time : track.times) {
+            stamps.push_back(origin + Ticks(time));
+        }
+        const auto endFrame = stamps.empty() ? 0 : static_cast<u32>(stamps.back());
+
+        const auto read = [&](std::size_t k) { return track.values.data() + k * stride; };
+
+        u32 block = 0;
+        switch (stream) {
+        case Stream::Sd2v: {
+            m3::AnimBlock<Vector2f> entry;
+            entry.timestamps = stamps;
+            entry.flags = 0;
+            entry.endFrame = endFrame;
+            for (std::size_t k = 0; k < count; ++k) {
+                Vector2f value{};
+                std::memcpy(&value, read(k), sizeof(value));
+                entry.keys.push_back(value);
+            }
+            block = static_cast<u32>(stc.sd2v.size());
+            stc.sd2v.push_back(std::move(entry));
+            break;
+        }
+        case Stream::Sd3v: {
+            m3::AnimBlock<Vector3f> entry;
+            entry.timestamps = stamps;
+            entry.flags = 0;
+            entry.endFrame = endFrame;
+            const bool rebase = RebasesVector(channel);
+            for (std::size_t k = 0; k < count; ++k) {
+                Vector3f value{};
+                std::memcpy(&value, read(k), sizeof(value));
+                entry.keys.push_back(rebase ? Unrebase(value) : value);
+            }
+            block = static_cast<u32>(stc.sd3v.size());
+            stc.sd3v.push_back(std::move(entry));
+            break;
+        }
+        case Stream::Sd4q: {
+            m3::AnimBlock<Quaternion> entry;
+            entry.timestamps = stamps;
+            entry.flags = 0;
+            entry.endFrame = endFrame;
+            const bool rebase = RebasesQuaternion(channel);
+            for (std::size_t k = 0; k < count; ++k) {
+                Quaternion value{};
+                std::memcpy(&value, read(k), sizeof(value));
+                entry.keys.push_back(rebase ? UnrebaseRotation(value) : value);
+            }
+            block = static_cast<u32>(stc.sd4q.size());
+            stc.sd4q.push_back(std::move(entry));
+            break;
+        }
+        case Stream::Sdcc: {
+            m3::AnimBlock<m3::ColorBGRA> entry;
+            entry.timestamps = stamps;
+            entry.flags = 0;
+            entry.endFrame = endFrame;
+            for (std::size_t k = 0; k < count; ++k) {
+                Vector4f value{};
+                std::memcpy(&value, read(k), sizeof(value));
+                entry.keys.push_back(FromRgba(value));
+            }
+            block = static_cast<u32>(stc.sdcc.size());
+            stc.sdcc.push_back(std::move(entry));
+            break;
+        }
+        case Stream::Sdr3: {
+            m3::AnimBlock<f32> entry;
+            entry.timestamps = stamps;
+            entry.flags = 0;
+            entry.endFrame = endFrame;
+            for (std::size_t k = 0; k < count; ++k) {
+                f32 value = 0.0f;
+                std::memcpy(&value, read(k), sizeof(value));
+                entry.keys.push_back(value);
+            }
+            block = static_cast<u32>(stc.sdr3.size());
+            stc.sdr3.push_back(std::move(entry));
+            break;
+        }
+        case Stream::Sdu3: {
+            m3::AnimBlock<u32> entry;
+            entry.timestamps = stamps;
+            entry.flags = 0;
+            entry.endFrame = endFrame;
+            for (std::size_t k = 0; k < count; ++k) {
+                u32 value = 0;
+                std::memcpy(&value, read(k), sizeof(value));
+                entry.keys.push_back(value);
+            }
+            block = static_cast<u32>(stc.sdu3.size());
+            stc.sdu3.push_back(std::move(entry));
+            break;
+        }
+        case Stream::Sdfg: {
+            m3::AnimBlock<m3::Flag> entry;
+            entry.timestamps = stamps;
+            entry.flags = 0;
+            entry.endFrame = endFrame;
+            for (std::size_t k = 0; k < count; ++k) {
+                f32 value = 0.0f;
+                std::memcpy(&value, read(k), sizeof(value));
+                m3::Flag flag{};
+                flag.value = value != 0.0f ? 1u : 0u;
+                entry.keys.push_back(flag);
+            }
+            block = static_cast<u32>(stc.sdfg.size());
+            stc.sdfg.push_back(std::move(entry));
+            break;
+        }
+        case Stream::None:
+            return kInvalidIndex;
+        }
+        return (static_cast<u32>(stream) << 16) | block;
+    }
+
+    u32 writeEvents(m3::SubTrackContainer& stc, const Clip& clip, i32 origin) {
+        m3::AnimBlock<m3::Event> entry;
+        for (const ClipEvent& event : clip.events) {
+            m3::Event key{};
+            key.name = event.name;
+            key.eventType = event.value;
+            // The node is a bone here, because that is what an `.m3` event
+            // names — the kind is not fixed across formats, and this is the one
+            // that has to be a bone index.
+            key.boneIndex = 0;
+            if (event.node < context_.nodeSlots.size()) {
+                const ExportContext::NodeSlot& slot = context_.nodeSlots[event.node];
+                if (slot.slot == ExportContext::Slot::Bone) {
+                    key.boneIndex = static_cast<u16>(slot.index);
+                }
+            }
+            entry.timestamps.push_back(origin + Ticks(event.time));
+            entry.keys.push_back(std::move(key));
+        }
+        if (entry.keys.empty()) {
+            return kInvalidIndex;
+        }
+        entry.flags = 0;
+        entry.endFrame = static_cast<u32>(entry.timestamps.back());
+        const u32 block = static_cast<u32>(stc.sdev.size());
+        stc.sdev.push_back(std::move(entry));
+        return block; // slot 0, so the reference is the block index itself
+    }
+
+    // ---- the AnimRefs the STC's ids have to match ---------------------------
+
+    /// `flags` bit 4 is step; `interpType` stays 0 because the row lies at
+    /// runtime and the import never read it.
+    template <class T>
+    static void Wire(m3::AnimRef<T>& ref, u32 animId, Interpolation interp) {
+        ref.animId = animId;
+        ref.flags = static_cast<u16>(interp == Interpolation::Step ? 0x10u : 0x0u);
+    }
+
+    void wireAnimRef(const AnimChannel& channel, const SubTrack& track) {
+        switch (channel.target.kind) {
+        case TrackTarget::Kind::Node:
+            wireNode(channel, track);
+            return;
+        case TrackTarget::Kind::MaterialLayer:
+        case TrackTarget::Kind::MaterialFeature:
+            wireMaterial(channel, track);
+            return;
+        default:
+            return;
+        }
+    }
+
+    void wireNode(const AnimChannel& channel, const SubTrack& track) {
+        const u32 node = channel.target.node;
+        if (node >= context_.nodeSlots.size()) {
+            return;
+        }
+        const ExportContext::NodeSlot& slot = context_.nodeSlots[node];
+        if (slot.slot == ExportContext::Slot::Bone && slot.index < out_.bones.size()) {
+            m3::Bone& bone = out_.bones[slot.index];
+            switch (channel.target.channel) {
+            case Channel::Translation:
+                Wire(bone.position, channel.id, track.interp);
+                return;
+            case Channel::Rotation:
+                Wire(bone.rotation, channel.id, track.interp);
+                return;
+            case Channel::Scale:
+                Wire(bone.scale, channel.id, track.interp);
+                return;
+            case Channel::Visibility:
+                Wire(bone.visibility, channel.id, track.interp);
+                return;
+            default:
+                return;
+            }
+        }
+        if (slot.slot == ExportContext::Slot::Light && slot.index < out_.lights.size()) {
+            m3::Light& light = out_.lights[slot.index];
+            switch (channel.target.channel) {
+            case Channel::Color:
+                Wire(light.diffuseColor, channel.id, track.interp);
+                return;
+            case Channel::Intensity:
+                Wire(light.intensityMultiplier, channel.id, track.interp);
+                return;
+            case Channel::AttenuationStart:
+                Wire(light.attenuationStart, channel.id, track.interp);
+                return;
+            default:
+                return;
+            }
+        }
+    }
+
+    /// Per exported material map entry, the ordinal each `StandardLayer` became
+    /// — recovered by re-importing what was just written, so the append order
+    /// has exactly one authority (`m3_core`'s).
+    void buildMaterialOrdinals() {
+        materialOrdinals_.assign(out_.materialMaps.size(), {});
+        m3_core::Context context;
+        Diagnostics ignored;
+        for (std::size_t m = 0; m < out_.materialMaps.size(); ++m) {
+            if (out_.materialMaps[m].materialType != m3::MaterialType::Standard) {
+                continue;
+            }
+            m3_core::ImportMaterial(out_, out_.materialMaps[m], profile(), context, ignored,
+                                    &materialOrdinals_[m]);
+        }
+    }
+
+    void wireMaterial(const AnimChannel& channel, const SubTrack& track) {
+        const MaterialChannelRef& ref = channel.target.material;
+        if (ref.profile != profile() || ref.slot >= materialOrdinals_.size() ||
+            ref.slot >= out_.materialMaps.size()) {
+            return;
+        }
+        const u32 ordinal = channel.target.kind == TrackTarget::Kind::MaterialLayer
+                                ? channel.target.sub
+                                : featureLayer(ref, channel.target.sub);
+        if (ordinal == kInvalidIndex) {
+            return;
+        }
+
+        // Which StandardLayer that ordinal is — the inverse of the map the
+        // re-import just produced.
+        const std::vector<u32>& ordinals = materialOrdinals_[ref.slot];
+        std::size_t layerSlot = ordinals.size();
+        for (std::size_t s = 0; s < ordinals.size(); ++s) {
+            if (ordinals[s] == ordinal) {
+                layerSlot = s;
+                break;
+            }
+        }
+        if (layerSlot >= ordinals.size()) {
+            return;
+        }
+        const std::size_t index = out_.materialMaps[ref.slot].materialIndex;
+        if (index >= out_.standardMaterials.size()) {
+            return;
+        }
+        std::optional<m3::TextureLayer>& layer = m3_core::MutableLayerOf(
+            out_.standardMaterials[index], static_cast<m3_core::StandardLayer>(layerSlot));
+        if (!layer.has_value()) {
+            return;
+        }
+
+        if (channel.target.kind == TrackTarget::Kind::MaterialLayer) {
+            switch (channel.target.channel) {
+            case Channel::Alpha:
+                Wire(layer->mapAlpha, channel.id, track.interp);
+                return;
+            case Channel::Color:
+                Wire(layer->color, channel.id, track.interp);
+                return;
+            case Channel::TextureIndex:
+                Wire(layer->currentFrame, channel.id, track.interp);
+                return;
+            case Channel::Weight:
+                Wire(layer->rgbMultiply, channel.id, track.interp);
+                return;
+            default:
+                return;
+            }
+        }
+        switch (channel.target.channel) {
+        case Channel::UvTranslate:
+            Wire(layer->uvOffset, channel.id, track.interp);
+            return;
+        case Channel::UvRotate:
+            Wire(layer->uvAngle, channel.id, track.interp);
+            return;
+        case Channel::UvScale:
+            Wire(layer->uvTiling, channel.id, track.interp);
+            return;
+        default:
+            return;
+        }
+    }
+
+    u32 featureLayer(const MaterialChannelRef& ref, u32 featureId) const {
+        const Material* material = Resolve(model_, ref.slot, ref.profile, ref.look);
+        if (material == nullptr) {
+            return kInvalidIndex;
+        }
+        for (const MaterialFeature& feature : material->Common().features) {
+            if (feature.id == featureId) {
+                return feature.layer;
+            }
+        }
+        return kInvalidIndex;
+    }
+
+    const Document& document_;
+    const Model& model_;
+    u32 modelIndex_;
+    const ExportContext& context_;
+    m3::Model& out_;
+    Diagnostics& diagnostics_;
+    std::vector<std::vector<u32>> materialOrdinals_;
+};
+
+} // namespace
+
+void Export(const Document& document, u32 model, const ExportContext& context, m3::Model& out,
+            Diagnostics& diagnostics) {
+    if (model >= document.models.size()) {
+        return;
+    }
+    Exporter(document, model, context, out, diagnostics).run();
 }
 
 } // namespace m3_anim

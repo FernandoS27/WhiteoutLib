@@ -3,6 +3,8 @@
 
 #include <whiteout/models/wem/nodes/node.h>
 
+#include <cmath>
+
 namespace whiteout {
 namespace models {
 namespace wem {
@@ -37,6 +39,63 @@ Vector3f TransformPoint(const Transform& transform, const Vector3f& point) {
     const Vector3f scaled{point.x * transform.scale.x, point.y * transform.scale.y,
                           point.z * transform.scale.z};
     return transform.translation + transform.rotation.rotate_vector(scaled);
+}
+
+Matrix44f ToMatrix(const Transform& transform) {
+    // `Matrix44f::rotation` is the column-vector matrix of the same rotation, so
+    // the row-vector 3x3 is its transpose; scaling first means row i is scaled
+    // by s_i.
+    const Matrix44f rotation = Matrix44f::rotation(transform.rotation);
+    const f32 scale[3] = {transform.scale.x, transform.scale.y, transform.scale.z};
+    Matrix44f out = Matrix44f::identity();
+    for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c) {
+            out.data[r][c] = scale[r] * rotation.data[c][r];
+        }
+    }
+    out.data[3][0] = transform.translation.x;
+    out.data[3][1] = transform.translation.y;
+    out.data[3][2] = transform.translation.z;
+    return out;
+}
+
+Transform FromMatrix(const Matrix44f& matrix) {
+    Transform out;
+    out.translation = Vector3f{matrix.data[3][0], matrix.data[3][1], matrix.data[3][2]};
+
+    // Row i of the 3x3 is s_i times a unit row of the rotation, so its length is
+    // the scale and dividing it out leaves the rotation.
+    f32 scale[3];
+    for (int r = 0; r < 3; ++r) {
+        scale[r] = std::sqrt(matrix.data[r][0] * matrix.data[r][0] +
+                             matrix.data[r][1] * matrix.data[r][1] +
+                             matrix.data[r][2] * matrix.data[r][2]);
+    }
+    const f32 det =
+        matrix.data[0][0] *
+            (matrix.data[1][1] * matrix.data[2][2] - matrix.data[1][2] * matrix.data[2][1]) -
+        matrix.data[0][1] *
+            (matrix.data[1][0] * matrix.data[2][2] - matrix.data[1][2] * matrix.data[2][0]) +
+        matrix.data[0][2] *
+            (matrix.data[1][0] * matrix.data[2][1] - matrix.data[1][1] * matrix.data[2][0]);
+    // A mirrored bone: the sign has to land on the scale, because the remainder
+    // must stay a rotation for the quaternion to exist at all.
+    if (det < 0.0f) {
+        scale[0] = -scale[0];
+    }
+    out.scale = Vector3f{scale[0], scale[1], scale[2]};
+
+    // Transposed back into the column-vector form `extract_rotation` reads, with
+    // the scale already divided out so it has nothing left to remove.
+    Matrix44f pure = Matrix44f::identity();
+    for (int r = 0; r < 3; ++r) {
+        const f32 inv = scale[r] != 0.0f ? 1.0f / scale[r] : 0.0f;
+        for (int c = 0; c < 3; ++c) {
+            pure.data[c][r] = matrix.data[r][c] * inv;
+        }
+    }
+    out.rotation = pure.extract_rotation();
+    return out;
 }
 
 const char* ToString(NodeKind kind) {

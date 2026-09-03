@@ -64,11 +64,16 @@ constexpr const char* kDiagCodeNames[] = {
     "SkinInfluenceReassigned",
     "DanglingNodeReference",
     "BindPoseRecomposed",
+    "RigConventionChanged",
+    "BoneShearSplit",
+    "BoneShearProjected",
 
     "MixedInterpolationInTrack",
     "AnimChannelInvalidated",
     "ClipTargetMissing",
     "AnimTrackDropped",
+    "AnimTrackApproximated",
+    "AnimClipRetimed",
 
     "EventPayloadMismatch",
     "AssetUnresolved",

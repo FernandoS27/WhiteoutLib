@@ -1520,6 +1520,21 @@ TEST_CASE("readback_uvs_float32_with_scale", "[vertex_buffer]") {
     CHECK(static_cast<f32>(out[0].data[1]) == Catch::Approx(static_cast<f32>(0.25f)).margin(1e-6f));
 }
 
+TEST_CASE("readback_uvs_float32_default_is_identity", "[vertex_buffer]") {
+    // The one-argument overload's 1/2048 is StarCraft II's i16 fixed point.
+    // Applying it to a Float32 UV rescaled every WEM export by 2048, which
+    // collapsed a model onto one texel of its own texture.
+    std::vector<Vector2f> uvs = {{0.324219f, 0.570313f}};
+    VertexBufferBuilder builder;
+    builder.declareAttribute(uvs, AttributeClass::UV, AttributeEncoding::Float32);
+    VertexBuffer vb = builder.build();
+
+    auto out = vb.getUVs(0);
+    CHECK(out.size() == 1);
+    CHECK(static_cast<f32>(out[0].data[0]) == Catch::Approx(static_cast<f32>(0.324219f)).margin(1e-6f));
+    CHECK(static_cast<f32>(out[0].data[1]) == Catch::Approx(static_cast<f32>(0.570313f)).margin(1e-6f));
+}
+
 // ============================================================================
 // Tests: VertexBuffer read-back — getColors
 // ============================================================================

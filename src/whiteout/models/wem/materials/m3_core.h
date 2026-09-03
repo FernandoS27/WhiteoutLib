@@ -110,6 +110,10 @@ enum class StandardLayer : u8 {
 const std::optional<m3::TextureLayer>& LayerOf(const m3::StandardMaterial& material,
                                                StandardLayer slot);
 
+/// The same, for a material being written. Animation export needs to put an
+/// `AnimRef` back on the layer it came from.
+std::optional<m3::TextureLayer>& MutableLayerOf(m3::StandardMaterial& material, StandardLayer slot);
+
 /// One `MaterialMap` entry -> one `wem::Material`.
 ///
 /// Yields a `Composite` (§7.2.6) with the native block attached `InSync`. A map

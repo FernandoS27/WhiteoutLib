@@ -32,6 +32,7 @@
 #include <whiteout/common_types.h>
 #include <whiteout/compatibility.h>
 #include <whiteout/models/wem/anim/channel.h>
+#include <whiteout/models/wem/bounds.h>
 #include <whiteout/models/wem/native_bag.h>
 #include <whiteout/models/wem/profile.h>
 
@@ -228,6 +229,21 @@ struct Clip {
     std::vector<ClipEvent> events;
     ClipNative native;
 
+    /**
+     * @brief What the model occupies while this clip plays, when the source
+     *        said so. All zeros when it did not — which `valid()` calls
+     *        well-formed, so test the extent for volume, not validity.
+     *
+     * The one place WEM stores a bound it does not recompute. All four formats
+     * ship one per sequence — MDX's `Sequence::extent`, M2's `bounds`, M3's
+     * SEQS extents — and it is not derivable from the geometry: it is the
+     * union over the *posed* mesh across the clip, so recovering it means
+     * evaluating the whole skeleton at a sampling the source never recorded.
+     * A host reads it to frame a camera, and a conservative substitute (the
+     * model's own bounds) frames every clip as though it were the widest.
+     */
+    Extent bounds;
+
     template <class V>
     void reflect(V& v) {
         v.field("name", name);
@@ -238,6 +254,9 @@ struct Clip {
         v.field("containers", containers);
         v.field("events", events);
         v.field("native", native);
+        // v2: a clip written before this field carries no bounds, and a
+        // degenerate extent is exactly what "the source did not say" means.
+        v.since(2).field("bounds", bounds);
     }
 };
 

@@ -20,6 +20,7 @@ void NodeTree::clear() {
     nodes.clear();
     poseSchema.clear();
     authoritativePose = 0;
+    rig = RigConvention::PivotRelative;
     invalidateHierarchy();
 }
 
@@ -283,13 +284,63 @@ Transform NodeTree::poseOf(u32 node, u32 pose) const {
     return wantInverse ? Inverse(base) : base;
 }
 
+Matrix44f NodeTree::poseMatrixOf(u32 node, u32 pose) const {
+    // The stored matrix is the answer only where the schema says it is the
+    // storage: everywhere else `poseMatrices` is padding, and reading it would
+    // return identity for a bone whose real pose is in `poses`.
+    if (node < size() && pose < poseSchema.size() &&
+        poseSchema[pose].storage == PoseStorage::Matrix) {
+        const Node& current = nodes[node];
+        if (pose < current.poseMatrices.size()) {
+            return current.poseMatrices[pose];
+        }
+    }
+    const Transform trs = poseOf(node, pose);
+    return ToMatrix(trs);
+}
+
+RigConvention NodeTree::inferredRig() const {
+    for (const PoseSchema& entry : poseSchema) {
+        if (entry.inverse || entry.storage == PoseStorage::Matrix) {
+            return RigConvention::ExplicitBind;
+        }
+    }
+    return RigConvention::PivotRelative;
+}
+
+Matrix44f NodeTree::inverseBindMatrix(u32 node) const {
+    if (node >= size()) {
+        return Matrix44f::identity();
+    }
+    if (rig == RigConvention::ExplicitBind) {
+        const Matrix44f pose = poseMatrixOf(node, authoritativePose);
+        // A schema entry that stores the bind rather than its inverse -- D3's
+        // `bindB` is one -- still has to answer the inverse here, which is the
+        // question the name asks.
+        const bool stored =
+            authoritativePose < poseSchema.size() && poseSchema[authoritativePose].inverse;
+        return stored ? pose : Matrix44f::inverse(pose);
+    }
+    // A pivot rig binds at the identity; `local` holds the pivot chain rather
+    // than a rest transform, so the inverse of the composed chain is what puts a
+    // vertex back where the mesh already has it.
+    return Matrix44f::inverse(ToMatrix(worldBind(node)));
+}
+
 void NodeTree::conformPoses() {
     const std::size_t wanted = poseSchema.size();
     for (u32 i = 0; i < size(); ++i) {
         Node& current = nodes[i];
         if (current.kind != NodeKind::Bone) {
             current.poses.clear();
+            current.poseMatrices.clear();
             continue;
+        }
+        // `poseMatrices` is empty or exactly as long as `poses`, so a tree that
+        // carries any matrix pose keeps the two in step here rather than making
+        // every reader check two lengths.
+        if (!current.poseMatrices.empty() && current.poseMatrices.size() != wanted) {
+            current.poseMatrices.resize(wanted, Matrix44f::identity());
         }
         const std::size_t had = current.poses.size();
         if (had == wanted) {

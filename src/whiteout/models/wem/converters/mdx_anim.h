@@ -40,8 +40,10 @@
 #include <vector>
 
 #include <whiteout/models/mdx/structures.h>
+#include <whiteout/models/mdx/types.h>
 #include <whiteout/models/wem/diagnostics.h>
 #include <whiteout/models/wem/document.h>
+#include <whiteout/models/wem/profile.h>
 
 namespace whiteout {
 namespace models {
@@ -72,6 +74,61 @@ struct Context {
 /// `document.models[model]` and `document.clips`.
 void Import(const mdx::Model& source, const Context& context, Document& document, u32 model,
             Diagnostics& out);
+
+/// Where each WEM node and material layer landed in the `.mdx` being written.
+///
+/// The mirror of `Context` above, and it exists for the same reason: an `.mdx`
+/// keeps its animation on the *records* — a bone's tracks are on the bone, a
+/// layer's alpha is on the layer — so an exporter has to know which record each
+/// WEM target became. Only `toMdx` knows that, because only `toMdx` decides
+/// which typed array a node goes into.
+struct ExportContext {
+    /// The typed array a node was written to. `Camera` is separate because a
+    /// camera is not a node chunk in MDX at all.
+    enum class Slot : u8 {
+        None = 0,
+        Bone,
+        Helper,
+        Light,
+        Attachment,
+        ParticleEmitter,
+        ParticleEmitter2,
+        RibbonEmitter,
+        CornEmitter,
+        EventObject,
+        CollisionShape,
+        Camera,
+    };
+
+    struct NodeSlot {
+        Slot slot = Slot::None;
+        u32 index = 0; ///< Index within that array.
+    };
+
+    /// Parallel to `Model::nodes`.
+    std::vector<NodeSlot> nodeSlots;
+
+    /// Per material slot, the layer index each WEM ordinal became. The identity
+    /// map on every shipped material — `ImportMaterial` numbers ordinals over
+    /// the *filtered* stack and the export writes exactly that stack — but
+    /// stated rather than assumed, because the two are only equal as long as
+    /// nothing between them reorders a layer.
+    std::vector<std::vector<u32>> layerOfOrdinal;
+};
+
+/// Writes `document`'s clips back onto `out` as sequences, global sequences and
+/// per-record tracks — the inverse of @ref Import (design §10.8.3).
+///
+/// The two directions are not symmetric in one place, and it is the interesting
+/// one: import SLICED one global timeline into a clip per sequence, keeping the
+/// bracketing keys, so export MERGES the clips back onto that timeline. A key
+/// two clips share — which is exactly what a bracket key is — is written once.
+///
+/// A clip carrying no `intervalStart` (one that came from another format, or
+/// from an editor) is given a fresh window after the last one, because MDX has
+/// nowhere else to put it: the timeline is the only clock the format has.
+void Export(const Document& document, u32 model, ProfileId profile, const ExportContext& context,
+            mdx::Model& out, Diagnostics& diagnostics);
 
 } // namespace mdx_anim
 } // namespace wem

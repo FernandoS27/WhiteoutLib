@@ -76,6 +76,34 @@ struct Context {
 void Import(const m2::Model& source, const Context& context, Document& document, u32 model,
             Diagnostics& out);
 
+/// Where each WEM node landed in the `.m2` being written.
+///
+/// The satellite arrays are not addressable by a base offset on the way out the
+/// way `NodeBases` makes them on the way in: export walks the node tree and
+/// writes whatever it finds, so a document with no lights simply has none and
+/// every later base would be wrong. The map is the honest form of the same
+/// join.
+struct ExportContext {
+    enum class Slot : u8 { None = 0, Bone, Attachment, Light, Event, Camera };
+
+    struct NodeSlot {
+        Slot slot = Slot::None;
+        u32 index = 0;
+    };
+
+    /// Parallel to `Model::nodes`.
+    std::vector<NodeSlot> nodeSlots;
+};
+
+/// Writes `document`'s clips back onto `out` — the inverse of @ref Import.
+///
+/// Nothing is sliced or merged: an `.m2` track is already one inner array per
+/// sequence, so a clip IS an inner array. The material tracks are placed
+/// through the native block, which kept the resolved weight / transform /
+/// colour indices that `appendCombos` writes back into the combo tables.
+void Export(const Document& document, u32 model, const ExportContext& context, m2::Model& out,
+            Diagnostics& diagnostics);
+
 } // namespace m2_anim
 } // namespace wem
 } // namespace models

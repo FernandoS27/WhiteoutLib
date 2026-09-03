@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <whiteout/models/mdx/parser.h>
@@ -395,9 +396,10 @@ TEST_CASE("wem mdx a light keys its ambient term beside its diffuse one", "[wem]
     CHECK(table.channels[0].target.node == table.channels[1].target.node);
 }
 
-TEST_CASE("wem mdx export says what it does not write", "[wem][anim][mdx]") {
-    // Animation is import-only in v3, and an export that dropped every clip in
-    // silence would be the one loss the expected-loss golden could not see.
+TEST_CASE("wem mdx export writes the clips back onto the timeline", "[wem][anim][mdx]") {
+    // The inverse of the slice above: import cut one global timeline into a
+    // clip per sequence and kept the bracketing keys, so export merges them
+    // back and a key two clips share is written once.
     mdx::Model model = makeModel();
     model.bones[0].node.translationTracks = makeTrack<Vector3f>(
         mdx::InterpolationType::Linear, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 5}});
@@ -408,7 +410,80 @@ TEST_CASE("wem mdx export says what it does not write", "[wem][anim][mdx]") {
     MdxConverter converter;
     const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
     REQUIRE(exported.ok());
-    CHECK(exported.diagnostics.countOf(DiagCode::AnimTrackDropped) == 1u);
+
+    // The sequence table comes back with its own windows — they rode
+    // `Clip::native`, which is what makes the merge exact rather than a
+    // re-timing, so nothing reports one.
+    REQUIRE(exported->sequences.size() == model.sequences.size());
+    CHECK(exported->sequences[0].name == model.sequences[0].name);
+    CHECK(exported->sequences[0].intervalStart == model.sequences[0].intervalStart);
+    CHECK(exported->sequences[0].intervalEnd == model.sequences[0].intervalEnd);
+    CHECK(exported.diagnostics.countOf(DiagCode::AnimClipRetimed) == 0u);
+
+    // …and so does the track, on the bone it was keyed on, with both keys and
+    // neither of them duplicated.
+    REQUIRE_FALSE(exported->bones.empty());
+    const mdx::Track<Vector3f>& track = exported->bones[0].node.translationTracks;
+    REQUIRE(track.isUsed);
+    REQUIRE(track.timestamps.size() == 2u);
+    CHECK(track.timestamps[0] == 0u);
+    CHECK(track.timestamps[1] == 1000u);
+    REQUIRE(track.keys_data.size() == 2u);
+    CHECK(track.keys_data[1].z == Catch::Approx(5.0f));
+    CHECK(track.interpolationType == mdx::InterpolationType::Linear);
+}
+
+TEST_CASE("wem mdx a sequence's own extent survives the round trip", "[wem][anim][mdx]") {
+    // A per-sequence bound is the one bound WEM stores rather than recomputes:
+    // it is the union over the *posed* model across the clip, so recovering it
+    // means evaluating the skeleton at a sampling the file never recorded. A
+    // host frames its camera on it, and substituting the model's own bounds
+    // frames every clip as though it were the widest one.
+    mdx::Model model = makeModel();
+    model.modelExtent.minimum = Vector3f{-100, -100, -100};
+    model.modelExtent.maximum = Vector3f{100, 100, 100};
+    model.modelExtent.boundsRadius = 173.0f;
+    model.sequences[0].extent.minimum = Vector3f{-4, -5, 0};
+    model.sequences[0].extent.maximum = Vector3f{4, 5, 12};
+    model.sequences[0].extent.boundsRadius = 9.5f;
+
+    const Document document = convert(model);
+    REQUIRE(document.clips.size() >= 2u);
+    CHECK(document.clips[0].bounds.maximum.z == Catch::Approx(12.0f));
+    CHECK(document.clips[0].bounds.sphereRadius == Catch::Approx(9.5f));
+
+    MdxConverter converter;
+    const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    REQUIRE(exported->sequences.size() == model.sequences.size());
+    CHECK(exported->sequences[0].extent.minimum.y == Catch::Approx(-5.0f));
+    CHECK(exported->sequences[0].extent.maximum.z == Catch::Approx(12.0f));
+    CHECK(exported->sequences[0].extent.boundsRadius == Catch::Approx(9.5f));
+
+    // The second sequence carried none, so it falls back to the model's — a
+    // bound may err wide and must never err narrow.
+    CHECK(exported->sequences[1].extent.maximum.z == Catch::Approx(100.0f));
+}
+
+TEST_CASE("wem mdx export re-times a clip that never had a window", "[wem][anim][mdx]") {
+    // A clip from another format — or from an editor — carries no
+    // `intervalStart`, and MDX's one timeline is the only clock it has. That is
+    // a real re-timing and the export says so rather than placing it silently.
+    mdx::Model model = makeModel();
+    model.bones[0].node.translationTracks = makeTrack<Vector3f>(
+        mdx::InterpolationType::Linear, {0, 1000}, {Vector3f{0, 0, 0}, Vector3f{0, 0, 5}});
+
+    Document document = convert(model);
+    REQUIRE_FALSE(document.clips.empty());
+    document.clips[0].native = NativeBag{};
+
+    MdxConverter converter;
+    const Result<mdx::Model> exported = converter.toMdx(document, ProfileId::Wc3Classic);
+    REQUIRE(exported.ok());
+    // Every clip still becomes a sequence — the one whose window was taken away
+    // is placed rather than dropped, and it is the only one reported.
+    CHECK(exported->sequences.size() == document.clips.size());
+    CHECK(exported.diagnostics.countOf(DiagCode::AnimClipRetimed) == 1u);
 }
 
 // ============================================================================
